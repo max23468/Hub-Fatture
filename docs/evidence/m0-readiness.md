@@ -24,9 +24,9 @@ I tre manifest includono `linux/arm64`. Manifest e lockfile sono le fonti canoni
 - `mise exec -- node --version`: `v26.5.0`.
 - `mise exec -- npm --version`: `12.0.2`.
 - `npm outdated`: nessuna dipendenza diretta arretrata.
-- `npm audit --audit-level=high`: zero vulnerabilità.
+- `npm run check` include l'audit bloccante: zero vulnerabilità.
 - `mise exec -- npm run check`: suite Node, smoke import/type stripping, lint, formato, typecheck, build e smoke Chromium superati.
-- `docker compose up --wait` su Mac ARM64: PostgreSQL, app e Caddy healthy; risposta HTTP verificata; risorse di prova rimosse.
+- `docker compose up --wait` su Mac ARM64: PostgreSQL, app con `xmllint` disponibile e Caddy healthy; risposta HTTP verificata; risorse di prova rimosse.
 - round-trip `age`: blob decifrato in streaming identico al plaintext locale; plaintext assente da indice e cronologia Git.
 - repository GitHub pubblica proprietaria con Issues e Discussions disabilitati, ruleset `main`, Private Vulnerability Reporting, release immutabili, vulnerability alert e security update attivi.
 - allowlist GitHub Actions limitata alle Action GitHub e ai soli pin completi di Dependabot metadata e Mise usati dai workflow.

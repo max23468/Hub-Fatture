@@ -38,5 +38,10 @@ jobs:
           test -f mise.toml
           test -f package-lock.json
           test -f compose.yaml
+          test -f Dockerfile
           test -f .oxlintrc.json
           node scripts/toolchain-policy.mjs
+      - name: Verifica xmllint nell'immagine app
+        run: |
+          docker build --tag hub-fatture-app:m0 .
+          docker run --rm hub-fatture-app:m0 xmllint --version

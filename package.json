@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "audit": "npm audit --audit-level=high",
     "build": "react-router build",
-    "check": "npm run toolchain:check && npm run format:check && npm run lint && npm run typecheck && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run build && npm run test:e2e",
+    "check": "npm run toolchain:check && npm run audit && npm run format:check && npm run lint && npm run typecheck && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run build && npm run test:e2e",
     "dev": "react-router dev",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
