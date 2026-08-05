@@ -16,6 +16,7 @@ export function classifyCodexReview({
   reactions,
   progressReactions = reactions,
   requiresReviewedCommit = false,
+  reviews = [],
   reviewComments,
 }) {
   const completions = [];
@@ -54,10 +55,16 @@ export function classifyCodexReview({
       commit &&
       headSha.startsWith(commit) &&
       timestamp(comment.created_at) >= timestamp(requestedAt) &&
-      /didn't find any major issues/i.test(comment.body)
+      /^Codex Review: Didn't find any major issues\./m.test(comment.body)
     ) {
-      cleanComments.push(timestamp(comment.created_at));
-    } else if (
+      completions.push({
+        state: "success",
+        at: timestamp(comment.created_at),
+        description: "Codex ha approvato l'ultimo commit",
+      });
+    }
+
+    if (
       timestamp(comment.created_at) >= timestamp(requestedAt) &&
       now - timestamp(requestedAt) >= 30_000 &&
       !inProgress &&
@@ -68,6 +75,18 @@ export function classifyCodexReview({
         at: timestamp(comment.created_at),
         description: "La review Codex non è stata completata",
       });
+    }
+  }
+
+  for (const review of reviews) {
+    const commit = reviewedCommit(review.body);
+    if (
+      review.user?.login === CODEX_BOT &&
+      commit &&
+      headSha.startsWith(commit) &&
+      timestamp(review.submitted_at) >= timestamp(requestedAt)
+    ) {
+      cleanComments.push(timestamp(review.submitted_at));
     }
   }
 
@@ -83,6 +102,7 @@ export function classifyCodexReview({
   if (thumbsUpAt) {
     if (!requiresReviewedCommit) cleanComments.push(thumbsUpAt);
     for (const commentAt of cleanComments) {
+      if (thumbsUpAt < commentAt) continue;
       completions.push({
         state: "success",
         at: Math.max(thumbsUpAt, commentAt),
@@ -99,21 +119,8 @@ export function classifyCodexReview({
   );
 }
 
-export function codexReviewStarted({ requestedAt, comments, reactions, reviews }) {
-  const startedAt = timestamp(requestedAt);
-  return (
-    reactions.some(
-      (reaction) =>
-        reaction.user?.login === CODEX_BOT && timestamp(reaction.created_at) >= startedAt,
-    ) ||
-    comments.some(
-      (comment) => comment.user?.login === CODEX_BOT && timestamp(comment.created_at) >= startedAt,
-    ) ||
-    reviews.some(
-      (review) => review.user?.login === CODEX_BOT && timestamp(review.submitted_at) >= startedAt,
-    )
-  );
-}
+export const hasSuccessfulCodexStatus = (statuses) =>
+  statuses.find((status) => status.context === "codex-review")?.state === "success";
 
 export function pullRequestNumber(event, input) {
   const number = String(event.pull_request?.number ?? input);
@@ -158,15 +165,12 @@ async function setStatus(repository, sha, state, description) {
   });
 }
 
-const reviewSignals = (repository, number, reactionCommentId) =>
+const reviewSignals = (repository, number) =>
   Promise.all([
     all(`/repos/${repository}/issues/${number}/comments`),
     all(`/repos/${repository}/issues/${number}/reactions`),
     all(`/repos/${repository}/pulls/${number}/reviews`),
     all(`/repos/${repository}/pulls/${number}/comments`),
-    reactionCommentId
-      ? all(`/repos/${repository}/issues/comments/${reactionCommentId}/reactions`)
-      : Promise.resolve([]),
   ]);
 
 async function main() {
@@ -179,6 +183,13 @@ async function main() {
     event.pull_request ?? (await request(`/repos/${repository}/pulls/${requestedNumber}`));
   const number = pullRequest.number;
   const headSha = pullRequest.head.sha;
+  const reusesExistingReview =
+    process.env.GITHUB_EVENT_NAME === "workflow_dispatch" || event.action === "reopened";
+
+  if (reusesExistingReview) {
+    const statuses = await all(`/repos/${repository}/commits/${headSha}/statuses`);
+    if (hasSuccessfulCodexStatus(statuses)) return;
+  }
 
   await setStatus(
     repository,
@@ -188,65 +199,23 @@ async function main() {
   );
   if (pullRequest.draft) return;
 
-  if (event.action === "synchronize") {
-    // ponytail: finestra fissa per assorbire rebase ravvicinati; passare agli
-    // eventi dei check solo se due minuti rallentano concretamente il flusso.
-    await new Promise((resolve) => setTimeout(resolve, 120_000));
-    const currentPullRequest = await request(`/repos/${repository}/pulls/${number}`);
-    if (currentPullRequest.head.sha !== headSha) return;
-  }
-
-  let requestedAt = pullRequest.updated_at;
-  let reactionCommentId;
   if (["opened", "ready_for_review"].includes(event.action)) {
     await new Promise((resolve) => setTimeout(resolve, 30_000));
     const currentPullRequest = await request(`/repos/${repository}/pulls/${number}`);
     if (currentPullRequest.head.sha !== headSha) return;
+  }
+
+  const freshReview = ["opened", "ready_for_review"].includes(event.action);
+  const requestedAt = reusesExistingReview ? 0 : pullRequest.updated_at;
+  for (let attempt = 0; attempt < 600; attempt += 1) {
     const [comments, reactions, reviews, reviewComments] = await reviewSignals(repository, number);
     const result = classifyCodexReview({
       headSha,
       requestedAt,
       comments,
       reactions,
-      reviewComments,
-    });
-    if (result.state !== "pending") {
-      await setStatus(repository, headSha, result.state, result.description);
-      return;
-    }
-    if (!codexReviewStarted({ requestedAt, comments, reactions, reviews })) {
-      const comment = await request(`/repos/${repository}/issues/${number}/comments`, {
-        method: "POST",
-        body: JSON.stringify({ body: `@codex review\n\n<!-- codex-review-gate:${headSha} -->` }),
-      });
-      requestedAt = comment.created_at;
-      reactionCommentId = comment.id;
-    }
-  } else if (
-    process.env.GITHUB_EVENT_NAME === "workflow_dispatch" ||
-    ["synchronize", "reopened"].includes(event.action)
-  ) {
-    const comment = await request(`/repos/${repository}/issues/${number}/comments`, {
-      method: "POST",
-      body: JSON.stringify({ body: `@codex review\n\n<!-- codex-review-gate:${headSha} -->` }),
-    });
-    requestedAt = comment.created_at;
-    reactionCommentId = comment.id;
-  }
-
-  for (let attempt = 0; attempt < 600; attempt += 1) {
-    const [comments, reactions, , reviewComments, requestReactions] = await reviewSignals(
-      repository,
-      number,
-      reactionCommentId,
-    );
-    const result = classifyCodexReview({
-      headSha,
-      requestedAt,
-      comments,
-      reactions: reactionCommentId ? [...reactions, ...requestReactions] : reactions,
-      progressReactions: reactionCommentId ? requestReactions : reactions,
-      requiresReviewedCommit: Boolean(reactionCommentId),
+      requiresReviewedCommit: !freshReview,
+      reviews,
       reviewComments,
     });
     if (result.state !== "pending") {

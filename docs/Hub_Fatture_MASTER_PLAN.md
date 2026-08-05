@@ -2102,8 +2102,8 @@ Il required check `codex-review` riusa il contratto già collaudato in CF Ready 
 - il gate accetta soltanto un segnale positivo del reviewer Codex legato allo stesso SHA o un verdetto pulito che dichiari esplicitamente il commit revisionato;
 - finding inline sull'HEAD corrente, evidenze di commit precedenti, reaction anteriori alla richiesta, `eyes`, silenzio o commenti generici non sbloccano il merge;
 - uno status riuscito è riusabile soltanto per lo stesso SHA; se l'HEAD cambia il gate torna pending;
-- il workflow crea al massimo un commento di richiesta `@codex review` marcato `codex-review-gate:<SHA>` per l'HEAD corrente, pubblica lo status necessario e non esegue codice della PR;
-- se usa `pull_request_target`, legge metadati con permessi minimi e non fa checkout, build, installazione, download di artifact o esecuzione di contenuto non fidato.
+- il workflow non crea commenti di richiesta: osserva i segnali della review Codex già avviata, pubblica lo status necessario e non esegue codice della PR;
+- se usa `pull_request_target`, legge metadati con permessi minimi e può fare checkout soltanto del branch predefinito fidato; non fa checkout, build, installazione, download di artifact o esecuzione di contenuto della PR.
 
 Lo script e il suo test minimo vengono adattati dall'implementazione CF Ready mantenendo il marker per SHA, non riscritti da zero.
 
