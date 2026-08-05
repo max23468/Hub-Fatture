@@ -33,3 +33,10 @@ jobs:
           git diff-tree --check --no-commit-id --root -r HEAD
       - name: Verifica gate Codex
         run: node --test scripts/codex-review-gate.node-test.mjs
+      - name: Verifica pin M0
+        run: |
+          test -f mise.toml
+          test -f package-lock.json
+          test -f compose.yaml
+          test -f .oxlintrc.json
+          ! git grep -E '(^|/)(eslint|prettier)([./]|$)' -- package.json .github 2>/dev/null
