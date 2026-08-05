@@ -222,7 +222,7 @@ async function main() {
     if (currentPullRequest.head.sha !== headSha) return;
   }
 
-  const freshReview = ["opened", "synchronize", "ready_for_review"].includes(event.action);
+  const freshReview = ["opened", "ready_for_review"].includes(event.action);
   const requestedAt = reusesExistingReview ? 0 : pullRequest.updated_at;
   for (let attempt = 0; attempt < 600; attempt += 1) {
     const [comments, reactions, reviews, reviewComments] = await reviewSignals(repository, number);
