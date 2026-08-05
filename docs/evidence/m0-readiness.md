@@ -29,5 +29,6 @@ I tre manifest includono `linux/arm64`. Manifest e lockfile sono le fonti canoni
 - `docker compose up --wait` su Mac ARM64: PostgreSQL, app e Caddy healthy; risposta HTTP verificata; risorse di prova rimosse.
 - round-trip `age`: blob decifrato in streaming identico al plaintext locale; plaintext assente da indice e cronologia Git.
 - repository GitHub pubblica proprietaria con Issues e Discussions disabilitati, ruleset `main`, Private Vulnerability Reporting, release immutabili, vulnerability alert e security update attivi.
+- allowlist GitHub Actions limitata alle Action GitHub e ai soli pin completi di Dependabot metadata e Mise usati dai workflow.
 
 Restano da collegare la PR, i check sul suo HEAD e la prova remota dell'auto-merge Dependabot. La prova non viene simulata degradando intenzionalmente uno dei pin stabili correnti.
