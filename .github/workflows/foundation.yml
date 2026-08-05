@@ -1,0 +1,35 @@
+name: Foundation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foundation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Verifica repository e documentazione
+        run: |
+          test -f AGENTS.md
+          test -f docs/Hub_Fatture_MASTER_PLAN.md
+          test -f ops/secrets/oci-vps-access.key.age
+          test ! -e LICENSE
+          test -z "$(git ls-files '*.key')"
+          ! git grep -E 'BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY'
+          ! git grep -E 'Hub-Fatture-Master-Plan\.md|docs/MASTER_PLAN\.md'
+          git diff-tree --check --no-commit-id --root -r HEAD
+      - name: Verifica gate Codex
+        run: node --test scripts/codex-review-gate.node-test.mjs

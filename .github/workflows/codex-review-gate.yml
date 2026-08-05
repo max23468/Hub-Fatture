@@ -1,0 +1,38 @@
+name: Codex review gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: Numero della PR da verificare
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: codex-review-${{ github.event.pull_request.number || inputs.pull_request }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Aggiorna gate Codex
+    runs-on: ubuntu-latest
+    timeout-minutes: 310
+    steps:
+      # `pull_request_target` concede scritture anche a Dependabot: eseguiamo solo
+      # il codice già presente sul branch predefinito, mai quello della PR.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Attendi la review Codex
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request }}
+        run: node scripts/codex-review-gate.mjs
