@@ -52,8 +52,6 @@ export function classifyCodexReview({
 
     const commit = reviewedCommit(comment.body);
     if (
-      commit &&
-      headSha.startsWith(commit) &&
       timestamp(comment.created_at) >= timestamp(requestedAt) &&
       /\bP[0-3]\b/.test(comment.body)
     ) {
