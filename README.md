@@ -6,9 +6,11 @@ Il progetto è in fase di scaffolding M0. La fonte canonica è il [Master Plan](
 
 ## Sviluppo locale
 
-La toolchain è fissata in `mise.toml`. Dopo `mise install`, il gate canonico è:
+La toolchain è fissata in `mise.toml`. In un clone nuovo, autorizza il file prima di installarla; il gate canonico è:
 
 ```sh
+mise trust
+mise install
 mise exec -- npm ci
 mise exec -- npx playwright install chromium
 mise exec -- npm run check
