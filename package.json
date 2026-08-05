@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "react-router build",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run build && npm run test:e2e",
+    "check": "npm run toolchain:check && npm run format:check && npm run lint && npm run typecheck && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run build && npm run test:e2e",
     "dev": "react-router dev",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
@@ -16,6 +16,7 @@
     "start": "react-router-serve ./build/server/index.js",
     "test": "node --test",
     "test:e2e": "playwright test",
+    "toolchain:check": "node scripts/toolchain-policy.mjs",
     "typecheck": "react-router typegen && tsc --noEmit"
   },
   "dependencies": {

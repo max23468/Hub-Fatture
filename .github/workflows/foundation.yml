@@ -39,4 +39,4 @@ jobs:
           test -f package-lock.json
           test -f compose.yaml
           test -f .oxlintrc.json
-          ! git grep -E '(^|/)(eslint|prettier)([./]|$)' -- package.json .github 2>/dev/null
+          node scripts/toolchain-policy.mjs
