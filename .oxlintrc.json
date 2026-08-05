@@ -1,0 +1,12 @@
+{
+  "jsPlugins": [
+    {
+      "name": "react-doctor",
+      "specifier": "oxlint-plugin-react-doctor"
+    }
+  ],
+  "rules": {
+    "react-doctor/no-derived-state": "error",
+    "react-doctor/no-fetch-in-effect": "error"
+  }
+}

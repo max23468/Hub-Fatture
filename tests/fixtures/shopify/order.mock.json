@@ -1,0 +1,10 @@
+{
+  "id": "gid://shopify/Order/1000000000001",
+  "name": "#MOCK-1001",
+  "currencyCode": "EUR",
+  "customer": {
+    "displayName": "Cliente Esempio",
+    "email": "cliente@example.invalid"
+  },
+  "totalPrice": "122.00"
+}

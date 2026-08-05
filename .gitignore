@@ -10,3 +10,8 @@ storage/
 !tests/fixtures/**/*.xml
 *.pdf
 *.age.tmp
+build/
+.react-router/
+node_modules/
+playwright-report/
+test-results/

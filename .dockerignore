@@ -1,0 +1,9 @@
+.git
+.env*
+.react-router
+*.key
+build
+node_modules
+ops/secrets
+playwright-report
+test-results

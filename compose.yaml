@@ -1,0 +1,53 @@
+services:
+  app:
+    build: .
+    image: hub-fatture-app:local
+    working_dir: /workspace
+    command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0"]
+    environment:
+      DATABASE_URL: postgres://hub_fatture:hub_fatture_local@postgres:5432/hub_fatture
+    volumes:
+      - .:/workspace
+      - app_node_modules:/workspace/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:5173').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres:
+    image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
+    environment:
+      POSTGRES_DB: hub_fatture
+      POSTGRES_USER: hub_fatture
+      POSTGRES_PASSWORD: hub_fatture_local
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub_fatture -d hub_fatture"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  caddy:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    ports:
+      - "8080:80"
+    volumes:
+      - ./ops/Caddyfile.local:/etc/caddy/Caddyfile:ro
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  app_node_modules:
+  postgres_data:
