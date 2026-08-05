@@ -196,6 +196,27 @@ test("un finding top-level senza marker prevale sul riepilogo pulito", () => {
   );
 });
 
+test("un finding top-level marcato su un altro SHA non blocca l'HEAD", () => {
+  assert.equal(
+    classify({
+      requiresReviewedCommit: true,
+      comments: [
+        {
+          user: bot,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**P2** Finding precedente.\n\n**Reviewed commit:** `abcdef0123`",
+        },
+        {
+          user: bot,
+          created_at: "2026-08-04T12:00:02Z",
+          body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\``,
+        },
+      ],
+    }).state,
+    "success",
+  );
+});
+
 test("una review Codex vuota non viene scambiata per un finding", () => {
   assert.equal(
     classify({
