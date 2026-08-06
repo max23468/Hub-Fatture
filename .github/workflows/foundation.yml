@@ -32,7 +32,7 @@ jobs:
           ! git grep -E 'Hub-Fatture-Master-Plan\.md|docs/MASTER_PLAN\.md'
           git diff-tree --check --no-commit-id --root -r HEAD
       - name: Verifica gate Codex
-        run: node --test scripts/codex-review-gate.node-test.mjs
+        run: node --test scripts/codex-review-gate.test.mjs
       - name: Verifica pin M0
         run: |
           test -f mise.toml

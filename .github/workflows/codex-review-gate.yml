@@ -24,7 +24,7 @@ jobs:
   gate:
     name: Aggiorna gate Codex
     runs-on: ubuntu-latest
-    timeout-minutes: 310
+    timeout-minutes: 360
     steps:
       # `pull_request_target` concede scritture anche a Dependabot: eseguiamo solo
       # il codice già presente sul branch predefinito, mai quello della PR.
