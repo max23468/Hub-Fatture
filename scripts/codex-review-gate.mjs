@@ -166,7 +166,7 @@ export const latestCodexInvocation = (comments, requestedAt) =>
         timestamp(requestedAt) > 0 &&
         comment.user?.login !== CODEX_BOT &&
         /@codex\s+review\b/i.test(comment.body) &&
-        timestamp(comment.created_at) >= timestamp(requestedAt),
+        timestamp(comment.created_at) > timestamp(requestedAt),
     )
     .sort((left, right) => timestamp(right.created_at) - timestamp(left.created_at))[0];
 
@@ -194,6 +194,11 @@ export function githubRetryDelay(retryAfter, remaining, resetAt, now = Date.now(
     ? Math.max(0, resetAtSeconds * 1000 - now)
     : 0;
 }
+
+export const githubPollDelay = (remainingMs, retryDelayMs) =>
+  retryDelayMs > remainingMs
+    ? null
+    : Math.min(remainingMs, Math.max(CODEX_REVIEW_POLLING.intervalMs, retryDelayMs));
 
 async function request(path, options = {}) {
   const response = await fetch(`https://api.github.com${path}`, {
@@ -331,7 +336,8 @@ async function main() {
     }
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
-    const delayMs = Math.min(remainingMs, Math.max(CODEX_REVIEW_POLLING.intervalMs, retryDelayMs));
+    const delayMs = githubPollDelay(remainingMs, retryDelayMs);
+    if (delayMs === null) break;
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 

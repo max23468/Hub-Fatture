@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   CODEX_REVIEW_POLLING,
   classifyCodexReview,
+  githubPollDelay,
   githubRetryDelay,
   hasSuccessfulCodexStatus,
   isRetryableGitHubResponse,
@@ -479,6 +480,20 @@ test("legge le reazioni dall'ultima invocazione Codex del tentativo corrente", (
     ).id,
     3,
   );
+  assert.equal(
+    latestCodexInvocation(
+      [
+        {
+          id: 4,
+          user: { login: "max23468" },
+          body: "@codex review",
+          created_at: requestedAt,
+        },
+      ],
+      requestedAt,
+    ),
+    undefined,
+  );
 });
 
 test("il bootstrap accetta soltanto un numero PR", () => {
@@ -502,6 +517,8 @@ test("rispetta Retry-After e il reset della quota GitHub", () => {
   assert.equal(githubRetryDelay(null, "0", "700", 100_000), 600_000);
   assert.equal(githubRetryDelay(null, "4999", "700", 100_000), 0);
   assert.equal(githubRetryDelay(null, null, null, 1_000), 0);
+  assert.equal(githubPollDelay(120_000, 600_000), null);
+  assert.equal(githubPollDelay(120_000, 0), 120_000);
 });
 
 test("un rerun riusa soltanto l'ultimo status Codex riuscito dello stesso SHA", () => {
