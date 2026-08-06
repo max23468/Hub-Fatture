@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   CODEX_REVIEW_POLLING,
   classifyCodexReview,
+  githubRetryDelay,
   hasSuccessfulCodexStatus,
   isRetryableGitHubResponse,
   latestCodexInvocation,
@@ -452,8 +453,8 @@ test("il polling mantiene cinque ore senza saturare la quota con cinque PR", () 
   assert.equal(CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs, 5 * 60 * 60 * 1000);
   assert.ok((5 * 5 * 60 * 60 * 1000) / CODEX_REVIEW_POLLING.intervalMs <= 500);
   const source = fs.readFileSync(`${ROOT}scripts/codex-review-gate.mjs`, "utf8");
-  assert.match(source, /attempt <= CODEX_REVIEW_POLLING\.attempts/);
-  assert.match(source, /attempt < CODEX_REVIEW_POLLING\.attempts/);
+  assert.match(source, /const deadline = Date\.now\(\) \+ CODEX_REVIEW_POLLING\.attempts/);
+  assert.match(source, /Math\.min\(\s*remainingMs,/);
 });
 
 test("legge le reazioni dall'ultima invocazione Codex del tentativo corrente", () => {
@@ -494,6 +495,12 @@ test("ritenta soltanto errori GitHub recuperabili", () => {
   assert.equal(isRetryableGitHubResponse(403, "4999", null, "secondary rate limit"), true);
   assert.equal(isRetryableGitHubResponse(403, "4999", null, "forbidden"), false);
   assert.equal(isRetryableGitHubResponse(404, null), false);
+});
+
+test("rispetta Retry-After e il reset della quota GitHub", () => {
+  assert.equal(githubRetryDelay("600", null, 1_000), 600_000);
+  assert.equal(githubRetryDelay(null, "700", 100_000), 600_000);
+  assert.equal(githubRetryDelay(null, null, 1_000), 0);
 });
 
 test("un rerun riusa soltanto l'ultimo status Codex riuscito dello stesso SHA", () => {

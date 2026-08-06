@@ -184,6 +184,17 @@ export const isRetryableGitHubResponse = (status, remaining, retryAfter = null, 
       retryAfter !== null ||
       /secondary rate limit|abuse detection/i.test(body)));
 
+export function githubRetryDelay(retryAfter, resetAt, now = Date.now()) {
+  const retryAfterSeconds = Number(retryAfter);
+  if (retryAfter !== null && Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return retryAfterSeconds * 1000;
+  }
+  const resetAtSeconds = Number(resetAt);
+  return resetAt !== null && Number.isFinite(resetAtSeconds)
+    ? Math.max(0, resetAtSeconds * 1000 - now)
+    : 0;
+}
+
 async function request(path, options = {}) {
   const response = await fetch(`https://api.github.com${path}`, {
     ...options,
@@ -202,6 +213,10 @@ async function request(path, options = {}) {
       response.headers.get("x-ratelimit-remaining"),
       response.headers.get("retry-after"),
       body,
+    );
+    error.retryAfterMs = githubRetryDelay(
+      response.headers.get("retry-after"),
+      response.headers.get("x-ratelimit-reset"),
     );
     throw error;
   }
@@ -285,35 +300,38 @@ async function main() {
 
   const freshReview = ["opened", "ready_for_review"].includes(event.action);
   const requestedAt = reusesExistingReview ? 0 : pullRequest.updated_at;
-  for (let attempt = 0; attempt <= CODEX_REVIEW_POLLING.attempts; attempt += 1) {
+  const deadline = Date.now() + CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs;
+  for (;;) {
     let signals;
+    let retryDelayMs = 0;
     try {
       signals = await reviewSignals(repository, number, requestedAt);
     } catch (error) {
       if (!(error instanceof TypeError) && !error.retryable) throw error;
-      if (attempt === CODEX_REVIEW_POLLING.attempts) break;
       console.warn(`Lettura GitHub transitoria, nuovo tentativo: ${error.message}`);
-      await new Promise((resolve) => setTimeout(resolve, CODEX_REVIEW_POLLING.intervalMs));
-      continue;
+      retryDelayMs = error.retryAfterMs ?? 0;
     }
-    const [comments, reactions, reviews, reviewComments, exactReactions] = signals;
-    const result = classifyCodexReview({
-      headSha,
-      requestedAt,
-      comments,
-      exactReactions,
-      reactions,
-      requiresReviewedCommit: !freshReview,
-      reviews,
-      reviewComments,
-    });
-    if (result.state !== "pending") {
-      await setStatus(repository, headSha, result.state, result.description);
-      return;
+    if (signals) {
+      const [comments, reactions, reviews, reviewComments, exactReactions] = signals;
+      const result = classifyCodexReview({
+        headSha,
+        requestedAt,
+        comments,
+        exactReactions,
+        reactions,
+        requiresReviewedCommit: !freshReview,
+        reviews,
+        reviewComments,
+      });
+      if (result.state !== "pending") {
+        await setStatus(repository, headSha, result.state, result.description);
+        return;
+      }
     }
-    if (attempt < CODEX_REVIEW_POLLING.attempts) {
-      await new Promise((resolve) => setTimeout(resolve, CODEX_REVIEW_POLLING.intervalMs));
-    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    const delayMs = Math.min(remainingMs, Math.max(CODEX_REVIEW_POLLING.intervalMs, retryDelayMs));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
   await setStatus(repository, headSha, "error", "Review Codex non conclusa entro cinque ore");
