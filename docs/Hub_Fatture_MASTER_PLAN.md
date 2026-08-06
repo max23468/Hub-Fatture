@@ -286,7 +286,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Versioni dipendenze | La matrice 14.3 fissa le scelte; manifest, lockfile, `mise.toml` e digest fissano le versioni | Evita pin duplicati nel piano e impone una sola risoluzione verificata prima del codice |
 | Backend | Monolite TypeScript/Node.js secondo lo stack 14.3 | Volume ridotto e integrazioni più semplici in un solo deploy |
 | Frontend | React con React Router in modalità framework secondo lo stack 14.3 | Pannello autonomo full-stack nello stack TypeScript, senza dipendere dall'Admin Shopify |
-| Analisi React | Regole React Doctor tramite `oxlint-plugin-react-doctor` nel solo gate Oxlint | Conserva le diagnosi React ad alto segnale senza CLI, runtime TypeScript o Action dedicate |
+| Analisi React | React Doctor stabile con scansione completa bloccante nel gate locale/CI e Action ufficiale advisory sulle modifiche delle PR | Conserva diagnosi React complete e feedback inline senza delegare l'esito bloccante a un servizio esterno |
 | Identità visiva | Brand Foundation leggera, versionata prima della UI definitiva | Evita decisioni visive sparse senza introdurre un design system o un sito non necessari |
 | Database | PostgreSQL locale, driver `pg` e SQL versionato secondo 14.3 | Transazioni, vincoli, audit e code senza ORM o migration CLI aggiuntive |
 | Coda | Basata su PostgreSQL | Evita Redis e un servizio aggiuntivo; carico di poche centinaia di ordini al mese |
@@ -1339,7 +1339,7 @@ Dipendenze di sviluppo dirette iniziali:
 | `typescript` | typecheck e compilazione worker |
 | `@playwright/test` | E2E e smoke browser |
 | `oxlint`, `oxfmt` | uniche toolchain lint/formato |
-| `oxlint-plugin-react-doctor` | regole React Doctor nel comando Oxlint canonico |
+| `react-doctor` | scansione React completa nel comando locale/CI canonico e configurazione condivisa con l'Action advisory |
 | `@types/node`, `@types/react`, `@types/react-dom` | tipi piattaforma allineati al runtime |
 | `@types/pg`, `@types/nodemailer` | tipi driver e SMTP |
 
@@ -1359,7 +1359,7 @@ Scelte native deliberate:
 - HTML semantico, CSS e componenti locali; niente design system, Tailwind, Storybook o libreria UI;
 - query SQL parametrizzate, vincoli, lock e transazioni in PostgreSQL confinati in `src/db`; nessun repository pattern o interfaccia con una sola implementazione.
 
-Le migrazioni sono file SQL append-only ordinati e sottoposti a review. Un piccolo runner compilato con l'app usa `pg`, advisory lock, transazione, tabella `schema_migrations` e checksum per rifiutare file già applicati ma modificati; non esiste un comando `push` Production. Tutti gli importi monetari sono colonne PostgreSQL `integer` espresse in centesimi e valori TypeScript `number` interi sicuri; le stringhe decimali esterne vengono convertite da un parser stretto che rifiuta cifre decimali non nulle oltre i centesimi. Percentuali o coefficienti fiscali non monetari che richiedono precisione restano stringhe validate fino alla serializzazione XML. Il worker e il runner migrazioni vengono compilati con `tsconfig` dedicati; soltanto script e CLI locali possono eseguire `.ts` direttamente quando il runtime fissato ne supera lo smoke, con sola sintassi cancellabile, import espliciti e senza alias `paths`. L'uso SMTP resta limitato a `createTransport`/`sendMail` e ha un typecheck mirato. M0 verifica installazione pulita, peer dependency, audit, test nativi, import smoke, plugin React Doctor e typecheck prima di rendere canonici manifest, lockfile e digest.
+Le migrazioni sono file SQL append-only ordinati e sottoposti a review. Un piccolo runner compilato con l'app usa `pg`, advisory lock, transazione, tabella `schema_migrations` e checksum per rifiutare file già applicati ma modificati; non esiste un comando `push` Production. Tutti gli importi monetari sono colonne PostgreSQL `integer` espresse in centesimi e valori TypeScript `number` interi sicuri; le stringhe decimali esterne vengono convertite da un parser stretto che rifiuta cifre decimali non nulle oltre i centesimi. Percentuali o coefficienti fiscali non monetari che richiedono precisione restano stringhe validate fino alla serializzazione XML. Il worker e il runner migrazioni vengono compilati con `tsconfig` dedicati; soltanto script e CLI locali possono eseguire `.ts` direttamente quando il runtime fissato ne supera lo smoke, con sola sintassi cancellabile, import espliciti e senza alias `paths`. L'uso SMTP resta limitato a `createTransport`/`sendMail` e ha un typecheck mirato. M0 verifica installazione pulita, peer dependency, audit, test nativi, import smoke, React Doctor e typecheck prima di rendere canonici manifest, lockfile e digest.
 
 Riferimenti da riverificare quando si crea il lockfile: [release Node.js](https://nodejs.org/en/about/previous-releases), [React Router Framework Mode](https://reactrouter.com/start/modes), [documentazione PostgreSQL](https://www.postgresql.org/docs/), [release age](https://github.com/FiloSottile/age/releases).
 
@@ -2127,13 +2127,13 @@ Toolchain locale e CI:
 - `npm test` usa `node --test`; lo stesso runner esegue i test d'integrazione contro PostgreSQL reale quando la corsia lo richiede;
 - `npm run check` compone i gate locali standard senza introdurre runner o workflow paralleli;
 - partire con le regole native ad alto segnale e senza type-aware linting: `tsc --noEmit` resta la verifica canonica dei tipi; abilitare type-aware solo se copre un difetto reale non intercettato;
-- mantenere `.oxlintrc.json` minimale: serve a caricare `oxlint-plugin-react-doctor` e contiene soltanto regole/ignore effettivamente necessari.
+- mantenere `doctor.config.json` minimale: blocco locale/CI dai warning in su, controllo supply-chain esterno disabilitato e soli ignore effettivamente necessari.
 
 Riferimenti da riverificare allo scaffold: [Oxlint](https://oxc.rs/docs/guide/usage/linter.html), [Oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) e [Mise per Node/npm](https://mise.jdx.dev/lang/node.html).
 
-React Doctor usa una sola superficie: la versione fissata in manifest viene caricata da `.oxlintrc.json` e le sue regole ad alto segnale passano attraverso `npm run lint` e `npm run check`. Non esistono comando `doctor`, CLI standalone, Action dedicata, commenti automatici o secondo check. Plugin e Oxlint vengono aggiornati insieme e sottoposti a uno smoke di compatibilità; il normale check `lint` resta bloccante.
+React Doctor usa due superfici con responsabilità distinte: `npm run doctor` esegue la scansione completa e blocca `npm run check` dai warning in su; l'Action ufficiale analizza in modalità advisory le modifiche delle PR, senza commento riepilogativo e con soli finding inline. Il pin npm è esatto, l'Action è fissata a commit completo e il controllo supply-chain esterno resta disabilitato perché già coperto dai gate dipendenze. Lo score è informativo e non decide l'esito.
 
-Riferimenti da riverificare allo scaffold: [plugin React Doctor per Oxlint](https://www.react.doctor/docs/configuration/eslint-and-oxlint-plugins) e [plugin JavaScript di Oxlint](https://oxc.rs/docs/guide/usage/linter/js-plugins.html).
+Riferimento da riverificare allo scaffold: [configurazione React Doctor](https://www.react.doctor/docs/configuration).
 
 L'artefatto Production segue una sola corsia:
 
@@ -2155,7 +2155,7 @@ Baseline GitHub pubblica:
 - Secret Scanning, Push Protection, CodeQL, Dependency Review, vulnerability alert e security update;
 - required checks per documentazione, verifica completa e dependency review quando applicabile;
 - `codex-review` required e non aggirabile, con evidenza positiva riferita all'HEAD esatto;
-- `lint` come required check, incluse le regole React Doctor caricate in Oxlint;
+- `CI` come required check, incluso React Doctor completo tramite `npm run check`; il workflow separato `React Doctor` resta advisory;
 - GitHub Environment `Production` protetto, secret scoped, reviewer unico e restrizione a `main`/tag di release;
 - package GHCR pubblico collegato alla repository, attestazioni abilitate e nessuna cancellazione automatica dei digest usati in Production o come rollback;
 - release immutabili abilitate, `.github/release.yml` minimale e pubblicazione consentita soltanto nel flusso release autorizzato;
@@ -2472,7 +2472,7 @@ Stop point per rivalutare capacità o architettura, non trigger di migrazione au
 - Nessuna beta/RC/canary salvo eccezione esplicita e temporanea documentata.
 - Dipendenze nuove solo quando piattaforma, standard library o stack già installato non coprono il bisogno in modo semplice.
 - `pdfkit` resta assente dal manifest finché HF-O03 non attiva il fallback già selezionato; non valutare una seconda libreria PDF.
-- `oxlint-plugin-react-doctor` ha pin esatto e viene aggiornato deliberatamente insieme a Oxlint e alla configurazione delle regole; non aggiungere React Doctor CLI o Action dedicate.
+- `react-doctor` ha pin esatto e viene aggiornato deliberatamente insieme alla configurazione e allo smoke; l'Action ufficiale resta advisory e fissata a commit completo.
 - Oxlint e Oxfmt con pin esatto, aggiornati insieme e senza tool equivalenti mantenuti in parallelo.
 - Dependabot settimanale; auto-merge solo per patch delle dev dependency dirette dopo i required check, tutto il resto deliberato manualmente.
 - Audit obbligatorio quando cambiano manifest o lockfile e prima di ogni release.
@@ -2644,7 +2644,7 @@ Output:
 - gate `codex-review` adattato da CF Ready, required e verificato su HEAD stabile, nuovo commit e finding corrente senza eseguire codice PR in contesto privilegiato;
 - auto-merge Dependabot configurato fail-closed, senza auto-approvazione né esecuzione del codice PR nel contesto privilegiato; la prova end-to-end è differita a M8 e non blocca M1-M7;
 - release immutabili abilitate e categorie minime di `.github/release.yml` definite senza creare una release anticipata;
-- `oxlint-plugin-react-doctor` caricato nel gate Oxlint locale/CI, senza CLI o Action dedicate;
+- React Doctor completo bloccante nel gate locale/CI e Action ufficiale advisory sulle modifiche delle PR;
 - Playwright configurato con Chromium, smoke sintetico e trace solo al primo retry;
 - comando locale canonico e CI essenziale verificati;
 - preflight provider disponibile prima della prima scrittura remota;
@@ -2839,7 +2839,7 @@ Ogni task deve lasciare un check eseguibile. Evitare scaffolding non usato.
 6. Aggiungere configurazione Zod validata all'avvio, revisione ottimistica e readback completo.
 7. Aggiungere health check app e DB.
 8. Aggiungere i test `node:test`, Playwright con Chromium, uno smoke sintetico, trace al primo retry e il comando locale canonico dei gate.
-9. Aggiungere CI per documentazione, `oxlint`, `oxfmt --check`, typecheck, test, Playwright e build; caricare `oxlint-plugin-react-doctor` nel solo gate Oxlint; adattare da CF Ready il required check `codex-review` exact-HEAD con il suo test minimo; configurare protezione `main`, template PR, Dependabot con auto-merge limitato alle patch delle dev dependency dirette, Secret Scanning, Push Protection, CodeQL, Dependency Review e vulnerabilità private; lasciare disabilitati Issues, Discussions e Projects rivolti alla community.
+9. Aggiungere CI per documentazione, `oxlint`, `oxfmt --check`, typecheck, test, Playwright e build; eseguire React Doctor completo nel gate locale/CI e mantenere l'Action ufficiale advisory sulle modifiche delle PR; adattare da CF Ready il required check `codex-review` exact-HEAD con il suo test minimo; configurare protezione `main`, template PR, Dependabot con auto-merge limitato alle patch delle dev dependency dirette, Secret Scanning, Push Protection, CodeQL, Dependency Review e vulnerabilità private; lasciare disabilitati Issues, Discussions e Projects rivolti alla community.
 10. Definire e far approvare la Brand Foundation leggera in `docs/brand/`, creando soltanto marchio SVG, favicon, asset raster richiesti e token minimi.
 11. Configurare `.gitignore` per env, `*.key`, backup, dump, XML, PDF e storage; cifrare e verificare la key VPS in `ops/secrets/oci-vps-access.key.age`, mantenere il plaintext fuori da staged tree e cronologia e aggiungere il gate anti-key-plaintext; verificare link/comandi documentati.
 
@@ -3335,7 +3335,7 @@ Hub Fatture 1.0 è concluso soltanto quando:
 20. ogni transizione fiscale critica ha audit atomico e ogni stato provider mostrato deriva da conferma/readback o da un'esplicita condizione incerta;
 21. il Canary Production su una sola fattura reale ha chiuso l'intera catena tramite un permesso monouso consumato atomicamente, senza abilitare globalmente gli invii, senza P0/P1 o stati incerti; la ricevuta è nel record di readiness e `v1.0.0` usa lo stesso commit e digest verificati;
 22. l'audit trasversale M8 è stato eseguito sul candidato corrente, contiene soltanto findings ancora pertinenti e non lascia P0/P1 aperti;
-23. `oxlint-plugin-react-doctor` è fissato a versione esatta, le sue regole passano nel check Oxlint bloccante e non esistono CLI, Action o workflow React Doctor paralleli;
+23. `react-doctor` è fissato a versione esatta, la scansione completa passa nel check locale/CI bloccante e l'Action ufficiale advisory è fissata a commit completo senza determinare l'esito del gate;
 24. l'immagine `linux/arm64` candidata è costruita una volta, pubblicata su GHCR, attestata, scansionata e distribuita per digest; esegue non-root in una baseline Compose senza privilegi e `web`, `worker`, ricevuta e rollback fanno riferimento all'artefatto esatto;
 25. il GitHub Environment `Production` limita le sorgenti ammesse, protegge i secret e richiede l'approvazione manuale del titolare senza introdurre un terzo ambiente applicativo;
 26. OCI Monitoring e Notifications hanno plugin, topic e quattro allarmi iniziali collaudati, con soglie documentate e nessun servizio a pagamento attivato;

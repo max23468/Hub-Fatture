@@ -6,8 +6,9 @@
   "scripts": {
     "audit": "npm audit --audit-level=high",
     "build": "react-router build",
-    "check": "npm run toolchain:check && npm run audit && npm run format:check && npm run lint && npm run typecheck && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run build && npm run test:e2e",
+    "check": "npm run toolchain:check && npm run audit && npm run format:check && npm run lint && npm run typecheck && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run doctor && npm run build && npm run test:e2e",
     "dev": "react-router dev",
+    "doctor": "react-doctor",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",
@@ -43,7 +44,7 @@
     "@types/react-dom": "19.2.4",
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
-    "oxlint-plugin-react-doctor": "0.9.5",
+    "react-doctor": "0.9.5",
     "typescript": "7.0.2",
     "vite": "8.2.0"
   },

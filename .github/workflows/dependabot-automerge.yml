@@ -26,12 +26,13 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Abilita auto-merge per patch delle dev dependency dirette
-        # Oxlint, Oxfmt e il plugin React Doctor richiedono review e smoke congiunti.
+        # Oxlint, Oxfmt e React Doctor richiedono review e smoke congiunti.
         if: >-
           steps.metadata.outputs.dependency-type == 'direct:development' &&
           steps.metadata.outputs.update-type == 'version-update:semver-patch' &&
           !contains(steps.metadata.outputs.dependency-names, 'oxlint') &&
-          !contains(steps.metadata.outputs.dependency-names, 'oxfmt')
+          !contains(steps.metadata.outputs.dependency-names, 'oxfmt') &&
+          !contains(steps.metadata.outputs.dependency-names, 'react-doctor')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
