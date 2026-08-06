@@ -195,10 +195,13 @@ export function githubRetryDelay(retryAfter, remaining, resetAt, now = Date.now(
     : 0;
 }
 
-export const githubPollDelay = (remainingMs, retryDelayMs) =>
+export const githubPollTiming = (remainingMs, retryDelayMs) =>
   retryDelayMs > remainingMs
-    ? null
-    : Math.min(remainingMs, Math.max(CODEX_REVIEW_POLLING.intervalMs, retryDelayMs));
+    ? { pollDelayMs: null, terminalDelayMs: retryDelayMs }
+    : {
+        pollDelayMs: Math.min(remainingMs, Math.max(CODEX_REVIEW_POLLING.intervalMs, retryDelayMs)),
+        terminalDelayMs: 0,
+      };
 
 async function request(path, options = {}) {
   const response = await fetch(`https://api.github.com${path}`, {
@@ -307,6 +310,7 @@ async function main() {
   const freshReview = ["opened", "ready_for_review"].includes(event.action);
   const requestedAt = reusesExistingReview ? 0 : pullRequest.updated_at;
   const deadline = Date.now() + CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs;
+  let terminalDelayMs = 0;
   for (;;) {
     let signals;
     let retryDelayMs = 0;
@@ -336,11 +340,17 @@ async function main() {
     }
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
-    const delayMs = githubPollDelay(remainingMs, retryDelayMs);
-    if (delayMs === null) break;
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const timing = githubPollTiming(remainingMs, retryDelayMs);
+    if (timing.pollDelayMs === null) {
+      terminalDelayMs = timing.terminalDelayMs;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, timing.pollDelayMs));
   }
 
+  if (terminalDelayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, terminalDelayMs));
+  }
   await setStatus(repository, headSha, "error", "Review Codex non conclusa entro cinque ore");
 }
 
