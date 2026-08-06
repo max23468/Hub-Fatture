@@ -8,6 +8,7 @@ import {
   classifyCodexReview,
   githubPollTiming,
   githubRetryDelay,
+  githubStatusRetryDelay,
   hasSuccessfulCodexStatus,
   isRetryableGitHubResponse,
   latestCodexInvocation,
@@ -452,11 +453,13 @@ test("un rerun ignora un errore transitorio storico", () => {
 
 test("il polling mantiene cinque ore senza saturare la quota con cinque PR", () => {
   assert.equal(CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs, 5 * 60 * 60 * 1000);
+  assert.equal(CODEX_REVIEW_POLLING.marginMs, 5 * 60 * 1000);
   assert.ok((5 * 5 * 60 * 60 * 1000) / CODEX_REVIEW_POLLING.intervalMs <= 500);
   const source = fs.readFileSync(`${ROOT}scripts/codex-review-gate.mjs`, "utf8");
-  assert.match(source, /const deadline = Date\.now\(\) \+ CODEX_REVIEW_POLLING\.attempts/);
+  assert.match(source, /const deadline =[\s\S]{0,200}CODEX_REVIEW_POLLING\.marginMs/);
   assert.match(source, /Math\.min\(\s*remainingMs,/);
   assert.match(source, /setTimeout\(resolve, terminalDelayMs\)/);
+  assert.match(source, /const delayMs = githubStatusRetryDelay\(error\)/);
 });
 
 test("legge le reazioni dall'ultima invocazione Codex del tentativo corrente", () => {
@@ -526,6 +529,9 @@ test("rispetta Retry-After e il reset della quota GitHub", () => {
     pollDelayMs: 120_000,
     terminalDelayMs: 0,
   });
+  assert.equal(githubStatusRetryDelay({ retryable: true, retryAfterMs: 600_000 }), 600_000);
+  assert.equal(githubStatusRetryDelay(new TypeError("rete")), 180_000);
+  assert.equal(githubStatusRetryDelay({ retryable: false }), null);
 });
 
 test("un rerun riusa soltanto l'ultimo status Codex riuscito dello stesso SHA", () => {

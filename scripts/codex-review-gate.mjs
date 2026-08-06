@@ -5,7 +5,7 @@ const isDirectExecution =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 // ponytail: 180 s limita cinque PR concorrenti a circa 500 richieste/ora; passare a
 // un'unica query GraphQL se la concorrenza reale cresce oltre questo livello.
-export const CODEX_REVIEW_POLLING = { attempts: 100, intervalMs: 180_000 };
+export const CODEX_REVIEW_POLLING = { attempts: 100, intervalMs: 180_000, marginMs: 300_000 };
 
 const timestamp = (value) => new Date(value ?? 0).getTime();
 const reviewedCommit = (body = "") =>
@@ -203,6 +203,11 @@ export const githubPollTiming = (remainingMs, retryDelayMs) =>
         terminalDelayMs: 0,
       };
 
+export const githubStatusRetryDelay = (error) =>
+  error instanceof TypeError || error.retryable
+    ? Math.max(CODEX_REVIEW_POLLING.intervalMs, error.retryAfterMs ?? 0)
+    : null;
+
 async function request(path, options = {}) {
   const response = await fetch(`https://api.github.com${path}`, {
     ...options,
@@ -244,15 +249,25 @@ async function all(path) {
 }
 
 async function setStatus(repository, sha, state, description) {
-  await request(`/repos/${repository}/statuses/${sha}`, {
-    method: "POST",
-    body: JSON.stringify({
-      state,
-      context: "codex-review",
-      description,
-      target_url: `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`,
-    }),
-  });
+  for (;;) {
+    try {
+      await request(`/repos/${repository}/statuses/${sha}`, {
+        method: "POST",
+        body: JSON.stringify({
+          state,
+          context: "codex-review",
+          description,
+          target_url: `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+        }),
+      });
+      return;
+    } catch (error) {
+      const delayMs = githubStatusRetryDelay(error);
+      if (delayMs === null) throw error;
+      console.warn(`Scrittura status GitHub transitoria, nuovo tentativo: ${error.message}`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
 }
 
 async function reviewSignals(repository, number, requestedAt) {
@@ -287,7 +302,10 @@ async function main() {
   const headSha = pullRequest.head.sha;
   const reusesExistingReview =
     process.env.GITHUB_EVENT_NAME === "workflow_dispatch" || event.action === "reopened";
-  const deadline = Date.now() + CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs;
+  const deadline =
+    Date.now() +
+    CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs -
+    CODEX_REVIEW_POLLING.marginMs;
 
   if (reusesExistingReview) {
     const statuses = await all(`/repos/${repository}/commits/${headSha}/statuses`);
