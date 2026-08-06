@@ -39,7 +39,8 @@ jobs:
           test -f package-lock.json
           test -f compose.yaml
           test -f Dockerfile
-          test -f .oxlintrc.json
+          test -f doctor.config.json
+          test -f .github/workflows/react-doctor.yml
           node scripts/toolchain-policy.mjs
       - name: Verifica xmllint nell'immagine app
         run: |
