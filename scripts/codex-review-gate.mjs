@@ -277,12 +277,13 @@ async function main() {
 
   const freshReview = ["opened", "ready_for_review"].includes(event.action);
   const requestedAt = reusesExistingReview ? 0 : pullRequest.updated_at;
-  for (let attempt = 0; attempt < CODEX_REVIEW_POLLING.attempts; attempt += 1) {
+  for (let attempt = 0; attempt <= CODEX_REVIEW_POLLING.attempts; attempt += 1) {
     let signals;
     try {
       signals = await reviewSignals(repository, number, requestedAt);
     } catch (error) {
       if (!(error instanceof TypeError) && !error.retryable) throw error;
+      if (attempt === CODEX_REVIEW_POLLING.attempts) break;
       console.warn(`Lettura GitHub transitoria, nuovo tentativo: ${error.message}`);
       await new Promise((resolve) => setTimeout(resolve, CODEX_REVIEW_POLLING.intervalMs));
       continue;
@@ -302,7 +303,9 @@ async function main() {
       await setStatus(repository, headSha, result.state, result.description);
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, CODEX_REVIEW_POLLING.intervalMs));
+    if (attempt < CODEX_REVIEW_POLLING.attempts) {
+      await new Promise((resolve) => setTimeout(resolve, CODEX_REVIEW_POLLING.intervalMs));
+    }
   }
 
   await setStatus(repository, headSha, "error", "Review Codex non conclusa entro cinque ore");

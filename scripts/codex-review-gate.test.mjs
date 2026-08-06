@@ -451,6 +451,9 @@ test("un rerun ignora un errore transitorio storico", () => {
 test("il polling mantiene cinque ore senza saturare la quota con cinque PR", () => {
   assert.equal(CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs, 5 * 60 * 60 * 1000);
   assert.ok((5 * 5 * 60 * 60 * 1000) / CODEX_REVIEW_POLLING.intervalMs <= 500);
+  const source = fs.readFileSync(`${ROOT}scripts/codex-review-gate.mjs`, "utf8");
+  assert.match(source, /attempt <= CODEX_REVIEW_POLLING\.attempts/);
+  assert.match(source, /attempt < CODEX_REVIEW_POLLING\.attempts/);
 });
 
 test("legge le reazioni dall'ultima invocazione Codex del tentativo corrente", () => {
