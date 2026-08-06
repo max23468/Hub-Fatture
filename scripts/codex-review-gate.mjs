@@ -184,13 +184,13 @@ export const isRetryableGitHubResponse = (status, remaining, retryAfter = null, 
       retryAfter !== null ||
       /secondary rate limit|abuse detection/i.test(body)));
 
-export function githubRetryDelay(retryAfter, resetAt, now = Date.now()) {
+export function githubRetryDelay(retryAfter, remaining, resetAt, now = Date.now()) {
   const retryAfterSeconds = Number(retryAfter);
   if (retryAfter !== null && Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
     return retryAfterSeconds * 1000;
   }
   const resetAtSeconds = Number(resetAt);
-  return resetAt !== null && Number.isFinite(resetAtSeconds)
+  return remaining === "0" && resetAt !== null && Number.isFinite(resetAtSeconds)
     ? Math.max(0, resetAtSeconds * 1000 - now)
     : 0;
 }
@@ -216,6 +216,7 @@ async function request(path, options = {}) {
     );
     error.retryAfterMs = githubRetryDelay(
       response.headers.get("retry-after"),
+      response.headers.get("x-ratelimit-remaining"),
       response.headers.get("x-ratelimit-reset"),
     );
     throw error;
