@@ -573,7 +573,7 @@ test("il workflow Codex usa eventi, permessi e checkout fidato", () => {
     "  contents: read\n  issues: read\n  pull-requests: read\n  statuses: write\n",
   );
   assert.match(source, /cancel-in-progress:\s*true/);
-  assert.match(source, /timeout-minutes:\s*310/);
+  assert.match(source, /timeout-minutes:\s*360/);
   assert.match(source, /actions\/checkout@[0-9a-f]{40}/);
   assert.match(source, /ref:\s*\$\{\{ github\.event\.repository\.default_branch \}\}/);
   assert.doesNotMatch(source, /github\.event\.pull_request\.head/);

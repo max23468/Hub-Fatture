@@ -287,6 +287,7 @@ async function main() {
   const headSha = pullRequest.head.sha;
   const reusesExistingReview =
     process.env.GITHUB_EVENT_NAME === "workflow_dispatch" || event.action === "reopened";
+  const deadline = Date.now() + CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs;
 
   if (reusesExistingReview) {
     const statuses = await all(`/repos/${repository}/commits/${headSha}/statuses`);
@@ -309,7 +310,6 @@ async function main() {
 
   const freshReview = ["opened", "ready_for_review"].includes(event.action);
   const requestedAt = reusesExistingReview ? 0 : pullRequest.updated_at;
-  const deadline = Date.now() + CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs;
   let terminalDelayMs = 0;
   for (;;) {
     let signals;
