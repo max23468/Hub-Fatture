@@ -2,7 +2,7 @@
 
 Applicazione privata e single-tenant per importare ordini Shopify ed eBay, preparare documenti nel regime del margine e trasmetterli ad Aruba soltanto dopo approvazione esplicita.
 
-Il progetto è in fase di scaffolding M0. La fonte canonica è il [Master Plan](docs/Hub_Fatture_MASTER_PLAN.md); l'indice della documentazione è in [docs/INDEX.md](docs/INDEX.md).
+M0 è completata; il prossimo lavoro applicativo appartiene a M1. La fonte canonica è il [Master Plan](docs/Hub_Fatture_MASTER_PLAN.md); l'indice della documentazione è in [docs/INDEX.md](docs/INDEX.md).
 
 ## Sviluppo locale
 

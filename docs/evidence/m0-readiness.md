@@ -1,6 +1,6 @@
 # Evidenza M0
 
-Stato: verifiche locali e pubblicazione della PR M0 completate il 5 agosto 2026; prova remota dell'auto-merge Dependabot in attesa di una patch idonea.
+Stato: M0 completata il 6 agosto 2026; la prova end-to-end dell'auto-merge Dependabot è stata riclassificata dal titolare come gate M8 e non blocca M1-M7.
 
 ## Pin risolti
 
@@ -31,4 +31,4 @@ I tre manifest includono `linux/arm64`. Manifest e lockfile sono le fonti canoni
 - repository GitHub pubblica proprietaria con Issues e Discussions disabilitati, ruleset `main`, Private Vulnerability Reporting, release immutabili, vulnerability alert e security update attivi.
 - allowlist GitHub Actions limitata alle Action GitHub e ai soli pin completi di Dependabot metadata e Mise usati dai workflow.
 
-La [PR #2](https://github.com/max23468/Hub-Fatture/pull/2) è stata unita con i required check verdi sull'HEAD verificato. Resta da osservare la prova remota dell'auto-merge Dependabot alla prima patch diretta di sviluppo idonea; la prova non viene simulata degradando intenzionalmente uno dei pin stabili correnti.
+La [PR #2](https://github.com/max23468/Hub-Fatture/pull/2) è stata unita con i required check verdi sull'HEAD verificato. La prova end-to-end dell'auto-merge Dependabot resta obbligatoria sulla prima patch reale idonea di una dev dependency diretta o, se non si presenta, su una base temporanea equivalente coperta dagli stessi gate e poi rimossa; in ogni caso va chiusa prima della release Production secondo il gate M8, senza alterare i pin di `main`.

@@ -2642,7 +2642,7 @@ Output:
 - `AGENTS.md`, `README.md` e `docs/INDEX.md` allineati allo stato reale;
 - branch protection su `main`, template PR, Dependabot e baseline sicurezza GitHub pubblica configurati; Issues, Discussions e Projects rivolti alla community disabilitati;
 - gate `codex-review` adattato da CF Ready, required e verificato su HEAD stabile, nuovo commit e finding corrente senza eseguire codice PR in contesto privilegiato;
-- auto-merge Dependabot configurato e verificato su una patch dev sintetica, senza auto-approvazione né esecuzione del codice PR nel contesto privilegiato;
+- auto-merge Dependabot configurato fail-closed, senza auto-approvazione né esecuzione del codice PR nel contesto privilegiato; la prova end-to-end è differita a M8 e non blocca M1-M7;
 - release immutabili abilitate e categorie minime di `.github/release.yml` definite senza creare una release anticipata;
 - `oxlint-plugin-react-doctor` caricato nel gate Oxlint locale/CI, senza CLI o Action dedicate;
 - Playwright configurato con Chromium, smoke sintetico e trace solo al primo retry;
@@ -2776,6 +2776,7 @@ Output:
 - attestazione del digest verificata, gate `Production` osservato, allarmi OCI e monitor HTTP esterno in stato sano;
 - scansione dell'immagine candidata senza finding critici/alti raggiungibili aperti;
 - backup OCI giornaliero osservato, copia cifrata sul Mac e RPO effettivo registrato;
+- auto-merge Dependabot verificato end-to-end sulla prima patch reale idonea di una dev dependency diretta oppure, se non si presenta, su una patch sintetica verso un branch base temporaneo protetto dagli stessi required check e abilitato esplicitamente nei workflow; in ogni caso prima della release Production e senza alterare i pin di `main`;
 - approvazione del titolare per accedere al canary.
 
 Gate:
@@ -2784,6 +2785,7 @@ Gate:
 - ogni finding dell'audit ha prova, severità e stato corrente; P2/P3 residui hanno accettazione e condizione di riapertura;
 - nessun ordine storico approvabile senza riconciliazione;
 - commit, digest, schema, backup, rollback e kill switch verificati;
+- prova end-to-end dell'auto-merge Dependabot chiusa senza auto-approvazione né esecuzione privilegiata del codice PR; qualsiasi esito non riconosciuto ha lasciato la PR aperta e gli eventuali branch, regole e trigger temporanei sono stati rimossi dopo la prova;
 - nessun invio Aruba reale eseguito in questa milestone.
 
 ### M9 - Canary Production
@@ -3340,7 +3342,7 @@ Hub Fatture 1.0 è concluso soltanto quando:
 27. `mise.toml`, manifest e lockfile fissano la toolchain risolta in M0 secondo 14.3, i tipi sono allineati al runtime e la stessa toolchain è osservata sul Mac, in CI e nella build Docker;
 28. Oxlint e Oxfmt sono le sole toolchain lint/formato, hanno versioni esatte e passano `lint`/`format:check` senza mantenere ESLint o Prettier paralleli;
 29. la GitHub Release `v1.0.0` è pubblicata soltanto dopo autorizzazione, è immutabile e collega note verificate e manifest sanitizzato allo stesso commit, digest, schema e rollback superati dal canary;
-30. Dependabot auto-unisce soltanto patch delle dev dependency dirette sulla stessa head verificata, senza auto-approvazione, checkout o esecuzione del codice PR nel contesto privilegiato;
+30. Dependabot auto-unisce soltanto patch delle dev dependency dirette sulla stessa head verificata, senza auto-approvazione, checkout o esecuzione del codice PR nel contesto privilegiato; la prova end-to-end è osservata sulla prima patch reale idonea o su una base temporanea equivalente coperta dagli stessi gate e poi rimossa, senza alterare i pin di `main` e comunque prima della release Production;
 31. il monitor HTTP OCI osserva dall'esterno Dynu, DNS, TLS, Caddy e `/health` ogni 6 minuti, notifica dopo due fallimenti consecutivi e non espone dati o dettagli interni;
 32. Playwright copre i quattro flussi sintetici sulle PR in Chromium e li completa in M8 su Chromium/WebKit, conservando trace solo al primo retry e mai sul Canary Production;
 33. il comparatore fiscale deriva server-side dallo stesso generatore della trasmissione, mostra differenze strutturate per fattura e TD04 e impedisce l'approvazione quando revisione o hash sono stale;
