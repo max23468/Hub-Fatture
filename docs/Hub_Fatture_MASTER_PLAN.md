@@ -902,9 +902,9 @@ Sviluppare due ambienti applicativi e un fallback:
 
 Credenziali, cookie, session storage, codici OTP e seed TOTP non entrano mai in HF, nel repository, nei prompt o nei log. Il profilo browser persistente è creato e posseduto dall'utente sul proprio computer.
 
-### 10.1.1 Vincoli osservati e documentati
+### 10.1.1 Ipotesi operative da verificare
 
-L'audit autenticato preliminare del pannello Base e la documentazione ufficiale hanno confermato:
+La documentazione ufficiale e le osservazioni preliminari non ancora registrate come evidenza indicano:
 
 - caricamento tramite selettore file XML con supporto multiplo;
 - limite corrente mostrato dal pannello di 300 documenti, 30 MB complessivi e 4,9 MB per file, da rileggere prima di fissare un batch;
@@ -915,7 +915,7 @@ L'audit autenticato preliminare del pannello Base e la documentazione ufficiale 
 
 Riferimenti di partenza: [caricamento XML](https://guide.aruba.it/soluzioni-fatturazione-elettronica/fe/fatture-documenti/carica-fatture/come-caricare-fatture-formato-xml-pannello), [accesso e 2FA](https://guide.aruba.it/soluzioni-fatturazione-elettronica/fe/accesso-homepage/accesso-pannello-e-app/come-accedere-pannello-fe) e [download delle fatture inviate](https://guide.aruba.it/soluzioni-fatturazione-elettronica/fe/fatture-inviate-ricevute-bozze/fatture-inviate/come-scaricare-fatture-inviate).
 
-Questi dettagli sono un contratto operativo da verificare con smoke sintetici: il DOM del pannello può cambiare senza versionamento.
+Questi dettagli restano ipotesi fino all'audit M4 registrato in un'evidenza sanitizzata con ambiente, account, data, readback e limiti osservati. Dopo la conferma diventano il contratto operativo verificato dagli smoke sintetici; il DOM del pannello può cambiare senza versionamento.
 
 ### 10.2 Helper locale multipiattaforma
 
@@ -995,7 +995,7 @@ Questa attività non è una corsia parallela. M4 incorpora le verifiche fiscali 
 
 ### 11.1 M4 - audit autenticato read-only del pannello Aruba
 
-L'audit autenticato preliminare è stato eseguito in sola lettura e ha confermato i vincoli registrati in 10.1.1. M4 completa i dati fiscali e operativi ancora mancanti senza modificare configurazioni, attivare 2FA, creare documenti o caricare XML.
+M4 esegue l'audit autenticato in sola lettura, verifica le ipotesi registrate in 10.1.1 e completa i dati fiscali e operativi mancanti senza modificare configurazioni, attivare 2FA, creare documenti o caricare XML.
 
 #### 11.1.1 Dati da rilevare
 
@@ -2822,7 +2822,7 @@ Output:
 - dominio APM Always Free e singolo monitor HTTP esterno collaudati con errore/ripristino controllati;
 - bucket OCI Object Storage privato, Instance Principal minimo, lifecycle, timer backup e allarme di mancato backup collaudati senza costi attivati;
 - se OCI Email Delivery è stato scelto, dominio/sender, SPF/DKIM, credenziali SMTP dedicate, regione e suppression list verificati senza dati cliente;
-- kill switch Aruba verificato con invii disabilitati;
+- kill switch Aruba verificato con creazione dei permessi ordinari per il clic automatico bloccata e percorso assistito/manuale invariato;
 - procedura di installazione/avvio dell'helper verificata su Windows e macOS senza installarlo sulla VPS;
 - backup/restore collaudato da un ambiente privo dei segreti originari usando il recovery kit locale protetto sul Mac;
 - runbook incidenti e rollback;
@@ -2835,7 +2835,8 @@ Richiede autorizzazione esplicita prima del deploy.
 
 Output:
 
-- deploy del candidato sullo stesso SHA e digest destinati alla `1.0.0`, con invii Aruba disabilitati (`ARUBA_SUBMISSION_ENABLED=false`);
+- deploy del candidato sullo stesso SHA e digest destinati alla `1.0.0`, con creazione dei permessi ordinari per il clic automatico bloccata (`ARUBA_SUBMISSION_ENABLED=false`);
+- readback operativo che conferma l'assenza di documenti approvati o trasmissibili e di upload Aruba pendenti;
 - import reale degli ultimi 7 giorni e riconciliazione con Aruba senza numerare o trasmettere;
 - test end-to-end HF completi su Chromium e WebKit e test helper contro la pagina Aruba sintetica su Windows/macOS con Chrome o Edge, oltre a recovery, sicurezza e migrazioni;
 - comparatore fiscale verificato su fattura e TD04, inclusi proiezione stale, modifiche manuali e arrotondamenti;
@@ -2855,6 +2856,7 @@ Gate:
 - ogni finding dell'audit ha prova, severità e stato corrente; P2/P3 residui hanno accettazione e condizione di riapertura;
 - nessun ordine storico approvabile senza riconciliazione;
 - commit, digest, schema, backup, rollback e kill switch verificati;
+- nessun documento approvato o trasmissibile e nessun upload Aruba pendente;
 - prova end-to-end dell'auto-merge Dependabot chiusa senza auto-approvazione né esecuzione privilegiata del codice PR; qualsiasi esito non riconosciuto ha lasciato la PR aperta e gli eventuali branch, regole e trigger temporanei sono stati rimossi dopo la prova;
 - nessun invio Aruba reale eseguito in questa milestone.
 
@@ -3046,7 +3048,7 @@ Ogni task deve lasciare un check eseguibile. Evitare scaffolding non usato.
 110. Collaudare restore in ambiente non produttivo senza riusare i segreti della VPS originaria e verificare timer, readback, lifecycle, allarme e copia periodica sul Mac.
 111. Preparare runbook di deploy manuale serializzato, preflight, ricevuta/readback, incidenti e rollback/forward-fix, includendo la verifica mensile di API Shopify/eBay, pannello Aruba, dipendenze, immagini e impostazioni GitHub.
 112. Configurare `.github/release.yml`, immutabilità delle release e workflow di draft con `release-manifest.json`, senza pubblicazione automatica.
-113. Eseguire import iniziale degli ultimi 7 giorni con invii Aruba disabilitati.
+113. Eseguire import iniziale degli ultimi 7 giorni con permessi automatici bloccati, senza documenti approvati o trasmissibili né upload Aruba pendenti.
 114. Confrontare storico con Aruba e marcare già fatturati.
 115. Eseguire il collaudo HF su Chromium/WebKit e dell'helper sintetico su Windows/macOS con Chrome o Edge, quindi compilare il record candidato di readiness 1.0 con prove fresche.
 116. Eseguire l'audit trasversale della release candidate sul codice corrente, registrando soltanto findings attuali con prova, severità e stato.
