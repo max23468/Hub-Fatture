@@ -3163,7 +3163,7 @@ Deve fermarsi e chiedere prima di:
 2. Ispezionare lo stato reale del checkout senza sovrascrivere modifiche esistenti.
 3. Avviare M0-M1 localmente con fixture e mock; non attendere Aruba.
 4. Chiedere accessi solo nel momento in cui servono e far inserire nel secret store soltanto quelli gestiti da HF; l'accesso Aruba resta nel browser locale del titolare.
-5. Completare M4 prima di qualunque prova reale o implementazione dell'helper Aruba.
+5. Completare in M4 l'audit autenticato e la prova reale autorizzata previsti in 11.1 e 11.4; non implementare né provare l'helper Aruba prima del gate di uscita di M4.
 6. Eseguire test, typecheck e build dopo ogni milestone.
 7. Fermarsi per autorizzazione prima di deploy, release, invii reali o migrazioni distruttive.
 
@@ -3254,7 +3254,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Import storico di 7 giorni riconciliato con Aruba.
 - [ ] Nessun ordine storico approvabile senza verifica.
 - [ ] Fattura sintetica validata sulla pagina locale e caricamento controllato sul pannello reale completato.
-- [ ] Nota di credito sintetica validata sulla pagina locale e, se disponibile, sul pannello reale senza invio.
+- [ ] Nota di credito sintetica validata sulla pagina locale; se non è disponibile un TD04 già accettato, TD04 valido dedicato caricato in modo controllato sul pannello reale, arrestato prima dell'ultimo clic e ripulito senza invio.
 - [ ] Pagamento pendente e differenza importo testati.
 - [ ] Comparatore fiscale verificato su fattura e TD04; modifica successiva e hash/revisione stale bloccano l'approvazione.
 - [ ] E-mail test ricevuta.
