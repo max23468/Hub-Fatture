@@ -14,6 +14,7 @@ export async function getSetting<T>(key: string): Promise<{ value: T; version: n
 
 export async function updateSetting<T>(key: string, value: T, expectedVersion: number) {
   return withTransaction(async (client: pg.PoolClient) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`setting:${key}`]);
     const current = await client.query<{ version: number }>(
       "SELECT version FROM settings WHERE key = $1 FOR UPDATE",
       [key],

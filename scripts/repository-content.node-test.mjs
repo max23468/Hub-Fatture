@@ -72,3 +72,8 @@ test("i documenti evergreen non duplicano date di avanzamento", async () => {
     .map(({ file }) => file);
   assert.deepEqual(offenders, []);
 });
+
+test("il proxy locale resta accessibile soltanto dal Mac", async () => {
+  const compose = await readFile(path.join(root, "compose.yaml"), "utf8");
+  assert.match(compose, /"127\.0\.0\.1:8080:80"/);
+});

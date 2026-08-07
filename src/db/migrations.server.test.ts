@@ -200,6 +200,20 @@ test(
         value: { enabled: true },
         version: 1,
       });
+      const concurrentSettings = await Promise.allSettled([
+        settings.updateSetting("concurrent", { writer: 1 }, 0),
+        settings.updateSetting("concurrent", { writer: 2 }, 0),
+      ]);
+      assert.equal(concurrentSettings.filter(({ status }) => status === "fulfilled").length, 1);
+      assert.equal(
+        concurrentSettings.filter(
+          (result) =>
+            result.status === "rejected" &&
+            result.reason instanceof AppError &&
+            result.reason.code === "CONFLICT_REVISION",
+        ).length,
+        1,
+      );
       assert.equal(
         (
           await database
