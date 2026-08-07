@@ -662,7 +662,7 @@ Flusso normale:
 6. Generazione e archiviazione immutabile dell'XML finale.
 7. Creazione del manifest del batch con documenti, revisioni e hash SHA-256 esatti. In modalità automatica viene creato anche un permesso monouso a scadenza breve.
 8. Avvio volontario dell'helper locale, che verifica hostname Aruba, account atteso, modalità e manifest; se la sessione non è valida mette in pausa il flusso per login, password, OTP 2FA o CAPTCHA umani.
-9. Caricamento degli XML tramite l'interfaccia web documentata e lettura dell'esito di validazione. Qualunque errore arresta il batch prima dell'invio.
+9. Caricamento degli XML tramite l'interfaccia web documentata e lettura dell'esito di validazione. Qualunque errore arresta il batch prima dell'invio; ogni documento viene quindi riconciliato e gli upload pendenti già accettati vengono rimossi, oppure il batch resta bloccato per pulizia manuale verificata prima di qualunque nuovo tentativo.
 10. In modalità `Assistita`, arresto prima dell'ultimo clic e invio eseguito dal titolare nel pannello. In modalità `Automatica dopo conferma`, rilettura e consumo atomico del permesso, nuovo confronto del batch e solo allora clic finale dell'helper.
 11. Archiviazione dell'esito tecnico sanitizzato e riconciliazione dal pannello e dai file XML, PDF e notifiche scaricati.
 
@@ -897,7 +897,7 @@ Vincolo di accettazione: nessuna milestone, requisito o Definition of Done può 
 Sviluppare due ambienti applicativi e un fallback:
 
 - `mock`, con una pagina Aruba sintetica locale per sviluppo, contract test ed E2E;
-- `production`, con il pannello web reale soltanto nelle attività autorizzate di M5 e successive;
+- `production`, con il pannello web reale soltanto nella prova autorizzata di M4 e nelle attività autorizzate di M5 e successive;
 - `manuale`, esportando gli XML da HF e importando in seguito file ed esiti scaricati da Aruba.
 
 Credenziali, cookie, session storage, codici OTP e seed TOTP non entrano mai in HF, nel repository, nei prompt o nei log. Il profilo browser persistente è creato e posseduto dall'utente sul proprio computer.
@@ -940,7 +940,7 @@ La scelta è globale ma viene mostrata nel riepilogo di ogni approvazione. Cambi
 4. L'helper apre Chrome o Edge con il profilo dedicato e verifica il pannello Aruba reale.
 5. Se necessario, l'utente completa login, password, OTP 2FA o CAPTCHA.
 6. L'helper carica gli XML direttamente, senza salvarli come bozze Aruba modificabili.
-7. L'helper legge e registra la validazione di ogni documento; un solo errore arresta il batch prima dell'invio.
+7. L'helper legge e registra la validazione di ogni documento; un solo errore arresta il batch prima dell'invio. Esegue il readback di ogni documento, rimuove gli upload pendenti già accettati quando il pannello lo consente e, negli altri casi, mantiene il batch bloccato in attesa di pulizia manuale e readback conclusivo; nessun documento del batch può essere ritentato prima della riconciliazione completa.
 8. L'helper si ferma oppure invia secondo la modalità autorizzata.
 9. L'helper legge il primo esito disponibile e aggiorna HF.
 10. Nei passaggi successivi riconcilia la lista e il dettaglio, scaricando i file ufficiali quando richiesto.
@@ -2583,6 +2583,7 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - due browser modificano la stessa bozza/configurazione: la seconda scrittura riceve conflitto.
 - comparatore e approvazione usano la stessa revisione e lo stesso hash; una proiezione stale viene rifiutata.
 - errore remoto dopo approvazione: snapshot/audit restano coerenti, stato provider non diventa riuscito.
+- batch Aruba misto valido/non valido: nessun invio, readback di ogni documento, pulizia degli upload pendenti e retry bloccato fino alla riconciliazione completa.
 - evento fuori ordine non fa regredire uno stato provider già riconciliato.
 - audit critico assente provoca rollback della transazione, non una transizione priva di prova.
 - permesso Aruba valido consumato una sola volta; batch, manifest, documento, revisione o hash diversi, permesso scaduto/consumato e crash prima del consumo non autorizzano l'ultimo clic.
