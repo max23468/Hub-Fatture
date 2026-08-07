@@ -2007,7 +2007,7 @@ XML, PDF e risposte remote vengono accettati soltanto entro limiti espliciti di 
 
 L'autorizzazione viene rivalutata sul server per ogni mutazione usando sessione autenticata, stato DB e transizione ammessa. Parametri di route/query, campi hidden, stato React e schermate nascoste sono input non fidati. Identificativi di provider e account vengono risolti dalla connessione server selezionata, non accettati direttamente dal browser.
 
-Subito prima del clic Aruba irreversibile l'helper rilegge il manifest da HF, verifica che il permesso sia ancora valido, confronta il riepilogo visibile con documenti e importi attesi e consuma il permesso sul server. Se il DOM non è riconosciuto, compare un documento inatteso o il server non conferma il consumo, l'helper si arresta senza cliccare.
+In modalità `Automatica dopo conferma`, subito prima del clic Aruba irreversibile l'helper rilegge il manifest da HF, verifica che il permesso sia ancora valido, confronta il riepilogo visibile con documenti e importi attesi e consuma il permesso sul server. In modalità `Assistita` esegue gli stessi confronti senza creare o consumare un permesso, registra il controllo e si arresta lasciando il clic al titolare. Se il DOM non è riconosciuto, compare un documento inatteso oppure, nella modalità automatica, il server non conferma il consumo, l'helper si arresta senza cliccare.
 
 Poiché la repository è pubblica:
 
