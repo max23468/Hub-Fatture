@@ -66,6 +66,14 @@ test(
         /Migrazione applicata rimossa/,
       );
 
+      const inserted = await mkdtemp(path.join(os.tmpdir(), "hf-migrations-inserted-"));
+      await cp("migrations", inserted, { recursive: true });
+      await writeFile(path.join(inserted, "001_inserted.sql"), "SELECT 1;\n");
+      await assert.rejects(
+        runMigrations({ connectionString: clean.connectionString, directory: inserted }),
+        /Migrazione fuori ordine/,
+      );
+
       const firstOnly = await mkdtemp(path.join(os.tmpdir(), "hf-migrations-first-"));
       await cp("migrations/001_foundations.sql", path.join(firstOnly, "001_foundations.sql"));
       await runMigrations({ connectionString: upgrade.connectionString, directory: firstOnly });

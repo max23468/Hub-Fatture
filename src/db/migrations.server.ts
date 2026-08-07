@@ -38,6 +38,11 @@ export async function runMigrations({
     for (const name of checksums.keys()) {
       if (!fileNames.has(name)) throw new Error(`Migrazione applicata rimossa: ${name}`);
     }
+    const lastApplied = existing.rows.at(-1)?.name;
+    const inserted = files.find(
+      (name) => !checksums.has(name) && lastApplied && name <= lastApplied,
+    );
+    if (inserted) throw new Error(`Migrazione fuori ordine: ${inserted}`);
 
     for (const name of files) {
       const sql = await readFile(path.join(directory, name), "utf8");
