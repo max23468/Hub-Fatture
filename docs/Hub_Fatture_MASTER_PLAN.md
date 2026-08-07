@@ -1051,7 +1051,7 @@ Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non f
 
 ### 11.4 M5 - prova manuale controllata prima dell'helper
 
-Il primo passaggio di M5 è una prova autorizzata con dati sintetici o anonimizzati: caricamento manuale di un XML non trasmissibile prodotto da M4, lettura della validazione, arresto prima dell'invio, verifica del readback e pulizia sicura. Soltanto dopo questa prova si fissa il contratto minimo della pagina sintetica e si implementa l'helper. Non creare documenti validi o trasmettere nulla senza autorizzazione specifica.
+Il primo passaggio di M5 è una prova autorizzata con dati sintetici o anonimizzati: caricamento manuale di un XML fiscalmente valido prodotto da M4 e destinato esclusivamente alla prova, lettura della validazione e del riepilogo trasmissibile, verifica del controllo finale `Invia`, arresto prima dell'ultimo clic, readback e rimozione sicura dell'upload pendente. Soltanto dopo questa prova si fissa il contratto minimo della pagina sintetica e si implementa l'helper. Non caricare un XML valido né trasmettere nulla senza autorizzazione specifica; la prova non esegue alcun invio.
 
 La prova M5 registra:
 
@@ -2781,7 +2781,7 @@ Prerequisito: M4 completata. Nessuna attività di implementazione dell'helper an
 
 Output:
 
-- prova manuale controllata e autorizzata del candidato XML, arrestata prima dell'invio;
+- prova manuale controllata e autorizzata del candidato XML valido dedicato, con riepilogo e controllo finale osservati, arrestata prima dell'ultimo clic e ripulita senza invio;
 - mapping stati, limiti di upload, locatori minimi e percorso manuale verificati sul pannello reale;
 - pagina Aruba sintetica locale per test deterministici;
 - helper TypeScript/Playwright unico per Windows e macOS con Chrome o Edge;
@@ -3003,7 +3003,7 @@ Ogni task deve lasciare un check eseguibile. Evitare scaffolding non usato.
 
 ### Integrazione Aruba e helper - M5
 
-77. Eseguire la prova manuale controllata e autorizzata del candidato XML prodotto da M4, arrestata prima dell'invio, e registrarne il readback sanitizzato.
+77. Eseguire la prova manuale controllata e autorizzata del candidato XML valido prodotto da M4, osservare riepilogo e controllo finale, arrestarsi prima dell'ultimo clic, rimuovere l'upload pendente e registrarne il readback sanitizzato.
 78. Implementare pagina Aruba sintetica locale, registro errori e contratto minimo dei locatori semantici derivati dalla prova.
 79. Implementare helper TypeScript/Playwright unico per Windows e macOS, usando Chrome o Edge e un profilo locale dedicato.
 80. Implementare pause umane per login/2FA/CAPTCHA, allowlist hostname e divieto di endpoint privati.
@@ -3224,7 +3224,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 ### Prima di completare M5
 
 - [ ] M4 completata con XML candidato immutabile.
-- [ ] Prova manuale controllata autorizzata, eseguita e arrestata prima dell'invio.
+- [ ] Prova manuale controllata autorizzata con XML valido dedicato, riepilogo e controllo finale osservati, arrestata prima dell'ultimo clic e ripulita senza invio.
 - [ ] Pagina Aruba sintetica e fixture dei file ufficiali derivate dalla prova, senza dati reali.
 - [ ] Percorso assistito, automatico e manuale verificato; 2FA Aruba attivata dal titolare oppure costo operativo dell'SMS per upload esplicitamente accettato.
 
