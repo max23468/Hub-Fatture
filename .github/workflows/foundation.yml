@@ -33,7 +33,7 @@ jobs:
           git diff-tree --check --no-commit-id --root -r HEAD
       - name: Verifica gate Codex
         run: node --test scripts/codex-review-gate.test.mjs
-      - name: Verifica pin M0
+      - name: Verifica toolchain
         run: |
           test -f mise.toml
           test -f package-lock.json
@@ -44,5 +44,5 @@ jobs:
           node scripts/toolchain-policy.mjs
       - name: Verifica xmllint nell'immagine app
         run: |
-          docker build --tag hub-fatture-app:m0 .
-          docker run --rm hub-fatture-app:m0 xmllint --version
+          docker build --tag hub-fatture-app:foundation .
+          docker run --rm hub-fatture-app:foundation xmllint --version

@@ -1,7 +1,7 @@
 import "@react-router/node";
 import "@shopify/shopify-api";
+import "lucide-react";
 import "nodemailer";
-import "otpauth";
 import "pg";
 import "react";
 import "react-dom";

@@ -3,6 +3,7 @@
 .react-router
 *.key
 build
+build-server
 node_modules
 ops/secrets
 playwright-report
