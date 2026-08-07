@@ -668,7 +668,7 @@ Flusso normale:
 
 Nessuna bozza ottiene numero fiscale definitivo prima dell'approvazione. Una fattura approvata non è più modificabile.
 
-L'ordine esatto fra prenotazione del numero, validazione tramite upload, correzione e riuso del progressivo viene definito e testato in **M4-M5**. Non inventare una politica: deve riflettere Aruba, l'XML reale e la regola fiscale confermata.
+L'ordine esatto fra prenotazione del numero, validazione tramite upload, correzione e riuso del progressivo viene definito e testato in **M4**. Non inventare una politica: deve riflettere Aruba, l'XML reale e la regola fiscale confermata.
 
 L'approvazione massiva:
 
