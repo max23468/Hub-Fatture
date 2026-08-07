@@ -11,6 +11,7 @@ storage/
 *.pdf
 *.age.tmp
 build/
+build-server/
 .react-router/
 node_modules/
 playwright-report/

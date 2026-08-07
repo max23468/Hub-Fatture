@@ -1,8 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const databaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
+
 export default defineConfig({
   testDir: "./tests/e2e",
-  fullyParallel: true,
+  fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
@@ -16,9 +20,15 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "PORT=4173 npm run start",
+    command: "npm run db:migrate && npm run start",
+    env: {
+      ADMIN_BOOTSTRAP_TOKEN: "synthetic-bootstrap-token-for-tests",
+      APP_BASE_URL: "http://127.0.0.1:4173",
+      APP_ENV: "test",
+      DATABASE_URL: databaseUrl,
+      PORT: "4173",
+    },
     port: 4173,
-    reuseExistingServer: !process.env.CI,
     timeout: 30_000,
   },
 });

@@ -1,3 +1,6 @@
 :80 {
+	request_body {
+		max_size 32MB
+	}
 	reverse_proxy app:5173
 }

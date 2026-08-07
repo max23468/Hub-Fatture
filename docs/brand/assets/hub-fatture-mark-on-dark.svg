@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title">
+  <title id="title">Hub Fatture</title>
+  <path d="M13 18h7c19 0 19 25 38 25M13 78h7c19 0 19-25 38-25" fill="none" stroke="#e9f6f8" stroke-width="12" stroke-linecap="round"/>
+  <path d="M13 18h7c19 0 19 25 38 25M13 78h7c19 0 19-25 38-25" fill="none" stroke="#45cbe0" stroke-width="3" stroke-linecap="round" opacity=".9"/>
+  <circle cx="58" cy="48" r="20" fill="#e9f6f8"/>
+  <circle cx="58" cy="48" r="12" fill="none" stroke="#064b63" stroke-width="3"/>
+  <circle cx="58" cy="48" r="5" fill="#08a7c2"/>
+  <path d="M74 48h12" fill="none" stroke="#e9f6f8" stroke-width="14" stroke-linecap="round"/>
+  <path d="M72 48h14" fill="none" stroke="#45cbe0" stroke-width="7" stroke-linecap="round"/>
+</svg>

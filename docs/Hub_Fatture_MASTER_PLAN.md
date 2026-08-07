@@ -2,10 +2,10 @@
 
 ## Piano completo di prodotto, architettura, implementazione e handover
 
-**Stato:** specifica funzionale e operativa consolidata; lo sviluppo procede in sequenza da M0; profilo fiscale, numerazione e automazione Aruba vengono qualificati nelle milestone M4-M5
+**Stato:** specifica funzionale e operativa consolidata; sequenza e criteri di uscita sono definiti nella roadmap
 **Destinatari:** Codex, Claude Code e sviluppatori incaricati
 **Lingua dell'interfaccia:** italiano
-**Nome breve del prodotto:** HF
+**Sigla interna:** HF, riservata a requisiti e discussione tecnica; non appare mai nel frontend o nei contenuti destinati all’utente
 **Repository:** GitHub pubblico, codice a sorgente visibile ma senza licenza d'uso implicita
 
 > Questo documento è la fonte di verità per Hub Fatture 1.x. Consolida tutte le decisioni prese durante la progettazione preliminare, comprese motivazioni, semplificazioni deliberate, vincoli, punti rinviati e attività di verifica. La conversazione originaria non sarà disponibile agli agenti che riceveranno questo handover.
@@ -73,6 +73,8 @@ Le evidenze vivono in `docs/evidence/`; i contratti tecnici riusabili in `docs/c
 
 La documentazione non ha versioni proprie: la cronologia Git è lo storico. Ogni documento descrive lo stato corrente e, quando diventa superato, viene aggiornato o rimosso invece di essere duplicato con un nuovo suffisso.
 
+Date, branch, conteggi dei test e nomi delle milestone non vengono copiati in README, runbook, contratti, copy applicativo, nomi dei test, workflow o immagini Docker. Queste superfici descrivono capacità e gate osservabili; lo stato corrente deriva dal codice, dai manifest e dalla CI dell’HEAD esatto. Le sigle delle milestone restano soltanto nella roadmap e nei punti che esprimono una dipendenza di delivery. Timestamp e identificatori remoti sono ammessi nelle evidenze immutabili di operazioni esterne, dove costituiscono parte della prova e non richiedono aggiornamenti successivi.
+
 Il Master Plan non duplica date di aggiornamento, numeri di versione di runtime, dipendenze, immagini o API. I pin tecnici vivono soltanto negli artefatti dello scaffolding; versioni supportate e fine supporto delle API nei contratti verificabili; timestamp e commit nelle evidenze. Restano nel piano solo le versioni che esprimono semantica di prodotto o compatibilità, come il target della prima release, lo schema dati e le revisioni dei documenti.
 
 | Tipo | Scopo | Non deve contenere |
@@ -88,7 +90,7 @@ Il Master Plan non duplica date di aggiornamento, numeri di versione di runtime,
 
 Formato minimo di un'evidenza non banale:
 
-- data, ambiente, commit/versione e target esatto;
+- ambiente, commit/versione e target esatto; timestamp soltanto per operazioni esterne o quando è parte della prova;
 - preflight e identità provider verificati;
 - risultato osservato e matrice dei casi eseguiti;
 - gate locali/CI collegati;
@@ -107,7 +109,7 @@ L'app non è un gestionale fiscale completo e non deve sostituire la contabilit�
 
 Il prodotto sarà:
 
-- usato soltanto dal titolare, con un unico account amministratore;
+- usato soltanto dal titolare e dall'agente Codex, tramite i due account amministrativi fissi `matteo` e `codex`;
 - installato su una VPS Oracle Cloud Ampere A1 già disponibile e compresa nelle risorse Always Free di un account Pay As You Go;
 - raggiungibile tramite hostname gratuito Dynu e HTTPS gestito da Caddy;
 - distribuito con Docker Compose;
@@ -201,7 +203,7 @@ e quando un rimborso di prova produce correttamente:
 - Un solo account venditore eBay.
 - Un solo account Aruba.
 - Account Aruba Base; nessuna dipendenza dai Web Services Premium.
-- Un solo amministratore.
+- Due account amministrativi fissi, `matteo` e `codex`, con gli stessi permessi e identità di audit distinte.
 - Ordini Shopify ed eBay, senza inserimento manuale di vendite.
 - Beni fisici spediti esclusivamente da un magazzino in Italia.
 - Vendite in Italia e negli altri Paesi UE.
@@ -274,7 +276,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Area | Decisione | Motivazione |
 |---|---|---|
 | Modello operativo | Pannello web autonomo | Shopify, eBay e Aruba hanno pari importanza; l'app non deve dipendere dall'Admin Shopify |
-| Utenza | Un solo amministratore | È un'app privata per il titolare; niente ruoli o onboarding |
+| Utenza | Due account amministrativi fissi, `matteo` e `codex` | È un'app privata; niente ruoli, registrazione o onboarding |
 | Hosting | VPS OCI Ampere A1 | È già disponibile, gratuita entro i limiti e compatibile con Node/PostgreSQL |
 | Hostname | Dynu | Hostname gratuito stabile senza acquisto di dominio |
 | HTTPS | Caddy | Configurazione e rinnovo certificati semplici |
@@ -1272,16 +1274,16 @@ Non mostrare mai segreti.
 
 ### 13.9 Fondazione UI, identità leggera e contenuti
 
-HF è uno strumento operativo privato: non serve un sistema di brand esteso. Prima della UI definitiva serve però una Brand Foundation leggera e vincolante, composta soltanto da:
+Hub Fatture è uno strumento operativo privato: non serve un sistema di brand esteso. Prima della UI definitiva serve però una Brand Foundation leggera e vincolante, composta soltanto da:
 
-- nome `Hub Fatture` e abbreviazione `HF`;
+- nome `Hub Fatture`; la sigla `HF` resta esclusivamente interna e non viene resa nel frontend, nei nomi accessibili, nelle notifiche o nei documenti destinati all’utente;
 - un marchio/icona SVG canonico, favicon e sole varianti raster effettivamente richieste dall'app e da GitHub;
 - palette minima e token CSS essenziali, senza sostituire i colori semantici di stato;
 - tipografia di sistema, nessun webfont;
 - tono e principi di microcopy;
 - regole minime di contrasto, spaziatura e uso del marchio.
 
-La fonte è `docs/brand/brand-foundation.md`; gli asset sorgente vivono in `docs/brand/assets/`. Non creare brand board, libreria di componenti proprietaria, sito pubblico, set di illustrazioni o varianti speculative. La direzione visiva viene approvata dal titolare in M1 e poi riusata da UI, favicon, README e social preview della repository.
+La fonte è `docs/brand/brand-foundation.md`; gli asset sorgente vivono in `docs/brand/assets/`. Non creare brand board, pacchetto di componenti separato, Storybook, sito pubblico, set di illustrazioni o varianti speculative. Il design system interno resta leggero: token CSS semantici, componenti React accessibili e pattern applicativi condivisi. La direzione visiva approvata viene riusata da UI, favicon, README e social preview della repository.
 
 La fondazione UI applicativa deve inoltre:
 
@@ -1381,9 +1383,9 @@ Dipendenze runtime dirette iniziali:
 |---|---|
 | `react`, `react-dom` | UI |
 | `react-router`, `@react-router/node`, `@react-router/serve` | routing, form/action, sessioni e server Production |
+| `lucide-react` | unica libreria di icone lineari dell’interfaccia |
 | `pg` | driver PostgreSQL |
 | `zod` | configurazione e confini esterni, non modelli duplicati interni |
-| `otpauth` | TOTP standard |
 | `nodemailer` | unico adapter SMTP, indipendente dal provider scelto in HF-O07 |
 | `xmlbuilder2` | costruzione e parsing XML; il profilo definitivo viene qualificato in M4 |
 | `@shopify/shopify-api` | OAuth, webhook e API Shopify ufficiali |
@@ -1405,7 +1407,7 @@ Dipendenze di sviluppo dirette iniziali:
 
 Scelte native deliberate:
 
-- `node:crypto` (`scrypt`, `randomBytes`, `randomUUID`, SHA-256 e HMAC) per password, recovery code, identificativi e hash; nessun wrapper crypto;
+- `node:crypto` (`scrypt`, `randomBytes`, `randomUUID`, SHA-256 e HMAC) per password, identificativi e hash; nessun wrapper crypto;
 - `fetch` nativo per eBay, Dynu e comunicazione HTTPS helper-HF; niente Axios o secondo client HTTP;
 - `Intl.DateTimeFormat` e `timestamptz` PostgreSQL per Europe/Rome; niente libreria date;
 - importi monetari in centesimi di euro interi, validati con `Number.isSafeInteger`; niente libreria decimale;
@@ -1414,7 +1416,7 @@ Scelte native deliberate:
 - logger locale minimo: un oggetto JSON per riga su stdout/stderr, campi tipizzati e allowlist; niente libreria di logging;
 - form/action e sessioni server-side di React Router persistite in PostgreSQL; niente form library o auth framework;
 - coda PostgreSQL con tabella, lease e `FOR UPDATE SKIP LOCKED`; niente Redis, broker o libreria di coda;
-- HTML semantico, CSS e componenti locali; niente design system, Tailwind, Storybook o libreria UI;
+- HTML semantico, CSS, token e componenti locali; niente pacchetto design system separato, Tailwind, Storybook o libreria UI;
 - query SQL parametrizzate, vincoli, lock e transazioni in PostgreSQL confinati in `src/db`; nessun repository pattern o interfaccia con una sola implementazione.
 
 Le migrazioni sono file SQL append-only ordinati e sottoposti a review. Un piccolo runner compilato con l'app usa `pg`, advisory lock, transazione, tabella `schema_migrations` e checksum per rifiutare file già applicati ma modificati; non esiste un comando `push` Production. Tutti gli importi monetari sono colonne PostgreSQL `integer` espresse in centesimi e valori TypeScript `number` interi sicuri; le stringhe decimali esterne vengono convertite da un parser stretto che rifiuta cifre decimali non nulle oltre i centesimi. Percentuali o coefficienti fiscali non monetari che richiedono precisione restano stringhe validate fino alla serializzazione XML. Il worker e il runner migrazioni vengono compilati con `tsconfig` dedicati; soltanto script e CLI locali possono eseguire `.ts` direttamente quando il runtime fissato ne supera lo smoke, con sola sintassi cancellabile, import espliciti e senza alias `paths`. L'uso SMTP resta limitato a `createTransport`/`sendMail` e ha un typecheck mirato. M0 verifica installazione pulita, peer dependency, audit, test nativi, import smoke, React Doctor e typecheck prima di rendere canonici manifest, lockfile e digest.
@@ -1484,14 +1486,12 @@ Per convenzione, ogni colonna `*_amount` è un `integer` in centesimi di euro; v
 #### `users`
 
 - `id`
-- `email`
+- `username`
 - `password_hash`
-- `totp_secret_encrypted`
-- `totp_enabled_at`
 - `created_at`
 - `last_login_at`
 
-Una sola riga ammessa operativamente.
+Sono ammesse operativamente soltanto le due righe con username `matteo` e `codex`.
 
 #### `sessions`
 
@@ -1923,10 +1923,10 @@ Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` dev
 
 ### 17.1 Autenticazione
 
-- Un solo account amministratore.
-- Password con hash moderno fornito da una libreria consolidata.
-- TOTP obbligatorio prima dell'uso in produzione.
-- Codici di recupero monouso cifrati o hashati.
+- Due account amministrativi fissi, `matteo` e `codex`, con gli stessi permessi e identità di audit distinte.
+- Username e password, senza secondo fattore applicativo.
+- Password di almeno 8 e non oltre 128 caratteri, hashate con `node:crypto.scrypt` e verificate con confronto constant-time.
+- Bootstrap unico e atomico: entrambi gli account vengono creati insieme oppure non viene creato nessuno dei due.
 - Session cookie `HttpOnly`, `Secure`, `SameSite`.
 - Scadenza sessione e revoca.
 - Rate limiting login.
@@ -1936,7 +1936,7 @@ Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` dev
 
 - Variabili d'ambiente o file secret non versionato.
 - Permessi filesystem minimi.
-- Token OAuth rinnovabili e TOTP secret cifrati con AEAD usando una chiave master conservata fuori dal database.
+- Token OAuth rinnovabili e altri segreti applicativi cifrati con AEAD usando una chiave master conservata fuori dal database quando verranno introdotti.
 - Credenziali mai in prompt, log, screenshot o fixture.
 - Rotazione documentata.
 - Separazione development/production.
@@ -1974,7 +1974,7 @@ Mantenere `docs/runbooks/secret-inventory.md` con soli nomi logici, ambiente, de
 
 Registrare almeno:
 
-- login e modifica 2FA;
+- bootstrap degli account, login, logout e rotazione delle credenziali quando disponibile;
 - connessione/disconnessione provider;
 - correzioni cliente/documento;
 - raggruppamento o separazione ordini;
@@ -1987,7 +1987,7 @@ Registrare almeno:
 - invio/reinvio e-mail;
 - import/ripristino configurazioni.
 
-Non registrare password, token, TOTP secret o contenuto completo non necessario.
+Non registrare password, token o contenuto completo non necessario.
 
 ### 17.6 Confini di fiducia e minacce principali
 
@@ -2577,7 +2577,7 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - Readback Aruba ripetuto o importato fuori ordine senza regressione dello stato.
 - Webhook/job rimasto `processing` dopo crash e riacquisito soltanto a lease scaduta.
 - storage e checksum.
-- sessioni e TOTP.
+- autenticazione username/password, sessioni e separazione dell'identità di audit dei due account.
 - impossibilità di preparare o autorizzare un invio senza approvazione e snapshot immutabile.
 - import storico non approvabile prima della riconciliazione Aruba.
 - due browser modificano la stessa bozza/configurazione: la seconda scrittura riceve conflitto.
@@ -2608,7 +2608,7 @@ Ogni connettore copre anche timeout, risposta oltre il limite, risposta non pars
 
 ### 22.4 End-to-end
 
-1. Login + TOTP.
+1. Login con `matteo` e con `codex`.
 2. Import ordine.
 3. Correzione cliente.
 4. Raggruppamento di due ordini.
@@ -2625,7 +2625,7 @@ Il percorso critico verifica anche refresh durante un'azione, doppio click/submi
 
 Playwright è il runner E2E canonico:
 
-- sulle PR esegue Chromium soltanto su quattro flussi sintetici: login/TOTP, import fixture, creazione/raggruppamento Scheda e approvazione contro Aruba mock;
+- sulle PR esegue Chromium soltanto su quattro flussi sintetici: login con entrambi gli account, import fixture, creazione/raggruppamento Scheda e approvazione contro Aruba mock;
 - in M8 esegue gli stessi flussi HF con Chromium e WebKit sul candidato; contro la pagina Aruba sintetica verifica inoltre l'helper con Chrome o Edge su runner macOS e Windows e aggiunge i percorsi completi di stato SdI, e-mail e nota di credito;
 - usa locator accessibili e dati sintetici deterministici; nessuna credenziale o informazione reale entra in test, report o trace;
 - registra la trace soltanto al primo retry fallito, con retention CI breve di 7 giorni; niente video continui o snapshot visuali finché non esiste una regressione visiva concreta;
@@ -2690,13 +2690,15 @@ Quando una prova live espone un difetto:
 
 Le milestone applicative sono sequenziali. M1-M3 costruiscono l'app senza dipendere da Aruba; M4 incorpora qualifica fiscale, documenti, approvazione e prova manuale controllata; M5 integra il pannello e l'helper soltanto dopo quel gate. Non esiste una corsia Aruba parallela e l'helper non è un progetto iniziale autonomo.
 
-Brand Foundation leggera, comparatore fiscale e PoC/decisione OCI Email Delivery entrano nelle milestone che già possiedono i relativi contratti. Non nasce una milestone intermedia e non si aggiungono un design system, una libreria di diff XML o due trasporti SMTP paralleli.
+Brand Foundation leggera, comparatore fiscale e PoC/decisione OCI Email Delivery entrano nelle milestone che già possiedono i relativi contratti. Non nasce una milestone intermedia e non si aggiungono un pacchetto design system separato, una libreria di diff XML o due trasporti SMTP paralleli.
 
 Le scelte di tool e dipendenze chiuse nella matrice 14.3 non generano una milestone aggiuntiva: M0 ne verifica compatibilità e lockfile, M1 le usa per le fondazioni, le milestone successive installano soltanto ciò che raggiunge un caso d'uso reale.
 
 Stati ammessi: `non iniziata`, `in corso`, `bloccata`, `completata`. Una milestone è `completata` solo quando deliverable e criteri di uscita hanno evidenze fresche in `docs/evidence/` o in output automatici collegabili. Il riepilogo di chiusura registra commit, versione eventuale, prove, difetti corretti, rischi residui e milestone successiva; non riscrive il contenuto della milestone.
 
 ### M0 - Ricognizione e scaffolding readiness
+
+**Stato: completata.** Evidenze ripetibili: [readiness della toolchain](evidence/toolchain-readiness.md), workflow Foundation e readback GitHub della repository protetta.
 
 Output:
 
@@ -2722,6 +2724,8 @@ Output:
 
 ### M1 - Fondazioni locali
 
+**Stato: completata.** Evidenze ripetibili: [fondazioni locali](evidence/local-foundations.md), gate canonico, migrazioni PostgreSQL ed E2E sintetico.
+
 Output:
 
 - repository;
@@ -2730,7 +2734,7 @@ Output:
 - migrazioni SQL append-only applicate dal runner compilato con advisory lock e checksum;
 - test installazione vuota e upgrade da snapshot rappresentativo;
 - Docker Compose locale;
-- autenticazione amministratore + TOTP;
+- autenticazione username/password per gli account fissi `matteo` e `codex`;
 - limiti di body e timeout comuni applicati prima di parsing/buffering, con errori stabili e test minimi;
 - Brand Foundation leggera approvata, con fonte unica e asset minimi versionati;
 - registro errori stabile e inventario segreti senza valori;
@@ -2917,10 +2921,10 @@ Ogni task deve lasciare un check eseguibile. Evitare scaffolding non usato.
 
 ### Autenticazione
 
-12. Implementare bootstrap del singolo amministratore.
+12. Implementare bootstrap atomico degli account fissi `matteo` e `codex`.
 13. Implementare password hash e login con `node:crypto.scrypt` e confronto constant-time.
 14. Implementare sessioni React Router sicure persistite in PostgreSQL.
-15. Implementare TOTP con OTPAuth e recovery code generati e hashati con `node:crypto`.
+15. Imporre password di almeno 8 caratteri e limitare le identità applicative ai due account fissi.
 16. Aggiungere rate limiting e audit login.
 17. Proteggere tutte le route applicative e applicare prima del buffering/parsing limiti condivisi di body, timeout e dimensione risposta, con errori stabili e test `413`/timeout.
 
@@ -3136,7 +3140,7 @@ Deve fermarsi e chiedere prima di:
 | E-mail SMTP negozio o OCI Email Delivery | Deliverability, limiti o sender non accettato | PoC comparativo, un solo trasporto canonico, stato invio e reinvio manuale |
 | Sender OCI o destinatario in suppression list | Copia cliente non consegnata | Dominio/SPF/DKIM e approved sender verificati, errore esplicito e controllo suppression nel PoC |
 | Comparatore non allineato alla bozza approvata | L'utente vede una proiezione diversa dal documento trasmesso | Stesso generatore server-side, revisione/hash e rigenerazione atomica al submit |
-| Brand Foundation cresce in un design system | Ritardo e manutenzione senza valore operativo | Un documento, un SVG canonico e soli asset richiesti; niente sito, webfont o libreria proprietaria |
+| Il design system interno cresce in un pacchetto separato | Ritardo e manutenzione senza valore operativo | Un documento, token CSS, componenti locali, un SVG canonico e soli asset richiesti; niente sito, webfont, Storybook o libreria proprietaria |
 | Stato upload/invio incerto | Doppio invio | Manifest/hash, ricerca nel pannello, confronto del file scaricato e nessun retry automatico |
 | Canary lascia aperti gli invii | Trasmissione fiscale non autorizzata | Kill switch globale sempre `false` e permesso monouso atomico legato a batch/manifest/documenti/revisioni/hash |
 | Target provider o VPS errato | Scrittura o deploy sull'ambiente sbagliato | Preflight con identità, account, risorsa e readback obbligatori |
@@ -3195,7 +3199,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Creare/verificare repository GitHub pubblica e `main` come unico branch permanente.
 - [ ] Scansionare albero e intera cronologia prima del primo push pubblico; ruotare qualsiasi segreto già tracciato.
 - [ ] Creare `AGENTS.md`, `CLAUDE.md` minimale, README, CONTRIBUTING, `SECURITY.md` e `docs/INDEX.md` coerenti.
-- [ ] Pianificare la Brand Foundation leggera in M1 senza design system, sito o asset speculativi.
+- [ ] Pianificare in M1 la Brand Foundation e il design system interno leggero, senza pacchetto separato, sito o asset speculativi.
 - [ ] Dichiarare repository pubblica ma non open source; non aggiungere `LICENSE` senza decisione esplicita.
 - [ ] Configurare protezione `main`, template PR, vulnerabilità private, Dependabot e auto-merge delle sole patch dev dirette senza auto-approvazione; lasciare disabilitati Issues, Discussions e Projects rivolti alla community; adattare da CF Ready `codex-review` exact-HEAD e verificarlo su un nuovo commit.
 - [ ] Configurare Playwright con Chromium, smoke sintetico e trace soltanto al primo retry fallito.
@@ -3335,12 +3339,11 @@ La directory locale è `/Users/Matteo/Progetti/Hub-Fatture`.
 Obiettivo della prima milestone:
 1. creare il monolite TypeScript/Node.js con React e React Router scelti in 14.3 e versioni risolte negli artefatti M0;
 2. aggiungere PostgreSQL, `pg`, SQL parametrizzato e Docker Compose locale con versioni e digest fissati nei file canonici M0;
-3. aggiungere il runner compilato per migrazioni SQL append-only, autenticazione per un solo admin con `node:crypto`, sessioni PostgreSQL e OTPAuth;
+3. aggiungere il runner compilato per migrazioni SQL append-only, autenticazione username/password per gli account fissi `matteo` e `codex` con `node:crypto` e sessioni PostgreSQL;
 4. definire la Brand Foundation leggera e i soli asset minimi approvati;
-5. creare il modello minimo per ordini, clienti, Schede e audit;
-6. importare fixture mock Shopify/eBay;
-7. implementare trigger globale e raggruppamento giornaliero Europe/Rome;
-8. lasciare un check eseguibile per ogni logica non banale.
+5. applicare limiti e timeout prima del parsing, registro errori stabile e inventario segreti senza valori;
+6. verificare CI, build, migrazioni, autenticazione ed E2E sintetico;
+7. lasciare un check eseguibile per ogni logica non banale.
 
 Vincoli:
 - la repository GitHub è pubblica ma non open source: non aggiungere `LICENSE` e non inserire dati reali, segreti plaintext o configurazioni sensibili nella storia Git; è ammesso soltanto il blob key `age` previsto;
@@ -3410,7 +3413,7 @@ Hub Fatture 1.0 è concluso soltanto quando:
 8. dipendenze, lockfile, migrazioni e documentazione descrivono lo stesso stato;
 9. backup OCI giornaliero cifrato, copia periodica sul Mac, recovery kit locale protetto, restore drill senza i segreti della VPS originaria e rollback applicativo sono verificati; timer, readback, lifecycle e allarme dimostrano l'RPO reale;
 10. preflight, ricevuta, readback e rollback identificano ogni deploy remoto;
-11. sicurezza, TOTP, firewall, TLS, webhook, token helper, allowlist, limiti body/risposta, timeout, parser XML senza DTD/entità esterne e retention sono verificati;
+11. sicurezza dell'autenticazione, firewall, TLS, webhook, token helper, allowlist, limiti body/risposta, timeout, parser XML senza DTD/entità esterne e retention sono verificati;
 12. `AGENTS.md`, README, indice, glossario, Brand Foundation, asset canonici, contratti, evidenze e runbook sono aggiornati senza fonti duplicate;
 13. il record corrente `docs/runbooks/release-readiness.md` collega prove fresche e rischi accettati;
 14. non restano rischi P0/P1, decisioni bloccanti aperte o ordini storici approvabili senza riconciliazione;
@@ -3433,7 +3436,7 @@ Hub Fatture 1.0 è concluso soltanto quando:
 31. il monitor HTTP OCI osserva dall'esterno Dynu, DNS, TLS, Caddy e `/health` ogni 6 minuti, notifica dopo due fallimenti consecutivi e non espone dati o dettagli interni;
 32. Playwright copre i quattro flussi HF sintetici sulle PR in Chromium, li completa in M8 su Chromium/WebKit e verifica l'helper contro la pagina Aruba sintetica su Windows/macOS con Chrome o Edge, conservando trace solo al primo retry e mai sul Canary Production;
 33. il comparatore fiscale deriva server-side dallo stesso generatore della trasmissione, mostra differenze strutturate per fattura e TD04 e impedisce l'approvazione quando revisione o hash sono stale;
-34. la Brand Foundation leggera approvata è la fonte unica per icona, favicon, palette minima, tipografia e tono, senza design system, sito o asset speculativi;
+34. la Brand Foundation leggera approvata è la fonte unica per icona, favicon, palette minima, tipografia, tono e design system interno, senza pacchetto UI separato, Storybook, sito o asset speculativi;
 35. il PoC OCI Email Delivery è documentato e Production usa un solo trasporto SMTP canonico; se è OCI, dominio, SPF/DKIM, approved sender, regione, quota, suppression, consegna e reinvio sono verificati;
 36. manifest e lockfile rispettano la matrice 14.3 e sono la fonte canonica dei pin dopo lo scaffolding; `npm ci` risolve peer dependency e audit, le immagini fissate supportano `linux/arm64` e non sono stati introdotti tool equivalenti o dipendenze sostituibili dalle scelte native registrate;
 37. versioni API e finestre di supporto Shopify/eBay e verifica periodica del pannello Aruba sono correnti e collegate ai contract test dei connettori e dell'helper;

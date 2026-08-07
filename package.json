@@ -6,7 +6,9 @@
   "scripts": {
     "audit": "npm audit --audit-level=high",
     "build": "react-router build",
-    "check": "npm run toolchain:check && npm run audit && npm run format:check && npm run lint && npm run typecheck && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run doctor && npm run build && npm run test:e2e",
+    "build:server": "tsc -p tsconfig.server.json",
+    "check": "npm run toolchain:check && npm run audit && npm run format:check && npm run lint && npm run typecheck && npm run build:server && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run doctor && npm run build && npm run test:e2e",
+    "db:migrate": "npm run build:server && node build-server/db/migrate.js",
     "dev": "react-router dev",
     "doctor": "react-doctor",
     "format": "oxfmt --write .",
@@ -25,8 +27,8 @@
     "@react-router/node": "8.3.0",
     "@react-router/serve": "8.3.0",
     "@shopify/shopify-api": "13.1.0",
-    "nodemailer": "9.0.4",
-    "otpauth": "9.5.1",
+    "lucide-react": "1.30.0",
+    "nodemailer": "9.0.5",
     "pg": "8.22.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -44,12 +46,12 @@
     "@types/react-dom": "19.2.4",
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
-    "react-doctor": "0.9.5",
+    "react-doctor": "0.9.6",
     "typescript": "7.0.2",
-    "vite": "8.2.0"
+    "vite": "8.2.1"
   },
   "engines": {
-    "node": "26.5.0",
+    "node": "26.7.0",
     "npm": "12.0.2"
   },
   "packageManager": "npm@12.0.2"
