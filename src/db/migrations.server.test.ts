@@ -236,6 +236,15 @@ test(
         ).length,
         2,
       );
+      // Il percorso bloccato non scrive: sotto flood la tabella non cresce con le richieste.
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM login_attempts WHERE ip_hash = 'origine-attaccante'")
+        ).rows[0].count,
+        "5",
+      );
       // Sotto concorrenza il contatore può scavalcare la soglia senza mai assumerne il valore:
       // la deduplica dell'audit deve reggere anche allora.
       await database

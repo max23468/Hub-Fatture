@@ -151,9 +151,6 @@ export async function login(input: {
     );
     const originFailures = Number(recent.rows[0]?.origin_failures);
     const usernameFailures = Number(recent.rows[0]?.username_failures);
-    // ponytail: il lock serializza per username, non per origine, quindi richieste parallele
-    // dallo stesso indirizzo su username diversi possono superare la soglia di poche unità;
-    // aggiungere un lock per origine solo se l'eccedenza diventa osservabile.
     const blocked =
       originFailures >= RATE_LIMIT_ORIGIN_ATTEMPTS ||
       usernameFailures >= RATE_LIMIT_USERNAME_ATTEMPTS;
@@ -161,15 +158,15 @@ export async function login(input: {
     // Oltre la soglia non si verifica nulla: senza questo, il limite cambierebbe soltanto la
     // risposta e lascerebbe all'attaccante tentativi illimitati.
     if (blocked) {
-      await client.query(
-        "INSERT INTO login_attempts (username, ip_hash, successful) VALUES ($1, $2, false)",
-        [attemptKey, input.ipHash],
-      );
-      // Una riga per episodio: l'audit resta osservabile senza crescere sotto attacco.
-      // La deduplica guarda l'evento già registrato, non un contatore che sotto concorrenza
-      // può scavalcare la soglia e non assumere mai il valore esatto.
+      // Il percorso bloccato non scrive: accodare ogni richiesta respinta farebbe crescere
+      // tabella e indici sotto flood, rendendo il limite stesso una leva sul database.
+      // La finestra resta quindi fissa e decorre dal tentativo che ha raggiunto la soglia.
       const scope =
         originFailures >= RATE_LIMIT_ORIGIN_ATTEMPTS ? input.ipHash : `username:${attemptKey}`;
+      // Il lock per username non copre due richieste parallele sulla stessa origine: senza
+      // questo secondo lock la coppia SELECT/INSERT eviterebbe l'evento mancante ma non i
+      // duplicati. L'ordine username poi scope è lo stesso ovunque, quindi non genera cicli.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`rate-limit:${scope}`]);
       const registered = await client.query(
         `SELECT 1 FROM audit_events
          WHERE action = 'LOGIN_RATE_LIMITED' AND metadata_json->>'scope' = $1

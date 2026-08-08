@@ -1,7 +1,8 @@
 import { getPool } from "./db/client.server.ts";
 
 export const LOGIN_ATTEMPT_WINDOW_MINUTES = 15;
-const INTERVAL_MS = 60 * 60 * 1000;
+// La cadenza non supera la finestra: un `ip_hash` non deve sopravvivere alla durata dichiarata.
+const INTERVAL_MS = LOGIN_ATTEMPT_WINDOW_MINUTES * 60 * 1000;
 
 /**
  * Cancella i dati tecnici scaduti richiesti da 17.7: sessioni oltre la scadenza e tentativi
