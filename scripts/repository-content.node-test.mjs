@@ -77,3 +77,9 @@ test("il proxy locale resta accessibile soltanto dal Mac", async () => {
   const compose = await readFile(path.join(root, "compose.yaml"), "utf8");
   assert.match(compose, /"127\.0\.0\.1:8080:80"/);
 });
+
+test("lo stack Development mantiene nome e riavvio stabili", async () => {
+  const compose = await readFile(path.join(root, "compose.yaml"), "utf8");
+  assert.match(compose, /^name: hub-fatture-development$/m);
+  assert.equal(compose.match(/^    restart: unless-stopped$/gm)?.length, 3);
+});
