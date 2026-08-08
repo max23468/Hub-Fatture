@@ -880,6 +880,8 @@ export async function updateBillingCaseTransmission(
                       false
                     )
                     OR orders.trigger_status = 'NEEDS_REVIEW'
+                    OR orders.normalized_snapshot_json #> '{customerSnapshot,canonicalProfile}'
+                       IS DISTINCT FROM billing_cases.customer_snapshot_json -> 'canonicalProfile'
                   )
               ) AS needs_review,
               EXISTS (

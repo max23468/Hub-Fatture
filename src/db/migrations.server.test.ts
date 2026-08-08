@@ -1496,6 +1496,48 @@ test(
         "0",
       );
 
+      const conflictingProfileA = structuredClone(fixture[0]);
+      conflictingProfileA.externalOrderId = "shop-order-conflicting-profile-a";
+      conflictingProfileA.externalCustomerId = "shop-customer-conflicting-profile-a";
+      conflictingProfileA.customer.taxIdentifiers[0].value = "RSSMRA80A01H501L";
+      conflictingProfileA.createdAt = "2026-08-22T08:00:00Z";
+      conflictingProfileA.updatedAt = "2026-08-22T09:00:00Z";
+      const conflictingProfileB = structuredClone(conflictingProfileA);
+      conflictingProfileB.externalOrderId = "shop-order-conflicting-profile-b";
+      conflictingProfileB.externalCustomerId = "shop-customer-conflicting-profile-b";
+      conflictingProfileB.customer.billingAddress.line1 = "Via Milano 2";
+      await orders.importOrders([conflictingProfileA, conflictingProfileB], {
+        id: 1,
+        requestId: "test-conflicting-profile-grouping",
+      });
+      const conflictingProfileCase = (
+        await database.getPool().query(
+          `SELECT billing_cases.id, billing_cases.status,
+                  bool_and(orders.trigger_status = 'GROUPED') AS orders_grouped
+             FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+             WHERE orders.external_order_id IN ($1, $2)
+             GROUP BY billing_cases.id, billing_cases.status`,
+          [conflictingProfileA.externalOrderId, conflictingProfileB.externalOrderId],
+        )
+      ).rows[0];
+      assert.deepEqual(conflictingProfileCase, {
+        id: conflictingProfileCase.id,
+        status: "NEEDS_REVIEW",
+        orders_grouped: true,
+      });
+      await orders.updateBillingCaseTransmission(
+        String(conflictingProfileCase.id),
+        "Anagrafica da verificare",
+        { id: 1, requestId: "test-archive-conflicting-profile" },
+      );
+      assert.equal(
+        await orders.updateBillingCaseTransmission(String(conflictingProfileCase.id), null, {
+          id: 1,
+          requestId: "test-reactivate-conflicting-profile",
+        }),
+        "NEEDS_REVIEW",
+      );
+
       const reviewedA = structuredClone(fixture[0]);
       reviewedA.externalOrderId = "shop-order-reviewed-a";
       reviewedA.externalCustomerId = "shop-customer-reviewed-a";
