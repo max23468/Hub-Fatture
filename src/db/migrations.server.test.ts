@@ -1534,6 +1534,10 @@ test(
              AND action = 'BILLING_CASE_DO_NOT_TRANSMIT'`,
         )
       ).rows[0].entity_id;
+      assert.equal(
+        (await orders.getBillingCase(String(archivedCancelledCaseId)))!.reactivation_blocker,
+        "INCOMPATIBLE_ORDERS",
+      );
       const recoveredReviewed = (
         await database.getPool().query(
           `SELECT orders.billing_case_id, billing_cases.status
@@ -1578,6 +1582,10 @@ test(
           requestId: "test-empty-case-reactivation",
         }),
         (error: unknown) => error instanceof AppError && error.code === "BILLING_CASE_EMPTY",
+      );
+      assert.equal(
+        (await orders.getBillingCase(String(archivedCancelledCaseId)))!.reactivation_blocker,
+        "EMPTY",
       );
       await orders.updateBillingCaseTransmission(String(reidentifiedOrder.billing_case_id), null, {
         id: 1,

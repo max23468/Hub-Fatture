@@ -9,6 +9,15 @@ import { publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
 import { getBillingCase, updateBillingCaseTransmission } from "../../src/orders.server.ts";
 
+const reactivationBlockerMessages: Record<string, string> = {
+  EMPTY:
+    "Questa preparazione storica non contiene più ordini e resta consultabile soltanto in archivio.",
+  INCOMPATIBLE_ORDERS:
+    "Gli ordini sono ancora annullati o rimborsati. La preparazione resta in archivio finché la sorgente non viene rettificata.",
+  OTHER_OPEN_CASE:
+    "Esiste già un’altra preparazione aperta per lo stesso cliente e giorno. Questa resta in archivio.",
+};
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const billingCase = await getBillingCase(params.caseId);
@@ -111,7 +120,7 @@ export default function BillingCaseDetail() {
               <dd>{billingCase.orders.length}</dd>
             </div>
           </dl>
-          {billingCase.status === "DO_NOT_TRANSMIT" && billingCase.orders.length ? (
+          {billingCase.status === "DO_NOT_TRANSMIT" && !billingCase.reactivation_blocker ? (
             <Form method="post" className="section-gap">
               <input type="hidden" name="csrf" value={csrfToken} />
               <input type="hidden" name="intent" value="reactivate" />
@@ -121,8 +130,8 @@ export default function BillingCaseDetail() {
             </Form>
           ) : billingCase.status === "DO_NOT_TRANSMIT" ? (
             <p className="notice section-gap">
-              Questa preparazione storica non contiene più ordini e resta consultabile soltanto in
-              archivio.
+              {reactivationBlockerMessages[billingCase.reactivation_blocker] ??
+                "Questa preparazione resta consultabile in archivio e non può essere riattivata."}
             </p>
           ) : ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status) ? (
             <Form method="post" className="section-gap">

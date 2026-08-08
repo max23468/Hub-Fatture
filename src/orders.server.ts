@@ -1062,6 +1062,25 @@ export async function getBillingCase(id: string) {
             billing_cases.customer_snapshot_json ->> 'email' AS customer_email,
             (billing_cases.customer_snapshot_json ->> 'reviewRequired')::boolean AS review_required,
             billing_cases.customer_snapshot_json -> 'billingAddress' AS billing_address_json,
+            CASE
+              WHEN NOT EXISTS (
+                SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
+              ) THEN 'EMPTY'
+              WHEN EXISTS (
+                SELECT 1 FROM orders
+                WHERE orders.billing_case_id = billing_cases.id
+                  AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
+              ) THEN 'INCOMPATIBLE_ORDERS'
+              WHEN EXISTS (
+                SELECT 1 FROM billing_cases AS other
+                WHERE other.id <> billing_cases.id
+                  AND other.customer_id = billing_cases.customer_id
+                  AND other.local_order_date = billing_cases.local_order_date
+                  AND other.currency = billing_cases.currency
+                  AND other.status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
+              ) THEN 'OTHER_OPEN_CASE'
+              ELSE NULL
+            END AS reactivation_blocker,
             coalesce((
               SELECT jsonb_agg(to_jsonb(case_orders) ORDER BY case_orders.id)
               FROM (
