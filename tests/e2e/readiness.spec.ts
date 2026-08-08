@@ -87,6 +87,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByLabel("Motivo").fill("Ordine di test");
   await page.getByRole("button", { name: "Non trasmettere" }).click();
   await expect(page.getByRole("status")).toContainText("Ordine di test");
+  const archivedPreparation = await page
+    .getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })
+    .textContent();
+  await page.getByRole("link", { name: "Ordini" }).click();
+  await page.getByRole("link", { name: "Annullati" }).click();
+  await expect(page.getByRole("heading", { name: "Preparazioni non trasmesse" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Da non trasmettere", exact: true })).toBeVisible();
+  await page
+    .getByRole("link", { name: archivedPreparation!.replace("Preparazione fattura ", "") })
+    .click();
   await page.getByRole("button", { name: "Riattiva preparazione" }).click();
   await expect(page.getByRole("button", { name: "Non trasmettere" })).toBeVisible();
 

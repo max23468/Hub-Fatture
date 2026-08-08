@@ -3,7 +3,7 @@ import type { Route } from "./+types/orders";
 
 import fixture from "../../tests/fixtures/orders/normalized.mock.json" with { type: "json" };
 import { AppShell } from "../components/app-shell";
-import { orderStatusLabels } from "../copy.it";
+import { billingCaseStatusLabels, orderStatusLabels } from "../copy.it";
 import { euros, date } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
@@ -116,9 +116,15 @@ export default function Orders() {
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const preparationCases = cases.filter((billingCase) =>
-    view === "verificare" ? billingCase.status === "NEEDS_REVIEW" : billingCase.status === "READY",
+    view === "verificare"
+      ? billingCase.status === "NEEDS_REVIEW"
+      : view === "annullati"
+        ? billingCase.status === "DO_NOT_TRANSMIT"
+        : billingCase.status === "READY",
   );
   const showsPreparations = view === "fatturare" || view === "verificare";
+  const showsPreparationArchive =
+    showsPreparations || (view === "annullati" && preparationCases.length > 0);
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
@@ -237,95 +243,105 @@ export default function Orders() {
         </Form>
       ) : null}
 
-      {showsPreparations && preparationCases.length ? (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Preparazione</th>
-                <th>Cliente</th>
-                <th>Data</th>
-                <th>Ordini</th>
-                <th>Totale</th>
-                <th>Stato</th>
-              </tr>
-            </thead>
-            <tbody>
-              {preparationCases.map((billingCase) => (
-                <tr key={billingCase.id}>
-                  <td data-label="Preparazione">
-                    <Link to={`/ordini/preparazione/${billingCase.id}`}>
-                      {billingCase.public_number}
-                    </Link>
-                  </td>
-                  <td data-label="Cliente">{billingCase.customer_name}</td>
-                  <td data-label="Data">{date(billingCase.local_order_date)}</td>
-                  <td data-label="Ordini">{billingCase.order_count}</td>
-                  <td data-label="Totale">{euros(billingCase.total_amount)}</td>
-                  <td data-label="Stato">
-                    <span className="status">
-                      {billingCase.status === "NEEDS_REVIEW" ? "Da verificare" : "Pronta"}
-                    </span>
-                  </td>
+      {showsPreparationArchive && preparationCases.length ? (
+        <section className="section-gap">
+          {view === "annullati" ? <h2>Preparazioni non trasmesse</h2> : null}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Preparazione</th>
+                  <th>Cliente</th>
+                  <th>Data</th>
+                  <th>Ordini</th>
+                  <th>Totale</th>
+                  <th>Stato</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {preparationCases.map((billingCase) => (
+                  <tr key={billingCase.id}>
+                    <td data-label="Preparazione">
+                      <Link to={`/ordini/preparazione/${billingCase.id}`}>
+                        {billingCase.public_number}
+                      </Link>
+                    </td>
+                    <td data-label="Cliente">{billingCase.customer_name}</td>
+                    <td data-label="Data">{date(billingCase.local_order_date)}</td>
+                    <td data-label="Ordini">{billingCase.order_count}</td>
+                    <td data-label="Totale">{euros(billingCase.total_amount)}</td>
+                    <td data-label="Stato">
+                      <span className="status">
+                        {billingCaseStatusLabels[billingCase.status] ?? "Stato non riconosciuto"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       ) : showsPreparations ? (
         <section className="empty-state">
           <h2>{view === "verificare" ? "Nessuna verifica richiesta" : "Niente da fatturare"}</h2>
           <p>Le preparazioni compaiono qui quando gli ordini soddisfano il trigger globale.</p>
         </section>
-      ) : orders.length ? (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Ordine</th>
-                <th>Cliente</th>
-                <th>Data</th>
-                <th>Totale</th>
-                <th>Stato</th>
-                <th>Preparazione</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((order) => (
-                <tr key={order.id}>
-                  <td data-label="Ordine">
-                    <Link to={`/ordini/${order.id}`}>
-                      {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
-                    </Link>
-                  </td>
-                  <td data-label="Cliente">{order.customer_name}</td>
-                  <td data-label="Data">{date(order.local_order_date)}</td>
-                  <td data-label="Totale">{euros(order.gross_amount)}</td>
-                  <td data-label="Stato">
-                    <span className="status">
-                      {orderStatusLabels[order.trigger_status] ?? "Stato non riconosciuto"}
-                    </span>
-                  </td>
-                  <td data-label="Preparazione">
-                    {order.billing_case_id ? (
-                      <Link to={`/ordini/preparazione/${order.billing_case_id}`}>
-                        {order.case_number}
-                      </Link>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
+      ) : null}
+
+      {!showsPreparations && orders.length ? (
+        <section className="section-gap">
+          {view === "annullati" && preparationCases.length ? (
+            <h2>Ordini annullati o rimborsati</h2>
+          ) : null}
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ordine</th>
+                  <th>Cliente</th>
+                  <th>Data</th>
+                  <th>Totale</th>
+                  <th>Stato</th>
+                  <th>Preparazione</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
+              </thead>
+              <tbody>
+                {orders.map((order) => (
+                  <tr key={order.id}>
+                    <td data-label="Ordine">
+                      <Link to={`/ordini/${order.id}`}>
+                        {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
+                      </Link>
+                    </td>
+                    <td data-label="Cliente">{order.customer_name}</td>
+                    <td data-label="Data">{date(order.local_order_date)}</td>
+                    <td data-label="Totale">{euros(order.gross_amount)}</td>
+                    <td data-label="Stato">
+                      <span className="status">
+                        {orderStatusLabels[order.trigger_status] ?? "Stato non riconosciuto"}
+                      </span>
+                    </td>
+                    <td data-label="Preparazione">
+                      {order.billing_case_id ? (
+                        <Link to={`/ordini/preparazione/${order.billing_case_id}`}>
+                          {order.case_number}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : !showsPreparations && !preparationCases.length ? (
         <section className="empty-state">
           <h2>Nessun ordine</h2>
           <p>Importa la fixture sintetica oppure modifica i filtri.</p>
         </section>
-      )}
+      ) : null}
     </AppShell>
   );
 }

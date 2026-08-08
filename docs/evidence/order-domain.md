@@ -7,6 +7,7 @@
 - Trigger globale a revisione ottimistica e rivalutazione dei soli ordini non raggruppati.
 - Raggruppamento giornaliero concorrente per identità cliente prudente e data `Europe/Rome`, anche fra piattaforme diverse.
 - Liste e dettagli autenticati di ordini e preparazioni fattura, filtri per piattaforma, stato, data e pagamento, preparazione anticipata del singolo ordine, riepilogo operativo e registro attività.
+- Archivio delle preparazioni non trasmesse, comprese quelle storiche rimaste senza ordini dopo una rettifica sorgente.
 - Riconciliazione dei pagamenti sorgente senza cancellare gli incassi registrati manualmente.
 - Audit atomico delle creazioni, assegnazioni e modifiche di configurazione.
 

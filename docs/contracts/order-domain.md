@@ -22,6 +22,7 @@ Sono accettati soltanto importi decimali rappresentabili esattamente in centesim
 - Un aggiornamento con `updated_at_source` meno recente di quello persistito viene ignorato prima di qualsiasi mutazione e conteggiato nel risultato dell’import.
 - Se cambiano dati rilevanti per la preparazione — identità e anagrafica cliente, totale, righe, pagamenti, stato o annullamento — il raggruppamento esistente passa a `NEEDS_REVIEW`; soli timestamp tecnici e campi di provenienza non generano falsi allarmi.
 - Ogni conflitto conserva in modo immutabile snapshot normalizzato precedente e corrente. Un annullamento o rimborso prima dell’emissione porta invece la preparazione a `DO_NOT_TRANSMIT` con motivazione e audit.
+- Le preparazioni `DO_NOT_TRANSMIT` restano consultabili nell’archivio anche quando una successiva rettifica sposta tutti gli ordini in una nuova preparazione.
 
 ## Audit e concorrenza
 
