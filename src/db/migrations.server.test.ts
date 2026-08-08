@@ -883,6 +883,30 @@ test(
       assert.equal(preservedSource.payment_status, "REFUNDED");
       assert.equal(preservedSource.trigger_status, "REFUNDED_BEFORE_ISSUE");
       assert.match(preservedSource.updated_at_source, /^2026-08-08 10:00:00/);
+      await database.getPool().query(
+        `UPDATE orders SET updated_at_source = '2026-08-08T10:00:00.123457Z'
+         WHERE external_order_id = 'shop-order-1001'`,
+      );
+      const staleMicrosecond = structuredClone(sourceChanged);
+      staleMicrosecond.paymentStatus = "PAID";
+      staleMicrosecond.payments[0].status = "PAID";
+      staleMicrosecond.updatedAt = "2026-08-08T10:00:00.123456Z";
+      assert.deepEqual(
+        await orders.importOrders([staleMicrosecond], {
+          id: 1,
+          requestId: "test-stale-source-microsecond",
+        }),
+        { imported: 0, updated: 0, ignored: 1 },
+      );
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT updated_at_source::text, payment_status
+             FROM orders WHERE external_order_id = 'shop-order-1001'`,
+          )
+        ).rows[0],
+        { updated_at_source: "2026-08-08 10:00:00.123457+00", payment_status: "REFUNDED" },
+      );
       const reactivatedPending = structuredClone(sourceChanged);
       reactivatedPending.paymentStatus = "PENDING";
       reactivatedPending.fulfillmentStatus = "UNFULFILLED";

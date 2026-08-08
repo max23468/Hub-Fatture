@@ -259,7 +259,7 @@ async function importOne(
     billing_case_id: string | null;
     last_observed_review_fingerprint: string | null;
     last_observed_snapshot_json: Record<string, unknown>;
-    updated_at_source: string;
+    is_stale: boolean;
     billing_case_status: string | null;
     billing_case_do_not_transmit_automatic: boolean;
     billing_case_review_required_before_do_not_transmit: boolean;
@@ -268,7 +268,7 @@ async function importOne(
     trigger_status: string;
   }>(
     `SELECT orders.id, orders.billing_case_id, orders.customer_id, orders.trigger_status,
-            orders.updated_at_source::text,
+            $4::timestamptz < orders.updated_at_source AS is_stale,
             CASE WHEN billing_cases.status IN ('APPROVED', 'CLOSED')
               THEN coalesce(latest_revision.snapshot ->> 'reviewFingerprint',
                             orders.normalized_snapshot_json ->> 'reviewFingerprint')
@@ -313,14 +313,9 @@ async function importOne(
        AND orders.external_account_id = $2
        AND orders.external_order_id = $3
      FOR UPDATE OF orders`,
-    [input.provider, input.externalAccountId, input.externalOrderId],
+    [input.provider, input.externalAccountId, input.externalOrderId, input.updatedAt],
   );
-  if (
-    previous.rows[0] &&
-    Date.parse(input.updatedAt) < Date.parse(previous.rows[0].updated_at_source)
-  ) {
-    return "ignored";
-  }
+  if (previous.rows[0]?.is_stale) return "ignored";
 
   const oldOrder = previous.rows[0];
   let deferredReviewRequired = oldOrder?.deferred_review_required ?? false;

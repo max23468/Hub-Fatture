@@ -19,7 +19,7 @@ Sono accettati soltanto importi decimali rappresentabili esattamente in centesim
 - Una risincronizzazione aggiorna gli snapshot sorgente ma non sposta un ordine già raggruppato.
 - Una risincronizzazione riconcilia solo i pagamenti sorgente e conserva quelli registrati manualmente.
 - Ordini e preparazioni leggono la propria anagrafica immutabile; aggiornare il cliente normalizzato non modifica retroattivamente dati già raggruppati.
-- Un aggiornamento con `updated_at_source` meno recente di quello persistito viene ignorato prima di qualsiasi mutazione e conteggiato nel risultato dell’import.
+- Un aggiornamento con `updated_at_source` meno recente di quello persistito viene confrontato alla precisione di PostgreSQL, ignorato prima di qualsiasi mutazione e conteggiato nel risultato dell’import.
 - Se cambiano dati rilevanti per la preparazione — identità e anagrafica cliente, totale, righe, pagamenti, stato o annullamento — il raggruppamento esistente passa a `NEEDS_REVIEW`; soli timestamp tecnici e campi di provenienza non generano falsi allarmi.
 - Ogni conflitto conserva in modo immutabile snapshot normalizzato precedente e corrente. Un annullamento o rimborso prima dell’emissione porta invece la preparazione a `DO_NOT_TRANSMIT` con motivazione e audit.
 - Le preparazioni `DO_NOT_TRANSMIT` restano consultabili nell’archivio anche quando una successiva rettifica sposta tutti gli ordini in una nuova preparazione. La riattivazione è proposta soltanto quando contengono ordini compatibili e non esiste già un altro raggruppamento aperto per lo stesso cliente, giorno e valuta; eventuali anagrafiche discordanti mantengono la preparazione in `NEEDS_REVIEW`.
