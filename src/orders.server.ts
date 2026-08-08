@@ -202,7 +202,10 @@ async function importOne(
     paymentAmounts,
   );
   const status = triggerStatus(input, trigger);
-  const preparationReviewRequired = identity.reviewRequired || input.paymentStatus !== "PAID";
+  const preparationReviewRequired =
+    identity.reviewRequired ||
+    input.paymentStatus !== "PAID" ||
+    input.payments.some((payment) => payment.status !== "PAID");
   const lockKey = `order:${input.provider}:${input.externalAccountId}:${input.externalOrderId}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
 
@@ -216,7 +219,8 @@ async function importOne(
     `SELECT id, billing_case_id, updated_at_source::text, normalized_snapshot_json,
             normalized_snapshot_json ->> 'reviewFingerprint' AS review_fingerprint
      FROM orders
-     WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3`,
+     WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3
+     FOR UPDATE`,
     [input.provider, input.externalAccountId, input.externalOrderId],
   );
   if (
@@ -407,6 +411,39 @@ async function importOne(
         metadata: { billingCaseId: oldOrder!.billing_case_id!, reason },
         requestId: actor.requestId,
       });
+      const remainingOrders = await client.query<{
+        id: string;
+        customer_id: string;
+        local_order_date: string;
+        currency: string;
+        review_required: boolean;
+        customer_snapshot: Record<string, unknown>;
+      }>(
+        `UPDATE orders
+         SET billing_case_id = NULL, trigger_status = 'ELIGIBLE'
+         WHERE billing_case_id = $1 AND id <> $2
+           AND cancelled_at IS NULL AND payment_status <> 'REFUNDED'
+         RETURNING id, customer_id, local_order_date::text, currency,
+           (normalized_snapshot_json ->> 'preparationReviewRequired')::boolean AS review_required,
+           normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot`,
+        [oldOrder!.billing_case_id, orderId],
+      );
+      // Ogni assegnazione deve osservare la preparazione creata dalla precedente nella stessa transazione.
+      for (const remainingOrder of remainingOrders.rows) {
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop
+        await groupOrder(
+          client,
+          {
+            id: remainingOrder.id,
+            customerId: remainingOrder.customer_id,
+            reviewRequired: remainingOrder.review_required,
+            customerSnapshot: remainingOrder.customer_snapshot,
+            localOrderDate: remainingOrder.local_order_date,
+            currency: remainingOrder.currency,
+          },
+          actor,
+        );
+      }
     }
   }
   await client.query("DELETE FROM order_lines WHERE order_id = $1", [orderId]);

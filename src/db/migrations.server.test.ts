@@ -511,6 +511,16 @@ test(
       assert.equal(conflictedCase.status, "DO_NOT_TRANSMIT");
       assert.equal(conflictedCase.review_required, false);
       assert.equal((await orders.getBillingCase(conflictedCase.id))?.status, "DO_NOT_TRANSMIT");
+      const regroupedOrder = (
+        await database.getPool().query(
+          `SELECT orders.billing_case_id, orders.trigger_status, billing_cases.status
+             FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+             WHERE orders.external_order_id = 'ebay-order-2001'`,
+        )
+      ).rows[0];
+      assert.notEqual(regroupedOrder.billing_case_id, conflictedCase.id);
+      assert.equal(regroupedOrder.trigger_status, "GROUPED");
+      assert.equal(regroupedOrder.status, "READY");
       assert.equal(
         (
           await database
@@ -595,7 +605,7 @@ test(
       pendingPayment.externalOrderId = "shop-order-pending-payment";
       pendingPayment.externalCustomerId = "shop-customer-pending-payment";
       pendingPayment.customer.taxIdentifiers[0].value = "RSSMRA80A01H501W";
-      pendingPayment.paymentStatus = "PENDING";
+      pendingPayment.paymentStatus = "PAID";
       pendingPayment.payments[0].status = "PENDING";
       pendingPayment.payments[0].paidAt = null;
       pendingPayment.createdAt = "2026-08-11T08:15:00Z";
