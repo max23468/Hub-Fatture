@@ -372,7 +372,7 @@ async function importOne(
       : input.paymentStatus === "REFUNDED"
         ? ("REFUNDED" as const)
         : null;
-    if (!reason) {
+    if (!reason && !invoiced) {
       await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
         orderId,
       ]);

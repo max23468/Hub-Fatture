@@ -510,6 +510,22 @@ test(
       await database
         .getPool()
         .query("UPDATE billing_cases SET status = 'APPROVED' WHERE id = $1", [approvedCaseId]);
+      approvedGroup[1].lines[0].description = "Descrizione aggiornata dopo l’emissione";
+      approvedGroup[1].updatedAt = "2026-08-12T09:30:00Z";
+      await orders.importOrders([approvedGroup[1]], {
+        id: 1,
+        requestId: "test-approved-non-refund-conflict",
+      });
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT trigger_status FROM orders WHERE external_order_id = $1", [
+              approvedGroup[1].externalOrderId,
+            ])
+        ).rows[0].trigger_status,
+        "INVOICED",
+      );
       approvedGroup[0].paymentStatus = "REFUNDED";
       approvedGroup[0].payments[0].status = "REFUNDED";
       approvedGroup[0].updatedAt = "2026-08-12T10:00:00Z";
@@ -581,7 +597,7 @@ test(
             .getPool()
             .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_SOURCE_CONFLICT'")
         ).rows[0].count,
-        "2",
+        "3",
       );
       assert.equal(
         (
