@@ -184,7 +184,6 @@ e quando un rimborso di prova produce correttamente:
 | HF-F22 | Conservare annullati, XML, PDF, notifiche e audit localmente | Confermato |
 | HF-F23 | Mostrare nel pannello errori, scarti e code; nessuna notifica operativa e-mail al titolare | Confermato |
 | HF-F24 | Offrire export XML e import del readback come fallback manuale completo quando l'helper non è disponibile | Confermato |
-| HF-F25 | Propagare opzionalmente a Shopify le sole correzioni cliente supportate dall'API | Confermato con condizione |
 | HF-F26 | Mantenere l'interfaccia solo in italiano, centralizzando il testo visibile in un catalogo italiano semplice | Confermato |
 | HF-F27 | Bloccare centralmente i permessi ordinari di invio automatico Aruba tramite kill switch Production senza impedire consultazione, export, upload manuale, import, diagnosi o il singolo Canary autorizzato | Default tecnico di sicurezza |
 | HF-F28 | Mostrare un comparatore fiscale strutturato fra snapshot sorgente, bozza corrente e proiezione XML prima di ogni approvazione | Confermato |
@@ -192,6 +191,8 @@ e quando un rimborso di prova produce correttamente:
 | HF-F30 | Valutare OCI Email Delivery in Development e selezionare un solo trasporto SMTP canonico prima dell'uso Production | Confermato come PoC; adozione OCI condizionata |
 | HF-F31 | Eseguire il flusso Aruba ordinario tramite un helper locale unico per Windows e macOS, usando Chrome o Edge; Safari resta supportato solo per il fallback manuale | Confermato |
 | HF-F32 | Offrire in Impostazioni le modalità `Assistita` e `Automatica dopo conferma`, con `Assistita` come default | Confermato |
+
+`HF-F25`, propagazione delle correzioni cliente verso Shopify, è stata riclassificata come evoluzione futura in 3.3: era disattivata di default, non serve a emettere un documento e obbligherebbe a chiedere scope di scrittura Shopify. L'identificativo resta libero e non viene riusato.
 
 ---
 
@@ -203,7 +204,7 @@ e quando un rimborso di prova produce correttamente:
 - Un solo account venditore eBay.
 - Un solo account Aruba.
 - Account Aruba Base; nessuna dipendenza dai Web Services Premium.
-- Due account amministrativi fissi, `matteo` e `codex`, con gli stessi permessi e identità di audit distinte.
+- Due account amministrativi fissi, `matteo` e `codex`, con identità di audit distinte; le sole transizioni fiscali irreversibili restano riservate a `matteo`.
 - Ordini Shopify ed eBay, senza inserimento manuale di vendite.
 - Beni fisici spediti esclusivamente da un magazzino in Italia.
 - Vendite in Italia e negli altri Paesi UE.
@@ -263,6 +264,7 @@ e quando un rimborso di prova produce correttamente:
 - Più utenti e ruoli.
 - Altri marketplace o vendite manuali.
 - Multi-valuta.
+- Propagazione delle correzioni anagrafiche verso Shopify, già HF-F25.
 - Profili fiscali multipli.
 - OSS o altri regimi, solo su nuova specifica fiscale.
 - Localizzazione dell'interfaccia.
@@ -276,7 +278,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Area | Decisione | Motivazione |
 |---|---|---|
 | Modello operativo | Pannello web autonomo | Shopify, eBay e Aruba hanno pari importanza; l'app non deve dipendere dall'Admin Shopify |
-| Utenza | Due account amministrativi fissi, `matteo` e `codex` | È un'app privata; niente ruoli, registrazione o onboarding |
+| Utenza | Due account amministrativi fissi, `matteo` e `codex`; approvazione, numerazione e permessi di invio riservati a `matteo` | È un'app privata e non servono ruoli, registrazione o onboarding; l'unico privilegio distinto è quello che rende irreversibile un documento fiscale |
 | Hosting | VPS OCI Ampere A1 | È già disponibile, gratuita entro i limiti e compatibile con Node/PostgreSQL |
 | Hostname | Dynu | Hostname gratuito stabile senza acquisto di dominio |
 | HTTPS | Caddy | Configurazione e rinnovo certificati semplici |
@@ -333,7 +335,6 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 
 | Funzione | Condizione |
 |---|---|
-| Propagazione delle correzioni a Shopify | Implementarla solo per i campi cliente realmente scrivibili tramite Admin GraphQL API, senza alterare lo snapshot dell'ordine; resta disattivata di default |
 | PDF ufficiale Aruba | Usarlo se il pannello ne consente il download affidabile; altrimenti generare un PDF sobrio e allineato al campione Aruba |
 | OCI Email Delivery | Adottarlo come trasporto canonico solo se il dominio mittente è controllato, SPF/DKIM e approved sender sono verificati e il PoC supera consegna, errore e reinvio; altrimenti mantenere l'SMTP esistente |
 
@@ -355,6 +356,7 @@ Queste alternative sono riportate per evitare che un agente futuro le reintroduc
 | Cloudflare Quick Tunnel/ngrok in produzione | Superata | Ammessi soltanto per sviluppo temporaneo |
 | Motore OSS, monitor soglia UE e aliquote estere | Superata | Tutte le vendite 1.x usano il profilo del regime del margine |
 | VIES come decisore del trattamento IVA | Superata | Una VAT UE non fa uscire automaticamente l'ordine dal regime del margine |
+| Propagazione delle correzioni cliente verso Shopify | Rinviata alle evoluzioni | Disattivata di default, estranea all'emissione del documento e richiederebbe scope di scrittura Shopify |
 | Fattura 1:1 con prodotti, sconti e spedizione | Superata | Scelta una riga netta e semplice per ordine |
 | Una fattura per ogni ordine | Superata | Scelto accorpamento automatico giornaliero per cliente |
 | Termine "Pratica" | Superato | Sostituito da "Scheda di fatturazione" |
@@ -381,7 +383,7 @@ La **Scheda di fatturazione** è il contenitore del ciclo documentale. Collega:
 Esempio:
 
 ```text
-Scheda HF-000154
+Scheda 000154
 ├── Ordine Shopify #1001
 ├── Ordine eBay 12-12345-67890
 ├── Fattura (TipoDocumento definito dall'audit)
@@ -395,6 +397,8 @@ Scheda HF-000154
 ```
 
 Nel codice usare un nome tecnico diretto e stabile, per esempio `billing_case`. Evitare gerarchie astratte non necessarie.
+
+Il numero pubblico della Scheda è un progressivo interno non fiscale, senza sigla né prefisso: `HF` resta interna e non compare in nessun identificativo visibile, in nessuna schermata e in nessun documento destinato all'utente.
 
 ### 5.2 Stati principali
 
@@ -809,19 +813,7 @@ Riferimenti ufficiali da verificare quando si fissa il contratto del connettore:
 - [`Customer.taxSettings`](https://shopify.dev/docs/api/admin-graphql/latest/objects/TaxSettings) conferma `taxId` in sola lettura con scope `read_customers` o `read_taxes`;
 - l'accesso resta soggetto ai protected customer data applicabili.
 
-### 8.4 Propagazione correzioni
-
-Impostazione facoltativa, disattivata di default:
-
-**"Propaga le correzioni all'anagrafica cliente Shopify"**
-
-- può aggiornare, quando consentito, nome, contatti e indirizzi del cliente;
-- non modifica retroattivamente l'ordine;
-- non tenta di scrivere campi fiscali non scrivibili;
-- un errore di propagazione non blocca la fattura;
-- ogni scrittura è esplicita e registrata.
-
-### 8.5 Webhook minimi da verificare
+### 8.4 Webhook minimi da verificare
 
 - creazione/aggiornamento ordine;
 - variazione pagamento;
@@ -995,9 +987,13 @@ Il download XML da HF, il caricamento manuale nel pannello e l'import successivo
 
 Questa attività non è una corsia parallela. M4 incorpora le verifiche fiscali e documentali necessarie al generatore; M5 incorpora la prova del pannello e l'automazione. Repository, autenticazione, dominio ordini e connettori vengono completati prima secondo la sequenza delle milestone.
 
+La raccolta dei materiali, però, non è implementazione e può iniziare durante M2 e M3. Sessione di audit, XML della fattura accettata, eventuale XML della nota di credito e conferma del commercialista dipendono dalla disponibilità di terzi e sono il percorso critico di tutto ciò che segue M3: attenderli fino all'apertura formale di M4 aggiunge attesa senza aggiungere sicurezza. Anticipare significa soltanto raccogliere e registrare evidenze in sola lettura. Restano vietati prima del rispettivo gate qualunque codice del generatore definitivo, la numerazione reale, il caricamento di XML nel pannello e ogni attività dell'helper.
+
 ### 11.1 M4 - audit autenticato read-only del pannello Aruba
 
 M4 esegue l'audit autenticato in sola lettura, verifica le ipotesi registrate in 10.1.1 e completa i dati fiscali e operativi mancanti senza modificare configurazioni, attivare 2FA, creare documenti o caricare XML.
+
+L'audit avviene sul computer del titolare, nella sessione Aruba che gli appartiene, e non passa mai dalla VPS. L'agente prepara la checklist dei rilievi di 11.1.1, guida la sessione e redige l'evidenza sanitizzata; la navigazione è presidiata dal titolare, che esegue personalmente login, 2FA ed eventuale CAPTCHA. L'assistenza tramite strumenti di controllo del desktop è ammessa soltanto su quella macchina, in sola lettura e sotto supervisione: non è un prerequisito, non entra nella matrice 14.3 e la sua indisponibilità non blocca M4, perché l'alternativa è il rilievo manuale dello stesso elenco. In nessuna forma vengono catturati o trasmessi a HF credenziali, cookie, sessione, OTP o schermate contenenti dati di clienti reali.
 
 #### 11.1.1 Dati da rilevare
 
@@ -1044,6 +1040,7 @@ Non implementare numerazione reale finché non sono stati verificati:
 - ultimo progressivo;
 - cambio anno;
 - data documento;
+- ordine con data locale a fine anno approvato nell'anno successivo: quale anno determina progressivo, sezionale e data documento, e se il raggruppamento giornaliero di §7.3 deve essere spezzato quando attraversa il 31 dicembre;
 - ordine corretto fra prenotazione progressivo, validazione tramite upload e invio;
 - comportamento dopo scarto;
 - riuso o meno del numero;
@@ -1053,7 +1050,9 @@ Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non f
 
 ### 11.4 M4 - prova manuale controllata come gate di uscita
 
-L'ultimo passaggio di M4 è una prova autorizzata con dati sintetici o anonimizzati: caricamento manuale di un XML fiscalmente valido prodotto da M4 e destinato esclusivamente alla prova, lettura della validazione e del riepilogo trasmissibile, verifica del controllo finale `Invia`, arresto prima dell'ultimo clic, readback e rimozione sicura dell'upload pendente. La prova chiude la procedura reale di numerazione e fissa il contratto minimo da cui M5 deriva la pagina sintetica e l'helper. Non caricare un XML valido né trasmettere nulla senza autorizzazione specifica; la prova non esegue alcun invio.
+L'ultimo passaggio di M4 è una prova autorizzata con dati sintetici o anonimizzati: caricamento manuale di un XML fiscalmente valido prodotto da M4 e destinato esclusivamente alla prova, lettura della validazione e del riepilogo trasmissibile, verifica del controllo finale `Invia`, arresto prima dell'ultimo clic, readback e rimozione sicura dell'upload pendente. La prova chiude la procedura reale di numerazione e fissa il contratto minimo da cui M5 deriva la pagina sintetica e l'helper.
+
+L'autorizzazione specifica del titolare è il prerequisito della prova, non un divieto sulla prova: senza quell'autorizzazione non viene caricato alcun XML. Ottenuta l'autorizzazione, il caricamento è ammesso per il solo XML dedicato alla prova e la prova non esegue in nessun caso un invio.
 
 La prova registra:
 
@@ -1093,7 +1092,7 @@ M4-M5 aggiornano questa specifica o producono un ADR breve con:
 
 Modalità:
 
-- **Automatica dopo approvazione**: inviare dopo che il pannello/readback Aruba conferma che l'invio è stato acquisito, mai dopo la sola validazione del file.
+- **Automatica dopo l'esito SdI**: inviare dopo che il readback riporta un esito che conferma l'emissione, mai dopo la sola validazione del file né dopo la sola acquisizione Aruba.
 - **Manuale con approvazione**: nella schermata di approvazione l'utente decide per la singola Scheda.
 
 Anche in modalità automatica, la schermata deve permettere di non inviare per una specifica Scheda prima dell'approvazione.
@@ -1129,13 +1128,21 @@ Consentire reinvio manuale. Un errore e-mail non modifica lo stato fiscale del d
 
 ### 12.4 Momento esatto
 
-La decisione confermata è inviare dopo che Aruba ha acquisito l'invio, non dopo il semplice caricamento/validazione e senza attendere necessariamente la consegna SdI. Rendere questo comportamento visibile, perché uno scarto successivo deve generare un avviso nel pannello.
+La copia parte quando il readback riporta un esito SdI che conferma l'emissione, non alla validazione del file e non alla semplice acquisizione da parte di Aruba. Inviare all'acquisizione anticipa la copia di poco e, in caso di scarto, lascia al cliente il PDF di una fattura che non esiste, recuperabile soltanto a mano: attendere l'esito elimina l'intera classe di errore al costo di un'attesa in genere breve.
 
-Uno scarto successivo non deve inviare automaticamente nuove e-mail al cliente né cancellare l'invio già registrato: richiede gestione manuale secondo la procedura di scarto verificata.
+Confermano l'emissione sia `DELIVERED` sia `NOT_DELIVERED`: la mancata consegna riguarda il recapito al canale del destinatario, non la validità del documento, ed è anzi il caso in cui la copia leggibile è più utile al cliente. Il trigger esclude soltanto `REJECTED` e gli stati ancora incerti, che non autorizzano alcun invio.
+
+Poiché in HF il readback non è continuo (10.6), l'esito può essere osservato soltanto quando l'helper è aperto o dopo un import manuale: la copia in modalità automatica parte quindi alla prima riconciliazione utile, e il pannello mostra da quanto tempo un documento resta senza esito. Se questa latenza diventa un problema operativo, la risposta è la modalità `Manuale`, non l'invio anticipato.
+
+Uno scarto non invia automaticamente nulla al cliente e non cancella un invio già registrato: richiede gestione manuale secondo la procedura di scarto verificata.
 
 ### 12.5 PoC OCI Email Delivery e scelta del trasporto
 
-Eseguire il PoC soltanto in Development, con documento sintetico e destinatario controllato dal titolare:
+Il PoC ha una precondizione eliminatoria, da verificare prima di scrivere qualunque codice o creare qualunque risorsa OCI: il dominio dell'indirizzo mittente del negozio deve essere posseduto dal titolare con accesso ai record DNS. Senza quel controllo, SPF, DKIM e approved sender non sono configurabili e il PoC non è eseguibile.
+
+Se la precondizione non è soddisfatta, HF-O07 si chiude immediatamente su «SMTP esistente»: il PoC, le relative attività di M6 e M7 e i punti di checklist che lo riguardano decadono senza sostituzioni, e la decisione viene registrata nel contratto e-mail. È una verifica da pochi minuti che può cancellare l'intero blocco di lavoro: eseguirla prima di M6, non durante.
+
+Se la precondizione è soddisfatta, eseguire il PoC soltanto in Development, con documento sintetico e destinatario controllato dal titolare:
 
 1. verificare disponibilità, endpoint, quote e regione OCI correnti senza abilitare uso a pagamento;
 2. usare un dominio posseduto e controllato dal titolare, configurare SPF/DKIM e registrare l'indirizzo del negozio come approved sender nella regione scelta;
@@ -1263,7 +1270,6 @@ Non mostrare mai segreti.
 
 - Trigger globale bozza: pagamento/evasione completa.
 - Modalità invio copia: automatica/manuale.
-- Propagazione correzioni Shopify: off di default.
 - Fuso orario: Europe/Rome, non modificabile nella 1.x salvo reale necessità.
 - Profilo fiscale: sola lettura dopo audit, con versione.
 - Numerazione/sezionale: protetta e configurata dopo audit.
@@ -1488,10 +1494,11 @@ Per convenzione, ogni colonna `*_amount` è un `integer` in centesimi di euro; v
 - `id`
 - `username`
 - `password_hash`
+- `can_approve`
 - `created_at`
 - `last_login_at`
 
-Sono ammesse operativamente soltanto le due righe con username `matteo` e `codex`.
+Sono ammesse operativamente soltanto le due righe con username `matteo` e `codex`. `can_approve` è vero soltanto per `matteo` e autorizza le sole transizioni fiscali irreversibili descritte in 17.1; la colonna nasce nella migrazione M4.
 
 #### `sessions`
 
@@ -1671,7 +1678,7 @@ Servono alla riconciliazione, non alla fattura 1:1.
 #### `billing_cases`
 
 - `id`
-- `public_number` (es. HF-000154, non fiscale)
+- `public_number` (progressivo interno non fiscale, senza prefisso; reso come `Scheda 000154`)
 - `customer_id`
 - `local_order_date`
 - `currency`
@@ -1689,6 +1696,8 @@ Servono alla riconciliazione, non alla fattura 1:1.
 - `kind` (`INVOICE`, `CREDIT_NOTE`)
 - `status`
 - `document_type`
+- `series`
+- `fiscal_year`
 - `fiscal_number`
 - `document_date`
 - `fiscal_profile_version`
@@ -1705,6 +1714,10 @@ Servono alla riconciliazione, non alla fattura 1:1.
 - `immutable_snapshot_json`
 - `fiscal_profile_snapshot_json`
 - `created_at`
+
+`series` e `fiscal_year` esistono perché il numero fiscale è unico soltanto dentro il proprio sezionale e anno: senza queste colonne il vincolo di §15.2 non è esprimibile. Valori e formato sono definiti dall'audit di 11.3; le colonne nascono nella migrazione M4 che introduce la numerazione.
+
+L'assenza di sezionale si rappresenta con un valore canonico esplicito, mai con `NULL`: un `UNIQUE` PostgreSQL considera distinti i `NULL`, quindi una serie nulla lascerebbe passare due documenti con lo stesso anno e numero, cioè esattamente la doppia numerazione che §14.5 deve impedire. Un `CHECK` impone che `series`, `fiscal_year` e `fiscal_number` siano tutti valorizzati dagli stati numerati in poi, e l'unicità è un indice unico sulle tre colonne limitato ai documenti già numerati.
 
 #### `document_orders`
 
@@ -1853,10 +1866,11 @@ Gli eventi `CRITICAL` — approvazione, numerazione, override importi, `Non tras
 - Hash XML finale immutabile dopo approvazione.
 - Documento emesso non modificabile.
 - Totale delle note non superiore alla fattura.
-- Numero fiscale univoco nel relativo sezionale/anno, dopo audit.
+- Numero fiscale univoco sulla chiave `(series, fiscal_year, fiscal_number)` fra i documenti numerati, con serie sempre valorizzata e unicità imposta dal DB dopo l'audit.
 - Ogni permesso Aruba è consumabile una sola volta e non sopravvive a mismatch di batch/manifest/documento/revisione/hash o scadenza; durante il Canary ne esiste al massimo uno valido.
 - Nessun segreto in tabelle di log/audit.
 - Nessuna transizione fiscale basata su un valore fornito soltanto dal browser.
+- Approvazione, numerazione e creazione di un permesso di invio soltanto da un account con `can_approve`.
 - Stati provider monotoni salvo riconciliazione esplicita e motivata.
 - `before_json`, `after_json` e metadata audit contengono solo campi allowlisted o riferimenti a snapshot immutabili; niente token o duplicazioni integrali di XML/PDF.
 
@@ -1923,7 +1937,9 @@ Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` dev
 
 ### 17.1 Autenticazione
 
-- Due account amministrativi fissi, `matteo` e `codex`, con gli stessi permessi e identità di audit distinte.
+- Due account amministrativi fissi, `matteo` e `codex`, con identità di audit distinte.
+- I due account condividono tutte le capacità operative tranne le transizioni fiscali irreversibili. Approvazione, numerazione e creazione di un permesso di invio Aruba richiedono `can_approve`, valorizzato soltanto per `matteo`. L'identità di audit registra chi ha agito, non impedisce l'azione: senza questo controllo un agente potrebbe completare da solo la catena che §19.6 classifica come P0. Il controllo è server-side su ogni mutazione, come previsto da 17.6; nascondere il pulsante non è una protezione.
+- `can_approve` è una colonna booleana sui due account fissi, non un sistema di ruoli, e nasce nella migrazione M4 che introduce l'approvazione.
 - Username e password, senza secondo fattore applicativo.
 - Password di almeno 8 e non oltre 128 caratteri, hashate con `node:crypto.scrypt` e verificate con confronto constant-time.
 - Bootstrap unico e atomico: entrambi gli account vengono creati insieme oppure non viene creato nessuno dei due.
@@ -2043,6 +2059,7 @@ Hub-Fatture/
 ├── .github/
 │   ├── workflows/
 │   └── pull_request_template.md
+├── app/
 ├── src/
 ├── migrations/
 ├── tests/
@@ -2074,7 +2091,6 @@ Hub-Fatture/
 ├── compose.yaml
 ├── Dockerfile
 ├── vite.config.ts
-├── .oxlintrc.json
 ├── playwright.config.ts
 ├── mise.toml
 ├── package.json
@@ -2090,6 +2106,8 @@ La directory locale canonica è `/Users/Matteo/Progetti/Hub-Fatture` e contiene 
 5. aggiungere un gate CI/pre-commit che rifiuta chiavi private in chiaro e consente esclusivamente file cifrati `.age` nella directory dedicata.
 
 L'identità privata `age` resta fuori dal repository nel recovery kit del titolare. Le operazioni dal Mac che richiedono SSH usano un `ssh-agent` effimero alimentato dallo stream decifrato, senza creare una copia plaintext persistente. Il file originale `ssh-key-ampere-a1.key` non viene spostato o eliminato senza una richiesta esplicita successiva e non entra mai nell'indice o nella cronologia.
+
+L'albero elenca soltanto ciò che il piano governa: cartelle del framework, output di build, cache e file di configurazione degli strumenti nascono dalle convenzioni dello stack e non vanno aggiunti qui. Un file di configurazione di lint o formato esiste solo quando serve a disattivare o modificare un default osservato: senza quel bisogno, gli strumenti restano sui propri default e nessun file viene creato.
 
 Creare cartelle e documenti soltanto quando hanno contenuto reale. `docs/INDEX.md` diventa il catalogo canonico; `docs/brand/brand-foundation.md` è l'unica fonte dell'identità leggera; `README.md` descrive setup e comandi correnti; `AGENTS.md` contiene soltanto regole operative stabili; `CLAUDE.md` contiene solo `@AGENTS.md`; `CONTRIBUTING.md` spiega il flusso pubblico senza concedere diritti di riuso; `SECURITY.md` indica come segnalare privatamente vulnerabilità senza dati reali. Non mantenere copie parallele del Master Plan.
 
@@ -2578,6 +2596,7 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - Webhook/job rimasto `processing` dopo crash e riacquisito soltanto a lease scaduta.
 - storage e checksum.
 - autenticazione username/password, sessioni e separazione dell'identità di audit dei due account.
+- l'account privo di `can_approve` non può approvare, numerare o creare un permesso di invio, nemmeno chiamando direttamente l'endpoint.
 - impossibilità di preparare o autorizzare un invio senza approvazione e snapshot immutabile.
 - import storico non approvabile prima della riconciliazione Aruba.
 - due browser modificano la stessa bozza/configurazione: la seconda scrittura riceve conflitto.
@@ -2752,6 +2771,13 @@ Output:
 - audit.
 - contratto tecnico corrente per fonti autorevoli, transazioni e concorrenza riusato dalle milestone successive.
 
+Gate:
+
+- due ordini concorrenti dello stesso cliente e giorno producono una sola Scheda, provato da un test d'integrazione su PostgreSQL reale;
+- un ordine non può appartenere a due Schede e l'identità ambigua non accorpa;
+- il cambio del trigger globale non ricrea né modifica bozze esistenti;
+- nessun identificativo visibile contiene la sigla interna.
+
 ### M3 - Connettori Shopify ed eBay
 
 Output:
@@ -2763,6 +2789,13 @@ Output:
 - pagamenti/evasioni;
 - rimborsi;
 - anteprima dell'import storico di 7 giorni in modalità prudenziale; esecuzione reale rimandata al go-live.
+
+Gate:
+
+- versione API e finestra di supporto di ogni connettore fissate nel contratto, senza alias `latest` nel runtime;
+- webhook duplicato, fuori ordine e con firma non valida gestiti senza duplicare ordini o documenti;
+- timeout, risposta oltre limite, risposta non parsabile, schema inatteso, autenticazione scaduta e rate limit tradotti nei codici stabili del registro errori;
+- HF-O04 e HF-O05 chiusi su payload reali o sandbox, con fixture anonimizzate versionate.
 
 ### M4 - Documenti e approvazione
 
@@ -2779,6 +2812,14 @@ Output:
 - comparatore fiscale sorgente/bozza/proiezione XML basato sullo stesso generatore e protetto da revisione/hash;
 - storage immutabile;
 - XML candidato verificato nella prova manuale controllata, con riepilogo e controllo finale osservati, arresto prima dell'ultimo clic e upload pendente rimosso senza invio.
+
+Gate:
+
+- HF-O01 e HF-O02 chiusi, cavallo d'anno incluso; golden test verde sulla fixture anonimizzata dell'XML accettato;
+- numerazione atomica provata sotto concorrenza, con unicità `(series, fiscal_year, fiscal_number)` imposta dal DB e verificata anche in assenza di sezionale, dove la serie usa il valore canonico e non `NULL`;
+- un account privo di `can_approve` non approva e non numera, nemmeno chiamando l'endpoint direttamente; il controllo sui permessi di invio è verificato in M5, dove i permessi nascono;
+- proiezione stale rifiutata al submit e documento approvato non più modificabile;
+- prova manuale controllata eseguita, autorizzata, arrestata prima dell'ultimo clic e ripulita, con evidenza sanitizzata registrata.
 
 ### M5 - Integrazione Aruba e helper locale
 
@@ -2798,6 +2839,15 @@ Output:
 - recovery senza retry cieco dopo stato incerto;
 - parser XML/PDF e output del pannello limitati e testati contro input ostili o eccessivi.
 
+Gate:
+
+- HF-O06 chiuso; helper verde sui due sistemi operativi contro la pagina sintetica;
+- permesso monouso consumato una sola volta: mismatch di batch, manifest, documento, revisione o hash, scadenza, riuso e crash prima del consumo non autorizzano l'ultimo clic;
+- stato incerto fail-closed, con riconciliazione obbligatoria prima di ogni nuovo tentativo;
+- un account privo di `can_approve` non può creare un permesso di invio, nemmeno chiamando l'endpoint direttamente;
+- percorso manuale completo eseguito end-to-end senza helper;
+- nessuna credenziale, cookie, sessione o OTP Aruba raggiunge HF, verificato sui log e sulle evidenze.
+
 ### M6 - Note di credito ed e-mail
 
 Output:
@@ -2805,10 +2855,18 @@ Output:
 - cumulazione rimborsi;
 - TD04;
 - TD04 instradato nello stesso manifest, nelle stesse due modalità helper e nello stesso fallback manuale delle fatture;
-- PoC OCI Email Delivery con dati sintetici, confronto con il provider esistente e decisione documentata;
-- un solo trasporto SMTP canonico configurato;
-- modalità automatica/manuale;
+- precondizione DNS di 12.5 verificata e, solo se soddisfatta, PoC OCI Email Delivery con dati sintetici e confronto con il provider esistente;
+- un solo trasporto SMTP canonico configurato e HF-O07 chiuso con la relativa motivazione;
+- modalità automatica dopo l'esito SdI che conferma l'emissione e modalità manuale;
 - reinvio.
+
+Gate:
+
+- stesso rimborso mai contabilizzato due volte e somma delle note mai superiore alla fattura, imposte da vincoli DB;
+- nessuna nota di credito per fattura scartata o non emessa;
+- rimborso eBay non riconciliabile con certezza blocca in `NEEDS_REVIEW` invece di indovinare;
+- la copia automatica parte soltanto dopo un esito SdI che conferma l'emissione, `DELIVERED` o `NOT_DELIVERED`, e mai su `REJECTED` o stato incerto;
+- un fallimento e-mail non altera lo stato fiscale del documento e resta reinviabile.
 
 ### M7 - Produzione su OCI
 
@@ -2832,6 +2890,14 @@ Output:
 - runbook incidenti e rollback;
 - formato della ricevuta deploy/readback verificato;
 - workflow Production manuale e serializzato, stesso digest per web/worker e readback completo verificato.
+
+Gate:
+
+- preflight che rifiuta il target sbagliato, provato in ambiente non produttivo;
+- ricevuta di deploy con commit, digest, versione schema e configurazione non segreta riletta;
+- rollback all'artefatto precedente eseguito e verificato, non soltanto documentato;
+- restore drill superato da una macchina priva dei segreti della VPS originaria;
+- `ARUBA_SUBMISSION_ENABLED=false` verificato tramite readback dopo il deploy.
 
 Richiede autorizzazione esplicita prima del deploy.
 
@@ -2901,165 +2967,53 @@ Richiede autorizzazioni esplicite e separate per release e uso Production ordina
 
 ---
 
-## 24. Backlog di implementazione sequenziale
+## 24. Sequenza di implementazione
 
-Ogni task deve lasciare un check eseguibile. Evitare scaffolding non usato.
+Questa sezione dà soltanto l'ordine dei lavori dentro ciascuna milestone. Cosa produrre è nei deliverable e nei gate di §23; le condizioni da provare prima di ogni passaggio irreversibile sono nelle checklist di §28; il comportamento richiesto è nelle sezioni di merito. Non ripetere qui requisiti che vivono già altrove: un elenco parallelo entra in drift alla prima modifica.
 
-### Fondazioni
+Ogni task lascia un check eseguibile. Evitare scaffolding non usato: una tabella, una rotta o un modulo nascono nella milestone che li usa davvero.
 
-1. Creare repository GitHub pubblica, `AGENTS.md`, `CLAUDE.md` minimale, README, CONTRIBUTING, `SECURITY.md` e `docs/INDEX.md` iniziali senza duplicare il Master Plan e senza aggiungere `LICENSE`.
-2. Creare il monolite con React e React Router scelti in 14.3, risolvendo in M0 una combinazione stabile in modalità framework con adapter Node e server Production accettati.
-3. Creare `mise.toml` con Node.js e npm risolti in M0, riusarlo in CI/build Docker e configurare TypeScript strict, Oxlint e Oxfmt senza ESLint/Prettier paralleli.
-4. Aggiungere Docker Compose locale con immagini app/PostgreSQL/Caddy fissate per digest nei file Compose.
-5. Aggiungere il livello dati `pg`, il runner compilato e migrazioni SQL append-only con advisory lock e checksum; testare database vuoto, file applicato modificato e snapshot della versione precedente.
-6. Aggiungere configurazione Zod validata all'avvio, revisione ottimistica e readback completo.
-7. Aggiungere health check app e DB.
-8. Aggiungere i test `node:test`, Playwright con Chromium, uno smoke sintetico, trace al primo retry e il comando locale canonico dei gate.
-9. Aggiungere CI per documentazione, `oxlint`, `oxfmt --check`, typecheck, test, Playwright e build; eseguire React Doctor completo nel gate locale/CI e mantenere l'Action ufficiale advisory sulle modifiche delle PR; adattare da CF Ready il required check `codex-review` exact-HEAD con il suo test minimo; configurare protezione `main`, template PR, Dependabot con auto-merge limitato alle patch delle dev dependency dirette, Secret Scanning, Push Protection, CodeQL, Dependency Review e vulnerabilità private; lasciare disabilitati Issues, Discussions e Projects rivolti alla community.
-10. Definire e far approvare la Brand Foundation leggera in `docs/brand/`, creando soltanto marchio SVG, favicon, asset raster richiesti e token minimi.
-11. Configurare `.gitignore` per env, `*.key`, backup, dump, XML, PDF e storage; cifrare e verificare la key VPS in `ops/secrets/oci-vps-access.key.age`, mantenere il plaintext fuori da staged tree e cronologia e aggiungere il gate anti-key-plaintext; verificare link/comandi documentati.
+### Fondazioni - M0/M1
 
-### Autenticazione
+Repository e documenti minimi, poi il monolite React Router sulla toolchain risolta in M0, poi `mise.toml`, TypeScript strict, Oxlint e Oxfmt. Quindi Compose locale con immagini per digest, livello dati `pg` con runner di migrazioni, configurazione validata all'avvio, health check. Infine i gate: `node:test`, Playwright con Chromium, comando locale canonico, CI, protezioni GitHub e `codex-review` adattato da CF Ready. In parallelo la Brand Foundation leggera e la messa in sicurezza della key VPS come blob `age`.
 
-12. Implementare bootstrap atomico degli account fissi `matteo` e `codex`.
-13. Implementare password hash e login con `node:crypto.scrypt` e confronto constant-time.
-14. Implementare sessioni React Router sicure persistite in PostgreSQL.
-15. Imporre password di almeno 8 caratteri e limitare le identità applicative ai due account fissi.
-16. Aggiungere rate limiting e audit login.
-17. Proteggere tutte le route applicative e applicare prima del buffering/parsing limiti condivisi di body, timeout e dimensione risposta, con errori stabili e test `413`/timeout.
+### Autenticazione - M1
 
-### Modello dati
+Bootstrap atomico dei due account fissi, hash e login con `node:crypto`, sessioni React Router persistite in PostgreSQL, rate limiting e audit del login. Poi protezione di tutte le rotte e limiti condivisi di body, timeout e dimensione risposta applicati prima di parsing e buffering.
 
-18. Creare tabelle connessioni, cursori e ricevute webhook senza payload, con lease e recupero dopo crash.
-19. Creare clienti e record sorgente.
-20. Creare ordini, righe, tax ID e pagamenti.
-21. Creare Schede e relazione ordini.
-22. Creare documenti, righe e collegamenti.
-23. Creare rimborsi e vincoli univoci.
-24. Creare submission Aruba e notifiche.
-25. Creare storage objects.
-26. Creare job queue PostgreSQL con lease, retry e recupero idempotente.
-27. Creare audit events distinguendo audit critico atomico e telemetria operativa allowlisted.
+### Modello dati - M2 e successive
 
-### Dominio ordini
+Le tabelle nascono nella milestone che le usa, nell'ordine delle dipendenze: connessioni e cursori, ricevute webhook con lease, clienti, ordini con righe e tax ID, pagamenti, Schede, documenti, rimborsi, submission Aruba e notifiche, storage objects, coda job, audit events. Vincoli di unicità e lock come in §14.5 e §15.2, non aggiunti dopo.
 
-28. Implementare normalizzatore comune minimo.
-29. Implementare validazione EUR.
-30. Implementare trigger pagamento/evasione completa.
-31. Implementare chiave giornaliera Europe/Rome.
-32. Implementare matching cliente prudente.
-33. Implementare raggruppamento atomico.
-34. Implementare annullamento senza documento.
-35. Implementare righe fattura semplificate.
-36. Implementare riconciliazione totale interno.
+### Dominio ordini - M2
 
-### UI operativa
+Normalizzatore comune, validazione EUR, trigger globale, chiave giornaliera `Europe/Rome`, matching cliente prudente, raggruppamento atomico, annullamento senza documento, righe semplificate, riconciliazione del totale interno.
 
-37. Creare catalogo italiano, glossario con termini vietati, fondazione UI operativa, layout e navigazione coerenti con la Brand Foundation.
-38. Creare Dashboard.
-39. Creare lista e dettaglio ordini.
-40. Creare lista e dettaglio Schede.
-41. Creare editor cliente e righe.
-42. Creare flusso `Non trasmettere`.
-43. Creare pagina approvazione con riepilogo della conseguenza, controllo revisione e conferma specifica.
-44. Implementare il comparatore fiscale strutturato sorgente/bozza/proiezione XML, con classificazione delle differenze e blocco delle revisioni stale.
-45. Creare conferma pagamento pendente.
-46. Creare conferma differenza importo con motivazione.
-47. Creare approvazione massiva con esclusioni.
-48. Creare registro attività.
-49. Creare pannello errori e retry.
-50. Verificare accessibilità delle azioni critiche e del comparatore.
+### UI operativa - M2 e M4
 
-### Shopify
+Prima catalogo italiano, glossario e fondazione UI, poi Dashboard, ordini, Schede, editor cliente e righe, `Non trasmettere`. Approvazione, comparatore fiscale, conferme eccezionali e approvazione massiva arrivano in M4 con il generatore che alimentano. Registro attività e pannello errori chiudono la superficie operativa. L'accessibilità delle azioni critiche si verifica insieme alla schermata, non in coda.
 
-51. Registrare/configurare app custom per un solo store e fissare nel contratto la versione GraphQL supportata, la fine supporto e il check dello schema.
-52. Implementare OAuth e storage token.
-53. Verificare scope e protected customer data.
-54. Implementare query ordine completa.
-55. Implementare mapping localized fields su ordine reale.
-56. Implementare fallback tax ID cliente.
-57. Implementare verifica firma webhook sui byte originali e codici errore stabili.
-58. Implementare ingest idempotente, lease e riconciliazione dalla fonte Shopify.
-59. Implementare sync periodico di recupero.
-60. Implementare annullamenti e rimborsi.
-61. Se l'API corrente lo consente in modo semplice e sicuro, implementare la propagazione facoltativa dell'anagrafica cliente; altrimenti documentare il rinvio senza bloccare la 1.x.
+### Connettori - M3
 
-### eBay
+Per Shopify: app custom, versione GraphQL fissata nel contratto, OAuth e storage token, scope e protected customer data, query ordine, mapping dei campi localizzati su ordine reale, fallback tax ID, verifica firma webhook sui byte originali, ingest idempotente con lease, sync periodico di recupero, annullamenti e rimborsi.
 
-62. Configurare Sandbox e Production, registrando endpoint/versione effettivi e deprecazioni applicabili nel contratto.
-63. Implementare OAuth e refresh token.
-64. Implementare `getOrders` incrementale.
-65. Implementare dettaglio `getOrder`.
-66. Mappare `buyer.taxIdentifier` da payload reale.
-67. Implementare pagamenti e fulfillment.
-68. Implementare rimborsi e controllo ambiguità.
-69. Implementare polling con cursore e overlap.
+Per eBay: Sandbox e Production con endpoint e deprecazioni registrati, OAuth con refresh, `getOrders` incrementale, dettaglio `getOrder`, mapping `buyer.taxIdentifier` da payload reale, pagamenti e fulfillment, rimborsi con controllo di ambiguità, polling con cursore e sovrapposizione.
 
 ### Documenti e approvazione - M4
 
-70. Completare audit Aruba read-only e fixture anonimizzata.
-71. Definire profilo fiscale e numerazione versionati.
-72. Implementare con `xmlbuilder2` il generatore XML per fattura.
-73. Implementare con lo stesso builder e profilo il generatore XML TD04.
-74. Validare XML con `xmllint` contro lo schema ufficiale corrente e rifiutare prima del parsing `DOCTYPE`, entità esterne e input oltre i limiti di byte/struttura.
-75. Implementare numerazione atomica dopo audit.
-76. Implementare snapshot immutabile e hash.
-77. Eseguire la prova manuale controllata e autorizzata del candidato XML valido prodotto da M4, osservare riepilogo e controllo finale, arrestarsi prima dell'ultimo clic, rimuovere l'upload pendente e registrarne il readback sanitizzato.
+Audit Aruba e fixture anonimizzata, profilo fiscale e numerazione versionati, generatore XML per fattura e poi per TD04 con lo stesso builder e profilo, validazione `xmllint` con i limiti di parsing di §17.6, numerazione atomica, snapshot immutabile e hash, `can_approve` sulle transizioni irreversibili. Chiude la prova manuale controllata e autorizzata.
 
 ### Integrazione Aruba e helper - M5
 
-78. Implementare pagina Aruba sintetica locale, registro errori e contratto minimo dei locatori semantici derivati dalla prova.
-79. Implementare helper TypeScript/Playwright unico per Windows e macOS, usando Chrome o Edge e un profilo locale dedicato.
-80. Implementare pause umane per login/2FA/CAPTCHA, allowlist hostname e divieto di endpoint privati.
-81. Implementare upload, lettura della validazione e arresto assistito prima dell'ultimo clic.
-82. Implementare manifest e permesso monouso per la modalità automatica, con consumo atomico subito prima del clic finale.
-83. Implementare stato incerto fail-closed, readback/import dei file ufficiali e download PDF dal pannello oppure, solo se HF-O03 lo richiede, attivare il fallback PDFKit già scelto.
-84. Implementare export XML e procedura manuale completa.
+Pagina Aruba sintetica e contratto dei locatori derivati dalla prova, helper unico per Windows e macOS, pause umane e allowlist, upload con lettura della validazione e arresto assistito, manifest e permesso monouso con consumo atomico, stato incerto fail-closed con readback e import dei file ufficiali, export XML e procedura manuale completa.
 
-### Note di credito
+### Note di credito ed e-mail - M6
 
-85. Implementare ingest rimborso completato.
-86. Implementare bozza TD04 cumulativa.
-87. Implementare residuo accreditabile.
-88. Implementare nuova bozza dopo nota già emessa.
-89. Bloccare nota per fattura scartata.
-90. Creare UI note di credito.
+Ingest del rimborso completato, bozza TD04 cumulativa, residuo accreditabile, nuova bozza dopo l'emissione, blocco per fattura scartata, UI dedicata. Sul fronte e-mail: precondizione DNS di §12.5, scelta del trasporto canonico, configurazione Nodemailer, template italiano, modalità automatica dopo l'esito SdI e manuale, stato ed errore con reinvio.
 
-### E-mail
+### Produzione e continuità - M7/M10
 
-91. Eseguire il PoC OCI Email Delivery in Development, confrontarlo con il provider esistente e registrare la scelta di un solo trasporto canonico.
-92. Implementare con Nodemailer l'unica configurazione SMTP del trasporto scelto.
-93. Implementare template italiano semplice.
-94. Implementare modalità automatica/manuale.
-95. Implementare invio post-accettazione Aruba.
-96. Implementare stato, errore e reinvio.
-
-### Produzione e continuità
-
-97. Preparare Compose produzione con `web` e `worker` vincolati allo stesso digest GHCR e PostgreSQL/Caddy ai digest accettati; eseguire l'app come non-root, eliminare privilegi/capability non necessari, isolare PostgreSQL e rendere read-only il filesystem applicativo salvo volumi espliciti.
-98. Preparare Caddyfile.
-99. Configurare Dynu e IP OCI.
-100. Applicare firewall e hardening SSH.
-101. Configurare il GitHub Environment `Production`, reviewer single-owner, restrizioni `main`/tag e secret scoped.
-102. Creare il workflow che costruisce una sola immagine `linux/arm64`, la pubblica su GHCR, genera l'attestazione, esegue la scansione vulnerabilità e restituisce il digest.
-103. Verificare pull per digest e attestazione sulla VPS senza build remota; preservare i digest corrente e precedente.
-104. Abilitare il plugin OCI Compute Instance Monitoring e configurare Notifications Topic e sottoscrizione e-mail.
-105. Configurare e collaudare i quattro allarmi OCI iniziali senza loop o servizi a pagamento.
-106. Creare il dominio APM Always Free e il singolo monitor HTTP esterno ogni 6 minuti, collegandolo al topic esistente.
-107. Implementare rotazione log.
-108. Implementare `scripts/backup.sh` eseguito dal timer sulla VPS, con cifratura streaming `age`, upload OCI tramite Instance Principal, readback e allarme; predisporre il recovery kit locale protetto e la copia periodica sul Mac.
-109. Implementare `scripts/restore.sh` con checksum, target esplicito, conferma distruttiva e divieto di usare il restore come normale rollback schema.
-110. Collaudare restore in ambiente non produttivo senza riusare i segreti della VPS originaria e verificare timer, readback, lifecycle, allarme e copia periodica sul Mac.
-111. Preparare runbook di deploy manuale serializzato, preflight, ricevuta/readback, incidenti e rollback/forward-fix, includendo la verifica mensile di API Shopify/eBay, pannello Aruba, dipendenze, immagini e impostazioni GitHub.
-112. Configurare `.github/release.yml`, immutabilità delle release e workflow di draft con `release-manifest.json`, senza pubblicazione automatica.
-113. Eseguire import iniziale degli ultimi 7 giorni con permessi automatici bloccati, senza documenti approvati o trasmissibili né upload Aruba pendenti.
-114. Confrontare storico con Aruba e marcare già fatturati.
-115. Eseguire il collaudo HF su Chromium/WebKit e dell'helper sintetico su Windows/macOS con Chrome o Edge, quindi compilare il record candidato di readiness 1.0 con prove fresche.
-116. Eseguire l'audit trasversale della release candidate sul codice corrente, registrando soltanto findings attuali con prova, severità e stato.
-117. Correggere tutti i P0/P1 alla causa condivisa, aggiungere i test minimi e aggiornare l'audit; accettare esplicitamente gli eventuali P2/P3 residui.
-118. Eseguire il Canary Production su una sola fattura autorizzata tramite permesso monouso atomico, mantenere il kill switch globale disabilitato e registrarne la ricevuta completa.
-119. Finalizzare il record di readiness dopo il canary.
-120. Chiedere autorizzazioni separate prima del deploy, del singolo invio canary, della pubblicazione della GitHub Release e dell'uso Production ordinario.
+Compose di produzione e Caddyfile, Dynu e IP, firewall e hardening SSH, GitHub Environment `Production`, workflow di build e pubblicazione su GHCR con attestazione e scansione, pull per digest senza build remota. Poi monitoraggio: plugin OCI, Notifications, i quattro allarmi, monitor HTTP esterno, rotazione log. Quindi continuità: `backup.sh` con timer e readback, `restore.sh` con conferma distruttiva, restore drill senza i segreti originari. Infine runbook, `.github/release.yml` con immutabilità, import storico riconciliato, collaudo M8, audit trasversale con correzione delle cause condivise, canary, record di readiness e le quattro autorizzazioni distinte - deploy, singolo invio canary, pubblicazione della release e uso Production ordinario - come richieste da §28 e §31; §26 elenca soltanto le classi di azione per cui fermarsi, non questi quattro consensi.
 
 ---
 
@@ -3075,7 +3029,7 @@ Importare ordini creati o aggiornati nel periodo, inclusi annullamenti e rimbors
 
 Poiché l'app precedente non ha scritto tag, note o numeri nelle piattaforme, gli ordini storici devono partire in:
 
-`VERIFICA_FATTURAZIONE_PREGRESSA`
+`LEGACY_BILLING_REVIEW`
 
 Non renderli approvabili finché non sono confrontati con l'elenco documenti Aruba.
 
@@ -3142,6 +3096,7 @@ Deve fermarsi e chiedere prima di:
 | Comparatore non allineato alla bozza approvata | L'utente vede una proiezione diversa dal documento trasmesso | Stesso generatore server-side, revisione/hash e rigenerazione atomica al submit |
 | Il design system interno cresce in un pacchetto separato | Ritardo e manutenzione senza valore operativo | Un documento, token CSS, componenti locali, un SVG canonico e soli asset richiesti; niente sito, webfont, Storybook o libreria proprietaria |
 | Stato upload/invio incerto | Doppio invio | Manifest/hash, ricerca nel pannello, confronto del file scaricato e nessun retry automatico |
+| L'agente approva o numera un documento | Emissione fiscale senza decisione umana | `can_approve` soltanto su `matteo`, controllo server-side sulle tre transizioni irreversibili e test che lo verifica chiamando l'endpoint direttamente |
 | Canary lascia aperti gli invii | Trasmissione fiscale non autorizzata | Kill switch globale sempre `false` e permesso monouso atomico legato a batch/manifest/documenti/revisioni/hash |
 | Target provider o VPS errato | Scrittura o deploy sull'ambiente sbagliato | Preflight con identità, account, risorsa e readback obbligatori |
 | Documentazione o runbook in drift | Operazioni eseguite con istruzioni obsolete | Fonte canonica, controllo link/comandi e aggiornamento nella stessa PR |
@@ -3176,7 +3131,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 
 ### Materiali che arriveranno dal titolare
 
-- accesso Computer Use al pannello Aruba;
+- disponibilità del titolare per la sessione presidiata di audit del pannello Aruba prevista in 11.1;
 - computer Windows o macOS con Chrome o Edge per il collaudo dell'helper;
 - XML e PDF di una fattura Aruba già accettata;
 - se disponibile, XML/PDF di una nota di credito;
@@ -3299,82 +3254,57 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 
 ### Record di readiness 1.0
 
-Prima del Canary Production creare `docs/runbooks/release-readiness.md` e finalizzarlo dopo il canary. Non duplica le checklist: è il record corrente e collega prove fresche per ogni gate bloccante, registrando almeno:
+Prima del Canary Production creare `docs/runbooks/release-readiness.md` e finalizzarlo dopo il canary. Non è una copia delle checklist precedenti: è il record corrente che, per ogni gate bloccante di §23 e §28, collega la prova fresca che lo chiude.
 
-- commit, tag e versione candidati;
-- stato delle decisioni `HF-O01`-`HF-O09`;
-- profilo fiscale e hash delle fixture XML approvate;
-- configurazioni e versioni API Shopify/eBay effettivamente verificate;
-- finestre di supporto Shopify/eBay e data dell'ultima verifica periodica del pannello Aruba;
-- risultati CI, migrazioni, contract test, E2E, security audit e smoke;
-- matrice Playwright HF Chromium/WebKit e helper Windows/macOS con Chrome/Edge, trace degli eventuali retry e conferma dell'uso esclusivo di dati sintetici;
-- audit trasversale della release candidate con commit revisionato, findings correnti e stato delle correzioni;
-- ambiente/account/risorsa di ogni provider e relativo readback;
-- backup OCI giornaliero e relativo RPO osservato, copia sul Mac, recovery kit verificato, restore drill, immagine di rollback e kill switch;
-- digest GHCR, attestazione di provenienza, approvazione del GitHub Environment `Production` e digest precedente preservato;
-- stato del plugin OCI, allarmi configurati e prova di consegna/risoluzione delle notifiche;
-- stato del monitor HTTP esterno, cadenza, prova di fallimento/ripristino e quota APM verificata;
-- trasporto SMTP scelto e prova di deliverability; se OCI, regione, dominio/sender, quota e stato suppression verificati;
-- versione approvata della Brand Foundation e asset canonici effettivamente usati dalla UI;
-- rischi non bloccanti accettati con condizione di riapertura;
-- autorizzazioni distinte a deploy, release e primi invii Aruba reali;
-- stato della protezione repository pubblica, scansione segreti/codice e canale vulnerabilità privata;
-- stato `codex-review` riferito all'HEAD candidato, blob key `age` verificato e conferma che il plaintext non è mai entrato nell'indice o nella cronologia;
-- baseline container non-root/senza privilegi e risultato della scansione dell'immagine candidata;
-- ricevuta canary, permesso monouso consumato o scaduto senza residui validi, stato finale del kill switch e conferma che commit/digest non siano cambiati prima della release;
-- draft GitHub Release, note verificate, manifest tecnico sanitizzato e stato dell'immutabilità.
+Ogni voce ha la stessa forma: gate, esito osservato, riferimento verificabile - commit, digest, hash, ID remoto, run CI o evidenza - e data. Un gate senza riferimento verificabile è aperto, non chiuso.
+
+Il record riporta inoltre ciò che nessuna checklist esprime: commit, tag e versione candidati; stato di `HF-O01`-`HF-O09`; RPO effettivamente osservato; rischi non bloccanti accettati con la condizione che li riapre; le autorizzazioni distinte già ottenute e quelle ancora mancanti.
 
 Una checklist compilata senza link, hash, ID o risultati osservati non costituisce readiness.
 
 ---
 
-## 29. Prompt operativo iniziale per Codex/Claude Code
+## 29. Prompt operativo per Codex/Claude Code
+
+Il prompt non ripete i vincoli del piano: li richiama. Gli obiettivi sono quelli della prima milestone non completata in §23, non un elenco fissato qui che invecchia a ogni chiusura.
 
 ```text
 Stai implementando Hub Fatture 1.x. Leggi integralmente
 "docs/Hub_Fatture_MASTER_PLAN.md" prima di agire e trattalo come
-fonte di verità. Non iniziare da integrazioni reali o deploy.
-La directory locale è `/Users/Matteo/Progetti/Hub-Fatture`.
+fonte di verità. La directory locale è `/Users/Matteo/Progetti/Hub-Fatture`.
 
-Obiettivo della prima milestone:
-1. creare il monolite TypeScript/Node.js con React e React Router scelti in 14.3 e versioni risolte negli artefatti M0;
-2. aggiungere PostgreSQL, `pg`, SQL parametrizzato e Docker Compose locale con versioni e digest fissati nei file canonici M0;
-3. aggiungere il runner compilato per migrazioni SQL append-only, autenticazione username/password per gli account fissi `matteo` e `codex` con `node:crypto` e sessioni PostgreSQL;
-4. definire la Brand Foundation leggera e i soli asset minimi approvati;
-5. applicare limiti e timeout prima del parsing, registro errori stabile e inventario segreti senza valori;
-6. verificare CI, build, migrazioni, autenticazione ed E2E sintetico;
-7. lasciare un check eseguibile per ogni logica non banale.
+Lavora sulla prima milestone non completata in §23: i suoi deliverable
+sono l'obiettivo, i suoi gate sono la condizione di chiusura. Non
+anticipare milestone successive e non iniziare da integrazioni reali,
+invii o deploy.
 
-Vincoli:
-- la repository GitHub è pubblica ma non open source: non aggiungere `LICENSE` e non inserire dati reali, segreti plaintext o configurazioni sensibili nella storia Git; è ammesso soltanto il blob key `age` previsto;
-- `ssh-key-ampere-a1.key` è una key user-owned per la VPS: durante M0 cifrala con `age` secondo §18.1 e versiona soltanto `ops/secrets/oci-vps-access.key.age`; non inserire mai il plaintext nella storia Git;
-- non aggiungere microservizi, Redis, multi-tenancy, billing o un framework i18n multilingua; centralizza però il copy visibile nel catalogo italiano previsto dalla specifica;
-- non sostituire la matrice 14.3 e non aggiungere Axios, librerie date/form/coda/UI, Jest, un secondo ORM o un secondo client SMTP;
-- non trasformare la Brand Foundation in un design system, sito pubblico, webfont o catalogo di asset speculativi;
-- non introdurre una libreria generica di diff XML: il comparatore futuro deve riusare i modelli strutturati e il generatore canonico;
-- non configurare due trasporti SMTP Production o fallback automatici;
-- non implementare numerazione fiscale reale;
-- non presumere RegimeFiscale, sezionali o campi Aruba;
-- non introdurre Web Services Premium, endpoint Aruba privati o automazione browser sulla VPS;
-- non iniziare l'helper durante M0-M4: prima completare fondazioni, dominio ordini, connettori, documenti, approvazione e XML immutabile;
-- implementare un solo helper Playwright locale per Windows/macOS con Chrome o Edge; login, 2FA e CAPTCHA restano umani e il percorso manuale resta sempre disponibile;
-- non attendere l'audit Aruba per lavorare sulle fondazioni con mock;
-- non usare dati o credenziali reali nei test;
-- non fare deploy o invii reali senza autorizzazione;
-- non trasformare il canary in un'abilitazione globale: usa soltanto il permesso monouso legato al batch, al manifest e ai documenti esatti;
-- non sovrascrivere modifiche non tue;
-- correggere le cause condivise, non i sintomi;
-- usare la soluzione più semplice già offerta dallo stack.
+Vincoli che non puoi rilassare da solo:
+- perimetro §3.1 e §3.2, matrice tecnica §14.3 e scelte native §14.3:
+  niente dipendenze, servizi o tool equivalenti a ciò che è già scelto;
+- niente numerazione fiscale reale e nessun valore fiscale presunto
+  prima di M4: RegimeFiscale, sezionali e campi Aruba si rilevano, non
+  si deducono;
+- nessun dato reale, segreto plaintext o credenziale in repository,
+  test, log o fixture; l'unico blob sensibile ammesso è la key VPS
+  cifrata in `ops/secrets/`;
+- helper Aruba soltanto da M5, soltanto locale e presidiato; login, 2FA
+  e CAPTCHA restano umani e il percorso manuale resta disponibile;
+- approvazione, numerazione e permessi di invio richiedono `can_approve`
+  e restano fuori dalla portata dell'account agente;
+- fermati e chiedi prima di deploy, release, invii Aruba reali,
+  migrazioni distruttive, eliminazione dati, decisioni fiscali non
+  deducibili dai materiali e modifiche materiali al perimetro.
 
-Prima di modificare:
-- ispeziona repository e istruzioni agentiche;
-- proponi un piano breve;
-- segnala eventuali divergenze materiali dalla specifica.
-
-Alla fine:
-- esegui typecheck, test e build;
-- riporta file cambiati, verifiche, rischi e prossimo task;
-- per ogni operazione remota, registra target, ID, readback e rollback senza esporre segreti.
+Metodo:
+- ispeziona repository e istruzioni agentiche, proponi un piano breve e
+  segnala le divergenze materiali dalla specifica prima di modificare;
+- correggi le cause condivise, non i sintomi, e usa la soluzione più
+  semplice già offerta dallo stack;
+- lascia un check eseguibile per ogni logica non banale;
+- chiudi con typecheck, test e build, riportando file cambiati,
+  verifiche, rischi e prossimo task;
+- per ogni operazione remota registra target, ID, readback e rollback
+  senza esporre segreti.
 ```
 
 ---
@@ -3386,12 +3316,12 @@ Questi punti non sono dimenticanze. Sono sospesi intenzionalmente perché dipend
 | ID | Decisione aperta | Blocca | Fonte necessaria | Condizione di chiusura |
 |---|---|---|---|---|
 | HF-O01 | `RegimeFiscale` esatto del cedente | profilo fiscale Production | XML Aruba accettato e/o commercialista | valore registrato nel profilo versionato e golden test verde |
-| HF-O02 | Numerazione, sezionali, cambio anno e gestione scarti | numerazione e invii reali | audit Aruba, documenti reali e conferma fiscale | procedura atomica e casi di scarto approvati |
+| HF-O02 | Numerazione, sezionali, cambio anno, ordini a cavallo d'anno e gestione scarti | numerazione e invii reali | audit Aruba, documenti reali e conferma fiscale | procedura atomica, caso di fine anno e casi di scarto approvati |
 | HF-O03 | PDF ufficiale Aruba o attivazione del fallback PDFKit già selezionato | copia cliente definitiva | download dal pannello Aruba reale | readback PDF verificato o fallback PDFKit approvato |
 | HF-O04 | Mapping campi fiscali Shopify | connettore Shopify completo | query su ordine reale e API corrente | contract fixture anonimizzata e mapper testato |
 | HF-O05 | Forma tax identifier e importi rimborso eBay | connettore eBay completo e TD04 | payload Sandbox/reali e API corrente | fixture, mapper e casi ambigui verificati |
 | HF-O06 | Locatori, pause di autenticazione, limiti, download e stati del pannello Aruba | M5 e Production | audit autenticato, prova controllata e guide correnti | helper sui due sistemi operativi, mapping, fallback manuale e recovery da stato incerto verificati |
-| HF-O07 | Trasporto e limiti SMTP | invio copia cliente | provider e-mail esistente e PoC OCI Email Delivery | un solo trasporto canonico scelto; consegna, errore, suppression e reinvio verificati senza segreti o dati cliente nei log |
+| HF-O07 | Trasporto e limiti SMTP | invio copia cliente | controllo DNS del dominio mittente; solo se presente, provider esistente e PoC OCI Email Delivery | assenza di controllo DNS chiude la decisione su «SMTP esistente» senza PoC; altrimenti un solo trasporto canonico scelto con consegna, errore, suppression e reinvio verificati senza segreti o dati cliente nei log |
 | HF-O08 | Retention fiscale e tecnica definitiva | go-live | commercialista, obblighi applicabili e capacità storage | durate, eccezioni e procedura di cancellazione approvate |
 | HF-O09 | Direzione visiva della Brand Foundation leggera | UI definitiva | due o tre proposte minime coerenti con uso privato e accessibilità | il titolare approva `docs/brand/brand-foundation.md`, SVG canonico e asset richiesti senza ampliare il perimetro |
 
@@ -3401,46 +3331,18 @@ Qualsiasi altra scelta di routine entro i confini della matrice 14.3 è affidata
 
 ## 31. Definition of Done della 1.0
 
-Hub Fatture 1.0 è concluso soltanto quando:
+La 1.0 è conclusa quando ogni gate di §23, ogni checklist di §28 e ogni decisione di §30 sono chiusi con prove osservate e collegate dal record corrente `docs/runbooks/release-readiness.md`. Questa sezione non ripete quelle condizioni: elenca soltanto ciò che nessuna singola milestone può dichiarare da sola.
 
-1. tutti i requisiti `HF-F01`-`HF-F32` sono implementati o esplicitamente riclassificati dal titolare;
-2. M4-M5 sono completate con evidenze correnti e ogni azione remota ha la relativa autorizzazione registrata;
-3. profilo fiscale, numerazione, XML fattura e TD04 derivano da fonti approvate e golden test;
-4. import, raggruppamento, modifiche, comparatore fiscale, approvazione, helper assistito/automatico, fallback manuale, stati SdI, e-mail e note di credito superano l'E2E applicabile;
-5. idempotenza, concorrenza, upload/invio incerto, permesso Aruba monouso e recovery hanno test riproducibili;
-6. nessun dato o segreto plaintext compare in repository, CI, log, fixture o documentazione; la key VPS è archiviata soltanto come blob `age` verificato e il plaintext resta fuori da indice e cronologia;
-7. CI riproduce documentazione, lint, typecheck, test, migrazioni e build sull'ambiente dichiarato;
-8. dipendenze, lockfile, migrazioni e documentazione descrivono lo stesso stato;
-9. backup OCI giornaliero cifrato, copia periodica sul Mac, recovery kit locale protetto, restore drill senza i segreti della VPS originaria e rollback applicativo sono verificati; timer, readback, lifecycle e allarme dimostrano l'RPO reale;
-10. preflight, ricevuta, readback e rollback identificano ogni deploy remoto;
-11. sicurezza dell'autenticazione, firewall, TLS, webhook, token helper, allowlist, limiti body/risposta, timeout, parser XML senza DTD/entità esterne e retention sono verificati;
-12. `AGENTS.md`, README, indice, glossario, Brand Foundation, asset canonici, contratti, evidenze e runbook sono aggiornati senza fonti duplicate;
-13. il record corrente `docs/runbooks/release-readiness.md` collega prove fresche e rischi accettati;
-14. non restano rischi P0/P1, decisioni bloccanti aperte o ordini storici approvabili senza riconciliazione;
-15. il titolare autorizza separatamente deploy Production, singolo invio canary, release `v1.0.0` e uso Production ordinario;
-16. commit/tag, artefatto distribuito e stato live coincidono dopo smoke live autenticato e readback provider;
-17. la repository pubblica ha `main` protetto, `codex-review` required sull'HEAD esatto, workflow da fork senza segreti o esecuzione privilegiata di codice PR, scansioni di sicurezza attive, canale vulnerabilità privato e nessun `LICENSE` non approvato;
-18. installazione vuota e upgrade dallo snapshot della release precedente superano migrazioni e invarianti senza modificare la cronologia applicata;
-19. webhook/job stale, doppio submit, conflitti di revisione e readback Aruba fuori ordine sono recuperabili e coperti da test;
-20. ogni transizione fiscale critica ha audit atomico e ogni stato provider mostrato deriva da conferma/readback o da un'esplicita condizione incerta;
-21. il Canary Production su una sola fattura reale ha chiuso l'intera catena tramite l'helper e un permesso monouso consumato atomicamente, senza abilitare globalmente gli invii, senza P0/P1 o stati incerti; la ricevuta è nel record di readiness e `v1.0.0` usa lo stesso commit e digest verificati;
-22. l'audit trasversale M8 è stato eseguito sul candidato corrente, contiene soltanto findings ancora pertinenti e non lascia P0/P1 aperti;
-23. `react-doctor` è fissato a versione esatta, la scansione completa passa nel check locale/CI bloccante e l'Action ufficiale advisory è fissata a commit completo senza determinare l'esito del gate;
-24. l'immagine `linux/arm64` candidata è costruita una volta, pubblicata su GHCR, attestata, scansionata e distribuita per digest; esegue non-root in una baseline Compose senza privilegi e `web`, `worker`, ricevuta e rollback fanno riferimento all'artefatto esatto;
-25. il GitHub Environment `Production` limita le sorgenti ammesse, protegge i secret e richiede l'approvazione manuale del titolare senza introdurre un terzo ambiente applicativo;
-26. OCI Monitoring e Notifications hanno plugin, topic e quattro allarmi iniziali collaudati, con soglie documentate e nessun servizio a pagamento attivato;
-27. `mise.toml`, manifest e lockfile fissano la toolchain risolta in M0 secondo 14.3, i tipi sono allineati al runtime e la stessa toolchain è osservata sul Mac, in CI e nella build Docker;
-28. Oxlint e Oxfmt sono le sole toolchain lint/formato, hanno versioni esatte e passano `lint`/`format:check` senza mantenere ESLint o Prettier paralleli;
-29. la GitHub Release `v1.0.0` è pubblicata soltanto dopo autorizzazione, è immutabile e collega note verificate e manifest sanitizzato allo stesso commit, digest, schema e rollback superati dal canary;
-30. Dependabot auto-unisce soltanto patch delle dev dependency dirette sulla stessa head verificata, senza auto-approvazione, checkout o esecuzione del codice PR nel contesto privilegiato; la prova end-to-end è osservata sulla prima patch reale idonea o su una base temporanea equivalente coperta dagli stessi gate e poi rimossa, senza alterare i pin di `main` e comunque prima della release Production;
-31. il monitor HTTP OCI osserva dall'esterno Dynu, DNS, TLS, Caddy e `/health` ogni 6 minuti, notifica dopo due fallimenti consecutivi e non espone dati o dettagli interni;
-32. Playwright copre i quattro flussi HF sintetici sulle PR in Chromium, li completa in M8 su Chromium/WebKit e verifica l'helper contro la pagina Aruba sintetica su Windows/macOS con Chrome o Edge, conservando trace solo al primo retry e mai sul Canary Production;
-33. il comparatore fiscale deriva server-side dallo stesso generatore della trasmissione, mostra differenze strutturate per fattura e TD04 e impedisce l'approvazione quando revisione o hash sono stale;
-34. la Brand Foundation leggera approvata è la fonte unica per icona, favicon, palette minima, tipografia, tono e design system interno, senza pacchetto UI separato, Storybook, sito o asset speculativi;
-35. il PoC OCI Email Delivery è documentato e Production usa un solo trasporto SMTP canonico; se è OCI, dominio, SPF/DKIM, approved sender, regione, quota, suppression, consegna e reinvio sono verificati;
-36. manifest e lockfile rispettano la matrice 14.3 e sono la fonte canonica dei pin dopo lo scaffolding; `npm ci` risolve peer dependency e audit, le immagini fissate supportano `linux/arm64` e non sono stati introdotti tool equivalenti o dipendenze sostituibili dalle scelte native registrate;
-37. versioni API e finestre di supporto Shopify/eBay e verifica periodica del pannello Aruba sono correnti e collegate ai contract test dei connettori e dell'helper;
-38. l'helper non gira sulla VPS, non usa endpoint Aruba privati, non acquisisce credenziali/cookie/OTP e si arresta su host, account, DOM, batch o permesso inattesi; il fallback manuale resta documentato e collaudato.
+1. tutti i requisiti `HF-F01`-`HF-F32` ancora attivi sono implementati o esplicitamente riclassificati dal titolare;
+2. `HF-O01`-`HF-O09` sono chiusi ciascuno con la fonte e la condizione di chiusura previste in §30, senza sostituzioni: una decisione priva della sua fonte resta bloccante e non può essere convertita in rischio accettato. L'accettazione con condizione di riapertura riguarda soltanto rischi già classificati come non bloccanti, mai una decisione fiscale;
+3. la catena completa - import, raggruppamento, modifiche, comparatore, approvazione, helper assistito e automatico, fallback manuale, stati SdI, e-mail, note di credito - è stata osservata end-to-end, non provata a pezzi;
+4. profilo fiscale, numerazione, XML fattura e TD04 derivano da fonti approvate e da golden test che falliscono se il profilo cambia involontariamente;
+5. nessun dato reale e nessun segreto plaintext compare in repository, cronologia, CI, log, fixture o documentazione; l'unico blob sensibile ammesso è la key VPS cifrata;
+6. codice, migrazioni, lockfile, documentazione e stato live descrivono lo stesso commit: `/version`, digest distribuito e ricevuta di deploy coincidono dopo uno smoke autenticato;
+7. il Canary Production su una sola fattura reale ha chiuso l'intera catena con un permesso monouso consumato atomicamente, senza abilitare globalmente gli invii e senza P0/P1 o stati remoti irrisolti;
+8. `v1.0.0` è pubblicata sullo stesso commit e digest superati dal canary, dopo autorizzazioni separate per deploy, singolo invio canary, release e uso Production ordinario;
+9. non restano P0/P1 aperti, decisioni bloccanti sospese o ordini storici approvabili senza riconciliazione;
+10. backup, recovery kit, restore drill e rollback applicativo sono stati eseguiti davvero, non soltanto documentati, e l'RPO dichiarato è quello osservato.
 
 Una checklist compilata senza risultati osservati, ID o link alle evidenze non costituisce completamento.
 
