@@ -20,6 +20,9 @@ const optionalCountryCodeSchema = optionalTextSchema.pipe(
     .transform((value) => value.toUpperCase())
     .optional(),
 );
+const postgresTimestampSchema = z.iso
+  .datetime({ offset: true })
+  .refine((value) => !value.startsWith("0000-"), "Timestamp fuori dal dominio PostgreSQL");
 
 export function containsNullByte(value: unknown): boolean {
   if (typeof value === "string") return value.includes("\0");
@@ -54,8 +57,8 @@ export const orderInputSchema = z
     externalOrderId: z.string().trim().min(1),
     externalCustomerId: optionalTextSchema,
     displayNumber: z.string().trim().min(1),
-    createdAt: z.iso.datetime({ offset: true }),
-    updatedAt: z.iso.datetime({ offset: true }),
+    createdAt: postgresTimestampSchema,
+    updatedAt: postgresTimestampSchema,
     currency: z
       .string()
       .trim()
@@ -65,7 +68,7 @@ export const orderInputSchema = z
     shippingAmount: z.string().trim().min(1).default("0.00"),
     paymentStatus: z.enum(["PAID", "PENDING", "REFUNDED"]),
     fulfillmentStatus: z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED"]),
-    cancelledAt: z.iso.datetime({ offset: true }).nullable().default(null),
+    cancelledAt: postgresTimestampSchema.nullable().default(null),
     customer: z.object({
       kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU", "UNKNOWN"]),
       displayName: optionalTextSchema,
@@ -94,7 +97,7 @@ export const orderInputSchema = z
         method: z.string().trim().min(1),
         status: z.enum(["PAID", "PENDING", "REFUNDED"]),
         amount: z.string().trim().min(1),
-        paidAt: z.iso.datetime({ offset: true }).nullable().default(null),
+        paidAt: postgresTimestampSchema.nullable().default(null),
       }),
     ),
   })

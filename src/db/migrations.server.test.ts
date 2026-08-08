@@ -982,6 +982,13 @@ test(
         orders.importOrders([nullByteText], { id: 1, requestId: "test-invalid-null-byte" }),
         (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
       );
+      const invalidTimestamp = structuredClone(fixture[1]);
+      invalidTimestamp.externalOrderId = "ebay-invalid-timestamp";
+      invalidTimestamp.createdAt = "0000-01-01T00:00:00Z";
+      await assert.rejects(
+        orders.importOrders([invalidTimestamp], { id: 1, requestId: "test-invalid-timestamp" }),
+        (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
+      );
       await assert.rejects(
         orders.updateBillingCaseTransmission("1", "Test\0non persistibile", {
           id: 1,
