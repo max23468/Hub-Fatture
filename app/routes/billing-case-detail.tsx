@@ -2,7 +2,7 @@ import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/billing-case-detail";
 
 import { AppShell } from "../components/app-shell";
-import { auditActionLabels } from "../copy.it";
+import { auditActionLabels, paymentStatusLabels } from "../copy.it";
 import { date, dateTime, euros } from "../format";
 import { requireSessionUser } from "../../src/auth.server.ts";
 import { getBillingCase } from "../../src/orders.server.ts";
@@ -44,7 +44,10 @@ export default function BillingCaseDetail() {
                   {String(order.provider) === "SHOPIFY" ? "Shopify" : "eBay"}{" "}
                   {String(order.display_number)}
                 </Link>
-                <span>{euros(String(order.gross_amount))}</span>
+                <span>
+                  {paymentStatusLabels[String(order.payment_status)] ?? "Pagamento da verificare"} ·{" "}
+                  {euros(String(order.gross_amount))}
+                </span>
               </li>
             ))}
           </ul>

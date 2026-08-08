@@ -15,6 +15,7 @@ Sono accettati soltanto importi decimali rappresentabili esattamente in centesim
 - Un raggruppamento già creato non viene ricreato quando cambia il trigger globale. Il cambio rivaluta soltanto ordini ancora privi di raggruppamento.
 - Un singolo ordine non annullato può essere preparato manualmente prima del trigger; l’operazione è idempotente e registrata nell’audit.
 - Un ordine già rimborsato prima della preparazione resta escluso dalla fatturazione anche se è evaso o viene richiesto manualmente.
+- Una preparazione con almeno un pagamento pendente resta `NEEDS_REVIEW` e mostra lo stato del pagamento.
 - Una risincronizzazione aggiorna gli snapshot sorgente ma non sposta un ordine già raggruppato.
 - Ordini e preparazioni leggono la propria anagrafica immutabile; aggiornare il cliente normalizzato non modifica retroattivamente dati già raggruppati.
 - Un aggiornamento con `updated_at_source` meno recente di quello persistito viene ignorato prima di qualsiasi mutazione e conteggiato nel risultato dell’import.

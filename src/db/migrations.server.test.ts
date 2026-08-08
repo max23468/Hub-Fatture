@@ -567,6 +567,29 @@ test(
         orders.forcePrepareOrder(refundedId, { id: 1, requestId: "test-force-refunded" }),
         (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
       );
+      const pendingPayment = structuredClone(fixture[0]);
+      pendingPayment.externalOrderId = "shop-order-pending-payment";
+      pendingPayment.externalCustomerId = "shop-customer-pending-payment";
+      pendingPayment.customer.taxIdentifiers[0].value = "RSSMRA80A01H501W";
+      pendingPayment.paymentStatus = "PENDING";
+      pendingPayment.payments[0].status = "PENDING";
+      pendingPayment.payments[0].paidAt = null;
+      pendingPayment.createdAt = "2026-08-11T08:15:00Z";
+      pendingPayment.updatedAt = "2026-08-11T09:00:00Z";
+      await orders.importOrders([pendingPayment], {
+        id: 1,
+        requestId: "test-pending-payment",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT billing_cases.status
+               FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+               WHERE orders.external_order_id = 'shop-order-pending-payment'`,
+          )
+        ).rows[0].status,
+        "NEEDS_REVIEW",
+      );
       const incompleteCustomer = structuredClone(fixture[0]);
       incompleteCustomer.externalOrderId = "shop-order-incomplete-customer";
       incompleteCustomer.externalCustomerId = "shop-customer-incomplete";

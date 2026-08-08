@@ -25,7 +25,7 @@ interface Actor {
 interface GroupableOrder {
   id: string;
   customerId: string;
-  customerReviewRequired: boolean;
+  reviewRequired: boolean;
   customerSnapshot: Record<string, unknown>;
   localOrderDate: string;
   currency: string;
@@ -103,7 +103,7 @@ async function groupOrder(
     ],
   );
   const desiredStatus =
-    order.customerReviewRequired || existing.rows[0]?.same_customer_snapshot === false
+    order.reviewRequired || existing.rows[0]?.same_customer_snapshot === false
       ? "NEEDS_REVIEW"
       : "READY";
   const billingCase = existing.rows[0]
@@ -202,6 +202,7 @@ async function importOne(
     paymentAmounts,
   );
   const status = triggerStatus(input, trigger);
+  const preparationReviewRequired = identity.reviewRequired || input.paymentStatus !== "PAID";
   const lockKey = `order:${input.provider}:${input.externalAccountId}:${input.externalOrderId}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
 
@@ -281,6 +282,7 @@ async function importOne(
     localOrderDate: localDate,
     customerIdentity: identity.confidence,
     customerReviewRequired: identity.reviewRequired,
+    preparationReviewRequired,
     reviewFingerprint: fingerprint,
   };
   const order = await client.query<{
@@ -417,7 +419,7 @@ async function importOne(
       {
         id: orderId,
         customerId: order.rows[0]!.customer_id,
-        customerReviewRequired: identity.reviewRequired,
+        reviewRequired: preparationReviewRequired,
         customerSnapshot: normalizedSnapshot.customerSnapshot,
         localOrderDate: localDate,
         currency: input.currency,
@@ -500,7 +502,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       cancelled_at: string | null;
     }>(
       `SELECT orders.id, orders.customer_id,
-              (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
+              (orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean AS review_required,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text, orders.currency, orders.payment_status,
               orders.fulfillment_status, orders.cancelled_at
@@ -528,7 +530,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
           {
             id: order.id,
             customerId: order.customer_id,
-            customerReviewRequired: order.review_required,
+            reviewRequired: order.review_required,
             customerSnapshot: order.customer_snapshot,
             localOrderDate: order.local_order_date,
             currency: order.currency,
@@ -566,7 +568,7 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       payment_status: OrderInput["paymentStatus"];
     }>(
       `SELECT orders.id, orders.customer_id, orders.billing_case_id,
-              (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
+              (orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean AS review_required,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text,
               orders.currency, orders.cancelled_at, orders.payment_status
@@ -586,7 +588,7 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       {
         id: current.id,
         customerId: current.customer_id,
-        customerReviewRequired: current.review_required,
+        reviewRequired: current.review_required,
         customerSnapshot: current.customer_snapshot,
         localOrderDate: current.local_order_date,
         currency: current.currency,
