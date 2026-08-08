@@ -184,11 +184,11 @@ test(
       });
 
       const limited = await Promise.all(
-        Array.from({ length: 6 }, (_, index) =>
+        Array.from({ length: 7 }, (_, index) =>
           auth
             .login({
-              username: `intruso-${index}`,
-              password: "password-errata",
+              username: "codex",
+              password: `password-errata-${index}`,
               requestId: `test-rate-limit-${index}`,
             })
             .then(() => null)
@@ -204,7 +204,37 @@ test(
       assert.equal(
         limited.filter((error) => error instanceof AppError && error.code === "AUTH_RATE_LIMITED")
           .length,
-        1,
+        2,
+      );
+      await database.getPool().query(
+        `INSERT INTO sessions (id_hash, user_id, csrf_token_hash, expires_at)
+           SELECT 'scaduta', id, 'scaduta', now() - interval '1 hour' FROM users WHERE username = 'codex'`,
+      );
+      // Il blocco vale solo per i tentativi errati: chi conosce la password non resta fuori.
+      assert.equal(
+        (
+          await auth.login({
+            username: "codex",
+            password: "codex888",
+            requestId: "test-rate-limit-recupero",
+          })
+        ).length,
+        2,
+      );
+      // Un solo evento per episodio: l'audit resta leggibile anche sotto attacco prolungato.
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM audit_events WHERE action = 'LOGIN_RATE_LIMITED'")
+        ).rows[0].count,
+        "1",
+      );
+      // Il login potando le sessioni scadute chiude la retention di 17.7 senza un job dedicato.
+      assert.equal(
+        (await database.getPool().query("SELECT count(*) FROM sessions WHERE id_hash = 'scaduta'"))
+          .rows[0].count,
+        "0",
       );
 
       assert.deepEqual(await settings.updateSetting("example", { enabled: true }, 0), {

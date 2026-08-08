@@ -2,5 +2,10 @@
 	request_body {
 		max_size 32MB
 	}
+	header {
+		Content-Security-Policy "frame-ancestors 'none'"
+		Referrer-Policy same-origin
+		X-Content-Type-Options nosniff
+	}
 	reverse_proxy app:5173
 }

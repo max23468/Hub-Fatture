@@ -20,7 +20,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run db:migrate && npm run start",
+    command: "node scripts/reset-test-db.mjs && npm run db:migrate && npm run start",
     env: {
       ADMIN_BOOTSTRAP_TOKEN: "synthetic-bootstrap-token-for-tests",
       APP_BASE_URL: "http://127.0.0.1:4173",

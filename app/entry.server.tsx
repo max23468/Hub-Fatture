@@ -12,6 +12,12 @@ export default function handleRequest(
   routerContext: EntryContext,
   _loadContext: RouterContextProvider,
 ) {
+  // ponytail: una CSP `script-src` richiede un nonce per lo script di idratazione di React Router;
+  // aggiungerla quando serve, queste tre bastano per clickjacking, sniffing e referrer.
+  responseHeaders.set("Content-Security-Policy", "frame-ancestors 'none'");
+  responseHeaders.set("Referrer-Policy", "same-origin");
+  responseHeaders.set("X-Content-Type-Options", "nosniff");
+
   if (request.method.toUpperCase() === "HEAD") {
     return new Response(null, {
       headers: responseHeaders,

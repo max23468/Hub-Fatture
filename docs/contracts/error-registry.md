@@ -1,12 +1,12 @@
 # Registro errori
 
-La fonte eseguibile è `src/errors.ts`. I codici iniziali coprono autenticazione, conflitti e limiti HTTP; i messaggi provider verranno aggiunti soltanto con i rispettivi connettori.
+La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, che traduce l’errore nello status dichiarato qui invece di lasciarlo degradare a 500. I codici iniziali coprono autenticazione, conflitti e limiti HTTP; i messaggi provider verranno aggiunti soltanto con i rispettivi connettori.
 
 | Codice                     | Categoria             | Retry automatico | Azione                               |
 | -------------------------- | --------------------- | ---------------- | ------------------------------------ |
 | `AUTH_INVALID_CREDENTIALS` | AUTH permanente       | no               | correggere username o password       |
 | `AUTH_PASSWORD_POLICY`     | VALIDATION permanente | no               | usare da 8 a 128 caratteri           |
-| `AUTH_RATE_LIMITED`        | AUTH temporaneo       | no               | attendere la finestra indicata       |
+| `AUTH_RATE_LIMITED`        | AUTH temporaneo       | no               | usare la credenziale corretta        |
 | `AUTH_SETUP_DISABLED`      | CONFLICT permanente   | no               | usare uno degli account esistenti    |
 | `AUTH_INVALID_SETUP_TOKEN` | AUTH permanente       | no               | verificare il secret locale          |
 | `CONFLICT_REVISION`        | CONFLICT              | no               | rileggere e ripetere la modifica     |

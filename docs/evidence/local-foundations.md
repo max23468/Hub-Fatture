@@ -5,12 +5,14 @@ Questo documento descrive capacità e gate delle fondazioni applicative. Evita r
 ## Capacità
 
 - React Router protetto da due account amministrativi nominali e fissi, `matteo` e `codex`.
-- Password con minimo 8 caratteri e hash `scrypt`; session token e CSRF token hashati in PostgreSQL.
+- Password con minimo 8 caratteri e hash `scrypt` con i parametri di costo scritti nell’hash; session token e CSRF token hashati in PostgreSQL, entrambi i cookie `HttpOnly`.
 - Setup iniziale vincolato a token, rate limit login atomico per username, audit e cookie sicuri in Production.
-- Production rifiuta una base URL priva di HTTPS; Caddy applica un limite globale e i form un limite più stretto prima del parsing, con timeout, verifica same-origin e codici errore stabili.
+- Il rate limit respinge soltanto le credenziali errate: la password corretta entra sempre, quindi nessuno può escludere un titolare conoscendo i due username fissi. Ogni episodio di blocco lascia un evento critico, uno solo, e le sessioni scadute vengono potate al login.
+- Production rifiuta una base URL priva di HTTPS; Caddy applica un limite globale e i form un limite più stretto prima del parsing, con timeout, verifica same-origin e codici errore stabili anche senza `Content-Length` dichiarato.
+- Ogni azione passa da un unico traduttore di errori: lo status del registro sopravvive al framework invece di degradare a 500. Le risposte dichiarano `frame-ancestors`, `nosniff` e `Referrer-Policy`.
 - Migrazioni SQL append-only con advisory lock e checksum; rimozione o modifica di file applicati bloccata.
 - Impostazioni con revisione ottimistica e readback completo.
-- Compose locale con PostgreSQL non pubblicato e database test isolato su loopback.
+- Compose locale con PostgreSQL non pubblicato e database test isolato su loopback, azzerato prima di ogni esecuzione E2E.
 - Brand Foundation approvata, temi Sistema/Chiaro/Scuro, token semantici, Lucide, target interattivi minimi e shell responsive.
 - Catalogo italiano, glossario e inventario segreti senza valori.
 

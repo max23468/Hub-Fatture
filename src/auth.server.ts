@@ -14,7 +14,12 @@ const RATE_LIMIT_WINDOW_MINUTES = 15;
 const RATE_LIMIT_ATTEMPTS = 5;
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 128;
-const dummyPasswordHash = hashPassword(randomBytes(32).toString("base64url"));
+
+let dummyPasswordHash: Promise<string> | undefined;
+
+function absentUserHash(): Promise<string> {
+  return (dummyPasswordHash ??= hashPassword(randomBytes(32).toString("base64url")));
+}
 
 interface UserRow {
   id: number;
@@ -36,11 +41,10 @@ function validPassword(value: string): boolean {
   return value.length >= MIN_PASSWORD_LENGTH && value.length <= MAX_PASSWORD_LENGTH;
 }
 
-function cookie(name: string, value: string, maxAge: number, httpOnly: boolean): string {
+// Nessun codice client legge questi cookie: il server rilegge il CSRF e lo stampa nel form.
+function cookie(name: string, value: string, maxAge: number): string {
   const secure = getConfig().APP_ENV === "production" ? "; Secure" : "";
-  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; SameSite=Strict${
-    httpOnly ? "; HttpOnly" : ""
-  }${secure}`;
+  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; SameSite=Strict; HttpOnly${secure}`;
 }
 
 function cookies(request: Request): Map<string, string> {
@@ -131,15 +135,15 @@ export async function login(input: { username: string; password: string; request
       `DELETE FROM login_attempts
        WHERE attempted_at <= now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'`,
     );
+    await client.query("DELETE FROM sessions WHERE expires_at <= now()");
     const recent = await client.query<{ count: string }>(
       `SELECT count(*) FROM login_attempts
        WHERE username = $1 AND successful = false
          AND attempted_at > now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'`,
       [attemptKey],
     );
-    if (Number(recent.rows[0]?.count) >= RATE_LIMIT_ATTEMPTS) {
-      return { error: new AppError("AUTH_RATE_LIMITED", 429) } as const;
-    }
+    const failures = Number(recent.rows[0]?.count);
+    const rateLimited = failures >= RATE_LIMIT_ATTEMPTS;
 
     const users = await client.query<UserRow>("SELECT * FROM users WHERE username = $1", [
       username,
@@ -147,15 +151,32 @@ export async function login(input: { username: string; password: string; request
     const user = users.rows[0];
     const passwordValid = await verifyPassword(
       input.password,
-      user?.password_hash ?? (await dummyPasswordHash),
+      user?.password_hash ?? (await absentUserHash()),
     );
 
     if (!user || !passwordValid) {
+      // La finestra respinge solo i tentativi errati: la credenziale corretta passa sempre,
+      // altrimenti chiunque conosca i due username fissi può escludere il titolare.
+      // ponytail: la serializzazione per username limita già lo scrypt concorrente; se servisse
+      // altro throttling, aggiungere backoff crescente prima di introdurre una dimensione IP.
       await client.query("INSERT INTO login_attempts (username, successful) VALUES ($1, false)", [
         attemptKey,
       ]);
-      await audit(client, "LOGIN_FAILED", user ? String(user.id) : null, input.requestId);
-      return { error: new AppError("AUTH_INVALID_CREDENTIALS", 401) } as const;
+      // Una sola riga per episodio di blocco: l'audit resta osservabile senza crescere sotto attacco.
+      if (!rateLimited || failures === RATE_LIMIT_ATTEMPTS) {
+        await audit(
+          client,
+          rateLimited ? "LOGIN_RATE_LIMITED" : "LOGIN_FAILED",
+          user ? String(user.id) : null,
+          input.requestId,
+          rateLimited ? "CRITICAL" : "OPERATIONAL",
+        );
+      }
+      return {
+        error: rateLimited
+          ? new AppError("AUTH_RATE_LIMITED", 429)
+          : new AppError("AUTH_INVALID_CREDENTIALS", 401),
+      } as const;
     }
 
     await client.query("DELETE FROM sessions WHERE expires_at <= now()");
@@ -176,10 +197,7 @@ export async function login(input: { username: string; password: string; request
     ]);
     await audit(client, "LOGIN_SUCCEEDED", String(user.id), input.requestId);
     return {
-      cookies: [
-        cookie(SESSION_COOKIE, sessionToken, ttl, true),
-        cookie(CSRF_COOKIE, csrfToken, ttl, false),
-      ],
+      cookies: [cookie(SESSION_COOKIE, sessionToken, ttl), cookie(CSRF_COOKIE, csrfToken, ttl)],
     } as const;
   });
 
@@ -210,9 +228,9 @@ export async function logout(request: Request, submittedCsrf: string) {
   const values = cookies(request);
   const sessionToken = values.get(SESSION_COOKIE);
   const csrfToken = values.get(CSRF_COOKIE);
-  if (!sessionToken || !csrfToken || !safeEqual(csrfToken, submittedCsrf)) {
-    throw new AppError("AUTH_INVALID_CREDENTIALS", 403);
-  }
+  // Uscire senza sessione è già il risultato voluto: la pagina scaduta ripulisce i cookie e prosegue.
+  if (!sessionToken || !csrfToken) return;
+  if (!safeEqual(csrfToken, submittedCsrf)) throw new AppError("AUTH_INVALID_CREDENTIALS", 403);
   await withTransaction(async (client) => {
     const result = await client.query<{ user_id: number }>(
       `DELETE FROM sessions
@@ -226,7 +244,7 @@ export async function logout(request: Request, submittedCsrf: string) {
 }
 
 export function clearSessionCookies(): string[] {
-  return [cookie(SESSION_COOKIE, "", 0, true), cookie(CSRF_COOKIE, "", 0, false)];
+  return [cookie(SESSION_COOKIE, "", 0), cookie(CSRF_COOKIE, "", 0)];
 }
 
 export function requestId(request: Request): string {
