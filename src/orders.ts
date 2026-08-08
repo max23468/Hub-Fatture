@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
+
 export const draftTriggerSchema = z.enum(["PAID", "FULFILLED"]);
 export type DraftTrigger = z.infer<typeof draftTriggerSchema>;
 
@@ -70,7 +72,7 @@ export const orderInputSchema = z
         z.object({
           externalLineId: z.string().trim().min(1),
           description: z.string().trim().min(1),
-          quantity: z.number().int().positive(),
+          quantity: z.number().int().positive().max(POSTGRES_INTEGER_MAX),
           grossAmount: z.string().trim().min(1),
           discountAmount: z.string().trim().min(1).default("0.00"),
         }),
@@ -116,7 +118,6 @@ export function customerDisplayName(customer: OrderInput["customer"]): string {
   );
 }
 
-const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const romeDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Europe/Rome",
   year: "numeric",

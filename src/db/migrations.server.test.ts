@@ -512,6 +512,19 @@ test(
       });
       assert.equal(await orders.getOrder("non-numerico"), null);
       assert.equal(await orders.getBillingCase("0"), null);
+      const outOfRangeId = "9223372036854775808";
+      assert.deepEqual(
+        await Promise.all([
+          orders.getOrder(outOfRangeId),
+          orders.getBillingCase(outOfRangeId),
+          orders.forcePrepareOrder(outOfRangeId, { id: 1, requestId: "test-invalid-order-id" }),
+          orders.updateBillingCaseTransmission(outOfRangeId, null, {
+            id: 1,
+            requestId: "test-invalid-case-id",
+          }),
+        ]),
+        [null, null, null, null],
+      );
       assert.equal(typeof (await orders.getOrder("1"))?.local_order_date, "string");
       assert.equal(
         (await database.getPool().query("SELECT count(*) FROM orders")).rows[0].count,
@@ -903,6 +916,16 @@ test(
         orders.importOrders([excessiveDiscount], {
           id: 1,
           requestId: "test-invalid-discount",
+        }),
+        (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
+      );
+      const excessiveQuantity = structuredClone(fixture[1]);
+      excessiveQuantity.externalOrderId = "ebay-invalid-quantity";
+      excessiveQuantity.lines[0].quantity = 2_147_483_648;
+      await assert.rejects(
+        orders.importOrders([excessiveQuantity], {
+          id: 1,
+          requestId: "test-invalid-quantity",
         }),
         (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
       );

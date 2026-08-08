@@ -33,6 +33,16 @@ interface GroupableOrder {
   currency: string;
 }
 
+const POSTGRES_BIGINT_MAX = "9223372036854775807";
+
+function isDatabaseId(id: string) {
+  return (
+    /^[1-9]\d*$/.test(id) &&
+    (id.length < POSTGRES_BIGINT_MAX.length ||
+      (id.length === POSTGRES_BIGINT_MAX.length && id <= POSTGRES_BIGINT_MAX))
+  );
+}
+
 function customerSnapshot(input: OrderInput, identity: ReturnType<typeof customerIdentity>) {
   const canonicalProfile = canonicalCustomerProfile(input);
   return {
@@ -784,7 +794,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
 }
 
 export async function forcePrepareOrder(id: string, actor: Actor) {
-  if (!/^[1-9]\d*$/.test(id)) return null;
+  if (!isDatabaseId(id)) return null;
   return withTransaction(async (client) => {
     await serializeOrderMutations(client);
     const identity = await client.query<{
@@ -847,7 +857,7 @@ export async function updateBillingCaseTransmission(
   reason: string | null,
   actor: Actor,
 ) {
-  if (!/^[1-9]\d*$/.test(id)) return null;
+  if (!isDatabaseId(id)) return null;
   const normalizedReason = reason?.trim() || null;
   if (reason !== null && (!normalizedReason || normalizedReason.length > 500)) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
@@ -1004,7 +1014,7 @@ export async function listOrders(filters: {
 }
 
 export async function getOrder(id: string) {
-  if (!/^[1-9]\d*$/.test(id)) return null;
+  if (!isDatabaseId(id)) return null;
   const order = await getPool().query(
     `SELECT orders.*, orders.local_order_date::text,
             orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' AS customer_name,
@@ -1057,7 +1067,7 @@ export async function listBillingCases() {
 }
 
 export async function getBillingCase(id: string) {
-  if (!/^[1-9]\d*$/.test(id)) return null;
+  if (!isDatabaseId(id)) return null;
   const billingCase = await getPool().query(
     `SELECT billing_cases.*, billing_cases.local_order_date::text,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
