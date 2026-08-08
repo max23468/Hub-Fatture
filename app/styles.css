@@ -1,5 +1,7 @@
+/* I ruoli semantici sono dichiarati una sola volta: `light-dark()` sceglie in base a
+   `color-scheme`, che il tema di sistema imposta da solo e la preferenza manuale forza. */
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   font-family:
     ui-sans-serif,
     system-ui,
@@ -7,23 +9,23 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  --color-bg: #f4f8fa;
-  --color-surface: #ffffff;
-  --color-surface-muted: #eaf2f5;
-  --color-text: #0b2533;
-  --color-text-muted: #536b77;
-  --color-border: #cbd9df;
-  --color-border-strong: #8ba1ac;
-  --color-brand: #064b63;
-  --color-brand-strong: #04384b;
-  --color-primary: #05627d;
-  --color-primary-hover: #044e65;
-  --color-accent: #08a7c2;
-  --color-success: #167a5a;
-  --color-warning: #a35f00;
-  --color-error: #b4232d;
-  --color-focus: #08a7c2;
-  --shadow-overlay: 0 18px 48px rgb(6 37 51 / 18%);
+  --color-bg: light-dark(#f4f8fa, #071722);
+  --color-surface: light-dark(#ffffff, #0b1f2b);
+  --color-surface-muted: light-dark(#eaf2f5, #102936);
+  --color-text: light-dark(#0b2533, #e9f6f8);
+  --color-text-muted: light-dark(#536b77, #9db2bd);
+  --color-border: light-dark(#cbd9df, #28414e);
+  --color-border-strong: light-dark(#8ba1ac, #547080);
+  --color-brand: light-dark(#064b63, #45cbe0);
+  --color-brand-strong: light-dark(#04384b, #03141e);
+  --color-primary: light-dark(#05627d, #087b99);
+  --color-primary-hover: light-dark(#044e65, #0a91b3);
+  --color-accent: light-dark(#08a7c2, #45cbe0);
+  --color-success: light-dark(#167a5a, #55c69c);
+  --color-warning: light-dark(#a35f00, #f4b64c);
+  --color-error: light-dark(#b4232d, #ff737b);
+  --color-focus: light-dark(#08a7c2, #45cbe0);
+  --shadow-overlay: 0 18px 48px light-dark(rgb(6 37 51 / 18%), rgb(0 0 0 / 45%));
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
@@ -38,48 +40,12 @@
   background: var(--color-bg);
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --color-bg: #071722;
-  --color-surface: #0b1f2b;
-  --color-surface-muted: #102936;
-  --color-text: #e9f6f8;
-  --color-text-muted: #9db2bd;
-  --color-border: #28414e;
-  --color-border-strong: #547080;
-  --color-brand: #45cbe0;
-  --color-brand-strong: #03141e;
-  --color-primary: #087b99;
-  --color-primary-hover: #0a91b3;
-  --color-accent: #45cbe0;
-  --color-success: #55c69c;
-  --color-warning: #f4b64c;
-  --color-error: #ff737b;
-  --color-focus: #45cbe0;
-  --shadow-overlay: 0 18px 48px rgb(0 0 0 / 45%);
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) {
-    color-scheme: dark;
-    --color-bg: #071722;
-    --color-surface: #0b1f2b;
-    --color-surface-muted: #102936;
-    --color-text: #e9f6f8;
-    --color-text-muted: #9db2bd;
-    --color-border: #28414e;
-    --color-border-strong: #547080;
-    --color-brand: #45cbe0;
-    --color-brand-strong: #03141e;
-    --color-primary: #087b99;
-    --color-primary-hover: #0a91b3;
-    --color-accent: #45cbe0;
-    --color-success: #55c69c;
-    --color-warning: #f4b64c;
-    --color-error: #ff737b;
-    --color-focus: #45cbe0;
-    --shadow-overlay: 0 18px 48px rgb(0 0 0 / 45%);
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 * {

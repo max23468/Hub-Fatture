@@ -13,14 +13,16 @@ Le immagini dichiarate devono includere `linux/arm64`. Nessun documento duplica 
 
 ## Confini
 
-- Le fixture sono sintetiche e usano esclusivamente domini `.invalid`.
-- Il preflight provider confronta identità attesa e osservata senza ricevere credenziali.
+- Le fixture sono sintetiche e usano esclusivamente domini `.invalid`, verificato da un test.
+- Il preflight provider confronta identità attesa e osservata senza ricevere credenziali e resta fail-closed anche invocato da percorsi con spazi o symlink.
 - Nessun accesso Production, deploy o release è implicato dai gate locali.
 - La repository resta pubblicamente visibile ma proprietaria e non contiene chiavi private in chiaro.
+- Il gate richiede rete per `npm audit` e un PostgreSQL di test raggiungibile: in sua assenza fallisce con un messaggio esplicito e non salta test.
+- `typescript` resta nella chiusura di produzione del lockfile perché `@react-router/node` lo dichiara peer opzionale: è l'unica eccezione ammessa dalla policy toolchain e il layer finale dell'immagine Production deve rimuoverlo.
 
 ## Verifica ripetibile
 
-`npm run check` verifica policy della toolchain, audit, formato, lint, tipi, runner server, test nativi, import, type stripping, React Doctor, build ed E2E. Lo stato corrente è il risultato del comando sull’HEAD esatto, non una ricevuta copiata in questo documento.
+`npm run check` verifica policy della toolchain, audit, formato, lint bloccante dai warning in su, tipi, runner server, test nativi, import, type stripping, React Doctor, build ed E2E. La policy toolchain confronta anche i pin di Node e npm fra manifest, `mise.toml` e `Dockerfile` e rifiuta strumenti di build nella chiusura di produzione. Lo stato corrente è il risultato del comando sull’HEAD esatto, non una ricevuta copiata in questo documento.
 
 Lo smoke containerizzato richiede inoltre:
 

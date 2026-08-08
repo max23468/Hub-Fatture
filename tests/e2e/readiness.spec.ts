@@ -29,12 +29,18 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByText("Nessun dato è ancora disponibile.")).toBeVisible();
 
+  const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const lightBackground = await background();
+
   await page.getByLabel("Apri il menu del profilo").click();
   await page.getByRole("button", { name: "Scuro" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  // I token risolvono con `light-dark()`: l'attributo da solo non prova che il tema cambi.
+  expect(await background()).not.toBe(lightBackground);
 
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await background()).not.toBe(lightBackground);
   await page.getByLabel("Apri il menu del profilo").click();
   await expect(page.getByText("matteo", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Esci" }).click();
@@ -49,4 +55,22 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("button", { name: "Accedi" }).click();
   await page.getByLabel("Apri il menu del profilo").click();
   await expect(page.getByText("codex", { exact: true })).toBeVisible();
+});
+
+test("le mutazioni senza origine valida non raggiungono l’azione", async ({ request }) => {
+  const headers = { origin: "http://attaccante.invalid" };
+
+  // Route risorsa: la guardia applicativa deve rispondere con il codice del registro,
+  // non con un 500 generico.
+  const logout = await request.post("/logout", { form: { csrf: "assente" }, headers });
+  expect(logout.status()).toBe(403);
+  expect(await logout.json()).toMatchObject({ code: "REQUEST_ORIGIN_INVALID" });
+
+  // Route documento: React Router rifiuta la richiesta cross-origin prima dell'azione.
+  const login = await request.post("/login", {
+    form: { username: "matteo", password: "password-matteo" },
+    headers,
+  });
+  expect(login.status()).toBeGreaterThanOrEqual(400);
+  expect(login.status()).toBeLessThan(500);
 });

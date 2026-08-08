@@ -1,8 +1,6 @@
-import { pathToFileURL } from "node:url";
+import { isDirectExecution } from "./direct-execution.mjs";
 
 const CODEX_BOT = "chatgpt-codex-connector[bot]";
-const isDirectExecution =
-  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 // ponytail: 180 s limita cinque PR concorrenti a circa 500 richieste/ora; passare a
 // un'unica query GraphQL se la concorrenza reale cresce oltre questo livello.
 export const CODEX_REVIEW_POLLING = { attempts: 100, intervalMs: 180_000, marginMs: 300_000 };
@@ -372,7 +370,7 @@ async function main() {
   await setStatus(repository, headSha, "error", "Review Codex non conclusa entro cinque ore");
 }
 
-if (process.env.GITHUB_ACTIONS === "true" && isDirectExecution) {
+if (process.env.GITHUB_ACTIONS === "true" && isDirectExecution(import.meta.url)) {
   await main().catch(async (error) => {
     console.error(error);
     const event = JSON.parse(

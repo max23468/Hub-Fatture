@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
     branches: [main]
 
 permissions:
@@ -22,15 +22,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Verifica repository e documentazione
+        # Le guardie su contenuto tracciato vivono in scripts/repository-content.node-test.mjs,
+        # dove il codice di uscita di `git grep` è ispezionabile invece di essere appiattito da `!`.
         run: |
           test -f AGENTS.md
           test -f docs/Hub_Fatture_MASTER_PLAN.md
           test -f ops/secrets/oci-vps-access.key.age
           test ! -e LICENSE
-          test -z "$(git ls-files '*.key')"
-          ! git grep -E 'BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY'
-          ! git grep -E 'Hub-Fatture-Master-Plan\.md|docs/MASTER_PLAN\.md'
           git diff-tree --check --no-commit-id --root -r HEAD
+      - name: Verifica titolo PR in formato Conventional Commit
+        if: github.event_name == 'pull_request'
+        env:
+          PULL_REQUEST_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PULL_REQUEST_TITLE" \
+            | grep -qE '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9 /_-]+\))?!?: .+' \
+            || { echo "Titolo PR non in formato Conventional Commit: $PULL_REQUEST_TITLE"; exit 1; }
       - name: Verifica gate Codex
         run: node --test scripts/codex-review-gate.test.mjs
       - name: Verifica toolchain

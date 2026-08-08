@@ -1392,9 +1392,14 @@ Dipendenze runtime dirette iniziali:
 | `lucide-react` | unica libreria di icone lineari dell’interfaccia |
 | `pg` | driver PostgreSQL |
 | `zod` | configurazione e confini esterni, non modelli duplicati interni |
-| `nodemailer` | unico adapter SMTP, indipendente dal provider scelto in HF-O07 |
-| `xmlbuilder2` | costruzione e parsing XML; il profilo definitivo viene qualificato in M4 |
-| `@shopify/shopify-api` | OAuth, webhook e API Shopify ufficiali |
+
+Dipendenze runtime già scelte ma installate soltanto alla milestone che le usa, per non tenere superficie di supply chain e immagine senza consumatori:
+
+| Pacchetto | Uso ammesso | Installazione |
+|---|---|---|
+| `@shopify/shopify-api` | OAuth, webhook e API Shopify ufficiali | connettori |
+| `xmlbuilder2` | costruzione e parsing XML; il profilo definitivo viene qualificato con i documenti | documenti e approvazione |
+| `nodemailer` | unico adapter SMTP, indipendente dal provider scelto in HF-O07 | notifiche |
 
 Dipendenze di sviluppo dirette iniziali:
 
@@ -1407,7 +1412,7 @@ Dipendenze di sviluppo dirette iniziali:
 | `oxlint`, `oxfmt` | uniche toolchain lint/formato |
 | `react-doctor` | scansione React completa nel comando locale/CI canonico e configurazione condivisa con l'Action advisory |
 | `@types/node`, `@types/react`, `@types/react-dom` | tipi piattaforma allineati al runtime |
-| `@types/pg`, `@types/nodemailer` | tipi driver e SMTP |
+| `@types/pg` | tipi driver PostgreSQL; `@types/nodemailer` entra con `nodemailer` |
 
 `pdfkit` e i relativi tipi sono l'unica dipendenza condizionale già selezionata: non installarli finché HF-O03 non dimostra che Aruba non restituisce un PDF ufficiale utilizzabile. Se servono, usare font incorporati e non aggiungere Chromium al runtime per renderizzare PDF.
 
@@ -2179,7 +2184,7 @@ GitHub Actions è l'unico sistema CI/CD. Un comando locale canonico deve poter e
 | `provider` | contratti Shopify/eBay/Aruba/SMTP | security/data quando applicabile, fixture/contract test e verifica su ambiente non produttivo |
 | `deploy` | migrazioni, immagine o modifiche remote | gate completo, scansione immagine quando applicabile, preflight, backup quando necessario, smoke, readback e rollback |
 
-La CI non esegue deploy automatici su merge. Action di terze parti vanno vincolate a commit completi, con permessi minimi, timeout e `concurrency` appropriata. I workflow di verifica possono cancellare run obsoleti; un deploy Production già avviato non viene cancellato da un nuovo push. Dependabot apre PR verso `main`; major, minor, dipendenze runtime/provider, Docker e GitHub Actions restano sempre deliberati manualmente.
+La CI non esegue deploy automatici su merge. Action di terze parti vanno vincolate a commit completi, con permessi minimi, timeout e `concurrency` appropriata. I workflow di verifica possono cancellare run obsoleti; un deploy Production già avviato non viene cancellato da un nuovo push. Dependabot copre npm, GitHub Actions, Dockerfile e Compose e apre PR verso `main`; major, minor, dipendenze runtime/provider, Docker e GitHub Actions restano sempre deliberati manualmente.
 
 Il required check `codex-review` riusa il contratto già collaudato in CF Ready invece di introdurre un secondo protocollo:
 
@@ -2208,7 +2213,8 @@ Toolchain locale e CI:
 - `mise.toml` fissa Node.js e npm risolti in M0 ed è la fonte canonica usata sul Mac e da GitHub Actions; la build Docker usa la stessa patch Node fissata nell'immagine per digest;
 - un'eventuale Action Mise è fissata a commit completo; non usare Mise per task, segreti o configurazioni di ambiente che appartengono già a npm e al runtime applicativo;
 - `oxlint` e `oxfmt` sono dev dependency a versione esatta e sostituiscono, non affiancano, ESLint e Prettier;
-- `npm run lint`, `npm run format` e `npm run format:check` usano rispettivamente `oxlint .`, `oxfmt --write` e `oxfmt --check`; `format:check` fa parte del gate standard;
+- `npm run lint`, `npm run format` e `npm run format:check` usano rispettivamente `oxlint --deny-warnings .`, `oxfmt --write` e `oxfmt --check`; senza `--deny-warnings` le regole native emettono soltanto warning e il gate non potrebbe fallire; `format:check` fa parte del gate standard;
+- la policy toolchain verifica che i pin di Node e npm coincidano fra `engines`, `packageManager`, `mise.toml` e `Dockerfile`, e che nella chiusura di produzione del lockfile non compaiano strumenti di build;
 - `npm test` usa `node --test`; lo stesso runner esegue i test d'integrazione contro PostgreSQL reale quando la corsia lo richiede;
 - `npm run check` compone i gate locali standard senza introdurre runner o workflow paralleli;
 - partire con le regole native ad alto segnale e senza type-aware linting: `tsc --noEmit` resta la verifica canonica dei tipi; abilitare type-aware solo se copre un difetto reale non intercettato;
@@ -2226,7 +2232,7 @@ L'artefatto Production segue una sola corsia:
 - tag SemVer e SHA sono riferimenti leggibili, ma il digest `sha256` è l'identità canonica usata da deploy, ricevuta e rollback;
 - l'immagine riceve un'attestazione GitHub di provenienza legata al digest; il deploy la verifica prima del pull;
 - nessun segreto o dato reale entra nell'immagine, nei build argument, nei layer o nei metadati;
-- l'immagine applicativa finale esegue come utente non-root, contiene soltanto runtime e file necessari e viene sottoposta a scansione delle vulnerabilità prima del canary; finding critici/alti raggiungibili bloccano il candidato, gli altri richiedono motivazione e condizione di riapertura;
+- l'immagine applicativa finale esegue come utente non-root, contiene soltanto runtime e file necessari e viene sottoposta a scansione delle vulnerabilità prima del canary; `@react-router/node` dichiara `typescript` come peer dependency opzionale, quindi `npm ci --omit=dev` lo installa insieme al binario nativo di piattaforma: il layer finale li rimuove e il gate immagine verifica che nell'artefatto non resti alcun compilatore TypeScript; finding critici/alti raggiungibili bloccano il candidato, gli altri richiedono motivazione e condizione di riapertura;
 - Action di build, push e attestazione sono fissate a commit completi e ricevono soltanto i permessi necessari;
 - la VPS non compila l'applicazione: esegue il pull del digest già verificato e avvia `web` e `worker` dallo stesso artefatto.
 
@@ -2246,7 +2252,7 @@ Baseline GitHub pubblica:
 - release immutabili abilitate, `.github/release.yml` minimale e pubblicazione consentita soltanto nel flusso release autorizzato;
 - auto-merge Dependabot limitato alle patch delle dev dependency dirette, senza checkout o esecuzione della PR nel workflow privilegiato;
 - workflow da fork senza secret, permessi read-only e nessun checkout di codice esterno sotto `pull_request_target`;
-- titoli PR e commit di merge in formato Conventional Commit;
+- titoli PR e commit di merge in formato Conventional Commit, verificati dal gate `Foundation`;
 - nessun `LICENSE` finché il titolare non sceglie esplicitamente di concedere diritti.
 
 ### 18.6 Preflight provider e ricevute
