@@ -49,6 +49,15 @@ export function findPinDrift(pins) {
     .map(([tool, values]) => `${tool}: ${values.map((value) => value ?? "assente").join(" != ")}`);
 }
 
+// Dependabot aggiorna Compose e Dockerfile ma non le immagini dei `services:` nei
+// workflow: senza questo confronto la CI resterebbe indietro in silenzio.
+export function findImageDrift(compose, ci) {
+  const references = (text) =>
+    [...text.matchAll(/image: (postgres:\S+)/g)].map(([, image]) => image);
+  const all = [...references(compose), ...references(ci)];
+  return new Set(all).size === 1 ? [] : [`postgres: ${[...new Set(all)].join(" != ")}`];
+}
+
 export function findProductionBuildTools(lockfile) {
   return Object.entries(lockfile.packages ?? {})
     .filter(([name, node]) => name.startsWith("node_modules/") && !node.dev)
@@ -70,6 +79,10 @@ if (isDirectExecution(import.meta.url)) {
     findRuntimePins(manifest, await read("mise.toml"), await read("Dockerfile")),
   );
   if (drift.length > 0) problems.push(`Pin runtime divergenti: ${drift.join("; ")}`);
+
+  const images = findImageDrift(await read("compose.yaml"), await read(".github/workflows/ci.yml"));
+  if (images.length > 0)
+    problems.push(`Immagini divergenti fra Compose e CI: ${images.join("; ")}`);
 
   const buildTools = findProductionBuildTools(lockfile);
   if (buildTools.length > 0)
