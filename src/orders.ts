@@ -76,6 +76,14 @@ export const orderInputSchema = z.object({
 
 export type OrderInput = z.infer<typeof orderInputSchema>;
 
+export function customerDisplayName(customer: OrderInput["customer"]): string {
+  return (
+    customer.displayName ??
+    customer.companyName ??
+    [customer.firstName, customer.lastName].filter(Boolean).join(" ")
+  );
+}
+
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const romeDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Europe/Rome",
@@ -179,7 +187,7 @@ export function customerIdentity(input: OrderInput): {
   }
 
   const profile = [
-    normalized(input.customer.displayName),
+    normalized(customerDisplayName(input.customer)),
     normalized(address.line1),
     normalized(address.postalCode),
     normalized(address.city),
@@ -206,7 +214,7 @@ export function triggerStatus(
   order: Pick<OrderInput, "cancelledAt" | "paymentStatus" | "fulfillmentStatus">,
   trigger: DraftTrigger,
 ): "CANCELLED_NO_DOCUMENT" | "ELIGIBLE" | "WAITING_FOR_TRIGGER" {
-  if (order.cancelledAt) return "CANCELLED_NO_DOCUMENT";
+  if (order.cancelledAt || order.paymentStatus === "REFUNDED") return "CANCELLED_NO_DOCUMENT";
   if (
     trigger === "PAID" ? order.paymentStatus === "PAID" : order.fulfillmentStatus === "FULFILLED"
   ) {

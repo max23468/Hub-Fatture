@@ -553,6 +553,20 @@ test(
         orders.forcePrepareOrder(cancelledId, { id: 1, requestId: "test-force-cancelled" }),
         (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
       );
+      const refunded = structuredClone(fixture[2]);
+      refunded.externalOrderId = "shop-order-refunded";
+      refunded.paymentStatus = "REFUNDED";
+      refunded.payments = [];
+      await orders.importOrders([refunded], { id: 1, requestId: "test-refunded" });
+      const refundedId = (
+        await database
+          .getPool()
+          .query("SELECT id FROM orders WHERE external_order_id = 'shop-order-refunded'")
+      ).rows[0].id;
+      await assert.rejects(
+        orders.forcePrepareOrder(refundedId, { id: 1, requestId: "test-force-refunded" }),
+        (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
+      );
       const incompleteCustomer = structuredClone(fixture[0]);
       incompleteCustomer.externalOrderId = "shop-order-incomplete-customer";
       incompleteCustomer.externalCustomerId = "shop-customer-incomplete";

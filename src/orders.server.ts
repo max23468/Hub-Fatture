@@ -7,6 +7,7 @@ import { getPool, withTransaction } from "./db/client.server.ts";
 import { AppError } from "./errors.ts";
 import {
   customerIdentity,
+  customerDisplayName,
   decimalToCents,
   draftTriggerSchema,
   localOrderDate,
@@ -33,11 +34,7 @@ interface GroupableOrder {
 function customerSnapshot(input: OrderInput, identity: ReturnType<typeof customerIdentity>) {
   return {
     ...input.customer,
-    displayName:
-      (input.customer.displayName ??
-        input.customer.companyName ??
-        [input.customer.firstName, input.customer.lastName].filter(Boolean).join(" ")) ||
-      "Cliente senza nome",
+    displayName: customerDisplayName(input.customer) || "Cliente senza nome",
     taxIdentifiers: input.customer.taxIdentifiers.map(
       ({ sourceField: _, ...identifier }) => identifier,
     ),
@@ -519,8 +516,13 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
         },
         trigger.data,
       );
-      await client.query("UPDATE orders SET trigger_status = $2 WHERE id = $1", [order.id, status]);
-      if (status === "ELIGIBLE") {
+      const updatedOrder = await client.query(
+        `UPDATE orders SET trigger_status = $2
+         WHERE id = $1 AND billing_case_id IS NULL
+         RETURNING id`,
+        [order.id, status],
+      );
+      if (status === "ELIGIBLE" && updatedOrder.rowCount) {
         await groupOrder(
           client,
           {
@@ -561,12 +563,13 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       local_order_date: string;
       currency: string;
       cancelled_at: string | null;
+      payment_status: OrderInput["paymentStatus"];
     }>(
       `SELECT orders.id, orders.customer_id, orders.billing_case_id,
               (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text,
-              orders.currency, orders.cancelled_at
+              orders.currency, orders.cancelled_at, orders.payment_status
        FROM orders
        WHERE orders.id = $1
        FOR UPDATE OF orders`,
@@ -575,7 +578,9 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
     const current = order.rows[0];
     if (!current) return null;
     if (current.billing_case_id) return current.billing_case_id;
-    if (current.cancelled_at) throw new AppError("ORDER_NOT_PREPARABLE", 409);
+    if (current.cancelled_at || current.payment_status === "REFUNDED") {
+      throw new AppError("ORDER_NOT_PREPARABLE", 409);
+    }
     return groupOrder(
       client,
       {

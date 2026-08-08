@@ -7,7 +7,8 @@ export const errorCatalog = {
   CONFLICT_REVISION: "I dati sono cambiati. Ricarica la pagina e riprova.",
   ORDER_CURRENCY_NOT_SUPPORTED: "Sono ammessi soltanto ordini in euro.",
   ORDER_INVALID_INPUT: "I dati dell’ordine non sono validi.",
-  ORDER_NOT_PREPARABLE: "Un ordine annullato non può essere preparato per la fatturazione.",
+  ORDER_NOT_PREPARABLE:
+    "Un ordine annullato o già rimborsato non può essere preparato per la fatturazione.",
   INVALID_CONTENT_TYPE: "Formato della richiesta non supportato.",
   REQUEST_BODY_TOO_LARGE: "La richiesta supera il limite consentito.",
   REQUEST_ORIGIN_INVALID: "Origine della richiesta non valida.",

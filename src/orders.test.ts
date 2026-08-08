@@ -64,6 +64,13 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
   assert.equal(triggerStatus(base, "PAID"), "ELIGIBLE");
   assert.equal(triggerStatus(base, "FULFILLED"), "WAITING_FOR_TRIGGER");
   assert.equal(
+    triggerStatus(
+      { ...base, paymentStatus: "REFUNDED", fulfillmentStatus: "FULFILLED" },
+      "FULFILLED",
+    ),
+    "CANCELLED_NO_DOCUMENT",
+  );
+  assert.equal(
     triggerStatus({ ...base, cancelledAt: "2026-03-30T10:00:00Z" }, "PAID"),
     "CANCELLED_NO_DOCUMENT",
   );
@@ -156,6 +163,17 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
     },
   };
   assert.equal(customerIdentity(foreignTaxId).matchKey, "tax:ALTRO:FR:12345");
+  const foreignProfileWithoutDisplayName = {
+    ...foreignTaxId,
+    customer: {
+      ...foreignTaxId.customer,
+      displayName: undefined,
+      taxIdentifiers: [],
+      companyName: "Entreprise Exemple",
+    },
+  };
+  assert.equal(customerIdentity(foreignProfileWithoutDisplayName).confidence, "EXACT_PROFILE");
+  assert.equal(customerIdentity(foreignProfileWithoutDisplayName).reviewRequired, false);
   assert.equal(
     customerIdentity({
       ...foreignTaxId,
