@@ -52,7 +52,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     listOrders({
       query: filters.query || undefined,
       provider: filters.provider || undefined,
-      status: filters.status || undefined,
+      status: filters.status || (view === "tutti" && !filters.query ? "ACTIVE" : undefined),
       localDate: filters.localDate || undefined,
       paymentStatus: filters.paymentStatus || undefined,
     }),

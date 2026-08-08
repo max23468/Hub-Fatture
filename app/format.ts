@@ -1,8 +1,12 @@
 const euroFormatter = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" });
-const dateFormatter = new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" });
+const dateFormatter = new Intl.DateTimeFormat("it-IT", {
+  dateStyle: "medium",
+  timeZone: "Europe/Rome",
+});
 const dateTimeFormatter = new Intl.DateTimeFormat("it-IT", {
   dateStyle: "medium",
   timeStyle: "short",
+  timeZone: "Europe/Rome",
 });
 
 export function euros(cents: number | string): string {

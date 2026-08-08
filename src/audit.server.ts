@@ -10,6 +10,7 @@ type AuditAction =
   | "ORDER_GROUPING_FORCED"
   | "ORDER_SOURCE_CONFLICT"
   | "BILLING_CASE_DO_NOT_TRANSMIT"
+  | "BILLING_CASE_REACTIVATED"
   | "ORDER_SOURCE_UPDATED"
   | "ORDER_IMPORTED"
   | "DRAFT_TRIGGER_CHANGED";
@@ -26,7 +27,8 @@ export async function writeAudit(
     metadata?: Partial<{
       billingCaseId: string;
       revisionId: string;
-      reason: "CANCELLED" | "REFUNDED";
+      reason: string;
+      reviewRequired: boolean;
       provider: "SHOPIFY" | "EBAY";
       value: "PAID" | "FULFILLED";
     }>;

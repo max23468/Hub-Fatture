@@ -1,11 +1,13 @@
-import { Link, useLoaderData } from "react-router";
+import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/billing-case-detail";
 
 import { AppShell } from "../components/app-shell";
 import { auditActionLabels, billingCaseStatusLabels, paymentStatusLabels } from "../copy.it";
 import { date, dateTime, euros } from "../format";
-import { requireSessionUser } from "../../src/auth.server.ts";
-import { getBillingCase } from "../../src/orders.server.ts";
+import { assertCsrf, requestId, requireSessionUser } from "../../src/auth.server.ts";
+import { publicError } from "../../src/errors.ts";
+import { readForm } from "../../src/http.server.ts";
+import { getBillingCase, updateBillingCaseTransmission } from "../../src/orders.server.ts";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -14,8 +16,39 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   return { username: user.username, csrfToken: user.csrfToken, billingCase };
 }
 
+export async function action({ request, params }: Route.ActionArgs) {
+  try {
+    const user = await requireSessionUser(request);
+    const form = await readForm(request);
+    assertCsrf(user, form.get("csrf") ?? "");
+    const intent = form.get("intent");
+    if (intent !== "do-not-transmit" && intent !== "reactivate") {
+      return data(
+        { code: "UNKNOWN", message: "Azione non riconosciuta.", status: 400 },
+        { status: 400 },
+      );
+    }
+    const status = await updateBillingCaseTransmission(
+      params.caseId,
+      intent === "reactivate" ? null : (form.get("reason") ?? ""),
+      { id: user.id, requestId: requestId(request) },
+    );
+    if (!status) {
+      return data(
+        { code: "UNKNOWN", message: "Preparazione non trovata.", status: 404 },
+        { status: 404 },
+      );
+    }
+    return redirect(`/ordini/preparazione/${params.caseId}`);
+  } catch (error) {
+    const result = publicError(error);
+    return data(result, { status: result.status });
+  }
+}
+
 export default function BillingCaseDetail() {
   const { username, csrfToken, billingCase } = useLoaderData<typeof loader>();
+  const error = useActionData<typeof action>();
   const total = billingCase.orders.reduce(
     (sum: number, order: Record<string, unknown>) => sum + Number(order.gross_amount),
     0,
@@ -29,6 +62,11 @@ export default function BillingCaseDetail() {
           {billingCase.customer_name} · {date(billingCase.local_order_date)} · {euros(total)}
         </p>
       </div>
+      {error ? (
+        <p className="error" role="alert">
+          {error.message}
+        </p>
+      ) : null}
       {billingCase.status === "NEEDS_REVIEW" ? (
         <p className="warning" role="status">
           Dati incompleti o modificati richiedono una verifica prima di proseguire.
@@ -73,6 +111,27 @@ export default function BillingCaseDetail() {
               <dd>{billingCase.orders.length}</dd>
             </div>
           </dl>
+          {billingCase.status === "DO_NOT_TRANSMIT" ? (
+            <Form method="post" className="section-gap">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="reactivate" />
+              <button className="button button--secondary" type="submit">
+                Riattiva preparazione
+              </button>
+            </Form>
+          ) : ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status) ? (
+            <Form method="post" className="section-gap">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="do-not-transmit" />
+              <label>
+                Motivo
+                <input name="reason" required maxLength={500} />
+              </label>
+              <button className="button button--secondary" type="submit">
+                Non trasmettere
+              </button>
+            </Form>
+          ) : null}
         </section>
       </div>
       {billingCase.revisions.length ? (

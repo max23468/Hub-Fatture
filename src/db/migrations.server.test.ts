@@ -71,12 +71,13 @@ test(
         "006_billing_case_customer_snapshot.sql",
         "007_order_source_revisions.sql",
         "008_invoiced_order_status.sql",
+        "009_unprefixed_billing_case_number.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "8",
+        "9",
       );
       await cleanClient.end();
 
@@ -411,6 +412,7 @@ test(
         "1",
       );
       assert.equal((await orders.listOrders({ paymentStatus: "PENDING" })).length, 1);
+      assert.equal((await orders.listOrders({ query: "shop-order-1001" })).length, 1);
       const waitingOrderId = (
         await database
           .getPool()
@@ -437,6 +439,14 @@ test(
       assert.equal(
         (await database.getPool().query("SELECT count(*) FROM billing_cases")).rows[0].count,
         "2",
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT bool_and(public_number ~ '^[0-9]{6}$') AS valid FROM billing_cases")
+        ).rows[0].valid,
+        true,
       );
       assert.equal(
         (
@@ -499,6 +509,8 @@ test(
         approvedOrder.createdAt = "2026-08-12T08:00:00Z";
         approvedOrder.updatedAt = "2026-08-12T09:00:00Z";
       }
+      approvedGroup[1].paymentStatus = "PENDING";
+      approvedGroup[1].payments[0].status = "PENDING";
       await orders.importOrders(approvedGroup, { id: 1, requestId: "test-approved-group" });
       const approvedCaseId = (
         await database
@@ -511,6 +523,12 @@ test(
         .getPool()
         .query("UPDATE billing_cases SET status = 'APPROVED' WHERE id = $1", [approvedCaseId]);
       approvedGroup[1].lines[0].description = "Descrizione aggiornata dopo l’emissione";
+      approvedGroup[1].paymentStatus = "PAID";
+      approvedGroup[1].payments[0].status = "PAID";
+      approvedGroup[1].total = "130.00";
+      approvedGroup[1].lines[0].grossAmount = "130.00";
+      approvedGroup[1].payments[0].amount = "130.00";
+      approvedGroup[1].customer.displayName = "Cliente modificato dopo l’emissione";
       approvedGroup[1].updatedAt = "2026-08-12T09:30:00Z";
       await orders.importOrders([approvedGroup[1]], {
         id: 1,
@@ -525,6 +543,67 @@ test(
             ])
         ).rows[0].trigger_status,
         "INVOICED",
+      );
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT orders.gross_amount, orders.payment_status,
+                    (SELECT gross_amount FROM order_lines WHERE order_id = orders.id) AS line_amount,
+                    (SELECT amount FROM payments WHERE order_id = orders.id) AS payment_amount,
+                    (SELECT status FROM payments WHERE order_id = orders.id) AS payment_row_status,
+                    customers.display_name
+             FROM orders JOIN customers ON customers.id = orders.customer_id
+             WHERE orders.external_order_id = $1`,
+            [approvedGroup[1].externalOrderId],
+          )
+        ).rows[0],
+        {
+          gross_amount: 7500,
+          payment_status: "PAID",
+          line_amount: 7500,
+          payment_amount: 13000,
+          payment_row_status: "PAID",
+          display_name: "Mario Rossi",
+        },
+      );
+      approvedGroup[1].updatedAt = "2026-08-12T09:45:00Z";
+      await orders.importOrders([approvedGroup[1]], {
+        id: 1,
+        requestId: "test-approved-identical-reimport",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM order_source_revisions
+             JOIN orders ON orders.id = order_source_revisions.order_id
+             WHERE orders.external_order_id = $1`,
+            [approvedGroup[1].externalOrderId],
+          )
+        ).rows[0].count,
+        "1",
+      );
+      approvedGroup[1].payments = [
+        {
+          ...approvedGroup[1].payments[0],
+          externalPaymentId: "replacement-payment",
+          method: "BANK_TRANSFER",
+        },
+      ];
+      approvedGroup[1].updatedAt = "2026-08-12T09:50:00Z";
+      await orders.importOrders([approvedGroup[1]], {
+        id: 1,
+        requestId: "test-approved-replaced-payment",
+      });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT payments.external_payment_id, payments.method, payments.amount
+               FROM payments JOIN orders ON orders.id = payments.order_id
+               WHERE orders.external_order_id = $1`,
+            [approvedGroup[1].externalOrderId],
+          )
+        ).rows,
+        [{ external_payment_id: "replacement-payment", method: "BANK_TRANSFER", amount: 13000 }],
       );
       approvedGroup[0].paymentStatus = "REFUNDED";
       approvedGroup[0].payments[0].status = "REFUNDED";
@@ -571,7 +650,7 @@ test(
       });
       const conflictedCase = (
         await database.getPool().query(
-          `SELECT billing_cases.id, billing_cases.status, customers.review_required
+          `SELECT billing_cases.id, orders.id AS order_id, billing_cases.status, customers.review_required
              FROM billing_cases
              JOIN customers ON customers.id = billing_cases.customer_id
              JOIN orders ON orders.billing_case_id = billing_cases.id
@@ -581,6 +660,18 @@ test(
       assert.equal(conflictedCase.status, "DO_NOT_TRANSMIT");
       assert.equal(conflictedCase.review_required, false);
       assert.equal((await orders.getBillingCase(conflictedCase.id))?.status, "DO_NOT_TRANSMIT");
+      assert.equal(
+        (await orders.listOrders({ status: "ACTIVE" })).some(
+          (order) => order.id === conflictedCase.order_id,
+        ),
+        false,
+      );
+      assert.equal(
+        (await orders.listOrders({ status: "NO_DOCUMENT" })).some(
+          (order) => order.id === conflictedCase.order_id,
+        ),
+        true,
+      );
       const regroupedOrder = (
         await database.getPool().query(
           `SELECT orders.billing_case_id, orders.trigger_status, billing_cases.status
@@ -597,7 +688,7 @@ test(
             .getPool()
             .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_SOURCE_CONFLICT'")
         ).rows[0].count,
-        "3",
+        "4",
       );
       assert.equal(
         (
@@ -637,6 +728,47 @@ test(
       assert.equal(preservedSource.payment_status, "REFUNDED");
       assert.equal(preservedSource.trigger_status, "REFUNDED_BEFORE_ISSUE");
       assert.match(preservedSource.updated_at_source, /^2026-08-08 10:00:00/);
+      const reactivatedPending = structuredClone(sourceChanged);
+      reactivatedPending.paymentStatus = "PENDING";
+      reactivatedPending.fulfillmentStatus = "UNFULFILLED";
+      reactivatedPending.payments[0].status = "PENDING";
+      reactivatedPending.payments[0].paidAt = null;
+      reactivatedPending.updatedAt = "2026-08-08T11:00:00Z";
+      await orders.importOrders([reactivatedPending], {
+        id: 1,
+        requestId: "test-reactivated-pending",
+      });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT billing_case_id, trigger_status,
+                    normalized_snapshot_json ->> 'deferredReviewRequired' AS deferred_review
+               FROM orders WHERE external_order_id = $1`,
+            [reactivatedPending.externalOrderId],
+          )
+        ).rows[0],
+        { billing_case_id: null, trigger_status: "WAITING_FOR_TRIGGER", deferred_review: "true" },
+      );
+      reactivatedPending.paymentStatus = "PAID";
+      reactivatedPending.fulfillmentStatus = "FULFILLED";
+      reactivatedPending.payments[0].status = "PAID";
+      reactivatedPending.payments[0].paidAt = "2026-08-08T12:00:00Z";
+      reactivatedPending.updatedAt = "2026-08-08T12:00:00Z";
+      await orders.importOrders([reactivatedPending], {
+        id: 1,
+        requestId: "test-reactivated-paid",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT billing_cases.status
+               FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+               WHERE orders.external_order_id = $1`,
+            [reactivatedPending.externalOrderId],
+          )
+        ).rows[0].status,
+        "NEEDS_REVIEW",
+      );
       const invalidAmount = structuredClone(fixture[1]);
       invalidAmount.externalOrderId = "ebay-invalid-amount";
       invalidAmount.lines[0].grossAmount = "12.345";
@@ -647,7 +779,9 @@ test(
       const cancelled = structuredClone(fixture[2]);
       cancelled.externalOrderId = "shop-order-cancelled";
       cancelled.cancelledAt = "2026-08-08T11:00:00Z";
+      const pendingBeforeCancelled = (await orders.dashboardSummary()).pending_payments;
       await orders.importOrders([cancelled], { id: 1, requestId: "test-cancelled" });
+      assert.equal((await orders.dashboardSummary()).pending_payments, pendingBeforeCancelled);
       const cancelledId = (
         await database
           .getPool()
@@ -671,6 +805,21 @@ test(
         orders.forcePrepareOrder(refundedId, { id: 1, requestId: "test-force-refunded" }),
         (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
       );
+      refunded.createdAt = "2026-08-09T08:00:00Z";
+      refunded.updatedAt = "2026-08-09T09:00:00Z";
+      await orders.importOrders([refunded], { id: 1, requestId: "test-corrected-created-at" });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT created_at_source = $2::timestamptz AS created_at_matches,
+                    local_order_date::text
+               FROM orders WHERE external_order_id = $1`,
+            [refunded.externalOrderId, refunded.createdAt],
+          )
+        ).rows[0],
+        { created_at_matches: true, local_order_date: "2026-08-09" },
+      );
+      const pendingPaymentsBefore = Number((await orders.dashboardSummary()).pending_payments);
       const pendingPayment = structuredClone(fixture[0]);
       pendingPayment.externalOrderId = "shop-order-pending-payment";
       pendingPayment.externalCustomerId = "shop-customer-pending-payment";
@@ -693,6 +842,10 @@ test(
           )
         ).rows[0].status,
         "NEEDS_REVIEW",
+      );
+      assert.equal(
+        Number((await orders.dashboardSummary()).pending_payments),
+        pendingPaymentsBefore + 1,
       );
       const incompleteCustomer = structuredClone(fixture[0]);
       incompleteCustomer.externalOrderId = "shop-order-incomplete-customer";
@@ -890,6 +1043,408 @@ test(
           )
         ).rows[0],
         { status: "READY", shipping_amount: "500", totals_reconciled: "true" },
+      );
+      const manuallyClosedCaseId = (
+        await database
+          .getPool()
+          .query("SELECT billing_case_id FROM orders WHERE external_order_id = $1", [
+            shipped.externalOrderId,
+          ])
+      ).rows[0].billing_case_id;
+      assert.equal(
+        await orders.updateBillingCaseTransmission(manuallyClosedCaseId, "Già fatturato altrove", {
+          id: 1,
+          requestId: "test-manual-do-not-transmit",
+        }),
+        "DO_NOT_TRANSMIT",
+      );
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT status, do_not_transmit_reason
+             FROM billing_cases WHERE id = $1`,
+            [manuallyClosedCaseId],
+          )
+        ).rows[0],
+        { status: "DO_NOT_TRANSMIT", do_not_transmit_reason: "Già fatturato altrove" },
+      );
+      shipped.lines[0].description = "Descrizione aggiornata mentre la preparazione è chiusa";
+      shipped.updatedAt = "2026-08-16T10:00:00Z";
+      await orders.importOrders([shipped], {
+        id: 1,
+        requestId: "test-manual-do-not-transmit-source-update",
+      });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT billing_cases.id, billing_cases.status, billing_cases.do_not_transmit_reason
+             FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+             WHERE orders.external_order_id = $1`,
+            [shipped.externalOrderId],
+          )
+        ).rows[0],
+        {
+          id: manuallyClosedCaseId,
+          status: "DO_NOT_TRANSMIT",
+          do_not_transmit_reason: "Già fatturato altrove",
+        },
+      );
+      assert.equal(
+        await orders.updateBillingCaseTransmission(manuallyClosedCaseId, null, {
+          id: 1,
+          requestId: "test-manual-reactivation",
+        }),
+        "NEEDS_REVIEW",
+      );
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT status, do_not_transmit_reason,
+                    (SELECT count(*)::int FROM audit_events
+                     WHERE entity_type = 'BILLING_CASE'
+                       AND entity_id = billing_cases.id::text
+                       AND action IN ('BILLING_CASE_DO_NOT_TRANSMIT', 'BILLING_CASE_REACTIVATED'))
+                      AS audit_count
+             FROM billing_cases WHERE id = $1`,
+            [manuallyClosedCaseId],
+          )
+        ).rows[0],
+        { status: "NEEDS_REVIEW", do_not_transmit_reason: null, audit_count: 2 },
+      );
+
+      const reorderedCollections = structuredClone(fixture[0]);
+      reorderedCollections.externalOrderId = "shop-order-reordered-collections";
+      reorderedCollections.externalCustomerId = "shop-customer-reordered-collections";
+      reorderedCollections.customer.taxIdentifiers[0].value = "RSSMRA80A01H501W";
+      reorderedCollections.customer.taxIdentifiers.push({
+        ...reorderedCollections.customer.taxIdentifiers[0],
+        sourceField: "duplicate-source-field",
+      });
+      reorderedCollections.customer.taxIdentifiers.push(
+        { type: "ALTRO", value: "DUPLICATO42", countryCode: "DE", sourceField: "field-de" },
+        { type: "ALTRO", value: "DUPLICATO42", countryCode: "FR", sourceField: "field-fr" },
+      );
+      reorderedCollections.createdAt = "2026-08-17T08:00:00Z";
+      reorderedCollections.updatedAt = "2026-08-17T09:00:00Z";
+      reorderedCollections.lines = [
+        { ...reorderedCollections.lines[0], externalLineId: "line-a", grossAmount: "60.00" },
+        { ...reorderedCollections.lines[0], externalLineId: "line-b", grossAmount: "62.00" },
+      ];
+      reorderedCollections.payments = [
+        { ...reorderedCollections.payments[0], externalPaymentId: "payment-a", amount: "60.00" },
+        { ...reorderedCollections.payments[0], externalPaymentId: "payment-b", amount: "62.00" },
+      ];
+      await orders.importOrders([reorderedCollections], {
+        id: 1,
+        requestId: "test-collection-order-import",
+      });
+      reorderedCollections.lines.reverse();
+      reorderedCollections.payments.reverse();
+      reorderedCollections.payments.forEach(
+        (payment: { paidAt: string | null }) => (payment.paidAt = "2026-08-07T11:00:00+02:00"),
+      );
+      reorderedCollections.updatedAt = "2026-08-17T10:00:00Z";
+      await orders.importOrders([reorderedCollections], {
+        id: 1,
+        requestId: "test-collection-order-reimport",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM order_source_revisions
+             JOIN orders ON orders.id = order_source_revisions.order_id
+             WHERE orders.external_order_id = $1`,
+            [reorderedCollections.externalOrderId],
+          )
+        ).rows[0].count,
+        "0",
+      );
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM order_tax_identifiers
+             JOIN orders ON orders.id = order_tax_identifiers.order_id
+             WHERE orders.external_order_id = $1`,
+            [reorderedCollections.externalOrderId],
+          )
+        ).rows[0].count,
+        "2",
+      );
+      reorderedCollections.cancelledAt = "2026-08-17T12:00:00Z";
+      reorderedCollections.updatedAt = "2026-08-17T11:00:00Z";
+      await orders.importOrders([reorderedCollections], {
+        id: 1,
+        requestId: "test-canonical-cancelled-at",
+      });
+      reorderedCollections.cancelledAt = "2026-08-17T14:00:00+02:00";
+      reorderedCollections.updatedAt = "2026-08-17T12:00:00Z";
+      await orders.importOrders([reorderedCollections], {
+        id: 1,
+        requestId: "test-canonical-cancelled-at-reimport",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM order_source_revisions
+             JOIN orders ON orders.id = order_source_revisions.order_id
+             WHERE orders.external_order_id = $1`,
+            [reorderedCollections.externalOrderId],
+          )
+        ).rows[0].count,
+        "1",
+      );
+
+      const canonicalA = structuredClone(fixture[0]);
+      canonicalA.externalOrderId = "shop-order-tax-order-a";
+      canonicalA.externalCustomerId = "shop-customer-tax-order-a";
+      canonicalA.createdAt = "2026-08-18T08:00:00Z";
+      canonicalA.updatedAt = "2026-08-18T09:00:00Z";
+      canonicalA.customer.kind = "EU";
+      canonicalA.customer.billingAddress.countryCode = "DE";
+      canonicalA.customer.taxIdentifiers = [
+        {
+          type: "PARTITA_IVA",
+          value: "DE123456789",
+          countryCode: "DE",
+          sourceField: "fixture-vat",
+        },
+        {
+          type: "ALTRO",
+          value: "DE-ALT-42",
+          countryCode: "DE",
+          sourceField: "fixture-other",
+        },
+      ];
+      delete canonicalA.customer.billingAddress.province;
+      const canonicalB = structuredClone(canonicalA);
+      canonicalB.externalOrderId = "shop-order-tax-order-b";
+      canonicalB.externalCustomerId = "shop-customer-tax-order-b";
+      canonicalB.customer.taxIdentifiers.reverse();
+      canonicalB.customer.taxIdentifiers.find(
+        (identifier: { type: string }) => identifier.type === "PARTITA_IVA",
+      )!.value = "123456789";
+      canonicalB.customer.phone = "";
+      canonicalB.customer.billingAddress.province = "";
+      await orders.importOrders([canonicalA, canonicalB], {
+        id: 1,
+        requestId: "test-tax-order-grouping",
+      });
+      const canonicalAOrderId = (
+        await database
+          .getPool()
+          .query("SELECT id FROM orders WHERE external_order_id = $1", [canonicalA.externalOrderId])
+      ).rows[0].id;
+      assert.ok(
+        (await orders.listOrders({ query: "DE123456789" })).some(
+          (order: { id: string }) => order.id === canonicalAOrderId,
+        ),
+      );
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT count(DISTINCT billing_case_id)::int AS case_count,
+                    min(billing_cases.status) AS status
+               FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+               WHERE external_order_id IN ($1, $2)`,
+            [canonicalA.externalOrderId, canonicalB.externalOrderId],
+          )
+        ).rows[0],
+        { case_count: 1, status: "READY" },
+      );
+      canonicalA.customer.taxIdentifiers.reverse();
+      canonicalA.customer.phone = "";
+      canonicalA.customer.billingAddress.province = "";
+      canonicalA.updatedAt = "2026-08-18T10:00:00Z";
+      await orders.importOrders([canonicalA], {
+        id: 1,
+        requestId: "test-tax-order-reimport",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM order_source_revisions
+             JOIN orders ON orders.id = order_source_revisions.order_id
+             WHERE orders.external_order_id = $1`,
+            [canonicalA.externalOrderId],
+          )
+        ).rows[0].count,
+        "0",
+      );
+      canonicalA.displayNumber = "#1001-corretto";
+      canonicalA.updatedAt = "2026-08-18T11:00:00Z";
+      await orders.importOrders([canonicalA], {
+        id: 1,
+        requestId: "test-display-number-conflict",
+      });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT count(order_source_revisions.*)::int AS revision_count,
+                    billing_cases.status
+               FROM orders
+               JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+               LEFT JOIN order_source_revisions ON order_source_revisions.order_id = orders.id
+               WHERE orders.external_order_id = $1
+               GROUP BY billing_cases.status`,
+            [canonicalA.externalOrderId],
+          )
+        ).rows[0],
+        { revision_count: 1, status: "NEEDS_REVIEW" },
+      );
+
+      const profileA = structuredClone(fixture[0]);
+      profileA.externalOrderId = "shop-order-profile-a";
+      profileA.externalCustomerId = "shop-customer-profile-a";
+      profileA.createdAt = "2026-08-21T08:00:00Z";
+      profileA.updatedAt = "2026-08-21T09:00:00Z";
+      profileA.customer.kind = "EU";
+      profileA.customer.displayName = "Entreprise Exemple";
+      profileA.customer.billingAddress.line1 = "Rue de Rome 1";
+      profileA.customer.billingAddress.countryCode = "FR";
+      profileA.customer.taxIdentifiers = [];
+      const profileB = structuredClone(profileA);
+      profileB.externalOrderId = "shop-order-profile-b";
+      profileB.externalCustomerId = "shop-customer-profile-b";
+      profileB.customer.displayName = "ENTREPRISE  EXEMPLE";
+      profileB.customer.billingAddress.line1 = "RUE DE  ROME 1";
+      await orders.importOrders([profileA, profileB], {
+        id: 1,
+        requestId: "test-profile-format-grouping",
+      });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT count(DISTINCT billing_case_id)::int AS case_count,
+                    min(billing_cases.status) AS status
+               FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+               WHERE external_order_id IN ($1, $2)`,
+            [profileA.externalOrderId, profileB.externalOrderId],
+          )
+        ).rows[0],
+        { case_count: 1, status: "READY" },
+      );
+      profileA.customer.displayName = "ENTREPRISE  EXEMPLE";
+      profileA.customer.billingAddress.line1 = "RUE DE  ROME 1";
+      profileA.updatedAt = "2026-08-21T10:00:00Z";
+      await orders.importOrders([profileA], {
+        id: 1,
+        requestId: "test-profile-format-reimport",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM order_source_revisions
+             JOIN orders ON orders.id = order_source_revisions.order_id
+             WHERE orders.external_order_id = $1`,
+            [profileA.externalOrderId],
+          )
+        ).rows[0].count,
+        "0",
+      );
+
+      const reviewedA = structuredClone(fixture[0]);
+      reviewedA.externalOrderId = "shop-order-reviewed-a";
+      reviewedA.externalCustomerId = "shop-customer-reviewed-a";
+      reviewedA.createdAt = "2026-08-19T08:00:00Z";
+      reviewedA.updatedAt = "2026-08-19T09:00:00Z";
+      reviewedA.customer.taxIdentifiers[0].value = "RSSMRA80A01H501O";
+      const reviewedB = structuredClone(reviewedA);
+      reviewedB.externalOrderId = "shop-order-reviewed-b";
+      reviewedB.externalCustomerId = "shop-customer-reviewed-b";
+      await orders.importOrders([reviewedA, reviewedB], {
+        id: 1,
+        requestId: "test-reviewed-grouping",
+      });
+      reviewedA.lines[0].description = "Descrizione da verificare";
+      reviewedA.updatedAt = "2026-08-19T10:00:00Z";
+      await orders.importOrders([reviewedA], {
+        id: 1,
+        requestId: "test-reviewed-conflict",
+      });
+      reviewedB.lines[0].description = "Secondo ordine da verificare";
+      reviewedB.updatedAt = "2026-08-19T10:15:00Z";
+      await orders.importOrders([reviewedB], {
+        id: 1,
+        requestId: "test-reviewed-second-conflict",
+      });
+      reviewedB.cancelledAt = "2026-08-19T10:30:00Z";
+      reviewedB.updatedAt = "2026-08-19T10:30:00Z";
+      await orders.importOrders([reviewedB], {
+        id: 1,
+        requestId: "test-reviewed-cancellation",
+      });
+      const recoveredReviewed = (
+        await database.getPool().query(
+          `SELECT orders.billing_case_id, billing_cases.status
+             FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+             WHERE orders.external_order_id = $1`,
+          [reviewedA.externalOrderId],
+        )
+      ).rows[0];
+      assert.equal(recoveredReviewed.status, "NEEDS_REVIEW");
+      reviewedB.cancelledAt = null;
+      reviewedB.customer.taxIdentifiers[0].value = "RSSMRA80A01H501N";
+      reviewedB.updatedAt = "2026-08-19T11:00:00Z";
+      await orders.importOrders([reviewedB], {
+        id: 1,
+        requestId: "test-cancellation-revoked",
+      });
+      const reidentifiedOrder = (
+        await database.getPool().query(
+          `SELECT orders.billing_case_id, orders.trigger_status, orders.customer_id,
+                  billing_cases.customer_id AS case_customer_id, billing_cases.status
+             FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+             WHERE orders.external_order_id = $1`,
+          [reviewedB.externalOrderId],
+        )
+      ).rows[0];
+      assert.notEqual(reidentifiedOrder.billing_case_id, recoveredReviewed.billing_case_id);
+      assert.equal(reidentifiedOrder.trigger_status, "GROUPED");
+      assert.equal(reidentifiedOrder.customer_id, reidentifiedOrder.case_customer_id);
+      assert.equal(reidentifiedOrder.status, "NEEDS_REVIEW");
+      assert.ok(
+        (await orders.getBillingCase(String(reidentifiedOrder.billing_case_id)))!.revisions.length >
+          0,
+      );
+
+      const triggerConcurrentA = structuredClone(fixture[0]);
+      triggerConcurrentA.externalOrderId = "shop-order-trigger-concurrent-a";
+      triggerConcurrentA.externalCustomerId = "shop-customer-trigger-concurrent";
+      triggerConcurrentA.customer.taxIdentifiers[0].value = "RSSMRA80A01H501M";
+      triggerConcurrentA.createdAt = "2026-08-20T08:00:00Z";
+      triggerConcurrentA.updatedAt = "2026-08-20T09:00:00Z";
+      const triggerConcurrentB = structuredClone(triggerConcurrentA);
+      triggerConcurrentB.externalOrderId = "shop-order-trigger-concurrent-b";
+      await orders.importOrders([triggerConcurrentA, triggerConcurrentB], {
+        id: 1,
+        requestId: "test-trigger-concurrent-import",
+      });
+      const triggerConcurrentBId = (
+        await database
+          .getPool()
+          .query("SELECT id FROM orders WHERE external_order_id = $1", [
+            triggerConcurrentB.externalOrderId,
+          ])
+      ).rows[0].id;
+      await Promise.all([
+        orders.setDraftTrigger("PAID", 2, {
+          id: 1,
+          requestId: "test-trigger-concurrent-change",
+        }),
+        orders.forcePrepareOrder(triggerConcurrentBId, {
+          id: 1,
+          requestId: "test-trigger-concurrent-force",
+        }),
+      ]);
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(DISTINCT billing_case_id) FROM orders
+             WHERE external_order_id IN ($1, $2)`,
+            [triggerConcurrentA.externalOrderId, triggerConcurrentB.externalOrderId],
+          )
+        ).rows[0].count,
+        "1",
       );
 
       const concurrentA = structuredClone(fixture[0]);

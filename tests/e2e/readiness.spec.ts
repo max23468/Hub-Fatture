@@ -80,10 +80,15 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "Da fatturare" }).click();
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByRole("cell", { name: "2", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: /^S-/ }).click();
-  await expect(page.getByRole("heading", { name: /^Preparazione fattura S-/ })).toBeVisible();
+  await page.getByRole("link", { name: /^\d{6}$/ }).click();
+  await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione fattura creata")).toBeVisible();
   await expect(page.getByText("BILLING_CASE_CREATED")).toHaveCount(0);
+  await page.getByLabel("Motivo").fill("Ordine di test");
+  await page.getByRole("button", { name: "Non trasmettere" }).click();
+  await expect(page.getByRole("status")).toContainText("Ordine di test");
+  await page.getByRole("button", { name: "Riattiva preparazione" }).click();
+  await expect(page.getByRole("button", { name: "Non trasmettere" })).toBeVisible();
 
   await page.getByRole("link", { name: /^Shopify/ }).click();
   await expect(page.getByText("Pagato", { exact: true })).toBeVisible();
@@ -95,7 +100,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "In attesa" }).click();
   await page.getByRole("link", { name: /#S-1002/ }).click();
   await page.getByRole("button", { name: "Prepara ora" }).click();
-  await expect(page.getByRole("heading", { name: /^Preparazione fattura S-/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione anticipata richiesta")).toBeVisible();
 
   await page.getByRole("link", { name: "Ordini" }).click();
@@ -105,7 +110,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "Da verificare" }).click();
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByRole("cell", { name: "Da verificare", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: /^S-/ }).click();
+  await page.getByRole("link", { name: /^\d{6}$/ }).click();
   await expect(page.getByRole("status")).toContainText("richiedono una verifica");
 
   await page.setViewportSize({ width: 320, height: 720 });

@@ -59,6 +59,7 @@ export const auditActionLabels: Record<string, string> = {
   ORDER_GROUPING_FORCED: "Preparazione anticipata richiesta",
   ORDER_SOURCE_CONFLICT: "Modifica dei dati sorgente da verificare",
   BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
+  BILLING_CASE_REACTIVATED: "Preparazione riattivata",
 };
 
 export const billingCaseStatusLabels: Record<string, string> = {

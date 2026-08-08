@@ -3,89 +3,114 @@ import { z } from "zod";
 export const draftTriggerSchema = z.enum(["PAID", "FULFILLED"]);
 export type DraftTrigger = z.infer<typeof draftTriggerSchema>;
 
-const addressSchema = z.object({
-  line1: z.string().trim().min(1).optional(),
-  line2: z.string().trim().optional(),
-  postalCode: z.string().trim().min(1).optional(),
-  city: z.string().trim().min(1).optional(),
-  province: z.string().trim().optional(),
-  countryCode: z
+const optionalTextSchema = z
+  .string()
+  .trim()
+  .transform((value) => value || undefined)
+  .optional();
+
+const optionalEmailSchema = optionalTextSchema.pipe(z.email().optional());
+const optionalCountryCodeSchema = optionalTextSchema.pipe(
+  z
     .string()
-    .trim()
     .length(2)
     .transform((value) => value.toUpperCase())
     .optional(),
+);
+
+const addressSchema = z.object({
+  line1: optionalTextSchema,
+  line2: optionalTextSchema,
+  postalCode: optionalTextSchema,
+  city: optionalTextSchema,
+  province: optionalTextSchema,
+  countryCode: optionalCountryCodeSchema,
 });
 
 const taxIdentifierSchema = z.object({
   type: z.enum(["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"]),
   value: z.string().trim().min(1),
-  countryCode: z
-    .string()
-    .trim()
-    .length(2)
-    .transform((value) => value.toUpperCase())
-    .optional(),
+  countryCode: optionalCountryCodeSchema,
   sourceField: z.string().trim().min(1),
 });
 
-export const orderInputSchema = z.object({
-  provider: z.enum(["SHOPIFY", "EBAY"]),
-  externalAccountId: z.string().trim().min(1),
-  externalOrderId: z.string().trim().min(1),
-  externalCustomerId: z.string().trim().min(1).optional(),
-  displayNumber: z.string().trim().min(1),
-  createdAt: z.iso.datetime({ offset: true }),
-  updatedAt: z.iso.datetime({ offset: true }),
-  currency: z
-    .string()
-    .trim()
-    .length(3)
-    .transform((value) => value.toUpperCase()),
-  total: z.string().trim().min(1),
-  shippingAmount: z.string().trim().min(1).default("0.00"),
-  paymentStatus: z.enum(["PAID", "PENDING", "REFUNDED"]),
-  fulfillmentStatus: z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED"]),
-  cancelledAt: z.iso.datetime({ offset: true }).nullable().default(null),
-  customer: z.object({
-    kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU", "UNKNOWN"]),
-    displayName: z.string().trim().min(1).optional(),
-    firstName: z.string().trim().optional(),
-    lastName: z.string().trim().optional(),
-    companyName: z.string().trim().optional(),
-    email: z.email().optional(),
-    phone: z.string().trim().optional(),
-    billingAddress: addressSchema.default({}),
-    taxIdentifiers: z.array(taxIdentifierSchema).default([]),
-  }),
-  lines: z
-    .array(
-      z.object({
-        externalLineId: z.string().trim().min(1),
-        description: z.string().trim().min(1),
-        quantity: z.number().int().positive(),
-        grossAmount: z.string().trim().min(1),
-        discountAmount: z.string().trim().min(1).default("0.00"),
-      }),
-    )
-    .min(1),
-  payments: z.array(
-    z.object({
-      externalPaymentId: z.string().trim().min(1),
-      method: z.string().trim().min(1),
-      status: z.enum(["PAID", "PENDING", "REFUNDED"]),
-      amount: z.string().trim().min(1),
-      paidAt: z.iso.datetime({ offset: true }).nullable().default(null),
+export const orderInputSchema = z
+  .object({
+    provider: z.enum(["SHOPIFY", "EBAY"]),
+    externalAccountId: z.string().trim().min(1),
+    externalOrderId: z.string().trim().min(1),
+    externalCustomerId: optionalTextSchema,
+    displayNumber: z.string().trim().min(1),
+    createdAt: z.iso.datetime({ offset: true }),
+    updatedAt: z.iso.datetime({ offset: true }),
+    currency: z
+      .string()
+      .trim()
+      .length(3)
+      .transform((value) => value.toUpperCase()),
+    total: z.string().trim().min(1),
+    shippingAmount: z.string().trim().min(1).default("0.00"),
+    paymentStatus: z.enum(["PAID", "PENDING", "REFUNDED"]),
+    fulfillmentStatus: z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED"]),
+    cancelledAt: z.iso.datetime({ offset: true }).nullable().default(null),
+    customer: z.object({
+      kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU", "UNKNOWN"]),
+      displayName: optionalTextSchema,
+      firstName: optionalTextSchema,
+      lastName: optionalTextSchema,
+      companyName: optionalTextSchema,
+      email: optionalEmailSchema,
+      phone: optionalTextSchema,
+      billingAddress: addressSchema.default({}),
+      taxIdentifiers: z.array(taxIdentifierSchema).default([]),
     }),
-  ),
-});
+    lines: z
+      .array(
+        z.object({
+          externalLineId: z.string().trim().min(1),
+          description: z.string().trim().min(1),
+          quantity: z.number().int().positive(),
+          grossAmount: z.string().trim().min(1),
+          discountAmount: z.string().trim().min(1).default("0.00"),
+        }),
+      )
+      .min(1),
+    payments: z.array(
+      z.object({
+        externalPaymentId: z.string().trim().min(1),
+        method: z.string().trim().min(1),
+        status: z.enum(["PAID", "PENDING", "REFUNDED"]),
+        amount: z.string().trim().min(1),
+        paidAt: z.iso.datetime({ offset: true }).nullable().default(null),
+      }),
+    ),
+  })
+  .superRefine((order, context) => {
+    const collections = [
+      ["lines", order.lines.map((line) => line.externalLineId)],
+      ["payments", order.payments.map((payment) => payment.externalPaymentId)],
+    ] as const;
+    for (const [path, identifiers] of collections) {
+      const seen = new Set<string>();
+      identifiers.forEach((identifier, index) => {
+        if (seen.has(identifier)) {
+          context.addIssue({
+            code: "custom",
+            path: [path, index],
+            message: "Identificativo duplicato",
+          });
+        }
+        seen.add(identifier);
+      });
+    }
+  });
 
 export type OrderInput = z.infer<typeof orderInputSchema>;
 
 export function customerDisplayName(customer: OrderInput["customer"]): string {
   return (
-    customer.displayName ??
-    customer.companyName ??
+    customer.displayName ||
+    customer.companyName ||
     [customer.firstName, customer.lastName].filter(Boolean).join(" ")
   );
 }
@@ -127,9 +152,98 @@ function normalizedTaxId(value: string): string {
     .replace(/[^A-Z0-9]/g, "");
 }
 
-function validTaxId(type: OrderInput["customer"]["taxIdentifiers"][number]["type"], value: string) {
-  if (type === "CODICE_FISCALE") return /^[A-Z0-9]{16}$/.test(value);
-  if (type === "PARTITA_IVA") return /^\d{11}$/.test(value);
+function requiresItalianTaxFormat(
+  input: OrderInput,
+  identifier: OrderInput["customer"]["taxIdentifiers"][number],
+) {
+  const countryCode = identifier.countryCode ?? input.customer.billingAddress.countryCode;
+  if (identifier.type === "PARTITA_IVA" && normalizedTaxId(identifier.value).startsWith("IT")) {
+    return true;
+  }
+  if (["PRIVATE_IT", "BUSINESS_IT"].includes(input.customer.kind)) return true;
+  if (countryCode) return countryCode === "IT";
+  return input.customer.kind === "UNKNOWN";
+}
+
+function isItalianTaxIdentifier(
+  input: OrderInput,
+  identifier: OrderInput["customer"]["taxIdentifiers"][number],
+) {
+  if (!requiresItalianTaxFormat(input, identifier)) return false;
+  const value = normalizedTaxId(identifier.value);
+  if (identifier.type === "CODICE_FISCALE") return /^[A-Z0-9]{16}$/.test(value);
+  if (identifier.type !== "PARTITA_IVA") return false;
+  return /^\d{11}$/.test(value.startsWith("IT") ? value.slice(2) : value);
+}
+
+export function canonicalTaxIdentifier(
+  input: OrderInput,
+  identifier: OrderInput["customer"]["taxIdentifiers"][number],
+) {
+  const italianIdentifier = isItalianTaxIdentifier(input, identifier);
+  const needsCountry = identifier.type === "ALTRO" || !italianIdentifier;
+  const sourceCountryCode =
+    identifier.countryCode ??
+    input.customer.billingAddress.countryCode ??
+    (italianIdentifier ? "IT" : undefined);
+  const countryCode = needsCountry ? sourceCountryCode : undefined;
+  const rawValue = normalizedTaxId(identifier.value);
+  const value =
+    identifier.type === "PARTITA_IVA" && sourceCountryCode && rawValue.startsWith(sourceCountryCode)
+      ? rawValue.slice(sourceCountryCode.length)
+      : rawValue;
+  return { ...identifier, rawValue: identifier.value, value, countryCode };
+}
+
+export function canonicalTaxIdentifiers(input: OrderInput) {
+  const unique = new Map<string, ReturnType<typeof canonicalTaxIdentifier>>();
+  for (const identifier of input.customer.taxIdentifiers) {
+    const canonical = canonicalTaxIdentifier(input, identifier);
+    const key = JSON.stringify([canonical.type, canonical.countryCode ?? "", canonical.value]);
+    if (!unique.has(key)) unique.set(key, canonical);
+  }
+  return [...unique.values()].sort((left, right) =>
+    JSON.stringify(left).localeCompare(JSON.stringify(right)),
+  );
+}
+
+export function canonicalCustomerProfile(input: OrderInput) {
+  const address = input.customer.billingAddress;
+  const taxIdentifiers = canonicalTaxIdentifiers(input)
+    .map((identifier) => {
+      const { sourceField: _, rawValue: __, ...canonical } = identifier;
+      return canonical;
+    })
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  return {
+    kind: input.customer.kind,
+    displayName: normalized(customerDisplayName(input.customer)),
+    firstName: normalized(input.customer.firstName),
+    lastName: normalized(input.customer.lastName),
+    companyName: normalized(input.customer.companyName),
+    email: normalized(input.customer.email),
+    phone: normalized(input.customer.phone),
+    billingAddress: {
+      line1: normalized(address.line1),
+      line2: normalized(address.line2),
+      postalCode: normalized(address.postalCode),
+      city: normalized(address.city),
+      province: normalized(address.province),
+      countryCode: normalized(address.countryCode),
+    },
+    taxIdentifiers,
+  };
+}
+
+function validTaxId(
+  type: OrderInput["customer"]["taxIdentifiers"][number]["type"],
+  value: string,
+  italianFormat: boolean,
+) {
+  if (type === "CODICE_FISCALE") {
+    return italianFormat ? /^[A-Z0-9]{16}$/.test(value) : value.length >= 2;
+  }
+  if (type === "PARTITA_IVA") return italianFormat ? /^\d{11}$/.test(value) : value.length >= 2;
   return value.length >= 2;
 }
 
@@ -140,6 +254,7 @@ export function customerIdentity(input: OrderInput): {
   primaryTaxId: { type: string; value: string; countryCode?: string } | null;
 } {
   const address = input.customer.billingAddress;
+  const canonicalProfile = canonicalCustomerProfile(input);
   const addressComplete = [
     address.line1,
     address.postalCode,
@@ -159,30 +274,25 @@ export function customerIdentity(input: OrderInput): {
             (input.customer.firstName && input.customer.lastName),
           );
   const profileComplete = addressComplete && nameComplete;
-  const identifierOrder =
-    input.customer.kind === "BUSINESS_IT"
-      ? ["PARTITA_IVA", "CODICE_FISCALE", "ALTRO"]
-      : input.customer.kind === "EU"
-        ? ["ALTRO", "PARTITA_IVA", "CODICE_FISCALE"]
-        : ["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"];
-  const identifiers = identifierOrder.flatMap((type) =>
-    input.customer.taxIdentifiers.filter((identifier) => identifier.type === type),
+  const identifierOrder = ["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"];
+  const identifiers = canonicalTaxIdentifiers(input).sort(
+    (left, right) =>
+      identifierOrder.indexOf(left.type) - identifierOrder.indexOf(right.type) ||
+      JSON.stringify(left).localeCompare(JSON.stringify(right)),
   );
   const customerKind = input.customer.kind;
   for (const identifier of identifiers) {
-    const value = normalizedTaxId(identifier.value);
-    if (validTaxId(identifier.type, value)) {
-      const needsCountry =
-        identifier.type === "ALTRO" || !["PRIVATE_IT", "BUSINESS_IT"].includes(customerKind);
-      const countryCode = needsCountry
-        ? (identifier.countryCode?.toUpperCase() ?? address.countryCode)
-        : undefined;
-      if (needsCountry && !countryCode) continue;
+    const italianIdentifier = isItalianTaxIdentifier(input, identifier);
+    const needsCountry = identifier.type === "ALTRO" || !italianIdentifier;
+    const countryCode = identifier.countryCode;
+    if (needsCountry && !countryCode) continue;
+    const value = identifier.value;
+    if (validTaxId(identifier.type, value, requiresItalianTaxFormat(input, identifier))) {
       const expectedIdentifier =
         customerKind === "PRIVATE_IT"
           ? identifier.type === "CODICE_FISCALE"
           : customerKind === "BUSINESS_IT"
-            ? identifier.type === "PARTITA_IVA"
+            ? ["CODICE_FISCALE", "PARTITA_IVA"].includes(identifier.type)
             : customerKind === "EU";
       return {
         matchKey: `tax:${identifier.type}:${countryCode ?? ""}:${value}`,
@@ -194,23 +304,27 @@ export function customerIdentity(input: OrderInput): {
   }
 
   const profile = [
-    normalized(customerDisplayName(input.customer)),
-    normalized(address.line1),
-    normalized(address.postalCode),
-    normalized(address.city),
-    normalized(address.countryCode),
-    normalized(input.customer.email),
+    canonicalProfile.displayName,
+    canonicalProfile.billingAddress.line1,
+    canonicalProfile.billingAddress.postalCode,
+    canonicalProfile.billingAddress.city,
+    canonicalProfile.billingAddress.countryCode,
+    canonicalProfile.email,
   ];
   if (profile.every(Boolean)) {
     return {
-      matchKey: `profile:${profile.join("|")}`,
+      matchKey: `profile:${JSON.stringify(profile)}`,
       confidence: "EXACT_PROFILE",
       reviewRequired: input.customer.kind !== "EU",
       primaryTaxId: null,
     };
   }
   return {
-    matchKey: `order:${input.provider}:${input.externalAccountId}:${input.externalOrderId}`,
+    matchKey: `order:${JSON.stringify([
+      input.provider,
+      input.externalAccountId,
+      input.externalOrderId,
+    ])}`,
     confidence: "AMBIGUOUS",
     reviewRequired: true,
     primaryTaxId: null,

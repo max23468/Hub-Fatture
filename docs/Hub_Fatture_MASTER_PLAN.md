@@ -2806,7 +2806,7 @@ Output:
 
 Gate:
 
-- due ordini concorrenti dello stesso cliente e giorno producono una sola Scheda, provato da un test d'integrazione su PostgreSQL reale;
+- due ordini concorrenti dello stesso cliente e giorno producono una sola preparazione fattura, provato da un test d'integrazione su PostgreSQL reale;
 - un ordine non può appartenere a due Schede e l'identità ambigua non accorpa;
 - il cambio del trigger globale non ricrea né modifica bozze esistenti;
 - nessun identificativo visibile contiene la sigla interna.

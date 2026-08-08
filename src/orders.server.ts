@@ -6,6 +6,8 @@ import { writeAudit } from "./audit.server.ts";
 import { getPool, withTransaction } from "./db/client.server.ts";
 import { AppError } from "./errors.ts";
 import {
+  canonicalCustomerProfile,
+  canonicalTaxIdentifiers,
   customerIdentity,
   customerDisplayName,
   decimalToCents,
@@ -32,12 +34,12 @@ interface GroupableOrder {
 }
 
 function customerSnapshot(input: OrderInput, identity: ReturnType<typeof customerIdentity>) {
+  const canonicalProfile = canonicalCustomerProfile(input);
   return {
     ...input.customer,
     displayName: customerDisplayName(input.customer) || "Cliente senza nome",
-    taxIdentifiers: input.customer.taxIdentifiers.map(
-      ({ sourceField: _, ...identifier }) => identifier,
-    ),
+    taxIdentifiers: canonicalProfile.taxIdentifiers,
+    canonicalProfile,
     sourceConfidence: identity.confidence,
     reviewRequired: identity.reviewRequired,
   };
@@ -60,24 +62,39 @@ function reviewFingerprint(
   paymentAmounts: number[],
   shippingAmount: number,
 ) {
+  const lines = input.lines
+    .map((line, index) => ({ ...line, ...lineAmounts[index] }))
+    .sort((left, right) =>
+      left.externalLineId === right.externalLineId
+        ? 0
+        : left.externalLineId < right.externalLineId
+          ? -1
+          : 1,
+    );
+  const payments = input.payments
+    .map((payment, index) => ({
+      ...payment,
+      amount: paymentAmounts[index],
+      paidAt: payment.paidAt ? new Date(payment.paidAt).toISOString() : null,
+    }))
+    .sort((left, right) =>
+      left.externalPaymentId === right.externalPaymentId
+        ? 0
+        : left.externalPaymentId < right.externalPaymentId
+          ? -1
+          : 1,
+    );
   const relevant = {
+    displayNumber: input.displayNumber,
     totalAmount,
     localDate,
     paymentStatus: input.paymentStatus,
     fulfillmentStatus: input.fulfillmentStatus,
-    cancelledAt: input.cancelledAt,
+    cancelledAt: input.cancelledAt ? new Date(input.cancelledAt).toISOString() : null,
     customerIdentity: identityKey,
-    customer: {
-      ...input.customer,
-      taxIdentifiers: input.customer.taxIdentifiers.map(
-        ({ sourceField: _, ...identifier }) => identifier,
-      ),
-    },
-    lines: input.lines.map((line, index) => ({ ...line, ...lineAmounts[index] })),
-    payments: input.payments.map((payment, index) => ({
-      ...payment,
-      amount: paymentAmounts[index],
-    })),
+    customer: canonicalCustomerProfile(input),
+    lines,
+    payments,
     shippingAmount,
   };
   return createHash("sha256").update(JSON.stringify(relevant)).digest("hex");
@@ -92,7 +109,9 @@ async function groupOrder(
   const lockKey = `billing-case:${order.customerId}:${order.localOrderDate}:${order.currency}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
   const existing = await client.query<{ id: string; same_customer_snapshot: boolean }>(
-    `SELECT id, customer_snapshot_json = $4::jsonb AS same_customer_snapshot
+    `SELECT id,
+            customer_snapshot_json -> 'canonicalProfile' = $4::jsonb -> 'canonicalProfile'
+              AS same_customer_snapshot
      FROM billing_cases
      WHERE customer_id = $1 AND local_order_date = $2 AND currency = $3
        AND status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
@@ -171,6 +190,11 @@ async function currentTrigger(client: pg.PoolClient): Promise<DraftTrigger> {
   return draftTriggerSchema.parse(result.rows[0]?.value_json ?? "PAID");
 }
 
+async function serializeOrderMutations(client: pg.PoolClient) {
+  // ponytail: lock globale adatto al single tenant; usare lock ordinati per ordine se la concorrenza misurata lo richiede.
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('order-import-batch'))");
+}
+
 async function importOne(
   client: pg.PoolClient,
   input: OrderInput,
@@ -217,17 +241,58 @@ async function importOne(
     input.paymentStatus !== "PAID" ||
     input.payments.some((payment) => payment.status !== "PAID") ||
     !totalsReconciled;
+  let reviewRequiredForGrouping = preparationReviewRequired;
   const previous = await client.query<{
     id: string;
     billing_case_id: string | null;
-    review_fingerprint: string | null;
+    last_observed_review_fingerprint: string | null;
+    last_observed_snapshot_json: Record<string, unknown>;
     updated_at_source: string;
-    normalized_snapshot_json: Record<string, unknown>;
     billing_case_status: string | null;
+    billing_case_do_not_transmit_automatic: boolean;
+    billing_case_review_required_before_do_not_transmit: boolean;
+    deferred_review_required: boolean;
+    customer_id: string;
+    trigger_status: string;
   }>(
-    `SELECT id, billing_case_id, updated_at_source::text, normalized_snapshot_json,
-            normalized_snapshot_json ->> 'reviewFingerprint' AS review_fingerprint,
-            (SELECT status FROM billing_cases WHERE id = orders.billing_case_id) AS billing_case_status
+    `SELECT id, billing_case_id, customer_id, trigger_status,
+            updated_at_source::text,
+            coalesce((
+              SELECT current_normalized_snapshot_json ->> 'reviewFingerprint'
+              FROM order_source_revisions
+              WHERE order_id = orders.id
+              ORDER BY id DESC
+              LIMIT 1
+            ), normalized_snapshot_json ->> 'reviewFingerprint') AS last_observed_review_fingerprint,
+            coalesce((
+              SELECT current_normalized_snapshot_json
+              FROM order_source_revisions
+              WHERE order_id = orders.id
+              ORDER BY id DESC
+              LIMIT 1
+            ), normalized_snapshot_json) AS last_observed_snapshot_json,
+            (SELECT status FROM billing_cases WHERE id = orders.billing_case_id) AS billing_case_status,
+            coalesce((
+              SELECT actor_type = 'SYSTEM'
+                AND metadata_json ->> 'reason' IN ('CANCELLED', 'REFUNDED')
+              FROM audit_events
+              WHERE entity_type = 'BILLING_CASE'
+                AND entity_id = orders.billing_case_id::text
+                AND action = 'BILLING_CASE_DO_NOT_TRANSMIT'
+              ORDER BY id DESC
+              LIMIT 1
+            ), false) AS billing_case_do_not_transmit_automatic,
+            coalesce((
+              SELECT (metadata_json ->> 'reviewRequired')::boolean
+              FROM audit_events
+              WHERE entity_type = 'BILLING_CASE'
+                AND entity_id = orders.billing_case_id::text
+                AND action = 'BILLING_CASE_DO_NOT_TRANSMIT'
+              ORDER BY id DESC
+              LIMIT 1
+            ), false) AS billing_case_review_required_before_do_not_transmit,
+            coalesce((normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
+              AS deferred_review_required
      FROM orders
      WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3
      FOR UPDATE`,
@@ -240,8 +305,15 @@ async function importOne(
     return "ignored";
   }
 
-  const customer = await client.query<{ id: string }>(
-    `INSERT INTO customers
+  const oldOrder = previous.rows[0];
+  let deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
+  reviewRequiredForGrouping ||= deferredReviewRequired;
+  const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
+
+  const customer = invoiced
+    ? null
+    : await client.query<{ id: string }>(
+        `INSERT INTO customers
       (kind, match_key, display_name, first_name, last_name, company_name, email, phone,
        tax_id_type, tax_id_normalized, vat_country, billing_address_json,
        source_confidence, review_required)
@@ -262,25 +334,25 @@ async function importOne(
        review_required = EXCLUDED.review_required,
        updated_at = now()
      RETURNING id`,
-    [
-      input.customer.kind,
-      identity.matchKey,
-      input.customer.displayName ?? "Cliente senza nome",
-      input.customer.firstName ?? null,
-      input.customer.lastName ?? null,
-      input.customer.companyName ?? null,
-      input.customer.email ?? null,
-      input.customer.phone ?? null,
-      identity.primaryTaxId?.type ?? null,
-      identity.primaryTaxId?.value ?? null,
-      identity.primaryTaxId?.countryCode ?? null,
-      JSON.stringify(input.customer.billingAddress),
-      identity.confidence,
-      identity.reviewRequired,
-    ],
-  );
-  const customerId = customer.rows[0]!.id;
-  if (input.externalCustomerId) {
+        [
+          input.customer.kind,
+          identity.matchKey,
+          customerDisplayName(input.customer) || "Cliente senza nome",
+          input.customer.firstName ?? null,
+          input.customer.lastName ?? null,
+          input.customer.companyName ?? null,
+          input.customer.email ?? null,
+          input.customer.phone ?? null,
+          identity.primaryTaxId?.type ?? null,
+          identity.primaryTaxId?.value ?? null,
+          identity.primaryTaxId?.countryCode ?? null,
+          JSON.stringify(input.customer.billingAddress),
+          identity.confidence,
+          identity.reviewRequired,
+        ],
+      );
+  const customerId = invoiced ? oldOrder!.customer_id : customer!.rows[0]!.id;
+  if (!invoiced && input.externalCustomerId) {
     await client.query(
       `INSERT INTO customer_source_records
         (customer_id, provider, external_customer_id, raw_snapshot_json)
@@ -301,13 +373,12 @@ async function importOne(
     customerIdentity: identity.confidence,
     customerReviewRequired: identity.reviewRequired,
     preparationReviewRequired,
+    deferredReviewRequired,
     totalsReconciled,
     reviewFingerprint: fingerprint,
   };
-  const oldOrder = previous.rows[0];
-  const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
   const sourceConflict = Boolean(
-    oldOrder?.billing_case_id && oldOrder.review_fingerprint !== fingerprint,
+    oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint,
   );
   const revision = sourceConflict
     ? await client.query<{ id: string }>(
@@ -319,7 +390,7 @@ async function importOne(
         [
           oldOrder!.id,
           oldOrder!.billing_case_id,
-          JSON.stringify(oldOrder!.normalized_snapshot_json),
+          JSON.stringify(oldOrder!.last_observed_snapshot_json),
           JSON.stringify(normalizedSnapshot),
         ],
       )
@@ -336,10 +407,11 @@ async function importOne(
        raw_snapshot_json, normalized_snapshot_json, cancelled_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      ON CONFLICT (provider, external_account_id, external_order_id) DO UPDATE SET
-       display_number = EXCLUDED.display_number,
+       display_number = CASE WHEN $17::boolean THEN orders.display_number ELSE EXCLUDED.display_number END,
+       created_at_source = CASE WHEN $17::boolean THEN orders.created_at_source ELSE EXCLUDED.created_at_source END,
        updated_at_source = EXCLUDED.updated_at_source,
-       local_order_date = EXCLUDED.local_order_date,
-       gross_amount = EXCLUDED.gross_amount,
+       local_order_date = CASE WHEN $17::boolean THEN orders.local_order_date ELSE EXCLUDED.local_order_date END,
+       gross_amount = CASE WHEN $17::boolean THEN orders.gross_amount ELSE EXCLUDED.gross_amount END,
        payment_status = EXCLUDED.payment_status,
        fulfillment_status = EXCLUDED.fulfillment_status,
        trigger_status = CASE
@@ -352,8 +424,8 @@ async function importOne(
          ELSE EXCLUDED.trigger_status
        END,
        customer_id = CASE WHEN orders.billing_case_id IS NULL THEN EXCLUDED.customer_id ELSE orders.customer_id END,
-       raw_snapshot_json = EXCLUDED.raw_snapshot_json,
-       normalized_snapshot_json = EXCLUDED.normalized_snapshot_json,
+       raw_snapshot_json = CASE WHEN $17::boolean THEN orders.raw_snapshot_json ELSE EXCLUDED.raw_snapshot_json END,
+       normalized_snapshot_json = CASE WHEN $17::boolean THEN orders.normalized_snapshot_json ELSE EXCLUDED.normalized_snapshot_json END,
        last_synced_at = now(),
        cancelled_at = EXCLUDED.cancelled_at
      RETURNING id, billing_case_id, customer_id`,
@@ -378,6 +450,7 @@ async function importOne(
     ],
   );
   const orderId = order.rows[0]!.id;
+  let currentBillingCaseId = order.rows[0]!.billing_case_id;
   if (sourceConflict) {
     const reason = input.cancelledAt
       ? ("CANCELLED" as const)
@@ -425,7 +498,11 @@ async function importOne(
         eventClass: "CRITICAL",
         entityType: "BILLING_CASE",
         entityId: oldOrder!.billing_case_id!,
-        metadata: { billingCaseId: oldOrder!.billing_case_id!, reason },
+        metadata: {
+          billingCaseId: oldOrder!.billing_case_id!,
+          reason,
+          reviewRequired: oldOrder!.trigger_status === "NEEDS_REVIEW",
+        },
         requestId: actor.requestId,
       });
       const remainingOrders = await client.query<{
@@ -441,9 +518,11 @@ async function importOne(
          WHERE billing_case_id = $1 AND id <> $2
            AND cancelled_at IS NULL AND payment_status <> 'REFUNDED'
          RETURNING id, customer_id, local_order_date::text, currency,
-           (normalized_snapshot_json ->> 'preparationReviewRequired')::boolean AS review_required,
+           ((normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
+             OR coalesce((normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
+             OR $3) AS review_required,
            normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot`,
-        [oldOrder!.billing_case_id, orderId],
+        [oldOrder!.billing_case_id, orderId, oldOrder!.billing_case_status === "NEEDS_REVIEW"],
       );
       // Ogni assegnazione deve osservare la preparazione creata dalla precedente nella stessa transazione.
       for (const remainingOrder of remainingOrders.rows) {
@@ -462,51 +541,105 @@ async function importOne(
         );
       }
     }
+    if (
+      !reason &&
+      oldOrder!.billing_case_status === "DO_NOT_TRANSMIT" &&
+      oldOrder!.billing_case_do_not_transmit_automatic
+    ) {
+      reviewRequiredForGrouping ||= oldOrder!.billing_case_review_required_before_do_not_transmit;
+      deferredReviewRequired ||= reviewRequiredForGrouping;
+      await client.query(
+        `UPDATE orders
+         SET billing_case_id = NULL, trigger_status = $3, customer_id = $2,
+             normalized_snapshot_json = jsonb_set(
+               normalized_snapshot_json,
+               '{deferredReviewRequired}',
+               to_jsonb($4::boolean)
+             )
+         WHERE id = $1`,
+        [orderId, customerId, status, deferredReviewRequired],
+      );
+      currentBillingCaseId = null;
+    }
   }
-  await client.query("DELETE FROM order_lines WHERE order_id = $1", [orderId]);
-  for (const [index, line] of input.lines.entries()) {
-    const lineAmount = lineAmounts[index]!;
+  if (!invoiced) {
+    await client.query("DELETE FROM order_lines WHERE order_id = $1", [orderId]);
+    for (const [index, line] of input.lines.entries()) {
+      const lineAmount = lineAmounts[index]!;
+      await client.query(
+        `INSERT INTO order_lines
+          (order_id, external_line_id, description, quantity, gross_amount, discount_amount, raw_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          orderId,
+          line.externalLineId,
+          line.description,
+          line.quantity,
+          lineAmount.grossAmount,
+          lineAmount.discountAmount,
+          JSON.stringify(line),
+        ],
+      );
+    }
+    await client.query("DELETE FROM order_tax_identifiers WHERE order_id = $1", [orderId]);
+    const persistedTaxIdentifiers = new Set<string>();
+    for (const identifier of canonicalTaxIdentifiers(input)) {
+      const persistenceKey = JSON.stringify([identifier.type, identifier.value]);
+      if (persistedTaxIdentifiers.has(persistenceKey)) continue;
+      persistedTaxIdentifiers.add(persistenceKey);
+      await client.query(
+        `INSERT INTO order_tax_identifiers
+          (order_id, type, raw_value, normalized_value, source_field)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [orderId, identifier.type, identifier.rawValue, identifier.value, identifier.sourceField],
+      );
+    }
+    await client.query("DELETE FROM payments WHERE order_id = $1", [orderId]);
+    for (const [index, payment] of input.payments.entries()) {
+      await client.query(
+        `INSERT INTO payments
+          (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          orderId,
+          payment.externalPaymentId,
+          payment.method,
+          payment.status,
+          paymentAmounts[index],
+          payment.paidAt,
+          JSON.stringify(payment),
+        ],
+      );
+    }
+  } else {
     await client.query(
-      `INSERT INTO order_lines
-        (order_id, external_line_id, description, quantity, gross_amount, discount_amount, raw_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        orderId,
-        line.externalLineId,
-        line.description,
-        line.quantity,
-        lineAmount.grossAmount,
-        lineAmount.discountAmount,
-        JSON.stringify(line),
-      ],
+      `DELETE FROM payments
+       WHERE order_id = $1
+         AND NOT (external_payment_id = ANY($2::text[]))`,
+      [orderId, input.payments.map((payment) => payment.externalPaymentId)],
     );
-  }
-  await client.query("DELETE FROM order_tax_identifiers WHERE order_id = $1", [orderId]);
-  for (const identifier of input.customer.taxIdentifiers) {
-    const value = identifier.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    await client.query(
-      `INSERT INTO order_tax_identifiers
-        (order_id, type, raw_value, normalized_value, source_field)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [orderId, identifier.type, identifier.value, value, identifier.sourceField],
-    );
-  }
-  await client.query("DELETE FROM payments WHERE order_id = $1", [orderId]);
-  for (const [index, payment] of input.payments.entries()) {
-    await client.query(
-      `INSERT INTO payments
-        (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        orderId,
-        payment.externalPaymentId,
-        payment.method,
-        payment.status,
-        paymentAmounts[index],
-        payment.paidAt,
-        JSON.stringify(payment),
-      ],
-    );
+    for (const [index, payment] of input.payments.entries()) {
+      await client.query(
+        `INSERT INTO payments
+          (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (order_id, external_payment_id) DO UPDATE SET
+           method = EXCLUDED.method,
+           status = EXCLUDED.status,
+           amount = EXCLUDED.amount,
+           paid_at = EXCLUDED.paid_at,
+           raw_json = EXCLUDED.raw_json`,
+        [
+          orderId,
+          payment.externalPaymentId,
+          payment.method,
+          payment.status,
+          paymentAmounts[index],
+          payment.paidAt,
+          JSON.stringify(payment),
+        ],
+      );
+    }
   }
   await writeAudit(client, {
     actorType: "ADMIN",
@@ -518,13 +651,13 @@ async function importOne(
     metadata: { provider: input.provider },
     requestId: actor.requestId,
   });
-  if (!order.rows[0]!.billing_case_id && status === "ELIGIBLE") {
+  if (!currentBillingCaseId && status === "ELIGIBLE") {
     await groupOrder(
       client,
       {
         id: orderId,
-        customerId: order.rows[0]!.customer_id,
-        reviewRequired: preparationReviewRequired,
+        customerId,
+        reviewRequired: reviewRequiredForGrouping,
         customerSnapshot: normalizedSnapshot.customerSnapshot,
         localOrderDate: localDate,
         currency: input.currency,
@@ -544,8 +677,7 @@ export async function importOrders(input: unknown, actor: Actor) {
   }
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
-    // ponytail: lock globale adatto al single tenant; usare lock ordinati per ordine se la concorrenza misurata lo richiede.
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('order-import-batch'))");
+    await serializeOrderMutations(client);
     const trigger = await currentTrigger(client);
     const results = [];
     // Il batch resta seriale: ogni raggruppamento deve osservare gli ordini precedenti nella stessa transazione.
@@ -574,6 +706,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
   if (!trigger.success) throw new AppError("ORDER_INVALID_INPUT", 422);
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('setting:draft_trigger'))");
+    await serializeOrderMutations(client);
     const setting = await client.query<{ version: number }>(
       "SELECT version FROM settings WHERE key = 'draft_trigger' FOR UPDATE",
     );
@@ -609,7 +742,9 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       cancelled_at: string | null;
     }>(
       `SELECT orders.id, orders.customer_id,
-              (orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean AS review_required,
+              ((orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
+                OR coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
+                AS review_required,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text, orders.currency, orders.payment_status,
               orders.fulfillment_status, orders.cancelled_at
@@ -653,6 +788,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
 export async function forcePrepareOrder(id: string, actor: Actor) {
   if (!/^[1-9]\d*$/.test(id)) return null;
   return withTransaction(async (client) => {
+    await serializeOrderMutations(client);
     const identity = await client.query<{
       provider: string;
       external_account_id: string;
@@ -675,7 +811,9 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       payment_status: OrderInput["paymentStatus"];
     }>(
       `SELECT orders.id, orders.customer_id, orders.billing_case_id,
-              (orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean AS review_required,
+              ((orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
+                OR coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
+                AS review_required,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text,
               orders.currency, orders.cancelled_at, orders.payment_status
@@ -703,6 +841,103 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       actor,
       true,
     );
+  });
+}
+
+export async function updateBillingCaseTransmission(
+  id: string,
+  reason: string | null,
+  actor: Actor,
+) {
+  if (!/^[1-9]\d*$/.test(id)) return null;
+  const normalizedReason = reason?.trim() || null;
+  if (reason !== null && (!normalizedReason || normalizedReason.length > 500)) {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+  return withTransaction(async (client) => {
+    await serializeOrderMutations(client);
+    const result = await client.query<{
+      status: string;
+      has_incompatible_orders: boolean;
+      needs_review: boolean;
+      has_other_open_case: boolean;
+    }>(
+      `SELECT billing_cases.status,
+              EXISTS (
+                SELECT 1 FROM orders
+                WHERE orders.billing_case_id = billing_cases.id
+                  AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
+              ) AS has_incompatible_orders,
+              EXISTS (
+                SELECT 1 FROM orders
+                WHERE orders.billing_case_id = billing_cases.id
+                  AND (
+                    (orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
+                    OR coalesce(
+                      (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
+                      false
+                    )
+                    OR orders.trigger_status = 'NEEDS_REVIEW'
+                  )
+              ) AS needs_review,
+              EXISTS (
+                SELECT 1 FROM billing_cases AS other
+                WHERE other.id <> billing_cases.id
+                  AND other.customer_id = billing_cases.customer_id
+                  AND other.local_order_date = billing_cases.local_order_date
+                  AND other.currency = billing_cases.currency
+                  AND other.status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
+              ) AS has_other_open_case
+       FROM billing_cases
+       WHERE billing_cases.id = $1
+       FOR UPDATE OF billing_cases`,
+      [id],
+    );
+    const current = result.rows[0];
+    if (!current) return null;
+    if (normalizedReason) {
+      if (!["DRAFT", "READY", "NEEDS_REVIEW"].includes(current.status)) {
+        throw new AppError("CONFLICT_REVISION", 409);
+      }
+      await client.query(
+        `UPDATE billing_cases
+         SET status = 'DO_NOT_TRANSMIT', do_not_transmit_reason = $2, updated_at = now()
+         WHERE id = $1`,
+        [id, normalizedReason],
+      );
+      await writeAudit(client, {
+        actorType: "ADMIN",
+        actorId: String(actor.id),
+        action: "BILLING_CASE_DO_NOT_TRANSMIT",
+        eventClass: "CRITICAL",
+        entityType: "BILLING_CASE",
+        entityId: id,
+        metadata: { billingCaseId: id, reason: normalizedReason },
+        requestId: actor.requestId,
+      });
+      return "DO_NOT_TRANSMIT";
+    }
+    if (current.status !== "DO_NOT_TRANSMIT") throw new AppError("CONFLICT_REVISION", 409);
+    if (current.has_incompatible_orders) throw new AppError("ORDER_NOT_PREPARABLE", 409);
+    if (current.has_other_open_case) throw new AppError("CONFLICT_REVISION", 409);
+    const status = current.needs_review ? "NEEDS_REVIEW" : "READY";
+    await client.query(
+      `UPDATE billing_cases
+       SET status = $2, do_not_transmit_reason = NULL, updated_at = now()
+       WHERE id = $1`,
+      [id, status],
+    );
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "BILLING_CASE_REACTIVATED",
+      eventClass: "CRITICAL",
+      entityType: "BILLING_CASE",
+      entityId: id,
+      metadata: { billingCaseId: id },
+      requestId: actor.requestId,
+    });
+    return status;
   });
 }
 
@@ -741,13 +976,17 @@ export async function listOrders(filters: {
      FROM orders
      LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      WHERE ($1::text IS NULL OR orders.display_number ILIKE $1
+            OR orders.external_order_id ILIKE $1
             OR orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' ILIKE $1
             OR orders.normalized_snapshot_json #>> '{customerSnapshot,email}' ILIKE $1
             OR EXISTS (SELECT 1 FROM order_tax_identifiers
                        WHERE order_tax_identifiers.order_id = orders.id
-                         AND order_tax_identifiers.normalized_value ILIKE $1))
+                         AND (order_tax_identifiers.normalized_value ILIKE $1
+                              OR order_tax_identifiers.raw_value ILIKE $1)))
        AND ($2::text IS NULL OR orders.provider = $2)
        AND ($3::text IS NULL
+            OR ($3 = 'ACTIVE' AND orders.trigger_status NOT IN
+                ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'))
             OR ($3 = 'NO_DOCUMENT' AND orders.trigger_status IN
                 ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'))
             OR orders.trigger_status = $3)
@@ -850,6 +1089,7 @@ export async function getBillingCase(id: string) {
        FROM order_source_revisions
        JOIN orders ON orders.id = order_source_revisions.order_id
        WHERE order_source_revisions.billing_case_id = $1
+          OR orders.billing_case_id = $1
        ORDER BY order_source_revisions.created_at DESC`,
       [id],
     ),
@@ -880,12 +1120,18 @@ export async function dashboardSummary() {
     ready_cases: string;
     review_cases: string;
     waiting_orders: string;
+    pending_payments: string;
   }>(
     `SELECT
        (SELECT count(*) FROM orders)::text AS orders,
        (SELECT count(*) FROM billing_cases WHERE status = 'READY')::text AS ready_cases,
        (SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW')::text AS review_cases,
-       (SELECT count(*) FROM orders WHERE trigger_status = 'WAITING_FOR_TRIGGER')::text AS waiting_orders`,
+       (SELECT count(*) FROM orders WHERE trigger_status = 'WAITING_FOR_TRIGGER')::text AS waiting_orders,
+       (SELECT count(*) FROM orders
+        WHERE trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
+          AND (payment_status = 'PENDING'
+            OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id = orders.id
+                        AND payments.status = 'PENDING')))::text AS pending_payments`,
   );
   return result.rows[0]!;
 }

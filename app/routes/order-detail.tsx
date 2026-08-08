@@ -48,6 +48,33 @@ export async function action({ request, params }: Route.ActionArgs) {
 export default function OrderDetail() {
   const { username, csrfToken, order } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
+  const sourceSnapshot = order.raw_snapshot_json as {
+    customer?: {
+      kind?: string;
+      displayName?: string;
+      firstName?: string;
+      lastName?: string;
+      companyName?: string;
+      email?: string;
+      billingAddress?: Record<string, string | undefined>;
+      taxIdentifiers?: Array<{ type?: string; value?: string; sourceField?: string }>;
+    };
+  };
+  const sourceCustomer = sourceSnapshot.customer ?? {};
+  const sourceAddress = sourceCustomer.billingAddress ?? {};
+  const sourceName =
+    sourceCustomer.displayName ||
+    sourceCustomer.companyName ||
+    [sourceCustomer.firstName, sourceCustomer.lastName].filter(Boolean).join(" ");
+  const sourceAddressText = [
+    sourceAddress.line1,
+    sourceAddress.line2,
+    [sourceAddress.postalCode, sourceAddress.city].filter(Boolean).join(" "),
+    sourceAddress.province,
+    sourceAddress.countryCode,
+  ]
+    .filter(Boolean)
+    .join(", ");
   const address = order.billing_address_json as Record<string, string | undefined>;
   const addressText = [
     address.line1,
@@ -146,6 +173,40 @@ export default function OrderDetail() {
                 <li key={String(identifier.id)}>
                   {taxIdentifierLabels[String(identifier.type)] ?? "Identificativo"}:{" "}
                   {String(identifier.raw_value)}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>Non disponibili.</p>
+          )}
+        </section>
+        <section className="card">
+          <h2>Cliente dalla sorgente</h2>
+          <dl className="facts">
+            <div>
+              <dt>Tipo</dt>
+              <dd>{customerKindLabels[sourceCustomer.kind ?? ""] ?? "Tipo non riconosciuto"}</dd>
+            </div>
+            <div>
+              <dt>Nome</dt>
+              <dd>{sourceName || "Non disponibile"}</dd>
+            </div>
+            <div>
+              <dt>E-mail</dt>
+              <dd>{sourceCustomer.email || "Non disponibile"}</dd>
+            </div>
+            <div>
+              <dt>Indirizzo</dt>
+              <dd>{sourceAddressText || "Non disponibile"}</dd>
+            </div>
+          </dl>
+          <h3>Identificativi fiscali originali</h3>
+          {sourceCustomer.taxIdentifiers?.length ? (
+            <ul>
+              {sourceCustomer.taxIdentifiers.map((identifier) => (
+                <li key={`${identifier.sourceField ?? "sorgente"}:${identifier.value ?? ""}`}>
+                  {taxIdentifierLabels[identifier.type ?? ""] ?? "Identificativo"}:{" "}
+                  {identifier.value}
                 </li>
               ))}
             </ul>

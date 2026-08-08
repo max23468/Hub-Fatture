@@ -43,6 +43,10 @@ export default function Home() {
           <strong>{summary.waiting_orders}</strong>
           <span>In attesa del trigger</span>
         </article>
+        <article className="summary-card">
+          <strong>{summary.pending_payments}</strong>
+          <span>Pagamenti pendenti</span>
+        </article>
       </section>
     </AppShell>
   );
