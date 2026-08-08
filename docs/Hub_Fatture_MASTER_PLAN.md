@@ -2815,7 +2815,7 @@ Gate:
 
 - HF-O01 e HF-O02 chiusi, cavallo d'anno incluso; golden test verde sulla fixture anonimizzata dell'XML accettato;
 - numerazione atomica provata sotto concorrenza, con unicità `(series, fiscal_year, fiscal_number)` imposta dal DB;
-- un account privo di `can_approve` non approva, non numera e non crea permessi, nemmeno chiamando l'endpoint direttamente;
+- un account privo di `can_approve` non approva e non numera, nemmeno chiamando l'endpoint direttamente; il controllo sui permessi di invio è verificato in M5, dove i permessi nascono;
 - proiezione stale rifiutata al submit e documento approvato non più modificabile;
 - prova manuale controllata eseguita, autorizzata, arrestata prima dell'ultimo clic e ripulita, con evidenza sanitizzata registrata.
 
@@ -2842,6 +2842,7 @@ Gate:
 - HF-O06 chiuso; helper verde sui due sistemi operativi contro la pagina sintetica;
 - permesso monouso consumato una sola volta: mismatch di batch, manifest, documento, revisione o hash, scadenza, riuso e crash prima del consumo non autorizzano l'ultimo clic;
 - stato incerto fail-closed, con riconciliazione obbligatoria prima di ogni nuovo tentativo;
+- un account privo di `can_approve` non può creare un permesso di invio, nemmeno chiamando l'endpoint direttamente;
 - percorso manuale completo eseguito end-to-end senza helper;
 - nessuna credenziale, cookie, sessione o OTP Aruba raggiunge HF, verificato sui log e sulle evidenze.
 
