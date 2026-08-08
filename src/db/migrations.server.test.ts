@@ -491,6 +491,49 @@ test(
         ).rows[0].count,
         "1",
       );
+      const approvedGroup = [structuredClone(fixture[0]), structuredClone(fixture[1])];
+      approvedGroup[0].externalOrderId = "shop-order-approved-1";
+      approvedGroup[1].externalOrderId = "ebay-order-approved-2";
+      for (const approvedOrder of approvedGroup) {
+        approvedOrder.createdAt = "2026-08-12T08:00:00Z";
+        approvedOrder.updatedAt = "2026-08-12T09:00:00Z";
+      }
+      await orders.importOrders(approvedGroup, { id: 1, requestId: "test-approved-group" });
+      const approvedCaseId = (
+        await database
+          .getPool()
+          .query("SELECT billing_case_id FROM orders WHERE external_order_id = $1", [
+            approvedGroup[0].externalOrderId,
+          ])
+      ).rows[0].billing_case_id;
+      await database
+        .getPool()
+        .query("UPDATE billing_cases SET status = 'APPROVED' WHERE id = $1", [approvedCaseId]);
+      approvedGroup[0].paymentStatus = "REFUNDED";
+      approvedGroup[0].payments[0].status = "REFUNDED";
+      approvedGroup[0].updatedAt = "2026-08-12T10:00:00Z";
+      await orders.importOrders([approvedGroup[0]], {
+        id: 1,
+        requestId: "test-approved-source-conflict",
+      });
+      const preservedApprovedGroup = await database.getPool().query(
+        `SELECT billing_cases.status, count(*)::int AS order_count
+           FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+           WHERE billing_cases.id = $1 GROUP BY billing_cases.status`,
+        [approvedCaseId],
+      );
+      assert.equal(preservedApprovedGroup.rows[0].status, "APPROVED");
+      assert.equal(preservedApprovedGroup.rows[0].order_count, 2);
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query(
+              "SELECT count(*) FROM audit_events WHERE action = 'BILLING_CASE_DO_NOT_TRANSMIT'",
+            )
+        ).rows[0].count,
+        "0",
+      );
       const sourceChanged = structuredClone(fixture[0]);
       sourceChanged.paymentStatus = "REFUNDED";
       sourceChanged.payments[0].status = "REFUNDED";
@@ -527,7 +570,7 @@ test(
             .getPool()
             .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_SOURCE_CONFLICT'")
         ).rows[0].count,
-        "1",
+        "2",
       );
       assert.equal(
         (

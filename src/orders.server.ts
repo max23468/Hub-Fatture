@@ -372,7 +372,7 @@ async function importOne(
         orderId,
       ]);
     }
-    await client.query(
+    const transitionedCase = await client.query(
       `UPDATE billing_cases
        SET status = $2,
            do_not_transmit_reason = $3,
@@ -401,7 +401,7 @@ async function importOne(
       },
       requestId: actor.requestId,
     });
-    if (reason) {
+    if (reason && transitionedCase.rowCount) {
       await writeAudit(client, {
         actorType: "SYSTEM",
         action: "BILLING_CASE_DO_NOT_TRANSMIT",
