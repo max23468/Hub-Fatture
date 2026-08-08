@@ -352,6 +352,17 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
       ...businessWithVat,
       customer: {
         ...businessWithVat.customer,
+        billingAddress: { ...businessWithVat.customer.billingAddress, countryCode: "FR" },
+        taxIdentifiers: [{ type: "PARTITA_IVA", value: "IT12345678901", sourceField: "fixture" }],
+      },
+    }).matchKey,
+    "tax:PARTITA_IVA::12345678901",
+  );
+  assert.equal(
+    customerIdentity({
+      ...businessWithVat,
+      customer: {
+        ...businessWithVat.customer,
         billingAddress: { ...businessWithVat.customer.billingAddress, countryCode: undefined },
         taxIdentifiers: [
           ...businessWithVat.customer.taxIdentifiers,

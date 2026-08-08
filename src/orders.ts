@@ -189,9 +189,10 @@ export function canonicalTaxIdentifier(
     (italianIdentifier ? "IT" : undefined);
   const countryCode = needsCountry ? sourceCountryCode : undefined;
   const rawValue = normalizedTaxId(identifier.value);
+  const valuePrefix = italianIdentifier ? "IT" : sourceCountryCode;
   const value =
-    identifier.type === "PARTITA_IVA" && sourceCountryCode && rawValue.startsWith(sourceCountryCode)
-      ? rawValue.slice(sourceCountryCode.length)
+    identifier.type === "PARTITA_IVA" && valuePrefix && rawValue.startsWith(valuePrefix)
+      ? rawValue.slice(valuePrefix.length)
       : rawValue;
   return { ...identifier, rawValue: identifier.value, value, countryCode };
 }
