@@ -120,6 +120,30 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
   assert.equal(canonicalCountry.externalCustomerId, undefined);
   assert.equal(canonicalCountry.customer.taxIdentifiers[0]?.countryCode, "DE");
 
+  const euVatGermany = orderInputSchema.parse({
+    ...base,
+    customer: {
+      ...base.customer,
+      kind: "EU",
+      billingAddress: { ...base.customer.billingAddress, countryCode: "DE" },
+      taxIdentifiers: [
+        { type: "PARTITA_IVA", value: "12345678901", countryCode: "DE", sourceField: "fixture" },
+      ],
+    },
+  });
+  const euVatFrance = orderInputSchema.parse({
+    ...euVatGermany,
+    customer: {
+      ...euVatGermany.customer,
+      billingAddress: { ...euVatGermany.customer.billingAddress, countryCode: "FR" },
+      taxIdentifiers: [
+        { type: "PARTITA_IVA", value: "12345678901", countryCode: "FR", sourceField: "fixture" },
+      ],
+    },
+  });
+  assert.equal(customerIdentity(euVatGermany).matchKey, "tax:PARTITA_IVA:DE:12345678901");
+  assert.equal(customerIdentity(euVatFrance).matchKey, "tax:PARTITA_IVA:FR:12345678901");
+
   const reordered = {
     ...base,
     customer: {

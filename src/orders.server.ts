@@ -58,6 +58,7 @@ function reviewFingerprint(
   localDate: string,
   lineAmounts: { grossAmount: number; discountAmount: number }[],
   paymentAmounts: number[],
+  shippingAmount: number,
 ) {
   const relevant = {
     totalAmount,
@@ -77,6 +78,7 @@ function reviewFingerprint(
       ...payment,
       amount: paymentAmounts[index],
     })),
+    shippingAmount,
   };
   return createHash("sha256").update(JSON.stringify(relevant)).digest("hex");
 }
@@ -183,17 +185,20 @@ async function importOne(
     discountAmount: cents(line.discountAmount),
   }));
   const paymentAmounts = input.payments.map((payment) => cents(payment.amount));
+  const shippingAmount = cents(input.shippingAmount);
   if (
     lineAmounts.some(({ grossAmount: amount, discountAmount }) =>
       [amount, discountAmount].some((value) => value < 0),
     ) ||
-    paymentAmounts.some((amount) => amount < 0)
+    paymentAmounts.some((amount) => amount < 0) ||
+    shippingAmount < 0
   ) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
   const identity = customerIdentity(input);
   const totalsReconciled =
-    lineAmounts.reduce((sum, line) => sum + BigInt(line.grossAmount - line.discountAmount), 0n) ===
+    lineAmounts.reduce((sum, line) => sum + BigInt(line.grossAmount - line.discountAmount), 0n) +
+      BigInt(shippingAmount) ===
       BigInt(grossAmount) &&
     paymentAmounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(grossAmount);
   const localDate = localOrderDate(input.createdAt);
@@ -204,6 +209,7 @@ async function importOne(
     localDate,
     lineAmounts,
     paymentAmounts,
+    shippingAmount,
   );
   const status = triggerStatus(input, trigger);
   const preparationReviewRequired =
@@ -211,9 +217,6 @@ async function importOne(
     input.paymentStatus !== "PAID" ||
     input.payments.some((payment) => payment.status !== "PAID") ||
     !totalsReconciled;
-  const lockKey = `order:${input.provider}:${input.externalAccountId}:${input.externalOrderId}`;
-  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
-
   const previous = await client.query<{
     id: string;
     billing_case_id: string | null;
@@ -293,6 +296,7 @@ async function importOne(
     ...input,
     customerSnapshot: customerSnapshot(input, identity),
     totalAmount: grossAmount,
+    shippingAmount,
     localOrderDate: localDate,
     customerIdentity: identity.confidence,
     customerReviewRequired: identity.reviewRequired,
@@ -540,6 +544,8 @@ export async function importOrders(input: unknown, actor: Actor) {
   }
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
+    // ponytail: lock globale adatto al single tenant; usare lock ordinati per ordine se la concorrenza misurata lo richiede.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('order-import-batch'))");
     const trigger = await currentTrigger(client);
     const results = [];
     // Il batch resta seriale: ogni raggruppamento deve osservare gli ordini precedenti nella stessa transazione.

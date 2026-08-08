@@ -867,6 +867,50 @@ test(
         ).rows[0].count,
         "0",
       );
+
+      const shipped = structuredClone(fixture[0]);
+      shipped.externalOrderId = "shop-order-with-shipping";
+      shipped.externalCustomerId = "shop-customer-with-shipping";
+      shipped.customer.taxIdentifiers[0].value = "RSSMRA80A01H501Y";
+      shipped.createdAt = "2026-08-16T08:00:00Z";
+      shipped.updatedAt = "2026-08-16T09:00:00Z";
+      shipped.total = "127.00";
+      shipped.shippingAmount = "5.00";
+      shipped.payments[0].amount = "127.00";
+      await orders.importOrders([shipped], { id: 1, requestId: "test-shipping" });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT billing_cases.status,
+                    orders.normalized_snapshot_json ->> 'shippingAmount' AS shipping_amount,
+                    orders.normalized_snapshot_json ->> 'totalsReconciled' AS totals_reconciled
+               FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+               WHERE orders.external_order_id = $1`,
+            [shipped.externalOrderId],
+          )
+        ).rows[0],
+        { status: "READY", shipping_amount: "500", totals_reconciled: "true" },
+      );
+
+      const concurrentA = structuredClone(fixture[0]);
+      concurrentA.externalOrderId = "shop-order-concurrent-a";
+      concurrentA.externalCustomerId = "shop-customer-concurrent";
+      concurrentA.customer.taxIdentifiers[0].value = "RSSMRA80A01H501Z";
+      concurrentA.createdAt = "2026-08-17T08:00:00Z";
+      concurrentA.updatedAt = "2026-08-17T09:00:00Z";
+      const concurrentB = structuredClone(concurrentA);
+      concurrentB.externalOrderId = "shop-order-concurrent-b";
+      const concurrentImports = await Promise.all([
+        orders.importOrders([concurrentA, concurrentB], {
+          id: 1,
+          requestId: "test-concurrent-forward",
+        }),
+        orders.importOrders([concurrentB, concurrentA], {
+          id: 1,
+          requestId: "test-concurrent-reverse",
+        }),
+      ]);
+      assert.deepEqual(concurrentImports.map(({ imported }) => imported).sort(), [0, 2]);
       await database.closePool();
     } finally {
       await import("./client.server.ts").then(({ closePool }) => closePool());

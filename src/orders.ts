@@ -43,6 +43,7 @@ export const orderInputSchema = z.object({
     .length(3)
     .transform((value) => value.toUpperCase()),
   total: z.string().trim().min(1),
+  shippingAmount: z.string().trim().min(1).default("0.00"),
   paymentStatus: z.enum(["PAID", "PENDING", "REFUNDED"]),
   fulfillmentStatus: z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED"]),
   cancelledAt: z.iso.datetime({ offset: true }).nullable().default(null),
@@ -171,11 +172,12 @@ export function customerIdentity(input: OrderInput): {
   for (const identifier of identifiers) {
     const value = normalizedTaxId(identifier.value);
     if (validTaxId(identifier.type, value)) {
-      const countryCode =
-        identifier.type === "ALTRO"
-          ? (identifier.countryCode?.toUpperCase() ?? address.countryCode)
-          : undefined;
-      if (identifier.type === "ALTRO" && !countryCode) continue;
+      const needsCountry =
+        identifier.type === "ALTRO" || !["PRIVATE_IT", "BUSINESS_IT"].includes(customerKind);
+      const countryCode = needsCountry
+        ? (identifier.countryCode?.toUpperCase() ?? address.countryCode)
+        : undefined;
+      if (needsCountry && !countryCode) continue;
       const expectedIdentifier =
         customerKind === "PRIVATE_IT"
           ? identifier.type === "CODICE_FISCALE"
