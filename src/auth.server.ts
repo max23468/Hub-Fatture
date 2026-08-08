@@ -7,10 +7,10 @@ import { getConfig } from "./config.server.ts";
 import { hashPassword, hashToken, safeEqual, verifyPassword } from "./crypto.server.ts";
 import { getPool, withTransaction } from "./db/client.server.ts";
 import { AppError } from "./errors.ts";
+import { LOGIN_ATTEMPT_WINDOW_MINUTES as RATE_LIMIT_WINDOW_MINUTES } from "./retention.server.ts";
 
 const SESSION_COOKIE = "sessione";
 const CSRF_COOKIE = "csrf";
-const RATE_LIMIT_WINDOW_MINUTES = 15;
 // La soglia stretta vale per origine: un attaccante blocca sé stesso, non il titolare, che
 // arriva da un altro indirizzo. Quella per username resta come argine agli attacchi
 // distribuiti, dove il blocco del titolare è un incidente e non un fastidio quotidiano.
@@ -140,11 +140,6 @@ export async function login(input: {
   }
   const result = await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`login:${attemptKey}`]);
-    await client.query(
-      `DELETE FROM login_attempts
-       WHERE attempted_at <= now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'`,
-    );
-    await client.query("DELETE FROM sessions WHERE expires_at <= now()");
     const recent = await client.query<{ origin_failures: string; username_failures: string }>(
       `SELECT count(*) FILTER (WHERE ip_hash = $2) AS origin_failures,
               count(*) FILTER (WHERE username = $1) AS username_failures
@@ -171,11 +166,24 @@ export async function login(input: {
         [attemptKey, input.ipHash],
       );
       // Una riga per episodio: l'audit resta osservabile senza crescere sotto attacco.
-      if (
-        originFailures === RATE_LIMIT_ORIGIN_ATTEMPTS ||
-        usernameFailures === RATE_LIMIT_USERNAME_ATTEMPTS
-      ) {
-        await audit(client, "LOGIN_RATE_LIMITED", null, input.requestId, "CRITICAL");
+      // La deduplica guarda l'evento già registrato, non un contatore che sotto concorrenza
+      // può scavalcare la soglia e non assumere mai il valore esatto.
+      const scope =
+        originFailures >= RATE_LIMIT_ORIGIN_ATTEMPTS ? input.ipHash : `username:${attemptKey}`;
+      const registered = await client.query(
+        `SELECT 1 FROM audit_events
+         WHERE action = 'LOGIN_RATE_LIMITED' AND metadata_json->>'scope' = $1
+           AND created_at > now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'
+         LIMIT 1`,
+        [scope],
+      );
+      if (registered.rowCount === 0) {
+        await client.query(
+          `INSERT INTO audit_events
+            (actor_type, actor_id, action, event_class, entity_type, metadata_json, request_id)
+           VALUES ('ADMIN', NULL, 'LOGIN_RATE_LIMITED', 'CRITICAL', 'USER', $1, $2)`,
+          [JSON.stringify({ scope }), input.requestId],
+        );
       }
       return { error: new AppError("AUTH_RATE_LIMITED", 429) } as const;
     }

@@ -53,12 +53,13 @@ test(
         "001_foundations.sql",
         "002_auth_audit.sql",
         "003_login_ip.sql",
+        "004_reset_password_hashes.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "3",
+        "4",
       );
       await cleanClient.end();
 
@@ -98,7 +99,9 @@ test(
       await runMigrations({ connectionString: upgrade.connectionString });
       const readback = new pg.Client({ connectionString: upgrade.connectionString });
       await readback.connect();
-      assert.equal((await readback.query("SELECT username FROM users")).rows[0].username, "matteo");
+      // Il cambio di formato degli hash rimuove gli account invece di conservare un percorso
+      // di verifica legacy: senza questo l'installazione esistente resterebbe esclusa.
+      assert.equal((await readback.query("SELECT count(*) FROM users")).rows[0].count, "0");
       assert.equal(
         (await readback.query("SELECT to_regclass('audit_events') AS table_name")).rows[0]
           .table_name,
@@ -233,6 +236,32 @@ test(
         ).length,
         2,
       );
+      // Sotto concorrenza il contatore può scavalcare la soglia senza mai assumerne il valore:
+      // la deduplica dell'audit deve reggere anche allora.
+      await database
+        .getPool()
+        .query(
+          "INSERT INTO login_attempts (username, ip_hash, successful) SELECT 'matteo', 'origine-parallela', false FROM generate_series(1, 7)",
+        );
+      await assert.rejects(
+        auth.login({
+          username: "matteo",
+          password: "matteo88",
+          ipHash: "origine-parallela",
+          requestId: "test-soglia-scavalcata",
+        }),
+        /Troppi tentativi/,
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query(
+              "SELECT count(*) FROM audit_events WHERE action = 'LOGIN_RATE_LIMITED' AND metadata_json->>'scope' = 'origine-parallela'",
+            )
+        ).rows[0].count,
+        "1",
+      );
       // L'accesso legittimo non deve azzerare il contatore di chi sta attaccando lo stesso
       // username da un'altra origine.
       await assert.rejects(
@@ -249,7 +278,9 @@ test(
         (
           await database
             .getPool()
-            .query("SELECT count(*) FROM audit_events WHERE action = 'LOGIN_RATE_LIMITED'")
+            .query(
+              "SELECT count(*) FROM audit_events WHERE action = 'LOGIN_RATE_LIMITED' AND metadata_json->>'scope' = 'origine-attaccante'",
+            )
         ).rows[0].count,
         "1",
       );
@@ -257,13 +288,9 @@ test(
         `INSERT INTO sessions (id_hash, user_id, csrf_token_hash, expires_at)
            SELECT 'scaduta', id, 'scaduta', now() - interval '1 hour' FROM users WHERE username = 'codex'`,
       );
-      await auth.login({
-        username: "matteo",
-        password: "matteo88",
-        ipHash: "origine-titolare",
-        requestId: "test-potatura-sessioni",
-      });
-      // Il login pota le sessioni scadute richieste da 17.7 senza introdurre un job.
+      const retention = await import("../retention.server.ts");
+      await retention.pruneExpired();
+      // La potatura di 17.7 dipende dal tempo trascorso, non dall'arrivo del prossimo login.
       assert.equal(
         (await database.getPool().query("SELECT count(*) FROM sessions WHERE id_hash = 'scaduta'"))
           .rows[0].count,

@@ -5,6 +5,10 @@ import { renderToPipeableStream } from "react-dom/server";
 import { ServerRouter } from "react-router";
 import type { EntryContext, RouterContextProvider } from "react-router";
 
+import { startRetention } from "../src/retention.server.ts";
+
+startRetention();
+
 export default function handleRequest(
   request: Request,
   responseStatusCode: number,
