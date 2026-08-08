@@ -6,7 +6,7 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | -------------------------- | --------------------- | ---------------- | ------------------------------------ |
 | `AUTH_INVALID_CREDENTIALS` | AUTH permanente       | no               | correggere username o password       |
 | `AUTH_PASSWORD_POLICY`     | VALIDATION permanente | no               | usare da 8 a 128 caratteri           |
-| `AUTH_RATE_LIMITED`        | AUTH temporaneo       | no               | usare la credenziale corretta        |
+| `AUTH_RATE_LIMITED`        | AUTH temporaneo       | no               | attendere la finestra indicata       |
 | `AUTH_SETUP_DISABLED`      | CONFLICT permanente   | no               | usare uno degli account esistenti    |
 | `AUTH_INVALID_SETUP_TOKEN` | AUTH permanente       | no               | verificare il secret locale          |
 | `CONFLICT_REVISION`        | CONFLICT              | no               | rileggere e ripetere la modifica     |

@@ -52,12 +52,13 @@ test(
       assert.deepEqual(await runMigrations({ connectionString: clean.connectionString }), [
         "001_foundations.sql",
         "002_auth_audit.sql",
+        "003_login_ip.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "2",
+        "3",
       );
       await cleanClient.end();
 
@@ -136,6 +137,7 @@ test(
       const sessionCookies = await auth.login({
         username: "matteo",
         password: "matteo88",
+        ipHash: "origine-titolare",
         requestId: "test-login",
       });
       const request = new Request("http://localhost:8080", {
@@ -180,48 +182,69 @@ test(
       await auth.login({
         username: "codex",
         password: "codex888",
+        ipHash: "origine-agente",
         requestId: "test-agent-login",
       });
 
-      const limited = await Promise.all(
-        Array.from({ length: 7 }, (_, index) =>
-          auth
+      const attacco = [];
+      for (let index = 0; index < 7; index += 1) {
+        attacco.push(
+          await auth
             .login({
               username: "codex",
               password: `password-errata-${index}`,
+              ipHash: "origine-attaccante",
               requestId: `test-rate-limit-${index}`,
             })
             .then(() => null)
             .catch((error: unknown) => error),
-        ),
-      );
+        );
+      }
       assert.equal(
-        limited.filter(
+        attacco.filter(
           (error) => error instanceof AppError && error.code === "AUTH_INVALID_CREDENTIALS",
         ).length,
         5,
       );
       assert.equal(
-        limited.filter((error) => error instanceof AppError && error.code === "AUTH_RATE_LIMITED")
+        attacco.filter((error) => error instanceof AppError && error.code === "AUTH_RATE_LIMITED")
           .length,
         2,
       );
-      await database.getPool().query(
-        `INSERT INTO sessions (id_hash, user_id, csrf_token_hash, expires_at)
-           SELECT 'scaduta', id, 'scaduta', now() - interval '1 hour' FROM users WHERE username = 'codex'`,
+      // Oltre la soglia nemmeno la password giusta viene verificata: il limite è reale.
+      await assert.rejects(
+        auth.login({
+          username: "codex",
+          password: "codex888",
+          ipHash: "origine-attaccante",
+          requestId: "test-rate-limit-credenziale-valida",
+        }),
+        /Troppi tentativi/,
       );
-      // Il blocco vale solo per i tentativi errati: chi conosce la password non resta fuori.
+      // Il titolare arriva da un'altra origine e non viene escluso da quell'attacco.
       assert.equal(
         (
           await auth.login({
             username: "codex",
             password: "codex888",
-            requestId: "test-rate-limit-recupero",
+            ipHash: "origine-agente",
+            requestId: "test-rate-limit-titolare",
           })
         ).length,
         2,
       );
-      // Un solo evento per episodio: l'audit resta leggibile anche sotto attacco prolungato.
+      // L'accesso legittimo non deve azzerare il contatore di chi sta attaccando lo stesso
+      // username da un'altra origine.
+      await assert.rejects(
+        auth.login({
+          username: "codex",
+          password: "codex888",
+          ipHash: "origine-attaccante",
+          requestId: "test-rate-limit-persiste",
+        }),
+        /Troppi tentativi/,
+      );
+      // Una riga per episodio: l'audit resta osservabile senza crescere sotto attacco.
       assert.equal(
         (
           await database
@@ -230,7 +253,17 @@ test(
         ).rows[0].count,
         "1",
       );
-      // Il login potando le sessioni scadute chiude la retention di 17.7 senza un job dedicato.
+      await database.getPool().query(
+        `INSERT INTO sessions (id_hash, user_id, csrf_token_hash, expires_at)
+           SELECT 'scaduta', id, 'scaduta', now() - interval '1 hour' FROM users WHERE username = 'codex'`,
+      );
+      await auth.login({
+        username: "matteo",
+        password: "matteo88",
+        ipHash: "origine-titolare",
+        requestId: "test-potatura-sessioni",
+      });
+      // Il login pota le sessioni scadute richieste da 17.7 senza introdurre un job.
       assert.equal(
         (await database.getPool().query("SELECT count(*) FROM sessions WHERE id_hash = 'scaduta'"))
           .rows[0].count,

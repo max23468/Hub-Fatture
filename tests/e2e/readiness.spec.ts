@@ -1,4 +1,24 @@
 import { expect, test } from "@playwright/test";
+import pg from "pg";
+
+const databaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
+
+// Lo schema viene azzerato all'avvio del server, i dati a ogni worker: un retry riparte
+// da database vuoto invece di trovare gli account già creati e saltare il flusso di setup.
+test.beforeAll(async () => {
+  if (!new URL(databaseUrl).pathname.endsWith("_test")) throw new Error("Database E2E non isolato");
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  await client.query(
+    "TRUNCATE users, sessions, login_attempts, audit_events, settings RESTART IDENTITY CASCADE",
+  );
+  await client.end();
+});
+
+// I test condividono gli account creati dal primo: in serie un retry li ripete tutti dall'inizio.
+test.describe.configure({ mode: "serial" });
 
 test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.goto("/setup");

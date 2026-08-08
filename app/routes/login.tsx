@@ -4,7 +4,7 @@ import type { Route } from "./+types/login";
 import { actionResult } from "../action";
 import { BrandLockup } from "../components/brand-lockup";
 import { copy } from "../copy.it";
-import { getSessionUser, login, requestId } from "../../src/auth.server.ts";
+import { clientIpHash, getSessionUser, login, requestId } from "../../src/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -18,6 +18,7 @@ export async function action({ request }: Route.ActionArgs) {
     const sessionCookies = await login({
       username: form.get("username") ?? "",
       password: form.get("password") ?? "",
+      ipHash: clientIpHash(request),
       requestId: requestId(request),
     });
     const headers = new Headers();

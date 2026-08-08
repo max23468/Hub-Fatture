@@ -11,7 +11,11 @@ import { AppError } from "./errors.ts";
 const SESSION_COOKIE = "sessione";
 const CSRF_COOKIE = "csrf";
 const RATE_LIMIT_WINDOW_MINUTES = 15;
-const RATE_LIMIT_ATTEMPTS = 5;
+// La soglia stretta vale per origine: un attaccante blocca sé stesso, non il titolare, che
+// arriva da un altro indirizzo. Quella per username resta come argine agli attacchi
+// distribuiti, dove il blocco del titolare è un incidente e non un fastidio quotidiano.
+const RATE_LIMIT_ORIGIN_ATTEMPTS = 5;
+const RATE_LIMIT_USERNAME_ATTEMPTS = 50;
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 128;
 
@@ -122,7 +126,12 @@ export async function setupAccounts(input: {
   });
 }
 
-export async function login(input: { username: string; password: string; requestId: string }) {
+export async function login(input: {
+  username: string;
+  password: string;
+  ipHash: string;
+  requestId: string;
+}) {
   const username = normalizeUsername(input.username);
   const attemptKey =
     username === OWNER_USERNAME || username === AGENT_USERNAME ? username : "__unknown__";
@@ -136,14 +145,40 @@ export async function login(input: { username: string; password: string; request
        WHERE attempted_at <= now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'`,
     );
     await client.query("DELETE FROM sessions WHERE expires_at <= now()");
-    const recent = await client.query<{ count: string }>(
-      `SELECT count(*) FROM login_attempts
-       WHERE username = $1 AND successful = false
-         AND attempted_at > now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'`,
-      [attemptKey],
+    const recent = await client.query<{ origin_failures: string; username_failures: string }>(
+      `SELECT count(*) FILTER (WHERE ip_hash = $2) AS origin_failures,
+              count(*) FILTER (WHERE username = $1) AS username_failures
+       FROM login_attempts
+       WHERE successful = false
+         AND attempted_at > now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'
+         AND (ip_hash = $2 OR username = $1)`,
+      [attemptKey, input.ipHash],
     );
-    const failures = Number(recent.rows[0]?.count);
-    const rateLimited = failures >= RATE_LIMIT_ATTEMPTS;
+    const originFailures = Number(recent.rows[0]?.origin_failures);
+    const usernameFailures = Number(recent.rows[0]?.username_failures);
+    // ponytail: il lock serializza per username, non per origine, quindi richieste parallele
+    // dallo stesso indirizzo su username diversi possono superare la soglia di poche unità;
+    // aggiungere un lock per origine solo se l'eccedenza diventa osservabile.
+    const blocked =
+      originFailures >= RATE_LIMIT_ORIGIN_ATTEMPTS ||
+      usernameFailures >= RATE_LIMIT_USERNAME_ATTEMPTS;
+
+    // Oltre la soglia non si verifica nulla: senza questo, il limite cambierebbe soltanto la
+    // risposta e lascerebbe all'attaccante tentativi illimitati.
+    if (blocked) {
+      await client.query(
+        "INSERT INTO login_attempts (username, ip_hash, successful) VALUES ($1, $2, false)",
+        [attemptKey, input.ipHash],
+      );
+      // Una riga per episodio: l'audit resta osservabile senza crescere sotto attacco.
+      if (
+        originFailures === RATE_LIMIT_ORIGIN_ATTEMPTS ||
+        usernameFailures === RATE_LIMIT_USERNAME_ATTEMPTS
+      ) {
+        await audit(client, "LOGIN_RATE_LIMITED", null, input.requestId, "CRITICAL");
+      }
+      return { error: new AppError("AUTH_RATE_LIMITED", 429) } as const;
+    }
 
     const users = await client.query<UserRow>("SELECT * FROM users WHERE username = $1", [
       username,
@@ -155,31 +190,14 @@ export async function login(input: { username: string; password: string; request
     );
 
     if (!user || !passwordValid) {
-      // La finestra respinge solo i tentativi errati: la credenziale corretta passa sempre,
-      // altrimenti chiunque conosca i due username fissi può escludere il titolare.
-      // ponytail: la serializzazione per username limita già lo scrypt concorrente; se servisse
-      // altro throttling, aggiungere backoff crescente prima di introdurre una dimensione IP.
-      await client.query("INSERT INTO login_attempts (username, successful) VALUES ($1, false)", [
-        attemptKey,
-      ]);
-      // Una sola riga per episodio di blocco: l'audit resta osservabile senza crescere sotto attacco.
-      if (!rateLimited || failures === RATE_LIMIT_ATTEMPTS) {
-        await audit(
-          client,
-          rateLimited ? "LOGIN_RATE_LIMITED" : "LOGIN_FAILED",
-          user ? String(user.id) : null,
-          input.requestId,
-          rateLimited ? "CRITICAL" : "OPERATIONAL",
-        );
-      }
-      return {
-        error: rateLimited
-          ? new AppError("AUTH_RATE_LIMITED", 429)
-          : new AppError("AUTH_INVALID_CREDENTIALS", 401),
-      } as const;
+      await client.query(
+        "INSERT INTO login_attempts (username, ip_hash, successful) VALUES ($1, $2, false)",
+        [attemptKey, input.ipHash],
+      );
+      await audit(client, "LOGIN_FAILED", user ? String(user.id) : null, input.requestId);
+      return { error: new AppError("AUTH_INVALID_CREDENTIALS", 401) } as const;
     }
 
-    await client.query("DELETE FROM sessions WHERE expires_at <= now()");
     const sessionToken = randomBytes(32).toString("base64url");
     const csrfToken = randomBytes(32).toString("base64url");
     const ttl = getConfig().SESSION_TTL_SECONDS;
@@ -189,12 +207,16 @@ export async function login(input: { username: string; password: string; request
       [hashToken(sessionToken), user.id, hashToken(csrfToken), ttl],
     );
     await client.query("UPDATE users SET last_login_at = now() WHERE id = $1", [user.id]);
-    await client.query("DELETE FROM login_attempts WHERE username = $1 AND successful = false", [
-      username,
-    ]);
-    await client.query("INSERT INTO login_attempts (username, successful) VALUES ($1, true)", [
-      username,
-    ]);
+    // Solo la coppia che ha appena avuto successo: un accesso legittimo del titolare non deve
+    // azzerare il contatore di un attaccante che stava provando lo stesso username da altrove.
+    await client.query(
+      "DELETE FROM login_attempts WHERE username = $1 AND ip_hash = $2 AND successful = false",
+      [username, input.ipHash],
+    );
+    await client.query(
+      "INSERT INTO login_attempts (username, ip_hash, successful) VALUES ($1, $2, true)",
+      [username, input.ipHash],
+    );
     await audit(client, "LOGIN_SUCCEEDED", String(user.id), input.requestId);
     return {
       cookies: [cookie(SESSION_COOKIE, sessionToken, ttl), cookie(CSRF_COOKIE, csrfToken, ttl)],
@@ -245,6 +267,17 @@ export async function logout(request: Request, submittedCsrf: string) {
 
 export function clearSessionCookies(): string[] {
   return [cookie(SESSION_COOKIE, "", 0), cookie(CSRF_COOKIE, "", 0)];
+}
+
+/**
+ * Caddy è l'unico ingresso e accoda l'indirizzo che vede davvero in fondo a `X-Forwarded-For`:
+ * l'ultimo valore è l'unico non falsificabile dal client. In accesso diretto, senza proxy,
+ * tutte le richieste condividono un solo secchio.
+ * L'hash resta al massimo quanto la finestra: la potatura di ogni login lo rimuove.
+ */
+export function clientIpHash(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
+  return hashToken(forwarded || "__diretto__");
 }
 
 export function requestId(request: Request): string {
