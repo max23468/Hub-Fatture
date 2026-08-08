@@ -215,9 +215,11 @@ async function importOne(
     review_fingerprint: string | null;
     updated_at_source: string;
     normalized_snapshot_json: Record<string, unknown>;
+    billing_case_status: string | null;
   }>(
     `SELECT id, billing_case_id, updated_at_source::text, normalized_snapshot_json,
-            normalized_snapshot_json ->> 'reviewFingerprint' AS review_fingerprint
+            normalized_snapshot_json ->> 'reviewFingerprint' AS review_fingerprint,
+            (SELECT status FROM billing_cases WHERE id = orders.billing_case_id) AS billing_case_status
      FROM orders
      WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3
      FOR UPDATE`,
@@ -291,6 +293,7 @@ async function importOne(
     reviewFingerprint: fingerprint,
   };
   const oldOrder = previous.rows[0];
+  const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
   const sourceConflict = Boolean(
     oldOrder?.billing_case_id && oldOrder.review_fingerprint !== fingerprint,
   );
@@ -328,6 +331,7 @@ async function importOne(
        payment_status = EXCLUDED.payment_status,
        fulfillment_status = EXCLUDED.fulfillment_status,
        trigger_status = CASE
+         WHEN orders.billing_case_id IS NOT NULL AND $17::boolean THEN 'INVOICED'
          WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.cancelled_at IS NOT NULL
            THEN 'CANCELLED_NO_DOCUMENT'
          WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.payment_status = 'REFUNDED'
@@ -358,6 +362,7 @@ async function importOne(
       JSON.stringify(input),
       JSON.stringify(normalizedSnapshot),
       input.cancelledAt,
+      invoiced,
     ],
   );
   const orderId = order.rows[0]!.id;

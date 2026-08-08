@@ -70,12 +70,13 @@ test(
         "005_order_domain.sql",
         "006_billing_case_customer_snapshot.sql",
         "007_order_source_revisions.sql",
+        "008_invoiced_order_status.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "7",
+        "8",
       );
       await cleanClient.end();
 
@@ -524,6 +525,16 @@ test(
       );
       assert.equal(preservedApprovedGroup.rows[0].status, "APPROVED");
       assert.equal(preservedApprovedGroup.rows[0].order_count, 2);
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT trigger_status FROM orders WHERE external_order_id = $1", [
+              approvedGroup[0].externalOrderId,
+            ])
+        ).rows[0].trigger_status,
+        "INVOICED",
+      );
       assert.equal(
         (
           await database

@@ -18,6 +18,7 @@ export const orderStatusLabels: Record<string, string> = {
   GROUPED: "In preparazione",
   CANCELLED_NO_DOCUMENT: "Annullato senza documento",
   REFUNDED_BEFORE_ISSUE: "Rimborsato prima dell’emissione",
+  INVOICED: "Fatturato",
   NEEDS_REVIEW: "Da verificare",
 };
 
