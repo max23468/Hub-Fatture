@@ -534,6 +534,7 @@ test(
       assert.equal(await orders.getOrder("non-numerico"), null);
       assert.equal(await orders.getBillingCase("0"), null);
       assert.deepEqual(await orders.listOrders({ query: "test\0non valido" }), []);
+      assert.deepEqual(await orders.listOrders({ localDate: "0000-01-01" }), []);
       const outOfRangeId = "9223372036854775808";
       assert.deepEqual(
         await Promise.all([

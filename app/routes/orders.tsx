@@ -16,6 +16,7 @@ import {
   setDraftTrigger,
 } from "../../src/orders.server.ts";
 import { readForm } from "../../src/http.server.ts";
+import { postgresDateSchema } from "../../src/orders.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -28,7 +29,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const requestedProvider = url.searchParams.get("provider") ?? "";
   const requestedPayment = url.searchParams.get("pagamento") ?? "";
   const requestedDate = url.searchParams.get("data") ?? "";
-  const parsedDate = new Date(`${requestedDate}T00:00:00Z`);
+  const parsedDate = postgresDateSchema.safeParse(requestedDate);
   const statusByView: Record<string, string | undefined> = {
     tutti: Object.hasOwn(orderStatusLabels, requestedStatus) ? requestedStatus : undefined,
     attesa: "WAITING_FOR_TRIGGER",
@@ -38,12 +39,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     query: url.searchParams.get("q") ?? "",
     provider: ["SHOPIFY", "EBAY"].includes(requestedProvider) ? requestedProvider : "",
     status: statusByView[view] ?? "",
-    localDate:
-      /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) &&
-      !Number.isNaN(parsedDate.valueOf()) &&
-      parsedDate.toISOString().startsWith(requestedDate)
-        ? requestedDate
-        : "",
+    localDate: parsedDate.success ? parsedDate.data : "",
     paymentStatus: ["PAID", "PENDING", "REFUNDED"].includes(requestedPayment)
       ? requestedPayment
       : "",

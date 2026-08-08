@@ -15,6 +15,7 @@ import {
   draftTriggerSchema,
   localOrderDate,
   orderInputSchema,
+  postgresDateSchema,
   triggerStatus,
   type DraftTrigger,
   type OrderInput,
@@ -963,6 +964,7 @@ export async function listOrders(filters: {
   paymentStatus?: string;
 }) {
   if (containsNullByte(filters)) return [];
+  if (filters.localDate && !postgresDateSchema.safeParse(filters.localDate).success) return [];
   const values = [
     filters.query ? `%${filters.query}%` : null,
     filters.provider || null,

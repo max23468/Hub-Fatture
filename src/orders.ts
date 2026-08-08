@@ -23,6 +23,9 @@ const optionalCountryCodeSchema = optionalTextSchema.pipe(
 const postgresTimestampSchema = z.iso
   .datetime({ offset: true })
   .refine((value) => !value.startsWith("0000-"), "Timestamp fuori dal dominio PostgreSQL");
+export const postgresDateSchema = z.iso
+  .date()
+  .refine((value) => !value.startsWith("0000-"), "Data fuori dal dominio PostgreSQL");
 
 export function containsNullByte(value: unknown): boolean {
   if (typeof value === "string") return value.includes("\0");
