@@ -1715,7 +1715,9 @@ Servono alla riconciliazione, non alla fattura 1:1.
 - `fiscal_profile_snapshot_json`
 - `created_at`
 
-`series` e `fiscal_year` esistono perché il numero fiscale è unico soltanto dentro il proprio sezionale e anno: senza queste colonne il vincolo di §15.2 non è esprimibile. Valori e formato sono definiti dall'audit di 11.3; le colonne nascono nella migrazione M4 che introduce la numerazione, con `series` valorizzata a un sezionale unico esplicito quando l'audit ne rileva uno solo.
+`series` e `fiscal_year` esistono perché il numero fiscale è unico soltanto dentro il proprio sezionale e anno: senza queste colonne il vincolo di §15.2 non è esprimibile. Valori e formato sono definiti dall'audit di 11.3; le colonne nascono nella migrazione M4 che introduce la numerazione.
+
+L'assenza di sezionale si rappresenta con un valore canonico esplicito, mai con `NULL`: un `UNIQUE` PostgreSQL considera distinti i `NULL`, quindi una serie nulla lascerebbe passare due documenti con lo stesso anno e numero, cioè esattamente la doppia numerazione che §14.5 deve impedire. Un `CHECK` impone che `series`, `fiscal_year` e `fiscal_number` siano tutti valorizzati dagli stati numerati in poi, e l'unicità è un indice unico sulle tre colonne limitato ai documenti già numerati.
 
 #### `document_orders`
 
@@ -1864,7 +1866,7 @@ Gli eventi `CRITICAL` — approvazione, numerazione, override importi, `Non tras
 - Hash XML finale immutabile dopo approvazione.
 - Documento emesso non modificabile.
 - Totale delle note non superiore alla fattura.
-- Numero fiscale univoco sulla chiave `(series, fiscal_year, fiscal_number)`, imposta da un vincolo DB dopo l'audit.
+- Numero fiscale univoco sulla chiave `(series, fiscal_year, fiscal_number)` fra i documenti numerati, con serie sempre valorizzata e unicità imposta dal DB dopo l'audit.
 - Ogni permesso Aruba è consumabile una sola volta e non sopravvive a mismatch di batch/manifest/documento/revisione/hash o scadenza; durante il Canary ne esiste al massimo uno valido.
 - Nessun segreto in tabelle di log/audit.
 - Nessuna transizione fiscale basata su un valore fornito soltanto dal browser.
@@ -2814,7 +2816,7 @@ Output:
 Gate:
 
 - HF-O01 e HF-O02 chiusi, cavallo d'anno incluso; golden test verde sulla fixture anonimizzata dell'XML accettato;
-- numerazione atomica provata sotto concorrenza, con unicità `(series, fiscal_year, fiscal_number)` imposta dal DB;
+- numerazione atomica provata sotto concorrenza, con unicità `(series, fiscal_year, fiscal_number)` imposta dal DB e verificata anche in assenza di sezionale, dove la serie usa il valore canonico e non `NULL`;
 - un account privo di `can_approve` non approva e non numera, nemmeno chiamando l'endpoint direttamente; il controllo sui permessi di invio è verificato in M5, dove i permessi nascono;
 - proiezione stale rifiutata al submit e documento approvato non più modificabile;
 - prova manuale controllata eseguita, autorizzata, arrestata prima dell'ultimo clic e ripulita, con evidenza sanitizzata registrata.
