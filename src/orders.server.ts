@@ -211,8 +211,9 @@ async function importOne(
     billing_case_id: string | null;
     review_fingerprint: string | null;
     updated_at_source: string;
+    normalized_snapshot_json: Record<string, unknown>;
   }>(
-    `SELECT id, billing_case_id, updated_at_source::text,
+    `SELECT id, billing_case_id, updated_at_source::text, normalized_snapshot_json,
             normalized_snapshot_json ->> 'reviewFingerprint' AS review_fingerprint
      FROM orders
      WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3`,
@@ -285,6 +286,25 @@ async function importOne(
     preparationReviewRequired,
     reviewFingerprint: fingerprint,
   };
+  const oldOrder = previous.rows[0];
+  const sourceConflict = Boolean(
+    oldOrder?.billing_case_id && oldOrder.review_fingerprint !== fingerprint,
+  );
+  const revision = sourceConflict
+    ? await client.query<{ id: string }>(
+        `INSERT INTO order_source_revisions
+          (order_id, billing_case_id, previous_normalized_snapshot_json,
+           current_normalized_snapshot_json)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [
+          oldOrder!.id,
+          oldOrder!.billing_case_id,
+          JSON.stringify(oldOrder!.normalized_snapshot_json),
+          JSON.stringify(normalizedSnapshot),
+        ],
+      )
+    : null;
   const order = await client.query<{
     id: string;
     billing_case_id: string | null;
@@ -304,7 +324,10 @@ async function importOne(
        payment_status = EXCLUDED.payment_status,
        fulfillment_status = EXCLUDED.fulfillment_status,
        trigger_status = CASE
-         WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.cancelled_at IS NOT NULL THEN 'NEEDS_REVIEW'
+         WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.cancelled_at IS NOT NULL
+           THEN 'CANCELLED_NO_DOCUMENT'
+         WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.payment_status = 'REFUNDED'
+           THEN 'REFUNDED_BEFORE_ISSUE'
          WHEN orders.billing_case_id IS NOT NULL THEN orders.trigger_status
          ELSE EXCLUDED.trigger_status
        END,
@@ -334,18 +357,32 @@ async function importOne(
     ],
   );
   const orderId = order.rows[0]!.id;
-  const oldOrder = previous.rows[0];
-  const sourceConflict = Boolean(
-    oldOrder?.billing_case_id && oldOrder.review_fingerprint !== fingerprint,
-  );
   if (sourceConflict) {
-    await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
-      orderId,
-    ]);
+    const reason = input.cancelledAt
+      ? ("CANCELLED" as const)
+      : input.paymentStatus === "REFUNDED"
+        ? ("REFUNDED" as const)
+        : null;
+    if (!reason) {
+      await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
+        orderId,
+      ]);
+    }
     await client.query(
-      `UPDATE billing_cases SET status = 'NEEDS_REVIEW', updated_at = now()
+      `UPDATE billing_cases
+       SET status = $2,
+           do_not_transmit_reason = $3,
+           updated_at = now()
        WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')`,
-      [oldOrder!.billing_case_id],
+      [
+        oldOrder!.billing_case_id,
+        reason ? "DO_NOT_TRANSMIT" : "NEEDS_REVIEW",
+        reason === "CANCELLED"
+          ? "Ordine annullato dalla sorgente"
+          : reason === "REFUNDED"
+            ? "Ordine rimborsato prima dell’emissione"
+            : null,
+      ],
     );
     await writeAudit(client, {
       actorType: "ADMIN",
@@ -354,9 +391,23 @@ async function importOne(
       eventClass: "CRITICAL",
       entityType: "ORDER",
       entityId: orderId,
-      metadata: { billingCaseId: oldOrder!.billing_case_id! },
+      metadata: {
+        billingCaseId: oldOrder!.billing_case_id!,
+        revisionId: revision!.rows[0]!.id,
+      },
       requestId: actor.requestId,
     });
+    if (reason) {
+      await writeAudit(client, {
+        actorType: "SYSTEM",
+        action: "BILLING_CASE_DO_NOT_TRANSMIT",
+        eventClass: "CRITICAL",
+        entityType: "BILLING_CASE",
+        entityId: oldOrder!.billing_case_id!,
+        metadata: { billingCaseId: oldOrder!.billing_case_id!, reason },
+        requestId: actor.requestId,
+      });
+    }
   }
   await client.query("DELETE FROM order_lines WHERE order_id = $1", [orderId]);
   for (const [index, line] of input.lines.entries()) {
@@ -640,7 +691,10 @@ export async function listOrders(filters: {
                        WHERE order_tax_identifiers.order_id = orders.id
                          AND order_tax_identifiers.normalized_value ILIKE $1))
        AND ($2::text IS NULL OR orders.provider = $2)
-       AND ($3::text IS NULL OR orders.trigger_status = $3)
+       AND ($3::text IS NULL
+            OR ($3 = 'NO_DOCUMENT' AND orders.trigger_status IN
+                ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'))
+            OR orders.trigger_status = $3)
        AND ($4::date IS NULL OR orders.local_order_date = $4)
        AND ($5::text IS NULL OR orders.payment_status = $5)
      ORDER BY orders.local_order_date DESC, orders.id DESC`,
@@ -714,7 +768,7 @@ export async function getBillingCase(id: string) {
     [id],
   );
   if (!billingCase.rows[0]) return null;
-  const [orders, audit] = await Promise.all([
+  const [orders, audit, revisions] = await Promise.all([
     getPool().query(
       `SELECT id, provider, display_number, gross_amount, payment_status, fulfillment_status
        FROM orders WHERE billing_case_id = $1 ORDER BY id`,
@@ -728,8 +782,40 @@ export async function getBillingCase(id: string) {
        ORDER BY created_at DESC`,
       [id],
     ),
+    getPool().query<{
+      id: string;
+      order_id: string;
+      display_number: string;
+      previous_normalized_snapshot_json: Record<string, unknown>;
+      current_normalized_snapshot_json: Record<string, unknown>;
+      created_at: string;
+    }>(
+      `SELECT order_source_revisions.*, orders.display_number
+       FROM order_source_revisions
+       JOIN orders ON orders.id = order_source_revisions.order_id
+       WHERE order_source_revisions.billing_case_id = $1
+       ORDER BY order_source_revisions.created_at DESC`,
+      [id],
+    ),
   ]);
-  return { ...billingCase.rows[0], orders: orders.rows, audit: audit.rows };
+  return {
+    ...billingCase.rows[0],
+    orders: orders.rows,
+    audit: audit.rows,
+    revisions: revisions.rows.map((revision) => ({
+      ...revision,
+      changedFields: Array.from(
+        new Set([
+          ...Object.keys(revision.previous_normalized_snapshot_json),
+          ...Object.keys(revision.current_normalized_snapshot_json),
+        ]),
+      ).filter(
+        (field) =>
+          JSON.stringify(revision.previous_normalized_snapshot_json[field]) !==
+          JSON.stringify(revision.current_normalized_snapshot_json[field]),
+      ),
+    })),
+  };
 }
 
 export async function dashboardSummary() {

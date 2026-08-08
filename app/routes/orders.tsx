@@ -32,7 +32,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const statusByView: Record<string, string | undefined> = {
     tutti: Object.hasOwn(orderStatusLabels, requestedStatus) ? requestedStatus : undefined,
     attesa: "WAITING_FOR_TRIGGER",
-    annullati: "CANCELLED_NO_DOCUMENT",
+    annullati: "NO_DOCUMENT",
   };
   const filters = {
     query: url.searchParams.get("q") ?? "",

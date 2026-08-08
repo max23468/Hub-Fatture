@@ -20,6 +20,7 @@ Sono accettati soltanto importi decimali rappresentabili esattamente in centesim
 - Ordini e preparazioni leggono la propria anagrafica immutabile; aggiornare il cliente normalizzato non modifica retroattivamente dati già raggruppati.
 - Un aggiornamento con `updated_at_source` meno recente di quello persistito viene ignorato prima di qualsiasi mutazione e conteggiato nel risultato dell’import.
 - Se cambiano dati rilevanti per la preparazione — identità e anagrafica cliente, totale, righe, pagamenti, stato o annullamento — il raggruppamento esistente passa a `NEEDS_REVIEW`; soli timestamp tecnici e campi di provenienza non generano falsi allarmi.
+- Ogni conflitto conserva in modo immutabile snapshot normalizzato precedente e corrente. Un annullamento o rimborso prima dell’emissione porta invece la preparazione a `DO_NOT_TRANSMIT` con motivazione e audit.
 
 ## Audit e concorrenza
 

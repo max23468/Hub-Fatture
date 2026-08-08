@@ -103,7 +103,8 @@ export default function OrderDetail() {
               </dd>
             </div>
           </dl>
-          {!order.billing_case_id && order.trigger_status !== "CANCELLED_NO_DOCUMENT" ? (
+          {!order.billing_case_id &&
+          !["CANCELLED_NO_DOCUMENT", "REFUNDED_BEFORE_ISSUE"].includes(order.trigger_status) ? (
             <Form method="post" className="section-gap">
               <input type="hidden" name="csrf" value={csrfToken} />
               <button className="button" type="submit">

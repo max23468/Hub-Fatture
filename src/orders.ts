@@ -213,8 +213,9 @@ export function customerIdentity(input: OrderInput): {
 export function triggerStatus(
   order: Pick<OrderInput, "cancelledAt" | "paymentStatus" | "fulfillmentStatus">,
   trigger: DraftTrigger,
-): "CANCELLED_NO_DOCUMENT" | "ELIGIBLE" | "WAITING_FOR_TRIGGER" {
-  if (order.cancelledAt || order.paymentStatus === "REFUNDED") return "CANCELLED_NO_DOCUMENT";
+): "CANCELLED_NO_DOCUMENT" | "REFUNDED_BEFORE_ISSUE" | "ELIGIBLE" | "WAITING_FOR_TRIGGER" {
+  if (order.cancelledAt) return "CANCELLED_NO_DOCUMENT";
+  if (order.paymentStatus === "REFUNDED") return "REFUNDED_BEFORE_ISSUE";
   if (
     trigger === "PAID" ? order.paymentStatus === "PAID" : order.fulfillmentStatus === "FULFILLED"
   ) {

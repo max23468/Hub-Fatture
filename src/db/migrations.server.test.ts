@@ -69,12 +69,13 @@ test(
         "004_reset_password_hashes.sql",
         "005_order_domain.sql",
         "006_billing_case_customer_snapshot.sql",
+        "007_order_source_revisions.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "6",
+        "7",
       );
       await cleanClient.end();
 
@@ -507,9 +508,9 @@ test(
              WHERE orders.external_order_id = 'shop-order-1001'`,
         )
       ).rows[0];
-      assert.equal(conflictedCase.status, "NEEDS_REVIEW");
+      assert.equal(conflictedCase.status, "DO_NOT_TRANSMIT");
       assert.equal(conflictedCase.review_required, false);
-      assert.equal((await orders.getBillingCase(conflictedCase.id))?.status, "NEEDS_REVIEW");
+      assert.equal((await orders.getBillingCase(conflictedCase.id))?.status, "DO_NOT_TRANSMIT");
       assert.equal(
         (
           await database
@@ -517,6 +518,28 @@ test(
             .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_SOURCE_CONFLICT'")
         ).rows[0].count,
         "1",
+      );
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM order_source_revisions
+             WHERE billing_case_id = $1
+               AND previous_normalized_snapshot_json ->> 'paymentStatus' = 'PAID'
+               AND current_normalized_snapshot_json ->> 'paymentStatus' = 'REFUNDED'`,
+            [conflictedCase.id],
+          )
+        ).rows[0].count,
+        "1",
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query(`SELECT do_not_transmit_reason FROM billing_cases WHERE id = $1`, [
+              conflictedCase.id,
+            ])
+        ).rows[0].do_not_transmit_reason,
+        "Ordine rimborsato prima dell’emissione",
       );
       assert.deepEqual(
         await orders.importOrders([fixture[0]], {
@@ -527,11 +550,12 @@ test(
       );
       const preservedSource = (
         await database.getPool().query(
-          `SELECT updated_at_source::text, payment_status
+          `SELECT updated_at_source::text, payment_status, trigger_status
              FROM orders WHERE external_order_id = 'shop-order-1001'`,
         )
       ).rows[0];
       assert.equal(preservedSource.payment_status, "REFUNDED");
+      assert.equal(preservedSource.trigger_status, "REFUNDED_BEFORE_ISSUE");
       assert.match(preservedSource.updated_at_source, /^2026-08-08 10:00:00/);
       const invalidAmount = structuredClone(fixture[1]);
       invalidAmount.externalOrderId = "ebay-invalid-amount";

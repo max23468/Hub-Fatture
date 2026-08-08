@@ -1689,6 +1689,18 @@ Servono alla riconciliazione, non alla fattura 1:1.
 - `recorded_manually`
 - `raw_json`
 
+#### `order_source_revisions`
+
+- `id`
+- `order_id`
+- `billing_case_id`
+- `previous_normalized_snapshot_json`
+- `current_normalized_snapshot_json`
+- `created_at`
+
+Ogni conflitto sorgente conserva entrambe le versioni in modo immutabile prima di aggiornare
+l’ordine corrente.
+
 #### `billing_cases`
 
 - `id`

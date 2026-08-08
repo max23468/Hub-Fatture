@@ -68,7 +68,7 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
       { ...base, paymentStatus: "REFUNDED", fulfillmentStatus: "FULFILLED" },
       "FULFILLED",
     ),
-    "CANCELLED_NO_DOCUMENT",
+    "REFUNDED_BEFORE_ISSUE",
   );
   assert.equal(
     triggerStatus({ ...base, cancelledAt: "2026-03-30T10:00:00Z" }, "PAID"),

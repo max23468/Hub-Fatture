@@ -17,6 +17,7 @@ export const orderStatusLabels: Record<string, string> = {
   ELIGIBLE: "Idoneo",
   GROUPED: "In preparazione",
   CANCELLED_NO_DOCUMENT: "Annullato senza documento",
+  REFUNDED_BEFORE_ISSUE: "Rimborsato prima dell’emissione",
   NEEDS_REVIEW: "Da verificare",
 };
 
@@ -56,4 +57,11 @@ export const auditActionLabels: Record<string, string> = {
   ORDER_GROUPED: "Ordine aggiunto alla preparazione",
   ORDER_GROUPING_FORCED: "Preparazione anticipata richiesta",
   ORDER_SOURCE_CONFLICT: "Modifica dei dati sorgente da verificare",
+  BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
+};
+
+export const billingCaseStatusLabels: Record<string, string> = {
+  NEEDS_REVIEW: "Da verificare",
+  READY: "Pronta",
+  DO_NOT_TRANSMIT: "Da non trasmettere",
 };

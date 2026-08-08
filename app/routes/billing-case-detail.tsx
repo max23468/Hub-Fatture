@@ -2,7 +2,7 @@ import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/billing-case-detail";
 
 import { AppShell } from "../components/app-shell";
-import { auditActionLabels, paymentStatusLabels } from "../copy.it";
+import { auditActionLabels, billingCaseStatusLabels, paymentStatusLabels } from "../copy.it";
 import { date, dateTime, euros } from "../format";
 import { requireSessionUser } from "../../src/auth.server.ts";
 import { getBillingCase } from "../../src/orders.server.ts";
@@ -34,6 +34,11 @@ export default function BillingCaseDetail() {
           Dati incompleti o modificati richiedono una verifica prima di proseguire.
         </p>
       ) : null}
+      {billingCase.status === "DO_NOT_TRANSMIT" ? (
+        <p className="warning" role="status">
+          {billingCase.do_not_transmit_reason ?? "Questa preparazione non deve essere trasmessa."}
+        </p>
+      ) : null}
       <div className="detail-grid">
         <section className="card">
           <h2>Ordini inclusi</h2>
@@ -57,7 +62,7 @@ export default function BillingCaseDetail() {
           <dl className="facts">
             <div>
               <dt>Stato corrente</dt>
-              <dd>{billingCase.status === "NEEDS_REVIEW" ? "Da verificare" : "Pronta"}</dd>
+              <dd>{billingCaseStatusLabels[billingCase.status] ?? "Stato non riconosciuto"}</dd>
             </div>
             <div>
               <dt>Valuta</dt>
@@ -70,6 +75,30 @@ export default function BillingCaseDetail() {
           </dl>
         </section>
       </div>
+      {billingCase.revisions.length ? (
+        <section className="card section-gap">
+          <h2>Modifiche dalla sorgente</h2>
+          <p>Le versioni precedenti sono conservate per consentire la verifica.</p>
+          <ol className="timeline">
+            {billingCase.revisions.map(
+              (revision: {
+                id: string;
+                display_number: string;
+                created_at: string;
+                changedFields: string[];
+              }) => (
+                <li key={revision.id}>
+                  <strong>Ordine {revision.display_number}</strong>
+                  <span>
+                    {dateTime(revision.created_at)} · Campi modificati:{" "}
+                    {revision.changedFields.join(", ")}
+                  </span>
+                </li>
+              ),
+            )}
+          </ol>
+        </section>
+      ) : null}
       <section className="card section-gap">
         <h2>Registro attività</h2>
         {billingCase.audit.length ? (
