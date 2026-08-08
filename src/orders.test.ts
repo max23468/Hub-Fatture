@@ -105,4 +105,31 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
     },
   };
   assert.match(customerIdentity(reordered).matchKey, /^tax:CODICE_FISCALE:/);
+
+  const unknown = {
+    ...base,
+    customer: { ...base.customer, kind: "UNKNOWN" as const },
+  };
+  assert.equal(customerIdentity(unknown).reviewRequired, true);
+
+  const foreignTaxId = {
+    ...base,
+    customer: {
+      ...base.customer,
+      kind: "EU" as const,
+      billingAddress: { ...base.customer.billingAddress, countryCode: "FR" },
+      taxIdentifiers: [{ type: "ALTRO" as const, value: "12345", sourceField: "fixture" }],
+    },
+  };
+  assert.equal(customerIdentity(foreignTaxId).matchKey, "tax:ALTRO:FR:12345");
+  assert.equal(
+    customerIdentity({
+      ...foreignTaxId,
+      customer: {
+        ...foreignTaxId.customer,
+        billingAddress: { ...foreignTaxId.customer.billingAddress, countryCode: undefined },
+      },
+    }).confidence,
+    "AMBIGUOUS",
+  );
 });

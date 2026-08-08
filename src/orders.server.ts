@@ -200,7 +200,21 @@ async function importOne(
        tax_id_type, tax_id_normalized, vat_country, billing_address_json,
        source_confidence, review_required)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-     ON CONFLICT (match_key) DO UPDATE SET match_key = EXCLUDED.match_key
+     ON CONFLICT (match_key) DO UPDATE SET
+       kind = EXCLUDED.kind,
+       display_name = EXCLUDED.display_name,
+       first_name = EXCLUDED.first_name,
+       last_name = EXCLUDED.last_name,
+       company_name = EXCLUDED.company_name,
+       email = EXCLUDED.email,
+       phone = EXCLUDED.phone,
+       tax_id_type = EXCLUDED.tax_id_type,
+       tax_id_normalized = EXCLUDED.tax_id_normalized,
+       vat_country = EXCLUDED.vat_country,
+       billing_address_json = EXCLUDED.billing_address_json,
+       source_confidence = EXCLUDED.source_confidence,
+       review_required = EXCLUDED.review_required,
+       updated_at = now()
      RETURNING id`,
     [
       input.customer.kind,

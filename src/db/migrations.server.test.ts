@@ -575,6 +575,30 @@ test(
         ).rows[0].status,
         "NEEDS_REVIEW",
       );
+      const completedCustomer = structuredClone(incompleteCustomer);
+      completedCustomer.externalOrderId = "shop-order-completed-customer";
+      completedCustomer.createdAt = "2026-08-09T08:15:00Z";
+      completedCustomer.updatedAt = "2026-08-09T09:00:00Z";
+      completedCustomer.customer.billingAddress = fixture[0].customer.billingAddress;
+      await orders.importOrders([completedCustomer], {
+        id: 1,
+        requestId: "test-completed-customer",
+      });
+      const completedCase = (
+        await database.getPool().query(
+          `SELECT billing_cases.status, customers.review_required,
+                  customers.billing_address_json ->> 'city' AS city
+             FROM billing_cases
+             JOIN customers ON customers.id = billing_cases.customer_id
+             JOIN orders ON orders.billing_case_id = billing_cases.id
+             WHERE orders.external_order_id = 'shop-order-completed-customer'`,
+        )
+      ).rows[0];
+      assert.deepEqual(completedCase, {
+        status: "READY",
+        review_required: false,
+        city: "Milano",
+      });
       await database.closePool();
     } finally {
       await import("./client.server.ts").then(({ closePool }) => closePool());

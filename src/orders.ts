@@ -147,11 +147,14 @@ export function customerIdentity(input: OrderInput): {
   for (const identifier of identifiers) {
     const value = normalizedTaxId(identifier.value);
     if (validTaxId(identifier.type, value)) {
-      const countryCode = identifier.countryCode?.toUpperCase();
+      const countryCode =
+        identifier.countryCode?.toUpperCase() ??
+        (identifier.type === "ALTRO" ? address.countryCode : undefined);
+      if (identifier.type === "ALTRO" && !countryCode) continue;
       return {
         matchKey: `tax:${identifier.type}:${countryCode ?? ""}:${value}`,
         confidence: "TAX_ID",
-        reviewRequired: !profileComplete,
+        reviewRequired: input.customer.kind === "UNKNOWN" || !profileComplete,
         primaryTaxId: { type: identifier.type, value, countryCode },
       };
     }

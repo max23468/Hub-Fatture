@@ -29,6 +29,7 @@ export class AppError extends Error {
 }
 
 export function publicError(error: unknown) {
+  if (error instanceof Response) throw error;
   return error instanceof AppError
     ? { code: error.code, message: error.message, status: error.status }
     : { code: "UNKNOWN" as const, message: errorCatalog.UNKNOWN, status: 500 };
