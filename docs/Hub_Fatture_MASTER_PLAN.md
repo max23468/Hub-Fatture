@@ -1092,7 +1092,7 @@ M4-M5 aggiornano questa specifica o producono un ADR breve con:
 
 Modalità:
 
-- **Automatica dopo la consegna SdI**: inviare dopo che il readback conferma la consegna allo SdI, mai dopo la sola validazione del file né dopo la sola acquisizione Aruba.
+- **Automatica dopo l'esito SdI**: inviare dopo che il readback riporta un esito che conferma l'emissione, mai dopo la sola validazione del file né dopo la sola acquisizione Aruba.
 - **Manuale con approvazione**: nella schermata di approvazione l'utente decide per la singola Scheda.
 
 Anche in modalità automatica, la schermata deve permettere di non inviare per una specifica Scheda prima dell'approvazione.
@@ -1128,9 +1128,11 @@ Consentire reinvio manuale. Un errore e-mail non modifica lo stato fiscale del d
 
 ### 12.4 Momento esatto
 
-La copia parte quando il readback riporta il documento come consegnato allo SdI, non alla validazione del file e non alla semplice acquisizione da parte di Aruba. Inviare all'acquisizione anticipa la copia di poco e, in caso di scarto, lascia al cliente il PDF di una fattura che non esiste, recuperabile soltanto a mano: attendere la consegna elimina l'intera classe di errore al costo di un'attesa in genere breve.
+La copia parte quando il readback riporta un esito SdI che conferma l'emissione, non alla validazione del file e non alla semplice acquisizione da parte di Aruba. Inviare all'acquisizione anticipa la copia di poco e, in caso di scarto, lascia al cliente il PDF di una fattura che non esiste, recuperabile soltanto a mano: attendere l'esito elimina l'intera classe di errore al costo di un'attesa in genere breve.
 
-Poiché in HF il readback non è continuo (10.6), la consegna può essere osservata soltanto quando l'helper è aperto o dopo un import manuale: la copia in modalità automatica parte quindi alla prima riconciliazione utile, e il pannello mostra da quanto tempo un documento è in attesa di consegna. Se questa latenza diventa un problema operativo, la risposta è la modalità `Manuale`, non l'invio anticipato.
+Confermano l'emissione sia `DELIVERED` sia `NOT_DELIVERED`: la mancata consegna riguarda il recapito al canale del destinatario, non la validità del documento, ed è anzi il caso in cui la copia leggibile è più utile al cliente. Il trigger esclude soltanto `REJECTED` e gli stati ancora incerti, che non autorizzano alcun invio.
+
+Poiché in HF il readback non è continuo (10.6), l'esito può essere osservato soltanto quando l'helper è aperto o dopo un import manuale: la copia in modalità automatica parte quindi alla prima riconciliazione utile, e il pannello mostra da quanto tempo un documento resta senza esito. Se questa latenza diventa un problema operativo, la risposta è la modalità `Manuale`, non l'invio anticipato.
 
 Uno scarto non invia automaticamente nulla al cliente e non cancella un invio già registrato: richiede gestione manuale secondo la procedura di scarto verificata.
 
@@ -2852,7 +2854,7 @@ Output:
 - TD04 instradato nello stesso manifest, nelle stesse due modalità helper e nello stesso fallback manuale delle fatture;
 - precondizione DNS di 12.5 verificata e, solo se soddisfatta, PoC OCI Email Delivery con dati sintetici e confronto con il provider esistente;
 - un solo trasporto SMTP canonico configurato e HF-O07 chiuso con la relativa motivazione;
-- modalità automatica dopo consegna SdI e modalità manuale;
+- modalità automatica dopo l'esito SdI che conferma l'emissione e modalità manuale;
 - reinvio.
 
 Gate:
@@ -2860,7 +2862,7 @@ Gate:
 - stesso rimborso mai contabilizzato due volte e somma delle note mai superiore alla fattura, imposte da vincoli DB;
 - nessuna nota di credito per fattura scartata o non emessa;
 - rimborso eBay non riconciliabile con certezza blocca in `NEEDS_REVIEW` invece di indovinare;
-- la copia automatica parte soltanto dopo la consegna SdI osservata dal readback;
+- la copia automatica parte soltanto dopo un esito SdI che conferma l'emissione, `DELIVERED` o `NOT_DELIVERED`, e mai su `REJECTED` o stato incerto;
 - un fallimento e-mail non altera lo stato fiscale del documento e resta reinviabile.
 
 ### M7 - Produzione su OCI
@@ -3004,7 +3006,7 @@ Pagina Aruba sintetica e contratto dei locatori derivati dalla prova, helper uni
 
 ### Note di credito ed e-mail - M6
 
-Ingest del rimborso completato, bozza TD04 cumulativa, residuo accreditabile, nuova bozza dopo l'emissione, blocco per fattura scartata, UI dedicata. Sul fronte e-mail: precondizione DNS di §12.5, scelta del trasporto canonico, configurazione Nodemailer, template italiano, modalità automatica dopo consegna SdI e manuale, stato ed errore con reinvio.
+Ingest del rimborso completato, bozza TD04 cumulativa, residuo accreditabile, nuova bozza dopo l'emissione, blocco per fattura scartata, UI dedicata. Sul fronte e-mail: precondizione DNS di §12.5, scelta del trasporto canonico, configurazione Nodemailer, template italiano, modalità automatica dopo l'esito SdI e manuale, stato ed errore con reinvio.
 
 ### Produzione e continuità - M7/M10
 
