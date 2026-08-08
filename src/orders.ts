@@ -158,9 +158,6 @@ function requiresItalianTaxFormat(
   identifier: OrderInput["customer"]["taxIdentifiers"][number],
 ) {
   const countryCode = identifier.countryCode ?? input.customer.billingAddress.countryCode;
-  if (identifier.type === "PARTITA_IVA" && normalizedTaxId(identifier.value).startsWith("IT")) {
-    return true;
-  }
   if (["PRIVATE_IT", "BUSINESS_IT"].includes(input.customer.kind)) return true;
   if (countryCode) return countryCode === "IT";
   return input.customer.kind === "UNKNOWN";

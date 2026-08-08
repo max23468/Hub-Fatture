@@ -179,6 +179,17 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
     },
   });
   assert.equal(customerIdentity(euVatGermany).matchKey, "tax:PARTITA_IVA:DE:123456789");
+  const contradictoryEuVat = customerIdentity({
+    ...euVatFrance,
+    customer: {
+      ...euVatFrance.customer,
+      taxIdentifiers: [
+        { type: "PARTITA_IVA", value: "IT12345678901", countryCode: "FR", sourceField: "fixture" },
+      ],
+    },
+  });
+  assert.equal(contradictoryEuVat.matchKey, "tax:PARTITA_IVA:FR:IT12345678901");
+  assert.notEqual(contradictoryEuVat.matchKey, customerIdentity(euVatFrance).matchKey);
   assert.equal(
     canonicalTaxIdentifiers({
       ...euVatGermany,
