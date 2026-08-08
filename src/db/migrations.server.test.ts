@@ -55,19 +55,20 @@ async function temporaryDatabase(suffix: string) {
   };
 }
 
-async function waitForBlockedQuery(client: pg.Client, fragment: string) {
+async function waitForBlockedQuery(client: pg.Client) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const waiting = await client.query<{ waiting: boolean }>(
       `SELECT EXISTS (
          SELECT 1 FROM pg_stat_activity
-         WHERE pid <> pg_backend_pid() AND wait_event_type = 'Lock' AND query ILIKE $1
+         WHERE datname = current_database()
+           AND pid <> pg_backend_pid()
+           AND wait_event_type = 'Lock'
        ) AS waiting`,
-      [`%${fragment}%`],
     );
     if (waiting.rows[0]!.waiting) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error(`Query non bloccata: ${fragment}`);
+  throw new Error("Nessuna query bloccata nel database di test");
 }
 
 test(
@@ -434,7 +435,7 @@ test(
         await orderBlocker.query("BEGIN");
         await orderBlocker.query("LOCK TABLE order_lines IN ACCESS EXCLUSIVE MODE");
         orderDetailPromise = orders.getOrder(String(snapshotOrder.id));
-        await waitForBlockedQuery(orderBlocker, "jsonb_agg(to_jsonb(order_lines)");
+        await waitForBlockedQuery(orderBlocker);
         await orderBlocker.query("UPDATE orders SET gross_amount = 12345 WHERE id = $1", [
           snapshotOrder.id,
         ]);
@@ -466,7 +467,7 @@ test(
         await auditBlocker.query("BEGIN");
         await auditBlocker.query("LOCK TABLE audit_events IN ACCESS EXCLUSIVE MODE");
         caseDetailPromise = orders.getBillingCase(String(snapshotOrder.billing_case_id));
-        await waitForBlockedQuery(auditBlocker, "jsonb_agg(to_jsonb(case_audit)");
+        await waitForBlockedQuery(auditBlocker);
         await auditBlocker.query("UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1", [
           snapshotOrder.billing_case_id,
         ]);
@@ -1526,6 +1527,13 @@ test(
         id: 1,
         requestId: "test-reviewed-cancellation",
       });
+      const archivedCancelledCaseId = (
+        await database.getPool().query(
+          `SELECT entity_id FROM audit_events
+           WHERE request_id = 'test-reviewed-cancellation'
+             AND action = 'BILLING_CASE_DO_NOT_TRANSMIT'`,
+        )
+      ).rows[0].entity_id;
       const recoveredReviewed = (
         await database.getPool().query(
           `SELECT orders.billing_case_id, billing_cases.status
@@ -1559,6 +1567,22 @@ test(
         (await orders.getBillingCase(String(reidentifiedOrder.billing_case_id)))!.revisions.length >
           0,
       );
+      await orders.updateBillingCaseTransmission(
+        String(reidentifiedOrder.billing_case_id),
+        "Preparazione sostitutiva archiviata per il test",
+        { id: 1, requestId: "test-archive-replacement-case" },
+      );
+      await assert.rejects(
+        orders.updateBillingCaseTransmission(String(archivedCancelledCaseId), null, {
+          id: 1,
+          requestId: "test-empty-case-reactivation",
+        }),
+        (error: unknown) => error instanceof AppError && error.code === "BILLING_CASE_EMPTY",
+      );
+      await orders.updateBillingCaseTransmission(String(reidentifiedOrder.billing_case_id), null, {
+        id: 1,
+        requestId: "test-reactivate-replacement-case",
+      });
 
       const triggerConcurrentA = structuredClone(fixture[0]);
       triggerConcurrentA.externalOrderId = "shop-order-trigger-concurrent-a";

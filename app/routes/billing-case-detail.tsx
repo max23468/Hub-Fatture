@@ -111,7 +111,7 @@ export default function BillingCaseDetail() {
               <dd>{billingCase.orders.length}</dd>
             </div>
           </dl>
-          {billingCase.status === "DO_NOT_TRANSMIT" ? (
+          {billingCase.status === "DO_NOT_TRANSMIT" && billingCase.orders.length ? (
             <Form method="post" className="section-gap">
               <input type="hidden" name="csrf" value={csrfToken} />
               <input type="hidden" name="intent" value="reactivate" />
@@ -119,6 +119,11 @@ export default function BillingCaseDetail() {
                 Riattiva preparazione
               </button>
             </Form>
+          ) : billingCase.status === "DO_NOT_TRANSMIT" ? (
+            <p className="notice section-gap">
+              Questa preparazione storica non contiene più ordini e resta consultabile soltanto in
+              archivio.
+            </p>
           ) : ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status) ? (
             <Form method="post" className="section-gap">
               <input type="hidden" name="csrf" value={csrfToken} />

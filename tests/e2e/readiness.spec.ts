@@ -94,6 +94,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "Annullati" }).click();
   await expect(page.getByRole("heading", { name: "Preparazioni non trasmesse" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Da non trasmettere", exact: true })).toBeVisible();
+  const archivedOrderFilters = page.getByRole("search", { name: "Filtra gli ordini" });
+  await archivedOrderFilters.getByLabel("Cerca").fill("ordine-inesistente");
+  await archivedOrderFilters.getByRole("button", { name: "Filtra" }).click();
+  await expect(page.getByRole("cell", { name: "Da non trasmettere", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Nessun ordine annullato" })).toBeVisible();
   await page
     .getByRole("link", { name: archivedPreparation!.replace("Preparazione fattura ", "") })
     .click();

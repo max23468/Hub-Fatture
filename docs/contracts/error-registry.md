@@ -13,6 +13,7 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `ORDER_CURRENCY_NOT_SUPPORTED` | VALIDATION permanente | no               | importare soltanto ordini in euro    |
 | `ORDER_INVALID_INPUT`          | VALIDATION permanente | no               | correggere i dati normalizzati       |
 | `ORDER_NOT_PREPARABLE`         | CONFLICT permanente   | no               | verificare lo stato dell’ordine      |
+| `BILLING_CASE_EMPTY`           | CONFLICT permanente   | no               | lasciare la preparazione in archivio |
 | `INVALID_CONTENT_TYPE`         | VALIDATION permanente | no               | inviare il formato previsto          |
 | `REQUEST_BODY_TOO_LARGE`       | VALIDATION permanente | no               | ridurre il payload                   |
 | `REQUEST_ORIGIN_INVALID`       | AUTH permanente       | no               | usare l’origine configurata dell’app |

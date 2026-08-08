@@ -856,11 +856,15 @@ export async function updateBillingCaseTransmission(
     await serializeOrderMutations(client);
     const result = await client.query<{
       status: string;
+      has_orders: boolean;
       has_incompatible_orders: boolean;
       needs_review: boolean;
       has_other_open_case: boolean;
     }>(
       `SELECT billing_cases.status,
+              EXISTS (
+                SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
+              ) AS has_orders,
               EXISTS (
                 SELECT 1 FROM orders
                 WHERE orders.billing_case_id = billing_cases.id
@@ -916,6 +920,7 @@ export async function updateBillingCaseTransmission(
       return "DO_NOT_TRANSMIT";
     }
     if (current.status !== "DO_NOT_TRANSMIT") throw new AppError("CONFLICT_REVISION", 409);
+    if (!current.has_orders) throw new AppError("BILLING_CASE_EMPTY", 409);
     if (current.has_incompatible_orders) throw new AppError("ORDER_NOT_PREPARABLE", 409);
     if (current.has_other_open_case) throw new AppError("CONFLICT_REVISION", 409);
     const status = current.needs_review ? "NEEDS_REVIEW" : "READY";

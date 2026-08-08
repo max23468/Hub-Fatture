@@ -125,6 +125,52 @@ export default function Orders() {
   const showsPreparations = view === "fatturare" || view === "verificare";
   const showsPreparationArchive =
     showsPreparations || (view === "annullati" && preparationCases.length > 0);
+  const orderFilters = (
+    <Form method="get" className="filters" role="search" aria-label="Filtra gli ordini">
+      {view !== "tutti" ? <input type="hidden" name="vista" value={view} /> : null}
+      <label>
+        Cerca
+        <input name="q" defaultValue={filters.query} placeholder="Numero ordine o cliente" />
+      </label>
+      <label>
+        Piattaforma
+        <select name="provider" defaultValue={filters.provider}>
+          <option value="">Tutte</option>
+          <option value="SHOPIFY">Shopify</option>
+          <option value="EBAY">eBay</option>
+        </select>
+      </label>
+      <label>
+        Data ordine
+        <input name="data" type="date" defaultValue={filters.localDate} />
+      </label>
+      <label>
+        Pagamento
+        <select name="pagamento" defaultValue={filters.paymentStatus}>
+          <option value="">Tutti</option>
+          <option value="PAID">Pagato</option>
+          <option value="PENDING">In attesa</option>
+          <option value="REFUNDED">Rimborsato</option>
+        </select>
+      </label>
+      {view === "tutti" ? (
+        <label>
+          Stato di preparazione
+          <select name="stato" defaultValue={filters.status}>
+            <option value="">Tutti</option>
+            {Object.entries(orderStatusLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <button className="button button--secondary" type="submit">
+        Filtra
+      </button>
+    </Form>
+  );
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
@@ -196,52 +242,7 @@ export default function Orders() {
         ) : null}
       </section>
 
-      {!showsPreparations ? (
-        <Form method="get" className="filters" role="search">
-          {view !== "tutti" ? <input type="hidden" name="vista" value={view} /> : null}
-          <label>
-            Cerca
-            <input name="q" defaultValue={filters.query} placeholder="Numero ordine o cliente" />
-          </label>
-          <label>
-            Piattaforma
-            <select name="provider" defaultValue={filters.provider}>
-              <option value="">Tutte</option>
-              <option value="SHOPIFY">Shopify</option>
-              <option value="EBAY">eBay</option>
-            </select>
-          </label>
-          <label>
-            Data ordine
-            <input name="data" type="date" defaultValue={filters.localDate} />
-          </label>
-          <label>
-            Pagamento
-            <select name="pagamento" defaultValue={filters.paymentStatus}>
-              <option value="">Tutti</option>
-              <option value="PAID">Pagato</option>
-              <option value="PENDING">In attesa</option>
-              <option value="REFUNDED">Rimborsato</option>
-            </select>
-          </label>
-          {view === "tutti" ? (
-            <label>
-              Stato di preparazione
-              <select name="stato" defaultValue={filters.status}>
-                <option value="">Tutti</option>
-                {Object.entries(orderStatusLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <button className="button button--secondary" type="submit">
-            Filtra
-          </button>
-        </Form>
-      ) : null}
+      {!showsPreparations && view !== "annullati" ? orderFilters : null}
 
       {showsPreparationArchive && preparationCases.length ? (
         <section className="section-gap">
@@ -288,58 +289,59 @@ export default function Orders() {
         </section>
       ) : null}
 
-      {!showsPreparations && orders.length ? (
+      {!showsPreparations ? (
         <section className="section-gap">
-          {view === "annullati" && preparationCases.length ? (
-            <h2>Ordini annullati o rimborsati</h2>
-          ) : null}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Ordine</th>
-                  <th>Cliente</th>
-                  <th>Data</th>
-                  <th>Totale</th>
-                  <th>Stato</th>
-                  <th>Preparazione</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((order) => (
-                  <tr key={order.id}>
-                    <td data-label="Ordine">
-                      <Link to={`/ordini/${order.id}`}>
-                        {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
-                      </Link>
-                    </td>
-                    <td data-label="Cliente">{order.customer_name}</td>
-                    <td data-label="Data">{date(order.local_order_date)}</td>
-                    <td data-label="Totale">{euros(order.gross_amount)}</td>
-                    <td data-label="Stato">
-                      <span className="status">
-                        {orderStatusLabels[order.trigger_status] ?? "Stato non riconosciuto"}
-                      </span>
-                    </td>
-                    <td data-label="Preparazione">
-                      {order.billing_case_id ? (
-                        <Link to={`/ordini/preparazione/${order.billing_case_id}`}>
-                          {order.case_number}
-                        </Link>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
+          {view === "annullati" ? <h2>Ordini annullati o rimborsati</h2> : null}
+          {view === "annullati" ? orderFilters : null}
+          {orders.length ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ordine</th>
+                    <th>Cliente</th>
+                    <th>Data</th>
+                    <th>Totale</th>
+                    <th>Stato</th>
+                    <th>Preparazione</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : !showsPreparations && !preparationCases.length ? (
-        <section className="empty-state">
-          <h2>Nessun ordine</h2>
-          <p>Importa la fixture sintetica oppure modifica i filtri.</p>
+                </thead>
+                <tbody>
+                  {orders.map((order) => (
+                    <tr key={order.id}>
+                      <td data-label="Ordine">
+                        <Link to={`/ordini/${order.id}`}>
+                          {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
+                        </Link>
+                      </td>
+                      <td data-label="Cliente">{order.customer_name}</td>
+                      <td data-label="Data">{date(order.local_order_date)}</td>
+                      <td data-label="Totale">{euros(order.gross_amount)}</td>
+                      <td data-label="Stato">
+                        <span className="status">
+                          {orderStatusLabels[order.trigger_status] ?? "Stato non riconosciuto"}
+                        </span>
+                      </td>
+                      <td data-label="Preparazione">
+                        {order.billing_case_id ? (
+                          <Link to={`/ordini/preparazione/${order.billing_case_id}`}>
+                            {order.case_number}
+                          </Link>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty-state">
+              <h2>{view === "annullati" ? "Nessun ordine annullato" : "Nessun ordine"}</h2>
+              <p>Importa la fixture sintetica oppure modifica i filtri.</p>
+            </div>
+          )}
         </section>
       ) : null}
     </AppShell>
