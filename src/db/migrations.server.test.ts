@@ -23,6 +23,19 @@ function requireTestDatabase(): string {
 
 const adminUrl = requireTestDatabase();
 
+async function withClient<T>(
+  connectionString: string,
+  callback: (client: pg.Client) => Promise<T>,
+) {
+  const client = new pg.Client({ connectionString });
+  await client.connect();
+  try {
+    return await callback(client);
+  } finally {
+    await client.end();
+  }
+}
+
 async function temporaryDatabase(suffix: string) {
   const name = `hub_fatture_${process.pid}_${suffix}`;
   const url = new URL(adminUrl);
@@ -54,12 +67,13 @@ test(
         "002_auth_audit.sql",
         "003_login_ip.sql",
         "004_reset_password_hashes.sql",
+        "005_order_domain.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "4",
+        "5",
       );
       await cleanClient.end();
 
@@ -90,12 +104,11 @@ test(
       const firstOnly = await mkdtemp(path.join(os.tmpdir(), "hf-migrations-first-"));
       await cp("migrations/001_foundations.sql", path.join(firstOnly, "001_foundations.sql"));
       await runMigrations({ connectionString: upgrade.connectionString, directory: firstOnly });
-      const upgradeClient = new pg.Client({ connectionString: upgrade.connectionString });
-      await upgradeClient.connect();
-      await upgradeClient.query(
-        "INSERT INTO users (username, password_hash) VALUES ('matteo', 'synthetic')",
-      );
-      await upgradeClient.end();
+      await withClient(upgrade.connectionString, async (client) => {
+        await client.query(
+          "INSERT INTO users (username, password_hash) VALUES ('matteo', 'synthetic')",
+        );
+      });
       await runMigrations({ connectionString: upgrade.connectionString });
       const readback = new pg.Client({ connectionString: upgrade.connectionString });
       await readback.connect();
@@ -107,6 +120,10 @@ test(
           .table_name,
         "audit_events",
       );
+      assert.equal(
+        (await readback.query("SELECT to_regclass('orders') AS table_name")).rows[0].table_name,
+        "orders",
+      );
       await readback.end();
 
       process.env.APP_ENV = "test";
@@ -115,6 +132,7 @@ test(
       process.env.DATABASE_URL = clean.connectionString;
       const auth = await import("../auth.server.ts");
       const settings = await import("./settings.server.ts");
+      const orders = await import("../orders.server.ts");
       const database = await import("./client.server.ts");
       assert.equal(
         await auth.getSessionUser(
@@ -341,6 +359,183 @@ test(
             )
         ).rows[0].count,
         "2",
+      );
+
+      const fixture = JSON.parse(
+        await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
+      );
+      assert.deepEqual(
+        await orders.importOrders(fixture, { id: 1, requestId: "test-order-import" }),
+        { imported: 3, updated: 0 },
+      );
+      assert.deepEqual(
+        await orders.importOrders(fixture, { id: 1, requestId: "test-order-reimport" }),
+        { imported: 0, updated: 3 },
+      );
+      await withClient(clean.connectionString, async (client) => {
+        await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('setting:draft_trigger'))");
+        let completed = false;
+        const blockedImport = orders
+          .importOrders([fixture[0]], { id: 1, requestId: "test-trigger-lock" })
+          .finally(() => {
+            completed = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        assert.equal(completed, false);
+        await client.query("COMMIT");
+        assert.deepEqual(await blockedImport, { imported: 0, updated: 1 });
+      });
+      assert.equal(await orders.getOrder("non-numerico"), null);
+      assert.equal(await orders.getBillingCase("0"), null);
+      assert.equal(typeof (await orders.getOrder("1"))?.local_order_date, "string");
+      assert.equal(
+        (await database.getPool().query("SELECT count(*) FROM orders")).rows[0].count,
+        "3",
+      );
+      assert.equal(
+        (await database.getPool().query("SELECT count(*) FROM billing_cases")).rows[0].count,
+        "1",
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query(
+              "SELECT count(DISTINCT billing_case_id) FROM orders WHERE external_order_id IN ('shop-order-1001', 'ebay-order-2001')",
+            )
+        ).rows[0].count,
+        "1",
+      );
+      assert.equal((await orders.listOrders({ paymentStatus: "PENDING" })).length, 1);
+      const waitingOrderId = (
+        await database
+          .getPool()
+          .query("SELECT id FROM orders WHERE external_order_id = 'shop-order-1002'")
+      ).rows[0].id;
+      const forcedCaseId = await orders.forcePrepareOrder(waitingOrderId, {
+        id: 1,
+        requestId: "test-force-prepare",
+      });
+      assert.equal(
+        await orders.forcePrepareOrder(waitingOrderId, {
+          id: 1,
+          requestId: "test-force-prepare-idempotent",
+        }),
+        forcedCaseId,
+      );
+      assert.deepEqual(
+        await orders.setDraftTrigger("FULFILLED", 1, {
+          id: 1,
+          requestId: "test-trigger-change",
+        }),
+        { value: "FULFILLED", version: 2 },
+      );
+      assert.equal(
+        (await database.getPool().query("SELECT count(*) FROM billing_cases")).rows[0].count,
+        "2",
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW'")
+        ).rows[0].count,
+        "1",
+      );
+      await assert.rejects(
+        orders.setDraftTrigger("PAID", 1, { id: 1, requestId: "test-stale-trigger" }),
+        /I dati sono cambiati/,
+      );
+      const unsupported = structuredClone(fixture);
+      unsupported[0].externalOrderId = "shop-order-usd";
+      unsupported[0].currency = "USD";
+      const validBeforeInvalid = structuredClone(fixture[0]);
+      validBeforeInvalid.externalOrderId = "shop-order-rolled-back";
+      await assert.rejects(
+        orders.importOrders([validBeforeInvalid, unsupported[0]], {
+          id: 1,
+          requestId: "test-usd",
+        }),
+        /soltanto ordini in euro/,
+      );
+      assert.equal(
+        (await database.getPool().query("SELECT count(*) FROM orders")).rows[0].count,
+        "3",
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM orders WHERE external_order_id = 'shop-order-rolled-back'")
+        ).rows[0].count,
+        "0",
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query(
+              "SELECT count(*) FROM audit_events WHERE action IN ('ORDER_IMPORTED', 'ORDER_GROUPED', 'DRAFT_TRIGGER_CHANGED')",
+            )
+        ).rows[0].count,
+        "6",
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_GROUPING_FORCED'")
+        ).rows[0].count,
+        "1",
+      );
+      const sourceChanged = structuredClone(fixture[0]);
+      sourceChanged.paymentStatus = "REFUNDED";
+      sourceChanged.payments[0].status = "REFUNDED";
+      sourceChanged.updatedAt = "2026-08-08T10:00:00Z";
+      await orders.importOrders([sourceChanged], {
+        id: 1,
+        requestId: "test-source-conflict",
+      });
+      const conflictedCase = (
+        await database.getPool().query(
+          `SELECT billing_cases.id, billing_cases.status, customers.review_required
+             FROM billing_cases
+             JOIN customers ON customers.id = billing_cases.customer_id
+             JOIN orders ON orders.billing_case_id = billing_cases.id
+             WHERE orders.external_order_id = 'shop-order-1001'`,
+        )
+      ).rows[0];
+      assert.equal(conflictedCase.status, "NEEDS_REVIEW");
+      assert.equal(conflictedCase.review_required, false);
+      assert.equal((await orders.getBillingCase(conflictedCase.id))?.status, "NEEDS_REVIEW");
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_SOURCE_CONFLICT'")
+        ).rows[0].count,
+        "1",
+      );
+      const invalidAmount = structuredClone(fixture[1]);
+      invalidAmount.externalOrderId = "ebay-invalid-amount";
+      invalidAmount.lines[0].grossAmount = "12.345";
+      await assert.rejects(
+        orders.importOrders([invalidAmount], { id: 1, requestId: "test-invalid-amount" }),
+        (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
+      );
+      const cancelled = structuredClone(fixture[2]);
+      cancelled.externalOrderId = "shop-order-cancelled";
+      cancelled.cancelledAt = "2026-08-08T11:00:00Z";
+      await orders.importOrders([cancelled], { id: 1, requestId: "test-cancelled" });
+      const cancelledId = (
+        await database
+          .getPool()
+          .query("SELECT id FROM orders WHERE external_order_id = 'shop-order-cancelled'")
+      ).rows[0].id;
+      await assert.rejects(
+        orders.forcePrepareOrder(cancelledId, { id: 1, requestId: "test-force-cancelled" }),
+        (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
       );
       await database.closePool();
     } finally {

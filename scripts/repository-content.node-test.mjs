@@ -67,6 +67,14 @@ test("la sigla interna non compare nella superficie utente", async () => {
   assert.deepEqual(offenders, []);
 });
 
+test("il frontend usa Preparazione fattura al posto dei vecchi nomi", async () => {
+  const files = await contents(await collect("app"));
+  const offenders = files
+    .filter(({ text }) => /\b(?:Scheda|Schede|Pratica|Pratiche)\b/.test(text))
+    .map(({ file }) => file);
+  assert.deepEqual(offenders, []);
+});
+
 test("le sigle della roadmap restano fuori da codice e documenti operativi", async () => {
   const roots = ["app", "src", "tests", "scripts", ".github/workflows", "docs"];
   const files = (await Promise.all(roots.map(collect)))

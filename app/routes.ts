@@ -5,5 +5,8 @@ export default [
   route("health", "routes/health.ts"),
   route("login", "routes/login.tsx"),
   route("logout", "routes/logout.ts"),
+  route("ordini", "routes/orders.tsx"),
+  route("ordini/preparazione/:caseId", "routes/billing-case-detail.tsx"),
+  route("ordini/:orderId", "routes/order-detail.tsx"),
   route("setup", "routes/setup.tsx"),
 ] satisfies RouteConfig;

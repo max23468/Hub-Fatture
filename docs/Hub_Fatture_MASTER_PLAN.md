@@ -150,7 +150,7 @@ Nessuna fattura o nota di credito viene mai trasmessa senza un'approvazione espl
 
 Il sistema è pronto per l'uso reale quando un ordine di prova per ciascuna piattaforma attraversa senza interventi tecnici il flusso completo:
 
-`importazione -> Scheda -> bozza -> comparatore fiscale -> controlli -> approvazione -> helper locale -> validazione/upload Aruba -> invio autorizzato -> stato SdI -> copia leggibile -> archiviazione`
+`importazione -> preparazione fattura -> bozza -> comparatore fiscale -> controlli -> approvazione -> helper locale -> validazione/upload Aruba -> invio autorizzato -> stato SdI -> copia leggibile -> archiviazione`
 
 e quando un rimborso di prova produce correttamente:
 
@@ -163,14 +163,14 @@ e quando un rimborso di prova produce correttamente:
 | HF-F01 | Importare subito ordini e aggiornamenti da Shopify ed eBay | Confermato |
 | HF-F02 | Generare la bozza al pagamento oppure all'evasione completa, secondo un'impostazione globale unica | Confermato |
 | HF-F03 | Permettere la generazione manuale anticipata di una bozza | Confermato |
-| HF-F04 | Creare automaticamente Schede giornaliere per cliente usando la data ordine in `Europe/Rome` | Confermato |
+| HF-F04 | Creare automaticamente raggruppamenti giornalieri per cliente usando la data ordine in `Europe/Rome` | Confermato |
 | HF-F05 | Evitare l'accorpamento automatico quando l'identità del cliente è ambigua | Confermato |
 | HF-F06 | Produrre una riga semplificata netta per ordine, con spedizione e sconti assorbiti | Confermato |
 | HF-F07 | Conservare il dettaglio sorgente per riconciliazione senza riprodurlo 1:1 nel documento | Confermato |
 | HF-F08 | Permettere modifiche a cliente, descrizioni, quantità, importi, pagamenti, causali e ordini inclusi fino all'approvazione | Confermato |
 | HF-F09 | Consentire differenze rispetto al totale sorgente solo con avviso, seconda conferma e motivazione obbligatoria | Confermato |
 | HF-F10 | Richiedere sempre approvazione esplicita prima di numerare e preparare l'invio, anche quando l'ultimo clic è delegato all'helper | Confermato |
-| HF-F11 | Consentire approvazione massiva soltanto per Schede prive di eccezioni | Confermato |
+| HF-F11 | Consentire approvazione massiva soltanto per preparazioni prive di eccezioni | Confermato |
 | HF-F12 | Richiedere una conferma aggiuntiva per documenti con pagamento pendente | Confermato |
 | HF-F13 | Conservare bozze `Non trasmettere` con motivazione, senza numerarle o eliminarle | Confermato |
 | HF-F14 | Rendere immutabili i documenti approvati e conservare ogni tentativo di invio | Confermato |
@@ -235,7 +235,7 @@ e quando un rimborso di prova produce correttamente:
 - Shopify App Store, billing e abbonamenti.
 - Multi-tenancy, multi-azienda, inviti, ruoli e collaboratori.
 - Amazon, POS, negozio fisico o altre sorgenti.
-- Schede create senza un ordine Shopify/eBay.
+- preparazioni create senza un ordine Shopify/eBay.
 - Prodotti digitali o servizi.
 - Multi-valuta e conversioni.
 - OSS, aliquote dei Paesi UE, dichiarazioni e rettifiche OSS.
@@ -308,7 +308,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Database | PostgreSQL locale, driver `pg` e SQL versionato secondo 14.3 | Transazioni, vincoli, audit e code senza ORM o migration CLI aggiuntive |
 | Coda | Basata su PostgreSQL | Evita Redis e un servizio aggiuntivo; carico di poche centinaia di ordini al mese |
 | Storage documenti | Filesystem persistente VPS + metadati DB | XML/PDF/notifiche consultabili senza dipendere da Aruba |
-| Dominio funzionale | "Scheda di fatturazione", breve "Scheda" | "Pratica" è stato giudicato fuorviante |
+| Dominio funzionale | `billing_case` interno, esposto come "Preparazione fattura" | Il contenitore tecnico non è una destinazione di navigazione |
 | Generazione | Impostazione globale: pagamento o evasione completa | Un solo comportamento coerente per Shopify ed eBay |
 | Approvazione | Sempre esplicita | Nessun invio fiscale senza una conferma riferita ai documenti esatti |
 | Canary Aruba | Permesso monouso atomico legato al batch, ai documenti, alle revisioni e agli hash XML, con kill switch globale ancora disabilitato | Un crash non può lasciare aperti gli invii Production né autorizzare documenti diversi dai candidati |
@@ -359,16 +359,16 @@ Queste alternative sono riportate per evitare che un agente futuro le reintroduc
 | Propagazione delle correzioni cliente verso Shopify | Rinviata alle evoluzioni | Disattivata di default, estranea all'emissione del documento e richiederebbe scope di scrittura Shopify |
 | Fattura 1:1 con prodotti, sconti e spedizione | Superata | Scelta una riga netta e semplice per ordine |
 | Una fattura per ogni ordine | Superata | Scelto accorpamento automatico giornaliero per cliente |
-| Termine "Pratica" | Superato | Sostituito da "Scheda di fatturazione" |
+| Termini "Pratica" e "Scheda" | Superati | L'interfaccia usa "Preparazione fattura" nel contesto degli ordini |
 | Nessun backup | Evoluto | Scelto backup automatico cifrato su OCI Object Storage con seconda copia periodica sul Mac |
 
 ---
 
 ## 5. Terminologia e modello concettuale
 
-### 5.1 Scheda di fatturazione
+### 5.1 Raggruppamento di fatturazione interno
 
-La **Scheda di fatturazione** è il contenitore del ciclo documentale. Collega:
+Il **raggruppamento di fatturazione interno** è il contenitore tecnico del ciclo documentale. Nell'interfaccia non costituisce una sezione autonoma: si apre dagli ordini come **Preparazione fattura** e, dopo l'approvazione, il risultato vive in **Documenti**. Collega:
 
 - uno o più ordini Shopify/eBay;
 - la bozza e la fattura emessa;
@@ -383,7 +383,7 @@ La **Scheda di fatturazione** è il contenitore del ciclo documentale. Collega:
 Esempio:
 
 ```text
-Scheda 000154
+Preparazione fattura 000154
 ├── Ordine Shopify #1001
 ├── Ordine eBay 12-12345-67890
 ├── Fattura (TipoDocumento definito dall'audit)
@@ -396,9 +396,9 @@ Scheda 000154
 └── Registro attività
 ```
 
-Nel codice usare un nome tecnico diretto e stabile, per esempio `billing_case`. Evitare gerarchie astratte non necessarie.
+Nel codice usare il nome tecnico diretto e stabile `billing_case`. Non esporre all'utente i termini tecnici, "Scheda" o "Pratica". Evitare gerarchie astratte non necessarie.
 
-Il numero pubblico della Scheda è un progressivo interno non fiscale, senza sigla né prefisso: `HF` resta interna e non compare in nessun identificativo visibile, in nessuna schermata e in nessun documento destinato all'utente.
+Il numero pubblico della preparazione è un progressivo interno non fiscale, senza sigla né prefisso: `HF` resta interna e non compare in nessun identificativo visibile, in nessuna schermata e in nessun documento destinato all'utente.
 
 ### 5.2 Stati principali
 
@@ -417,7 +417,7 @@ INVOICED
 NEEDS_REVIEW
 ```
 
-Scheda:
+Raggruppamento interno (`billing_case`):
 
 ```text
 DRAFT
@@ -459,7 +459,7 @@ I nomi definitivi possono essere adattati in implementazione, ma il significato 
 
 Creare `docs/glossario.md` quando nasce il primo testo UI. Deve fissare i termini visibili e il loro significato senza duplicare requisiti o microcopy completa. Per ogni voce indicare termine italiano, eventuale equivalente tecnico inglese, significato e formulazioni da non usare. Copertura minima:
 
-- Scheda di fatturazione e Scheda;
+- Preparazione fattura e il suo equivalente tecnico interno `billing_case`;
 - bozza, approvazione, numerazione, trasmissione, consegna e scarto;
 - fattura, nota di credito e rimborso;
 - totale sorgente, totale documento e differenza;
@@ -558,11 +558,11 @@ HF può salvare e normalizzare una VAT UE come dato anagrafico e chiave di match
    - ordine completamente evaso/spedito.
 8. Se non idoneo, imposta `WAITING_FOR_TRIGGER`.
 9. Se annullato prima del trigger, conserva l'ordine come `CANCELLED_NO_DOCUMENT`.
-10. Se idoneo, cerca o crea la Scheda giornaliera compatibile.
+10. Se idoneo, cerca o crea il raggruppamento giornaliero compatibile.
 
 La piattaforma resta fonte del dato originario. Una risincronizzazione non deve sovrascrivere modifiche manuali della bozza: registra la differenza e richiede revisione quando è rilevante.
 
-Dati fiscali o anagrafici mancanti non impediscono la creazione della bozza interna: la Scheda nasce in `NEEDS_REVIEW` e resta non approvabile finché i campi obbligatori non sono completati.
+Dati fiscali o anagrafici mancanti non impediscono la creazione della bozza interna: la preparazione nasce in `NEEDS_REVIEW` e resta non approvabile finché i campi obbligatori non sono completati.
 
 ### 7.2 Trigger globale di generazione
 
@@ -580,7 +580,7 @@ L'ordine viene comunque importato subito. Il cambio dell'impostazione:
 
 ### 7.3 Identità cliente e raggruppamento
 
-HF crea automaticamente una Scheda cumulativa per ordini compatibili dello stesso cliente e della stessa data ordine nel fuso `Europe/Rome`.
+L'app crea automaticamente un raggruppamento cumulativo per ordini compatibili dello stesso cliente e della stessa data ordine nel fuso `Europe/Rome`.
 
 Compatibilità minima:
 
@@ -599,9 +599,9 @@ Priorità per riconoscere l'identità:
 3. altro identificativo fiscale coerente;
 4. in assenza, corrispondenza esatta e normalizzata di nome/ragione sociale, indirizzo ed e-mail.
 
-L'e-mail da sola non basta. Nei casi ambigui non accorpare: creare Schede separate e mostrare una possibile corrispondenza.
+L'e-mail da sola non basta. Nei casi ambigui non accorpare: creare raggruppamenti separati e mostrare una possibile corrispondenza.
 
-Ordini Shopify ed eBay possono confluire nella stessa Scheda. Se una Scheda è già approvata e arriva un altro ordine dello stesso giorno, crearne una nuova senza modificare quella emessa.
+Ordini Shopify ed eBay possono confluire nello stesso raggruppamento. Se una preparazione è già approvata e arriva un altro ordine dello stesso giorno, crearne una nuova senza modificare quella emessa.
 
 ### 7.4 Bozza di fattura semplificata
 
@@ -651,7 +651,7 @@ Ogni modifica registra:
 Se il totale differisce dagli ordini:
 
 - mostra totale originale, totale documento e differenza;
-- escludi la Scheda dall'approvazione massiva standard;
+- escludi la preparazione dall'approvazione massiva standard;
 - richiedi seconda conferma;
 - rendi obbligatoria una motivazione;
 - registra l'eccezione nell'audit.
@@ -678,7 +678,7 @@ L'ordine esatto fra prenotazione del numero, validazione tramite upload, correzi
 
 L'approvazione massiva:
 
-- include solo Schede `READY`;
+- include solo preparazioni `READY`;
 - esclude pagamenti pendenti;
 - esclude differenze d'importo;
 - esclude errori fiscali/anagrafici;
@@ -698,7 +698,7 @@ Comportamento:
   **"Confermo di voler emettere e trasmettere la fattura nonostante il pagamento risulti pendente."**
 - motivazione facoltativa;
 - audit di stato pagamento e conferma;
-- incasso successivo aggiorna la Scheda, non la fattura emessa.
+- incasso successivo aggiorna il raggruppamento interno, non la fattura emessa.
 
 Per contrassegni o metodi non aggiornati automaticamente, consentire la registrazione manuale dell'incasso senza modificare l'ordine sorgente.
 
@@ -762,7 +762,7 @@ Vincoli:
 
 ### 7.12 Annullamenti
 
-Gli ordini annullati prima dell'emissione vengono conservati come Schede/ordini chiusi, nascosti di default dalle code operative ma disponibili in archivio, ricerca e audit.
+Gli ordini annullati prima dell'emissione vengono conservati come raggruppamenti/ordini chiusi, nascosti di default dalle code operative ma disponibili in archivio, ricerca e audit.
 
 ---
 
@@ -1093,9 +1093,9 @@ M4-M5 aggiornano questa specifica o producono un ADR breve con:
 Modalità:
 
 - **Automatica dopo l'esito SdI**: inviare dopo che il readback riporta un esito che conferma l'emissione, mai dopo la sola validazione del file né dopo la sola acquisizione Aruba.
-- **Manuale con approvazione**: nella schermata di approvazione l'utente decide per la singola Scheda.
+- **Manuale con approvazione**: nella schermata di approvazione l'utente decide per la singola preparazione.
 
-Anche in modalità automatica, la schermata deve permettere di non inviare per una specifica Scheda prima dell'approvazione.
+Anche in modalità automatica, la schermata deve permettere di non inviare per una specifica preparazione prima dell'approvazione.
 
 ### 12.2 Mittente e trasporto
 
@@ -1163,23 +1163,23 @@ Interfaccia esclusivamente italiana. Codice, API, tabelle e nomi tecnici restano
 
 1. Dashboard
 2. Ordini
-3. Schede
-4. Fatture
-5. Note di credito
-6. Documenti trasmessi
-7. Clienti
-8. Errori e verifiche
-9. Connessioni
-10. Impostazioni
-11. Registro attività
+3. Documenti
+4. Clienti
+5. Attività
+6. Impostazioni
 
-Le sezioni possono essere accorpate se il prototipo dimostra che una lista filtrabile è più semplice.
+La navigazione resta a un solo livello. Una destinazione compare soltanto quando dispone di una superficie utilizzabile; le funzioni future non producono voci o contenitori vuoti. Le code e le prospettive sullo stesso oggetto sono viste interne, non nuove destinazioni.
+
+- `Ordini`: Tutti, Da fatturare, Da verificare, In attesa e Annullati.
+- `Documenti`: Tutti, Fatture, Note di credito e viste per stato di trasmissione.
+- `Attività`: Da gestire e Cronologia.
+- `Impostazioni`: include Connessioni.
 
 ### 13.2 Dashboard
 
 Mostrare:
 
-- Schede pronte;
+- preparazioni pronte da approvare;
 - da verificare;
 - pagamenti pendenti;
 - note di credito da approvare;
@@ -1193,17 +1193,20 @@ Nessuna e-mail operativa nella 1.x: gli avvisi critici devono essere evidenti qu
 
 ### 13.3 Ordini
 
+- Viste Tutti, Da fatturare, Da verificare, In attesa e Annullati.
 - Filtri per piattaforma, stato, data, trigger, pagamento.
 - Ricerca per ID ordine, cliente, e-mail, codice fiscale/P.IVA.
 - Vista del dato originale e normalizzato.
-- Collegamento alla Scheda.
+- Collegamento alla Preparazione fattura.
 - Forzatura manuale della generazione bozza.
 - Archivio annullati.
 
-### 13.4 Schede
+### 13.4 Preparazione fattura
 
-- Elenco con stato, cliente, data, ordini, totale, anomalie.
-- Dettaglio con timeline e audit.
+È la pagina di lavoro aperta dalle viste Da fatturare e Da verificare di Ordini. Non è una destinazione della navigazione principale e il nome tecnico `billing_case` non compare nel frontend.
+
+- Riepilogo con stato, cliente, data, ordini, totale e anomalie.
+- Timeline e audit.
 - Aggiunta/rimozione di ordini compatibili prima dell'approvazione.
 - Separazione di un ordine.
 - `Non trasmettere` con motivo.
@@ -1241,7 +1244,11 @@ Azioni:
 - approva, numera e prepara per Aruba;
 - non trasmettere.
 
-### 13.6 Note di credito
+### 13.6 Documenti
+
+La sezione riunisce fatture, note di credito e documenti nei diversi stati di trasmissione. Le viste interne evitano tre archivi separati e mantengono filtri coerenti per tipo, stato, cliente e data.
+
+Per le note di credito mostrare:
 
 - Fattura originaria.
 - Rimborsi inclusi.
@@ -1250,21 +1257,9 @@ Azioni:
 - Anomalie di riconciliazione.
 - Anteprima e approvazione separata.
 
-### 13.7 Connessioni
+### 13.7 Attività
 
-Per Shopify, eBay e il trasporto SMTP canonico:
-
-- ambiente;
-- stato;
-- ultimo controllo;
-- ultimo sync;
-- riconnetti;
-- verifica credenziali;
-- dettagli errore sanificati.
-
-Per Aruba non mostrare `riconnetti` o `verifica credenziali`: HF non possiede credenziali Aruba. Mostrare soltanto stato e ultima versione dell'helper, browser rilevato, ultimo readback, modalità configurata ed eventuale errore sanitizzato. `Connesso` significa soltanto che l'helper ha contattato HF di recente: non implica che la sessione Aruba sia autenticata, informazione che resta nel browser locale.
-
-Non mostrare mai segreti.
+La vista `Da gestire` riunisce errori, verifiche richieste, scarti e retry operativi con la relativa azione. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
 
 ### 13.8 Impostazioni
 
@@ -1277,6 +1272,20 @@ Non mostrare mai segreti.
 - Stato helper e istruzioni minime per avviarlo su Windows o macOS con Chrome/Edge.
 - 2FA Aruba: raccomandazione e stato dichiarato dall'utente, senza memorizzare seed o codici.
 - Trasporto SMTP scelto e stato, senza mostrare credenziali.
+
+La vista interna `Connessioni` mostra, per Shopify, eBay e il trasporto SMTP canonico:
+
+- ambiente;
+- stato;
+- ultimo controllo;
+- ultimo sync;
+- riconnetti;
+- verifica credenziali;
+- dettagli errore sanificati.
+
+Per Aruba non mostrare `riconnetti` o `verifica credenziali`: HF non possiede credenziali Aruba. Mostrare soltanto stato e ultima versione dell'helper, browser rilevato, ultimo readback, modalità configurata ed eventuale errore sanitizzato. `Connesso` significa soltanto che l'helper ha contattato HF di recente: non implica che la sessione Aruba sia autenticata, informazione che resta nel browser locale.
+
+Non mostrare mai segreti.
 
 ### 13.9 Fondazione UI, identità leggera e contenuti
 
@@ -1440,7 +1449,7 @@ Non introdurre due ORM, un framework API separato o una dipendenza già sostitui
 
 Usare transazioni DB per:
 
-- assegnazione ordine a Scheda;
+- assegnazione ordine a raggruppamento interno;
 - approvazione e numerazione;
 - creazione/aggiornamento nota cumulativa;
 - registrazione di un rimborso;
@@ -1452,7 +1461,7 @@ Usare transazioni DB per:
 
 Vincoli DB e lock transazionali devono impedire:
 
-- due Schede per la stessa chiave quando una è ancora aperta;
+- due raggruppamenti per la stessa chiave quando uno è ancora aperto;
 - ordine in più fatture;
 - due note per lo stesso rimborso;
 - doppia numerazione;
@@ -1683,7 +1692,7 @@ Servono alla riconciliazione, non alla fattura 1:1.
 #### `billing_cases`
 
 - `id`
-- `public_number` (progressivo interno non fiscale, senza prefisso; reso come `Scheda 000154`)
+- `public_number` (progressivo interno non fiscale, senza prefisso; reso come `Preparazione fattura 000154`)
 - `customer_id`
 - `local_order_date`
 - `currency`
@@ -2650,7 +2659,7 @@ Il percorso critico verifica anche refresh durante un'azione, doppio click/submi
 
 Playwright è il runner E2E canonico:
 
-- sulle PR esegue Chromium soltanto su quattro flussi sintetici: login con entrambi gli account, import fixture, creazione/raggruppamento Scheda e approvazione contro Aruba mock;
+- sulle PR esegue Chromium soltanto su quattro flussi sintetici: login con entrambi gli account, import fixture, creazione della preparazione fattura e approvazione contro Aruba mock;
 - in M8 esegue gli stessi flussi HF con Chromium e WebKit sul candidato; contro la pagina Aruba sintetica verifica inoltre l'helper con Chrome o Edge su runner macOS e Windows e aggiunge i percorsi completi di stato SdI, e-mail e nota di credito;
 - usa locator accessibili e dati sintetici deterministici; nessuna credenziale o informazione reale entra in test, report o trace;
 - registra la trace soltanto al primo retry fallito, con retention CI breve di 7 giorni; niente video continui o snapshot visuali finché non esiste una regressione visiva concreta;
@@ -2765,15 +2774,17 @@ Output:
 - registro errori stabile e inventario segreti senza valori;
 - CI essenziale.
 
-### M2 - Dominio ordini e Schede
+### M2 - Dominio ordini e preparazione fattura
+
+**Stato: completata.** Evidenze ripetibili: [dominio ordini e preparazione fattura](evidence/order-domain.md), contratto tecnico, migrazioni PostgreSQL ed E2E sintetico.
 
 Output:
 
-- schema ordine/cliente/Scheda;
+- schema ordine/cliente/raggruppamento interno;
 - import fixture;
 - trigger globale;
 - raggruppamento giornaliero;
-- UI ordini e Schede;
+- UI Ordini con viste operative e dettaglio Preparazione fattura;
 - audit.
 - contratto tecnico corrente per fonti autorevoli, transazioni e concorrenza riusato dalle milestone successive.
 
@@ -2989,7 +3000,7 @@ Bootstrap atomico dei due account fissi, hash e login con `node:crypto`, session
 
 ### Modello dati - M2 e successive
 
-Le tabelle nascono nella milestone che le usa, nell'ordine delle dipendenze: connessioni e cursori, ricevute webhook con lease, clienti, ordini con righe e tax ID, pagamenti, Schede, documenti, rimborsi, submission Aruba e notifiche, storage objects, coda job, audit events. Vincoli di unicità e lock come in §14.5 e §15.2, non aggiunti dopo.
+Le tabelle nascono nella milestone che le usa, nell'ordine delle dipendenze: connessioni e cursori, ricevute webhook con lease, clienti, ordini con righe e tax ID, pagamenti, preparazioni fattura, documenti, rimborsi, submission Aruba e notifiche, storage objects, coda job, audit events. Vincoli di unicità e lock come in §14.5 e §15.2, non aggiunti dopo.
 
 ### Dominio ordini - M2
 
@@ -2997,7 +3008,7 @@ Normalizzatore comune, validazione EUR, trigger globale, chiave giornaliera `Eur
 
 ### UI operativa - M2 e M4
 
-Prima catalogo italiano, glossario e fondazione UI, poi Dashboard, ordini, Schede, editor cliente e righe, `Non trasmettere`. Approvazione, comparatore fiscale, conferme eccezionali e approvazione massiva arrivano in M4 con il generatore che alimentano. Registro attività e pannello errori chiudono la superficie operativa. L'accessibilità delle azioni critiche si verifica insieme alla schermata, non in coda.
+Prima catalogo italiano, glossario e fondazione UI, poi Dashboard, ordini, preparazioni fattura, editor cliente e righe, `Non trasmettere`. Approvazione, comparatore fiscale, conferme eccezionali e approvazione massiva arrivano in M4 con il generatore che alimentano. Registro attività e pannello errori chiudono la superficie operativa. L'accessibilità delle azioni critiche si verifica insieme alla schermata, non in coda.
 
 ### Connettori - M3
 
@@ -3356,7 +3367,7 @@ Una checklist compilata senza risultati osservati, ID o link alle evidenze non c
 
 ## 32. Conclusione
 
-Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile: importa ordini, crea Schede giornaliere, confronta sorgente, bozza e proiezione XML, produce documenti semplificati nel profilo del margine, richiede sempre l'approvazione e usa il pannello Aruba Base tramite un helper locale presidiato per trasmissione, esiti e conservazione.
+Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile: importa ordini, crea raggruppamenti giornalieri presentati come Preparazione fattura, confronta sorgente, bozza e proiezione XML, produce documenti semplificati nel profilo del margine, richiede sempre l'approvazione e usa il pannello Aruba Base tramite un helper locale presidiato per trasmissione, esiti e conservazione.
 
 La priorità non è costruire un motore fiscale generale, ma impedire errori operativi: dati mancanti, doppie fatture, doppi rimborsi, numerazione errata, invii non approvati e perdita di tracciabilità.
 

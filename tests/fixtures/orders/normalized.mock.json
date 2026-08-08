@@ -1,0 +1,153 @@
+[
+  {
+    "provider": "SHOPIFY",
+    "externalAccountId": "shop.example.invalid",
+    "externalOrderId": "shop-order-1001",
+    "externalCustomerId": "shop-customer-1",
+    "displayNumber": "#S-1001",
+    "createdAt": "2026-08-07T08:15:00Z",
+    "updatedAt": "2026-08-07T09:00:00Z",
+    "currency": "EUR",
+    "total": "122.00",
+    "paymentStatus": "PAID",
+    "fulfillmentStatus": "FULFILLED",
+    "cancelledAt": null,
+    "customer": {
+      "kind": "PRIVATE_IT",
+      "displayName": "Mario Rossi",
+      "firstName": "Mario",
+      "lastName": "Rossi",
+      "email": "mario.rossi@example.invalid",
+      "billingAddress": {
+        "line1": "Via Esempio 1",
+        "postalCode": "20100",
+        "city": "Milano",
+        "province": "MI",
+        "countryCode": "IT"
+      },
+      "taxIdentifiers": [
+        {
+          "type": "CODICE_FISCALE",
+          "value": "RSSMRA80A01H501U",
+          "sourceField": "fixture.tax_id"
+        }
+      ]
+    },
+    "lines": [
+      {
+        "externalLineId": "shop-line-1001",
+        "description": "Oggetto sintetico A",
+        "quantity": 1,
+        "grossAmount": "122.00",
+        "discountAmount": "0.00"
+      }
+    ],
+    "payments": [
+      {
+        "externalPaymentId": "shop-payment-1001",
+        "method": "Carta di prova",
+        "status": "PAID",
+        "amount": "122.00",
+        "paidAt": "2026-08-07T09:00:00Z"
+      }
+    ]
+  },
+  {
+    "provider": "EBAY",
+    "externalAccountId": "seller-sandbox",
+    "externalOrderId": "ebay-order-2001",
+    "externalCustomerId": "ebay-customer-1",
+    "displayNumber": "E-2001",
+    "createdAt": "2026-08-07T16:45:00Z",
+    "updatedAt": "2026-08-07T17:10:00Z",
+    "currency": "EUR",
+    "total": "75.00",
+    "paymentStatus": "PAID",
+    "fulfillmentStatus": "FULFILLED",
+    "cancelledAt": null,
+    "customer": {
+      "kind": "PRIVATE_IT",
+      "displayName": "Mario Rossi",
+      "firstName": "Mario",
+      "lastName": "Rossi",
+      "email": "mario.rossi@example.invalid",
+      "billingAddress": {
+        "line1": "Via Esempio 1",
+        "postalCode": "20100",
+        "city": "Milano",
+        "province": "MI",
+        "countryCode": "IT"
+      },
+      "taxIdentifiers": [
+        {
+          "type": "CODICE_FISCALE",
+          "value": "RSSMRA80A01H501U",
+          "sourceField": "fixture.tax_identifier"
+        }
+      ]
+    },
+    "lines": [
+      {
+        "externalLineId": "ebay-line-2001",
+        "description": "Oggetto sintetico B",
+        "quantity": 1,
+        "grossAmount": "75.00",
+        "discountAmount": "0.00"
+      }
+    ],
+    "payments": [
+      {
+        "externalPaymentId": "ebay-payment-2001",
+        "method": "Pagamento sandbox",
+        "status": "PAID",
+        "amount": "75.00",
+        "paidAt": "2026-08-07T17:10:00Z"
+      }
+    ]
+  },
+  {
+    "provider": "SHOPIFY",
+    "externalAccountId": "shop.example.invalid",
+    "externalOrderId": "shop-order-1002",
+    "externalCustomerId": "shop-customer-2",
+    "displayNumber": "#S-1002",
+    "createdAt": "2026-08-08T07:30:00Z",
+    "updatedAt": "2026-08-08T08:00:00Z",
+    "currency": "EUR",
+    "total": "49.90",
+    "paymentStatus": "PENDING",
+    "fulfillmentStatus": "FULFILLED",
+    "cancelledAt": null,
+    "customer": {
+      "kind": "PRIVATE_IT",
+      "displayName": "Cliente da verificare",
+      "email": "verifica@example.invalid",
+      "billingAddress": {
+        "line1": "Via Sintetica 2",
+        "postalCode": "00100",
+        "city": "Roma",
+        "province": "RM",
+        "countryCode": "IT"
+      },
+      "taxIdentifiers": []
+    },
+    "lines": [
+      {
+        "externalLineId": "shop-line-1002",
+        "description": "Oggetto sintetico C",
+        "quantity": 1,
+        "grossAmount": "49.90",
+        "discountAmount": "0.00"
+      }
+    ],
+    "payments": [
+      {
+        "externalPaymentId": "shop-payment-1002",
+        "method": "Bonifico di prova",
+        "status": "PENDING",
+        "amount": "49.90",
+        "paidAt": null
+      }
+    ]
+  }
+]
