@@ -15,6 +15,7 @@ import {
   draftTriggerSchema,
   localOrderDate,
   orderInputSchema,
+  POSTGRES_INTEGER_MAX,
   postgresDateSchema,
   triggerStatus,
   type DraftTrigger,
@@ -708,7 +709,14 @@ export async function getDraftTrigger() {
 
 export async function setDraftTrigger(value: unknown, expectedVersion: number, actor: Actor) {
   const trigger = draftTriggerSchema.safeParse(value);
-  if (!trigger.success) throw new AppError("ORDER_INVALID_INPUT", 422);
+  if (
+    !trigger.success ||
+    !Number.isInteger(expectedVersion) ||
+    expectedVersion < 0 ||
+    expectedVersion > POSTGRES_INTEGER_MAX
+  ) {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('setting:draft_trigger'))");
     await serializeOrderMutations(client);

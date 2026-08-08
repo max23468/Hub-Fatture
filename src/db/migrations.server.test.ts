@@ -592,6 +592,20 @@ test(
         }),
         { value: "FULFILLED", version: 2 },
       );
+      await assert.rejects(
+        orders.setDraftTrigger("PAID", Number.POSITIVE_INFINITY, {
+          id: 1,
+          requestId: "test-trigger-invalid-version",
+        }),
+        /I dati dell’ordine non sono validi/,
+      );
+      await assert.rejects(
+        orders.setDraftTrigger("PAID", 2_147_483_648, {
+          id: 1,
+          requestId: "test-trigger-version-overflow",
+        }),
+        /I dati dell’ordine non sono validi/,
+      );
       assert.equal(
         (await database.getPool().query("SELECT count(*) FROM billing_cases")).rows[0].count,
         "2",

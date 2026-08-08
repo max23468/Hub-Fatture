@@ -82,6 +82,7 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
   assert.throws(() => decimalToCents("1.231"));
   assert.throws(() => decimalToCents("21474836.48"));
   assert.equal(localOrderDate(base.createdAt), "2026-03-30");
+  assert.equal(localOrderDate("0099-06-15T12:00:00Z"), "0099-06-15");
   assert.deepEqual(customerIdentity(base), {
     matchKey: "tax:CODICE_FISCALE::RSSMRA80A01H501U",
     confidence: "TAX_ID",

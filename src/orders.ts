@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const POSTGRES_INTEGER_MAX = 2_147_483_647;
+export const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
 export const draftTriggerSchema = z.enum(["PAID", "FULFILLED"]);
 export type DraftTrigger = z.infer<typeof draftTriggerSchema>;
@@ -159,7 +159,7 @@ export function localOrderDate(instant: string): string {
   const parts = romeDateFormatter.formatToParts(new Date(instant));
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((candidate) => candidate.type === type)?.value;
-  return `${part("year")}-${part("month")}-${part("day")}`;
+  return `${part("year")?.padStart(4, "0")}-${part("month")}-${part("day")}`;
 }
 
 function normalized(value: string | undefined): string {
