@@ -14,6 +14,7 @@ const optionalCountryCodeSchema = optionalTextSchema.pipe(
   z
     .string()
     .length(2)
+    .regex(/^[A-Za-z]{2}$/)
     .transform((value) => value.toUpperCase())
     .optional(),
 );
@@ -200,7 +201,10 @@ export function canonicalTaxIdentifiers(input: OrderInput) {
   for (const identifier of input.customer.taxIdentifiers) {
     const canonical = canonicalTaxIdentifier(input, identifier);
     const key = JSON.stringify([canonical.type, canonical.countryCode ?? "", canonical.value]);
-    if (!unique.has(key)) unique.set(key, canonical);
+    const existing = unique.get(key);
+    if (!existing || JSON.stringify(canonical) < JSON.stringify(existing)) {
+      unique.set(key, canonical);
+    }
   }
   return [...unique.values()].sort((left, right) =>
     JSON.stringify(left).localeCompare(JSON.stringify(right)),
@@ -304,6 +308,7 @@ export function customerIdentity(input: OrderInput): {
   }
 
   const profile = [
+    canonicalProfile.kind,
     canonicalProfile.displayName,
     canonicalProfile.billingAddress.line1,
     canonicalProfile.billingAddress.postalCode,

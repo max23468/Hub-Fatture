@@ -2,11 +2,12 @@
 
 ## Capacità osservabili
 
-- Migrazione append-only per clienti, record sorgente, ordini, righe, identificativi fiscali, pagamenti e raggruppamenti interni.
-- Import sintetico idempotente con validazione al confine, centesimi interi, anagrafiche incomplete verificabili, rifiuto atomico delle valute non supportate e protezione dagli aggiornamenti fuori ordine.
+- Migrazioni append-only per clienti, record sorgente, ordini, righe, identificativi fiscali completi di Paese, pagamenti e raggruppamenti interni.
+- Import sintetico idempotente con validazione al confine, centesimi interi, sconti coerenti, anagrafiche incomplete verificabili, rifiuto atomico dei duplicati e delle valute non supportate e protezione dagli aggiornamenti fuori ordine.
 - Trigger globale a revisione ottimistica e rivalutazione dei soli ordini non raggruppati.
 - Raggruppamento giornaliero concorrente per identità cliente prudente e data `Europe/Rome`, anche fra piattaforme diverse.
 - Liste e dettagli autenticati di ordini e preparazioni fattura, filtri per piattaforma, stato, data e pagamento, preparazione anticipata del singolo ordine, riepilogo operativo e registro attività.
+- Riconciliazione dei pagamenti sorgente senza cancellare gli incassi registrati manualmente.
 - Audit atomico delle creazioni, assegnazioni e modifiche di configurazione.
 
 ## Gate ripetibile

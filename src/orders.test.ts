@@ -146,6 +146,16 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
   });
   assert.equal(canonicalCountry.externalCustomerId, undefined);
   assert.equal(canonicalCountry.customer.taxIdentifiers[0]?.countryCode, "DE");
+  assert.equal(
+    orderInputSchema.safeParse({
+      ...base,
+      customer: {
+        ...base.customer,
+        billingAddress: { ...base.customer.billingAddress, countryCode: "12" },
+      },
+    }).success,
+    false,
+  );
 
   const euVatGermany = orderInputSchema.parse({
     ...base,
@@ -181,6 +191,20 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
       },
     }).length,
     1,
+  );
+  const duplicateTaxIdentifiers = [
+    { type: "PARTITA_IVA" as const, value: "DE123456789", countryCode: "DE", sourceField: "z" },
+    { type: "PARTITA_IVA" as const, value: "123456789", countryCode: "DE", sourceField: "a" },
+  ];
+  assert.deepEqual(
+    canonicalTaxIdentifiers({
+      ...euVatGermany,
+      customer: { ...euVatGermany.customer, taxIdentifiers: duplicateTaxIdentifiers },
+    }),
+    canonicalTaxIdentifiers({
+      ...euVatGermany,
+      customer: { ...euVatGermany.customer, taxIdentifiers: duplicateTaxIdentifiers.reverse() },
+    }),
   );
   assert.equal(
     customerIdentity({
@@ -431,6 +455,13 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
         companyName: "A",
         billingAddress: { ...profileWithSeparator.customer.billingAddress, line1: "B|C" },
       },
+    }).matchKey,
+  );
+  assert.notEqual(
+    customerIdentity(profileWithSeparator).matchKey,
+    customerIdentity({
+      ...profileWithSeparator,
+      customer: { ...profileWithSeparator.customer, kind: "UNKNOWN" },
     }).matchKey,
   );
   assert.equal(

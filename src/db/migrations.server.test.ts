@@ -55,6 +55,21 @@ async function temporaryDatabase(suffix: string) {
   };
 }
 
+async function waitForBlockedQuery(client: pg.Client, fragment: string) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const waiting = await client.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid() AND wait_event_type = 'Lock' AND query ILIKE $1
+       ) AS waiting`,
+      [`%${fragment}%`],
+    );
+    if (waiting.rows[0]!.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Query non bloccata: ${fragment}`);
+}
+
 test(
   "installazione vuota, checksum e upgrade preservano lo snapshot",
   { timeout: 30_000 },
@@ -72,12 +87,13 @@ test(
         "007_order_source_revisions.sql",
         "008_invoiced_order_status.sql",
         "009_unprefixed_billing_case_number.sql",
+        "010_order_domain_hardening.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "9",
+        "10",
       );
       await cleanClient.end();
 
@@ -368,6 +384,13 @@ test(
       const fixture = JSON.parse(
         await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
       );
+      await assert.rejects(
+        orders.importOrders([fixture[0], fixture[0]], {
+          id: 1,
+          requestId: "test-duplicate-order-in-batch",
+        }),
+        (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
+      );
       assert.deepEqual(
         await orders.importOrders(fixture, { id: 1, requestId: "test-order-import" }),
         { imported: 3, updated: 0, ignored: 0 },
@@ -376,6 +399,102 @@ test(
         await orders.importOrders(fixture, { id: 1, requestId: "test-order-reimport" }),
         { imported: 0, updated: 3, ignored: 0 },
       );
+      await database.getPool().query(
+        `INSERT INTO payments
+          (order_id, external_payment_id, method, status, amount, paid_at,
+           recorded_manually, raw_json)
+         SELECT id, 'manual-payment', 'Contanti', 'PAID', 100, now(), true, '{}'::jsonb
+         FROM orders WHERE external_order_id = $1`,
+        [fixture[0].externalOrderId],
+      );
+      await orders.importOrders([fixture[0]], {
+        id: 1,
+        requestId: "test-manual-payment-preserved",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM payments
+             JOIN orders ON orders.id = payments.order_id
+             WHERE orders.external_order_id = $1 AND payments.recorded_manually = true`,
+            [fixture[0].externalOrderId],
+          )
+        ).rows[0].count,
+        "1",
+      );
+      const snapshotOrder = (
+        await database
+          .getPool()
+          .query("SELECT id, billing_case_id FROM orders WHERE external_order_id = $1", [
+            fixture[0].externalOrderId,
+          ])
+      ).rows[0];
+      let orderDetailPromise: ReturnType<typeof orders.getOrder> | undefined;
+      await withClient(clean.connectionString, async (orderBlocker) => {
+        await orderBlocker.query("BEGIN");
+        await orderBlocker.query("LOCK TABLE order_lines IN ACCESS EXCLUSIVE MODE");
+        orderDetailPromise = orders.getOrder(String(snapshotOrder.id));
+        await waitForBlockedQuery(orderBlocker, "jsonb_agg(to_jsonb(order_lines)");
+        await orderBlocker.query("UPDATE orders SET gross_amount = 12345 WHERE id = $1", [
+          snapshotOrder.id,
+        ]);
+        await orderBlocker.query(
+          "UPDATE order_lines SET gross_amount = 12345 WHERE order_id = $1",
+          [snapshotOrder.id],
+        );
+        await orderBlocker.query("COMMIT");
+      });
+      const snapshotOrderDetail = await orderDetailPromise;
+      assert.equal(
+        snapshotOrderDetail!.gross_amount,
+        snapshotOrderDetail!.lines.reduce(
+          (total: number, line: { gross_amount: number }) => total + line.gross_amount,
+          0,
+        ),
+      );
+      await database
+        .getPool()
+        .query("UPDATE orders SET gross_amount = 12200 WHERE id = $1", [snapshotOrder.id]);
+      await database
+        .getPool()
+        .query("UPDATE order_lines SET gross_amount = 12200 WHERE order_id = $1", [
+          snapshotOrder.id,
+        ]);
+
+      let caseDetailPromise: ReturnType<typeof orders.getBillingCase> | undefined;
+      await withClient(clean.connectionString, async (auditBlocker) => {
+        await auditBlocker.query("BEGIN");
+        await auditBlocker.query("LOCK TABLE audit_events IN ACCESS EXCLUSIVE MODE");
+        caseDetailPromise = orders.getBillingCase(String(snapshotOrder.billing_case_id));
+        await waitForBlockedQuery(auditBlocker, "jsonb_agg(to_jsonb(case_audit)");
+        await auditBlocker.query("UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1", [
+          snapshotOrder.billing_case_id,
+        ]);
+        await auditBlocker.query(
+          `INSERT INTO audit_events
+            (actor_type, action, event_class, entity_type, entity_id, request_id)
+           VALUES ('SYSTEM', 'BILLING_CASE_REACTIVATED', 'CRITICAL',
+                   'BILLING_CASE', $1, 'test-snapshot-marker')`,
+          [snapshotOrder.billing_case_id],
+        );
+        await auditBlocker.query("COMMIT");
+      });
+      const snapshotCaseDetail = await caseDetailPromise;
+      assert.equal(snapshotCaseDetail!.status, "NEEDS_REVIEW");
+      assert.ok(
+        snapshotCaseDetail!.audit.some(
+          (event: { request_id: string }) => event.request_id === "test-snapshot-marker",
+        ),
+      );
+      await database
+        .getPool()
+        .query("UPDATE billing_cases SET status = 'READY' WHERE id = $1", [
+          snapshotOrder.billing_case_id,
+        ]);
+      await database
+        .getPool()
+        .query("DELETE FROM audit_events WHERE request_id = 'test-snapshot-marker'");
+
       await withClient(clean.connectionString, async (client) => {
         await client.query("BEGIN");
         await client.query("SELECT pg_advisory_xact_lock(hashtext('setting:draft_trigger'))");
@@ -776,6 +895,16 @@ test(
         orders.importOrders([invalidAmount], { id: 1, requestId: "test-invalid-amount" }),
         (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
       );
+      const excessiveDiscount = structuredClone(fixture[1]);
+      excessiveDiscount.externalOrderId = "ebay-invalid-discount";
+      excessiveDiscount.lines[0].discountAmount = "75.01";
+      await assert.rejects(
+        orders.importOrders([excessiveDiscount], {
+          id: 1,
+          requestId: "test-invalid-discount",
+        }),
+        (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
+      );
       const cancelled = structuredClone(fixture[2]);
       cancelled.externalOrderId = "shop-order-cancelled";
       cancelled.cancelledAt = "2026-08-08T11:00:00Z";
@@ -1168,7 +1297,7 @@ test(
             [reorderedCollections.externalOrderId],
           )
         ).rows[0].count,
-        "2",
+        "3",
       );
       reorderedCollections.cancelledAt = "2026-08-17T12:00:00Z";
       reorderedCollections.updatedAt = "2026-08-17T11:00:00Z";
@@ -1290,6 +1419,30 @@ test(
           )
         ).rows[0],
         { revision_count: 1, status: "NEEDS_REVIEW" },
+      );
+      canonicalA.updatedAt = "2026-08-18T12:00:00Z";
+      await orders.importOrders([canonicalA], {
+        id: 1,
+        requestId: "test-technical-update-after-conflict",
+      });
+      canonicalA.lines[0].description = "Descrizione dopo aggiornamento tecnico";
+      canonicalA.updatedAt = "2026-08-18T13:00:00Z";
+      await orders.importOrders([canonicalA], {
+        id: 1,
+        requestId: "test-second-conflict-after-technical-update",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT previous_normalized_snapshot_json ->> 'updatedAt' AS previous_updated_at
+             FROM order_source_revisions
+             JOIN orders ON orders.id = order_source_revisions.order_id
+             WHERE orders.external_order_id = $1
+             ORDER BY order_source_revisions.id DESC LIMIT 1`,
+            [canonicalA.externalOrderId],
+          )
+        ).rows[0].previous_updated_at,
+        "2026-08-18T12:00:00Z",
       );
 
       const profileA = structuredClone(fixture[0]);

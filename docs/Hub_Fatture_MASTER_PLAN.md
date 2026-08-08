@@ -1674,6 +1674,7 @@ Servono alla riconciliazione, non alla fattura 1:1.
 - `type`
 - `raw_value`
 - `normalized_value`
+- `country_code`
 - `source_field`
 - `imported_at`
 
@@ -2807,7 +2808,7 @@ Output:
 Gate:
 
 - due ordini concorrenti dello stesso cliente e giorno producono una sola preparazione fattura, provato da un test d'integrazione su PostgreSQL reale;
-- un ordine non può appartenere a due Schede e l'identità ambigua non accorpa;
+- un ordine non può appartenere a due preparazioni e l'identità ambigua non accorpa;
 - il cambio del trigger globale non ricrea né modifica bozze esistenti;
 - nessun identificativo visibile contiene la sigla interna.
 

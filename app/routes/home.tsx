@@ -7,7 +7,8 @@ import { requireSessionUser } from "../../src/auth.server.ts";
 import { dashboardSummary } from "../../src/orders.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const [user, summary] = await Promise.all([requireSessionUser(request), dashboardSummary()]);
+  const user = await requireSessionUser(request);
+  const summary = await dashboardSummary();
   return { username: user.username, csrfToken: user.csrfToken, summary };
 }
 

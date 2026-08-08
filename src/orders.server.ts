@@ -211,8 +211,9 @@ async function importOne(
   const paymentAmounts = input.payments.map((payment) => cents(payment.amount));
   const shippingAmount = cents(input.shippingAmount);
   if (
-    lineAmounts.some(({ grossAmount: amount, discountAmount }) =>
-      [amount, discountAmount].some((value) => value < 0),
+    lineAmounts.some(
+      ({ grossAmount: amount, discountAmount }) =>
+        amount < 0 || discountAmount < 0 || discountAmount > amount,
     ) ||
     paymentAmounts.some((amount) => amount < 0) ||
     shippingAmount < 0
@@ -255,23 +256,18 @@ async function importOne(
     customer_id: string;
     trigger_status: string;
   }>(
-    `SELECT id, billing_case_id, customer_id, trigger_status,
-            updated_at_source::text,
-            coalesce((
-              SELECT current_normalized_snapshot_json ->> 'reviewFingerprint'
-              FROM order_source_revisions
-              WHERE order_id = orders.id
-              ORDER BY id DESC
-              LIMIT 1
-            ), normalized_snapshot_json ->> 'reviewFingerprint') AS last_observed_review_fingerprint,
-            coalesce((
-              SELECT current_normalized_snapshot_json
-              FROM order_source_revisions
-              WHERE order_id = orders.id
-              ORDER BY id DESC
-              LIMIT 1
-            ), normalized_snapshot_json) AS last_observed_snapshot_json,
-            (SELECT status FROM billing_cases WHERE id = orders.billing_case_id) AS billing_case_status,
+    `SELECT orders.id, orders.billing_case_id, orders.customer_id, orders.trigger_status,
+            orders.updated_at_source::text,
+            CASE WHEN billing_cases.status IN ('APPROVED', 'CLOSED')
+              THEN coalesce(latest_revision.snapshot ->> 'reviewFingerprint',
+                            orders.normalized_snapshot_json ->> 'reviewFingerprint')
+              ELSE orders.normalized_snapshot_json ->> 'reviewFingerprint'
+            END AS last_observed_review_fingerprint,
+            CASE WHEN billing_cases.status IN ('APPROVED', 'CLOSED')
+              THEN coalesce(latest_revision.snapshot, orders.normalized_snapshot_json)
+              ELSE orders.normalized_snapshot_json
+            END AS last_observed_snapshot_json,
+            billing_cases.status AS billing_case_status,
             coalesce((
               SELECT actor_type = 'SYSTEM'
                 AND metadata_json ->> 'reason' IN ('CANCELLED', 'REFUNDED')
@@ -291,11 +287,21 @@ async function importOne(
               ORDER BY id DESC
               LIMIT 1
             ), false) AS billing_case_review_required_before_do_not_transmit,
-            coalesce((normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
+            coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
               AS deferred_review_required
      FROM orders
-     WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3
-     FOR UPDATE`,
+     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+     LEFT JOIN LATERAL (
+       SELECT current_normalized_snapshot_json AS snapshot
+       FROM order_source_revisions
+       WHERE order_id = orders.id
+       ORDER BY id DESC
+       LIMIT 1
+     ) AS latest_revision ON true
+     WHERE orders.provider = $1
+       AND orders.external_account_id = $2
+       AND orders.external_order_id = $3
+     FOR UPDATE OF orders`,
     [input.provider, input.externalAccountId, input.externalOrderId],
   );
   if (
@@ -582,64 +588,50 @@ async function importOne(
       );
     }
     await client.query("DELETE FROM order_tax_identifiers WHERE order_id = $1", [orderId]);
-    const persistedTaxIdentifiers = new Set<string>();
     for (const identifier of canonicalTaxIdentifiers(input)) {
-      const persistenceKey = JSON.stringify([identifier.type, identifier.value]);
-      if (persistedTaxIdentifiers.has(persistenceKey)) continue;
-      persistedTaxIdentifiers.add(persistenceKey);
       await client.query(
         `INSERT INTO order_tax_identifiers
-          (order_id, type, raw_value, normalized_value, source_field)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [orderId, identifier.type, identifier.rawValue, identifier.value, identifier.sourceField],
-      );
-    }
-    await client.query("DELETE FROM payments WHERE order_id = $1", [orderId]);
-    for (const [index, payment] of input.payments.entries()) {
-      await client.query(
-        `INSERT INTO payments
-          (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          (order_id, type, raw_value, normalized_value, country_code, source_field)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           orderId,
-          payment.externalPaymentId,
-          payment.method,
-          payment.status,
-          paymentAmounts[index],
-          payment.paidAt,
-          JSON.stringify(payment),
+          identifier.type,
+          identifier.rawValue,
+          identifier.value,
+          identifier.countryCode ?? null,
+          identifier.sourceField,
         ],
       );
     }
-  } else {
+  }
+  await client.query(
+    `DELETE FROM payments
+     WHERE order_id = $1 AND recorded_manually = false
+       AND NOT (external_payment_id = ANY($2::text[]))`,
+    [orderId, input.payments.map((payment) => payment.externalPaymentId)],
+  );
+  for (const [index, payment] of input.payments.entries()) {
     await client.query(
-      `DELETE FROM payments
-       WHERE order_id = $1
-         AND NOT (external_payment_id = ANY($2::text[]))`,
-      [orderId, input.payments.map((payment) => payment.externalPaymentId)],
+      `INSERT INTO payments
+        (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (order_id, external_payment_id) DO UPDATE SET
+         method = EXCLUDED.method,
+         status = EXCLUDED.status,
+         amount = EXCLUDED.amount,
+         paid_at = EXCLUDED.paid_at,
+         raw_json = EXCLUDED.raw_json
+       WHERE payments.recorded_manually = false`,
+      [
+        orderId,
+        payment.externalPaymentId,
+        payment.method,
+        payment.status,
+        paymentAmounts[index],
+        payment.paidAt,
+        JSON.stringify(payment),
+      ],
     );
-    for (const [index, payment] of input.payments.entries()) {
-      await client.query(
-        `INSERT INTO payments
-          (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (order_id, external_payment_id) DO UPDATE SET
-           method = EXCLUDED.method,
-           status = EXCLUDED.status,
-           amount = EXCLUDED.amount,
-           paid_at = EXCLUDED.paid_at,
-           raw_json = EXCLUDED.raw_json`,
-        [
-          orderId,
-          payment.externalPaymentId,
-          payment.method,
-          payment.status,
-          paymentAmounts[index],
-          payment.paidAt,
-          JSON.stringify(payment),
-        ],
-      );
-    }
   }
   await writeAudit(client, {
     actorType: "ADMIN",
@@ -673,6 +665,12 @@ export async function importOrders(input: unknown, actor: Actor) {
   try {
     orders = orderInputSchema.array().min(1).parse(input);
   } catch {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+  const sourceKeys = orders.map((order) =>
+    JSON.stringify([order.provider, order.externalAccountId, order.externalOrderId]),
+  );
+  if (new Set(sourceKeys).size !== sourceKeys.length) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
   return withTransaction(async (client) => {
@@ -1008,24 +1006,25 @@ export async function getOrder(id: string) {
             orders.normalized_snapshot_json #> '{customerSnapshot,billingAddress}' AS billing_address_json,
             orders.normalized_snapshot_json #>> '{customerSnapshot,sourceConfidence}' AS source_confidence,
             (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
-            billing_cases.public_number AS case_number
+            billing_cases.public_number AS case_number,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(order_lines) ORDER BY order_lines.id)
+              FROM order_lines WHERE order_lines.order_id = orders.id
+            ), '[]'::jsonb) AS lines,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(order_tax_identifiers) ORDER BY order_tax_identifiers.id)
+              FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id
+            ), '[]'::jsonb) AS "taxIdentifiers",
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(payments) ORDER BY payments.id)
+              FROM payments WHERE payments.order_id = orders.id
+            ), '[]'::jsonb) AS payments
      FROM orders
      LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      WHERE orders.id = $1`,
     [id],
   );
-  if (!order.rows[0]) return null;
-  const [lines, taxes, payments] = await Promise.all([
-    getPool().query("SELECT * FROM order_lines WHERE order_id = $1 ORDER BY id", [id]),
-    getPool().query("SELECT * FROM order_tax_identifiers WHERE order_id = $1 ORDER BY id", [id]),
-    getPool().query("SELECT * FROM payments WHERE order_id = $1 ORDER BY id", [id]),
-  ]);
-  return {
-    ...order.rows[0],
-    lines: lines.rows,
-    taxIdentifiers: taxes.rows,
-    payments: payments.rows,
-  };
+  return order.rows[0] ?? null;
 }
 
 export async function listBillingCases() {
@@ -1057,60 +1056,60 @@ export async function getBillingCase(id: string) {
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             billing_cases.customer_snapshot_json ->> 'email' AS customer_email,
             (billing_cases.customer_snapshot_json ->> 'reviewRequired')::boolean AS review_required,
-            billing_cases.customer_snapshot_json -> 'billingAddress' AS billing_address_json
+            billing_cases.customer_snapshot_json -> 'billingAddress' AS billing_address_json,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(case_orders) ORDER BY case_orders.id)
+              FROM (
+                SELECT id, provider, display_number, gross_amount, payment_status,
+                       fulfillment_status
+                FROM orders WHERE billing_case_id = billing_cases.id
+              ) AS case_orders
+            ), '[]'::jsonb) AS orders,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(case_audit) ORDER BY case_audit.created_at DESC)
+              FROM (
+                SELECT id, action, actor_id, metadata_json, request_id, created_at
+                FROM audit_events
+                WHERE (entity_type = 'BILLING_CASE' AND entity_id = billing_cases.id::text)
+                   OR (entity_type = 'ORDER'
+                       AND metadata_json ->> 'billingCaseId' = billing_cases.id::text)
+              ) AS case_audit
+            ), '[]'::jsonb) AS audit,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(case_revisions) ORDER BY case_revisions.created_at DESC)
+              FROM (
+                SELECT order_source_revisions.*, orders.display_number
+                FROM order_source_revisions
+                JOIN orders ON orders.id = order_source_revisions.order_id
+                WHERE order_source_revisions.billing_case_id = billing_cases.id
+                   OR orders.billing_case_id = billing_cases.id
+              ) AS case_revisions
+            ), '[]'::jsonb) AS revisions
      FROM billing_cases
      WHERE billing_cases.id = $1`,
     [id],
   );
   if (!billingCase.rows[0]) return null;
-  const [orders, audit, revisions] = await Promise.all([
-    getPool().query(
-      `SELECT id, provider, display_number, gross_amount, payment_status, fulfillment_status
-       FROM orders WHERE billing_case_id = $1 ORDER BY id`,
-      [id],
-    ),
-    getPool().query(
-      `SELECT id, action, actor_id, metadata_json, created_at
-       FROM audit_events
-       WHERE (entity_type = 'BILLING_CASE' AND entity_id = $1)
-          OR (entity_type = 'ORDER' AND metadata_json ->> 'billingCaseId' = $1)
-       ORDER BY created_at DESC`,
-      [id],
-    ),
-    getPool().query<{
-      id: string;
-      order_id: string;
-      display_number: string;
-      previous_normalized_snapshot_json: Record<string, unknown>;
-      current_normalized_snapshot_json: Record<string, unknown>;
-      created_at: string;
-    }>(
-      `SELECT order_source_revisions.*, orders.display_number
-       FROM order_source_revisions
-       JOIN orders ON orders.id = order_source_revisions.order_id
-       WHERE order_source_revisions.billing_case_id = $1
-          OR orders.billing_case_id = $1
-       ORDER BY order_source_revisions.created_at DESC`,
-      [id],
-    ),
-  ]);
   return {
     ...billingCase.rows[0],
-    orders: orders.rows,
-    audit: audit.rows,
-    revisions: revisions.rows.map((revision) => ({
-      ...revision,
-      changedFields: Array.from(
-        new Set([
-          ...Object.keys(revision.previous_normalized_snapshot_json),
-          ...Object.keys(revision.current_normalized_snapshot_json),
-        ]),
-      ).filter(
-        (field) =>
-          JSON.stringify(revision.previous_normalized_snapshot_json[field]) !==
-          JSON.stringify(revision.current_normalized_snapshot_json[field]),
-      ),
-    })),
+    revisions: billingCase.rows[0].revisions.map(
+      (revision: {
+        previous_normalized_snapshot_json: Record<string, unknown>;
+        current_normalized_snapshot_json: Record<string, unknown>;
+      }) => ({
+        ...revision,
+        changedFields: Array.from(
+          new Set([
+            ...Object.keys(revision.previous_normalized_snapshot_json),
+            ...Object.keys(revision.current_normalized_snapshot_json),
+          ]),
+        ).filter(
+          (field) =>
+            JSON.stringify(revision.previous_normalized_snapshot_json[field]) !==
+            JSON.stringify(revision.current_normalized_snapshot_json[field]),
+        ),
+      }),
+    ),
   };
 }
 

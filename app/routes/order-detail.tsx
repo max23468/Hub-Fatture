@@ -171,7 +171,8 @@ export default function OrderDetail() {
             <ul>
               {order.taxIdentifiers.map((identifier: Record<string, unknown>) => (
                 <li key={String(identifier.id)}>
-                  {taxIdentifierLabels[String(identifier.type)] ?? "Identificativo"}:{" "}
+                  {taxIdentifierLabels[String(identifier.type)] ?? "Identificativo"}
+                  {identifier.country_code ? ` (${String(identifier.country_code)})` : ""}:{" "}
                   {String(identifier.raw_value)}
                 </li>
               ))}
@@ -215,7 +216,7 @@ export default function OrderDetail() {
           )}
         </section>
         <section className="card">
-          <h2>Pagamenti sorgente</h2>
+          <h2>Pagamenti</h2>
           {order.payments.length ? (
             <ul className="plain-list">
               {order.payments.map((payment: Record<string, unknown>) => (
@@ -223,6 +224,7 @@ export default function OrderDetail() {
                   <span>
                     {String(payment.method)} ·{" "}
                     {paymentStatusLabels[String(payment.status)] ?? "Stato non riconosciuto"}
+                    {payment.recorded_manually ? " · registrato manualmente" : ""}
                   </span>
                   <span>
                     {euros(String(payment.amount))}
@@ -232,7 +234,7 @@ export default function OrderDetail() {
               ))}
             </ul>
           ) : (
-            <p>Nessun pagamento registrato dalla piattaforma.</p>
+            <p>Nessun pagamento registrato.</p>
           )}
         </section>
       </div>
