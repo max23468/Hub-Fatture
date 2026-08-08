@@ -21,6 +21,16 @@ const optionalCountryCodeSchema = optionalTextSchema.pipe(
     .optional(),
 );
 
+export function containsNullByte(value: unknown): boolean {
+  if (typeof value === "string") return value.includes("\0");
+  if (Array.isArray(value)) return value.some(containsNullByte);
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    Object.values(value as Record<string, unknown>).some(containsNullByte),
+  );
+}
+
 const addressSchema = z.object({
   line1: optionalTextSchema,
   line2: optionalTextSchema,
@@ -89,6 +99,9 @@ export const orderInputSchema = z
     ),
   })
   .superRefine((order, context) => {
+    if (containsNullByte(order)) {
+      context.addIssue({ code: "custom", message: "I testi non possono contenere byte NUL" });
+    }
     const collections = [
       ["lines", order.lines.map((line) => line.externalLineId)],
       ["payments", order.payments.map((payment) => payment.externalPaymentId)],

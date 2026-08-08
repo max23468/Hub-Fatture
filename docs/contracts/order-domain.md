@@ -4,7 +4,7 @@
 
 I connettori consegnano al dominio un ordine normalizzato e validato. La piattaforma resta fonte autorevole per ordine, pagamento, evasione, annullamento e dati sorgente; Hub Fatture conserva lo snapshot importato e il modello normalizzato senza modificare la piattaforma.
 
-Sono accettati soltanto importi decimali rappresentabili esattamente in centesimi e nel dominio `integer` PostgreSQL, sconti non superiori al lordo della riga, codici Paese alfabetici di due lettere, valuta EUR e date con offset. Un input invalido, un ordine ripetuto nello stesso batch o una valuta diversa interrompono atomicamente l’intero batch. Campi anagrafici mancanti restano invece rappresentabili: l’ordine viene conservato e la preparazione richiede verifica.
+Sono accettati soltanto importi decimali rappresentabili esattamente in centesimi e nel dominio `integer` PostgreSQL, quantità nello stesso dominio, testi privi di byte NUL, sconti non superiori al lordo della riga, codici Paese alfabetici di due lettere, valuta EUR e date con offset. Un input invalido, un ordine ripetuto nello stesso batch o una valuta diversa interrompono atomicamente l’intero batch. Campi anagrafici mancanti restano invece rappresentabili: l’ordine viene conservato e la preparazione richiede verifica.
 
 ## Idempotenza e raggruppamento
 

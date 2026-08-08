@@ -89,12 +89,13 @@ test(
         "008_invoiced_order_status.sql",
         "009_unprefixed_billing_case_number.sql",
         "010_order_domain_hardening.sql",
+        "011_unbounded_billing_case_number.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "10",
+        "11",
       );
       await cleanClient.end();
 
@@ -131,21 +132,41 @@ test(
         );
       });
       await runMigrations({ connectionString: upgrade.connectionString });
-      const readback = new pg.Client({ connectionString: upgrade.connectionString });
-      await readback.connect();
-      // Il cambio di formato degli hash rimuove gli account invece di conservare un percorso
-      // di verifica legacy: senza questo l'installazione esistente resterebbe esclusa.
-      assert.equal((await readback.query("SELECT count(*) FROM users")).rows[0].count, "0");
-      assert.equal(
-        (await readback.query("SELECT to_regclass('audit_events') AS table_name")).rows[0]
-          .table_name,
-        "audit_events",
-      );
-      assert.equal(
-        (await readback.query("SELECT to_regclass('orders') AS table_name")).rows[0].table_name,
-        "orders",
-      );
-      await readback.end();
+      await withClient(upgrade.connectionString, async (client) => {
+        // Il cambio di formato degli hash rimuove gli account invece di conservare un percorso
+        // di verifica legacy: senza questo l'installazione esistente resterebbe esclusa.
+        assert.equal((await client.query("SELECT count(*) FROM users")).rows[0].count, "0");
+        assert.equal(
+          (await client.query("SELECT to_regclass('audit_events') AS table_name")).rows[0]
+            .table_name,
+          "audit_events",
+        );
+        assert.equal(
+          (await client.query("SELECT to_regclass('orders') AS table_name")).rows[0].table_name,
+          "orders",
+        );
+        const customerId = (
+          await client.query(
+            `INSERT INTO customers
+               (kind, match_key, display_name, billing_address_json, source_confidence, review_required)
+             VALUES ('UNKNOWN', 'test-high-id', 'Test', '{}'::jsonb, 'AMBIGUOUS', true)
+             RETURNING id`,
+          )
+        ).rows[0].id;
+        await client.query("ALTER TABLE billing_cases ALTER COLUMN id RESTART WITH 1000000");
+        assert.equal(
+          (
+            await client.query(
+              `INSERT INTO billing_cases
+                 (customer_id, local_order_date, currency, status, customer_snapshot_json)
+               VALUES ($1, '2026-08-09', 'EUR', 'NEEDS_REVIEW', '{}'::jsonb)
+               RETURNING public_number`,
+              [customerId],
+            )
+          ).rows[0].public_number,
+          "1000000",
+        );
+      });
 
       process.env.APP_ENV = "test";
       process.env.APP_BASE_URL = "http://localhost:8080";
@@ -512,6 +533,7 @@ test(
       });
       assert.equal(await orders.getOrder("non-numerico"), null);
       assert.equal(await orders.getBillingCase("0"), null);
+      assert.deepEqual(await orders.listOrders({ query: "test\0non valido" }), []);
       const outOfRangeId = "9223372036854775808";
       assert.deepEqual(
         await Promise.all([
@@ -926,6 +948,20 @@ test(
         orders.importOrders([excessiveQuantity], {
           id: 1,
           requestId: "test-invalid-quantity",
+        }),
+        (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
+      );
+      const nullByteText = structuredClone(fixture[1]);
+      nullByteText.externalOrderId = "ebay-invalid-null-byte";
+      nullByteText.lines[0].description = "Test\0non persistibile";
+      await assert.rejects(
+        orders.importOrders([nullByteText], { id: 1, requestId: "test-invalid-null-byte" }),
+        (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
+      );
+      await assert.rejects(
+        orders.updateBillingCaseTransmission("1", "Test\0non persistibile", {
+          id: 1,
+          requestId: "test-invalid-reason-null-byte",
         }),
         (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
       );

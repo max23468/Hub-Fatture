@@ -8,6 +8,7 @@ import { AppError } from "./errors.ts";
 import {
   canonicalCustomerProfile,
   canonicalTaxIdentifiers,
+  containsNullByte,
   customerIdentity,
   customerDisplayName,
   decimalToCents,
@@ -859,7 +860,10 @@ export async function updateBillingCaseTransmission(
 ) {
   if (!isDatabaseId(id)) return null;
   const normalizedReason = reason?.trim() || null;
-  if (reason !== null && (!normalizedReason || normalizedReason.length > 500)) {
+  if (
+    reason !== null &&
+    (!normalizedReason || normalizedReason.length > 500 || containsNullByte(normalizedReason))
+  ) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
   return withTransaction(async (client) => {
@@ -963,6 +967,7 @@ export async function listOrders(filters: {
   localDate?: string;
   paymentStatus?: string;
 }) {
+  if (containsNullByte(filters)) return [];
   const values = [
     filters.query ? `%${filters.query}%` : null,
     filters.provider || null,
