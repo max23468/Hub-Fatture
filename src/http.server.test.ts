@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AppError } from "./errors.ts";
-import { readForm } from "./http.server.ts";
+import { allowedOrigins, readForm } from "./http.server.ts";
 
 const contentType = { "content-type": "application/x-www-form-urlencoded" };
 
@@ -33,6 +33,25 @@ test("un body bloccato scade senza essere parsato", async () => {
   await assert.rejects(readForm(request, { timeoutMs: 5 }), (error: unknown) => {
     return error instanceof AppError && error.code === "REQUEST_TIMEOUT";
   });
+});
+
+test("i due loopback locali valgono come stessa origine, Production no", () => {
+  assert.deepEqual(
+    [...allowedOrigins("http://localhost:8080", "development")],
+    ["http://localhost:8080", "http://127.0.0.1:8080"],
+  );
+  assert.deepEqual(
+    [...allowedOrigins("http://127.0.0.1:4173", "test")],
+    ["http://127.0.0.1:4173", "http://localhost:4173"],
+  );
+  assert.deepEqual(
+    [...allowedOrigins("https://hub.example.invalid", "production")],
+    ["https://hub.example.invalid"],
+  );
+  assert.deepEqual(
+    [...allowedOrigins("http://localhost:8080", "production")],
+    ["http://localhost:8080"],
+  );
 });
 
 test("un form da un’origine diversa viene rifiutato", async () => {

@@ -10,11 +10,22 @@ import { hashToken } from "../crypto.server.ts";
 import { AppError } from "../errors.ts";
 import { runMigrations } from "./migrations.server.ts";
 
-const adminUrl = process.env.TEST_DATABASE_URL;
+// Nessuno skip silenzioso: senza database il gate deve dirlo, non passare in verde.
+function requireTestDatabase(): string {
+  const url = process.env.TEST_DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "TEST_DATABASE_URL assente: avvia `docker compose --profile test up -d postgres-test` ed esportala.",
+    );
+  }
+  return url;
+}
+
+const adminUrl = requireTestDatabase();
 
 async function temporaryDatabase(suffix: string) {
   const name = `hub_fatture_${process.pid}_${suffix}`;
-  const url = new URL(adminUrl!);
+  const url = new URL(adminUrl);
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   await admin.query(`CREATE DATABASE ${name}`);
@@ -33,7 +44,7 @@ async function temporaryDatabase(suffix: string) {
 
 test(
   "installazione vuota, checksum e upgrade preservano lo snapshot",
-  { skip: !adminUrl, timeout: 30_000 },
+  { timeout: 30_000 },
   async () => {
     const clean = await temporaryDatabase("clean");
     const upgrade = await temporaryDatabase("upgrade");
@@ -132,7 +143,7 @@ test(
       });
       assert.equal((await auth.getSessionUser(request))?.username, "matteo");
       const sessionToken = sessionCookies
-        .find((value) => value.startsWith("hf_session="))!
+        .find((value) => value.startsWith("sessione="))!
         .split("=", 2)[1]!
         .split(";", 1)[0]!;
       assert.equal(
@@ -152,7 +163,7 @@ test(
         "1",
       );
       const csrf = sessionCookies
-        .find((value) => value.startsWith("hf_csrf="))!
+        .find((value) => value.startsWith("csrf="))!
         .split("=", 2)[1]!
         .split(";", 1)[0]!;
       await auth.logout(request, csrf);

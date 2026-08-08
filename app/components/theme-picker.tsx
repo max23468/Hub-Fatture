@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 type Theme = "system" | "light" | "dark";
 
-const storageKey = "hf-theme";
+const storageKey = "tema";
 const choices = [
   { value: "system", label: "Sistema", Icon: Monitor },
   { value: "light", label: "Chiaro", Icon: Sun },

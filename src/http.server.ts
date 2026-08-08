@@ -4,12 +4,32 @@ import { AppError } from "./errors.ts";
 export const FORM_BODY_LIMIT = 16 * 1024;
 export const FORM_BODY_TIMEOUT_MS = 5_000;
 
+const LOOPBACK_SIBLING: Record<string, string> = {
+  localhost: "127.0.0.1",
+  "127.0.0.1": "localhost",
+};
+
+// Fuori da Production `localhost` e `127.0.0.1` sono lo stesso host: accettarne uno solo
+// significa che aprire lo stack con l'altra forma rende 403 ogni form.
+export function allowedOrigins(baseUrl: string, appEnv: string): Set<string> {
+  const base = new URL(baseUrl);
+  const origins = new Set([base.origin]);
+  const sibling = LOOPBACK_SIBLING[base.hostname];
+  if (appEnv !== "production" && sibling) {
+    const alternative = new URL(base);
+    alternative.hostname = sibling;
+    origins.add(alternative.origin);
+  }
+  return origins;
+}
+
 export async function readForm(
   request: Request,
   { maxBytes = FORM_BODY_LIMIT, timeoutMs = FORM_BODY_TIMEOUT_MS } = {},
 ): Promise<URLSearchParams> {
+  const config = getConfig();
   const origin = request.headers.get("origin");
-  if (!origin || origin !== new URL(getConfig().APP_BASE_URL).origin) {
+  if (!origin || !allowedOrigins(config.APP_BASE_URL, config.APP_ENV).has(origin)) {
     throw new AppError("REQUEST_ORIGIN_INVALID", 403);
   }
 

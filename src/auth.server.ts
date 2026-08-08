@@ -8,8 +8,8 @@ import { hashPassword, hashToken, safeEqual, verifyPassword } from "./crypto.ser
 import { getPool, withTransaction } from "./db/client.server.ts";
 import { AppError } from "./errors.ts";
 
-const SESSION_COOKIE = "hf_session";
-const CSRF_COOKIE = "hf_csrf";
+const SESSION_COOKIE = "sessione";
+const CSRF_COOKIE = "csrf";
 const RATE_LIMIT_WINDOW_MINUTES = 15;
 const RATE_LIMIT_ATTEMPTS = 5;
 const MIN_PASSWORD_LENGTH = 8;
@@ -158,6 +158,7 @@ export async function login(input: { username: string; password: string; request
       return { error: new AppError("AUTH_INVALID_CREDENTIALS", 401) } as const;
     }
 
+    await client.query("DELETE FROM sessions WHERE expires_at <= now()");
     const sessionToken = randomBytes(32).toString("base64url");
     const csrfToken = randomBytes(32).toString("base64url");
     const ttl = getConfig().SESSION_TTL_SECONDS;

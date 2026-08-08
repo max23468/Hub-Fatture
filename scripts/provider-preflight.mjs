@@ -1,5 +1,7 @@
 import process from "node:process";
 
+import { isDirectExecution } from "./direct-execution.mjs";
+
 export function verifyTarget(expected, observed) {
   for (const field of ["provider", "account", "target"]) {
     if (!expected[field] || expected[field] !== observed[field]) {
@@ -15,7 +17,7 @@ export function verifyTarget(expected, observed) {
   };
 }
 
-if (process.argv[1] === new URL(import.meta.url).pathname) {
+if (isDirectExecution(import.meta.url)) {
   const [
     expectedProvider,
     expectedAccount,

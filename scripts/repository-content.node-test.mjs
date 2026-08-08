@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -37,9 +38,31 @@ async function contents(files) {
   );
 }
 
-test("la sigla interna non compare nel frontend", async () => {
-  const files = await contents(await collect("app"));
-  const offenders = files.filter(({ text }) => /\bHF\b/.test(text)).map(({ file }) => file);
+// `git grep` esce 0 con match, 1 senza match e 2 in errore: `!` in shell trasformerebbe
+// anche l'errore in successo, quindi la guardia vive qui dove lo stato è ispezionabile.
+function tracked(pattern) {
+  const result = spawnSync("git", ["grep", "-nIE", pattern], { cwd: root, encoding: "utf8" });
+  assert.equal(result.error, undefined);
+  assert.ok(result.status === 0 || result.status === 1, `git grep fallito: ${result.stderr}`);
+  return result.status === 0 ? result.stdout.trim().split("\n") : [];
+}
+
+test("nessuna chiave privata in chiaro è tracciata", () => {
+  assert.deepEqual(tracked("BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY"), []);
+  const keys = spawnSync("git", ["ls-files", "*.key"], { cwd: root, encoding: "utf8" });
+  assert.equal(keys.status, 0);
+  assert.equal(keys.stdout.trim(), "");
+});
+
+test("nessun riferimento a nomi storici del Master Plan", () => {
+  assert.deepEqual(tracked("Hub-Fatture-Master-Plan[.]md|docs/MASTER_PLAN[.]md"), []);
+});
+
+test("la sigla interna non compare nella superficie utente", async () => {
+  const files = [...(await collect("app")), "src/errors.ts", "src/auth.server.ts"];
+  const offenders = (await contents(files))
+    .filter(({ text }) => /\bhf\b/i.test(text))
+    .map(({ file }) => file);
   assert.deepEqual(offenders, []);
 });
 
@@ -65,11 +88,22 @@ test("i documenti evergreen non duplicano date di avanzamento", async () => {
   const docs = (await collect("docs")).filter(
     (file) => !file.startsWith("docs/evidence/") && file !== "docs/Hub_Fatture_MASTER_PLAN.md",
   );
-  const italianDate =
-    /\b\d{1,2} (?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre) 20\d{2}\b/i;
+  const dates = [
+    /\b\d{1,2} (?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre) 20\d{2}\b/i,
+    /\b20\d{2}-\d{2}-\d{2}\b/,
+  ];
   const offenders = (await contents([...rootDocuments, ...docs]))
-    .filter(({ text }) => italianDate.test(text))
+    .filter(({ text }) => dates.some((date) => date.test(text)))
     .map(({ file }) => file);
+  assert.deepEqual(offenders, []);
+});
+
+test("le fixture usano soltanto host sintetici .invalid", async () => {
+  const offenders = (await contents(await collect("tests/fixtures"))).flatMap(({ file, text }) =>
+    [...text.matchAll(/(?:@|https?:\/\/)([a-z0-9.-]+\.[a-z]{2,})/gi)]
+      .filter(([, host]) => !host.endsWith(".invalid"))
+      .map(([, host]) => `${file}: ${host}`),
+  );
   assert.deepEqual(offenders, []);
 });
 

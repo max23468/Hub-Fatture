@@ -6,15 +6,23 @@ Il progetto include toolchain riproducibile, database con migrazioni verificate 
 
 ## Sviluppo locale
 
-La toolchain è fissata in `mise.toml`. In un clone nuovo, autorizza il file prima di installarla; il gate canonico è:
+La toolchain è fissata in `mise.toml`. In un clone nuovo, autorizza il file prima di installarla:
 
 ```sh
 mise trust
 mise install
 mise exec -- npm ci
 mise exec -- npx playwright install chromium
-mise exec -- npm run check
 ```
+
+Il gate canonico esegue test d'integrazione ed E2E su PostgreSQL reale, quindi richiede il database di test avviato e `TEST_DATABASE_URL` esportata:
+
+```sh
+docker compose --profile test up -d postgres-test
+TEST_DATABASE_URL=postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test mise exec -- npm run check
+```
+
+Senza database il gate si ferma con un messaggio esplicito: nessun test viene saltato in silenzio. Il comando richiede rete per `npm audit`.
 
 Il runtime Docker locale è Colima. La prima volta, abilitalo all'accesso e avvia lo stack Development in background:
 
@@ -27,12 +35,7 @@ L'ambiente resta disponibile su `http://localhost:8080` anche fra sessioni di la
 
 All'avvio lo stack applica le migrazioni. La prima configurazione usa `/setup`, crea atomicamente gli account fissi `matteo` e `codex` e richiede password di almeno 8 caratteri. Il token di bootstrap sintetico è dichiarato esclusivamente nel Compose locale; la password Development di `codex` resta nel Portachiavi macOS, mai nel repository. In ambienti condivisi i valori di `.env.example` devono provenire dal secret store.
 
-I test PostgreSQL ed E2E locali richiedono il database Compose:
-
-```sh
-docker compose --profile test up -d postgres-test
-TEST_DATABASE_URL=postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test mise exec -- npm run check
-```
+L'ambiente locale accetta indifferentemente `localhost` e `127.0.0.1`; in Production vale soltanto l'origine dichiarata in `APP_BASE_URL`.
 
 Prima di una futura scrittura remota, l'adapter del provider deve rilevare identità e target e passarli al confronto fail-closed:
 
