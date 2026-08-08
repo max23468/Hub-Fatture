@@ -139,22 +139,40 @@ export function customerIdentity(input: OrderInput): {
         ? Boolean(
             input.customer.companyName || (input.customer.firstName && input.customer.lastName),
           )
-        : Boolean(input.customer.displayName);
+        : Boolean(
+            input.customer.displayName ||
+            input.customer.companyName ||
+            (input.customer.firstName && input.customer.lastName),
+          );
   const profileComplete = addressComplete && nameComplete;
-  const identifiers = ["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"].flatMap((type) =>
+  const identifierOrder =
+    input.customer.kind === "BUSINESS_IT"
+      ? ["PARTITA_IVA", "CODICE_FISCALE", "ALTRO"]
+      : input.customer.kind === "EU"
+        ? ["ALTRO", "PARTITA_IVA", "CODICE_FISCALE"]
+        : ["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"];
+  const identifiers = identifierOrder.flatMap((type) =>
     input.customer.taxIdentifiers.filter((identifier) => identifier.type === type),
   );
+  const customerKind = input.customer.kind;
   for (const identifier of identifiers) {
     const value = normalizedTaxId(identifier.value);
     if (validTaxId(identifier.type, value)) {
       const countryCode =
-        identifier.countryCode?.toUpperCase() ??
-        (identifier.type === "ALTRO" ? address.countryCode : undefined);
+        identifier.type === "ALTRO"
+          ? (identifier.countryCode?.toUpperCase() ?? address.countryCode)
+          : undefined;
       if (identifier.type === "ALTRO" && !countryCode) continue;
+      const expectedIdentifier =
+        customerKind === "PRIVATE_IT"
+          ? identifier.type === "CODICE_FISCALE"
+          : customerKind === "BUSINESS_IT"
+            ? identifier.type === "PARTITA_IVA"
+            : customerKind === "EU";
       return {
         matchKey: `tax:${identifier.type}:${countryCode ?? ""}:${value}`,
         confidence: "TAX_ID",
-        reviewRequired: input.customer.kind === "UNKNOWN" || !profileComplete,
+        reviewRequired: !expectedIdentifier || !profileComplete,
         primaryTaxId: { type: identifier.type, value, countryCode },
       };
     }
@@ -172,7 +190,7 @@ export function customerIdentity(input: OrderInput): {
     return {
       matchKey: `profile:${profile.join("|")}`,
       confidence: "EXACT_PROFILE",
-      reviewRequired: true,
+      reviewRequired: input.customer.kind !== "EU",
       primaryTaxId: null,
     };
   }

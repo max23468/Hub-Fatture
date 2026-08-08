@@ -9,12 +9,13 @@ Sono accettati soltanto importi decimali rappresentabili esattamente in centesim
 ## Idempotenza e raggruppamento
 
 - L’identità dell’ordine è `provider + account + external_order_id`.
-- L’identità cliente usa, nell’ordine, Codice Fiscale dichiarato valido, P.IVA dichiarata valida, altro identificativo dichiarato oppure profilo esatto normalizzato di nome, indirizzo ed e-mail.
+- L’identità cliente privilegia l’identificativo previsto dal tipo destinatario; Codice Fiscale e P.IVA italiani hanno una chiave canonica indipendente dal Paese opzionale, mentre un identificativo estero richiede il Paese dichiarato o dell’indirizzo.
 - L’e-mail da sola non unisce clienti. Un’identità insufficiente resta specifica dell’ordine e richiede verifica.
 - Gli ordini idonei confluiscono nel raggruppamento interno aperto dello stesso cliente, data ordine `Europe/Rome` e valuta; un advisory lock e un indice univoco parziale rendono atomica la scelta.
 - Un raggruppamento già creato non viene ricreato quando cambia il trigger globale. Il cambio rivaluta soltanto ordini ancora privi di raggruppamento.
 - Un singolo ordine non annullato può essere preparato manualmente prima del trigger; l’operazione è idempotente e registrata nell’audit.
 - Una risincronizzazione aggiorna gli snapshot sorgente ma non sposta un ordine già raggruppato.
+- Ordini e preparazioni leggono la propria anagrafica immutabile; aggiornare il cliente normalizzato non modifica retroattivamente dati già raggruppati.
 - Un aggiornamento con `updated_at_source` meno recente di quello persistito viene ignorato prima di qualsiasi mutazione e conteggiato nel risultato dell’import.
 - Se cambiano dati rilevanti per la preparazione — identità e anagrafica cliente, totale, righe, pagamenti, stato o annullamento — il raggruppamento esistente passa a `NEEDS_REVIEW`; soli timestamp tecnici e campi di provenienza non generano falsi allarmi.
 

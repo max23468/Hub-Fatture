@@ -1694,6 +1694,7 @@ Servono alla riconciliazione, non alla fattura 1:1.
 - `id`
 - `public_number` (progressivo interno non fiscale, senza prefisso; reso come `Preparazione fattura 000154`)
 - `customer_id`
+- `customer_snapshot_json`
 - `local_order_date`
 - `currency`
 - `fiscal_profile_version`
@@ -1702,6 +1703,9 @@ Servono alla riconciliazione, non alla fattura 1:1.
 - `created_at`
 - `updated_at`
 - `closed_at`
+
+Lo snapshot anagrafico della preparazione è immutabile: ordini importati in seguito possono
+aggiornare il cliente normalizzato, ma non i dati mostrati dalle preparazioni precedenti.
 
 #### `documents`
 

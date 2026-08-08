@@ -68,12 +68,13 @@ test(
         "003_login_ip.sql",
         "004_reset_password_hashes.sql",
         "005_order_domain.sql",
+        "006_billing_case_customer_snapshot.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "5",
+        "6",
       );
       await cleanClient.end();
 
@@ -597,6 +598,29 @@ test(
       assert.deepEqual(completedCase, {
         status: "READY",
         review_required: false,
+        city: "Milano",
+      });
+      const laterIncompleteCustomer = structuredClone(incompleteCustomer);
+      laterIncompleteCustomer.externalOrderId = "shop-order-later-incomplete-customer";
+      laterIncompleteCustomer.createdAt = "2026-08-10T08:15:00Z";
+      laterIncompleteCustomer.updatedAt = "2026-08-10T09:00:00Z";
+      await orders.importOrders([laterIncompleteCustomer], {
+        id: 1,
+        requestId: "test-later-incomplete-customer",
+      });
+      const preservedCase = (
+        await database.getPool().query(
+          `SELECT billing_cases.status,
+                  billing_cases.customer_snapshot_json ->> 'reviewRequired' AS review_required,
+                  billing_cases.customer_snapshot_json #>> '{billingAddress,city}' AS city
+             FROM billing_cases
+             JOIN orders ON orders.billing_case_id = billing_cases.id
+             WHERE orders.external_order_id = 'shop-order-completed-customer'`,
+        )
+      ).rows[0];
+      assert.deepEqual(preservedCase, {
+        status: "READY",
+        review_required: "false",
         city: "Milano",
       });
       await database.closePool();

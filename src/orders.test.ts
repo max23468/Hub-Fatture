@@ -106,6 +106,40 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
   };
   assert.match(customerIdentity(reordered).matchKey, /^tax:CODICE_FISCALE:/);
 
+  const businessWithOnlyTaxCode = {
+    ...base,
+    customer: { ...base.customer, kind: "BUSINESS_IT" as const },
+  };
+  assert.equal(customerIdentity(businessWithOnlyTaxCode).reviewRequired, true);
+  const businessWithVat = {
+    ...businessWithOnlyTaxCode,
+    customer: {
+      ...businessWithOnlyTaxCode.customer,
+      taxIdentifiers: [
+        { type: "PARTITA_IVA" as const, value: "12345678901", sourceField: "fixture" },
+      ],
+    },
+  };
+  assert.equal(customerIdentity(businessWithVat).reviewRequired, false);
+  assert.equal(customerIdentity(businessWithVat).matchKey, "tax:PARTITA_IVA::12345678901");
+  assert.equal(
+    customerIdentity({
+      ...businessWithVat,
+      customer: {
+        ...businessWithVat.customer,
+        taxIdentifiers: [
+          {
+            type: "PARTITA_IVA" as const,
+            value: "12345678901",
+            countryCode: "IT",
+            sourceField: "fixture",
+          },
+        ],
+      },
+    }).matchKey,
+    "tax:PARTITA_IVA::12345678901",
+  );
+
   const unknown = {
     ...base,
     customer: { ...base.customer, kind: "UNKNOWN" as const },

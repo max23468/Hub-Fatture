@@ -25,8 +25,25 @@ interface GroupableOrder {
   id: string;
   customerId: string;
   customerReviewRequired: boolean;
+  customerSnapshot: Record<string, unknown>;
   localOrderDate: string;
   currency: string;
+}
+
+function customerSnapshot(input: OrderInput, identity: ReturnType<typeof customerIdentity>) {
+  return {
+    ...input.customer,
+    displayName:
+      (input.customer.displayName ??
+        input.customer.companyName ??
+        [input.customer.firstName, input.customer.lastName].filter(Boolean).join(" ")) ||
+      "Cliente senza nome",
+    taxIdentifiers: input.customer.taxIdentifiers.map(
+      ({ sourceField: _, ...identifier }) => identifier,
+    ),
+    sourceConfidence: identity.confidence,
+    reviewRequired: identity.reviewRequired,
+  };
 }
 
 function cents(value: string): number {
@@ -75,14 +92,23 @@ async function groupOrder(
 ) {
   const lockKey = `billing-case:${order.customerId}:${order.localOrderDate}:${order.currency}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
-  const existing = await client.query<{ id: string }>(
-    `SELECT id FROM billing_cases
+  const existing = await client.query<{ id: string; same_customer_snapshot: boolean }>(
+    `SELECT id, customer_snapshot_json = $4::jsonb AS same_customer_snapshot
+     FROM billing_cases
      WHERE customer_id = $1 AND local_order_date = $2 AND currency = $3
        AND status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
      FOR UPDATE`,
-    [order.customerId, order.localOrderDate, order.currency],
+    [
+      order.customerId,
+      order.localOrderDate,
+      order.currency,
+      JSON.stringify(order.customerSnapshot),
+    ],
   );
-  const desiredStatus = order.customerReviewRequired ? "NEEDS_REVIEW" : "READY";
+  const desiredStatus =
+    order.customerReviewRequired || existing.rows[0]?.same_customer_snapshot === false
+      ? "NEEDS_REVIEW"
+      : "READY";
   const billingCase = existing.rows[0]
     ? await client.query<{ id: string }>(
         `UPDATE billing_cases
@@ -94,10 +120,17 @@ async function groupOrder(
         [existing.rows[0].id, desiredStatus],
       )
     : await client.query<{ id: string }>(
-        `INSERT INTO billing_cases (customer_id, local_order_date, currency, status)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id`,
-        [order.customerId, order.localOrderDate, order.currency, desiredStatus],
+        [
+          order.customerId,
+          order.localOrderDate,
+          order.currency,
+          desiredStatus,
+          JSON.stringify(order.customerSnapshot),
+        ],
       );
   const caseId = billingCase.rows[0]!.id;
   if (!existing.rows[0]) {
@@ -246,6 +279,7 @@ async function importOne(
   );
   const normalizedSnapshot = {
     ...input,
+    customerSnapshot: customerSnapshot(input, identity),
     totalAmount: grossAmount,
     localOrderDate: localDate,
     customerIdentity: identity.confidence,
@@ -387,6 +421,7 @@ async function importOne(
         id: orderId,
         customerId: order.rows[0]!.customer_id,
         customerReviewRequired: identity.reviewRequired,
+        customerSnapshot: normalizedSnapshot.customerSnapshot,
         localOrderDate: localDate,
         currency: input.currency,
       },
@@ -460,6 +495,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       id: string;
       customer_id: string;
       review_required: boolean;
+      customer_snapshot: Record<string, unknown>;
       local_order_date: string;
       currency: string;
       payment_status: OrderInput["paymentStatus"];
@@ -468,6 +504,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
     }>(
       `SELECT orders.id, orders.customer_id,
               (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
+              orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text, orders.currency, orders.payment_status,
               orders.fulfillment_status, orders.cancelled_at
        FROM orders
@@ -490,6 +527,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
             id: order.id,
             customerId: order.customer_id,
             customerReviewRequired: order.review_required,
+            customerSnapshot: order.customer_snapshot,
             localOrderDate: order.local_order_date,
             currency: order.currency,
           },
@@ -519,12 +557,14 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       customer_id: string;
       billing_case_id: string | null;
       review_required: boolean;
+      customer_snapshot: Record<string, unknown>;
       local_order_date: string;
       currency: string;
       cancelled_at: string | null;
     }>(
       `SELECT orders.id, orders.customer_id, orders.billing_case_id,
               (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
+              orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text,
               orders.currency, orders.cancelled_at
        FROM orders
@@ -542,6 +582,7 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
         id: current.id,
         customerId: current.customer_id,
         customerReviewRequired: current.review_required,
+        customerSnapshot: current.customer_snapshot,
         localOrderDate: current.local_order_date,
         currency: current.currency,
       },
@@ -580,13 +621,17 @@ export async function listOrders(filters: {
   }>(
     `SELECT orders.id, orders.provider, orders.display_number, orders.local_order_date::text,
             orders.gross_amount, orders.payment_status, orders.fulfillment_status,
-            orders.trigger_status, customers.display_name AS customer_name,
+            orders.trigger_status,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' AS customer_name,
             billing_cases.id AS billing_case_id, billing_cases.public_number AS case_number
      FROM orders
-     JOIN customers ON customers.id = orders.customer_id
      LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
-     WHERE ($1::text IS NULL OR orders.display_number ILIKE $1 OR customers.display_name ILIKE $1
-            OR customers.email ILIKE $1 OR customers.tax_id_normalized ILIKE $1)
+     WHERE ($1::text IS NULL OR orders.display_number ILIKE $1
+            OR orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' ILIKE $1
+            OR orders.normalized_snapshot_json #>> '{customerSnapshot,email}' ILIKE $1
+            OR EXISTS (SELECT 1 FROM order_tax_identifiers
+                       WHERE order_tax_identifiers.order_id = orders.id
+                         AND order_tax_identifiers.normalized_value ILIKE $1))
        AND ($2::text IS NULL OR orders.provider = $2)
        AND ($3::text IS NULL OR orders.trigger_status = $3)
        AND ($4::date IS NULL OR orders.local_order_date = $4)
@@ -600,14 +645,15 @@ export async function listOrders(filters: {
 export async function getOrder(id: string) {
   if (!/^[1-9]\d*$/.test(id)) return null;
   const order = await getPool().query(
-    `SELECT orders.*, orders.local_order_date::text, customers.display_name AS customer_name,
-            customers.kind AS customer_kind,
-            customers.email AS customer_email, customers.billing_address_json,
-            customers.source_confidence,
+    `SELECT orders.*, orders.local_order_date::text,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' AS customer_name,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,kind}' AS customer_kind,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,email}' AS customer_email,
+            orders.normalized_snapshot_json #> '{customerSnapshot,billingAddress}' AS billing_address_json,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,sourceConfidence}' AS source_confidence,
             (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
             billing_cases.public_number AS case_number
      FROM orders
-     JOIN customers ON customers.id = orders.customer_id
      LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      WHERE orders.id = $1`,
     [id],
@@ -637,12 +683,12 @@ export async function listBillingCases() {
     total_amount: string;
   }>(
     `SELECT billing_cases.id, billing_cases.public_number, billing_cases.local_order_date::text,
-            billing_cases.status, customers.display_name AS customer_name,
+            billing_cases.status,
+            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             count(orders.id)::text AS order_count, coalesce(sum(orders.gross_amount), 0)::text AS total_amount
      FROM billing_cases
-     JOIN customers ON customers.id = billing_cases.customer_id
      LEFT JOIN orders ON orders.billing_case_id = billing_cases.id
-     GROUP BY billing_cases.id, customers.display_name
+     GROUP BY billing_cases.id
      ORDER BY billing_cases.local_order_date DESC, billing_cases.id DESC`,
   );
   return result.rows;
@@ -652,9 +698,11 @@ export async function getBillingCase(id: string) {
   if (!/^[1-9]\d*$/.test(id)) return null;
   const billingCase = await getPool().query(
     `SELECT billing_cases.*, billing_cases.local_order_date::text,
-            customers.display_name AS customer_name, customers.email AS customer_email,
-            customers.review_required, customers.billing_address_json
-     FROM billing_cases JOIN customers ON customers.id = billing_cases.customer_id
+            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
+            billing_cases.customer_snapshot_json ->> 'email' AS customer_email,
+            (billing_cases.customer_snapshot_json ->> 'reviewRequired')::boolean AS review_required,
+            billing_cases.customer_snapshot_json -> 'billingAddress' AS billing_address_json
+     FROM billing_cases
      WHERE billing_cases.id = $1`,
     [id],
   );
