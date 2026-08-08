@@ -20,7 +20,12 @@ const addressSchema = z.object({
 const taxIdentifierSchema = z.object({
   type: z.enum(["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"]),
   value: z.string().trim().min(1),
-  countryCode: z.string().trim().length(2).optional(),
+  countryCode: z
+    .string()
+    .trim()
+    .length(2)
+    .transform((value) => value.toUpperCase())
+    .optional(),
   sourceField: z.string().trim().min(1),
 });
 
@@ -28,7 +33,7 @@ export const orderInputSchema = z.object({
   provider: z.enum(["SHOPIFY", "EBAY"]),
   externalAccountId: z.string().trim().min(1),
   externalOrderId: z.string().trim().min(1),
-  externalCustomerId: z.string().trim().min(1),
+  externalCustomerId: z.string().trim().min(1).optional(),
   displayNumber: z.string().trim().min(1),
   createdAt: z.iso.datetime({ offset: true }),
   updatedAt: z.iso.datetime({ offset: true }),

@@ -764,6 +764,109 @@ test(
         review_required: "false",
         city: "Milano",
       });
+
+      const { externalCustomerId: _, ...noExternalCustomer } = structuredClone(fixture[0]);
+      noExternalCustomer.externalOrderId = "shop-order-without-external-customer";
+      noExternalCustomer.createdAt = "2026-08-13T08:00:00Z";
+      noExternalCustomer.updatedAt = "2026-08-13T09:00:00Z";
+      noExternalCustomer.customer = {
+        kind: "UNKNOWN",
+        billingAddress: {},
+        taxIdentifiers: [],
+      };
+      await orders.importOrders([noExternalCustomer], {
+        id: 1,
+        requestId: "test-without-external-customer",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT billing_cases.status
+               FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+               WHERE orders.external_order_id = $1`,
+            [noExternalCustomer.externalOrderId],
+          )
+        ).rows[0].status,
+        "NEEDS_REVIEW",
+      );
+
+      const unreconciled = structuredClone(fixture[0]);
+      unreconciled.externalOrderId = "shop-order-unreconciled";
+      unreconciled.externalCustomerId = "shop-customer-unreconciled";
+      unreconciled.customer.taxIdentifiers[0].value = "RSSMRA80A01H501X";
+      unreconciled.createdAt = "2026-08-14T08:00:00Z";
+      unreconciled.updatedAt = "2026-08-14T09:00:00Z";
+      unreconciled.total = "123.00";
+      await orders.importOrders([unreconciled], { id: 1, requestId: "test-unreconciled" });
+      const unreconciledCase = (
+        await database.getPool().query(
+          `SELECT billing_cases.status,
+                  orders.normalized_snapshot_json ->> 'totalsReconciled' AS totals_reconciled
+             FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+             WHERE orders.external_order_id = $1`,
+          [unreconciled.externalOrderId],
+        )
+      ).rows[0];
+      assert.deepEqual(unreconciledCase, {
+        status: "NEEDS_REVIEW",
+        totals_reconciled: "false",
+      });
+
+      const lowerCountry = {
+        ...structuredClone(fixture[0]),
+        externalOrderId: "shop-order-country-lower",
+        externalCustomerId: "shop-customer-country-lower",
+        createdAt: "2026-08-15T08:00:00Z",
+        updatedAt: "2026-08-15T09:00:00Z",
+        customer: {
+          ...structuredClone(fixture[0].customer),
+          kind: "EU" as const,
+          billingAddress: {
+            ...structuredClone(fixture[0].customer.billingAddress),
+            countryCode: "DE",
+          },
+          taxIdentifiers: [
+            {
+              ...structuredClone(fixture[0].customer.taxIdentifiers[0]),
+              type: "ALTRO" as const,
+              value: "DE123456789",
+              countryCode: "de",
+            },
+          ],
+        },
+      };
+      const upperCountry = structuredClone(lowerCountry);
+      upperCountry.externalOrderId = "shop-order-country-upper";
+      upperCountry.externalCustomerId = "shop-customer-country-upper";
+      upperCountry.customer.taxIdentifiers[0].countryCode = "DE";
+      await orders.importOrders([lowerCountry, upperCountry], {
+        id: 1,
+        requestId: "test-country-grouping",
+      });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(DISTINCT billing_case_id) FROM orders
+             WHERE external_order_id IN ($1, $2)`,
+            [lowerCountry.externalOrderId, upperCountry.externalOrderId],
+          )
+        ).rows[0].count,
+        "1",
+      );
+      lowerCountry.customer.taxIdentifiers[0].countryCode = "DE";
+      lowerCountry.updatedAt = "2026-08-15T10:00:00Z";
+      await orders.importOrders([lowerCountry], { id: 1, requestId: "test-country-reimport" });
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT count(*) FROM order_source_revisions
+             JOIN orders ON orders.id = order_source_revisions.order_id
+             WHERE orders.external_order_id = $1`,
+            [lowerCountry.externalOrderId],
+          )
+        ).rows[0].count,
+        "0",
+      );
       await database.closePool();
     } finally {
       await import("./client.server.ts").then(({ closePool }) => closePool());

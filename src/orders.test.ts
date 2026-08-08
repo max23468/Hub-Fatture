@@ -101,6 +101,25 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
   });
   assert.equal(customerIdentity(missingName).reviewRequired, true);
 
+  const canonicalCountry = orderInputSchema.parse({
+    ...base,
+    externalCustomerId: undefined,
+    customer: {
+      ...base.customer,
+      kind: "EU",
+      taxIdentifiers: [
+        {
+          type: "ALTRO",
+          value: "DE123456789",
+          countryCode: "de",
+          sourceField: "fixture",
+        },
+      ],
+    },
+  });
+  assert.equal(canonicalCountry.externalCustomerId, undefined);
+  assert.equal(canonicalCountry.customer.taxIdentifiers[0]?.countryCode, "DE");
+
   const reordered = {
     ...base,
     customer: {

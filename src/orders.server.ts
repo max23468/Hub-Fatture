@@ -192,6 +192,10 @@ async function importOne(
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
   const identity = customerIdentity(input);
+  const totalsReconciled =
+    lineAmounts.reduce((sum, line) => sum + BigInt(line.grossAmount - line.discountAmount), 0n) ===
+      BigInt(grossAmount) &&
+    paymentAmounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(grossAmount);
   const localDate = localOrderDate(input.createdAt);
   const fingerprint = reviewFingerprint(
     input,
@@ -205,7 +209,8 @@ async function importOne(
   const preparationReviewRequired =
     identity.reviewRequired ||
     input.paymentStatus !== "PAID" ||
-    input.payments.some((payment) => payment.status !== "PAID");
+    input.payments.some((payment) => payment.status !== "PAID") ||
+    !totalsReconciled;
   const lockKey = `order:${input.provider}:${input.externalAccountId}:${input.externalOrderId}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
 
@@ -272,16 +277,18 @@ async function importOne(
     ],
   );
   const customerId = customer.rows[0]!.id;
-  await client.query(
-    `INSERT INTO customer_source_records
-      (customer_id, provider, external_customer_id, raw_snapshot_json)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (provider, external_customer_id) DO UPDATE
-     SET customer_id = EXCLUDED.customer_id,
-         raw_snapshot_json = EXCLUDED.raw_snapshot_json,
-         imported_at = now()`,
-    [customerId, input.provider, input.externalCustomerId, JSON.stringify(input.customer)],
-  );
+  if (input.externalCustomerId) {
+    await client.query(
+      `INSERT INTO customer_source_records
+        (customer_id, provider, external_customer_id, raw_snapshot_json)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (provider, external_customer_id) DO UPDATE
+       SET customer_id = EXCLUDED.customer_id,
+           raw_snapshot_json = EXCLUDED.raw_snapshot_json,
+           imported_at = now()`,
+      [customerId, input.provider, input.externalCustomerId, JSON.stringify(input.customer)],
+    );
+  }
   const normalizedSnapshot = {
     ...input,
     customerSnapshot: customerSnapshot(input, identity),
@@ -290,6 +297,7 @@ async function importOne(
     customerIdentity: identity.confidence,
     customerReviewRequired: identity.reviewRequired,
     preparationReviewRequired,
+    totalsReconciled,
     reviewFingerprint: fingerprint,
   };
   const oldOrder = previous.rows[0];
