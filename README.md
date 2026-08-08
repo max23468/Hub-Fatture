@@ -16,7 +16,16 @@ mise exec -- npx playwright install chromium
 mise exec -- npm run check
 ```
 
-Lo stack locale containerizzato si avvia con `docker compose up`; applica le migrazioni e risponde su `http://localhost:8080`. La prima configurazione usa `/setup`, crea atomicamente gli account fissi `matteo` e `codex` e richiede password di almeno 8 caratteri. Il token di bootstrap sintetico è dichiarato esclusivamente nel Compose locale; la password Development di `codex` resta nel Portachiavi macOS, mai nel repository. In ambienti condivisi i valori di `.env.example` devono provenire dal secret store.
+Il runtime Docker locale è Colima. La prima volta, abilitalo all'accesso e avvia lo stack Development in background:
+
+```sh
+brew services start colima
+docker compose up -d --wait app caddy
+```
+
+L'ambiente resta disponibile su `http://localhost:8080` anche fra sessioni di lavoro e riparte con Colima dopo il riavvio del Mac. Le modifiche al codice vengono caricate automaticamente; PostgreSQL e `node_modules` usano volumi persistenti. Usa `docker compose logs -f app` per seguire l'app e `docker compose stop` soltanto quando vuoi fermare esplicitamente l'ambiente. Non usare `docker compose down -v`, perché elimina i dati locali.
+
+All'avvio lo stack applica le migrazioni. La prima configurazione usa `/setup`, crea atomicamente gli account fissi `matteo` e `codex` e richiede password di almeno 8 caratteri. Il token di bootstrap sintetico è dichiarato esclusivamente nel Compose locale; la password Development di `codex` resta nel Portachiavi macOS, mai nel repository. In ambienti condivisi i valori di `.env.example` devono provenire dal secret store.
 
 I test PostgreSQL ed E2E locali richiedono il database Compose:
 
