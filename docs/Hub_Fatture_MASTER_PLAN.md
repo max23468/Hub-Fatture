@@ -3331,7 +3331,7 @@ Qualsiasi altra scelta di routine entro i confini della matrice 14.3 è affidata
 La 1.0 è conclusa quando ogni gate di §23, ogni checklist di §28 e ogni decisione di §30 sono chiusi con prove osservate e collegate dal record corrente `docs/runbooks/release-readiness.md`. Questa sezione non ripete quelle condizioni: elenca soltanto ciò che nessuna singola milestone può dichiarare da sola.
 
 1. tutti i requisiti `HF-F01`-`HF-F32` ancora attivi sono implementati o esplicitamente riclassificati dal titolare;
-2. `HF-O01`-`HF-O09` sono chiusi con la fonte prevista, o riclassificati per iscritto come rischio accettato con condizione di riapertura;
+2. `HF-O01`-`HF-O09` sono chiusi ciascuno con la fonte e la condizione di chiusura previste in §30, senza sostituzioni: una decisione priva della sua fonte resta bloccante e non può essere convertita in rischio accettato. L'accettazione con condizione di riapertura riguarda soltanto rischi già classificati come non bloccanti, mai una decisione fiscale;
 3. la catena completa - import, raggruppamento, modifiche, comparatore, approvazione, helper assistito e automatico, fallback manuale, stati SdI, e-mail, note di credito - è stata osservata end-to-end, non provata a pezzi;
 4. profilo fiscale, numerazione, XML fattura e TD04 derivano da fonti approvate e da golden test che falliscono se il profilo cambia involontariamente;
 5. nessun dato reale e nessun segreto plaintext compare in repository, cronologia, CI, log, fixture o documentazione; l'unico blob sensibile ammesso è la key VPS cifrata;
