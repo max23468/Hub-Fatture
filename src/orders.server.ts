@@ -175,18 +175,37 @@ async function importOne(
   const lockKey = `order:${input.provider}:${input.externalAccountId}:${input.externalOrderId}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
 
-  const customer = await client.query<{ id: string; review_required: boolean }>(
+  const previous = await client.query<{
+    id: string;
+    billing_case_id: string | null;
+    review_fingerprint: string | null;
+    updated_at_source: string;
+  }>(
+    `SELECT id, billing_case_id, updated_at_source::text,
+            normalized_snapshot_json ->> 'reviewFingerprint' AS review_fingerprint
+     FROM orders
+     WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3`,
+    [input.provider, input.externalAccountId, input.externalOrderId],
+  );
+  if (
+    previous.rows[0] &&
+    Date.parse(input.updatedAt) < Date.parse(previous.rows[0].updated_at_source)
+  ) {
+    return "ignored";
+  }
+
+  const customer = await client.query<{ id: string }>(
     `INSERT INTO customers
       (kind, match_key, display_name, first_name, last_name, company_name, email, phone,
        tax_id_type, tax_id_normalized, vat_country, billing_address_json,
        source_confidence, review_required)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (match_key) DO UPDATE SET match_key = EXCLUDED.match_key
-     RETURNING id, review_required`,
+     RETURNING id`,
     [
       input.customer.kind,
       identity.matchKey,
-      input.customer.displayName,
+      input.customer.displayName ?? "Cliente senza nome",
       input.customer.firstName ?? null,
       input.customer.lastName ?? null,
       input.customer.companyName ?? null,
@@ -211,23 +230,12 @@ async function importOne(
          imported_at = now()`,
     [customerId, input.provider, input.externalCustomerId, JSON.stringify(input.customer)],
   );
-
-  const previous = await client.query<{
-    id: string;
-    billing_case_id: string | null;
-    review_fingerprint: string | null;
-  }>(
-    `SELECT id, billing_case_id,
-            normalized_snapshot_json ->> 'reviewFingerprint' AS review_fingerprint
-     FROM orders
-     WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3`,
-    [input.provider, input.externalAccountId, input.externalOrderId],
-  );
   const normalizedSnapshot = {
     ...input,
     totalAmount: grossAmount,
     localOrderDate: localDate,
     customerIdentity: identity.confidence,
+    customerReviewRequired: identity.reviewRequired,
     reviewFingerprint: fingerprint,
   };
   const order = await client.query<{
@@ -364,7 +372,7 @@ async function importOne(
       {
         id: orderId,
         customerId: order.rows[0]!.customer_id,
-        customerReviewRequired: customer.rows[0]!.review_required,
+        customerReviewRequired: identity.reviewRequired,
         localOrderDate: localDate,
         currency: input.currency,
       },
@@ -391,6 +399,7 @@ export async function importOrders(input: unknown, actor: Actor) {
     return {
       imported: results.filter((result) => result === "imported").length,
       updated: results.filter((result) => result === "updated").length,
+      ignored: results.filter((result) => result === "ignored").length,
     };
   });
 }
@@ -443,10 +452,11 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       fulfillment_status: OrderInput["fulfillmentStatus"];
       cancelled_at: string | null;
     }>(
-      `SELECT orders.id, orders.customer_id, customers.review_required,
+      `SELECT orders.id, orders.customer_id,
+              (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
               orders.local_order_date::text, orders.currency, orders.payment_status,
               orders.fulfillment_status, orders.cancelled_at
-       FROM orders JOIN customers ON customers.id = orders.customer_id
+       FROM orders
        WHERE orders.billing_case_id IS NULL`,
     );
     for (const order of ungrouped.rows) {
@@ -500,9 +510,10 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       cancelled_at: string | null;
     }>(
       `SELECT orders.id, orders.customer_id, orders.billing_case_id,
-              customers.review_required, orders.local_order_date::text,
+              (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
+              orders.local_order_date::text,
               orders.currency, orders.cancelled_at
-       FROM orders JOIN customers ON customers.id = orders.customer_id
+       FROM orders
        WHERE orders.id = $1
        FOR UPDATE OF orders`,
       [id],
@@ -578,7 +589,8 @@ export async function getOrder(id: string) {
     `SELECT orders.*, orders.local_order_date::text, customers.display_name AS customer_name,
             customers.kind AS customer_kind,
             customers.email AS customer_email, customers.billing_address_json,
-            customers.source_confidence, customers.review_required,
+            customers.source_confidence,
+            (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
             billing_cases.public_number AS case_number
      FROM orders
      JOIN customers ON customers.id = orders.customer_id

@@ -125,7 +125,7 @@ export default function OrderDetail() {
             </div>
             <div>
               <dt>Indirizzo</dt>
-              <dd>{addressText}</dd>
+              <dd>{addressText || "Non disponibile"}</dd>
             </div>
             <div>
               <dt>Corrispondenza</dt>

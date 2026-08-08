@@ -24,6 +24,8 @@ const base = orderInputSchema.parse({
   customer: {
     kind: "PRIVATE_IT",
     displayName: "Mario Rossi",
+    firstName: "Mario",
+    lastName: "Rossi",
     email: "mario@example.invalid",
     billingAddress: {
       line1: "Via Roma 1",
@@ -77,6 +79,20 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
   };
   assert.equal(customerIdentity(invalidTaxId).confidence, "EXACT_PROFILE");
   assert.equal(customerIdentity(invalidTaxId).reviewRequired, true);
+
+  const missingAddress = orderInputSchema.parse({
+    ...base,
+    customer: { ...base.customer, billingAddress: undefined },
+  });
+  assert.deepEqual(missingAddress.customer.billingAddress, {});
+  assert.equal(customerIdentity(missingAddress).confidence, "TAX_ID");
+  assert.equal(customerIdentity(missingAddress).reviewRequired, true);
+
+  const missingName = orderInputSchema.parse({
+    ...base,
+    customer: { ...base.customer, displayName: undefined, firstName: undefined },
+  });
+  assert.equal(customerIdentity(missingName).reviewRequired, true);
 
   const reordered = {
     ...base,

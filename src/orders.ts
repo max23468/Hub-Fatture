@@ -4,16 +4,17 @@ export const draftTriggerSchema = z.enum(["PAID", "FULFILLED"]);
 export type DraftTrigger = z.infer<typeof draftTriggerSchema>;
 
 const addressSchema = z.object({
-  line1: z.string().trim().min(1),
+  line1: z.string().trim().min(1).optional(),
   line2: z.string().trim().optional(),
-  postalCode: z.string().trim().min(1),
-  city: z.string().trim().min(1),
+  postalCode: z.string().trim().min(1).optional(),
+  city: z.string().trim().min(1).optional(),
   province: z.string().trim().optional(),
   countryCode: z
     .string()
     .trim()
     .length(2)
-    .transform((value) => value.toUpperCase()),
+    .transform((value) => value.toUpperCase())
+    .optional(),
 });
 
 const taxIdentifierSchema = z.object({
@@ -42,13 +43,13 @@ export const orderInputSchema = z.object({
   cancelledAt: z.iso.datetime({ offset: true }).nullable().default(null),
   customer: z.object({
     kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU", "UNKNOWN"]),
-    displayName: z.string().trim().min(1),
+    displayName: z.string().trim().min(1).optional(),
     firstName: z.string().trim().optional(),
     lastName: z.string().trim().optional(),
     companyName: z.string().trim().optional(),
     email: z.email().optional(),
     phone: z.string().trim().optional(),
-    billingAddress: addressSchema,
+    billingAddress: addressSchema.default({}),
     taxIdentifiers: z.array(taxIdentifierSchema).default([]),
   }),
   lines: z
@@ -124,6 +125,22 @@ export function customerIdentity(input: OrderInput): {
   reviewRequired: boolean;
   primaryTaxId: { type: string; value: string; countryCode?: string } | null;
 } {
+  const address = input.customer.billingAddress;
+  const addressComplete = [
+    address.line1,
+    address.postalCode,
+    address.city,
+    address.countryCode,
+  ].every(Boolean);
+  const nameComplete =
+    input.customer.kind === "PRIVATE_IT"
+      ? Boolean(input.customer.firstName && input.customer.lastName)
+      : input.customer.kind === "BUSINESS_IT"
+        ? Boolean(
+            input.customer.companyName || (input.customer.firstName && input.customer.lastName),
+          )
+        : Boolean(input.customer.displayName);
+  const profileComplete = addressComplete && nameComplete;
   const identifiers = ["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"].flatMap((type) =>
     input.customer.taxIdentifiers.filter((identifier) => identifier.type === type),
   );
@@ -134,13 +151,12 @@ export function customerIdentity(input: OrderInput): {
       return {
         matchKey: `tax:${identifier.type}:${countryCode ?? ""}:${value}`,
         confidence: "TAX_ID",
-        reviewRequired: false,
+        reviewRequired: !profileComplete,
         primaryTaxId: { type: identifier.type, value, countryCode },
       };
     }
   }
 
-  const address = input.customer.billingAddress;
   const profile = [
     normalized(input.customer.displayName),
     normalized(address.line1),

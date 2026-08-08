@@ -366,11 +366,11 @@ test(
       );
       assert.deepEqual(
         await orders.importOrders(fixture, { id: 1, requestId: "test-order-import" }),
-        { imported: 3, updated: 0 },
+        { imported: 3, updated: 0, ignored: 0 },
       );
       assert.deepEqual(
         await orders.importOrders(fixture, { id: 1, requestId: "test-order-reimport" }),
-        { imported: 0, updated: 3 },
+        { imported: 0, updated: 3, ignored: 0 },
       );
       await withClient(clean.connectionString, async (client) => {
         await client.query("BEGIN");
@@ -384,7 +384,7 @@ test(
         await new Promise((resolve) => setTimeout(resolve, 75));
         assert.equal(completed, false);
         await client.query("COMMIT");
-        assert.deepEqual(await blockedImport, { imported: 0, updated: 1 });
+        assert.deepEqual(await blockedImport, { imported: 0, updated: 1, ignored: 0 });
       });
       assert.equal(await orders.getOrder("non-numerico"), null);
       assert.equal(await orders.getBillingCase("0"), null);
@@ -517,6 +517,21 @@ test(
         ).rows[0].count,
         "1",
       );
+      assert.deepEqual(
+        await orders.importOrders([fixture[0]], {
+          id: 1,
+          requestId: "test-stale-source-update",
+        }),
+        { imported: 0, updated: 0, ignored: 1 },
+      );
+      const preservedSource = (
+        await database.getPool().query(
+          `SELECT updated_at_source::text, payment_status
+             FROM orders WHERE external_order_id = 'shop-order-1001'`,
+        )
+      ).rows[0];
+      assert.equal(preservedSource.payment_status, "REFUNDED");
+      assert.match(preservedSource.updated_at_source, /^2026-08-08 10:00:00/);
       const invalidAmount = structuredClone(fixture[1]);
       invalidAmount.externalOrderId = "ebay-invalid-amount";
       invalidAmount.lines[0].grossAmount = "12.345";
@@ -536,6 +551,29 @@ test(
       await assert.rejects(
         orders.forcePrepareOrder(cancelledId, { id: 1, requestId: "test-force-cancelled" }),
         (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
+      );
+      const incompleteCustomer = structuredClone(fixture[0]);
+      incompleteCustomer.externalOrderId = "shop-order-incomplete-customer";
+      incompleteCustomer.externalCustomerId = "shop-customer-incomplete";
+      incompleteCustomer.customer.taxIdentifiers[0].value = "RSSMRA80A01H501V";
+      incompleteCustomer.customer.billingAddress = {};
+      incompleteCustomer.updatedAt = "2026-08-08T12:00:00Z";
+      assert.deepEqual(
+        await orders.importOrders([incompleteCustomer], {
+          id: 1,
+          requestId: "test-incomplete-customer",
+        }),
+        { imported: 1, updated: 0, ignored: 0 },
+      );
+      assert.equal(
+        (
+          await database.getPool().query(
+            `SELECT billing_cases.status
+               FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+               WHERE orders.external_order_id = 'shop-order-incomplete-customer'`,
+          )
+        ).rows[0].status,
+        "NEEDS_REVIEW",
       );
       await database.closePool();
     } finally {

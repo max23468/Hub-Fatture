@@ -68,6 +68,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     view,
     fixtureEnabled: getConfig().APP_ENV !== "production",
     imported: url.searchParams.get("importati"),
+    ignored: url.searchParams.get("ignorati"),
     triggerSaved: url.searchParams.get("trigger") === "salvato",
     filters,
   };
@@ -81,7 +82,9 @@ export async function action({ request }: Route.ActionArgs) {
     const actor = { id: user.id, requestId: requestId(request) };
     if (form.get("intent") === "import-fixture" && getConfig().APP_ENV !== "production") {
       const result = await importOrders(fixture, actor);
-      return redirect(`/ordini?importati=${result.imported}&aggiornati=${result.updated}`);
+      return redirect(
+        `/ordini?importati=${result.imported}&aggiornati=${result.updated}&ignorati=${result.ignored}`,
+      );
     }
     if (form.get("intent") === "change-trigger") {
       await setDraftTrigger(form.get("trigger"), Number(form.get("version") ?? Number.NaN), actor);
@@ -107,6 +110,7 @@ export default function Orders() {
     view,
     fixtureEnabled,
     imported,
+    ignored,
     triggerSaved,
     filters,
   } = useLoaderData<typeof loader>();
@@ -144,7 +148,8 @@ export default function Orders() {
 
       {imported !== null ? (
         <p className="notice" role="status">
-          Fixture elaborata: {imported} nuovi ordini.
+          Fixture elaborata: {imported} nuovi ordini
+          {Number(ignored) ? `; ${ignored} aggiornamenti meno recenti ignorati` : ""}.
         </p>
       ) : null}
       {triggerSaved ? (
