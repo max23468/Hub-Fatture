@@ -3010,7 +3010,7 @@ Ingest del rimborso completato, bozza TD04 cumulativa, residuo accreditabile, nu
 
 ### Produzione e continuità - M7/M10
 
-Compose di produzione e Caddyfile, Dynu e IP, firewall e hardening SSH, GitHub Environment `Production`, workflow di build e pubblicazione su GHCR con attestazione e scansione, pull per digest senza build remota. Poi monitoraggio: plugin OCI, Notifications, i quattro allarmi, monitor HTTP esterno, rotazione log. Quindi continuità: `backup.sh` con timer e readback, `restore.sh` con conferma distruttiva, restore drill senza i segreti originari. Infine runbook, `.github/release.yml` con immutabilità, import storico riconciliato, collaudo M8, audit trasversale con correzione delle cause condivise, canary, record di readiness e le autorizzazioni separate di §26.
+Compose di produzione e Caddyfile, Dynu e IP, firewall e hardening SSH, GitHub Environment `Production`, workflow di build e pubblicazione su GHCR con attestazione e scansione, pull per digest senza build remota. Poi monitoraggio: plugin OCI, Notifications, i quattro allarmi, monitor HTTP esterno, rotazione log. Quindi continuità: `backup.sh` con timer e readback, `restore.sh` con conferma distruttiva, restore drill senza i segreti originari. Infine runbook, `.github/release.yml` con immutabilità, import storico riconciliato, collaudo M8, audit trasversale con correzione delle cause condivise, canary, record di readiness e le quattro autorizzazioni distinte - deploy, singolo invio canary, pubblicazione della release e uso Production ordinario - come richieste da §28 e §31; §26 elenca soltanto le classi di azione per cui fermarsi, non questi quattro consensi.
 
 ---
 
