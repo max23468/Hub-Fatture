@@ -49,6 +49,24 @@ export function findPinDrift(pins) {
     .map(([tool, values]) => `${tool}: ${values.map((value) => value ?? "assente").join(" != ")}`);
 }
 
+// Dependabot aggiorna Compose e Dockerfile ma non le immagini dei `services:` nei
+// workflow: senza questo confronto la CI resterebbe indietro in silenzio.
+// L'assenza di riferimenti non è accordo: un file che smette di dichiarare l'immagine,
+// o che la quota in modo non riconosciuto, deve fallire invece di confermare il valore
+// rimasto nell'altro.
+export function findImageDrift(compose, ci) {
+  const references = (text) =>
+    [...text.matchAll(/^\s*image:\s*["']?(postgres:[^\s"']+)/gm)].map(([, image]) => image);
+  const sources = { "compose.yaml": references(compose), "ci.yml": references(ci) };
+  const missing = Object.entries(sources)
+    .filter(([, images]) => images.length === 0)
+    .map(([file]) => file);
+  if (missing.length > 0) return [`postgres: riferimento assente in ${missing.join(", ")}`];
+
+  const all = new Set(Object.values(sources).flat());
+  return all.size === 1 ? [] : [`postgres: ${[...all].join(" != ")}`];
+}
+
 export function findProductionBuildTools(lockfile) {
   return Object.entries(lockfile.packages ?? {})
     .filter(([name, node]) => name.startsWith("node_modules/") && !node.dev)
@@ -70,6 +88,10 @@ if (isDirectExecution(import.meta.url)) {
     findRuntimePins(manifest, await read("mise.toml"), await read("Dockerfile")),
   );
   if (drift.length > 0) problems.push(`Pin runtime divergenti: ${drift.join("; ")}`);
+
+  const images = findImageDrift(await read("compose.yaml"), await read(".github/workflows/ci.yml"));
+  if (images.length > 0)
+    problems.push(`Immagini divergenti fra Compose e CI: ${images.join("; ")}`);
 
   const buildTools = findProductionBuildTools(lockfile);
   if (buildTools.length > 0)

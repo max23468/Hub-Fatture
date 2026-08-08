@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   findForbiddenPackages,
+  findImageDrift,
   findPinDrift,
   findProductionBuildTools,
   findRuntimePins,
@@ -49,6 +50,34 @@ test("una patch divergente viene segnalata", () => {
     "node: 26.7.0 != 26.7.1",
   ]);
   assert.deepEqual(findPinDrift({ node: ["26.7.0", undefined] }), ["node: 26.7.0 != assente"]);
+});
+
+test("l'immagine PostgreSQL coincide fra Compose e CI", async () => {
+  assert.deepEqual(
+    findImageDrift(await read("compose.yaml"), await read(".github/workflows/ci.yml")),
+    [],
+  );
+  assert.deepEqual(
+    findImageDrift("    image: postgres:18.4@sha256:aa", "        image: postgres:18.3@sha256:bb"),
+    ["postgres: postgres:18.4@sha256:aa != postgres:18.3@sha256:bb"],
+  );
+});
+
+test("un riferimento assente o non riconosciuto non vale come accordo", () => {
+  assert.deepEqual(findImageDrift("    image: postgres:18.4@sha256:aa", "services: {}"), [
+    "postgres: riferimento assente in ci.yml",
+  ]);
+  assert.deepEqual(findImageDrift("services: {}", "    image: postgres:18.4@sha256:aa"), [
+    "postgres: riferimento assente in compose.yaml",
+  ]);
+  assert.deepEqual(findImageDrift("services: {}", "services: {}"), [
+    "postgres: riferimento assente in compose.yaml, ci.yml",
+  ]);
+  // La forma quotata è YAML valido: va riconosciuta, non trattata come assente.
+  assert.deepEqual(
+    findImageDrift('    image: "postgres:18.4@sha256:aa"', "    image: postgres:18.4@sha256:aa"),
+    [],
+  );
 });
 
 test("nessuno strumento di build oltre l'eccezione TypeScript resta in produzione", async () => {
