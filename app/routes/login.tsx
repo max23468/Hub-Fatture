@@ -4,7 +4,7 @@ import type { Route } from "./+types/login";
 import { actionResult } from "../action";
 import { BrandLockup } from "../components/brand-lockup";
 import { copy } from "../copy.it";
-import { clientIpHash, getSessionUser, login, requestId } from "../../src/auth.server.ts";
+import { clientIpHash, getSessionUser, login, requestId } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {

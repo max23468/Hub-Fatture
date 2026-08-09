@@ -5,7 +5,7 @@ import fixture from "../../tests/fixtures/orders/normalized.mock.json" with { ty
 import { AppShell } from "../components/app-shell";
 import { billingCaseStatusLabels, orderStatusLabels } from "../copy.it";
 import { euros, date } from "../format";
-import { assertCsrf, requestId, requireSessionUser } from "../../src/auth.server.ts";
+import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
 import { publicError } from "../../src/errors.ts";
 import {
@@ -14,7 +14,7 @@ import {
   listBillingCases,
   listOrders,
   setDraftTrigger,
-} from "../../src/orders.server.ts";
+} from "../../src/db/orders.server.ts";
 import { readForm } from "../../src/http.server.ts";
 import { postgresDateSchema } from "../../src/orders.ts";
 

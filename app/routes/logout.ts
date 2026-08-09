@@ -2,7 +2,7 @@ import { redirect } from "react-router";
 import type { Route } from "./+types/logout";
 
 import { actionResult } from "../action";
-import { clearSessionCookies, logout } from "../../src/auth.server.ts";
+import { clearSessionCookies, logout } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
 
 export async function action({ request }: Route.ActionArgs) {

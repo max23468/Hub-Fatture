@@ -1,5 +1,3 @@
-import { isDirectExecution } from "./direct-execution.mjs";
-
 const CODEX_BOT = "chatgpt-codex-connector[bot]";
 const findingPriority = (body = "") =>
   body.match(/^(?:\*\*|<sub>)*(?:!?\[)?(P[0-3])(?: Badge)?(?:\]\([^)]*\)|\]\s*|\*\*)/m)?.[1];
@@ -395,7 +393,7 @@ async function main() {
   await setStatus(repository, headSha, "error", "Review Codex non conclusa entro cinque ore");
 }
 
-if (process.env.GITHUB_ACTIONS === "true" && isDirectExecution(import.meta.url)) {
+if (process.env.GITHUB_ACTIONS === "true" && import.meta.main) {
   await main().catch(async (error) => {
     console.error(error);
     const event = JSON.parse(

@@ -50,7 +50,7 @@ const base = orderInputSchema.parse({
   payments: [],
 });
 
-test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () => {
+test("valida input, denaro, data e trigger", () => {
   const duplicateCollections = orderInputSchema.safeParse({
     ...base,
     lines: [base.lines[0], base.lines[0]],
@@ -102,7 +102,9 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
     triggerStatus({ ...base, cancelledAt: "2026-03-30T10:00:00Z" }, "PAID"),
     "CANCELLED_NO_DOCUMENT",
   );
+});
 
+test("sceglie identità italiane e valida i paesi supportati", () => {
   const invalidTaxId = {
     ...base,
     customer: {
@@ -157,7 +159,19 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
     }).success,
     false,
   );
+  assert.equal(
+    orderInputSchema.safeParse({
+      ...base,
+      customer: {
+        ...base.customer,
+        billingAddress: { ...base.customer.billingAddress, countryCode: "US" },
+      },
+    }).success,
+    false,
+  );
+});
 
+test("canonicalizza gli identificativi fiscali UE senza dipendere dall’ordine", () => {
   const euVatGermany = orderInputSchema.parse({
     ...base,
     customer: {
@@ -342,7 +356,9 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
     },
   };
   assert.match(customerIdentity(reordered).matchKey, /^tax:CODICE_FISCALE:/);
+});
 
+test("classifica imprese italiane e clienti senza tipo certo", () => {
   const businessWithOnlyTaxCode = {
     ...base,
     customer: { ...base.customer, kind: "BUSINESS_IT" as const },
@@ -419,7 +435,9 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
     }).matchKey,
     "tax:PARTITA_IVA::12345678901",
   );
+});
 
+test("costruisce fallback cliente non ambigui e completi", () => {
   const unknown = {
     ...base,
     customer: { ...base.customer, kind: "UNKNOWN" as const },
@@ -477,6 +495,32 @@ test("normalizza denaro, data, identità e trigger senza inferenze fiscali", () 
         ...profileWithSeparator.customer,
         companyName: "A",
         billingAddress: { ...profileWithSeparator.customer.billingAddress, line1: "B|C" },
+      },
+    }).matchKey,
+  );
+  assert.notEqual(
+    customerIdentity(profileWithSeparator).matchKey,
+    customerIdentity({
+      ...profileWithSeparator,
+      customer: {
+        ...profileWithSeparator.customer,
+        billingAddress: {
+          ...profileWithSeparator.customer.billingAddress,
+          line2: "Interno 2",
+        },
+      },
+    }).matchKey,
+  );
+  assert.notEqual(
+    customerIdentity(profileWithSeparator).matchKey,
+    customerIdentity({
+      ...profileWithSeparator,
+      customer: {
+        ...profileWithSeparator.customer,
+        billingAddress: {
+          ...profileWithSeparator.customer.billingAddress,
+          province: "Parigi",
+        },
       },
     }).matchKey,
   );

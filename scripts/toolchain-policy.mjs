@@ -1,15 +1,14 @@
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 
-import { isDirectExecution } from "./direct-execution.mjs";
-
 const forbiddenName = /(^|[/@-])(eslint|prettier|jest|vitest|mocha|ava|biome|dprint)([/@-]|$)/;
 
 // Strumenti di build che non devono mai entrare nella chiusura di produzione.
 // `typescript` e `@typescript/*` sono l'unica eccezione nota: `@react-router/node`
 // li dichiara come peer dependency opzionale, quindi npm li marca non-dev anche se
 // il progetto li usa soltanto per typecheck e compilazione del runner.
-// ponytail: allowlist statica; l'immagine Production li rimuove nel layer finale.
+// ponytail: allowlist statica per l'unica eccezione TypeScript; analizzare il grafo soltanto
+// se compare una seconda eccezione nella chiusura Production.
 const productionToolAllowlist = /^(typescript|@typescript\/)/;
 const forbiddenInProduction =
   /^(vite|@react-router\/dev|@playwright\/|oxlint|oxfmt|react-doctor|typescript|@typescript\/)/;
@@ -74,7 +73,7 @@ export function findProductionBuildTools(lockfile) {
     .filter((name) => forbiddenInProduction.test(name) && !productionToolAllowlist.test(name));
 }
 
-if (isDirectExecution(import.meta.url)) {
+if (import.meta.main) {
   const read = async (file) => readFile(new URL(`../${file}`, import.meta.url), "utf8");
   const manifest = JSON.parse(await read("package.json"));
   const lockfile = JSON.parse(await read("package-lock.json"));

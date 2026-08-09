@@ -5,7 +5,7 @@ import { actionResult } from "../action";
 import { BrandLockup } from "../components/brand-lockup";
 import { copy } from "../copy.it";
 import { AGENT_USERNAME, OWNER_USERNAME } from "../../src/auth.ts";
-import { requestId, setupAccounts, setupAvailable } from "../../src/auth.server.ts";
+import { requestId, setupAccounts, setupAvailable } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
 
 export async function loader() {

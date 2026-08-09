@@ -12,12 +12,43 @@ const optionalTextSchema = z
   .optional();
 
 const optionalEmailSchema = optionalTextSchema.pipe(z.email().optional());
+const supportedCountryCodes = [
+  "AT",
+  "BE",
+  "BG",
+  "CY",
+  "CZ",
+  "DE",
+  "DK",
+  "EE",
+  "ES",
+  "FI",
+  "FR",
+  "GR",
+  "HR",
+  "HU",
+  "IE",
+  "IT",
+  "LT",
+  "LU",
+  "LV",
+  "MT",
+  "NL",
+  "PL",
+  "PT",
+  "RO",
+  "SE",
+  "SI",
+  "SK",
+] as const;
 const optionalCountryCodeSchema = optionalTextSchema.pipe(
   z
     .string()
-    .length(2)
-    .regex(/^[A-Za-z]{2}$/)
     .transform((value) => value.toUpperCase())
+    .refine(
+      (value) => supportedCountryCodes.includes(value as (typeof supportedCountryCodes)[number]),
+      "Paese non supportato",
+    )
     .optional(),
 );
 const postgresTimestampSchema = z.iso
@@ -329,12 +360,14 @@ export function customerIdentity(input: OrderInput): {
     canonicalProfile.kind,
     canonicalProfile.displayName,
     canonicalProfile.billingAddress.line1,
+    canonicalProfile.billingAddress.line2,
     canonicalProfile.billingAddress.postalCode,
     canonicalProfile.billingAddress.city,
+    canonicalProfile.billingAddress.province,
     canonicalProfile.billingAddress.countryCode,
     canonicalProfile.email,
   ];
-  if (profile.every(Boolean)) {
+  if (profileComplete && canonicalProfile.email) {
     return {
       matchKey: `profile:${JSON.stringify(profile)}`,
       confidence: "EXACT_PROFILE",

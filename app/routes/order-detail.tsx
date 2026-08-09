@@ -11,10 +11,10 @@ import {
   taxIdentifierLabels,
 } from "../copy.it";
 import { date, dateTime, euros } from "../format";
-import { assertCsrf, requestId, requireSessionUser } from "../../src/auth.server.ts";
+import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
-import { forcePrepareOrder, getOrder } from "../../src/orders.server.ts";
+import { forcePrepareOrder, getOrder } from "../../src/db/orders.server.ts";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -48,18 +48,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 export default function OrderDetail() {
   const { username, csrfToken, order } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
-  const sourceSnapshot = order.raw_snapshot_json as {
-    customer?: {
-      kind?: string;
-      displayName?: string;
-      firstName?: string;
-      lastName?: string;
-      companyName?: string;
-      email?: string;
-      billingAddress?: Record<string, string | undefined>;
-      taxIdentifiers?: Array<{ type?: string; value?: string; sourceField?: string }>;
-    };
-  };
+  const sourceSnapshot = order.raw_snapshot_json;
   const sourceCustomer = sourceSnapshot.customer ?? {};
   const sourceAddress = sourceCustomer.billingAddress ?? {};
   const sourceName =
@@ -75,7 +64,7 @@ export default function OrderDetail() {
   ]
     .filter(Boolean)
     .join(", ");
-  const address = order.billing_address_json as Record<string, string | undefined>;
+  const address = order.billing_address_json;
   const addressText = [
     address.line1,
     address.line2,
@@ -169,11 +158,11 @@ export default function OrderDetail() {
           <h3>Identificativi fiscali</h3>
           {order.taxIdentifiers.length ? (
             <ul>
-              {order.taxIdentifiers.map((identifier: Record<string, unknown>) => (
-                <li key={String(identifier.id)}>
-                  {taxIdentifierLabels[String(identifier.type)] ?? "Identificativo"}
-                  {identifier.country_code ? ` (${String(identifier.country_code)})` : ""}:{" "}
-                  {String(identifier.raw_value)}
+              {order.taxIdentifiers.map((identifier) => (
+                <li key={identifier.id}>
+                  {taxIdentifierLabels[identifier.type] ?? "Identificativo"}
+                  {identifier.country_code ? ` (${identifier.country_code})` : ""}:{" "}
+                  {identifier.raw_value}
                 </li>
               ))}
             </ul>
@@ -219,16 +208,16 @@ export default function OrderDetail() {
           <h2>Pagamenti</h2>
           {order.payments.length ? (
             <ul className="plain-list">
-              {order.payments.map((payment: Record<string, unknown>) => (
-                <li key={String(payment.id)}>
+              {order.payments.map((payment) => (
+                <li key={payment.id}>
                   <span>
-                    {String(payment.method)} ·{" "}
-                    {paymentStatusLabels[String(payment.status)] ?? "Stato non riconosciuto"}
+                    {payment.method} ·{" "}
+                    {paymentStatusLabels[payment.status] ?? "Stato non riconosciuto"}
                     {payment.recorded_manually ? " · registrato manualmente" : ""}
                   </span>
                   <span>
-                    {euros(String(payment.amount))}
-                    {payment.paid_at ? ` · ${dateTime(String(payment.paid_at))}` : ""}
+                    {euros(payment.amount)}
+                    {payment.paid_at ? ` · ${dateTime(payment.paid_at)}` : ""}
                   </span>
                 </li>
               ))}
@@ -251,12 +240,12 @@ export default function OrderDetail() {
               </tr>
             </thead>
             <tbody>
-              {order.lines.map((line: Record<string, unknown>) => (
-                <tr key={String(line.id)}>
-                  <td data-label="Descrizione">{String(line.description)}</td>
-                  <td data-label="Quantità">{String(line.quantity)}</td>
-                  <td data-label="Importo">{euros(String(line.gross_amount))}</td>
-                  <td data-label="Sconto">{euros(String(line.discount_amount))}</td>
+              {order.lines.map((line) => (
+                <tr key={line.id}>
+                  <td data-label="Descrizione">{line.description}</td>
+                  <td data-label="Quantità">{line.quantity}</td>
+                  <td data-label="Importo">{euros(line.gross_amount)}</td>
+                  <td data-label="Sconto">{euros(line.discount_amount)}</td>
                 </tr>
               ))}
             </tbody>

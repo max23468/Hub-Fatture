@@ -1,4 +1,4 @@
-import { getPool } from "./db/client.server.ts";
+import { getPool } from "./client.server.ts";
 
 export const LOGIN_ATTEMPT_WINDOW_MINUTES = 15;
 // La cadenza non supera la finestra: un `ip_hash` non deve sopravvivere alla durata dichiarata.
