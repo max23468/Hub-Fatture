@@ -68,7 +68,6 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
     const ungrouped = await client.query<{
       id: string;
       customer_id: string;
-      review_required: boolean;
       customer_snapshot: Record<string, unknown>;
       local_order_date: string;
       currency: string;
@@ -77,9 +76,6 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       cancelled_at: string | null;
     }>(
       `SELECT orders.id, orders.customer_id,
-              ((orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
-                OR coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
-                AS review_required,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text, orders.currency, orders.payment_status,
               orders.fulfillment_status, orders.cancelled_at
@@ -107,7 +103,6 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
           {
             id: order.id,
             customerId: order.customer_id,
-            reviewRequired: order.review_required,
             customerSnapshot: order.customer_snapshot,
             localOrderDate: order.local_order_date,
             currency: order.currency,
@@ -138,7 +133,6 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       id: string;
       customer_id: string;
       billing_case_id: string | null;
-      review_required: boolean;
       customer_snapshot: Record<string, unknown>;
       local_order_date: string;
       currency: string;
@@ -146,9 +140,6 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       payment_status: OrderInput["paymentStatus"];
     }>(
       `SELECT orders.id, orders.customer_id, orders.billing_case_id,
-              ((orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
-                OR coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
-                AS review_required,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text,
               orders.currency, orders.cancelled_at, orders.payment_status
@@ -168,7 +159,6 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       {
         id: current.id,
         customerId: current.customer_id,
-        reviewRequired: current.review_required,
         customerSnapshot: current.customer_snapshot,
         localOrderDate: current.local_order_date,
         currency: current.currency,

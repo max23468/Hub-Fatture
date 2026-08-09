@@ -1,22 +1,23 @@
-import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
+import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/orders";
 
 import fixture from "../../tests/fixtures/orders/normalized.mock.json" with { type: "json" };
+import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
+import { Pager } from "../components/pager";
 import { billingCaseStatusLabels, orderStatusLabels } from "../copy.it";
 import { euros, date } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
-import { publicError } from "../../src/errors.ts";
-import {
-  getDraftTrigger,
-  importOrders,
-  listBillingCases,
-  listOrders,
-  setDraftTrigger,
-} from "../../src/db/orders.server.ts";
+import { importOrders, listBillingCases, listOrders } from "../../src/db/orders.server.ts";
 import { readForm } from "../../src/http.server.ts";
-import { postgresDateSchema } from "../../src/orders.ts";
+import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
+
+const caseStatusByView: Record<string, string[]> = {
+  fatturare: ["READY"],
+  verificare: ["NEEDS_REVIEW"],
+  annullati: ["DO_NOT_TRANSMIT"],
+};
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -44,56 +45,52 @@ export async function loader({ request }: Route.LoaderArgs) {
       ? requestedPayment
       : "",
   };
-  const [orders, cases, trigger] = await Promise.all([
-    listOrders({
-      query: filters.query || undefined,
-      provider: filters.provider || undefined,
-      status: filters.status || (view === "tutti" && !filters.query ? "ACTIVE" : undefined),
-      localDate: filters.localDate || undefined,
-      paymentStatus: filters.paymentStatus || undefined,
-    }),
-    listBillingCases(),
-    getDraftTrigger(),
+  const page = pageNumber(url.searchParams.get("pagina") ?? 1);
+  const showsPreparations = view === "fatturare" || view === "verificare";
+  const emptyPage = { rows: [], hasNext: false };
+  const [orders, cases] = await Promise.all([
+    showsPreparations
+      ? Promise.resolve(emptyPage)
+      : listOrders({
+          query: filters.query || undefined,
+          provider: filters.provider || undefined,
+          status: filters.status || (view === "tutti" && !filters.query ? "ACTIVE" : undefined),
+          localDate: filters.localDate || undefined,
+          paymentStatus: filters.paymentStatus || undefined,
+          page,
+        }),
+    caseStatusByView[view]
+      ? listBillingCases({ statuses: caseStatusByView[view], page })
+      : Promise.resolve(emptyPage),
   ]);
   return {
     username: user.username,
     csrfToken: user.csrfToken,
     orders,
     cases,
-    trigger,
     view,
+    page,
     fixtureEnabled: getConfig().APP_ENV !== "production",
     imported: url.searchParams.get("importati"),
+    updated: url.searchParams.get("aggiornati"),
     ignored: url.searchParams.get("ignorati"),
-    triggerSaved: url.searchParams.get("trigger") === "salvato",
     filters,
   };
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  try {
+  return actionResult(async () => {
     const user = await requireSessionUser(request);
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
-    const actor = { id: user.id, requestId: requestId(request) };
-    if (form.get("intent") === "import-fixture" && getConfig().APP_ENV !== "production") {
-      const result = await importOrders(fixture, actor);
-      return redirect(
-        `/ordini?importati=${result.imported}&aggiornati=${result.updated}&ignorati=${result.ignored}`,
-      );
+    if (form.get("intent") !== "import-fixture" || getConfig().APP_ENV === "production") {
+      throw new Response("Azione non riconosciuta", { status: 400 });
     }
-    if (form.get("intent") === "change-trigger") {
-      await setDraftTrigger(form.get("trigger"), Number(form.get("version") ?? Number.NaN), actor);
-      return redirect("/ordini?trigger=salvato");
-    }
-    return data(
-      { code: "UNKNOWN", message: "Azione non riconosciuta.", status: 400 },
-      { status: 400 },
+    const result = await importOrders(fixture, { id: user.id, requestId: requestId(request) });
+    return redirect(
+      `/ordini?importati=${result.imported}&aggiornati=${result.updated}&ignorati=${result.ignored}`,
     );
-  } catch (error) {
-    const result = publicError(error);
-    return data(result, { status: result.status });
-  }
+  });
 }
 
 export default function Orders() {
@@ -102,25 +99,17 @@ export default function Orders() {
     csrfToken,
     orders,
     cases,
-    trigger,
     view,
+    page,
     fixtureEnabled,
     imported,
+    updated,
     ignored,
-    triggerSaved,
     filters,
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
-  const preparationCases = cases.filter((billingCase) =>
-    view === "verificare"
-      ? billingCase.status === "NEEDS_REVIEW"
-      : view === "annullati"
-        ? billingCase.status === "DO_NOT_TRANSMIT"
-        : billingCase.status === "READY",
-  );
   const showsPreparations = view === "fatturare" || view === "verificare";
-  const showsPreparationArchive =
-    showsPreparations || (view === "annullati" && preparationCases.length > 0);
+  const showsPreparationArchive = showsPreparations || view === "annullati";
   const orderFilters = (
     <Form method="get" className="filters" role="search" aria-label="Filtra gli ordini">
       {view !== "tutti" ? <input type="hidden" name="vista" value={view} /> : null}
@@ -196,13 +185,8 @@ export default function Orders() {
 
       {imported !== null ? (
         <p className="notice" role="status">
-          Fixture elaborata: {imported} nuovi ordini
-          {Number(ignored) ? `; ${ignored} aggiornamenti meno recenti ignorati` : ""}.
-        </p>
-      ) : null}
-      {triggerSaved ? (
-        <p className="notice" role="status">
-          Trigger aggiornato. Gli ordini in attesa sono stati rivalutati.
+          Fixture elaborata: {imported} nuovi ordini, {updated ?? 0} aggiornati
+          {Number(ignored) ? `, ${ignored} aggiornamenti meno recenti ignorati` : ""}.
         </p>
       ) : null}
       {error ? (
@@ -211,23 +195,8 @@ export default function Orders() {
         </p>
       ) : null}
 
-      <section className="toolbar" aria-label="Configurazione del trigger">
-        <Form method="post" className="inline-form">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="change-trigger" />
-          <input type="hidden" name="version" value={trigger.version} />
-          <label>
-            Prepara la fattura
-            <select name="trigger" defaultValue={trigger.value}>
-              <option value="PAID">Alla conferma del pagamento</option>
-              <option value="FULFILLED">Alla completa evasione</option>
-            </select>
-          </label>
-          <button className="button button--secondary" type="submit">
-            Salva trigger
-          </button>
-        </Form>
-        {fixtureEnabled ? (
+      {fixtureEnabled ? (
+        <section className="toolbar" aria-label="Dati sintetici">
           <Form method="post">
             <input type="hidden" name="csrf" value={csrfToken} />
             <input type="hidden" name="intent" value="import-fixture" />
@@ -235,12 +204,12 @@ export default function Orders() {
               Importa dati sintetici
             </button>
           </Form>
-        ) : null}
-      </section>
+        </section>
+      ) : null}
 
       {!showsPreparations && view !== "annullati" ? orderFilters : null}
 
-      {showsPreparationArchive && preparationCases.length ? (
+      {showsPreparationArchive && cases.rows.length ? (
         <section className="section-gap">
           {view === "annullati" ? <h2>Preparazioni non trasmesse</h2> : null}
           <div className="table-wrap">
@@ -256,7 +225,7 @@ export default function Orders() {
                 </tr>
               </thead>
               <tbody>
-                {preparationCases.map((billingCase) => (
+                {cases.rows.map((billingCase) => (
                   <tr key={billingCase.id}>
                     <td data-label="Preparazione">
                       <Link to={`/ordini/preparazione/${billingCase.id}`}>
@@ -289,7 +258,7 @@ export default function Orders() {
         <section className="section-gap">
           {view === "annullati" ? <h2>Ordini annullati o rimborsati</h2> : null}
           {view === "annullati" ? orderFilters : null}
-          {orders.length ? (
+          {orders.rows.length ? (
             <div className="table-wrap">
               <table>
                 <thead>
@@ -303,7 +272,7 @@ export default function Orders() {
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.map((order) => (
+                  {orders.rows.map((order) => (
                     <tr key={order.id}>
                       <td data-label="Ordine">
                         <Link to={`/ordini/${order.id}`}>
@@ -340,6 +309,11 @@ export default function Orders() {
           )}
         </section>
       ) : null}
+      <Pager
+        basePath="/ordini"
+        hasNext={showsPreparations ? cases.hasNext : orders.hasNext || cases.hasNext}
+        page={page}
+      />
     </AppShell>
   );
 }

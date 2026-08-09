@@ -5,6 +5,7 @@ import test from "node:test";
 import pg from "pg";
 
 import { AppError } from "../errors.ts";
+import { PAGE_SIZE } from "../orders.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { temporaryDatabase, withClient } from "./database-fixture.ts";
 
@@ -34,6 +35,14 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     process.env.DATABASE_URL = clean.connectionString;
     const orders = await import("./orders.server.ts");
     const database = await import("./client.server.ts");
+    const caseRevision = async (caseId: string | number) =>
+      (
+        await database
+          .getPool()
+          .query<{ revision: number }>("SELECT revision FROM billing_cases WHERE id = $1", [
+            String(caseId),
+          ])
+      ).rows[0]?.revision ?? 0;
     const fixture = JSON.parse(
       await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
     );
@@ -161,15 +170,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     });
     assert.equal(await orders.getOrder("non-numerico"), null);
     assert.equal(await orders.getBillingCase("0"), null);
-    assert.deepEqual(await orders.listOrders({ query: "test\0non valido" }), []);
-    assert.deepEqual(await orders.listOrders({ localDate: "0000-01-01" }), []);
+    assert.deepEqual((await orders.listOrders({ query: "test\0non valido" })).rows, []);
+    assert.deepEqual((await orders.listOrders({ localDate: "0000-01-01" })).rows, []);
     const outOfRangeId = "9223372036854775808";
     assert.deepEqual(
       await Promise.all([
         orders.getOrder(outOfRangeId),
         orders.getBillingCase(outOfRangeId),
         orders.forcePrepareOrder(outOfRangeId, { id: 1, requestId: "test-invalid-order-id" }),
-        orders.updateBillingCaseTransmission(outOfRangeId, null, {
+        orders.updateBillingCaseTransmission(outOfRangeId, null, 0, {
           id: 1,
           requestId: "test-invalid-case-id",
         }),
@@ -195,8 +204,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ).rows[0].count,
       "1",
     );
-    assert.equal((await orders.listOrders({ paymentStatus: "PENDING" })).length, 1);
-    assert.equal((await orders.listOrders({ query: "shop-order-1001" })).length, 1);
+    assert.equal((await orders.listOrders({ paymentStatus: "PENDING" })).rows.length, 1);
+    assert.equal((await orders.listOrders({ query: "shop-order-1001" })).rows.length, 1);
     const waitingOrderId = (
       await database
         .getPool()
@@ -457,13 +466,13 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     assert.equal(conflictedCase.review_required, false);
     assert.equal((await orders.getBillingCase(conflictedCase.id))?.status, "DO_NOT_TRANSMIT");
     assert.equal(
-      (await orders.listOrders({ status: "ACTIVE" })).some(
+      (await orders.listOrders({ status: "ACTIVE" })).rows.some(
         (order) => order.id === conflictedCase.order_id,
       ),
       false,
     );
     assert.equal(
-      (await orders.listOrders({ status: "NO_DOCUMENT" })).some(
+      (await orders.listOrders({ status: "NO_DOCUMENT" })).rows.some(
         (order) => order.id === conflictedCase.order_id,
       ),
       true,
@@ -631,7 +640,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
     );
     await assert.rejects(
-      orders.updateBillingCaseTransmission("1", "Test\0non persistibile", {
+      orders.updateBillingCaseTransmission("1", "Test\0non persistibile", await caseRevision("1"), {
         id: 1,
         requestId: "test-invalid-reason-null-byte",
       }),
@@ -913,10 +922,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         ])
     ).rows[0].billing_case_id;
     assert.equal(
-      await orders.updateBillingCaseTransmission(manuallyClosedCaseId, "Già fatturato altrove", {
-        id: 1,
-        requestId: "test-manual-do-not-transmit",
-      }),
+      await orders.updateBillingCaseTransmission(
+        manuallyClosedCaseId,
+        "Già fatturato altrove",
+        await caseRevision(manuallyClosedCaseId),
+        {
+          id: 1,
+          requestId: "test-manual-do-not-transmit",
+        },
+      ),
       "DO_NOT_TRANSMIT",
     );
     assert.deepEqual(
@@ -951,10 +965,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
     );
     assert.equal(
-      await orders.updateBillingCaseTransmission(manuallyClosedCaseId, null, {
-        id: 1,
-        requestId: "test-manual-reactivation",
-      }),
+      await orders.updateBillingCaseTransmission(
+        manuallyClosedCaseId,
+        null,
+        await caseRevision(manuallyClosedCaseId),
+        {
+          id: 1,
+          requestId: "test-manual-reactivation",
+        },
+      ),
       "NEEDS_REVIEW",
     );
     assert.deepEqual(
@@ -1096,7 +1115,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .query("SELECT id FROM orders WHERE external_order_id = $1", [canonicalA.externalOrderId])
     ).rows[0].id;
     assert.ok(
-      (await orders.listOrders({ query: "DE123456789" })).some(
+      (await orders.listOrders({ query: "DE123456789" })).rows.some(
         (order: { id: string }) => order.id === canonicalAOrderId,
       ),
     );
@@ -1259,13 +1278,19 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     await orders.updateBillingCaseTransmission(
       String(conflictingProfileCase.id),
       "Anagrafica da verificare",
+      await caseRevision(String(conflictingProfileCase.id)),
       { id: 1, requestId: "test-archive-conflicting-profile" },
     );
     assert.equal(
-      await orders.updateBillingCaseTransmission(String(conflictingProfileCase.id), null, {
-        id: 1,
-        requestId: "test-reactivate-conflicting-profile",
-      }),
+      await orders.updateBillingCaseTransmission(
+        String(conflictingProfileCase.id),
+        null,
+        await caseRevision(String(conflictingProfileCase.id)),
+        {
+          id: 1,
+          requestId: "test-reactivate-conflicting-profile",
+        },
+      ),
       "NEEDS_REVIEW",
     );
 
@@ -1326,13 +1351,19 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     await orders.updateBillingCaseTransmission(
       String(recoveredReviewed.billing_case_id),
       "Conflitto sorgente da verificare",
+      await caseRevision(String(recoveredReviewed.billing_case_id)),
       { id: 1, requestId: "test-archive-recovered-review" },
     );
     assert.equal(
-      await orders.updateBillingCaseTransmission(String(recoveredReviewed.billing_case_id), null, {
-        id: 1,
-        requestId: "test-reactivate-recovered-review",
-      }),
+      await orders.updateBillingCaseTransmission(
+        String(recoveredReviewed.billing_case_id),
+        null,
+        await caseRevision(String(recoveredReviewed.billing_case_id)),
+        {
+          id: 1,
+          requestId: "test-reactivate-recovered-review",
+        },
+      ),
       "NEEDS_REVIEW",
     );
     reviewedB.cancelledAt = null;
@@ -1362,23 +1393,34 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     await orders.updateBillingCaseTransmission(
       String(reidentifiedOrder.billing_case_id),
       "Preparazione sostitutiva archiviata per il test",
+      await caseRevision(String(reidentifiedOrder.billing_case_id)),
       { id: 1, requestId: "test-archive-replacement-case" },
     );
     await assert.rejects(
-      orders.updateBillingCaseTransmission(String(archivedCancelledCaseId), null, {
-        id: 1,
-        requestId: "test-empty-case-reactivation",
-      }),
+      orders.updateBillingCaseTransmission(
+        String(archivedCancelledCaseId),
+        null,
+        await caseRevision(String(archivedCancelledCaseId)),
+        {
+          id: 1,
+          requestId: "test-empty-case-reactivation",
+        },
+      ),
       (error: unknown) => error instanceof AppError && error.code === "BILLING_CASE_EMPTY",
     );
     assert.equal(
       (await orders.getBillingCase(String(archivedCancelledCaseId)))!.reactivation_blocker,
       "EMPTY",
     );
-    await orders.updateBillingCaseTransmission(String(reidentifiedOrder.billing_case_id), null, {
-      id: 1,
-      requestId: "test-reactivate-replacement-case",
-    });
+    await orders.updateBillingCaseTransmission(
+      String(reidentifiedOrder.billing_case_id),
+      null,
+      await caseRevision(String(reidentifiedOrder.billing_case_id)),
+      {
+        id: 1,
+        requestId: "test-reactivate-replacement-case",
+      },
+    );
 
     const precisePayment = structuredClone(fixture[0]);
     precisePayment.externalOrderId = "shop-order-precise-payment";
@@ -1536,6 +1578,391 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       }),
     ]);
     assert.deepEqual(concurrentImports.map(({ imported }) => imported).sort(), [0, 2]);
+    // Il criterio chiede una sola preparazione, non solo un solo import vincente.
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT count(DISTINCT billing_case_id) FROM orders
+           WHERE external_order_id IN ($1, $2)`,
+          [concurrentA.externalOrderId, concurrentB.externalOrderId],
+        )
+      ).rows[0].count,
+      "1",
+    );
+
+    // 7.3: una preparazione già approvata non assorbe un ordine successivo dello stesso giorno.
+    const afterApproval = structuredClone(fixture[0]);
+    afterApproval.externalOrderId = "shop-order-after-approval";
+    afterApproval.externalCustomerId = "shop-customer-after-approval";
+    afterApproval.customer.taxIdentifiers[0].value = "RSSMRA80A01H501B";
+    afterApproval.createdAt = "2026-08-23T08:00:00Z";
+    afterApproval.updatedAt = "2026-08-23T09:00:00Z";
+    await orders.importOrders([afterApproval], { id: 1, requestId: "test-before-approval" });
+    const approvedDayCaseId = (
+      await database
+        .getPool()
+        .query("SELECT billing_case_id FROM orders WHERE external_order_id = $1", [
+          afterApproval.externalOrderId,
+        ])
+    ).rows[0].billing_case_id;
+    await database
+      .getPool()
+      .query("UPDATE billing_cases SET status = 'APPROVED' WHERE id = $1", [approvedDayCaseId]);
+    const sameDayOrder = structuredClone(afterApproval);
+    sameDayOrder.externalOrderId = "shop-order-after-approval-second";
+    sameDayOrder.payments[0].externalPaymentId = "shop-payment-after-approval-second";
+    await orders.importOrders([sameDayOrder], { id: 1, requestId: "test-after-approval" });
+    const sameDayCase = (
+      await database.getPool().query(
+        `SELECT orders.billing_case_id, billing_cases.status
+           FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+           WHERE orders.external_order_id = $1`,
+        [sameDayOrder.externalOrderId],
+      )
+    ).rows[0];
+    assert.notEqual(sameDayCase.billing_case_id, approvedDayCaseId);
+    assert.equal(sameDayCase.status, "READY");
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [approvedDayCaseId])
+      ).rows[0].status,
+      "APPROVED",
+    );
+
+    // Il cambio del trigger non ricrea, non scioglie e non riapre una preparazione esistente.
+    // Gli ordini ancora senza preparazione confluiscono invece nel giorno aperto.
+    const settledCase = structuredClone(fixture[0]);
+    settledCase.externalOrderId = "shop-order-trigger-settled";
+    settledCase.externalCustomerId = "shop-customer-trigger-gate";
+    settledCase.customer.taxIdentifiers[0].value = "RSSMRA80A01H501C";
+    settledCase.createdAt = "2026-08-24T08:00:00Z";
+    settledCase.updatedAt = "2026-08-24T09:00:00Z";
+    const waitingSameDay = structuredClone(settledCase);
+    waitingSameDay.externalOrderId = "shop-order-trigger-waiting";
+    waitingSameDay.payments[0].externalPaymentId = "shop-payment-trigger-waiting";
+    waitingSameDay.paymentStatus = "PENDING";
+    waitingSameDay.payments[0].status = "PENDING";
+    waitingSameDay.payments[0].paidAt = null;
+    waitingSameDay.fulfillmentStatus = "FULFILLED";
+    await database.getPool().query(
+      `UPDATE settings SET value_json = '"PAID"', version = version + 1
+       WHERE key = 'draft_trigger'`,
+    );
+    await orders.importOrders([settledCase, waitingSameDay], {
+      id: 1,
+      requestId: "test-trigger-gate-import",
+    });
+    const gateCaseBefore = (
+      await database.getPool().query(
+        `SELECT billing_cases.id, billing_cases.status,
+                (SELECT count(*)::int FROM orders WHERE billing_case_id = billing_cases.id)
+                  AS order_count
+           FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+           WHERE orders.external_order_id = $1`,
+        [settledCase.externalOrderId],
+      )
+    ).rows[0];
+    assert.deepEqual(
+      { status: gateCaseBefore.status, order_count: gateCaseBefore.order_count },
+      { status: "READY", order_count: 1 },
+    );
+    const casesBeforeTrigger = (
+      await database.getPool().query("SELECT count(*)::int AS total FROM billing_cases")
+    ).rows[0].total;
+    const triggerVersion = (
+      await database.getPool().query("SELECT version FROM settings WHERE key = 'draft_trigger'")
+    ).rows[0].version;
+    await orders.setDraftTrigger("FULFILLED", triggerVersion, {
+      id: 1,
+      requestId: "test-trigger-gate-change",
+    });
+    const gateCaseAfter = (
+      await database.getPool().query(
+        `SELECT id, status,
+                (SELECT count(*)::int FROM orders WHERE billing_case_id = billing_cases.id)
+                  AS order_count
+           FROM billing_cases WHERE id = $1`,
+        [gateCaseBefore.id],
+      )
+    ).rows[0];
+    assert.equal(gateCaseAfter.id, gateCaseBefore.id);
+    assert.equal(gateCaseAfter.order_count, 2);
+    assert.equal(gateCaseAfter.status, "NEEDS_REVIEW");
+    assert.equal(
+      (await database.getPool().query("SELECT count(*)::int AS total FROM billing_cases")).rows[0]
+        .total,
+      casesBeforeTrigger,
+    );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT count(*) FROM audit_events
+           WHERE action = 'BILLING_CASE_CREATED' AND request_id = 'test-trigger-gate-change'`,
+        )
+      ).rows[0].count,
+      "0",
+    );
+
+    // 13.4: separazione, aggiunta e ultimo ordine protetto sulla stessa preparazione.
+    const gateCaseId = String(gateCaseBefore.id);
+    const separatedOrderId = (
+      await database
+        .getPool()
+        .query("SELECT id FROM orders WHERE external_order_id = $1", [
+          waitingSameDay.externalOrderId,
+        ])
+    ).rows[0].id;
+    await assert.rejects(
+      orders.separateOrderFromBillingCase(gateCaseId, String(separatedOrderId), 0, {
+        id: 1,
+        requestId: "test-separate-stale-revision",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    assert.equal(
+      await orders.separateOrderFromBillingCase(
+        gateCaseId,
+        String(separatedOrderId),
+        await caseRevision(gateCaseId),
+        { id: 1, requestId: "test-separate-order" },
+      ),
+      "READY",
+    );
+    assert.deepEqual(
+      (
+        await database
+          .getPool()
+          .query("SELECT billing_case_id, trigger_status FROM orders WHERE id = $1", [
+            separatedOrderId,
+          ])
+      ).rows[0],
+      { billing_case_id: null, trigger_status: "ELIGIBLE" },
+    );
+    const separableCase = await orders.getBillingCase(gateCaseId);
+    assert.equal(separableCase!.addableOrders.length, 1);
+    assert.deepEqual(separableCase!.anomalies, []);
+    await assert.rejects(
+      orders.separateOrderFromBillingCase(
+        gateCaseId,
+        String(separableCase!.orders[0]!.id),
+        await caseRevision(gateCaseId),
+        { id: 1, requestId: "test-separate-last-order" },
+      ),
+      (error: unknown) => error instanceof AppError && error.code === "BILLING_CASE_EMPTY",
+    );
+    assert.equal(
+      await orders.addOrderToBillingCase(
+        gateCaseId,
+        String(separatedOrderId),
+        await caseRevision(gateCaseId),
+        { id: 1, requestId: "test-add-order" },
+      ),
+      gateCaseId,
+    );
+    const recomposed = await orders.getBillingCase(gateCaseId);
+    assert.equal(recomposed!.orders.length, 2);
+    assert.deepEqual(recomposed!.anomalies, ["PENDING_PAYMENT"]);
+    assert.equal(recomposed!.status, "NEEDS_REVIEW");
+
+    // 7.5: un'anagrafica incompleta si chiude con la correzione, non cambiando la sorgente.
+    const incompleteForCorrection = structuredClone(fixture[0]);
+    incompleteForCorrection.externalOrderId = "shop-order-correction";
+    incompleteForCorrection.externalCustomerId = "shop-customer-correction";
+    incompleteForCorrection.customer.taxIdentifiers = [];
+    incompleteForCorrection.customer.billingAddress = {};
+    incompleteForCorrection.createdAt = "2026-08-25T08:00:00Z";
+    incompleteForCorrection.updatedAt = "2026-08-25T09:00:00Z";
+    await orders.importOrders([incompleteForCorrection], {
+      id: 1,
+      requestId: "test-correction-import",
+    });
+    const correctionCaseId = String(
+      (
+        await database
+          .getPool()
+          .query("SELECT billing_case_id FROM orders WHERE external_order_id = $1", [
+            incompleteForCorrection.externalOrderId,
+          ])
+      ).rows[0].billing_case_id,
+    );
+    const beforeCorrection = await orders.getBillingCase(correctionCaseId);
+    assert.equal(beforeCorrection!.status, "NEEDS_REVIEW");
+    assert.ok(beforeCorrection!.anomalies.includes("CUSTOMER_INCOMPLETE"));
+    const correction = {
+      kind: "BUSINESS_IT",
+      displayName: "Rossi Srl",
+      companyName: "Rossi Srl",
+      email: "amministrazione@example.invalid",
+      billingAddress: {
+        line1: "Via Esempio 1",
+        postalCode: "20100",
+        city: "Milano",
+        province: "MI",
+        countryCode: "IT",
+      },
+      taxIdentifiers: [
+        { type: "CODICE_FISCALE", value: "RSSMRA80A01H501D", sourceField: "correzione-manuale" },
+        { type: "PARTITA_IVA", value: "12345678901", sourceField: "correzione-manuale" },
+      ],
+    };
+    await assert.rejects(
+      orders.correctBillingCaseCustomer(correctionCaseId, correction, 0, null, {
+        id: 1,
+        requestId: "test-correction-stale",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    await assert.rejects(
+      orders.correctBillingCaseCustomer(
+        correctionCaseId,
+        { ...correction, email: "non-una-email" },
+        await caseRevision(correctionCaseId),
+        null,
+        { id: 1, requestId: "test-correction-invalid" },
+      ),
+      (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
+    );
+    assert.equal(
+      await orders.correctBillingCaseCustomer(
+        correctionCaseId,
+        correction,
+        await caseRevision(correctionCaseId),
+        "Dati fiscali confermati dal cliente",
+        { id: 1, requestId: "test-correction" },
+      ),
+      "READY",
+    );
+    const afterCorrection = await orders.getBillingCase(correctionCaseId);
+    assert.deepEqual(afterCorrection!.anomalies, []);
+    assert.equal(afterCorrection!.customer_name, "Rossi Srl");
+    assert.ok(afterCorrection!.customer_corrected_at);
+    // Una correzione non fiscale non cancella gli identificativi che non stava modificando.
+    assert.equal(afterCorrection!.customer_snapshot_json.taxIdentifiers?.length, 2);
+    assert.equal(
+      await orders.correctBillingCaseCustomer(
+        correctionCaseId,
+        { ...correction, phone: "+39 02 0000000" },
+        await caseRevision(correctionCaseId),
+        null,
+        { id: 1, requestId: "test-correction-non-fiscal" },
+      ),
+      "READY",
+    );
+    assert.equal(
+      (await orders.getBillingCase(correctionCaseId))!.customer_snapshot_json.taxIdentifiers
+        ?.length,
+      2,
+    );
+    // L'ordine conserva il valore importato: la correzione non riscrive la storia.
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}' AS city
+           FROM orders WHERE external_order_id = $1`,
+          [incompleteForCorrection.externalOrderId],
+        )
+      ).rows[0].city,
+      null,
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT before_json #>> '{billingAddress,city}' AS before_city,
+                  after_json #>> '{billingAddress,city}' AS after_city, reason
+             FROM audit_events
+             WHERE action = 'CUSTOMER_CORRECTED' AND request_id = 'test-correction'`,
+        )
+      ).rows[0],
+      {
+        before_city: null,
+        after_city: "Milano",
+        reason: "Dati fiscali confermati dal cliente",
+      },
+    );
+
+    // 7.3: l'identità non certa non accorpa e la corrispondenza possibile resta visibile.
+    const ambiguousA = structuredClone(fixture[0]);
+    ambiguousA.externalOrderId = "shop-order-ambiguous-a";
+    delete ambiguousA.externalCustomerId;
+    ambiguousA.createdAt = "2026-08-26T08:00:00Z";
+    ambiguousA.updatedAt = "2026-08-26T09:00:00Z";
+    ambiguousA.customer = { kind: "UNKNOWN", billingAddress: {}, taxIdentifiers: [] };
+    const ambiguousB = structuredClone(ambiguousA);
+    ambiguousB.externalOrderId = "shop-order-ambiguous-b";
+    ambiguousB.payments[0].externalPaymentId = "shop-payment-ambiguous-b";
+    await orders.importOrders([ambiguousA, ambiguousB], {
+      id: 1,
+      requestId: "test-ambiguous-grouping",
+    });
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT count(DISTINCT billing_case_id) FROM orders
+           WHERE external_order_id IN ($1, $2)`,
+          [ambiguousA.externalOrderId, ambiguousB.externalOrderId],
+        )
+      ).rows[0].count,
+      "2",
+    );
+    const ambiguousOrderId = (
+      await database
+        .getPool()
+        .query("SELECT id FROM orders WHERE external_order_id = $1", [ambiguousA.externalOrderId])
+    ).rows[0].id;
+    assert.ok(
+      (await orders.getOrder(String(ambiguousOrderId)))!.possibleMatches.some(
+        (candidate) => candidate.display_name === "Cliente senza nome",
+      ),
+    );
+    assert.deepEqual((await orders.getOrder("1"))!.possibleMatches, []);
+
+    // La ricerca tratta `%` come testo, non come carattere jolly.
+    assert.deepEqual((await orders.listOrders({ query: "%" })).rows, []);
+    assert.equal((await orders.listOrders({ query: "shop-order-ambiguous-a" })).rows.length, 1);
+    // Una pagina fuori dal dominio PostgreSQL vale come prima pagina, non come errore.
+    assert.deepEqual(
+      (await orders.listOrders({ page: "Infinity" })).rows,
+      (await orders.listOrders({ page: 1 })).rows,
+    );
+
+    // Le liste sono paginate: la pagina piena dichiara la successiva e non la ripete.
+    await database.getPool().query(
+      `INSERT INTO audit_events
+        (actor_type, action, event_class, entity_type, entity_id, request_id)
+       SELECT 'ADMIN', 'ORDER_GROUPED', 'OPERATIONAL', 'ORDER', generate_series::text,
+              'test-pagina-' || generate_series
+       FROM generate_series(1, $1)`,
+      [PAGE_SIZE + 10],
+    );
+    const firstPage = await orders.listAuditHistory({ query: "test-pagina-" });
+    const secondPage = await orders.listAuditHistory({ query: "test-pagina-", page: 2 });
+    assert.equal(firstPage.rows.length, PAGE_SIZE);
+    assert.equal(firstPage.hasNext, true);
+    assert.equal(secondPage.rows.length, 10);
+    assert.equal(secondPage.hasNext, false);
+    assert.equal(
+      firstPage.rows.some((event) => secondPage.rows.some((other) => other.id === event.id)),
+      false,
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM audit_events WHERE request_id LIKE 'test-pagina-%'");
+
+    // Il registro attività espone ciò che richiede un intervento e la cronologia filtrabile.
+    assert.ok(
+      (await orders.listOpenActivities()).rows.some(
+        (activity) => activity.href === `/ordini/preparazione/${gateCaseId}`,
+      ),
+    );
+    const history = await orders.listAuditHistory({ action: "CUSTOMER_CORRECTED" });
+    assert.equal(history.rows.length, 2);
+    assert.equal(history.rows[1]!.reason, "Dati fiscali confermati dal cliente");
+    // Un'azione fuori allowlist non deve valere "tutte".
+    assert.deepEqual((await orders.listAuditHistory({ action: "NON_ESISTE" })).rows, []);
+    assert.deepEqual((await orders.listAuditHistory({ query: "test\0non valido" })).rows, []);
+
     await database.closePool();
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());

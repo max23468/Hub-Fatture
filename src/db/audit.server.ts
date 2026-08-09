@@ -13,7 +13,28 @@ type AuditAction =
   | "BILLING_CASE_REACTIVATED"
   | "ORDER_SOURCE_UPDATED"
   | "ORDER_IMPORTED"
+  | "ORDER_SEPARATED"
+  | "CUSTOMER_CORRECTED"
   | "DRAFT_TRIGGER_CHANGED";
+
+export const auditActions = [
+  "ADMIN_ACCOUNT_CREATED",
+  "BILLING_CASE_CREATED",
+  "BILLING_CASE_DO_NOT_TRANSMIT",
+  "BILLING_CASE_REACTIVATED",
+  "CUSTOMER_CORRECTED",
+  "DRAFT_TRIGGER_CHANGED",
+  "LOGIN_FAILED",
+  "LOGIN_RATE_LIMITED",
+  "LOGIN_SUCCEEDED",
+  "LOGOUT_SUCCEEDED",
+  "ORDER_GROUPED",
+  "ORDER_GROUPING_FORCED",
+  "ORDER_IMPORTED",
+  "ORDER_SEPARATED",
+  "ORDER_SOURCE_CONFLICT",
+  "ORDER_SOURCE_UPDATED",
+] as const;
 
 export async function writeAudit(
   client: pg.PoolClient,
@@ -32,13 +53,18 @@ export async function writeAudit(
       provider: "SHOPIFY" | "EBAY";
       value: "PAID" | "FULFILLED";
     }>;
+    /** Solo campi anagrafici allowlisted o riferimenti a snapshot: mai token o payload integrali. */
+    before?: Record<string, unknown> | null;
+    after?: Record<string, unknown> | null;
+    reason?: string | null;
     requestId: string;
   },
 ) {
   await client.query(
     `INSERT INTO audit_events
-      (actor_type, actor_id, action, event_class, entity_type, entity_id, metadata_json, request_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      (actor_type, actor_id, action, event_class, entity_type, entity_id, metadata_json,
+       before_json, after_json, reason, request_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       event.actorType,
       event.actorId ?? null,
@@ -47,6 +73,9 @@ export async function writeAudit(
       event.entityType,
       event.entityId ?? null,
       JSON.stringify(event.metadata ?? {}),
+      event.before ? JSON.stringify(event.before) : null,
+      event.after ? JSON.stringify(event.after) : null,
+      event.reason ?? null,
       event.requestId,
     ],
   );

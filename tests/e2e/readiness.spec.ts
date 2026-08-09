@@ -67,7 +67,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await page.getByRole("link", { name: "Ordini" }).click();
   await page.getByRole("button", { name: "Importa dati sintetici" }).click();
-  await expect(page.getByRole("status")).toContainText("3 nuovi ordini");
+  await expect(page.getByRole("status")).toContainText("3 nuovi ordini, 0 aggiornati");
   await expect(page.getByRole("row")).toHaveCount(4);
   await expect(page.getByRole("navigation", { name: "Navigazione principale" })).not.toContainText(
     "Schede",
@@ -84,7 +84,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione fattura creata")).toBeVisible();
   await expect(page.getByText("BILLING_CASE_CREATED")).toHaveCount(0);
-  await page.getByLabel("Motivo").fill("Ordine di test");
+  await page.getByLabel("Motivo", { exact: true }).fill("Ordine di test");
   await page.getByRole("button", { name: "Non trasmettere" }).click();
   await expect(page.getByRole("status")).toContainText("Ordine di test");
   const archivedPreparation = await page
@@ -105,6 +105,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("button", { name: "Riattiva preparazione" }).click();
   await expect(page.getByRole("button", { name: "Non trasmettere" })).toBeVisible();
 
+  // Separazione di un ordine e reinserimento dello stesso ordine compatibile.
+  await page.getByRole("button", { name: "Separa dalla preparazione" }).first().click();
+  await expect(page.getByRole("button", { name: "Separa dalla preparazione" })).toHaveCount(0);
+  await page.getByLabel("Aggiungi un ordine compatibile").selectOption({ index: 0 });
+  await page.getByRole("button", { name: "Aggiungi", exact: true }).click();
+  await expect(page.getByText("Ordine separato dalla preparazione")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Separa dalla preparazione" })).toHaveCount(2);
+
   await page.getByRole("link", { name: /^Shopify/ }).click();
   await expect(page.getByText("Pagato", { exact: true })).toBeVisible();
   await expect(page.getByText("Evaso", { exact: true })).toBeVisible();
@@ -118,18 +126,39 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione anticipata richiesta")).toBeVisible();
 
-  await page.getByRole("link", { name: "Ordini" }).click();
+  await page.getByRole("link", { name: "Impostazioni" }).click();
   await page.getByLabel("Prepara la fattura").selectOption("FULFILLED");
   await page.getByRole("button", { name: "Salva trigger" }).click();
   await expect(page.getByRole("status")).toContainText("Trigger aggiornato");
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "Da verificare" }).click();
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByRole("cell", { name: "Da verificare", exact: true })).toBeVisible();
   await page.getByRole("link", { name: /^\d{6}$/ }).click();
-  await expect(page.getByRole("status")).toContainText("richiedono una verifica");
+
+  // L'anomalia dichiara il fatto osservato, non una frase generica.
+  await expect(page.getByRole("heading", { name: "Anomalie da risolvere" })).toBeVisible();
+  await expect(page.getByText("Pagamento non ancora acquisito")).toBeVisible();
+
+  // Correzione anagrafica: si chiude dall'applicazione, senza toccare la sorgente.
+  await page.getByLabel("Cognome").fill("Rossi Verificato");
+  await page.getByLabel("Motivo della correzione").fill("Dati confermati dal cliente");
+  await page.getByRole("button", { name: "Salva anagrafica" }).click();
+  await expect(page.getByText("Anagrafica cliente corretta")).toBeVisible();
+  await expect(page.getByText(/^Corretta il /)).toBeVisible();
+
+  await page.getByRole("link", { name: "Attività" }).click();
+  await expect(page.getByRole("link", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
+  await page.getByRole("link", { name: "Cronologia" }).click();
+  await page.getByLabel("Tipo di attività").selectOption("CUSTOMER_CORRECTED");
+  await page.getByRole("button", { name: "Filtra" }).click();
+  // Il filtro applica davvero l'azione scelta e l'audit distingue i due account.
+  await expect(page.getByRole("row")).toHaveCount(2);
+  await expect(page.getByRole("cell", { name: "Anagrafica cliente corretta" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "codex", exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 720 });
-  await page.getByRole("link", { name: "Ordini" }).click();
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toBeVisible();
   const viewportFits = await page.evaluate(
     () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,

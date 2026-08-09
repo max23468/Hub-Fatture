@@ -14,7 +14,9 @@ import {
   draftTriggerSchema,
   localOrderDate,
   orderInputSchema,
+  orderReviewRequired,
   triggerStatus,
+  type CustomerContext,
   type DraftTrigger,
   type OrderInput,
 } from "../orders.ts";
@@ -27,13 +29,12 @@ export interface Actor {
 interface GroupableOrder {
   id: string;
   customerId: string;
-  reviewRequired: boolean;
   customerSnapshot: Record<string, unknown>;
   localOrderDate: string;
   currency: string;
 }
 
-function customerSnapshot(input: OrderInput, identity: ReturnType<typeof customerIdentity>) {
+function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
   const canonicalProfile = canonicalCustomerProfile(input);
   return {
     ...input.customer,
@@ -108,6 +109,44 @@ function reviewFingerprint(
   return createHash("sha256").update(JSON.stringify(relevant)).digest("hex");
 }
 
+/**
+ * Unico punto che decide se una preparazione modificabile è pronta o da verificare.
+ * Import, correzione anagrafica, separazione ordine e riattivazione lo riusano: la regola
+ * vive in un posto solo e una correzione può davvero riportare la preparazione a `READY`.
+ */
+export async function recomputeBillingCaseStatus(client: pg.PoolClient, caseId: string) {
+  const result = await client.query<{ status: string }>(
+    `UPDATE billing_cases
+     SET status = CASE
+           WHEN coalesce((customer_snapshot_json ->> 'reviewRequired')::boolean, true)
+             OR EXISTS (
+               SELECT 1 FROM orders
+               WHERE orders.billing_case_id = billing_cases.id
+                 AND (
+                   coalesce(
+                     (orders.normalized_snapshot_json ->> 'orderReviewRequired')::boolean, true)
+                   OR coalesce(
+                     (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
+                   OR orders.trigger_status = 'NEEDS_REVIEW'
+                   OR (
+                     billing_cases.customer_corrected_at IS NULL
+                     AND orders.normalized_snapshot_json #> '{customerSnapshot,canonicalProfile}'
+                         IS DISTINCT FROM billing_cases.customer_snapshot_json -> 'canonicalProfile'
+                   )
+                 )
+             )
+           THEN 'NEEDS_REVIEW'
+           ELSE 'READY'
+         END,
+         revision = revision + 1,
+         updated_at = now()
+     WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')
+     RETURNING status`,
+    [caseId],
+  );
+  return result.rows[0]?.status ?? null;
+}
+
 export async function groupOrder(
   client: pg.PoolClient,
   order: GroupableOrder,
@@ -116,50 +155,28 @@ export async function groupOrder(
 ) {
   const lockKey = `billing-case:${order.customerId}:${order.localOrderDate}:${order.currency}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
-  const existing = await client.query<{ id: string; same_customer_snapshot: boolean }>(
-    `SELECT id,
-            customer_snapshot_json -> 'canonicalProfile' = $4::jsonb -> 'canonicalProfile'
-              AS same_customer_snapshot
-     FROM billing_cases
+  const existing = await client.query<{ id: string }>(
+    `SELECT id FROM billing_cases
      WHERE customer_id = $1 AND local_order_date = $2 AND currency = $3
        AND status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
      FOR UPDATE`,
-    [
-      order.customerId,
-      order.localOrderDate,
-      order.currency,
-      JSON.stringify(order.customerSnapshot),
-    ],
+    [order.customerId, order.localOrderDate, order.currency],
   );
-  const desiredStatus =
-    order.reviewRequired || existing.rows[0]?.same_customer_snapshot === false
-      ? "NEEDS_REVIEW"
-      : "READY";
-  const billingCase = existing.rows[0]
-    ? await client.query<{ id: string }>(
-        `UPDATE billing_cases
-         SET status = CASE WHEN status = 'NEEDS_REVIEW' OR $2 = 'NEEDS_REVIEW'
-                           THEN 'NEEDS_REVIEW' ELSE 'READY' END,
-             updated_at = now()
-         WHERE id = $1
-         RETURNING id`,
-        [existing.rows[0].id, desiredStatus],
-      )
-    : await client.query<{ id: string }>(
-        `INSERT INTO billing_cases
-          (customer_id, local_order_date, currency, status, customer_snapshot_json)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id`,
-        [
-          order.customerId,
-          order.localOrderDate,
-          order.currency,
-          desiredStatus,
-          JSON.stringify(order.customerSnapshot),
-        ],
-      );
-  const caseId = billingCase.rows[0]!.id;
-  if (!existing.rows[0]) {
+  let caseId = existing.rows[0]?.id;
+  if (!caseId) {
+    const created = await client.query<{ id: string }>(
+      `INSERT INTO billing_cases
+        (customer_id, local_order_date, currency, status, customer_snapshot_json)
+       VALUES ($1, $2, $3, 'NEEDS_REVIEW', $4)
+       RETURNING id`,
+      [
+        order.customerId,
+        order.localOrderDate,
+        order.currency,
+        JSON.stringify(order.customerSnapshot),
+      ],
+    );
+    caseId = created.rows[0]!.id;
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),
@@ -188,6 +205,7 @@ export async function groupOrder(
       requestId: actor.requestId,
     });
   }
+  await recomputeBillingCaseStatus(client, caseId);
   return caseId;
 }
 
@@ -245,12 +263,7 @@ async function importOne(
     shippingAmount,
   );
   const status = triggerStatus(input, trigger);
-  const preparationReviewRequired =
-    identity.reviewRequired ||
-    input.paymentStatus !== "PAID" ||
-    input.payments.some((payment) => payment.status !== "PAID") ||
-    !totalsReconciled;
-  let reviewRequiredForGrouping = preparationReviewRequired;
+  const orderReview = orderReviewRequired(input, totalsReconciled);
   const previous = await client.query<{
     id: string;
     billing_case_id: string | null;
@@ -259,7 +272,6 @@ async function importOne(
     is_stale: boolean;
     billing_case_status: string | null;
     billing_case_do_not_transmit_automatic: boolean;
-    billing_case_review_required_before_do_not_transmit: boolean;
     deferred_review_required: boolean;
     customer_id: string;
     trigger_status: string;
@@ -286,15 +298,6 @@ async function importOne(
               ORDER BY id DESC
               LIMIT 1
             ), false) AS billing_case_do_not_transmit_automatic,
-            coalesce((
-              SELECT (metadata_json ->> 'reviewRequired')::boolean
-              FROM audit_events
-              WHERE entity_type = 'BILLING_CASE'
-                AND entity_id = orders.billing_case_id::text
-                AND action = 'BILLING_CASE_DO_NOT_TRANSMIT'
-              ORDER BY id DESC
-              LIMIT 1
-            ), false) AS billing_case_review_required_before_do_not_transmit,
             coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
               AS deferred_review_required
      FROM orders
@@ -316,7 +319,6 @@ async function importOne(
 
   const oldOrder = previous.rows[0];
   let deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
-  reviewRequiredForGrouping ||= deferredReviewRequired;
   const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
 
   const customer = invoiced
@@ -381,7 +383,7 @@ async function importOne(
     localOrderDate: localDate,
     customerIdentity: identity.confidence,
     customerReviewRequired: identity.reviewRequired,
-    preparationReviewRequired,
+    orderReviewRequired: orderReview,
     deferredReviewRequired,
     totalsReconciled,
     reviewFingerprint: fingerprint,
@@ -475,6 +477,7 @@ async function importOne(
       `UPDATE billing_cases
        SET status = $2,
            do_not_transmit_reason = $3,
+           revision = revision + 1,
            updated_at = now()
        WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')`,
       [
@@ -519,7 +522,6 @@ async function importOne(
         customer_id: string;
         local_order_date: string;
         currency: string;
-        review_required: boolean;
         customer_snapshot: Record<string, unknown>;
       }>(
         `UPDATE orders
@@ -528,9 +530,10 @@ async function importOne(
              normalized_snapshot_json = jsonb_set(
                normalized_snapshot_json,
                '{deferredReviewRequired}',
+               -- L'anomalia propria dell'ordine resta leggibile nel suo snapshot: qui va
+               -- conservata soltanto la verifica che il distacco cancellerebbe.
                to_jsonb(
-                 (normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
-                 OR coalesce(
+                 coalesce(
                    (normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
                    false
                  )
@@ -540,9 +543,6 @@ async function importOne(
          WHERE billing_case_id = $1 AND id <> $2
            AND cancelled_at IS NULL AND payment_status <> 'REFUNDED'
          RETURNING id, customer_id, local_order_date::text, currency,
-           ((normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
-             OR coalesce((normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
-             AS review_required,
            normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot`,
         [oldOrder!.billing_case_id, orderId],
       );
@@ -554,7 +554,6 @@ async function importOne(
           {
             id: remainingOrder.id,
             customerId: remainingOrder.customer_id,
-            reviewRequired: remainingOrder.review_required,
             customerSnapshot: remainingOrder.customer_snapshot,
             localOrderDate: remainingOrder.local_order_date,
             currency: remainingOrder.currency,
@@ -568,8 +567,9 @@ async function importOne(
       oldOrder!.billing_case_status === "DO_NOT_TRANSMIT" &&
       oldOrder!.billing_case_do_not_transmit_automatic
     ) {
-      reviewRequiredForGrouping ||= oldOrder!.billing_case_review_required_before_do_not_transmit;
-      deferredReviewRequired ||= reviewRequiredForGrouping;
+      // L'ordine esce da una preparazione archiviata dal sistema perché i suoi dati sono
+      // cambiati due volte: la preparazione che lo accoglie nasce da verificare.
+      deferredReviewRequired = true;
       await client.query(
         `UPDATE orders
          SET billing_case_id = NULL, trigger_status = $3, customer_id = $2,
@@ -665,7 +665,6 @@ async function importOne(
       {
         id: orderId,
         customerId,
-        reviewRequired: reviewRequiredForGrouping,
         customerSnapshot: normalizedSnapshot.customerSnapshot,
         localOrderDate: localDate,
         currency: input.currency,

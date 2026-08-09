@@ -1,4 +1,12 @@
-import { containsNullByte, postgresDateSchema } from "../orders.ts";
+import {
+  containsNullByte,
+  escapeLike,
+  PAGE_SIZE,
+  pageOffset,
+  paginate,
+  postgresDateSchema,
+} from "../orders.ts";
+import { auditActions } from "./audit.server.ts";
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./order-commands.server.ts";
 
@@ -52,6 +60,13 @@ interface OrderDetailRow {
     paid_at: string | null;
     recorded_manually: boolean;
   }>;
+  possibleMatches: Array<{
+    id: string;
+    display_name: string;
+    email: string | null;
+    tax_id_type: string | null;
+    tax_id_normalized: string | null;
+  }>;
 }
 
 export async function listOrders(filters: {
@@ -60,15 +75,18 @@ export async function listOrders(filters: {
   status?: string;
   localDate?: string;
   paymentStatus?: string;
+  page?: unknown;
 }) {
-  if (containsNullByte(filters)) return [];
-  if (filters.localDate && !postgresDateSchema.safeParse(filters.localDate).success) return [];
+  const empty = { rows: [] as never[], hasNext: false };
+  if (containsNullByte(filters)) return empty;
+  if (filters.localDate && !postgresDateSchema.safeParse(filters.localDate).success) return empty;
   const values = [
-    filters.query ? `%${filters.query}%` : null,
+    filters.query ? `%${escapeLike(filters.query)}%` : null,
     filters.provider || null,
     filters.status || null,
     filters.localDate || null,
     filters.paymentStatus || null,
+    pageOffset(filters.page),
   ];
   const result = await getPool().query<{
     id: string;
@@ -107,10 +125,11 @@ export async function listOrders(filters: {
             OR orders.trigger_status = $3)
        AND ($4::date IS NULL OR orders.local_order_date = $4)
        AND ($5::text IS NULL OR orders.payment_status = $5)
-     ORDER BY orders.local_order_date DESC, orders.id DESC`,
+     ORDER BY orders.local_order_date DESC, orders.id DESC
+     LIMIT ${PAGE_SIZE + 1} OFFSET $6`,
     values,
   );
-  return result.rows;
+  return paginate(result.rows);
 }
 
 export async function getOrder(id: string) {
@@ -135,7 +154,28 @@ export async function getOrder(id: string) {
             coalesce((
               SELECT jsonb_agg(to_jsonb(payments) ORDER BY payments.id)
               FROM payments WHERE payments.order_id = orders.id
-            ), '[]'::jsonb) AS payments
+            ), '[]'::jsonb) AS payments,
+            -- 7.3: un'identità non certa non accorpa, ma la corrispondenza possibile va mostrata.
+            CASE WHEN orders.normalized_snapshot_json #>> '{customerSnapshot,sourceConfidence}'
+                      = 'TAX_ID'
+              THEN '[]'::jsonb
+              ELSE coalesce((
+                SELECT jsonb_agg(to_jsonb(candidate) ORDER BY candidate.display_name)
+                FROM (
+                  SELECT DISTINCT other.id, other.display_name, other.email,
+                         other.tax_id_type, other.tax_id_normalized
+                  FROM customers AS other
+                  WHERE other.id <> orders.customer_id
+                    AND (
+                      lower(other.email) = lower(
+                        orders.normalized_snapshot_json #>> '{customerSnapshot,email}')
+                      OR lower(other.display_name) = lower(
+                        orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}')
+                    )
+                  LIMIT 5
+                ) AS candidate
+              ), '[]'::jsonb)
+            END AS "possibleMatches"
      FROM orders
      LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      WHERE orders.id = $1`,
@@ -164,4 +204,81 @@ export async function dashboardSummary() {
                         AND payments.status = 'PENDING')))::text AS pending_payments`,
   );
   return result.rows[0]!;
+}
+
+/** Vista `Da gestire` di 13.7: cosa richiede un intervento e dove si interviene. */
+export async function listOpenActivities(page?: unknown) {
+  const result = await getPool().query<{
+    kind: string;
+    id: string;
+    label: string;
+    detail: string;
+    href: string;
+    created_at: string;
+  }>(
+    `SELECT * FROM (
+       SELECT 'BILLING_CASE' AS kind, billing_cases.id::text AS id,
+              'Preparazione fattura ' || billing_cases.public_number AS label,
+              coalesce(billing_cases.customer_snapshot_json ->> 'displayName',
+                       'Cliente da verificare') AS detail,
+              '/ordini/preparazione/' || billing_cases.id AS href,
+              billing_cases.updated_at AS created_at
+       FROM billing_cases
+       WHERE billing_cases.status = 'NEEDS_REVIEW'
+       UNION ALL
+       SELECT 'ORDER', orders.id::text,
+              'Ordine ' || orders.display_number,
+              coalesce(orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
+                       'Cliente da verificare'),
+              '/ordini/' || orders.id,
+              orders.last_synced_at
+       FROM orders
+       WHERE orders.trigger_status = 'NEEDS_REVIEW' AND orders.billing_case_id IS NULL
+     ) AS activities
+     ORDER BY created_at DESC, id DESC
+     LIMIT ${PAGE_SIZE + 1} OFFSET $1`,
+    [pageOffset(page)],
+  );
+  return paginate(result.rows);
+}
+
+/** Vista `Cronologia` di 13.7: registro ricercabile e non modificabile. */
+export async function listAuditHistory(filters: {
+  query?: string;
+  action?: string;
+  page?: unknown;
+}) {
+  const empty = { rows: [] as never[], hasNext: false };
+  if (containsNullByte(filters)) return empty;
+  // L'allowlist copre ogni voce offerta dal filtro: un'azione ignota non deve valere "tutte".
+  const action = auditActions.find((candidate) => candidate === filters.action) ?? null;
+  if (filters.action && !action) return empty;
+  const result = await getPool().query<{
+    id: string;
+    action: string;
+    actor_id: string | null;
+    actor_type: string;
+    actor_username: string | null;
+    entity_type: string;
+    entity_id: string | null;
+    reason: string | null;
+    request_id: string;
+    created_at: string;
+  }>(
+    `SELECT audit_events.id, audit_events.action, audit_events.actor_id,
+            audit_events.actor_type, users.username AS actor_username,
+            audit_events.entity_type, audit_events.entity_id, audit_events.reason,
+            audit_events.request_id, audit_events.created_at
+     FROM audit_events
+     LEFT JOIN users ON audit_events.actor_type = 'ADMIN'
+       AND audit_events.actor_id ~ '^[0-9]+$'
+       AND users.id = audit_events.actor_id::smallint
+     WHERE ($1::text IS NULL OR audit_events.action = $1)
+       AND ($2::text IS NULL OR audit_events.entity_id ILIKE $2
+            OR audit_events.request_id ILIKE $2 OR audit_events.reason ILIKE $2)
+     ORDER BY audit_events.created_at DESC, audit_events.id DESC
+     LIMIT ${PAGE_SIZE + 1} OFFSET $3`,
+    [action, filters.query ? `%${escapeLike(filters.query)}%` : null, pageOffset(filters.page)],
+  );
+  return paginate(result.rows);
 }

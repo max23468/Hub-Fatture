@@ -30,12 +30,13 @@ test(
         "010_order_domain_hardening.sql",
         "011_unbounded_billing_case_number.sql",
         "012_login_rate_limit_audit_index.sql",
+        "013_billing_case_corrections.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "12",
+        "13",
       );
       await cleanClient.end();
 

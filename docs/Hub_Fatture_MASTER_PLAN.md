@@ -573,9 +573,9 @@ Impostazione unica per Shopify ed eBay:
 
 L'ordine viene comunque importato subito. Il cambio dell'impostazione:
 
-- non modifica o ricrea bozze esistenti;
+- non ricrea, non scioglie e non riapre una bozza esistente;
 - rivaluta gli ordini ancora senza bozza;
-- si applica operativamente agli ordini idonei non ancora raggruppati;
+- si applica operativamente agli ordini idonei non ancora raggruppati, che confluiscono nella bozza aperta del proprio cliente e giorno secondo 7.3: la bozza acquisisce l'ordine e le anomalie che l'ordine porta con sé, senza che il cambio di impostazione alteri da solo i dati già raggruppati;
 - lascia disponibile la generazione manuale anticipata per un singolo ordine.
 
 ### 7.3 Identità cliente e raggruppamento
@@ -2809,7 +2809,8 @@ Gate:
 
 - due ordini concorrenti dello stesso cliente e giorno producono una sola preparazione fattura, provato da un test d'integrazione su PostgreSQL reale;
 - un ordine non può appartenere a due preparazioni e l'identità ambigua non accorpa;
-- il cambio del trigger globale non ricrea né modifica bozze esistenti;
+- il cambio del trigger globale non ricrea, non scioglie e non riapre bozze esistenti, e i soli ordini rivalutati sono quelli ancora privi di bozza;
+- una preparazione da verificare si chiude correggendo l'anagrafica dentro l'applicazione, senza dipendere da una modifica alla piattaforma sorgente;
 - nessun identificativo visibile contiene la sigla interna.
 
 ### M3 - Connettori Shopify ed eBay

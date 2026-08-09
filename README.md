@@ -2,7 +2,7 @@
 
 Applicazione privata e single-tenant per importare ordini Shopify ed eBay, preparare documenti nel regime del margine e trasmetterli ad Aruba soltanto dopo approvazione esplicita.
 
-Il progetto include toolchain riproducibile, database con migrazioni verificate, autenticazione amministrativa locale e dominio ordini/preparazione fattura con import sintetico idempotente. La fonte canonica è il [Master Plan](docs/Hub_Fatture_MASTER_PLAN.md); l'indice della documentazione è in [docs/INDEX.md](docs/INDEX.md).
+Il progetto include toolchain riproducibile, database con migrazioni verificate, autenticazione amministrativa locale e dominio ordini/preparazione fattura con import sintetico idempotente, correzione dell'anagrafica del destinatario, composizione della preparazione e registro attività. La fonte canonica è il [Master Plan](docs/Hub_Fatture_MASTER_PLAN.md); l'indice della documentazione è in [docs/INDEX.md](docs/INDEX.md).
 
 ## Sviluppo locale
 

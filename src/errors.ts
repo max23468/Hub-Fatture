@@ -10,6 +10,8 @@ export const errorCatalog = {
   ORDER_NOT_PREPARABLE:
     "Un ordine annullato o già rimborsato non può essere preparato per la fatturazione.",
   BILLING_CASE_EMPTY: "Una preparazione senza ordini resta archiviata e non può essere riattivata.",
+  BILLING_CASE_NOT_EDITABLE:
+    "Questa preparazione non è più modificabile nello stato in cui si trova.",
   INVALID_CONTENT_TYPE: "Formato della richiesta non supportato.",
   REQUEST_BODY_TOO_LARGE: "La richiesta supera il limite consentito.",
   REQUEST_ORIGIN_INVALID: "Origine della richiesta non valida.",
