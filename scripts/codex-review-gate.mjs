@@ -40,33 +40,33 @@ export function classifyCodexReview({
       comment.user?.login === CODEX_BOT &&
       (comment.original_commit_id ?? comment.commit_id) === headSha &&
       timestamp(comment.created_at) >= timestamp(requestedAt) &&
-      isBlockingFinding(comment.body)
+      findingPriority(comment.body)
     ) {
       completions.push({
-        state: "failure",
+        state: isBlockingFinding(comment.body) ? "failure" : "success",
         at: timestamp(comment.created_at),
-        description: "Codex ha trovato problemi nell'ultimo commit",
+        description: isBlockingFinding(comment.body)
+          ? "Codex ha trovato problemi nell'ultimo commit"
+          : "Codex ha completato la review con soli finding advisory",
       });
     }
-  }
-
-  if (completions.length) {
-    return completions.sort((left, right) => right.at - left.at)[0];
   }
 
   for (const comment of comments) {
     if (comment.user?.login !== CODEX_BOT) continue;
 
     const commit = reviewedCommit(comment.body);
-    if (
+    const currentFinding =
       (commit ? headSha.startsWith(commit) : timestamp(requestedAt) > 0) &&
       timestamp(comment.created_at) >= timestamp(requestedAt) &&
-      isBlockingFinding(comment.body)
-    ) {
+      findingPriority(comment.body);
+    if (currentFinding) {
       completions.push({
-        state: "failure",
+        state: isBlockingFinding(comment.body) ? "failure" : "success",
         at: timestamp(comment.created_at),
-        description: "Codex ha trovato problemi nell'ultimo commit",
+        description: isBlockingFinding(comment.body)
+          ? "Codex ha trovato problemi nell'ultimo commit"
+          : "Codex ha completato la review con soli finding advisory",
       });
     }
 

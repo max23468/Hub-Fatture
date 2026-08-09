@@ -238,9 +238,30 @@ test("i finding P2 e P3 non bloccano il gate", () => {
           body: "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow)</sub></sub> È meno grave di un P1; correggi quando opportuno",
         },
       ],
-      reactions: [{ user: bot, content: "+1", created_at: "2026-08-04T12:00:02Z" }],
     }).state,
     "success",
+  );
+});
+
+test("un finding P1 prevale su un advisory P2 successivo", () => {
+  assert.equal(
+    classify({
+      reviewComments: [
+        {
+          user: bot,
+          commit_id: headSha,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**P1** Questo finding resta bloccante.",
+        },
+        {
+          user: bot,
+          commit_id: headSha,
+          created_at: "2026-08-04T12:00:02Z",
+          body: "**P2** Questo finding resta advisory.",
+        },
+      ],
+    }).state,
+    "failure",
   );
 });
 
