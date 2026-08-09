@@ -2248,7 +2248,7 @@ Toolchain locale e CI:
 
 Riferimenti da riverificare allo scaffold: [Oxlint](https://oxc.rs/docs/guide/usage/linter.html), [Oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) e [Mise per Node/npm](https://mise.jdx.dev/lang/node.html).
 
-React Doctor usa due superfici con responsabilità distinte: `npm run doctor` esegue la scansione completa e blocca `npm run check` dai warning in su; l'Action ufficiale analizza le modifiche delle PR con la stessa soglia, pubblicando un riepilogo e i finding inline. Un falso positivo non si aggira: l'agente lo segnala nella PR, applica la soppressione nativa più stretta possibile con una motivazione verificabile, la committa e ripete il gate. Il pin npm è esatto, l'Action è fissata a commit completo e il controllo supply-chain esterno resta disabilitato perché già coperto dai gate dipendenze. Lo score è informativo e non decide l'esito.
+React Doctor usa due superfici con responsabilità distinte: `npm run doctor` esegue la scansione completa e blocca `npm run check` dai warning in su; l'Action ufficiale analizza le modifiche delle PR con la stessa soglia e pubblica soltanto i finding inline, senza commenti riepilogativi quando la scansione è pulita. Un falso positivo non si aggira: l'agente lo segnala nella PR, applica la soppressione nativa più stretta possibile con una motivazione verificabile, la committa e ripete il gate. Il pin npm è esatto, l'Action è fissata a commit completo e il controllo supply-chain esterno resta disabilitato perché già coperto dai gate dipendenze. Lo score è informativo e non decide l'esito.
 
 Riferimento da riverificare allo scaffold: [configurazione React Doctor](https://www.react.doctor/docs/configuration).
 

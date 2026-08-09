@@ -64,7 +64,7 @@ test("React Doctor blocca warning ed errori con versione e Action pinzate", asyn
   assert.match(workflow, /version:\s*0\.9\.11/);
   assert.match(workflow, /scope:\s*changed/);
   assert.match(workflow, /blocking:\s*warning/);
-  assert.match(workflow, /comment:\s*"true"/);
+  assert.match(workflow, /comment:\s*"false"/);
   assert.match(workflow, /review-comments:\s*"true"/);
   assert.match(workflow, /commit-status:\s*"false"/);
   assert.match(workflow, /fetch-depth:\s*0/);
