@@ -1687,13 +1687,32 @@ test(
       );
       const recoveredReviewed = (
         await database.getPool().query(
-          `SELECT orders.billing_case_id, billing_cases.status
+          `SELECT orders.billing_case_id, billing_cases.status,
+                  orders.normalized_snapshot_json ->> 'deferredReviewRequired'
+                    AS deferred_review
              FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
              WHERE orders.external_order_id = $1`,
           [reviewedA.externalOrderId],
         )
       ).rows[0];
       assert.equal(recoveredReviewed.status, "NEEDS_REVIEW");
+      assert.equal(recoveredReviewed.deferred_review, "true");
+      await orders.updateBillingCaseTransmission(
+        String(recoveredReviewed.billing_case_id),
+        "Conflitto sorgente da verificare",
+        { id: 1, requestId: "test-archive-recovered-review" },
+      );
+      assert.equal(
+        await orders.updateBillingCaseTransmission(
+          String(recoveredReviewed.billing_case_id),
+          null,
+          {
+            id: 1,
+            requestId: "test-reactivate-recovered-review",
+          },
+        ),
+        "NEEDS_REVIEW",
+      );
       reviewedB.cancelledAt = null;
       reviewedB.customer.taxIdentifiers[0].value = "RSSMRA80A01H501N";
       reviewedB.updatedAt = "2026-08-19T11:00:00Z";

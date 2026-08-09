@@ -528,13 +528,22 @@ async function importOne(
         customer_snapshot: Record<string, unknown>;
       }>(
         `UPDATE orders
-         SET billing_case_id = NULL, trigger_status = 'ELIGIBLE'
+         SET billing_case_id = NULL,
+             trigger_status = 'ELIGIBLE',
+             normalized_snapshot_json = CASE WHEN $3
+               THEN jsonb_set(
+                 normalized_snapshot_json,
+                 '{deferredReviewRequired}',
+                 'true'::jsonb
+               )
+               ELSE normalized_snapshot_json
+             END
          WHERE billing_case_id = $1 AND id <> $2
            AND cancelled_at IS NULL AND payment_status <> 'REFUNDED'
          RETURNING id, customer_id, local_order_date::text, currency,
            ((normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
-             OR coalesce((normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
-             OR $3) AS review_required,
+             OR coalesce((normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
+             AS review_required,
            normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot`,
         [oldOrder!.billing_case_id, orderId, oldOrder!.billing_case_status === "NEEDS_REVIEW"],
       );
