@@ -220,7 +220,31 @@ test("un finding del tentativo corrente prevale sul pollice", () => {
   );
 });
 
-test("un finding top-level sull'HEAD prevale sul riepilogo pulito", () => {
+test("i finding P2 e P3 non bloccano il gate", () => {
+  assert.equal(
+    classify({
+      comments: [
+        {
+          user: bot,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**P3** Non è un P0 e resta facoltativo.",
+        },
+      ],
+      reviewComments: [
+        {
+          user: bot,
+          commit_id: headSha,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow)</sub></sub> È meno grave di un P1; correggi quando opportuno",
+        },
+      ],
+      reactions: [{ user: bot, content: "+1", created_at: "2026-08-04T12:00:02Z" }],
+    }).state,
+    "success",
+  );
+});
+
+test("un finding P1 top-level sull'HEAD prevale sul riepilogo pulito", () => {
   assert.equal(
     classify({
       requiresReviewedCommit: true,
@@ -228,7 +252,7 @@ test("un finding top-level sull'HEAD prevale sul riepilogo pulito", () => {
         {
           user: bot,
           created_at: "2026-08-04T12:00:01Z",
-          body: `**P2** Correggi il gate.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\``,
+          body: `**P1** Correggi il gate.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\``,
         },
         {
           user: bot,
@@ -241,7 +265,7 @@ test("un finding top-level sull'HEAD prevale sul riepilogo pulito", () => {
   );
 });
 
-test("un finding top-level senza marker prevale sul riepilogo pulito", () => {
+test("un finding P1 top-level senza marker prevale sul riepilogo pulito", () => {
   assert.equal(
     classify({
       requiresReviewedCommit: true,
@@ -249,7 +273,7 @@ test("un finding top-level senza marker prevale sul riepilogo pulito", () => {
         {
           user: bot,
           created_at: "2026-08-04T12:00:01Z",
-          body: "**P2** Correggi il gate.",
+          body: "**P1** Correggi il gate.",
         },
         {
           user: bot,
