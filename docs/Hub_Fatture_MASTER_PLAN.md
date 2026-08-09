@@ -67,7 +67,11 @@ Le evidenze vivono in `docs/evidence/`; i contratti tecnici riusabili in `docs/c
 - M1-M3 non dipendono da Aruba e usano soltanto fixture e dati sintetici.
 - M4 comprende audit autenticato read-only, analisi dell'XML accettato, profilo fiscale, numerazione, generatore definitivo e, come ultimo gate, la prova manuale controllata del candidato XML.
 - M5 inizia soltanto dopo la chiusura di quel gate M4 e comprende l'integrazione del pannello e dell'helper.
-- Modifiche all'account Aruba, upload reali, invii, deploy e release richiedono comunque l'autorizzazione specifica del titolare nel momento in cui vengono eseguiti. Questi consensi proteggono azioni remote, ma non costituiscono una roadmap parallela.
+- Modifiche all'account Aruba, upload reali e invii richiedono sempre
+  l'autorizzazione specifica del titolare nel momento in cui vengono eseguiti.
+  Una richiesta affermativa di pubblicazione autorizza invece deploy e release
+  tecniche applicabili; fuori da tale richiesta serve conferma separata. Questi
+  consensi proteggono azioni remote, ma non costituiscono una roadmap parallela.
 
 ### 0.5 Governo e ciclo di vita della documentazione
 
@@ -2358,7 +2362,9 @@ Usare permessi stretti e proprietario dedicato.
 
 ### 19.5 Deploy
 
-Il deploy è un'azione separata e richiede autorizzazione esplicita del titolare.
+Il deploy è un'azione separata dal merge. Una richiesta affermativa di
+pubblicazione costituisce l'autorizzazione esplicita del titolare; fuori da tale
+richiesta serve conferma separata.
 
 Procedura prevista:
 
@@ -3103,8 +3109,8 @@ Deve scegliere l'alternativa più semplice già supportata dalla matrice 14.3, s
 
 Deve fermarsi e chiedere prima di:
 
-- deploy;
-- release;
+- deploy o release non già autorizzati da una richiesta affermativa di
+  pubblicazione;
 - invii Aruba reali;
 - migrazioni distruttive;
 - eliminazione dati;
@@ -3381,7 +3387,7 @@ La 1.0 è conclusa quando ogni gate di §23, ogni checklist di §28 e ogni decis
 5. nessun dato reale e nessun segreto plaintext compare in repository, cronologia, CI, log, fixture o documentazione; l'unico blob sensibile ammesso è la key VPS cifrata;
 6. codice, migrazioni, lockfile, documentazione e stato live descrivono lo stesso commit: `/version`, digest distribuito e ricevuta di deploy coincidono dopo uno smoke autenticato;
 7. il Canary Production su una sola fattura reale ha chiuso l'intera catena con un permesso monouso consumato atomicamente, senza abilitare globalmente gli invii e senza P0/P1 o stati remoti irrisolti;
-8. `v1.0.0` è pubblicata sullo stesso commit e digest superati dal canary, dopo autorizzazioni separate per deploy, singolo invio canary, release e uso Production ordinario;
+8. per il solo go-live iniziale, escluso dalla pubblicazione tecnica ordinaria perché costituisce una nuova attivazione produttiva, `v1.0.0` è pubblicata sullo stesso commit e digest superati dal canary, dopo autorizzazioni separate per deploy, singolo invio canary, release e uso Production ordinario;
 9. non restano P0/P1 aperti, decisioni bloccanti sospese o ordini storici approvabili senza riconciliazione;
 10. backup, recovery kit, restore drill e rollback applicativo sono stati eseguiti davvero, non soltanto documentati, e l'RPO dichiarato è quello osservato.
 
