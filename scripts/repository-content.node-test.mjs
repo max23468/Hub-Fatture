@@ -59,6 +59,17 @@ test("nessun riferimento a nomi storici del Master Plan", () => {
   assert.deepEqual(tracked("Hub-Fatture-Master-Plan[.]md|docs/MASTER_PLAN[.]md"), []);
 });
 
+test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
+  const [agents, masterPlan, glossary] = await Promise.all(
+    ["AGENTS.md", "docs/Hub_Fatture_MASTER_PLAN.md", "docs/glossario.md"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
+  assert.match(agents, /richiesta affermativa di pubblicazione/);
+  assert.match(masterPlan, /richiesta affermativa di pubblicazione autorizza (?:invece )?deploy/);
+  assert.match(glossary, /\| Pubblica\s+\| ciclo tecnico completo\s+\|/);
+});
+
 test("la sigla interna non compare nella superficie utente", async () => {
   const files = [...(await collect("app")), "src/errors.ts", "src/db/auth.server.ts"];
   const offenders = (await contents(files))

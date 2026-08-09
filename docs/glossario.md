@@ -28,5 +28,6 @@
 | Ambiente di prova           | `development`            | Ambiente con ordini di esempio                                     | Development, staging           |
 | Ambiente operativo          | `production`             | Ambiente con dati reali autorizzati                                | Production, live generico      |
 | Publish Git                 | merge/push Git           | Pubblicazione del codice in repository                             | deploy                         |
+| Pubblica                    | ciclo tecnico completo   | PR, merge, deploy e release applicabili, verifiche e pulizia       | solo Publish Git               |
 | Deploy                      | distribuzione            | Attivazione di un artefatto su un ambiente                         | release                        |
 | Release                     | versione                 | Tag e GitHub Release autorizzati                                   | deploy                         |

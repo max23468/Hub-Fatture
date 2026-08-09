@@ -21,9 +21,36 @@ In dubbio sulla sezione competente, leggi l'indice del documento invece di legge
 - Non mantenere retrocompatibilità o implementazioni legacy: non esistono consumatori esterni da preservare.
 - Se lo stesso problema ricorre due volte, correggine la causa condivisa e aggiungi il più piccolo controllo di regressione.
 - Decidi autonomamente naming, formattazione e default di routine entro i confini del Master Plan.
-- Chiedi prima di azioni distruttive, deploy, release, invii Aruba reali, decisioni fiscali o modifiche materiali allo scope.
+- Chiedi prima di azioni distruttive, deploy o release non già autorizzati da
+  una richiesta di pubblicazione, invii Aruba reali, decisioni fiscali o
+  modifiche materiali allo scope.
 - Non aggiungere dipendenze, servizi o tool non approvati dal Master Plan.
 - Fuori dalla roadmap del Master Plan, descrivi capacità e gate osservabili senza duplicare date, branch, conteggi di test o sigle di milestone; lo stato corrente deriva dall’HEAD e dalla CI.
 - La sigla `HF` è interna: non deve comparire nel frontend o in contenuti destinati all’utente.
 - La repository è pubblica ma proprietaria: non aggiungere `LICENSE`, dati reali, segreti o configurazioni sensibili.
 - Non aprire issue, discussion o project rivolti alla community.
+
+## Significato di `Pubblica`
+
+Quando il proprietario, riferendosi alla repository o alla modifica corrente,
+dice `Pubblica` o chiede in modo affermativo e inequivocabile di pubblicare,
+autorizza l'intero ciclo tecnico applicabile. Domande, ipotesi, pianificazioni e
+negazioni non costituiscono autorizzazione. L'agente non si ferma a stati
+intermedi e completa tutti i passaggi applicabili: preparazione e verifiche,
+branch e commit, versione e changelog quando richiesti, push, PR, soli gate
+bloccanti, merge, tag e GitHub Release quando previsti, deploy o promozione
+tecnica e verifica live. La sequenza concreta, in particolare tra versionamento,
+merge, deploy e release, è quella definita dalla policy della repository.
+
+La pulizia finale rimuove soltanto branch e worktree temporanei creati nel ciclo
+corrente e già assorbiti; controlla stash e altri residui senza alterare elementi
+preesistenti o estranei alla pubblicazione. Se un passaggio non è applicabile, lo
+dichiara e prosegue con gli altri. La richiesta affermativa di pubblicazione
+vale come autorizzazione a PR, merge, deploy tecnico e release previsti dal
+ciclo, senza una seconda conferma. Non autorizza pubblicazione di temi Shopify
+live, submission Shopify App Store, billing o nuove attivazioni produttive,
+TestFlight o App Store, invii Aruba, email o scansioni reali, né aggiornamenti
+Notion: queste azioni richiedono una richiesta esplicita separata. Una richiesta
+riferita soltanto a una di queste azioni non avvia la pubblicazione della
+repository. Non dichiarare `pubblicato` finché il ciclo applicabile e la
+rilettura finale di PR, check, deploy, release e stato Git non sono completi.
