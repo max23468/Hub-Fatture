@@ -10,7 +10,17 @@ import { getPool, withTransaction } from "./client.server.ts";
 
 export type Provider = "SHOPIFY" | "EBAY";
 export type ConnectionEnvironment = "DEVELOPMENT" | "SANDBOX" | "PRODUCTION";
-export type JobType = "shopify_sync_orders" | "shopify_process_webhook" | "ebay_sync_orders";
+export type JobType =
+  | "shopify_sync_orders"
+  | "shopify_process_webhook"
+  | "ebay_sync_orders"
+  | "ebay_preview_history";
+
+export interface ConnectorActor {
+  type: "ADMIN" | "SYSTEM";
+  id?: number;
+  requestId: string;
+}
 
 interface ConnectionRow {
   id: string;
@@ -30,6 +40,8 @@ export interface ClaimedJob {
   payload: Record<string, unknown>;
   attempts: number;
   maxAttempts: number;
+  workerId: string;
+  claimToken: string;
 }
 
 function credentialsKey(): string {
@@ -46,12 +58,15 @@ function activeEnvironment(provider: Provider): ConnectionEnvironment {
   return config.EBAY_ENVIRONMENT === "production" ? "PRODUCTION" : "SANDBOX";
 }
 
-export async function saveConnection<T>(input: {
-  provider: Provider;
-  environment: ConnectionEnvironment;
-  accountReference: string;
-  credentials: T;
-}) {
+export async function saveConnection<T>(
+  input: {
+    provider: Provider;
+    environment: ConnectionEnvironment;
+    accountReference: string;
+    credentials: T;
+  },
+  actor: ConnectorActor,
+) {
   await withTransaction(async (client) => {
     const existing = await client.query<{ account_reference: string }>(
       `SELECT account_reference FROM connections
@@ -60,7 +75,7 @@ export async function saveConnection<T>(input: {
       [input.provider, input.environment],
     );
     const accountChanged = existing.rows[0]?.account_reference !== input.accountReference;
-    await client.query(
+    const saved = await client.query<{ id: string }>(
       `INSERT INTO connections
         (provider, environment, account_reference, encrypted_credentials, status, last_checked_at)
        VALUES ($1, $2, $3, $4, 'CONNECTED', now())
@@ -73,7 +88,8 @@ export async function saveConnection<T>(input: {
              THEN connections.last_synced_at
            ELSE NULL
          END,
-         last_error_code = NULL, last_error_message_sanitized = NULL`,
+         last_error_code = NULL, last_error_message_sanitized = NULL
+       RETURNING id`,
       [
         input.provider,
         input.environment,
@@ -84,6 +100,16 @@ export async function saveConnection<T>(input: {
     if (accountChanged) {
       await client.query("DELETE FROM sync_cursors WHERE provider = $1", [input.provider]);
     }
+    await writeAudit(client, {
+      actorType: actor.type,
+      actorId: actor.id ? String(actor.id) : null,
+      action: "PROVIDER_CONNECTED",
+      eventClass: "CRITICAL",
+      entityType: "CONNECTION",
+      entityId: saved.rows[0]!.id,
+      metadata: { provider: input.provider },
+      requestId: actor.requestId,
+    });
   });
 }
 
@@ -186,6 +212,37 @@ export async function enqueueJob(type: JobType, payload: Record<string, unknown>
   ]);
 }
 
+export async function enqueueEbayPreview() {
+  await getPool().query(
+    `INSERT INTO jobs (type) VALUES ('ebay_preview_history') ON CONFLICT DO NOTHING`,
+  );
+}
+
+export async function latestEbayPreview() {
+  const result = await getPool().query<{
+    id: string;
+    status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+    result_json: { count?: unknown; reviewRequired?: unknown };
+    last_error_code: string | null;
+    created_at: Date;
+    completed_at: Date | null;
+  }>(
+    `SELECT id, status, result_json, last_error_code, created_at, completed_at
+     FROM jobs WHERE type = 'ebay_preview_history' ORDER BY created_at DESC, id DESC LIMIT 1`,
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    status: row.status,
+    count: Number(row.result_json.count ?? 0),
+    reviewRequired: Number(row.result_json.reviewRequired ?? 0),
+    errorCode: row.last_error_code,
+    createdAt: row.created_at.toISOString(),
+    completedAt: row.completed_at?.toISOString() ?? null,
+  };
+}
+
 export async function scheduleDueSyncs() {
   await getPool().query(
     `INSERT INTO jobs (type)
@@ -204,6 +261,7 @@ export async function scheduleDueSyncs() {
 }
 
 export async function claimJob(workerId: string = randomUUID()): Promise<ClaimedJob | null> {
+  const claimToken = randomUUID();
   const result = await withTransaction((client) =>
     client.query<{
       id: string;
@@ -211,6 +269,7 @@ export async function claimJob(workerId: string = randomUUID()): Promise<Claimed
       payload_json: Record<string, unknown>;
       attempts: number;
       max_attempts: number;
+      claim_token: string;
     }>(
       `WITH candidate AS (
          SELECT id FROM jobs
@@ -221,10 +280,11 @@ export async function claimJob(workerId: string = randomUUID()): Promise<Claimed
          LIMIT 1
        )
        UPDATE jobs SET status = 'RUNNING', attempts = attempts + 1, locked_at = now(),
-         lease_expires_at = now() + interval '2 minutes', locked_by = $1
+         lease_expires_at = now() + interval '2 minutes', locked_by = $1, claim_token = $2
        FROM candidate WHERE jobs.id = candidate.id
-       RETURNING jobs.id, jobs.type, jobs.payload_json, jobs.attempts, jobs.max_attempts`,
-      [workerId],
+       RETURNING jobs.id, jobs.type, jobs.payload_json, jobs.attempts, jobs.max_attempts,
+         jobs.claim_token`,
+      [workerId, claimToken],
     ),
   );
   const row = result.rows[0];
@@ -235,17 +295,30 @@ export async function claimJob(workerId: string = randomUUID()): Promise<Claimed
         payload: row.payload_json,
         attempts: row.attempts,
         maxAttempts: row.max_attempts,
+        workerId,
+        claimToken: row.claim_token,
       }
     : null;
 }
 
-export async function completeJob(job: ClaimedJob) {
-  await withTransaction(async (client) => {
-    await client.query(
+export async function renewJobLease(job: ClaimedJob) {
+  const result = await getPool().query(
+    `UPDATE jobs SET lease_expires_at = now() + interval '2 minutes'
+     WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3`,
+    [job.id, job.workerId, job.claimToken],
+  );
+  return result.rowCount === 1;
+}
+
+export async function completeJob(job: ClaimedJob, result: Record<string, unknown> = {}) {
+  return withTransaction(async (client) => {
+    const completed = await client.query(
       `UPDATE jobs SET status = 'COMPLETED', completed_at = now(), lease_expires_at = NULL,
-         locked_by = NULL WHERE id = $1`,
-      [job.id],
+         locked_by = NULL, claim_token = NULL, result_json = $4
+       WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3`,
+      [job.id, job.workerId, job.claimToken, JSON.stringify(result)],
     );
+    if (completed.rowCount !== 1) return false;
     const eventId = Number(job.payload.webhookEventId);
     if (Number.isSafeInteger(eventId)) {
       await client.query(
@@ -254,21 +327,24 @@ export async function completeJob(job: ClaimedJob) {
         [eventId],
       );
     }
+    return true;
   });
 }
 
 export async function failJob(job: ClaimedJob, code: ErrorCode) {
   const retryable = code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_UNAVAILABLE";
   const terminal = job.attempts >= job.maxAttempts || !retryable;
-  await withTransaction(async (client) => {
-    await client.query(
-      `UPDATE jobs SET status = $2, run_at = CASE WHEN $2 = 'PENDING'
-           THEN now() + make_interval(secs => LEAST(900, 5 * power(2, attempts)::integer))
+  return withTransaction(async (client) => {
+    const failed = await client.query(
+      `UPDATE jobs SET status = $5, run_at = CASE WHEN $5 = 'PENDING'
+           THEN now() + make_interval(secs => LEAST(900,
+             5 * power(2, attempts)::integer + floor(random() * 6)::integer))
            ELSE run_at END,
-         lease_expires_at = NULL, locked_by = NULL, last_error_code = $3
-       WHERE id = $1`,
-      [job.id, terminal ? "FAILED" : "PENDING", code],
+         lease_expires_at = NULL, locked_by = NULL, claim_token = NULL, last_error_code = $4
+       WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3`,
+      [job.id, job.workerId, job.claimToken, code, terminal ? "FAILED" : "PENDING"],
     );
+    if (failed.rowCount !== 1) return null;
     const eventId = Number(job.payload.webhookEventId);
     if (terminal && Number.isSafeInteger(eventId)) {
       await client.query(
@@ -276,8 +352,51 @@ export async function failJob(job: ClaimedJob, code: ErrorCode) {
         [eventId, code],
       );
     }
+    return terminal;
   });
-  return terminal;
+}
+
+export async function failedConnectorJobs() {
+  const result = await getPool().query<{
+    id: string;
+    type: JobType;
+    attempts: number;
+    last_error_code: string | null;
+    created_at: Date;
+  }>(
+    `SELECT id, type, attempts, last_error_code, created_at FROM jobs
+     WHERE status = 'FAILED' ORDER BY created_at DESC, id DESC LIMIT 20`,
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    type: row.type,
+    attempts: row.attempts,
+    errorCode: row.last_error_code,
+    createdAt: row.created_at.toISOString(),
+  }));
+}
+
+export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
+  const jobId = typeof id === "string" && /^\d+$/.test(id) ? id : "";
+  if (!jobId) throw new AppError("CONFLICT_REVISION", 409);
+  return withTransaction(async (client) => {
+    const retried = await client.query<{ id: string }>(
+      `UPDATE jobs SET status = 'PENDING', run_at = now(), attempts = 0, completed_at = NULL,
+         last_error_code = NULL
+       WHERE id = $1 AND status = 'FAILED' RETURNING id`,
+      [jobId],
+    );
+    if (!retried.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+    await writeAudit(client, {
+      actorType: actor.type,
+      actorId: actor.id ? String(actor.id) : null,
+      action: "CONNECTOR_JOB_RETRIED",
+      eventClass: "OPERATIONAL",
+      entityType: "JOB",
+      entityId: retried.rows[0].id,
+      requestId: actor.requestId,
+    });
+  });
 }
 
 export async function ingestShopifyWebhook(input: {
@@ -318,12 +437,26 @@ export async function ingestShopifyWebhook(input: {
   });
 }
 
-export async function revokeConnection(provider: Provider) {
-  await getPool().query(
-    `UPDATE connections SET encrypted_credentials = '', status = 'REVOKED', updated_at = now()
-     WHERE provider = $1 AND environment = $2`,
-    [provider, activeEnvironment(provider)],
-  );
+export async function revokeConnection(provider: Provider, actor: ConnectorActor) {
+  await withTransaction(async (client) => {
+    const revoked = await client.query<{ id: string }>(
+      `UPDATE connections SET encrypted_credentials = '', status = 'REVOKED', updated_at = now()
+     WHERE provider = $1 AND environment = $2 RETURNING id`,
+      [provider, activeEnvironment(provider)],
+    );
+    if (revoked.rows[0]) {
+      await writeAudit(client, {
+        actorType: actor.type,
+        actorId: actor.id ? String(actor.id) : null,
+        action: "PROVIDER_REVOKED",
+        eventClass: "CRITICAL",
+        entityType: "CONNECTION",
+        entityId: revoked.rows[0].id,
+        metadata: { provider },
+        requestId: actor.requestId,
+      });
+    }
+  });
 }
 
 export async function recordShopifyDataRequest(input: {

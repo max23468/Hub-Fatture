@@ -91,9 +91,19 @@ export const customerSchema = z.object({
   lastName: optionalTextSchema,
   companyName: optionalTextSchema,
   email: optionalEmailSchema,
+  certifiedEmail: optionalEmailSchema,
   phone: optionalTextSchema,
   billingAddress: addressSchema.default({}),
+  shippingAddress: addressSchema.default({}),
   taxIdentifiers: z.array(taxIdentifierSchema).default([]),
+});
+
+const localizedFieldSchema = z.object({
+  key: z.string().trim().min(1),
+  countryCode: optionalTextSchema,
+  purpose: optionalTextSchema,
+  title: optionalTextSchema,
+  value: z.string().trim(),
 });
 
 export const orderInputSchema = z
@@ -117,6 +127,8 @@ export const orderInputSchema = z
     fulfillmentStatus: z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED"]),
     cancelledAt: postgresTimestampSchema.nullable().default(null),
     sourceReviewRequired: z.boolean().default(false),
+    localizedFields: z.array(localizedFieldSchema).default([]),
+    sourceSnapshot: z.record(z.string(), z.unknown()).default({}),
     customer: customerSchema,
     lines: z
       .array(
@@ -288,6 +300,7 @@ export function canonicalTaxIdentifiers(input: CustomerContext) {
 
 export function canonicalCustomerProfile(input: CustomerContext) {
   const address = input.customer.billingAddress;
+  const shippingAddress = input.customer.shippingAddress;
   const taxIdentifiers = canonicalTaxIdentifiers(input)
     .map((identifier) => {
       const { sourceField: _, rawValue: __, ...canonical } = identifier;
@@ -301,6 +314,7 @@ export function canonicalCustomerProfile(input: CustomerContext) {
     lastName: normalized(input.customer.lastName),
     companyName: normalized(input.customer.companyName),
     email: normalized(input.customer.email),
+    certifiedEmail: normalized(input.customer.certifiedEmail),
     phone: normalized(input.customer.phone),
     billingAddress: {
       line1: normalized(address.line1),
@@ -309,6 +323,14 @@ export function canonicalCustomerProfile(input: CustomerContext) {
       city: normalized(address.city),
       province: normalized(address.province),
       countryCode: normalized(address.countryCode),
+    },
+    shippingAddress: {
+      line1: normalized(shippingAddress.line1),
+      line2: normalized(shippingAddress.line2),
+      postalCode: normalized(shippingAddress.postalCode),
+      city: normalized(shippingAddress.city),
+      province: normalized(shippingAddress.province),
+      countryCode: normalized(shippingAddress.countryCode),
     },
     taxIdentifiers,
   };

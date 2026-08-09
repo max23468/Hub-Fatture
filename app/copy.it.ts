@@ -99,7 +99,9 @@ export const copy = {
     hubCustomerData: "Usati da Hub Fatture",
     customerType: "Tipo cliente",
     email: "E-mail",
+    certifiedEmail: "PEC",
     address: "Indirizzo",
+    shippingAddress: "Indirizzo di spedizione",
     recognizedBy: "Cliente riconosciuto tramite",
     manualCheck: "Controllo manuale",
     required: "Necessario",
@@ -206,6 +208,17 @@ export const copy = {
     never: "Mai",
     previewResult: (provider: string, count: string, review: string) =>
       `${provider}: ${count} ordini nell’anteprima; ${review} con rimborsi da controllare. Nessun ordine è stato importato.`,
+    ebayPreviewStatus: (status: string, count: number, review: number, error: string | null) =>
+      status === "COMPLETED"
+        ? `eBay: ${count} ordini nell’anteprima; ${review} con rimborsi da controllare. Nessun ordine è stato importato.`
+        : status === "FAILED"
+          ? `L’anteprima eBay non è riuscita (${error ?? "errore non disponibile"}).`
+          : "Anteprima eBay in elaborazione. Ricarica la pagina tra poco.",
+    connectionError: (code: string) => `Ultimo errore: ${code}`,
+    failedJobsTitle: "Operazioni non riuscite",
+    failedJob: (type: string, code: string | null, attempts: number) =>
+      `${type.startsWith("shopify") ? "Shopify" : "eBay"}: ${code ?? "errore non disponibile"}, ${attempts} tentativi.`,
+    retryJob: "Riprova ora",
   },
   customerEditor: {
     title: "Dati del destinatario",
@@ -316,6 +329,9 @@ export const auditActionLabels = {
   ORDER_SEPARATED: "Ordine separato dalla preparazione",
   ORDER_SOURCE_CONFLICT: "Aggiornamento dell’ordine da verificare",
   ORDER_SOURCE_UPDATED: "Ordine aggiornato dal canale di vendita",
+  PROVIDER_CONNECTED: "Canale di vendita collegato",
+  PROVIDER_REVOKED: "Canale di vendita scollegato",
+  CONNECTOR_JOB_RETRIED: "Operazione del canale riavviata",
   SHOPIFY_DATA_REQUEST_COMPLETED: "Richiesta dati Shopify gestita",
 } satisfies Record<AuditAction, string>;
 

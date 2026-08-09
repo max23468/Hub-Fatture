@@ -44,6 +44,16 @@ test("le risposte provider non affidabili usano i codici stabili", async () => {
       throw new Error("timeout");
     };
     assert.equal(await errorCode(providerJson("https://provider.invalid")), "PROVIDER_UNAVAILABLE");
+
+    globalThis.fetch = async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("stream interrotto"));
+          },
+        }),
+      );
+    assert.equal(await errorCode(providerJson("https://provider.invalid")), "PROVIDER_UNAVAILABLE");
   } finally {
     globalThis.fetch = originalFetch;
   }

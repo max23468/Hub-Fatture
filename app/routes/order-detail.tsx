@@ -44,11 +44,13 @@ export default function OrderDetail() {
   const sourceSnapshot = order.raw_snapshot_json;
   const sourceCustomer = sourceSnapshot.customer ?? {};
   const sourceAddress = sourceCustomer.billingAddress ?? {};
+  const sourceShippingAddress = sourceCustomer.shippingAddress ?? {};
   const sourceName =
     sourceCustomer.displayName ||
     sourceCustomer.companyName ||
     [sourceCustomer.firstName, sourceCustomer.lastName].filter(Boolean).join(" ");
   const sourceAddressText = address(sourceAddress);
+  const sourceShippingAddressText = address(sourceShippingAddress);
   const addressText = address(order.billing_address_json);
   const provider = order.provider === "SHOPIFY" ? "Shopify" : "eBay";
   return (
@@ -197,8 +199,16 @@ export default function OrderDetail() {
                   <dd>{sourceCustomer.email || copy.common.unavailable}</dd>
                 </div>
                 <div>
+                  <dt>{copy.orderDetail.certifiedEmail}</dt>
+                  <dd>{sourceCustomer.certifiedEmail || copy.common.unavailable}</dd>
+                </div>
+                <div>
                   <dt>{copy.orderDetail.address}</dt>
                   <dd>{sourceAddressText || copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.orderDetail.shippingAddress}</dt>
+                  <dd>{sourceShippingAddressText || copy.common.unavailable}</dd>
                 </div>
               </dl>
               <h4>{copy.orderDetail.receivedTaxData}</h4>

@@ -25,37 +25,50 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
   try {
     await runMigrations({ connectionString: database.connectionString });
     const connectors = await import("./connectors.server.ts");
-    await connectors.saveConnection({
-      provider: "SHOPIFY",
-      environment: "DEVELOPMENT",
-      accountReference: "shop.example.invalid",
-      credentials: { accessToken: "token-sintetico" },
-    });
+    const systemActor = { type: "SYSTEM" as const, requestId: "connector-test" };
+    await connectors.saveConnection(
+      {
+        provider: "SHOPIFY",
+        environment: "DEVELOPMENT",
+        accountReference: "shop.example.invalid",
+        credentials: { accessToken: "token-sintetico" },
+      },
+      systemActor,
+    );
     assert.deepEqual(
       (await connectors.loadConnection<{ accessToken: string }>("SHOPIFY")).credentials,
       { accessToken: "token-sintetico" },
     );
-    await connectors.saveConnection({
-      provider: "EBAY",
-      environment: "PRODUCTION",
-      accountReference: "produzione-sintetica",
-      credentials: { refreshToken: "token-produzione-sintetico" },
-    });
-    await connectors.saveConnection({
-      provider: "EBAY",
-      environment: "SANDBOX",
-      accountReference: "sandbox-sintetica",
-      credentials: { refreshToken: "token-sandbox-sintetico" },
-    });
+    await connectors.saveConnection(
+      {
+        provider: "EBAY",
+        environment: "PRODUCTION",
+        accountReference: "produzione-sintetica",
+        credentials: { refreshToken: "token-produzione-sintetico" },
+      },
+      systemActor,
+    );
+    await connectors.saveConnection(
+      {
+        provider: "EBAY",
+        environment: "SANDBOX",
+        accountReference: "sandbox-sintetica",
+        credentials: { refreshToken: "token-sandbox-sintetico" },
+      },
+      systemActor,
+    );
     assert.equal((await connectors.loadConnection("EBAY")).accountReference, "sandbox-sintetica");
     await connectors.markConnectionSynced("EBAY");
     await connectors.writeCursor("EBAY", "cursor-sintetico", "2026-08-01T00:00:00Z");
-    await connectors.saveConnection({
-      provider: "EBAY",
-      environment: "SANDBOX",
-      accountReference: "sandbox-sintetica",
-      credentials: { refreshToken: "token-sandbox-rinnovato" },
-    });
+    await connectors.saveConnection(
+      {
+        provider: "EBAY",
+        environment: "SANDBOX",
+        accountReference: "sandbox-sintetica",
+        credentials: { refreshToken: "token-sandbox-rinnovato" },
+      },
+      systemActor,
+    );
     assert.equal((await connectors.readCursor("EBAY")).cursor, "cursor-sintetico");
     assert.ok(
       (
@@ -64,12 +77,15 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         )
       ).rows[0].last_synced_at,
     );
-    await connectors.saveConnection({
-      provider: "EBAY",
-      environment: "SANDBOX",
-      accountReference: "sandbox-sostitutiva",
-      credentials: { refreshToken: "token-sandbox-sostitutivo" },
-    });
+    await connectors.saveConnection(
+      {
+        provider: "EBAY",
+        environment: "SANDBOX",
+        accountReference: "sandbox-sostitutiva",
+        credentials: { refreshToken: "token-sandbox-sostitutivo" },
+      },
+      systemActor,
+    );
     assert.equal((await connectors.readCursor("EBAY")).cursor, null);
     assert.equal(
       (
@@ -109,6 +125,9 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     const recovered = await connectors.claimJob("worker-2");
     assert.equal(recovered?.id, claimed.id);
     assert.equal(recovered?.attempts, 2);
+    assert.equal(await connectors.completeJob(claimed), false);
+    assert.equal(await connectors.failJob(claimed, "PROVIDER_UNAVAILABLE"), null);
+    assert.equal(await connectors.renewJobLease(recovered!), true);
     await connectors.completeJob(recovered!);
     assert.equal(
       (await getPool().query("SELECT status FROM webhook_events")).rows[0].status,
@@ -163,12 +182,22 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         .status,
       "PENDING",
     );
+    const retryDelay = Number(
+      (
+        await getPool().query(
+          "SELECT extract(epoch FROM (run_at - now())) AS seconds FROM jobs WHERE id = $1",
+          [retryableJob.id],
+        )
+      ).rows[0].seconds,
+    );
+    assert.ok(retryDelay > 5 && retryDelay <= 15);
     await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [retryableJob.id]);
     const terminalJob = await connectors.claimJob("worker-terminal");
     assert.ok(terminalJob);
     terminalJob.maxAttempts = terminalJob.attempts;
     const terminal = await connectors.failJob(terminalJob, "PROVIDER_UNAVAILABLE");
-    await connectors.markConnectionError("EBAY", "PROVIDER_UNAVAILABLE", terminal);
+    assert.equal(terminal, true);
+    await connectors.markConnectionError("EBAY", "PROVIDER_UNAVAILABLE", terminal!);
     assert.equal(
       (await getPool().query("SELECT status FROM jobs WHERE id = $1", [terminalJob.id])).rows[0]
         .status,
@@ -182,6 +211,26 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).rows[0].status,
       "ERROR",
     );
+    assert.equal((await connectors.failedConnectorJobs())[0]?.id, terminalJob.id);
+    await connectors.retryFailedJob(terminalJob.id, {
+      type: "ADMIN",
+      id: 1,
+      requestId: "manual-retry",
+    });
+    assert.equal(
+      (await getPool().query("SELECT status FROM jobs WHERE id = $1", [terminalJob.id])).rows[0]
+        .status,
+      "PENDING",
+    );
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*) FROM audit_events WHERE action = 'CONNECTOR_JOB_RETRIED' AND request_id = 'manual-retry'",
+        )
+      ).rows[0].count,
+      "1",
+    );
+    await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [terminalJob.id]);
     const jobsBeforeReschedule = (
       await getPool().query(
         "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_sync_orders'",
@@ -195,6 +244,26 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         )
       ).rows[0].total,
       jobsBeforeReschedule,
+    );
+    await getPool().query("UPDATE jobs SET status = 'COMPLETED' WHERE status = 'PENDING'");
+    await connectors.enqueueEbayPreview();
+    await connectors.enqueueEbayPreview();
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_preview_history' AND status = 'PENDING'",
+        )
+      ).rows[0].total,
+      1,
+    );
+    const previewJob = await connectors.claimJob("worker-preview");
+    assert.equal(previewJob?.type, "ebay_preview_history");
+    await connectors.completeJob(previewJob!, { count: 3, reviewRequired: 1 });
+    assert.deepEqual(
+      (({ id: _id, createdAt: _createdAt, completedAt: _completedAt, ...preview }) => preview)(
+        (await connectors.latestEbayPreview())!,
+      ),
+      { status: "COMPLETED", count: 3, reviewRequired: 1, errorCode: null },
     );
 
     const payloads = JSON.parse(
@@ -323,6 +392,19 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).duplicate,
       true,
     );
+    await connectors.revokeConnection("SHOPIFY", {
+      type: "SYSTEM",
+      requestId: "shopify-uninstalled-test",
+    });
+    const providerAudit = await getPool().query<{ action: string; request_id: string }>(
+      `SELECT action, request_id FROM audit_events
+       WHERE action IN ('PROVIDER_CONNECTED', 'PROVIDER_REVOKED') ORDER BY id`,
+    );
+    assert.equal(
+      providerAudit.rows.filter((event) => event.action === "PROVIDER_CONNECTED").length,
+      5,
+    );
+    assert.equal(providerAudit.rows.at(-1)?.request_id, "shopify-uninstalled-test");
   } finally {
     await closePool();
     await database.drop();
