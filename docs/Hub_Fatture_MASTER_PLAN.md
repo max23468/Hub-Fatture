@@ -2214,14 +2214,15 @@ La CI non esegue deploy automatici su merge. Action di terze parti vanno vincola
 
 Il required check `codex-review` riusa il contratto già collaudato in CF Ready invece di introdurre un secondo protocollo:
 
-- ogni apertura/passaggio a ready e ogni nuovo commit richiedono una sola review per l'HEAD corrente;
+- all'apertura o al passaggio da draft a ready parte la review automatica senza commenti di richiesta;
+- dopo un nuovo commit o per un retry l'agente pubblica una sola riga `@codex review` per l'HEAD corrente;
 - il gate accetta soltanto un segnale positivo del reviewer Codex legato allo stesso SHA o un verdetto pulito che dichiari esplicitamente il commit revisionato;
 - finding P0/P1 sull'HEAD corrente, inline o top-level, bloccano il merge; P2/P3 restano advisory e non impediscono il gate;
 - uno status riuscito è riusabile soltanto per lo stesso SHA; se l'HEAD cambia il gate torna pending;
 - il workflow non crea commenti di richiesta: osserva i segnali della review Codex già avviata, pubblica lo status necessario e non esegue codice della PR;
 - se usa `pull_request_target`, legge metadati con permessi minimi e può fare checkout soltanto del branch predefinito fidato; non fa checkout, build, installazione, download di artifact o esecuzione di contenuto della PR.
 
-Lo script e il suo test minimo vengono adattati dall'implementazione CF Ready mantenendo il marker per SHA, non riscritti da zero.
+Workflow, script e test sono copie locali degli artefatti canonici comuni alle repository compatibili, senza varianti specifiche per Hub Fatture.
 
 L'auto-merge Dependabot è ammesso soltanto quando tutte le condizioni seguenti sono vere:
 
@@ -2248,7 +2249,7 @@ Toolchain locale e CI:
 
 Riferimenti da riverificare allo scaffold: [Oxlint](https://oxc.rs/docs/guide/usage/linter.html), [Oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) e [Mise per Node/npm](https://mise.jdx.dev/lang/node.html).
 
-React Doctor usa due superfici con responsabilità distinte: `npm run doctor` esegue la scansione completa e blocca `npm run check` dai warning in su; l'Action ufficiale analizza le modifiche delle PR con la stessa soglia e pubblica soltanto i finding inline, senza commenti riepilogativi quando la scansione è pulita. Un falso positivo non si aggira: l'agente lo segnala nella PR, applica la soppressione nativa più stretta possibile con una motivazione verificabile, la committa e ripete il gate. Il pin npm è esatto, l'Action è fissata a commit completo e il controllo supply-chain esterno resta disabilitato perché già coperto dai gate dipendenze. Lo score è informativo e non decide l'esito.
+React Doctor usa due superfici con responsabilità distinte: `npm run doctor` esegue la scansione completa dalla dipendenza locale fissata e blocca `npm run check` dai warning in su; l'Action ufficiale usa sempre `version: latest`, analizza le modifiche delle PR con la stessa soglia e pubblica soltanto i finding inline, senza commenti riepilogativi quando la scansione è pulita. Un falso positivo non si aggira: l'agente lo segnala nella PR, applica la soppressione nativa più stretta possibile con una motivazione verificabile, la committa e ripete il gate. Il pin npm locale è esatto, l'Action è fissata a commit completo e il controllo supply-chain esterno resta disabilitato perché già coperto dai gate dipendenze. Lo score è informativo e non decide l'esito.
 
 Riferimento da riverificare allo scaffold: [configurazione React Doctor](https://www.react.doctor/docs/configuration).
 
@@ -2764,7 +2765,7 @@ Output:
 - fixture mock prive di dati reali;
 - `AGENTS.md`, `README.md` e `docs/INDEX.md` allineati allo stato reale;
 - branch protection su `main`, template PR, Dependabot e baseline sicurezza GitHub pubblica configurati; Issues, Discussions e Projects rivolti alla community disabilitati;
-- gate `codex-review` adattato da CF Ready, required e verificato su HEAD stabile, nuovo commit e finding corrente senza eseguire codice PR in contesto privilegiato;
+- gate `codex-review` canonico, required e verificato su HEAD stabile, nuovo commit e finding corrente senza eseguire codice PR in contesto privilegiato;
 - auto-merge Dependabot configurato fail-closed, senza auto-approvazione né esecuzione del codice PR nel contesto privilegiato; la prova end-to-end è differita a M8 e non blocca M1-M7;
 - release immutabili abilitate e categorie minime di `.github/release.yml` definite senza creare una release anticipata;
 - React Doctor completo bloccante nel gate locale/CI e Action ufficiale bloccante dai warning sulle modifiche delle PR;
@@ -3010,7 +3011,7 @@ Ogni task lascia un check eseguibile. Evitare scaffolding non usato: una tabella
 
 ### Fondazioni - M0/M1
 
-Repository e documenti minimi, poi il monolite React Router sulla toolchain risolta in M0, poi `mise.toml`, TypeScript strict, Oxlint e Oxfmt. Quindi Compose locale con immagini per digest, livello dati `pg` con runner di migrazioni, configurazione validata all'avvio, health check. Infine i gate: `node:test`, Playwright con Chromium, comando locale canonico, CI, protezioni GitHub e `codex-review` adattato da CF Ready. In parallelo la Brand Foundation leggera e la messa in sicurezza della key VPS come blob `age`.
+Repository e documenti minimi, poi il monolite React Router sulla toolchain risolta in M0, poi `mise.toml`, TypeScript strict, Oxlint e Oxfmt. Quindi Compose locale con immagini per digest, livello dati `pg` con runner di migrazioni, configurazione validata all'avvio, health check. Infine i gate: `node:test`, Playwright con Chromium, comando locale canonico, CI, protezioni GitHub e `codex-review` canonico. In parallelo la Brand Foundation leggera e la messa in sicurezza della key VPS come blob `age`.
 
 ### Autenticazione - M1
 
