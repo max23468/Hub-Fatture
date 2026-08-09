@@ -48,7 +48,7 @@ function validPassword(value: string): boolean {
 // Nessun codice client legge questi cookie: il server rilegge il CSRF e lo stampa nel form.
 function cookie(name: string, value: string, maxAge: number): string {
   const secure = getConfig().APP_ENV === "production" ? "; Secure" : "";
-  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; SameSite=Strict; HttpOnly${secure}`;
+  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; SameSite=Lax; HttpOnly${secure}`;
 }
 
 function cookies(request: Request): Map<string, string> {

@@ -9,6 +9,7 @@ Stato: **approvata dal titolare**.
 - Marchio canonico: [`assets/hub-fatture-mark.svg`](assets/hub-fatture-mark.svg).
 - Variante per fondi scuri: [`assets/hub-fatture-mark-on-dark.svg`](assets/hub-fatture-mark-on-dark.svg).
 - Favicon: [`assets/favicon.svg`](assets/favicon.svg).
+- Icona Shopify: [`assets/shopify-app-icon.png`](assets/shopify-app-icon.png), derivata dalla favicon canonica senza alterarne proporzioni o colori.
 
 Il marchio rappresenta due flussi in ingresso, il nodo Hub Fatture e un flusso in uscita. La relazione Shopify/eBay → Hub Fatture → Aruba è intenzionale ma non didascalica: il segno non usa lettere, frecce né marchi dei provider.
 

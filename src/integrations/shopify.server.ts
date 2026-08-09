@@ -99,8 +99,6 @@ function shopify() {
         "APP_UNINSTALLED",
         "CUSTOMERS_DATA_REQUEST",
         "CUSTOMERS_REDACT",
-        "FULFILLMENTS_CREATE",
-        "FULFILLMENTS_UPDATE",
         "ORDERS_CANCELLED",
         "ORDERS_CREATE",
         "ORDERS_PAID",
@@ -138,14 +136,6 @@ export async function completeShopifyOAuth(request: Request) {
       scope: result.session.scope ?? SHOPIFY_SCOPES.join(","),
     },
   });
-  const registration = await shopify().webhooks.register({ session: result.session });
-  if (
-    Object.values(registration)
-      .flat()
-      .some((entry) => !entry.success)
-  ) {
-    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-  }
   return result.headers;
 }
 
@@ -169,13 +159,14 @@ function mapTaxIdentifiers(order: Record<string, unknown>, customer: Record<stri
     const key = text(field.key)?.toUpperCase() ?? "";
     const purpose = text(field.purpose)?.toUpperCase() ?? "";
     const stableName = `${key}:${purpose}`;
-    if (!value || !/(TAX|VAT|FISCAL|CODICE)/.test(stableName)) continue;
+    const type = /VAT/.test(stableName)
+      ? "PARTITA_IVA"
+      : /(FISCAL|CODICE|TAX_CREDENTIAL_IT)/.test(stableName)
+        ? "CODICE_FISCALE"
+        : undefined;
+    if (!value || !type) continue;
     identifiers.push({
-      type: /VAT/.test(stableName)
-        ? "PARTITA_IVA"
-        : /(FISCAL|CODICE)/.test(stableName)
-          ? "CODICE_FISCALE"
-          : "ALTRO",
+      type,
       value,
       countryCode: text(field.countryCode),
       sourceField: `localizedFields:${key}:${purpose}`,

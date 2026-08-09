@@ -131,6 +131,20 @@ test("le fixture usano soltanto host sintetici .invalid", async () => {
 test("il proxy locale resta accessibile soltanto dal Mac", async () => {
   const compose = await readFile(path.join(root, "compose.yaml"), "utf8");
   assert.match(compose, /"127\.0\.0\.1:8080:80"/);
+  assert.match(compose, /"127\.0\.0\.1:5432:5432"/);
+});
+
+test("Shopify CLI riusa database e chiave dello stack Development", async () => {
+  const [script, manifest] = await Promise.all(
+    ["scripts/development.sh", "package.json"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
+  assert.match(script, /Hub Fatture Development Encryption/);
+  assert.match(script, /127\.0\.0\.1:5432\/hub_fatture/);
+  assert.match(script, /syncbay-dev\.myshopify\.com/);
+  assert.match(script, /shopify app dev/);
+  assert.match(manifest, /"@shopify\/cli": "4\.6\.0"/);
 });
 
 test("lo stack Development mantiene nome e riavvio stabili", async () => {
@@ -140,6 +154,28 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   assert.match(compose, /- app_node_modules:\/workspace\/node_modules/);
   assert.match(compose, /- worker_node_modules:\/workspace\/node_modules/);
   assert.match(compose, /- worker_build_server:\/workspace\/build-server/);
+});
+
+test("i webhook Shopify sono dichiarati nella configurazione dell'app", async () => {
+  const [config, connector] = await Promise.all(
+    ["shopify.app.toml", "src/integrations/shopify.server.ts"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
+  for (const topic of [
+    "app/uninstalled",
+    "customers/data_request",
+    "customers/redact",
+    "orders/cancelled",
+    "orders/create",
+    "orders/paid",
+    "orders/updated",
+    "refunds/create",
+    "shop/redact",
+  ]) {
+    assert.match(config, new RegExp(`"${topic}"`));
+  }
+  assert.doesNotMatch(connector, /webhooks\.register/);
 });
 
 test("l'applicazione accede a PostgreSQL soltanto tramite il livello dati", async () => {

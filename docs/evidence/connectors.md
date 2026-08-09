@@ -8,7 +8,7 @@
 - Query e mapper: `src/integrations/shopify.server.ts`.
 - Contract check: `npm test -- src/integrations/connectors.test.ts`.
 
-Le fixture versionate sono sintetiche e anonimizzate. Il gate sul mapping fiscale Shopify resta aperto finché la stessa query non viene eseguita su un ordine dello store Development con campi localizzati reali e la fixture non viene aggiornata con la sola forma anonimizzata osservata.
+Le fixture versionate sono sintetiche e anonimizzate. Il readback Development su SyncBay Dev ha confermato la forma reale dei campi italiani: `TAX_CREDENTIAL_IT` e `TAX_EMAIL_IT`, entrambi con `purpose: TAX` e `countryCode: IT`. Il mapper usa il primo come codice fiscale e ignora il secondo, che contiene la PEC e non è un identificativo fiscale. Nessun valore personale è stato copiato; la fixture conserva soltanto la forma osservata con dati sintetici. HF-O04 è chiuso.
 
 ## eBay
 
@@ -20,4 +20,4 @@ Le fixture versionate sono sintetiche e anonimizzate. Il gate sul mapping fiscal
 - Il keyset riusato è `botCF`. FiscalBay espone l'endpoint canonico Marketplace Account Deletion, verifica la firma e inoltra a Hub Fatture gli stessi byte e la firma originale; Hub Fatture verifica di nuovo e cancella soltanto i dati del compratore non fiscalizzati. Il tenant venditore FiscalBay non viene eliminato.
 - Contract check: `npm test -- src/integrations/connectors.test.ts`.
 
-Le fixture versionate sono sintetiche e anonimizzate. Il gate sul contratto eBay si chiude solo dopo il readback Sandbox o Production anonimizzato di tax identifier e rimborsi applicabili.
+Le fixture versionate sono sintetiche e anonimizzate. Il readback Production tramite il keyset `botCF` e i token tenant già custoditi da FiscalBay ha confermato `buyer.taxIdentifier` con tipo `CODICE_FISCALE` e due forme di `paymentSummary.refunds`: entrambe espongono `refundReferenceId` e `amount.value`/`amount.currency`, mentre `refundId` è opzionale. Nessun identificativo, importo o dato personale reale è stato copiato. La fixture e il mapper coprono entrambe le forme e mantengono l'importo cliente `AMBIGUOUS`; HF-O05 è chiuso.
