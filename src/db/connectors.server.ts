@@ -4,8 +4,9 @@ import type pg from "pg";
 
 import { getConfig } from "../config.server.ts";
 import { decryptCredential, encryptCredential } from "../crypto.server.ts";
-import { getPool, withTransaction } from "./client.server.ts";
 import { AppError, type ErrorCode } from "../errors.ts";
+import { writeAudit } from "./audit.server.ts";
+import { getPool, withTransaction } from "./client.server.ts";
 
 export type Provider = "SHOPIFY" | "EBAY";
 export type ConnectionEnvironment = "DEVELOPMENT" | "SANDBOX" | "PRODUCTION";
@@ -348,12 +349,50 @@ export async function recordShopifyDataRequest(input: {
 }
 
 export async function pendingShopifyDataRequests() {
-  const result = await getPool().query<{ external_event_id: string }>(
-    `SELECT external_event_id FROM webhook_events
+  const result = await getPool().query<{
+    external_event_id: string;
+    received_at: Date;
+    request_payload_json: { customerIds?: unknown[]; orderIds?: unknown[] };
+  }>(
+    `SELECT external_event_id, received_at, request_payload_json FROM webhook_events
      WHERE provider = 'SHOPIFY' AND topic = 'CUSTOMERS_DATA_REQUEST' AND status = 'PENDING'
      ORDER BY received_at`,
   );
-  return result.rows.map((row) => row.external_event_id);
+  return result.rows.map((row) => ({
+    externalEventId: row.external_event_id,
+    receivedAt: row.received_at.toISOString(),
+    customerIds: deletionIdentifiers(row.request_payload_json.customerIds ?? []),
+    orderIds: deletionIdentifiers(row.request_payload_json.orderIds ?? []),
+  }));
+}
+
+export async function completeShopifyDataRequest(
+  externalEventId: unknown,
+  actor: { id: number; requestId: string },
+) {
+  const eventId = typeof externalEventId === "string" ? externalEventId.trim() : "";
+  if (!eventId) throw new AppError("CONFLICT_REVISION", 409);
+  return withTransaction(async (client) => {
+    const completed = await client.query<{ id: string }>(
+      `UPDATE webhook_events
+       SET status = 'PROCESSED', processed_at = now(), lease_expires_at = NULL
+       WHERE provider = 'SHOPIFY' AND topic = 'CUSTOMERS_DATA_REQUEST'
+         AND external_event_id = $1 AND status = 'PENDING'
+       RETURNING id`,
+      [eventId],
+    );
+    if (!completed.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "SHOPIFY_DATA_REQUEST_COMPLETED",
+      eventClass: "CRITICAL",
+      entityType: "WEBHOOK_EVENT",
+      entityId: completed.rows[0].id,
+      metadata: { provider: "SHOPIFY" },
+      requestId: actor.requestId,
+    });
+  });
 }
 
 function deletionIdentifiers(values: unknown[]): string[] {

@@ -248,6 +248,31 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       customerIds: ["gid://shopify/Customer/2001"],
       orderIds: ["gid://shopify/Order/1001"],
     });
+    assert.deepEqual(
+      (await connectors.pendingShopifyDataRequests()).map(
+        ({ receivedAt: _receivedAt, ...request }) => request,
+      ),
+      [
+        {
+          externalEventId: "privacy-data-1",
+          customerIds: ["gid://shopify/Customer/2001"],
+          orderIds: ["gid://shopify/Order/1001"],
+        },
+      ],
+    );
+    await connectors.completeShopifyDataRequest("privacy-data-1", {
+      id: 1,
+      requestId: "privacy-data-completed",
+    });
+    assert.deepEqual(await connectors.pendingShopifyDataRequests(), []);
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*) FROM audit_events WHERE action = 'SHOPIFY_DATA_REQUEST_COMPLETED' AND request_id = 'privacy-data-completed'",
+        )
+      ).rows[0].count,
+      "1",
+    );
     await getPool().query(
       `UPDATE billing_cases SET status = 'APPROVED'
        WHERE id = (SELECT billing_case_id FROM orders WHERE external_order_id = $1)`,

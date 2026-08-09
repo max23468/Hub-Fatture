@@ -192,6 +192,11 @@ export const copy = {
     dataRequestsTitle: "Richieste dati Shopify",
     dataRequestsPending: (count: number) =>
       `${count} ${count === 1 ? "richiesta da gestire" : "richieste da gestire"}. Gli identificativi sono conservati nel registro privacy.`,
+    dataRequestReceived: "Ricevuta",
+    dataRequestCustomers: "Clienti richiesti",
+    dataRequestOrders: "Ordini richiesti",
+    dataRequestComplete: "Segna come gestita",
+    dataRequestCompleted: "Richiesta dati Shopify registrata come gestita.",
     connect: "Collega",
     reconnect: "Ricollega",
     preview: "Anteprima ultimi 7 giorni",
@@ -311,6 +316,7 @@ export const auditActionLabels = {
   ORDER_SEPARATED: "Ordine separato dalla preparazione",
   ORDER_SOURCE_CONFLICT: "Aggiornamento dell’ordine da verificare",
   ORDER_SOURCE_UPDATED: "Ordine aggiornato dal canale di vendita",
+  SHOPIFY_DATA_REQUEST_COMPLETED: "Richiesta dati Shopify gestita",
 } satisfies Record<AuditAction, string>;
 
 export function auditActionLabel(action: string) {
