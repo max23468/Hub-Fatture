@@ -1,4 +1,4 @@
-import { useLoaderData } from "react-router";
+import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/home";
 
 import { AppShell } from "../components/app-shell";
@@ -21,33 +21,26 @@ export function meta(_: Route.MetaArgs) {
 
 export default function Home() {
   const { username, csrfToken, summary } = useLoaderData<typeof loader>();
+  const cards = [
+    [summary.orders, copy.dashboard.importedOrders, "/ordini"],
+    [summary.ready_cases, copy.dashboard.readyPreparations, "/ordini?vista=fatturare"],
+    [summary.review_cases, copy.dashboard.reviews, "/ordini?vista=verificare"],
+    [summary.waiting_orders, copy.dashboard.waitingOrders, "/ordini?vista=attesa"],
+    [summary.pending_payments, copy.dashboard.pendingPayments, "/ordini?pagamento=PENDING"],
+  ] as const;
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
-        <p className="eyebrow">Situazione operativa</p>
-        <h1>{copy.dashboardTitle}</h1>
+        <p className="eyebrow">{copy.dashboard.eyebrow}</p>
+        <h1>{copy.dashboard.title}</h1>
       </div>
-      <section className="summary-grid" aria-label="Riepilogo ordini e fatturazione">
-        <article className="summary-card">
-          <strong>{summary.orders}</strong>
-          <span>Ordini importati</span>
-        </article>
-        <article className="summary-card">
-          <strong>{summary.ready_cases}</strong>
-          <span>Pronte da approvare</span>
-        </article>
-        <article className="summary-card">
-          <strong>{summary.review_cases}</strong>
-          <span>Da verificare</span>
-        </article>
-        <article className="summary-card">
-          <strong>{summary.waiting_orders}</strong>
-          <span>In attesa del trigger</span>
-        </article>
-        <article className="summary-card">
-          <strong>{summary.pending_payments}</strong>
-          <span>Pagamenti pendenti</span>
-        </article>
+      <section className="summary-grid" aria-label={copy.dashboard.summaryLabel}>
+        {cards.map(([value, label, to]) => (
+          <Link className="summary-card" key={label} to={to}>
+            <strong>{value}</strong>
+            <span>{label}</span>
+          </Link>
+        ))}
       </section>
     </AppShell>
   );

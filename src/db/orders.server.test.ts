@@ -1975,6 +1975,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     const history = await orders.listAuditHistory({ action: "CUSTOMER_CORRECTED" });
     assert.equal(history.rows.length, 2);
     assert.equal(history.rows[1]!.reason, "Dati fiscali confermati dal cliente");
+    assert.match(history.rows[0]!.case_number ?? "", /^\d{6}$/);
     // Un'azione fuori allowlist non deve valere "tutte".
     assert.deepEqual((await orders.listAuditHistory({ action: "NON_ESISTE" })).rows, []);
     assert.deepEqual((await orders.listAuditHistory({ query: "test\0non valido" })).rows, []);

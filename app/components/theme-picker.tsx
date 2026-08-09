@@ -1,13 +1,15 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { copy } from "../copy.it";
+
 type Theme = "system" | "light" | "dark";
 
 const storageKey = "tema";
 const choices = [
-  { value: "system", label: "Sistema", Icon: Monitor },
-  { value: "light", label: "Chiaro", Icon: Sun },
-  { value: "dark", label: "Scuro", Icon: Moon },
+  { value: "system", label: copy.theme.system, Icon: Monitor },
+  { value: "light", label: copy.theme.light, Icon: Sun },
+  { value: "dark", label: copy.theme.dark, Icon: Moon },
 ] as const;
 
 function isTheme(value: string | null): value is Theme {
@@ -37,7 +39,7 @@ export function ThemePicker() {
 
   return (
     <fieldset className="theme-picker">
-      <legend>Tema</legend>
+      <legend>{copy.theme.label}</legend>
       <div className="theme-picker__options">
         {choices.map(({ value, label, Icon }) => (
           <button

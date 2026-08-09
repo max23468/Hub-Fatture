@@ -38,38 +38,35 @@ export default function Settings() {
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
-        <p className="eyebrow">Configurazione</p>
-        <h1>{copy.settingsTitle}</h1>
-        <p>Le impostazioni valgono per Shopify ed eBay insieme.</p>
+        <p className="eyebrow">{copy.settings.eyebrow}</p>
+        <h1>{copy.settings.title}</h1>
+        <p>{copy.settings.intro}</p>
       </div>
       {saved ? (
         <p className="notice" role="status">
-          Trigger aggiornato. Gli ordini ancora senza preparazione sono stati rivalutati.
+          {copy.settings.saved}
         </p>
       ) : null}
       <section className="card">
-        <h2>Preparazione della bozza</h2>
-        <p>
-          Il cambio vale per gli ordini non ancora raggruppati. Le preparazioni già create non
-          vengono ricreate, sciolte o riaperte.
-        </p>
+        <h2>{copy.settings.preparationTitle}</h2>
+        <p>{copy.settings.preparationHelp}</p>
         <Form method="post" className="inline-form">
           <input type="hidden" name="csrf" value={csrfToken} />
           <input type="hidden" name="version" value={trigger.version} />
           <label>
-            Prepara la fattura
+            {copy.settings.preparationLabel}
             <select
               aria-describedby={error ? "trigger-error" : undefined}
               aria-invalid={error ? true : undefined}
               defaultValue={trigger.value}
               name="trigger"
             >
-              <option value="PAID">Alla conferma del pagamento</option>
-              <option value="FULFILLED">Alla completa evasione</option>
+              <option value="PAID">{copy.settings.onPaid}</option>
+              <option value="FULFILLED">{copy.settings.onFulfilled}</option>
             </select>
           </label>
           <button className="button" type="submit">
-            Salva trigger
+            {copy.settings.save}
           </button>
         </Form>
         {error ? (
@@ -79,10 +76,8 @@ export default function Settings() {
         ) : null}
       </section>
       <section className="card section-gap">
-        <h2>Fuso orario</h2>
-        <p>
-          La data ordine usata dal raggruppamento giornaliero è sempre <code>Europe/Rome</code>.
-        </p>
+        <h2>{copy.settings.timeTitle}</h2>
+        <p>{copy.settings.timeHelp}</p>
       </section>
     </AppShell>
   );

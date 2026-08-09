@@ -46,11 +46,11 @@ export function ErrorBoundary() {
     <main className="auth-shell">
       <BrandLockup />
       <section className="card" aria-labelledby="error-title">
-        <p className="eyebrow">Errore</p>
-        <h1 id="error-title">{notFound ? copy.errorNotFound : copy.errorUnexpected}</h1>
-        <p>{copy.errorAction}</p>
+        <p className="eyebrow">{copy.error.eyebrow}</p>
+        <h1 id="error-title">{notFound ? copy.error.notFound : copy.error.unexpected}</h1>
+        <p>{copy.error.action}</p>
         <a className="button" href="/">
-          {copy.errorHome}
+          {copy.error.home}
         </a>
       </section>
     </main>

@@ -33,11 +33,11 @@ export default function Login() {
     <main className="auth-shell">
       <BrandLockup />
       <section className="card" aria-labelledby="login-title">
-        <p className="eyebrow">Accesso amministratore</p>
-        <h1 id="login-title">{copy.loginTitle}</h1>
+        <p className="eyebrow">{copy.login.eyebrow}</p>
+        <h1 id="login-title">{copy.login.title}</h1>
         <Form method="post">
           <label>
-            Username
+            {copy.login.username}
             <input
               name="username"
               autoComplete="username"
@@ -48,7 +48,7 @@ export default function Login() {
             />
           </label>
           <label>
-            Password
+            {copy.login.password}
             <input name="password" type="password" autoComplete="current-password" required />
           </label>
           {error ? (
@@ -57,7 +57,7 @@ export default function Login() {
             </p>
           ) : null}
           <button className="button" type="submit">
-            Accedi
+            {copy.login.submit}
           </button>
         </Form>
       </section>

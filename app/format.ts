@@ -8,6 +8,9 @@ const dateTimeFormatter = new Intl.DateTimeFormat("it-IT", {
   timeStyle: "short",
   timeZone: "Europe/Rome",
 });
+const regionFormatter = new Intl.DisplayNames("it", { type: "region" });
+
+type Address = Record<string, string | undefined>;
 
 export function euros(cents: number | string): string {
   return euroFormatter.format(Number(cents) / 100);
@@ -19,4 +22,19 @@ export function date(value: string): string {
 
 export function dateTime(value: string): string {
   return dateTimeFormatter.format(new Date(value));
+}
+
+export function address(value: Address): string {
+  const country = value.countryCode
+    ? (regionFormatter.of(value.countryCode.toUpperCase()) ?? value.countryCode)
+    : undefined;
+  return [
+    value.line1,
+    value.line2,
+    [value.postalCode, value.city].filter(Boolean).join(" "),
+    value.province,
+    country,
+  ]
+    .filter(Boolean)
+    .join(", ");
 }

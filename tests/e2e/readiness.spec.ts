@@ -1,9 +1,15 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import pg from "pg";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
   "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
+
+async function expectPlainLanguage(page: Page) {
+  await expect(page.locator("body")).not.toContainText(
+    /\b(?:trigger|fixture|sandbox)\b|sorgente|normalizzat/i,
+  );
+}
 
 // Lo schema viene azzerato all'avvio del server, i dati a ogni worker: un retry riparte
 // da database vuoto invece di trovare gli account già creati e saltare il flusso di setup.
@@ -25,23 +31,29 @@ test.beforeAll(async () => {
 test.describe.configure({ mode: "serial" });
 
 test("configura i due account e accede con entrambi", async ({ page }) => {
+  test.setTimeout(60_000);
   await page.goto("/setup");
-  await page.getByLabel("Token di configurazione").fill("synthetic-bootstrap-token-for-tests");
+  await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
   await page.getByLabel("Password per matteo").fill("password-matteo");
   await page.getByLabel("Password per codex").fill("password-codex");
   await page.getByRole("button", { name: "Crea gli account" }).click();
 
-  await page.getByLabel("Username").fill("matteo");
+  await page.getByLabel("Nome utente").fill("matteo");
   await page.getByLabel("Password").fill("password-matteo");
   await page.getByRole("button", { name: "Accedi" }).click();
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByText("Ordini importati")).toBeVisible();
+  await expect(page.locator(".summary-card")).toHaveCount(5);
+  const skipLink = page.getByRole("link", { name: "Vai al contenuto principale" });
+  await skipLink.focus();
+  await expect(skipLink).toBeVisible();
+  await expectPlainLanguage(page);
 
   const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const lightBackground = await background();
 
-  await page.getByLabel("Apri il menu del profilo").click();
+  await page.getByLabel("Apri il menu di matteo").click();
   await page.getByRole("button", { name: "Scuro" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   // I token risolvono con `light-dark()`: l'attributo da solo non prova che il tema cambi.
@@ -50,8 +62,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   expect(await background()).not.toBe(lightBackground);
-  await page.getByLabel("Apri il menu del profilo").click();
-  await expect(page.getByText("matteo", { exact: true })).toBeVisible();
+  await page.getByLabel("Apri il menu di matteo").click();
+  await expect(page.locator(".profile-menu__identity")).toHaveText("matteo");
   await page.getByRole("button", { name: "Esci" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.goto("/");
@@ -59,16 +71,24 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.goto("/setup");
   await expect(page).toHaveURL(/\/login$/);
 
-  await page.getByLabel("Username").fill("codex");
+  await page.getByLabel("Nome utente").fill("codex");
   await page.getByLabel("Password").fill("password-codex");
   await page.getByRole("button", { name: "Accedi" }).click();
-  await page.getByLabel("Apri il menu del profilo").click();
-  await expect(page.getByText("codex", { exact: true })).toBeVisible();
+  await page.getByLabel("Apri il menu di codex").click();
+  await expect(page.locator(".profile-menu__identity")).toHaveText("codex");
 
-  await page.getByRole("link", { name: "Ordini" }).click();
-  await page.getByRole("button", { name: "Importa dati sintetici" }).click();
-  await expect(page.getByRole("status")).toContainText("3 nuovi ordini, 0 aggiornati");
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
+  await page.getByRole("button", { name: "Carica ordini di esempio" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Ordini di esempio caricati. Nuovi: 3; aggiornati: 0; meno recenti ignorati: 0.",
+  );
+  await expectPlainLanguage(page);
   await expect(page.getByRole("row")).toHaveCount(4);
+  const controlHeights = await page
+    .getByRole("search", { name: "Filtra gli ordini" })
+    .locator("input, select, button")
+    .evaluateAll((controls) => controls.map((control) => control.getBoundingClientRect().height));
+  expect([...new Set(controlHeights)]).toEqual([44]);
   await expect(page.getByRole("navigation", { name: "Navigazione principale" })).not.toContainText(
     "Schede",
   );
@@ -80,17 +100,18 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "Da fatturare" }).click();
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByRole("cell", { name: "2", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: /^\d{6}$/ }).click();
+  await page.getByRole("link", { name: /^Apri preparazione fattura \d{6}$/ }).click();
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
+  await expectPlainLanguage(page);
   await expect(page.getByText("Preparazione fattura creata")).toBeVisible();
   await expect(page.getByText("BILLING_CASE_CREATED")).toHaveCount(0);
-  await page.getByLabel("Motivo", { exact: true }).fill("Ordine di test");
+  await page.getByLabel(/^Motivo della scelta/).fill("Ordine di test");
   await page.getByRole("button", { name: "Non trasmettere" }).click();
   await expect(page.getByRole("status")).toContainText("Ordine di test");
   const archivedPreparation = await page
     .getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })
     .textContent();
-  await page.getByRole("link", { name: "Ordini" }).click();
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "Annullati" }).click();
   await expect(page.getByRole("heading", { name: "Preparazioni non trasmesse" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Da non trasmettere", exact: true })).toBeVisible();
@@ -99,9 +120,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await archivedOrderFilters.getByRole("button", { name: "Filtra" }).click();
   await expect(page.getByRole("cell", { name: "Da non trasmettere", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Nessun ordine annullato" })).toBeVisible();
-  await page
-    .getByRole("link", { name: archivedPreparation!.replace("Preparazione fattura ", "") })
-    .click();
+  await page.getByRole("link", { name: `Apri ${archivedPreparation}` }).click();
   await page.getByRole("button", { name: "Riattiva preparazione" }).click();
   await expect(page.getByRole("button", { name: "Non trasmettere" })).toBeVisible();
 
@@ -115,35 +134,48 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await page.getByRole("link", { name: /^Shopify/ }).click();
   await expect(page.getByText("Pagato", { exact: true })).toBeVisible();
-  await expect(page.getByText("Evaso", { exact: true })).toBeVisible();
-  await expect(page.getByText("In preparazione", { exact: true })).toBeVisible();
+  await expect(page.getByText("Spedito", { exact: true })).toBeVisible();
+  await expect(page.getByText("Fattura in preparazione", { exact: true })).toBeVisible();
+  await expectPlainLanguage(page);
   await expect(page.getByText("PRIVATE_IT")).toHaveCount(0);
+  await expect(page.locator(".detail-stack > .card")).toHaveCount(2);
+  await expect(
+    page.locator(".detail-subsection").getByRole("heading", { name: "Pagamenti" }),
+  ).toBeVisible();
+  await expect(page.locator(".customer-comparison__section")).toHaveCount(2);
 
-  await page.getByRole("link", { name: "Ordini" }).click();
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "In attesa" }).click();
   await page.getByRole("link", { name: /#S-1002/ }).click();
-  await page.getByRole("button", { name: "Prepara ora" }).click();
+  await page.getByRole("button", { name: "Prepara la fattura ora" }).click();
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione anticipata richiesta")).toBeVisible();
 
   await page.getByRole("link", { name: "Impostazioni" }).click();
   await page.getByLabel("Prepara la fattura").selectOption("FULFILLED");
-  await page.getByRole("button", { name: "Salva trigger" }).click();
-  await expect(page.getByRole("status")).toContainText("Trigger aggiornato");
+  await page.getByRole("button", { name: "Salva impostazione" }).click();
+  await expect(page.getByRole("status")).toContainText("Impostazione aggiornata");
+  await expectPlainLanguage(page);
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "Da verificare" }).click();
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByRole("cell", { name: "Da verificare", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: /^\d{6}$/ }).click();
+  await page.getByRole("link", { name: /^Apri preparazione fattura \d{6}$/ }).click();
 
-  // L'anomalia dichiara il fatto osservato, non una frase generica.
-  await expect(page.getByRole("heading", { name: "Anomalie da risolvere" })).toBeVisible();
+  // Il controllo dichiara il fatto osservato, non una frase generica.
+  await expect(page.getByRole("heading", { name: "Cose da controllare" })).toBeVisible();
   await expect(page.getByText("Pagamento non ancora acquisito")).toBeVisible();
+  await expect(page.getByRole("status")).toContainText(
+    "controlla i dati indicati come incompleti o modificati",
+  );
 
-  // Correzione anagrafica: si chiude dall'applicazione, senza toccare la sorgente.
+  // La correzione dei dati cliente si chiude direttamente dall'applicazione.
   await page.getByLabel("Cognome").fill("Rossi Verificato");
+  await expect(page.getByRole("group", { name: "Cliente" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Indirizzo di fatturazione" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Dati fiscali" })).toBeVisible();
   await page.getByLabel("Motivo della correzione").fill("Dati confermati dal cliente");
-  await page.getByRole("button", { name: "Salva anagrafica" }).click();
+  await page.getByRole("button", { name: "Salva dati cliente" }).click();
   await expect(page.getByText("Anagrafica cliente corretta")).toBeVisible();
   await expect(page.getByText(/^Corretta il /)).toBeVisible();
 
@@ -156,6 +188,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByRole("cell", { name: "Anagrafica cliente corretta" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "codex", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 720 });
   await page.getByRole("link", { name: "Ordini", exact: true }).click();

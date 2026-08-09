@@ -36,7 +36,7 @@
     "lines": [
       {
         "externalLineId": "shop-line-1001",
-        "description": "Oggetto sintetico A",
+        "description": "Orologio usato",
         "quantity": 1,
         "grossAmount": "122.00",
         "discountAmount": "0.00"
@@ -45,7 +45,7 @@
     "payments": [
       {
         "externalPaymentId": "shop-payment-1001",
-        "method": "Carta di prova",
+        "method": "Carta di pagamento",
         "status": "PAID",
         "amount": "122.00",
         "paidAt": "2026-08-07T09:00:00Z"
@@ -89,7 +89,7 @@
     "lines": [
       {
         "externalLineId": "ebay-line-2001",
-        "description": "Oggetto sintetico B",
+        "description": "Giacca vintage",
         "quantity": 1,
         "grossAmount": "75.00",
         "discountAmount": "0.00"
@@ -98,7 +98,7 @@
     "payments": [
       {
         "externalPaymentId": "ebay-payment-2001",
-        "method": "Pagamento sandbox",
+        "method": "Pagamento eBay",
         "status": "PAID",
         "amount": "75.00",
         "paidAt": "2026-08-07T17:10:00Z"
@@ -123,7 +123,7 @@
       "displayName": "Cliente da verificare",
       "email": "verifica@example.invalid",
       "billingAddress": {
-        "line1": "Via Sintetica 2",
+        "line1": "Via Esempio 2",
         "postalCode": "00100",
         "city": "Roma",
         "province": "RM",
@@ -134,7 +134,7 @@
     "lines": [
       {
         "externalLineId": "shop-line-1002",
-        "description": "Oggetto sintetico C",
+        "description": "Lampada d’epoca",
         "quantity": 1,
         "grossAmount": "49.90",
         "discountAmount": "0.00"
@@ -143,7 +143,7 @@
     "payments": [
       {
         "externalPaymentId": "shop-payment-1002",
-        "method": "Bonifico di prova",
+        "method": "Bonifico bancario",
         "status": "PENDING",
         "amount": "49.90",
         "paidAt": null

@@ -80,4 +80,6 @@ Le azioni fiscali irreversibili usano una pagina di conferma dedicata con conseg
 
 Il testo è diretto e impersonale. Mostra prima il fatto osservato, poi la conseguenza e infine l’azione disponibile. Non usa saluti decorativi né dichiara conformità, trasmissione o successo senza readback autorevole.
 
+Il frontend usa parole legate al lavoro del commerciante: `ordini di esempio`, `canale di vendita`, `dati ricevuti` e `quando preparare le fatture`. Termini interni come `fixture`, `trigger`, `provider`, `sorgente`, `normalizzato` e `sandbox` restano nel codice e nella documentazione tecnica.
+
 Il marchio identifica l’app e non è un indicatore di stato. Non va deformato, ricolorato per errori o successi, oppure combinato con i marchi Shopify, eBay o Aruba. La variante chiara si usa soltanto su fondi scuri; la favicon usa il contenitore dedicato.

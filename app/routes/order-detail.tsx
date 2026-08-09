@@ -6,12 +6,13 @@ import { AppShell } from "../components/app-shell";
 import {
   customerKindLabels,
   customerMatchLabels,
+  copy,
   fulfillmentStatusLabels,
   orderStatusLabels,
   paymentStatusLabels,
   taxIdentifierLabels,
 } from "../copy.it";
-import { date, dateTime, euros } from "../format";
+import { address, date, dateTime, euros } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
 import { forcePrepareOrder, getOrder } from "../../src/db/orders.server.ts";
@@ -47,30 +48,14 @@ export default function OrderDetail() {
     sourceCustomer.displayName ||
     sourceCustomer.companyName ||
     [sourceCustomer.firstName, sourceCustomer.lastName].filter(Boolean).join(" ");
-  const sourceAddressText = [
-    sourceAddress.line1,
-    sourceAddress.line2,
-    [sourceAddress.postalCode, sourceAddress.city].filter(Boolean).join(" "),
-    sourceAddress.province,
-    sourceAddress.countryCode,
-  ]
-    .filter(Boolean)
-    .join(", ");
-  const address = order.billing_address_json;
-  const addressText = [
-    address.line1,
-    address.line2,
-    [address.postalCode, address.city].filter(Boolean).join(" "),
-    address.province,
-    address.countryCode,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const sourceAddressText = address(sourceAddress);
+  const addressText = address(order.billing_address_json);
+  const provider = order.provider === "SHOPIFY" ? "Shopify" : "eBay";
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
-        <p className="eyebrow">{order.provider === "SHOPIFY" ? "Shopify" : "eBay"}</p>
-        <h1>Ordine {order.display_number}</h1>
+        <p className="eyebrow">{provider}</p>
+        <h1>{copy.orderDetail.order(order.display_number)}</h1>
         <p>
           {order.customer_name} · {date(order.local_order_date)} · {euros(order.gross_amount)}
         </p>
@@ -80,33 +65,36 @@ export default function OrderDetail() {
           {error.message}
         </p>
       ) : null}
-      <div className="detail-grid">
+      <div className="detail-stack">
         <section className="card">
-          <h2>Stato sorgente</h2>
-          <dl className="facts">
+          <h2>{copy.orderDetail.orderStatus}</h2>
+          <dl className="facts facts--columns">
             <div>
-              <dt>Pagamento</dt>
-              <dd>{paymentStatusLabels[order.payment_status] ?? "Stato non riconosciuto"}</dd>
+              <dt>{copy.orderDetail.payment}</dt>
+              <dd>{paymentStatusLabels[order.payment_status] ?? copy.common.unknownStatus}</dd>
             </div>
             <div>
-              <dt>Evasione</dt>
+              <dt>{copy.orderDetail.shipping}</dt>
               <dd>
-                {fulfillmentStatusLabels[order.fulfillment_status] ?? "Stato non riconosciuto"}
+                {fulfillmentStatusLabels[order.fulfillment_status] ?? copy.common.unknownStatus}
               </dd>
             </div>
             <div>
-              <dt>Trigger</dt>
-              <dd>{orderStatusLabels[order.trigger_status] ?? "Stato non riconosciuto"}</dd>
+              <dt>{copy.orderDetail.invoicing}</dt>
+              <dd>{orderStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}</dd>
             </div>
             <div>
-              <dt>Preparazione fattura</dt>
+              <dt>{copy.orderDetail.preparation}</dt>
               <dd>
                 {order.billing_case_id ? (
-                  <Link to={`/ordini/preparazione/${order.billing_case_id}`}>
+                  <Link
+                    aria-label={copy.orders.openPreparation(order.case_number!)}
+                    to={`/ordini/preparazione/${order.billing_case_id}`}
+                  >
                     {order.case_number}
                   </Link>
                 ) : (
-                  "Non avviata"
+                  copy.orderDetail.notStarted
                 )}
               </dd>
             </div>
@@ -116,148 +104,156 @@ export default function OrderDetail() {
             <Form method="post" className="section-gap">
               <input type="hidden" name="csrf" value={csrfToken} />
               <button className="button" type="submit">
-                Prepara ora
+                {copy.orderDetail.prepareNow}
               </button>
             </Form>
           ) : null}
+          <div className="detail-subsection">
+            <h3>{copy.orderDetail.payments}</h3>
+            {order.payments.length ? (
+              <ul className="plain-list">
+                {order.payments.map((payment) => (
+                  <li key={payment.id}>
+                    <span>
+                      {payment.method} ·{" "}
+                      {paymentStatusLabels[payment.status] ?? copy.common.unknownStatus}
+                      {payment.recorded_manually ? ` · ${copy.orderDetail.manuallyRecorded}` : ""}
+                    </span>
+                    <span>
+                      {euros(payment.amount)}
+                      {payment.paid_at ? ` · ${dateTime(payment.paid_at)}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>{copy.orderDetail.noPayments}</p>
+            )}
+          </div>
         </section>
         <section className="card">
-          <h2>Cliente normalizzato</h2>
-          <dl className="facts">
-            <div>
-              <dt>Tipo</dt>
-              <dd>{customerKindLabels[order.customer_kind] ?? "Tipo non riconosciuto"}</dd>
+          <h2>{copy.orderDetail.customerData}</h2>
+          <div className="customer-comparison">
+            <div className="customer-comparison__section">
+              <h3>{copy.orderDetail.hubCustomerData}</h3>
+              <dl className="facts">
+                <div>
+                  <dt>{copy.orderDetail.customerType}</dt>
+                  <dd>{customerKindLabels[order.customer_kind] ?? copy.common.unknownType}</dd>
+                </div>
+                <div>
+                  <dt>{copy.orderDetail.email}</dt>
+                  <dd>{order.customer_email ?? copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.orderDetail.address}</dt>
+                  <dd>{addressText || copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.orderDetail.recognizedBy}</dt>
+                  <dd>
+                    {customerMatchLabels[order.source_confidence] ?? copy.common.unknownStatus}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{copy.orderDetail.manualCheck}</dt>
+                  <dd>
+                    {order.review_required
+                      ? copy.orderDetail.required
+                      : copy.orderDetail.notRequired}
+                  </dd>
+                </div>
+              </dl>
+              <h4>{copy.orderDetail.taxData}</h4>
+              {order.taxIdentifiers.length ? (
+                <ul>
+                  {order.taxIdentifiers.map((identifier) => (
+                    <li key={identifier.id}>
+                      {taxIdentifierLabels[identifier.type] ?? copy.orderDetail.taxData}
+                      {identifier.country_code ? ` (${identifier.country_code})` : ""}:{" "}
+                      {identifier.raw_value}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>{copy.common.unavailablePlural}.</p>
+              )}
             </div>
-            <div>
-              <dt>E-mail</dt>
-              <dd>{order.customer_email ?? "Non disponibile"}</dd>
+            <div className="customer-comparison__section">
+              <h3>{copy.orderDetail.receivedCustomerData(provider)}</h3>
+              <dl className="facts">
+                <div>
+                  <dt>{copy.orderDetail.customerType}</dt>
+                  <dd>
+                    {customerKindLabels[sourceCustomer.kind ?? ""] ?? copy.common.unknownType}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{copy.orderDetail.name}</dt>
+                  <dd>{sourceName || copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.orderDetail.email}</dt>
+                  <dd>{sourceCustomer.email || copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.orderDetail.address}</dt>
+                  <dd>{sourceAddressText || copy.common.unavailable}</dd>
+                </div>
+              </dl>
+              <h4>{copy.orderDetail.receivedTaxData}</h4>
+              {sourceCustomer.taxIdentifiers?.length ? (
+                <ul>
+                  {sourceCustomer.taxIdentifiers.map((identifier) => (
+                    <li key={`${identifier.sourceField ?? "origine"}:${identifier.value ?? ""}`}>
+                      {taxIdentifierLabels[identifier.type ?? ""] ?? copy.orderDetail.taxData}:{" "}
+                      {identifier.value}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>{copy.common.unavailablePlural}.</p>
+              )}
             </div>
-            <div>
-              <dt>Indirizzo</dt>
-              <dd>{addressText || "Non disponibile"}</dd>
-            </div>
-            <div>
-              <dt>Corrispondenza</dt>
-              <dd>
-                {customerMatchLabels[order.source_confidence] ?? "Corrispondenza non riconosciuta"}
-              </dd>
-            </div>
-            <div>
-              <dt>Verifica</dt>
-              <dd>{order.review_required ? "Richiesta" : "Non richiesta"}</dd>
-            </div>
-          </dl>
+          </div>
           {order.possibleMatches.length ? (
             <div className="notice section-gap">
-              <strong>Possibile corrispondenza, non accorpata</strong>
-              <p>
-                L’identità non è certa: gli ordini restano in preparazioni separate. Correggi
-                l’anagrafica della preparazione se si tratta davvero dello stesso cliente.
-              </p>
+              <strong>{copy.orderDetail.possibleMatchTitle}</strong>
+              <p>{copy.orderDetail.possibleMatchHelp}</p>
               <ul>
                 {order.possibleMatches.map((candidate) => (
                   <li key={candidate.id}>
                     {candidate.display_name}
                     {candidate.email ? ` · ${candidate.email}` : ""}
                     {candidate.tax_id_normalized
-                      ? ` · ${taxIdentifierLabels[candidate.tax_id_type ?? ""] ?? "Identificativo"} ${candidate.tax_id_normalized}`
+                      ? ` · ${taxIdentifierLabels[candidate.tax_id_type ?? ""] ?? copy.orderDetail.taxIdentifier} ${candidate.tax_id_normalized}`
                       : ""}
                   </li>
                 ))}
               </ul>
             </div>
           ) : null}
-          <h3>Identificativi fiscali</h3>
-          {order.taxIdentifiers.length ? (
-            <ul>
-              {order.taxIdentifiers.map((identifier) => (
-                <li key={identifier.id}>
-                  {taxIdentifierLabels[identifier.type] ?? "Identificativo"}
-                  {identifier.country_code ? ` (${identifier.country_code})` : ""}:{" "}
-                  {identifier.raw_value}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>Non disponibili.</p>
-          )}
-        </section>
-        <section className="card">
-          <h2>Cliente dalla sorgente</h2>
-          <dl className="facts">
-            <div>
-              <dt>Tipo</dt>
-              <dd>{customerKindLabels[sourceCustomer.kind ?? ""] ?? "Tipo non riconosciuto"}</dd>
-            </div>
-            <div>
-              <dt>Nome</dt>
-              <dd>{sourceName || "Non disponibile"}</dd>
-            </div>
-            <div>
-              <dt>E-mail</dt>
-              <dd>{sourceCustomer.email || "Non disponibile"}</dd>
-            </div>
-            <div>
-              <dt>Indirizzo</dt>
-              <dd>{sourceAddressText || "Non disponibile"}</dd>
-            </div>
-          </dl>
-          <h3>Identificativi fiscali originali</h3>
-          {sourceCustomer.taxIdentifiers?.length ? (
-            <ul>
-              {sourceCustomer.taxIdentifiers.map((identifier) => (
-                <li key={`${identifier.sourceField ?? "sorgente"}:${identifier.value ?? ""}`}>
-                  {taxIdentifierLabels[identifier.type ?? ""] ?? "Identificativo"}:{" "}
-                  {identifier.value}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>Non disponibili.</p>
-          )}
-        </section>
-        <section className="card">
-          <h2>Pagamenti</h2>
-          {order.payments.length ? (
-            <ul className="plain-list">
-              {order.payments.map((payment) => (
-                <li key={payment.id}>
-                  <span>
-                    {payment.method} ·{" "}
-                    {paymentStatusLabels[payment.status] ?? "Stato non riconosciuto"}
-                    {payment.recorded_manually ? " · registrato manualmente" : ""}
-                  </span>
-                  <span>
-                    {euros(payment.amount)}
-                    {payment.paid_at ? ` · ${dateTime(payment.paid_at)}` : ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>Nessun pagamento registrato.</p>
-          )}
         </section>
       </div>
       <section className="card section-gap">
-        <h2>Righe sorgente</h2>
+        <h2>{copy.orderDetail.purchasedItems}</h2>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Descrizione</th>
-                <th>Quantità</th>
-                <th>Importo</th>
-                <th>Sconto</th>
+                <th>{copy.orderDetail.description}</th>
+                <th>{copy.orderDetail.quantity}</th>
+                <th>{copy.orderDetail.amount}</th>
+                <th>{copy.orderDetail.discount}</th>
               </tr>
             </thead>
             <tbody>
               {order.lines.map((line) => (
                 <tr key={line.id}>
-                  <td data-label="Descrizione">{line.description}</td>
-                  <td data-label="Quantità">{line.quantity}</td>
-                  <td data-label="Importo">{euros(line.gross_amount)}</td>
-                  <td data-label="Sconto">{euros(line.discount_amount)}</td>
+                  <td data-label={copy.orderDetail.description}>{line.description}</td>
+                  <td data-label={copy.orderDetail.quantity}>{line.quantity}</td>
+                  <td data-label={copy.orderDetail.amount}>{euros(line.gross_amount)}</td>
+                  <td data-label={copy.orderDetail.discount}>{euros(line.discount_amount)}</td>
                 </tr>
               ))}
             </tbody>

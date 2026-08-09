@@ -32,15 +32,15 @@ export default function Setup() {
     <main className="auth-shell">
       <BrandLockup />
       <section className="card wide" aria-labelledby="setup-title">
-        <p className="eyebrow">Prima configurazione</p>
-        <h1 id="setup-title">{copy.setupTitle}</h1>
+        <p className="eyebrow">{copy.setup.eyebrow}</p>
+        <h1 id="setup-title">{copy.setup.title}</h1>
         <Form method="post">
           <label>
-            Token di configurazione
+            {copy.setup.code}
             <input name="bootstrapToken" type="password" required />
           </label>
           <label>
-            Password per {OWNER_USERNAME} (minimo 8 caratteri)
+            {copy.setup.passwordFor(OWNER_USERNAME)}
             <input
               name="ownerPassword"
               type="password"
@@ -51,7 +51,7 @@ export default function Setup() {
             />
           </label>
           <label>
-            Password per {AGENT_USERNAME} (minimo 8 caratteri)
+            {copy.setup.passwordFor(AGENT_USERNAME)}
             <input
               name="agentPassword"
               type="password"
@@ -67,7 +67,7 @@ export default function Setup() {
             </p>
           ) : null}
           <button className="button" type="submit">
-            Crea gli account
+            {copy.setup.submit}
           </button>
         </Form>
       </section>
