@@ -135,11 +135,16 @@ test("il proxy locale resta accessibile soltanto dal Mac", async () => {
 });
 
 test("Shopify CLI riusa database e chiave dello stack Development", async () => {
-  const script = await readFile(path.join(root, "scripts/development.sh"), "utf8");
+  const [script, manifest] = await Promise.all(
+    ["scripts/development.sh", "package.json"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
   assert.match(script, /Hub Fatture Development Encryption/);
   assert.match(script, /127\.0\.0\.1:5432\/hub_fatture/);
   assert.match(script, /syncbay-dev\.myshopify\.com/);
   assert.match(script, /shopify app dev/);
+  assert.match(manifest, /"@shopify\/cli": "4\.6\.0"/);
 });
 
 test("lo stack Development mantiene nome e riavvio stabili", async () => {
