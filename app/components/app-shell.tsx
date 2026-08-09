@@ -1,4 +1,11 @@
-import { LayoutDashboard, LogOut, ShoppingBag, UserRound } from "lucide-react";
+import {
+  ClipboardList,
+  LayoutDashboard,
+  LogOut,
+  Settings,
+  ShoppingBag,
+  UserRound,
+} from "lucide-react";
 import { Form, NavLink } from "react-router";
 
 import { copy } from "../copy.it";
@@ -8,6 +15,8 @@ import { ThemePicker } from "./theme-picker";
 const links = [
   { to: "/", label: copy.dashboardTitle, icon: LayoutDashboard, end: true },
   { to: "/ordini", label: copy.ordersTitle, icon: ShoppingBag, end: false },
+  { to: "/attivita", label: copy.activityTitle, icon: ClipboardList, end: false },
+  { to: "/impostazioni", label: copy.settingsTitle, icon: Settings, end: false },
 ];
 
 export function AppShell({

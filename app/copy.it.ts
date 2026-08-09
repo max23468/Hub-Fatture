@@ -2,6 +2,8 @@ export const copy = {
   appName: "Hub Fatture",
   dashboardTitle: "Dashboard",
   ordersTitle: "Ordini",
+  activityTitle: "Attività",
+  settingsTitle: "Impostazioni",
   loginTitle: "Accedi",
   setupTitle: "Configura gli accessi",
   logout: "Esci",
@@ -54,16 +56,58 @@ export const taxIdentifierLabels: Record<string, string> = {
 };
 
 export const auditActionLabels: Record<string, string> = {
+  ADMIN_ACCOUNT_CREATED: "Account amministrativo creato",
   BILLING_CASE_CREATED: "Preparazione fattura creata",
-  ORDER_GROUPED: "Ordine aggiunto alla preparazione",
-  ORDER_GROUPING_FORCED: "Preparazione anticipata richiesta",
-  ORDER_SOURCE_CONFLICT: "Modifica dei dati sorgente da verificare",
   BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
   BILLING_CASE_REACTIVATED: "Preparazione riattivata",
+  CUSTOMER_CORRECTED: "Anagrafica cliente corretta",
+  DRAFT_TRIGGER_CHANGED: "Trigger di preparazione modificato",
+  LOGIN_FAILED: "Accesso rifiutato",
+  LOGIN_RATE_LIMITED: "Accessi temporaneamente bloccati",
+  LOGIN_SUCCEEDED: "Accesso riuscito",
+  LOGOUT_SUCCEEDED: "Uscita registrata",
+  ORDER_GROUPED: "Ordine aggiunto alla preparazione",
+  ORDER_GROUPING_FORCED: "Preparazione anticipata richiesta",
+  ORDER_IMPORTED: "Ordine importato",
+  ORDER_SEPARATED: "Ordine separato dalla preparazione",
+  ORDER_SOURCE_CONFLICT: "Modifica dei dati sorgente da verificare",
+  ORDER_SOURCE_UPDATED: "Dati sorgente aggiornati",
 };
 
 export const billingCaseStatusLabels: Record<string, string> = {
+  DRAFT: "In lavorazione",
   NEEDS_REVIEW: "Da verificare",
   READY: "Pronta",
   DO_NOT_TRANSMIT: "Da non trasmettere",
+  APPROVED: "Approvata",
+  CLOSED: "Chiusa",
+};
+
+/** Ogni anomalia dichiara il fatto osservato e l'azione che la chiude (13.9). */
+export const anomalyLabels: Record<string, { title: string; action: string }> = {
+  PENDING_PAYMENT: {
+    title: "Pagamento non ancora acquisito",
+    action: "Attendi l\u2019incasso oppure registra il pagamento sulla piattaforma sorgente.",
+  },
+  TOTALS_MISMATCH: {
+    title: "Totale dell\u2019ordine non riconciliato",
+    action:
+      "Righe, spedizione e pagamenti non ricostruiscono il totale importato: verifica la sorgente.",
+  },
+  CUSTOMER_INCOMPLETE: {
+    title: "Anagrafica fiscale incompleta",
+    action: "Completa i dati del cliente in questa pagina.",
+  },
+  CUSTOMER_MISMATCH: {
+    title: "Anagrafiche discordanti fra gli ordini",
+    action: "Correggi l\u2019anagrafica della preparazione oppure separa l\u2019ordine incoerente.",
+  },
+  SOURCE_CONFLICT: {
+    title: "Dati sorgente cambiati dopo il raggruppamento",
+    action: "Confronta le versioni conservate qui sotto prima di proseguire.",
+  },
+  ORDER_NOT_BILLABLE: {
+    title: "Ordine annullato o rimborsato",
+    action: "Separa l\u2019ordine oppure archivia la preparazione con `Non trasmettere`.",
+  },
 };

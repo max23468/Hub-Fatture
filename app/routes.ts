@@ -8,5 +8,7 @@ export default [
   route("ordini", "routes/orders.tsx"),
   route("ordini/preparazione/:caseId", "routes/billing-case-detail.tsx"),
   route("ordini/:orderId", "routes/order-detail.tsx"),
+  route("attivita", "routes/activity.tsx"),
+  route("impostazioni", "routes/settings.tsx"),
   route("setup", "routes/setup.tsx"),
 ] satisfies RouteConfig;

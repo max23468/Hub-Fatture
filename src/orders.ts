@@ -84,6 +84,18 @@ const taxIdentifierSchema = z.object({
   sourceField: z.string().trim().min(1),
 });
 
+export const customerSchema = z.object({
+  kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU", "UNKNOWN"]),
+  displayName: optionalTextSchema,
+  firstName: optionalTextSchema,
+  lastName: optionalTextSchema,
+  companyName: optionalTextSchema,
+  email: optionalEmailSchema,
+  phone: optionalTextSchema,
+  billingAddress: addressSchema.default({}),
+  taxIdentifiers: z.array(taxIdentifierSchema).default([]),
+});
+
 export const orderInputSchema = z
   .object({
     provider: z.enum(["SHOPIFY", "EBAY"]),
@@ -103,17 +115,7 @@ export const orderInputSchema = z
     paymentStatus: z.enum(["PAID", "PENDING", "REFUNDED"]),
     fulfillmentStatus: z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED"]),
     cancelledAt: postgresTimestampSchema.nullable().default(null),
-    customer: z.object({
-      kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU", "UNKNOWN"]),
-      displayName: optionalTextSchema,
-      firstName: optionalTextSchema,
-      lastName: optionalTextSchema,
-      companyName: optionalTextSchema,
-      email: optionalEmailSchema,
-      phone: optionalTextSchema,
-      billingAddress: addressSchema.default({}),
-      taxIdentifiers: z.array(taxIdentifierSchema).default([]),
-    }),
+    customer: customerSchema,
     lines: z
       .array(
         z.object({
@@ -159,8 +161,18 @@ export const orderInputSchema = z
   });
 
 export type OrderInput = z.infer<typeof orderInputSchema>;
+export type CustomerInput = z.infer<typeof customerSchema>;
 
-export function customerDisplayName(customer: OrderInput["customer"]): string {
+/**
+ * Le funzioni di identità leggono soltanto il cliente e la chiave di fallback dell'ordine:
+ * la stessa logica serve l'import e la correzione manuale senza duplicare le regole fiscali.
+ */
+export type CustomerContext = Pick<
+  OrderInput,
+  "provider" | "externalAccountId" | "externalOrderId" | "customer"
+>;
+
+export function customerDisplayName(customer: CustomerInput): string {
   return (
     customer.displayName ||
     customer.companyName ||
@@ -205,8 +217,8 @@ function normalizedTaxId(value: string): string {
 }
 
 function requiresItalianTaxFormat(
-  input: OrderInput,
-  identifier: OrderInput["customer"]["taxIdentifiers"][number],
+  input: CustomerContext,
+  identifier: CustomerInput["taxIdentifiers"][number],
 ) {
   const countryCode = identifier.countryCode ?? input.customer.billingAddress.countryCode;
   if (["PRIVATE_IT", "BUSINESS_IT"].includes(input.customer.kind)) return true;
@@ -215,8 +227,8 @@ function requiresItalianTaxFormat(
 }
 
 function isItalianTaxIdentifier(
-  input: OrderInput,
-  identifier: OrderInput["customer"]["taxIdentifiers"][number],
+  input: CustomerContext,
+  identifier: CustomerInput["taxIdentifiers"][number],
 ) {
   if (!requiresItalianTaxFormat(input, identifier)) return false;
   const value = normalizedTaxId(identifier.value);
@@ -226,8 +238,8 @@ function isItalianTaxIdentifier(
 }
 
 export function canonicalTaxIdentifier(
-  input: OrderInput,
-  identifier: OrderInput["customer"]["taxIdentifiers"][number],
+  input: CustomerContext,
+  identifier: CustomerInput["taxIdentifiers"][number],
 ) {
   const italianIdentifier = isItalianTaxIdentifier(input, identifier);
   const needsCountry = identifier.type === "ALTRO" || !italianIdentifier;
@@ -245,7 +257,7 @@ export function canonicalTaxIdentifier(
   return { ...identifier, rawValue: identifier.value, value, countryCode };
 }
 
-export function canonicalTaxIdentifiers(input: OrderInput) {
+export function canonicalTaxIdentifiers(input: CustomerContext) {
   const unique = new Map<string, ReturnType<typeof canonicalTaxIdentifier>>();
   for (const identifier of input.customer.taxIdentifiers) {
     const canonical = canonicalTaxIdentifier(input, identifier);
@@ -260,7 +272,7 @@ export function canonicalTaxIdentifiers(input: OrderInput) {
   );
 }
 
-export function canonicalCustomerProfile(input: OrderInput) {
+export function canonicalCustomerProfile(input: CustomerContext) {
   const address = input.customer.billingAddress;
   const taxIdentifiers = canonicalTaxIdentifiers(input)
     .map((identifier) => {
@@ -289,7 +301,7 @@ export function canonicalCustomerProfile(input: OrderInput) {
 }
 
 function validTaxId(
-  type: OrderInput["customer"]["taxIdentifiers"][number]["type"],
+  type: CustomerInput["taxIdentifiers"][number]["type"],
   value: string,
   italianFormat: boolean,
 ) {
@@ -300,7 +312,7 @@ function validTaxId(
   return value.length >= 2;
 }
 
-export function customerIdentity(input: OrderInput): {
+export function customerIdentity(input: CustomerContext): {
   matchKey: string;
   confidence: "TAX_ID" | "EXACT_PROFILE" | "AMBIGUOUS";
   reviewRequired: boolean;
@@ -385,6 +397,46 @@ export function customerIdentity(input: OrderInput): {
     reviewRequired: true,
     primaryTaxId: null,
   };
+}
+
+/**
+ * Anomalie che appartengono all'ordine e che una correzione anagrafica non può risolvere.
+ * Il difetto del cliente vive invece nello snapshot della preparazione, dove è correggibile.
+ */
+export function orderReviewRequired(
+  order: Pick<OrderInput, "paymentStatus" | "payments">,
+  totalsReconciled: boolean,
+): boolean {
+  return (
+    order.paymentStatus !== "PAID" ||
+    order.payments.some((payment) => payment.status !== "PAID") ||
+    !totalsReconciled
+  );
+}
+
+/** `%` e `_` digitati in una ricerca sono testo, non caratteri jolly. */
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
+export const PAGE_SIZE = 50;
+
+/** Una pagina richiesta fuori dal dominio `integer` di PostgreSQL vale come prima pagina. */
+export function pageNumber(value: unknown): number {
+  const page = Number(value);
+  if (!Number.isSafeInteger(page) || page < 1 || (page - 1) * PAGE_SIZE > POSTGRES_INTEGER_MAX) {
+    return 1;
+  }
+  return page;
+}
+
+export function pageOffset(value: unknown): number {
+  return (pageNumber(value) - 1) * PAGE_SIZE;
+}
+
+/** Le query chiedono una riga in più della pagina: basta a sapere se esiste la successiva. */
+export function paginate<T>(rows: T[]) {
+  return { rows: rows.slice(0, PAGE_SIZE), hasNext: rows.length > PAGE_SIZE };
 }
 
 export function triggerStatus(

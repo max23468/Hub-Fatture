@@ -1,6 +1,7 @@
-import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
+import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/order-detail";
 
+import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
 import {
   customerKindLabels,
@@ -12,7 +13,6 @@ import {
 } from "../copy.it";
 import { date, dateTime, euros } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
-import { publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
 import { forcePrepareOrder, getOrder } from "../../src/db/orders.server.ts";
 
@@ -24,7 +24,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  try {
+  return actionResult(async () => {
     const user = await requireSessionUser(request);
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
@@ -32,17 +32,9 @@ export async function action({ request, params }: Route.ActionArgs) {
       id: user.id,
       requestId: requestId(request),
     });
-    if (!caseId) {
-      return data(
-        { code: "UNKNOWN", message: "Ordine non trovato.", status: 404 },
-        { status: 404 },
-      );
-    }
+    if (!caseId) throw new Response("Ordine non trovato", { status: 404 });
     return redirect(`/ordini/preparazione/${caseId}`);
-  } catch (error) {
-    const result = publicError(error);
-    return data(result, { status: result.status });
-  }
+  });
 }
 
 export default function OrderDetail() {
@@ -155,6 +147,26 @@ export default function OrderDetail() {
               <dd>{order.review_required ? "Richiesta" : "Non richiesta"}</dd>
             </div>
           </dl>
+          {order.possibleMatches.length ? (
+            <div className="notice section-gap">
+              <strong>Possibile corrispondenza, non accorpata</strong>
+              <p>
+                L’identità non è certa: gli ordini restano in preparazioni separate. Correggi
+                l’anagrafica della preparazione se si tratta davvero dello stesso cliente.
+              </p>
+              <ul>
+                {order.possibleMatches.map((candidate) => (
+                  <li key={candidate.id}>
+                    {candidate.display_name}
+                    {candidate.email ? ` · ${candidate.email}` : ""}
+                    {candidate.tax_id_normalized
+                      ? ` · ${taxIdentifierLabels[candidate.tax_id_type ?? ""] ?? "Identificativo"} ${candidate.tax_id_normalized}`
+                      : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <h3>Identificativi fiscali</h3>
           {order.taxIdentifiers.length ? (
             <ul>
