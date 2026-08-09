@@ -120,6 +120,9 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       1,
     );
 
+    await getPool().query(
+      "UPDATE jobs SET status = 'COMPLETED' WHERE type = 'shopify_process_webhook'",
+    );
     await connectors.enqueueJob("ebay_sync_orders");
     const retryableJob = await connectors.claimJob("worker-retry");
     assert.ok(retryableJob);
@@ -132,11 +135,35 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [retryableJob.id]);
     const terminalJob = await connectors.claimJob("worker-terminal");
     assert.ok(terminalJob);
-    await connectors.failJob(terminalJob, "PROVIDER_RESPONSE_INVALID");
+    terminalJob.maxAttempts = terminalJob.attempts;
+    const terminal = await connectors.failJob(terminalJob, "PROVIDER_UNAVAILABLE");
+    await connectors.markConnectionError("EBAY", "PROVIDER_UNAVAILABLE", terminal);
     assert.equal(
       (await getPool().query("SELECT status FROM jobs WHERE id = $1", [terminalJob.id])).rows[0]
         .status,
       "FAILED",
+    );
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT status FROM connections WHERE provider = 'EBAY' AND environment = 'SANDBOX'",
+        )
+      ).rows[0].status,
+      "ERROR",
+    );
+    const jobsBeforeReschedule = (
+      await getPool().query(
+        "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_sync_orders'",
+      )
+    ).rows[0].total;
+    await connectors.scheduleDueSyncs();
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_sync_orders'",
+        )
+      ).rows[0].total,
+      jobsBeforeReschedule,
     );
 
     const payloads = JSON.parse(

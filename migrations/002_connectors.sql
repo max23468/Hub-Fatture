@@ -43,14 +43,13 @@ CREATE TABLE webhook_events (
   external_event_id text NOT NULL,
   topic text NOT NULL,
   payload_sha256 text NOT NULL,
-  request_payload_json jsonb NOT NULL DEFAULT '{}',
   received_at timestamptz NOT NULL DEFAULT now(),
   claimed_at timestamptz,
   lease_expires_at timestamptz,
   processed_at timestamptz,
   attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
   status text NOT NULL DEFAULT 'PROCESSING'
-    CHECK (status IN ('PENDING', 'PROCESSING', 'PROCESSED', 'FAILED')),
+    CHECK (status IN ('PROCESSING', 'PROCESSED', 'FAILED')),
   error_code text,
   UNIQUE (provider, external_event_id)
 );

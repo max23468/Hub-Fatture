@@ -119,9 +119,10 @@ export async function markConnectionSynced(provider: Provider) {
   );
 }
 
-export async function markConnectionError(provider: Provider, code: ErrorCode) {
-  const status =
-    code === "AUTH_PROVIDER_EXPIRED"
+export async function markConnectionError(provider: Provider, code: ErrorCode, terminal = false) {
+  const status = terminal
+    ? "ERROR"
+    : code === "AUTH_PROVIDER_EXPIRED"
       ? "REAUTH_REQUIRED"
       : code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_UNAVAILABLE"
         ? "CONNECTED"
@@ -258,6 +259,7 @@ export async function failJob(job: ClaimedJob, code: ErrorCode) {
       );
     }
   });
+  return terminal;
 }
 
 export async function ingestShopifyWebhook(input: {

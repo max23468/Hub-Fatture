@@ -37,8 +37,8 @@ async function runJob() {
   } catch (error) {
     const appError = error instanceof AppError ? error : new AppError("PROVIDER_UNAVAILABLE", 503);
     const provider = job.type.startsWith("shopify") ? "SHOPIFY" : "EBAY";
-    await markConnectionError(provider, appError.code);
-    await failJob(job, appError.code);
+    const terminal = await failJob(job, appError.code);
+    await markConnectionError(provider, appError.code, terminal);
     console.error(
       JSON.stringify({ event: "connector_job_failed", jobId: job.id, code: appError.code }),
     );
