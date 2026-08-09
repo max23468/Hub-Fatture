@@ -2824,6 +2824,8 @@ Gate:
 
 ### M3 - Connettori Shopify ed eBay
 
+**Stato: completata.** Evidenze ripetibili: [connettori Shopify ed eBay](evidence/connectors.md), contract test dei provider, migrazioni PostgreSQL e gate canonico.
+
 Output:
 
 - OAuth;

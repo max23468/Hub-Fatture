@@ -40,3 +40,12 @@ Le fixture versionate sono sintetiche e anonimizzate. Il readback Production tra
 - Risultato sanitizzato: tipo fiscale dichiarato e due varianti del riferimento rimborso; fixture sintetica in `tests/fixtures/connectors/ebay-orders.json`.
 - Prova ripetibile: `npm test -- src/integrations/connectors.test.ts` verifica tipo dichiarato, rimborso ambiguo, spedizione, snapshot e vincolo dell'host di paginazione.
 - Commit implementazione: `201276f`.
+
+## Chiusura della milestone
+
+- Baseline applicativa verificata: `7d69056`, comprensiva della chiusura end-to-end dei connettori e della correzione condivisa che ricostruisce sempre l'immagine Development; schema applicato fino a `004_connector_operations.sql`.
+- Readback Shopify: app dedicata Hub Fatture installata su `SyncBay Dev`; versione `hub-fatture-2` attiva con Admin GraphQL e webhook `2026-07` e scope `read_customers`, `read_fulfillments`, `read_orders`.
+- Readback eBay: keyset `botCF` riusato, mapping fiscale e rimborsi verificati in sola lettura; il relay Production resta inattivo finché non esiste un endpoint HTTPS stabile, senza bloccare lo sviluppo sintetico previsto prima del go-live.
+- Gate ripetibile: `npm run check` copre audit dipendenze, formato, lint, typecheck, build server, test Node/PostgreSQL, contract test, React Doctor, build applicativa ed E2E Chromium.
+- Limite Development: i Quick Tunnel sono temporanei; a tunnel chiuso una nuova prova live richiede una nuova sessione OAuth, mentre database, chiave di cifratura e stack Docker restano persistenti.
+- Rischio residuo accettato: il retry manuale di un job fallito `ebay_preview_history` può collidere con il vincolo che ammette una sola anteprima attiva. Il rischio resta advisory finché l'interfaccia serializza l'avvio ordinario; si riapre se viene introdotto un secondo percorso concorrente di retry/avvio o se il conflitto viene osservato in Development.
