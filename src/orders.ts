@@ -237,7 +237,7 @@ function isItalianTaxIdentifier(
   return /^\d{11}$/.test(value.startsWith("IT") ? value.slice(2) : value);
 }
 
-export function canonicalTaxIdentifier(
+function canonicalTaxIdentifier(
   input: CustomerContext,
   identifier: CustomerInput["taxIdentifiers"][number],
 ) {

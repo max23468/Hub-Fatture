@@ -14,6 +14,15 @@ import {
 } from "../orders.ts";
 import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
+import {
+  customerProfileMismatchSql,
+  hasCaseOrdersSql,
+  hasIncompatibleCaseOrdersSql,
+  hasOtherOpenCaseSql,
+  OPEN_BILLING_CASE_STATUSES,
+  orderBillableSql,
+  reactivationBlockerSql,
+} from "./billing-case-sql.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./order-commands.server.ts";
 import {
@@ -49,7 +58,7 @@ interface CaseOrder {
   customer_profile_mismatch: boolean;
 }
 
-export type BillingCaseAnomaly =
+type BillingCaseAnomaly =
   | "PENDING_PAYMENT"
   | "TOTALS_MISMATCH"
   | "CUSTOMER_INCOMPLETE"
@@ -61,7 +70,7 @@ export type BillingCaseAnomaly =
  * 13.4 chiede le anomalie, non un avviso unico: la preparazione deve dire quale fatto
  * osservato la trattiene e quale azione lo risolve.
  */
-export function billingCaseAnomalies(
+function billingCaseAnomalies(
   orders: CaseOrder[],
   customerReviewRequired: boolean,
 ): BillingCaseAnomaly[] {
@@ -124,6 +133,9 @@ interface BillingCaseDetailRow {
  * ottimistica: due schede che partono dalla stessa versione non si sovrascrivono in silenzio.
  */
 async function lockBillingCase(client: pg.PoolClient, id: string, expectedRevision: number) {
+  // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
+  // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await client.query<{
     status: string;
     revision: number;
@@ -131,23 +143,11 @@ async function lockBillingCase(client: pg.PoolClient, id: string, expectedRevisi
     has_incompatible_orders: boolean;
     has_other_open_case: boolean;
   }>(
+    // I frammenti interpolati sono costanti di modulo in billing-case-sql.server.ts:
     `SELECT billing_cases.status, billing_cases.revision,
-            EXISTS (
-              SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
-            ) AS has_orders,
-            EXISTS (
-              SELECT 1 FROM orders
-              WHERE orders.billing_case_id = billing_cases.id
-                AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
-            ) AS has_incompatible_orders,
-            EXISTS (
-              SELECT 1 FROM billing_cases AS other
-              WHERE other.id <> billing_cases.id
-                AND other.customer_id = billing_cases.customer_id
-                AND other.local_order_date = billing_cases.local_order_date
-                AND other.currency = billing_cases.currency
-                AND other.status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
-            ) AS has_other_open_case
+            ${hasCaseOrdersSql} AS has_orders,
+            ${hasIncompatibleCaseOrdersSql} AS has_incompatible_orders,
+            ${hasOtherOpenCaseSql} AS has_other_open_case
      FROM billing_cases
      WHERE billing_cases.id = $1
      FOR UPDATE OF billing_cases`,
@@ -167,7 +167,7 @@ function assertRevision(value: unknown) {
   return revision;
 }
 
-const editableStatuses = ["DRAFT", "READY", "NEEDS_REVIEW"];
+const editableStatuses: readonly string[] = OPEN_BILLING_CASE_STATUSES;
 
 export async function updateBillingCaseTransmission(
   id: string,
@@ -370,6 +370,9 @@ export async function addOrderToBillingCase(
     if (!editableStatuses.includes(current.status)) {
       throw new AppError("BILLING_CASE_NOT_EDITABLE", 409);
     }
+    // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
+    // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
+    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
     const candidate = await client.query<{
       id: string;
       customer_id: string;
@@ -377,14 +380,14 @@ export async function addOrderToBillingCase(
       local_order_date: string;
       currency: string;
     }>(
+      // I frammenti interpolati sono costanti di modulo in billing-case-sql.server.ts:
       `SELECT orders.id, orders.customer_id, orders.local_order_date::text, orders.currency,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot
        FROM orders
        JOIN billing_cases ON billing_cases.id = $2
        WHERE orders.id = $1
          AND orders.billing_case_id IS NULL
-         AND orders.cancelled_at IS NULL
-         AND orders.payment_status <> 'REFUNDED'
+         AND ${orderBillableSql()}
          AND orders.customer_id = billing_cases.customer_id
          AND orders.local_order_date = billing_cases.local_order_date
          AND orders.currency = billing_cases.currency
@@ -435,31 +438,17 @@ export async function listBillingCases(filters: { statuses?: string[]; page?: un
 
 export async function getBillingCase(id: string) {
   if (!isDatabaseId(id)) return null;
+  // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
+  // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const billingCase = await getPool().query<BillingCaseDetailRow>(
+    // I frammenti interpolati sono costanti di modulo in billing-case-sql.server.ts:
     `SELECT billing_cases.*, billing_cases.local_order_date::text,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             billing_cases.customer_snapshot_json ->> 'email' AS customer_email,
             (billing_cases.customer_snapshot_json ->> 'reviewRequired')::boolean AS review_required,
             billing_cases.customer_snapshot_json -> 'billingAddress' AS billing_address_json,
-            CASE
-              WHEN NOT EXISTS (
-                SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
-              ) THEN 'EMPTY'
-              WHEN EXISTS (
-                SELECT 1 FROM orders
-                WHERE orders.billing_case_id = billing_cases.id
-                  AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
-              ) THEN 'INCOMPATIBLE_ORDERS'
-              WHEN EXISTS (
-                SELECT 1 FROM billing_cases AS other
-                WHERE other.id <> billing_cases.id
-                  AND other.customer_id = billing_cases.customer_id
-                  AND other.local_order_date = billing_cases.local_order_date
-                  AND other.currency = billing_cases.currency
-                  AND other.status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
-              ) THEN 'OTHER_OPEN_CASE'
-              ELSE NULL
-            END AS reactivation_blocker,
+            ${reactivationBlockerSql} AS reactivation_blocker,
             coalesce((
               SELECT jsonb_agg(to_jsonb(case_orders) ORDER BY case_orders.id)
               FROM (
@@ -479,11 +468,7 @@ export async function getBillingCase(id: string) {
                          SELECT 1 FROM payments
                          WHERE payments.order_id = orders.id AND payments.status <> 'PAID'
                        ) AS has_unsettled_payment,
-                       (billing_cases.customer_corrected_at IS NULL
-                        AND orders.normalized_snapshot_json #> '{customerSnapshot,canonicalProfile}'
-                            IS DISTINCT FROM
-                            billing_cases.customer_snapshot_json -> 'canonicalProfile'
-                       ) AS customer_profile_mismatch
+                       ${customerProfileMismatchSql} AS customer_profile_mismatch
                 FROM orders WHERE orders.billing_case_id = billing_cases.id
               ) AS case_orders
             ), '[]'::jsonb) AS orders,
@@ -493,8 +478,7 @@ export async function getBillingCase(id: string) {
                 SELECT orders.id, orders.provider, orders.display_number, orders.gross_amount
                 FROM orders
                 WHERE orders.billing_case_id IS NULL
-                  AND orders.cancelled_at IS NULL
-                  AND orders.payment_status <> 'REFUNDED'
+                  AND ${orderBillableSql()}
                   AND orders.customer_id = billing_cases.customer_id
                   AND orders.local_order_date = billing_cases.local_order_date
                   AND orders.currency = billing_cases.currency

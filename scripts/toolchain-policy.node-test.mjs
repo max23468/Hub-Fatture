@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -45,12 +45,21 @@ test("i pin di Node e npm coincidono in manifest, mise e Dockerfile", async () =
   assert.deepEqual(findPinDrift(pins), []);
 });
 
-test("i workflow Node installano il runtime pinzato prima di eseguire script", async () => {
-  for (const workflow of ["foundation.yml", "codex-review-gate.yml"]) {
-    assert.match(
-      await read(`.github/workflows/${workflow}`),
-      /uses: jdx\/mise-action@[\s\S]*run: (?:\|\s*)?node /,
-      workflow,
+// La lista dei workflow si ricava dalla cartella: un workflow nuovo che esegue `node`
+// senza installare il runtime pinzato deve fallire qui senza che nessuno lo aggiunga a mano.
+test("i workflow che eseguono Node installano prima il runtime pinzato", async () => {
+  const directory = new URL("../.github/workflows/", import.meta.url);
+  const workflows = (await readdir(directory)).filter((name) => name.endsWith(".yml"));
+  assert.ok(workflows.length > 0, "nessun workflow trovato");
+
+  for (const workflow of workflows) {
+    const text = await read(`.github/workflows/${workflow}`);
+    const usesNode = text.search(/^\s+(?:- )?(?:run: )?(?:\|\s*)?[^\n]*\bnode /m);
+    if (usesNode === -1) continue;
+    const installsRuntime = text.indexOf("uses: jdx/mise-action@");
+    assert.ok(
+      installsRuntime !== -1 && installsRuntime < usesNode,
+      `${workflow}: esegue node senza installare prima il runtime pinzato`,
     );
   }
 });
