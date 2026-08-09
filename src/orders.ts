@@ -423,7 +423,7 @@ export function orderReviewRequired(
   return (
     order.paymentStatus !== "PAID" ||
     order.payments.some((payment) => payment.status !== "PAID") ||
-    order.refunds.some((refund) => refund.status === "AMBIGUOUS") ||
+    order.refunds.some((refund) => refund.status !== "FAILED") ||
     !totalsReconciled
   );
 }

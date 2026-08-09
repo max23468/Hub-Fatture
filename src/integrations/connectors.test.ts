@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { AppError } from "../errors.ts";
+import { orderReviewRequired } from "../orders.ts";
 import { mapEbayOrder } from "./ebay.server.ts";
 import {
   SHOPIFY_API_SUPPORTED_UNTIL,
@@ -42,6 +43,7 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
     completedAt: "2026-08-02T10:00:00Z",
     raw: (businessOrder as { refunds: unknown[] }).refunds[0],
   });
+  assert.equal(orderReviewRequired(businessMapped, true), true);
 });
 
 test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del rimborso", async () => {

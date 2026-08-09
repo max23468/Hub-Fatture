@@ -189,6 +189,9 @@ export const copy = {
     timeHelp: "Le date degli ordini seguono l’ora italiana.",
     connectionsTitle: "Connessioni",
     connectionsHelp: "Collega i canali di vendita e controlla gli ultimi aggiornamenti ricevuti.",
+    dataRequestsTitle: "Richieste dati Shopify",
+    dataRequestsPending: (count: number) =>
+      `${count} ${count === 1 ? "richiesta da gestire" : "richieste da gestire"}. Gli identificativi sono conservati nel registro privacy.`,
     connect: "Collega",
     reconnect: "Ricollega",
     preview: "Anteprima ultimi 7 giorni",

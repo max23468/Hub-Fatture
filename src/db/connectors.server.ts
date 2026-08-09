@@ -37,6 +37,14 @@ function credentialsKey(): string {
   return value;
 }
 
+function activeEnvironment(provider: Provider): ConnectionEnvironment {
+  const config = getConfig();
+  if (provider === "SHOPIFY") {
+    return config.APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT";
+  }
+  return config.EBAY_ENVIRONMENT === "production" ? "PRODUCTION" : "SANDBOX";
+}
+
 export async function saveConnection<T>(input: {
   provider: Provider;
   environment: ConnectionEnvironment;
@@ -69,10 +77,9 @@ export async function loadConnection<T>(provider: Provider): Promise<{
 }> {
   const result = await getPool().query<ConnectionRow>(
     `SELECT * FROM connections
-     WHERE provider = $1 AND status = 'CONNECTED'
-     ORDER BY environment = 'PRODUCTION' DESC, id
+     WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'
      LIMIT 1`,
-    [provider],
+    [provider, activeEnvironment(provider)],
   );
   const connection = result.rows[0];
   if (!connection) throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
@@ -86,7 +93,11 @@ export async function loadConnection<T>(provider: Provider): Promise<{
 
 export async function connectionSummaries() {
   const result = await getPool().query<ConnectionRow>(
-    `SELECT * FROM connections ORDER BY provider, environment`,
+    `SELECT * FROM connections
+     WHERE (provider = 'SHOPIFY' AND environment = $1)
+        OR (provider = 'EBAY' AND environment = $2)
+     ORDER BY provider`,
+    [activeEnvironment("SHOPIFY"), activeEnvironment("EBAY")],
   );
   return result.rows.map((row) => ({
     provider: row.provider,
@@ -103,8 +114,8 @@ export async function markConnectionSynced(provider: Provider) {
   await getPool().query(
     `UPDATE connections SET status = 'CONNECTED', last_checked_at = now(), last_synced_at = now(),
        last_error_code = NULL, last_error_message_sanitized = NULL, updated_at = now()
-     WHERE provider = $1`,
-    [provider],
+     WHERE provider = $1 AND environment = $2`,
+    [provider, activeEnvironment(provider)],
   );
 }
 
@@ -118,8 +129,8 @@ export async function markConnectionError(provider: Provider, code: ErrorCode) {
   await getPool().query(
     `UPDATE connections SET status = $2, last_checked_at = now(), last_error_code = $3,
        last_error_message_sanitized = $3, updated_at = now()
-     WHERE provider = $1`,
-    [provider, status, code],
+     WHERE provider = $1 AND environment = $4`,
+    [provider, status, code, activeEnvironment(provider)],
   );
 }
 
@@ -165,8 +176,11 @@ export async function scheduleDueSyncs() {
      END
      FROM connections
      WHERE status = 'CONNECTED'
+       AND ((provider = 'SHOPIFY' AND environment = $1)
+         OR (provider = 'EBAY' AND environment = $2))
        AND (last_synced_at IS NULL OR last_synced_at <= now() - interval '10 minutes')
      ON CONFLICT DO NOTHING`,
+    [activeEnvironment("SHOPIFY"), activeEnvironment("EBAY")],
   );
 }
 
@@ -287,9 +301,40 @@ export async function ingestShopifyWebhook(input: {
 export async function revokeConnection(provider: Provider) {
   await getPool().query(
     `UPDATE connections SET encrypted_credentials = '', status = 'REVOKED', updated_at = now()
-     WHERE provider = $1`,
-    [provider],
+     WHERE provider = $1 AND environment = $2`,
+    [provider, activeEnvironment(provider)],
   );
+}
+
+export async function recordShopifyDataRequest(input: {
+  externalEventId: string;
+  payloadSha256: string;
+  customerIds: string[];
+  orderIds: string[];
+}) {
+  const result = await getPool().query<{ id: string }>(
+    `INSERT INTO webhook_events
+      (provider, external_event_id, topic, payload_sha256, request_payload_json,
+       status, attempt_count)
+     VALUES ('SHOPIFY', $1, 'CUSTOMERS_DATA_REQUEST', $2, $3, 'PENDING', 1)
+     ON CONFLICT (provider, external_event_id) DO NOTHING
+     RETURNING id`,
+    [
+      input.externalEventId,
+      input.payloadSha256,
+      JSON.stringify({ customerIds: input.customerIds, orderIds: input.orderIds }),
+    ],
+  );
+  return { duplicate: !result.rows[0] };
+}
+
+export async function pendingShopifyDataRequests() {
+  const result = await getPool().query<{ external_event_id: string }>(
+    `SELECT external_event_id FROM webhook_events
+     WHERE provider = 'SHOPIFY' AND topic = 'CUSTOMERS_DATA_REQUEST' AND status = 'PENDING'
+     ORDER BY received_at`,
+  );
+  return result.rows.map((row) => row.external_event_id);
 }
 
 function deletionIdentifiers(values: unknown[]): string[] {

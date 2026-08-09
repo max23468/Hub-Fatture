@@ -11,6 +11,7 @@ import {
   loadConnection,
   markConnectionSynced,
   processShopifyPrivacyRecord,
+  recordShopifyDataRequest,
   readCursor,
   revokeConnection,
   saveConnection,
@@ -139,6 +140,14 @@ export async function completeShopifyOAuth(request: Request) {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
   return result.headers;
+}
+
+function shopifyGid(resource: "Customer" | "Order", value: unknown): string | undefined {
+  const identifier =
+    typeof value === "number" && Number.isSafeInteger(value) ? String(value) : text(value);
+  if (!identifier) return undefined;
+  if (identifier.startsWith(`gid://shopify/${resource}/`)) return identifier;
+  return /^\d+$/.test(identifier) ? `gid://shopify/${resource}/${identifier}` : undefined;
 }
 
 function mapTaxIdentifiers(order: Record<string, unknown>, customer: Record<string, unknown>) {
@@ -425,9 +434,26 @@ export async function processShopifyWebhook(request: Request, rawBody: Buffer) {
   ) {
     const customer = record(payload.customer);
     const customerIds = [payload.customer_id, customer.id].flatMap((value) => {
-      const identifier = text(value);
+      const identifier = shopifyGid("Customer", value);
       return identifier ? [identifier] : [];
     });
+    const orderIds = (
+      Array.isArray(payload.orders_requested) ? payload.orders_requested : []
+    ).flatMap((value) => {
+      const identifier = shopifyGid("Order", value);
+      return identifier ? [identifier] : [];
+    });
+    if (validation.topic === "CUSTOMERS_DATA_REQUEST") {
+      if (!customerIds.length && !orderIds.length) {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
+      }
+      return recordShopifyDataRequest({
+        externalEventId,
+        payloadSha256: payloadHash,
+        customerIds,
+        orderIds,
+      });
+    }
     if (validation.topic === "CUSTOMERS_REDACT" && !customerIds.length) {
       throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
     }

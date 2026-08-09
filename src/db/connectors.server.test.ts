@@ -16,6 +16,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
   process.env.ADMIN_BOOTSTRAP_TOKEN = "x".repeat(32);
   process.env.APP_BASE_URL = "http://localhost:8080";
   process.env.APP_ENV = "test";
+  process.env.EBAY_ENVIRONMENT = "sandbox";
   process.env.CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64url");
   process.env.SHOPIFY_API_KEY = "shopify-key-sintetica";
   process.env.SHOPIFY_API_SECRET = "shopify-secret-sintetico";
@@ -34,6 +35,19 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       (await connectors.loadConnection<{ accessToken: string }>("SHOPIFY")).credentials,
       { accessToken: "token-sintetico" },
     );
+    await connectors.saveConnection({
+      provider: "EBAY",
+      environment: "PRODUCTION",
+      accountReference: "produzione-sintetica",
+      credentials: { refreshToken: "token-produzione-sintetico" },
+    });
+    await connectors.saveConnection({
+      provider: "EBAY",
+      environment: "SANDBOX",
+      accountReference: "sandbox-sintetica",
+      credentials: { refreshToken: "token-sandbox-sintetico" },
+    });
+    assert.equal((await connectors.loadConnection("EBAY")).accountReference, "sandbox-sintetica");
     const stored = await getPool().query<{ encrypted_credentials: string }>(
       "SELECT encrypted_credentials FROM connections",
     );
@@ -71,23 +85,28 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
 
     const webhookBody = Buffer.from(JSON.stringify({ id: 123 }));
-    const webhookRequest = (signature: string) =>
+    const webhookRequest = (topic: string, eventId: string, signature: string) =>
       new Request("http://localhost:8080/webhooks/shopify", {
         method: "POST",
         headers: {
           "X-Shopify-Hmac-Sha256": signature,
           "X-Shopify-API-Version": "2026-07",
           "X-Shopify-Shop-Domain": "shop.example.invalid",
-          "X-Shopify-Topic": "orders/updated",
-          "X-Shopify-Webhook-Id": "signed-event-1",
+          "X-Shopify-Topic": topic,
+          "X-Shopify-Webhook-Id": eventId,
         },
       });
     await assert.rejects(
-      processShopifyWebhook(webhookRequest("firma-errata"), webhookBody),
+      processShopifyWebhook(
+        webhookRequest("orders/updated", "signed-event-1", "firma-errata"),
+        webhookBody,
+      ),
       (error) => error instanceof AppError && error.code === "WEBHOOK_SIGNATURE_INVALID",
     );
     await processShopifyWebhook(
       webhookRequest(
+        "orders/updated",
+        "signed-event-1",
         createHmac("sha256", process.env.SHOPIFY_API_SECRET).update(webhookBody).digest("base64"),
       ),
       webhookBody,
@@ -141,19 +160,51 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       requestId: "refund-raw-only",
     });
     assert.equal((await getPool().query("SELECT * FROM order_source_revisions")).rowCount, 0);
+    const revisedOrder = structuredClone(mappedOrders[0]!);
+    revisedOrder.updatedAt = "2026-08-01T10:00:00Z";
+    revisedOrder.lines[0]!.description = "Oggetto sintetico aggiornato";
+    await importOrders([revisedOrder], { type: "SYSTEM", requestId: "privacy-revision" });
+    assert.equal((await getPool().query("SELECT * FROM order_source_revisions")).rowCount, 1);
+
+    const dataRequestBody = Buffer.from(
+      JSON.stringify({ customer: { id: 2001 }, orders_requested: [1001] }),
+    );
+    await processShopifyWebhook(
+      webhookRequest(
+        "customers/data_request",
+        "privacy-data-1",
+        createHmac("sha256", process.env.SHOPIFY_API_SECRET)
+          .update(dataRequestBody)
+          .digest("base64"),
+      ),
+      dataRequestBody,
+    );
+    const pendingRequest = await getPool().query<{
+      status: string;
+      request_payload_json: { customerIds: string[]; orderIds: string[] };
+    }>("SELECT status, request_payload_json FROM webhook_events WHERE external_event_id = $1", [
+      "privacy-data-1",
+    ]);
+    assert.equal(pendingRequest.rows[0]!.status, "PENDING");
+    assert.deepEqual(pendingRequest.rows[0]!.request_payload_json, {
+      customerIds: ["gid://shopify/Customer/2001"],
+      orderIds: ["gid://shopify/Order/1001"],
+    });
     await getPool().query(
       `UPDATE billing_cases SET status = 'APPROVED'
        WHERE id = (SELECT billing_case_id FROM orders WHERE external_order_id = $1)`,
       ["gid://shopify/Order/1002"],
     );
 
-    const redacted = await connectors.processShopifyPrivacyRecord({
-      externalEventId: "privacy-1",
-      topic: "CUSTOMERS_REDACT",
-      payloadSha256: "b".repeat(64),
-      customerIds: ["gid://shopify/Customer/2001"],
-    });
-    assert.equal(redacted.deletedOrders, 1);
+    const redactBody = Buffer.from(JSON.stringify({ customer: { id: 2001 } }));
+    await processShopifyWebhook(
+      webhookRequest(
+        "customers/redact",
+        "privacy-1",
+        createHmac("sha256", process.env.SHOPIFY_API_SECRET).update(redactBody).digest("base64"),
+      ),
+      redactBody,
+    );
     assert.equal(
       (
         await getPool().query("SELECT 1 FROM orders WHERE external_order_id = $1", [
@@ -162,6 +213,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).rowCount,
       0,
     );
+    assert.equal((await getPool().query("SELECT * FROM order_source_revisions")).rowCount, 0);
 
     await connectors.processShopifyPrivacyRecord({
       externalEventId: "privacy-2",

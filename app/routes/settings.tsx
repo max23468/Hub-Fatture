@@ -7,7 +7,7 @@ import { copy } from "../copy.it";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
 import { getDraftTrigger, setDraftTrigger } from "../../src/db/orders.server.ts";
-import { connectionSummaries } from "../../src/db/connectors.server.ts";
+import { connectionSummaries, pendingShopifyDataRequests } from "../../src/db/connectors.server.ts";
 import { previewEbayHistory } from "../../src/integrations/ebay.server.ts";
 import { previewShopifyHistory } from "../../src/integrations/shopify.server.ts";
 
@@ -20,6 +20,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     trigger: await getDraftTrigger(),
     saved: url.searchParams.get("trigger") === "salvato",
     connections: await connectionSummaries(),
+    shopifyDataRequests: await pendingShopifyDataRequests(),
     preview:
       url.searchParams.get("provider") && url.searchParams.get("count")
         ? {
@@ -58,7 +59,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function Settings() {
-  const { username, csrfToken, trigger, saved, connections, preview } =
+  const { username, csrfToken, trigger, saved, connections, shopifyDataRequests, preview } =
     useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const byProvider = new Map(connections.map((connection) => [connection.provider, connection]));
@@ -82,6 +83,17 @@ export default function Settings() {
       <section className="card">
         <h2>{copy.settings.connectionsTitle}</h2>
         <p>{copy.settings.connectionsHelp}</p>
+        {shopifyDataRequests.length ? (
+          <div className="notice" role="status">
+            <h3>{copy.settings.dataRequestsTitle}</h3>
+            <p>{copy.settings.dataRequestsPending(shopifyDataRequests.length)}</p>
+            <ul>
+              {shopifyDataRequests.map((eventId) => (
+                <li key={eventId}>{eventId}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <div className="detail-grid">
           {(["SHOPIFY", "EBAY"] as const).map((provider) => {
             const connection = byProvider.get(provider);

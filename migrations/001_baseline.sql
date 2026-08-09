@@ -217,7 +217,7 @@ CREATE TABLE payments (
 
 CREATE TABLE order_source_revisions (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  order_id bigint NOT NULL REFERENCES orders(id),
+  order_id bigint NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
   billing_case_id bigint NOT NULL REFERENCES billing_cases(id),
   previous_normalized_snapshot_json jsonb NOT NULL,
   current_normalized_snapshot_json jsonb NOT NULL,
