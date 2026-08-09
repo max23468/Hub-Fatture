@@ -93,9 +93,7 @@ test("un advisory top-level richiede il marker dell'HEAD", () => {
 });
 
 test("il pollice della PR vale solo per il primo giro automatico", () => {
-  const prReactions = [
-    { user: bot, content: "+1", created_at: "2026-08-09T12:00:01Z" },
-  ];
+  const prReactions = [{ user: bot, content: "+1", created_at: "2026-08-09T12:00:01Z" }];
   assert.equal(classify({ automatic: true, prReactions }).state, "success");
   assert.equal(classify({ automatic: false, prReactions }).state, "pending");
 });
@@ -103,9 +101,7 @@ test("il pollice della PR vale solo per il primo giro automatico", () => {
 test("i giri successivi usano la reaction dell'invocazione corrente", () => {
   assert.equal(
     classify({
-      invocationReactions: [
-        { user: bot, content: "+1", created_at: "2026-08-09T12:00:01Z" },
-      ],
+      invocationReactions: [{ user: bot, content: "+1", created_at: "2026-08-09T12:00:01Z" }],
     }).state,
     "success",
   );

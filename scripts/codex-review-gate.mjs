@@ -6,18 +6,14 @@ const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 export const CODEX_REVIEW_POLLING = { attempts: 100, intervalMs: 180_000 };
 
 const timestamp = (value) => new Date(value ?? 0).getTime();
-const signalTimestamp = (signal) =>
-  timestamp(signal.submitted_at ?? signal.created_at);
-const matchesHead = (candidate, headSha) =>
-  Boolean(candidate && headSha.startsWith(candidate));
+const signalTimestamp = (signal) => timestamp(signal.submitted_at ?? signal.created_at);
+const matchesHead = (candidate, headSha) => Boolean(candidate && headSha.startsWith(candidate));
 
 export const reviewedCommit = (body = "") =>
   body.match(/\*\*Reviewed commit:\*\*\s*`([0-9a-f]{10,40})`/i)?.[1];
 
 export const findingPriority = (body = "") =>
-  body.match(
-    /^(?:\*\*|<sub>)*(?:!?\[)?(P[0-3])(?: Badge)?(?:\]\([^)]*\)|\]\s*|\*\*)/m,
-  )?.[1];
+  body.match(/^(?:\*\*|<sub>)*(?:!?\[)?(P[0-3])(?: Badge)?(?:\]\([^)]*\)|\]\s*|\*\*)/m)?.[1];
 
 export const isAutomaticFirstReview = (eventName, action) =>
   eventName === "pull_request_target" && ["opened", "ready_for_review"].includes(action);
@@ -111,10 +107,7 @@ export function classifyCodexReview({
     return { state: "error", description: "La review Codex non è stata completata" };
   }
 
-  const settledAt = Math.max(
-    completionAt,
-    ...exactSignals.map(signalTimestamp),
-  );
+  const settledAt = Math.max(completionAt, ...exactSignals.map(signalTimestamp));
   if (completionAt && now - settledAt >= 30_000) {
     const advisory = exactSignals.some((signal) =>
       ["P2", "P3"].includes(findingPriority(signal.body)),
@@ -206,8 +199,8 @@ async function main() {
       ? await all(`/repos/${repository}/issues/comments/${invocation.id}/reactions`)
       : [];
     const requestedAt = automatic
-      ? event.pull_request?.updated_at ?? pullRequest.created_at
-      : invocation?.created_at ?? headAvailableAt;
+      ? (event.pull_request?.updated_at ?? pullRequest.created_at)
+      : (invocation?.created_at ?? headAvailableAt);
     const result = classifyCodexReview({
       automatic,
       comments,
