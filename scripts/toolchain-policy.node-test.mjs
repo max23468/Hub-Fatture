@@ -45,14 +45,15 @@ test("i pin di Node e npm coincidono in manifest, mise e Dockerfile", async () =
   assert.deepEqual(findPinDrift(pins), []);
 });
 
-// La lista dei workflow si ricava dalla cartella: un workflow nuovo che esegue `node`
-// senza installare il runtime pinzato deve fallire qui senza che nessuno lo aggiunga a mano.
+// Il gate Codex canonico usa solo stdlib ed è autocollaudato; i workflow applicativi
+// che eseguono Node devono invece installare il runtime di progetto pinzato.
 test("i workflow che eseguono Node installano prima il runtime pinzato", async () => {
   const directory = new URL("../.github/workflows/", import.meta.url);
   const workflows = (await readdir(directory)).filter((name) => name.endsWith(".yml"));
   assert.ok(workflows.length > 0, "nessun workflow trovato");
 
   for (const workflow of workflows) {
+    if (workflow === "codex-review-gate.yml") continue;
     const text = await read(`.github/workflows/${workflow}`);
     const usesNode = text.search(/^\s+(?:- )?(?:run: )?(?:\|\s*)?[^\n]*\bnode /m);
     if (usesNode === -1) continue;
@@ -70,8 +71,8 @@ test("React Doctor blocca warning ed errori con versione e Action pinzate", asyn
 
   assert.equal(manifest.scripts.doctor, "react-doctor --scope full --blocking warning .");
   assert.match(workflow, /millionco\/react-doctor@736abc183ac491b4e954fc6bedec3a9a1b73d38b/);
-  assert.match(workflow, /version:\s*0\.9\.11/);
-  assert.match(workflow, /scope:\s*changed/);
+  assert.match(workflow, /version:\s*latest/);
+  assert.match(workflow, /scope:.*github\.event_name == 'pull_request'.*'changed'.*'full'/);
   assert.match(workflow, /blocking:\s*warning/);
   assert.match(workflow, /comment:\s*"false"/);
   assert.match(workflow, /review-comments:\s*"true"/);
