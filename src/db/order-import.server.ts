@@ -122,6 +122,7 @@ function reviewFingerprint(
     paymentStatus: input.paymentStatus,
     fulfillmentStatus: input.fulfillmentStatus,
     cancelledAt: canonicalTimestamp(input.cancelledAt),
+    sourceReviewRequired: input.sourceReviewRequired,
     customerIdentity: identityKey,
     customer: canonicalCustomerProfile(input),
     lines,

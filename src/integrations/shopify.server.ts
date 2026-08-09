@@ -52,6 +52,13 @@ function nodes(value: unknown): Record<string, unknown>[] {
   return records(record(value).nodes);
 }
 
+export function shopifyGraphqlError(errors: unknown): AppError | null {
+  const codes = records(errors).map((error) => record(error.extensions).code);
+  if (codes.includes("THROTTLED")) return new AppError("PROVIDER_RATE_LIMITED", 429);
+  if (codes.includes("ACCESS_DENIED")) return new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  return null;
+}
+
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -341,6 +348,8 @@ async function graphql<T>(operation: string, variables: Record<string, unknown>)
       body: JSON.stringify({ query: operation, variables }),
     },
   );
+  const responseError = shopifyGraphqlError(response.errors);
+  if (responseError) throw responseError;
   if (response.errors || !response.data || typeof response.data !== "object") {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }

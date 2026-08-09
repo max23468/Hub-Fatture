@@ -9,6 +9,7 @@ import {
   SHOPIFY_API_SUPPORTED_UNTIL,
   SHOPIFY_API_VERSION,
   mapShopifyOrder,
+  shopifyGraphqlError,
 } from "./shopify.server.ts";
 
 async function fixture(name: string) {
@@ -59,6 +60,29 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(refundedMapped.customer.taxIdentifiers[0]?.type, "PARTITA_IVA");
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
+});
+
+test("eBay distingue l'annullamento concluso dalla richiesta in corso", async () => {
+  const [payload] = await fixture("ebay-orders.json");
+  const inProgress = structuredClone(payload) as Record<string, unknown>;
+  inProgress.cancelStatus = { cancelState: "IN_PROGRESS" };
+  const pendingMapped = mapEbayOrder(inProgress, "botCF");
+  assert.equal(pendingMapped.cancelledAt, null);
+  assert.equal(orderReviewRequired(pendingMapped, true), true);
+
+  inProgress.cancelStatus = { cancelState: "CANCELED" };
+  assert.equal(mapEbayOrder(inProgress, "botCF").cancelledAt, pendingMapped.updatedAt);
+});
+
+test("gli errori GraphQL Shopify conservano la semantica di retry e autenticazione", () => {
+  assert.equal(
+    shopifyGraphqlError([{ extensions: { code: "THROTTLED" } }])?.code,
+    "PROVIDER_RATE_LIMITED",
+  );
+  assert.equal(
+    shopifyGraphqlError([{ extensions: { code: "ACCESS_DENIED" } }])?.code,
+    "AUTH_PROVIDER_EXPIRED",
+  );
 });
 
 test("uno schema provider inatteso non diventa un errore generico", async () => {

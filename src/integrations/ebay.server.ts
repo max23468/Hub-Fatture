@@ -238,7 +238,8 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
         : order.orderFulfillmentStatus === "IN_PROGRESS"
           ? "PARTIAL"
           : "UNFULFILLED",
-    cancelledAt: cancelled && cancelled !== "NONE_REQUESTED" ? updatedAt : null,
+    cancelledAt: cancelled === "CANCELED" ? updatedAt : null,
+    sourceReviewRequired: cancelled === "IN_PROGRESS",
     customer: {
       kind:
         countryCode === "IT"

@@ -116,6 +116,7 @@ export const orderInputSchema = z
     paymentStatus: z.enum(["PAID", "PENDING", "REFUNDED"]),
     fulfillmentStatus: z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED"]),
     cancelledAt: postgresTimestampSchema.nullable().default(null),
+    sourceReviewRequired: z.boolean().default(false),
     customer: customerSchema,
     lines: z
       .array(
@@ -417,10 +418,11 @@ export function customerIdentity(input: CustomerContext): {
  * Il difetto del cliente vive invece nello snapshot della preparazione, dove è correggibile.
  */
 export function orderReviewRequired(
-  order: Pick<OrderInput, "paymentStatus" | "payments" | "refunds">,
+  order: Pick<OrderInput, "paymentStatus" | "payments" | "refunds" | "sourceReviewRequired">,
   totalsReconciled: boolean,
 ): boolean {
   return (
+    order.sourceReviewRequired ||
     order.paymentStatus !== "PAID" ||
     order.payments.some((payment) => payment.status !== "PAID") ||
     order.refunds.some((refund) => refund.status !== "FAILED") ||
