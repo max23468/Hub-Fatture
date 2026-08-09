@@ -148,12 +148,17 @@ test("Shopify CLI riusa database e chiave dello stack Development", async () => 
 });
 
 test("lo stack Development mantiene nome e riavvio stabili", async () => {
-  const compose = await readFile(path.join(root, "compose.yaml"), "utf8");
+  const [compose, script] = await Promise.all(
+    ["compose.yaml", "scripts/development.sh"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
   assert.match(compose, /^name: hub-fatture-development$/m);
   assert.equal(compose.match(/^    restart: unless-stopped$/gm)?.length, 4);
   assert.match(compose, /- app_node_modules:\/workspace\/node_modules/);
   assert.match(compose, /- worker_node_modules:\/workspace\/node_modules/);
   assert.match(compose, /- worker_build_server:\/workspace\/build-server/);
+  assert.match(script, /docker compose up -d --build --wait app app-worker caddy/);
 });
 
 test("i webhook Shopify sono dichiarati nella configurazione dell'app", async () => {
