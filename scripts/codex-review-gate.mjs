@@ -42,16 +42,11 @@ export function classifyCodexReview({
 }) {
   const afterRequest = (signal) => signalTimestamp(signal) >= timestamp(requestedAt);
   const exactInline = reviewComments.filter(
-    (comment) =>
-      comment.user?.login === CODEX_BOT &&
-      comment.original_commit_id === headSha &&
-      afterRequest(comment),
+    (comment) => comment.user?.login === CODEX_BOT && comment.original_commit_id === headSha,
   );
   const exactTopLevel = comments.filter(
     (comment) =>
-      comment.user?.login === CODEX_BOT &&
-      matchesHead(reviewedCommit(comment.body), headSha) &&
-      afterRequest(comment),
+      comment.user?.login === CODEX_BOT && matchesHead(reviewedCommit(comment.body), headSha),
   );
   const exactReviews = reviews.filter(
     (review) =>
@@ -74,8 +69,9 @@ export function classifyCodexReview({
   const completionTimes = exactReviews.map(signalTimestamp);
   for (const comment of exactTopLevel) {
     if (
-      /^Codex Review: Didn't find any major issues\./m.test(comment.body) ||
-      ["P2", "P3"].includes(findingPriority(comment.body))
+      afterRequest(comment) &&
+      (/^Codex Review: Didn't find any major issues\./m.test(comment.body) ||
+        ["P2", "P3"].includes(findingPriority(comment.body)))
     ) {
       completionTimes.push(signalTimestamp(comment));
     }

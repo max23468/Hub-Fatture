@@ -34,7 +34,7 @@ test("blocca soltanto P0/P1 dell'HEAD corrente", () => {
         {
           user: bot,
           original_commit_id: headSha,
-          created_at: "2026-08-09T12:00:01Z",
+          created_at: "2026-08-09T11:59:59Z",
           body: "**P1** Correggi questo problema",
         },
       ],
