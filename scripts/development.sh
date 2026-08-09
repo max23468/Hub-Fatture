@@ -5,6 +5,14 @@ project_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 keychain_account="hub-fatture"
 keychain_service="Hub Fatture Development Encryption"
 
+keychain_export() {
+  value="$(security find-generic-password -a "$keychain_account" -s "$1" -w 2>/dev/null || true)"
+  if [ -n "$value" ]; then
+    export "$2=$value"
+  fi
+  unset value
+}
+
 if ! development_key="$(security find-generic-password -a "$keychain_account" -s "$keychain_service" -w 2>/dev/null)"; then
   development_key="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
   security add-generic-password -U -a "$keychain_account" -s "$keychain_service" -w "$development_key" >/dev/null
@@ -17,6 +25,11 @@ fi
 
 export CREDENTIALS_ENCRYPTION_KEY="$development_key"
 unset development_key
+
+keychain_export "Hub Fatture Development eBay Client ID" EBAY_CLIENT_ID
+keychain_export "Hub Fatture Development eBay Client Secret" EBAY_CLIENT_SECRET
+keychain_export "Hub Fatture Development eBay RuName" EBAY_RUNAME
+keychain_export "Hub Fatture Development eBay Account Reference" EBAY_ACCOUNT_REFERENCE
 
 cd "$project_root"
 docker compose up -d --wait app app-worker caddy

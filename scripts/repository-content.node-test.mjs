@@ -166,6 +166,8 @@ test("i webhook Shopify sono dichiarati nella configurazione dell'app", async ()
     "app/uninstalled",
     "customers/data_request",
     "customers/redact",
+    "fulfillments/create",
+    "fulfillments/update",
     "orders/cancelled",
     "orders/create",
     "orders/paid",

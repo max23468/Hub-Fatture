@@ -27,15 +27,20 @@ export async function providerJson(
   if (!reader) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   const chunks: Uint8Array[] = [];
   let size = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel();
-      throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel();
+        throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError("PROVIDER_UNAVAILABLE", 503);
   }
   try {
     const parsed: unknown = JSON.parse(Buffer.concat(chunks, size).toString("utf8"));
