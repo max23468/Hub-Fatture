@@ -66,6 +66,7 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
     ),
   );
   assert.match(agents, /richiesta affermativa di pubblicazione/);
+  assert.match(agents, /P2\/P3 della review restano advisory e non autorizzano modifiche/);
   assert.match(masterPlan, /richiesta affermativa di pubblicazione autorizza (?:invece )?deploy/);
   assert.match(glossary, /\| Pubblica\s+\| ciclo tecnico completo\s+\|/);
 });
