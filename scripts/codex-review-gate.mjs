@@ -45,6 +45,7 @@ export function classifyCodexReview({
       if (isBlockingFinding(comment.body)) {
         completions.push({
           state: "failure",
+          blockingFinding: true,
           at: timestamp(comment.created_at),
           description: "Codex ha trovato problemi nell'ultimo commit",
         });
@@ -66,6 +67,7 @@ export function classifyCodexReview({
       if (isBlockingFinding(comment.body)) {
         completions.push({
           state: "failure",
+          blockingFinding: true,
           at: timestamp(comment.created_at),
           description: "Codex ha trovato problemi nell'ultimo commit",
         });
@@ -104,10 +106,10 @@ export function classifyCodexReview({
     }
   }
 
-  const commentFailure = completions
-    .filter((completion) => completion.state === "failure")
+  const blockingFinding = completions
+    .filter((completion) => completion.blockingFinding)
     .sort((left, right) => right.at - left.at)[0];
-  if (commentFailure) return commentFailure;
+  if (blockingFinding) return blockingFinding;
 
   for (const review of reviews) {
     const commit = review.commit_id ?? reviewedCommit(review.body);

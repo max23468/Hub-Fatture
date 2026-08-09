@@ -515,6 +515,26 @@ test("un errore successivo a eyes chiude il tentativo", () => {
   );
 });
 
+test("un completamento pulito successivo supera un errore transitorio", () => {
+  assert.equal(
+    classify({
+      comments: [
+        {
+          user: bot,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "Codex could not complete the review",
+        },
+        {
+          user: bot,
+          created_at: "2026-08-04T12:00:02Z",
+          body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\``,
+        },
+      ],
+    }).state,
+    "success",
+  );
+});
+
 test("un rerun ignora un errore transitorio storico", () => {
   assert.equal(
     classify({
