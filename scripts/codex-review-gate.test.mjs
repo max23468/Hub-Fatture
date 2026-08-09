@@ -113,6 +113,13 @@ test("seleziona solo un'invocazione esatta, fidata e successiva all'HEAD", () =>
       id: 1,
       user: { login: "max23468" },
       author_association: "OWNER",
+      body: "@codex review",
+      created_at: "2026-08-09T11:59:59Z",
+    },
+    {
+      id: 4,
+      user: { login: "max23468" },
+      author_association: "OWNER",
       body: "non eseguire @codex review",
       created_at: "2026-08-09T12:00:01Z",
     },
@@ -169,6 +176,9 @@ test("il workflow usa codice trusted e non richiede commenti al primo giro", asy
   );
   assert.match(workflow, /pull_request_target:/);
   assert.match(workflow, /issue_comment:/);
+  assert.match(workflow, /github\.event\.comment\.body == '@codex review'/);
+  assert.match(workflow, /github\.event\.comment\.author_association == 'OWNER'/);
+  assert.doesNotMatch(workflow, /contains\(github\.event\.comment\.body/);
   assert.match(workflow, /statuses: write/);
   assert.doesNotMatch(workflow, /issues: write/);
   assert.match(workflow, /node --test scripts\/codex-review-gate\.test\.mjs/);
