@@ -46,13 +46,13 @@ services:
     image: hub-fatture-app:local
     restart: unless-stopped
     working_dir: /workspace
-    command: ["npm", "run", "dev:worker"]
+    command: ["sh", "-c", "npm ci && npm run db:migrate && npm run dev:worker"]
     environment: *app-environment
     volumes:
       - .:/workspace
-      - app_node_modules:/workspace/node_modules
+      - worker_node_modules:/workspace/node_modules
     depends_on:
-      app:
+      postgres:
         condition: service_healthy
 
   postgres:
@@ -100,4 +100,5 @@ services:
 
 volumes:
   app_node_modules:
+  worker_node_modules:
   postgres_data:

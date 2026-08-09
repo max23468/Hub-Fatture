@@ -136,6 +136,8 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   const compose = await readFile(path.join(root, "compose.yaml"), "utf8");
   assert.match(compose, /^name: hub-fatture-development$/m);
   assert.equal(compose.match(/^    restart: unless-stopped$/gm)?.length, 4);
+  assert.match(compose, /- app_node_modules:\/workspace\/node_modules/);
+  assert.match(compose, /- worker_node_modules:\/workspace\/node_modules/);
 });
 
 test("l'applicazione accede a PostgreSQL soltanto tramite il livello dati", async () => {
