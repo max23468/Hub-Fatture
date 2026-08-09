@@ -17,7 +17,9 @@ interface SourceCustomer {
   lastName?: string;
   companyName?: string;
   email?: string;
+  certifiedEmail?: string;
   billingAddress?: Record<string, string | undefined>;
+  shippingAddress?: Record<string, string | undefined>;
   taxIdentifiers?: Array<{ type?: string; value?: string; sourceField?: string }>;
 }
 
@@ -38,7 +40,11 @@ interface OrderDetailRow {
   billing_address_json: Record<string, string | undefined>;
   source_confidence: string;
   review_required: boolean;
-  raw_snapshot_json: { customer?: SourceCustomer };
+  raw_snapshot_json: {
+    customer?: SourceCustomer;
+    localizedFields?: Array<{ key?: string; title?: string; value?: string }>;
+    sourceSnapshot?: Record<string, unknown>;
+  };
   lines: Array<{
     id: string;
     description: string;

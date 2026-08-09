@@ -16,6 +16,7 @@ import {
   revokeConnection,
   saveConnection,
   writeCursor,
+  type ConnectorActor,
 } from "../db/connectors.server.ts";
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
@@ -25,7 +26,7 @@ import { providerOrder } from "./provider-order.ts";
 
 export const SHOPIFY_API_VERSION = "2026-07";
 export const SHOPIFY_API_SUPPORTED_UNTIL = "2027-07-16";
-export const SHOPIFY_SCOPES = ["read_orders", "read_customers"] as const;
+export const SHOPIFY_SCOPES = ["read_orders", "read_customers", "read_fulfillments"] as const;
 const OVERLAP_MS = 5 * 60 * 1000;
 
 interface ShopifyCredentials {
@@ -126,26 +127,21 @@ export async function beginShopifyOAuth(request: Request) {
   });
 }
 
-export async function completeShopifyOAuth(request: Request) {
+export async function completeShopifyOAuth(request: Request, actor: ConnectorActor) {
   const result = await shopify().auth.callback({ rawRequest: request });
   if (!result.session.accessToken) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
-  await saveConnection({
-    provider: "SHOPIFY",
-    environment: getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT",
-    accountReference: result.session.shop,
-    credentials: {
-      accessToken: result.session.accessToken,
-      scope: result.session.scope ?? SHOPIFY_SCOPES.join(","),
+  await saveConnection(
+    {
+      provider: "SHOPIFY",
+      environment: getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT",
+      accountReference: result.session.shop,
+      credentials: {
+        accessToken: result.session.accessToken,
+        scope: result.session.scope ?? SHOPIFY_SCOPES.join(","),
+      },
     },
-  });
-  const registration = await shopify().webhooks.register({ session: result.session });
-  if (
-    Object.values(registration)
-      .flat()
-      .some((entry) => !entry.success)
-  ) {
-    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-  }
+    actor,
+  );
   return result.headers;
 }
 
@@ -169,13 +165,14 @@ function mapTaxIdentifiers(order: Record<string, unknown>, customer: Record<stri
     const key = text(field.key)?.toUpperCase() ?? "";
     const purpose = text(field.purpose)?.toUpperCase() ?? "";
     const stableName = `${key}:${purpose}`;
-    if (!value || !/(TAX|VAT|FISCAL|CODICE)/.test(stableName)) continue;
+    const type = /VAT/.test(stableName)
+      ? "PARTITA_IVA"
+      : /(FISCAL|CODICE|TAX_CREDENTIAL_IT)/.test(stableName)
+        ? "CODICE_FISCALE"
+        : undefined;
+    if (!value || !type) continue;
     identifiers.push({
-      type: /VAT/.test(stableName)
-        ? "PARTITA_IVA"
-        : /(FISCAL|CODICE)/.test(stableName)
-          ? "CODICE_FISCALE"
-          : "ALTRO",
+      type,
       value,
       countryCode: text(field.countryCode),
       sourceField: `localizedFields:${key}:${purpose}`,
@@ -200,6 +197,36 @@ function mapTaxIdentifiers(order: Record<string, unknown>, customer: Record<stri
   return identifiers;
 }
 
+function mapAddress(value: unknown) {
+  const address = record(value);
+  return {
+    line1: text(address.address1),
+    line2: text(address.address2),
+    postalCode: text(address.zip),
+    city: text(address.city),
+    province: text(address.provinceCode),
+    countryCode: text(address.countryCodeV2),
+  };
+}
+
+function mapLocalizedFields(order: Record<string, unknown>) {
+  return nodes(order.localizedFields).flatMap((field) => {
+    const key = text(field.key);
+    const value = text(field.value);
+    return key && value
+      ? [
+          {
+            key,
+            value,
+            countryCode: text(field.countryCode),
+            purpose: text(field.purpose),
+            title: text(field.title),
+          },
+        ]
+      : [];
+  });
+}
+
 export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
   const order = record(payload);
   const id = text(order.id);
@@ -211,6 +238,8 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
   }
   const customer = record(order.customer);
   const address = record(order.billingAddress);
+  const shippingAddress = record(order.shippingAddress);
+  const localizedFields = mapLocalizedFields(order);
   const countryCode = text(address.countryCodeV2);
   const companyName = text(address.company);
   const lineItems = nodes(order.lineItems);
@@ -243,6 +272,8 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
           ? "PARTIAL"
           : "UNFULFILLED",
     cancelledAt: text(order.cancelledAt) ?? null,
+    localizedFields,
+    sourceSnapshot: order,
     customer: {
       kind:
         countryCode === "IT"
@@ -256,16 +287,12 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
       firstName: text(customer.firstName),
       lastName: text(customer.lastName),
       companyName,
-      email: text(record(customer.defaultEmailAddress).emailAddress),
+      email: text(order.email) ?? text(record(customer.defaultEmailAddress).emailAddress),
+      certifiedEmail: localizedFields.find((field) => field.key.toUpperCase() === "TAX_EMAIL_IT")
+        ?.value,
       phone: text(record(customer.defaultPhoneNumber).phoneNumber) ?? text(address.phone),
-      billingAddress: {
-        line1: text(address.address1),
-        line2: text(address.address2),
-        postalCode: text(address.zip),
-        city: text(address.city),
-        province: text(address.provinceCode),
-        countryCode,
-      },
+      billingAddress: mapAddress(address),
+      shippingAddress: mapAddress(shippingAddress),
       taxIdentifiers: mapTaxIdentifiers(order, customer),
     },
     lines: lineItems.map((line) => {
@@ -311,7 +338,7 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
 
 function orderFields() {
   return `
-    id name createdAt updatedAt cancelledAt currencyCode
+    id name email createdAt updatedAt cancelledAt currencyCode
     displayFinancialStatus displayFulfillmentStatus
     totalPriceSet { shopMoney { amount currencyCode } }
     totalShippingPriceSet { shopMoney { amount currencyCode } }
@@ -323,6 +350,7 @@ function orderFields() {
       taxSettings { taxId }
     }
     billingAddress { name company address1 address2 zip city provinceCode countryCodeV2 phone }
+    shippingAddress { name company address1 address2 zip city provinceCode countryCodeV2 phone }
     lineItems(first: 100) {
       nodes { id name quantity originalTotalSet { shopMoney { amount currencyCode } }
         discountedTotalSet { shopMoney { amount currencyCode } } }
@@ -438,8 +466,13 @@ export async function processShopifyWebhook(request: Request, rawBody: Buffer) {
   } catch {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
   }
-  if (validation.topic === "APP_UNINSTALLED") await revokeConnection("SHOPIFY");
   const externalEventId = validation.eventId ?? validation.webhookId ?? payloadHash;
+  if (validation.topic === "APP_UNINSTALLED") {
+    await revokeConnection("SHOPIFY", {
+      type: "SYSTEM",
+      requestId: `shopify-webhook:${externalEventId}`,
+    });
+  }
   if (
     validation.topic === "CUSTOMERS_DATA_REQUEST" ||
     validation.topic === "CUSTOMERS_REDACT" ||

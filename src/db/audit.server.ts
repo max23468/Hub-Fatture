@@ -17,6 +17,9 @@ export const auditActions = [
   "ORDER_SEPARATED",
   "ORDER_SOURCE_CONFLICT",
   "ORDER_SOURCE_UPDATED",
+  "PROVIDER_CONNECTED",
+  "PROVIDER_REVOKED",
+  "CONNECTOR_JOB_RETRIED",
   "SHOPIFY_DATA_REQUEST_COMPLETED",
 ] as const;
 
@@ -29,7 +32,14 @@ export async function writeAudit(
     actorId?: string | null;
     action: AuditAction;
     eventClass: "CRITICAL" | "OPERATIONAL";
-    entityType: "USER" | "ORDER" | "BILLING_CASE" | "SETTING" | "WEBHOOK_EVENT";
+    entityType:
+      | "USER"
+      | "ORDER"
+      | "BILLING_CASE"
+      | "SETTING"
+      | "WEBHOOK_EVENT"
+      | "CONNECTION"
+      | "JOB";
     entityId?: string | null;
     metadata?: Partial<{
       billingCaseId: string;

@@ -2,6 +2,7 @@
   {
     "id": "gid://shopify/Order/1001",
     "name": "#1001",
+    "email": "ordine@example.invalid",
     "createdAt": "2026-08-01T09:00:00Z",
     "updatedAt": "2026-08-01T09:05:00Z",
     "cancelledAt": null,
@@ -12,11 +13,18 @@
     "localizedFields": {
       "nodes": [
         {
-          "key": "TAX_ID",
+          "key": "TAX_CREDENTIAL_IT",
           "countryCode": "IT",
-          "purpose": "FISCAL_ID",
-          "title": "Dato fiscale",
+          "purpose": "TAX",
+          "title": "Codice Fiscale (optional)",
           "value": "RSSMRA80A01H501U"
+        },
+        {
+          "key": "TAX_EMAIL_IT",
+          "countryCode": "IT",
+          "purpose": "TAX",
+          "title": "PEC (optional)",
+          "value": "cliente@example.invalid"
         }
       ]
     },
@@ -34,6 +42,17 @@
       "company": null,
       "address1": "Via Esempio 1",
       "address2": null,
+      "zip": "00100",
+      "city": "Roma",
+      "provinceCode": "RM",
+      "countryCodeV2": "IT",
+      "phone": "+39000000000"
+    },
+    "shippingAddress": {
+      "name": "Cliente Sintetico",
+      "company": null,
+      "address1": "Via Consegna 2",
+      "address2": "Interno 3",
       "zip": "00100",
       "city": "Roma",
       "provinceCode": "RM",
@@ -66,6 +85,7 @@
   {
     "id": "gid://shopify/Order/1002",
     "name": "#1002",
+    "email": null,
     "createdAt": "2026-08-02T09:00:00Z",
     "updatedAt": "2026-08-02T10:00:00Z",
     "cancelledAt": null,
@@ -94,6 +114,7 @@
       "countryCodeV2": "IT",
       "phone": null
     },
+    "shippingAddress": null,
     "lineItems": {
       "nodes": [
         {

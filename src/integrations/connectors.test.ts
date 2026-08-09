@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { AppError } from "../errors.ts";
 import { orderReviewRequired } from "../orders.ts";
-import { EBAY_SCOPE, ebayAccountReference, mapEbayOrder } from "./ebay.server.ts";
+import { EBAY_SCOPE, ebayAccountReference, ebayNextUrl, mapEbayOrder } from "./ebay.server.ts";
 import {
   SHOPIFY_API_SUPPORTED_UNTIL,
   SHOPIFY_API_VERSION,
@@ -34,8 +34,15 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
     type: "CODICE_FISCALE",
     value: "RSSMRA80A01H501U",
     countryCode: "IT",
-    sourceField: "localizedFields:TAX_ID:FISCAL_ID",
+    sourceField: "localizedFields:TAX_CREDENTIAL_IT:TAX",
   });
+  assert.equal(privateMapped.customer.taxIdentifiers.length, 1);
+  assert.equal(privateMapped.customer.email, "ordine@example.invalid");
+  assert.equal(privateMapped.customer.certifiedEmail, "cliente@example.invalid");
+  assert.equal(privateMapped.customer.shippingAddress.line1, "Via Consegna 2");
+  assert.equal(privateMapped.localizedFields[0]?.title, "Codice Fiscale (optional)");
+  assert.equal(privateMapped.localizedFields[1]?.key, "TAX_EMAIL_IT");
+  assert.deepEqual(privateMapped.sourceSnapshot, privateOrder);
   assert.equal(businessMapped.customer.taxIdentifiers[0]?.type, "PARTITA_IVA");
   assert.equal(
     businessMapped.customer.taxIdentifiers[0]?.sourceField,
@@ -58,11 +65,15 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   const refundedMapped = mapEbayOrder(refundedOrder, "botCF");
 
   assert.equal(privateMapped.customer.taxIdentifiers[0]?.type, "CODICE_FISCALE");
+  assert.equal(privateMapped.customer.shippingAddress.line1, "Via eBay 1");
+  assert.deepEqual(privateMapped.sourceSnapshot, privateOrder);
   assert.equal(
     privateMapped.customer.taxIdentifiers[0]?.sourceField,
     "buyer.taxIdentifier.CODICE_FISCALE",
   );
   assert.equal(refundedMapped.customer.taxIdentifiers[0]?.type, "PARTITA_IVA");
+  assert.equal(refundedMapped.refunds[0]?.externalRefundId, "refund-2");
+  assert.equal(refundedMapped.refunds[1]?.externalRefundId, "refund-reference-3");
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
   assert.match(EBAY_SCOPE, /commerce\.identity\.readonly/);
@@ -70,6 +81,14 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.throws(
     () => ebayAccountReference({ username: "altro-venditore" }, "botCF"),
     (error) => error instanceof AppError && error.code === "AUTH_PROVIDER_ACCOUNT_MISMATCH",
+  );
+  assert.equal(
+    ebayNextUrl("sandbox", "/sell/fulfillment/v1/order?offset=50"),
+    "https://api.sandbox.ebay.com/sell/fulfillment/v1/order?offset=50",
+  );
+  assert.throws(
+    () => ebayNextUrl("sandbox", "https://attacker.example.invalid/steal"),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
   );
 });
 

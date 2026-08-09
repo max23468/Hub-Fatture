@@ -45,7 +45,10 @@ export type Config = z.infer<typeof schema>;
 let cached: Config | undefined;
 
 export function parseConfig(environment: NodeJS.ProcessEnv): Config {
-  return schema.parse(environment);
+  return schema.parse({
+    ...environment,
+    APP_BASE_URL: environment.APP_BASE_URL ?? environment.APP_URL ?? environment.HOST,
+  });
 }
 
 export function getConfig(): Config {

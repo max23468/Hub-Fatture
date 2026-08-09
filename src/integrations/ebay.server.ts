@@ -10,6 +10,7 @@ import {
   readCursor,
   saveConnection,
   writeCursor,
+  type ConnectorActor,
 } from "../db/connectors.server.ts";
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
@@ -62,6 +63,22 @@ function money(value: unknown): { value: string; currency: string } | null {
 
 function environmentBase(environment: "sandbox" | "production") {
   return environment === "sandbox" ? "https://api.sandbox.ebay.com" : "https://api.ebay.com";
+}
+
+export function ebayNextUrl(environment: "sandbox" | "production", value: unknown) {
+  const next = text(value);
+  if (!next) return null;
+  const base = new URL(environmentBase(environment));
+  let url: URL;
+  try {
+    url = new URL(next, base);
+  } catch {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  if (url.protocol !== "https:" || url.origin !== base.origin) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  return url.toString();
 }
 
 function identityBase(environment: "sandbox" | "production") {
@@ -260,6 +277,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
           : "UNFULFILLED",
     cancelledAt: cancelled === "CANCELED" ? updatedAt : null,
     sourceReviewRequired: cancelled === "IN_PROGRESS",
+    sourceSnapshot: order,
     customer: {
       kind:
         countryCode === "IT"
@@ -274,6 +292,14 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
       email: text(shipTo.email),
       phone: text(shipTo.primaryPhone?.toString()),
       billingAddress: {
+        line1: text(address.addressLine1),
+        line2: text(address.addressLine2),
+        postalCode: text(address.postalCode),
+        city: text(address.city),
+        province: text(address.stateOrProvince),
+        countryCode,
+      },
+      shippingAddress: {
         line1: text(address.addressLine1),
         line2: text(address.addressLine2),
         postalCode: text(address.postalCode),
@@ -351,7 +377,7 @@ async function fetchOrdersSince(start: string) {
       const detail = await fetchOrder(environment, token, orderId);
       orders.push(mapEbayOrder(detail, connection.accountReference));
     }
-    url = text(response.next) ?? null;
+    url = ebayNextUrl(environment, response.next);
   }
   if (url) throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
   return { connection, end, orders };
@@ -423,7 +449,7 @@ export function ebayAuthorizationUrl(state: string) {
   })}`;
 }
 
-export async function completeEbayOAuth(code: string) {
+export async function completeEbayOAuth(code: string, actor: ConnectorActor) {
   const config = getConfig();
   if (!config.EBAY_CLIENT_ID || !config.EBAY_CLIENT_SECRET || !config.EBAY_RUNAME)
     throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
@@ -450,12 +476,15 @@ export async function completeEbayOAuth(code: string) {
     { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
   );
   const accountReference = ebayAccountReference(profile, config.EBAY_ACCOUNT_REFERENCE);
-  await saveConnection({
-    provider: "EBAY",
-    environment: config.EBAY_ENVIRONMENT === "sandbox" ? "SANDBOX" : "PRODUCTION",
-    accountReference,
-    credentials: { refreshToken },
-  });
+  await saveConnection(
+    {
+      provider: "EBAY",
+      environment: config.EBAY_ENVIRONMENT === "sandbox" ? "SANDBOX" : "PRODUCTION",
+      accountReference,
+      credentials: { refreshToken },
+    },
+    actor,
+  );
 }
 
 export async function processEbayAccountDeletion(body: Buffer, signatureHeader: string | null) {

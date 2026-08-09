@@ -1,0 +1,7 @@
+roles = ["frontend", "backend"]
+auth_callback_path = ["/integrations/shopify/callback"]
+webhooks_path = "/webhooks/shopify"
+
+[commands]
+dev = "npm run db:migrate && npm run dev"
+build = "npm run build"

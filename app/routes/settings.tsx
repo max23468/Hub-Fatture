@@ -11,9 +11,12 @@ import { getDraftTrigger, setDraftTrigger } from "../../src/db/orders.server.ts"
 import {
   completeShopifyDataRequest,
   connectionSummaries,
+  enqueueEbayPreview,
+  failedConnectorJobs,
+  latestEbayPreview,
   pendingShopifyDataRequests,
+  retryFailedJob,
 } from "../../src/db/connectors.server.ts";
-import { previewEbayHistory } from "../../src/integrations/ebay.server.ts";
 import { previewShopifyHistory } from "../../src/integrations/shopify.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -27,6 +30,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     privacyCompleted: url.searchParams.get("privacy") === "chiusa",
     connections: await connectionSummaries(),
     shopifyDataRequests: await pendingShopifyDataRequests(),
+    failedJobs: await failedConnectorJobs(),
+    ebayPreview: await latestEbayPreview(),
     preview:
       url.searchParams.get("provider") && url.searchParams.get("count")
         ? {
@@ -51,10 +56,21 @@ export async function action({ request }: Route.ActionArgs) {
       });
       return redirect("/impostazioni?privacy=chiusa");
     }
-    if (intent === "preview-shopify" || intent === "preview-ebay") {
-      const provider = intent === "preview-shopify" ? "Shopify" : "eBay";
-      const preview =
-        intent === "preview-shopify" ? await previewShopifyHistory() : await previewEbayHistory();
+    if (intent === "retry-connector-job") {
+      await retryFailedJob(form.get("jobId"), {
+        type: "ADMIN",
+        id: user.id,
+        requestId: requestId(request),
+      });
+      return redirect("/impostazioni?job=riavviato");
+    }
+    if (intent === "preview-ebay") {
+      await enqueueEbayPreview();
+      return redirect("/impostazioni?ebayPreview=avviata");
+    }
+    if (intent === "preview-shopify") {
+      const provider = "Shopify";
+      const preview = await previewShopifyHistory();
       return redirect(
         `/impostazioni?${new URLSearchParams({
           provider,
@@ -80,6 +96,8 @@ export default function Settings() {
     privacyCompleted,
     connections,
     shopifyDataRequests,
+    failedJobs,
+    ebayPreview,
     preview,
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
@@ -104,6 +122,16 @@ export default function Settings() {
       {preview ? (
         <p className="notice" role="status">
           {copy.settings.previewResult(preview.provider, preview.count, preview.review)}
+        </p>
+      ) : null}
+      {ebayPreview ? (
+        <p className="notice" role="status">
+          {copy.settings.ebayPreviewStatus(
+            ebayPreview.status,
+            ebayPreview.count,
+            ebayPreview.reviewRequired,
+            ebayPreview.errorCode,
+          )}
         </p>
       ) : null}
       <section className="card">
@@ -154,6 +182,9 @@ export default function Settings() {
                     : copy.settings.notConnected}
                 </p>
                 {connection ? <p>{connection.accountReference}</p> : null}
+                {connection?.lastErrorCode ? (
+                  <p className="error">{copy.settings.connectionError(connection.lastErrorCode)}</p>
+                ) : null}
                 <p>
                   {copy.settings.lastSync}: {connection?.lastSyncedAt ?? copy.settings.never}
                 </p>
@@ -186,6 +217,26 @@ export default function Settings() {
             );
           })}
         </div>
+        {failedJobs.length ? (
+          <div className="notice section-gap" role="status">
+            <h3>{copy.settings.failedJobsTitle}</h3>
+            <ul>
+              {failedJobs.map((job) => (
+                <li key={job.id}>
+                  <p>{copy.settings.failedJob(job.type, job.errorCode, job.attempts)}</p>
+                  <Form method="post">
+                    <input type="hidden" name="csrf" value={csrfToken} />
+                    <input type="hidden" name="intent" value="retry-connector-job" />
+                    <input type="hidden" name="jobId" value={job.id} />
+                    <button className="button button--secondary" type="submit">
+                      {copy.settings.retryJob}
+                    </button>
+                  </Form>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {error ? (
           <p className="error" role="alert">
             {error.message}
