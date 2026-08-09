@@ -60,7 +60,7 @@ test("nessun riferimento a nomi storici del Master Plan", () => {
 });
 
 test("la sigla interna non compare nella superficie utente", async () => {
-  const files = [...(await collect("app")), "src/errors.ts", "src/auth.server.ts"];
+  const files = [...(await collect("app")), "src/errors.ts", "src/db/auth.server.ts"];
   const offenders = (await contents(files))
     .filter(({ text }) => /\bhf\b/i.test(text))
     .map(({ file }) => file);

@@ -3,8 +3,8 @@ import type { Route } from "./+types/home";
 
 import { AppShell } from "../components/app-shell";
 import { copy } from "../copy.it";
-import { requireSessionUser } from "../../src/auth.server.ts";
-import { dashboardSummary } from "../../src/orders.server.ts";
+import { requireSessionUser } from "../../src/db/auth.server.ts";
+import { dashboardSummary } from "../../src/db/orders.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);

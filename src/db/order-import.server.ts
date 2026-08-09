@@ -3,26 +3,23 @@ import { createHash } from "node:crypto";
 import type pg from "pg";
 
 import { writeAudit } from "./audit.server.ts";
-import { getPool, withTransaction } from "./db/client.server.ts";
-import { AppError } from "./errors.ts";
+import { withTransaction } from "./client.server.ts";
+import { AppError } from "../errors.ts";
 import {
   canonicalCustomerProfile,
   canonicalTaxIdentifiers,
-  containsNullByte,
   customerIdentity,
   customerDisplayName,
   decimalToCents,
   draftTriggerSchema,
   localOrderDate,
   orderInputSchema,
-  POSTGRES_INTEGER_MAX,
-  postgresDateSchema,
   triggerStatus,
   type DraftTrigger,
   type OrderInput,
-} from "./orders.ts";
+} from "../orders.ts";
 
-interface Actor {
+export interface Actor {
   id: number;
   requestId: string;
 }
@@ -34,16 +31,6 @@ interface GroupableOrder {
   customerSnapshot: Record<string, unknown>;
   localOrderDate: string;
   currency: string;
-}
-
-const POSTGRES_BIGINT_MAX = "9223372036854775807";
-
-function isDatabaseId(id: string) {
-  return (
-    /^[1-9]\d*$/.test(id) &&
-    (id.length < POSTGRES_BIGINT_MAX.length ||
-      (id.length === POSTGRES_BIGINT_MAX.length && id <= POSTGRES_BIGINT_MAX))
-  );
 }
 
 function customerSnapshot(input: OrderInput, identity: ReturnType<typeof customerIdentity>) {
@@ -64,6 +51,14 @@ function cents(value: string): number {
   } catch {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
+}
+
+function canonicalTimestamp(value: string | null): string | null {
+  if (!value) return null;
+  const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/.exec(value)?.[1]?.replace(/0+$/, "");
+  const instant = new Date(value).toISOString();
+  const seconds = instant.slice(0, instant.indexOf("."));
+  return fraction ? `${seconds}.${fraction}Z` : `${seconds}Z`;
 }
 
 function reviewFingerprint(
@@ -88,7 +83,7 @@ function reviewFingerprint(
     .map((payment, index) => ({
       ...payment,
       amount: paymentAmounts[index],
-      paidAt: payment.paidAt ? new Date(payment.paidAt).toISOString() : null,
+      paidAt: canonicalTimestamp(payment.paidAt),
     }))
     .sort((left, right) =>
       left.externalPaymentId === right.externalPaymentId
@@ -103,7 +98,7 @@ function reviewFingerprint(
     localDate,
     paymentStatus: input.paymentStatus,
     fulfillmentStatus: input.fulfillmentStatus,
-    cancelledAt: input.cancelledAt ? new Date(input.cancelledAt).toISOString() : null,
+    cancelledAt: canonicalTimestamp(input.cancelledAt),
     customerIdentity: identityKey,
     customer: canonicalCustomerProfile(input),
     lines,
@@ -113,7 +108,7 @@ function reviewFingerprint(
   return createHash("sha256").update(JSON.stringify(relevant)).digest("hex");
 }
 
-async function groupOrder(
+export async function groupOrder(
   client: pg.PoolClient,
   order: GroupableOrder,
   actor: Actor,
@@ -203,7 +198,7 @@ async function currentTrigger(client: pg.PoolClient): Promise<DraftTrigger> {
   return draftTriggerSchema.parse(result.rows[0]?.value_json ?? "PAID");
 }
 
-async function serializeOrderMutations(client: pg.PoolClient) {
+export async function serializeOrderMutations(client: pg.PoolClient) {
   // ponytail: lock globale adatto al single tenant; usare lock ordinati per ordine se la concorrenza misurata lo richiede.
   await client.query("SELECT pg_advisory_xact_lock(hashtext('order-import-batch'))");
 }
@@ -530,14 +525,18 @@ async function importOne(
         `UPDATE orders
          SET billing_case_id = NULL,
              trigger_status = 'ELIGIBLE',
-             normalized_snapshot_json = CASE WHEN $3
-               THEN jsonb_set(
-                 normalized_snapshot_json,
-                 '{deferredReviewRequired}',
-                 'true'::jsonb
+             normalized_snapshot_json = jsonb_set(
+               normalized_snapshot_json,
+               '{deferredReviewRequired}',
+               to_jsonb(
+                 (normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
+                 OR coalesce(
+                   (normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
+                   false
+                 )
+                 OR trigger_status = 'NEEDS_REVIEW'
                )
-               ELSE normalized_snapshot_json
-             END
+             )
          WHERE billing_case_id = $1 AND id <> $2
            AND cancelled_at IS NULL AND payment_status <> 'REFUNDED'
          RETURNING id, customer_id, local_order_date::text, currency,
@@ -545,7 +544,7 @@ async function importOne(
              OR coalesce((normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
              AS review_required,
            normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot`,
-        [oldOrder!.billing_case_id, orderId, oldOrder!.billing_case_status === "NEEDS_REVIEW"],
+        [oldOrder!.billing_case_id, orderId],
       );
       // Ogni assegnazione deve osservare la preparazione creata dalla precedente nella stessa transazione.
       for (const remainingOrder of remainingOrders.rows) {
@@ -704,488 +703,4 @@ export async function importOrders(input: unknown, actor: Actor) {
       ignored: results.filter((result) => result === "ignored").length,
     };
   });
-}
-
-export async function getDraftTrigger() {
-  const result = await getPool().query<{ value_json: unknown; version: number }>(
-    "SELECT value_json, version FROM settings WHERE key = 'draft_trigger'",
-  );
-  return {
-    value: draftTriggerSchema.parse(result.rows[0]?.value_json ?? "PAID"),
-    version: result.rows[0]?.version ?? 0,
-  };
-}
-
-export async function setDraftTrigger(value: unknown, expectedVersion: number, actor: Actor) {
-  const trigger = draftTriggerSchema.safeParse(value);
-  if (
-    !trigger.success ||
-    !Number.isInteger(expectedVersion) ||
-    expectedVersion < 0 ||
-    expectedVersion > POSTGRES_INTEGER_MAX
-  ) {
-    throw new AppError("ORDER_INVALID_INPUT", 422);
-  }
-  return withTransaction(async (client) => {
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('setting:draft_trigger'))");
-    await serializeOrderMutations(client);
-    const setting = await client.query<{ version: number }>(
-      "SELECT version FROM settings WHERE key = 'draft_trigger' FOR UPDATE",
-    );
-    if (setting.rows[0]?.version !== expectedVersion) {
-      throw new AppError("CONFLICT_REVISION", 409);
-    }
-    const updated = await client.query<{ version: number }>(
-      `UPDATE settings
-       SET value_json = $1, version = version + 1, updated_at = now()
-       WHERE key = 'draft_trigger'
-       RETURNING version`,
-      [JSON.stringify(trigger.data)],
-    );
-    await writeAudit(client, {
-      actorType: "ADMIN",
-      actorId: String(actor.id),
-      action: "DRAFT_TRIGGER_CHANGED",
-      eventClass: "CRITICAL",
-      entityType: "SETTING",
-      entityId: "draft_trigger",
-      metadata: { value: trigger.data },
-      requestId: actor.requestId,
-    });
-    const ungrouped = await client.query<{
-      id: string;
-      customer_id: string;
-      review_required: boolean;
-      customer_snapshot: Record<string, unknown>;
-      local_order_date: string;
-      currency: string;
-      payment_status: OrderInput["paymentStatus"];
-      fulfillment_status: OrderInput["fulfillmentStatus"];
-      cancelled_at: string | null;
-    }>(
-      `SELECT orders.id, orders.customer_id,
-              ((orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
-                OR coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
-                AS review_required,
-              orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
-              orders.local_order_date::text, orders.currency, orders.payment_status,
-              orders.fulfillment_status, orders.cancelled_at
-       FROM orders
-       WHERE orders.billing_case_id IS NULL`,
-    );
-    for (const order of ungrouped.rows) {
-      const status = triggerStatus(
-        {
-          cancelledAt: order.cancelled_at,
-          paymentStatus: order.payment_status,
-          fulfillmentStatus: order.fulfillment_status,
-        },
-        trigger.data,
-      );
-      const updatedOrder = await client.query(
-        `UPDATE orders SET trigger_status = $2
-         WHERE id = $1 AND billing_case_id IS NULL
-         RETURNING id`,
-        [order.id, status],
-      );
-      if (status === "ELIGIBLE" && updatedOrder.rowCount) {
-        await groupOrder(
-          client,
-          {
-            id: order.id,
-            customerId: order.customer_id,
-            reviewRequired: order.review_required,
-            customerSnapshot: order.customer_snapshot,
-            localOrderDate: order.local_order_date,
-            currency: order.currency,
-          },
-          actor,
-        );
-      }
-    }
-    return { value: trigger.data, version: updated.rows[0]!.version };
-  });
-}
-
-export async function forcePrepareOrder(id: string, actor: Actor) {
-  if (!isDatabaseId(id)) return null;
-  return withTransaction(async (client) => {
-    await serializeOrderMutations(client);
-    const identity = await client.query<{
-      provider: string;
-      external_account_id: string;
-      external_order_id: string;
-    }>("SELECT provider, external_account_id, external_order_id FROM orders WHERE id = $1", [id]);
-    if (!identity.rows[0]) return null;
-    const source = identity.rows[0];
-    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      `order:${source.provider}:${source.external_account_id}:${source.external_order_id}`,
-    ]);
-    const order = await client.query<{
-      id: string;
-      customer_id: string;
-      billing_case_id: string | null;
-      review_required: boolean;
-      customer_snapshot: Record<string, unknown>;
-      local_order_date: string;
-      currency: string;
-      cancelled_at: string | null;
-      payment_status: OrderInput["paymentStatus"];
-    }>(
-      `SELECT orders.id, orders.customer_id, orders.billing_case_id,
-              ((orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
-                OR coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
-                AS review_required,
-              orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
-              orders.local_order_date::text,
-              orders.currency, orders.cancelled_at, orders.payment_status
-       FROM orders
-       WHERE orders.id = $1
-       FOR UPDATE OF orders`,
-      [id],
-    );
-    const current = order.rows[0];
-    if (!current) return null;
-    if (current.billing_case_id) return current.billing_case_id;
-    if (current.cancelled_at || current.payment_status === "REFUNDED") {
-      throw new AppError("ORDER_NOT_PREPARABLE", 409);
-    }
-    return groupOrder(
-      client,
-      {
-        id: current.id,
-        customerId: current.customer_id,
-        reviewRequired: current.review_required,
-        customerSnapshot: current.customer_snapshot,
-        localOrderDate: current.local_order_date,
-        currency: current.currency,
-      },
-      actor,
-      true,
-    );
-  });
-}
-
-export async function updateBillingCaseTransmission(
-  id: string,
-  reason: string | null,
-  actor: Actor,
-) {
-  if (!isDatabaseId(id)) return null;
-  const normalizedReason = reason?.trim() || null;
-  if (
-    reason !== null &&
-    (!normalizedReason || normalizedReason.length > 500 || containsNullByte(normalizedReason))
-  ) {
-    throw new AppError("ORDER_INVALID_INPUT", 422);
-  }
-  return withTransaction(async (client) => {
-    await serializeOrderMutations(client);
-    const result = await client.query<{
-      status: string;
-      has_orders: boolean;
-      has_incompatible_orders: boolean;
-      needs_review: boolean;
-      has_other_open_case: boolean;
-    }>(
-      `SELECT billing_cases.status,
-              EXISTS (
-                SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
-              ) AS has_orders,
-              EXISTS (
-                SELECT 1 FROM orders
-                WHERE orders.billing_case_id = billing_cases.id
-                  AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
-              ) AS has_incompatible_orders,
-              EXISTS (
-                SELECT 1 FROM orders
-                WHERE orders.billing_case_id = billing_cases.id
-                  AND (
-                    (orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
-                    OR coalesce(
-                      (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
-                      false
-                    )
-                    OR orders.trigger_status = 'NEEDS_REVIEW'
-                    OR orders.normalized_snapshot_json #> '{customerSnapshot,canonicalProfile}'
-                       IS DISTINCT FROM billing_cases.customer_snapshot_json -> 'canonicalProfile'
-                  )
-              ) AS needs_review,
-              EXISTS (
-                SELECT 1 FROM billing_cases AS other
-                WHERE other.id <> billing_cases.id
-                  AND other.customer_id = billing_cases.customer_id
-                  AND other.local_order_date = billing_cases.local_order_date
-                  AND other.currency = billing_cases.currency
-                  AND other.status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
-              ) AS has_other_open_case
-       FROM billing_cases
-       WHERE billing_cases.id = $1
-       FOR UPDATE OF billing_cases`,
-      [id],
-    );
-    const current = result.rows[0];
-    if (!current) return null;
-    if (normalizedReason) {
-      if (!["DRAFT", "READY", "NEEDS_REVIEW"].includes(current.status)) {
-        throw new AppError("CONFLICT_REVISION", 409);
-      }
-      await client.query(
-        `UPDATE billing_cases
-         SET status = 'DO_NOT_TRANSMIT', do_not_transmit_reason = $2, updated_at = now()
-         WHERE id = $1`,
-        [id, normalizedReason],
-      );
-      await writeAudit(client, {
-        actorType: "ADMIN",
-        actorId: String(actor.id),
-        action: "BILLING_CASE_DO_NOT_TRANSMIT",
-        eventClass: "CRITICAL",
-        entityType: "BILLING_CASE",
-        entityId: id,
-        metadata: { billingCaseId: id, reason: normalizedReason },
-        requestId: actor.requestId,
-      });
-      return "DO_NOT_TRANSMIT";
-    }
-    if (current.status !== "DO_NOT_TRANSMIT") throw new AppError("CONFLICT_REVISION", 409);
-    if (!current.has_orders) throw new AppError("BILLING_CASE_EMPTY", 409);
-    if (current.has_incompatible_orders) throw new AppError("ORDER_NOT_PREPARABLE", 409);
-    if (current.has_other_open_case) throw new AppError("CONFLICT_REVISION", 409);
-    const status = current.needs_review ? "NEEDS_REVIEW" : "READY";
-    await client.query(
-      `UPDATE billing_cases
-       SET status = $2, do_not_transmit_reason = NULL, updated_at = now()
-       WHERE id = $1`,
-      [id, status],
-    );
-    await writeAudit(client, {
-      actorType: "ADMIN",
-      actorId: String(actor.id),
-      action: "BILLING_CASE_REACTIVATED",
-      eventClass: "CRITICAL",
-      entityType: "BILLING_CASE",
-      entityId: id,
-      metadata: { billingCaseId: id },
-      requestId: actor.requestId,
-    });
-    return status;
-  });
-}
-
-export async function listOrders(filters: {
-  query?: string;
-  provider?: string;
-  status?: string;
-  localDate?: string;
-  paymentStatus?: string;
-}) {
-  if (containsNullByte(filters)) return [];
-  if (filters.localDate && !postgresDateSchema.safeParse(filters.localDate).success) return [];
-  const values = [
-    filters.query ? `%${filters.query}%` : null,
-    filters.provider || null,
-    filters.status || null,
-    filters.localDate || null,
-    filters.paymentStatus || null,
-  ];
-  const result = await getPool().query<{
-    id: string;
-    provider: string;
-    display_number: string;
-    local_order_date: string;
-    gross_amount: number;
-    payment_status: string;
-    fulfillment_status: string;
-    trigger_status: string;
-    customer_name: string;
-    billing_case_id: string | null;
-    case_number: string | null;
-  }>(
-    `SELECT orders.id, orders.provider, orders.display_number, orders.local_order_date::text,
-            orders.gross_amount, orders.payment_status, orders.fulfillment_status,
-            orders.trigger_status,
-            orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' AS customer_name,
-            billing_cases.id AS billing_case_id, billing_cases.public_number AS case_number
-     FROM orders
-     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
-     WHERE ($1::text IS NULL OR orders.display_number ILIKE $1
-            OR orders.external_order_id ILIKE $1
-            OR orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' ILIKE $1
-            OR orders.normalized_snapshot_json #>> '{customerSnapshot,email}' ILIKE $1
-            OR EXISTS (SELECT 1 FROM order_tax_identifiers
-                       WHERE order_tax_identifiers.order_id = orders.id
-                         AND (order_tax_identifiers.normalized_value ILIKE $1
-                              OR order_tax_identifiers.raw_value ILIKE $1)))
-       AND ($2::text IS NULL OR orders.provider = $2)
-       AND ($3::text IS NULL
-            OR ($3 = 'ACTIVE' AND orders.trigger_status NOT IN
-                ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'))
-            OR ($3 = 'NO_DOCUMENT' AND orders.trigger_status IN
-                ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'))
-            OR orders.trigger_status = $3)
-       AND ($4::date IS NULL OR orders.local_order_date = $4)
-       AND ($5::text IS NULL OR orders.payment_status = $5)
-     ORDER BY orders.local_order_date DESC, orders.id DESC`,
-    values,
-  );
-  return result.rows;
-}
-
-export async function getOrder(id: string) {
-  if (!isDatabaseId(id)) return null;
-  const order = await getPool().query(
-    `SELECT orders.*, orders.local_order_date::text,
-            orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' AS customer_name,
-            orders.normalized_snapshot_json #>> '{customerSnapshot,kind}' AS customer_kind,
-            orders.normalized_snapshot_json #>> '{customerSnapshot,email}' AS customer_email,
-            orders.normalized_snapshot_json #> '{customerSnapshot,billingAddress}' AS billing_address_json,
-            orders.normalized_snapshot_json #>> '{customerSnapshot,sourceConfidence}' AS source_confidence,
-            (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
-            billing_cases.public_number AS case_number,
-            coalesce((
-              SELECT jsonb_agg(to_jsonb(order_lines) ORDER BY order_lines.id)
-              FROM order_lines WHERE order_lines.order_id = orders.id
-            ), '[]'::jsonb) AS lines,
-            coalesce((
-              SELECT jsonb_agg(to_jsonb(order_tax_identifiers) ORDER BY order_tax_identifiers.id)
-              FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id
-            ), '[]'::jsonb) AS "taxIdentifiers",
-            coalesce((
-              SELECT jsonb_agg(to_jsonb(payments) ORDER BY payments.id)
-              FROM payments WHERE payments.order_id = orders.id
-            ), '[]'::jsonb) AS payments
-     FROM orders
-     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
-     WHERE orders.id = $1`,
-    [id],
-  );
-  return order.rows[0] ?? null;
-}
-
-export async function listBillingCases() {
-  const result = await getPool().query<{
-    id: string;
-    public_number: string;
-    local_order_date: string;
-    status: string;
-    customer_name: string;
-    order_count: string;
-    total_amount: string;
-  }>(
-    `SELECT billing_cases.id, billing_cases.public_number, billing_cases.local_order_date::text,
-            billing_cases.status,
-            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
-            count(orders.id)::text AS order_count, coalesce(sum(orders.gross_amount), 0)::text AS total_amount
-     FROM billing_cases
-     LEFT JOIN orders ON orders.billing_case_id = billing_cases.id
-     GROUP BY billing_cases.id
-     ORDER BY billing_cases.local_order_date DESC, billing_cases.id DESC`,
-  );
-  return result.rows;
-}
-
-export async function getBillingCase(id: string) {
-  if (!isDatabaseId(id)) return null;
-  const billingCase = await getPool().query(
-    `SELECT billing_cases.*, billing_cases.local_order_date::text,
-            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
-            billing_cases.customer_snapshot_json ->> 'email' AS customer_email,
-            (billing_cases.customer_snapshot_json ->> 'reviewRequired')::boolean AS review_required,
-            billing_cases.customer_snapshot_json -> 'billingAddress' AS billing_address_json,
-            CASE
-              WHEN NOT EXISTS (
-                SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
-              ) THEN 'EMPTY'
-              WHEN EXISTS (
-                SELECT 1 FROM orders
-                WHERE orders.billing_case_id = billing_cases.id
-                  AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
-              ) THEN 'INCOMPATIBLE_ORDERS'
-              WHEN EXISTS (
-                SELECT 1 FROM billing_cases AS other
-                WHERE other.id <> billing_cases.id
-                  AND other.customer_id = billing_cases.customer_id
-                  AND other.local_order_date = billing_cases.local_order_date
-                  AND other.currency = billing_cases.currency
-                  AND other.status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
-              ) THEN 'OTHER_OPEN_CASE'
-              ELSE NULL
-            END AS reactivation_blocker,
-            coalesce((
-              SELECT jsonb_agg(to_jsonb(case_orders) ORDER BY case_orders.id)
-              FROM (
-                SELECT id, provider, display_number, gross_amount, payment_status,
-                       fulfillment_status
-                FROM orders WHERE billing_case_id = billing_cases.id
-              ) AS case_orders
-            ), '[]'::jsonb) AS orders,
-            coalesce((
-              SELECT jsonb_agg(to_jsonb(case_audit) ORDER BY case_audit.created_at DESC)
-              FROM (
-                SELECT id, action, actor_id, metadata_json, request_id, created_at
-                FROM audit_events
-                WHERE (entity_type = 'BILLING_CASE' AND entity_id = billing_cases.id::text)
-                   OR (entity_type = 'ORDER'
-                       AND metadata_json ->> 'billingCaseId' = billing_cases.id::text)
-              ) AS case_audit
-            ), '[]'::jsonb) AS audit,
-            coalesce((
-              SELECT jsonb_agg(to_jsonb(case_revisions) ORDER BY case_revisions.created_at DESC)
-              FROM (
-                SELECT order_source_revisions.*, orders.display_number
-                FROM order_source_revisions
-                JOIN orders ON orders.id = order_source_revisions.order_id
-                WHERE order_source_revisions.billing_case_id = billing_cases.id
-                   OR orders.billing_case_id = billing_cases.id
-              ) AS case_revisions
-            ), '[]'::jsonb) AS revisions
-     FROM billing_cases
-     WHERE billing_cases.id = $1`,
-    [id],
-  );
-  if (!billingCase.rows[0]) return null;
-  return {
-    ...billingCase.rows[0],
-    revisions: billingCase.rows[0].revisions.map(
-      (revision: {
-        previous_normalized_snapshot_json: Record<string, unknown>;
-        current_normalized_snapshot_json: Record<string, unknown>;
-      }) => ({
-        ...revision,
-        changedFields: Array.from(
-          new Set([
-            ...Object.keys(revision.previous_normalized_snapshot_json),
-            ...Object.keys(revision.current_normalized_snapshot_json),
-          ]),
-        ).filter(
-          (field) =>
-            JSON.stringify(revision.previous_normalized_snapshot_json[field]) !==
-            JSON.stringify(revision.current_normalized_snapshot_json[field]),
-        ),
-      }),
-    ),
-  };
-}
-
-export async function dashboardSummary() {
-  const result = await getPool().query<{
-    orders: string;
-    ready_cases: string;
-    review_cases: string;
-    waiting_orders: string;
-    pending_payments: string;
-  }>(
-    `SELECT
-       (SELECT count(*) FROM orders)::text AS orders,
-       (SELECT count(*) FROM billing_cases WHERE status = 'READY')::text AS ready_cases,
-       (SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW')::text AS review_cases,
-       (SELECT count(*) FROM orders WHERE trigger_status = 'WAITING_FOR_TRIGGER')::text AS waiting_orders,
-       (SELECT count(*) FROM orders
-        WHERE trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
-          AND (payment_status = 'PENDING'
-            OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id = orders.id
-                        AND payments.status = 'PENDING')))::text AS pending_payments`,
-  );
-  return result.rows[0]!;
 }

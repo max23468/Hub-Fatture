@@ -20,12 +20,10 @@ test("accetta soltanto il target osservato atteso", () => {
 
 test("la CLI resta fail-closed anche da un percorso con spazi", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "hf preflight "));
-  for (const name of ["provider-preflight.mjs", "direct-execution.mjs"]) {
-    await copyFile(
-      fileURLToPath(new URL(`./${name}`, import.meta.url)),
-      path.join(directory, name),
-    );
-  }
+  await copyFile(
+    fileURLToPath(new URL("./provider-preflight.mjs", import.meta.url)),
+    path.join(directory, "provider-preflight.mjs"),
+  );
   const script = path.join(directory, "provider-preflight.mjs");
 
   assert.throws(

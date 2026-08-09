@@ -4,10 +4,10 @@ import type { Route } from "./+types/billing-case-detail";
 import { AppShell } from "../components/app-shell";
 import { auditActionLabels, billingCaseStatusLabels, paymentStatusLabels } from "../copy.it";
 import { date, dateTime, euros } from "../format";
-import { assertCsrf, requestId, requireSessionUser } from "../../src/auth.server.ts";
+import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
-import { getBillingCase, updateBillingCaseTransmission } from "../../src/orders.server.ts";
+import { getBillingCase, updateBillingCaseTransmission } from "../../src/db/orders.server.ts";
 
 const reactivationBlockerMessages: Record<string, string> = {
   EMPTY:
@@ -58,10 +58,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 export default function BillingCaseDetail() {
   const { username, csrfToken, billingCase } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
-  const total = billingCase.orders.reduce(
-    (sum: number, order: Record<string, unknown>) => sum + Number(order.gross_amount),
-    0,
-  );
+  const total = billingCase.orders.reduce((sum, order) => sum + order.gross_amount, 0);
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
@@ -90,15 +87,14 @@ export default function BillingCaseDetail() {
         <section className="card">
           <h2>Ordini inclusi</h2>
           <ul className="plain-list">
-            {billingCase.orders.map((order: Record<string, unknown>) => (
-              <li key={String(order.id)}>
-                <Link to={`/ordini/${String(order.id)}`}>
-                  {String(order.provider) === "SHOPIFY" ? "Shopify" : "eBay"}{" "}
-                  {String(order.display_number)}
+            {billingCase.orders.map((order) => (
+              <li key={order.id}>
+                <Link to={`/ordini/${order.id}`}>
+                  {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
                 </Link>
                 <span>
-                  {paymentStatusLabels[String(order.payment_status)] ?? "Pagamento da verificare"} ·{" "}
-                  {euros(String(order.gross_amount))}
+                  {paymentStatusLabels[order.payment_status] ?? "Pagamento da verificare"} ·{" "}
+                  {euros(order.gross_amount)}
                 </span>
               </li>
             ))}
@@ -130,7 +126,7 @@ export default function BillingCaseDetail() {
             </Form>
           ) : billingCase.status === "DO_NOT_TRANSMIT" ? (
             <p className="notice section-gap">
-              {reactivationBlockerMessages[billingCase.reactivation_blocker] ??
+              {reactivationBlockerMessages[billingCase.reactivation_blocker ?? ""] ??
                 "Questa preparazione resta consultabile in archivio e non può essere riattivata."}
             </p>
           ) : ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status) ? (
@@ -176,10 +172,10 @@ export default function BillingCaseDetail() {
         <h2>Registro attività</h2>
         {billingCase.audit.length ? (
           <ol className="timeline">
-            {billingCase.audit.map((event: Record<string, unknown>) => (
-              <li key={String(event.id)}>
-                <strong>{auditActionLabels[String(event.action)] ?? "Attività registrata"}</strong>
-                <span>{dateTime(String(event.created_at))}</span>
+            {billingCase.audit.map((event) => (
+              <li key={event.id}>
+                <strong>{auditActionLabels[event.action] ?? "Attività registrata"}</strong>
+                <span>{dateTime(event.created_at)}</span>
               </li>
             ))}
           </ol>
