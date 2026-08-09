@@ -50,7 +50,8 @@ services:
     environment: *app-environment
     volumes:
       - .:/workspace
-      - app_node_modules:/workspace/node_modules
+      - worker_node_modules:/workspace/node_modules
+      - worker_build_server:/workspace/build-server
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,4 +101,6 @@ services:
 
 volumes:
   app_node_modules:
+  worker_node_modules:
+  worker_build_server:
   postgres_data:

@@ -66,6 +66,7 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
     ),
   );
   assert.match(agents, /richiesta affermativa di pubblicazione/);
+  assert.match(agents, /P2\/P3 della review restano advisory e non autorizzano modifiche/);
   assert.match(masterPlan, /richiesta affermativa di pubblicazione autorizza (?:invece )?deploy/);
   assert.match(glossary, /\| Pubblica\s+\| ciclo tecnico completo\s+\|/);
 });
@@ -136,6 +137,9 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   const compose = await readFile(path.join(root, "compose.yaml"), "utf8");
   assert.match(compose, /^name: hub-fatture-development$/m);
   assert.equal(compose.match(/^    restart: unless-stopped$/gm)?.length, 4);
+  assert.match(compose, /- app_node_modules:\/workspace\/node_modules/);
+  assert.match(compose, /- worker_node_modules:\/workspace\/node_modules/);
+  assert.match(compose, /- worker_build_server:\/workspace\/build-server/);
 });
 
 test("l'applicazione accede a PostgreSQL soltanto tramite il livello dati", async () => {
