@@ -19,7 +19,10 @@ import { providerOrder } from "./provider-order.ts";
 
 export const EBAY_FULFILLMENT_API_VERSION = "v1";
 export const EBAY_FULFILLMENT_SCHEMA_RELEASE = "1.20.7";
-export const EBAY_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly";
+export const EBAY_SCOPE = [
+  "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
+  "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+].join(" ");
 const OVERLAP_MS = 5 * 60 * 1000;
 
 interface EbayCredentials {
@@ -59,6 +62,23 @@ function money(value: unknown): { value: string; currency: string } | null {
 
 function environmentBase(environment: "sandbox" | "production") {
   return environment === "sandbox" ? "https://api.sandbox.ebay.com" : "https://api.ebay.com";
+}
+
+function identityBase(environment: "sandbox" | "production") {
+  return environment === "sandbox" ? "https://apiz.sandbox.ebay.com" : "https://apiz.ebay.com";
+}
+
+export function ebayAccountReference(profile: unknown, expected: string) {
+  const source = record(profile);
+  const references = [source.username, source.userId, source.user_id].flatMap((value) => {
+    const reference = text(value);
+    return reference ? [reference] : [];
+  });
+  const verified = references.find(
+    (reference) => reference.toLocaleLowerCase("en-US") === expected.toLocaleLowerCase("en-US"),
+  );
+  if (!verified) throw new AppError("AUTH_PROVIDER_ACCOUNT_MISMATCH", 409);
+  return verified;
 }
 
 async function accessToken(environment: "sandbox" | "production", refreshToken: string) {
@@ -423,11 +443,17 @@ export async function completeEbayOAuth(code: string) {
     },
   );
   const refreshToken = text(response.refresh_token);
-  if (!refreshToken) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  const accessToken = text(response.access_token);
+  if (!refreshToken || !accessToken) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  const profile = await providerJson(
+    `${identityBase(config.EBAY_ENVIRONMENT)}/commerce/identity/v1/user/`,
+    { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } },
+  );
+  const accountReference = ebayAccountReference(profile, config.EBAY_ACCOUNT_REFERENCE);
   await saveConnection({
     provider: "EBAY",
     environment: config.EBAY_ENVIRONMENT === "sandbox" ? "SANDBOX" : "PRODUCTION",
-    accountReference: config.EBAY_ACCOUNT_REFERENCE,
+    accountReference,
     credentials: { refreshToken },
   });
 }

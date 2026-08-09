@@ -4,12 +4,13 @@ import test from "node:test";
 
 import { AppError } from "../errors.ts";
 import { orderReviewRequired } from "../orders.ts";
-import { mapEbayOrder } from "./ebay.server.ts";
+import { EBAY_SCOPE, ebayAccountReference, mapEbayOrder } from "./ebay.server.ts";
 import {
   SHOPIFY_API_SUPPORTED_UNTIL,
   SHOPIFY_API_VERSION,
   mapShopifyOrder,
   shopifyGraphqlError,
+  shopifyUpdatedAtQuery,
 } from "./shopify.server.ts";
 
 async function fixture(name: string) {
@@ -25,6 +26,10 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
 
   assert.equal(SHOPIFY_API_VERSION, "2026-07");
   assert.equal(SHOPIFY_API_SUPPORTED_UNTIL, "2027-07-16");
+  assert.equal(
+    shopifyUpdatedAtQuery("2026-08-09T12:34:56.000Z"),
+    "updated_at:>='2026-08-09T12:34:56.000Z'",
+  );
   assert.deepEqual(privateMapped.customer.taxIdentifiers[0], {
     type: "CODICE_FISCALE",
     value: "RSSMRA80A01H501U",
@@ -60,6 +65,12 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(refundedMapped.customer.taxIdentifiers[0]?.type, "PARTITA_IVA");
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
+  assert.match(EBAY_SCOPE, /commerce\.identity\.readonly/);
+  assert.equal(ebayAccountReference({ username: "BotCF" }, "botcf"), "BotCF");
+  assert.throws(
+    () => ebayAccountReference({ username: "altro-venditore" }, "botCF"),
+    (error) => error instanceof AppError && error.code === "AUTH_PROVIDER_ACCOUNT_MISMATCH",
+  );
 });
 
 test("eBay distingue l'annullamento concluso dalla richiesta in corso", async () => {

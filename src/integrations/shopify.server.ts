@@ -386,7 +386,7 @@ async function fetchOrdersSince(start: string) {
           pageInfo { hasNextPage endCursor }
         }
       }`,
-      { after: cursor, query: `updated_at:>=${start}` },
+      { after: cursor, query: shopifyUpdatedAtQuery(start) },
     );
     connectionReference = result.connection.accountReference;
     const pageData: OrdersPage["orders"] | undefined = result.data?.orders;
@@ -397,6 +397,10 @@ async function fetchOrdersSince(start: string) {
     if (!cursor) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
   throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+}
+
+export function shopifyUpdatedAtQuery(start: string) {
+  return `updated_at:>='${start}'`;
 }
 
 export async function syncShopifyOrders() {

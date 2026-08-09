@@ -17,6 +17,7 @@ export const errorCatalog = {
   REQUEST_ORIGIN_INVALID: "Origine della richiesta non valida.",
   REQUEST_TIMEOUT: "La richiesta ha impiegato troppo tempo.",
   AUTH_PROVIDER_EXPIRED: "Il collegamento al canale di vendita deve essere rinnovato.",
+  AUTH_PROVIDER_ACCOUNT_MISMATCH: "È stato autorizzato un account diverso da quello configurato.",
   PROVIDER_RATE_LIMITED: "Il canale di vendita ha chiesto di rallentare la sincronizzazione.",
   PROVIDER_UNAVAILABLE: "Il canale di vendita non è raggiungibile in questo momento.",
   PROVIDER_RESPONSE_TOO_LARGE: "La risposta del canale di vendita supera il limite previsto.",
