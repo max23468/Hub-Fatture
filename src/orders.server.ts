@@ -1,0 +1,1191 @@
+import { createHash } from "node:crypto";
+
+import type pg from "pg";
+
+import { writeAudit } from "./audit.server.ts";
+import { getPool, withTransaction } from "./db/client.server.ts";
+import { AppError } from "./errors.ts";
+import {
+  canonicalCustomerProfile,
+  canonicalTaxIdentifiers,
+  containsNullByte,
+  customerIdentity,
+  customerDisplayName,
+  decimalToCents,
+  draftTriggerSchema,
+  localOrderDate,
+  orderInputSchema,
+  POSTGRES_INTEGER_MAX,
+  postgresDateSchema,
+  triggerStatus,
+  type DraftTrigger,
+  type OrderInput,
+} from "./orders.ts";
+
+interface Actor {
+  id: number;
+  requestId: string;
+}
+
+interface GroupableOrder {
+  id: string;
+  customerId: string;
+  reviewRequired: boolean;
+  customerSnapshot: Record<string, unknown>;
+  localOrderDate: string;
+  currency: string;
+}
+
+const POSTGRES_BIGINT_MAX = "9223372036854775807";
+
+function isDatabaseId(id: string) {
+  return (
+    /^[1-9]\d*$/.test(id) &&
+    (id.length < POSTGRES_BIGINT_MAX.length ||
+      (id.length === POSTGRES_BIGINT_MAX.length && id <= POSTGRES_BIGINT_MAX))
+  );
+}
+
+function customerSnapshot(input: OrderInput, identity: ReturnType<typeof customerIdentity>) {
+  const canonicalProfile = canonicalCustomerProfile(input);
+  return {
+    ...input.customer,
+    displayName: customerDisplayName(input.customer) || "Cliente senza nome",
+    taxIdentifiers: canonicalProfile.taxIdentifiers,
+    canonicalProfile,
+    sourceConfidence: identity.confidence,
+    reviewRequired: identity.reviewRequired,
+  };
+}
+
+function cents(value: string): number {
+  try {
+    return decimalToCents(value);
+  } catch {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+}
+
+function reviewFingerprint(
+  input: OrderInput,
+  identityKey: string,
+  totalAmount: number,
+  localDate: string,
+  lineAmounts: { grossAmount: number; discountAmount: number }[],
+  paymentAmounts: number[],
+  shippingAmount: number,
+) {
+  const lines = input.lines
+    .map((line, index) => ({ ...line, ...lineAmounts[index] }))
+    .sort((left, right) =>
+      left.externalLineId === right.externalLineId
+        ? 0
+        : left.externalLineId < right.externalLineId
+          ? -1
+          : 1,
+    );
+  const payments = input.payments
+    .map((payment, index) => ({
+      ...payment,
+      amount: paymentAmounts[index],
+      paidAt: payment.paidAt ? new Date(payment.paidAt).toISOString() : null,
+    }))
+    .sort((left, right) =>
+      left.externalPaymentId === right.externalPaymentId
+        ? 0
+        : left.externalPaymentId < right.externalPaymentId
+          ? -1
+          : 1,
+    );
+  const relevant = {
+    displayNumber: input.displayNumber,
+    totalAmount,
+    localDate,
+    paymentStatus: input.paymentStatus,
+    fulfillmentStatus: input.fulfillmentStatus,
+    cancelledAt: input.cancelledAt ? new Date(input.cancelledAt).toISOString() : null,
+    customerIdentity: identityKey,
+    customer: canonicalCustomerProfile(input),
+    lines,
+    payments,
+    shippingAmount,
+  };
+  return createHash("sha256").update(JSON.stringify(relevant)).digest("hex");
+}
+
+async function groupOrder(
+  client: pg.PoolClient,
+  order: GroupableOrder,
+  actor: Actor,
+  forced = false,
+) {
+  const lockKey = `billing-case:${order.customerId}:${order.localOrderDate}:${order.currency}`;
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+  const existing = await client.query<{ id: string; same_customer_snapshot: boolean }>(
+    `SELECT id,
+            customer_snapshot_json -> 'canonicalProfile' = $4::jsonb -> 'canonicalProfile'
+              AS same_customer_snapshot
+     FROM billing_cases
+     WHERE customer_id = $1 AND local_order_date = $2 AND currency = $3
+       AND status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
+     FOR UPDATE`,
+    [
+      order.customerId,
+      order.localOrderDate,
+      order.currency,
+      JSON.stringify(order.customerSnapshot),
+    ],
+  );
+  const desiredStatus =
+    order.reviewRequired || existing.rows[0]?.same_customer_snapshot === false
+      ? "NEEDS_REVIEW"
+      : "READY";
+  const billingCase = existing.rows[0]
+    ? await client.query<{ id: string }>(
+        `UPDATE billing_cases
+         SET status = CASE WHEN status = 'NEEDS_REVIEW' OR $2 = 'NEEDS_REVIEW'
+                           THEN 'NEEDS_REVIEW' ELSE 'READY' END,
+             updated_at = now()
+         WHERE id = $1
+         RETURNING id`,
+        [existing.rows[0].id, desiredStatus],
+      )
+    : await client.query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id`,
+        [
+          order.customerId,
+          order.localOrderDate,
+          order.currency,
+          desiredStatus,
+          JSON.stringify(order.customerSnapshot),
+        ],
+      );
+  const caseId = billingCase.rows[0]!.id;
+  if (!existing.rows[0]) {
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "BILLING_CASE_CREATED",
+      eventClass: "CRITICAL",
+      entityType: "BILLING_CASE",
+      entityId: caseId,
+      requestId: actor.requestId,
+    });
+  }
+  const assigned = await client.query(
+    `UPDATE orders
+     SET billing_case_id = $2, trigger_status = 'GROUPED'
+     WHERE id = $1 AND billing_case_id IS NULL`,
+    [order.id, caseId],
+  );
+  if (assigned.rowCount) {
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: forced ? "ORDER_GROUPING_FORCED" : "ORDER_GROUPED",
+      eventClass: "CRITICAL",
+      entityType: "ORDER",
+      entityId: order.id,
+      metadata: { billingCaseId: caseId },
+      requestId: actor.requestId,
+    });
+  }
+  return caseId;
+}
+
+async function currentTrigger(client: pg.PoolClient): Promise<DraftTrigger> {
+  const result = await client.query<{ value_json: unknown }>(
+    "SELECT value_json FROM settings WHERE key = 'draft_trigger'",
+  );
+  return draftTriggerSchema.parse(result.rows[0]?.value_json ?? "PAID");
+}
+
+async function serializeOrderMutations(client: pg.PoolClient) {
+  // ponytail: lock globale adatto al single tenant; usare lock ordinati per ordine se la concorrenza misurata lo richiede.
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('order-import-batch'))");
+}
+
+async function importOne(
+  client: pg.PoolClient,
+  input: OrderInput,
+  trigger: DraftTrigger,
+  actor: Actor,
+) {
+  if (input.currency !== "EUR") throw new AppError("ORDER_CURRENCY_NOT_SUPPORTED", 422);
+  const grossAmount = cents(input.total);
+  if (grossAmount < 0) throw new AppError("ORDER_INVALID_INPUT", 422);
+  const lineAmounts = input.lines.map((line) => ({
+    grossAmount: cents(line.grossAmount),
+    discountAmount: cents(line.discountAmount),
+  }));
+  const paymentAmounts = input.payments.map((payment) => cents(payment.amount));
+  const shippingAmount = cents(input.shippingAmount);
+  if (
+    lineAmounts.some(
+      ({ grossAmount: amount, discountAmount }) =>
+        amount < 0 || discountAmount < 0 || discountAmount > amount,
+    ) ||
+    paymentAmounts.some((amount) => amount < 0) ||
+    shippingAmount < 0
+  ) {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+  const identity = customerIdentity(input);
+  const totalsReconciled =
+    lineAmounts.reduce((sum, line) => sum + BigInt(line.grossAmount - line.discountAmount), 0n) +
+      BigInt(shippingAmount) ===
+      BigInt(grossAmount) &&
+    paymentAmounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(grossAmount);
+  const localDate = localOrderDate(input.createdAt);
+  const fingerprint = reviewFingerprint(
+    input,
+    identity.matchKey,
+    grossAmount,
+    localDate,
+    lineAmounts,
+    paymentAmounts,
+    shippingAmount,
+  );
+  const status = triggerStatus(input, trigger);
+  const preparationReviewRequired =
+    identity.reviewRequired ||
+    input.paymentStatus !== "PAID" ||
+    input.payments.some((payment) => payment.status !== "PAID") ||
+    !totalsReconciled;
+  let reviewRequiredForGrouping = preparationReviewRequired;
+  const previous = await client.query<{
+    id: string;
+    billing_case_id: string | null;
+    last_observed_review_fingerprint: string | null;
+    last_observed_snapshot_json: Record<string, unknown>;
+    is_stale: boolean;
+    billing_case_status: string | null;
+    billing_case_do_not_transmit_automatic: boolean;
+    billing_case_review_required_before_do_not_transmit: boolean;
+    deferred_review_required: boolean;
+    customer_id: string;
+    trigger_status: string;
+  }>(
+    `SELECT orders.id, orders.billing_case_id, orders.customer_id, orders.trigger_status,
+            $4::timestamptz < orders.updated_at_source AS is_stale,
+            CASE WHEN billing_cases.status IN ('APPROVED', 'CLOSED')
+              THEN coalesce(latest_revision.snapshot ->> 'reviewFingerprint',
+                            orders.normalized_snapshot_json ->> 'reviewFingerprint')
+              ELSE orders.normalized_snapshot_json ->> 'reviewFingerprint'
+            END AS last_observed_review_fingerprint,
+            CASE WHEN billing_cases.status IN ('APPROVED', 'CLOSED')
+              THEN coalesce(latest_revision.snapshot, orders.normalized_snapshot_json)
+              ELSE orders.normalized_snapshot_json
+            END AS last_observed_snapshot_json,
+            billing_cases.status AS billing_case_status,
+            coalesce((
+              SELECT actor_type = 'SYSTEM'
+                AND metadata_json ->> 'reason' IN ('CANCELLED', 'REFUNDED')
+              FROM audit_events
+              WHERE entity_type = 'BILLING_CASE'
+                AND entity_id = orders.billing_case_id::text
+                AND action = 'BILLING_CASE_DO_NOT_TRANSMIT'
+              ORDER BY id DESC
+              LIMIT 1
+            ), false) AS billing_case_do_not_transmit_automatic,
+            coalesce((
+              SELECT (metadata_json ->> 'reviewRequired')::boolean
+              FROM audit_events
+              WHERE entity_type = 'BILLING_CASE'
+                AND entity_id = orders.billing_case_id::text
+                AND action = 'BILLING_CASE_DO_NOT_TRANSMIT'
+              ORDER BY id DESC
+              LIMIT 1
+            ), false) AS billing_case_review_required_before_do_not_transmit,
+            coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
+              AS deferred_review_required
+     FROM orders
+     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+     LEFT JOIN LATERAL (
+       SELECT current_normalized_snapshot_json AS snapshot
+       FROM order_source_revisions
+       WHERE order_id = orders.id
+       ORDER BY id DESC
+       LIMIT 1
+     ) AS latest_revision ON true
+     WHERE orders.provider = $1
+       AND orders.external_account_id = $2
+       AND orders.external_order_id = $3
+     FOR UPDATE OF orders`,
+    [input.provider, input.externalAccountId, input.externalOrderId, input.updatedAt],
+  );
+  if (previous.rows[0]?.is_stale) return "ignored";
+
+  const oldOrder = previous.rows[0];
+  let deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
+  reviewRequiredForGrouping ||= deferredReviewRequired;
+  const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
+
+  const customer = invoiced
+    ? null
+    : await client.query<{ id: string }>(
+        `INSERT INTO customers
+      (kind, match_key, display_name, first_name, last_name, company_name, email, phone,
+       tax_id_type, tax_id_normalized, vat_country, billing_address_json,
+       source_confidence, review_required)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     ON CONFLICT (match_key) DO UPDATE SET
+       kind = EXCLUDED.kind,
+       display_name = EXCLUDED.display_name,
+       first_name = EXCLUDED.first_name,
+       last_name = EXCLUDED.last_name,
+       company_name = EXCLUDED.company_name,
+       email = EXCLUDED.email,
+       phone = EXCLUDED.phone,
+       tax_id_type = EXCLUDED.tax_id_type,
+       tax_id_normalized = EXCLUDED.tax_id_normalized,
+       vat_country = EXCLUDED.vat_country,
+       billing_address_json = EXCLUDED.billing_address_json,
+       source_confidence = EXCLUDED.source_confidence,
+       review_required = EXCLUDED.review_required,
+       updated_at = now()
+     RETURNING id`,
+        [
+          input.customer.kind,
+          identity.matchKey,
+          customerDisplayName(input.customer) || "Cliente senza nome",
+          input.customer.firstName ?? null,
+          input.customer.lastName ?? null,
+          input.customer.companyName ?? null,
+          input.customer.email ?? null,
+          input.customer.phone ?? null,
+          identity.primaryTaxId?.type ?? null,
+          identity.primaryTaxId?.value ?? null,
+          identity.primaryTaxId?.countryCode ?? null,
+          JSON.stringify(input.customer.billingAddress),
+          identity.confidence,
+          identity.reviewRequired,
+        ],
+      );
+  const customerId = invoiced ? oldOrder!.customer_id : customer!.rows[0]!.id;
+  if (!invoiced && input.externalCustomerId) {
+    await client.query(
+      `INSERT INTO customer_source_records
+        (customer_id, provider, external_customer_id, raw_snapshot_json)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (provider, external_customer_id) DO UPDATE
+       SET customer_id = EXCLUDED.customer_id,
+           raw_snapshot_json = EXCLUDED.raw_snapshot_json,
+           imported_at = now()`,
+      [customerId, input.provider, input.externalCustomerId, JSON.stringify(input.customer)],
+    );
+  }
+  const normalizedSnapshot = {
+    ...input,
+    customerSnapshot: customerSnapshot(input, identity),
+    totalAmount: grossAmount,
+    shippingAmount,
+    localOrderDate: localDate,
+    customerIdentity: identity.confidence,
+    customerReviewRequired: identity.reviewRequired,
+    preparationReviewRequired,
+    deferredReviewRequired,
+    totalsReconciled,
+    reviewFingerprint: fingerprint,
+  };
+  const sourceConflict = Boolean(
+    oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint,
+  );
+  const revision = sourceConflict
+    ? await client.query<{ id: string }>(
+        `INSERT INTO order_source_revisions
+          (order_id, billing_case_id, previous_normalized_snapshot_json,
+           current_normalized_snapshot_json)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [
+          oldOrder!.id,
+          oldOrder!.billing_case_id,
+          JSON.stringify(oldOrder!.last_observed_snapshot_json),
+          JSON.stringify(normalizedSnapshot),
+        ],
+      )
+    : null;
+  const order = await client.query<{
+    id: string;
+    billing_case_id: string | null;
+    customer_id: string;
+  }>(
+    `INSERT INTO orders
+      (provider, external_account_id, external_order_id, display_number,
+       created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+       payment_status, fulfillment_status, trigger_status, customer_id,
+       raw_snapshot_json, normalized_snapshot_json, cancelled_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+     ON CONFLICT (provider, external_account_id, external_order_id) DO UPDATE SET
+       display_number = CASE WHEN $17::boolean THEN orders.display_number ELSE EXCLUDED.display_number END,
+       created_at_source = CASE WHEN $17::boolean THEN orders.created_at_source ELSE EXCLUDED.created_at_source END,
+       updated_at_source = EXCLUDED.updated_at_source,
+       local_order_date = CASE WHEN $17::boolean THEN orders.local_order_date ELSE EXCLUDED.local_order_date END,
+       gross_amount = CASE WHEN $17::boolean THEN orders.gross_amount ELSE EXCLUDED.gross_amount END,
+       payment_status = EXCLUDED.payment_status,
+       fulfillment_status = EXCLUDED.fulfillment_status,
+       trigger_status = CASE
+         WHEN orders.billing_case_id IS NOT NULL AND $17::boolean THEN 'INVOICED'
+         WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.cancelled_at IS NOT NULL
+           THEN 'CANCELLED_NO_DOCUMENT'
+         WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.payment_status = 'REFUNDED'
+           THEN 'REFUNDED_BEFORE_ISSUE'
+         WHEN orders.billing_case_id IS NOT NULL THEN orders.trigger_status
+         ELSE EXCLUDED.trigger_status
+       END,
+       customer_id = CASE WHEN orders.billing_case_id IS NULL THEN EXCLUDED.customer_id ELSE orders.customer_id END,
+       raw_snapshot_json = CASE WHEN $17::boolean THEN orders.raw_snapshot_json ELSE EXCLUDED.raw_snapshot_json END,
+       normalized_snapshot_json = CASE WHEN $17::boolean THEN orders.normalized_snapshot_json ELSE EXCLUDED.normalized_snapshot_json END,
+       last_synced_at = now(),
+       cancelled_at = EXCLUDED.cancelled_at
+     RETURNING id, billing_case_id, customer_id`,
+    [
+      input.provider,
+      input.externalAccountId,
+      input.externalOrderId,
+      input.displayNumber,
+      input.createdAt,
+      input.updatedAt,
+      localDate,
+      input.currency,
+      grossAmount,
+      input.paymentStatus,
+      input.fulfillmentStatus,
+      status,
+      customerId,
+      JSON.stringify(input),
+      JSON.stringify(normalizedSnapshot),
+      input.cancelledAt,
+      invoiced,
+    ],
+  );
+  const orderId = order.rows[0]!.id;
+  let currentBillingCaseId = order.rows[0]!.billing_case_id;
+  if (sourceConflict) {
+    const reason = input.cancelledAt
+      ? ("CANCELLED" as const)
+      : input.paymentStatus === "REFUNDED"
+        ? ("REFUNDED" as const)
+        : null;
+    if (!reason && !invoiced) {
+      await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
+        orderId,
+      ]);
+    }
+    const transitionedCase = await client.query(
+      `UPDATE billing_cases
+       SET status = $2,
+           do_not_transmit_reason = $3,
+           updated_at = now()
+       WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')`,
+      [
+        oldOrder!.billing_case_id,
+        reason ? "DO_NOT_TRANSMIT" : "NEEDS_REVIEW",
+        reason === "CANCELLED"
+          ? "Ordine annullato dalla sorgente"
+          : reason === "REFUNDED"
+            ? "Ordine rimborsato prima dell’emissione"
+            : null,
+      ],
+    );
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "ORDER_SOURCE_CONFLICT",
+      eventClass: "CRITICAL",
+      entityType: "ORDER",
+      entityId: orderId,
+      metadata: {
+        billingCaseId: oldOrder!.billing_case_id!,
+        revisionId: revision!.rows[0]!.id,
+      },
+      requestId: actor.requestId,
+    });
+    if (reason && transitionedCase.rowCount) {
+      await writeAudit(client, {
+        actorType: "SYSTEM",
+        action: "BILLING_CASE_DO_NOT_TRANSMIT",
+        eventClass: "CRITICAL",
+        entityType: "BILLING_CASE",
+        entityId: oldOrder!.billing_case_id!,
+        metadata: {
+          billingCaseId: oldOrder!.billing_case_id!,
+          reason,
+          reviewRequired: oldOrder!.trigger_status === "NEEDS_REVIEW",
+        },
+        requestId: actor.requestId,
+      });
+      const remainingOrders = await client.query<{
+        id: string;
+        customer_id: string;
+        local_order_date: string;
+        currency: string;
+        review_required: boolean;
+        customer_snapshot: Record<string, unknown>;
+      }>(
+        `UPDATE orders
+         SET billing_case_id = NULL,
+             trigger_status = 'ELIGIBLE',
+             normalized_snapshot_json = CASE WHEN $3
+               THEN jsonb_set(
+                 normalized_snapshot_json,
+                 '{deferredReviewRequired}',
+                 'true'::jsonb
+               )
+               ELSE normalized_snapshot_json
+             END
+         WHERE billing_case_id = $1 AND id <> $2
+           AND cancelled_at IS NULL AND payment_status <> 'REFUNDED'
+         RETURNING id, customer_id, local_order_date::text, currency,
+           ((normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
+             OR coalesce((normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
+             AS review_required,
+           normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot`,
+        [oldOrder!.billing_case_id, orderId, oldOrder!.billing_case_status === "NEEDS_REVIEW"],
+      );
+      // Ogni assegnazione deve osservare la preparazione creata dalla precedente nella stessa transazione.
+      for (const remainingOrder of remainingOrders.rows) {
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop
+        await groupOrder(
+          client,
+          {
+            id: remainingOrder.id,
+            customerId: remainingOrder.customer_id,
+            reviewRequired: remainingOrder.review_required,
+            customerSnapshot: remainingOrder.customer_snapshot,
+            localOrderDate: remainingOrder.local_order_date,
+            currency: remainingOrder.currency,
+          },
+          actor,
+        );
+      }
+    }
+    if (
+      !reason &&
+      oldOrder!.billing_case_status === "DO_NOT_TRANSMIT" &&
+      oldOrder!.billing_case_do_not_transmit_automatic
+    ) {
+      reviewRequiredForGrouping ||= oldOrder!.billing_case_review_required_before_do_not_transmit;
+      deferredReviewRequired ||= reviewRequiredForGrouping;
+      await client.query(
+        `UPDATE orders
+         SET billing_case_id = NULL, trigger_status = $3, customer_id = $2,
+             normalized_snapshot_json = jsonb_set(
+               normalized_snapshot_json,
+               '{deferredReviewRequired}',
+               to_jsonb($4::boolean)
+             )
+         WHERE id = $1`,
+        [orderId, customerId, status, deferredReviewRequired],
+      );
+      currentBillingCaseId = null;
+    }
+  }
+  if (!invoiced) {
+    await client.query("DELETE FROM order_lines WHERE order_id = $1", [orderId]);
+    for (const [index, line] of input.lines.entries()) {
+      const lineAmount = lineAmounts[index]!;
+      await client.query(
+        `INSERT INTO order_lines
+          (order_id, external_line_id, description, quantity, gross_amount, discount_amount, raw_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          orderId,
+          line.externalLineId,
+          line.description,
+          line.quantity,
+          lineAmount.grossAmount,
+          lineAmount.discountAmount,
+          JSON.stringify(line),
+        ],
+      );
+    }
+    await client.query("DELETE FROM order_tax_identifiers WHERE order_id = $1", [orderId]);
+    for (const identifier of canonicalTaxIdentifiers(input)) {
+      await client.query(
+        `INSERT INTO order_tax_identifiers
+          (order_id, type, raw_value, normalized_value, country_code, source_field)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          orderId,
+          identifier.type,
+          identifier.rawValue,
+          identifier.value,
+          identifier.countryCode ?? null,
+          identifier.sourceField,
+        ],
+      );
+    }
+  }
+  await client.query(
+    `DELETE FROM payments
+     WHERE order_id = $1 AND recorded_manually = false
+       AND NOT (external_payment_id = ANY($2::text[]))`,
+    [orderId, input.payments.map((payment) => payment.externalPaymentId)],
+  );
+  for (const [index, payment] of input.payments.entries()) {
+    await client.query(
+      `INSERT INTO payments
+        (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (order_id, external_payment_id) DO UPDATE SET
+         method = EXCLUDED.method,
+         status = EXCLUDED.status,
+         amount = EXCLUDED.amount,
+         paid_at = EXCLUDED.paid_at,
+         raw_json = EXCLUDED.raw_json
+       WHERE payments.recorded_manually = false`,
+      [
+        orderId,
+        payment.externalPaymentId,
+        payment.method,
+        payment.status,
+        paymentAmounts[index],
+        payment.paidAt,
+        JSON.stringify(payment),
+      ],
+    );
+  }
+  await writeAudit(client, {
+    actorType: "ADMIN",
+    actorId: String(actor.id),
+    action: previous.rows[0] ? "ORDER_SOURCE_UPDATED" : "ORDER_IMPORTED",
+    eventClass: "OPERATIONAL",
+    entityType: "ORDER",
+    entityId: orderId,
+    metadata: { provider: input.provider },
+    requestId: actor.requestId,
+  });
+  if (!currentBillingCaseId && status === "ELIGIBLE") {
+    await groupOrder(
+      client,
+      {
+        id: orderId,
+        customerId,
+        reviewRequired: reviewRequiredForGrouping,
+        customerSnapshot: normalizedSnapshot.customerSnapshot,
+        localOrderDate: localDate,
+        currency: input.currency,
+      },
+      actor,
+    );
+  }
+  return previous.rows[0] ? "updated" : "imported";
+}
+
+export async function importOrders(input: unknown, actor: Actor) {
+  let orders: OrderInput[];
+  try {
+    orders = orderInputSchema.array().min(1).parse(input);
+  } catch {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+  const sourceKeys = orders.map((order) =>
+    JSON.stringify([order.provider, order.externalAccountId, order.externalOrderId]),
+  );
+  if (new Set(sourceKeys).size !== sourceKeys.length) {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
+    await serializeOrderMutations(client);
+    const trigger = await currentTrigger(client);
+    const results = [];
+    // Il batch resta seriale: ogni raggruppamento deve osservare gli ordini precedenti nella stessa transazione.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    for (const order of orders) results.push(await importOne(client, order, trigger, actor));
+    return {
+      imported: results.filter((result) => result === "imported").length,
+      updated: results.filter((result) => result === "updated").length,
+      ignored: results.filter((result) => result === "ignored").length,
+    };
+  });
+}
+
+export async function getDraftTrigger() {
+  const result = await getPool().query<{ value_json: unknown; version: number }>(
+    "SELECT value_json, version FROM settings WHERE key = 'draft_trigger'",
+  );
+  return {
+    value: draftTriggerSchema.parse(result.rows[0]?.value_json ?? "PAID"),
+    version: result.rows[0]?.version ?? 0,
+  };
+}
+
+export async function setDraftTrigger(value: unknown, expectedVersion: number, actor: Actor) {
+  const trigger = draftTriggerSchema.safeParse(value);
+  if (
+    !trigger.success ||
+    !Number.isInteger(expectedVersion) ||
+    expectedVersion < 0 ||
+    expectedVersion > POSTGRES_INTEGER_MAX
+  ) {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('setting:draft_trigger'))");
+    await serializeOrderMutations(client);
+    const setting = await client.query<{ version: number }>(
+      "SELECT version FROM settings WHERE key = 'draft_trigger' FOR UPDATE",
+    );
+    if (setting.rows[0]?.version !== expectedVersion) {
+      throw new AppError("CONFLICT_REVISION", 409);
+    }
+    const updated = await client.query<{ version: number }>(
+      `UPDATE settings
+       SET value_json = $1, version = version + 1, updated_at = now()
+       WHERE key = 'draft_trigger'
+       RETURNING version`,
+      [JSON.stringify(trigger.data)],
+    );
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "DRAFT_TRIGGER_CHANGED",
+      eventClass: "CRITICAL",
+      entityType: "SETTING",
+      entityId: "draft_trigger",
+      metadata: { value: trigger.data },
+      requestId: actor.requestId,
+    });
+    const ungrouped = await client.query<{
+      id: string;
+      customer_id: string;
+      review_required: boolean;
+      customer_snapshot: Record<string, unknown>;
+      local_order_date: string;
+      currency: string;
+      payment_status: OrderInput["paymentStatus"];
+      fulfillment_status: OrderInput["fulfillmentStatus"];
+      cancelled_at: string | null;
+    }>(
+      `SELECT orders.id, orders.customer_id,
+              ((orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
+                OR coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
+                AS review_required,
+              orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
+              orders.local_order_date::text, orders.currency, orders.payment_status,
+              orders.fulfillment_status, orders.cancelled_at
+       FROM orders
+       WHERE orders.billing_case_id IS NULL`,
+    );
+    for (const order of ungrouped.rows) {
+      const status = triggerStatus(
+        {
+          cancelledAt: order.cancelled_at,
+          paymentStatus: order.payment_status,
+          fulfillmentStatus: order.fulfillment_status,
+        },
+        trigger.data,
+      );
+      const updatedOrder = await client.query(
+        `UPDATE orders SET trigger_status = $2
+         WHERE id = $1 AND billing_case_id IS NULL
+         RETURNING id`,
+        [order.id, status],
+      );
+      if (status === "ELIGIBLE" && updatedOrder.rowCount) {
+        await groupOrder(
+          client,
+          {
+            id: order.id,
+            customerId: order.customer_id,
+            reviewRequired: order.review_required,
+            customerSnapshot: order.customer_snapshot,
+            localOrderDate: order.local_order_date,
+            currency: order.currency,
+          },
+          actor,
+        );
+      }
+    }
+    return { value: trigger.data, version: updated.rows[0]!.version };
+  });
+}
+
+export async function forcePrepareOrder(id: string, actor: Actor) {
+  if (!isDatabaseId(id)) return null;
+  return withTransaction(async (client) => {
+    await serializeOrderMutations(client);
+    const identity = await client.query<{
+      provider: string;
+      external_account_id: string;
+      external_order_id: string;
+    }>("SELECT provider, external_account_id, external_order_id FROM orders WHERE id = $1", [id]);
+    if (!identity.rows[0]) return null;
+    const source = identity.rows[0];
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `order:${source.provider}:${source.external_account_id}:${source.external_order_id}`,
+    ]);
+    const order = await client.query<{
+      id: string;
+      customer_id: string;
+      billing_case_id: string | null;
+      review_required: boolean;
+      customer_snapshot: Record<string, unknown>;
+      local_order_date: string;
+      currency: string;
+      cancelled_at: string | null;
+      payment_status: OrderInput["paymentStatus"];
+    }>(
+      `SELECT orders.id, orders.customer_id, orders.billing_case_id,
+              ((orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
+                OR coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false))
+                AS review_required,
+              orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
+              orders.local_order_date::text,
+              orders.currency, orders.cancelled_at, orders.payment_status
+       FROM orders
+       WHERE orders.id = $1
+       FOR UPDATE OF orders`,
+      [id],
+    );
+    const current = order.rows[0];
+    if (!current) return null;
+    if (current.billing_case_id) return current.billing_case_id;
+    if (current.cancelled_at || current.payment_status === "REFUNDED") {
+      throw new AppError("ORDER_NOT_PREPARABLE", 409);
+    }
+    return groupOrder(
+      client,
+      {
+        id: current.id,
+        customerId: current.customer_id,
+        reviewRequired: current.review_required,
+        customerSnapshot: current.customer_snapshot,
+        localOrderDate: current.local_order_date,
+        currency: current.currency,
+      },
+      actor,
+      true,
+    );
+  });
+}
+
+export async function updateBillingCaseTransmission(
+  id: string,
+  reason: string | null,
+  actor: Actor,
+) {
+  if (!isDatabaseId(id)) return null;
+  const normalizedReason = reason?.trim() || null;
+  if (
+    reason !== null &&
+    (!normalizedReason || normalizedReason.length > 500 || containsNullByte(normalizedReason))
+  ) {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+  return withTransaction(async (client) => {
+    await serializeOrderMutations(client);
+    const result = await client.query<{
+      status: string;
+      has_orders: boolean;
+      has_incompatible_orders: boolean;
+      needs_review: boolean;
+      has_other_open_case: boolean;
+    }>(
+      `SELECT billing_cases.status,
+              EXISTS (
+                SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
+              ) AS has_orders,
+              EXISTS (
+                SELECT 1 FROM orders
+                WHERE orders.billing_case_id = billing_cases.id
+                  AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
+              ) AS has_incompatible_orders,
+              EXISTS (
+                SELECT 1 FROM orders
+                WHERE orders.billing_case_id = billing_cases.id
+                  AND (
+                    (orders.normalized_snapshot_json ->> 'preparationReviewRequired')::boolean
+                    OR coalesce(
+                      (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
+                      false
+                    )
+                    OR orders.trigger_status = 'NEEDS_REVIEW'
+                    OR orders.normalized_snapshot_json #> '{customerSnapshot,canonicalProfile}'
+                       IS DISTINCT FROM billing_cases.customer_snapshot_json -> 'canonicalProfile'
+                  )
+              ) AS needs_review,
+              EXISTS (
+                SELECT 1 FROM billing_cases AS other
+                WHERE other.id <> billing_cases.id
+                  AND other.customer_id = billing_cases.customer_id
+                  AND other.local_order_date = billing_cases.local_order_date
+                  AND other.currency = billing_cases.currency
+                  AND other.status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
+              ) AS has_other_open_case
+       FROM billing_cases
+       WHERE billing_cases.id = $1
+       FOR UPDATE OF billing_cases`,
+      [id],
+    );
+    const current = result.rows[0];
+    if (!current) return null;
+    if (normalizedReason) {
+      if (!["DRAFT", "READY", "NEEDS_REVIEW"].includes(current.status)) {
+        throw new AppError("CONFLICT_REVISION", 409);
+      }
+      await client.query(
+        `UPDATE billing_cases
+         SET status = 'DO_NOT_TRANSMIT', do_not_transmit_reason = $2, updated_at = now()
+         WHERE id = $1`,
+        [id, normalizedReason],
+      );
+      await writeAudit(client, {
+        actorType: "ADMIN",
+        actorId: String(actor.id),
+        action: "BILLING_CASE_DO_NOT_TRANSMIT",
+        eventClass: "CRITICAL",
+        entityType: "BILLING_CASE",
+        entityId: id,
+        metadata: { billingCaseId: id, reason: normalizedReason },
+        requestId: actor.requestId,
+      });
+      return "DO_NOT_TRANSMIT";
+    }
+    if (current.status !== "DO_NOT_TRANSMIT") throw new AppError("CONFLICT_REVISION", 409);
+    if (!current.has_orders) throw new AppError("BILLING_CASE_EMPTY", 409);
+    if (current.has_incompatible_orders) throw new AppError("ORDER_NOT_PREPARABLE", 409);
+    if (current.has_other_open_case) throw new AppError("CONFLICT_REVISION", 409);
+    const status = current.needs_review ? "NEEDS_REVIEW" : "READY";
+    await client.query(
+      `UPDATE billing_cases
+       SET status = $2, do_not_transmit_reason = NULL, updated_at = now()
+       WHERE id = $1`,
+      [id, status],
+    );
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "BILLING_CASE_REACTIVATED",
+      eventClass: "CRITICAL",
+      entityType: "BILLING_CASE",
+      entityId: id,
+      metadata: { billingCaseId: id },
+      requestId: actor.requestId,
+    });
+    return status;
+  });
+}
+
+export async function listOrders(filters: {
+  query?: string;
+  provider?: string;
+  status?: string;
+  localDate?: string;
+  paymentStatus?: string;
+}) {
+  if (containsNullByte(filters)) return [];
+  if (filters.localDate && !postgresDateSchema.safeParse(filters.localDate).success) return [];
+  const values = [
+    filters.query ? `%${filters.query}%` : null,
+    filters.provider || null,
+    filters.status || null,
+    filters.localDate || null,
+    filters.paymentStatus || null,
+  ];
+  const result = await getPool().query<{
+    id: string;
+    provider: string;
+    display_number: string;
+    local_order_date: string;
+    gross_amount: number;
+    payment_status: string;
+    fulfillment_status: string;
+    trigger_status: string;
+    customer_name: string;
+    billing_case_id: string | null;
+    case_number: string | null;
+  }>(
+    `SELECT orders.id, orders.provider, orders.display_number, orders.local_order_date::text,
+            orders.gross_amount, orders.payment_status, orders.fulfillment_status,
+            orders.trigger_status,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' AS customer_name,
+            billing_cases.id AS billing_case_id, billing_cases.public_number AS case_number
+     FROM orders
+     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+     WHERE ($1::text IS NULL OR orders.display_number ILIKE $1
+            OR orders.external_order_id ILIKE $1
+            OR orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' ILIKE $1
+            OR orders.normalized_snapshot_json #>> '{customerSnapshot,email}' ILIKE $1
+            OR EXISTS (SELECT 1 FROM order_tax_identifiers
+                       WHERE order_tax_identifiers.order_id = orders.id
+                         AND (order_tax_identifiers.normalized_value ILIKE $1
+                              OR order_tax_identifiers.raw_value ILIKE $1)))
+       AND ($2::text IS NULL OR orders.provider = $2)
+       AND ($3::text IS NULL
+            OR ($3 = 'ACTIVE' AND orders.trigger_status NOT IN
+                ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'))
+            OR ($3 = 'NO_DOCUMENT' AND orders.trigger_status IN
+                ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'))
+            OR orders.trigger_status = $3)
+       AND ($4::date IS NULL OR orders.local_order_date = $4)
+       AND ($5::text IS NULL OR orders.payment_status = $5)
+     ORDER BY orders.local_order_date DESC, orders.id DESC`,
+    values,
+  );
+  return result.rows;
+}
+
+export async function getOrder(id: string) {
+  if (!isDatabaseId(id)) return null;
+  const order = await getPool().query(
+    `SELECT orders.*, orders.local_order_date::text,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' AS customer_name,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,kind}' AS customer_kind,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,email}' AS customer_email,
+            orders.normalized_snapshot_json #> '{customerSnapshot,billingAddress}' AS billing_address_json,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,sourceConfidence}' AS source_confidence,
+            (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
+            billing_cases.public_number AS case_number,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(order_lines) ORDER BY order_lines.id)
+              FROM order_lines WHERE order_lines.order_id = orders.id
+            ), '[]'::jsonb) AS lines,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(order_tax_identifiers) ORDER BY order_tax_identifiers.id)
+              FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id
+            ), '[]'::jsonb) AS "taxIdentifiers",
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(payments) ORDER BY payments.id)
+              FROM payments WHERE payments.order_id = orders.id
+            ), '[]'::jsonb) AS payments
+     FROM orders
+     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+     WHERE orders.id = $1`,
+    [id],
+  );
+  return order.rows[0] ?? null;
+}
+
+export async function listBillingCases() {
+  const result = await getPool().query<{
+    id: string;
+    public_number: string;
+    local_order_date: string;
+    status: string;
+    customer_name: string;
+    order_count: string;
+    total_amount: string;
+  }>(
+    `SELECT billing_cases.id, billing_cases.public_number, billing_cases.local_order_date::text,
+            billing_cases.status,
+            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
+            count(orders.id)::text AS order_count, coalesce(sum(orders.gross_amount), 0)::text AS total_amount
+     FROM billing_cases
+     LEFT JOIN orders ON orders.billing_case_id = billing_cases.id
+     GROUP BY billing_cases.id
+     ORDER BY billing_cases.local_order_date DESC, billing_cases.id DESC`,
+  );
+  return result.rows;
+}
+
+export async function getBillingCase(id: string) {
+  if (!isDatabaseId(id)) return null;
+  const billingCase = await getPool().query(
+    `SELECT billing_cases.*, billing_cases.local_order_date::text,
+            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
+            billing_cases.customer_snapshot_json ->> 'email' AS customer_email,
+            (billing_cases.customer_snapshot_json ->> 'reviewRequired')::boolean AS review_required,
+            billing_cases.customer_snapshot_json -> 'billingAddress' AS billing_address_json,
+            CASE
+              WHEN NOT EXISTS (
+                SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
+              ) THEN 'EMPTY'
+              WHEN EXISTS (
+                SELECT 1 FROM orders
+                WHERE orders.billing_case_id = billing_cases.id
+                  AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
+              ) THEN 'INCOMPATIBLE_ORDERS'
+              WHEN EXISTS (
+                SELECT 1 FROM billing_cases AS other
+                WHERE other.id <> billing_cases.id
+                  AND other.customer_id = billing_cases.customer_id
+                  AND other.local_order_date = billing_cases.local_order_date
+                  AND other.currency = billing_cases.currency
+                  AND other.status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
+              ) THEN 'OTHER_OPEN_CASE'
+              ELSE NULL
+            END AS reactivation_blocker,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(case_orders) ORDER BY case_orders.id)
+              FROM (
+                SELECT id, provider, display_number, gross_amount, payment_status,
+                       fulfillment_status
+                FROM orders WHERE billing_case_id = billing_cases.id
+              ) AS case_orders
+            ), '[]'::jsonb) AS orders,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(case_audit) ORDER BY case_audit.created_at DESC)
+              FROM (
+                SELECT id, action, actor_id, metadata_json, request_id, created_at
+                FROM audit_events
+                WHERE (entity_type = 'BILLING_CASE' AND entity_id = billing_cases.id::text)
+                   OR (entity_type = 'ORDER'
+                       AND metadata_json ->> 'billingCaseId' = billing_cases.id::text)
+              ) AS case_audit
+            ), '[]'::jsonb) AS audit,
+            coalesce((
+              SELECT jsonb_agg(to_jsonb(case_revisions) ORDER BY case_revisions.created_at DESC)
+              FROM (
+                SELECT order_source_revisions.*, orders.display_number
+                FROM order_source_revisions
+                JOIN orders ON orders.id = order_source_revisions.order_id
+                WHERE order_source_revisions.billing_case_id = billing_cases.id
+                   OR orders.billing_case_id = billing_cases.id
+              ) AS case_revisions
+            ), '[]'::jsonb) AS revisions
+     FROM billing_cases
+     WHERE billing_cases.id = $1`,
+    [id],
+  );
+  if (!billingCase.rows[0]) return null;
+  return {
+    ...billingCase.rows[0],
+    revisions: billingCase.rows[0].revisions.map(
+      (revision: {
+        previous_normalized_snapshot_json: Record<string, unknown>;
+        current_normalized_snapshot_json: Record<string, unknown>;
+      }) => ({
+        ...revision,
+        changedFields: Array.from(
+          new Set([
+            ...Object.keys(revision.previous_normalized_snapshot_json),
+            ...Object.keys(revision.current_normalized_snapshot_json),
+          ]),
+        ).filter(
+          (field) =>
+            JSON.stringify(revision.previous_normalized_snapshot_json[field]) !==
+            JSON.stringify(revision.current_normalized_snapshot_json[field]),
+        ),
+      }),
+    ),
+  };
+}
+
+export async function dashboardSummary() {
+  const result = await getPool().query<{
+    orders: string;
+    ready_cases: string;
+    review_cases: string;
+    waiting_orders: string;
+    pending_payments: string;
+  }>(
+    `SELECT
+       (SELECT count(*) FROM orders)::text AS orders,
+       (SELECT count(*) FROM billing_cases WHERE status = 'READY')::text AS ready_cases,
+       (SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW')::text AS review_cases,
+       (SELECT count(*) FROM orders WHERE trigger_status = 'WAITING_FOR_TRIGGER')::text AS waiting_orders,
+       (SELECT count(*) FROM orders
+        WHERE trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
+          AND (payment_status = 'PENDING'
+            OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id = orders.id
+                        AND payments.status = 'PENDING')))::text AS pending_payments`,
+  );
+  return result.rows[0]!;
+}

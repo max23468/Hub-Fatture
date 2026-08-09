@@ -59,13 +59,12 @@ La navigazione desktop usa una sidebar fissa, non comprimibile e a un solo livel
 
 1. Dashboard
 2. Ordini
-3. Schede
-4. Documenti
-5. Clienti
-6. Controllo
-7. Impostazioni
+3. Documenti
+4. Clienti
+5. Attività
+6. Impostazioni
 
-`Documenti` distingue nella pagina Fatture, Note di credito e Documenti trasmessi. `Controllo` contiene Errori e verifiche e Registro attività. `Impostazioni` contiene anche Connessioni. Ricerca e profilo sono allineati in alto a destra nel page header, senza una barra superiore permanente.
+`Ordini` comprende le viste Tutti, Da fatturare, Da verificare, In attesa e Annullati; il raggruppamento interno degli ordini si apre come `Preparazione fattura`, non come destinazione autonoma. `Documenti` distingue nella pagina Fatture, Note di credito e stati di trasmissione. `Attività` contiene Da gestire e Cronologia. `Impostazioni` contiene anche Connessioni. Una destinazione compare nella navigazione solo quando offre una superficie utilizzabile. Ricerca e profilo sono allineati in alto a destra nel page header, senza una barra superiore permanente.
 
 Su mobile la navigazione principale è inferiore e usa `Altro` per le destinazioni restanti. Le tabelle diventano righe verticali espandibili: stato, cliente, importo e azione primaria restano immediatamente disponibili, senza scorrimento orizzontale.
 

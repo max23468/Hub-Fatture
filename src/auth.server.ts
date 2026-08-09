@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { redirect } from "react-router";
 
-import type pg from "pg";
-
+import { writeAudit } from "./audit.server.ts";
 import { AGENT_USERNAME, OWNER_USERNAME } from "./auth.ts";
 import { getConfig } from "./config.server.ts";
 import { hashPassword, hashToken, safeEqual, verifyPassword } from "./crypto.server.ts";
@@ -67,21 +67,6 @@ function cookies(request: Request): Map<string, string> {
   );
 }
 
-async function audit(
-  client: pg.PoolClient,
-  action: string,
-  actorId: string | null,
-  requestId: string,
-  eventClass: "CRITICAL" | "OPERATIONAL" = "OPERATIONAL",
-) {
-  await client.query(
-    `INSERT INTO audit_events
-      (actor_type, actor_id, action, event_class, entity_type, entity_id, request_id)
-     VALUES ('ADMIN', $1, $2, $3, 'USER', $1, $4)`,
-    [actorId, action, eventClass, requestId],
-  );
-}
-
 export async function setupAvailable(): Promise<boolean> {
   const result = await getPool().query<{ count: string }>("SELECT count(*) FROM users");
   return Number(result.rows[0]?.count) === 0;
@@ -116,12 +101,18 @@ export async function setupAccounts(input: {
        RETURNING id`,
       [OWNER_USERNAME, ownerHash, AGENT_USERNAME, agentHash],
     );
-    await client.query(
-      `INSERT INTO audit_events
-        (actor_type, actor_id, action, event_class, entity_type, entity_id, request_id)
-       SELECT 'ADMIN', id::text, 'ADMIN_ACCOUNT_CREATED', 'CRITICAL', 'USER', id::text, $2
-       FROM unnest($1::smallint[]) AS created(id)`,
-      [result.rows.map((row) => row.id), input.requestId],
+    await Promise.all(
+      result.rows.map((row) =>
+        writeAudit(client, {
+          actorType: "ADMIN",
+          actorId: String(row.id),
+          action: "ADMIN_ACCOUNT_CREATED",
+          eventClass: "CRITICAL",
+          entityType: "USER",
+          entityId: String(row.id),
+          requestId: input.requestId,
+        }),
+      ),
     );
   });
 }
@@ -199,7 +190,15 @@ export async function login(input: {
         "INSERT INTO login_attempts (username, ip_hash, successful) VALUES ($1, $2, false)",
         [attemptKey, input.ipHash],
       );
-      await audit(client, "LOGIN_FAILED", user ? String(user.id) : null, input.requestId);
+      await writeAudit(client, {
+        actorType: "ADMIN",
+        actorId: user ? String(user.id) : null,
+        action: "LOGIN_FAILED",
+        eventClass: "OPERATIONAL",
+        entityType: "USER",
+        entityId: user ? String(user.id) : null,
+        requestId: input.requestId,
+      });
       return { error: new AppError("AUTH_INVALID_CREDENTIALS", 401) } as const;
     }
 
@@ -222,7 +221,15 @@ export async function login(input: {
       "INSERT INTO login_attempts (username, ip_hash, successful) VALUES ($1, $2, true)",
       [username, input.ipHash],
     );
-    await audit(client, "LOGIN_SUCCEEDED", String(user.id), input.requestId);
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(user.id),
+      action: "LOGIN_SUCCEEDED",
+      eventClass: "OPERATIONAL",
+      entityType: "USER",
+      entityId: String(user.id),
+      requestId: input.requestId,
+    });
     return {
       cookies: [cookie(SESSION_COOKIE, sessionToken, ttl), cookie(CSRF_COOKIE, csrfToken, ttl)],
     } as const;
@@ -251,6 +258,18 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
   return { id: row.id, username: row.username, csrfToken };
 }
 
+export async function requireSessionUser(request: Request): Promise<SessionUser> {
+  const user = await getSessionUser(request);
+  if (!user) throw redirect("/login");
+  return user;
+}
+
+export function assertCsrf(user: SessionUser, submitted: string): void {
+  if (!safeEqual(user.csrfToken, submitted)) {
+    throw new AppError("REQUEST_ORIGIN_INVALID", 403);
+  }
+}
+
 export async function logout(request: Request, submittedCsrf: string) {
   const values = cookies(request);
   const sessionToken = values.get(SESSION_COOKIE);
@@ -266,7 +285,17 @@ export async function logout(request: Request, submittedCsrf: string) {
       [hashToken(sessionToken), hashToken(csrfToken)],
     );
     const userId = result.rows[0]?.user_id;
-    if (userId) await audit(client, "LOGOUT_SUCCEEDED", String(userId), requestId(request));
+    if (userId) {
+      await writeAudit(client, {
+        actorType: "ADMIN",
+        actorId: String(userId),
+        action: "LOGOUT_SUCCEEDED",
+        eventClass: "OPERATIONAL",
+        entityType: "USER",
+        entityId: String(userId),
+        requestId: requestId(request),
+      });
+    }
   });
 }
 

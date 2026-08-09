@@ -1,16 +1,15 @@
-import { Form, redirect, useLoaderData } from "react-router";
-import { LayoutDashboard, LogOut, UserRound } from "lucide-react";
+import { useLoaderData } from "react-router";
 import type { Route } from "./+types/home";
 
-import { BrandLockup } from "../components/brand-lockup";
-import { ThemePicker } from "../components/theme-picker";
+import { AppShell } from "../components/app-shell";
 import { copy } from "../copy.it";
-import { getSessionUser } from "../../src/auth.server.ts";
+import { requireSessionUser } from "../../src/auth.server.ts";
+import { dashboardSummary } from "../../src/orders.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const user = await getSessionUser(request);
-  if (!user) throw redirect("/login");
-  return { username: user.username, csrfToken: user.csrfToken };
+  const user = await requireSessionUser(request);
+  const summary = await dashboardSummary();
+  return { username: user.username, csrfToken: user.csrfToken, summary };
 }
 
 export function meta(_: Route.MetaArgs) {
@@ -21,47 +20,35 @@ export function meta(_: Route.MetaArgs) {
 }
 
 export default function Home() {
-  const { username, csrfToken } = useLoaderData<typeof loader>();
+  const { username, csrfToken, summary } = useLoaderData<typeof loader>();
   return (
-    <div className="app-layout">
-      <aside className="sidebar">
-        <BrandLockup onDark />
-        <nav aria-label="Navigazione principale">
-          <a aria-current="page" className="nav-item" href="/">
-            <LayoutDashboard aria-hidden="true" size={20} strokeWidth={1.8} />
-            {copy.dashboardTitle}
-          </a>
-        </nav>
-      </aside>
-      <main className="app-main">
-        <header className="page-header">
-          <div>
-            <h1>{copy.dashboardTitle}</h1>
-          </div>
-          <details className="profile-menu">
-            <summary aria-label="Apri il menu del profilo">
-              <UserRound aria-hidden="true" size={20} strokeWidth={1.8} />
-              <span className="profile-menu__label">Profilo</span>
-            </summary>
-            <div className="profile-menu__panel">
-              <p className="profile-menu__identity">{username}</p>
-              <ThemePicker />
-              <Form method="post" action="/logout">
-                <input type="hidden" name="csrf" value={csrfToken} />
-                <button className="button button--secondary button--full" type="submit">
-                  <LogOut aria-hidden="true" size={17} strokeWidth={1.8} />
-                  {copy.logout}
-                </button>
-              </Form>
-            </div>
-          </details>
-        </header>
-        <section className="empty-state" aria-labelledby="empty-state-title">
-          <p className="eyebrow">Ambiente locale</p>
-          <h2 id="empty-state-title">Nessun dato disponibile</h2>
-          <p>{copy.safeEmptyState}</p>
-        </section>
-      </main>
-    </div>
+    <AppShell username={username} csrfToken={csrfToken}>
+      <div className="title-block">
+        <p className="eyebrow">Situazione operativa</p>
+        <h1>{copy.dashboardTitle}</h1>
+      </div>
+      <section className="summary-grid" aria-label="Riepilogo ordini e fatturazione">
+        <article className="summary-card">
+          <strong>{summary.orders}</strong>
+          <span>Ordini importati</span>
+        </article>
+        <article className="summary-card">
+          <strong>{summary.ready_cases}</strong>
+          <span>Pronte da approvare</span>
+        </article>
+        <article className="summary-card">
+          <strong>{summary.review_cases}</strong>
+          <span>Da verificare</span>
+        </article>
+        <article className="summary-card">
+          <strong>{summary.waiting_orders}</strong>
+          <span>In attesa del trigger</span>
+        </article>
+        <article className="summary-card">
+          <strong>{summary.pending_payments}</strong>
+          <span>Pagamenti pendenti</span>
+        </article>
+      </section>
+    </AppShell>
   );
 }
