@@ -60,7 +60,7 @@ test("React Doctor blocca warning ed errori con versione e Action pinzate", asyn
   const workflow = await read(".github/workflows/react-doctor.yml");
 
   assert.equal(manifest.scripts.doctor, "react-doctor --scope full --blocking warning .");
-  assert.match(workflow, /millionco\/react-doctor@[0-9a-f]{40}/);
+  assert.match(workflow, /millionco\/react-doctor@736abc183ac491b4e954fc6bedec3a9a1b73d38b/);
   assert.match(workflow, /version:\s*0\.9\.11/);
   assert.match(workflow, /scope:\s*changed/);
   assert.match(workflow, /blocking:\s*warning/);
