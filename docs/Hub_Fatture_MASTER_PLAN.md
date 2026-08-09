@@ -2172,7 +2172,9 @@ Per il repository pubblico e single-owner usare il flusso minimo:
 - niente push diretti intenzionali su `main`;
 - branch protection, base aggiornata, conversazioni risolte e gate richiesti applicati anche all'amministratore;
 - cancellazione esplicita dei soli branch temporanei dopo il merge;
-- deploy Production e release restano avviati dal titolare e separati dal merge.
+- una richiesta affermativa e inequivocabile di pubblicazione autorizza deploy
+  Production e release tecniche applicabili; fuori da tale richiesta restano
+  avviati dal titolare e separati dal merge.
 
 Un branch `develop` si aggiunge soltanto se compare un ambiente remoto intermedio stabile o più collaboratori rendono insufficiente `main` protetto. La repository pubblica e l'uso da parte di un solo titolare non sono, da soli, motivi per aggiungerlo.
 
@@ -2191,7 +2193,7 @@ Ogni release Production approvata è pubblicata anche come GitHub Release immuta
 1. preparare una draft release sul commit e tag candidati già passati dal canary;
 2. generare le note dalle PR tramite `.github/release.yml`, poi confrontarle con `CHANGELOG.md` e rimuovere voci non pertinenti;
 3. allegare un solo `release-manifest.json` privo di segreti e dati reali, con versione, commit, digest GHCR, versione schema, riferimento all'attestazione e digest di rollback;
-4. pubblicare la release soltanto dopo l'autorizzazione esplicita; pubblicazione della GitHub Release, deploy e uso Production ordinario restano gate distinti;
+4. pubblicare la release soltanto dopo una richiesta affermativa di pubblicazione o un'autorizzazione esplicita separata; per il go-live `v1.0.0`, pubblicazione della GitHub Release e uso Production ordinario restano gate distinti perché costituiscono una nuova attivazione produttiva;
 5. con l'immutabilità attiva, non spostare né riutilizzare tag e non sostituire asset: una correzione produce una nuova patch release.
 
 Non allegare copie dell'immagine Docker o altri archivi già forniti da GHCR/GitHub. La GitHub Release non concede diritti di uso ulteriori: repository e release restano pubbliche ma non open source finché manca una licenza approvata.
@@ -3161,7 +3163,9 @@ Deve fermarsi e chiedere prima di:
 4. Chiedere accessi solo nel momento in cui servono e far inserire nel secret store soltanto quelli gestiti da HF; l'accesso Aruba resta nel browser locale del titolare.
 5. Completare in M4 l'audit autenticato e la prova reale autorizzata previsti in 11.1 e 11.4; non implementare né provare l'helper Aruba prima del gate di uscita di M4.
 6. Eseguire test, typecheck e build dopo ogni milestone.
-7. Fermarsi per autorizzazione prima di deploy, release, invii reali o migrazioni distruttive.
+7. Fuori da una richiesta affermativa di pubblicazione, fermarsi per
+   autorizzazione prima di deploy o release; fermarsi sempre prima di invii reali
+   o migrazioni distruttive.
 
 Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli d'implementazione entro la matrice 14.3 spettano all'implementatore. ORM, runner, builder XML, client SMTP, rappresentazione del denaro, logger, toolchain e immagini base non sono più scelte aperte. Se incontra due volte lo stesso problema, deve correggerne la causa condivisa e aggiungere il più piccolo test di regressione.
 
@@ -3327,7 +3331,8 @@ Vincoli che non puoi rilassare da solo:
   e CAPTCHA restano umani e il percorso manuale resta disponibile;
 - approvazione, numerazione e permessi di invio richiedono `can_approve`
   e restano fuori dalla portata dell'account agente;
-- fermati e chiedi prima di deploy, release, invii Aruba reali,
+- fuori da una richiesta affermativa di pubblicazione, fermati e chiedi prima di
+  deploy o release; fermati sempre prima di invii Aruba reali,
   migrazioni distruttive, eliminazione dati, decisioni fiscali non
   deducibili dai materiali e modifiche materiali al perimetro.
 
