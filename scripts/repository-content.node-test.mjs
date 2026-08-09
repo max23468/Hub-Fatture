@@ -182,6 +182,11 @@ test("i webhook Shopify sono dichiarati nella configurazione dell'app", async ()
   ]) {
     assert.match(config, new RegExp(`"${topic}"`));
   }
+  assert.match(config, /scopes = "read_customers,read_fulfillments,read_orders"/);
+  assert.match(
+    connector,
+    /SHOPIFY_SCOPES = \["read_orders", "read_customers", "read_fulfillments"\]/,
+  );
   assert.doesNotMatch(connector, /webhooks\.register/);
 });
 

@@ -24,12 +24,11 @@ uri = "/webhooks/shopify"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_customers,read_orders"
+scopes = "read_customers,read_fulfillments,read_orders"
 
 [auth]
 redirect_urls = ["https://shopify.dev/apps/default-app-home/integrations/shopify/callback"]
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true
 dev_store_url = "syncbay-dev.myshopify.com"

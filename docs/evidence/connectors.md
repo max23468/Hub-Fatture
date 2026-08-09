@@ -4,7 +4,7 @@
 
 - Admin GraphQL API: `2026-07`, senza alias runtime `latest`.
 - Finestra di supporto registrata: fino al 16 luglio 2027 alle 15:00 UTC; verifica almeno trimestrale e prima di ogni release sulla [tabella ufficiale Shopify](https://shopify.dev/docs/api/usage/versioning).
-- Scope: `read_orders`, `read_customers`; il secondo serve al fallback `Customer.taxSettings.taxId` ed è soggetto ai protected customer data.
+- Scope: `read_orders`, `read_customers`, `read_fulfillments`; il secondo serve al fallback `Customer.taxSettings.taxId` ed è soggetto ai protected customer data, il terzo ai webhook di evasione.
 - Query e mapper: `src/integrations/shopify.server.ts`.
 - Contract check: `npm test -- src/integrations/connectors.test.ts`.
 
