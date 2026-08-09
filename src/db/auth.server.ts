@@ -166,12 +166,14 @@ export async function login(input: {
         [scope],
       );
       if (registered.rowCount === 0) {
-        await client.query(
-          `INSERT INTO audit_events
-            (actor_type, actor_id, action, event_class, entity_type, metadata_json, request_id)
-           VALUES ('ADMIN', NULL, 'LOGIN_RATE_LIMITED', 'CRITICAL', 'USER', $1, $2)`,
-          [JSON.stringify({ scope }), input.requestId],
-        );
+        await writeAudit(client, {
+          actorType: "ADMIN",
+          action: "LOGIN_RATE_LIMITED",
+          eventClass: "CRITICAL",
+          entityType: "USER",
+          metadata: { scope },
+          requestId: input.requestId,
+        });
       }
       return { error: new AppError("AUTH_RATE_LIMITED", 429) } as const;
     }

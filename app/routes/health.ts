@@ -1,6 +1,6 @@
-import { getPool } from "../../src/db/client.server.ts";
+import { checkDatabaseHealth } from "../../src/db/client.server.ts";
 
 export async function loader() {
-  await getPool().query("SELECT 1");
+  await checkDatabaseHealth();
   return Response.json({ status: "ok" });
 }

@@ -169,8 +169,11 @@ export async function getOrder(id: string) {
                     AND (
                       lower(other.email) = lower(
                         orders.normalized_snapshot_json #>> '{customerSnapshot,email}')
-                      OR lower(other.display_name) = lower(
-                        orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}')
+                      OR (
+                        other.display_name <> 'Cliente senza nome'
+                        AND lower(other.display_name) = lower(
+                          orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}')
+                      )
                     )
                   LIMIT 5
                 ) AS candidate

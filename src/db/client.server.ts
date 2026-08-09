@@ -9,6 +9,10 @@ export function getPool(): pg.Pool {
   return (pool ??= new Pool({ connectionString: getConfig().DATABASE_URL, max: 10 }));
 }
 
+export async function checkDatabaseHealth(): Promise<void> {
+  await getPool().query("SELECT 1");
+}
+
 export async function closePool(): Promise<void> {
   await pool?.end();
   pool = undefined;
