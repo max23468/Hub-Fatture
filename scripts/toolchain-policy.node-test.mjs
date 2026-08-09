@@ -45,6 +45,16 @@ test("i pin di Node e npm coincidono in manifest, mise e Dockerfile", async () =
   assert.deepEqual(findPinDrift(pins), []);
 });
 
+test("i workflow Node installano il runtime pinzato prima di eseguire script", async () => {
+  for (const workflow of ["foundation.yml", "codex-review-gate.yml"]) {
+    assert.match(
+      await read(`.github/workflows/${workflow}`),
+      /uses: jdx\/mise-action@[\s\S]*run: (?:\|\s*)?node /,
+      workflow,
+    );
+  }
+});
+
 test("una patch divergente viene segnalata", () => {
   assert.deepEqual(findPinDrift({ node: ["26.7.0", "26.7.1"], npm: ["12.0.2", "12.0.2"] }), [
     "node: 26.7.0 != 26.7.1",
