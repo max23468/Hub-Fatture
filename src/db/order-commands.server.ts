@@ -74,11 +74,14 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       payment_status: OrderInput["paymentStatus"];
       fulfillment_status: OrderInput["fulfillmentStatus"];
       cancelled_at: string | null;
+      historical: boolean;
     }>(
       `SELECT orders.id, orders.customer_id,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text, orders.currency, orders.payment_status,
-              orders.fulfillment_status, orders.cancelled_at
+              orders.fulfillment_status, orders.cancelled_at,
+              coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+                AS historical
        FROM orders
        WHERE orders.billing_case_id IS NULL`,
     );
@@ -88,6 +91,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
           cancelledAt: order.cancelled_at,
           paymentStatus: order.payment_status,
           fulfillmentStatus: order.fulfillment_status,
+          historical: order.historical,
         },
         trigger.data,
       );
@@ -138,11 +142,14 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       currency: string;
       cancelled_at: string | null;
       payment_status: OrderInput["paymentStatus"];
+      historical: boolean;
     }>(
       `SELECT orders.id, orders.customer_id, orders.billing_case_id,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text,
-              orders.currency, orders.cancelled_at, orders.payment_status
+              orders.currency, orders.cancelled_at, orders.payment_status,
+              coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+                AS historical
        FROM orders
        WHERE orders.id = $1
        FOR UPDATE OF orders`,
@@ -151,7 +158,7 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
     const current = order.rows[0];
     if (!current) return null;
     if (current.billing_case_id) return current.billing_case_id;
-    if (current.cancelled_at || current.payment_status === "REFUNDED") {
+    if (current.historical || current.cancelled_at || current.payment_status === "REFUNDED") {
       throw new AppError("ORDER_NOT_PREPARABLE", 409);
     }
     return groupOrder(

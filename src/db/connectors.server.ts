@@ -51,22 +51,39 @@ export async function saveConnection<T>(input: {
   accountReference: string;
   credentials: T;
 }) {
-  await getPool().query(
-    `INSERT INTO connections
-      (provider, environment, account_reference, encrypted_credentials, status, last_checked_at)
-     VALUES ($1, $2, $3, $4, 'CONNECTED', now())
-     ON CONFLICT (provider, environment) DO UPDATE SET
-       account_reference = EXCLUDED.account_reference,
-       encrypted_credentials = EXCLUDED.encrypted_credentials,
-       status = 'CONNECTED', last_checked_at = now(), updated_at = now(),
-       last_error_code = NULL, last_error_message_sanitized = NULL`,
-    [
-      input.provider,
-      input.environment,
-      input.accountReference,
-      encryptCredential(input.credentials, credentialsKey()),
-    ],
-  );
+  await withTransaction(async (client) => {
+    const existing = await client.query<{ account_reference: string }>(
+      `SELECT account_reference FROM connections
+       WHERE provider = $1 AND environment = $2
+       FOR UPDATE`,
+      [input.provider, input.environment],
+    );
+    const accountChanged = existing.rows[0]?.account_reference !== input.accountReference;
+    await client.query(
+      `INSERT INTO connections
+        (provider, environment, account_reference, encrypted_credentials, status, last_checked_at)
+       VALUES ($1, $2, $3, $4, 'CONNECTED', now())
+       ON CONFLICT (provider, environment) DO UPDATE SET
+         account_reference = EXCLUDED.account_reference,
+         encrypted_credentials = EXCLUDED.encrypted_credentials,
+         status = 'CONNECTED', last_checked_at = now(), updated_at = now(),
+         last_synced_at = CASE
+           WHEN connections.account_reference = EXCLUDED.account_reference
+             THEN connections.last_synced_at
+           ELSE NULL
+         END,
+         last_error_code = NULL, last_error_message_sanitized = NULL`,
+      [
+        input.provider,
+        input.environment,
+        input.accountReference,
+        encryptCredential(input.credentials, credentialsKey()),
+      ],
+    );
+    if (accountChanged) {
+      await client.query("DELETE FROM sync_cursors WHERE provider = $1", [input.provider]);
+    }
+  });
 }
 
 export async function loadConnection<T>(provider: Provider): Promise<{

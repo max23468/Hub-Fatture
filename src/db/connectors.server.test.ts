@@ -48,6 +48,37 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       credentials: { refreshToken: "token-sandbox-sintetico" },
     });
     assert.equal((await connectors.loadConnection("EBAY")).accountReference, "sandbox-sintetica");
+    await connectors.markConnectionSynced("EBAY");
+    await connectors.writeCursor("EBAY", "cursor-sintetico", "2026-08-01T00:00:00Z");
+    await connectors.saveConnection({
+      provider: "EBAY",
+      environment: "SANDBOX",
+      accountReference: "sandbox-sintetica",
+      credentials: { refreshToken: "token-sandbox-rinnovato" },
+    });
+    assert.equal((await connectors.readCursor("EBAY")).cursor, "cursor-sintetico");
+    assert.ok(
+      (
+        await getPool().query(
+          "SELECT last_synced_at FROM connections WHERE provider = 'EBAY' AND environment = 'SANDBOX'",
+        )
+      ).rows[0].last_synced_at,
+    );
+    await connectors.saveConnection({
+      provider: "EBAY",
+      environment: "SANDBOX",
+      accountReference: "sandbox-sostitutiva",
+      credentials: { refreshToken: "token-sandbox-sostitutivo" },
+    });
+    assert.equal((await connectors.readCursor("EBAY")).cursor, null);
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT last_synced_at FROM connections WHERE provider = 'EBAY' AND environment = 'SANDBOX'",
+        )
+      ).rows[0].last_synced_at,
+      null,
+    );
     const stored = await getPool().query<{ encrypted_credentials: string }>(
       "SELECT encrypted_credentials FROM connections",
     );
