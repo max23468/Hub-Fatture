@@ -10,6 +10,8 @@
     "check": "npm run toolchain:check && npm run audit && npm run format:check && npm run lint && npm run typecheck && npm run build:server && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run doctor && npm run build && npm run test:e2e",
     "db:migrate": "npm run build:server && node build-server/db/migrate.js",
     "dev": "react-router dev",
+    "dev:shopify": "sh scripts/development.sh shopify",
+    "dev:up": "sh scripts/development.sh",
     "dev:worker": "node --watch src/worker.ts",
     "doctor": "react-doctor --scope full --blocking warning .",
     "format": "oxfmt --write .",

@@ -46,6 +46,7 @@ test(
         ipHash: "origine-titolare",
         requestId: "test-login",
       });
+      assert.ok(sessionCookies.every((value) => value.includes("SameSite=Lax; HttpOnly")));
       const request = new Request("http://localhost:8080", {
         headers: { cookie: sessionCookies.map((value) => value.split(";", 1)[0]).join("; ") },
       });

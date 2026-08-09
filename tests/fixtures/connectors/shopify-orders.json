@@ -12,11 +12,18 @@
     "localizedFields": {
       "nodes": [
         {
-          "key": "TAX_ID",
+          "key": "TAX_CREDENTIAL_IT",
           "countryCode": "IT",
-          "purpose": "FISCAL_ID",
-          "title": "Dato fiscale",
+          "purpose": "TAX",
+          "title": "Codice Fiscale (optional)",
           "value": "RSSMRA80A01H501U"
+        },
+        {
+          "key": "TAX_EMAIL_IT",
+          "countryCode": "IT",
+          "purpose": "TAX",
+          "title": "PEC (optional)",
+          "value": "cliente@example.invalid"
         }
       ]
     },

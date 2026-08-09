@@ -1,12 +1,24 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "351f68542ef8b2778dc6d6332ecdd27d"
+client_id = "8268b6c7f5d5f875bbf6d905cdcfe850"
 name = "Hub Fatture"
 application_url = "https://shopify.dev/apps/default-app-home"
 embedded = false
 
 [webhooks]
 api_version = "2026-07"
+
+[[webhooks.subscriptions]]
+topics = [
+  "app/uninstalled",
+  "orders/cancelled",
+  "orders/create",
+  "orders/paid",
+  "orders/updated",
+  "refunds/create",
+]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "/webhooks/shopify"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
@@ -18,3 +30,4 @@ redirect_urls = ["https://shopify.dev/apps/default-app-home/integrations/shopify
 [build]
 include_config_on_deploy = true
 automatically_update_urls_on_dev = true
+dev_store_url = "syncbay-dev.myshopify.com"

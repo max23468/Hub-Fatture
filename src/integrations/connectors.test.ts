@@ -34,8 +34,9 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
     type: "CODICE_FISCALE",
     value: "RSSMRA80A01H501U",
     countryCode: "IT",
-    sourceField: "localizedFields:TAX_ID:FISCAL_ID",
+    sourceField: "localizedFields:TAX_CREDENTIAL_IT:TAX",
   });
+  assert.equal(privateMapped.customer.taxIdentifiers.length, 1);
   assert.equal(businessMapped.customer.taxIdentifiers[0]?.type, "PARTITA_IVA");
   assert.equal(
     businessMapped.customer.taxIdentifiers[0]?.sourceField,
@@ -63,6 +64,8 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
     "buyer.taxIdentifier.CODICE_FISCALE",
   );
   assert.equal(refundedMapped.customer.taxIdentifiers[0]?.type, "PARTITA_IVA");
+  assert.equal(refundedMapped.refunds[0]?.externalRefundId, "refund-2");
+  assert.equal(refundedMapped.refunds[1]?.externalRefundId, "refund-reference-3");
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
   assert.match(EBAY_SCOPE, /commerce\.identity\.readonly/);
