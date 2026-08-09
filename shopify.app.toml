@@ -1,0 +1,20 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "351f68542ef8b2778dc6d6332ecdd27d"
+name = "Hub Fatture"
+application_url = "https://shopify.dev/apps/default-app-home"
+embedded = false
+
+[webhooks]
+api_version = "2026-07"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_customers,read_orders"
+
+[auth]
+redirect_urls = ["https://shopify.dev/apps/default-app-home/integrations/shopify/callback"]
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true

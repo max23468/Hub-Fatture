@@ -1,0 +1,130 @@
+[
+  {
+    "orderId": "12-00001-00001",
+    "salesRecordReference": "10001",
+    "creationDate": "2026-08-03T09:00:00.000Z",
+    "lastModifiedDate": "2026-08-03T09:10:00.000Z",
+    "orderPaymentStatus": "PAID",
+    "orderFulfillmentStatus": "NOT_STARTED",
+    "buyer": {
+      "username": "buyer-synthetic-1",
+      "taxIdentifier": {
+        "taxpayerId": "RSSMRA80A01H501U",
+        "taxIdentifierType": "CODICE_FISCALE",
+        "issuingCountry": "IT"
+      }
+    },
+    "pricingSummary": {
+      "total": { "value": "100.00", "currency": "EUR" },
+      "deliveryCost": { "value": "0.00", "currency": "EUR" }
+    },
+    "lineItems": [
+      {
+        "lineItemId": "line-1",
+        "title": "Oggetto eBay sintetico",
+        "quantity": 1,
+        "lineItemCost": { "value": "100.00", "currency": "EUR" },
+        "discountedLineItemCost": { "value": "100.00", "currency": "EUR" },
+        "refunds": []
+      }
+    ],
+    "paymentSummary": {
+      "payments": [
+        {
+          "paymentReferenceId": "payment-1",
+          "paymentMethod": "EBAY",
+          "paymentStatus": "PAID",
+          "paymentDate": "2026-08-03T09:05:00.000Z",
+          "amount": { "value": "100.00", "currency": "EUR" }
+        }
+      ],
+      "refunds": []
+    },
+    "fulfillmentStartInstructions": [
+      {
+        "shippingStep": {
+          "shipTo": {
+            "fullName": "Cliente eBay Sintetico",
+            "email": "ebay@example.invalid",
+            "contactAddress": {
+              "addressLine1": "Via eBay 1",
+              "city": "Torino",
+              "postalCode": "10100",
+              "stateOrProvince": "TO",
+              "countryCode": "IT"
+            }
+          }
+        }
+      }
+    ],
+    "cancelStatus": { "cancelState": "NONE_REQUESTED" }
+  },
+  {
+    "orderId": "12-00002-00002",
+    "salesRecordReference": "10002",
+    "creationDate": "2026-08-04T09:00:00.000Z",
+    "lastModifiedDate": "2026-08-04T10:00:00.000Z",
+    "orderPaymentStatus": "PAID",
+    "orderFulfillmentStatus": "FULFILLED",
+    "buyer": {
+      "username": "buyer-synthetic-2",
+      "taxIdentifier": {
+        "taxpayerId": "IT12345678901",
+        "taxIdentifierType": "VATIN",
+        "issuingCountry": "IT"
+      }
+    },
+    "pricingSummary": {
+      "total": { "value": "200.00", "currency": "EUR" },
+      "deliveryCost": { "value": "0.00", "currency": "EUR" }
+    },
+    "lineItems": [
+      {
+        "lineItemId": "line-2",
+        "title": "Oggetto eBay aziendale",
+        "quantity": 1,
+        "lineItemCost": { "value": "200.00", "currency": "EUR" },
+        "discountedLineItemCost": { "value": "200.00", "currency": "EUR" },
+        "refunds": []
+      }
+    ],
+    "paymentSummary": {
+      "payments": [
+        {
+          "paymentReferenceId": "payment-2",
+          "paymentMethod": "EBAY",
+          "paymentStatus": "PAID",
+          "paymentDate": "2026-08-04T09:05:00.000Z",
+          "amount": { "value": "200.00", "currency": "EUR" }
+        }
+      ],
+      "refunds": [
+        {
+          "refundId": "refund-2",
+          "refundStatus": "REFUNDED",
+          "refundDate": "2026-08-04T10:00:00.000Z",
+          "amount": { "value": "20.00", "currency": "EUR" }
+        }
+      ]
+    },
+    "fulfillmentStartInstructions": [
+      {
+        "shippingStep": {
+          "shipTo": {
+            "fullName": "Impresa eBay Sintetica",
+            "companyName": "Impresa eBay SRL",
+            "email": "impresa-ebay@example.invalid",
+            "contactAddress": {
+              "addressLine1": "Via eBay 2",
+              "city": "Bologna",
+              "postalCode": "40100",
+              "stateOrProvince": "BO",
+              "countryCode": "IT"
+            }
+          }
+        }
+      }
+    ],
+    "cancelStatus": { "cancelState": "NONE_REQUESTED" }
+  }
+]

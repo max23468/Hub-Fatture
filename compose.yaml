@@ -1,5 +1,20 @@
 name: hub-fatture-development
 
+x-app-environment: &app-environment
+  ADMIN_BOOTSTRAP_TOKEN: development-bootstrap-token-change-me
+  APP_BASE_URL: http://localhost:8080
+  APP_ENV: development
+  CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
+  DATABASE_URL: postgres://hub_fatture:hub_fatture_local@postgres:5432/hub_fatture
+  EBAY_ACCOUNT_REFERENCE: ${EBAY_ACCOUNT_REFERENCE:-botCF}
+  EBAY_CLIENT_ID: ${EBAY_CLIENT_ID:-}
+  EBAY_CLIENT_SECRET: ${EBAY_CLIENT_SECRET:-}
+  EBAY_ENVIRONMENT: ${EBAY_ENVIRONMENT:-sandbox}
+  EBAY_RUNAME: ${EBAY_RUNAME:-}
+  SHOPIFY_API_KEY: ${SHOPIFY_API_KEY:-}
+  SHOPIFY_API_SECRET: ${SHOPIFY_API_SECRET:-}
+  SHOPIFY_SHOP: ${SHOPIFY_SHOP:-}
+
 services:
   app:
     build: .
@@ -7,11 +22,7 @@ services:
     restart: unless-stopped
     working_dir: /workspace
     command: ["sh", "-c", "npm ci && npm run db:migrate && npm run dev -- --host 0.0.0.0"]
-    environment:
-      ADMIN_BOOTSTRAP_TOKEN: development-bootstrap-token-change-me
-      APP_BASE_URL: http://localhost:8080
-      APP_ENV: development
-      DATABASE_URL: postgres://hub_fatture:hub_fatture_local@postgres:5432/hub_fatture
+    environment: *app-environment
     volumes:
       - .:/workspace
       - app_node_modules:/workspace/node_modules
@@ -29,6 +40,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  app-worker:
+    build: .
+    image: hub-fatture-app:local
+    restart: unless-stopped
+    working_dir: /workspace
+    command: ["sh", "-c", "npm ci && npm run db:migrate && npm run dev:worker"]
+    environment: *app-environment
+    volumes:
+      - .:/workspace
+      - app_node_modules:/workspace/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382

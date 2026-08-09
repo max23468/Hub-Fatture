@@ -10,6 +10,7 @@
     "check": "npm run toolchain:check && npm run audit && npm run format:check && npm run lint && npm run typecheck && npm run build:server && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run doctor && npm run build && npm run test:e2e",
     "db:migrate": "npm run build:server && node build-server/db/migrate.js",
     "dev": "react-router dev",
+    "dev:worker": "node --watch src/worker.ts",
     "doctor": "react-doctor --scope full --blocking warning .",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
@@ -18,6 +19,7 @@
     "smoke:imports": "node scripts/dependency-smoke.mjs",
     "smoke:type-stripping": "node scripts/type-stripping-smoke.ts",
     "start": "react-router-serve ./build/server/index.js",
+    "start:worker": "node build-server/worker.js",
     "test": "node --test",
     "test:e2e": "playwright test",
     "toolchain:check": "node scripts/toolchain-policy.mjs",
@@ -26,6 +28,7 @@
   "dependencies": {
     "@react-router/node": "8.3.0",
     "@react-router/serve": "8.3.0",
+    "@shopify/shopify-api": "13.1.0",
     "lucide-react": "1.30.0",
     "pg": "8.23.0",
     "react": "19.2.8",

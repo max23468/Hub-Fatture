@@ -112,9 +112,11 @@ export const orderInputSchema = z
       .transform((value) => value.toUpperCase()),
     total: z.string().trim().min(1),
     shippingAmount: z.string().trim().min(1).default("0.00"),
+    historical: z.boolean().default(false),
     paymentStatus: z.enum(["PAID", "PENDING", "REFUNDED"]),
     fulfillmentStatus: z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED"]),
     cancelledAt: postgresTimestampSchema.nullable().default(null),
+    sourceReviewRequired: z.boolean().default(false),
     customer: customerSchema,
     lines: z
       .array(
@@ -136,6 +138,17 @@ export const orderInputSchema = z
         paidAt: postgresTimestampSchema.nullable().default(null),
       }),
     ),
+    refunds: z
+      .array(
+        z.object({
+          externalRefundId: z.string().trim().min(1),
+          status: z.enum(["PENDING", "COMPLETED", "FAILED", "AMBIGUOUS"]),
+          amount: z.string().trim().min(1).nullable(),
+          completedAt: postgresTimestampSchema.nullable().default(null),
+          raw: z.record(z.string(), z.unknown()).default({}),
+        }),
+      )
+      .default([]),
   })
   .superRefine((order, context) => {
     if (containsNullByte(order)) {
@@ -144,6 +157,7 @@ export const orderInputSchema = z
     const collections = [
       ["lines", order.lines.map((line) => line.externalLineId)],
       ["payments", order.payments.map((payment) => payment.externalPaymentId)],
+      ["refunds", order.refunds.map((refund) => refund.externalRefundId)],
     ] as const;
     for (const [path, identifiers] of collections) {
       const seen = new Set<string>();
@@ -404,12 +418,14 @@ export function customerIdentity(input: CustomerContext): {
  * Il difetto del cliente vive invece nello snapshot della preparazione, dove è correggibile.
  */
 export function orderReviewRequired(
-  order: Pick<OrderInput, "paymentStatus" | "payments">,
+  order: Pick<OrderInput, "paymentStatus" | "payments" | "refunds" | "sourceReviewRequired">,
   totalsReconciled: boolean,
 ): boolean {
   return (
+    order.sourceReviewRequired ||
     order.paymentStatus !== "PAID" ||
     order.payments.some((payment) => payment.status !== "PAID") ||
+    order.refunds.some((refund) => refund.status !== "FAILED") ||
     !totalsReconciled
   );
 }
@@ -440,9 +456,17 @@ export function paginate<T>(rows: T[]) {
 }
 
 export function triggerStatus(
-  order: Pick<OrderInput, "cancelledAt" | "paymentStatus" | "fulfillmentStatus">,
+  order: Pick<OrderInput, "cancelledAt" | "paymentStatus" | "fulfillmentStatus"> & {
+    historical?: boolean;
+  },
   trigger: DraftTrigger,
-): "CANCELLED_NO_DOCUMENT" | "REFUNDED_BEFORE_ISSUE" | "ELIGIBLE" | "WAITING_FOR_TRIGGER" {
+):
+  | "CANCELLED_NO_DOCUMENT"
+  | "REFUNDED_BEFORE_ISSUE"
+  | "ELIGIBLE"
+  | "WAITING_FOR_TRIGGER"
+  | "LEGACY_BILLING_REVIEW" {
+  if (order.historical) return "LEGACY_BILLING_REVIEW";
   if (order.cancelledAt) return "CANCELLED_NO_DOCUMENT";
   if (order.paymentStatus === "REFUNDED") return "REFUNDED_BEFORE_ISSUE";
   if (

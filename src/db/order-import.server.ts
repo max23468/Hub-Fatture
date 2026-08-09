@@ -27,8 +27,16 @@ import {
 } from "../orders.ts";
 
 export interface Actor {
-  id: number;
+  id?: number;
+  type?: "ADMIN" | "SYSTEM";
   requestId: string;
+}
+
+function auditActor(actor: Actor) {
+  return {
+    actorType: actor.type ?? ("ADMIN" as const),
+    actorId: actor.id === undefined ? null : String(actor.id),
+  };
 }
 
 interface GroupableOrder {
@@ -75,6 +83,7 @@ function reviewFingerprint(
   lineAmounts: { grossAmount: number; discountAmount: number }[],
   paymentAmounts: number[],
   shippingAmount: number,
+  refundAmounts: (number | null)[],
 ) {
   const lines = input.lines
     .map((line, index) => ({ ...line, ...lineAmounts[index] }))
@@ -98,6 +107,14 @@ function reviewFingerprint(
           ? -1
           : 1,
     );
+  const refunds = input.refunds
+    .map((refund, index) => ({
+      externalRefundId: refund.externalRefundId,
+      status: refund.status,
+      amount: refundAmounts[index],
+      completedAt: canonicalTimestamp(refund.completedAt),
+    }))
+    .sort((left, right) => left.externalRefundId.localeCompare(right.externalRefundId));
   const relevant = {
     displayNumber: input.displayNumber,
     totalAmount,
@@ -105,10 +122,12 @@ function reviewFingerprint(
     paymentStatus: input.paymentStatus,
     fulfillmentStatus: input.fulfillmentStatus,
     cancelledAt: canonicalTimestamp(input.cancelledAt),
+    sourceReviewRequired: input.sourceReviewRequired,
     customerIdentity: identityKey,
     customer: canonicalCustomerProfile(input),
     lines,
     payments,
+    refunds,
     shippingAmount,
   };
   return createHash("sha256").update(JSON.stringify(relevant)).digest("hex");
@@ -187,8 +206,7 @@ export async function groupOrder(
     );
     caseId = created.rows[0]!.id;
     await writeAudit(client, {
-      actorType: "ADMIN",
-      actorId: String(actor.id),
+      ...auditActor(actor),
       action: "BILLING_CASE_CREATED",
       eventClass: "CRITICAL",
       entityType: "BILLING_CASE",
@@ -204,8 +222,7 @@ export async function groupOrder(
   );
   if (assigned.rowCount) {
     await writeAudit(client, {
-      actorType: "ADMIN",
-      actorId: String(actor.id),
+      ...auditActor(actor),
       action: forced ? "ORDER_GROUPING_FORCED" : "ORDER_GROUPED",
       eventClass: "CRITICAL",
       entityType: "ORDER",
@@ -243,6 +260,9 @@ function orderAmounts(input: OrderInput) {
     discountAmount: cents(line.discountAmount),
   }));
   const paymentAmounts = input.payments.map((payment) => cents(payment.amount));
+  const refundAmounts = input.refunds.map((refund) =>
+    refund.amount === null ? null : cents(refund.amount),
+  );
   const shippingAmount = cents(input.shippingAmount);
   if (
     lineAmounts.some(
@@ -250,6 +270,7 @@ function orderAmounts(input: OrderInput) {
         amount < 0 || discountAmount < 0 || discountAmount > amount,
     ) ||
     paymentAmounts.some((amount) => amount < 0) ||
+    refundAmounts.some((amount) => amount !== null && amount < 0) ||
     shippingAmount < 0
   ) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
@@ -259,7 +280,14 @@ function orderAmounts(input: OrderInput) {
       BigInt(shippingAmount) ===
       BigInt(grossAmount) &&
     paymentAmounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(grossAmount);
-  return { grossAmount, lineAmounts, paymentAmounts, shippingAmount, totalsReconciled };
+  return {
+    grossAmount,
+    lineAmounts,
+    paymentAmounts,
+    refundAmounts,
+    shippingAmount,
+    totalsReconciled,
+  };
 }
 
 interface PreviousOrderRow {
@@ -390,8 +418,14 @@ async function importOne(
   trigger: DraftTrigger,
   actor: Actor,
 ) {
-  const { grossAmount, lineAmounts, paymentAmounts, shippingAmount, totalsReconciled } =
-    orderAmounts(input);
+  const {
+    grossAmount,
+    lineAmounts,
+    paymentAmounts,
+    refundAmounts,
+    shippingAmount,
+    totalsReconciled,
+  } = orderAmounts(input);
   const identity = customerIdentity(input);
   const localDate = localOrderDate(input.createdAt);
   const fingerprint = reviewFingerprint(
@@ -402,6 +436,7 @@ async function importOne(
     lineAmounts,
     paymentAmounts,
     shippingAmount,
+    refundAmounts,
   );
   const status = triggerStatus(input, trigger);
   const orderReview = orderReviewRequired(input, totalsReconciled);
@@ -513,10 +548,15 @@ async function importOne(
         billingCaseId: order.rows[0]!.billing_case_id,
       })
     : order.rows[0]!.billing_case_id;
-  await replaceOrderChildren(client, orderId, input, { lineAmounts, paymentAmounts }, invoiced);
+  await replaceOrderChildren(
+    client,
+    orderId,
+    input,
+    { lineAmounts, paymentAmounts, refundAmounts },
+    invoiced,
+  );
   await writeAudit(client, {
-    actorType: "ADMIN",
-    actorId: String(actor.id),
+    ...auditActor(actor),
     action: previous.rows[0] ? "ORDER_SOURCE_UPDATED" : "ORDER_IMPORTED",
     eventClass: "OPERATIONAL",
     entityType: "ORDER",
@@ -592,8 +632,7 @@ async function applySourceConflict(
     ],
   );
   await writeAudit(client, {
-    actorType: "ADMIN",
-    actorId: String(actor.id),
+    ...auditActor(actor),
     action: "ORDER_SOURCE_CONFLICT",
     eventClass: "CRITICAL",
     entityType: "ORDER",
@@ -698,10 +737,13 @@ async function replaceOrderChildren(
   client: pg.PoolClient,
   orderId: string,
   input: OrderInput,
-  amounts: Pick<ReturnType<typeof orderAmounts>, "lineAmounts" | "paymentAmounts">,
+  amounts: Pick<
+    ReturnType<typeof orderAmounts>,
+    "lineAmounts" | "paymentAmounts" | "refundAmounts"
+  >,
   invoiced: boolean,
 ) {
-  const { lineAmounts, paymentAmounts } = amounts;
+  const { lineAmounts, paymentAmounts, refundAmounts } = amounts;
   if (!invoiced) {
     await client.query("DELETE FROM order_lines WHERE order_id = $1", [orderId]);
     for (const [index, line] of input.lines.entries()) {
@@ -764,6 +806,34 @@ async function replaceOrderChildren(
         paymentAmounts[index],
         payment.paidAt,
         JSON.stringify(payment),
+      ],
+    );
+  }
+  await client.query(
+    `DELETE FROM refunds
+     WHERE order_id = $1 AND NOT (external_refund_id = ANY($2::text[]))`,
+    [orderId, input.refunds.map((refund) => refund.externalRefundId)],
+  );
+  for (const [index, refund] of input.refunds.entries()) {
+    await client.query(
+      `INSERT INTO refunds
+        (provider, external_account_id, external_order_id, external_refund_id, order_id,
+         status, amount, completed_at, raw_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (provider, external_account_id, external_order_id, external_refund_id)
+       DO UPDATE SET status = EXCLUDED.status, amount = EXCLUDED.amount,
+                     completed_at = EXCLUDED.completed_at, raw_json = EXCLUDED.raw_json,
+                     updated_at = now()`,
+      [
+        input.provider,
+        input.externalAccountId,
+        input.externalOrderId,
+        refund.externalRefundId,
+        orderId,
+        refund.status,
+        refundAmounts[index],
+        refund.completedAt,
+        JSON.stringify(refund.raw),
       ],
     );
   }

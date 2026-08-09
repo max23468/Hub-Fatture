@@ -1559,6 +1559,39 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       "1",
     );
 
+    const historical = structuredClone(fixture[0]);
+    historical.externalOrderId = "shop-order-historical";
+    historical.externalCustomerId = "shop-customer-historical";
+    historical.customer.taxIdentifiers[0].value = "RSSMRA80A01H501C";
+    historical.historical = true;
+    historical.createdAt = "2026-08-19T08:00:00Z";
+    historical.updatedAt = "2026-08-19T09:00:00Z";
+    await orders.importOrders([historical], {
+      id: 1,
+      requestId: "test-historical-import",
+    });
+    const historicalId = (
+      await database
+        .getPool()
+        .query("SELECT id FROM orders WHERE external_order_id = $1", [historical.externalOrderId])
+    ).rows[0].id;
+    await orders.setDraftTrigger("PAID", 3, {
+      id: 1,
+      requestId: "test-historical-trigger-change",
+    });
+    assert.deepEqual(
+      (
+        await database
+          .getPool()
+          .query("SELECT trigger_status, billing_case_id FROM orders WHERE id = $1", [historicalId])
+      ).rows[0],
+      { trigger_status: "LEGACY_BILLING_REVIEW", billing_case_id: null },
+    );
+    await assert.rejects(
+      orders.forcePrepareOrder(historicalId, { id: 1, requestId: "test-force-historical" }),
+      (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
+    );
+
     const concurrentA = structuredClone(fixture[0]);
     concurrentA.externalOrderId = "shop-order-concurrent-a";
     concurrentA.externalCustomerId = "shop-customer-concurrent";

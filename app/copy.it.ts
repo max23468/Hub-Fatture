@@ -187,6 +187,25 @@ export const copy = {
     save: "Salva impostazione",
     timeTitle: "Data e ora",
     timeHelp: "Le date degli ordini seguono l’ora italiana.",
+    connectionsTitle: "Connessioni",
+    connectionsHelp: "Collega i canali di vendita e controlla gli ultimi aggiornamenti ricevuti.",
+    dataRequestsTitle: "Richieste dati Shopify",
+    dataRequestsPending: (count: number) =>
+      `${count} ${count === 1 ? "richiesta da gestire" : "richieste da gestire"}. Gli identificativi sono conservati nel registro privacy.`,
+    dataRequestReceived: "Ricevuta",
+    dataRequestCustomers: "Clienti richiesti",
+    dataRequestOrders: "Ordini richiesti",
+    dataRequestComplete: "Segna come gestita",
+    dataRequestCompleted: "Richiesta dati Shopify registrata come gestita.",
+    connect: "Collega",
+    reconnect: "Ricollega",
+    preview: "Anteprima ultimi 7 giorni",
+    connected: "Collegato",
+    notConnected: "Non collegato",
+    lastSync: "Ultima sincronizzazione",
+    never: "Mai",
+    previewResult: (provider: string, count: string, review: string) =>
+      `${provider}: ${count} ordini nell’anteprima; ${review} con rimborsi da controllare. Nessun ordine è stato importato.`,
   },
   customerEditor: {
     title: "Dati del destinatario",
@@ -246,6 +265,7 @@ export const orderStatusLabels: Record<string, string> = {
   REFUNDED_BEFORE_ISSUE: "Rimborsato, nessuna fattura",
   INVOICED: "Fatturato",
   NEEDS_REVIEW: "Da verificare",
+  LEGACY_BILLING_REVIEW: "Storico da riconciliare",
 };
 
 export const paymentStatusLabels: Record<string, string> = {
@@ -296,6 +316,7 @@ export const auditActionLabels = {
   ORDER_SEPARATED: "Ordine separato dalla preparazione",
   ORDER_SOURCE_CONFLICT: "Aggiornamento dell’ordine da verificare",
   ORDER_SOURCE_UPDATED: "Ordine aggiornato dal canale di vendita",
+  SHOPIFY_DATA_REQUEST_COMPLETED: "Richiesta dati Shopify gestita",
 } satisfies Record<AuditAction, string>;
 
 export function auditActionLabel(action: string) {
