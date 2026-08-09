@@ -1,22 +1,5 @@
 import type pg from "pg";
 
-type AuditAction =
-  | "ADMIN_ACCOUNT_CREATED"
-  | "LOGIN_FAILED"
-  | "LOGIN_SUCCEEDED"
-  | "LOGOUT_SUCCEEDED"
-  | "BILLING_CASE_CREATED"
-  | "ORDER_GROUPED"
-  | "ORDER_GROUPING_FORCED"
-  | "ORDER_SOURCE_CONFLICT"
-  | "BILLING_CASE_DO_NOT_TRANSMIT"
-  | "BILLING_CASE_REACTIVATED"
-  | "ORDER_SOURCE_UPDATED"
-  | "ORDER_IMPORTED"
-  | "ORDER_SEPARATED"
-  | "CUSTOMER_CORRECTED"
-  | "DRAFT_TRIGGER_CHANGED";
-
 export const auditActions = [
   "ADMIN_ACCOUNT_CREATED",
   "BILLING_CASE_CREATED",
@@ -36,6 +19,8 @@ export const auditActions = [
   "ORDER_SOURCE_UPDATED",
 ] as const;
 
+export type AuditAction = (typeof auditActions)[number];
+
 export async function writeAudit(
   client: pg.PoolClient,
   event: {
@@ -51,6 +36,7 @@ export async function writeAudit(
       reason: string;
       reviewRequired: boolean;
       provider: "SHOPIFY" | "EBAY";
+      scope: string;
       value: "PAID" | "FULFILLED";
     }>;
     /** Solo campi anagrafici allowlisted o riferimenti a snapshot: mai token o payload integrali. */

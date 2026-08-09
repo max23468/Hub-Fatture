@@ -126,3 +126,18 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   assert.match(compose, /^name: hub-fatture-development$/m);
   assert.equal(compose.match(/^    restart: unless-stopped$/gm)?.length, 3);
 });
+
+test("l'applicazione accede a PostgreSQL soltanto tramite il livello dati", async () => {
+  const files = [
+    ...(await collect("app")),
+    ...(await collect("src")).filter((file) => !file.startsWith("src/db/")),
+  ];
+  const offenders = (await contents(files))
+    .filter(({ text }) =>
+      /import\s*\{[^}]*\b(?:getPool|withTransaction)\b[^}]*\}\s*from\s*["'][^"']*db\/client\.server|from ["']pg["']/.test(
+        text,
+      ),
+    )
+    .map(({ file }) => file);
+  assert.deepEqual(offenders, []);
+});

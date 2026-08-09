@@ -1,3 +1,5 @@
+import type { AuditAction } from "../src/db/audit.server.ts";
+
 export const copy = {
   appName: "Hub Fatture",
   dashboardTitle: "Dashboard",
@@ -72,7 +74,7 @@ export const auditActionLabels: Record<string, string> = {
   ORDER_SEPARATED: "Ordine separato dalla preparazione",
   ORDER_SOURCE_CONFLICT: "Modifica dei dati sorgente da verificare",
   ORDER_SOURCE_UPDATED: "Dati sorgente aggiornati",
-};
+} satisfies Record<AuditAction, string>;
 
 export const billingCaseStatusLabels: Record<string, string> = {
   DRAFT: "In lavorazione",

@@ -1911,9 +1911,25 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .getPool()
         .query("SELECT id FROM orders WHERE external_order_id = $1", [ambiguousA.externalOrderId])
     ).rows[0].id;
+    assert.deepEqual((await orders.getOrder(String(ambiguousOrderId)))!.possibleMatches, []);
+    const namedAmbiguous = structuredClone(ambiguousA);
+    namedAmbiguous.externalOrderId = "shop-order-ambiguous-named";
+    namedAmbiguous.payments[0].externalPaymentId = "shop-payment-ambiguous-named";
+    namedAmbiguous.customer.displayName = fixture[0].customer.displayName;
+    await orders.importOrders([namedAmbiguous], {
+      id: 1,
+      requestId: "test-ambiguous-named-match",
+    });
+    const namedAmbiguousOrderId = (
+      await database
+        .getPool()
+        .query("SELECT id FROM orders WHERE external_order_id = $1", [
+          namedAmbiguous.externalOrderId,
+        ])
+    ).rows[0].id;
     assert.ok(
-      (await orders.getOrder(String(ambiguousOrderId)))!.possibleMatches.some(
-        (candidate) => candidate.display_name === "Cliente senza nome",
+      (await orders.getOrder(String(namedAmbiguousOrderId)))!.possibleMatches.some(
+        (candidate) => candidate.display_name === fixture[0].customer.displayName,
       ),
     );
     assert.deepEqual((await orders.getOrder("1"))!.possibleMatches, []);
