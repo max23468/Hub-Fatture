@@ -7,6 +7,9 @@ import { copy } from "../copy.it";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
 import { getDraftTrigger, setDraftTrigger } from "../../src/db/orders.server.ts";
+import { connectionSummaries } from "../../src/db/connectors.server.ts";
+import { previewEbayHistory } from "../../src/integrations/ebay.server.ts";
+import { previewShopifyHistory } from "../../src/integrations/shopify.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -16,6 +19,15 @@ export async function loader({ request }: Route.LoaderArgs) {
     csrfToken: user.csrfToken,
     trigger: await getDraftTrigger(),
     saved: url.searchParams.get("trigger") === "salvato",
+    connections: await connectionSummaries(),
+    preview:
+      url.searchParams.get("provider") && url.searchParams.get("count")
+        ? {
+            provider: url.searchParams.get("provider")!,
+            count: url.searchParams.get("count")!,
+            review: url.searchParams.get("review") ?? "0",
+          }
+        : null,
   };
 }
 
@@ -24,6 +36,19 @@ export async function action({ request }: Route.ActionArgs) {
     const user = await requireSessionUser(request);
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
+    const intent = form.get("intent");
+    if (intent === "preview-shopify" || intent === "preview-ebay") {
+      const provider = intent === "preview-shopify" ? "Shopify" : "eBay";
+      const preview =
+        intent === "preview-shopify" ? await previewShopifyHistory() : await previewEbayHistory();
+      return redirect(
+        `/impostazioni?${new URLSearchParams({
+          provider,
+          count: String(preview.count),
+          review: String(preview.reviewRequired),
+        })}`,
+      );
+    }
     await setDraftTrigger(form.get("trigger"), Number(form.get("version") ?? Number.NaN), {
       id: user.id,
       requestId: requestId(request),
@@ -33,8 +58,10 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function Settings() {
-  const { username, csrfToken, trigger, saved } = useLoaderData<typeof loader>();
+  const { username, csrfToken, trigger, saved, connections, preview } =
+    useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
+  const byProvider = new Map(connections.map((connection) => [connection.provider, connection]));
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
@@ -47,6 +74,65 @@ export default function Settings() {
           {copy.settings.saved}
         </p>
       ) : null}
+      {preview ? (
+        <p className="notice" role="status">
+          {copy.settings.previewResult(preview.provider, preview.count, preview.review)}
+        </p>
+      ) : null}
+      <section className="card">
+        <h2>{copy.settings.connectionsTitle}</h2>
+        <p>{copy.settings.connectionsHelp}</p>
+        <div className="detail-grid">
+          {(["SHOPIFY", "EBAY"] as const).map((provider) => {
+            const connection = byProvider.get(provider);
+            const label = provider === "SHOPIFY" ? "Shopify" : "eBay";
+            return (
+              <section key={provider} className="status-panel">
+                <h3>{label}</h3>
+                <p className="status">
+                  {connection?.status === "CONNECTED"
+                    ? copy.settings.connected
+                    : copy.settings.notConnected}
+                </p>
+                {connection ? <p>{connection.accountReference}</p> : null}
+                <p>
+                  {copy.settings.lastSync}: {connection?.lastSyncedAt ?? copy.settings.never}
+                </p>
+                <p>
+                  <a
+                    className="button button--secondary"
+                    href={
+                      provider === "SHOPIFY"
+                        ? "/integrations/shopify/auth"
+                        : "/integrations/ebay/auth"
+                    }
+                  >
+                    {connection ? copy.settings.reconnect : copy.settings.connect}
+                  </a>
+                </p>
+                {connection?.status === "CONNECTED" ? (
+                  <Form method="post">
+                    <input type="hidden" name="csrf" value={csrfToken} />
+                    <input
+                      type="hidden"
+                      name="intent"
+                      value={provider === "SHOPIFY" ? "preview-shopify" : "preview-ebay"}
+                    />
+                    <button className="button button--secondary" type="submit">
+                      {copy.settings.preview}
+                    </button>
+                  </Form>
+                ) : null}
+              </section>
+            );
+          })}
+        </div>
+        {error ? (
+          <p className="error" role="alert">
+            {error.message}
+          </p>
+        ) : null}
+      </section>
       <section className="card">
         <h2>{copy.settings.preparationTitle}</h2>
         <p>{copy.settings.preparationHelp}</p>

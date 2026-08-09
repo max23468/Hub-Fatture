@@ -11,5 +11,6 @@
 | [Dominio ordini](contracts/order-domain.md)               | Fonti, import, raggruppamento e concorrenza               | Corrente    | Sì             |
 | [Inventario segreti](runbooks/secret-inventory.md)        | Nomi logici, custodia e rotazione senza valori            | Corrente    | Sì             |
 | [Ordini e preparazione fattura](evidence/order-domain.md) | Capacità e gate ripetibili del dominio                    | Corrente    | No             |
+| [Connettori Shopify ed eBay](evidence/connectors.md)      | Contratti API, fixture e gate dei provider                | Corrente    | No             |
 
 Nuovi contratti, evidenze e runbook vengono creati soltanto quando esiste contenuto reale.

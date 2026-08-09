@@ -1,0 +1,460 @@
+import { createHash, createHmac, createVerify, timingSafeEqual } from "node:crypto";
+
+import { z } from "zod";
+
+import { getConfig } from "../config.server.ts";
+import {
+  loadConnection,
+  markConnectionSynced,
+  processEbayDeletionRecord,
+  readCursor,
+  saveConnection,
+  writeCursor,
+} from "../db/connectors.server.ts";
+import { importOrders } from "../db/order-import.server.ts";
+import { AppError } from "../errors.ts";
+import type { OrderInput } from "../orders.ts";
+import { providerJson } from "./provider-http.server.ts";
+import { providerOrder } from "./provider-order.ts";
+
+export const EBAY_FULFILLMENT_API_VERSION = "v1";
+export const EBAY_FULFILLMENT_SCHEMA_RELEASE = "1.20.7";
+export const EBAY_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly";
+const OVERLAP_MS = 5 * 60 * 1000;
+
+interface EbayCredentials {
+  refreshToken: string;
+}
+
+let accessTokenCache: { key: string; token: string; expiresAt: number } | null = null;
+let applicationTokenCache: { token: string; expiresAt: number } | null = null;
+const publicKeyCache = new Map<
+  string,
+  { key: string; digest: "sha1" | "sha256"; expiresAt: number }
+>();
+
+const moneySchema = z.looseObject({ value: z.string(), currency: z.string() });
+const recordSchema = z.record(z.string(), z.unknown());
+
+function record(value: unknown): Record<string, unknown> {
+  return recordSchema.safeParse(value).data ?? {};
+}
+
+function records(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        const parsed = record(item);
+        return Object.keys(parsed).length ? [parsed] : [];
+      })
+    : [];
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function money(value: unknown): { value: string; currency: string } | null {
+  return moneySchema.safeParse(value).data ?? null;
+}
+
+function environmentBase(environment: "sandbox" | "production") {
+  return environment === "sandbox" ? "https://api.sandbox.ebay.com" : "https://api.ebay.com";
+}
+
+async function accessToken(environment: "sandbox" | "production", refreshToken: string) {
+  const config = getConfig();
+  if (!config.EBAY_CLIENT_ID || !config.EBAY_CLIENT_SECRET)
+    throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
+  const key = createHash("sha256").update(`${environment}\0${refreshToken}`).digest("hex");
+  if (accessTokenCache?.key === key && accessTokenCache.expiresAt > Date.now()) {
+    return accessTokenCache.token;
+  }
+  const result = await providerJson(`${environmentBase(environment)}/identity/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${config.EBAY_CLIENT_ID}:${config.EBAY_CLIENT_SECRET}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      scope: EBAY_SCOPE,
+    }),
+  });
+  const token = text(result.access_token);
+  if (!token) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  const expiresIn = Number(result.expires_in ?? 7200);
+  accessTokenCache = {
+    key,
+    token,
+    expiresAt: Date.now() + Math.max(30, expiresIn - 60) * 1000,
+  };
+  return token;
+}
+
+async function applicationToken() {
+  if (applicationTokenCache && applicationTokenCache.expiresAt > Date.now()) {
+    return applicationTokenCache.token;
+  }
+  const config = getConfig();
+  if (!config.EBAY_CLIENT_ID || !config.EBAY_CLIENT_SECRET)
+    throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
+  const result = await providerJson("https://api.ebay.com/identity/v1/oauth2/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${config.EBAY_CLIENT_ID}:${config.EBAY_CLIENT_SECRET}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      scope: "https://api.ebay.com/oauth/api_scope",
+    }),
+  });
+  const token = text(result.access_token);
+  if (!token) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  applicationTokenCache = {
+    token,
+    expiresAt: Date.now() + Math.max(30, Number(result.expires_in ?? 7200) - 60) * 1000,
+  };
+  return token;
+}
+
+async function publicKey(keyId: string) {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(keyId)) throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+  const cached = publicKeyCache.get(keyId);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+  const result = await providerJson(
+    `https://api.ebay.com/commerce/notification/v1/public_key/${encodeURIComponent(keyId)}`,
+    { headers: { Authorization: `Bearer ${await applicationToken()}` } },
+  );
+  let key = text(result.key);
+  const algorithm = text(result.algorithm)?.toUpperCase();
+  const digest = text(result.digest)?.replace("-", "").toUpperCase();
+  if (!key || algorithm !== "ECDSA" || (digest !== "SHA1" && digest !== "SHA256")) {
+    throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+  }
+  if (key.includes("-----BEGIN PUBLIC KEY-----") && !key.includes("\n")) {
+    const body = key
+      .replace("-----BEGIN PUBLIC KEY-----", "")
+      .replace("-----END PUBLIC KEY-----", "")
+      .replace(/\s+/g, "");
+    key = `-----BEGIN PUBLIC KEY-----\n${body.match(/.{1,64}/g)?.join("\n") ?? body}\n-----END PUBLIC KEY-----`;
+  }
+  const entry = {
+    key,
+    digest: digest === "SHA1" ? ("sha1" as const) : ("sha256" as const),
+    expiresAt: Date.now() + 60 * 60_000,
+  };
+  publicKeyCache.set(keyId, entry);
+  return entry;
+}
+
+async function verifyAccountDeletionSignature(body: Buffer, signatureHeader: string | null) {
+  if (!signatureHeader || Buffer.byteLength(signatureHeader) > 8192)
+    throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+  let header: Record<string, unknown>;
+  try {
+    header = recordSchema.parse(JSON.parse(Buffer.from(signatureHeader, "base64").toString()));
+  } catch {
+    throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+  }
+  const keyId = text(header.kid);
+  const signature = text(header.signature);
+  if (!keyId || !signature) throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+  const publicKeyEntry = await publicKey(keyId);
+  const verifier = createVerify(publicKeyEntry.digest);
+  verifier.update(body);
+  verifier.end();
+  if (!verifier.verify(publicKeyEntry.key, Buffer.from(signature, "base64"))) {
+    throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+  }
+}
+
+export function mapEbayOrder(payload: unknown, accountReference: string): OrderInput {
+  const order = record(payload);
+  const orderId = text(order.orderId);
+  const createdAt = text(order.creationDate);
+  const updatedAt = text(order.lastModifiedDate) ?? createdAt;
+  const pricing = record(order.pricingSummary);
+  const total = money(pricing.total);
+  if (!orderId || !createdAt || !updatedAt || !total) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  const buyer = record(order.buyer);
+  const instructions = records(order.fulfillmentStartInstructions);
+  const shippingStep = record(instructions.map((item) => record(item.shippingStep)).find(Boolean));
+  const shipTo = record(shippingStep.shipTo);
+  const address = record(shipTo.contactAddress);
+  const taxIdentifier = record(buyer.taxIdentifier);
+  const declaredTaxType = text(taxIdentifier.taxIdentifierType);
+  const taxpayerId = text(taxIdentifier.taxpayerId);
+  const countryCode = text(taxIdentifier.issuingCountry) ?? text(address.countryCode);
+  const taxIdentifiers =
+    taxpayerId && declaredTaxType
+      ? [
+          {
+            type:
+              declaredTaxType === "CODICE_FISCALE"
+                ? ("CODICE_FISCALE" as const)
+                : declaredTaxType === "VATIN"
+                  ? ("PARTITA_IVA" as const)
+                  : ("ALTRO" as const),
+            value: taxpayerId,
+            countryCode,
+            sourceField: `buyer.taxIdentifier.${declaredTaxType}`,
+          },
+        ]
+      : [];
+  const companyName = text(shipTo.companyName);
+  const fullName = text(shipTo.fullName);
+  const buyerId = text(buyer.username) ?? text(buyer.userId);
+  const lineItems = records(order.lineItems);
+  const payments = records(record(order.paymentSummary).payments);
+  const refunds = [
+    ...records(record(order.paymentSummary).refunds),
+    ...lineItems.flatMap((line) => records(line.refunds)),
+  ];
+  const cancelled = text(record(order.cancelStatus).cancelState);
+  const paymentStatus = text(order.orderPaymentStatus) ?? "PENDING";
+  return providerOrder({
+    provider: "EBAY",
+    externalAccountId: accountReference,
+    externalOrderId: orderId,
+    externalCustomerId: buyerId,
+    displayNumber: text(order.salesRecordReference) ?? orderId,
+    createdAt,
+    updatedAt,
+    currency: total.currency,
+    total: total.value,
+    shippingAmount: money(pricing.deliveryCost)?.value ?? "0.00",
+    paymentStatus: ["FULLY_REFUNDED", "REFUNDED"].includes(paymentStatus)
+      ? "REFUNDED"
+      : paymentStatus === "PAID"
+        ? "PAID"
+        : "PENDING",
+    fulfillmentStatus:
+      order.orderFulfillmentStatus === "FULFILLED"
+        ? "FULFILLED"
+        : order.orderFulfillmentStatus === "IN_PROGRESS"
+          ? "PARTIAL"
+          : "UNFULFILLED",
+    cancelledAt: cancelled && cancelled !== "NONE_REQUESTED" ? updatedAt : null,
+    customer: {
+      kind:
+        countryCode === "IT"
+          ? companyName
+            ? "BUSINESS_IT"
+            : "PRIVATE_IT"
+          : countryCode
+            ? "EU"
+            : "UNKNOWN",
+      displayName: companyName ?? fullName ?? buyerId,
+      companyName,
+      email: text(shipTo.email),
+      phone: text(shipTo.primaryPhone?.toString()),
+      billingAddress: {
+        line1: text(address.addressLine1),
+        line2: text(address.addressLine2),
+        postalCode: text(address.postalCode),
+        city: text(address.city),
+        province: text(address.stateOrProvince),
+        countryCode,
+      },
+      taxIdentifiers,
+    },
+    lines: lineItems.map((line, index) => {
+      const gross = money(line.lineItemCost);
+      const discounted = money(line.discountedLineItemCost) ?? gross;
+      if (!gross || !discounted) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      const discount = Math.max(
+        0,
+        Math.round((Number(gross.value) - Number(discounted.value)) * 100),
+      );
+      return {
+        externalLineId: text(line.lineItemId) ?? `${orderId}-${index + 1}`,
+        description: text(line.title) ?? "Articolo eBay",
+        quantity: Number(line.quantity ?? 1),
+        grossAmount: gross.value,
+        discountAmount: (discount / 100).toFixed(2),
+      };
+    }),
+    payments: payments.map((payment, index) => ({
+      externalPaymentId: text(payment.paymentReferenceId) ?? `${orderId}-payment-${index + 1}`,
+      method: text(payment.paymentMethod) ?? "EBAY",
+      status: payment.paymentStatus === "PAID" ? "PAID" : "PENDING",
+      amount: money(payment.amount)?.value ?? "0.00",
+      paidAt: text(payment.paymentDate) ?? null,
+    })),
+    // eBay dichiara che l'importo Fulfillment è netto venditore e può escludere imposte:
+    // non è un importo cliente fiscalmente utilizzabile senza una fonte aggiuntiva.
+    refunds: refunds.map((refund, index) => ({
+      externalRefundId:
+        text(refund.refundId) ?? text(refund.refundReferenceId) ?? `${orderId}-refund-${index + 1}`,
+      status: "AMBIGUOUS",
+      amount: null,
+      completedAt: text(refund.refundDate) ?? null,
+      raw: refund,
+    })),
+  });
+}
+
+async function fetchOrder(environment: "sandbox" | "production", token: string, orderId: string) {
+  return providerJson(
+    `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order/${encodeURIComponent(orderId)}?fieldGroups=TAX_BREAKDOWN`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+  );
+}
+
+async function fetchOrdersSince(start: string) {
+  const connection = await loadConnection<EbayCredentials>("EBAY");
+  const environment = connection.environment === "SANDBOX" ? "sandbox" : "production";
+  const token = await accessToken(environment, connection.credentials.refreshToken);
+  const end = new Date().toISOString();
+  const orders: OrderInput[] = [];
+  let url: string | null =
+    `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order?` +
+    new URLSearchParams({
+      filter: `lastmodifieddate:[${start}..${end}]`,
+      fieldGroups: "TAX_BREAKDOWN",
+      limit: "50",
+    });
+  for (let page = 0; url && page < 20; page += 1) {
+    const response = await providerJson(url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    for (const summary of records(response.orders)) {
+      const orderId = text(summary.orderId);
+      if (!orderId) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      // Tax identifier is contractually present only on getOrder; la sequenza evita burst di 50 richieste.
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      const detail = await fetchOrder(environment, token, orderId);
+      orders.push(mapEbayOrder(detail, connection.accountReference));
+    }
+    url = text(response.next) ?? null;
+  }
+  if (url) throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+  return { connection, end, orders };
+}
+
+export async function syncEbayOrders() {
+  const cursor = await readCursor("EBAY");
+  const start = cursor.overlapFrom ?? new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const { end, orders } = await fetchOrdersSince(start);
+  if (orders.length) {
+    await importOrders(orders, { type: "SYSTEM", requestId: `ebay-sync:${end}` });
+  }
+  await writeCursor("EBAY", end, new Date(Date.parse(end) - OVERLAP_MS).toISOString());
+  await markConnectionSynced("EBAY");
+  return { count: orders.length, from: start, to: end };
+}
+
+export async function previewEbayHistory(days = 7) {
+  const safeDays = Math.min(7, Math.max(1, Math.trunc(days)));
+  const { orders } = await fetchOrdersSince(
+    new Date(Date.now() - safeDays * 86_400_000).toISOString(),
+  );
+  return {
+    count: orders.length,
+    reviewRequired: orders.filter((order) => order.refunds.length).length,
+  };
+}
+
+function stateKey() {
+  const value = getConfig().CREDENTIALS_ENCRYPTION_KEY;
+  if (!value) throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
+  return Buffer.from(value, "base64url");
+}
+
+export function createEbayOAuthState(userId: number) {
+  const payload = Buffer.from(
+    JSON.stringify({ userId, expiresAt: Date.now() + 10 * 60_000 }),
+  ).toString("base64url");
+  return `${payload}.${createHmac("sha256", stateKey()).update(payload).digest("base64url")}`;
+}
+
+export function verifyEbayOAuthState(value: string, userId: number) {
+  const [payload, signature] = value.split(".");
+  if (!payload || !signature) return false;
+  const expected = createHmac("sha256", stateKey()).update(payload).digest();
+  const actual = Buffer.from(signature, "base64url");
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false;
+  try {
+    const parsed = z
+      .object({ userId: z.number().int(), expiresAt: z.number().int() })
+      .parse(JSON.parse(Buffer.from(payload, "base64url").toString()));
+    return parsed.userId === userId && parsed.expiresAt >= Date.now();
+  } catch {
+    return false;
+  }
+}
+
+export function ebayAuthorizationUrl(state: string) {
+  const config = getConfig();
+  if (!config.EBAY_CLIENT_ID || !config.EBAY_RUNAME)
+    throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
+  const host = config.EBAY_ENVIRONMENT === "sandbox" ? "auth.sandbox.ebay.com" : "auth.ebay.com";
+  return `https://${host}/oauth2/authorize?${new URLSearchParams({
+    client_id: config.EBAY_CLIENT_ID,
+    redirect_uri: config.EBAY_RUNAME,
+    response_type: "code",
+    scope: EBAY_SCOPE,
+    state,
+  })}`;
+}
+
+export async function completeEbayOAuth(code: string) {
+  const config = getConfig();
+  if (!config.EBAY_CLIENT_ID || !config.EBAY_CLIENT_SECRET || !config.EBAY_RUNAME)
+    throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
+  const response = await providerJson(
+    `${environmentBase(config.EBAY_ENVIRONMENT)}/identity/v1/oauth2/token`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${config.EBAY_CLIENT_ID}:${config.EBAY_CLIENT_SECRET}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: config.EBAY_RUNAME,
+      }),
+    },
+  );
+  const refreshToken = text(response.refresh_token);
+  if (!refreshToken) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  await saveConnection({
+    provider: "EBAY",
+    environment: config.EBAY_ENVIRONMENT === "sandbox" ? "SANDBOX" : "PRODUCTION",
+    accountReference: config.EBAY_ACCOUNT_REFERENCE,
+    credentials: { refreshToken },
+  });
+}
+
+export async function processEbayAccountDeletion(body: Buffer, signatureHeader: string | null) {
+  await verifyAccountDeletionSignature(body, signatureHeader);
+  let payload: Record<string, unknown>;
+  try {
+    payload = recordSchema.parse(JSON.parse(body.toString("utf8")));
+  } catch {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
+  }
+  if (record(payload.metadata).topic !== "MARKETPLACE_ACCOUNT_DELETION") {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
+  }
+  const notification = record(payload.notification);
+  const data = record(notification.data);
+  const notificationId = text(notification.notificationId);
+  if (!notificationId) throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
+  const identifiers = [data.userId, data.username, data.eiasToken].flatMap((value) => {
+    const identifier = text(value);
+    return identifier ? [identifier] : [];
+  });
+  if (!identifiers.length) throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
+  const payloadSha256 = createHash("sha256").update(body).digest("hex");
+  return processEbayDeletionRecord({
+    externalEventId: notificationId,
+    payloadSha256,
+    identifiers,
+  });
+}

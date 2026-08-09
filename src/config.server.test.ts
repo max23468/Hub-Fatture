@@ -11,6 +11,12 @@ test("la configurazione applica i limiti delle sessioni", () => {
     DATABASE_URL: "postgres://example.invalid/test",
   };
   assert.equal(parseConfig(base).SESSION_TTL_SECONDS, 28_800);
+  assert.equal(
+    parseConfig({ ...base, CREDENTIALS_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64url") })
+      .CREDENTIALS_ENCRYPTION_KEY?.length,
+    43,
+  );
+  assert.throws(() => parseConfig({ ...base, CREDENTIALS_ENCRYPTION_KEY: "troppo-corta" }));
   assert.throws(() => parseConfig({ ...base, SESSION_TTL_SECONDS: "299" }));
   assert.throws(() =>
     parseConfig({ ...base, APP_ENV: "production", APP_BASE_URL: "http://example.invalid" }),

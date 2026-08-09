@@ -11,16 +11,20 @@ import { runMigrations } from "./migrations.server.ts";
 import { temporaryDatabase, withClient } from "./database-fixture.ts";
 
 const BASELINE = "001_baseline.sql";
+const CONNECTORS = "002_connectors.sql";
 
 test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 }, async () => {
   const clean = await temporaryDatabase("clean");
   try {
-    assert.deepEqual(await runMigrations({ connectionString: clean.connectionString }), [BASELINE]);
+    assert.deepEqual(await runMigrations({ connectionString: clean.connectionString }), [
+      BASELINE,
+      CONNECTORS,
+    ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "1",
+      "2",
     );
     await cleanClient.end();
 

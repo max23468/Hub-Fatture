@@ -3,6 +3,7 @@ import { AppError } from "./errors.ts";
 
 export const FORM_BODY_LIMIT = 16 * 1024;
 export const FORM_BODY_TIMEOUT_MS = 5_000;
+export const WEBHOOK_BODY_LIMIT = 128 * 1024;
 
 const LOOPBACK_SIBLING: Record<string, string> = {
   localhost: "127.0.0.1",
@@ -43,8 +44,21 @@ export async function readForm(
     throw new AppError("REQUEST_BODY_TOO_LARGE", 413);
   }
 
+  const body = await readRawBody(request, { maxBytes, timeoutMs });
+  return new URLSearchParams(body.toString("utf8"));
+}
+
+export async function readRawBody(
+  request: Request,
+  { maxBytes = WEBHOOK_BODY_LIMIT, timeoutMs = FORM_BODY_TIMEOUT_MS } = {},
+): Promise<Buffer> {
+  const contentLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new AppError("REQUEST_BODY_TOO_LARGE", 413);
+  }
+
   const reader = request.body?.getReader();
-  if (!reader) return new URLSearchParams();
+  if (!reader) return Buffer.alloc(0);
 
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -69,6 +83,5 @@ export async function readForm(
     clearTimeout(timeout);
   }
 
-  const body = Buffer.concat(chunks, size).toString("utf8");
-  return new URLSearchParams(body);
+  return Buffer.concat(chunks, size);
 }

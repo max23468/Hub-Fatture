@@ -28,14 +28,16 @@ Il runtime Docker locale è Colima. La prima volta, abilitalo all'accesso e avvi
 
 ```sh
 brew services start colima
-docker compose up -d --wait app caddy
+docker compose up -d --wait app app-worker caddy
 ```
 
-L'ambiente resta disponibile su `http://localhost:8080` anche fra sessioni di lavoro e riparte con Colima dopo il riavvio del Mac. Le modifiche al codice vengono caricate automaticamente; PostgreSQL e `node_modules` usano volumi persistenti. Usa `docker compose logs -f app` per seguire l'app e `docker compose stop` soltanto quando vuoi fermare esplicitamente l'ambiente. Non usare `docker compose down -v`, perché elimina i dati locali.
+L'ambiente resta disponibile su `http://localhost:8080` anche fra sessioni di lavoro e riparte con Colima dopo il riavvio del Mac. Le modifiche al codice vengono caricate automaticamente; PostgreSQL e `node_modules` usano volumi persistenti. Il servizio `app-worker` gestisce webhook e sincronizzazioni periodiche. Usa `docker compose logs -f app app-worker` per seguire i processi e `docker compose stop` soltanto quando vuoi fermare esplicitamente l'ambiente. Non usare `docker compose down -v`, perché elimina i dati locali.
 
 All'avvio lo stack applica le migrazioni. La prima configurazione usa `/setup`, crea atomicamente gli account fissi `matteo` e `codex` e richiede password di almeno 8 caratteri. Il token di bootstrap sintetico è dichiarato esclusivamente nel Compose locale; la password Development di `codex` resta nel Portachiavi macOS, mai nel repository. In ambienti condivisi i valori di `.env.example` devono provenire dal secret store.
 
 L'ambiente locale accetta indifferentemente `localhost` e `127.0.0.1`; in Production vale soltanto l'origine dichiarata in `APP_BASE_URL`.
+
+I connettori richiedono una chiave casuale di 32 byte codificata Base64 URL-safe, le credenziali dell'app Shopify dedicata e il keyset eBay `botCF`. I soli nomi delle variabili sono elencati in `.env.example`; token e secret restano nel secret store. La configurazione e i gate osservabili sono descritti nell'[evidenza connettori](docs/evidence/connectors.md).
 
 Prima di una futura scrittura remota, l'adapter del provider deve rilevare identità e target e passarli al confronto fail-closed:
 

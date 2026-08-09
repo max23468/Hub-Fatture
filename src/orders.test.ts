@@ -91,6 +91,7 @@ test("valida input, denaro, data e trigger", () => {
   });
   assert.equal(triggerStatus(base, "PAID"), "ELIGIBLE");
   assert.equal(triggerStatus(base, "FULFILLED"), "WAITING_FOR_TRIGGER");
+  assert.equal(triggerStatus({ ...base, historical: true }, "PAID"), "LEGACY_BILLING_REVIEW");
   assert.equal(
     triggerStatus(
       { ...base, paymentStatus: "REFUNDED", fulfillmentStatus: "FULFILLED" },

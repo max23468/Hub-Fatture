@@ -14,10 +14,10 @@ export const openBillingCaseSql = (alias = "billing_cases") =>
 
 /** Un ordine annullato o rimborsato non entra in una preparazione e ne blocca la riattivazione. */
 export const orderBillableSql = (alias = "orders") =>
-  `${alias}.cancelled_at IS NULL AND ${alias}.payment_status <> 'REFUNDED'`;
+  `${alias}.cancelled_at IS NULL AND ${alias}.payment_status <> 'REFUNDED' AND ${alias}.trigger_status <> 'LEGACY_BILLING_REVIEW'`;
 
 export const orderNotBillableSql = (alias = "orders") =>
-  `(${alias}.cancelled_at IS NOT NULL OR ${alias}.payment_status = 'REFUNDED')`;
+  `(${alias}.cancelled_at IS NOT NULL OR ${alias}.payment_status = 'REFUNDED' OR ${alias}.trigger_status = 'LEGACY_BILLING_REVIEW')`;
 
 export const hasCaseOrdersSql = `EXISTS (
   SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
