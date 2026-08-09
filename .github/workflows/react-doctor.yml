@@ -9,7 +9,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  statuses: write
 
 concurrency:
   group: react-doctor-${{ github.event.pull_request.number || github.ref }}
@@ -23,8 +22,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2
+          persist-credentials: false
+      - uses: millionco/react-doctor@736abc183ac491b4e954fc6bedec3a9a1b73d38b # v2
         with:
-          blocking: none
+          version: 0.9.11
+          scope: changed
+          blocking: warning
           comment: "false"
           review-comments: "true"
+          commit-status: "false"

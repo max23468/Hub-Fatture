@@ -303,7 +303,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Versioni dipendenze | La matrice 14.3 fissa le scelte; manifest, lockfile, `mise.toml` e digest fissano le versioni | Evita pin duplicati nel piano e impone una sola risoluzione verificata prima del codice |
 | Backend | Monolite TypeScript/Node.js secondo lo stack 14.3 | Volume ridotto e integrazioni più semplici in un solo deploy |
 | Frontend | React con React Router in modalità framework secondo lo stack 14.3 | Pannello autonomo full-stack nello stack TypeScript, senza dipendere dall'Admin Shopify |
-| Analisi React | React Doctor stabile con scansione completa bloccante nel gate locale/CI e Action ufficiale advisory sulle modifiche delle PR | Conserva diagnosi React complete e feedback inline senza delegare l'esito bloccante a un servizio esterno |
+| Analisi React | React Doctor stabile con scansione completa bloccante nel gate locale/CI e Action ufficiale bloccante dai warning sulle modifiche delle PR | Conserva diagnosi React complete e feedback inline con la stessa soglia bloccante in locale e su GitHub |
 | Identità visiva | Brand Foundation leggera, versionata prima della UI definitiva | Evita decisioni visive sparse senza introdurre un design system o un sito non necessari |
 | Database | PostgreSQL locale, driver `pg` e SQL versionato secondo 14.3 | Transazioni, vincoli, audit e code senza ORM o migration CLI aggiuntive |
 | Coda | Basata su PostgreSQL | Evita Redis e un servizio aggiuntivo; carico di poche centinaia di ordini al mese |
@@ -1419,7 +1419,7 @@ Dipendenze di sviluppo dirette iniziali:
 | `typescript` | typecheck e compilazione worker |
 | `@playwright/test` | E2E, smoke browser e helper Aruba locale; non installato nell'immagine server Production |
 | `oxlint`, `oxfmt` | uniche toolchain lint/formato |
-| `react-doctor` | scansione React completa nel comando locale/CI canonico e configurazione condivisa con l'Action advisory |
+| `react-doctor` | scansione React completa nel comando locale/CI canonico e configurazione condivisa con l'Action bloccante dai warning |
 | `@types/node`, `@types/react`, `@types/react-dom` | tipi piattaforma allineati al runtime |
 | `@types/pg` | tipi driver PostgreSQL; `@types/nodemailer` entra con `nodemailer` |
 
@@ -2248,7 +2248,7 @@ Toolchain locale e CI:
 
 Riferimenti da riverificare allo scaffold: [Oxlint](https://oxc.rs/docs/guide/usage/linter.html), [Oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) e [Mise per Node/npm](https://mise.jdx.dev/lang/node.html).
 
-React Doctor usa due superfici con responsabilità distinte: `npm run doctor` esegue la scansione completa e blocca `npm run check` dai warning in su; l'Action ufficiale analizza in modalità advisory le modifiche delle PR, senza commento riepilogativo e con soli finding inline. Il pin npm è esatto, l'Action è fissata a commit completo e il controllo supply-chain esterno resta disabilitato perché già coperto dai gate dipendenze. Lo score è informativo e non decide l'esito.
+React Doctor usa due superfici con responsabilità distinte: `npm run doctor` esegue la scansione completa e blocca `npm run check` dai warning in su; l'Action ufficiale analizza le modifiche delle PR con la stessa soglia e pubblica soltanto i finding inline, senza commenti riepilogativi quando la scansione è pulita. Un falso positivo non si aggira: l'agente lo segnala nella PR, applica la soppressione nativa più stretta possibile con una motivazione verificabile, la committa e ripete il gate. Il pin npm è esatto, l'Action è fissata a commit completo e il controllo supply-chain esterno resta disabilitato perché già coperto dai gate dipendenze. Lo score è informativo e non decide l'esito.
 
 Riferimento da riverificare allo scaffold: [configurazione React Doctor](https://www.react.doctor/docs/configuration).
 
@@ -2272,7 +2272,7 @@ Baseline GitHub pubblica:
 - Secret Scanning, Push Protection, CodeQL, Dependency Review, vulnerability alert e security update;
 - required checks per documentazione, verifica completa e dependency review quando applicabile;
 - `codex-review` required e non aggirabile, con evidenza positiva riferita all'HEAD esatto;
-- `CI` come required check, incluso React Doctor completo tramite `npm run check`; il workflow separato `React Doctor` resta advisory;
+- `CI` come required check, incluso React Doctor completo tramite `npm run check`; anche il workflow separato `React Doctor` è required e blocca dai warning in su;
 - GitHub Environment `Production` protetto, secret scoped, reviewer unico e restrizione a `main`/tag di release;
 - package GHCR pubblico collegato alla repository, attestazioni abilitate e nessuna cancellazione automatica dei digest usati in Production o come rollback;
 - release immutabili abilitate, `.github/release.yml` minimale e pubblicazione consentita soltanto nel flusso release autorizzato;
@@ -2589,7 +2589,7 @@ Stop point per rivalutare capacità o architettura, non trigger di migrazione au
 - Nessuna beta/RC/canary salvo eccezione esplicita e temporanea documentata.
 - Dipendenze nuove solo quando piattaforma, standard library o stack già installato non coprono il bisogno in modo semplice.
 - `pdfkit` resta assente dal manifest finché HF-O03 non attiva il fallback già selezionato; non valutare una seconda libreria PDF.
-- `react-doctor` ha pin esatto e viene aggiornato deliberatamente insieme alla configurazione e allo smoke; l'Action ufficiale resta advisory e fissata a commit completo.
+- `react-doctor` ha pin esatto e viene aggiornato deliberatamente insieme alla configurazione e allo smoke; l'Action ufficiale resta bloccante dai warning e fissata a commit completo.
 - Oxlint e Oxfmt con pin esatto, aggiornati insieme e senza tool equivalenti mantenuti in parallelo.
 - Dependabot settimanale; auto-merge solo per patch delle dev dependency dirette dopo i required check, tutto il resto deliberato manualmente.
 - Audit obbligatorio quando cambiano manifest o lockfile e prima di ogni release.
@@ -2767,7 +2767,7 @@ Output:
 - gate `codex-review` adattato da CF Ready, required e verificato su HEAD stabile, nuovo commit e finding corrente senza eseguire codice PR in contesto privilegiato;
 - auto-merge Dependabot configurato fail-closed, senza auto-approvazione né esecuzione del codice PR nel contesto privilegiato; la prova end-to-end è differita a M8 e non blocca M1-M7;
 - release immutabili abilitate e categorie minime di `.github/release.yml` definite senza creare una release anticipata;
-- React Doctor completo bloccante nel gate locale/CI e Action ufficiale advisory sulle modifiche delle PR;
+- React Doctor completo bloccante nel gate locale/CI e Action ufficiale bloccante dai warning sulle modifiche delle PR;
 - Playwright configurato con Chromium, smoke sintetico e trace solo al primo retry;
 - comando locale canonico e CI essenziale verificati;
 - preflight provider disponibile prima della prima scrittura remota;
