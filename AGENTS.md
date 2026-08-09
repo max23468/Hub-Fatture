@@ -21,9 +21,32 @@ In dubbio sulla sezione competente, leggi l'indice del documento invece di legge
 - Non mantenere retrocompatibilità o implementazioni legacy: non esistono consumatori esterni da preservare.
 - Se lo stesso problema ricorre due volte, correggine la causa condivisa e aggiungi il più piccolo controllo di regressione.
 - Decidi autonomamente naming, formattazione e default di routine entro i confini del Master Plan.
-- Chiedi prima di azioni distruttive, deploy, release, invii Aruba reali, decisioni fiscali o modifiche materiali allo scope.
+- Chiedi prima di azioni distruttive, deploy o release non già autorizzati da
+  una richiesta di pubblicazione, invii Aruba reali, decisioni fiscali o
+  modifiche materiali allo scope.
 - Non aggiungere dipendenze, servizi o tool non approvati dal Master Plan.
 - Fuori dalla roadmap del Master Plan, descrivi capacità e gate osservabili senza duplicare date, branch, conteggi di test o sigle di milestone; lo stato corrente deriva dall’HEAD e dalla CI.
 - La sigla `HF` è interna: non deve comparire nel frontend o in contenuti destinati all’utente.
 - La repository è pubblica ma proprietaria: non aggiungere `LICENSE`, dati reali, segreti o configurazioni sensibili.
 - Non aprire issue, discussion o project rivolti alla community.
+
+## Significato di `Pubblica`
+
+Quando il proprietario dice `Pubblica`, `pubblica`, parla di `pubblicare` o usa
+espressioni equivalenti, autorizza l'intero ciclo tecnico applicabile alla
+repository. L'agente non si ferma a stati intermedi: prepara e verifica la
+modifica; crea branch e commit; esegue push; apre o aggiorna la PR; attende e
+soddisfa i soli gate bloccanti; esegue il merge; completa deploy o promozione
+tecnica e verifica live quando applicabili; crea versione, tag e GitHub Release
+quando previsti dalla policy; infine aggiorna e verifica la branch di base,
+elimina branch e worktree temporanei locali e remoti già assorbiti e controlla
+stash e altri residui.
+
+Se un passaggio non è applicabile, lo dichiara e prosegue con gli altri. La
+richiesta di pubblicazione vale come autorizzazione a PR, merge, deploy tecnico
+e release previsti dal ciclo, senza una seconda conferma. Non autorizza
+pubblicazione di temi Shopify live, submission Shopify App Store, billing o
+nuove attivazioni produttive, TestFlight o App Store, invii Aruba, email o
+scansioni reali, né aggiornamenti Notion: queste azioni richiedono una richiesta
+esplicita separata. Non dichiarare `pubblicato` finché il ciclo applicabile e la
+rilettura finale di PR, check, deploy, release e stato Git non sono completi.
