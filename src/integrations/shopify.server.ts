@@ -26,7 +26,7 @@ import { providerOrder } from "./provider-order.ts";
 
 export const SHOPIFY_API_VERSION = "2026-07";
 export const SHOPIFY_API_SUPPORTED_UNTIL = "2027-07-16";
-export const SHOPIFY_SCOPES = ["read_orders", "read_customers"] as const;
+export const SHOPIFY_SCOPES = ["read_orders", "read_customers", "read_fulfillments"] as const;
 const OVERLAP_MS = 5 * 60 * 1000;
 
 interface ShopifyCredentials {

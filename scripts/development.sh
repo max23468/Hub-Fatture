@@ -32,7 +32,7 @@ keychain_export "Hub Fatture Development eBay RuName" EBAY_RUNAME
 keychain_export "Hub Fatture Development eBay Account Reference" EBAY_ACCOUNT_REFERENCE
 
 cd "$project_root"
-docker compose up -d --wait app app-worker caddy
+docker compose up -d --build --wait app app-worker caddy
 
 if [ "${1:-}" = "shopify" ]; then
   export ADMIN_BOOTSTRAP_TOKEN="development-bootstrap-token-change-me"
