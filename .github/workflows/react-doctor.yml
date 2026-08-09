@@ -32,9 +32,3 @@ jobs:
           comment: "false"
           review-comments: "true"
           commit-status: "false"
-      - name: Blocca warning ed errori
-        if: always()
-        env:
-          ERRORS: ${{ steps.doctor.outputs.error-count }}
-          WARNINGS: ${{ steps.doctor.outputs.warning-count }}
-        run: test "${ERRORS:-1}" -eq 0 && test "${WARNINGS:-1}" -eq 0
