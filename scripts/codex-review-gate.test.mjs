@@ -227,7 +227,7 @@ test("i finding P2 e P3 non bloccano il gate", () => {
         {
           user: bot,
           created_at: "2026-08-04T12:00:01Z",
-          body: "**P3** Miglioramento facoltativo.",
+          body: "**P3** Non è un P0 e resta facoltativo.",
         },
       ],
       reviewComments: [
@@ -235,7 +235,7 @@ test("i finding P2 e P3 non bloccano il gate", () => {
           user: bot,
           commit_id: headSha,
           created_at: "2026-08-04T12:00:01Z",
-          body: "**P2** Correggi quando opportuno",
+          body: "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow)</sub></sub> È meno grave di un P1; correggi quando opportuno",
         },
       ],
       reactions: [{ user: bot, content: "+1", created_at: "2026-08-04T12:00:02Z" }],

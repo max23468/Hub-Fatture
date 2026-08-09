@@ -1,7 +1,9 @@
 import { isDirectExecution } from "./direct-execution.mjs";
 
 const CODEX_BOT = "chatgpt-codex-connector[bot]";
-const BLOCKING_FINDING = /\bP[01]\b/;
+const findingPriority = (body = "") =>
+  body.match(/^(?:\*\*|<sub>)*(?:!?\[)?(P[0-3])(?: Badge)?(?:\]\([^)]*\)|\]\s*|\*\*)/m)?.[1];
+const isBlockingFinding = (body) => ["P0", "P1"].includes(findingPriority(body));
 // ponytail: 180 s limita cinque PR concorrenti a circa 500 richieste/ora; passare a
 // un'unica query GraphQL se la concorrenza reale cresce oltre questo livello.
 export const CODEX_REVIEW_POLLING = { attempts: 100, intervalMs: 180_000, marginMs: 300_000 };
@@ -38,7 +40,7 @@ export function classifyCodexReview({
       comment.user?.login === CODEX_BOT &&
       (comment.original_commit_id ?? comment.commit_id) === headSha &&
       timestamp(comment.created_at) >= timestamp(requestedAt) &&
-      BLOCKING_FINDING.test(comment.body)
+      isBlockingFinding(comment.body)
     ) {
       completions.push({
         state: "failure",
@@ -59,7 +61,7 @@ export function classifyCodexReview({
     if (
       (commit ? headSha.startsWith(commit) : timestamp(requestedAt) > 0) &&
       timestamp(comment.created_at) >= timestamp(requestedAt) &&
-      BLOCKING_FINDING.test(comment.body)
+      isBlockingFinding(comment.body)
     ) {
       completions.push({
         state: "failure",
