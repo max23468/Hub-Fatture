@@ -213,9 +213,12 @@ export async function enqueueJob(type: JobType, payload: Record<string, unknown>
 }
 
 export async function enqueueEbayPreview() {
-  await getPool().query(
-    `INSERT INTO jobs (type) VALUES ('ebay_preview_history') ON CONFLICT DO NOTHING`,
-  );
+  await withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
+    await client.query(
+      `INSERT INTO jobs (type) VALUES ('ebay_preview_history') ON CONFLICT DO NOTHING`,
+    );
+  });
 }
 
 export async function latestEbayPreview() {
@@ -380,6 +383,20 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
   const jobId = typeof id === "string" && /^\d+$/.test(id) ? id : "";
   if (!jobId) throw new AppError("CONFLICT_REVISION", 409);
   return withTransaction(async (client) => {
+    const candidate = await client.query<{ type: JobType }>(
+      "SELECT type FROM jobs WHERE id = $1 AND status = 'FAILED'",
+      [jobId],
+    );
+    if (!candidate.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+    if (candidate.rows[0].type === "ebay_preview_history") {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
+      const activePreview = await client.query(
+        `SELECT 1 FROM jobs
+         WHERE type = 'ebay_preview_history' AND status IN ('PENDING', 'RUNNING')
+         LIMIT 1`,
+      );
+      if (activePreview.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+    }
     const retried = await client.query<{ id: string }>(
       `UPDATE jobs SET status = 'PENDING', run_at = now(), attempts = 0, completed_at = NULL,
          last_error_code = NULL

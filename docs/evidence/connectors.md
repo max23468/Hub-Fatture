@@ -40,3 +40,12 @@ Le fixture versionate sono sintetiche e anonimizzate. Il readback Production tra
 - Risultato sanitizzato: tipo fiscale dichiarato e due varianti del riferimento rimborso; fixture sintetica in `tests/fixtures/connectors/ebay-orders.json`.
 - Prova ripetibile: `npm test -- src/integrations/connectors.test.ts` verifica tipo dichiarato, rimborso ambiguo, spedizione, snapshot e vincolo dell'host di paginazione.
 - Commit implementazione: `201276f`.
+
+## Chiusura della milestone
+
+- Baseline applicativa verificata: `7d69056`, comprensiva della chiusura end-to-end dei connettori e della correzione condivisa che ricostruisce sempre l'immagine Development; schema applicato fino a `004_connector_operations.sql`.
+- Readback Shopify: app dedicata Hub Fatture installata su `SyncBay Dev`; versione `hub-fatture-2` attiva con Admin GraphQL e webhook `2026-07` e scope `read_customers`, `read_fulfillments`, `read_orders`.
+- Readback eBay: keyset `botCF` riusato, mapping fiscale e rimborsi verificati in sola lettura; il relay Production resta inattivo finché non esiste un endpoint HTTPS stabile, senza bloccare lo sviluppo sintetico previsto prima del go-live.
+- Gate di chiusura osservato: `TEST_DATABASE_URL=postgres://hub_fatture:***@127.0.0.1:5433/hub_fatture_test npm run check` è terminato con esito positivo sul commit `ba9cf7e35ec2da477a2fe55a7661b5c128c9110e`; la registrazione di questa ricevuta modifica soltanto l'evidenza ed è verificata dai gate CI obbligatori sull'HEAD della PR.
+- Limite Development: i Quick Tunnel sono temporanei; a tunnel chiuso una nuova prova live richiede una nuova sessione OAuth, mentre database, chiave di cifratura e stack Docker restano persistenti.
+- Retry anteprima eBay: avvio ordinario e retry manuale condividono lo stesso advisory lock PostgreSQL; se esiste già un'anteprima attiva il retry restituisce un conflitto applicativo stabile e lascia invariato il job fallito. Il test PostgreSQL riproduce la sequenza avvio → retry che in precedenza poteva raggiungere il vincolo univoco.

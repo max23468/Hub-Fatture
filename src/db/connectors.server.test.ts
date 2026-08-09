@@ -265,6 +265,29 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ),
       { status: "COMPLETED", count: 3, reviewRequired: 1, errorCode: null },
     );
+    await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [previewJob!.id]);
+    await connectors.enqueueEbayPreview();
+    await assert.rejects(
+      connectors.retryFailedJob(previewJob!.id, {
+        type: "ADMIN",
+        id: 1,
+        requestId: "preview-retry-conflict",
+      }),
+      (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_preview_history' AND status IN ('PENDING', 'RUNNING')",
+        )
+      ).rows[0].total,
+      1,
+    );
+    assert.equal(
+      (await getPool().query("SELECT status FROM jobs WHERE id = $1", [previewJob!.id])).rows[0]
+        .status,
+      "FAILED",
+    );
 
     const payloads = JSON.parse(
       await readFile(
