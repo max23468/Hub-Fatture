@@ -220,7 +220,97 @@ test("un finding del tentativo corrente prevale sul pollice", () => {
   );
 });
 
-test("un finding top-level sull'HEAD prevale sul riepilogo pulito", () => {
+test("i finding P2 e P3 non bloccano il gate", () => {
+  assert.equal(
+    classify({
+      comments: [
+        {
+          user: bot,
+          created_at: "2026-08-04T12:00:01Z",
+          body: `**P3** Non è un P0 e resta facoltativo.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\``,
+        },
+      ],
+      reviewComments: [
+        {
+          user: bot,
+          commit_id: headSha,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow)</sub></sub> È meno grave di un P1; correggi quando opportuno",
+        },
+      ],
+      reviews: [
+        {
+          user: bot,
+          commit_id: headSha,
+          submitted_at: "2026-08-04T12:00:02Z",
+        },
+      ],
+    }).state,
+    "success",
+  );
+});
+
+test("un advisory resta pending finché la review non è conclusa", () => {
+  assert.equal(
+    classify({
+      reviewComments: [
+        {
+          user: bot,
+          commit_id: headSha,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**P2** La review potrebbe pubblicare altri finding.",
+        },
+      ],
+    }).state,
+    "pending",
+  );
+});
+
+test("un advisory top-level senza SHA non approva un nuovo HEAD", () => {
+  assert.equal(
+    classify({
+      comments: [
+        {
+          user: bot,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**P2** Finding tardivo del commit precedente.",
+        },
+      ],
+      reviews: [
+        {
+          user: bot,
+          commit_id: headSha,
+          submitted_at: "2026-08-04T12:00:02Z",
+        },
+      ],
+    }).state,
+    "pending",
+  );
+});
+
+test("un finding P1 prevale su un advisory P2 successivo", () => {
+  assert.equal(
+    classify({
+      reviewComments: [
+        {
+          user: bot,
+          commit_id: headSha,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**P1** Questo finding resta bloccante.",
+        },
+        {
+          user: bot,
+          commit_id: headSha,
+          created_at: "2026-08-04T12:00:02Z",
+          body: "**P2** Questo finding resta advisory.",
+        },
+      ],
+    }).state,
+    "failure",
+  );
+});
+
+test("un finding P1 top-level sull'HEAD prevale sul riepilogo pulito", () => {
   assert.equal(
     classify({
       requiresReviewedCommit: true,
@@ -228,7 +318,7 @@ test("un finding top-level sull'HEAD prevale sul riepilogo pulito", () => {
         {
           user: bot,
           created_at: "2026-08-04T12:00:01Z",
-          body: `**P2** Correggi il gate.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\``,
+          body: `**P1** Correggi il gate.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\``,
         },
         {
           user: bot,
@@ -241,7 +331,7 @@ test("un finding top-level sull'HEAD prevale sul riepilogo pulito", () => {
   );
 });
 
-test("un finding top-level senza marker prevale sul riepilogo pulito", () => {
+test("un finding P1 top-level senza marker prevale sul riepilogo pulito", () => {
   assert.equal(
     classify({
       requiresReviewedCommit: true,
@@ -249,7 +339,7 @@ test("un finding top-level senza marker prevale sul riepilogo pulito", () => {
         {
           user: bot,
           created_at: "2026-08-04T12:00:01Z",
-          body: "**P2** Correggi il gate.",
+          body: "**P1** Correggi il gate.",
         },
         {
           user: bot,
