@@ -1,5 +1,7 @@
 import { Link, useSearchParams } from "react-router";
 
+import { copy } from "../copy.it";
+
 /** Conserva i filtri correnti e cambia soltanto la pagina: un link condiviso resta valido. */
 export function Pager({
   basePath,
@@ -20,16 +22,16 @@ export function Pager({
     return query ? `${basePath}?${query}` : basePath;
   };
   return (
-    <nav aria-label="Paginazione" className="pager">
+    <nav aria-label={copy.pager.label} className="pager">
       {page > 1 ? (
         <Link className="button button--secondary" rel="prev" to={linkTo(page - 1)}>
-          Pagina precedente
+          {copy.pager.previous}
         </Link>
       ) : null}
-      <span>Pagina {page}</span>
+      <span>{copy.pager.current(page)}</span>
       {hasNext ? (
         <Link className="button button--secondary" rel="next" to={linkTo(page + 1)}>
-          Pagina successiva
+          {copy.pager.next}
         </Link>
       ) : null}
     </nav>

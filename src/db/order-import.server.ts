@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import type pg from "pg";
 
 import { writeAudit } from "./audit.server.ts";
+import {
+  customerProfileMismatchSql,
+  openBillingCaseSql,
+  orderBillableSql,
+} from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
 import { AppError } from "../errors.ts";
 import {
@@ -115,7 +120,11 @@ function reviewFingerprint(
  * vive in un posto solo e una correzione può davvero riportare la preparazione a `READY`.
  */
 export async function recomputeBillingCaseStatus(client: pg.PoolClient, caseId: string) {
+  // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
+  // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await client.query<{ status: string }>(
+    // I frammenti interpolati sono costanti di modulo in billing-case-sql.server.ts:
     `UPDATE billing_cases
      SET status = CASE
            WHEN coalesce((customer_snapshot_json ->> 'reviewRequired')::boolean, true)
@@ -128,11 +137,7 @@ export async function recomputeBillingCaseStatus(client: pg.PoolClient, caseId: 
                    OR coalesce(
                      (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
                    OR orders.trigger_status = 'NEEDS_REVIEW'
-                   OR (
-                     billing_cases.customer_corrected_at IS NULL
-                     AND orders.normalized_snapshot_json #> '{customerSnapshot,canonicalProfile}'
-                         IS DISTINCT FROM billing_cases.customer_snapshot_json -> 'canonicalProfile'
-                   )
+                   OR ${customerProfileMismatchSql}
                  )
              )
            THEN 'NEEDS_REVIEW'
@@ -140,7 +145,7 @@ export async function recomputeBillingCaseStatus(client: pg.PoolClient, caseId: 
          END,
          revision = revision + 1,
          updated_at = now()
-     WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')
+     WHERE id = $1 AND ${openBillingCaseSql()}
      RETURNING status`,
     [caseId],
   );
@@ -155,10 +160,14 @@ export async function groupOrder(
 ) {
   const lockKey = `billing-case:${order.customerId}:${order.localOrderDate}:${order.currency}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+  // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
+  // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const existing = await client.query<{ id: string }>(
+    // I frammenti interpolati sono costanti di modulo in billing-case-sql.server.ts:
     `SELECT id FROM billing_cases
      WHERE customer_id = $1 AND local_order_date = $2 AND currency = $3
-       AND status IN ('DRAFT', 'NEEDS_REVIEW', 'READY')
+       AND ${openBillingCaseSql()}
      FOR UPDATE`,
     [order.customerId, order.localOrderDate, order.currency],
   );
@@ -221,12 +230,11 @@ export async function serializeOrderMutations(client: pg.PoolClient) {
   await client.query("SELECT pg_advisory_xact_lock(hashtext('order-import-batch'))");
 }
 
-async function importOne(
-  client: pg.PoolClient,
-  input: OrderInput,
-  trigger: DraftTrigger,
-  actor: Actor,
-) {
+/**
+ * Converte e valida gli importi ai confini: oltre questo punto l'import ragiona
+ * soltanto in centesimi interi, mai sulle stringhe decimali della sorgente.
+ */
+function orderAmounts(input: OrderInput) {
   if (input.currency !== "EUR") throw new AppError("ORDER_CURRENCY_NOT_SUPPORTED", 422);
   const grossAmount = cents(input.total);
   if (grossAmount < 0) throw new AppError("ORDER_INVALID_INPUT", 422);
@@ -246,36 +254,34 @@ async function importOne(
   ) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
-  const identity = customerIdentity(input);
   const totalsReconciled =
     lineAmounts.reduce((sum, line) => sum + BigInt(line.grossAmount - line.discountAmount), 0n) +
       BigInt(shippingAmount) ===
       BigInt(grossAmount) &&
     paymentAmounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(grossAmount);
-  const localDate = localOrderDate(input.createdAt);
-  const fingerprint = reviewFingerprint(
-    input,
-    identity.matchKey,
-    grossAmount,
-    localDate,
-    lineAmounts,
-    paymentAmounts,
-    shippingAmount,
-  );
-  const status = triggerStatus(input, trigger);
-  const orderReview = orderReviewRequired(input, totalsReconciled);
-  const previous = await client.query<{
-    id: string;
-    billing_case_id: string | null;
-    last_observed_review_fingerprint: string | null;
-    last_observed_snapshot_json: Record<string, unknown>;
-    is_stale: boolean;
-    billing_case_status: string | null;
-    billing_case_do_not_transmit_automatic: boolean;
-    deferred_review_required: boolean;
-    customer_id: string;
-    trigger_status: string;
-  }>(
+  return { grossAmount, lineAmounts, paymentAmounts, shippingAmount, totalsReconciled };
+}
+
+interface PreviousOrderRow {
+  id: string;
+  billing_case_id: string | null;
+  last_observed_review_fingerprint: string | null;
+  last_observed_snapshot_json: Record<string, unknown>;
+  is_stale: boolean;
+  billing_case_status: string | null;
+  billing_case_do_not_transmit_automatic: boolean;
+  deferred_review_required: boolean;
+  customer_id: string;
+  trigger_status: string;
+}
+
+/**
+ * Stato osservato prima di questo import, bloccato in scrittura. Su una preparazione già
+ * approvata o chiusa il confronto parte dall'ultima revisione registrata invece che dallo
+ * snapshot dell'ordine: è quella la versione che il documento ha davvero emesso.
+ */
+async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
+  return client.query<PreviousOrderRow>(
     `SELECT orders.id, orders.billing_case_id, orders.customer_id, orders.trigger_status,
             $4::timestamptz < orders.updated_at_source AS is_stale,
             CASE WHEN billing_cases.status IN ('APPROVED', 'CLOSED')
@@ -315,16 +321,16 @@ async function importOne(
      FOR UPDATE OF orders`,
     [input.provider, input.externalAccountId, input.externalOrderId, input.updatedAt],
   );
-  if (previous.rows[0]?.is_stale) return "ignored";
+}
 
-  const oldOrder = previous.rows[0];
-  let deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
-  const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
-
-  const customer = invoiced
-    ? null
-    : await client.query<{ id: string }>(
-        `INSERT INTO customers
+/** Anagrafica riconciliata sulla chiave di identità, più il legame con il record della sorgente. */
+async function upsertCustomer(
+  client: pg.PoolClient,
+  input: OrderInput,
+  identity: ReturnType<typeof customerIdentity>,
+) {
+  const customer = await client.query<{ id: string }>(
+    `INSERT INTO customers
       (kind, match_key, display_name, first_name, last_name, company_name, email, phone,
        tax_id_type, tax_id_normalized, vat_country, billing_address_json,
        source_confidence, review_required)
@@ -345,25 +351,25 @@ async function importOne(
        review_required = EXCLUDED.review_required,
        updated_at = now()
      RETURNING id`,
-        [
-          input.customer.kind,
-          identity.matchKey,
-          customerDisplayName(input.customer) || "Cliente senza nome",
-          input.customer.firstName ?? null,
-          input.customer.lastName ?? null,
-          input.customer.companyName ?? null,
-          input.customer.email ?? null,
-          input.customer.phone ?? null,
-          identity.primaryTaxId?.type ?? null,
-          identity.primaryTaxId?.value ?? null,
-          identity.primaryTaxId?.countryCode ?? null,
-          JSON.stringify(input.customer.billingAddress),
-          identity.confidence,
-          identity.reviewRequired,
-        ],
-      );
-  const customerId = invoiced ? oldOrder!.customer_id : customer!.rows[0]!.id;
-  if (!invoiced && input.externalCustomerId) {
+    [
+      input.customer.kind,
+      identity.matchKey,
+      customerDisplayName(input.customer) || "Cliente senza nome",
+      input.customer.firstName ?? null,
+      input.customer.lastName ?? null,
+      input.customer.companyName ?? null,
+      input.customer.email ?? null,
+      input.customer.phone ?? null,
+      identity.primaryTaxId?.type ?? null,
+      identity.primaryTaxId?.value ?? null,
+      identity.primaryTaxId?.countryCode ?? null,
+      JSON.stringify(input.customer.billingAddress),
+      identity.confidence,
+      identity.reviewRequired,
+    ],
+  );
+  const customerId = customer.rows[0]!.id;
+  if (input.externalCustomerId) {
     await client.query(
       `INSERT INTO customer_source_records
         (customer_id, provider, external_customer_id, raw_snapshot_json)
@@ -375,6 +381,40 @@ async function importOne(
       [customerId, input.provider, input.externalCustomerId, JSON.stringify(input.customer)],
     );
   }
+  return customerId;
+}
+
+async function importOne(
+  client: pg.PoolClient,
+  input: OrderInput,
+  trigger: DraftTrigger,
+  actor: Actor,
+) {
+  const { grossAmount, lineAmounts, paymentAmounts, shippingAmount, totalsReconciled } =
+    orderAmounts(input);
+  const identity = customerIdentity(input);
+  const localDate = localOrderDate(input.createdAt);
+  const fingerprint = reviewFingerprint(
+    input,
+    identity.matchKey,
+    grossAmount,
+    localDate,
+    lineAmounts,
+    paymentAmounts,
+    shippingAmount,
+  );
+  const status = triggerStatus(input, trigger);
+  const orderReview = orderReviewRequired(input, totalsReconciled);
+  const previous = await loadPreviousOrder(client, input);
+  if (previous.rows[0]?.is_stale) return "ignored";
+
+  const oldOrder = previous.rows[0];
+  const deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
+  const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
+  // Una preparazione già emessa non riscrive l'anagrafica: l'ordine resta sul suo cliente.
+  const customerId = invoiced
+    ? oldOrder!.customer_id
+    : await upsertCustomer(client, input, identity);
   const normalizedSnapshot = {
     ...input,
     customerSnapshot: customerSnapshot(input, identity),
@@ -461,70 +501,134 @@ async function importOne(
     ],
   );
   const orderId = order.rows[0]!.id;
-  let currentBillingCaseId = order.rows[0]!.billing_case_id;
-  if (sourceConflict) {
-    const reason = input.cancelledAt
-      ? ("CANCELLED" as const)
-      : input.paymentStatus === "REFUNDED"
-        ? ("REFUNDED" as const)
-        : null;
-    if (!reason && !invoiced) {
-      await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
+  const currentBillingCaseId = sourceConflict
+    ? await applySourceConflict(client, actor, {
+        input,
+        oldOrder: oldOrder!,
         orderId,
-      ]);
-    }
-    const transitionedCase = await client.query(
-      `UPDATE billing_cases
+        customerId,
+        status,
+        revisionId: revision!.rows[0]!.id,
+        invoiced,
+        billingCaseId: order.rows[0]!.billing_case_id,
+      })
+    : order.rows[0]!.billing_case_id;
+  await replaceOrderChildren(client, orderId, input, { lineAmounts, paymentAmounts }, invoiced);
+  await writeAudit(client, {
+    actorType: "ADMIN",
+    actorId: String(actor.id),
+    action: previous.rows[0] ? "ORDER_SOURCE_UPDATED" : "ORDER_IMPORTED",
+    eventClass: "OPERATIONAL",
+    entityType: "ORDER",
+    entityId: orderId,
+    metadata: { provider: input.provider },
+    requestId: actor.requestId,
+  });
+  if (!currentBillingCaseId && status === "ELIGIBLE") {
+    await groupOrder(
+      client,
+      {
+        id: orderId,
+        customerId,
+        customerSnapshot: normalizedSnapshot.customerSnapshot,
+        localOrderDate: localDate,
+        currency: input.currency,
+      },
+      actor,
+    );
+  }
+  return previous.rows[0] ? "updated" : "imported";
+}
+
+/**
+ * I dati della sorgente sono cambiati sotto una preparazione già aperta. La preparazione
+ * non può più essere emessa come sta: o viene archiviata (ordine annullato o rimborsato)
+ * e gli altri ordini tornano in coda, oppure passa da verificare.
+ * Restituisce la preparazione a cui l'ordine resta agganciato, `null` se ne è uscito.
+ */
+async function applySourceConflict(
+  client: pg.PoolClient,
+  actor: Actor,
+  context: {
+    input: OrderInput;
+    oldOrder: PreviousOrderRow;
+    orderId: string;
+    customerId: string;
+    status: ReturnType<typeof triggerStatus>;
+    revisionId: string;
+    invoiced: boolean;
+    billingCaseId: string | null;
+  },
+) {
+  const { input, oldOrder, orderId, customerId, status, invoiced } = context;
+  const reason = input.cancelledAt
+    ? ("CANCELLED" as const)
+    : input.paymentStatus === "REFUNDED"
+      ? ("REFUNDED" as const)
+      : null;
+  if (!reason && !invoiced) {
+    await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
+      orderId,
+    ]);
+  }
+  // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
+  // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
+  const transitionedCase = await client.query(
+    `UPDATE billing_cases
        SET status = $2,
            do_not_transmit_reason = $3,
            revision = revision + 1,
            updated_at = now()
-       WHERE id = $1 AND status IN ('DRAFT', 'READY', 'NEEDS_REVIEW')`,
-      [
-        oldOrder!.billing_case_id,
-        reason ? "DO_NOT_TRANSMIT" : "NEEDS_REVIEW",
-        reason === "CANCELLED"
-          ? "Ordine annullato dalla sorgente"
-          : reason === "REFUNDED"
-            ? "Ordine rimborsato prima dell’emissione"
-            : null,
-      ],
-    );
+       WHERE id = $1 AND ${openBillingCaseSql()}`,
+    [
+      oldOrder!.billing_case_id,
+      reason ? "DO_NOT_TRANSMIT" : "NEEDS_REVIEW",
+      reason === "CANCELLED"
+        ? "Ordine annullato dalla sorgente"
+        : reason === "REFUNDED"
+          ? "Ordine rimborsato prima dell’emissione"
+          : null,
+    ],
+  );
+  await writeAudit(client, {
+    actorType: "ADMIN",
+    actorId: String(actor.id),
+    action: "ORDER_SOURCE_CONFLICT",
+    eventClass: "CRITICAL",
+    entityType: "ORDER",
+    entityId: orderId,
+    metadata: {
+      billingCaseId: oldOrder.billing_case_id!,
+      revisionId: context.revisionId,
+    },
+    requestId: actor.requestId,
+  });
+  if (reason && transitionedCase.rowCount) {
     await writeAudit(client, {
-      actorType: "ADMIN",
-      actorId: String(actor.id),
-      action: "ORDER_SOURCE_CONFLICT",
+      actorType: "SYSTEM",
+      action: "BILLING_CASE_DO_NOT_TRANSMIT",
       eventClass: "CRITICAL",
-      entityType: "ORDER",
-      entityId: orderId,
+      entityType: "BILLING_CASE",
+      entityId: oldOrder!.billing_case_id!,
       metadata: {
         billingCaseId: oldOrder!.billing_case_id!,
-        revisionId: revision!.rows[0]!.id,
+        reason,
+        reviewRequired: oldOrder!.trigger_status === "NEEDS_REVIEW",
       },
       requestId: actor.requestId,
     });
-    if (reason && transitionedCase.rowCount) {
-      await writeAudit(client, {
-        actorType: "SYSTEM",
-        action: "BILLING_CASE_DO_NOT_TRANSMIT",
-        eventClass: "CRITICAL",
-        entityType: "BILLING_CASE",
-        entityId: oldOrder!.billing_case_id!,
-        metadata: {
-          billingCaseId: oldOrder!.billing_case_id!,
-          reason,
-          reviewRequired: oldOrder!.trigger_status === "NEEDS_REVIEW",
-        },
-        requestId: actor.requestId,
-      });
-      const remainingOrders = await client.query<{
-        id: string;
-        customer_id: string;
-        local_order_date: string;
-        currency: string;
-        customer_snapshot: Record<string, unknown>;
-      }>(
-        `UPDATE orders
+    // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
+    // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
+    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
+    const remainingOrders = await client.query<{
+      id: string;
+      customer_id: string;
+      local_order_date: string;
+      currency: string;
+      customer_snapshot: Record<string, unknown>;
+    }>(
+      `UPDATE orders
          SET billing_case_id = NULL,
              trigger_status = 'ELIGIBLE',
              normalized_snapshot_json = jsonb_set(
@@ -541,37 +645,36 @@ async function importOne(
                )
              )
          WHERE billing_case_id = $1 AND id <> $2
-           AND cancelled_at IS NULL AND payment_status <> 'REFUNDED'
+           AND ${orderBillableSql()}
          RETURNING id, customer_id, local_order_date::text, currency,
            normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot`,
-        [oldOrder!.billing_case_id, orderId],
+      [oldOrder!.billing_case_id, orderId],
+    );
+    // Ogni assegnazione deve osservare la preparazione creata dalla precedente nella stessa transazione.
+    for (const remainingOrder of remainingOrders.rows) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      await groupOrder(
+        client,
+        {
+          id: remainingOrder.id,
+          customerId: remainingOrder.customer_id,
+          customerSnapshot: remainingOrder.customer_snapshot,
+          localOrderDate: remainingOrder.local_order_date,
+          currency: remainingOrder.currency,
+        },
+        actor,
       );
-      // Ogni assegnazione deve osservare la preparazione creata dalla precedente nella stessa transazione.
-      for (const remainingOrder of remainingOrders.rows) {
-        // react-doctor-disable-next-line react-doctor/async-await-in-loop
-        await groupOrder(
-          client,
-          {
-            id: remainingOrder.id,
-            customerId: remainingOrder.customer_id,
-            customerSnapshot: remainingOrder.customer_snapshot,
-            localOrderDate: remainingOrder.local_order_date,
-            currency: remainingOrder.currency,
-          },
-          actor,
-        );
-      }
     }
-    if (
-      !reason &&
-      oldOrder!.billing_case_status === "DO_NOT_TRANSMIT" &&
-      oldOrder!.billing_case_do_not_transmit_automatic
-    ) {
-      // L'ordine esce da una preparazione archiviata dal sistema perché i suoi dati sono
-      // cambiati due volte: la preparazione che lo accoglie nasce da verificare.
-      deferredReviewRequired = true;
-      await client.query(
-        `UPDATE orders
+  }
+  if (
+    !reason &&
+    oldOrder.billing_case_status === "DO_NOT_TRANSMIT" &&
+    oldOrder.billing_case_do_not_transmit_automatic
+  ) {
+    // L'ordine esce da una preparazione archiviata dal sistema perché i suoi dati sono
+    // cambiati due volte: la preparazione che lo accoglie nasce da verificare.
+    await client.query(
+      `UPDATE orders
          SET billing_case_id = NULL, trigger_status = $3, customer_id = $2,
              normalized_snapshot_json = jsonb_set(
                normalized_snapshot_json,
@@ -579,11 +682,26 @@ async function importOne(
                to_jsonb($4::boolean)
              )
          WHERE id = $1`,
-        [orderId, customerId, status, deferredReviewRequired],
-      );
-      currentBillingCaseId = null;
-    }
+      [orderId, customerId, status, true],
+    );
+    return null;
   }
+  return context.billingCaseId;
+}
+
+/**
+ * Righe, identificativi fiscali e pagamenti seguono la sorgente. Dopo l'emissione righe e
+ * identificativi restano congelati sul documento, mentre i pagamenti continuano ad allinearsi:
+ * quelli registrati a mano non vengono mai toccati.
+ */
+async function replaceOrderChildren(
+  client: pg.PoolClient,
+  orderId: string,
+  input: OrderInput,
+  amounts: Pick<ReturnType<typeof orderAmounts>, "lineAmounts" | "paymentAmounts">,
+  invoiced: boolean,
+) {
+  const { lineAmounts, paymentAmounts } = amounts;
   if (!invoiced) {
     await client.query("DELETE FROM order_lines WHERE order_id = $1", [orderId]);
     for (const [index, line] of input.lines.entries()) {
@@ -649,30 +767,6 @@ async function importOne(
       ],
     );
   }
-  await writeAudit(client, {
-    actorType: "ADMIN",
-    actorId: String(actor.id),
-    action: previous.rows[0] ? "ORDER_SOURCE_UPDATED" : "ORDER_IMPORTED",
-    eventClass: "OPERATIONAL",
-    entityType: "ORDER",
-    entityId: orderId,
-    metadata: { provider: input.provider },
-    requestId: actor.requestId,
-  });
-  if (!currentBillingCaseId && status === "ELIGIBLE") {
-    await groupOrder(
-      client,
-      {
-        id: orderId,
-        customerId,
-        customerSnapshot: normalizedSnapshot.customerSnapshot,
-        localOrderDate: localDate,
-        currency: input.currency,
-      },
-      actor,
-    );
-  }
-  return previous.rows[0] ? "updated" : "imported";
 }
 
 export async function importOrders(input: unknown, actor: Actor) {

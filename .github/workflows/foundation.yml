@@ -20,18 +20,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Nessuno step esegue Node: i controlli sulla toolchain vivono in `npm run check`,
+      # qui restano soltanto guardie di shell sul contenuto della repository.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
-          install: true
-          cache: true
+          fetch-depth: 0
       - name: Verifica repository e documentazione
         # Le guardie su contenuto tracciato vivono in scripts/repository-content.node-test.mjs,
         # dove il codice di uscita di `git grep` è ispezionabile invece di essere appiattito da `!`.
+        # I file letti da scripts/toolchain-policy.mjs non si ripetono qui: quello script
+        # fallisce già se mancano, ed è `npm run check` a eseguirlo.
         run: |
           test -f AGENTS.md
           test -f docs/Hub_Fatture_MASTER_PLAN.md
           test -f ops/secrets/oci-vps-access.key.age
+          test -f doctor.config.json
+          test -f .github/workflows/react-doctor.yml
           test ! -e LICENSE
           git diff-tree --check --no-commit-id --root -r HEAD
       - name: Verifica titolo PR in formato Conventional Commit
@@ -42,18 +46,19 @@ jobs:
           printf '%s\n' "$PULL_REQUEST_TITLE" \
             | grep -qE '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9 /_-]+\))?!?: .+' \
             || { echo "Titolo PR non in formato Conventional Commit: $PULL_REQUEST_TITLE"; exit 1; }
-      - name: Verifica gate Codex
-        run: node --test scripts/codex-review-gate.test.mjs
-      - name: Verifica toolchain
+      # L'immagine si verifica quando cambia: sul push a main e sulle PR che toccano il
+      # Dockerfile. Il resto delle PR non paga un build completo per un controllo invariato.
+      - name: Rileva modifiche all'immagine app
+        id: image
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          test -f mise.toml
-          test -f package-lock.json
-          test -f compose.yaml
-          test -f Dockerfile
-          test -f doctor.config.json
-          test -f .github/workflows/react-doctor.yml
-          node scripts/toolchain-policy.mjs
+          if [ "${{ github.event_name }}" != "pull_request" ] \
+            || ! git diff --quiet "$BASE_SHA" HEAD -- Dockerfile; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Verifica xmllint nell'immagine app
+        if: steps.image.outputs.changed == 'true'
         run: |
           docker build --tag hub-fatture-app:foundation .
           docker run --rm hub-fatture-app:foundation xmllint --version

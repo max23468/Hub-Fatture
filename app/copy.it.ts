@@ -217,6 +217,12 @@ export const copy = {
     reason: "Motivo della correzione",
     save: "Salva dati cliente",
   },
+  pager: {
+    label: "Paginazione",
+    previous: "Pagina precedente",
+    next: "Pagina successiva",
+    current: (page: number) => `Pagina ${page}`,
+  },
   theme: {
     label: "Tema",
     system: "Sistema",

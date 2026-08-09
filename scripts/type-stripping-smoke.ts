@@ -1,10 +1,6 @@
-const runtime: { name: string; ready: boolean } = {
-  name: "node-type-stripping",
-  ready: true,
-};
+// Il valore di questo file è che Node lo esegua così com'è: se il type stripping non
+// fosse disponibile, l'annotazione qui sotto sarebbe un errore di sintassi e lo script
+// non arriverebbe mai alla stampa. Nessun controllo a runtime può dire di più.
+const runtime: string = "node-type-stripping";
 
-if (!runtime.ready) {
-  throw new Error("Type stripping non disponibile");
-}
-
-console.log(`${runtime.name}: ok`);
+console.log(`${runtime}: ok`);
