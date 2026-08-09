@@ -5,15 +5,20 @@ const databaseUrl =
   process.env.TEST_DATABASE_URL ??
   "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
 
+// Lo schema viene azzerato all'avvio del server, i dati a ogni worker: un retry riparte
+// da database vuoto invece di trovare gli account già creati e saltare il flusso di setup.
 test.beforeAll(async () => {
   if (!new URL(databaseUrl).pathname.endsWith("_test")) throw new Error("Database E2E non isolato");
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   await client.query(
-    "TRUNCATE users, login_attempts, audit_events, settings RESTART IDENTITY CASCADE",
+    "TRUNCATE users, sessions, login_attempts, audit_events, settings RESTART IDENTITY CASCADE",
   );
   await client.end();
 });
+
+// I test condividono gli account creati dal primo: in serie un retry li ripete tutti dall'inizio.
+test.describe.configure({ mode: "serial" });
 
 test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.goto("/setup");
@@ -73,4 +78,28 @@ test("le mutazioni senza origine valida non raggiungono l’azione", async ({ re
   });
   expect(login.status()).toBeGreaterThanOrEqual(400);
   expect(login.status()).toBeLessThan(500);
+});
+
+test("gli errori delle azioni restano codici stabili, non 500", async ({ request }) => {
+  const headers = { origin: "http://127.0.0.1:4173" };
+  expect((await request.post("/logout", { form: { csrf: "x" } })).status()).toBe(403);
+  expect((await request.post("/login", { headers, data: { username: "matteo" } })).status()).toBe(
+    415,
+  );
+
+  await request.post("/login", {
+    headers,
+    form: { username: "matteo", password: "password-matteo" },
+  });
+  expect((await request.post("/logout", { headers, form: { csrf: "sbagliato" } })).status()).toBe(
+    403,
+  );
+  expect((await request.post("/logout", { headers, form: { csrf: "x" } })).status()).toBe(403);
+});
+
+test("le risposte dichiarano gli header di sicurezza minimi", async ({ request }) => {
+  const headers = (await request.get("/login")).headers();
+  expect(headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+  expect(headers["x-content-type-options"]).toBe("nosniff");
+  expect(headers["referrer-policy"]).toBe("same-origin");
 });

@@ -64,3 +64,22 @@ test("un form da un’origine diversa viene rifiutato", async () => {
     return error instanceof AppError && error.code === "REQUEST_ORIGIN_INVALID";
   });
 });
+
+test("il limite vale anche senza Content-Length dichiarato", async () => {
+  const oversized = new TextEncoder().encode("value=".concat("x".repeat(64)));
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(oversized);
+      controller.close();
+    },
+  });
+  const request = new Request("https://example.invalid", {
+    method: "POST",
+    headers: { ...contentType, origin: "https://example.invalid" },
+    body,
+    duplex: "half",
+  } as RequestInit & { duplex: "half" });
+  await assert.rejects(readForm(request, { maxBytes: 8 }), (error: unknown) => {
+    return error instanceof AppError && error.code === "REQUEST_BODY_TOO_LARGE";
+  });
+});

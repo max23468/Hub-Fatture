@@ -52,12 +52,14 @@ test(
       assert.deepEqual(await runMigrations({ connectionString: clean.connectionString }), [
         "001_foundations.sql",
         "002_auth_audit.sql",
+        "003_login_ip.sql",
+        "004_reset_password_hashes.sql",
       ]);
       const cleanClient = new pg.Client({ connectionString: clean.connectionString });
       await cleanClient.connect();
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "2",
+        "4",
       );
       await cleanClient.end();
 
@@ -97,7 +99,9 @@ test(
       await runMigrations({ connectionString: upgrade.connectionString });
       const readback = new pg.Client({ connectionString: upgrade.connectionString });
       await readback.connect();
-      assert.equal((await readback.query("SELECT username FROM users")).rows[0].username, "matteo");
+      // Il cambio di formato degli hash rimuove gli account invece di conservare un percorso
+      // di verifica legacy: senza questo l'installazione esistente resterebbe esclusa.
+      assert.equal((await readback.query("SELECT count(*) FROM users")).rows[0].count, "0");
       assert.equal(
         (await readback.query("SELECT to_regclass('audit_events') AS table_name")).rows[0]
           .table_name,
@@ -136,6 +140,7 @@ test(
       const sessionCookies = await auth.login({
         username: "matteo",
         password: "matteo88",
+        ipHash: "origine-titolare",
         requestId: "test-login",
       });
       const request = new Request("http://localhost:8080", {
@@ -180,31 +185,125 @@ test(
       await auth.login({
         username: "codex",
         password: "codex888",
+        ipHash: "origine-agente",
         requestId: "test-agent-login",
       });
 
-      const limited = await Promise.all(
-        Array.from({ length: 6 }, (_, index) =>
-          auth
+      const attacco = [];
+      for (let index = 0; index < 7; index += 1) {
+        attacco.push(
+          await auth
             .login({
-              username: `intruso-${index}`,
-              password: "password-errata",
+              username: "codex",
+              password: `password-errata-${index}`,
+              ipHash: "origine-attaccante",
               requestId: `test-rate-limit-${index}`,
             })
             .then(() => null)
             .catch((error: unknown) => error),
-        ),
-      );
+        );
+      }
       assert.equal(
-        limited.filter(
+        attacco.filter(
           (error) => error instanceof AppError && error.code === "AUTH_INVALID_CREDENTIALS",
         ).length,
         5,
       );
       assert.equal(
-        limited.filter((error) => error instanceof AppError && error.code === "AUTH_RATE_LIMITED")
+        attacco.filter((error) => error instanceof AppError && error.code === "AUTH_RATE_LIMITED")
           .length,
-        1,
+        2,
+      );
+      // Oltre la soglia nemmeno la password giusta viene verificata: il limite è reale.
+      await assert.rejects(
+        auth.login({
+          username: "codex",
+          password: "codex888",
+          ipHash: "origine-attaccante",
+          requestId: "test-rate-limit-credenziale-valida",
+        }),
+        /Troppi tentativi/,
+      );
+      // Il titolare arriva da un'altra origine e non viene escluso da quell'attacco.
+      assert.equal(
+        (
+          await auth.login({
+            username: "codex",
+            password: "codex888",
+            ipHash: "origine-agente",
+            requestId: "test-rate-limit-titolare",
+          })
+        ).length,
+        2,
+      );
+      // Il percorso bloccato non scrive: sotto flood la tabella non cresce con le richieste.
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM login_attempts WHERE ip_hash = 'origine-attaccante'")
+        ).rows[0].count,
+        "5",
+      );
+      // Sotto concorrenza il contatore può scavalcare la soglia senza mai assumerne il valore:
+      // la deduplica dell'audit deve reggere anche allora.
+      await database
+        .getPool()
+        .query(
+          "INSERT INTO login_attempts (username, ip_hash, successful) SELECT 'matteo', 'origine-parallela', false FROM generate_series(1, 7)",
+        );
+      await assert.rejects(
+        auth.login({
+          username: "matteo",
+          password: "matteo88",
+          ipHash: "origine-parallela",
+          requestId: "test-soglia-scavalcata",
+        }),
+        /Troppi tentativi/,
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query(
+              "SELECT count(*) FROM audit_events WHERE action = 'LOGIN_RATE_LIMITED' AND metadata_json->>'scope' = 'origine-parallela'",
+            )
+        ).rows[0].count,
+        "1",
+      );
+      // L'accesso legittimo non deve azzerare il contatore di chi sta attaccando lo stesso
+      // username da un'altra origine.
+      await assert.rejects(
+        auth.login({
+          username: "codex",
+          password: "codex888",
+          ipHash: "origine-attaccante",
+          requestId: "test-rate-limit-persiste",
+        }),
+        /Troppi tentativi/,
+      );
+      // Una riga per episodio: l'audit resta osservabile senza crescere sotto attacco.
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query(
+              "SELECT count(*) FROM audit_events WHERE action = 'LOGIN_RATE_LIMITED' AND metadata_json->>'scope' = 'origine-attaccante'",
+            )
+        ).rows[0].count,
+        "1",
+      );
+      await database.getPool().query(
+        `INSERT INTO sessions (id_hash, user_id, csrf_token_hash, expires_at)
+           SELECT 'scaduta', id, 'scaduta', now() - interval '1 hour' FROM users WHERE username = 'codex'`,
+      );
+      const retention = await import("../retention.server.ts");
+      await retention.pruneExpired();
+      // La potatura di 17.7 dipende dal tempo trascorso, non dall'arrivo del prossimo login.
+      assert.equal(
+        (await database.getPool().query("SELECT count(*) FROM sessions WHERE id_hash = 'scaduta'"))
+          .rows[0].count,
+        "0",
       );
 
       assert.deepEqual(await settings.updateSetting("example", { enabled: true }, 0), {

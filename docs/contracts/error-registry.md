@@ -1,6 +1,6 @@
 # Registro errori
 
-La fonte eseguibile è `src/errors.ts`. I codici iniziali coprono autenticazione, conflitti e limiti HTTP; i messaggi provider verranno aggiunti soltanto con i rispettivi connettori.
+La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, che traduce l’errore nello status dichiarato qui invece di lasciarlo degradare a 500. I codici iniziali coprono autenticazione, conflitti e limiti HTTP; i messaggi provider verranno aggiunti soltanto con i rispettivi connettori.
 
 | Codice                     | Categoria             | Retry automatico | Azione                               |
 | -------------------------- | --------------------- | ---------------- | ------------------------------------ |

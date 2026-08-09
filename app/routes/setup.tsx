@@ -1,11 +1,11 @@
-import { data, Form, redirect, useActionData } from "react-router";
+import { Form, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/setup";
 
+import { actionResult } from "../action";
 import { BrandLockup } from "../components/brand-lockup";
 import { copy } from "../copy.it";
 import { AGENT_USERNAME, OWNER_USERNAME } from "../../src/auth.ts";
 import { requestId, setupAccounts, setupAvailable } from "../../src/auth.server.ts";
-import { publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
 
 export async function loader() {
@@ -14,7 +14,7 @@ export async function loader() {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  try {
+  return actionResult(async () => {
     const form = await readForm(request);
     await setupAccounts({
       bootstrapToken: form.get("bootstrapToken") ?? "",
@@ -23,10 +23,7 @@ export async function action({ request }: Route.ActionArgs) {
       requestId: requestId(request),
     });
     return redirect("/login");
-  } catch (error) {
-    const result = publicError(error);
-    return data(result, { status: result.status });
-  }
+  });
 }
 
 export default function Setup() {

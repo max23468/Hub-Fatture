@@ -60,10 +60,9 @@ export async function readForm(
       if (timedOut) throw new AppError("REQUEST_TIMEOUT", 408);
       if (done) break;
       size += value.byteLength;
-      if (size > maxBytes) {
-        await reader.cancel();
-        throw new AppError("REQUEST_BODY_TOO_LARGE", 413);
-      }
+      // Niente cancel(): distruggere lo stream in ingresso azzera la connessione prima
+      // che la risposta 413 sia scritta, e il client vede un reset invece del codice stabile.
+      if (size > maxBytes) throw new AppError("REQUEST_BODY_TOO_LARGE", 413);
       chunks.push(value);
     }
   } finally {

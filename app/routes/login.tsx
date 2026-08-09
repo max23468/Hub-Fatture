@@ -1,10 +1,10 @@
-import { data, Form, redirect, useActionData } from "react-router";
+import { Form, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/login";
 
+import { actionResult } from "../action";
 import { BrandLockup } from "../components/brand-lockup";
 import { copy } from "../copy.it";
-import { getSessionUser, login, requestId } from "../../src/auth.server.ts";
-import { publicError } from "../../src/errors.ts";
+import { clientIpHash, getSessionUser, login, requestId } from "../../src/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -13,20 +13,18 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  try {
+  return actionResult(async () => {
     const form = await readForm(request);
     const sessionCookies = await login({
       username: form.get("username") ?? "",
       password: form.get("password") ?? "",
+      ipHash: clientIpHash(request),
       requestId: requestId(request),
     });
     const headers = new Headers();
     for (const value of sessionCookies) headers.append("Set-Cookie", value);
     return redirect("/", { headers });
-  } catch (error) {
-    const result = publicError(error);
-    return data(result, { status: result.status });
-  }
+  });
 }
 
 export default function Login() {

@@ -7,14 +7,23 @@ import { getConfig } from "./config.server.ts";
 import { hashPassword, hashToken, safeEqual, verifyPassword } from "./crypto.server.ts";
 import { getPool, withTransaction } from "./db/client.server.ts";
 import { AppError } from "./errors.ts";
+import { LOGIN_ATTEMPT_WINDOW_MINUTES as RATE_LIMIT_WINDOW_MINUTES } from "./retention.server.ts";
 
 const SESSION_COOKIE = "sessione";
 const CSRF_COOKIE = "csrf";
-const RATE_LIMIT_WINDOW_MINUTES = 15;
-const RATE_LIMIT_ATTEMPTS = 5;
+// La soglia stretta vale per origine: un attaccante blocca sé stesso, non il titolare, che
+// arriva da un altro indirizzo. Quella per username resta come argine agli attacchi
+// distribuiti, dove il blocco del titolare è un incidente e non un fastidio quotidiano.
+const RATE_LIMIT_ORIGIN_ATTEMPTS = 5;
+const RATE_LIMIT_USERNAME_ATTEMPTS = 50;
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 128;
-const dummyPasswordHash = hashPassword(randomBytes(32).toString("base64url"));
+
+let dummyPasswordHash: Promise<string> | undefined;
+
+function absentUserHash(): Promise<string> {
+  return (dummyPasswordHash ??= hashPassword(randomBytes(32).toString("base64url")));
+}
 
 interface UserRow {
   id: number;
@@ -36,11 +45,10 @@ function validPassword(value: string): boolean {
   return value.length >= MIN_PASSWORD_LENGTH && value.length <= MAX_PASSWORD_LENGTH;
 }
 
-function cookie(name: string, value: string, maxAge: number, httpOnly: boolean): string {
+// Nessun codice client legge questi cookie: il server rilegge il CSRF e lo stampa nel form.
+function cookie(name: string, value: string, maxAge: number): string {
   const secure = getConfig().APP_ENV === "production" ? "; Secure" : "";
-  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; SameSite=Strict${
-    httpOnly ? "; HttpOnly" : ""
-  }${secure}`;
+  return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; SameSite=Strict; HttpOnly${secure}`;
 }
 
 function cookies(request: Request): Map<string, string> {
@@ -118,7 +126,12 @@ export async function setupAccounts(input: {
   });
 }
 
-export async function login(input: { username: string; password: string; requestId: string }) {
+export async function login(input: {
+  username: string;
+  password: string;
+  ipHash: string;
+  requestId: string;
+}) {
   const username = normalizeUsername(input.username);
   const attemptKey =
     username === OWNER_USERNAME || username === AGENT_USERNAME ? username : "__unknown__";
@@ -127,17 +140,48 @@ export async function login(input: { username: string; password: string; request
   }
   const result = await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`login:${attemptKey}`]);
-    await client.query(
-      `DELETE FROM login_attempts
-       WHERE attempted_at <= now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'`,
+    const recent = await client.query<{ origin_failures: string; username_failures: string }>(
+      `SELECT count(*) FILTER (WHERE ip_hash = $2) AS origin_failures,
+              count(*) FILTER (WHERE username = $1) AS username_failures
+       FROM login_attempts
+       WHERE successful = false
+         AND attempted_at > now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'
+         AND (ip_hash = $2 OR username = $1)`,
+      [attemptKey, input.ipHash],
     );
-    const recent = await client.query<{ count: string }>(
-      `SELECT count(*) FROM login_attempts
-       WHERE username = $1 AND successful = false
-         AND attempted_at > now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'`,
-      [attemptKey],
-    );
-    if (Number(recent.rows[0]?.count) >= RATE_LIMIT_ATTEMPTS) {
+    const originFailures = Number(recent.rows[0]?.origin_failures);
+    const usernameFailures = Number(recent.rows[0]?.username_failures);
+    const blocked =
+      originFailures >= RATE_LIMIT_ORIGIN_ATTEMPTS ||
+      usernameFailures >= RATE_LIMIT_USERNAME_ATTEMPTS;
+
+    // Oltre la soglia non si verifica nulla: senza questo, il limite cambierebbe soltanto la
+    // risposta e lascerebbe all'attaccante tentativi illimitati.
+    if (blocked) {
+      // Il percorso bloccato non scrive: accodare ogni richiesta respinta farebbe crescere
+      // tabella e indici sotto flood, rendendo il limite stesso una leva sul database.
+      // La finestra resta quindi fissa e decorre dal tentativo che ha raggiunto la soglia.
+      const scope =
+        originFailures >= RATE_LIMIT_ORIGIN_ATTEMPTS ? input.ipHash : `username:${attemptKey}`;
+      // Il lock per username non copre due richieste parallele sulla stessa origine: senza
+      // questo secondo lock la coppia SELECT/INSERT eviterebbe l'evento mancante ma non i
+      // duplicati. L'ordine username poi scope è lo stesso ovunque, quindi non genera cicli.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`rate-limit:${scope}`]);
+      const registered = await client.query(
+        `SELECT 1 FROM audit_events
+         WHERE action = 'LOGIN_RATE_LIMITED' AND metadata_json->>'scope' = $1
+           AND created_at > now() - interval '${RATE_LIMIT_WINDOW_MINUTES} minutes'
+         LIMIT 1`,
+        [scope],
+      );
+      if (registered.rowCount === 0) {
+        await client.query(
+          `INSERT INTO audit_events
+            (actor_type, actor_id, action, event_class, entity_type, metadata_json, request_id)
+           VALUES ('ADMIN', NULL, 'LOGIN_RATE_LIMITED', 'CRITICAL', 'USER', $1, $2)`,
+          [JSON.stringify({ scope }), input.requestId],
+        );
+      }
       return { error: new AppError("AUTH_RATE_LIMITED", 429) } as const;
     }
 
@@ -147,18 +191,18 @@ export async function login(input: { username: string; password: string; request
     const user = users.rows[0];
     const passwordValid = await verifyPassword(
       input.password,
-      user?.password_hash ?? (await dummyPasswordHash),
+      user?.password_hash ?? (await absentUserHash()),
     );
 
     if (!user || !passwordValid) {
-      await client.query("INSERT INTO login_attempts (username, successful) VALUES ($1, false)", [
-        attemptKey,
-      ]);
+      await client.query(
+        "INSERT INTO login_attempts (username, ip_hash, successful) VALUES ($1, $2, false)",
+        [attemptKey, input.ipHash],
+      );
       await audit(client, "LOGIN_FAILED", user ? String(user.id) : null, input.requestId);
       return { error: new AppError("AUTH_INVALID_CREDENTIALS", 401) } as const;
     }
 
-    await client.query("DELETE FROM sessions WHERE expires_at <= now()");
     const sessionToken = randomBytes(32).toString("base64url");
     const csrfToken = randomBytes(32).toString("base64url");
     const ttl = getConfig().SESSION_TTL_SECONDS;
@@ -168,18 +212,19 @@ export async function login(input: { username: string; password: string; request
       [hashToken(sessionToken), user.id, hashToken(csrfToken), ttl],
     );
     await client.query("UPDATE users SET last_login_at = now() WHERE id = $1", [user.id]);
-    await client.query("DELETE FROM login_attempts WHERE username = $1 AND successful = false", [
-      username,
-    ]);
-    await client.query("INSERT INTO login_attempts (username, successful) VALUES ($1, true)", [
-      username,
-    ]);
+    // Solo la coppia che ha appena avuto successo: un accesso legittimo del titolare non deve
+    // azzerare il contatore di un attaccante che stava provando lo stesso username da altrove.
+    await client.query(
+      "DELETE FROM login_attempts WHERE username = $1 AND ip_hash = $2 AND successful = false",
+      [username, input.ipHash],
+    );
+    await client.query(
+      "INSERT INTO login_attempts (username, ip_hash, successful) VALUES ($1, $2, true)",
+      [username, input.ipHash],
+    );
     await audit(client, "LOGIN_SUCCEEDED", String(user.id), input.requestId);
     return {
-      cookies: [
-        cookie(SESSION_COOKIE, sessionToken, ttl, true),
-        cookie(CSRF_COOKIE, csrfToken, ttl, false),
-      ],
+      cookies: [cookie(SESSION_COOKIE, sessionToken, ttl), cookie(CSRF_COOKIE, csrfToken, ttl)],
     } as const;
   });
 
@@ -210,9 +255,9 @@ export async function logout(request: Request, submittedCsrf: string) {
   const values = cookies(request);
   const sessionToken = values.get(SESSION_COOKIE);
   const csrfToken = values.get(CSRF_COOKIE);
-  if (!sessionToken || !csrfToken || !safeEqual(csrfToken, submittedCsrf)) {
-    throw new AppError("AUTH_INVALID_CREDENTIALS", 403);
-  }
+  // Uscire senza sessione è già il risultato voluto: la pagina scaduta ripulisce i cookie e prosegue.
+  if (!sessionToken || !csrfToken) return;
+  if (!safeEqual(csrfToken, submittedCsrf)) throw new AppError("AUTH_INVALID_CREDENTIALS", 403);
   await withTransaction(async (client) => {
     const result = await client.query<{ user_id: number }>(
       `DELETE FROM sessions
@@ -226,7 +271,18 @@ export async function logout(request: Request, submittedCsrf: string) {
 }
 
 export function clearSessionCookies(): string[] {
-  return [cookie(SESSION_COOKIE, "", 0, true), cookie(CSRF_COOKIE, "", 0, false)];
+  return [cookie(SESSION_COOKIE, "", 0), cookie(CSRF_COOKIE, "", 0)];
+}
+
+/**
+ * Caddy è l'unico ingresso e accoda l'indirizzo che vede davvero in fondo a `X-Forwarded-For`:
+ * l'ultimo valore è l'unico non falsificabile dal client. In accesso diretto, senza proxy,
+ * tutte le richieste condividono un solo secchio.
+ * L'hash resta al massimo quanto la finestra: la potatura di ogni login lo rimuove.
+ */
+export function clientIpHash(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
+  return hashToken(forwarded || "__diretto__");
 }
 
 export function requestId(request: Request): string {

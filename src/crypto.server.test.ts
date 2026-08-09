@@ -9,3 +9,13 @@ test("le password non sono conservate in chiaro", async () => {
   assert.equal(await verifyPassword("password-sintetica-lunga", passwordHash), true);
   assert.equal(await verifyPassword("password-errata", passwordHash), false);
 });
+
+test("l’hash dichiara i parametri di costo usati per verificarlo", async () => {
+  const passwordHash = await hashPassword("password-sintetica-lunga");
+  const [algorithm, N, r, p] = passwordHash.split("$");
+  assert.deepEqual([algorithm, N, r, p], ["scrypt", "16384", "8", "1"]);
+  // Un costo diverso da quello registrato non deve mai validare la stessa password.
+  const altered = passwordHash.replace("$16384$", "$8192$");
+  assert.equal(await verifyPassword("password-sintetica-lunga", altered), false);
+  assert.equal(await verifyPassword("password-sintetica-lunga", "scrypt$salt$hash"), false);
+});

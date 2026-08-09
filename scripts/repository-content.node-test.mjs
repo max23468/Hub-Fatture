@@ -20,7 +20,8 @@ const textExtensions = new Set([
 
 async function collect(relativePath) {
   const absolutePath = path.join(root, relativePath);
-  const entries = await readdir(absolutePath, { withFileTypes: true });
+  // Una cartella nasce con la milestone che la usa: la sua assenza è uno zero, non un errore.
+  const entries = await readdir(absolutePath, { withFileTypes: true }).catch(() => []);
   const files = [];
 
   for (const entry of entries) {
