@@ -18,10 +18,6 @@ permissions:
   pull-requests: read
   statuses: write
 
-concurrency:
-  group: codex-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pull_request }}
-  cancel-in-progress: true
-
 jobs:
   gate:
     name: Aggiorna gate Codex
@@ -32,12 +28,15 @@ jobs:
        (github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'))
+    concurrency:
+      group: codex-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pull_request }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 310
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || github.event.repository.default_branch }}
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - name: Verifica il gate
         run: node --test scripts/codex-review-gate.test.mjs
