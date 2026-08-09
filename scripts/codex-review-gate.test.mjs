@@ -227,7 +227,7 @@ test("i finding P2 e P3 non bloccano il gate", () => {
         {
           user: bot,
           created_at: "2026-08-04T12:00:01Z",
-          body: "**P3** Non è un P0 e resta facoltativo.",
+          body: `**P3** Non è un P0 e resta facoltativo.\n\n**Reviewed commit:** \`${headSha.slice(0, 10)}\``,
         },
       ],
       reviewComments: [
@@ -238,8 +238,53 @@ test("i finding P2 e P3 non bloccano il gate", () => {
           body: "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow)</sub></sub> È meno grave di un P1; correggi quando opportuno",
         },
       ],
+      reviews: [
+        {
+          user: bot,
+          commit_id: headSha,
+          submitted_at: "2026-08-04T12:00:02Z",
+        },
+      ],
     }).state,
     "success",
+  );
+});
+
+test("un advisory resta pending finché la review non è conclusa", () => {
+  assert.equal(
+    classify({
+      reviewComments: [
+        {
+          user: bot,
+          commit_id: headSha,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**P2** La review potrebbe pubblicare altri finding.",
+        },
+      ],
+    }).state,
+    "pending",
+  );
+});
+
+test("un advisory top-level senza SHA non approva un nuovo HEAD", () => {
+  assert.equal(
+    classify({
+      comments: [
+        {
+          user: bot,
+          created_at: "2026-08-04T12:00:01Z",
+          body: "**P2** Finding tardivo del commit precedente.",
+        },
+      ],
+      reviews: [
+        {
+          user: bot,
+          commit_id: headSha,
+          submitted_at: "2026-08-04T12:00:02Z",
+        },
+      ],
+    }).state,
+    "pending",
   );
 });
 

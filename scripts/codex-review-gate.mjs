@@ -4,6 +4,7 @@ const CODEX_BOT = "chatgpt-codex-connector[bot]";
 const findingPriority = (body = "") =>
   body.match(/^(?:\*\*|<sub>)*(?:!?\[)?(P[0-3])(?: Badge)?(?:\]\([^)]*\)|\]\s*|\*\*)/m)?.[1];
 const isBlockingFinding = (body) => ["P0", "P1"].includes(findingPriority(body));
+const ADVISORY_SETTLING_MS = 30_000;
 // ponytail: 180 s limita cinque PR concorrenti a circa 500 richieste/ora; passare a
 // un'unica query GraphQL se la concorrenza reale cresce oltre questo livello.
 export const CODEX_REVIEW_POLLING = { attempts: 100, intervalMs: 180_000, marginMs: 300_000 };
@@ -25,6 +26,7 @@ export function classifyCodexReview({
   reviewComments,
 }) {
   const completions = [];
+  const advisoryFindings = [];
   const cleanComments = [];
   const latestEyesAt = progressReactions
     .filter(
@@ -42,13 +44,15 @@ export function classifyCodexReview({
       timestamp(comment.created_at) >= timestamp(requestedAt) &&
       findingPriority(comment.body)
     ) {
-      completions.push({
-        state: isBlockingFinding(comment.body) ? "failure" : "success",
-        at: timestamp(comment.created_at),
-        description: isBlockingFinding(comment.body)
-          ? "Codex ha trovato problemi nell'ultimo commit"
-          : "Codex ha completato la review con soli finding advisory",
-      });
+      if (isBlockingFinding(comment.body)) {
+        completions.push({
+          state: "failure",
+          at: timestamp(comment.created_at),
+          description: "Codex ha trovato problemi nell'ultimo commit",
+        });
+      } else {
+        advisoryFindings.push(timestamp(comment.created_at));
+      }
     }
   }
 
@@ -61,13 +65,15 @@ export function classifyCodexReview({
       timestamp(comment.created_at) >= timestamp(requestedAt) &&
       findingPriority(comment.body);
     if (currentFinding) {
-      completions.push({
-        state: isBlockingFinding(comment.body) ? "failure" : "success",
-        at: timestamp(comment.created_at),
-        description: isBlockingFinding(comment.body)
-          ? "Codex ha trovato problemi nell'ultimo commit"
-          : "Codex ha completato la review con soli finding advisory",
-      });
+      if (isBlockingFinding(comment.body)) {
+        completions.push({
+          state: "failure",
+          at: timestamp(comment.created_at),
+          description: "Codex ha trovato problemi nell'ultimo commit",
+        });
+      } else if (commit && headSha.startsWith(commit)) {
+        advisoryFindings.push(timestamp(comment.created_at));
+      }
     }
 
     if (
@@ -115,6 +121,22 @@ export function classifyCodexReview({
     ) {
       cleanComments.push(timestamp(review.submitted_at));
     }
+  }
+
+  const latestAdvisoryAt = Math.max(...advisoryFindings, 0);
+  const matchingReviewAt = cleanComments
+    .filter((reviewAt) => Math.abs(reviewAt - latestAdvisoryAt) <= ADVISORY_SETTLING_MS)
+    .sort((left, right) => right - left)[0];
+  if (
+    latestAdvisoryAt &&
+    matchingReviewAt &&
+    now - Math.max(latestAdvisoryAt, matchingReviewAt) >= ADVISORY_SETTLING_MS
+  ) {
+    completions.push({
+      state: "success",
+      at: Math.max(latestAdvisoryAt, matchingReviewAt),
+      description: "Codex ha completato la review con soli finding advisory",
+    });
   }
 
   const thumbsUpAt = reactions
