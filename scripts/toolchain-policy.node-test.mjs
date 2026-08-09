@@ -55,6 +55,23 @@ test("i workflow Node installano il runtime pinzato prima di eseguire script", a
   }
 });
 
+test("React Doctor blocca warning ed errori con versione e Action pinzate", async () => {
+  const manifest = JSON.parse(await read("package.json"));
+  const workflow = await read(".github/workflows/react-doctor.yml");
+
+  assert.equal(manifest.scripts.doctor, "react-doctor --scope full --blocking warning .");
+  assert.match(workflow, /millionco\/react-doctor@[0-9a-f]{40}/);
+  assert.match(workflow, /version:\s*0\.9\.11/);
+  assert.match(workflow, /scope:\s*changed/);
+  assert.match(workflow, /blocking:\s*warning/);
+  assert.match(workflow, /comment:\s*"true"/);
+  assert.match(workflow, /review-comments:\s*"true"/);
+  assert.match(workflow, /commit-status:\s*"false"/);
+  assert.match(workflow, /fetch-depth:\s*0/);
+  assert.match(workflow, /persist-credentials:\s*false/);
+  assert.doesNotMatch(workflow, /continue-on-error/);
+});
+
 test("una patch divergente viene segnalata", () => {
   assert.deepEqual(findPinDrift({ node: ["26.7.0", "26.7.1"], npm: ["12.0.2", "12.0.2"] }), [
     "node: 26.7.0 != 26.7.1",
