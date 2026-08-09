@@ -138,6 +138,7 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   assert.equal(compose.match(/^    restart: unless-stopped$/gm)?.length, 4);
   assert.match(compose, /- app_node_modules:\/workspace\/node_modules/);
   assert.match(compose, /- worker_node_modules:\/workspace\/node_modules/);
+  assert.match(compose, /- worker_build_server:\/workspace\/build-server/);
 });
 
 test("l'applicazione accede a PostgreSQL soltanto tramite il livello dati", async () => {
