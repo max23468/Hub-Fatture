@@ -264,6 +264,9 @@ export async function listAuditHistory(filters: {
     actor_username: string | null;
     entity_type: string;
     entity_id: string | null;
+    order_provider: string | null;
+    order_number: string | null;
+    case_number: string | null;
     reason: string | null;
     request_id: string;
     created_at: string;
@@ -271,13 +274,23 @@ export async function listAuditHistory(filters: {
     `SELECT audit_events.id, audit_events.action, audit_events.actor_id,
             audit_events.actor_type, users.username AS actor_username,
             audit_events.entity_type, audit_events.entity_id, audit_events.reason,
+            event_orders.provider AS order_provider,
+            event_orders.display_number AS order_number,
+            event_cases.public_number AS case_number,
             audit_events.request_id, audit_events.created_at
      FROM audit_events
      LEFT JOIN users ON audit_events.actor_type = 'ADMIN'
        AND audit_events.actor_id ~ '^[0-9]+$'
        AND users.id = audit_events.actor_id::smallint
+     LEFT JOIN orders AS event_orders ON audit_events.entity_type = 'ORDER'
+       AND event_orders.id = CASE WHEN audit_events.entity_id ~ '^[0-9]+$'
+             THEN audit_events.entity_id::bigint END
+     LEFT JOIN billing_cases AS event_cases ON audit_events.entity_type = 'BILLING_CASE'
+       AND event_cases.id = CASE WHEN audit_events.entity_id ~ '^[0-9]+$'
+             THEN audit_events.entity_id::bigint END
      WHERE ($1::text IS NULL OR audit_events.action = $1)
        AND ($2::text IS NULL OR audit_events.entity_id ILIKE $2
+            OR event_orders.display_number ILIKE $2 OR event_cases.public_number ILIKE $2
             OR audit_events.request_id ILIKE $2 OR audit_events.reason ILIKE $2)
      ORDER BY audit_events.created_at DESC, audit_events.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $3`,

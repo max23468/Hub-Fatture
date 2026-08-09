@@ -5,7 +5,7 @@ import fixture from "../../tests/fixtures/orders/normalized.mock.json" with { ty
 import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
 import { Pager } from "../components/pager";
-import { billingCaseStatusLabels, orderStatusLabels } from "../copy.it";
+import { billingCaseStatusLabels, copy, orderStatusLabels } from "../copy.it";
 import { euros, date } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
@@ -111,28 +111,28 @@ export default function Orders() {
   const showsPreparations = view === "fatturare" || view === "verificare";
   const showsPreparationArchive = showsPreparations || view === "annullati";
   const orderFilters = (
-    <Form method="get" className="filters" role="search" aria-label="Filtra gli ordini">
+    <Form method="get" className="filters" role="search" aria-label={copy.orders.filterLabel}>
       {view !== "tutti" ? <input type="hidden" name="vista" value={view} /> : null}
       <label>
-        Cerca
-        <input name="q" defaultValue={filters.query} placeholder="Numero ordine o cliente" />
+        {copy.orders.search}
+        <input name="q" defaultValue={filters.query} placeholder={copy.orders.searchPlaceholder} />
       </label>
       <label>
-        Piattaforma
+        {copy.orders.salesChannel}
         <select name="provider" defaultValue={filters.provider}>
-          <option value="">Tutte</option>
+          <option value="">{copy.orders.allFeminine}</option>
           <option value="SHOPIFY">Shopify</option>
           <option value="EBAY">eBay</option>
         </select>
       </label>
       <label>
-        Data ordine
+        {copy.orders.orderDate}
         <input name="data" type="date" defaultValue={filters.localDate} />
       </label>
       <label>
-        Pagamento
+        {copy.orders.payment}
         <select name="pagamento" defaultValue={filters.paymentStatus}>
-          <option value="">Tutti</option>
+          <option value="">{copy.orders.allMasculine}</option>
           <option value="PAID">Pagato</option>
           <option value="PENDING">In attesa</option>
           <option value="REFUNDED">Rimborsato</option>
@@ -140,9 +140,9 @@ export default function Orders() {
       </label>
       {view === "tutti" ? (
         <label>
-          Stato di preparazione
+          {copy.orders.invoicingStatus}
           <select name="stato" defaultValue={filters.status}>
-            <option value="">Tutti</option>
+            <option value="">{copy.orders.allMasculine}</option>
             {Object.entries(orderStatusLabels).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -152,25 +152,25 @@ export default function Orders() {
         </label>
       ) : null}
       <button className="button button--secondary" type="submit">
-        Filtra
+        {copy.orders.filter}
       </button>
     </Form>
   );
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
-        <p className="eyebrow">Dati sorgente</p>
-        <h1>Ordini</h1>
-        <p>Dall’ordine sorgente alla preparazione della fattura, in un unico spazio di lavoro.</p>
+        <p className="eyebrow">{copy.orders.eyebrow}</p>
+        <h1>{copy.orders.title}</h1>
+        <p>{copy.orders.intro}</p>
       </div>
 
-      <nav className="view-nav" aria-label="Viste ordini">
+      <nav className="view-nav" aria-label={copy.orders.viewsLabel}>
         {[
-          ["tutti", "Tutti"],
-          ["fatturare", "Da fatturare"],
-          ["verificare", "Da verificare"],
-          ["attesa", "In attesa"],
-          ["annullati", "Annullati"],
+          ["tutti", copy.orders.views.all],
+          ["fatturare", copy.orders.views.toInvoice],
+          ["verificare", copy.orders.views.toReview],
+          ["attesa", copy.orders.views.waiting],
+          ["annullati", copy.orders.views.cancelled],
         ].map(([value, label]) => (
           <Link
             aria-current={view === value ? "page" : undefined}
@@ -185,8 +185,7 @@ export default function Orders() {
 
       {imported !== null ? (
         <p className="notice" role="status">
-          Fixture elaborata: {imported} nuovi ordini, {updated ?? 0} aggiornati
-          {Number(ignored) ? `, ${ignored} aggiornamenti meno recenti ignorati` : ""}.
+          {copy.orders.examplesLoaded(imported, updated, ignored)}
         </p>
       ) : null}
       {error ? (
@@ -195,50 +194,41 @@ export default function Orders() {
         </p>
       ) : null}
 
-      {fixtureEnabled ? (
-        <section className="toolbar" aria-label="Dati sintetici">
-          <Form method="post">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="import-fixture" />
-            <button className="button" type="submit">
-              Importa dati sintetici
-            </button>
-          </Form>
-        </section>
-      ) : null}
-
       {!showsPreparations && view !== "annullati" ? orderFilters : null}
 
       {showsPreparationArchive && cases.rows.length ? (
         <section className="section-gap">
-          {view === "annullati" ? <h2>Preparazioni non trasmesse</h2> : null}
+          {view === "annullati" ? <h2>{copy.orders.noTransmittedPreparations}</h2> : null}
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Preparazione</th>
-                  <th>Cliente</th>
-                  <th>Data</th>
-                  <th>Ordini</th>
-                  <th>Totale</th>
-                  <th>Stato</th>
+                  <th>{copy.orders.preparation}</th>
+                  <th>{copy.orders.customer}</th>
+                  <th>{copy.orders.date}</th>
+                  <th>{copy.orders.orders}</th>
+                  <th>{copy.orders.total}</th>
+                  <th>{copy.orders.status}</th>
                 </tr>
               </thead>
               <tbody>
                 {cases.rows.map((billingCase) => (
                   <tr key={billingCase.id}>
-                    <td data-label="Preparazione">
-                      <Link to={`/ordini/preparazione/${billingCase.id}`}>
+                    <td data-label={copy.orders.preparation}>
+                      <Link
+                        aria-label={copy.orders.openPreparation(billingCase.public_number)}
+                        to={`/ordini/preparazione/${billingCase.id}`}
+                      >
                         {billingCase.public_number}
                       </Link>
                     </td>
-                    <td data-label="Cliente">{billingCase.customer_name}</td>
-                    <td data-label="Data">{date(billingCase.local_order_date)}</td>
-                    <td data-label="Ordini">{billingCase.order_count}</td>
-                    <td data-label="Totale">{euros(billingCase.total_amount)}</td>
-                    <td data-label="Stato">
+                    <td data-label={copy.orders.customer}>{billingCase.customer_name}</td>
+                    <td data-label={copy.orders.date}>{date(billingCase.local_order_date)}</td>
+                    <td data-label={copy.orders.orders}>{billingCase.order_count}</td>
+                    <td data-label={copy.orders.total}>{euros(billingCase.total_amount)}</td>
+                    <td data-label={copy.orders.status}>
                       <span className="status">
-                        {billingCaseStatusLabels[billingCase.status] ?? "Stato non riconosciuto"}
+                        {billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus}
                       </span>
                     </td>
                   </tr>
@@ -249,47 +239,50 @@ export default function Orders() {
         </section>
       ) : showsPreparations ? (
         <section className="empty-state">
-          <h2>{view === "verificare" ? "Nessuna verifica richiesta" : "Niente da fatturare"}</h2>
-          <p>Le preparazioni compaiono qui quando gli ordini soddisfano il trigger globale.</p>
+          <h2>{view === "verificare" ? copy.orders.noReviews : copy.orders.nothingToInvoice}</h2>
+          <p>{copy.orders.preparationEmptyHelp}</p>
         </section>
       ) : null}
 
       {!showsPreparations ? (
         <section className="section-gap">
-          {view === "annullati" ? <h2>Ordini annullati o rimborsati</h2> : null}
+          {view === "annullati" ? <h2>{copy.orders.cancelledOrders}</h2> : null}
           {view === "annullati" ? orderFilters : null}
           {orders.rows.length ? (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Ordine</th>
-                    <th>Cliente</th>
-                    <th>Data</th>
-                    <th>Totale</th>
-                    <th>Stato</th>
-                    <th>Preparazione</th>
+                    <th>{copy.orders.order}</th>
+                    <th>{copy.orders.customer}</th>
+                    <th>{copy.orders.date}</th>
+                    <th>{copy.orders.total}</th>
+                    <th>{copy.orders.status}</th>
+                    <th>{copy.orders.preparation}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {orders.rows.map((order) => (
                     <tr key={order.id}>
-                      <td data-label="Ordine">
+                      <td data-label={copy.orders.order}>
                         <Link to={`/ordini/${order.id}`}>
                           {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
                         </Link>
                       </td>
-                      <td data-label="Cliente">{order.customer_name}</td>
-                      <td data-label="Data">{date(order.local_order_date)}</td>
-                      <td data-label="Totale">{euros(order.gross_amount)}</td>
-                      <td data-label="Stato">
+                      <td data-label={copy.orders.customer}>{order.customer_name}</td>
+                      <td data-label={copy.orders.date}>{date(order.local_order_date)}</td>
+                      <td data-label={copy.orders.total}>{euros(order.gross_amount)}</td>
+                      <td data-label={copy.orders.status}>
                         <span className="status">
-                          {orderStatusLabels[order.trigger_status] ?? "Stato non riconosciuto"}
+                          {orderStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}
                         </span>
                       </td>
-                      <td data-label="Preparazione">
+                      <td data-label={copy.orders.preparation}>
                         {order.billing_case_id ? (
-                          <Link to={`/ordini/preparazione/${order.billing_case_id}`}>
+                          <Link
+                            aria-label={copy.orders.openPreparation(String(order.case_number))}
+                            to={`/ordini/preparazione/${order.billing_case_id}`}
+                          >
                             {order.case_number}
                           </Link>
                         ) : (
@@ -303,8 +296,21 @@ export default function Orders() {
             </div>
           ) : (
             <div className="empty-state">
-              <h2>{view === "annullati" ? "Nessun ordine annullato" : "Nessun ordine"}</h2>
-              <p>Importa la fixture sintetica oppure modifica i filtri.</p>
+              <h2>{view === "annullati" ? copy.orders.noCancelledOrders : copy.orders.noOrders}</h2>
+              <p>
+                {fixtureEnabled
+                  ? copy.orders.noOrdersHelpDevelopment
+                  : copy.orders.noOrdersHelpProduction}
+              </p>
+              {fixtureEnabled ? (
+                <Form method="post">
+                  <input type="hidden" name="csrf" value={csrfToken} />
+                  <input type="hidden" name="intent" value="import-fixture" />
+                  <button className="button" type="submit">
+                    {copy.orders.loadExamples}
+                  </button>
+                </Form>
+              ) : null}
             </div>
           )}
         </section>

@@ -3,7 +3,7 @@ import type { Route } from "./+types/activity";
 
 import { AppShell } from "../components/app-shell";
 import { Pager } from "../components/pager";
-import { auditActionLabels, copy } from "../copy.it";
+import { auditActionLabel, auditActionLabels, copy } from "../copy.it";
 import { dateTime } from "../format";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 import { listAuditHistory, listOpenActivities } from "../../src/db/orders.server.ts";
@@ -42,15 +42,15 @@ export default function Activity() {
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
-        <p className="eyebrow">Superficie operativa</p>
-        <h1>{copy.activityTitle}</h1>
-        <p>Cosa richiede un intervento adesso e cosa è già stato registrato.</p>
+        <p className="eyebrow">{copy.activity.eyebrow}</p>
+        <h1>{copy.activity.title}</h1>
+        <p>{copy.activity.intro}</p>
       </div>
 
-      <nav className="view-nav" aria-label="Viste attività">
+      <nav className="view-nav" aria-label={copy.activity.viewsLabel}>
         {[
-          ["gestire", "Da gestire"],
-          ["cronologia", "Cronologia"],
+          ["gestire", copy.activity.toManage],
+          ["cronologia", copy.activity.history],
         ].map(([value, label]) => (
           <Link
             aria-current={view === value ? "page" : undefined}
@@ -65,7 +65,7 @@ export default function Activity() {
 
       {view === "gestire" ? (
         open.rows.length ? (
-          <section className="section-gap">
+          <section className="card section-gap">
             <ul className="plain-list">
               {open.rows.map((activity) => (
                 <li key={`${activity.kind}:${activity.id}`}>
@@ -79,22 +79,27 @@ export default function Activity() {
           </section>
         ) : (
           <section className="empty-state">
-            <h2>Niente da gestire</h2>
-            <p>Nessuna preparazione o ordine richiede una verifica.</p>
+            <h2>{copy.activity.nothingToManage}</h2>
+            <p>{copy.activity.nothingToManageHelp}</p>
           </section>
         )
       ) : (
         <section className="section-gap">
-          <Form method="get" className="filters" role="search" aria-label="Cerca nel registro">
+          <Form
+            method="get"
+            className="filters"
+            role="search"
+            aria-label={copy.activity.searchLabel}
+          >
             <input type="hidden" name="vista" value="cronologia" />
             <label>
-              Cerca
-              <input name="q" defaultValue={query} placeholder="Identificativo o richiesta" />
+              {copy.activity.search}
+              <input name="q" defaultValue={query} placeholder={copy.activity.searchPlaceholder} />
             </label>
             <label>
-              Tipo di attività
+              {copy.activity.type}
               <select name="azione" defaultValue={action}>
-                <option value="">Tutte</option>
+                <option value="">{copy.activity.all}</option>
                 {Object.entries(auditActionLabels).map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
@@ -103,7 +108,7 @@ export default function Activity() {
               </select>
             </label>
             <button className="button button--secondary" type="submit">
-              Filtra
+              {copy.activity.filter}
             </button>
           </Form>
           {history.rows.length ? (
@@ -111,33 +116,46 @@ export default function Activity() {
               <table>
                 <thead>
                   <tr>
-                    <th>Attività</th>
-                    <th>Oggetto</th>
-                    <th>Autore</th>
-                    <th>Quando</th>
+                    <th>{copy.activity.activity}</th>
+                    <th>{copy.activity.subject}</th>
+                    <th>{copy.activity.author}</th>
+                    <th>{copy.activity.when}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {history.rows.map((event) => (
                     <tr key={event.id}>
-                      <td data-label="Attività">
-                        {auditActionLabels[event.action] ?? "Attività registrata"}
+                      <td data-label={copy.activity.activity}>
+                        {auditActionLabel(event.action) ?? copy.activity.recorded}
                       </td>
-                      <td data-label="Oggetto">
-                        {event.entity_type === "BILLING_CASE" && event.entity_id ? (
+                      <td data-label={copy.activity.subject}>
+                        {event.entity_type === "BILLING_CASE" &&
+                        event.entity_id &&
+                        event.case_number ? (
                           <Link to={`/ordini/preparazione/${event.entity_id}`}>
-                            Preparazione {event.entity_id}
+                            {copy.activity.preparation(event.case_number)}
                           </Link>
-                        ) : event.entity_type === "ORDER" && event.entity_id ? (
-                          <Link to={`/ordini/${event.entity_id}`}>Ordine {event.entity_id}</Link>
+                        ) : event.entity_type === "ORDER" &&
+                          event.entity_id &&
+                          event.order_number ? (
+                          <Link to={`/ordini/${event.entity_id}`}>
+                            {copy.activity.order(
+                              event.order_provider === "SHOPIFY" ? "Shopify" : "eBay",
+                              event.order_number,
+                            )}
+                          </Link>
+                        ) : event.entity_type === "SETTING" ? (
+                          copy.activity.settings
                         ) : (
-                          (event.entity_id ?? "—")
+                          "—"
                         )}
                       </td>
-                      <td data-label="Autore">
-                        {event.actor_type === "SYSTEM" ? "Sistema" : (event.actor_username ?? "—")}
+                      <td data-label={copy.activity.author}>
+                        {event.actor_type === "SYSTEM"
+                          ? copy.activity.system
+                          : (event.actor_username ?? "—")}
                       </td>
-                      <td data-label="Quando">{dateTime(event.created_at)}</td>
+                      <td data-label={copy.activity.when}>{dateTime(event.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -145,8 +163,8 @@ export default function Activity() {
             </div>
           ) : (
             <div className="empty-state">
-              <h2>Nessuna attività registrata</h2>
-              <p>Modifica i filtri oppure attendi la prossima operazione.</p>
+              <h2>{copy.activity.noHistory}</h2>
+              <p>{copy.activity.noHistoryHelp}</p>
             </div>
           )}
         </section>

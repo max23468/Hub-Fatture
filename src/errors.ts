@@ -1,9 +1,9 @@
 export const errorCatalog = {
-  AUTH_INVALID_CREDENTIALS: "Username o password non validi.",
+  AUTH_INVALID_CREDENTIALS: "Nome utente o password non validi.",
   AUTH_PASSWORD_POLICY: "La password deve contenere da 8 a 128 caratteri.",
   AUTH_RATE_LIMITED: "Troppi tentativi. Riprova più tardi.",
   AUTH_SETUP_DISABLED: "Gli account sono già configurati.",
-  AUTH_INVALID_SETUP_TOKEN: "Token di configurazione non valido.",
+  AUTH_INVALID_SETUP_TOKEN: "Codice di configurazione non valido.",
   CONFLICT_REVISION: "I dati sono cambiati. Ricarica la pagina e riprova.",
   ORDER_CURRENCY_NOT_SUPPORTED: "Sono ammessi soltanto ordini in euro.",
   ORDER_INVALID_INPUT: "I dati dell’ordine non sono validi.",

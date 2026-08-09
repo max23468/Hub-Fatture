@@ -6,9 +6,11 @@ import { AppShell } from "../components/app-shell";
 import { CustomerEditor } from "../components/customer-editor";
 import {
   anomalyLabels,
-  auditActionLabels,
+  auditActionLabel,
   billingCaseStatusLabels,
+  copy,
   paymentStatusLabels,
+  reactivationBlockerMessages,
 } from "../copy.it";
 import { date, dateTime, euros } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
@@ -86,15 +88,6 @@ function runIntent(
   );
 }
 
-const reactivationBlockerMessages: Record<string, string> = {
-  EMPTY:
-    "Questa preparazione storica non contiene più ordini e resta consultabile soltanto in archivio.",
-  INCOMPATIBLE_ORDERS:
-    "Gli ordini sono ancora annullati o rimborsati. La preparazione resta in archivio finché la sorgente non viene rettificata.",
-  OTHER_OPEN_CASE:
-    "Esiste già un’altra preparazione aperta per lo stesso cliente e giorno. Questa resta in archivio.",
-};
-
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const billingCase = await getBillingCase(params.caseId);
@@ -127,8 +120,8 @@ export default function BillingCaseDetail() {
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
-        <p className="eyebrow">Da fatturare</p>
-        <h1>Preparazione fattura {billingCase.public_number}</h1>
+        <p className="eyebrow">{copy.preparation.eyebrow}</p>
+        <h1>{copy.preparation.title(billingCase.public_number)}</h1>
         <p>
           {billingCase.customer_name} · {date(billingCase.local_order_date)} · {euros(total)}
         </p>
@@ -138,31 +131,33 @@ export default function BillingCaseDetail() {
           {error.message}
         </p>
       ) : null}
+      {billingCase.status === "NEEDS_REVIEW" ? (
+        <p className="warning" role="status">
+          {copy.preparation.reviewWarning}
+        </p>
+      ) : null}
       {billingCase.status === "DO_NOT_TRANSMIT" ? (
         <p className="warning" role="status">
-          {billingCase.do_not_transmit_reason ?? "Questa preparazione non deve essere trasmessa."}
+          {billingCase.do_not_transmit_reason ?? copy.preparation.notTransmittedDefault}
         </p>
       ) : null}
       {billingCase.anomalies.length ? (
         <section className="card section-gap" aria-labelledby="anomalie">
-          <h2 id="anomalie">Anomalie da risolvere</h2>
+          <h2 id="anomalie">{copy.preparation.checksTitle}</h2>
           <ul className="plain-list">
             {billingCase.anomalies.map((code) => (
               <li key={code}>
                 <strong>{anomalyLabels[code]?.title ?? "Verifica richiesta"}</strong>
-                <span>
-                  {anomalyLabels[code]?.action ??
-                    "Controlla i dati della preparazione prima di proseguire."}
-                </span>
+                <span>{anomalyLabels[code]?.action ?? copy.preparation.checkFallback}</span>
               </li>
             ))}
           </ul>
         </section>
       ) : null}
 
-      <div className="detail-grid">
+      <div className={`detail-grid${billingCase.anomalies.length ? " section-gap" : ""}`}>
         <section className="card">
-          <h2>Ordini inclusi</h2>
+          <h2>{copy.preparation.includedOrders}</h2>
           <ul className="plain-list">
             {billingCase.orders.map((order) => (
               <li key={order.id}>
@@ -210,26 +205,26 @@ export default function BillingCaseDetail() {
           ) : null}
         </section>
         <section className="card">
-          <h2>Stato</h2>
+          <h2>{copy.preparation.summary}</h2>
           <dl className="facts">
             <div>
-              <dt>Stato corrente</dt>
-              <dd>{billingCaseStatusLabels[billingCase.status] ?? "Stato non riconosciuto"}</dd>
+              <dt>{copy.preparation.currentStatus}</dt>
+              <dd>{billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus}</dd>
             </div>
             <div>
-              <dt>Valuta</dt>
+              <dt>{copy.preparation.currency}</dt>
               <dd>{billingCase.currency}</dd>
             </div>
             <div>
-              <dt>Ordini</dt>
+              <dt>{copy.preparation.orders}</dt>
               <dd>{billingCase.orders.length}</dd>
             </div>
             <div>
-              <dt>Anagrafica</dt>
+              <dt>{copy.preparation.customerRecord}</dt>
               <dd>
                 {billingCase.customer_corrected_at
                   ? `Corretta il ${dateTime(billingCase.customer_corrected_at)}`
-                  : "Come importata dalla sorgente"}
+                  : copy.preparation.customerRecordOriginal}
               </dd>
             </div>
           </dl>
@@ -239,36 +234,41 @@ export default function BillingCaseDetail() {
               {revisionField}
               <input type="hidden" name="intent" value="reactivate" />
               <button className="button button--secondary" type="submit">
-                Riattiva preparazione
+                {copy.preparation.reactivate}
               </button>
             </Form>
           ) : billingCase.status === "DO_NOT_TRANSMIT" ? (
             <p className="notice section-gap">
               {reactivationBlockerMessages[billingCase.reactivation_blocker ?? ""] ??
-                "Questa preparazione resta consultabile in archivio e non può essere riattivata."}
+                copy.preparation.archivedOnly}
             </p>
           ) : editable ? (
             <Form method="post" className="section-gap">
               {csrfField}
               {revisionField}
               <input type="hidden" name="intent" value="do-not-transmit" />
-              <label>
-                Motivo
-                <input
-                  aria-describedby={error ? "case-error" : undefined}
-                  aria-invalid={error ? true : undefined}
-                  maxLength={500}
-                  name="reason"
-                  required
-                />
-              </label>
+              <div className="field-with-help">
+                <label>
+                  {copy.preparation.reason}
+                  <input
+                    aria-describedby={error ? "case-error reason-help" : "reason-help"}
+                    aria-invalid={error ? true : undefined}
+                    maxLength={500}
+                    name="reason"
+                    required
+                  />
+                </label>
+                <small className="field-help" id="reason-help">
+                  {copy.preparation.reasonHelp}
+                </small>
+              </div>
               {error ? (
                 <p className="error" id="case-error">
                   {error.message}
                 </p>
               ) : null}
-              <button className="button button--secondary" type="submit">
-                Non trasmettere
+              <button className="button button--warning" type="submit">
+                {copy.preparation.doNotTransmit}
               </button>
             </Form>
           ) : null}
@@ -284,8 +284,8 @@ export default function BillingCaseDetail() {
       ) : null}
       {billingCase.revisions.length ? (
         <section className="card section-gap">
-          <h2>Modifiche dalla sorgente</h2>
-          <p>Le versioni precedenti sono conservate per consentire la verifica.</p>
+          <h2>{copy.preparation.changesTitle}</h2>
+          <p>{copy.preparation.changesIntro}</p>
           <ol className="timeline">
             {billingCase.revisions.map(
               (revision: {
@@ -297,8 +297,7 @@ export default function BillingCaseDetail() {
                 <li key={revision.id}>
                   <strong>Ordine {revision.display_number}</strong>
                   <span>
-                    {dateTime(revision.created_at)} · Campi modificati:{" "}
-                    {revision.changedFields.join(", ")}
+                    {dateTime(revision.created_at)} · {copy.preparation.changedOrderData}
                   </span>
                 </li>
               ),
@@ -307,19 +306,19 @@ export default function BillingCaseDetail() {
         </section>
       ) : null}
       <section className="card section-gap">
-        <h2>Registro attività</h2>
+        <h2>{copy.preparation.activity}</h2>
         {billingCase.audit.length ? (
           <ol className="timeline">
             {billingCase.audit.map((event) => (
               <li key={event.id}>
-                <strong>{auditActionLabels[event.action] ?? "Attività registrata"}</strong>
+                <strong>{auditActionLabel(event.action) ?? copy.activity.recorded}</strong>
                 <span>{dateTime(event.created_at)}</span>
                 {event.reason ? <span>{event.reason}</span> : null}
               </li>
             ))}
           </ol>
         ) : (
-          <p>Nessuna attività registrata.</p>
+          <p>{copy.preparation.noActivity}</p>
         )}
       </section>
     </AppShell>
