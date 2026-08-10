@@ -11,6 +11,7 @@
     "db:migrate": "npm run build:server && node build-server/db/migrate.js",
     "dev": "react-router dev",
     "dev:shopify": "sh scripts/development.sh shopify",
+    "dev:shopify:cli": "npm exec -- @shopify/cli app dev --no-color",
     "dev:up": "sh scripts/development.sh",
     "dev:worker": "node --watch src/worker.ts",
     "doctor": "react-doctor --scope full --blocking warning .",
