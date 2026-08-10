@@ -6,6 +6,7 @@ import type pg from "pg";
 
 import {
   documentInputSchema,
+  fatturaPaAddress,
   fatturaPaText,
   fiscalNumberLabel,
   fiscalProfileSchema,
@@ -227,7 +228,7 @@ function projectedRecipientIdentity(value: DocumentInput["recipient"]): string {
 
 function recipientAddress(value: DocumentInput["recipient"], projected = false): string {
   const street = projected
-    ? fatturaPaText([value.address.line1, value.address.line2].filter(Boolean).join(", "), 60)
+    ? fatturaPaAddress(value.address.line1, value.address.line2)
     : joined([value.address.line1, value.address.line2]);
   return joined([
     street,

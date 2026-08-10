@@ -25,11 +25,11 @@ const fiscalAddress = z.object({
 });
 const recipientAddress = z
   .object({
-    line1: text(60),
-    line2: text(60).optional(),
-    postalCode: text(16),
-    city: text(60),
-    province: text(60).optional(),
+    line1: text(1000),
+    line2: text(1000).optional(),
+    postalCode: text(1000),
+    city: text(1000),
+    province: text(1000).optional(),
     countryCode: country,
   })
   .superRefine((value, context) => {
@@ -207,10 +207,10 @@ export const documentInputSchema = z
     documentDate: postgresDateSchema,
     recipient: z.object({
       kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU"]),
-      displayName: text(80).optional(),
-      firstName: text(60).optional(),
-      lastName: text(60).optional(),
-      businessName: text(80).optional(),
+      displayName: text(1000).optional(),
+      firstName: text(1000).optional(),
+      lastName: text(1000).optional(),
+      businessName: text(1000).optional(),
       certifiedEmail: z.email().max(256).optional(),
       recipientCode: z
         .string()
@@ -266,6 +266,11 @@ export type DocumentInput = z.infer<typeof documentInputSchema>;
 
 export function fatturaPaText(value: string, max: number): string {
   return value.replace(/[^\u0020-\u007e\u00a0-\u00ff]/gu, "?").slice(0, max);
+}
+
+export function fatturaPaAddress(line1: string, line2?: string): string {
+  const suffix = line2 ? `, ${fatturaPaText(line2, 57)}` : "";
+  return `${fatturaPaText(line1, 60 - suffix.length)}${suffix}`;
 }
 
 function amount(cents: number): string {
@@ -416,7 +421,7 @@ function addAddress(
   value: z.infer<typeof fiscalAddress> | z.infer<typeof recipientAddress>,
 ): void {
   const line2 = "line2" in value ? value.line2 : undefined;
-  add(parent, "Indirizzo", fatturaPaText([value.line1, line2].filter(Boolean).join(", "), 60));
+  add(parent, "Indirizzo", fatturaPaAddress(value.line1, line2));
   add(parent, "CAP", value.countryCode === "IT" ? value.postalCode : "00000");
   add(parent, "Comune", fatturaPaText(value.city, 60));
   if (value.countryCode === "IT" && value.province) add(parent, "Provincia", value.province);

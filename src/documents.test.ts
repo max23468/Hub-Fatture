@@ -141,10 +141,10 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
     lines: [{ ...invoice.lines[0]!, description: "Πώληση" }],
     recipient: {
       kind: "EU",
-      displayName: "Εμπόριο",
+      displayName: `Εμπόριο${" A".repeat(50)}`,
       taxIdentifiers: [],
       address: {
-        line1: "Οδός 1",
+        line1: `Οδός 1${" lungo".repeat(20)}`,
         line2: "Interno 2",
         postalCode: "1012 AB",
         city: "Αθήνα",
@@ -158,8 +158,9 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
     number: 4,
   });
   await validateFatturaXml(foreignXml);
-  assert.match(foreignXml, /<Denominazione>\?+<\/Denominazione>/);
-  assert.match(foreignXml, /<Indirizzo>\?+ 1, Interno 2<\/Indirizzo>/);
+  assert.match(foreignXml, /<Denominazione>\?+ A A/);
+  assert.match(foreignXml, /<Indirizzo>\?+ 1 lungo lungo/);
+  assert.match(foreignXml, /, Interno 2<\/Indirizzo>/);
   assert.match(foreignXml, /<Comune>\?+<\/Comune>/);
   assert.match(foreignXml, /<Descrizione>\?+<\/Descrizione>/);
   assert.match(foreignXml, /<IdPaese>NL<\/IdPaese>\s*<IdCodice>99999999999<\/IdCodice>/);
