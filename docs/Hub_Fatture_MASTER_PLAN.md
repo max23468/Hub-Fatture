@@ -2216,7 +2216,7 @@ GitHub Actions è l'unico sistema CI/CD. Un comando locale canonico deve poter e
 | `provider` | contratti Shopify/eBay/Aruba/SMTP | security/data quando applicabile, fixture/contract test e verifica su ambiente non produttivo |
 | `deploy` | migrazioni, immagine o modifiche remote | gate completo, scansione immagine quando applicabile, preflight, backup quando necessario, smoke, readback e rollback |
 
-La CI non esegue deploy automatici su merge. Action di terze parti vanno vincolate a commit completi, con permessi minimi, timeout e `concurrency` appropriata. I workflow di verifica possono cancellare run obsoleti; un deploy Production già avviato non viene cancellato da un nuovo push. Dependabot copre npm, GitHub Actions, Dockerfile e Compose e apre PR verso `main`; major, minor, dipendenze runtime/provider, Docker e GitHub Actions restano sempre deliberati manualmente.
+La CI non esegue deploy automatici su merge. Action di terze parti vanno vincolate a commit completi, con permessi minimi, timeout e `concurrency` appropriata. I workflow di verifica possono cancellare run obsoleti; un deploy Production già avviato non viene cancellato da un nuovo push. Dependabot copre npm, GitHub Actions, Dockerfile e Compose e apre PR verso `main`; gli aggiornamenti npm e GitHub Actions minor/patch sono raggruppati e possono essere uniti automaticamente dopo i gate, mentre major, Docker e Compose restano deliberati manualmente.
 
 Il required check `codex-review` riusa il contratto già collaudato in CF Ready invece di introdurre un secondo protocollo:
 
@@ -2233,7 +2233,7 @@ Workflow, script e test sono copie locali degli artefatti canonici comuni alle r
 L'auto-merge Dependabot è ammesso soltanto quando tutte le condizioni seguenti sono vere:
 
 - autore verificato `dependabot[bot]` e repository head uguale alla repository corrente;
-- metadata `dependency-type == direct:development` e `update-type == version-update:semver-patch`;
+- ecosistema `npm` o `github-actions` e update type `version-update:semver-patch` o `version-update:semver-minor`;
 - tutti i required check della stessa head SHA sono verdi;
 - merge squash richiesto con verifica della head corrente; nessuna approvazione automatica;
 - Action `dependabot/fetch-metadata` fissata a commit completo;
@@ -2283,7 +2283,7 @@ Baseline GitHub pubblica:
 - GitHub Environment `Production` protetto, secret scoped, reviewer unico e restrizione a `main`/tag di release;
 - package GHCR pubblico collegato alla repository, attestazioni abilitate e nessuna cancellazione automatica dei digest usati in Production o come rollback;
 - release immutabili abilitate, `.github/release.yml` minimale e pubblicazione consentita soltanto nel flusso release autorizzato;
-- auto-merge Dependabot limitato alle patch delle dev dependency dirette, senza checkout o esecuzione della PR nel workflow privilegiato;
+- auto-merge Dependabot limitato agli aggiornamenti npm e GitHub Actions minor/patch, senza checkout o esecuzione della PR nel workflow privilegiato;
 - workflow da fork senza secret, permessi read-only e nessun checkout di codice esterno sotto `pull_request_target`;
 - titoli PR e commit di merge in formato Conventional Commit, verificati dal gate `Foundation`;
 - nessun `LICENSE` finché il titolare non sceglie esplicitamente di concedere diritti.
@@ -2598,9 +2598,9 @@ Stop point per rivalutare capacità o architettura, non trigger di migrazione au
 - Nessuna beta/RC/canary salvo eccezione esplicita e temporanea documentata.
 - Dipendenze nuove solo quando piattaforma, standard library o stack già installato non coprono il bisogno in modo semplice.
 - `pdfkit` resta assente dal manifest finché HF-O03 non attiva il fallback già selezionato; non valutare una seconda libreria PDF.
-- `react-doctor` ha pin esatto e viene aggiornato deliberatamente insieme alla configurazione e allo smoke; l'Action ufficiale resta bloccante dai warning e fissata a commit completo.
+- `react-doctor` ha pin esatto; minor e patch seguono i gate automatici comuni, mentre le major restano deliberate; l'Action ufficiale resta bloccante dai warning e fissata a commit completo.
 - Oxlint e Oxfmt con pin esatto, aggiornati insieme e senza tool equivalenti mantenuti in parallelo.
-- Dependabot settimanale; auto-merge solo per patch delle dev dependency dirette dopo i required check, tutto il resto deliberato manualmente.
+- Dependabot settimanale; npm e GitHub Actions minor/patch raggruppati e auto-uniti dopo i required check, major, Docker e Compose deliberati manualmente.
 - Audit obbligatorio quando cambiano manifest o lockfile e prima di ogni release.
 - Un advisory senza percorso vulnerabile attivo può essere accettato soltanto con motivazione verificabile e condizione di riapertura.
 
@@ -2963,7 +2963,7 @@ Output:
 - attestazione del digest verificata, gate `Production` osservato, allarmi OCI e monitor HTTP esterno in stato sano;
 - scansione dell'immagine candidata senza finding critici/alti raggiungibili aperti;
 - backup OCI giornaliero osservato, copia cifrata sul Mac e RPO effettivo registrato;
-- auto-merge Dependabot verificato end-to-end sulla prima patch reale idonea di una dev dependency diretta oppure, se non si presenta, su una patch sintetica verso un branch base temporaneo protetto dagli stessi required check e abilitato esplicitamente nei workflow; in ogni caso prima della release Production e senza alterare i pin di `main`;
+- auto-merge Dependabot verificato end-to-end sul primo aggiornamento reale npm o GitHub Actions minor/patch idoneo oppure, se non si presenta, su una patch sintetica verso un branch base temporaneo protetto dagli stessi required check e abilitato esplicitamente nei workflow; in ogni caso prima della release Production e senza alterare i pin di `main`;
 - approvazione del titolare per accedere al canary.
 
 Gate:
@@ -3204,7 +3204,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Creare `AGENTS.md`, `CLAUDE.md` minimale, README, CONTRIBUTING, `SECURITY.md` e `docs/INDEX.md` coerenti.
 - [ ] Pianificare in M1 la Brand Foundation e il design system interno leggero, senza pacchetto separato, sito o asset speculativi.
 - [ ] Dichiarare repository pubblica ma non open source; non aggiungere `LICENSE` senza decisione esplicita.
-- [ ] Configurare protezione `main`, template PR, vulnerabilità private, Dependabot e auto-merge delle sole patch dev dirette senza auto-approvazione; lasciare disabilitati Issues, Discussions e Projects rivolti alla community; adattare da CF Ready `codex-review` exact-HEAD e verificarlo su un nuovo commit.
+- [ ] Configurare protezione `main`, template PR, vulnerabilità private, Dependabot e auto-merge degli aggiornamenti npm e GitHub Actions minor/patch senza auto-approvazione; lasciare disabilitati Issues, Discussions e Projects rivolti alla community; adattare da CF Ready `codex-review` exact-HEAD e verificarlo su un nuovo commit.
 - [ ] Configurare Playwright con Chromium, smoke sintetico e trace soltanto al primo retry fallito.
 - [ ] Abilitare release immutabili e predisporre `.github/release.yml` senza pubblicare release.
 - [ ] Raccogliere documentazione ufficiale corrente Shopify/eBay e guide del pannello Aruba.

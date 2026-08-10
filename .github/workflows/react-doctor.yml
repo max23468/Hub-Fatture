@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - id: doctor
-        uses: millionco/react-doctor@736abc183ac491b4e954fc6bedec3a9a1b73d38b # v2.2.8
+        uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
         with:
           version: latest
           scope: ${{ github.event_name == 'pull_request' && 'changed' || 'full' }}

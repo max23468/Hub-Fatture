@@ -70,7 +70,7 @@ test("React Doctor blocca warning ed errori con versione e Action pinzate", asyn
   const workflow = await read(".github/workflows/react-doctor.yml");
 
   assert.equal(manifest.scripts.doctor, "react-doctor --scope full --blocking warning .");
-  assert.match(workflow, /millionco\/react-doctor@736abc183ac491b4e954fc6bedec3a9a1b73d38b/);
+  assert.match(workflow, /millionco\/react-doctor@[0-9a-f]{40}\b/);
   assert.match(workflow, /version:\s*latest/);
   assert.match(workflow, /scope:.*github\.event_name == 'pull_request'.*'changed'.*'full'/);
   assert.match(workflow, /blocking:\s*warning/);
@@ -80,6 +80,23 @@ test("React Doctor blocca warning ed errori con versione e Action pinzate", asyn
   assert.match(workflow, /fetch-depth:\s*0/);
   assert.match(workflow, /persist-credentials:\s*false/);
   assert.doesNotMatch(workflow, /continue-on-error/);
+});
+
+test("Dependabot auto-unisce soltanto minor e patch npm e GitHub Actions", async () => {
+  const [config, workflow] = await Promise.all([
+    read(".github/dependabot.yml"),
+    read(".github/workflows/dependabot-automerge.yml"),
+  ]);
+
+  assert.match(config, /npm-minor-patch:[\s\S]*update-types:\s*\n\s*- minor\s*\n\s*- patch/);
+  assert.match(config, /actions-minor-patch:[\s\S]*update-types:\s*\n\s*- minor\s*\n\s*- patch/);
+  assert.match(workflow, /package-ecosystem == 'npm'/);
+  assert.match(workflow, /package-ecosystem == 'github-actions'/);
+  assert.match(workflow, /version-update:semver-patch/);
+  assert.match(workflow, /version-update:semver-minor/);
+  assert.match(workflow, /head\.repo\.full_name == github\.repository/);
+  assert.match(workflow, /--match-head-commit "\$HEAD_SHA"/);
+  assert.doesNotMatch(workflow, /actions\/checkout|npm ci/);
 });
 
 test("una patch divergente viene segnalata", () => {

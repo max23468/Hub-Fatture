@@ -25,14 +25,12 @@ jobs:
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Abilita auto-merge per patch delle dev dependency dirette
-        # Oxlint, Oxfmt e React Doctor richiedono review e smoke congiunti.
+      - name: Abilita auto-merge per minor e patch npm e GitHub Actions
         if: >-
-          steps.metadata.outputs.dependency-type == 'direct:development' &&
-          steps.metadata.outputs.update-type == 'version-update:semver-patch' &&
-          !contains(steps.metadata.outputs.dependency-names, 'oxlint') &&
-          !contains(steps.metadata.outputs.dependency-names, 'oxfmt') &&
-          !contains(steps.metadata.outputs.dependency-names, 'react-doctor')
+          (steps.metadata.outputs.package-ecosystem == 'npm' ||
+           steps.metadata.outputs.package-ecosystem == 'github-actions') &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+           steps.metadata.outputs.update-type == 'version-update:semver-minor')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
