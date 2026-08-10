@@ -176,6 +176,52 @@ type InvoiceProjection = Extract<
   { profileMissing: false }
 >;
 
+interface ComparisonRow {
+  field: string;
+  source: string;
+  draft: string;
+  projected: string;
+}
+
+function ComparisonTable({
+  title,
+  rows,
+  lineLabels = false,
+}: {
+  title: string;
+  rows: ComparisonRow[];
+  lineLabels?: boolean;
+}) {
+  const labels = copy.document.comparisonLabels as Record<string, string>;
+  return (
+    <div className="table-wrap section-gap">
+      <table>
+        <caption>{title}</caption>
+        <thead>
+          <tr>
+            <th>{copy.document.comparisonField}</th>
+            <th>{copy.document.comparisonSource}</th>
+            <th>{copy.document.comparisonDraft}</th>
+            <th>{copy.document.comparisonProjection}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.field}>
+              <th scope="row">
+                {lineLabels ? copy.document.comparisonLine(row.field) : labels[row.field]}
+              </th>
+              <td data-label={copy.document.comparisonSource}>{row.source}</td>
+              <td data-label={copy.document.comparisonDraft}>{row.draft}</td>
+              <td data-label={copy.document.comparisonProjection}>{row.projected}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function InvoiceDocument({
   canApprove,
   csrfToken,
@@ -280,6 +326,23 @@ function InvoiceDocument({
             <dd>RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}</dd>
           </div>
         </dl>
+        <ComparisonTable
+          title={copy.document.comparisonRecipient}
+          rows={projection.comparison.recipient}
+        />
+        <ComparisonTable
+          lineLabels
+          title={copy.document.comparisonLines}
+          rows={projection.comparison.lines}
+        />
+        <ComparisonTable
+          title={copy.document.comparisonPayment}
+          rows={projection.comparison.payment}
+        />
+        <ComparisonTable
+          title={copy.document.comparisonTechnical}
+          rows={projection.comparison.technical}
+        />
         <details className="section-gap">
           <summary>{copy.document.technicalXml}</summary>
           <pre className="code-block">{projection.xml}</pre>

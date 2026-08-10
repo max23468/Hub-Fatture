@@ -228,6 +228,12 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .click();
   await expect(page.getByRole("heading", { name: "Confronto fiscale" })).toBeVisible();
   await expect(page.getByText("RF14 · N5 · FPR · versione 1")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Destinatario" })).toContainText("Origine");
+  await expect(page.getByRole("table", { name: "Righe" })).toContainText("Proiezione XML");
+  await expect(page.getByRole("table", { name: "Pagamento" })).toContainText("TP02 · MP08");
+  await expect(page.getByRole("table", { name: "Dati tecnici e fiscali" })).toContainText(
+    "TD01 · FPR12 · FPR",
+  );
   await page.getByRole("button", { name: "Salva e valida bozza" }).click();
   await page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }).click();
   await expect(

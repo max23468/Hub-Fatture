@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -61,6 +61,9 @@ test(
       const save = async (caseId: string) => {
         const projection = await documents.getInvoiceProjection(caseId);
         assert.ok(projection && !projection.profileMissing && "lines" in projection);
+        assert.equal(projection.comparison.recipient[0]!.source, "Mario Rossi");
+        assert.match(projection.comparison.lines[0]!.projected, /N5/);
+        assert.match(projection.comparison.payment[0]!.projected, /TP02 · MP08/);
         await documents.saveInvoiceDraft(
           caseId,
           {
@@ -162,6 +165,12 @@ test(
         const xml = await documents.readDocumentXml(row.id);
         assert.ok(xml?.includes(Buffer.from("<RegimeFiscale>RF14</RegimeFiscale>")));
       }
+      await unlink(path.join(storage, rows[0]!.relative_path));
+      assert.ok(
+        (await documents.readDocumentXml(rows[0]!.id))?.includes(
+          Buffer.from("<RegimeFiscale>RF14</RegimeFiscale>"),
+        ),
+      );
       await assert.rejects(
         database.getPool().query("UPDATE documents SET total_amount = total_amount + 1"),
         /immutabile/,

@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { link, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import type pg from "pg";
@@ -32,6 +32,7 @@ interface CaseOrder {
   display_number: string;
   gross_amount: number;
   payment_status: string;
+  customer_snapshot_json: Record<string, unknown>;
 }
 
 interface CaseRow {
@@ -67,6 +68,10 @@ const romeDate = new Intl.DateTimeFormat("en-CA", {
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
+});
+const comparisonMoney = new Intl.NumberFormat("it-IT", {
+  style: "currency",
+  currency: "EUR",
 });
 
 function today(): string {
@@ -127,7 +132,8 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
          'provider', orders.provider,
          'display_number', orders.display_number,
          'gross_amount', orders.gross_amount,
-         'payment_status', orders.payment_status
+         'payment_status', orders.payment_status,
+         'customer_snapshot_json', orders.normalized_snapshot_json -> 'customer'
        ) ORDER BY orders.id) AS orders
        FROM orders WHERE orders.billing_case_id = billing_cases.id
      ) AS case_orders ON true
@@ -194,6 +200,164 @@ function documentInput(caseRow: CaseRow, draft: DraftRow | null): DocumentInput 
   return parsed.data;
 }
 
+function joined(values: Array<string | undefined>): string {
+  return values.filter(Boolean).join(" · ") || "—";
+}
+
+function recipientIdentity(value: DocumentInput["recipient"]): string {
+  return value.businessName ?? ([value.firstName, value.lastName].filter(Boolean).join(" ") || "—");
+}
+
+function recipientAddress(value: DocumentInput["recipient"]): string {
+  return joined([
+    value.address.line1,
+    joined([value.address.postalCode, value.address.city]),
+    value.address.province,
+    value.address.countryCode,
+  ]);
+}
+
+function recipientTaxes(value: DocumentInput["recipient"]): string {
+  return joined(
+    value.taxIdentifiers.map((identifier) =>
+      joined([identifier.type, identifier.countryCode, identifier.value]),
+    ),
+  );
+}
+
+function projectedRecipientTaxes(value: DocumentInput["recipient"]): string {
+  const vat =
+    value.taxIdentifiers.find((identifier) => identifier.type === "PARTITA_IVA") ??
+    (value.kind === "EU" ? value.taxIdentifiers[0] : undefined);
+  const fiscalCode = value.taxIdentifiers.find(
+    (identifier) => identifier.type === "CODICE_FISCALE",
+  );
+  return joined([
+    vat
+      ? joined(["PARTITA_IVA", vat.countryCode ?? value.address.countryCode, vat.value])
+      : undefined,
+    fiscalCode ? joined(["CODICE_FISCALE", fiscalCode.value]) : undefined,
+  ]);
+}
+
+function paymentStatus(value: string): string {
+  return (
+    {
+      PAID: "Pagato",
+      PENDING: "In attesa",
+      REFUNDED: "Rimborsato",
+    }[value] ?? "Da verificare"
+  );
+}
+
+function sourceRecipients(
+  orders: CaseOrder[],
+  pick: (value: DocumentInput["recipient"]) => string,
+) {
+  return joined([...new Set(orders.map((order) => pick(recipient(order.customer_snapshot_json))))]);
+}
+
+function money(cents: number): string {
+  return comparisonMoney.format(cents / 100);
+}
+
+function invoiceComparison(caseRow: CaseRow, input: DocumentInput, profile: FiscalProfile) {
+  const destinationCode =
+    input.recipient.kind === "EU" ? "XXXXXXX" : (input.recipient.recipientCode ?? "0000000");
+  const sourceById = new Map(caseRow.orders.map((order) => [order.id, sourceLine(order)]));
+  return {
+    recipient: [
+      {
+        field: "identity" as const,
+        source: sourceRecipients(caseRow.orders, recipientIdentity),
+        draft: recipientIdentity(input.recipient),
+        projected: recipientIdentity(input.recipient),
+      },
+      {
+        field: "taxes" as const,
+        source: sourceRecipients(caseRow.orders, recipientTaxes),
+        draft: recipientTaxes(input.recipient),
+        projected: projectedRecipientTaxes(input.recipient),
+      },
+      {
+        field: "address" as const,
+        source: sourceRecipients(caseRow.orders, recipientAddress),
+        draft: recipientAddress(input.recipient),
+        projected: recipientAddress(input.recipient),
+      },
+      {
+        field: "delivery" as const,
+        source: sourceRecipients(caseRow.orders, (value) =>
+          joined([value.recipientCode, value.certifiedEmail]),
+        ),
+        draft: joined([input.recipient.recipientCode, input.recipient.certifiedEmail]),
+        projected: joined([
+          `SdI ${destinationCode}`,
+          destinationCode === "0000000" ? input.recipient.certifiedEmail : undefined,
+        ]),
+      },
+    ],
+    lines: input.lines.map((line, index) => {
+      const source = sourceById.get(line.orderId ?? "");
+      return {
+        field: String(index + 1),
+        source: source
+          ? joined([
+              source.description,
+              `1 × ${money(source.unitAmount)}`,
+              money(source.unitAmount),
+            ])
+          : "—",
+        draft: joined([
+          line.description,
+          `${line.quantity} × ${money(line.unitAmount)}`,
+          money(line.quantity * line.unitAmount),
+        ]),
+        projected: joined([
+          line.description,
+          `${line.quantity} × ${money(line.unitAmount)}`,
+          money(line.quantity * line.unitAmount),
+          profile.taxNature,
+        ]),
+      };
+    }),
+    payment: [
+      {
+        field: "status" as const,
+        source: joined(
+          caseRow.orders.map(
+            (order) =>
+              `${order.provider === "SHOPIFY" ? "Shopify" : "eBay"} ${order.display_number}: ${paymentStatus(order.payment_status)}`,
+          ),
+        ),
+        draft: caseRow.orders.some((order) => order.payment_status === "PENDING")
+          ? "Pagamento pendente"
+          : "Pagamento registrato",
+        projected: `${profile.payment.condition} · ${profile.payment.invoiceMethod}`,
+      },
+    ],
+    technical: [
+      {
+        field: "document" as const,
+        source: joined(
+          caseRow.orders.map(
+            (order) =>
+              `${order.provider === "SHOPIFY" ? "Shopify" : "eBay"} ${order.display_number}`,
+          ),
+        ),
+        draft: joined([input.documentDate, profile.series]),
+        projected: `TD01 · FPR12 · ${profile.series}`,
+      },
+      {
+        field: "tax" as const,
+        source: "—",
+        draft: `${profile.seller.taxRegime} · ${profile.taxNature}`,
+        projected: `${profile.seller.taxRegime} · ${profile.taxNature} · ${profile.legalReference}`,
+      },
+    ],
+  };
+}
+
 export async function getInvoiceProjection(caseId: string) {
   if (!isDatabaseId(caseId)) return null;
   const caseRow = await loadCase(getPool(), caseId);
@@ -224,6 +388,7 @@ export async function getInvoiceProjection(caseId: string) {
     paymentPending: caseRow.orders.some((order) => order.payment_status === "PENDING"),
     projectionSha256: projection.sha256,
     xml: projection.xml,
+    comparison: invoiceComparison(caseRow, input, profile.profile_json),
     approved: draft?.status === "APPROVED",
   };
 }
@@ -368,6 +533,133 @@ function integer(value: unknown): number {
   return parsed;
 }
 
+interface StoredDocumentRow {
+  id: string;
+  billing_case_id: string;
+  series: string;
+  fiscal_year: number;
+  fiscal_number: number;
+  immutable_snapshot_json: unknown;
+  fiscal_profile_snapshot_json: unknown;
+  relative_path: string;
+  sha256: string;
+  size_bytes: number;
+}
+
+function errno(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+function storagePath(relativePath: string): { root: string; absolutePath: string } {
+  const root = path.resolve(getConfig().DOCUMENT_STORAGE_ROOT);
+  const absolutePath = path.resolve(root, relativePath);
+  if (!absolutePath.startsWith(`${root}${path.sep}`)) {
+    throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+  }
+  return { root, absolutePath };
+}
+
+async function verifiedFile(
+  filePath: string,
+  sha256: string,
+  sizeBytes: number,
+): Promise<Buffer | null> {
+  let contents;
+  try {
+    contents = await readFile(filePath);
+  } catch (error) {
+    if (errno(error, "ENOENT")) return null;
+    throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+  }
+  if (
+    contents.byteLength !== sizeBytes ||
+    createHash("sha256").update(contents).digest("hex") !== sha256
+  ) {
+    throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+  }
+  return contents;
+}
+
+function regenerateStoredXml(row: StoredDocumentRow): string {
+  const input = documentInputSchema.parse(row.immutable_snapshot_json);
+  const profile = fiscalProfileSchema.parse(row.fiscal_profile_snapshot_json);
+  const xml = generateFatturaXml(profile, input, {
+    year: row.fiscal_year,
+    number: row.fiscal_number,
+  });
+  if (
+    Buffer.byteLength(xml) !== row.size_bytes ||
+    createHash("sha256").update(xml).digest("hex") !== row.sha256
+  ) {
+    throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+  }
+  return xml;
+}
+
+async function materializeStoredXml(row: StoredDocumentRow, approvedXml?: string) {
+  const { root, absolutePath } = storagePath(row.relative_path);
+  const stageDirectory = path.join(root, ".staging");
+  const stagePath = path.join(stageDirectory, `${row.id}-${row.sha256}.xml`);
+  await mkdir(path.dirname(absolutePath), { recursive: true, mode: 0o700 });
+  await mkdir(stageDirectory, { recursive: true, mode: 0o700 });
+  if (await verifiedFile(absolutePath, row.sha256, row.size_bytes)) {
+    await unlink(stagePath).catch((error: unknown) => {
+      if (!errno(error, "ENOENT")) throw error;
+    });
+    return;
+  }
+  const xml = approvedXml ?? regenerateStoredXml(row);
+  if (!(await verifiedFile(stagePath, row.sha256, row.size_bytes))) {
+    const temporaryPath = `${stagePath}.${randomUUID()}.tmp`;
+    try {
+      const handle = await open(temporaryPath, "wx", 0o600);
+      try {
+        await handle.writeFile(xml);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await rename(temporaryPath, stagePath);
+    } catch (error) {
+      await unlink(temporaryPath).catch(() => undefined);
+      throw error instanceof AppError ? error : new AppError("DOCUMENT_STORAGE_FAILED", 500);
+    }
+  }
+  try {
+    await link(stagePath, absolutePath);
+  } catch (error) {
+    if (!errno(error, "EEXIST")) throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+    if (!(await verifiedFile(absolutePath, row.sha256, row.size_bytes))) {
+      throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+    }
+  }
+  await unlink(stagePath).catch((error: unknown) => {
+    if (!errno(error, "ENOENT")) throw error;
+  });
+}
+
+async function loadStoredDocuments(where = "", value?: string): Promise<StoredDocumentRow[]> {
+  const result = await getPool().query<StoredDocumentRow>(
+    `SELECT documents.id, documents.billing_case_id, documents.series,
+            documents.fiscal_year, documents.fiscal_number,
+            documents.immutable_snapshot_json, documents.fiscal_profile_snapshot_json,
+            storage_objects.relative_path, storage_objects.sha256, storage_objects.size_bytes
+     FROM documents
+     JOIN storage_objects ON storage_objects.id = documents.storage_object_id
+     WHERE documents.status = 'APPROVED' ${where}`,
+    value ? [value] : [],
+  );
+  return result.rows;
+}
+
+export async function reconcileDocumentStorage(): Promise<void> {
+  await Promise.all((await loadStoredDocuments()).map((row) => materializeStoredXml(row)));
+}
+
+export function startDocumentStorageReconciliation(): void {
+  void reconcileDocumentStorage().catch((error: unknown) => console.error(error));
+}
+
 export async function approveInvoice(
   caseId: string,
   raw: {
@@ -384,9 +676,14 @@ export async function approveInvoice(
   const caseRevision = integer(raw.caseRevision);
   const draftVersion = integer(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
-  let writtenPath: string | undefined;
+  let committed: {
+    id: string;
+    fiscalNumber: string;
+    xml: string;
+    storage: StoredDocumentRow;
+  } | null;
   try {
-    return await withTransaction(async (client) => {
+    committed = await withTransaction(async (client) => {
       const caseRow = await loadCase(client, caseId, true);
       if (!caseRow) return null;
       if (caseRow.status !== "READY") throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
@@ -442,18 +739,7 @@ export async function approveInvoice(
         String(year),
         `${series}-${String(fiscalNumber).padStart(4, "0")}-${String(year).slice(-2)}.xml`,
       );
-      const root = path.resolve(getConfig().DOCUMENT_STORAGE_ROOT);
-      const absolutePath = path.resolve(root, relativePath);
-      if (!absolutePath.startsWith(`${root}${path.sep}`)) {
-        throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
-      }
-      await mkdir(path.dirname(absolutePath), { recursive: true, mode: 0o700 });
-      try {
-        await writeFile(absolutePath, xml, { flag: "wx", mode: 0o600 });
-      } catch {
-        throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
-      }
-      writtenPath = absolutePath;
+      storagePath(relativePath);
       const storage = await client.query<{ id: string }>(
         `INSERT INTO storage_objects
           (kind, relative_path, sha256, size_bytes, content_type)
@@ -532,12 +818,43 @@ export async function approveInvoice(
         },
         requestId: actor.requestId,
       });
-      return { id: draft.id, fiscalNumber: label };
+      return {
+        id: draft.id,
+        fiscalNumber: label,
+        xml,
+        storage: {
+          id: draft.id,
+          billing_case_id: caseId,
+          series,
+          fiscal_year: year,
+          fiscal_number: fiscalNumber,
+          immutable_snapshot_json: snapshot,
+          fiscal_profile_snapshot_json: profile.profile_json,
+          relative_path: relativePath,
+          sha256,
+          size_bytes: Buffer.byteLength(xml),
+        },
+      };
     });
   } catch (error) {
-    if (writtenPath) await unlink(writtenPath).catch(() => undefined);
-    throw error;
+    if (error instanceof AppError) throw error;
+    const recovered = await loadStoredDocuments("AND documents.billing_case_id = $1", caseId).catch(
+      () => [],
+    );
+    if (!recovered[0]) throw error;
+    await materializeStoredXml(recovered[0]);
+    return {
+      id: recovered[0].id,
+      fiscalNumber: fiscalNumberLabel(
+        recovered[0].series,
+        recovered[0].fiscal_year,
+        recovered[0].fiscal_number,
+      ),
+    };
   }
+  if (!committed) return null;
+  await materializeStoredXml(committed.storage, committed.xml);
+  return { id: committed.id, fiscalNumber: committed.fiscalNumber };
 }
 
 export async function activateFiscalProfile(
@@ -614,29 +931,10 @@ export async function listDocuments() {
 
 export async function readDocumentXml(documentId: string): Promise<Buffer | null> {
   if (!isDatabaseId(documentId)) return null;
-  const result = await getPool().query<{
-    relative_path: string;
-    sha256: string;
-    size_bytes: number;
-  }>(
-    `SELECT storage_objects.relative_path, storage_objects.sha256, storage_objects.size_bytes
-     FROM documents JOIN storage_objects ON storage_objects.id = documents.storage_object_id
-     WHERE documents.id = $1 AND documents.status = 'APPROVED'`,
-    [documentId],
-  );
-  const row = result.rows[0];
+  const row = (await loadStoredDocuments("AND documents.id = $1", documentId))[0];
   if (!row || row.size_bytes > 4_900_000) return null;
-  const root = path.resolve(getConfig().DOCUMENT_STORAGE_ROOT);
-  const absolutePath = path.resolve(root, row.relative_path);
-  if (!absolutePath.startsWith(`${root}${path.sep}`)) return null;
-  const xml = await readFile(absolutePath);
-  if (
-    xml.byteLength !== row.size_bytes ||
-    createHash("sha256").update(xml).digest("hex") !== row.sha256
-  ) {
-    throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
-  }
-  return xml;
+  await materializeStoredXml(row);
+  return verifiedFile(storagePath(row.relative_path).absolutePath, row.sha256, row.size_bytes);
 }
 
 export async function listMassApprovalCandidates() {
