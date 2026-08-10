@@ -16,7 +16,10 @@ async function errorCode(promise: Promise<unknown>): Promise<ErrorCode> {
 test("le risposte provider non affidabili usano i codici stabili", async () => {
   const originalFetch = globalThis.fetch;
   try {
-    globalThis.fetch = async () => new Response(null, { status: 401 });
+    globalThis.fetch = async (_url, init) => {
+      assert.equal(init?.redirect, "error");
+      return new Response(null, { status: 401 });
+    };
     assert.equal(
       await errorCode(providerJson("https://provider.invalid")),
       "AUTH_PROVIDER_EXPIRED",

@@ -4,7 +4,7 @@ Questo documento elenca solo nomi logici e destinazioni. Non inserire valori, pr
 
 | Nome logico                                | Ambiente                 | Destinazione                                              | Owner    | Rotazione / revoca                                                    |
 | ------------------------------------------ | ------------------------ | --------------------------------------------------------- | -------- | --------------------------------------------------------------------- |
-| `ADMIN_BOOTSTRAP_TOKEN`                    | Development / Production | file secret applicativo                                   | titolare | ruotare dopo il bootstrap e ridistribuire app                         |
+| `ADMIN_BOOTSTRAP_TOKEN`                    | Development / Production | Portachiavi macOS / file secret applicativo               | titolare | ruotare dopo il bootstrap e ridistribuire app                         |
 | `DATABASE_URL`                             | Development / Production | configurazione processo app                               | titolare | ruotare ruolo/password PostgreSQL e riavviare app                     |
 | Password account `matteo`                  | Development / Production | password manager del titolare, voce distinta per ambiente | titolare | ruotare l’hash applicativo e revocare le sessioni esistenti           |
 | Password account `codex`                   | Development / Production | Portachiavi macOS, voce distinta per ambiente             | titolare | ruotare l’hash applicativo, revocare le sessioni e aggiornare la voce |

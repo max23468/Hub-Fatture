@@ -141,9 +141,11 @@ test("Shopify CLI riusa database e chiave dello stack Development", async () => 
     ),
   );
   assert.match(script, /Hub Fatture Development Encryption/);
+  assert.match(script, /Hub Fatture Development Bootstrap Token/);
   assert.match(script, /127\.0\.0\.1:5432\/hub_fatture/);
   assert.match(script, /syncbay-dev\.myshopify\.com/);
   assert.match(script, /npm run dev:shopify:cli/);
+  assert.doesNotMatch(script, /development-bootstrap-token-change-me/);
   assert.match(manifest, /"@shopify\/cli": "4\.6\.0"/);
   assert.match(manifest, /"dev:shopify:cli": "npm exec -- @shopify\/cli app dev --no-color"/);
 });

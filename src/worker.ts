@@ -7,6 +7,7 @@ import {
   claimJob,
   completeJob,
   failJob,
+  jobLeaseCurrent,
   markConnectionError,
   renewJobLease,
   scheduleDueSyncs,
@@ -23,24 +24,44 @@ process.once("SIGINT", () => (stopping = true));
 async function runJob() {
   const job = await claimJob(workerId);
   if (!job) return false;
+  let leaseLost = false;
   const heartbeat = setInterval(() => {
-    void renewJobLease(job).catch(() => undefined);
+    void renewJobLease(job)
+      .then((current) => {
+        if (!current) leaseLost = true;
+      })
+      .catch(() => {
+        leaseLost = true;
+      });
   }, 60_000);
   heartbeat.unref();
+  const assertLease = async () => {
+    if (leaseLost || !(await jobLeaseCurrent(job))) {
+      throw new AppError("CONFLICT_REVISION", 409);
+    }
+  };
   try {
-    if (job.type === "shopify_sync_orders") await syncShopifyOrders();
-    if (job.type === "ebay_sync_orders") await syncEbayOrders();
+    await assertLease();
+    if (job.type === "shopify_sync_orders") await syncShopifyOrders(job);
+    if (job.type === "ebay_sync_orders") await syncEbayOrders(job);
     let result: Record<string, unknown> = {};
     if (job.type === "ebay_preview_history") result = await previewEbayHistory();
     if (job.type === "shopify_process_webhook") {
       const orderId = String(job.payload.orderId ?? "");
       if (!orderId) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
-      await importOrders([await fetchShopifyOrder(orderId)], {
-        type: "SYSTEM",
-        requestId: `shopify-webhook:${job.id}`,
-      });
+      const order = await fetchShopifyOrder(orderId);
+      await assertLease();
+      await importOrders(
+        [order],
+        {
+          type: "SYSTEM",
+          requestId: `shopify-webhook:${job.id}`,
+        },
+        job,
+      );
     }
-    await completeJob(job, result);
+    await assertLease();
+    if (!(await completeJob(job, result))) throw new AppError("CONFLICT_REVISION", 409);
   } catch (error) {
     const appError = error instanceof AppError ? error : new AppError("PROVIDER_UNAVAILABLE", 503);
     const provider = job.type.startsWith("shopify") ? "SHOPIFY" : "EBAY";

@@ -9,6 +9,7 @@ import {
   SHOPIFY_API_SUPPORTED_UNTIL,
   SHOPIFY_API_VERSION,
   mapShopifyOrder,
+  shopifyAccountReference,
   shopifyGraphqlError,
   shopifyUpdatedAtQuery,
 } from "./shopify.server.ts";
@@ -26,6 +27,14 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
 
   assert.equal(SHOPIFY_API_VERSION, "2026-07");
   assert.equal(SHOPIFY_API_SUPPORTED_UNTIL, "2027-07-16");
+  assert.equal(
+    shopifyAccountReference("Shop.Example.Invalid", "shop.example.invalid"),
+    "Shop.Example.Invalid",
+  );
+  assert.throws(
+    () => shopifyAccountReference("altro-shop.example.invalid", "shop.example.invalid"),
+    (error) => error instanceof AppError && error.code === "AUTH_PROVIDER_ACCOUNT_MISMATCH",
+  );
   assert.equal(
     shopifyUpdatedAtQuery("2026-08-09T12:34:56.000Z"),
     "updated_at:>='2026-08-09T12:34:56.000Z'",

@@ -288,12 +288,7 @@ export default function BillingCaseDetail() {
           <p>{copy.preparation.changesIntro}</p>
           <ol className="timeline">
             {billingCase.revisions.map(
-              (revision: {
-                id: string;
-                display_number: string;
-                created_at: string;
-                changedFields: string[];
-              }) => (
+              (revision: { id: string; display_number: string; created_at: string }) => (
                 <li key={revision.id}>
                   <strong>Ordine {revision.display_number}</strong>
                   <span>

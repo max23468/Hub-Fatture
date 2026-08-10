@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AppError } from "./errors.ts";
-import { allowedOrigins, readForm } from "./http.server.ts";
+import { allowedOrigins, readForm, securePrivateHeaders } from "./http.server.ts";
 
 const contentType = { "content-type": "application/x-www-form-urlencoded" };
 
@@ -52,6 +52,13 @@ test("i due loopback locali valgono come stessa origine, Production no", () => {
     [...allowedOrigins("http://localhost:8080", "production")],
     ["http://localhost:8080"],
   );
+});
+
+test("le risposte private non restano nella cache", () => {
+  const headers = new Headers({ Vary: "Accept-Encoding" });
+  securePrivateHeaders(headers);
+  assert.equal(headers.get("Cache-Control"), "no-store, private");
+  assert.equal(headers.get("Vary"), "Accept-Encoding, Cookie");
 });
 
 test("un form da un’origine diversa viene rifiutato", async () => {

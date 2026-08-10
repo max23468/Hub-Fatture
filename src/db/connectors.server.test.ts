@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { closePool, getPool } from "./client.server.ts";
+import { closePool, getPool, withTransaction } from "./client.server.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { importOrders } from "./order-import.server.ts";
@@ -114,10 +114,28 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     });
     assert.equal(first.duplicate, false);
     assert.equal(duplicate.duplicate, true);
+    await assert.rejects(
+      connectors.ingestShopifyWebhook({
+        externalEventId: "event-1",
+        topic: "ORDERS_UPDATED",
+        payloadSha256: "b".repeat(64),
+        orderId: "gid://shopify/Order/1",
+      }),
+      (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+    );
     assert.equal((await getPool().query("SELECT * FROM jobs")).rowCount, 1);
 
     const claimed = await connectors.claimJob("worker-1");
     assert.ok(claimed);
+    await withTransaction(async (client) => {
+      await connectors.assertJobLease(client, claimed);
+      await client.query(
+        "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
+        [claimed.id],
+      );
+      await connectors.renewLockedJobLease(client, claimed);
+    });
+    assert.equal(await connectors.jobLeaseCurrent(claimed), true);
     await getPool().query(
       "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
       [claimed.id],
@@ -125,6 +143,16 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     const recovered = await connectors.claimJob("worker-2");
     assert.equal(recovered?.id, claimed.id);
     assert.equal(recovered?.attempts, 2);
+    assert.equal(await connectors.jobLeaseCurrent(claimed), false);
+    assert.equal(await connectors.jobLeaseCurrent(recovered!), true);
+    await assert.rejects(
+      connectors.writeCursor("SHOPIFY", "obsoleto", "2026-08-01T00:00:00Z", claimed),
+      (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    await assert.rejects(
+      connectors.markConnectionSynced("SHOPIFY", claimed),
+      (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
     assert.equal(await connectors.completeJob(claimed), false);
     assert.equal(await connectors.failJob(claimed, "PROVIDER_UNAVAILABLE"), null);
     assert.equal(await connectors.renewJobLease(recovered!), true);
@@ -161,10 +189,49 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ),
       webhookBody,
     );
+    await processShopifyWebhook(
+      webhookRequest(
+        "orders/updated",
+        "signed-event-ripetuto",
+        createHmac("sha256", process.env.SHOPIFY_API_SECRET).update(webhookBody).digest("base64"),
+      ),
+      webhookBody,
+    );
+    await assert.rejects(
+      processShopifyWebhook(
+        webhookRequest(
+          "customers/redact",
+          "signed-event-manomesso",
+          createHmac("sha256", process.env.SHOPIFY_API_SECRET).update(webhookBody).digest("base64"),
+        ),
+        webhookBody,
+      ),
+      (error) => error instanceof AppError && error.code === "WEBHOOK_SIGNATURE_INVALID",
+    );
+    await assert.rejects(
+      processShopifyWebhook(
+        new Request("http://localhost:8080/webhooks/shopify", {
+          method: "POST",
+          headers: {
+            "X-Shopify-Hmac-Sha256": createHmac("sha256", process.env.SHOPIFY_API_SECRET)
+              .update(webhookBody)
+              .digest("base64"),
+            "X-Shopify-API-Version": "2026-07",
+            "X-Shopify-Shop-Domain": "altro-shop.example.invalid",
+            "X-Shopify-Topic": "orders/updated",
+            "X-Shopify-Webhook-Id": "signed-event-shop-errato",
+          },
+        }),
+        webhookBody,
+      ),
+      (error) => error instanceof AppError && error.code === "WEBHOOK_SIGNATURE_INVALID",
+    );
+    const signedEventId = createHash("sha256").update(webhookBody).digest("hex");
     assert.equal(
       (
         await getPool().query(
-          "SELECT count(*)::int AS total FROM webhook_events WHERE external_event_id = 'signed-event-1'",
+          "SELECT count(*)::int AS total FROM webhook_events WHERE external_event_id = $1",
+          [signedEventId],
         )
       ).rows[0].total,
       1,
@@ -298,6 +365,10 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     const mappedOrders = payloads.map((payload) =>
       mapShopifyOrder(payload, "shop.example.invalid"),
     );
+    await assert.rejects(
+      importOrders(mappedOrders, { type: "SYSTEM", requestId: "lease-obsoleta" }, claimed!),
+      (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
     await importOrders(mappedOrders, { type: "SYSTEM", requestId: "privacy-fixture" });
     const rawOnlyRefundChange = structuredClone(mappedOrders[1]!);
     rawOnlyRefundChange.updatedAt = "2026-08-02T10:01:00Z";
@@ -317,23 +388,34 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     assert.equal((await getPool().query("SELECT * FROM order_source_revisions")).rowCount, 1);
 
     const dataRequestBody = Buffer.from(
-      JSON.stringify({ customer: { id: 2001 }, orders_requested: [1001] }),
+      JSON.stringify({
+        shop_domain: "shop.example.invalid",
+        customer: { id: 2001 },
+        orders_requested: [1001],
+      }),
     );
+    const dataRequestId = createHash("sha256").update(dataRequestBody).digest("hex");
+    const dataRequestSignature = createHmac("sha256", process.env.SHOPIFY_API_SECRET)
+      .update(dataRequestBody)
+      .digest("base64");
+    for (const topic of ["customers/redact", "shop/redact"]) {
+      await assert.rejects(
+        processShopifyWebhook(
+          webhookRequest(topic, `privacy-topic-${topic}`, dataRequestSignature),
+          dataRequestBody,
+        ),
+        (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+      );
+    }
     await processShopifyWebhook(
-      webhookRequest(
-        "customers/data_request",
-        "privacy-data-1",
-        createHmac("sha256", process.env.SHOPIFY_API_SECRET)
-          .update(dataRequestBody)
-          .digest("base64"),
-      ),
+      webhookRequest("customers/data_request", "privacy-data-1", dataRequestSignature),
       dataRequestBody,
     );
     const pendingRequest = await getPool().query<{
       status: string;
       request_payload_json: { customerIds: string[]; orderIds: string[] };
     }>("SELECT status, request_payload_json FROM webhook_events WHERE external_event_id = $1", [
-      "privacy-data-1",
+      dataRequestId,
     ]);
     assert.equal(pendingRequest.rows[0]!.status, "PENDING");
     assert.deepEqual(pendingRequest.rows[0]!.request_payload_json, {
@@ -346,17 +428,26 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ),
       [
         {
-          externalEventId: "privacy-data-1",
+          externalEventId: dataRequestId,
           customerIds: ["gid://shopify/Customer/2001"],
           orderIds: ["gid://shopify/Order/1001"],
         },
       ],
     );
-    await connectors.completeShopifyDataRequest("privacy-data-1", {
+    await connectors.completeShopifyDataRequest(dataRequestId, {
       id: 1,
       requestId: "privacy-data-completed",
     });
     assert.deepEqual(await connectors.pendingShopifyDataRequests(), []);
+    assert.deepEqual(
+      (
+        await getPool().query<{ request_payload_json: Record<string, unknown> }>(
+          "SELECT request_payload_json FROM webhook_events WHERE external_event_id = $1",
+          [dataRequestId],
+        )
+      ).rows[0]!.request_payload_json,
+      {},
+    );
     assert.equal(
       (
         await getPool().query(
@@ -371,7 +462,13 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ["gid://shopify/Order/1002"],
     );
 
-    const redactBody = Buffer.from(JSON.stringify({ customer: { id: 2001 } }));
+    const redactBody = Buffer.from(
+      JSON.stringify({
+        shop_domain: "shop.example.invalid",
+        customer: { id: 2001 },
+        orders_to_redact: [1001],
+      }),
+    );
     await processShopifyWebhook(
       webhookRequest(
         "customers/redact",
@@ -415,10 +512,26 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).duplicate,
       true,
     );
-    await connectors.revokeConnection("SHOPIFY", {
-      type: "SYSTEM",
-      requestId: "shopify-uninstalled-test",
-    });
+    await assert.rejects(
+      connectors.processShopifyPrivacyRecord({
+        externalEventId: "privacy-2",
+        topic: "SHOP_REDACT",
+        payloadSha256: "d".repeat(64),
+      }),
+      (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+    );
+    const uninstallBody = Buffer.from(JSON.stringify({ domain: "shop.example.invalid" }));
+    const uninstallSignature = createHmac("sha256", process.env.SHOPIFY_API_SECRET)
+      .update(uninstallBody)
+      .digest("base64");
+    await processShopifyWebhook(
+      webhookRequest("app/uninstalled", "shopify-uninstalled-test", uninstallSignature),
+      uninstallBody,
+    );
+    await processShopifyWebhook(
+      webhookRequest("app/uninstalled", "shopify-uninstalled-replay", uninstallSignature),
+      uninstallBody,
+    );
     const providerAudit = await getPool().query<{ action: string; request_id: string }>(
       `SELECT action, request_id FROM audit_events
        WHERE action IN ('PROVIDER_CONNECTED', 'PROVIDER_REVOKED') ORDER BY id`,
@@ -427,7 +540,14 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       providerAudit.rows.filter((event) => event.action === "PROVIDER_CONNECTED").length,
       5,
     );
-    assert.equal(providerAudit.rows.at(-1)?.request_id, "shopify-uninstalled-test");
+    assert.equal(
+      providerAudit.rows.at(-1)?.request_id,
+      `shopify-webhook:${createHash("sha256").update(uninstallBody).digest("hex")}`,
+    );
+    assert.equal(
+      providerAudit.rows.filter((event) => event.action === "PROVIDER_REVOKED").length,
+      1,
+    );
   } finally {
     await closePool();
     await database.drop();

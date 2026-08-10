@@ -10,6 +10,18 @@ const LOOPBACK_SIBLING: Record<string, string> = {
   "127.0.0.1": "localhost",
 };
 
+export function securePrivateHeaders(headers: Headers): void {
+  headers.set("Cache-Control", "no-store, private");
+  const vary = new Set(
+    (headers.get("Vary") ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  vary.add("Cookie");
+  headers.set("Vary", [...vary].join(", "));
+}
+
 // Fuori da Production `localhost` e `127.0.0.1` sono lo stesso host: accettarne uno solo
 // significa che aprire lo stack con l'altra forma rende 403 ogni form.
 export function allowedOrigins(baseUrl: string, appEnv: string): Set<string> {

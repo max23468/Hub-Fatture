@@ -84,6 +84,7 @@ export async function setupAccounts(input: {
   if (!validPassword(input.ownerPassword) || !validPassword(input.agentPassword)) {
     throw new AppError("AUTH_PASSWORD_POLICY", 400);
   }
+  if (!(await setupAvailable())) throw new AppError("AUTH_SETUP_DISABLED", 409);
 
   const [ownerHash, agentHash] = await Promise.all([
     hashPassword(input.ownerPassword),
@@ -316,6 +317,6 @@ export function clientIpHash(request: Request): string {
   return hashToken(forwarded || "__diretto__");
 }
 
-export function requestId(request: Request): string {
-  return request.headers.get("x-request-id") ?? randomUUID();
+export function requestId(_request: Request): string {
+  return randomUUID();
 }

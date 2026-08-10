@@ -23,6 +23,14 @@ Le fixture versionate sono sintetiche e anonimizzate. Il readback Development su
 
 Le fixture versionate sono sintetiche e anonimizzate. Il readback Production tramite il keyset `botCF` e i token tenant già custoditi da FiscalBay ha confermato `buyer.taxIdentifier` con tipo `CODICE_FISCALE` e due forme di `paymentSummary.refunds`: entrambe espongono `refundReferenceId` e `amount.value`/`amount.currency`, mentre `refundId` è opzionale. Nessun identificativo, importo o dato personale reale è stato copiato. La fixture e il mapper coprono entrambe le forme e mantengono l'importo cliente `AMBIGUOUS`.
 
+## Invarianti di sicurezza
+
+- I webhook Shopify sono associati al negozio configurato; l'identità persistita deriva dall'hash del corpo firmato, la forma del payload distingue i topic privacy e topic e payload non possono cambiare durante un replay.
+- Disinstallazione e richieste privacy verificano anche il dominio firmato nel corpo. La disinstallazione revoca la connessione e chiude l'evento nella stessa transazione; il payload delle richieste dati viene eliminato dopo l'elaborazione.
+- Import, cursore e stato dei job sono recintati dalla stessa identità di lease; l'import mantiene il lock e rinnova la lease prima del commit, così un worker scaduto non può confermare il lavoro di un successore.
+- L'endpoint pubblico eBay limita le richieste prima del recupero delle chiavi; cache positiva, cache negativa, concorrenza e budget globale per finestra hanno limiti espliciti.
+- Le chiamate HTTP ai provider rifiutano i redirect, così credenziali e token non vengono inoltrati verso destinazioni non validate.
+
 ## Ricevute di validazione
 
 ### Mapping fiscale Shopify

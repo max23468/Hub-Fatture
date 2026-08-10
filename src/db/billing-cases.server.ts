@@ -514,18 +514,5 @@ export async function getBillingCase(id: string) {
   return {
     ...row,
     anomalies: billingCaseAnomalies(row.orders, row.review_required),
-    revisions: row.revisions.map((revision) => ({
-      ...revision,
-      changedFields: Array.from(
-        new Set([
-          ...Object.keys(revision.previous_normalized_snapshot_json),
-          ...Object.keys(revision.current_normalized_snapshot_json),
-        ]),
-      ).filter(
-        (field) =>
-          JSON.stringify(revision.previous_normalized_snapshot_json[field]) !==
-          JSON.stringify(revision.current_normalized_snapshot_json[field]),
-      ),
-    })),
   };
 }

@@ -396,21 +396,11 @@ select:hover {
   color: var(--color-text-muted);
 }
 
-.toolbar,
 .filters,
 .inline-form {
   display: flex;
   align-items: end;
   gap: var(--space-4);
-}
-
-.toolbar {
-  justify-content: space-between;
-  margin-bottom: var(--space-6);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-  padding: var(--space-4);
 }
 
 .filters {
@@ -551,14 +541,6 @@ tbody tr:last-child td {
   gap: var(--space-4);
   border-bottom: 1px solid var(--color-border);
   padding-bottom: var(--space-2);
-}
-
-.field-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
-  align-items: end;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
 }
 
 .customer-form {
@@ -777,7 +759,6 @@ tbody tr:last-child td {
     margin-bottom: var(--space-4);
   }
 
-  .toolbar,
   .filters,
   .inline-form {
     align-items: stretch;

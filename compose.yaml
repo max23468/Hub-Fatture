@@ -1,7 +1,7 @@
 name: hub-fatture-development
 
 x-app-environment: &app-environment
-  ADMIN_BOOTSTRAP_TOKEN: development-bootstrap-token-change-me
+  ADMIN_BOOTSTRAP_TOKEN: ${ADMIN_BOOTSTRAP_TOKEN:-}
   APP_BASE_URL: http://localhost:8080
   APP_ENV: development
   CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}

@@ -154,13 +154,16 @@ export async function connectionSummaries() {
   }));
 }
 
-export async function markConnectionSynced(provider: Provider) {
-  await getPool().query(
-    `UPDATE connections SET status = 'CONNECTED', last_checked_at = now(), last_synced_at = now(),
-       last_error_code = NULL, last_error_message_sanitized = NULL, updated_at = now()
-     WHERE provider = $1 AND environment = $2`,
-    [provider, activeEnvironment(provider)],
-  );
+export async function markConnectionSynced(provider: Provider, job?: ClaimedJob) {
+  await withTransaction(async (client) => {
+    if (job) await assertJobLease(client, job);
+    await client.query(
+      `UPDATE connections SET status = 'CONNECTED', last_checked_at = now(), last_synced_at = now(),
+         last_error_code = NULL, last_error_message_sanitized = NULL, updated_at = now()
+       WHERE provider = $1 AND environment = $2`,
+      [provider, activeEnvironment(provider)],
+    );
+  });
 }
 
 export async function markConnectionError(provider: Provider, code: ErrorCode, terminal = false) {
@@ -194,15 +197,19 @@ export async function writeCursor(
   provider: Provider,
   cursor: string | null,
   overlapFrom: string,
+  job?: ClaimedJob,
   stream = "orders",
 ) {
-  await getPool().query(
-    `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (provider, stream) DO UPDATE SET
-       cursor = EXCLUDED.cursor, overlap_from = EXCLUDED.overlap_from, updated_at = now()`,
-    [provider, stream, cursor, overlapFrom],
-  );
+  await withTransaction(async (client) => {
+    if (job) await assertJobLease(client, job);
+    await client.query(
+      `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (provider, stream) DO UPDATE SET
+         cursor = EXCLUDED.cursor, overlap_from = EXCLUDED.overlap_from, updated_at = now()`,
+      [provider, stream, cursor, overlapFrom],
+    );
+  });
 }
 
 export async function enqueueJob(type: JobType, payload: Record<string, unknown> = {}) {
@@ -307,10 +314,41 @@ export async function claimJob(workerId: string = randomUUID()): Promise<Claimed
 export async function renewJobLease(job: ClaimedJob) {
   const result = await getPool().query(
     `UPDATE jobs SET lease_expires_at = now() + interval '2 minutes'
-     WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3`,
+     WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3
+       AND lease_expires_at > now()`,
     [job.id, job.workerId, job.claimToken],
   );
   return result.rowCount === 1;
+}
+
+export async function assertJobLease(client: pg.PoolClient, job: ClaimedJob): Promise<void> {
+  const current = await client.query(
+    `SELECT 1 FROM jobs
+     WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3
+       AND lease_expires_at > now()
+     FOR UPDATE`,
+    [job.id, job.workerId, job.claimToken],
+  );
+  if (!current.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+}
+
+export async function renewLockedJobLease(client: pg.PoolClient, job: ClaimedJob): Promise<void> {
+  const renewed = await client.query(
+    `UPDATE jobs SET lease_expires_at = now() + interval '2 minutes'
+     WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3`,
+    [job.id, job.workerId, job.claimToken],
+  );
+  if (renewed.rowCount !== 1) throw new AppError("CONFLICT_REVISION", 409);
+}
+
+export async function jobLeaseCurrent(job: ClaimedJob): Promise<boolean> {
+  const current = await getPool().query(
+    `SELECT 1 FROM jobs
+     WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3
+       AND lease_expires_at > now()`,
+    [job.id, job.workerId, job.claimToken],
+  );
+  return Boolean(current.rows[0]);
 }
 
 export async function completeJob(job: ClaimedJob, result: Record<string, unknown> = {}) {
@@ -318,7 +356,8 @@ export async function completeJob(job: ClaimedJob, result: Record<string, unknow
     const completed = await client.query(
       `UPDATE jobs SET status = 'COMPLETED', completed_at = now(), lease_expires_at = NULL,
          locked_by = NULL, claim_token = NULL, result_json = $4
-       WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3`,
+       WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3
+         AND lease_expires_at > now()`,
       [job.id, job.workerId, job.claimToken, JSON.stringify(result)],
     );
     if (completed.rowCount !== 1) return false;
@@ -344,7 +383,8 @@ export async function failJob(job: ClaimedJob, code: ErrorCode) {
              5 * power(2, attempts)::integer + floor(random() * 6)::integer))
            ELSE run_at END,
          lease_expires_at = NULL, locked_by = NULL, claim_token = NULL, last_error_code = $4
-       WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3`,
+       WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3
+         AND lease_expires_at > now()`,
       [job.id, job.workerId, job.claimToken, code, terminal ? "FAILED" : "PENDING"],
     );
     if (failed.rowCount !== 1) return null;
@@ -431,12 +471,23 @@ export async function ingestShopifyWebhook(input: {
        ON CONFLICT (provider, external_event_id) DO UPDATE SET
          claimed_at = now(), lease_expires_at = now() + interval '2 minutes',
          attempt_count = webhook_events.attempt_count + 1, status = 'PROCESSING', error_code = NULL
-       WHERE webhook_events.status = 'FAILED'
-          OR (webhook_events.status = 'PROCESSING' AND webhook_events.lease_expires_at <= now())
+       WHERE (webhook_events.status = 'FAILED'
+          OR (webhook_events.status = 'PROCESSING' AND webhook_events.lease_expires_at <= now()))
+         AND webhook_events.topic = EXCLUDED.topic
+         AND webhook_events.payload_sha256 = EXCLUDED.payload_sha256
        RETURNING id, true AS acquired`,
       [input.externalEventId, input.topic, input.payloadSha256],
     );
-    if (!event.rows[0]) return { duplicate: true };
+    if (!event.rows[0]) {
+      await assertWebhookIdentity(
+        client,
+        "SHOPIFY",
+        input.externalEventId,
+        input.topic,
+        input.payloadSha256,
+      );
+      return { duplicate: true };
+    }
     if (input.orderId) {
       await client.query(
         `INSERT INTO jobs (type, payload_json)
@@ -454,48 +505,37 @@ export async function ingestShopifyWebhook(input: {
   });
 }
 
-export async function revokeConnection(provider: Provider, actor: ConnectorActor) {
-  await withTransaction(async (client) => {
-    const revoked = await client.query<{ id: string }>(
-      `UPDATE connections SET encrypted_credentials = '', status = 'REVOKED', updated_at = now()
-     WHERE provider = $1 AND environment = $2 RETURNING id`,
-      [provider, activeEnvironment(provider)],
-    );
-    if (revoked.rows[0]) {
-      await writeAudit(client, {
-        actorType: actor.type,
-        actorId: actor.id ? String(actor.id) : null,
-        action: "PROVIDER_REVOKED",
-        eventClass: "CRITICAL",
-        entityType: "CONNECTION",
-        entityId: revoked.rows[0].id,
-        metadata: { provider },
-        requestId: actor.requestId,
-      });
-    }
-  });
-}
-
 export async function recordShopifyDataRequest(input: {
   externalEventId: string;
   payloadSha256: string;
   customerIds: string[];
   orderIds: string[];
 }) {
-  const result = await getPool().query<{ id: string }>(
-    `INSERT INTO webhook_events
-      (provider, external_event_id, topic, payload_sha256, request_payload_json,
-       status, attempt_count)
-     VALUES ('SHOPIFY', $1, 'CUSTOMERS_DATA_REQUEST', $2, $3, 'PENDING', 1)
-     ON CONFLICT (provider, external_event_id) DO NOTHING
-     RETURNING id`,
-    [
-      input.externalEventId,
-      input.payloadSha256,
-      JSON.stringify({ customerIds: input.customerIds, orderIds: input.orderIds }),
-    ],
-  );
-  return { duplicate: !result.rows[0] };
+  return withTransaction(async (client) => {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO webhook_events
+        (provider, external_event_id, topic, payload_sha256, request_payload_json,
+         status, attempt_count)
+       VALUES ('SHOPIFY', $1, 'CUSTOMERS_DATA_REQUEST', $2, $3, 'PENDING', 1)
+       ON CONFLICT (provider, external_event_id) DO NOTHING
+       RETURNING id`,
+      [
+        input.externalEventId,
+        input.payloadSha256,
+        JSON.stringify({ customerIds: input.customerIds, orderIds: input.orderIds }),
+      ],
+    );
+    if (!result.rows[0]) {
+      await assertWebhookIdentity(
+        client,
+        "SHOPIFY",
+        input.externalEventId,
+        "CUSTOMERS_DATA_REQUEST",
+        input.payloadSha256,
+      );
+    }
+    return { duplicate: !result.rows[0] };
+  });
 }
 
 export async function pendingShopifyDataRequests() {
@@ -525,7 +565,8 @@ export async function completeShopifyDataRequest(
   return withTransaction(async (client) => {
     const completed = await client.query<{ id: string }>(
       `UPDATE webhook_events
-       SET status = 'PROCESSED', processed_at = now(), lease_expires_at = NULL
+       SET status = 'PROCESSED', processed_at = now(), lease_expires_at = NULL,
+         request_payload_json = '{}'
        WHERE provider = 'SHOPIFY' AND topic = 'CUSTOMERS_DATA_REQUEST'
          AND external_event_id = $1 AND status = 'PENDING'
        RETURNING id`,
@@ -608,10 +649,36 @@ async function acquireDeletionEvent(
        attempt_count = webhook_events.attempt_count + 1
      WHERE webhook_events.status <> 'PROCESSED'
        AND (webhook_events.status = 'FAILED' OR webhook_events.lease_expires_at <= now())
+       AND webhook_events.topic = EXCLUDED.topic
+       AND webhook_events.payload_sha256 = EXCLUDED.payload_sha256
      RETURNING id`,
     [provider, externalEventId, topic, payloadSha256],
   );
+  if (!result.rows[0]) {
+    await assertWebhookIdentity(client, provider, externalEventId, topic, payloadSha256);
+  }
   return result.rows[0]?.id ?? null;
+}
+
+async function assertWebhookIdentity(
+  client: pg.PoolClient,
+  provider: Provider,
+  externalEventId: string,
+  topic: string,
+  payloadSha256: string,
+): Promise<void> {
+  const existing = await client.query<{ topic: string; payload_sha256: string }>(
+    `SELECT topic, payload_sha256 FROM webhook_events
+     WHERE provider = $1 AND external_event_id = $2`,
+    [provider, externalEventId],
+  );
+  if (
+    !existing.rows[0] ||
+    existing.rows[0].topic !== topic ||
+    existing.rows[0].payload_sha256 !== payloadSha256
+  ) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
+  }
 }
 
 async function completeDeletionEvent(client: pg.PoolClient, id: string) {
@@ -620,6 +687,40 @@ async function completeDeletionEvent(client: pg.PoolClient, id: string) {
        lease_expires_at = NULL WHERE id = $1`,
     [id],
   );
+}
+
+export async function processShopifyUninstallRecord(input: {
+  externalEventId: string;
+  payloadSha256: string;
+}) {
+  return withTransaction(async (client) => {
+    const eventId = await acquireDeletionEvent(
+      client,
+      "SHOPIFY",
+      input.externalEventId,
+      "APP_UNINSTALLED",
+      input.payloadSha256,
+    );
+    if (!eventId) return { duplicate: true };
+    const revoked = await client.query<{ id: string }>(
+      `UPDATE connections SET encrypted_credentials = '', status = 'REVOKED', updated_at = now()
+       WHERE provider = 'SHOPIFY' AND environment = $1 RETURNING id`,
+      [activeEnvironment("SHOPIFY")],
+    );
+    if (revoked.rows[0]) {
+      await writeAudit(client, {
+        actorType: "SYSTEM",
+        action: "PROVIDER_REVOKED",
+        eventClass: "CRITICAL",
+        entityType: "CONNECTION",
+        entityId: revoked.rows[0].id,
+        metadata: { provider: "SHOPIFY" },
+        requestId: `shopify-webhook:${input.externalEventId}`,
+      });
+    }
+    await completeDeletionEvent(client, eventId);
+    return { duplicate: false };
+  });
 }
 
 export async function processEbayDeletionRecord(input: {

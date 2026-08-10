@@ -239,4 +239,13 @@ test("le risposte dichiarano gli header di sicurezza minimi", async ({ request }
   expect(headers["content-security-policy"]).toContain("frame-ancestors 'none'");
   expect(headers["x-content-type-options"]).toBe("nosniff");
   expect(headers["referrer-policy"]).toBe("same-origin");
+  expect(headers["cache-control"]).toBe("no-store, private");
+
+  await request.post("/login", {
+    headers: { origin: "http://127.0.0.1:4173" },
+    form: { username: "matteo", password: "password-matteo" },
+  });
+  const dataHeaders = (await request.get("/ordini.data")).headers();
+  expect(dataHeaders["cache-control"]).toBe("no-store, private");
+  expect(dataHeaders.vary).toContain("Cookie");
 });
