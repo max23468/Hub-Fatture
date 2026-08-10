@@ -13,6 +13,7 @@ import { importOrders, listBillingCases, listOrders } from "../../src/db/orders.
 import { readForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
 import { approveInvoices, listMassApprovalCandidates } from "../../src/db/documents.server.ts";
+import { getArubaSettings } from "../../src/db/aruba.server.ts";
 
 const caseStatusByView: Record<string, string[]> = {
   fatturare: ["READY"],
@@ -66,6 +67,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   ]);
   const approvalCandidates =
     view === "fatturare" && user.canApprove ? await listMassApprovalCandidates() : [];
+  const arubaMode = approvalCandidates.length
+    ? (await getArubaSettings()).effectiveMode
+    : "ASSISTED";
   return {
     username: user.username,
     csrfToken: user.csrfToken,
@@ -79,6 +83,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     ignored: url.searchParams.get("ignorati"),
     filters,
     approvalCandidates,
+    arubaMode,
     approved: url.searchParams.get("approvati"),
     approvalErrors: url.searchParams.get("errori"),
     storagePending: url.searchParams.get("archiviazione"),
@@ -102,6 +107,7 @@ export async function action({ request }: Route.ActionArgs) {
           requestId: requestId(request),
         },
         true,
+        form.get("arubaMode"),
       );
       return redirect(
         `/ordini?vista=fatturare&approvati=${result.approved}&errori=${result.failed}&archiviazione=${result.storagePending}`,
@@ -131,6 +137,7 @@ export default function Orders() {
     ignored,
     filters,
     approvalCandidates,
+    arubaMode,
     approved,
     approvalErrors,
     storagePending,
@@ -239,6 +246,7 @@ export default function Orders() {
           <Form method="post">
             <input type="hidden" name="csrf" value={csrfToken} />
             <input type="hidden" name="intent" value="approve-documents" />
+            <input type="hidden" name="arubaMode" value={arubaMode} />
             <ul>
               {approvalCandidates.map((candidate) => (
                 <li key={candidate.billing_case_id}>
@@ -249,6 +257,12 @@ export default function Orders() {
                 </li>
               ))}
             </ul>
+            <p>
+              <strong>Percorso Aruba:</strong>{" "}
+              {arubaMode === "AUTOMATIC"
+                ? copy.document.automaticHelperMode
+                : copy.document.assistedHelperMode}
+            </p>
             <p className="warning">{copy.orders.massApprovalConsequence}</p>
             {approvalCandidates.map((candidate) => (
               <input

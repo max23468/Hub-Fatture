@@ -95,9 +95,9 @@ export const copy = {
     massApprovalSummary: (count: number, total: number) =>
       `${count} documenti standard, totale ${euroFormatter.format(total / 100)}.`,
     massApprovalConfirm:
-      "Ho controllato le proiezioni: approva, numera e prepara tutti i documenti elencati.",
+      "Ho controllato le proiezioni e il percorso Aruba indicato: approva, numera e prepara tutti i documenti elencati.",
     massApprovalConsequence:
-      "La numerazione fiscale è irreversibile. Ogni documento usa il profilo salvato nella propria proiezione; l’helper non è ancora attivo e gli XML restano nel percorso manuale.",
+      "La numerazione fiscale è irreversibile. Ogni documento usa il profilo salvato nella propria proiezione e la modalità Aruba riepilogata sopra.",
     massApprovalAction: "Approva tutti i documenti standard",
     massApprovalResult: (approved: string, failed: string, storagePending: string) =>
       `Documenti approvati: ${approved}. Non approvati perché cambiati o non più idonei: ${failed}. Archiviazioni da riconciliare: ${storagePending}.`,

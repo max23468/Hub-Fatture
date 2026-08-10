@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type pg from "pg";
 
+import { arubaModeSchema } from "../aruba.ts";
 import {
   documentInputSchema,
   fatturaPaAddress,
@@ -1255,12 +1256,15 @@ export async function approveInvoices(
   rawCandidates: string[],
   actor: FiscalActor,
   confirmApproval = false,
+  rawArubaMode?: unknown,
 ) {
   if (!actor.canApprove) throw new AppError("DOCUMENT_APPROVAL_FORBIDDEN", 403);
   if (!confirmApproval) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
   if (!rawCandidates.length || rawCandidates.length > 100) {
     throw new AppError("DOCUMENT_INVALID", 422);
   }
+  const arubaMode = arubaModeSchema.safeParse(rawArubaMode);
+  if (!arubaMode.success) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
   const candidates = [
     ...new Map(
       rawCandidates.map((value) => {
@@ -1281,6 +1285,7 @@ export async function approveInvoices(
             confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
+            arubaMode: arubaMode.data,
           },
           actor,
         );

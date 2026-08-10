@@ -1169,21 +1169,6 @@ async function importOfficialFile(
          VALUES ($1, $2, $3, $4, jsonb_build_object('sha256', $5::text)) RETURNING id`,
         [documentId, current.submission_id, storage.rows[0]!.id, kind.data, stored.sha256],
       );
-      if (kind.data === "ARUBA_XML") {
-        await monotonicSubmission(client, current.batch_id, documentId, "RECONCILED");
-        const pending = await client.query(
-          `SELECT 1 FROM aruba_submissions
-           WHERE batch_id = $1 AND status NOT IN
-             ('RECONCILED', 'DELIVERED', 'NOT_DELIVERED', 'REJECTED') LIMIT 1`,
-          [current.batch_id],
-        );
-        await client.query(
-          `UPDATE aruba_batches SET status = CASE WHEN $2::boolean THEN status ELSE 'RECONCILED' END,
-             requires_reconciliation = CASE WHEN $2::boolean THEN requires_reconciliation ELSE false END,
-             last_readback_at = now(), updated_at = now() WHERE id = $1`,
-          [current.batch_id, Boolean(pending.rowCount)],
-        );
-      }
       if (kind.data === "SDI_NOTIFICATION") {
         const status = notificationStatus(bytes.toString("utf8"));
         const remoteNotificationId =

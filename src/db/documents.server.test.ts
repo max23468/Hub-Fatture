@@ -496,6 +496,18 @@ test(
         assistedXml,
         owner,
       );
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT batches.status AS batch_status, submissions.status AS submission_status
+             FROM aruba_batches AS batches
+             JOIN aruba_submissions AS submissions ON submissions.batch_id = batches.id
+             WHERE batches.id = $1`,
+            [assistedBatchId],
+          )
+        ).rows[0],
+        { batch_status: "READY_ASSISTED", submission_status: "READY_TO_SEND" },
+      );
       await aruba.importOfficialArubaFile(
         assistedManifest.documents[0]!.id,
         "ARUBA_PDF",
@@ -712,6 +724,7 @@ test(
           [approvalToken(cases[2]!.id, thirdProjection)],
           { id: 1, canApprove: true, requestId: "approve-mass-stale" },
           true,
+          "ASSISTED",
         ),
         { approved: 0, failed: 1, storagePending: 0 },
       );
@@ -800,6 +813,7 @@ test(
             [approvalToken(cases[2]!.id, approvableThirdProjection)],
             { id: 1, canApprove: true, requestId: "approve-mass" },
             true,
+            "AUTOMATIC",
           ),
           { approved: 1, failed: 0, storagePending: 1 },
         );
