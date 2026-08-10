@@ -870,6 +870,9 @@ export async function approveInvoice(
       }
       if (!raw.confirmApproval) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
       const input = documentInput(caseRow, draft, profile.profile_json);
+      if (!sameOrders(input.lines, caseRow.orders)) {
+        throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
+      }
       const projected = projectFatturaXml(profile.profile_json, input);
       await validateFatturaXml(projected.xml);
       if (
@@ -1186,6 +1189,7 @@ export async function listMassApprovalCandidates() {
      WHERE documents.kind = 'INVOICE' AND documents.status = 'DRAFT'
        AND documents.difference_amount = 0 AND documents.payment_status = 'PAID'
        AND documents.projection_sha256 <> repeat('0', 64)
+       AND documents.document_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date
        AND billing_cases.status = 'READY'
        AND fiscal_profiles.status IN ('MOCK', 'AUDITED')
      ORDER BY billing_cases.id

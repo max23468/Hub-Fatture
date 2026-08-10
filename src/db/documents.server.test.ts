@@ -466,6 +466,7 @@ test(
           "lines" in dateChangedProjection,
       );
       assert.equal(dateChangedProjection.requiresResave, true);
+      assert.equal((await documents.listMassApprovalCandidates()).length, 0);
       await documents.saveInvoiceDraft(
         cases[2]!.id,
         {
@@ -494,12 +495,73 @@ test(
           !freshThirdProjection.profileMissing &&
           "lines" in freshThirdProjection,
       );
+      const thirdOrderId = (
+        await database
+          .getPool()
+          .query<{ id: string }>("SELECT id FROM orders WHERE billing_case_id = $1", [cases[2]!.id])
+      ).rows[0]!.id;
+      await database
+        .getPool()
+        .query("UPDATE orders SET billing_case_id = NULL WHERE id = $1", [thirdOrderId]);
+      await database
+        .getPool()
+        .query("UPDATE documents SET projection_sha256 = $2 WHERE billing_case_id = $1", [
+          cases[2]!.id,
+          freshThirdProjection.projectionSha256,
+        ]);
+      await assert.rejects(
+        documents.approveInvoice(
+          cases[2]!.id,
+          {
+            caseRevision: freshThirdProjection.caseRevision,
+            draftVersion: freshThirdProjection.draftVersion,
+            projectionSha256: freshThirdProjection.projectionSha256,
+            confirmApproval: true,
+            confirmPending: false,
+            confirmDifference: false,
+          },
+          { id: 1, canApprove: true, requestId: "old-app-membership-change" },
+        ),
+        (error) => error instanceof AppError && error.code === "DOCUMENT_PROJECTION_STALE",
+      );
+      await database
+        .getPool()
+        .query("UPDATE orders SET billing_case_id = $2 WHERE id = $1", [
+          thirdOrderId,
+          cases[2]!.id,
+        ]);
+      const restoredThirdProjection = await documents.getInvoiceProjection(cases[2]!.id);
+      assert.ok(
+        restoredThirdProjection &&
+          !restoredThirdProjection.profileMissing &&
+          "lines" in restoredThirdProjection,
+      );
+      await documents.saveInvoiceDraft(
+        cases[2]!.id,
+        {
+          caseRevision: restoredThirdProjection.caseRevision,
+          draftVersion: restoredThirdProjection.draftVersion,
+          differenceReason: restoredThirdProjection.differenceReason,
+          paymentStatus: restoredThirdProjection.paymentStatus,
+          paymentMethod: restoredThirdProjection.paymentMethod,
+          causale: restoredThirdProjection.causale,
+          notes: restoredThirdProjection.notes,
+          lines: restoredThirdProjection.lines,
+        },
+        { id: 1, canApprove: true, requestId: "resave-after-old-app-membership-change" },
+      );
+      const approvableThirdProjection = await documents.getInvoiceProjection(cases[2]!.id);
+      assert.ok(
+        approvableThirdProjection &&
+          !approvableThirdProjection.profileMissing &&
+          "lines" in approvableThirdProjection,
+      );
       const finalStorageDirectory = path.join(storage, "invoices", expectedFullYear);
       await chmod(finalStorageDirectory, 0o500);
       try {
         assert.deepEqual(
           await documents.approveInvoices(
-            [approvalToken(cases[2]!.id, freshThirdProjection)],
+            [approvalToken(cases[2]!.id, approvableThirdProjection)],
             { id: 1, canApprove: true, requestId: "approve-mass" },
             true,
           ),

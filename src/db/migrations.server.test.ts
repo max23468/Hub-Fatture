@@ -21,6 +21,7 @@ const M4_LEGACY_DOCUMENTS = "007_m4_legacy_documents.sql";
 const DOCUMENT_DEPLOY_COMPATIBILITY = "008_document_deploy_compatibility.sql";
 const APPROVED_PAYMENT_HISTORY = "009_approved_payment_history.sql";
 const DRAFT_RECIPIENT_SNAPSHOT = "010_draft_recipient_snapshot.sql";
+const ORDER_MEMBERSHIP_DRAFT_INVALIDATION = "011_order_membership_draft_invalidation.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -35,6 +36,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, DOCUMENT_DEPLOY_COMPATIBILITY));
     await rm(path.join(firstTwo, APPROVED_PAYMENT_HISTORY));
     await rm(path.join(firstTwo, DRAFT_RECIPIENT_SNAPSHOT));
+    await rm(path.join(firstTwo, ORDER_MEMBERSHIP_DRAFT_INVALIDATION));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -48,6 +50,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       DOCUMENT_DEPLOY_COMPATIBILITY,
       APPROVED_PAYMENT_HISTORY,
       DRAFT_RECIPIENT_SNAPSHOT,
+      ORDER_MEMBERSHIP_DRAFT_INVALIDATION,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -69,12 +72,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       DOCUMENT_DEPLOY_COMPATIBILITY,
       APPROVED_PAYMENT_HISTORY,
       DRAFT_RECIPIENT_SNAPSHOT,
+      ORDER_MEMBERSHIP_DRAFT_INVALIDATION,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "10",
+      "11",
     );
     await cleanClient.end();
 
@@ -165,6 +169,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, DOCUMENT_DEPLOY_COMPATIBILITY));
     await rm(path.join(beforeM4, APPROVED_PAYMENT_HISTORY));
     await rm(path.join(beforeM4, DRAFT_RECIPIENT_SNAPSHOT));
+    await rm(path.join(beforeM4, ORDER_MEMBERSHIP_DRAFT_INVALIDATION));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -289,17 +294,44 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       DOCUMENT_DEPLOY_COMPATIBILITY,
       APPROVED_PAYMENT_HISTORY,
       DRAFT_RECIPIENT_SNAPSHOT,
+      ORDER_MEMBERSHIP_DRAFT_INVALIDATION,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {
-      await client.query(
+      const deployDraft = await client.query<{ id: string }>(
         `INSERT INTO documents
              (billing_case_id, kind, status, document_type, series, document_date,
               fiscal_profile_version, currency, total_amount, source_total_amount,
               difference_amount, projection_sha256)
            VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', '2026-08-11', 1, 'EUR',
-                   1000, 1000, 0, $2)`,
+                   1000, 1000, 0, $2)
+           RETURNING id`,
         [deployCaseId, "d".repeat(64)],
+      );
+      const oldVersionOrder = await client.query<{ id: string }>(
+        `INSERT INTO orders
+             (provider, external_account_id, external_order_id, display_number,
+              created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+              payment_status, fulfillment_status, trigger_status, customer_id,
+              raw_snapshot_json, normalized_snapshot_json)
+           SELECT 'SHOPIFY', 'm4', 'old-version-membership', '#OLD', now(), now(),
+                  '2026-08-11', 'EUR', 500, 'PAID', 'FULFILLED', 'ELIGIBLE', customer_id,
+                  '{}', '{}'
+           FROM billing_cases WHERE id = $1
+           RETURNING id`,
+        [deployCaseId],
+      );
+      await client.query("UPDATE orders SET billing_case_id = $2 WHERE id = $1", [
+        oldVersionOrder.rows[0]!.id,
+        deployCaseId,
+      ]);
+      assert.equal(
+        (
+          await client.query("SELECT projection_sha256 FROM documents WHERE id = $1", [
+            deployDraft.rows[0]!.id,
+          ])
+        ).rows[0].projection_sha256,
+        "0".repeat(64),
       );
       const result = await client.query<{
         status: string;
