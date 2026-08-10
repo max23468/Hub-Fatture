@@ -125,6 +125,7 @@ test(
       assert.equal(groupedProjection.draftVersion, firstProjection.draftVersion + 1);
       assert.equal(groupedProjection.lines.length, 3);
       assert.equal(groupedProjection.requiresResave, true);
+      assert.equal((await documents.listMassApprovalCandidates()).length, 2);
       firstProjection = await save(cases[0]!.id);
       const firstOrderIds = (
         await database
@@ -249,6 +250,16 @@ test(
           "lines" in exceptionalSecondProjection,
       );
       assert.equal(exceptionalSecondProjection.requiresResave, false);
+      const correctionAudit = (
+        await database.getPool().query<{ before_json: Record<string, unknown> }>(
+          `SELECT before_json FROM audit_events
+           WHERE action = 'DOCUMENT_DRAFT_SAVED' AND request_id = $1`,
+          ["resave-after-customer-correction"],
+        )
+      ).rows[0]!.before_json as {
+        imported: { recipient: { address: { line1: string } } };
+      };
+      assert.equal(correctionAudit.imported.recipient.address.line1, "Via Esempio 1");
       assert.equal((await documents.listMassApprovalCandidates()).length, 2);
       await assert.rejects(
         documents.approveInvoice(

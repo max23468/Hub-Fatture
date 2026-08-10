@@ -518,7 +518,10 @@ function sourceAuditSnapshot(caseRow: CaseRow, profile: FiscalProfile): Record<s
   return documentAuditSnapshot({
     kind: "INVOICE",
     documentDate: today(),
-    recipient: recipient(caseRow.customer_snapshot_json, false),
+    recipient: recipient(
+      caseRow.orders[0]?.customer_snapshot_json ?? caseRow.customer_snapshot_json,
+      false,
+    ),
     lines: caseRow.orders.map(sourceLine),
     paymentStatus: caseRow.orders.some((order) => order.payment_status === "PENDING")
       ? "PENDING"
@@ -738,12 +741,15 @@ async function verifiedFile(
 }
 
 function regenerateStoredXml(row: StoredDocumentRow): string {
-  const input = documentInputSchema.parse(row.immutable_snapshot_json);
+  const snapshot = row.immutable_snapshot_json as Record<string, unknown>;
+  const input = documentInputSchema.parse(snapshot);
   const profile = fiscalProfileSchema.parse(row.fiscal_profile_snapshot_json);
-  const xml = generateFatturaXml(profile, input, {
-    year: row.fiscal_year,
-    number: row.fiscal_number,
-  });
+  const xml = generateFatturaXml(
+    profile,
+    input,
+    { year: row.fiscal_year, number: row.fiscal_number },
+    { legacyEuFirstTaxIdentifier: snapshot.generatorVersion !== 2 },
+  );
   if (
     Buffer.byteLength(xml) !== row.size_bytes ||
     createHash("sha256").update(xml).digest("hex") !== row.sha256
@@ -913,6 +919,7 @@ export async function approveInvoice(
       );
       const approvedAt = new Date().toISOString();
       const snapshot = {
+        generatorVersion: 2,
         kind: input.kind,
         documentDate: input.documentDate,
         recipient: input.recipient,
@@ -1174,6 +1181,7 @@ export async function listMassApprovalCandidates() {
      JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
      WHERE documents.kind = 'INVOICE' AND documents.status = 'DRAFT'
        AND documents.difference_amount = 0 AND documents.payment_status = 'PAID'
+       AND documents.projection_sha256 <> repeat('0', 64)
        AND billing_cases.status = 'READY'
        AND fiscal_profiles.status IN ('MOCK', 'AUDITED')
      ORDER BY billing_cases.id

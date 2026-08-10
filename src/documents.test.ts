@@ -178,6 +178,29 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
   assert.match(foreignXml, /<Comune>\?+<\/Comune>/);
   assert.match(foreignXml, /<Descrizione>\?+<\/Descrizione>/);
   assert.match(foreignXml, /<IdPaese>NL<\/IdPaese>\s*<IdCodice>99999999999<\/IdCodice>/);
+  const foreignWithLegacyIdentifier = documentInputSchema.parse({
+    ...foreign,
+    recipient: {
+      ...foreign.recipient,
+      taxIdentifiers: [{ type: "ALTRO", value: "NL-LEGACY-123", countryCode: "NL" }],
+    },
+  });
+  assert.match(
+    generateFatturaXml(
+      syntheticFiscalProfile,
+      foreignWithLegacyIdentifier,
+      { year: 2026, number: 5 },
+      { legacyEuFirstTaxIdentifier: true },
+    ),
+    /<IdPaese>NL<\/IdPaese>\s*<IdCodice>NL-LEGACY-123<\/IdCodice>/,
+  );
+  assert.match(
+    generateFatturaXml(syntheticFiscalProfile, foreignWithLegacyIdentifier, {
+      year: 2026,
+      number: 5,
+    }),
+    /<IdPaese>NL<\/IdPaese>\s*<IdCodice>99999999999<\/IdCodice>/,
+  );
   assert.match(foreignXml, /<CAP>00000<\/CAP>/);
   assert.doesNotMatch(foreignXml, /1012 AB|Noord-Holland|undefined/);
 });

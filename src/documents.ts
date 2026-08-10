@@ -341,6 +341,7 @@ export function generateFatturaXml(
   rawProfile: FiscalProfile,
   rawInput: DocumentInput,
   numbering: { year: number; number: number },
+  options: { legacyEuFirstTaxIdentifier?: boolean } = {},
 ): string {
   const profile = fiscalProfileSchema.parse(rawProfile);
   const input = documentInputSchema.parse(rawInput);
@@ -392,10 +393,15 @@ export function generateFatturaXml(
   const vat =
     taxId(input.recipient, "PARTITA_IVA") ??
     (input.recipient.kind === "EU"
-      ? {
-          countryCode: input.recipient.address.countryCode,
-          value: foreignCustomerFallbackTaxCode,
-        }
+      ? options.legacyEuFirstTaxIdentifier
+        ? (input.recipient.taxIdentifiers[0] ?? {
+            countryCode: input.recipient.address.countryCode,
+            value: foreignCustomerFallbackTaxCode,
+          })
+        : {
+            countryCode: input.recipient.address.countryCode,
+            value: foreignCustomerFallbackTaxCode,
+          }
       : undefined);
   if (vat) {
     const customerVat = customerData.ele("IdFiscaleIVA");

@@ -114,7 +114,9 @@ export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: strin
   );
   await client.query(
     `UPDATE documents
-     SET draft_version = draft_version + 1, updated_at = now()
+     SET draft_version = draft_version + 1,
+         projection_sha256 = repeat('0', 64),
+         updated_at = now()
      WHERE id = $1`,
     [documentId],
   );
