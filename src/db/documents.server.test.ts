@@ -55,7 +55,11 @@ test(
         documents.activateFiscalProfile(
           {
             ...syntheticFiscalProfile,
-            numbering: { ...syntheticFiscalProfile.numbering, lastObservedNumber: 0 },
+            numbering: {
+              ...syntheticFiscalProfile.numbering,
+              lastObservedYear: syntheticFiscalProfile.numbering.lastObservedYear - 1,
+              lastObservedNumber: syntheticFiscalProfile.numbering.lastObservedNumber + 100,
+            },
           },
           "b".repeat(64),
           { id: 1, canApprove: true, requestId: "documents-profile-stale" },

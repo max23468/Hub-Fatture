@@ -906,8 +906,9 @@ export async function activateFiscalProfile(
     if (
       previous.success &&
       previous.data.series === profile.data.series &&
-      previous.data.numbering.lastObservedYear === profile.data.numbering.lastObservedYear &&
-      previous.data.numbering.lastObservedNumber > profile.data.numbering.lastObservedNumber
+      (previous.data.numbering.lastObservedYear > profile.data.numbering.lastObservedYear ||
+        (previous.data.numbering.lastObservedYear === profile.data.numbering.lastObservedYear &&
+          previous.data.numbering.lastObservedNumber > profile.data.numbering.lastObservedNumber))
     ) {
       throw new AppError("DOCUMENT_INVALID", 422);
     }
