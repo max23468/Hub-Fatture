@@ -92,6 +92,12 @@ export const customerSchema = z.object({
   companyName: optionalTextSchema,
   email: optionalEmailSchema,
   certifiedEmail: optionalEmailSchema,
+  recipientCode: optionalTextSchema.pipe(
+    z
+      .string()
+      .regex(/^[A-Z0-9]{7}$/)
+      .optional(),
+  ),
   phone: optionalTextSchema,
   billingAddress: addressSchema.default({}),
   shippingAddress: addressSchema.default({}),
@@ -315,6 +321,7 @@ export function canonicalCustomerProfile(input: CustomerContext) {
     companyName: normalized(input.customer.companyName),
     email: normalized(input.customer.email),
     certifiedEmail: normalized(input.customer.certifiedEmail),
+    recipientCode: normalized(input.customer.recipientCode).toUpperCase(),
     phone: normalized(input.customer.phone),
     billingAddress: {
       line1: normalized(address.line1),

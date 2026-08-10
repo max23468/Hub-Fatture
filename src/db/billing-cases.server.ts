@@ -39,6 +39,8 @@ export interface EditableCustomer {
   lastName?: string;
   companyName?: string;
   email?: string;
+  certifiedEmail?: string;
+  recipientCode?: string;
   phone?: string;
   billingAddress?: Record<string, string | undefined>;
   taxIdentifiers?: Array<{ type?: string; value?: string; countryCode?: string }>;

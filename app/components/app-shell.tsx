@@ -1,5 +1,6 @@
 import {
   ClipboardList,
+  FileText,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -15,6 +16,7 @@ import { ThemePicker } from "./theme-picker";
 const links = [
   { to: "/", label: copy.navigation.dashboard, icon: LayoutDashboard, end: true },
   { to: "/ordini", label: copy.navigation.orders, icon: ShoppingBag, end: false },
+  { to: "/documenti", label: copy.navigation.documents, icon: FileText, end: false },
   { to: "/attivita", label: copy.navigation.activity, icon: ClipboardList, end: false },
   { to: "/impostazioni", label: copy.navigation.settings, icon: Settings, end: false },
 ];

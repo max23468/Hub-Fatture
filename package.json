@@ -15,6 +15,7 @@
     "dev:up": "sh scripts/development.sh",
     "dev:worker": "node --watch src/worker.ts",
     "doctor": "react-doctor --scope full --blocking warning .",
+    "fiscal-profile:activate": "node scripts/activate-fiscal-profile.ts",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings .",
@@ -37,6 +38,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-router": "8.3.0",
+    "xmlbuilder2": "4.0.3",
     "zod": "4.4.3"
   },
   "devDependencies": {

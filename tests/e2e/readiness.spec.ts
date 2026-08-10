@@ -1,9 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFile, rm } from "node:fs/promises";
+import path from "node:path";
 import pg from "pg";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
   "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
+const storageRoot = path.resolve("storage/e2e-documents");
 
 async function expectPlainLanguage(page: Page) {
   await expect(page.locator("body")).not.toContainText(
@@ -15,16 +18,26 @@ async function expectPlainLanguage(page: Page) {
 // da database vuoto invece di trovare gli account già creati e saltare il flusso di setup.
 test.beforeAll(async () => {
   if (!new URL(databaseUrl).pathname.endsWith("_test")) throw new Error("Database E2E non isolato");
+  await rm(storageRoot, { recursive: true, force: true });
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   await client.query(
-    "TRUNCATE users, sessions, login_attempts, audit_events, settings, customers, billing_cases, orders RESTART IDENTITY CASCADE",
+    "TRUNCATE users, sessions, login_attempts, audit_events, settings, customers, billing_cases, orders, fiscal_profiles RESTART IDENTITY CASCADE",
+  );
+  const profile = JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"));
+  await client.query(
+    "INSERT INTO fiscal_profiles (version, status, profile_json) VALUES (1, 'MOCK', $1)",
+    [profile],
   );
   await client.query(
     `INSERT INTO settings (key, value_json) VALUES ('draft_trigger', '"PAID"')
      ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, version = 1`,
   );
   await client.end();
+});
+
+test.afterAll(async () => {
+  await rm(storageRoot, { recursive: true, force: true });
 });
 
 // I test condividono gli account creati dal primo: in serie un retry li ripete tutti dall'inizio.
@@ -107,7 +120,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByText("BILLING_CASE_CREATED")).toHaveCount(0);
   await page.getByLabel(/^Motivo della scelta/).fill("Ordine di test");
   await page.getByRole("button", { name: "Non trasmettere" }).click();
-  await expect(page.getByRole("status")).toContainText("Ordine di test");
+  await expect(page.getByRole("status").filter({ hasText: "Ordine di test" })).toBeVisible();
   const archivedPreparation = await page
     .getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })
     .textContent();
@@ -120,7 +133,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await archivedOrderFilters.getByRole("button", { name: "Filtra" }).click();
   await expect(page.getByRole("cell", { name: "Da non trasmettere", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Nessun ordine annullato" })).toBeVisible();
-  await page.getByRole("link", { name: `Apri ${archivedPreparation}` }).click();
+  await page
+    .getByRole("link", { name: `Apri ${archivedPreparation}` })
+    .first()
+    .click();
   await page.getByRole("button", { name: "Riattiva preparazione" }).click();
   await expect(page.getByRole("button", { name: "Non trasmettere" })).toBeVisible();
 
@@ -197,6 +213,31 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
   );
   expect(viewportFits).toBe(true);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByLabel("Apri il menu di codex").click();
+  await page.getByRole("button", { name: "Esci" }).click();
+  await page.getByLabel("Nome utente").fill("matteo");
+  await page.getByLabel("Password").fill("password-matteo");
+  await page.getByRole("button", { name: "Accedi" }).click();
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
+  await page.getByRole("link", { name: "Da fatturare" }).click();
+  await page
+    .getByRole("link", { name: `Apri ${archivedPreparation}` })
+    .first()
+    .click();
+  await expect(page.getByRole("heading", { name: "Confronto fiscale" })).toBeVisible();
+  await expect(page.getByText("RF14 · N5 · FPR · versione 1")).toBeVisible();
+  await page.getByRole("button", { name: "Salva e valida bozza" }).click();
+  await page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }).click();
+  await expect(
+    page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }),
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: "Documenti", exact: true }).click();
+  await expect(page.getByRole("cell", { name: "Approvata", exact: true })).toBeVisible();
+  const download = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Scarica XML" }).click();
+  expect((await download).suggestedFilename()).toMatch(/\.xml$/);
 });
 
 test("le mutazioni senza origine valida non raggiungono l’azione", async ({ request }) => {

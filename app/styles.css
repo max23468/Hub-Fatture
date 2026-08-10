@@ -523,6 +523,24 @@ tbody tr:last-child td {
   text-align: right;
 }
 
+.code-block {
+  max-height: 28rem;
+  overflow: auto;
+  white-space: pre;
+}
+
+.checkbox-row {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.checkbox-row input {
+  margin-top: 0.2rem;
+  width: auto;
+}
+
 .plain-list,
 .timeline {
   display: grid;

@@ -8,11 +8,13 @@ storage/
 *.dump
 *.xml
 !tests/fixtures/**/*.xml
+!schemas/fatturapa/catalog.xml
 *.pdf
 *.age.tmp
 build/
 build-server/
 .react-router/
+.playwright-cli/
 node_modules/
 playwright-report/
 test-results/

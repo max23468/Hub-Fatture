@@ -14,6 +14,7 @@ const BASELINE = "001_baseline.sql";
 const CONNECTORS = "002_connectors.sql";
 const CONNECTOR_PRIVACY = "003_connector_privacy.sql";
 const CONNECTOR_OPERATIONS = "004_connector_operations.sql";
+const DOCUMENTS = "005_documents.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -22,6 +23,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await cp("migrations", firstTwo, { recursive: true });
     await rm(path.join(firstTwo, CONNECTOR_PRIVACY));
     await rm(path.join(firstTwo, CONNECTOR_OPERATIONS));
+    await rm(path.join(firstTwo, DOCUMENTS));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -29,6 +31,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       CONNECTOR_PRIVACY,
       CONNECTOR_OPERATIONS,
+      DOCUMENTS,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -44,12 +47,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       CONNECTORS,
       CONNECTOR_PRIVACY,
       CONNECTOR_OPERATIONS,
+      DOCUMENTS,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "4",
+      "5",
     );
     await cleanClient.end();
 

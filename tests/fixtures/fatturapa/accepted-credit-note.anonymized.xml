@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FatturaElettronica xmlns="http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2" versione="FPR12">
+  <FatturaElettronicaHeader xmlns="">
+    <DatiTrasmissione xmlns="">
+      <IdTrasmittente>
+        <IdPaese>IT</IdPaese>
+        <IdCodice>01234567890</IdCodice>
+      </IdTrasmittente>
+      <ProgressivoInvio>2600000002</ProgressivoInvio>
+      <FormatoTrasmissione>FPR12</FormatoTrasmissione>
+      <CodiceDestinatario>0000000</CodiceDestinatario>
+      <PECDestinatario>cliente@example.invalid</PECDestinatario>
+    </DatiTrasmissione>
+    <CedentePrestatore xmlns="">
+      <DatiAnagrafici>
+        <IdFiscaleIVA>
+          <IdPaese>IT</IdPaese>
+          <IdCodice>01234567890</IdCodice>
+        </IdFiscaleIVA>
+        <CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>
+        <Anagrafica>
+          <Denominazione>Venditore Esempio</Denominazione>
+        </Anagrafica>
+        <RegimeFiscale>RF14</RegimeFiscale>
+      </DatiAnagrafici>
+      <Sede>
+        <Indirizzo>Via Esempio 1</Indirizzo>
+        <CAP>20100</CAP>
+        <Comune>Milano</Comune>
+        <Provincia>MI</Provincia>
+        <Nazione>IT</Nazione>
+      </Sede>
+      <Contatti>
+        <Telefono>0212345678</Telefono>
+        <Email>contabilita@example.invalid</Email>
+      </Contatti>
+    </CedentePrestatore>
+    <CessionarioCommittente xmlns="">
+      <DatiAnagrafici>
+        <IdFiscaleIVA>
+          <IdPaese>IT</IdPaese>
+          <IdCodice>10987654321</IdCodice>
+        </IdFiscaleIVA>
+        <CodiceFiscale>10987654321</CodiceFiscale>
+        <Anagrafica>
+          <Denominazione>Cliente Esempio Srl</Denominazione>
+        </Anagrafica>
+      </DatiAnagrafici>
+      <Sede>
+        <Indirizzo>Via Cliente 2</Indirizzo>
+        <CAP>00100</CAP>
+        <Comune>Roma</Comune>
+        <Provincia>RM</Provincia>
+        <Nazione>IT</Nazione>
+      </Sede>
+    </CessionarioCommittente>
+  </FatturaElettronicaHeader>
+  <FatturaElettronicaBody xmlns="">
+    <DatiGenerali xmlns="">
+      <DatiGeneraliDocumento>
+        <TipoDocumento>TD04</TipoDocumento>
+        <Divisa>EUR</Divisa>
+        <Data>2026-08-11</Data>
+        <Numero>FPR 0002/26</Numero>
+        <ImportoTotaleDocumento>23.45</ImportoTotaleDocumento>
+      </DatiGeneraliDocumento>
+    </DatiGenerali>
+    <DatiBeniServizi xmlns="">
+      <DettaglioLinee>
+        <NumeroLinea>1</NumeroLinea>
+        <Descrizione>Rimborso beni usati - Ordine Shopify #1001</Descrizione>
+        <Quantita>1.00</Quantita>
+        <PrezzoUnitario>23.45</PrezzoUnitario>
+        <PrezzoTotale>23.45</PrezzoTotale>
+        <AliquotaIVA>0.00</AliquotaIVA>
+        <Natura>N5</Natura>
+      </DettaglioLinee>
+      <DatiRiepilogo>
+        <AliquotaIVA>0.00</AliquotaIVA>
+        <Natura>N5</Natura>
+        <ImponibileImporto>23.45</ImponibileImporto>
+        <Imposta>0.00</Imposta>
+        <RiferimentoNormativo>Regime del margine Art. 36 41/95</RiferimentoNormativo>
+      </DatiRiepilogo>
+    </DatiBeniServizi>
+    <DatiPagamento xmlns="">
+      <CondizioniPagamento>TP02</CondizioniPagamento>
+      <DettaglioPagamento>
+        <ModalitaPagamento>MP05</ModalitaPagamento>
+        <DataScadenzaPagamento>2026-08-11</DataScadenzaPagamento>
+        <ImportoPagamento>23.45</ImportoPagamento>
+      </DettaglioPagamento>
+    </DatiPagamento>
+  </FatturaElettronicaBody>
+</FatturaElettronica>

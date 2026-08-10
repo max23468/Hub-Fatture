@@ -16,6 +16,7 @@ const schema = z
       )
       .optional(),
     DATABASE_URL: z.string().min(1),
+    DOCUMENT_STORAGE_ROOT: z.string().min(1).default("storage/documents"),
     EBAY_ACCOUNT_REFERENCE: z.string().default("botCF"),
     EBAY_CLIENT_ID: z.string().optional(),
     EBAY_CLIENT_SECRET: z.string().optional(),

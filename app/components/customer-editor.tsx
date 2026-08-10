@@ -27,6 +27,8 @@ export function CustomerEditor({
     ["companyName", copy.customerEditor.companyName, customer.companyName ?? ""],
     ["phone", copy.customerEditor.phone, customer.phone ?? ""],
     ["email", copy.customerEditor.email, customer.email ?? "", "email"],
+    ["certifiedEmail", copy.customerEditor.certifiedEmail, customer.certifiedEmail ?? "", "email"],
+    ["recipientCode", copy.customerEditor.recipientCode, customer.recipientCode ?? ""],
   ];
   const addressFields: Array<[string, string, string]> = [
     ["line1", copy.customerEditor.line1, address.line1 ?? ""],

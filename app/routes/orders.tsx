@@ -12,6 +12,7 @@ import { getConfig } from "../../src/config.server.ts";
 import { importOrders, listBillingCases, listOrders } from "../../src/db/orders.server.ts";
 import { readForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
+import { approveInvoices, listMassApprovalCandidates } from "../../src/db/documents.server.ts";
 
 const caseStatusByView: Record<string, string[]> = {
   fatturare: ["READY"],
@@ -63,6 +64,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       ? listBillingCases({ statuses: caseStatusByView[view], page })
       : Promise.resolve(emptyPage),
   ]);
+  const approvalCandidates =
+    view === "fatturare" && user.canApprove ? await listMassApprovalCandidates() : [];
   return {
     username: user.username,
     csrfToken: user.csrfToken,
@@ -75,6 +78,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     updated: url.searchParams.get("aggiornati"),
     ignored: url.searchParams.get("ignorati"),
     filters,
+    approvalCandidates,
+    approved: url.searchParams.get("approvati"),
+    approvalErrors: url.searchParams.get("errori"),
   };
 }
 
@@ -83,6 +89,19 @@ export async function action({ request }: Route.ActionArgs) {
     const user = await requireSessionUser(request);
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
+    if (form.get("intent") === "approve-documents") {
+      if (form.get("confirm") !== "yes") {
+        throw new Response("Conferma mancante", { status: 400 });
+      }
+      const result = await approveInvoices(form.getAll("caseId"), {
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return redirect(
+        `/ordini?vista=fatturare&approvati=${result.approved}&errori=${result.failed}`,
+      );
+    }
     if (form.get("intent") !== "import-fixture" || getConfig().APP_ENV === "production") {
       throw new Response("Azione non riconosciuta", { status: 400 });
     }
@@ -106,6 +125,9 @@ export default function Orders() {
     updated,
     ignored,
     filters,
+    approvalCandidates,
+    approved,
+    approvalErrors,
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const showsPreparations = view === "fatturare" || view === "verificare";
@@ -192,6 +214,42 @@ export default function Orders() {
         <p className="error" role="alert">
           {error.message}
         </p>
+      ) : null}
+      {approved !== null ? (
+        <p className="notice" role="status">
+          {copy.orders.massApprovalResult(approved, approvalErrors ?? "0")}
+        </p>
+      ) : null}
+
+      {showsPreparations && approvalCandidates.length > 1 ? (
+        <section className="card section-gap">
+          <h2>{copy.orders.massApprovalTitle}</h2>
+          <p>
+            {copy.orders.massApprovalSummary(
+              approvalCandidates.length,
+              approvalCandidates.reduce((sum, item) => sum + item.total_amount, 0),
+            )}
+          </p>
+          <Form method="post">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="approve-documents" />
+            {approvalCandidates.map((candidate) => (
+              <input
+                key={candidate.billing_case_id}
+                type="hidden"
+                name="caseId"
+                value={candidate.billing_case_id}
+              />
+            ))}
+            <label className="checkbox-row">
+              <input name="confirm" required type="checkbox" value="yes" />
+              {copy.orders.massApprovalConfirm}
+            </label>
+            <button className="button" type="submit">
+              {copy.orders.massApprovalAction}
+            </button>
+          </Form>
+        </section>
       ) : null}
 
       {!showsPreparations && view !== "annullati" ? orderFilters : null}

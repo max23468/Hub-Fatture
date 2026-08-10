@@ -1,0 +1,34 @@
+{
+  "transmitter": { "countryCode": "IT", "taxCode": "01234567890" },
+  "seller": {
+    "vatCountryCode": "IT",
+    "vatCode": "01234567890",
+    "taxCode": "RSSMRA80A01H501U",
+    "businessName": "Venditore Esempio",
+    "taxRegime": "RF14",
+    "address": {
+      "line1": "Via Esempio 1",
+      "postalCode": "20100",
+      "city": "Milano",
+      "province": "MI",
+      "countryCode": "IT"
+    },
+    "phone": "0212345678",
+    "email": "contabilita@example.invalid"
+  },
+  "taxNature": "N5",
+  "legalReference": "Regime del margine Art. 36 41/95",
+  "series": "FPR",
+  "numbering": {
+    "cadence": "ANNUAL",
+    "sharedByInvoiceAndCreditNote": true,
+    "documentDatePolicy": "APPROVAL_DATE",
+    "rejectedDocumentPolicy": "CORRECT_SAME_NUMBER_AND_DATE",
+    "approvedAt": "2026-08-10T10:00:00+02:00"
+  },
+  "payment": {
+    "condition": "TP02",
+    "invoiceMethod": "MP08",
+    "creditNoteMethod": "MP05"
+  }
+}

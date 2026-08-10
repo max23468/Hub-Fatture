@@ -15,6 +15,13 @@ import {
 import { date, dateTime, euros } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
+import { decimalToCents } from "../../src/orders.ts";
+import { AppError } from "../../src/errors.ts";
+import {
+  approveInvoice,
+  getInvoiceProjection,
+  saveInvoiceDraft,
+} from "../../src/db/documents.server.ts";
 import {
   addOrderToBillingCase,
   correctBillingCaseCustomer,
@@ -25,6 +32,7 @@ import {
 
 interface Actor {
   id: number;
+  canApprove: boolean;
   requestId: string;
 }
 
@@ -35,6 +43,46 @@ function runIntent(
   revision: string | null,
   actor: Actor,
 ) {
+  if (intent === "save-document") {
+    let lines;
+    try {
+      const orderIds = form.getAll("documentOrderId");
+      const descriptions = form.getAll("documentDescription");
+      const quantities = form.getAll("documentQuantity");
+      const amounts = form.getAll("documentUnitAmount");
+      lines = orderIds.map((orderId, index) => ({
+        orderId,
+        description: descriptions[index],
+        quantity: Number(quantities[index]),
+        unitAmount: decimalToCents(amounts[index] ?? ""),
+      }));
+    } catch {
+      throw new AppError("DOCUMENT_INVALID", 422);
+    }
+    return saveInvoiceDraft(
+      caseId,
+      {
+        caseRevision: revision,
+        draftVersion: form.get("draftVersion"),
+        differenceReason: form.get("differenceReason"),
+        lines,
+      },
+      actor,
+    );
+  }
+  if (intent === "approve-document") {
+    return approveInvoice(
+      caseId,
+      {
+        caseRevision: revision,
+        draftVersion: form.get("draftVersion"),
+        projectionSha256: form.get("projectionSha256"),
+        confirmPending: form.get("confirmPending") === "yes",
+        confirmDifference: form.get("confirmDifference") === "yes",
+      },
+      actor,
+    );
+  }
   if (intent === "do-not-transmit") {
     return updateBillingCaseTransmission(caseId, form.get("reason") ?? "", revision, actor);
   }
@@ -59,6 +107,8 @@ function runIntent(
       lastName: form.get("lastName"),
       companyName: form.get("companyName"),
       email: form.get("email"),
+      certifiedEmail: form.get("certifiedEmail"),
+      recipientCode: form.get("recipientCode"),
       phone: form.get("phone"),
       billingAddress: {
         line1: form.get("line1"),
@@ -92,7 +142,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const billingCase = await getBillingCase(params.caseId);
   if (!billingCase) throw new Response("Preparazione non trovata", { status: 404 });
-  return { username: user.username, csrfToken: user.csrfToken, billingCase };
+  const projection = await getInvoiceProjection(params.caseId).catch((error: unknown) => {
+    if (error instanceof AppError) return { error: error.message } as const;
+    throw error;
+  });
+  return {
+    username: user.username,
+    canApprove: user.canApprove,
+    csrfToken: user.csrfToken,
+    billingCase,
+    projection,
+  };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -102,6 +162,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     assertCsrf(user, form.get("csrf") ?? "");
     const outcome = await runIntent(form.get("intent"), params.caseId, form, form.get("revision"), {
       id: user.id,
+      canApprove: user.canApprove,
       requestId: requestId(request),
     });
     if (outcome === "unknown") throw new Response("Azione non riconosciuta", { status: 400 });
@@ -110,8 +171,155 @@ export async function action({ request, params }: Route.ActionArgs) {
   });
 }
 
+type InvoiceProjection = Extract<
+  NonNullable<Awaited<ReturnType<typeof getInvoiceProjection>>>,
+  { profileMissing: false }
+>;
+
+function InvoiceDocument({
+  canApprove,
+  csrfToken,
+  projection,
+}: {
+  canApprove: boolean;
+  csrfToken: string;
+  projection: InvoiceProjection;
+}) {
+  return (
+    <>
+      {!projection.approved ? (
+        <section className="card section-gap" aria-labelledby="bozza-fiscale">
+          <h2 id="bozza-fiscale">{copy.document.draftTitle}</h2>
+          <p>{copy.document.draftIntro}</p>
+          <Form method="post">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="save-document" />
+            <input type="hidden" name="revision" value={projection.caseRevision} />
+            <input type="hidden" name="draftVersion" value={projection.draftVersion} />
+            <p>{copy.document.approvalDate(date(projection.documentDate))}</p>
+            <div className="table-wrap section-gap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{copy.document.description}</th>
+                    <th>{copy.document.quantity}</th>
+                    <th>{copy.document.unitAmount}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projection.lines.map((line) => (
+                    <tr key={line.orderId}>
+                      <td data-label={copy.document.description}>
+                        <input type="hidden" name="documentOrderId" value={line.orderId} />
+                        <input
+                          aria-label={`${copy.document.description} ${line.orderId}`}
+                          defaultValue={line.description}
+                          maxLength={1000}
+                          name="documentDescription"
+                          required
+                        />
+                      </td>
+                      <td data-label={copy.document.quantity}>
+                        <input
+                          aria-label={`${copy.document.quantity} ${line.orderId}`}
+                          defaultValue={line.quantity}
+                          min={1}
+                          name="documentQuantity"
+                          required
+                          type="number"
+                        />
+                      </td>
+                      <td data-label={copy.document.unitAmount}>
+                        <input
+                          aria-label={`${copy.document.unitAmount} ${line.orderId}`}
+                          defaultValue={(line.unitAmount / 100).toFixed(2)}
+                          min="0"
+                          name="documentUnitAmount"
+                          required
+                          step="0.01"
+                          type="number"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <label className="section-gap">
+              {copy.document.differenceReason}
+              <input
+                defaultValue={projection.differenceReason}
+                maxLength={500}
+                name="differenceReason"
+              />
+            </label>
+            <button className="button section-gap" type="submit">
+              {copy.document.saveDraft}
+            </button>
+          </Form>
+        </section>
+      ) : null}
+      <section className="card section-gap" aria-labelledby="comparatore-fiscale">
+        <h2 id="comparatore-fiscale">{copy.document.comparisonTitle}</h2>
+        <p>{copy.document.xsdValid}</p>
+        <dl className="facts facts--columns">
+          <div>
+            <dt>{copy.document.sourceTotal}</dt>
+            <dd>{euros(projection.sourceTotal)}</dd>
+          </div>
+          <div>
+            <dt>{copy.document.documentTotal}</dt>
+            <dd>{euros(projection.total)}</dd>
+          </div>
+          <div>
+            <dt>{copy.document.difference}</dt>
+            <dd>{euros(projection.difference)}</dd>
+          </div>
+          <div>
+            <dt>{copy.document.profile}</dt>
+            <dd>RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}</dd>
+          </div>
+        </dl>
+        <details className="section-gap">
+          <summary>{copy.document.technicalXml}</summary>
+          <pre className="code-block">{projection.xml}</pre>
+        </details>
+        {!projection.approved && projection.draftVersion === 0 ? (
+          <p className="notice section-gap">{copy.document.saveBeforeApproval}</p>
+        ) : !projection.approved && !canApprove ? (
+          <p className="notice section-gap">{copy.document.ownerOnly}</p>
+        ) : !projection.approved ? (
+          <Form method="post" className="section-gap">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="approve-document" />
+            <input type="hidden" name="revision" value={projection.caseRevision} />
+            <input type="hidden" name="draftVersion" value={projection.draftVersion} />
+            <input type="hidden" name="projectionSha256" value={projection.projectionSha256} />
+            {projection.paymentPending ? (
+              <label className="checkbox-row">
+                <input name="confirmPending" required type="checkbox" value="yes" />
+                {copy.document.confirmPending}
+              </label>
+            ) : null}
+            {projection.difference !== 0 ? (
+              <label className="checkbox-row">
+                <input name="confirmDifference" required type="checkbox" value="yes" />
+                {copy.document.confirmDifference}
+              </label>
+            ) : null}
+            <button className="button" type="submit">
+              {copy.document.approve}
+            </button>
+          </Form>
+        ) : null}
+      </section>
+    </>
+  );
+}
+
 export default function BillingCaseDetail() {
-  const { username, csrfToken, billingCase } = useLoaderData<typeof loader>();
+  const { username, canApprove, csrfToken, billingCase, projection } =
+    useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const total = billingCase.orders.reduce((sum, order) => sum + order.gross_amount, 0);
   const editable = ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status);
@@ -281,6 +489,13 @@ export default function BillingCaseDetail() {
           customer={billingCase.customer_snapshot_json}
           revision={billingCase.revision}
         />
+      ) : null}
+      {projection && "profileMissing" in projection && projection.profileMissing ? (
+        <p className="warning section-gap">{copy.document.profileMissing}</p>
+      ) : projection && "error" in projection ? (
+        <p className="warning section-gap">{projection.error}</p>
+      ) : projection && "lines" in projection ? (
+        <InvoiceDocument canApprove={canApprove} csrfToken={csrfToken} projection={projection} />
       ) : null}
       {billingCase.revisions.length ? (
         <section className="card section-gap">
