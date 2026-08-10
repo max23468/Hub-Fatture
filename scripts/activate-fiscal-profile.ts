@@ -12,7 +12,17 @@ if ((await stat(sourcePath)).size > 4_900_000) throw new Error("XML oltre il lim
 
 const xml = await readFile(sourcePath, "utf8");
 await validateFatturaXml(xml);
-const profile = fiscalProfileFromAcceptedInvoiceXml(xml, new Date().toISOString());
+const latestDocumentPath = process.argv[3];
+if (latestDocumentPath && (await stat(latestDocumentPath)).size > 4_900_000) {
+  throw new Error("XML del progressivo oltre il limite consentito");
+}
+const latestDocumentXml = latestDocumentPath ? await readFile(latestDocumentPath, "utf8") : xml;
+if (latestDocumentPath) await validateFatturaXml(latestDocumentXml);
+const profile = fiscalProfileFromAcceptedInvoiceXml(
+  xml,
+  new Date().toISOString(),
+  latestDocumentXml,
+);
 
 try {
   const owner = (

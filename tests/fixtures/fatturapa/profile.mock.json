@@ -26,6 +26,7 @@
     "rejectedDocumentPolicy": "CORRECT_SAME_NUMBER_AND_DATE",
     "lastObservedYear": 2026,
     "lastObservedNumber": 1,
+    "sourceXmlSha256": "772d8cdf61a096a5d8471438bc6df5e418231751bbf5755a9942d7fd410a68a3",
     "approvedAt": "2026-08-10T10:00:00+02:00"
   },
   "payment": {

@@ -233,9 +233,19 @@ export default function Orders() {
           <Form method="post">
             <input type="hidden" name="csrf" value={csrfToken} />
             <input type="hidden" name="intent" value="approve-documents" />
+            <ul>
+              {approvalCandidates.map((candidate) => (
+                <li key={candidate.billing_case_id}>
+                  <Link to={`/ordini/preparazione/${candidate.billing_case_id}`}>
+                    {copy.preparation.title(candidate.public_number)}
+                  </Link>
+                  {` · ${candidate.customer_name} · ${euros(candidate.total_amount)}`}
+                </li>
+              ))}
+            </ul>
             {approvalCandidates.map((candidate) => (
               <input
-                key={candidate.billing_case_id}
+                key={`approval-${candidate.billing_case_id}`}
                 type="hidden"
                 name="approval"
                 value={`${candidate.billing_case_id}:${candidate.case_revision}:${candidate.draft_version}:${candidate.projection_sha256}`}

@@ -71,6 +71,7 @@ export const fiscalProfileSchema = z
       rejectedDocumentPolicy: z.literal("CORRECT_SAME_NUMBER_AND_DATE"),
       lastObservedYear: z.number().int().min(2000).max(9999),
       lastObservedNumber: z.number().int().nonnegative().max(POSTGRES_INTEGER_MAX),
+      sourceXmlSha256: z.string().regex(/^[0-9a-f]{64}$/),
       approvedAt: z.iso.datetime({ offset: true }),
     }),
     payment: z.object({
@@ -86,10 +87,18 @@ export type FiscalProfile = z.infer<typeof fiscalProfileSchema>;
 export function fiscalProfileFromAcceptedInvoiceXml(
   xml: string,
   approvedAt: string,
+  latestDocumentXml = xml,
 ): FiscalProfile {
-  const parsed = create(xml).end({ format: "object" }) as Record<string, unknown>;
-  const root = xmlRecord(parsed.FatturaElettronica);
-  const header = xmlRecord(root.FatturaElettronicaHeader);
+  const source = acceptedFiscalDocument(xml);
+  if (source.type !== "TD01") {
+    throw new Error("Il file del profilo non è una fattura privata TD01 FPR12");
+  }
+  const latest = latestDocumentXml === xml ? source : acceptedFiscalDocument(latestDocumentXml);
+  const observed =
+    latest.year > source.year || (latest.year === source.year && latest.number > source.number)
+      ? latest
+      : source;
+  const { header, body } = source;
   const transmission = xmlRecord(header.DatiTrasmissione);
   const transmitter = xmlRecord(transmission.IdTrasmittente);
   const supplier = xmlRecord(header.CedentePrestatore);
@@ -98,21 +107,10 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   const supplierName = xmlRecord(supplierData.Anagrafica);
   const supplierAddress = xmlRecord(supplier.Sede);
   const contacts = xmlRecord(supplier.Contatti);
-  const body = xmlRecord(root.FatturaElettronicaBody);
-  const general = xmlRecord(xmlRecord(body.DatiGenerali).DatiGeneraliDocumento);
   const goods = xmlRecord(body.DatiBeniServizi);
   const summary = xmlRecord(goods.DatiRiepilogo);
   const paymentBlock = xmlRecord(body.DatiPagamento);
   const payment = xmlRecord(paymentBlock.DettaglioPagamento);
-  if (xmlValue(root["@versione"]) !== "FPR12" || xmlValue(general.TipoDocumento) !== "TD01") {
-    throw new Error("Il file non è una fattura privata TD01 FPR12");
-  }
-  const documentDate = xmlValue(general.Data);
-  const documentNumber = /^FPR (\d+)\/(\d{2})$/.exec(xmlValue(general.Numero));
-  const documentYear = Number(documentDate.slice(0, 4));
-  if (!documentNumber || Number(documentNumber[2]) !== documentYear % 100) {
-    throw new Error("Il progressivo FPR non è coerente con la data documento");
-  }
   return fiscalProfileSchema.parse({
     transmitter: {
       countryCode: xmlValue(transmitter.IdPaese),
@@ -144,8 +142,9 @@ export function fiscalProfileFromAcceptedInvoiceXml(
       sharedByInvoiceAndCreditNote: true,
       documentDatePolicy: "APPROVAL_DATE",
       rejectedDocumentPolicy: "CORRECT_SAME_NUMBER_AND_DATE",
-      lastObservedYear: documentYear,
-      lastObservedNumber: Number(documentNumber[1]),
+      lastObservedYear: observed.year,
+      lastObservedNumber: observed.number,
+      sourceXmlSha256: createHash("sha256").update(observed.xml).digest("hex"),
       approvedAt,
     },
     payment: {
@@ -154,6 +153,27 @@ export function fiscalProfileFromAcceptedInvoiceXml(
       creditNoteMethod: "MP05",
     },
   });
+}
+
+function acceptedFiscalDocument(xml: string) {
+  const parsed = create(xml).end({ format: "object" }) as Record<string, unknown>;
+  const root = xmlRecord(parsed.FatturaElettronica);
+  const header = xmlRecord(root.FatturaElettronicaHeader);
+  const body = xmlRecord(root.FatturaElettronicaBody);
+  const general = xmlRecord(xmlRecord(body.DatiGenerali).DatiGeneraliDocumento);
+  const type = xmlValue(general.TipoDocumento);
+  const documentDate = xmlValue(general.Data);
+  const documentNumber = /^FPR (\d+)\/(\d{2})$/.exec(xmlValue(general.Numero));
+  const year = Number(documentDate.slice(0, 4));
+  if (
+    xmlValue(root["@versione"]) !== "FPR12" ||
+    !["TD01", "TD04"].includes(type) ||
+    !documentNumber ||
+    Number(documentNumber[2]) !== year % 100
+  ) {
+    throw new Error("Il documento non contiene un progressivo FPR12 valido");
+  }
+  return { xml, header, body, type, year, number: Number(documentNumber[1]) };
 }
 
 function xmlRecord(input: unknown): Record<string, unknown> {

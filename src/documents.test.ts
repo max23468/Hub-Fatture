@@ -94,6 +94,16 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     creditXml,
     await readFile("tests/fixtures/fatturapa/accepted-credit-note.anonymized.xml", "utf8"),
   );
+  const profileFromLatestDocument = fiscalProfileFromAcceptedInvoiceXml(
+    invoiceXml,
+    syntheticFiscalProfile.numbering.approvedAt,
+    creditXml,
+  );
+  assert.equal(profileFromLatestDocument.numbering.lastObservedNumber, 2);
+  assert.equal(
+    profileFromLatestDocument.numbering.sourceXmlSha256,
+    "ddbd3c679143ccf3c4cd9d1998ead9d38142bea6771b55ff99b78c938e7114d2",
+  );
   await validateFatturaXml(creditXml);
   assert.match(creditXml, /<TipoDocumento>TD04<\/TipoDocumento>/);
   assert.match(creditXml, /<ModalitaPagamento>MP05<\/ModalitaPagamento>/);
