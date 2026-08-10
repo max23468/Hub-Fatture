@@ -477,7 +477,9 @@ export async function getInvoiceProjection(caseId: string) {
     notes: input.notes ?? "",
     paymentPending: input.paymentStatus === "PENDING",
     requiresResave: Boolean(
-      draft && draft.status === "DRAFT" && draft.document_date !== input.documentDate,
+      draft &&
+      draft.status === "DRAFT" &&
+      (draft.document_date !== input.documentDate || draft.projection_sha256 !== projected.sha256),
     ),
     projectionSha256: projection.sha256,
     xml: projection.xml,

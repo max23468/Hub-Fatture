@@ -35,6 +35,7 @@ test(
       const second = structuredClone(fixture[0]);
       const third = structuredClone(fixture[0]);
       const fourth = structuredClone(fixture[0]);
+      const fifth = structuredClone(fixture[0]);
       second.externalOrderId = "shop-order-documents-second";
       second.displayNumber = "#DOC-2";
       second.createdAt = "2026-08-11T08:00:00Z";
@@ -46,6 +47,9 @@ test(
       fourth.externalOrderId = "shop-order-documents-fourth";
       fourth.displayNumber = "#DOC-4";
       fourth.updatedAt = "2026-08-10T10:00:00Z";
+      fifth.externalOrderId = "shop-order-documents-fifth";
+      fifth.displayNumber = "#DOC-5";
+      fifth.updatedAt = "2026-08-10T11:00:00Z";
       await orders.importOrders([first, second, third, fourth], {
         id: 1,
         requestId: "documents-import",
@@ -110,9 +114,18 @@ test(
         );
         return saved;
       };
-      const [firstProjection, secondProjection, thirdProjection] = await Promise.all(
+      let [firstProjection, secondProjection, thirdProjection] = await Promise.all(
         cases.map((billingCase) => save(billingCase.id)),
       );
+      await orders.importOrders([fifth], { id: 1, requestId: "reconcile-draft-after-grouping" });
+      const groupedProjection = await documents.getInvoiceProjection(cases[0]!.id);
+      assert.ok(
+        groupedProjection && !groupedProjection.profileMissing && "lines" in groupedProjection,
+      );
+      assert.equal(groupedProjection.draftVersion, firstProjection.draftVersion + 1);
+      assert.equal(groupedProjection.lines.length, 3);
+      assert.equal(groupedProjection.requiresResave, true);
+      firstProjection = await save(cases[0]!.id);
       const firstOrderIds = (
         await database
           .getPool()
@@ -120,7 +133,7 @@ test(
             cases[0]!.id,
           ])
       ).rows;
-      assert.equal(firstOrderIds.length, 2);
+      assert.equal(firstOrderIds.length, 3);
       await orders.separateOrderFromBillingCase(
         cases[0]!.id,
         firstOrderIds[1]!.id,
@@ -129,8 +142,9 @@ test(
       );
       const invalidated = await documents.getInvoiceProjection(cases[0]!.id);
       assert.ok(invalidated && !invalidated.profileMissing && "lines" in invalidated);
-      assert.equal(invalidated.draftVersion, 0);
-      assert.equal(invalidated.lines.length, 1);
+      assert.equal(invalidated.draftVersion, firstProjection.draftVersion + 1);
+      assert.equal(invalidated.lines.length, 2);
+      assert.equal(invalidated.requiresResave, true);
       const regeneratedFirstProjection = await save(cases[0]!.id);
       await documents.saveInvoiceDraft(
         cases[1]!.id,
@@ -198,6 +212,7 @@ test(
       assert.equal(correctedSecondProjection.paymentMethod, "MP05");
       assert.equal(correctedSecondProjection.causale, "Cessione beni usati");
       assert.equal(correctedSecondProjection.notes, "Incasso da registrare");
+      assert.equal(correctedSecondProjection.requiresResave, true);
       await assert.rejects(
         documents.approveInvoice(
           cases[1]!.id,
@@ -233,6 +248,7 @@ test(
           !exceptionalSecondProjection.profileMissing &&
           "lines" in exceptionalSecondProjection,
       );
+      assert.equal(exceptionalSecondProjection.requiresResave, false);
       assert.equal((await documents.listMassApprovalCandidates()).length, 2);
       await assert.rejects(
         documents.approveInvoice(

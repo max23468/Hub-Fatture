@@ -27,6 +27,7 @@ import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./order-commands.server.ts";
 import {
   groupOrder,
+  reconcileInvoiceDraft,
   recomputeBillingCaseStatus,
   serializeOrderMutations,
   type Actor,
@@ -170,13 +171,6 @@ function assertRevision(value: unknown) {
 }
 
 const editableStatuses: readonly string[] = OPEN_BILLING_CASE_STATUSES;
-
-async function invalidateInvoiceDraft(client: pg.PoolClient, caseId: string) {
-  await client.query(
-    "DELETE FROM documents WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'",
-    [caseId],
-  );
-}
 
 export async function updateBillingCaseTransmission(
   id: string,
@@ -343,13 +337,13 @@ export async function separateOrderFromBillingCase(
       [caseId],
     );
     if (Number(remaining.rows[0]!.count) < 2) throw new AppError("BILLING_CASE_EMPTY", 409);
-    await invalidateInvoiceDraft(client, caseId);
     const separated = await client.query(
       `UPDATE orders SET billing_case_id = NULL, trigger_status = 'ELIGIBLE'
        WHERE id = $1 AND billing_case_id = $2`,
       [orderId, caseId],
     );
     if (!separated.rowCount) throw new AppError("CONFLICT_REVISION", 409);
+    await reconcileInvoiceDraft(client, caseId);
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),

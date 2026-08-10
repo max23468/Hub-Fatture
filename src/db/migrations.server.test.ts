@@ -19,6 +19,7 @@ const DOCUMENTS = "005_documents.sql";
 const M4_COMPLETION = "006_m4_completion.sql";
 const M4_LEGACY_DOCUMENTS = "007_m4_legacy_documents.sql";
 const DOCUMENT_DEPLOY_COMPATIBILITY = "008_document_deploy_compatibility.sql";
+const APPROVED_PAYMENT_HISTORY = "009_approved_payment_history.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -31,6 +32,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, M4_COMPLETION));
     await rm(path.join(firstTwo, M4_LEGACY_DOCUMENTS));
     await rm(path.join(firstTwo, DOCUMENT_DEPLOY_COMPATIBILITY));
+    await rm(path.join(firstTwo, APPROVED_PAYMENT_HISTORY));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -42,6 +44,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       M4_COMPLETION,
       M4_LEGACY_DOCUMENTS,
       DOCUMENT_DEPLOY_COMPATIBILITY,
+      APPROVED_PAYMENT_HISTORY,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -61,12 +64,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       M4_COMPLETION,
       M4_LEGACY_DOCUMENTS,
       DOCUMENT_DEPLOY_COMPATIBILITY,
+      APPROVED_PAYMENT_HISTORY,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "8",
+      "9",
     );
     await cleanClient.end();
 
@@ -155,6 +159,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, M4_COMPLETION));
     await rm(path.join(beforeM4, M4_LEGACY_DOCUMENTS));
     await rm(path.join(beforeM4, DOCUMENT_DEPLOY_COMPATIBILITY));
+    await rm(path.join(beforeM4, APPROVED_PAYMENT_HISTORY));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -243,7 +248,8 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
         `UPDATE documents
          SET status = 'APPROVED', fiscal_year = 2026, fiscal_number = 1,
              immutable_snapshot_json = $2, fiscal_profile_snapshot_json = $3,
-             approved_at = now(), xml_sha256 = $4, storage_object_id = $5
+             approved_at = now(), pending_payment_confirmed_at = now(),
+             xml_sha256 = $4, storage_object_id = $5
          WHERE id = $1`,
         [
           approved.rows[0]!.id,
@@ -276,6 +282,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       M4_COMPLETION,
       M4_LEGACY_DOCUMENTS,
       DOCUMENT_DEPLOY_COMPATIBILITY,
+      APPROVED_PAYMENT_HISTORY,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {
@@ -305,7 +312,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
         })),
         [
           { status: "DRAFT", payment_status: "PENDING", payment_method: "MP01" },
-          { status: "APPROVED", payment_status: "PAID", payment_method: "MP01" },
+          { status: "APPROVED", payment_status: "PENDING", payment_method: "MP01" },
           { status: "DRAFT", payment_status: "PENDING", payment_method: "MP01" },
         ],
       );

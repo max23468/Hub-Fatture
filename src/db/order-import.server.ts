@@ -48,6 +48,78 @@ interface GroupableOrder {
   currency: string;
 }
 
+export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: string) {
+  const draft = await client.query<{ id: string }>(
+    `SELECT id FROM documents
+     WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'
+     FOR UPDATE`,
+    [caseId],
+  );
+  const documentId = draft.rows[0]?.id;
+  if (!documentId) return;
+  await client.query(
+    `DELETE FROM document_lines
+     WHERE document_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM orders
+         WHERE orders.id = document_lines.order_id AND orders.billing_case_id = $2
+       )`,
+    [documentId, caseId],
+  );
+  await client.query(
+    `DELETE FROM document_orders
+     WHERE document_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM orders
+         WHERE orders.id = document_orders.order_id AND orders.billing_case_id = $2
+       )`,
+    [documentId, caseId],
+  );
+  await client.query(
+    `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+     SELECT $1, 'INVOICE', orders.id, orders.gross_amount
+     FROM orders
+     WHERE orders.billing_case_id = $2
+       AND NOT EXISTS (
+         SELECT 1 FROM document_orders
+         WHERE document_orders.document_id = $1 AND document_orders.order_id = orders.id
+       )`,
+    [documentId, caseId],
+  );
+  await client.query(
+    `WITH missing AS (
+       SELECT orders.id,
+              'Vendita beni usati - Ordine '
+                || CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
+                || ' ' || orders.display_number AS description,
+              orders.gross_amount,
+              row_number() OVER (ORDER BY orders.id) AS position
+       FROM orders
+       WHERE orders.billing_case_id = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM document_lines
+           WHERE document_lines.document_id = $1 AND document_lines.order_id = orders.id
+         )
+     ), offset_value AS (
+       SELECT coalesce(max(line_number), 0) AS value
+       FROM document_lines WHERE document_id = $1
+     )
+     INSERT INTO document_lines
+       (document_id, order_id, line_number, description, quantity, unit_amount,
+        total_amount, tax_nature)
+     SELECT $1, missing.id, offset_value.value + missing.position, missing.description,
+            1, missing.gross_amount, missing.gross_amount, 'N5'
+     FROM missing CROSS JOIN offset_value`,
+    [documentId, caseId],
+  );
+  await client.query(
+    `UPDATE documents
+     SET draft_version = draft_version + 1, updated_at = now()
+     WHERE id = $1`,
+    [documentId],
+  );
+}
+
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
   const canonicalProfile = canonicalCustomerProfile(input);
   return {
@@ -222,10 +294,7 @@ export async function groupOrder(
     [order.id, caseId],
   );
   if (assigned.rowCount) {
-    await client.query(
-      "DELETE FROM documents WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'",
-      [caseId],
-    );
+    await reconcileInvoiceDraft(client, caseId);
     await writeAudit(client, {
       ...auditActor(actor),
       action: forced ? "ORDER_GROUPING_FORCED" : "ORDER_GROUPED",
