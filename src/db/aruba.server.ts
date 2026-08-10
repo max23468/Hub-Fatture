@@ -341,6 +341,9 @@ export async function createBatchForDocuments(documentIds: string[], actor: Arub
         totalAmount: row.total_amount,
       })),
       actor,
+      undefined,
+      1,
+      "ASSISTED",
     );
   });
 }
@@ -1183,6 +1186,34 @@ async function importOfficialFile(
           [current.submission_id, remoteNotificationId, status, storage.rows[0]!.id],
         );
         await monotonicSubmission(client, current.batch_id, documentId, status);
+        if (["DELIVERED", "NOT_DELIVERED", "REJECTED"].includes(status)) {
+          const unresolved = await client.query(
+            `SELECT 1 FROM aruba_submissions
+             WHERE batch_id = $1
+               AND status NOT IN ('DELIVERED', 'NOT_DELIVERED', 'REJECTED')
+             LIMIT 1`,
+            [current.batch_id],
+          );
+          const requiresReconciliation = Boolean(unresolved.rowCount);
+          await client.query(
+            `UPDATE aruba_batches
+             SET status = CASE
+                   WHEN $2::boolean THEN 'RECONCILIATION_REQUIRED'
+                   ELSE 'RECONCILED'
+                 END,
+                 requires_reconciliation = $2,
+                 last_readback_at = now(),
+                 updated_at = now()
+             WHERE id = $1`,
+            [current.batch_id, requiresReconciliation],
+          );
+          await client.query(
+            `UPDATE aruba_helper_tokens
+             SET revoked_at = coalesce(revoked_at, now())
+             WHERE batch_id = $1`,
+            [current.batch_id],
+          );
+        }
       }
       await writeAudit(client, {
         actorType: source.actorType,

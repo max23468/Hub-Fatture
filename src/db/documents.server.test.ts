@@ -588,6 +588,20 @@ test(
         ).rows[0].status,
         "DELIVERED",
       );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT status FROM aruba_batches WHERE id = $1", [assistedBatchId])
+        ).rows[0].status,
+        "RECONCILED",
+      );
+      await assert.rejects(
+        aruba.helperManifest(assistedToken.token),
+        (error) => error instanceof AppError && error.code === "ARUBA_HELPER_TOKEN_INVALID",
+      );
+      const readbackToken = await aruba.issueHelperToken(assistedBatchId, owner);
+      assert.equal((await aruba.helperManifest(readbackToken.token)).operation, "READBACK");
 
       const invalidToken = await aruba.issueHelperToken(invalidBatchId, owner);
       const invalidManifest = await aruba.helperManifest(invalidToken.token);
@@ -1077,6 +1091,21 @@ test(
             result.reason.code === "ARUBA_BATCH_INVALID",
         ).length,
         1,
+      );
+      const recoveredBatch = concurrentBatches.find((result) => result.status === "fulfilled");
+      assert.ok(recoveredBatch?.status === "fulfilled");
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT batches.mode,
+                    EXISTS (
+                      SELECT 1 FROM aruba_send_permits WHERE batch_id = batches.id
+                    ) AS has_permit
+             FROM aruba_batches AS batches WHERE batches.id = $1`,
+            [recoveredBatch.value],
+          )
+        ).rows[0],
+        { mode: "ASSISTED", has_permit: false },
       );
       await unlink(path.join(storage, rows[0]!.relative_path));
       assert.ok(

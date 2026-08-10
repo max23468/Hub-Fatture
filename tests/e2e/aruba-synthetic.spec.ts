@@ -26,6 +26,32 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(page.getByRole("cell", { name: "Documento valido" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Invia" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Salva in bozze" })).toBeDisabled();
+  const visibleRow = page.locator("tbody tr").first();
+  await visibleRow.evaluate((element) => {
+    const hiddenClone = element.cloneNode(true) as HTMLElement;
+    hiddenClone.hidden = true;
+    element.parentElement!.append(hiddenClone);
+  });
+  const validDocument = {
+    id: "1",
+    filename: path.basename(xml),
+    fiscalNumber: "FPR 0001/26",
+    documentDate: "2026-08-10",
+    totalAmount: 12345,
+  };
+  await expect(validateVisibleDocuments(page, { documents: [validDocument] })).resolves.toEqual([
+    { id: "1", status: "VALID" },
+  ]);
+  await visibleRow.evaluate((element) => {
+    element.parentElement!.append(element.cloneNode(true));
+  });
+  await expect(validateVisibleDocuments(page, { documents: [validDocument] })).rejects.toThrow(
+    "DOM_UNRECOGNIZED",
+  );
+  await page
+    .locator("tbody tr")
+    .last()
+    .evaluate((element) => element.remove());
   await expect(
     validateVisibleDocuments(page, {
       documents: [

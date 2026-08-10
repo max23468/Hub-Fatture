@@ -163,6 +163,38 @@ async function uploadInput(page: Page) {
   throw new Error("DOM_UNRECOGNIZED");
 }
 
+async function visibleDocumentRow(page: Page, filename: string, required: boolean) {
+  const rows = page.locator("tr", { hasText: filename });
+  if (required) {
+    await page
+      .waitForFunction(
+        (expectedFilename) =>
+          [...document.querySelectorAll("tr")].some(
+            (row) =>
+              row.textContent?.includes(expectedFilename) &&
+              row instanceof HTMLElement &&
+              row.offsetParent !== null,
+          ),
+        filename,
+        { timeout: 10_000 },
+      )
+      .catch(() => {
+        throw new Error("DOM_UNRECOGNIZED");
+      });
+  }
+  const count = await rows.count();
+  if (count > 300) throw new Error("DOM_UNRECOGNIZED");
+  const visible: Locator[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const row = rows.nth(index);
+    if (await row.isVisible()) visible.push(row);
+  }
+  if (visible.length > 1 || (required && visible.length !== 1)) {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  return visible[0] ?? null;
+}
+
 type VisibleIdentityDocument = Pick<
   ArubaManifestDocument,
   "fiscalNumber" | "documentDate" | "totalAmount"
@@ -227,10 +259,8 @@ export async function validateVisibleDocuments(
   }
   const results: Array<{ id: string; status: "VALID" | "INVALID"; message?: string }> = [];
   for (const document of value.documents) {
-    const row = page.locator("tr", { hasText: document.filename }).first();
-    await row.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {
-      throw new Error("DOM_UNRECOGNIZED");
-    });
+    const row = await visibleDocumentRow(page, document.filename, true);
+    if (!row) throw new Error("DOM_UNRECOGNIZED");
     const { text } = await visibleDocumentIdentity(row, document);
     results.push(
       /Dettagli errori|\berror[ei]\b/i.test(text)
@@ -243,7 +273,8 @@ export async function validateVisibleDocuments(
 
 async function removeUploads(page: Page, value: ArubaManifest) {
   for (const document of value.documents) {
-    const row = page.locator("tr", { hasText: document.filename }).first();
+    const row = await visibleDocumentRow(page, document.filename, true);
+    if (!row) throw new Error("DOM_UNRECOGNIZED");
     const remove = row.getByRole("button", { name: /Rimuovi|Elimina/i }).first();
     if (!(await remove.count())) throw new Error("DOM_UNRECOGNIZED");
     await remove.click();
@@ -276,8 +307,8 @@ async function readback(
   const results: ReadbackDocument[] = [];
   for (const document of value.documents) {
     if (await search.count()) await search.fill(document.filename);
-    const row = page.locator("tr", { hasText: document.filename }).first();
-    if (!(await row.count())) {
+    const row = await visibleDocumentRow(page, document.filename, false);
+    if (!row) {
       results.push({ id: document.id, status: "NOT_FOUND" as const });
       continue;
     }
@@ -349,8 +380,8 @@ async function importVisibleOfficialFiles(
 ) {
   assertPageOrigin(page, target);
   for (const document of value.documents) {
-    const row = page.locator("tr", { hasText: document.filename }).first();
-    if (!(await row.count())) continue;
+    const row = await visibleDocumentRow(page, document.filename, false);
+    if (!row) continue;
     for (const [kind, label] of officialFileLinks) {
       const links = row.getByRole("link", { name: label });
       const count = Math.min(await links.count(), 10);
