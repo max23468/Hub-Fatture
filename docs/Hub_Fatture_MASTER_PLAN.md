@@ -895,7 +895,7 @@ Vincolo di accettazione: nessuna milestone, requisito o Definition of Done può 
 Sviluppare due ambienti applicativi e un fallback:
 
 - `mock`, con una pagina Aruba sintetica locale per sviluppo, contract test ed E2E;
-- `production`, con il pannello web reale soltanto nella prova autorizzata di M4 e nelle attività autorizzate di M5 e successive;
+- `production`, con il pannello web reale soltanto nella prova controllata e nelle altre attività autorizzate di M5 e successive;
 - `manuale`, esportando gli XML da HF e importando in seguito file ed esiti scaricati da Aruba.
 
 Credenziali, cookie, session storage, codici OTP e seed TOTP non entrano mai in HF, nel repository, nei prompt o nei log. Il profilo browser persistente è creato e posseduto dall'utente sul proprio computer.
@@ -3171,7 +3171,7 @@ Deve fermarsi e chiedere prima di:
 2. Ispezionare lo stato reale del checkout senza sovrascrivere modifiche esistenti.
 3. Avviare M0-M1 localmente con fixture e mock; non attendere Aruba.
 4. Chiedere accessi solo nel momento in cui servono e far inserire nel secret store soltanto quelli gestiti da HF; l'accesso Aruba resta nel browser locale del titolare.
-5. Completare in M4 l'audit autenticato e la prova reale autorizzata previsti in 11.1 e 11.4; non implementare né provare l'helper Aruba prima del gate di uscita di M4.
+5. Completare in M4 l'audit autenticato previsto in 11.1; in M5 sviluppare prima pagina sintetica, helper e controlli locali, quindi eseguire la prova reale autorizzata di 11.4 come gate finale della milestone, senza effettuare invii.
 6. Eseguire test, typecheck e build dopo ogni milestone.
 7. Fuori da una richiesta affermativa di pubblicazione, fermarsi per
    autorizzazione prima di deploy o release; fermarsi sempre prima di invii reali
@@ -3229,13 +3229,13 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Profilo fiscale approvato.
 - [ ] Sezionali e progressivi verificati.
 - [ ] Procedura scarto verificata.
-- [ ] Prova manuale controllata autorizzata con XML valido dedicato, riepilogo e controllo finale osservati, arrestata prima dell'ultimo clic e ripulita senza invio.
 
 ### Prima di completare M5
 
 - [ ] M4 completata con XML candidato immutabile.
-- [ ] Pagina Aruba sintetica e fixture dei file ufficiali derivate dalla prova, senza dati reali.
+- [ ] Pagina Aruba sintetica e fixture dei file ufficiali derivate dall'audit read-only e dai documenti anonimizzati, poi allineate alle eventuali divergenze osservate nella prova.
 - [ ] Percorso assistito, automatico e manuale verificato; 2FA Aruba attivata dal titolare oppure costo operativo dell'SMS per upload esplicitamente accettato.
+- [ ] Prova manuale controllata autorizzata con XML valido dedicato, riepilogo e controllo finale osservati, arrestata prima dell'ultimo clic e ripulita senza invio.
 
 ### Prima del deploy
 
