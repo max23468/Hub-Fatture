@@ -84,6 +84,7 @@ function runIntent(
         confirmApproval: form.get("confirmApproval") === "yes",
         confirmPending: form.get("confirmPending") === "yes",
         confirmDifference: form.get("confirmDifference") === "yes",
+        arubaMode: form.get("arubaMode"),
       },
       actor,
     );
@@ -401,6 +402,7 @@ function InvoiceDocument({
             <input type="hidden" name="revision" value={projection.caseRevision} />
             <input type="hidden" name="draftVersion" value={projection.draftVersion} />
             <input type="hidden" name="projectionSha256" value={projection.projectionSha256} />
+            <input type="hidden" name="arubaMode" value={projection.arubaMode} />
             {projection.paymentPending ? (
               <label className="checkbox-row">
                 <input name="confirmPending" required type="checkbox" value="yes" />
@@ -442,7 +444,11 @@ function InvoiceDocument({
                 </div>
                 <div>
                   <dt>{copy.document.confirmHelper}</dt>
-                  <dd>{copy.document.manualHelperMode}</dd>
+                  <dd>
+                    {projection.arubaMode === "AUTOMATIC"
+                      ? copy.document.automaticHelperMode
+                      : copy.document.assistedHelperMode}
+                  </dd>
                 </div>
               </dl>
               <p className="warning">{copy.document.irreversibleNumbering}</p>

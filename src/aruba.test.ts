@@ -1,0 +1,63 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  assertAllowedArubaTarget,
+  assertAllowedHubUrl,
+  manifestSha256,
+  notificationStatus,
+  validateOfficialFile,
+  validateUntrustedXml,
+} from "./aruba.ts";
+
+test("allowlist, manifest e parser Aruba restano fail-closed", () => {
+  assert.equal(
+    assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/", "PRODUCTION").origin,
+    "https://fatturazioneelettronica.aruba.it",
+  );
+  assert.throws(() =>
+    assertAllowedArubaTarget(
+      "https://fatturazioneelettronica.aruba.it.attacker.invalid/",
+      "PRODUCTION",
+    ),
+  );
+  assert.throws(() =>
+    assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/?token=x", "PRODUCTION"),
+  );
+  assert.equal(assertAllowedHubUrl("http://127.0.0.1:8080").hostname, "127.0.0.1");
+  assert.throws(() => assertAllowedHubUrl("http://hub.example"));
+
+  const batch = {
+    batchId: "00000000-0000-4000-8000-000000000001",
+    environment: "MOCK" as const,
+    mode: "ASSISTED" as const,
+    accountReference: "synthetic-aruba-account",
+    attemptNumber: 1,
+    documents: [
+      {
+        id: "1",
+        revision: 1,
+        sha256: "a".repeat(64),
+        filename: "FPR-0001-26.xml",
+        sizeBytes: 100,
+        fiscalNumber: "FPR 0001/26",
+        documentDate: "2026-08-10",
+        totalAmount: 1000,
+      },
+    ],
+  };
+  assert.equal(manifestSha256(batch), manifestSha256(structuredClone(batch)));
+  assert.notEqual(manifestSha256(batch), manifestSha256({ ...batch, attemptNumber: 2 }));
+
+  const delivered = Buffer.from(
+    '<?xml version="1.0"?><RicevutaConsegna><Id>1</Id></RicevutaConsegna>',
+  );
+  assert.equal(notificationStatus(validateUntrustedXml(delivered)), "DELIVERED");
+  validateOfficialFile("SDI_NOTIFICATION", delivered);
+  assert.throws(() =>
+    validateUntrustedXml(
+      Buffer.from("<!DOCTYPE x [<!ENTITY e SYSTEM 'file:///etc/passwd'>]><x>&e;</x>"),
+    ),
+  );
+  assert.throws(() => validateOfficialFile("ARUBA_PDF", Buffer.from("non-pdf")));
+});

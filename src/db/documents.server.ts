@@ -21,6 +21,7 @@ import { validateFatturaXml } from "../fatturapa.server.ts";
 import { getConfig } from "../config.server.ts";
 import { isDatabaseId } from "./order-commands.server.ts";
 import { writeAudit } from "./audit.server.ts";
+import { createArubaBatch, getArubaSettings } from "./aruba.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 
 interface FiscalActor {
@@ -486,6 +487,7 @@ export async function getInvoiceProjection(caseId: string) {
     xml: projection.xml,
     comparison: invoiceComparison(caseRow, input, profile.profile_json),
     approved: draft?.status === "APPROVED",
+    arubaMode: (await getArubaSettings()).mode.value,
   };
 }
 
@@ -836,6 +838,7 @@ export async function approveInvoice(
     confirmApproval: boolean;
     confirmPending: boolean;
     confirmDifference: boolean;
+    arubaMode?: unknown;
   },
   actor: FiscalActor,
 ) {
@@ -847,6 +850,7 @@ export async function approveInvoice(
   let committed: {
     id: string;
     fiscalNumber: string;
+    batchId: string;
     xml: string;
     storage: StoredDocumentRow;
   } | null;
@@ -971,6 +975,23 @@ export async function approveInvoice(
         [caseId],
       );
       const label = fiscalNumberLabel(series, year, fiscalNumber);
+      const batchId = await createArubaBatch(
+        client,
+        [
+          {
+            id: draft.id,
+            revision: draft.draft_version,
+            sha256,
+            filename: path.posix.basename(relativePath),
+            sizeBytes: Buffer.byteLength(xml),
+            fiscalNumber: label,
+            documentDate: input.documentDate,
+            totalAmount: draft.total_amount,
+          },
+        ],
+        actor,
+        raw.arubaMode,
+      );
       await writeAudit(client, {
         actorType: "ADMIN",
         actorId: String(actor.id),
@@ -1029,6 +1050,7 @@ export async function approveInvoice(
       return {
         id: draft.id,
         fiscalNumber: label,
+        batchId,
         xml,
         storage: {
           id: draft.id,
@@ -1063,9 +1085,19 @@ export async function approveInvoice(
   if (!committed) return null;
   try {
     await materializeStoredXml(committed.storage, committed.xml);
-    return { id: committed.id, fiscalNumber: committed.fiscalNumber, storagePending: false };
+    return {
+      id: committed.id,
+      fiscalNumber: committed.fiscalNumber,
+      batchId: committed.batchId,
+      storagePending: false,
+    };
   } catch {
-    return { id: committed.id, fiscalNumber: committed.fiscalNumber, storagePending: true };
+    return {
+      id: committed.id,
+      fiscalNumber: committed.fiscalNumber,
+      batchId: committed.batchId,
+      storagePending: true,
+    };
   }
 }
 
@@ -1143,12 +1175,22 @@ export async function listDocuments() {
     total_amount: number;
     customer_name: string;
     xml_sha256: string | null;
+    aruba_batch_id: string | null;
+    aruba_status: string | null;
   }>(
     `SELECT documents.id, documents.billing_case_id, documents.kind, documents.status,
             documents.series, documents.fiscal_year, documents.fiscal_number,
             documents.document_date::text, documents.total_amount, documents.xml_sha256,
-            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name
+            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
+            aruba_current.id AS aruba_batch_id, aruba_current.status AS aruba_status
      FROM documents JOIN billing_cases ON billing_cases.id = documents.billing_case_id
+     LEFT JOIN LATERAL (
+       SELECT aruba_batches.id, aruba_batches.status
+       FROM aruba_batch_documents
+       JOIN aruba_batches ON aruba_batches.id = aruba_batch_documents.batch_id
+       WHERE aruba_batch_documents.document_id = documents.id
+       ORDER BY aruba_batches.created_at DESC LIMIT 1
+     ) AS aruba_current ON true
      ORDER BY documents.document_date DESC, documents.id DESC`,
   );
   return result.rows.map((row) => ({

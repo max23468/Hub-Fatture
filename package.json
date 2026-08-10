@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "audit": "npm audit --audit-level=high",
+    "aruba:helper": "node scripts/aruba-helper.ts",
     "build": "react-router build",
     "build:server": "tsc -p tsconfig.server.json",
     "check": "npm run toolchain:check && npm run audit && npm run format:check && npm run lint && npm run typecheck && npm run build:server && npm test && npm run smoke:imports && npm run smoke:type-stripping && npm run doctor && npm run build && npm run test:e2e",

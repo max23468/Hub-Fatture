@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { chmod, mkdtemp, readFile, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -25,8 +26,14 @@ test(
       process.env.DATABASE_URL = databaseFixture.connectionString;
       process.env.DOCUMENT_STORAGE_ROOT = storage;
       const documents = await import("./documents.server.ts");
+      const aruba = await import("./aruba.server.ts");
       const orders = await import("./orders.server.ts");
       const database = await import("./client.server.ts");
+      await database
+        .getPool()
+        .query(
+          "INSERT INTO users (username, password_hash, can_approve) VALUES ('matteo', 'synthetic', true)",
+        );
       const fixture = JSON.parse(
         await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
       );
@@ -402,6 +409,147 @@ test(
         `FPR 0002/${expectedYear}`,
         `FPR 0003/${expectedYear}`,
       ]);
+      const owner = { id: 1, canApprove: true, requestId: "aruba-m5" };
+      const assistedBatchId = approved[0]!.batchId;
+      const invalidBatchId = approved[1]!.batchId;
+      assert.ok(assistedBatchId && invalidBatchId);
+      await assert.rejects(
+        aruba.issueHelperToken(assistedBatchId, {
+          id: 2,
+          canApprove: false,
+          requestId: "aruba-not-owner",
+        }),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_FORBIDDEN",
+      );
+      const assistedToken = await aruba.issueHelperToken(assistedBatchId, owner);
+      const assistedManifest = await aruba.helperManifest(assistedToken.token);
+      assert.equal(assistedManifest.mode, "ASSISTED");
+      assert.equal(assistedManifest.accountReference, "synthetic-aruba-account");
+      assert.deepEqual(
+        (
+          await database
+            .getPool()
+            .query(
+              "SELECT provider, account_reference, encrypted_credentials FROM connections WHERE provider = 'ARUBA'",
+            )
+        ).rows,
+        [
+          {
+            provider: "ARUBA",
+            account_reference: "synthetic-aruba-account",
+            encrypted_credentials: null,
+          },
+        ],
+      );
+      assert.equal(assistedManifest.operation, "UPLOAD");
+      assert.equal(assistedManifest.documents.length, 1);
+      const assistedXml = await aruba.helperDocumentXml(
+        assistedToken.token,
+        assistedManifest.documents[0]!.id,
+      );
+      assert.equal(
+        createHash("sha256").update(assistedXml).digest("hex"),
+        assistedManifest.documents[0]!.sha256,
+      );
+      await assert.rejects(
+        database
+          .getPool()
+          .query("UPDATE aruba_batch_documents SET filename = 'alterato.xml' WHERE batch_id = $1", [
+            assistedBatchId,
+          ]),
+        /immutabile/,
+      );
+      await aruba.recordHelperEvent(assistedToken.token, {
+        type: "HELPER_STARTED",
+        browser: "chromium",
+      });
+      await aruba.recordHelperEvent(assistedToken.token, {
+        type: "VALIDATION",
+        documents: [{ id: assistedManifest.documents[0]!.id, status: "VALID" }],
+      });
+      await aruba.recordHelperEvent(assistedToken.token, { type: "ASSISTED_STOP" });
+      await assert.rejects(
+        aruba.consumeArubaPermit(assistedToken.token, assistedManifest.manifestSha256),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      await aruba.importOfficialArubaFile(
+        assistedManifest.documents[0]!.id,
+        "ARUBA_XML",
+        assistedXml,
+        owner,
+      );
+      await aruba.importOfficialArubaFile(
+        assistedManifest.documents[0]!.id,
+        "ARUBA_PDF",
+        Buffer.from("%PDF-1.7\n% file sintetico"),
+        owner,
+      );
+      await aruba.importOfficialArubaFile(
+        assistedManifest.documents[0]!.id,
+        "ARUBA_P7M",
+        Buffer.from("0file-p7m-sintetico"),
+        owner,
+      );
+      await aruba.importOfficialArubaFile(
+        assistedManifest.documents[0]!.id,
+        "SDI_NOTIFICATION",
+        Buffer.from('<?xml version="1.0"?><RicevutaConsegna></RicevutaConsegna>'),
+        owner,
+      );
+      await aruba.importOfficialArubaFile(
+        assistedManifest.documents[0]!.id,
+        "SDI_NOTIFICATION",
+        Buffer.from('<?xml version="1.0"?><NotificaScarto></NotificaScarto>'),
+        owner,
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT status FROM aruba_submissions WHERE batch_id = $1", [assistedBatchId])
+        ).rows[0].status,
+        "DELIVERED",
+      );
+
+      const invalidToken = await aruba.issueHelperToken(invalidBatchId, owner);
+      const invalidManifest = await aruba.helperManifest(invalidToken.token);
+      await aruba.recordHelperEvent(invalidToken.token, {
+        type: "VALIDATION",
+        documents: [
+          {
+            id: invalidManifest.documents[0]!.id,
+            status: "INVALID",
+            message: "Errore sintetico",
+          },
+        ],
+      });
+      await aruba.recordHelperEvent(invalidToken.token, {
+        type: "READBACK",
+        documents: [{ id: invalidManifest.documents[0]!.id, status: "REMOVED" }],
+      });
+      await assert.rejects(
+        aruba.issueHelperToken(invalidBatchId, owner),
+        (error) => error instanceof AppError && error.code === "ARUBA_BATCH_INVALID",
+      );
+      const retryBatchId = await aruba.retryArubaBatch(invalidBatchId, owner);
+      const retryToken = await aruba.issueHelperToken(retryBatchId, owner);
+      assert.equal((await aruba.helperManifest(retryToken.token)).attemptNumber, 2);
+      await aruba.recordHelperEvent(retryToken.token, {
+        type: "RECONCILIATION_REQUIRED",
+        reason: "UNKNOWN_RESULT",
+      });
+      assert.equal((await aruba.helperManifest(retryToken.token)).operation, "READBACK");
+      await assert.rejects(
+        aruba.consumeArubaPermit(
+          retryToken.token,
+          (await aruba.helperManifest(retryToken.token)).manifestSha256,
+        ),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      await aruba.recordHelperEvent(retryToken.token, {
+        type: "READBACK",
+        documents: [{ id: invalidManifest.documents[0]!.id, status: "NOT_FOUND" }],
+      });
       const approvedEvidence = (
         await database.getPool().query<{
           id: string;
@@ -556,6 +704,16 @@ test(
           !approvableThirdProjection.profileMissing &&
           "lines" in approvableThirdProjection,
       );
+      const arubaSettings = await aruba.getArubaSettings();
+      await aruba.setArubaSettings(
+        {
+          mode: "AUTOMATIC",
+          modeVersion: arubaSettings.mode.version,
+          authProtection: "TWO_FACTOR",
+          authVersion: arubaSettings.authProtection.version,
+        },
+        owner,
+      );
       const finalStorageDirectory = path.join(storage, "invoices", expectedFullYear);
       await chmod(finalStorageDirectory, 0o500);
       try {
@@ -588,6 +746,54 @@ test(
         const xml = await documents.readDocumentXml(row.id);
         assert.ok(xml?.includes(Buffer.from("<RegimeFiscale>RF14</RegimeFiscale>")));
       }
+      const automaticBatch = (await aruba.listArubaBatches()).find(
+        (batch) => batch.mode === "AUTOMATIC",
+      );
+      assert.ok(automaticBatch);
+      const automaticToken = await aruba.issueHelperToken(automaticBatch.id, owner);
+      const automaticManifest = await aruba.helperManifest(automaticToken.token);
+      assert.equal(automaticManifest.operation, "UPLOAD");
+      await aruba.recordHelperEvent(automaticToken.token, {
+        type: "VALIDATION",
+        documents: automaticManifest.documents.map((document) => ({
+          id: document.id,
+          status: "VALID",
+        })),
+      });
+      await assert.rejects(
+        aruba.consumeArubaPermit(automaticToken.token, "0".repeat(64)),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      await aruba.consumeArubaPermit(automaticToken.token, automaticManifest.manifestSha256);
+      await assert.rejects(
+        aruba.consumeArubaPermit(automaticToken.token, automaticManifest.manifestSha256),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      const remoteIds = Object.fromEntries(
+        automaticManifest.documents.map((document) => [document.id, "MOCK-AUTOMATIC-1"]),
+      );
+      await aruba.recordHelperEvent(automaticToken.token, { type: "SUBMITTED", remoteIds });
+      await aruba.recordHelperEvent(automaticToken.token, {
+        type: "READBACK",
+        documents: automaticManifest.documents.map((document) => ({
+          id: document.id,
+          status: "SUBMITTED",
+          remoteId: remoteIds[document.id],
+        })),
+      });
+      const automaticReadbackToken = await aruba.issueHelperToken(automaticBatch.id, owner);
+      assert.equal(
+        (await aruba.helperManifest(automaticReadbackToken.token)).operation,
+        "READBACK",
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM aruba_send_permits WHERE consumed_at IS NOT NULL")
+        ).rows[0].count,
+        "1",
+      );
       await unlink(path.join(storage, rows[0]!.relative_path));
       assert.ok(
         (await documents.readDocumentXml(rows[0]!.id))?.includes(

@@ -37,6 +37,7 @@ test("la configurazione applica i limiti delle sessioni", () => {
       APP_ENV: "production",
       APP_BASE_URL: "https://example.invalid",
       EBAY_ENVIRONMENT: "production",
+      ARUBA_ACCOUNT_REFERENCE: "aruba-account-test",
     }).APP_ENV,
     "production",
   );

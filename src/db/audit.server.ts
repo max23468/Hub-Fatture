@@ -13,6 +13,17 @@ export const auditActions = [
   "DOCUMENT_NUMBERED",
   "DOCUMENT_PENDING_PAYMENT_CONFIRMED",
   "FISCAL_PROFILE_ACTIVATED",
+  "ARUBA_BATCH_CREATED",
+  "ARUBA_HELPER_TOKEN_CREATED",
+  "ARUBA_UPLOAD_VALIDATED",
+  "ARUBA_VALIDATION_FAILED",
+  "ARUBA_ASSISTED_STOPPED",
+  "ARUBA_SEND_PERMIT_CREATED",
+  "ARUBA_SEND_PERMIT_CONSUMED",
+  "ARUBA_RECONCILIATION_REQUIRED",
+  "ARUBA_READBACK_RECONCILED",
+  "ARUBA_FILE_IMPORTED",
+  "ARUBA_SETTINGS_CHANGED",
   "LOGIN_FAILED",
   "LOGIN_RATE_LIMITED",
   "LOGIN_SUCCEEDED",
@@ -47,6 +58,8 @@ export async function writeAudit(
       | "CONNECTION"
       | "JOB"
       | "DOCUMENT"
+      | "ARUBA_BATCH"
+      | "ARUBA_SUBMISSION"
       | "FISCAL_PROFILE";
     entityId?: string | null;
     metadata?: Partial<{
@@ -62,6 +75,11 @@ export async function writeAudit(
       fiscalProfileVersion: number;
       lastObservedYear: number;
       lastObservedNumber: number;
+      batchId: string;
+      manifestSha256: string;
+      documentCount: number;
+      arubaMode: "ASSISTED" | "AUTOMATIC";
+      fileKind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
     }>;
     /** Solo campi anagrafici allowlisted o riferimenti a snapshot: mai token o payload integrali. */
     before?: Record<string, unknown> | null;

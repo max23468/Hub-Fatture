@@ -1,7 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import pg from "pg";
+
+import { runHelper } from "../../scripts/aruba-helper.ts";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
@@ -30,7 +33,10 @@ test.beforeAll(async () => {
     [profile],
   );
   await client.query(
-    `INSERT INTO settings (key, value_json) VALUES ('draft_trigger', '"PAID"')
+    `INSERT INTO settings (key, value_json) VALUES
+       ('draft_trigger', '"PAID"'),
+       ('aruba_mode', '"ASSISTED"'),
+       ('aruba_auth_protection', '"UNKNOWN"')
      ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, version = 1`,
   );
   await client.end();
@@ -248,6 +254,81 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: "Scarica XML" }).click();
   expect((await download).suggestedFilename()).toMatch(/\.xml$/);
+
+  await page.getByRole("button", { name: "Genera codice di avvio" }).click();
+  const assistedToken = (await page.locator(".code-block").textContent())?.trim();
+  expect(assistedToken).toHaveLength(43);
+  const assistedManifestResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/manifest", {
+    headers: { Authorization: `Bearer ${assistedToken}` },
+  });
+  expect(assistedManifestResponse.ok).toBe(true);
+  const assistedManifest = (await assistedManifestResponse.json()) as {
+    documents: Array<{ id: string }>;
+  };
+  const assistedProfile = await mkdtemp(path.join(tmpdir(), "hub-fatture-aruba-assisted-"));
+  try {
+    expect(
+      await runHelper({
+        hubUrl: "http://127.0.0.1:4173",
+        token: assistedToken!,
+        profileDirectory: assistedProfile,
+        browser: "chromium",
+        headless: true,
+        mockScenario: "login-auto",
+        closeAfterStop: true,
+      }),
+    ).toBe("ASSISTED_STOP");
+  } finally {
+    await rm(assistedProfile, { recursive: true, force: true });
+  }
+  const cleanupResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/eventi", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${assistedToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: "READBACK",
+      documents: assistedManifest.documents.map((document) => ({
+        id: document.id,
+        status: "REMOVED",
+      })),
+    }),
+  });
+  expect(cleanupResponse.ok).toBe(true);
+
+  await page.getByRole("link", { name: "Impostazioni" }).click();
+  await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC");
+  await page.getByLabel("Protezione dichiarata").selectOption("TWO_FACTOR");
+  const settingsResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && response.url().includes("/impostazioni"),
+  );
+  await page.getByRole("button", { name: "Salva integrazione Aruba" }).click();
+  expect((await settingsResponse).status()).toBeLessThan(400);
+  await expect(page).toHaveURL(/aruba=salvata/);
+  await expect(page.getByRole("status")).toContainText("Impostazioni Aruba aggiornate");
+  await expect(page.getByLabel("Modalità Aruba")).toHaveValue("AUTOMATIC");
+  await page.getByRole("link", { name: "Documenti", exact: true }).click();
+  await page.getByRole("button", { name: "Prepara nuovo tentativo" }).click();
+  await page.getByRole("button", { name: "Genera codice di avvio" }).first().click();
+  const automaticToken = (await page.locator(".code-block").textContent())?.trim();
+  expect(automaticToken).toHaveLength(43);
+  const automaticProfile = await mkdtemp(path.join(tmpdir(), "hub-fatture-aruba-automatic-"));
+  try {
+    expect(
+      await runHelper({
+        hubUrl: "http://127.0.0.1:4173",
+        token: automaticToken!,
+        profileDirectory: automaticProfile,
+        browser: "chromium",
+        headless: true,
+        closeAfterStop: true,
+      }),
+    ).toBe("SUBMITTED");
+  } finally {
+    await rm(automaticProfile, { recursive: true, force: true });
+  }
 });
 
 test("le mutazioni senza origine valida non raggiungono l’azione", async ({ request }) => {

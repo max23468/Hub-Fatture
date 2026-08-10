@@ -97,3 +97,41 @@ export async function readRawBody(
 
   return Buffer.concat(chunks, size);
 }
+
+export async function readJson(
+  request: Request,
+  { maxBytes = FORM_BODY_LIMIT, timeoutMs = FORM_BODY_TIMEOUT_MS } = {},
+): Promise<unknown> {
+  if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") {
+    throw new AppError("INVALID_CONTENT_TYPE", 415);
+  }
+  const body = await readRawBody(request, { maxBytes, timeoutMs });
+  try {
+    return JSON.parse(body.toString("utf8"));
+  } catch {
+    throw new AppError("ARUBA_BATCH_INVALID", 422);
+  }
+}
+
+export async function readMultipartForm(
+  request: Request,
+  { maxBytes, timeoutMs = FORM_BODY_TIMEOUT_MS }: { maxBytes: number; timeoutMs?: number },
+): Promise<FormData> {
+  const config = getConfig();
+  const origin = request.headers.get("origin");
+  if (!origin || !allowedOrigins(config.APP_BASE_URL, config.APP_ENV).has(origin)) {
+    throw new AppError("REQUEST_ORIGIN_INVALID", 403);
+  }
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
+    throw new AppError("INVALID_CONTENT_TYPE", 415);
+  }
+  const body = await readRawBody(request, { maxBytes, timeoutMs });
+  try {
+    return await new Response(new Uint8Array(body), {
+      headers: { "Content-Type": contentType },
+    }).formData();
+  } catch {
+    throw new AppError("ARUBA_IMPORT_INVALID", 422);
+  }
+}
