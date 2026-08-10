@@ -8,6 +8,7 @@ import {
   decimalToCents,
   localOrderDate,
   orderInputSchema,
+  orderReviewRequired,
   triggerStatus,
 } from "./orders.ts";
 
@@ -103,6 +104,12 @@ test("valida input, denaro, data e trigger", () => {
     triggerStatus({ ...base, cancelledAt: "2026-03-30T10:00:00Z" }, "PAID"),
     "CANCELLED_NO_DOCUMENT",
   );
+});
+
+test("il pagamento pendente resta confermabile con il trigger di evasione", () => {
+  const pending = { ...base, paymentStatus: "PENDING" as const };
+  assert.equal(orderReviewRequired(pending, true), true);
+  assert.equal(orderReviewRequired(pending, true, "FULFILLED"), false);
 });
 
 test("sceglie identità italiane e valida i paesi supportati", () => {

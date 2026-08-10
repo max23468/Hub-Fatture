@@ -29,12 +29,14 @@ interface UserRow {
   id: number;
   username: string;
   password_hash: string;
+  can_approve: boolean;
 }
 
 export interface SessionUser {
   id: number;
   username: string;
   csrfToken: string;
+  canApprove: boolean;
 }
 
 function normalizeUsername(value: string): string {
@@ -97,8 +99,8 @@ export async function setupAccounts(input: {
     if (Number(existing.rows[0]?.count) > 0) throw new AppError("AUTH_SETUP_DISABLED", 409);
 
     const result = await client.query<{ id: number }>(
-      `INSERT INTO users (username, password_hash)
-       VALUES ($1, $2), ($3, $4)
+      `INSERT INTO users (username, password_hash, can_approve)
+       VALUES ($1, $2, true), ($3, $4, false)
        RETURNING id`,
       [OWNER_USERNAME, ownerHash, AGENT_USERNAME, agentHash],
     );
@@ -247,8 +249,13 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
   const sessionToken = values.get(SESSION_COOKIE);
   const csrfToken = values.get(CSRF_COOKIE);
   if (!sessionToken || !csrfToken) return null;
-  const result = await getPool().query<{ id: number; username: string; csrf_token_hash: string }>(
-    `SELECT users.id, users.username, sessions.csrf_token_hash
+  const result = await getPool().query<{
+    id: number;
+    username: string;
+    can_approve: boolean;
+    csrf_token_hash: string;
+  }>(
+    `SELECT users.id, users.username, users.can_approve, sessions.csrf_token_hash
      FROM sessions JOIN users ON users.id = sessions.user_id
      WHERE sessions.id_hash = $1 AND sessions.expires_at > now()`,
     [hashToken(sessionToken)],
@@ -258,7 +265,7 @@ export async function getSessionUser(request: Request): Promise<SessionUser | nu
   await getPool().query("UPDATE sessions SET last_seen_at = now() WHERE id_hash = $1", [
     hashToken(sessionToken),
   ]);
-  return { id: row.id, username: row.username, csrfToken };
+  return { id: row.id, username: row.username, csrfToken, canApprove: row.can_approve };
 }
 
 export async function requireSessionUser(request: Request): Promise<SessionUser> {

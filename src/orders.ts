@@ -92,6 +92,12 @@ export const customerSchema = z.object({
   companyName: optionalTextSchema,
   email: optionalEmailSchema,
   certifiedEmail: optionalEmailSchema,
+  recipientCode: optionalTextSchema.pipe(
+    z
+      .string()
+      .regex(/^[A-Z0-9]{7}$/)
+      .optional(),
+  ),
   phone: optionalTextSchema,
   billingAddress: addressSchema.default({}),
   shippingAddress: addressSchema.default({}),
@@ -315,6 +321,7 @@ export function canonicalCustomerProfile(input: CustomerContext) {
     companyName: normalized(input.customer.companyName),
     email: normalized(input.customer.email),
     certifiedEmail: normalized(input.customer.certifiedEmail),
+    recipientCode: normalized(input.customer.recipientCode).toUpperCase(),
     phone: normalized(input.customer.phone),
     billingAddress: {
       line1: normalized(address.line1),
@@ -442,11 +449,16 @@ export function customerIdentity(input: CustomerContext): {
 export function orderReviewRequired(
   order: Pick<OrderInput, "paymentStatus" | "payments" | "refunds" | "sourceReviewRequired">,
   totalsReconciled: boolean,
+  trigger: DraftTrigger = "PAID",
 ): boolean {
+  const confirmablePending = trigger === "FULFILLED" && order.paymentStatus === "PENDING";
   return (
     order.sourceReviewRequired ||
-    order.paymentStatus !== "PAID" ||
-    order.payments.some((payment) => payment.status !== "PAID") ||
+    (order.paymentStatus !== "PAID" && !confirmablePending) ||
+    order.payments.some(
+      (payment) =>
+        payment.status !== "PAID" && !(confirmablePending && payment.status === "PENDING"),
+    ) ||
     order.refunds.some((refund) => refund.status !== "FAILED") ||
     !totalsReconciled
   );

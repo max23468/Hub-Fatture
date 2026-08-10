@@ -12,6 +12,12 @@ export const errorCatalog = {
   BILLING_CASE_EMPTY: "Una preparazione senza ordini resta archiviata e non può essere riattivata.",
   BILLING_CASE_NOT_EDITABLE:
     "Questa preparazione non è più modificabile nello stato in cui si trova.",
+  DOCUMENT_APPROVAL_FORBIDDEN: "Solo il titolare può approvare e numerare un documento.",
+  DOCUMENT_FISCAL_PROFILE_MISSING: "Configura e approva il profilo fiscale prima di proseguire.",
+  DOCUMENT_INVALID: "La bozza fiscale contiene dati incompleti o non validi.",
+  DOCUMENT_NOT_APPROVABLE: "La preparazione non è pronta per l’approvazione.",
+  DOCUMENT_PROJECTION_STALE: "La proiezione fiscale è cambiata. Rileggila prima di approvare.",
+  DOCUMENT_STORAGE_FAILED: "Non è stato possibile archiviare il documento fiscale.",
   INVALID_CONTENT_TYPE: "Formato della richiesta non supportato.",
   REQUEST_BODY_TOO_LARGE: "La richiesta supera il limite consentito.",
   REQUEST_ORIGIN_INVALID: "Origine della richiesta non valida.",

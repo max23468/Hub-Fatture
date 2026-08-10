@@ -6,6 +6,7 @@ x-app-environment: &app-environment
   APP_ENV: development
   CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
   DATABASE_URL: postgres://hub_fatture:hub_fatture_local@postgres:5432/hub_fatture
+  DOCUMENT_STORAGE_ROOT: ${DOCUMENT_STORAGE_ROOT:-storage/documents}
   EBAY_ACCOUNT_REFERENCE: ${EBAY_ACCOUNT_REFERENCE:-botCF}
   EBAY_CLIENT_ID: ${EBAY_CLIENT_ID:-}
   EBAY_CLIENT_SECRET: ${EBAY_CLIENT_SECRET:-}

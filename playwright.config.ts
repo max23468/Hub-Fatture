@@ -26,6 +26,7 @@ export default defineConfig({
       APP_BASE_URL: "http://127.0.0.1:4173",
       APP_ENV: "test",
       DATABASE_URL: databaseUrl,
+      DOCUMENT_STORAGE_ROOT: "storage/e2e-documents",
       PORT: "4173",
     },
     port: 4173,

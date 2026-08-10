@@ -7,6 +7,10 @@ export const auditActions = [
   "BILLING_CASE_REACTIVATED",
   "CUSTOMER_CORRECTED",
   "DRAFT_TRIGGER_CHANGED",
+  "DOCUMENT_APPROVED",
+  "DOCUMENT_DRAFT_SAVED",
+  "DOCUMENT_NUMBERED",
+  "FISCAL_PROFILE_ACTIVATED",
   "LOGIN_FAILED",
   "LOGIN_RATE_LIMITED",
   "LOGIN_SUCCEEDED",
@@ -39,7 +43,9 @@ export async function writeAudit(
       | "SETTING"
       | "WEBHOOK_EVENT"
       | "CONNECTION"
-      | "JOB";
+      | "JOB"
+      | "DOCUMENT"
+      | "FISCAL_PROFILE";
     entityId?: string | null;
     metadata?: Partial<{
       billingCaseId: string;
@@ -49,6 +55,11 @@ export async function writeAudit(
       provider: "SHOPIFY" | "EBAY";
       scope: string;
       value: "PAID" | "FULFILLED";
+      documentKind: "INVOICE" | "CREDIT_NOTE";
+      fiscalNumber: string;
+      fiscalProfileVersion: number;
+      lastObservedYear: number;
+      lastObservedNumber: number;
     }>;
     /** Solo campi anagrafici allowlisted o riferimenti a snapshot: mai token o payload integrali. */
     before?: Record<string, unknown> | null;

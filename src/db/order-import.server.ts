@@ -440,7 +440,7 @@ async function importOne(
     refundAmounts,
   );
   const status = triggerStatus(input, trigger);
-  const orderReview = orderReviewRequired(input, totalsReconciled);
+  const orderReview = orderReviewRequired(input, totalsReconciled, trigger);
   const previous = await loadPreviousOrder(client, input);
   if (previous.rows[0]?.is_stale) return "ignored";
 
