@@ -61,6 +61,7 @@ interface DraftRow {
   payment_method: "MP01" | "MP05" | "MP08";
   causale: string | null;
   notes: string | null;
+  recipient_snapshot_json: DocumentInput["recipient"];
   draft_version: number;
   projection_sha256: string;
   lines: Array<{
@@ -501,6 +502,7 @@ function documentAuditSnapshot(input: DocumentInput): Record<string, unknown> {
 
 function draftAuditSnapshot(draft: DraftRow): Record<string, unknown> {
   return {
+    recipient: draft.recipient_snapshot_json,
     lines: draft.lines.map((line) => ({
       orderId: line.order_id,
       description: line.description,
@@ -590,14 +592,15 @@ export async function saveInvoiceDraft(
              total_amount = $4, source_total_amount = $5, difference_amount = $6,
              difference_reason = $7, draft_version = $8, projection_sha256 = $9,
              payment_status = $10, payment_method = $11, causale = $12, notes = $13,
+             recipient_snapshot_json = $14,
              updated_at = now()
            WHERE id = $1 RETURNING id`
         : `INSERT INTO documents
              (billing_case_id, kind, status, document_type, series, document_date,
               fiscal_profile_version, currency, total_amount, source_total_amount,
               difference_amount, difference_reason, draft_version, projection_sha256,
-              payment_status, payment_method, causale, notes)
-           VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', $2, $3, 'EUR', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+              payment_status, payment_method, causale, notes, recipient_snapshot_json)
+           VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', $2, $3, 'EUR', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
            RETURNING id`,
       [
         current?.id ?? caseId,
@@ -613,6 +616,7 @@ export async function saveInvoiceDraft(
         parsed.data.paymentMethod,
         parsed.data.causale ?? null,
         parsed.data.notes ?? null,
+        JSON.stringify(parsed.data.recipient),
       ],
     );
     const documentId = document.rows[0]!.id;

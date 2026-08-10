@@ -251,15 +251,25 @@ test(
       );
       assert.equal(exceptionalSecondProjection.requiresResave, false);
       const correctionAudit = (
-        await database.getPool().query<{ before_json: Record<string, unknown> }>(
-          `SELECT before_json FROM audit_events
+        await database.getPool().query<{
+          before_json: Record<string, unknown>;
+          after_json: Record<string, unknown>;
+        }>(
+          `SELECT before_json, after_json FROM audit_events
            WHERE action = 'DOCUMENT_DRAFT_SAVED' AND request_id = $1`,
           ["resave-after-customer-correction"],
         )
-      ).rows[0]!.before_json as {
+      ).rows[0]!;
+      const correctionBefore = correctionAudit.before_json as {
         imported: { recipient: { address: { line1: string } } };
+        previous: { recipient: { address: { line1: string } } };
       };
-      assert.equal(correctionAudit.imported.recipient.address.line1, "Via Esempio 1");
+      const correctionAfter = correctionAudit.after_json as {
+        current: { recipient: { address: { line1: string } } };
+      };
+      assert.equal(correctionBefore.imported.recipient.address.line1, "Via Esempio 1");
+      assert.equal(correctionBefore.previous.recipient.address.line1, "Via Esempio 1");
+      assert.equal(correctionAfter.current.recipient.address.line1, "Via Roma 2");
       assert.equal((await documents.listMassApprovalCandidates()).length, 2);
       await assert.rejects(
         documents.approveInvoice(
