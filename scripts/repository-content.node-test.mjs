@@ -164,6 +164,13 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   assert.match(script, /docker compose up -d --build --wait app app-worker caddy/);
 });
 
+test("il worker riconferma la lease dopo errori transitori di heartbeat", async () => {
+  const worker = await readFile(path.join(root, "src/worker.ts"), "utf8");
+  assert.doesNotMatch(worker, /leaseLost/);
+  assert.match(worker, /connector_job_heartbeat_failed/);
+  assert.match(worker, /if \(!\(await jobLeaseCurrent\(job\)\)\)/);
+});
+
 test("i webhook Shopify sono dichiarati nella configurazione dell'app", async () => {
   const [config, connector] = await Promise.all(
     ["shopify.app.toml", "src/integrations/shopify.server.ts"].map((file) =>

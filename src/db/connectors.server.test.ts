@@ -133,7 +133,14 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
         [claimed.id],
       );
+      await client.query("SELECT pg_sleep(0.02)");
       await connectors.renewLockedJobLease(client, claimed);
+      const renewed = await client.query<{ current_at_commit: boolean }>(
+        `SELECT lease_expires_at > now() + interval '2 minutes' AS current_at_commit
+         FROM jobs WHERE id = $1`,
+        [claimed.id],
+      );
+      assert.equal(renewed.rows[0]?.current_at_commit, true);
     });
     assert.equal(await connectors.jobLeaseCurrent(claimed), true);
     await getPool().query(

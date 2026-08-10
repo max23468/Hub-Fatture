@@ -24,19 +24,14 @@ process.once("SIGINT", () => (stopping = true));
 async function runJob() {
   const job = await claimJob(workerId);
   if (!job) return false;
-  let leaseLost = false;
   const heartbeat = setInterval(() => {
-    void renewJobLease(job)
-      .then((current) => {
-        if (!current) leaseLost = true;
-      })
-      .catch(() => {
-        leaseLost = true;
-      });
+    void renewJobLease(job).catch(() => {
+      console.error(JSON.stringify({ event: "connector_job_heartbeat_failed", jobId: job.id }));
+    });
   }, 60_000);
   heartbeat.unref();
   const assertLease = async () => {
-    if (leaseLost || !(await jobLeaseCurrent(job))) {
+    if (!(await jobLeaseCurrent(job))) {
       throw new AppError("CONFLICT_REVISION", 409);
     }
   };

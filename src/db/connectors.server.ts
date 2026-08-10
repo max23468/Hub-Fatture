@@ -334,7 +334,7 @@ export async function assertJobLease(client: pg.PoolClient, job: ClaimedJob): Pr
 
 export async function renewLockedJobLease(client: pg.PoolClient, job: ClaimedJob): Promise<void> {
   const renewed = await client.query(
-    `UPDATE jobs SET lease_expires_at = now() + interval '2 minutes'
+    `UPDATE jobs SET lease_expires_at = clock_timestamp() + interval '2 minutes'
      WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3`,
     [job.id, job.workerId, job.claimToken],
   );
