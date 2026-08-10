@@ -514,16 +514,36 @@ test(
         ),
         owner,
       );
+      const deliveredNotification = await readFile(
+        "tests/fixtures/aruba/notification-delivered.synthetic.xml",
+        "utf8",
+      );
+      await assert.rejects(
+        aruba.importOfficialArubaFile(
+          assistedManifest.documents[0]!.id,
+          "SDI_NOTIFICATION",
+          Buffer.from(deliveredNotification),
+          owner,
+        ),
+        (error) => error instanceof AppError && error.code === "ARUBA_IMPORT_INVALID",
+      );
       await aruba.importOfficialArubaFile(
         assistedManifest.documents[0]!.id,
         "SDI_NOTIFICATION",
-        await readFile("tests/fixtures/aruba/notification-delivered.synthetic.xml"),
+        Buffer.from(
+          deliveredNotification.replace(
+            "SYNTHETIC-DOCUMENT.xml",
+            assistedManifest.documents[0]!.filename,
+          ),
+        ),
         owner,
       );
       await aruba.importOfficialArubaFile(
         assistedManifest.documents[0]!.id,
         "SDI_NOTIFICATION",
-        Buffer.from('<?xml version="1.0"?><NotificaScarto></NotificaScarto>'),
+        Buffer.from(
+          `<?xml version="1.0"?><NotificaScarto><NomeFile>${assistedManifest.documents[0]!.filename}</NomeFile></NotificaScarto>`,
+        ),
         owner,
       );
       const officialFiles = (await aruba.listOfficialArubaFiles()).filter(
@@ -1014,6 +1034,31 @@ test(
             .query("SELECT count(*) FROM aruba_send_permits WHERE consumed_at IS NOT NULL")
         ).rows[0].count,
         "1",
+      );
+      await database
+        .getPool()
+        .query("ALTER TABLE aruba_batch_documents DISABLE TRIGGER aruba_batch_documents_immutable");
+      await database
+        .getPool()
+        .query("DELETE FROM aruba_batch_documents WHERE document_id = $1", [
+          invalidManifest.documents[0]!.id,
+        ]);
+      await database
+        .getPool()
+        .query("ALTER TABLE aruba_batch_documents ENABLE TRIGGER aruba_batch_documents_immutable");
+      const concurrentBatches = await Promise.allSettled([
+        aruba.createBatchForDocuments([invalidManifest.documents[0]!.id], owner),
+        aruba.createBatchForDocuments([invalidManifest.documents[0]!.id], owner),
+      ]);
+      assert.equal(concurrentBatches.filter((result) => result.status === "fulfilled").length, 1);
+      assert.equal(
+        concurrentBatches.filter(
+          (result) =>
+            result.status === "rejected" &&
+            result.reason instanceof AppError &&
+            result.reason.code === "ARUBA_BATCH_INVALID",
+        ).length,
+        1,
       );
       await unlink(path.join(storage, rows[0]!.relative_path));
       assert.ok(

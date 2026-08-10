@@ -292,6 +292,14 @@ export async function createBatchForDocuments(documentIds: string[], actor: Arub
     throw new AppError("ARUBA_BATCH_INVALID", 422);
   }
   return withTransaction(async (client) => {
+    const locked = await client.query<{ id: string }>(
+      `SELECT id FROM documents
+       WHERE id = ANY($1::bigint[])
+       ORDER BY id
+       FOR UPDATE`,
+      [ids],
+    );
+    if (locked.rows.length !== ids.length) throw new AppError("ARUBA_BATCH_INVALID", 409);
     const rows = await client.query<{
       id: string;
       draft_version: number;
@@ -1088,10 +1096,16 @@ async function importOfficialFile(
     xml_sha256: string;
     submission_id: string;
     batch_id: string;
+    remote_id: string | null;
+    filename: string;
   }>(
-    `SELECT documents.xml_sha256, submissions.id AS submission_id, submissions.batch_id
+    `SELECT documents.xml_sha256, submissions.id AS submission_id, submissions.batch_id,
+            submissions.remote_id, batch_documents.filename
      FROM documents
      JOIN aruba_submissions AS submissions ON submissions.document_id = documents.id
+     JOIN aruba_batch_documents AS batch_documents
+       ON batch_documents.batch_id = submissions.batch_id
+      AND batch_documents.document_id = documents.id
      WHERE documents.id = $1 AND documents.status = 'APPROVED'
        AND ($2::uuid IS NULL OR submissions.batch_id = $2)
      ORDER BY submissions.attempt_number DESC LIMIT 1`,
@@ -1102,6 +1116,27 @@ async function importOfficialFile(
   const digest = createHash("sha256").update(bytes).digest("hex");
   if (kind.data === "ARUBA_XML" && digest !== current.xml_sha256) {
     throw new AppError("ARUBA_IMPORT_INVALID", 409);
+  }
+  if (kind.data === "SDI_NOTIFICATION") {
+    const xml = bytes.toString("utf8");
+    const filenames = [...xml.matchAll(/<(?:\w+:)?NomeFile>([^<]{1,255})<\//gi)].map((match) =>
+      path.posix
+        .basename(match[1]!.trim())
+        .replace(/\.p7m$/i, "")
+        .toLowerCase(),
+    );
+    const remoteIds = [
+      ...xml.matchAll(/<(?:\w+:)?(?:IdentificativoSdI|IdSdI)>([^<]{1,200})<\//gi),
+    ].map((match) => match[1]!.trim());
+    const filenameMatches = filenames.includes(current.filename.toLowerCase());
+    const remoteIdMatches = Boolean(current.remote_id && remoteIds.includes(current.remote_id));
+    if (
+      (!filenameMatches && !remoteIdMatches) ||
+      (filenames.length > 0 && !filenameMatches) ||
+      (current.remote_id && remoteIds.length > 0 && !remoteIdMatches)
+    ) {
+      throw new AppError("ARUBA_IMPORT_INVALID", 409);
+    }
   }
   const stored = await storeImportedFile(documentId, kind.data, bytes);
   try {
