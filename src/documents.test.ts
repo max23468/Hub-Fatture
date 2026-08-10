@@ -138,14 +138,16 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
 
   const foreign = documentInputSchema.parse({
     ...invoice,
+    lines: [{ ...invoice.lines[0]!, description: "Πώληση" }],
     recipient: {
       kind: "EU",
-      displayName: "Voorbeeld Handel",
+      displayName: "Εμπόριο",
       taxIdentifiers: [],
       address: {
-        line1: "Keizersgracht 1",
+        line1: "Οδός 1",
+        line2: "Interno 2",
         postalCode: "1012 AB",
-        city: "Amsterdam",
+        city: "Αθήνα",
         province: "Noord-Holland",
         countryCode: "NL",
       },
@@ -156,7 +158,10 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
     number: 4,
   });
   await validateFatturaXml(foreignXml);
-  assert.match(foreignXml, /<Denominazione>Voorbeeld Handel<\/Denominazione>/);
+  assert.match(foreignXml, /<Denominazione>\?+<\/Denominazione>/);
+  assert.match(foreignXml, /<Indirizzo>\?+ 1, Interno 2<\/Indirizzo>/);
+  assert.match(foreignXml, /<Comune>\?+<\/Comune>/);
+  assert.match(foreignXml, /<Descrizione>\?+<\/Descrizione>/);
   assert.match(foreignXml, /<IdPaese>NL<\/IdPaese>\s*<IdCodice>99999999999<\/IdCodice>/);
   assert.match(foreignXml, /<CAP>00000<\/CAP>/);
   assert.doesNotMatch(foreignXml, /1012 AB|Noord-Holland|undefined/);

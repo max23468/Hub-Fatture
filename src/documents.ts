@@ -26,6 +26,7 @@ const fiscalAddress = z.object({
 const recipientAddress = z
   .object({
     line1: text(60),
+    line2: text(60).optional(),
     postalCode: text(16),
     city: text(60),
     province: text(60).optional(),
@@ -263,6 +264,10 @@ export const documentInputSchema = z
 
 export type DocumentInput = z.infer<typeof documentInputSchema>;
 
+export function fatturaPaText(value: string, max: number): string {
+  return value.replace(/[^\u0020-\u007e\u00a0-\u00ff]/gu, "?").slice(0, max);
+}
+
 function amount(cents: number): string {
   return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
 }
@@ -359,11 +364,11 @@ export function generateFatturaXml(
     add(
       customerName,
       "Denominazione",
-      input.recipient.businessName ?? input.recipient.displayName!,
+      fatturaPaText(input.recipient.businessName ?? input.recipient.displayName!, 80),
     );
   else {
-    add(customerName, "Nome", input.recipient.firstName!);
-    add(customerName, "Cognome", input.recipient.lastName!);
+    add(customerName, "Nome", fatturaPaText(input.recipient.firstName!, 60));
+    add(customerName, "Cognome", fatturaPaText(input.recipient.lastName!, 60));
   }
   addAddress(customer.ele("Sede"), input.recipient.address);
 
@@ -383,7 +388,7 @@ export function generateFatturaXml(
   input.lines.forEach((line, index) => {
     const detail = goods.ele("DettaglioLinee");
     add(detail, "NumeroLinea", index + 1);
-    add(detail, "Descrizione", line.description);
+    add(detail, "Descrizione", fatturaPaText(line.description, 1000));
     add(detail, "Quantita", `${line.quantity}.00`);
     add(detail, "PrezzoUnitario", amount(line.unitAmount));
     add(detail, "PrezzoTotale", amount(line.quantity * line.unitAmount));
@@ -410,9 +415,10 @@ function addAddress(
   parent: XmlNode,
   value: z.infer<typeof fiscalAddress> | z.infer<typeof recipientAddress>,
 ): void {
-  add(parent, "Indirizzo", value.line1);
+  const line2 = "line2" in value ? value.line2 : undefined;
+  add(parent, "Indirizzo", fatturaPaText([value.line1, line2].filter(Boolean).join(", "), 60));
   add(parent, "CAP", value.countryCode === "IT" ? value.postalCode : "00000");
-  add(parent, "Comune", value.city);
+  add(parent, "Comune", fatturaPaText(value.city, 60));
   if (value.countryCode === "IT" && value.province) add(parent, "Provincia", value.province);
   add(parent, "Nazione", value.countryCode);
 }

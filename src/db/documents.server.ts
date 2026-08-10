@@ -6,6 +6,7 @@ import type pg from "pg";
 
 import {
   documentInputSchema,
+  fatturaPaText,
   fiscalNumberLabel,
   fiscalProfileSchema,
   foreignCustomerFallbackTaxCode,
@@ -110,6 +111,7 @@ function recipient(snapshot: Record<string, unknown>): DocumentInput["recipient"
     }),
     address: {
       line1: String(address.line1 ?? ""),
+      line2: stringValue(address.line2),
       postalCode: String(address.postalCode ?? ""),
       city: String(address.city ?? ""),
       province: stringValue(address.province),
@@ -214,19 +216,24 @@ function recipientIdentity(value: DocumentInput["recipient"]): string {
 }
 
 function projectedRecipientIdentity(value: DocumentInput["recipient"]): string {
-  return (
-    value.businessName ??
-    value.displayName ??
-    ([value.firstName, value.lastName].filter(Boolean).join(" ") || "—")
-  );
+  if (value.businessName || value.displayName) {
+    return fatturaPaText(value.businessName ?? value.displayName!, 80);
+  }
+  return joined([
+    value.firstName ? fatturaPaText(value.firstName, 60) : undefined,
+    value.lastName ? fatturaPaText(value.lastName, 60) : undefined,
+  ]);
 }
 
 function recipientAddress(value: DocumentInput["recipient"], projected = false): string {
+  const street = projected
+    ? fatturaPaText([value.address.line1, value.address.line2].filter(Boolean).join(", "), 60)
+    : joined([value.address.line1, value.address.line2]);
   return joined([
-    value.address.line1,
+    street,
     joined([
       projected && value.address.countryCode !== "IT" ? "00000" : value.address.postalCode,
-      value.address.city,
+      projected ? fatturaPaText(value.address.city, 60) : value.address.city,
     ]),
     value.address.countryCode === "IT" ? value.address.province : undefined,
     value.address.countryCode,
@@ -336,7 +343,7 @@ function invoiceComparison(caseRow: CaseRow, input: DocumentInput, profile: Fisc
           money(line.quantity * line.unitAmount),
         ]),
         projected: joined([
-          line.description,
+          fatturaPaText(line.description, 1000),
           `${line.quantity} × ${money(line.unitAmount)}`,
           money(line.quantity * line.unitAmount),
           profile.taxNature,
