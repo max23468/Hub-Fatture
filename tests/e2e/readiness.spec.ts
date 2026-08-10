@@ -281,10 +281,28 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   } finally {
     await rm(assistedProfile, { recursive: true, force: true });
   }
-  const cleanupResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/eventi", {
+  const revokedResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/eventi", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${assistedToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      type: "READBACK",
+      documents: assistedManifest.documents.map((document) => ({
+        id: document.id,
+        status: "REMOVED",
+      })),
+    }),
+  });
+  expect(revokedResponse.status).toBe(401);
+  await page.reload();
+  await page.getByRole("button", { name: "Genera codice di avvio" }).click();
+  const readbackToken = (await page.locator(".code-block").textContent())?.trim();
+  const cleanupResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/eventi", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${readbackToken}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -329,6 +347,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   } finally {
     await rm(automaticProfile, { recursive: true, force: true });
   }
+  await page.reload();
+  await expect(page.getByText("File ufficiali archiviati")).toBeVisible();
+  const officialDownload = page.waitForEvent("download");
+  await page.getByRole("link", { name: "XML Aruba" }).click();
+  expect((await officialDownload).suggestedFilename()).toMatch(/\.xml$/);
 });
 
 test("le mutazioni senza origine valida non raggiungono l’azione", async ({ request }) => {

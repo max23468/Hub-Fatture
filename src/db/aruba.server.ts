@@ -7,9 +7,11 @@ import type pg from "pg";
 import {
   ARUBA_IMPORT_MAX_BYTES,
   ARUBA_PANEL_ORIGIN,
+  ARUBA_UPLOAD_MAX_BYTES,
   arubaAuthProtectionSchema,
   arubaFileKindSchema,
   arubaModeSchema,
+  effectiveArubaMode,
   helperEventSchema,
   manifestSha256,
   notificationStatus,
@@ -29,7 +31,7 @@ import { isDatabaseId } from "./order-commands.server.ts";
 
 const HELPER_TOKEN_TTL_MS = 15 * 60_000;
 const SEND_PERMIT_TTL_MS = 10 * 60_000;
-const BATCH_MAX_BYTES = 30 * 1024 * 1024;
+const BATCH_MAX_BYTES = 30_000_000;
 
 export interface ArubaActor {
   id: number;
@@ -85,11 +87,15 @@ export async function getArubaSettings() {
     "SELECT key, value_json, version FROM settings WHERE key IN ('aruba_mode', 'aruba_auth_protection')",
   );
   const settings = new Map(result.rows.map((row) => [row.key, row]));
+  const mode = arubaModeSchema.parse(settings.get("aruba_mode")?.value_json ?? "ASSISTED");
+  const environment = getConfig().APP_ENV === "production" ? "PRODUCTION" : "MOCK";
   return {
     mode: {
-      value: arubaModeSchema.parse(settings.get("aruba_mode")?.value_json ?? "ASSISTED"),
+      value: mode,
       version: settings.get("aruba_mode")?.version ?? 0,
     },
+    effectiveMode: effectiveArubaMode(mode, environment, getConfig().ARUBA_SUBMISSION_ENABLED),
+    automaticForcedAssisted: environment === "PRODUCTION" && !getConfig().ARUBA_SUBMISSION_ENABLED,
     authProtection: {
       value: arubaAuthProtectionSchema.parse(
         settings.get("aruba_auth_protection")?.value_json ?? "UNKNOWN",
@@ -185,11 +191,16 @@ export async function createArubaBatch(
   }
   const unique = new Set(documents.map((document) => document.id));
   if (unique.size !== documents.length) throw new AppError("ARUBA_BATCH_INVALID", 422);
-  const mode = await currentMode(client);
+  const configuredMode = await currentMode(client);
+  const environment = getConfig().APP_ENV === "production" ? "PRODUCTION" : "MOCK";
+  const mode = effectiveArubaMode(
+    configuredMode,
+    environment,
+    getConfig().ARUBA_SUBMISSION_ENABLED,
+  );
   if (expectedMode !== undefined && expectedMode !== mode) {
     throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
   }
-  const environment = getConfig().APP_ENV === "production" ? "PRODUCTION" : "MOCK";
   const accountReference = await currentArubaAccount(client);
   const batchId = randomUUID();
   const digest = manifestSha256(
@@ -500,7 +511,7 @@ export async function helperDocumentXml(token: string, documentId: string): Prom
     [context.id, documentId],
   );
   const row = result.rows[0];
-  if (!row || row.size_bytes > 4_900_000 || row.sha256 !== row.manifest_sha256) {
+  if (!row || row.size_bytes > ARUBA_UPLOAD_MAX_BYTES || row.sha256 !== row.manifest_sha256) {
     throw new AppError("ARUBA_BATCH_INVALID", 409);
   }
   const bytes = await readFile(safeStoragePath(row.relative_path));
@@ -540,6 +551,47 @@ const stateRank: Record<string, number> = {
   REMOVED: 7,
 };
 
+const allowedSubmissionTransitions: Record<string, ReadonlySet<string>> = {
+  PENDING: new Set([
+    "VALIDATED",
+    "VALIDATION_FAILED",
+    "UNKNOWN",
+    "REMOVED",
+    "RECONCILED",
+    "DELIVERED",
+    "NOT_DELIVERED",
+    "REJECTED",
+  ]),
+  VALIDATION_FAILED: new Set(["VALIDATED", "UNKNOWN", "REMOVED"]),
+  VALIDATED: new Set(["READY_TO_SEND", "UNKNOWN", "REMOVED"]),
+  READY_TO_SEND: new Set([
+    "SUBMITTED",
+    "UNKNOWN",
+    "REMOVED",
+    "RECONCILED",
+    "DELIVERED",
+    "NOT_DELIVERED",
+    "REJECTED",
+  ]),
+  UNKNOWN: new Set([
+    "UPLOADED",
+    "SUBMITTED",
+    "RECONCILED",
+    "DELIVERED",
+    "NOT_DELIVERED",
+    "REJECTED",
+    "REMOVED",
+  ]),
+  UPLOADED: new Set(["SUBMITTED", "UNKNOWN", "REMOVED"]),
+  SUBMITTED: new Set(["RECONCILED", "SDI_PROCESSING", "DELIVERED", "NOT_DELIVERED", "REJECTED"]),
+  RECONCILED: new Set(["SDI_PROCESSING", "DELIVERED", "NOT_DELIVERED", "REJECTED"]),
+  SDI_PROCESSING: new Set(["DELIVERED", "NOT_DELIVERED", "REJECTED"]),
+  DELIVERED: new Set(),
+  NOT_DELIVERED: new Set(),
+  REJECTED: new Set(),
+  REMOVED: new Set(),
+};
+
 async function monotonicSubmission(
   client: pg.PoolClient,
   batchId: string,
@@ -556,11 +608,14 @@ async function monotonicSubmission(
   if (!row) throw new AppError("ARUBA_BATCH_INVALID", 409);
   const currentRank = stateRank[row.status] ?? 0;
   const nextRank = stateRank[next] ?? 0;
-  const terminal = ["DELIVERED", "NOT_DELIVERED", "REJECTED", "REMOVED"];
-  if ((terminal.includes(row.status) && next !== row.status) || nextRank < currentRank)
-    return row.id;
+  if (next === row.status || nextRank < currentRank) return row.id;
+  if (["DELIVERED", "NOT_DELIVERED", "REJECTED", "REMOVED"].includes(row.status)) return row.id;
+  if (!allowedSubmissionTransitions[row.status]?.has(next)) {
+    throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
+  }
   await client.query(
     `UPDATE aruba_submissions SET status = $2::text, remote_id = coalesce($3, remote_id),
+       submitted_at = CASE WHEN $2::text = 'SUBMITTED' THEN coalesce(submitted_at, now()) ELSE submitted_at END,
        last_checked_at = now(), readback_metadata_json = jsonb_build_object('status', $2::text)
      WHERE id = $1`,
     [row.id, next, remoteId ?? null],
@@ -597,6 +652,9 @@ export async function recordHelperEvent(token: string, rawEvent: unknown): Promi
       throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
     }
     if (event.type === "VALIDATION") {
+      if (!["HELPER_ACTIVE", "VALIDATION_FAILED"].includes(context.status)) {
+        throw new AppError("ARUBA_BATCH_INVALID", 409);
+      }
       await exactSubmissionDocuments(
         client,
         context.id,
@@ -641,7 +699,11 @@ export async function recordHelperEvent(token: string, rawEvent: unknown): Promi
       return;
     }
     if (event.type === "ASSISTED_STOP") {
-      if (context.mode !== "ASSISTED" || context.requires_reconciliation) {
+      if (
+        context.mode !== "ASSISTED" ||
+        context.requires_reconciliation ||
+        context.status !== "HELPER_ACTIVE"
+      ) {
         throw new AppError("ARUBA_BATCH_INVALID", 409);
       }
       const invalid = await client.query(
@@ -666,16 +728,30 @@ export async function recordHelperEvent(token: string, rawEvent: unknown): Promi
         metadata: { batchId: context.id, manifestSha256: context.manifest_sha256 },
         requestId: `aruba-helper:${context.id}`,
       });
+      await client.query(
+        "UPDATE aruba_helper_tokens SET revoked_at = now() WHERE token_hash = $1",
+        [context.token_hash],
+      );
       return;
     }
     if (event.type === "RECONCILIATION_REQUIRED") {
+      if (
+        !["HELPER_ACTIVE", "READY_ASSISTED", "PERMIT_CONSUMED", "SUBMITTED"].includes(
+          context.status,
+        )
+      ) {
+        throw new AppError("ARUBA_BATCH_INVALID", 409);
+      }
       await client.query(
         `UPDATE aruba_batches SET status = 'RECONCILIATION_REQUIRED',
            requires_reconciliation = true, updated_at = now() WHERE id = $1`,
         [context.id],
       );
       await client.query(
-        `UPDATE aruba_submissions SET status = 'UNKNOWN', error_code = 'ARUBA_RECONCILIATION_REQUIRED',
+        `UPDATE aruba_submissions SET
+           status = CASE WHEN status IN ('PENDING', 'VALIDATED', 'VALIDATION_FAILED', 'READY_TO_SEND')
+             THEN 'UNKNOWN' ELSE status END,
+           error_code = 'ARUBA_RECONCILIATION_REQUIRED',
            error_message_sanitized = $2, last_checked_at = now() WHERE batch_id = $1`,
         [context.id, event.reason],
       );
@@ -733,6 +809,9 @@ export async function recordHelperEvent(token: string, rawEvent: unknown): Promi
         requestId: `aruba-helper:${context.id}`,
       });
     }
+    await client.query("UPDATE aruba_helper_tokens SET revoked_at = now() WHERE token_hash = $1", [
+      context.token_hash,
+    ]);
   });
 }
 
@@ -837,6 +916,7 @@ export async function authorizeArubaPermit(batchId: string, actor: ArubaActor) {
     if (
       !current ||
       current.mode !== "AUTOMATIC" ||
+      (current.environment === "PRODUCTION" && !getConfig().ARUBA_SUBMISSION_ENABLED) ||
       current.requires_reconciliation ||
       !["PREPARED", "HELPER_ACTIVE", "VALIDATION_FAILED"].includes(current.status)
     ) {
@@ -855,6 +935,10 @@ export async function authorizeArubaPermit(batchId: string, actor: ArubaActor) {
         (id, batch_id, manifest_sha256, document_count, mode, authorized_by, expires_at)
        VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6)
        ON CONFLICT (batch_id) DO UPDATE SET id = EXCLUDED.id,
+         manifest_sha256 = EXCLUDED.manifest_sha256,
+         document_count = EXCLUDED.document_count,
+         mode = EXCLUDED.mode,
+         scope = 'ORDINARY',
          authorized_by = EXCLUDED.authorized_by, authorized_at = now(),
          expires_at = EXCLUDED.expires_at`,
       [randomUUID(), batchId, current.manifest_sha256, current.document_count, actor.id, expiresAt],
@@ -958,6 +1042,39 @@ export async function importOfficialArubaFile(
   actor: ArubaActor,
 ) {
   if (!actor.canApprove) throw new AppError("ARUBA_PERMIT_FORBIDDEN", 403);
+  return importOfficialFile(documentId, rawKind, bytes, {
+    actorType: "ADMIN",
+    actorId: String(actor.id),
+    requestId: actor.requestId,
+  });
+}
+
+export async function importOfficialArubaFileFromHelper(
+  token: string,
+  documentId: string,
+  rawKind: unknown,
+  bytes: Buffer,
+) {
+  const context = await loadToken(getPool(), token);
+  if (!context) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
+  return importOfficialFile(documentId, rawKind, bytes, {
+    actorType: "SYSTEM",
+    requestId: `aruba-helper:${context.id}`,
+    batchId: context.id,
+  });
+}
+
+async function importOfficialFile(
+  documentId: string,
+  rawKind: unknown,
+  bytes: Buffer,
+  source: {
+    actorType: "ADMIN" | "SYSTEM";
+    actorId?: string;
+    requestId: string;
+    batchId?: string;
+  },
+) {
   const kind = arubaFileKindSchema.safeParse(rawKind);
   if (!kind.success || !isDatabaseId(documentId) || bytes.byteLength > ARUBA_IMPORT_MAX_BYTES) {
     throw new AppError("ARUBA_IMPORT_INVALID", 422);
@@ -976,8 +1093,9 @@ export async function importOfficialArubaFile(
      FROM documents
      JOIN aruba_submissions AS submissions ON submissions.document_id = documents.id
      WHERE documents.id = $1 AND documents.status = 'APPROVED'
+       AND ($2::uuid IS NULL OR submissions.batch_id = $2)
      ORDER BY submissions.attempt_number DESC LIMIT 1`,
-    [documentId],
+    [documentId, source.batchId ?? null],
   );
   const current = document.rows[0];
   if (!current) throw new AppError("ARUBA_IMPORT_INVALID", 409);
@@ -1022,23 +1140,28 @@ export async function importOfficialArubaFile(
       }
       if (kind.data === "SDI_NOTIFICATION") {
         const status = notificationStatus(bytes.toString("utf8"));
+        const remoteNotificationId =
+          /<(?:\w+:)?(?:IdentificativoSdI|IdSdI)>([^<]{1,200})<\//i
+            .exec(bytes.toString("utf8"))?.[1]
+            ?.trim() ?? null;
         await client.query(
           `INSERT INTO sdi_notifications
-            (submission_id, type, status, storage_object_id, metadata_json)
-           VALUES ($1, $2, $2, $3, '{}')`,
-          [current.submission_id, status, storage.rows[0]!.id],
+            (submission_id, remote_notification_id, type, status, storage_object_id, metadata_json)
+           VALUES ($1, $2, $3, $3, $4, '{}')
+           ON CONFLICT (submission_id, remote_notification_id) DO NOTHING`,
+          [current.submission_id, remoteNotificationId, status, storage.rows[0]!.id],
         );
         await monotonicSubmission(client, current.batch_id, documentId, status);
       }
       await writeAudit(client, {
-        actorType: "ADMIN",
-        actorId: String(actor.id),
+        actorType: source.actorType,
+        actorId: source.actorId,
         action: "ARUBA_FILE_IMPORTED",
         eventClass: "CRITICAL",
         entityType: "DOCUMENT",
         entityId: documentId,
         metadata: { fileKind: kind.data },
-        requestId: actor.requestId,
+        requestId: source.requestId,
       });
       return file.rows[0]!.id;
     });
@@ -1046,4 +1169,50 @@ export async function importOfficialArubaFile(
     await unlink(stored.absolutePath).catch(() => undefined);
     throw error;
   }
+}
+
+export async function listOfficialArubaFiles() {
+  const result = await getPool().query<{
+    id: string;
+    document_id: string;
+    kind: ArubaFileKind;
+    size_bytes: number;
+    imported_at: string;
+  }>(
+    `SELECT files.id, files.document_id, files.kind, storage.size_bytes, files.imported_at
+     FROM aruba_files AS files
+     JOIN storage_objects AS storage ON storage.id = files.storage_object_id
+     ORDER BY files.imported_at DESC, files.id DESC`,
+  );
+  return result.rows;
+}
+
+export async function readOfficialArubaFile(documentId: string, fileId: string) {
+  if (!isDatabaseId(documentId) || !isDatabaseId(fileId)) {
+    throw new AppError("ARUBA_IMPORT_INVALID", 404);
+  }
+  const result = await getPool().query<{
+    relative_path: string;
+    sha256: string;
+    size_bytes: number;
+    content_type: string;
+    kind: ArubaFileKind;
+  }>(
+    `SELECT storage.relative_path, storage.sha256, storage.size_bytes, storage.content_type,
+            files.kind
+     FROM aruba_files AS files
+     JOIN storage_objects AS storage ON storage.id = files.storage_object_id
+     WHERE files.id = $1 AND files.document_id = $2`,
+    [fileId, documentId],
+  );
+  const current = result.rows[0];
+  if (!current) throw new AppError("ARUBA_IMPORT_INVALID", 404);
+  const bytes = await readFile(safeStoragePath(current.relative_path));
+  if (
+    bytes.byteLength !== current.size_bytes ||
+    createHash("sha256").update(bytes).digest("hex") !== current.sha256
+  ) {
+    throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+  }
+  return { ...current, bytes };
 }

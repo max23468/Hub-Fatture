@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
   assertAllowedArubaTarget,
   assertAllowedHubUrl,
+  effectiveArubaMode,
   manifestSha256,
   notificationStatus,
   validateOfficialFile,
   validateUntrustedXml,
 } from "./aruba.ts";
 
-test("allowlist, manifest e parser Aruba restano fail-closed", () => {
+test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   assert.equal(
     assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/", "PRODUCTION").origin,
     "https://fatturazioneelettronica.aruba.it",
@@ -48,6 +50,9 @@ test("allowlist, manifest e parser Aruba restano fail-closed", () => {
   };
   assert.equal(manifestSha256(batch), manifestSha256(structuredClone(batch)));
   assert.notEqual(manifestSha256(batch), manifestSha256({ ...batch, attemptNumber: 2 }));
+  assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", false), "ASSISTED");
+  assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", true), "AUTOMATIC");
+  assert.equal(effectiveArubaMode("AUTOMATIC", "MOCK", false), "AUTOMATIC");
 
   const delivered = Buffer.from(
     '<?xml version="1.0"?><RicevutaConsegna><Id>1</Id></RicevutaConsegna>',
@@ -60,4 +65,19 @@ test("allowlist, manifest e parser Aruba restano fail-closed", () => {
     ),
   );
   assert.throws(() => validateOfficialFile("ARUBA_PDF", Buffer.from("non-pdf")));
+  validateOfficialFile(
+    "ARUBA_PDF",
+    Buffer.from(
+      await readFile("tests/fixtures/aruba/official-pdf.synthetic.base64", "utf8"),
+      "base64",
+    ),
+  );
+  validateOfficialFile(
+    "ARUBA_P7M",
+    Buffer.from(
+      await readFile("tests/fixtures/aruba/official-p7m.synthetic.der.base64", "utf8"),
+      "base64",
+    ),
+  );
+  assert.throws(() => validateOfficialFile("ARUBA_P7M", Buffer.from([0x30, 0x00])));
 });

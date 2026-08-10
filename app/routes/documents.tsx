@@ -12,6 +12,7 @@ import {
   importOfficialArubaFile,
   issueHelperToken,
   listArubaBatches,
+  listOfficialArubaFiles,
   listUnbatchedApprovedDocuments,
   retryArubaBatch,
 } from "../../src/db/aruba.server.ts";
@@ -22,10 +23,11 @@ import { readForm, readMultipartForm } from "../../src/http.server.ts";
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
-  const [documents, batches, unbatched] = await Promise.all([
+  const [documents, batches, unbatched, officialFiles] = await Promise.all([
     listDocuments(),
     listArubaBatches(),
     listUnbatchedApprovedDocuments(),
+    listOfficialArubaFiles(),
   ]);
   return {
     username: user.username,
@@ -34,6 +36,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     documents,
     batches,
     unbatched,
+    officialFiles,
     batchCreated: url.searchParams.get("batch") === "creato",
     fileImported: url.searchParams.get("file") === "importato",
   };
@@ -123,12 +126,19 @@ export default function Documents() {
     documents,
     batches,
     unbatched,
+    officialFiles,
     batchCreated,
     fileImported,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const helper = actionData && "helper" in actionData ? actionData.helper : null;
   const error = actionData && "message" in actionData ? actionData.message : null;
+  const officialFilesByDocument = new Map<string, typeof officialFiles>();
+  for (const file of officialFiles) {
+    const current = officialFilesByDocument.get(file.document_id) ?? [];
+    current.push(file);
+    officialFilesByDocument.set(file.document_id, current);
+  }
   return (
     <AppShell username={username} csrfToken={csrfToken}>
       <div className="title-block">
@@ -217,6 +227,21 @@ export default function Documents() {
                     {document.xml_sha256 ? (
                       <>
                         <a href={`/documenti/${document.id}/xml`}>{copy.documents.downloadXml}</a>
+                        {officialFilesByDocument.has(document.id) ? (
+                          <div>
+                            <strong>{copy.documents.archivedOfficialFiles}</strong>
+                            <ul className="plain-list">
+                              {officialFilesByDocument.get(document.id)?.map((file) => (
+                                <li key={file.id}>
+                                  <a href={`/documenti/${document.id}/aruba/${file.id}`}>
+                                    {copy.documents.officialFileKind[file.kind]}
+                                  </a>{" "}
+                                  · {dateTime(file.imported_at)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
                         {canApprove && document.aruba_batch_id ? (
                           <ImportForm csrfToken={csrfToken} documentId={document.id} />
                         ) : null}

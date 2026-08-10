@@ -487,7 +487,7 @@ export async function getInvoiceProjection(caseId: string) {
     xml: projection.xml,
     comparison: invoiceComparison(caseRow, input, profile.profile_json),
     approved: draft?.status === "APPROVED",
-    arubaMode: (await getArubaSettings()).mode.value,
+    arubaMode: (await getArubaSettings()).effectiveMode,
   };
 }
 

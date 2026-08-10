@@ -259,6 +259,13 @@ export const copy = {
     fileType: "Tipo di file",
     officialFile: "File scaricato da Aruba",
     importAction: "Importa e verifica",
+    archivedOfficialFiles: "File ufficiali archiviati",
+    officialFileKind: {
+      ARUBA_XML: "XML Aruba",
+      ARUBA_P7M: "P7M",
+      ARUBA_PDF: "PDF Aruba",
+      SDI_NOTIFICATION: "Notifica SdI",
+    } as Record<string, string>,
     manualBatchTitle: "Prepara documenti già approvati",
     manualBatchHelp:
       "Crea un manifest per i documenti approvati prima dell’attivazione dell’helper.",
@@ -373,6 +380,8 @@ export const copy = {
     arubaSaved: "Impostazioni Aruba aggiornate.",
     arubaSave: "Salva integrazione Aruba",
     arubaOwnerOnly: "Solo il titolare può cambiare la modalità Aruba.",
+    arubaKillSwitch:
+      "Gli invii automatici operativi sono disabilitati: i nuovi batch useranno la modalità assistita.",
   },
   customerEditor: {
     title: "Dati del destinatario",

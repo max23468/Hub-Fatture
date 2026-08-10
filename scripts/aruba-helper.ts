@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -7,6 +7,8 @@ import readline from "node:readline";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 
 import {
+  ARUBA_IMPORT_MAX_BYTES,
+  ARUBA_UPLOAD_MAX_BYTES,
   arubaManifestSchema,
   assertAllowedArubaTarget,
   assertAllowedHubUrl,
@@ -57,12 +59,12 @@ async function hubFetch(
 ) {
   const url = new URL(pathname, hub);
   if (url.origin !== hub.origin) throw new Error("Endpoint Hub Fatture non autorizzato");
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(url, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
-    },
+    headers,
     redirect: "error",
     signal: AbortSignal.timeout(10_000),
   });
@@ -89,7 +91,7 @@ async function downloadDocuments(hub: URL, token: string, value: ArubaManifest, 
       token,
       `/api/aruba/helper/documenti/${document.id}/xml`,
       {},
-      4_900_000,
+      ARUBA_UPLOAD_MAX_BYTES,
     );
     const digest = (await import("node:crypto")).createHash("sha256").update(bytes).digest("hex");
     if (bytes.byteLength !== document.sizeBytes || digest !== document.sha256) {
@@ -136,7 +138,17 @@ export async function validateVisibleDocuments(
   const table = page.locator("table", { hasText: value.documents[0]!.filename }).first();
   if (!(await table.count())) throw new Error("DOM_UNRECOGNIZED");
   const expectedFilenames = new Set(value.documents.map((document) => document.filename));
-  const visibleRows = await table.locator("tbody tr").allInnerTexts();
+  const rows = table.locator("tbody tr");
+  const rowCount = await rows.count();
+  if (rowCount > 300) throw new Error("DOM_UNRECOGNIZED");
+  const visibleRows = await Promise.all(
+    Array.from({ length: rowCount }, (_, index) =>
+      rows
+        .nth(index)
+        .innerText()
+        .then((text) => text.slice(0, 500)),
+    ),
+  );
   if (
     visibleRows.some(
       (text) =>
@@ -169,26 +181,133 @@ async function removeUploads(page: Page, value: ArubaManifest) {
   }
 }
 
-async function readback(page: Page, value: ArubaManifest) {
-  return Promise.all(
-    value.documents.map(async (document) => {
-      const row = page.locator("tr", { hasText: document.filename }).first();
-      if (!(await row.count())) return { id: document.id, status: "NOT_FOUND" as const };
-      const text = await row.innerText();
-      const status = /Consegnat[ao]/i.test(text)
-        ? "DELIVERED"
-        : /Mancata consegna|Non consegnat[ao]/i.test(text)
-          ? "NOT_DELIVERED"
-          : /Scartat[ao]|Rifiutat[ao]/i.test(text)
-            ? "REJECTED"
-            : /Inviat[ao]/i.test(text)
-              ? "SUBMITTED"
-              : /Caricat[ao]|Validat[ao]/i.test(text)
-                ? "UPLOADED"
+type ReadbackDocument = Extract<HelperEvent, { type: "READBACK" }>["documents"][number];
+
+async function readback(page: Page, value: ArubaManifest): Promise<ReadbackDocument[]> {
+  const destination = page
+    .getByRole("link", { name: /Fatture inviate|Documenti inviati|Inviate/i })
+    .first();
+  if (await destination.count()) {
+    await destination.click();
+    await page.waitForLoadState("domcontentloaded");
+  }
+  const search = page.getByRole("textbox", { name: /Cerca|Ricerca/i }).first();
+  const results: ReadbackDocument[] = [];
+  for (const document of value.documents) {
+    if (await search.count()) await search.fill(document.filename);
+    const row = page.locator("tr", { hasText: document.filename }).first();
+    if (!(await row.count())) {
+      results.push({ id: document.id, status: "NOT_FOUND" as const });
+      continue;
+    }
+    const text = (await row.innerText()).slice(0, 1000);
+    const identity = await row.evaluate((element) => ({
+      number: element.getAttribute("data-fiscal-number"),
+      date: element.getAttribute("data-document-date"),
+      total: element.getAttribute("data-total-cents"),
+      remoteId: element.getAttribute("data-remote-id"),
+    }));
+    const total = (document.totalAmount / 100).toFixed(2);
+    const visibleIdentity =
+      text.includes(document.fiscalNumber) &&
+      text.includes(document.documentDate) &&
+      (text.includes(total) || text.includes(total.replace(".", ",")));
+    const structuredIdentity =
+      identity.number === document.fiscalNumber &&
+      identity.date === document.documentDate &&
+      identity.total === String(document.totalAmount);
+    if (!structuredIdentity && !visibleIdentity) throw new Error("DOM_UNRECOGNIZED");
+    const status: ReadbackDocument["status"] = /Consegnat[ao]/i.test(text)
+      ? "DELIVERED"
+      : /Mancata consegna|Non consegnat[ao]/i.test(text)
+        ? "NOT_DELIVERED"
+        : /Scartat[ao]|Rifiutat[ao]/i.test(text)
+          ? "REJECTED"
+          : /Inviat[ao]/i.test(text)
+            ? "SUBMITTED"
+            : /Caricat[ao]|Validat[ao]/i.test(text)
+              ? "UPLOADED"
+              : /Rimoss[ao]|Eliminat[ao]/i.test(text)
+                ? "REMOVED"
                 : "NOT_FOUND";
-      return { id: document.id, status } as const;
-    }),
+    const remoteId =
+      identity.remoteId ??
+      /(?:ID|Identificativo)(?:\s+Aruba|\s+remoto)?\s*[:#]\s*([A-Za-z0-9._/-]{3,200})/i.exec(
+        text,
+      )?.[1];
+    results.push({ id: document.id, status, ...(remoteId ? { remoteId } : {}) });
+  }
+  return results;
+}
+
+async function waitForVisibleOutcome(page: Page, value: ArubaManifest) {
+  await page.waitForFunction(
+    (filenames) => {
+      if (
+        [...document.querySelectorAll('[data-aruba-state], [role="status"], p')].some((element) =>
+          element.textContent?.slice(0, 500).includes("Stato non disponibile"),
+        )
+      ) {
+        return true;
+      }
+      const rows = [...document.querySelectorAll("tr")];
+      if (rows.length > 300) return false;
+      return filenames.every((filename) =>
+        rows.some(
+          (row) =>
+            row.textContent?.includes(filename) &&
+            /Inviat|Consegnat|Mancata consegna|Non consegnat|Scartat|Rifiutat/i.test(
+              row.textContent,
+            ),
+        ),
+      );
+    },
+    value.documents.map((document) => document.filename),
+    { timeout: 15_000 },
   );
+}
+
+const officialFileLinks = [
+  ["ARUBA_XML", /Scarica XML/i],
+  ["ARUBA_P7M", /Scarica P7M/i],
+  ["ARUBA_PDF", /Scarica PDF/i],
+  ["SDI_NOTIFICATION", /Scarica notifica/i],
+] as const;
+
+async function importVisibleOfficialFiles(
+  page: Page,
+  hub: URL,
+  token: string,
+  value: ArubaManifest,
+) {
+  for (const document of value.documents) {
+    const row = page.locator("tr", { hasText: document.filename }).first();
+    if (!(await row.count())) continue;
+    for (const [kind, label] of officialFileLinks) {
+      const links = row.getByRole("link", { name: label });
+      const count = Math.min(await links.count(), 10);
+      for (let index = 0; index < count; index += 1) {
+        const downloadPromise = page.waitForEvent("download", { timeout: 10_000 });
+        await links.nth(index).click();
+        const download = await downloadPromise;
+        const downloadedPath = await download.path();
+        if (!downloadedPath) throw new Error("DOWNLOAD_FAILED");
+        const downloadedSize = (await stat(downloadedPath)).size;
+        if (!downloadedSize || downloadedSize > ARUBA_IMPORT_MAX_BYTES) {
+          throw new Error("DOWNLOAD_FAILED");
+        }
+        const bytes = await readFile(downloadedPath);
+        await hubFetch(hub, token, `/api/aruba/helper/documenti/${document.id}/file`, {
+          method: "POST",
+          body: bytes,
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "X-Aruba-File-Kind": kind,
+          },
+        });
+      }
+    }
+  }
 }
 
 function launchOptions(options: HelperOptions, environment: ArubaManifest["environment"]) {
@@ -241,9 +360,11 @@ export async function runHelper(
     if (await page.locator('[data-aruba-state="unexpected"]').count())
       throw new Error("DOM_UNRECOGNIZED");
     if (value.operation === "READBACK") {
+      const documents = await readback(page, value);
+      await importVisibleOfficialFiles(page, hub, options.token, value);
       await event(hub, options.token, {
         type: "READBACK",
-        documents: await readback(page, value),
+        documents,
       });
       finalStateKnown = true;
       return "READBACK";
@@ -282,6 +403,7 @@ export async function runHelper(
     });
     assertPageOrigin(page, target);
     await send.click();
+    await waitForVisibleOutcome(page, value);
     if (await page.getByText("Stato non disponibile", { exact: true }).count()) {
       await event(hub, options.token, {
         type: "RECONCILIATION_REQUIRED",
@@ -294,17 +416,26 @@ export async function runHelper(
       finalStateKnown = true;
       throw new Error("RECONCILIATION_REQUIRED");
     }
+    const documents = await readback(page, value);
+    if (
+      documents.some(
+        (document) =>
+          document.status === "NOT_FOUND" ||
+          document.status === "UPLOADED" ||
+          document.status === "REMOVED" ||
+          !document.remoteId,
+      )
+    ) {
+      throw new Error("DOM_UNRECOGNIZED");
+    }
     const remoteIds = Object.fromEntries(
-      value.documents.map((document) => [document.id, "MOCK-001"]),
+      documents.map((document) => [document.id, document.remoteId!]),
     );
     await event(hub, options.token, { type: "SUBMITTED", remoteIds });
+    await importVisibleOfficialFiles(page, hub, options.token, value);
     await event(hub, options.token, {
       type: "READBACK",
-      documents: value.documents.map((document) => ({
-        id: document.id,
-        status: "SUBMITTED",
-        remoteId: remoteIds[document.id],
-      })),
+      documents,
     });
     finalStateKnown = true;
     return "SUBMITTED";

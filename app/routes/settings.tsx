@@ -270,6 +270,9 @@ export default function Settings() {
       <section className="card section-gap">
         <h2>{copy.settings.arubaTitle}</h2>
         <p>{copy.settings.arubaHelp}</p>
+        {aruba.automaticForcedAssisted ? (
+          <p className="notice">{copy.settings.arubaKillSwitch}</p>
+        ) : null}
         {canApprove ? (
           <Form method="post" className="inline-form">
             <input type="hidden" name="csrf" value={csrfToken} />

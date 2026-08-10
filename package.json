@@ -26,6 +26,7 @@
     "start": "react-router-serve ./build/server/index.js",
     "start:worker": "node build-server/worker.js",
     "test": "node --test",
+    "test:aruba:platform": "node scripts/aruba-helper-platform-check.ts",
     "test:e2e": "playwright test",
     "toolchain:check": "node scripts/toolchain-policy.mjs",
     "typecheck": "react-router typegen && tsc --noEmit"

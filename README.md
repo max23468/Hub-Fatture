@@ -61,7 +61,7 @@ Dopo aver creato un batch in **Documenti**, genera il codice di avvio e passalo 
 mise exec -- npm run aruba:helper -- --hub https://indirizzo-hub --browser chrome
 ```
 
-È supportato anche `--browser msedge`. Password, OTP, 2FA e CAPTCHA restano nel browser e non vengono automatizzati. Il percorso completo e il fallback senza helper sono descritti nel [contratto](docs/contracts/aruba-helper.md) e nella [procedura manuale](docs/runbooks/aruba-manual.md).
+È supportato anche `--browser msedge`. Password, OTP, 2FA e CAPTCHA restano nel browser e non vengono automatizzati. L’invio automatico registra un successo soltanto dopo aver riletto identità, stato e identificativo remoto visibili; i file ufficiali scaricabili vengono importati nell’archivio locale. Il percorso completo e il fallback senza helper sono descritti nel [contratto](docs/contracts/aruba-helper.md) e nella [procedura manuale](docs/runbooks/aruba-manual.md).
 
 ## Licenza
 

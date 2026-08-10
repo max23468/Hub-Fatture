@@ -14,6 +14,35 @@ export function loader({ request }: Route.LoaderArgs) {
 interface UploadedFile {
   name: string;
   valid: boolean;
+  fiscalNumber?: string;
+  documentDate?: string;
+  totalCents?: number;
+  url?: string;
+}
+
+async function uploadedFile(file: File, valid: boolean): Promise<UploadedFile> {
+  const url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result)), { once: true });
+    reader.addEventListener("error", () => reject(reader.error), { once: true });
+    reader.readAsDataURL(file);
+  });
+  if (!valid) return { name: file.name, valid: false, url };
+  const xml = new DOMParser().parseFromString(await file.text(), "application/xml");
+  const value = (localName: string) =>
+    [...xml.getElementsByTagNameNS("*", localName)][0]?.textContent?.trim();
+  const total = Number(value("ImportoTotaleDocumento"));
+  return {
+    name: file.name,
+    valid:
+      !xml.querySelector("parsererror") &&
+      Boolean(value("Numero") && value("Data")) &&
+      Number.isFinite(total),
+    fiscalNumber: value("Numero"),
+    documentDate: value("Data"),
+    totalCents: Math.round(total * 100),
+    url,
+  };
 }
 
 export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
@@ -75,17 +104,22 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
           <input
             accept=".xml,application/xml"
             multiple
-            onChange={(event) =>
+            onChange={async (event) => {
+              const selected = [...(event.currentTarget.files ?? [])];
               setFiles([
                 ...(scenario === "foreign"
                   ? [{ name: "documento-estraneo.xml", valid: true }]
                   : []),
-                ...[...(event.currentTarget.files ?? [])].map((file) => ({
-                  name: file.name,
-                  valid: scenario !== "invalid" && file.name.toLowerCase().endsWith(".xml"),
-                })),
-              ])
-            }
+                ...(await Promise.all(
+                  selected.map((file) =>
+                    uploadedFile(
+                      file,
+                      scenario !== "invalid" && file.name.toLowerCase().endsWith(".xml"),
+                    ),
+                  ),
+                )),
+              ]);
+            }}
             type="file"
           />
         </label>
@@ -102,14 +136,39 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
               </thead>
               <tbody>
                 {files.map((file) => (
-                  <tr data-document-name={file.name} key={file.name}>
-                    <td>{file.name}</td>
-                    <td>{file.valid ? "Documento valido" : "Dettagli errori"}</td>
+                  <tr
+                    data-document-date={file.documentDate}
+                    data-document-name={file.name}
+                    data-fiscal-number={file.fiscalNumber}
+                    data-remote-id={sent && scenario !== "uncertain" ? "MOCK-001" : undefined}
+                    data-total-cents={file.totalCents}
+                    key={file.name}
+                  >
                     <td>
+                      {file.name}
+                      {file.fiscalNumber && file.documentDate && file.totalCents !== undefined
+                        ? ` · ${file.fiscalNumber} · ${file.documentDate} · ${(file.totalCents / 100).toFixed(2)}`
+                        : ""}
+                    </td>
+                    <td>
+                      {sent && scenario !== "uncertain"
+                        ? "Inviato · ID Aruba: MOCK-001"
+                        : file.valid
+                          ? "Documento valido"
+                          : "Dettagli errori"}
+                    </td>
+                    <td>
+                      {sent && scenario !== "uncertain" && file.url ? (
+                        <a download={file.name} href={file.url}>
+                          Scarica XML
+                        </a>
+                      ) : null}
                       <button
                         className="button button--secondary"
                         onClick={() =>
-                          setFiles((current) => current.filter((item) => item.name !== file.name))
+                          setFiles((current) => {
+                            return current.filter((item) => item.name !== file.name);
+                          })
                         }
                         type="button"
                       >
