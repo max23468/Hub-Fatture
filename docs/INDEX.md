@@ -14,5 +14,8 @@
 | [Connettori Shopify ed eBay](evidence/connectors.md)                   | Contratti API, fixture e gate dei provider                | Corrente    | No             |
 | [Audit Aruba e profilo FatturaPA](evidence/aruba-fatturapa-profile.md) | Profilo fiscale, numerazione e prove anonimizzate         | In verifica | No             |
 | [Attivazione profilo fiscale](runbooks/fiscal-profile.md)              | Procedura sicura da XML accettato a profilo versionato    | Corrente    | Sì             |
+| [Contratto helper Aruba](contracts/aruba-helper.md)                    | Manifest, sicurezza e locatori candidati                  | Candidato   | Sì             |
+| [Procedura manuale Aruba](runbooks/aruba-manual.md)                    | Export, upload manuale, readback e import                 | Corrente    | Sì             |
+| [Integrazione Aruba locale](evidence/aruba-helper.md)                  | Capacità locali e gate reale ancora aperto                | In verifica | No             |
 
 Nuovi contratti, evidenze e runbook vengono creati soltanto quando esiste contenuto reale.

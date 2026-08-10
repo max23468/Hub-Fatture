@@ -27,4 +27,14 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `PROVIDER_RESPONSE_INVALID`      | PROVIDER permanente   | no               | verificare schema e payload           |
 | `PROVIDER_NOT_CONFIGURED`        | CONFIG permanente     | no               | configurare e collegare il canale     |
 | `WEBHOOK_SIGNATURE_INVALID`      | AUTH permanente       | no               | verificare firma e secret             |
+| `ARUBA_BATCH_INVALID`            | CONFLICT permanente   | no               | ricreare il batch dai documenti       |
+| `ARUBA_HELPER_TOKEN_INVALID`     | AUTH temporaneo       | no               | generare un nuovo codice di avvio     |
+| `ARUBA_HOST_NOT_ALLOWED`         | AUTH permanente       | no               | chiudere e verificare l’indirizzo     |
+| `ARUBA_AUTHENTICATION_REQUIRED`  | AUTH presidiato       | no               | completare manualmente nel browser    |
+| `ARUBA_DOM_UNRECOGNIZED`         | PROVIDER permanente   | no               | usare il percorso manuale             |
+| `ARUBA_VALIDATION_FAILED`        | VALIDATION permanente | no               | rimuovere gli upload e correggere     |
+| `ARUBA_PERMIT_FORBIDDEN`         | AUTH permanente       | no               | usare l’account titolare              |
+| `ARUBA_PERMIT_INVALID`           | CONFLICT permanente   | no               | autorizzare il manifest esatto        |
+| `ARUBA_RECONCILIATION_REQUIRED`  | UNKNOWN               | no               | completare il readback                |
+| `ARUBA_IMPORT_INVALID`           | VALIDATION permanente | no               | scegliere il file ufficiale corretto  |
 | `UNKNOWN`                        | UNKNOWN               | no               | diagnosticare con request ID          |

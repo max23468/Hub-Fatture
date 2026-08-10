@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ns:RicevutaConsegna xmlns:ns="urn:hub-fatture:synthetic:sdi">
+  <ns:IdentificativoSdI>SYNTHETIC-SDI-1</ns:IdentificativoSdI>
+  <ns:NomeFile>SYNTHETIC-DOCUMENT.xml</ns:NomeFile>
+</ns:RicevutaConsegna>

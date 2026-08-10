@@ -95,9 +95,9 @@ export const copy = {
     massApprovalSummary: (count: number, total: number) =>
       `${count} documenti standard, totale ${euroFormatter.format(total / 100)}.`,
     massApprovalConfirm:
-      "Ho controllato le proiezioni: approva, numera e prepara tutti i documenti elencati.",
+      "Ho controllato le proiezioni e il percorso Aruba indicato: approva, numera e prepara tutti i documenti elencati.",
     massApprovalConsequence:
-      "La numerazione fiscale è irreversibile. Ogni documento usa il profilo salvato nella propria proiezione; l’helper non è ancora attivo e gli XML restano nel percorso manuale.",
+      "La numerazione fiscale è irreversibile. Ogni documento usa il profilo salvato nella propria proiezione e la modalità Aruba riepilogata sopra.",
     massApprovalAction: "Approva tutti i documenti standard",
     massApprovalResult: (approved: string, failed: string, storagePending: string) =>
       `Documenti approvati: ${approved}. Non approvati perché cambiati o non più idonei: ${failed}. Archiviazioni da riconciliare: ${storagePending}.`,
@@ -229,7 +229,9 @@ export const copy = {
     confirmProfile: "Profilo fiscale",
     confirmPayment: "Pagamento",
     confirmHelper: "Percorso Aruba",
-    manualHelperMode: "Manuale; helper non ancora attivo",
+    assistedHelperMode: "Assistita; l’helper si arresta prima di Invia",
+    automaticHelperMode:
+      "Automatica dopo conferma; il permesso monouso autorizza soltanto questo batch",
     irreversibleNumbering:
       "Con l’approvazione viene assegnato un numero fiscale definitivo che non potrà essere riutilizzato per un altro documento.",
     confirmApproval:
@@ -249,6 +251,48 @@ export const copy = {
     approved: "Approvata",
     draft: "Bozza",
     downloadXml: "Scarica XML",
+    arubaStatus: "Aruba",
+    notPrepared: "Non preparato",
+    batchCreated: "Batch Aruba creato con manifest immutabile.",
+    fileImported: "File ufficiale importato e verificato.",
+    importOfficial: "Importa file ufficiale",
+    fileType: "Tipo di file",
+    officialFile: "File scaricato da Aruba",
+    importAction: "Importa e verifica",
+    archivedOfficialFiles: "File ufficiali archiviati",
+    officialFileKind: {
+      ARUBA_XML: "XML Aruba",
+      ARUBA_P7M: "P7M",
+      ARUBA_PDF: "PDF Aruba",
+      SDI_NOTIFICATION: "Notifica SdI",
+    } as Record<string, string>,
+    manualBatchTitle: "Prepara documenti già approvati",
+    manualBatchHelp:
+      "Crea un manifest per i documenti approvati prima dell’attivazione dell’helper.",
+    createBatch: "Crea batch Aruba",
+    helperCodeTitle: "Codice di avvio helper",
+    helperCodeHelp: (expiresAt: string) =>
+      `Incollalo nel prompt dell’helper entro ${expiresAt}. Non salvarlo e non inserirlo nella riga di comando.`,
+    batchesTitle: "Batch Aruba",
+    batchesHelp:
+      "Ogni batch resta legato ai documenti, alle revisioni e agli hash approvati. Uno stato incerto richiede readback.",
+    batchSummary: (count: number, mode: string) =>
+      `${count} ${count === 1 ? "documento" : "documenti"} · ${mode === "AUTOMATIC" ? "Automatica dopo conferma" : "Assistita"}`,
+    lastReadback: (value: string) => `ultimo readback ${value}`,
+    issueHelperCode: "Genera codice di avvio",
+    authorizePermit: "Autorizza nuovo permesso monouso",
+    retryBatch: "Prepara nuovo tentativo",
+    arubaBatchStatus: {
+      PREPARED: "Preparato",
+      HELPER_ACTIVE: "Helper attivo",
+      VALIDATION_FAILED: "Validazione non riuscita",
+      READY_ASSISTED: "Validato; arrestato prima dell’invio",
+      PERMIT_CONSUMED: "Permesso consumato",
+      SUBMITTED: "Inviato",
+      RECONCILIATION_REQUIRED: "Readback necessario",
+      RECONCILED: "Riconciliato",
+      CANCELLED: "Annullato",
+    } as Record<string, string>,
     empty: "Nessun documento",
     emptyHelp: "Le bozze compaiono dopo il primo salvataggio della preparazione.",
   },
@@ -323,6 +367,21 @@ export const copy = {
     failedJob: (type: string, code: string | null, attempts: number) =>
       `${type.startsWith("shopify") ? "Shopify" : "eBay"}: ${code ?? "errore non disponibile"}, ${attempts} tentativi.`,
     retryJob: "Riprova ora",
+    arubaTitle: "Integrazione Aruba",
+    arubaHelp:
+      "L’helper usa Chrome o Edge sul tuo computer. Hub Fatture non conserva credenziali, cookie o codici Aruba.",
+    arubaMode: "Modalità Aruba",
+    arubaAssisted: "Assistita",
+    arubaAutomatic: "Automatica dopo conferma",
+    arubaAuthProtection: "Protezione dichiarata",
+    arubaAuthUnknown: "Da verificare",
+    arubaTwoFactor: "2FA attiva",
+    arubaSms: "SMS richiesto a ogni caricamento",
+    arubaSaved: "Impostazioni Aruba aggiornate.",
+    arubaSave: "Salva integrazione Aruba",
+    arubaOwnerOnly: "Solo il titolare può cambiare la modalità Aruba.",
+    arubaKillSwitch:
+      "Gli invii automatici operativi sono disabilitati: i nuovi batch useranno la modalità assistita.",
   },
   customerEditor: {
     title: "Dati del destinatario",
@@ -420,6 +479,17 @@ export const taxIdentifierLabels: Record<string, string> = {
 
 export const auditActionLabels = {
   ADMIN_ACCOUNT_CREATED: "Account amministrativo creato",
+  ARUBA_ASSISTED_STOPPED: "Helper arrestato prima dell’invio",
+  ARUBA_BATCH_CREATED: "Batch Aruba creato",
+  ARUBA_FILE_IMPORTED: "File Aruba importato",
+  ARUBA_HELPER_TOKEN_CREATED: "Codice helper generato",
+  ARUBA_READBACK_RECONCILED: "Readback Aruba riconciliato",
+  ARUBA_RECONCILIATION_REQUIRED: "Riconciliazione Aruba richiesta",
+  ARUBA_SEND_PERMIT_CONSUMED: "Permesso Aruba consumato",
+  ARUBA_SEND_PERMIT_CREATED: "Permesso Aruba creato",
+  ARUBA_SETTINGS_CHANGED: "Impostazioni Aruba modificate",
+  ARUBA_UPLOAD_VALIDATED: "Caricamento Aruba validato",
+  ARUBA_VALIDATION_FAILED: "Validazione Aruba non riuscita",
   BILLING_CASE_CREATED: "Preparazione fattura creata",
   BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
   BILLING_CASE_REACTIVATED: "Preparazione riattivata",

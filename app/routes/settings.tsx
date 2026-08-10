@@ -18,12 +18,14 @@ import {
   retryFailedJob,
 } from "../../src/db/connectors.server.ts";
 import { previewShopifyHistory } from "../../src/integrations/shopify.server.ts";
+import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
   return {
     username: user.username,
+    canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     trigger: await getDraftTrigger(),
     saved: url.searchParams.get("trigger") === "salvato",
@@ -32,6 +34,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     shopifyDataRequests: await pendingShopifyDataRequests(),
     failedJobs: await failedConnectorJobs(),
     ebayPreview: await latestEbayPreview(),
+    aruba: await getArubaSettings(),
+    arubaSaved: url.searchParams.get("aruba") === "salvata",
     preview:
       url.searchParams.get("provider") && url.searchParams.get("count")
         ? {
@@ -49,6 +53,18 @@ export async function action({ request }: Route.ActionArgs) {
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
     const intent = form.get("intent");
+    if (intent === "save-aruba") {
+      await setArubaSettings(
+        {
+          mode: form.get("arubaMode"),
+          modeVersion: form.get("arubaModeVersion"),
+          authProtection: form.get("arubaAuthProtection"),
+          authVersion: form.get("arubaAuthVersion"),
+        },
+        { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
+      );
+      return redirect("/impostazioni?aruba=salvata");
+    }
     if (intent === "complete-shopify-data-request") {
       await completeShopifyDataRequest(form.get("eventId"), {
         id: user.id,
@@ -90,6 +106,7 @@ export async function action({ request }: Route.ActionArgs) {
 export default function Settings() {
   const {
     username,
+    canApprove,
     csrfToken,
     trigger,
     saved,
@@ -99,6 +116,8 @@ export default function Settings() {
     failedJobs,
     ebayPreview,
     preview,
+    aruba,
+    arubaSaved,
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const byProvider = new Map(connections.map((connection) => [connection.provider, connection]));
@@ -122,6 +141,11 @@ export default function Settings() {
       {preview ? (
         <p className="notice" role="status">
           {copy.settings.previewResult(preview.provider, preview.count, preview.review)}
+        </p>
+      ) : null}
+      {arubaSaved ? (
+        <p className="notice" role="status">
+          {copy.settings.arubaSaved}
         </p>
       ) : null}
       {ebayPreview ? (
@@ -242,6 +266,41 @@ export default function Settings() {
             {error.message}
           </p>
         ) : null}
+      </section>
+      <section className="card section-gap">
+        <h2>{copy.settings.arubaTitle}</h2>
+        <p>{copy.settings.arubaHelp}</p>
+        {aruba.automaticForcedAssisted ? (
+          <p className="notice">{copy.settings.arubaKillSwitch}</p>
+        ) : null}
+        {canApprove ? (
+          <Form method="post" className="inline-form">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="save-aruba" />
+            <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
+            <input type="hidden" name="arubaAuthVersion" value={aruba.authProtection.version} />
+            <label>
+              {copy.settings.arubaMode}
+              <select defaultValue={aruba.mode.value} name="arubaMode">
+                <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
+                <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
+              </select>
+            </label>
+            <label>
+              {copy.settings.arubaAuthProtection}
+              <select defaultValue={aruba.authProtection.value} name="arubaAuthProtection">
+                <option value="UNKNOWN">{copy.settings.arubaAuthUnknown}</option>
+                <option value="TWO_FACTOR">{copy.settings.arubaTwoFactor}</option>
+                <option value="SMS_PER_UPLOAD">{copy.settings.arubaSms}</option>
+              </select>
+            </label>
+            <button className="button" type="submit">
+              {copy.settings.arubaSave}
+            </button>
+          </Form>
+        ) : (
+          <p>{copy.settings.arubaOwnerOnly}</p>
+        )}
       </section>
       <section className="card">
         <h2>{copy.settings.preparationTitle}</h2>
