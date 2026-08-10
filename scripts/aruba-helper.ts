@@ -4,7 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import readline from "node:readline";
 
-import { chromium, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 import {
   ARUBA_IMPORT_MAX_BYTES,
@@ -150,9 +150,42 @@ async function uploadInput(page: Page) {
   throw new Error("DOM_UNRECOGNIZED");
 }
 
+type VisibleIdentityDocument = Pick<
+  ArubaManifestDocument,
+  "fiscalNumber" | "documentDate" | "totalAmount"
+>;
+
+async function visibleDocumentIdentity(row: Locator, document: VisibleIdentityDocument) {
+  const text = (await row.innerText()).slice(0, 1000);
+  const identity = await row.evaluate((element) => ({
+    number: element.getAttribute("data-fiscal-number"),
+    date: element.getAttribute("data-document-date"),
+    total: element.getAttribute("data-total-cents"),
+    remoteId: element.getAttribute("data-remote-id"),
+  }));
+  const total = (document.totalAmount / 100).toFixed(2);
+  const visibleIdentity =
+    text.includes(document.fiscalNumber) &&
+    text.includes(document.documentDate) &&
+    (text.includes(total) || text.includes(total.replace(".", ",")));
+  const structuredIdentity =
+    identity.number === document.fiscalNumber &&
+    identity.date === document.documentDate &&
+    identity.total === String(document.totalAmount);
+  if (!structuredIdentity && !visibleIdentity) throw new Error("DOM_UNRECOGNIZED");
+  return { text, remoteId: identity.remoteId };
+}
+
 export async function validateVisibleDocuments(
   page: Page,
-  value: { documents: Array<Pick<ArubaManifestDocument, "id" | "filename">> },
+  value: {
+    documents: Array<
+      Pick<
+        ArubaManifestDocument,
+        "id" | "filename" | "fiscalNumber" | "documentDate" | "totalAmount"
+      >
+    >;
+  },
 ) {
   const table = page.locator("table", { hasText: value.documents[0]!.filename }).first();
   await table.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {
@@ -185,7 +218,7 @@ export async function validateVisibleDocuments(
     await row.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {
       throw new Error("DOM_UNRECOGNIZED");
     });
-    const text = (await row.innerText()).slice(0, 500);
+    const { text } = await visibleDocumentIdentity(row, document);
     results.push(
       /Dettagli errori|\berror[ei]\b/i.test(text)
         ? { id: document.id, status: "INVALID", message: "Dettagli errori visibili" }
@@ -232,23 +265,8 @@ async function readback(
       results.push({ id: document.id, status: "NOT_FOUND" as const });
       continue;
     }
-    const text = (await row.innerText()).slice(0, 1000);
-    const identity = await row.evaluate((element) => ({
-      number: element.getAttribute("data-fiscal-number"),
-      date: element.getAttribute("data-document-date"),
-      total: element.getAttribute("data-total-cents"),
-      remoteId: element.getAttribute("data-remote-id"),
-    }));
-    const total = (document.totalAmount / 100).toFixed(2);
-    const visibleIdentity =
-      text.includes(document.fiscalNumber) &&
-      text.includes(document.documentDate) &&
-      (text.includes(total) || text.includes(total.replace(".", ",")));
-    const structuredIdentity =
-      identity.number === document.fiscalNumber &&
-      identity.date === document.documentDate &&
-      identity.total === String(document.totalAmount);
-    if (!structuredIdentity && !visibleIdentity) throw new Error("DOM_UNRECOGNIZED");
+    const identity = await visibleDocumentIdentity(row, document);
+    const { text } = identity;
     const status: ReadbackDocument["status"] = /Consegnat[ao]/i.test(text)
       ? "DELIVERED"
       : /Mancata consegna|Non consegnat[ao]/i.test(text)

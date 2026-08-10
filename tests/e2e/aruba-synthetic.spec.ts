@@ -20,6 +20,19 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(page.getByRole("cell", { name: "Documento valido" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Invia" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Salva in bozze" })).toBeDisabled();
+  await expect(
+    validateVisibleDocuments(page, {
+      documents: [
+        {
+          id: "1",
+          filename: path.basename(xml),
+          fiscalNumber: "FPR 9999/99",
+          documentDate: "2099-12-31",
+          totalAmount: 1,
+        },
+      ],
+    }),
+  ).rejects.toThrow("DOM_UNRECOGNIZED");
 
   await page.goto("/aruba-sintetica?scenario=invalid");
   await page.getByLabel("Seleziona documenti").setInputFiles(xml);
@@ -42,7 +55,15 @@ test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page })
   await page.getByLabel("Seleziona documenti").setInputFiles(xml);
   await expect(
     validateVisibleDocuments(page, {
-      documents: [{ id: "1", filename: path.basename(xml) }],
+      documents: [
+        {
+          id: "1",
+          filename: path.basename(xml),
+          fiscalNumber: "FPR 9999/99",
+          documentDate: "2099-12-31",
+          totalAmount: 1,
+        },
+      ],
     }),
   ).rejects.toThrow("DOM_UNRECOGNIZED");
 });

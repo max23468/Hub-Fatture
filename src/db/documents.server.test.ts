@@ -602,6 +602,10 @@ test(
         (error) => error instanceof AppError && error.code === "ARUBA_BATCH_INVALID",
       );
       const retryBatchId = await aruba.retryArubaBatch(invalidBatchId, owner);
+      await assert.rejects(
+        aruba.retryArubaBatch(invalidBatchId, owner),
+        (error) => error instanceof AppError && error.code === "ARUBA_RECONCILIATION_REQUIRED",
+      );
       const retryToken = await aruba.issueHelperToken(retryBatchId, owner);
       assert.equal((await aruba.helperManifest(retryToken.token)).attemptNumber, 2);
       await aruba.recordHelperEvent(retryToken.token, {

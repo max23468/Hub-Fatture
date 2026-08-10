@@ -987,13 +987,18 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor) {
       [batchId],
     );
     if (unsafe.rowCount) throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
-    return createArubaBatch(
+    const retryBatchId = await createArubaBatch(
       client,
       await batchDocuments(client, batchId),
       actor,
       undefined,
       current.attempt_number + 1,
     );
+    await client.query(
+      "UPDATE aruba_batches SET status = 'CANCELLED', updated_at = now() WHERE id = $1",
+      [batchId],
+    );
+    return retryBatchId;
   });
 }
 
