@@ -706,6 +706,7 @@ export async function approveInvoice(
   } | null;
   try {
     committed = await withTransaction(async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
       const caseRow = await loadCase(client, caseId, true);
       if (!caseRow) return null;
       if (caseRow.status !== "READY") throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
