@@ -126,6 +126,7 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
       ...invoice.recipient,
       kind: "BUSINESS_IT",
       taxIdentifiers: [{ type: "PARTITA_IVA", value: "10987654321", countryCode: "IT" }],
+      address: { ...invoice.recipient.address, province: "rm" },
     },
   });
   const personalBusinessXml = generateFatturaXml(syntheticFiscalProfile, personalBusiness, {
@@ -135,6 +136,7 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
   await validateFatturaXml(personalBusinessXml);
   assert.match(personalBusinessXml, /<Nome>Mario<\/Nome>/);
   assert.match(personalBusinessXml, /<Cognome>Rossi<\/Cognome>/);
+  assert.match(personalBusinessXml, /<Provincia>RM<\/Provincia>/);
 
   const foreign = documentInputSchema.parse({
     ...invoice,

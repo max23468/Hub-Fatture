@@ -236,7 +236,11 @@ function recipientAddress(value: DocumentInput["recipient"], projected = false):
       projected && value.address.countryCode !== "IT" ? "00000" : value.address.postalCode,
       projected ? fatturaPaText(value.address.city, 60) : value.address.city,
     ]),
-    value.address.countryCode === "IT" ? value.address.province : undefined,
+    value.address.countryCode === "IT"
+      ? projected
+        ? value.address.province?.toUpperCase()
+        : value.address.province
+      : undefined,
     value.address.countryCode,
   ]);
 }

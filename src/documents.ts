@@ -424,7 +424,8 @@ function addAddress(
   add(parent, "Indirizzo", fatturaPaAddress(value.line1, line2));
   add(parent, "CAP", value.countryCode === "IT" ? value.postalCode : "00000");
   add(parent, "Comune", fatturaPaText(value.city, 60));
-  if (value.countryCode === "IT" && value.province) add(parent, "Provincia", value.province);
+  if (value.countryCode === "IT" && value.province)
+    add(parent, "Provincia", value.province.toUpperCase());
   add(parent, "Nazione", value.countryCode);
 }
 
