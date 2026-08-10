@@ -75,6 +75,20 @@ export function assertAllowedArubaTarget(url: string, environment: ArubaEnvironm
   return target;
 }
 
+export function assertAllowedArubaNavigation(url: string, target: URL): URL {
+  const candidate = new URL(url);
+  if (candidate.username || candidate.password || candidate.origin !== target.origin) {
+    throw new Error("target");
+  }
+  return candidate;
+}
+
+export function assertAllowedArubaDownload(url: string, target: URL): URL {
+  const candidate = new URL(url);
+  if (candidate.protocol === "data:") return candidate;
+  return assertAllowedArubaNavigation(url, target);
+}
+
 export function assertAllowedHubUrl(url: string): URL {
   const target = new URL(url);
   const loopback = ["localhost", "127.0.0.1", "::1"].includes(target.hostname);

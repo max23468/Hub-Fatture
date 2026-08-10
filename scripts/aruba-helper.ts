@@ -10,6 +10,8 @@ import {
   ARUBA_IMPORT_MAX_BYTES,
   ARUBA_UPLOAD_MAX_BYTES,
   arubaManifestSchema,
+  assertAllowedArubaDownload,
+  assertAllowedArubaNavigation,
   assertAllowedArubaTarget,
   assertAllowedHubUrl,
   type ArubaManifest,
@@ -111,10 +113,27 @@ async function waitForAuthentication(page: Page) {
   if ((await authentication.count()) === 0) return;
   process.stdout.write("Autenticazione richiesta: completa login, OTP o CAPTCHA nel browser.\n");
   await authentication.first().waitFor({ state: "hidden", timeout: 15 * 60_000 });
+  await page.waitForLoadState("domcontentloaded");
 }
 
 function assertPageOrigin(page: Page, target: URL) {
-  if (new URL(page.url()).origin !== target.origin) throw new Error("DOM_UNRECOGNIZED");
+  assertNavigationUrl(page.url(), target);
+}
+
+function assertNavigationUrl(url: string, target: URL) {
+  try {
+    assertAllowedArubaNavigation(url, target);
+  } catch {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+}
+
+function assertDownloadUrl(url: string, target: URL) {
+  try {
+    assertAllowedArubaDownload(url, target);
+  } catch {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
 }
 
 async function assertAccount(page: Page, accountReference: string) {
@@ -136,7 +155,9 @@ export async function validateVisibleDocuments(
   value: { documents: Array<Pick<ArubaManifestDocument, "id" | "filename">> },
 ) {
   const table = page.locator("table", { hasText: value.documents[0]!.filename }).first();
-  if (!(await table.count())) throw new Error("DOM_UNRECOGNIZED");
+  await table.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {
+    throw new Error("DOM_UNRECOGNIZED");
+  });
   const expectedFilenames = new Set(value.documents.map((document) => document.filename));
   const rows = table.locator("tbody tr");
   const rowCount = await rows.count();
@@ -161,7 +182,9 @@ export async function validateVisibleDocuments(
   const results: Array<{ id: string; status: "VALID" | "INVALID"; message?: string }> = [];
   for (const document of value.documents) {
     const row = page.locator("tr", { hasText: document.filename }).first();
-    if (!(await row.count())) throw new Error("DOM_UNRECOGNIZED");
+    await row.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {
+      throw new Error("DOM_UNRECOGNIZED");
+    });
     const text = (await row.innerText()).slice(0, 500);
     results.push(
       /Dettagli errori|\berror[ei]\b/i.test(text)
@@ -183,13 +206,22 @@ async function removeUploads(page: Page, value: ArubaManifest) {
 
 type ReadbackDocument = Extract<HelperEvent, { type: "READBACK" }>["documents"][number];
 
-async function readback(page: Page, value: ArubaManifest): Promise<ReadbackDocument[]> {
+async function readback(
+  page: Page,
+  value: ArubaManifest,
+  target: URL,
+): Promise<ReadbackDocument[]> {
   const destination = page
     .getByRole("link", { name: /Fatture inviate|Documenti inviati|Inviate/i })
     .first();
   if (await destination.count()) {
+    const href = await destination.getAttribute("href");
+    if (!href) throw new Error("DOM_UNRECOGNIZED");
+    assertNavigationUrl(new URL(href, page.url()).toString(), target);
     await destination.click();
     await page.waitForLoadState("domcontentloaded");
+    assertPageOrigin(page, target);
+    await assertAccount(page, value.accountReference);
   }
   const search = page.getByRole("textbox", { name: /Cerca|Ricerca/i }).first();
   const results: ReadbackDocument[] = [];
@@ -279,7 +311,9 @@ async function importVisibleOfficialFiles(
   hub: URL,
   token: string,
   value: ArubaManifest,
+  target: URL,
 ) {
+  assertPageOrigin(page, target);
   for (const document of value.documents) {
     const row = page.locator("tr", { hasText: document.filename }).first();
     if (!(await row.count())) continue;
@@ -287,9 +321,14 @@ async function importVisibleOfficialFiles(
       const links = row.getByRole("link", { name: label });
       const count = Math.min(await links.count(), 10);
       for (let index = 0; index < count; index += 1) {
+        const link = links.nth(index);
+        const href = await link.getAttribute("href");
+        if (!href) throw new Error("DOM_UNRECOGNIZED");
+        assertDownloadUrl(new URL(href, page.url()).toString(), target);
         const downloadPromise = page.waitForEvent("download", { timeout: 10_000 });
-        await links.nth(index).click();
+        await link.click();
         const download = await downloadPromise;
+        assertDownloadUrl(download.url(), target);
         const downloadedPath = await download.path();
         if (!downloadedPath) throw new Error("DOWNLOAD_FAILED");
         const downloadedSize = (await stat(downloadedPath)).size;
@@ -360,8 +399,8 @@ export async function runHelper(
     if (await page.locator('[data-aruba-state="unexpected"]').count())
       throw new Error("DOM_UNRECOGNIZED");
     if (value.operation === "READBACK") {
-      const documents = await readback(page, value);
-      await importVisibleOfficialFiles(page, hub, options.token, value);
+      const documents = await readback(page, value, target);
+      await importVisibleOfficialFiles(page, hub, options.token, value, target);
       await event(hub, options.token, {
         type: "READBACK",
         documents,
@@ -416,7 +455,7 @@ export async function runHelper(
       finalStateKnown = true;
       throw new Error("RECONCILIATION_REQUIRED");
     }
-    const documents = await readback(page, value);
+    const documents = await readback(page, value, target);
     if (
       documents.some(
         (document) =>
@@ -432,7 +471,7 @@ export async function runHelper(
       documents.map((document) => [document.id, document.remoteId!]),
     );
     await event(hub, options.token, { type: "SUBMITTED", remoteIds });
-    await importVisibleOfficialFiles(page, hub, options.token, value);
+    await importVisibleOfficialFiles(page, hub, options.token, value, target);
     await event(hub, options.token, {
       type: "READBACK",
       documents,

@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  assertAllowedArubaDownload,
+  assertAllowedArubaNavigation,
   assertAllowedArubaTarget,
   assertAllowedHubUrl,
   effectiveArubaMode,
@@ -25,6 +27,24 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   );
   assert.throws(() =>
     assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/?token=x", "PRODUCTION"),
+  );
+  const aruba = new URL("https://fatturazioneelettronica.aruba.it/");
+  assert.equal(
+    assertAllowedArubaNavigation(
+      "https://fatturazioneelettronica.aruba.it/documenti?stato=inviata",
+      aruba,
+    ).pathname,
+    "/documenti",
+  );
+  assert.throws(() =>
+    assertAllowedArubaNavigation("https://download.attacker.invalid/fattura.xml", aruba),
+  );
+  assert.equal(
+    assertAllowedArubaDownload("data:application/xml,%3Cxml%2F%3E", aruba).protocol,
+    "data:",
+  );
+  assert.throws(() =>
+    assertAllowedArubaDownload("https://download.attacker.invalid/fattura.xml", aruba),
   );
   assert.equal(assertAllowedHubUrl("http://127.0.0.1:8080").hostname, "127.0.0.1");
   assert.throws(() => assertAllowedHubUrl("http://hub.example"));
