@@ -6,6 +6,7 @@ import { ServerRouter } from "react-router";
 import type { EntryContext, RouterContextProvider } from "react-router";
 
 import { startRetention } from "../src/db/retention.server.ts";
+import { securePrivateHeaders } from "../src/http.server.ts";
 
 startRetention();
 
@@ -21,6 +22,7 @@ export default function handleRequest(
   responseHeaders.set("Content-Security-Policy", "frame-ancestors 'none'");
   responseHeaders.set("Referrer-Policy", "same-origin");
   responseHeaders.set("X-Content-Type-Options", "nosniff");
+  securePrivateHeaders(responseHeaders);
 
   if (request.method.toUpperCase() === "HEAD") {
     return new Response(null, {
@@ -63,4 +65,9 @@ export default function handleRequest(
 
     timeoutId = setTimeout(abort, 5_000);
   });
+}
+
+export function handleDataRequest(response: Response) {
+  securePrivateHeaders(response.headers);
+  return response;
 }

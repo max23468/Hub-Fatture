@@ -4,12 +4,14 @@ import { z } from "zod";
 
 import { getConfig } from "../config.server.ts";
 import {
+  jobLeaseCurrent,
   loadConnection,
   markConnectionSynced,
   processEbayDeletionRecord,
   readCursor,
   saveConnection,
   writeCursor,
+  type ClaimedJob,
   type ConnectorActor,
 } from "../db/connectors.server.ts";
 import { importOrders } from "../db/order-import.server.ts";
@@ -25,6 +27,13 @@ export const EBAY_SCOPE = [
   "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
 ].join(" ");
 const OVERLAP_MS = 5 * 60 * 1000;
+const EBAY_WEBHOOK_WINDOW_MS = 60_000;
+const EBAY_WEBHOOK_ATTEMPTS_PER_WINDOW = 10;
+const EBAY_WEBHOOK_ORIGIN_LIMIT = 1_024;
+const EBAY_PUBLIC_KEY_CACHE_LIMIT = 256;
+const EBAY_PUBLIC_KEY_FAILURE_TTL_MS = 60_000;
+const EBAY_PUBLIC_KEY_MAX_IN_FLIGHT = 4;
+const EBAY_PUBLIC_KEY_REQUESTS_PER_WINDOW = 30;
 
 interface EbayCredentials {
   refreshToken: string;
@@ -36,6 +45,10 @@ const publicKeyCache = new Map<
   string,
   { key: string; digest: "sha1" | "sha256"; expiresAt: number }
 >();
+const failedPublicKeyCache = new Map<string, number>();
+const deletionAttempts = new Map<string, { count: number; resetAt: number }>();
+let publicKeyRequestsInFlight = 0;
+const publicKeyRequestBudget = { count: 0, resetAt: 0 };
 
 const moneySchema = z.looseObject({ value: z.string(), currency: z.string() });
 const recordSchema = z.record(z.string(), z.unknown());
@@ -59,6 +72,41 @@ function text(value: unknown): string | undefined {
 
 function money(value: unknown): { value: string; currency: string } | null {
   return moneySchema.safeParse(value).data ?? null;
+}
+
+function setBounded<K, V>(map: Map<K, V>, key: K, value: V, limit: number): void {
+  if (!map.has(key) && map.size >= limit) map.delete(map.keys().next().value!);
+  map.set(key, value);
+}
+
+export function assertEbayDeletionRequestAllowed(originKey: string): void {
+  const now = Date.now();
+  const current = deletionAttempts.get(originKey);
+  if (!current || current.resetAt <= now) {
+    setBounded(
+      deletionAttempts,
+      originKey,
+      { count: 1, resetAt: now + EBAY_WEBHOOK_WINDOW_MS },
+      EBAY_WEBHOOK_ORIGIN_LIMIT,
+    );
+    return;
+  }
+  if (current.count >= EBAY_WEBHOOK_ATTEMPTS_PER_WINDOW) {
+    throw new AppError("PROVIDER_RATE_LIMITED", 429);
+  }
+  current.count += 1;
+}
+
+export function assertEbayPublicKeyRequestAllowed(now = Date.now()): void {
+  if (publicKeyRequestBudget.resetAt <= now) {
+    publicKeyRequestBudget.count = 1;
+    publicKeyRequestBudget.resetAt = now + EBAY_WEBHOOK_WINDOW_MS;
+    return;
+  }
+  if (publicKeyRequestBudget.count >= EBAY_PUBLIC_KEY_REQUESTS_PER_WINDOW) {
+    throw new AppError("PROVIDER_RATE_LIMITED", 429);
+  }
+  publicKeyRequestBudget.count += 1;
 }
 
 function environmentBase(environment: "sandbox" | "production") {
@@ -158,32 +206,59 @@ async function applicationToken() {
 
 async function publicKey(keyId: string) {
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(keyId)) throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+  const now = Date.now();
   const cached = publicKeyCache.get(keyId);
-  if (cached && cached.expiresAt > Date.now()) return cached;
-  const result = await providerJson(
-    `https://api.ebay.com/commerce/notification/v1/public_key/${encodeURIComponent(keyId)}`,
-    { headers: { Authorization: `Bearer ${await applicationToken()}` } },
-  );
-  let key = text(result.key);
-  const algorithm = text(result.algorithm)?.toUpperCase();
-  const digest = text(result.digest)?.replace("-", "").toUpperCase();
-  if (!key || algorithm !== "ECDSA" || (digest !== "SHA1" && digest !== "SHA256")) {
+  if (cached && cached.expiresAt > now) return cached;
+  if ((failedPublicKeyCache.get(keyId) ?? 0) > now) {
     throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
   }
-  if (key.includes("-----BEGIN PUBLIC KEY-----") && !key.includes("\n")) {
-    const body = key
-      .replace("-----BEGIN PUBLIC KEY-----", "")
-      .replace("-----END PUBLIC KEY-----", "")
-      .replace(/\s+/g, "");
-    key = `-----BEGIN PUBLIC KEY-----\n${body.match(/.{1,64}/g)?.join("\n") ?? body}\n-----END PUBLIC KEY-----`;
+  if (publicKeyRequestsInFlight >= EBAY_PUBLIC_KEY_MAX_IN_FLIGHT) {
+    throw new AppError("PROVIDER_RATE_LIMITED", 429);
   }
-  const entry = {
-    key,
-    digest: digest === "SHA1" ? ("sha1" as const) : ("sha256" as const),
-    expiresAt: Date.now() + 60 * 60_000,
-  };
-  publicKeyCache.set(keyId, entry);
-  return entry;
+  assertEbayPublicKeyRequestAllowed(now);
+  publicKeyRequestsInFlight += 1;
+  try {
+    const result = await providerJson(
+      `https://api.ebay.com/commerce/notification/v1/public_key/${encodeURIComponent(keyId)}`,
+      { headers: { Authorization: `Bearer ${await applicationToken()}` } },
+    );
+    let key = text(result.key);
+    const algorithm = text(result.algorithm)?.toUpperCase();
+    const digest = text(result.digest)?.replace("-", "").toUpperCase();
+    if (!key || algorithm !== "ECDSA" || (digest !== "SHA1" && digest !== "SHA256")) {
+      throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+    }
+    if (key.includes("-----BEGIN PUBLIC KEY-----") && !key.includes("\n")) {
+      const body = key
+        .replace("-----BEGIN PUBLIC KEY-----", "")
+        .replace("-----END PUBLIC KEY-----", "")
+        .replace(/\s+/g, "");
+      key = `-----BEGIN PUBLIC KEY-----\n${body.match(/.{1,64}/g)?.join("\n") ?? body}\n-----END PUBLIC KEY-----`;
+    }
+    const entry = {
+      key,
+      digest: digest === "SHA1" ? ("sha1" as const) : ("sha256" as const),
+      expiresAt: Date.now() + 60 * 60_000,
+    };
+    setBounded(publicKeyCache, keyId, entry, EBAY_PUBLIC_KEY_CACHE_LIMIT);
+    return entry;
+  } catch (error) {
+    if (
+      error instanceof AppError &&
+      (error.code === "WEBHOOK_SIGNATURE_INVALID" || error.code === "PROVIDER_RESPONSE_INVALID")
+    ) {
+      setBounded(
+        failedPublicKeyCache,
+        keyId,
+        Date.now() + EBAY_PUBLIC_KEY_FAILURE_TTL_MS,
+        EBAY_PUBLIC_KEY_CACHE_LIMIT,
+      );
+      throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+    }
+    throw error;
+  } finally {
+    publicKeyRequestsInFlight -= 1;
+  }
 }
 
 async function verifyAccountDeletionSignature(body: Buffer, signatureHeader: string | null) {
@@ -383,15 +458,16 @@ async function fetchOrdersSince(start: string) {
   return { connection, end, orders };
 }
 
-export async function syncEbayOrders() {
+export async function syncEbayOrders(job?: ClaimedJob) {
   const cursor = await readCursor("EBAY");
   const start = cursor.overlapFrom ?? new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const { end, orders } = await fetchOrdersSince(start);
+  if (job && !(await jobLeaseCurrent(job))) throw new AppError("CONFLICT_REVISION", 409);
   if (orders.length) {
-    await importOrders(orders, { type: "SYSTEM", requestId: `ebay-sync:${end}` });
+    await importOrders(orders, { type: "SYSTEM", requestId: `ebay-sync:${end}` }, job);
   }
-  await writeCursor("EBAY", end, new Date(Date.parse(end) - OVERLAP_MS).toISOString());
-  await markConnectionSynced("EBAY");
+  await writeCursor("EBAY", end, new Date(Date.parse(end) - OVERLAP_MS).toISOString(), job);
+  await markConnectionSynced("EBAY", job);
   return { count: orders.length, from: start, to: end };
 }
 

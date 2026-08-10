@@ -8,14 +8,16 @@ import { z } from "zod";
 import { getConfig } from "../config.server.ts";
 import {
   ingestShopifyWebhook,
+  jobLeaseCurrent,
   loadConnection,
   markConnectionSynced,
   processShopifyPrivacyRecord,
+  processShopifyUninstallRecord,
   recordShopifyDataRequest,
   readCursor,
-  revokeConnection,
   saveConnection,
   writeCursor,
+  type ClaimedJob,
   type ConnectorActor,
 } from "../db/connectors.server.ts";
 import { importOrders } from "../db/order-import.server.ts";
@@ -130,11 +132,12 @@ export async function beginShopifyOAuth(request: Request) {
 export async function completeShopifyOAuth(request: Request, actor: ConnectorActor) {
   const result = await shopify().auth.callback({ rawRequest: request });
   if (!result.session.accessToken) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  const accountReference = shopifyAccountReference(result.session.shop, getConfig().SHOPIFY_SHOP!);
   await saveConnection(
     {
       provider: "SHOPIFY",
       environment: getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT",
-      accountReference: result.session.shop,
+      accountReference,
       credentials: {
         accessToken: result.session.accessToken,
         scope: result.session.scope ?? SHOPIFY_SCOPES.join(","),
@@ -143,6 +146,22 @@ export async function completeShopifyOAuth(request: Request, actor: ConnectorAct
     actor,
   );
   return result.headers;
+}
+
+export function shopifyAccountReference(actual: unknown, expected: string): string {
+  const shop = text(actual);
+  if (!shop || shop.toLocaleLowerCase("en-US") !== expected.toLocaleLowerCase("en-US")) {
+    throw new AppError("AUTH_PROVIDER_ACCOUNT_MISMATCH", 409);
+  }
+  return shop;
+}
+
+function assertShopifyWebhookShop(actual: unknown, expected: string): void {
+  try {
+    shopifyAccountReference(actual, expected);
+  } catch {
+    throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+  }
 }
 
 function shopifyGid(resource: "Customer" | "Order", value: unknown): string | undefined {
@@ -431,16 +450,17 @@ export function shopifyUpdatedAtQuery(start: string) {
   return `updated_at:>='${start}'`;
 }
 
-export async function syncShopifyOrders() {
+export async function syncShopifyOrders(job?: ClaimedJob) {
   const cursor = await readCursor("SHOPIFY");
   const start = cursor.overlapFrom ?? new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const end = new Date().toISOString();
   const orders = await fetchOrdersSince(start);
+  if (job && !(await jobLeaseCurrent(job))) throw new AppError("CONFLICT_REVISION", 409);
   if (orders.length) {
-    await importOrders(orders, { type: "SYSTEM", requestId: `shopify-sync:${end}` });
+    await importOrders(orders, { type: "SYSTEM", requestId: `shopify-sync:${end}` }, job);
   }
-  await writeCursor("SHOPIFY", end, new Date(Date.parse(end) - OVERLAP_MS).toISOString());
-  await markConnectionSynced("SHOPIFY");
+  await writeCursor("SHOPIFY", end, new Date(Date.parse(end) - OVERLAP_MS).toISOString(), job);
+  await markConnectionSynced("SHOPIFY", job);
   return { count: orders.length, from: start, to: end };
 }
 
@@ -459,6 +479,8 @@ export async function processShopifyWebhook(request: Request, rawBody: Buffer) {
     rawRequest: request,
   });
   if (!validation.valid) throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
+  const expectedShop = getConfig().SHOPIFY_SHOP!;
+  assertShopifyWebhookShop(validation.domain, expectedShop);
   const payloadHash = createHash("sha256").update(rawBody).digest("hex");
   let payload: Record<string, unknown>;
   try {
@@ -466,18 +488,27 @@ export async function processShopifyWebhook(request: Request, rawBody: Buffer) {
   } catch {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
   }
-  const externalEventId = validation.eventId ?? validation.webhookId ?? payloadHash;
+  const externalEventId = payloadHash;
   if (validation.topic === "APP_UNINSTALLED") {
-    await revokeConnection("SHOPIFY", {
-      type: "SYSTEM",
-      requestId: `shopify-webhook:${externalEventId}`,
-    });
+    assertShopifyWebhookShop(payload.myshopify_domain ?? payload.domain, expectedShop);
+    return processShopifyUninstallRecord({ externalEventId, payloadSha256: payloadHash });
   }
   if (
     validation.topic === "CUSTOMERS_DATA_REQUEST" ||
     validation.topic === "CUSTOMERS_REDACT" ||
     validation.topic === "SHOP_REDACT"
   ) {
+    assertShopifyWebhookShop(payload.shop_domain, expectedShop);
+    const hasRequestedOrders = Array.isArray(payload.orders_requested);
+    const hasOrdersToRedact = Array.isArray(payload.orders_to_redact);
+    if (
+      (validation.topic === "CUSTOMERS_DATA_REQUEST" && !hasRequestedOrders) ||
+      (validation.topic === "CUSTOMERS_REDACT" && !hasOrdersToRedact) ||
+      (validation.topic === "SHOP_REDACT" &&
+        (hasRequestedOrders || hasOrdersToRedact || Object.keys(record(payload.customer)).length))
+    ) {
+      throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
+    }
     const customer = record(payload.customer);
     const customerIds = [payload.customer_id, customer.id].flatMap((value) => {
       const identifier = shopifyGid("Customer", value);

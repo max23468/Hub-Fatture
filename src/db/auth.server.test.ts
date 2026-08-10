@@ -40,6 +40,20 @@ test(
         agentPassword: "codex888",
         requestId: "test-setup",
       });
+      await assert.rejects(
+        auth.setupAccounts({
+          bootstrapToken: process.env.ADMIN_BOOTSTRAP_TOKEN,
+          ownerPassword: "matteo88",
+          agentPassword: "codex888",
+          requestId: "test-setup-ripetuto",
+        }),
+        (error) => error instanceof AppError && error.code === "AUTH_SETUP_DISABLED",
+      );
+      const generatedRequestId = auth.requestId(
+        new Request("http://localhost:8080", { headers: { "x-request-id": "controllato" } }),
+      );
+      assert.match(generatedRequestId, /^[0-9a-f]{8}-[0-9a-f-]{27}$/);
+      assert.notEqual(generatedRequestId, "controllato");
       const sessionCookies = await auth.login({
         username: "matteo",
         password: "matteo88",

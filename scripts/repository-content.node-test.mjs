@@ -141,9 +141,11 @@ test("Shopify CLI riusa database e chiave dello stack Development", async () => 
     ),
   );
   assert.match(script, /Hub Fatture Development Encryption/);
+  assert.match(script, /Hub Fatture Development Bootstrap Token/);
   assert.match(script, /127\.0\.0\.1:5432\/hub_fatture/);
   assert.match(script, /syncbay-dev\.myshopify\.com/);
   assert.match(script, /npm run dev:shopify:cli/);
+  assert.doesNotMatch(script, /development-bootstrap-token-change-me/);
   assert.match(manifest, /"@shopify\/cli": "4\.6\.0"/);
   assert.match(manifest, /"dev:shopify:cli": "npm exec -- @shopify\/cli app dev --no-color"/);
 });
@@ -160,6 +162,13 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   assert.match(compose, /- worker_node_modules:\/workspace\/node_modules/);
   assert.match(compose, /- worker_build_server:\/workspace\/build-server/);
   assert.match(script, /docker compose up -d --build --wait app app-worker caddy/);
+});
+
+test("il worker riconferma la lease dopo errori transitori di heartbeat", async () => {
+  const worker = await readFile(path.join(root, "src/worker.ts"), "utf8");
+  assert.doesNotMatch(worker, /leaseLost/);
+  assert.match(worker, /connector_job_heartbeat_failed/);
+  assert.match(worker, /if \(!\(await jobLeaseCurrent\(job\)\)\)/);
 });
 
 test("i webhook Shopify sono dichiarati nella configurazione dell'app", async () => {

@@ -10,7 +10,11 @@ export async function providerJson(
 ): Promise<Record<string, unknown>> {
   let response: Response;
   try {
-    response = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    response = await fetch(url, {
+      ...init,
+      redirect: "error",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
   } catch {
     throw new AppError("PROVIDER_UNAVAILABLE", 503);
   }

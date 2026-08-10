@@ -9,6 +9,7 @@ import {
   orderBillableSql,
 } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
+import { assertJobLease, renewLockedJobLease, type ClaimedJob } from "./connectors.server.ts";
 import { AppError } from "../errors.ts";
 import {
   canonicalCustomerProfile,
@@ -839,7 +840,7 @@ async function replaceOrderChildren(
   }
 }
 
-export async function importOrders(input: unknown, actor: Actor) {
+export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJob) {
   let orders: OrderInput[];
   try {
     orders = orderInputSchema.array().min(1).parse(input);
@@ -853,6 +854,7 @@ export async function importOrders(input: unknown, actor: Actor) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
   return withTransaction(async (client) => {
+    if (job) await assertJobLease(client, job);
     await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
     await serializeOrderMutations(client);
     const trigger = await currentTrigger(client);
@@ -860,6 +862,7 @@ export async function importOrders(input: unknown, actor: Actor) {
     // Il batch resta seriale: ogni raggruppamento deve osservare gli ordini precedenti nella stessa transazione.
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
     for (const order of orders) results.push(await importOne(client, order, trigger, actor));
+    if (job) await renewLockedJobLease(client, job);
     return {
       imported: results.filter((result) => result === "imported").length,
       updated: results.filter((result) => result === "updated").length,
