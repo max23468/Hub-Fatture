@@ -24,6 +24,8 @@
     "sharedByInvoiceAndCreditNote": true,
     "documentDatePolicy": "APPROVAL_DATE",
     "rejectedDocumentPolicy": "CORRECT_SAME_NUMBER_AND_DATE",
+    "lastObservedYear": 2026,
+    "lastObservedNumber": 1,
     "approvedAt": "2026-08-10T10:00:00+02:00"
   },
   "payment": {

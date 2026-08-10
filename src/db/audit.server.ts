@@ -58,6 +58,8 @@ export async function writeAudit(
       documentKind: "INVOICE" | "CREDIT_NOTE";
       fiscalNumber: string;
       fiscalProfileVersion: number;
+      lastObservedYear: number;
+      lastObservedNumber: number;
     }>;
     /** Solo campi anagrafici allowlisted o riferimenti a snapshot: mai token o payload integrali. */
     before?: Record<string, unknown> | null;

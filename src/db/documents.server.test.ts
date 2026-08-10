@@ -51,6 +51,17 @@ test(
         canApprove: true,
         requestId: "documents-profile",
       });
+      await assert.rejects(
+        documents.activateFiscalProfile(
+          {
+            ...syntheticFiscalProfile,
+            numbering: { ...syntheticFiscalProfile.numbering, lastObservedNumber: 0 },
+          },
+          "b".repeat(64),
+          { id: 1, canApprove: true, requestId: "documents-profile-stale" },
+        ),
+        (error) => error instanceof AppError && error.code === "DOCUMENT_INVALID",
+      );
       const cases = (
         await database
           .getPool()
@@ -135,8 +146,8 @@ test(
         ),
       );
       assert.deepEqual(approved.map((document) => document!.fiscalNumber).sort(), [
-        "FPR 0001/26",
         "FPR 0002/26",
+        "FPR 0003/26",
       ]);
       assert.equal(thirdProjection.difference, 0);
       const approvalToken = (caseId: string, projection: typeof thirdProjection) =>

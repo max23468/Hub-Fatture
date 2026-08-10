@@ -745,9 +745,15 @@ export async function approveInvoice(
         `fiscal-number:${series}:${year}`,
       ]);
       const sequence = await client.query<{ next: number }>(
-        `SELECT coalesce(max(fiscal_number), 0) + 1 AS next
+        `SELECT greatest(coalesce(max(fiscal_number), 0), $3::integer) + 1 AS next
          FROM documents WHERE status = 'APPROVED' AND series = $1 AND fiscal_year = $2`,
-        [series, year],
+        [
+          series,
+          year,
+          profile.profile_json.numbering.lastObservedYear === year
+            ? profile.profile_json.numbering.lastObservedNumber
+            : 0,
+        ],
       );
       const fiscalNumber = Number(sequence.rows[0]!.next);
       const xml = generateFatturaXml(profile.profile_json, input, {
@@ -891,6 +897,20 @@ export async function activateFiscalProfile(
   }
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
+    const active = (
+      await client.query<{ profile_json: unknown }>(
+        "SELECT profile_json FROM fiscal_profiles WHERE status IN ('MOCK', 'AUDITED')",
+      )
+    ).rows[0];
+    const previous = fiscalProfileSchema.safeParse(active?.profile_json);
+    if (
+      previous.success &&
+      previous.data.series === profile.data.series &&
+      previous.data.numbering.lastObservedYear === profile.data.numbering.lastObservedYear &&
+      previous.data.numbering.lastObservedNumber > profile.data.numbering.lastObservedNumber
+    ) {
+      throw new AppError("DOCUMENT_INVALID", 422);
+    }
     await client.query(
       "UPDATE fiscal_profiles SET status = 'RETIRED' WHERE status IN ('MOCK', 'AUDITED')",
     );
@@ -914,7 +934,11 @@ export async function activateFiscalProfile(
       eventClass: "CRITICAL",
       entityType: "FISCAL_PROFILE",
       entityId: inserted.rows[0]!.id,
-      metadata: { fiscalProfileVersion: version },
+      metadata: {
+        fiscalProfileVersion: version,
+        lastObservedYear: profile.data.numbering.lastObservedYear,
+        lastObservedNumber: profile.data.numbering.lastObservedNumber,
+      },
       requestId: actor.requestId,
     });
     return version;

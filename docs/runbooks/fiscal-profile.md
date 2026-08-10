@@ -4,7 +4,7 @@ Il profilo fiscale applicativo deriva da una TD01 già accettata dallo SdI e dal
 
 Prerequisiti:
 
-- audit Aruba concluso;
+- audit Aruba concluso e TD01 accettata più recente della serie condivisa disponibile;
 - serie privata `FPR` annuale verificata;
 - regola a cavallo d’anno confermata: data di approvazione e numerazione del nuovo anno;
 - procedura di scarto confermata: correzione con stessa data e stesso numero;
@@ -18,7 +18,7 @@ chmod 600 /percorso/riservato/fattura-accettata.xml
 npm run fiscal-profile:activate -- /percorso/riservato/fattura-accettata.xml
 ```
 
-Il comando valida l’XML contro lo schema FatturaPA offline, estrae soltanto il profilo del cedente e le regole tecniche qualificate, salva nel database una nuova versione `AUDITED`, ritira la versione attiva precedente e registra l’audit critico. In output compare soltanto il numero di versione; dati fiscali e hash non vengono stampati.
+Il comando valida l’XML contro lo schema FatturaPA offline, estrae il profilo del cedente e il progressivo FPR osservato, salva nel database una nuova versione `AUDITED`, ritira la versione attiva precedente e registra l’audit critico. La numerazione applicativa parte dal progressivo successivo, considerando anche gli eventuali documenti già approvati nel database; un’attivazione con un progressivo osservato inferiore a quello attivo viene rifiutata. In output compare soltanto il numero di versione; dati fiscali, progressivo e hash non vengono stampati.
 
 Dopo il readback della versione attiva, rimuovere in modo sicuro l’eventuale copia temporanea dell’XML. Non attivare il profilo da una fattura scartata, da un PDF o da un file modificato manualmente.
 

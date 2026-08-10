@@ -69,6 +69,8 @@ export const fiscalProfileSchema = z
       sharedByInvoiceAndCreditNote: z.literal(true),
       documentDatePolicy: z.literal("APPROVAL_DATE"),
       rejectedDocumentPolicy: z.literal("CORRECT_SAME_NUMBER_AND_DATE"),
+      lastObservedYear: z.number().int().min(2000).max(9999),
+      lastObservedNumber: z.number().int().nonnegative().max(POSTGRES_INTEGER_MAX),
       approvedAt: z.iso.datetime({ offset: true }),
     }),
     payment: z.object({
@@ -105,6 +107,12 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   if (xmlValue(root["@versione"]) !== "FPR12" || xmlValue(general.TipoDocumento) !== "TD01") {
     throw new Error("Il file non è una fattura privata TD01 FPR12");
   }
+  const documentDate = xmlValue(general.Data);
+  const documentNumber = /^FPR (\d+)\/(\d{2})$/.exec(xmlValue(general.Numero));
+  const documentYear = Number(documentDate.slice(0, 4));
+  if (!documentNumber || Number(documentNumber[2]) !== documentYear % 100) {
+    throw new Error("Il progressivo FPR non è coerente con la data documento");
+  }
   return fiscalProfileSchema.parse({
     transmitter: {
       countryCode: xmlValue(transmitter.IdPaese),
@@ -136,6 +144,8 @@ export function fiscalProfileFromAcceptedInvoiceXml(
       sharedByInvoiceAndCreditNote: true,
       documentDatePolicy: "APPROVAL_DATE",
       rejectedDocumentPolicy: "CORRECT_SAME_NUMBER_AND_DATE",
+      lastObservedYear: documentYear,
+      lastObservedNumber: Number(documentNumber[1]),
       approvedAt,
     },
     payment: {
