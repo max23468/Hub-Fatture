@@ -65,8 +65,8 @@ Le evidenze vivono in `docs/evidence/`; i contratti tecnici riusabili in `docs/c
 ### 0.4 Sequenza e autorizzazioni reali
 
 - M1-M3 non dipendono da Aruba e usano soltanto fixture e dati sintetici.
-- M4 comprende audit autenticato read-only, analisi dell'XML accettato, profilo fiscale, numerazione, generatore definitivo e, come ultimo gate, la prova manuale controllata del candidato XML.
-- M5 inizia soltanto dopo la chiusura di quel gate M4 e comprende l'integrazione del pannello e dell'helper.
+- M4 comprende audit autenticato read-only, analisi dell'XML accettato, profilo fiscale, numerazione, generatore definitivo e approvazione.
+- M5 comprende l'integrazione del pannello e dell'helper e si chiude con la prova manuale controllata del candidato XML. L'indisponibilità temporanea dell'accesso presidiato non blocca l'avvio o lo sviluppo sintetico di M5, ma ne blocca il completamento e qualunque invio reale.
 - Modifiche all'account Aruba, upload reali e invii richiedono sempre
   l'autorizzazione specifica del titolare nel momento in cui vengono eseguiti.
   Una richiesta affermativa di pubblicazione autorizza invece deploy e release
@@ -1050,11 +1050,11 @@ Non implementare numerazione reale finché non sono stati verificati:
 - riuso o meno del numero;
 - eventuali automatismi Aruba.
 
-Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non fiscale. L'audit read-only definisce una procedura candidata; M4 non è completata finché la prova controllata prevista in 11.4 non verifica anche l'ordine osservabile soltanto dopo l'upload. Qualunque divergenza aggiorna procedura, generatore e test prima di procedere a M5.
+Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non fiscale. L'audit read-only definisce una procedura candidata; la prova controllata prevista in 11.4 verifica in chiusura di M5 anche l'ordine osservabile soltanto dopo l'upload. Qualunque divergenza aggiorna procedura, generatore e test prima di completare M5.
 
-### 11.4 M4 - prova manuale controllata come gate di uscita
+### 11.4 M5 - prova manuale controllata come gate di uscita
 
-L'ultimo passaggio di M4 è una prova autorizzata con dati sintetici o anonimizzati: caricamento manuale di un XML fiscalmente valido prodotto da M4 e destinato esclusivamente alla prova, lettura della validazione e del riepilogo trasmissibile, verifica del controllo finale `Invia`, arresto prima dell'ultimo clic, readback e rimozione sicura dell'upload pendente. La prova chiude la procedura reale di numerazione e fissa il contratto minimo da cui M5 deriva la pagina sintetica e l'helper.
+L'ultimo passaggio di M5 è una prova autorizzata con dati sintetici o anonimizzati: caricamento manuale di un XML fiscalmente valido prodotto da M4 e destinato esclusivamente alla prova, lettura della validazione e del riepilogo trasmissibile, verifica del controllo finale `Invia`, arresto prima dell'ultimo clic, readback e rimozione sicura dell'upload pendente. M5 sviluppa prima pagina sintetica, helper e arresti fail-closed dal contratto candidato ricavato dall'audit read-only; la prova reale ne verifica e fissa il contratto definitivo prima della chiusura della milestone.
 
 L'autorizzazione specifica del titolare è il prerequisito della prova, non un divieto sulla prova: senza quell'autorizzazione non viene caricato alcun XML. Ottenuta l'autorizzazione, il caricamento è ammesso per il solo XML dedicato alla prova e la prova non esegue in nessun caso un invio.
 
@@ -2748,7 +2748,7 @@ Quando una prova live espone un difetto:
 
 ## 23. Milestone
 
-Le milestone applicative sono sequenziali. M1-M3 costruiscono l'app senza dipendere da Aruba; M4 incorpora qualifica fiscale, documenti, approvazione e prova manuale controllata; M5 integra il pannello e l'helper soltanto dopo quel gate. Non esiste una corsia Aruba parallela e l'helper non è un progetto iniziale autonomo.
+Le milestone applicative sono sequenziali. M1-M3 costruiscono l'app senza dipendere da Aruba; M4 incorpora qualifica fiscale, documenti e approvazione; M5 integra il pannello e l'helper e si conclude con la prova manuale controllata. Non esiste una corsia Aruba parallela e l'helper non è un progetto iniziale autonomo.
 
 Brand Foundation leggera, comparatore fiscale e PoC/decisione OCI Email Delivery entrano nelle milestone che già possiedono i relativi contratti. Non nasce una milestone intermedia e non si aggiungono un pacchetto design system separato, una libreria di diff XML o due trasporti SMTP paralleli.
 
@@ -2845,6 +2845,8 @@ Gate:
 
 ### M4 - Documenti e approvazione
 
+**Stato: completata.** Evidenze ripetibili: [audit Aruba e profilo FatturaPA](evidence/aruba-fatturapa-profile.md), fixture anonimizzate, golden test, migrazioni PostgreSQL e gate canonico.
+
 Output:
 
 - audit autenticato read-only del pannello Aruba completato;
@@ -2856,20 +2858,18 @@ Output:
 - approvazione singola e massiva;
 - generatore XML definitivo per fattura e TD04, con golden test e numerazione mock disponibile nei test;
 - comparatore fiscale sorgente/bozza/proiezione XML basato sullo stesso generatore e protetto da revisione/hash;
-- storage immutabile;
-- XML candidato verificato nella prova manuale controllata, con riepilogo e controllo finale osservati, arresto prima dell'ultimo clic e upload pendente rimosso senza invio.
+- storage immutabile.
 
 Gate:
 
 - HF-O01 e HF-O02 chiusi, cavallo d'anno incluso; golden test verde sulla fixture anonimizzata dell'XML accettato;
 - numerazione atomica provata sotto concorrenza, con unicità `(series, fiscal_year, fiscal_number)` imposta dal DB e verificata anche in assenza di sezionale, dove la serie usa il valore canonico e non `NULL`;
 - un account privo di `can_approve` non approva e non numera, nemmeno chiamando l'endpoint direttamente; il controllo sui permessi di invio è verificato in M5, dove i permessi nascono;
-- proiezione stale rifiutata al submit e documento approvato non più modificabile;
-- prova manuale controllata eseguita, autorizzata, arrestata prima dell'ultimo clic e ripulita, con evidenza sanitizzata registrata.
+- proiezione stale rifiutata al submit e documento approvato non più modificabile.
 
 ### M5 - Integrazione Aruba e helper locale
 
-Prerequisito: M4 completata, inclusa la prova controllata. Nessuna attività di implementazione dell'helper anticipa questo prerequisito.
+Prerequisito: M4 completata. La prova controllata non è un gate di ingresso: M5 può sviluppare pagina sintetica, helper e controlli locali prima che l'accesso Aruba presidiato sia disponibile. La prova resta il gate di uscita e nessuna osservazione candidata autorizza invii reali.
 
 Output:
 
@@ -2883,7 +2883,8 @@ Output:
 - readback/import di stati, notifiche, XML, P7M e PDF;
 - fallback manuale completo;
 - recovery senza retry cieco dopo stato incerto;
-- parser XML/PDF e output del pannello limitati e testati contro input ostili o eccessivi.
+- parser XML/PDF e output del pannello limitati e testati contro input ostili o eccessivi;
+- XML candidato verificato nella prova manuale controllata, con riepilogo e controllo finale osservati, arresto prima dell'ultimo clic e upload pendente rimosso senza invio.
 
 Gate:
 
@@ -2892,7 +2893,8 @@ Gate:
 - stato incerto fail-closed, con riconciliazione obbligatoria prima di ogni nuovo tentativo;
 - un account privo di `can_approve` non può creare un permesso di invio, nemmeno chiamando l'endpoint direttamente;
 - percorso manuale completo eseguito end-to-end senza helper;
-- nessuna credenziale, cookie, sessione o OTP Aruba raggiunge HF, verificato sui log e sulle evidenze.
+- nessuna credenziale, cookie, sessione o OTP Aruba raggiunge HF, verificato sui log e sulle evidenze;
+- prova manuale controllata eseguita, autorizzata, arrestata prima dell'ultimo clic e ripulita, con evidenza sanitizzata registrata.
 
 ### M6 - Note di credito ed e-mail
 
@@ -3047,11 +3049,11 @@ Per eBay: Sandbox e Production con endpoint e deprecazioni registrati, OAuth con
 
 ### Documenti e approvazione - M4
 
-Audit Aruba e fixture anonimizzata, profilo fiscale e numerazione versionati, generatore XML per fattura e poi per TD04 con lo stesso builder e profilo, validazione `xmllint` con i limiti di parsing di §17.6, numerazione atomica, snapshot immutabile e hash, `can_approve` sulle transizioni irreversibili. Chiude la prova manuale controllata e autorizzata.
+Audit Aruba e fixture anonimizzata, profilo fiscale e numerazione versionati, generatore XML per fattura e poi per TD04 con lo stesso builder e profilo, validazione `xmllint` con i limiti di parsing di §17.6, numerazione atomica, snapshot immutabile e hash, `can_approve` sulle transizioni irreversibili.
 
 ### Integrazione Aruba e helper - M5
 
-Pagina Aruba sintetica e contratto dei locatori derivati dalla prova, helper unico per Windows e macOS, pause umane e allowlist, upload con lettura della validazione e arresto assistito, manifest e permesso monouso con consumo atomico, stato incerto fail-closed con readback e import dei file ufficiali, export XML e procedura manuale completa.
+Pagina Aruba sintetica e contratto candidato dei locatori derivati dall'audit read-only, helper unico per Windows e macOS, pause umane e allowlist, upload con lettura della validazione e arresto assistito, manifest e permesso monouso con consumo atomico, stato incerto fail-closed con readback e import dei file ufficiali, export XML e procedura manuale completa. La prova manuale controllata verifica il contratto sul pannello reale e chiude M5; eventuali divergenze correggono contratto, implementazione e test prima della chiusura.
 
 ### Note di credito ed e-mail - M6
 
@@ -3403,4 +3405,4 @@ Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile
 
 La priorità non è costruire un motore fiscale generale, ma impedire errori operativi: dati mancanti, doppie fatture, doppi rimborsi, numerazione errata, invii non approvati e perdita di tracciabilità.
 
-Il primo lavoro concreto segue M1 e le milestone successive in ordine. La pagina Aruba sintetica e l'helper nascono soltanto in M5, dopo che M4 ha qualificato profilo fiscale, numerazione e XML tramite pannello read-only, documento già accettato dallo SdI e prova manuale controllata arrestata prima dell'invio. Nessuna integrazione Aruba procede su una roadmap parallela.
+Il primo lavoro concreto segue M1 e le milestone successive in ordine. La pagina Aruba sintetica e l'helper nascono soltanto in M5, dopo che M4 ha qualificato profilo fiscale, numerazione e XML tramite pannello read-only e documenti già accettati dallo SdI. La prova manuale controllata sul pannello reale chiude M5 arrestandosi prima dell'invio. Nessuna integrazione Aruba procede su una roadmap parallela.
