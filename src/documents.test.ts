@@ -40,6 +40,8 @@ const invoice: DocumentInput = {
       unitAmount: 12345,
     },
   ],
+  paymentStatus: "PAID",
+  paymentMethod: "MP08",
 };
 
 test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
@@ -65,6 +67,7 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     {
       ...invoice,
       kind: "CREDIT_NOTE",
+      paymentMethod: "MP05",
       documentDate: "2026-08-11",
       recipient: {
         ...invoice.recipient,
@@ -103,6 +106,15 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   assert.equal(
     profileFromLatestDocument.numbering.sourceXmlSha256,
     "ddbd3c679143ccf3c4cd9d1998ead9d38142bea6771b55ff99b78c938e7114d2",
+  );
+  assert.throws(
+    () =>
+      fiscalProfileFromAcceptedInvoiceXml(
+        invoiceXml,
+        syntheticFiscalProfile.numbering.approvedAt,
+        creditXml.replaceAll("01234567890", "01234567891"),
+      ),
+    /cedente o trasmittente diverso/,
   );
   await validateFatturaXml(creditXml);
   assert.match(creditXml, /<TipoDocumento>TD04<\/TipoDocumento>/);
@@ -168,4 +180,31 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
   assert.match(foreignXml, /<IdPaese>NL<\/IdPaese>\s*<IdCodice>99999999999<\/IdCodice>/);
   assert.match(foreignXml, /<CAP>00000<\/CAP>/);
   assert.doesNotMatch(foreignXml, /1012 AB|Noord-Holland|undefined/);
+});
+
+test("la bozza controlla gli identificativi e proietta pagamento, causale e note", async () => {
+  assert.equal(
+    documentInputSchema.safeParse({
+      ...invoice,
+      recipient: {
+        ...invoice.recipient,
+        taxIdentifiers: [
+          ...invoice.recipient.taxIdentifiers,
+          { type: "CODICE_FISCALE", value: "TROPPO-LUNGO-E-NON-VALIDO", countryCode: "IT" },
+        ],
+      },
+    }).success,
+    false,
+  );
+  const adjusted = documentInputSchema.parse({
+    ...invoice,
+    paymentMethod: "MP05",
+    causale: "Cessione beni usati",
+    notes: "Incasso registrato manualmente",
+  });
+  const xml = generateFatturaXml(syntheticFiscalProfile, adjusted, { year: 2026, number: 5 });
+  await validateFatturaXml(xml);
+  assert.match(xml, /<ModalitaPagamento>MP05<\/ModalitaPagamento>/);
+  assert.match(xml, /<Causale>Cessione beni usati<\/Causale>/);
+  assert.match(xml, /<Causale>Incasso registrato manualmente<\/Causale>/);
 });

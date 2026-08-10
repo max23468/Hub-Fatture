@@ -35,6 +35,7 @@ interface CaseOrder {
   display_number: string;
   gross_amount: number;
   payment_status: string;
+  payment_method: string | null;
   customer_snapshot_json: Record<string, unknown>;
 }
 
@@ -56,6 +57,10 @@ interface DraftRow {
   total_amount: number;
   difference_amount: number;
   difference_reason: string | null;
+  payment_status: "PAID" | "PENDING";
+  payment_method: "MP01" | "MP05" | "MP08";
+  causale: string | null;
+  notes: string | null;
   draft_version: number;
   projection_sha256: string;
   lines: Array<{
@@ -91,7 +96,10 @@ function sourceLine(order: CaseOrder) {
   };
 }
 
-function recipient(snapshot: Record<string, unknown>): DocumentInput["recipient"] {
+function recipient(
+  snapshot: Record<string, unknown>,
+  serializableOnly = true,
+): DocumentInput["recipient"] {
   const address = (snapshot.billingAddress ?? {}) as Record<string, unknown>;
   const taxIdentifiers = Array.isArray(snapshot.taxIdentifiers) ? snapshot.taxIdentifiers : [];
   return {
@@ -102,13 +110,22 @@ function recipient(snapshot: Record<string, unknown>): DocumentInput["recipient"
     businessName: stringValue(snapshot.companyName),
     certifiedEmail: stringValue(snapshot.certifiedEmail),
     recipientCode: stringValue(snapshot.recipientCode),
-    taxIdentifiers: taxIdentifiers.map((value) => {
+    taxIdentifiers: taxIdentifiers.flatMap((value) => {
       const item = value as Record<string, unknown>;
-      return {
+      const identifier = {
         type: item.type as "CODICE_FISCALE" | "PARTITA_IVA" | "ALTRO",
-        value: String(item.value ?? item.normalizedValue ?? ""),
-        countryCode: stringValue(item.countryCode),
+        value: String(item.value ?? item.normalizedValue ?? "")
+          .trim()
+          .toUpperCase(),
+        countryCode: stringValue(item.countryCode)?.toUpperCase(),
       };
+      const serializable =
+        identifier.type === "CODICE_FISCALE"
+          ? /^[A-Z0-9]{11,16}$/.test(identifier.value)
+          : identifier.type === "PARTITA_IVA" && (identifier.countryCode ?? "IT") === "IT"
+            ? /^\d{11}$/.test(identifier.value)
+            : identifier.type === "PARTITA_IVA" || identifier.type === "ALTRO";
+      return !serializableOnly || serializable ? [identifier] : [];
     }),
     address: {
       line1: String(address.line1 ?? ""),
@@ -138,6 +155,11 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
          'display_number', orders.display_number,
          'gross_amount', orders.gross_amount,
          'payment_status', orders.payment_status,
+         'payment_method', (
+           SELECT payments.method FROM payments
+           WHERE payments.order_id = orders.id
+           ORDER BY payments.paid_at DESC NULLS LAST, payments.id DESC LIMIT 1
+         ),
          'customer_snapshot_json', orders.normalized_snapshot_json -> 'customer'
        ) ORDER BY orders.id) AS orders
        FROM orders WHERE orders.billing_case_id = billing_cases.id
@@ -188,7 +210,12 @@ async function loadProfile(client: pg.Pool | pg.PoolClient, version?: number) {
   return { ...row, profile_json: parsed.data };
 }
 
-function documentInput(caseRow: CaseRow, draft: DraftRow | null): DocumentInput {
+function documentInput(
+  caseRow: CaseRow,
+  draft: DraftRow | null,
+  profile: FiscalProfile,
+): DocumentInput {
+  const paymentPending = caseRow.orders.some((order) => order.payment_status === "PENDING");
   const parsed = documentInputSchema.safeParse({
     kind: "INVOICE",
     documentDate: draft?.status === "APPROVED" ? draft.document_date : today(),
@@ -200,6 +227,10 @@ function documentInput(caseRow: CaseRow, draft: DraftRow | null): DocumentInput 
         quantity: line.quantity,
         unitAmount: line.unit_amount,
       })) ?? caseRow.orders.map(sourceLine),
+    paymentStatus: draft?.payment_status ?? (paymentPending ? "PENDING" : "PAID"),
+    paymentMethod: draft?.payment_method ?? profile.payment.invoiceMethod,
+    causale: draft?.causale ?? undefined,
+    notes: draft?.notes ?? undefined,
   });
   if (!parsed.success) throw new AppError("DOCUMENT_INVALID", 422);
   return parsed.data;
@@ -257,11 +288,11 @@ function projectedRecipientTaxes(value: DocumentInput["recipient"]): string {
   const vat =
     value.taxIdentifiers.find((identifier) => identifier.type === "PARTITA_IVA") ??
     (value.kind === "EU"
-      ? (value.taxIdentifiers[0] ?? {
+      ? {
           countryCode: value.address.countryCode,
           type: "PARTITA_IVA" as const,
           value: foreignCustomerFallbackTaxCode,
-        })
+        }
       : undefined);
   const fiscalCode = value.taxIdentifiers.find(
     (identifier) => identifier.type === "CODICE_FISCALE",
@@ -288,7 +319,9 @@ function sourceRecipients(
   orders: CaseOrder[],
   pick: (value: DocumentInput["recipient"]) => string,
 ) {
-  return joined([...new Set(orders.map((order) => pick(recipient(order.customer_snapshot_json))))]);
+  return joined([
+    ...new Set(orders.map((order) => pick(recipient(order.customer_snapshot_json, false)))),
+  ]);
 }
 
 function money(cents: number): string {
@@ -361,13 +394,25 @@ function invoiceComparison(caseRow: CaseRow, input: DocumentInput, profile: Fisc
         source: joined(
           caseRow.orders.map(
             (order) =>
-              `${order.provider === "SHOPIFY" ? "Shopify" : "eBay"} ${order.display_number}: ${paymentStatus(order.payment_status)}`,
+              `${order.provider === "SHOPIFY" ? "Shopify" : "eBay"} ${order.display_number}: ${paymentStatus(order.payment_status)} · ${order.payment_method ?? "modalità non disponibile"}`,
           ),
         ),
-        draft: caseRow.orders.some((order) => order.payment_status === "PENDING")
-          ? "Pagamento pendente"
-          : "Pagamento registrato",
-        projected: `${profile.payment.condition} · ${profile.payment.invoiceMethod}`,
+        draft: `${paymentStatus(input.paymentStatus)} · ${input.paymentMethod}`,
+        projected: `${profile.payment.condition} · ${input.paymentMethod}`,
+      },
+    ],
+    notes: [
+      {
+        field: "causale" as const,
+        source: "—",
+        draft: input.causale ?? "—",
+        projected: input.causale ? fatturaPaText(input.causale, 200) : "—",
+      },
+      {
+        field: "notes" as const,
+        source: "—",
+        draft: input.notes ?? "—",
+        projected: input.notes ? fatturaPaText(input.notes, 200) : "—",
       },
     ],
     technical: [
@@ -401,8 +446,15 @@ export async function getInvoiceProjection(caseId: string) {
   if (!profile) {
     return { caseRevision: caseRow.revision, profileMissing: true as const };
   }
-  const input = documentInput(caseRow, draft);
-  const projection = projectFatturaXml(profile.profile_json, input);
+  const input = documentInput(caseRow, draft, profile.profile_json);
+  const projected = projectFatturaXml(profile.profile_json, input);
+  const approvedXml = draft?.status === "APPROVED" ? await readDocumentXml(draft.id) : null;
+  const projection = approvedXml
+    ? {
+        xml: approvedXml.toString("utf8"),
+        sha256: createHash("sha256").update(approvedXml).digest("hex"),
+      }
+    : projected;
   await validateFatturaXml(projection.xml);
   const sourceTotal = caseRow.orders.reduce((sum, order) => sum + order.gross_amount, 0);
   const total = input.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
@@ -419,12 +471,58 @@ export async function getInvoiceProjection(caseId: string) {
     total,
     difference: total - sourceTotal,
     differenceReason: draft?.difference_reason ?? "",
-    paymentPending: caseRow.orders.some((order) => order.payment_status === "PENDING"),
+    paymentStatus: input.paymentStatus,
+    paymentMethod: input.paymentMethod,
+    causale: input.causale ?? "",
+    notes: input.notes ?? "",
+    paymentPending: input.paymentStatus === "PENDING",
+    requiresResave: Boolean(
+      draft && draft.status === "DRAFT" && draft.document_date !== input.documentDate,
+    ),
     projectionSha256: projection.sha256,
     xml: projection.xml,
     comparison: invoiceComparison(caseRow, input, profile.profile_json),
     approved: draft?.status === "APPROVED",
   };
+}
+
+function documentAuditSnapshot(input: DocumentInput): Record<string, unknown> {
+  return {
+    recipient: input.recipient,
+    lines: input.lines,
+    paymentStatus: input.paymentStatus,
+    paymentMethod: input.paymentMethod,
+    causale: input.causale ?? null,
+    notes: input.notes ?? null,
+  };
+}
+
+function draftAuditSnapshot(draft: DraftRow): Record<string, unknown> {
+  return {
+    lines: draft.lines.map((line) => ({
+      orderId: line.order_id,
+      description: line.description,
+      quantity: line.quantity,
+      unitAmount: line.unit_amount,
+    })),
+    paymentStatus: draft.payment_status,
+    paymentMethod: draft.payment_method,
+    causale: draft.causale,
+    notes: draft.notes,
+  };
+}
+
+function sourceAuditSnapshot(caseRow: CaseRow, profile: FiscalProfile): Record<string, unknown> {
+  return documentAuditSnapshot({
+    kind: "INVOICE",
+    documentDate: today(),
+    recipient: recipient(caseRow.customer_snapshot_json, false),
+    lines: caseRow.orders.map(sourceLine),
+    paymentStatus: caseRow.orders.some((order) => order.payment_status === "PENDING")
+      ? "PENDING"
+      : "PAID",
+    paymentMethod: profile.payment.invoiceMethod,
+  });
 }
 
 export async function saveInvoiceDraft(
@@ -434,6 +532,10 @@ export async function saveInvoiceDraft(
     draftVersion: unknown;
     lines: unknown;
     differenceReason: unknown;
+    paymentStatus: unknown;
+    paymentMethod: unknown;
+    causale: unknown;
+    notes: unknown;
   },
   actor: FiscalActor,
 ) {
@@ -441,6 +543,8 @@ export async function saveInvoiceDraft(
   const caseRevision = integer(raw.caseRevision);
   const draftVersion = integer(raw.draftVersion);
   const differenceReason = stringValue(raw.differenceReason);
+  const causale = stringValue(raw.causale);
+  const notes = stringValue(raw.notes);
   return withTransaction(async (client) => {
     const caseRow = await loadCase(client, caseId, true);
     if (!caseRow) return null;
@@ -461,6 +565,10 @@ export async function saveInvoiceDraft(
       documentDate,
       recipient: recipient(caseRow.customer_snapshot_json),
       lines: raw.lines,
+      paymentStatus: raw.paymentStatus,
+      paymentMethod: raw.paymentMethod,
+      causale,
+      notes,
     });
     if (!parsed.success || !sameOrders(parsed.data.lines, caseRow.orders)) {
       throw new AppError("DOCUMENT_INVALID", 422);
@@ -476,13 +584,15 @@ export async function saveInvoiceDraft(
         ? `UPDATE documents SET document_date = $2, fiscal_profile_version = $3,
              total_amount = $4, source_total_amount = $5, difference_amount = $6,
              difference_reason = $7, draft_version = $8, projection_sha256 = $9,
+             payment_status = $10, payment_method = $11, causale = $12, notes = $13,
              updated_at = now()
            WHERE id = $1 RETURNING id`
         : `INSERT INTO documents
              (billing_case_id, kind, status, document_type, series, document_date,
               fiscal_profile_version, currency, total_amount, source_total_amount,
-              difference_amount, difference_reason, draft_version, projection_sha256)
-           VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', $2, $3, 'EUR', $4, $5, $6, $7, $8, $9)
+              difference_amount, difference_reason, draft_version, projection_sha256,
+              payment_status, payment_method, causale, notes)
+           VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', $2, $3, 'EUR', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
            RETURNING id`,
       [
         current?.id ?? caseId,
@@ -494,6 +604,10 @@ export async function saveInvoiceDraft(
         differenceReason ?? null,
         nextVersion,
         projection.sha256,
+        parsed.data.paymentStatus,
+        parsed.data.paymentMethod,
+        parsed.data.causale ?? null,
+        parsed.data.notes ?? null,
       ],
     );
     const documentId = document.rows[0]!.id;
@@ -542,6 +656,13 @@ export async function saveInvoiceDraft(
         documentKind: "INVOICE",
         fiscalProfileVersion: profile.version,
       },
+      before: {
+        imported: sourceAuditSnapshot(caseRow, profile.profile_json),
+        previous: current
+          ? draftAuditSnapshot(current)
+          : sourceAuditSnapshot(caseRow, profile.profile_json),
+      },
+      after: { current: documentAuditSnapshot(parsed.data) },
       reason: differenceReason ?? null,
       requestId: actor.requestId,
     });
@@ -700,6 +821,7 @@ export async function approveInvoice(
     caseRevision: unknown;
     draftVersion: unknown;
     projectionSha256: unknown;
+    confirmApproval: boolean;
     confirmPending: boolean;
     confirmDifference: boolean;
   },
@@ -734,7 +856,8 @@ export async function approveInvoice(
       if (getConfig().APP_ENV === "production" && profile.status !== "AUDITED") {
         throw new AppError("DOCUMENT_FISCAL_PROFILE_MISSING", 409);
       }
-      const input = documentInput(caseRow, draft);
+      if (!raw.confirmApproval) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
+      const input = documentInput(caseRow, draft, profile.profile_json);
       const projected = projectFatturaXml(profile.profile_json, input);
       await validateFatturaXml(projected.xml);
       if (
@@ -743,13 +866,12 @@ export async function approveInvoice(
       ) {
         throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
       }
-      if (
-        caseRow.orders.some((order) => order.payment_status === "PENDING") &&
-        !raw.confirmPending
-      ) {
+      const paymentPending = input.paymentStatus === "PENDING";
+      const amountDifferent = draft.difference_amount !== 0;
+      if (paymentPending && !raw.confirmPending) {
         throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
       }
-      if (draft.difference_amount !== 0 && !raw.confirmDifference) {
+      if (amountDifferent && !raw.confirmDifference) {
         throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
       }
       const year = Number(input.documentDate.slice(0, 4));
@@ -793,6 +915,10 @@ export async function approveInvoice(
         documentDate: input.documentDate,
         recipient: input.recipient,
         lines: input.lines,
+        paymentStatus: input.paymentStatus,
+        paymentMethod: input.paymentMethod,
+        causale: input.causale,
+        notes: input.notes,
         sourceTotal: draft.source_total_amount,
         total: draft.total_amount,
         difference: draft.difference_amount,
@@ -811,8 +937,8 @@ export async function approveInvoice(
           fiscalNumber,
           input.documentDate,
           approvedAt,
-          raw.confirmPending ? approvedAt : null,
-          raw.confirmDifference ? approvedAt : null,
+          paymentPending && raw.confirmPending ? approvedAt : null,
+          amountDifferent && raw.confirmDifference ? approvedAt : null,
           sha256,
           JSON.stringify(snapshot),
           JSON.stringify(profile.profile_json),
@@ -844,6 +970,31 @@ export async function approveInvoice(
         },
         requestId: actor.requestId,
       });
+      if (paymentPending && raw.confirmPending) {
+        await writeAudit(client, {
+          actorType: "ADMIN",
+          actorId: String(actor.id),
+          action: "DOCUMENT_PENDING_PAYMENT_CONFIRMED",
+          eventClass: "CRITICAL",
+          entityType: "DOCUMENT",
+          entityId: draft.id,
+          metadata: { billingCaseId: caseId, documentKind: "INVOICE", fiscalNumber: label },
+          requestId: actor.requestId,
+        });
+      }
+      if (amountDifferent && raw.confirmDifference) {
+        await writeAudit(client, {
+          actorType: "ADMIN",
+          actorId: String(actor.id),
+          action: "DOCUMENT_AMOUNT_DIFFERENCE_CONFIRMED",
+          eventClass: "CRITICAL",
+          entityType: "DOCUMENT",
+          entityId: draft.id,
+          metadata: { billingCaseId: caseId, documentKind: "INVOICE", fiscalNumber: label },
+          reason: draft.difference_reason,
+          requestId: actor.requestId,
+        });
+      }
       await writeAudit(client, {
         actorType: "ADMIN",
         actorId: String(actor.id),
@@ -894,8 +1045,12 @@ export async function approveInvoice(
     };
   }
   if (!committed) return null;
-  await materializeStoredXml(committed.storage, committed.xml);
-  return { id: committed.id, fiscalNumber: committed.fiscalNumber };
+  try {
+    await materializeStoredXml(committed.storage, committed.xml);
+    return { id: committed.id, fiscalNumber: committed.fiscalNumber, storagePending: false };
+  } catch {
+    return { id: committed.id, fiscalNumber: committed.fiscalNumber, storagePending: true };
+  }
 }
 
 export async function activateFiscalProfile(
@@ -1006,21 +1161,19 @@ export async function listMassApprovalCandidates() {
     public_number: string;
     customer_name: string;
     total_amount: number;
+    fiscal_profile_version: number;
   }>(
     `SELECT billing_cases.id AS billing_case_id, billing_cases.revision AS case_revision,
             documents.draft_version, documents.projection_sha256, billing_cases.public_number,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
-            documents.total_amount
+            documents.total_amount, documents.fiscal_profile_version
      FROM documents
      JOIN billing_cases ON billing_cases.id = documents.billing_case_id
      JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
      WHERE documents.kind = 'INVOICE' AND documents.status = 'DRAFT'
-       AND documents.difference_amount = 0 AND billing_cases.status = 'READY'
+       AND documents.difference_amount = 0 AND documents.payment_status = 'PAID'
+       AND billing_cases.status = 'READY'
        AND fiscal_profiles.status IN ('MOCK', 'AUDITED')
-       AND NOT EXISTS (
-         SELECT 1 FROM orders
-         WHERE orders.billing_case_id = billing_cases.id AND orders.payment_status = 'PENDING'
-       )
      ORDER BY billing_cases.id
      LIMIT 100`,
   );
@@ -1038,8 +1191,13 @@ function approvalCandidate(value: string) {
   };
 }
 
-export async function approveInvoices(rawCandidates: string[], actor: FiscalActor) {
+export async function approveInvoices(
+  rawCandidates: string[],
+  actor: FiscalActor,
+  confirmApproval = false,
+) {
   if (!actor.canApprove) throw new AppError("DOCUMENT_APPROVAL_FORBIDDEN", 403);
+  if (!confirmApproval) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
   if (!rawCandidates.length || rawCandidates.length > 100) {
     throw new AppError("DOCUMENT_INVALID", 422);
   }
@@ -1054,24 +1212,29 @@ export async function approveInvoices(rawCandidates: string[], actor: FiscalActo
   const outcomes = await Promise.all(
     candidates.map(async (candidate) => {
       try {
-        await approveInvoice(
+        const result = await approveInvoice(
           candidate.caseId,
           {
             caseRevision: candidate.caseRevision,
             draftVersion: candidate.draftVersion,
             projectionSha256: candidate.projectionSha256,
+            confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
           },
           actor,
         );
-        return true;
+        return { approved: true, storagePending: result?.storagePending ?? false };
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
-        return false;
+        return { approved: false, storagePending: false };
       }
     }),
   );
-  const approved = outcomes.filter(Boolean).length;
-  return { approved, failed: candidates.length - approved };
+  const approved = outcomes.filter((outcome) => outcome.approved).length;
+  return {
+    approved,
+    failed: candidates.length - approved,
+    storagePending: outcomes.filter((outcome) => outcome.storagePending).length,
+  };
 }

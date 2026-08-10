@@ -65,6 +65,10 @@ function runIntent(
         caseRevision: revision,
         draftVersion: form.get("draftVersion"),
         differenceReason: form.get("differenceReason"),
+        paymentStatus: form.get("paymentStatus"),
+        paymentMethod: form.get("paymentMethod"),
+        causale: form.get("causale"),
+        notes: form.get("notes"),
         lines,
       },
       actor,
@@ -77,6 +81,7 @@ function runIntent(
         caseRevision: revision,
         draftVersion: form.get("draftVersion"),
         projectionSha256: form.get("projectionSha256"),
+        confirmApproval: form.get("confirmApproval") === "yes",
         confirmPending: form.get("confirmPending") === "yes",
         confirmDifference: form.get("confirmDifference") === "yes",
       },
@@ -152,6 +157,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     csrfToken: user.csrfToken,
     billingCase,
     projection,
+    storagePending: new URL(request.url).searchParams.get("archiviazione") === "pendente",
   };
 }
 
@@ -167,7 +173,14 @@ export async function action({ request, params }: Route.ActionArgs) {
     });
     if (outcome === "unknown") throw new Response("Azione non riconosciuta", { status: 400 });
     if (outcome === null) throw new Response("Preparazione non trovata", { status: 404 });
-    return redirect(`/ordini/preparazione/${params.caseId}`);
+    const storagePending =
+      typeof outcome === "object" &&
+      outcome !== null &&
+      "storagePending" in outcome &&
+      outcome.storagePending === true;
+    return redirect(
+      `/ordini/preparazione/${params.caseId}${storagePending ? "?archiviazione=pendente" : ""}`,
+    );
   });
 }
 
@@ -225,10 +238,12 @@ function ComparisonTable({
 function InvoiceDocument({
   canApprove,
   csrfToken,
+  publicNumber,
   projection,
 }: {
   canApprove: boolean;
   csrfToken: string;
+  publicNumber: string;
   projection: InvoiceProjection;
 }) {
   return (
@@ -291,6 +306,31 @@ function InvoiceDocument({
                 </tbody>
               </table>
             </div>
+            <div className="detail-grid section-gap">
+              <label>
+                {copy.document.paymentStatus}
+                <select defaultValue={projection.paymentStatus} name="paymentStatus">
+                  <option value="PAID">{copy.document.paymentPaid}</option>
+                  <option value="PENDING">{copy.document.paymentPending}</option>
+                </select>
+              </label>
+              <label>
+                {copy.document.paymentMethod}
+                <select defaultValue={projection.paymentMethod} name="paymentMethod">
+                  <option value="MP01">{copy.document.paymentCash}</option>
+                  <option value="MP05">{copy.document.paymentTransfer}</option>
+                  <option value="MP08">{copy.document.paymentCard}</option>
+                </select>
+              </label>
+            </div>
+            <label className="section-gap">
+              {copy.document.causale}
+              <input defaultValue={projection.causale} maxLength={200} name="causale" />
+            </label>
+            <label className="section-gap">
+              {copy.document.notes}
+              <input defaultValue={projection.notes} maxLength={200} name="notes" />
+            </label>
             <label className="section-gap">
               {copy.document.differenceReason}
               <input
@@ -339,6 +379,7 @@ function InvoiceDocument({
           title={copy.document.comparisonPayment}
           rows={projection.comparison.payment}
         />
+        <ComparisonTable title={copy.document.comparisonNotes} rows={projection.comparison.notes} />
         <ComparisonTable
           title={copy.document.comparisonTechnical}
           rows={projection.comparison.technical}
@@ -349,6 +390,8 @@ function InvoiceDocument({
         </details>
         {!projection.approved && projection.draftVersion === 0 ? (
           <p className="notice section-gap">{copy.document.saveBeforeApproval}</p>
+        ) : !projection.approved && projection.requiresResave ? (
+          <p className="notice section-gap">{copy.document.resaveAfterDateChange}</p>
         ) : !projection.approved && !canApprove ? (
           <p className="notice section-gap">{copy.document.ownerOnly}</p>
         ) : !projection.approved ? (
@@ -370,6 +413,44 @@ function InvoiceDocument({
                 {copy.document.confirmDifference}
               </label>
             ) : null}
+            <fieldset className="section-gap">
+              <legend>{copy.document.finalConfirmation}</legend>
+              <dl className="facts facts--columns">
+                <div>
+                  <dt>{copy.document.confirmDocument}</dt>
+                  <dd>{copy.preparation.title(publicNumber)}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.confirmRecipient}</dt>
+                  <dd>{projection.comparison.recipient[0]?.draft}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.confirmTotal}</dt>
+                  <dd>{euros(projection.total)}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.confirmProfile}</dt>
+                  <dd>
+                    RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{copy.document.confirmPayment}</dt>
+                  <dd>
+                    {paymentStatusLabels[projection.paymentStatus]} · {projection.paymentMethod}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{copy.document.confirmHelper}</dt>
+                  <dd>{copy.document.manualHelperMode}</dd>
+                </div>
+              </dl>
+              <p className="warning">{copy.document.irreversibleNumbering}</p>
+              <label className="checkbox-row">
+                <input name="confirmApproval" required type="checkbox" value="yes" />
+                {copy.document.confirmApproval}
+              </label>
+            </fieldset>
             <button className="button" type="submit">
               {copy.document.approve}
             </button>
@@ -381,7 +462,7 @@ function InvoiceDocument({
 }
 
 export default function BillingCaseDetail() {
-  const { username, canApprove, csrfToken, billingCase, projection } =
+  const { username, canApprove, csrfToken, billingCase, projection, storagePending } =
     useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const total = billingCase.orders.reduce((sum, order) => sum + order.gross_amount, 0);
@@ -400,6 +481,11 @@ export default function BillingCaseDetail() {
       {error ? (
         <p className="error" role="alert">
           {error.message}
+        </p>
+      ) : null}
+      {storagePending ? (
+        <p className="warning" role="status">
+          {copy.document.storagePending}
         </p>
       ) : null}
       {billingCase.status === "NEEDS_REVIEW" ? (
@@ -558,7 +644,12 @@ export default function BillingCaseDetail() {
       ) : projection && "error" in projection ? (
         <p className="warning section-gap">{projection.error}</p>
       ) : projection && "lines" in projection ? (
-        <InvoiceDocument canApprove={canApprove} csrfToken={csrfToken} projection={projection} />
+        <InvoiceDocument
+          canApprove={canApprove}
+          csrfToken={csrfToken}
+          projection={projection}
+          publicNumber={billingCase.public_number}
+        />
       ) : null}
       {billingCase.revisions.length ? (
         <section className="card section-gap">

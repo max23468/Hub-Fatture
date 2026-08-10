@@ -171,6 +171,13 @@ function assertRevision(value: unknown) {
 
 const editableStatuses: readonly string[] = OPEN_BILLING_CASE_STATUSES;
 
+async function invalidateInvoiceDraft(client: pg.PoolClient, caseId: string) {
+  await client.query(
+    "DELETE FROM documents WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'",
+    [caseId],
+  );
+}
+
 export async function updateBillingCaseTransmission(
   id: string,
   reason: string | null,
@@ -288,6 +295,7 @@ export async function correctBillingCaseCustomer(
       sourceConfidence: identity.confidence,
       reviewRequired: identity.reviewRequired,
     };
+    await invalidateInvoiceDraft(client, id);
     await client.query(
       `UPDATE billing_cases
        SET customer_snapshot_json = $2, customer_corrected_at = now()
@@ -336,6 +344,7 @@ export async function separateOrderFromBillingCase(
       [caseId],
     );
     if (Number(remaining.rows[0]!.count) < 2) throw new AppError("BILLING_CASE_EMPTY", 409);
+    await invalidateInvoiceDraft(client, caseId);
     const separated = await client.query(
       `UPDATE orders SET billing_case_id = NULL, trigger_status = 'ELIGIBLE'
        WHERE id = $1 AND billing_case_id = $2`,

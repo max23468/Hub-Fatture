@@ -222,6 +222,10 @@ export async function groupOrder(
     [order.id, caseId],
   );
   if (assigned.rowCount) {
+    await client.query(
+      "DELETE FROM documents WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'",
+      [caseId],
+    );
     await writeAudit(client, {
       ...auditActor(actor),
       action: forced ? "ORDER_GROUPING_FORCED" : "ORDER_GROUPED",
