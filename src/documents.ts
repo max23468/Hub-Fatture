@@ -12,6 +12,7 @@ const taxIdentifier = z.object({
   value: text(28),
   countryCode: country.optional(),
 });
+export const foreignCustomerFallbackTaxCode = "99999999999";
 const fiscalAddress = z.object({
   line1: text(60),
   postalCode: z
@@ -185,7 +186,7 @@ export const documentInputSchema = z
         .trim()
         .regex(/^[A-Z0-9]{7}$/)
         .optional(),
-      taxIdentifiers: z.array(taxIdentifier).min(1),
+      taxIdentifiers: z.array(taxIdentifier),
       address: recipientAddress,
     }),
     lines: z
@@ -203,6 +204,9 @@ export const documentInputSchema = z
   .refine((value) => !containsNullByte(value), "Il documento contiene byte NUL")
   .superRefine((value, context) => {
     const recipient = value.recipient;
+    if (recipient.kind !== "EU" && recipient.taxIdentifiers.length === 0) {
+      context.addIssue({ code: "custom", path: ["recipient"], message: "Dato fiscale mancante" });
+    }
     if (recipient.kind === "PRIVATE_IT" && (!recipient.firstName || !recipient.lastName)) {
       context.addIssue({ code: "custom", path: ["recipient"], message: "Nome e cognome mancanti" });
     }
@@ -307,7 +311,12 @@ export function generateFatturaXml(
   const customerData = customer.ele("DatiAnagrafici");
   const vat =
     taxId(input.recipient, "PARTITA_IVA") ??
-    (input.recipient.kind === "EU" ? input.recipient.taxIdentifiers[0] : undefined);
+    (input.recipient.kind === "EU"
+      ? (input.recipient.taxIdentifiers[0] ?? {
+          countryCode: input.recipient.address.countryCode,
+          value: foreignCustomerFallbackTaxCode,
+        })
+      : undefined);
   if (vat) {
     const customerVat = customerData.ele("IdFiscaleIVA");
     add(customerVat, "IdPaese", vat.countryCode ?? input.recipient.address.countryCode);

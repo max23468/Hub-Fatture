@@ -8,6 +8,7 @@ import {
   documentInputSchema,
   fiscalNumberLabel,
   fiscalProfileSchema,
+  foreignCustomerFallbackTaxCode,
   generateFatturaXml,
   projectFatturaXml,
   type DocumentInput,
@@ -243,7 +244,13 @@ function recipientTaxes(value: DocumentInput["recipient"]): string {
 function projectedRecipientTaxes(value: DocumentInput["recipient"]): string {
   const vat =
     value.taxIdentifiers.find((identifier) => identifier.type === "PARTITA_IVA") ??
-    (value.kind === "EU" ? value.taxIdentifiers[0] : undefined);
+    (value.kind === "EU"
+      ? (value.taxIdentifiers[0] ?? {
+          countryCode: value.address.countryCode,
+          type: "PARTITA_IVA" as const,
+          value: foreignCustomerFallbackTaxCode,
+        })
+      : undefined);
   const fiscalCode = value.taxIdentifiers.find(
     (identifier) => identifier.type === "CODICE_FISCALE",
   );
@@ -955,11 +962,15 @@ export async function readDocumentXml(documentId: string): Promise<Buffer | null
 export async function listMassApprovalCandidates() {
   const result = await getPool().query<{
     billing_case_id: string;
+    case_revision: number;
+    draft_version: number;
+    projection_sha256: string;
     public_number: string;
     customer_name: string;
     total_amount: number;
   }>(
-    `SELECT billing_cases.id AS billing_case_id, billing_cases.public_number,
+    `SELECT billing_cases.id AS billing_case_id, billing_cases.revision AS case_revision,
+            documents.draft_version, documents.projection_sha256, billing_cases.public_number,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             documents.total_amount
      FROM documents
@@ -978,31 +989,39 @@ export async function listMassApprovalCandidates() {
   return result.rows;
 }
 
-export async function approveInvoices(caseIds: string[], actor: FiscalActor) {
+function approvalCandidate(value: string) {
+  const match = /^(\d+):(\d+):(\d+):([0-9a-f]{64})$/.exec(value);
+  if (!match || !isDatabaseId(match[1]!)) throw new AppError("DOCUMENT_INVALID", 422);
+  return {
+    caseId: match[1]!,
+    caseRevision: integer(match[2]),
+    draftVersion: integer(match[3]),
+    projectionSha256: match[4]!,
+  };
+}
+
+export async function approveInvoices(rawCandidates: string[], actor: FiscalActor) {
   if (!actor.canApprove) throw new AppError("DOCUMENT_APPROVAL_FORBIDDEN", 403);
-  const ids = [...new Set(caseIds)].filter(isDatabaseId);
-  if (!ids.length || ids.length > 100) throw new AppError("DOCUMENT_INVALID", 422);
+  if (!rawCandidates.length || rawCandidates.length > 100) {
+    throw new AppError("DOCUMENT_INVALID", 422);
+  }
+  const candidates = [
+    ...new Map(
+      rawCandidates.map((value) => {
+        const candidate = approvalCandidate(value);
+        return [candidate.caseId, candidate] as const;
+      }),
+    ).values(),
+  ];
   const outcomes = await Promise.all(
-    ids.map(async (caseId) => {
+    candidates.map(async (candidate) => {
       try {
-        const projection = await getInvoiceProjection(caseId);
-        if (
-          !projection ||
-          projection.profileMissing ||
-          !("lines" in projection) ||
-          projection.approved ||
-          projection.paymentPending ||
-          projection.difference !== 0 ||
-          projection.draftVersion === 0
-        ) {
-          return false;
-        }
         await approveInvoice(
-          caseId,
+          candidate.caseId,
           {
-            caseRevision: projection.caseRevision,
-            draftVersion: projection.draftVersion,
-            projectionSha256: projection.projectionSha256,
+            caseRevision: candidate.caseRevision,
+            draftVersion: candidate.draftVersion,
+            projectionSha256: candidate.projectionSha256,
             confirmPending: false,
             confirmDifference: false,
           },
@@ -1016,5 +1035,5 @@ export async function approveInvoices(caseIds: string[], actor: FiscalActor) {
     }),
   );
   const approved = outcomes.filter(Boolean).length;
-  return { approved, failed: outcomes.length - approved };
+  return { approved, failed: candidates.length - approved };
 }

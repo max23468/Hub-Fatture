@@ -131,7 +131,7 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
     recipient: {
       kind: "EU",
       displayName: "Voorbeeld Handel",
-      taxIdentifiers: [{ type: "PARTITA_IVA", value: "123456789B01", countryCode: "NL" }],
+      taxIdentifiers: [],
       address: {
         line1: "Keizersgracht 1",
         postalCode: "1012 AB",
@@ -147,6 +147,7 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
   });
   await validateFatturaXml(foreignXml);
   assert.match(foreignXml, /<Denominazione>Voorbeeld Handel<\/Denominazione>/);
+  assert.match(foreignXml, /<IdPaese>NL<\/IdPaese>\s*<IdCodice>99999999999<\/IdCodice>/);
   assert.match(foreignXml, /<CAP>00000<\/CAP>/);
   assert.doesNotMatch(foreignXml, /1012 AB|Noord-Holland|undefined/);
 });

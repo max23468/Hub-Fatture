@@ -449,11 +449,16 @@ export function customerIdentity(input: CustomerContext): {
 export function orderReviewRequired(
   order: Pick<OrderInput, "paymentStatus" | "payments" | "refunds" | "sourceReviewRequired">,
   totalsReconciled: boolean,
+  trigger: DraftTrigger = "PAID",
 ): boolean {
+  const confirmablePending = trigger === "FULFILLED" && order.paymentStatus === "PENDING";
   return (
     order.sourceReviewRequired ||
-    order.paymentStatus !== "PAID" ||
-    order.payments.some((payment) => payment.status !== "PAID") ||
+    (order.paymentStatus !== "PAID" && !confirmablePending) ||
+    order.payments.some(
+      (payment) =>
+        payment.status !== "PAID" && !(confirmablePending && payment.status === "PENDING"),
+    ) ||
     order.refunds.some((refund) => refund.status !== "FAILED") ||
     !totalsReconciled
   );

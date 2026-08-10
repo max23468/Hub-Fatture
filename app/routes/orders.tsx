@@ -93,7 +93,7 @@ export async function action({ request }: Route.ActionArgs) {
       if (form.get("confirm") !== "yes") {
         throw new Response("Conferma mancante", { status: 400 });
       }
-      const result = await approveInvoices(form.getAll("caseId"), {
+      const result = await approveInvoices(form.getAll("approval"), {
         id: user.id,
         canApprove: user.canApprove,
         requestId: requestId(request),
@@ -237,8 +237,8 @@ export default function Orders() {
               <input
                 key={candidate.billing_case_id}
                 type="hidden"
-                name="caseId"
-                value={candidate.billing_case_id}
+                name="approval"
+                value={`${candidate.billing_case_id}:${candidate.case_revision}:${candidate.draft_version}:${candidate.projection_sha256}`}
               />
             ))}
             <label className="checkbox-row">

@@ -139,8 +139,34 @@ test(
         "FPR 0002/26",
       ]);
       assert.equal(thirdProjection.difference, 0);
+      const approvalToken = (caseId: string, projection: typeof thirdProjection) =>
+        `${caseId}:${projection.caseRevision}:${projection.draftVersion}:${projection.projectionSha256}`;
+      await documents.saveInvoiceDraft(
+        cases[2]!.id,
+        {
+          caseRevision: thirdProjection.caseRevision,
+          draftVersion: thirdProjection.draftVersion,
+          differenceReason: "",
+          lines: thirdProjection.lines,
+        },
+        { id: 1, canApprove: true, requestId: "save-third-again" },
+      );
       assert.deepEqual(
-        await documents.approveInvoices([cases[2]!.id], {
+        await documents.approveInvoices([approvalToken(cases[2]!.id, thirdProjection)], {
+          id: 1,
+          canApprove: true,
+          requestId: "approve-mass-stale",
+        }),
+        { approved: 0, failed: 1 },
+      );
+      const freshThirdProjection = await documents.getInvoiceProjection(cases[2]!.id);
+      assert.ok(
+        freshThirdProjection &&
+          !freshThirdProjection.profileMissing &&
+          "lines" in freshThirdProjection,
+      );
+      assert.deepEqual(
+        await documents.approveInvoices([approvalToken(cases[2]!.id, freshThirdProjection)], {
           id: 1,
           canApprove: true,
           requestId: "approve-mass",
