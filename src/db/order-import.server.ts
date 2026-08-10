@@ -48,6 +48,109 @@ interface GroupableOrder {
   currency: string;
 }
 
+async function invoiceDraftAuditSnapshot(client: pg.PoolClient, caseId: string, lock = false) {
+  const result = await client.query<{ id: string; snapshot: Record<string, unknown> }>(
+    `SELECT documents.id, jsonb_build_object(
+       'recipient', documents.recipient_snapshot_json,
+       'lines', coalesce((
+         SELECT jsonb_agg(jsonb_build_object(
+           'orderId', document_lines.order_id::text,
+           'description', document_lines.description,
+           'quantity', document_lines.quantity,
+           'unitAmount', document_lines.unit_amount
+         ) ORDER BY document_lines.line_number)
+         FROM document_lines WHERE document_lines.document_id = documents.id
+       ), '[]'::jsonb),
+       'sourceTotal', documents.source_total_amount,
+       'total', documents.total_amount,
+       'difference', documents.difference_amount,
+       'paymentStatus', documents.payment_status,
+       'paymentMethod', documents.payment_method,
+       'causale', documents.causale,
+       'notes', documents.notes,
+       'draftVersion', documents.draft_version,
+       'projectionSha256', documents.projection_sha256
+     ) AS snapshot
+     FROM documents
+     WHERE documents.billing_case_id = $1
+       AND documents.kind = 'INVOICE' AND documents.status = 'DRAFT'
+     ${lock ? "FOR UPDATE OF documents" : ""}`,
+    [caseId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: string) {
+  const before = await invoiceDraftAuditSnapshot(client, caseId, true);
+  const documentId = before?.id;
+  if (!documentId) return null;
+  await client.query(
+    `DELETE FROM document_lines
+     WHERE document_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM orders
+         WHERE orders.id = document_lines.order_id AND orders.billing_case_id = $2
+       )`,
+    [documentId, caseId],
+  );
+  await client.query(
+    `DELETE FROM document_orders
+     WHERE document_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM orders
+         WHERE orders.id = document_orders.order_id AND orders.billing_case_id = $2
+       )`,
+    [documentId, caseId],
+  );
+  await client.query(
+    `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+     SELECT $1, 'INVOICE', orders.id, orders.gross_amount
+     FROM orders
+     WHERE orders.billing_case_id = $2
+       AND NOT EXISTS (
+         SELECT 1 FROM document_orders
+         WHERE document_orders.document_id = $1 AND document_orders.order_id = orders.id
+       )`,
+    [documentId, caseId],
+  );
+  await client.query(
+    `WITH missing AS (
+       SELECT orders.id,
+              'Vendita beni usati - Ordine '
+                || CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
+                || ' ' || orders.display_number AS description,
+              orders.gross_amount,
+              row_number() OVER (ORDER BY orders.id) AS position
+       FROM orders
+       WHERE orders.billing_case_id = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM document_lines
+           WHERE document_lines.document_id = $1 AND document_lines.order_id = orders.id
+         )
+     ), offset_value AS (
+       SELECT coalesce(max(line_number), 0) AS value
+       FROM document_lines WHERE document_id = $1
+     )
+     INSERT INTO document_lines
+       (document_id, order_id, line_number, description, quantity, unit_amount,
+        total_amount, tax_nature)
+     SELECT $1, missing.id, offset_value.value + missing.position, missing.description,
+            1, missing.gross_amount, missing.gross_amount, 'N5'
+     FROM missing CROSS JOIN offset_value`,
+    [documentId, caseId],
+  );
+  await client.query(
+    `UPDATE documents
+     SET draft_version = draft_version + 1,
+         projection_sha256 = repeat('0', 64),
+         updated_at = now()
+     WHERE id = $1`,
+    [documentId],
+  );
+  const after = await invoiceDraftAuditSnapshot(client, caseId);
+  return after ? { before: before.snapshot, after: after.snapshot } : null;
+}
+
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
   const canonicalProfile = canonicalCustomerProfile(input);
   return {
@@ -222,6 +325,7 @@ export async function groupOrder(
     [order.id, caseId],
   );
   if (assigned.rowCount) {
+    const reconciliation = await reconcileInvoiceDraft(client, caseId);
     await writeAudit(client, {
       ...auditActor(actor),
       action: forced ? "ORDER_GROUPING_FORCED" : "ORDER_GROUPED",
@@ -229,6 +333,8 @@ export async function groupOrder(
       entityType: "ORDER",
       entityId: order.id,
       metadata: { billingCaseId: caseId },
+      before: reconciliation?.before,
+      after: reconciliation?.after,
       requestId: actor.requestId,
     });
   }

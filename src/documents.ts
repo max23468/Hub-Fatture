@@ -7,11 +7,32 @@ import { containsNullByte, POSTGRES_INTEGER_MAX, postgresDateSchema } from "./or
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const country = z.string().trim().toUpperCase().length(2);
-const taxIdentifier = z.object({
-  type: z.enum(["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"]),
-  value: text(28),
-  countryCode: country.optional(),
-});
+const taxIdentifier = z
+  .object({
+    type: z.enum(["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"]),
+    value: text(28).transform((value) => value.toUpperCase()),
+    countryCode: country.optional(),
+  })
+  .superRefine((identifier, context) => {
+    if (identifier.type === "CODICE_FISCALE" && !/^[A-Z0-9]{11,16}$/.test(identifier.value)) {
+      context.addIssue({
+        code: "custom",
+        path: ["value"],
+        message: "Codice fiscale non serializzabile",
+      });
+    }
+    if (
+      identifier.type === "PARTITA_IVA" &&
+      (identifier.countryCode ?? "IT") === "IT" &&
+      !/^\d{11}$/.test(identifier.value)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["value"],
+        message: "Partita IVA italiana non valida",
+      });
+    }
+  });
 export const foreignCustomerFallbackTaxCode = "99999999999";
 const fiscalAddress = z.object({
   line1: text(60),
@@ -95,6 +116,9 @@ export function fiscalProfileFromAcceptedInvoiceXml(
     throw new Error("Il file del profilo non è una fattura privata TD01 FPR12");
   }
   const latest = latestDocumentXml === xml ? source : acceptedFiscalDocument(latestDocumentXml);
+  if (latest.transmitter !== source.transmitter || latest.seller !== source.seller) {
+    throw new Error("L’ultimo documento appartiene a un cedente o trasmittente diverso");
+  }
   const observed =
     latest.year > source.year || (latest.year === source.year && latest.number > source.number)
       ? latest
@@ -162,6 +186,10 @@ function acceptedFiscalDocument(xml: string) {
   const header = xmlRecord(root.FatturaElettronicaHeader);
   const body = xmlRecord(root.FatturaElettronicaBody);
   const general = xmlRecord(xmlRecord(body.DatiGenerali).DatiGeneraliDocumento);
+  const transmission = xmlRecord(header.DatiTrasmissione);
+  const transmitter = xmlRecord(transmission.IdTrasmittente);
+  const supplier = xmlRecord(header.CedentePrestatore);
+  const supplierVat = xmlRecord(xmlRecord(supplier.DatiAnagrafici).IdFiscaleIVA);
   const type = xmlValue(general.TipoDocumento);
   const documentDate = xmlValue(general.Data);
   const documentNumber = /^FPR (\d+)\/(\d{2})$/.exec(xmlValue(general.Numero));
@@ -174,7 +202,16 @@ function acceptedFiscalDocument(xml: string) {
   ) {
     throw new Error("Il documento non contiene un progressivo FPR12 valido");
   }
-  return { xml, header, body, type, year, number: Number(documentNumber[1]) };
+  return {
+    xml,
+    header,
+    body,
+    type,
+    year,
+    number: Number(documentNumber[1]),
+    transmitter: `${xmlValue(transmitter.IdPaese)}:${xmlValue(transmitter.IdCodice)}`,
+    seller: `${xmlValue(supplierVat.IdPaese)}:${xmlValue(supplierVat.IdCodice)}`,
+  };
 }
 
 function xmlRecord(input: unknown): Record<string, unknown> {
@@ -231,6 +268,10 @@ export const documentInputSchema = z
       )
       .min(1)
       .max(999),
+    paymentStatus: z.enum(["PAID", "PENDING"]),
+    paymentMethod: z.enum(["MP01", "MP05", "MP08"]),
+    causale: text(200).optional(),
+    notes: text(200).optional(),
   })
   .refine((value) => !containsNullByte(value), "Il documento contiene byte NUL")
   .superRefine((value, context) => {
@@ -300,6 +341,7 @@ export function generateFatturaXml(
   rawProfile: FiscalProfile,
   rawInput: DocumentInput,
   numbering: { year: number; number: number },
+  options: { legacyEuFirstTaxIdentifier?: boolean } = {},
 ): string {
   const profile = fiscalProfileSchema.parse(rawProfile);
   const input = documentInputSchema.parse(rawInput);
@@ -310,8 +352,7 @@ export function generateFatturaXml(
   const total = input.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
   const code = recipientCode(input.recipient);
   const documentType = input.kind === "INVOICE" ? "TD01" : "TD04";
-  const paymentMethod =
-    input.kind === "INVOICE" ? profile.payment.invoiceMethod : profile.payment.creditNoteMethod;
+  const paymentMethod = input.paymentMethod;
   const root = create({ version: "1.0", encoding: "UTF-8" }).ele("FatturaElettronica", {
     xmlns: "http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2",
     versione: "FPR12",
@@ -352,10 +393,15 @@ export function generateFatturaXml(
   const vat =
     taxId(input.recipient, "PARTITA_IVA") ??
     (input.recipient.kind === "EU"
-      ? (input.recipient.taxIdentifiers[0] ?? {
-          countryCode: input.recipient.address.countryCode,
-          value: foreignCustomerFallbackTaxCode,
-        })
+      ? options.legacyEuFirstTaxIdentifier
+        ? (input.recipient.taxIdentifiers[0] ?? {
+            countryCode: input.recipient.address.countryCode,
+            value: foreignCustomerFallbackTaxCode,
+          })
+        : {
+            countryCode: input.recipient.address.countryCode,
+            value: foreignCustomerFallbackTaxCode,
+          }
       : undefined);
   if (vat) {
     const customerVat = customerData.ele("IdFiscaleIVA");
@@ -388,6 +434,8 @@ export function generateFatturaXml(
     fiscalNumberLabel(profile.series, numbering.year, numbering.number),
   );
   add(generalDocument, "ImportoTotaleDocumento", amount(total));
+  if (input.causale) add(generalDocument, "Causale", fatturaPaText(input.causale, 200));
+  if (input.notes) add(generalDocument, "Causale", fatturaPaText(input.notes, 200));
 
   const goods = body.ele("DatiBeniServizi");
   input.lines.forEach((line, index) => {

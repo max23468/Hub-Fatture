@@ -235,6 +235,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "TD01 · FPR12 · FPR",
   );
   await page.getByRole("button", { name: "Salva e valida bozza" }).click();
+  await expect(page.getByRole("group", { name: "Conferma finale" })).toContainText(
+    "numero fiscale definitivo",
+  );
+  await page.getByLabel(/Confermo i dati riepilogati e autorizzo l’approvazione/).check();
   await page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }).click();
   await expect(
     page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }),

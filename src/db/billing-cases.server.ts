@@ -27,6 +27,7 @@ import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./order-commands.server.ts";
 import {
   groupOrder,
+  reconcileInvoiceDraft,
   recomputeBillingCaseStatus,
   serializeOrderMutations,
   type Actor,
@@ -294,6 +295,12 @@ export async function correctBillingCaseCustomer(
        WHERE id = $1`,
       [id, JSON.stringify(snapshot)],
     );
+    await client.query(
+      `UPDATE documents
+       SET projection_sha256 = repeat('0', 64), updated_at = now()
+       WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'`,
+      [id],
+    );
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),
@@ -342,6 +349,7 @@ export async function separateOrderFromBillingCase(
       [orderId, caseId],
     );
     if (!separated.rowCount) throw new AppError("CONFLICT_REVISION", 409);
+    const reconciliation = await reconcileInvoiceDraft(client, caseId);
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),
@@ -350,6 +358,8 @@ export async function separateOrderFromBillingCase(
       entityType: "ORDER",
       entityId: orderId,
       metadata: { billingCaseId: caseId },
+      before: reconciliation?.before,
+      after: reconciliation?.after,
       requestId: actor.requestId,
     });
     return recomputeBillingCaseStatus(client, caseId);

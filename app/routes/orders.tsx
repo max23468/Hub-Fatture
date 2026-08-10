@@ -81,6 +81,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     approvalCandidates,
     approved: url.searchParams.get("approvati"),
     approvalErrors: url.searchParams.get("errori"),
+    storagePending: url.searchParams.get("archiviazione"),
   };
 }
 
@@ -93,13 +94,17 @@ export async function action({ request }: Route.ActionArgs) {
       if (form.get("confirm") !== "yes") {
         throw new Response("Conferma mancante", { status: 400 });
       }
-      const result = await approveInvoices(form.getAll("approval"), {
-        id: user.id,
-        canApprove: user.canApprove,
-        requestId: requestId(request),
-      });
+      const result = await approveInvoices(
+        form.getAll("approval"),
+        {
+          id: user.id,
+          canApprove: user.canApprove,
+          requestId: requestId(request),
+        },
+        true,
+      );
       return redirect(
-        `/ordini?vista=fatturare&approvati=${result.approved}&errori=${result.failed}`,
+        `/ordini?vista=fatturare&approvati=${result.approved}&errori=${result.failed}&archiviazione=${result.storagePending}`,
       );
     }
     if (form.get("intent") !== "import-fixture" || getConfig().APP_ENV === "production") {
@@ -128,6 +133,7 @@ export default function Orders() {
     approvalCandidates,
     approved,
     approvalErrors,
+    storagePending,
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const showsPreparations = view === "fatturare" || view === "verificare";
@@ -217,7 +223,7 @@ export default function Orders() {
       ) : null}
       {approved !== null ? (
         <p className="notice" role="status">
-          {copy.orders.massApprovalResult(approved, approvalErrors ?? "0")}
+          {copy.orders.massApprovalResult(approved, approvalErrors ?? "0", storagePending ?? "0")}
         </p>
       ) : null}
 
@@ -239,10 +245,11 @@ export default function Orders() {
                   <Link to={`/ordini/preparazione/${candidate.billing_case_id}`}>
                     {copy.preparation.title(candidate.public_number)}
                   </Link>
-                  {` · ${candidate.customer_name} · ${euros(candidate.total_amount)}`}
+                  {` · ${candidate.customer_name} · ${euros(candidate.total_amount)} · profilo fiscale v${candidate.fiscal_profile_version} · pagamento registrato`}
                 </li>
               ))}
             </ul>
+            <p className="warning">{copy.orders.massApprovalConsequence}</p>
             {approvalCandidates.map((candidate) => (
               <input
                 key={`approval-${candidate.billing_case_id}`}

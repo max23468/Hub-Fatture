@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, unlink } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -34,6 +34,8 @@ test(
       const first = structuredClone(fixture[0]);
       const second = structuredClone(fixture[0]);
       const third = structuredClone(fixture[0]);
+      const fourth = structuredClone(fixture[0]);
+      const fifth = structuredClone(fixture[0]);
       second.externalOrderId = "shop-order-documents-second";
       second.displayNumber = "#DOC-2";
       second.createdAt = "2026-08-11T08:00:00Z";
@@ -42,7 +44,13 @@ test(
       third.displayNumber = "#DOC-3";
       third.createdAt = "2026-08-12T08:00:00Z";
       third.updatedAt = "2026-08-12T09:00:00Z";
-      await orders.importOrders([first, second, third], {
+      fourth.externalOrderId = "shop-order-documents-fourth";
+      fourth.displayNumber = "#DOC-4";
+      fourth.updatedAt = "2026-08-10T10:00:00Z";
+      fifth.externalOrderId = "shop-order-documents-fifth";
+      fifth.displayNumber = "#DOC-5";
+      fifth.updatedAt = "2026-08-10T11:00:00Z";
+      await orders.importOrders([first, second, third, fourth], {
         id: 1,
         requestId: "documents-import",
       });
@@ -85,6 +93,10 @@ test(
             caseRevision: projection.caseRevision,
             draftVersion: projection.draftVersion,
             differenceReason: "",
+            paymentStatus: projection.paymentStatus,
+            paymentMethod: projection.paymentMethod,
+            causale: "",
+            notes: "",
             lines: projection.lines,
           },
           { id: 1, canApprove: true, requestId: `save-${caseId}` },
@@ -102,17 +114,229 @@ test(
         );
         return saved;
       };
-      const [firstProjection, secondProjection, thirdProjection] = await Promise.all(
+      let [firstProjection, secondProjection, thirdProjection] = await Promise.all(
         cases.map((billingCase) => save(billingCase.id)),
       );
-      assert.equal((await documents.listMassApprovalCandidates()).length, 3);
+      await orders.correctBillingCaseCustomer(
+        cases[2]!.id,
+        {
+          ...structuredClone(first.customer),
+          billingAddress: { ...first.customer.billingAddress, line1: "Via Milano 3" },
+        },
+        thirdProjection.caseRevision,
+        "Indirizzo verificato",
+        { id: 1, requestId: "invalidate-standard-draft-after-correction" },
+      );
+      const correctedThirdProjection = await documents.getInvoiceProjection(cases[2]!.id);
+      assert.ok(
+        correctedThirdProjection &&
+          !correctedThirdProjection.profileMissing &&
+          "lines" in correctedThirdProjection,
+      );
+      assert.equal(correctedThirdProjection.requiresResave, true);
+      assert.equal((await documents.listMassApprovalCandidates()).length, 2);
+      thirdProjection = await save(cases[2]!.id);
+      await orders.importOrders([fifth], { id: 1, requestId: "reconcile-draft-after-grouping" });
+      const groupedProjection = await documents.getInvoiceProjection(cases[0]!.id);
+      assert.ok(
+        groupedProjection && !groupedProjection.profileMissing && "lines" in groupedProjection,
+      );
+      assert.equal(groupedProjection.draftVersion, firstProjection.draftVersion + 1);
+      assert.equal(groupedProjection.lines.length, 3);
+      assert.equal(groupedProjection.requiresResave, true);
+      assert.equal((await documents.listMassApprovalCandidates()).length, 2);
+      firstProjection = await save(cases[0]!.id);
+      const firstOrderIds = (
+        await database
+          .getPool()
+          .query<{ id: string }>("SELECT id FROM orders WHERE billing_case_id = $1 ORDER BY id", [
+            cases[0]!.id,
+          ])
+      ).rows;
+      assert.equal(firstOrderIds.length, 3);
+      await orders.separateOrderFromBillingCase(
+        cases[0]!.id,
+        firstOrderIds[1]!.id,
+        firstProjection.caseRevision,
+        { id: 1, requestId: "invalidate-draft-after-separation" },
+      );
+      const invalidated = await documents.getInvoiceProjection(cases[0]!.id);
+      assert.ok(invalidated && !invalidated.profileMissing && "lines" in invalidated);
+      assert.equal(invalidated.draftVersion, firstProjection.draftVersion + 1);
+      assert.equal(invalidated.lines.length, 2);
+      assert.equal(invalidated.requiresResave, true);
+      await database.getPool().query(
+        `UPDATE orders
+         SET normalized_snapshot_json = jsonb_set(
+           normalized_snapshot_json, '{customer,billingAddress,line1}', '"Via Origine 5"'
+         )
+         WHERE external_order_id = $1`,
+        [fifth.externalOrderId],
+      );
+      const regeneratedFirstProjection = await save(cases[0]!.id);
+      const reconciliationAudit = (
+        await database.getPool().query<{
+          before_json: { lines: unknown[] };
+          after_json: { lines: unknown[] };
+        }>(
+          `SELECT before_json, after_json FROM audit_events
+           WHERE action = 'ORDER_SEPARATED' AND request_id = $1`,
+          ["invalidate-draft-after-separation"],
+        )
+      ).rows[0]!;
+      assert.equal(reconciliationAudit.before_json.lines.length, 3);
+      assert.equal(reconciliationAudit.after_json.lines.length, 2);
+      const sourceAudit = (
+        await database.getPool().query<{
+          before_json: {
+            imported: { recipients: Array<{ recipient: { address: { line1: string } } }> };
+          };
+        }>(
+          `SELECT before_json FROM audit_events
+           WHERE action = 'DOCUMENT_DRAFT_SAVED' AND request_id = $1
+           ORDER BY id DESC LIMIT 1`,
+          [`save-${cases[0]!.id}`],
+        )
+      ).rows[0]!.before_json.imported.recipients;
+      assert.deepEqual(
+        sourceAudit.map(({ recipient: importedRecipient }) => importedRecipient.address.line1),
+        ["Via Esempio 1", "Via Origine 5"],
+      );
+      await documents.saveInvoiceDraft(
+        cases[1]!.id,
+        {
+          caseRevision: secondProjection.caseRevision,
+          draftVersion: secondProjection.draftVersion,
+          differenceReason: "Incasso e arrotondamento verificati",
+          paymentStatus: "PENDING",
+          paymentMethod: "MP05",
+          causale: "Cessione beni usati",
+          notes: "Incasso da registrare",
+          lines: secondProjection.lines.map((line, index) =>
+            index === 0 ? { ...line, unitAmount: line.unitAmount + 1 } : line,
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "save-exceptional-second" },
+      );
+      let exceptionalSecondProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        exceptionalSecondProjection &&
+          !exceptionalSecondProjection.profileMissing &&
+          "lines" in exceptionalSecondProjection,
+      );
+      assert.equal(exceptionalSecondProjection.paymentStatus, "PENDING");
+      assert.equal(exceptionalSecondProjection.paymentMethod, "MP05");
+      assert.equal(exceptionalSecondProjection.difference, 1);
+      await orders.correctBillingCaseCustomer(
+        cases[1]!.id,
+        {
+          kind: "PRIVATE_IT",
+          displayName: "Mario Rossi",
+          firstName: "Mario",
+          lastName: "Rossi",
+          email: "mario.rossi@example.invalid",
+          billingAddress: {
+            line1: "Via Roma 2",
+            postalCode: "00100",
+            city: "Roma",
+            province: "RM",
+            countryCode: "IT",
+          },
+          taxIdentifiers: [
+            {
+              type: "CODICE_FISCALE",
+              value: "RSSMRA80A01H501U",
+              sourceField: "correzione-manuale",
+            },
+          ],
+        },
+        exceptionalSecondProjection.caseRevision,
+        "Indirizzo verificato",
+        { id: 1, requestId: "correct-customer-with-draft" },
+      );
+      const correctedSecondProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        correctedSecondProjection &&
+          !correctedSecondProjection.profileMissing &&
+          "lines" in correctedSecondProjection,
+      );
+      assert.equal(
+        correctedSecondProjection.draftVersion,
+        exceptionalSecondProjection.draftVersion,
+      );
+      assert.equal(correctedSecondProjection.paymentStatus, "PENDING");
+      assert.equal(correctedSecondProjection.paymentMethod, "MP05");
+      assert.equal(correctedSecondProjection.causale, "Cessione beni usati");
+      assert.equal(correctedSecondProjection.notes, "Incasso da registrare");
+      assert.equal(correctedSecondProjection.requiresResave, true);
+      await assert.rejects(
+        documents.approveInvoice(
+          cases[1]!.id,
+          {
+            caseRevision: correctedSecondProjection.caseRevision,
+            draftVersion: correctedSecondProjection.draftVersion,
+            projectionSha256: exceptionalSecondProjection.projectionSha256,
+            confirmApproval: true,
+            confirmPending: true,
+            confirmDifference: true,
+          },
+          { id: 1, canApprove: true, requestId: "customer-correction-stale" },
+        ),
+        (error) => error instanceof AppError && error.code === "DOCUMENT_PROJECTION_STALE",
+      );
+      await documents.saveInvoiceDraft(
+        cases[1]!.id,
+        {
+          caseRevision: correctedSecondProjection.caseRevision,
+          draftVersion: correctedSecondProjection.draftVersion,
+          differenceReason: correctedSecondProjection.differenceReason,
+          paymentStatus: correctedSecondProjection.paymentStatus,
+          paymentMethod: correctedSecondProjection.paymentMethod,
+          causale: correctedSecondProjection.causale,
+          notes: correctedSecondProjection.notes,
+          lines: correctedSecondProjection.lines,
+        },
+        { id: 1, canApprove: true, requestId: "resave-after-customer-correction" },
+      );
+      exceptionalSecondProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        exceptionalSecondProjection &&
+          !exceptionalSecondProjection.profileMissing &&
+          "lines" in exceptionalSecondProjection,
+      );
+      assert.equal(exceptionalSecondProjection.requiresResave, false);
+      const correctionAudit = (
+        await database.getPool().query<{
+          before_json: Record<string, unknown>;
+          after_json: Record<string, unknown>;
+        }>(
+          `SELECT before_json, after_json FROM audit_events
+           WHERE action = 'DOCUMENT_DRAFT_SAVED' AND request_id = $1`,
+          ["resave-after-customer-correction"],
+        )
+      ).rows[0]!;
+      const correctionBefore = correctionAudit.before_json as {
+        imported: { recipients: Array<{ recipient: { address: { line1: string } } }> };
+        previous: { recipient: { address: { line1: string } } };
+      };
+      const correctionAfter = correctionAudit.after_json as {
+        current: { recipient: { address: { line1: string } } };
+      };
+      assert.equal(
+        correctionBefore.imported.recipients[0]!.recipient.address.line1,
+        "Via Esempio 1",
+      );
+      assert.equal(correctionBefore.previous.recipient.address.line1, "Via Esempio 1");
+      assert.equal(correctionAfter.current.recipient.address.line1, "Via Roma 2");
+      assert.equal((await documents.listMassApprovalCandidates()).length, 2);
       await assert.rejects(
         documents.approveInvoice(
           cases[0]!.id,
           {
-            caseRevision: firstProjection.caseRevision,
-            draftVersion: firstProjection.draftVersion,
-            projectionSha256: firstProjection.projectionSha256,
+            caseRevision: regeneratedFirstProjection.caseRevision,
+            draftVersion: regeneratedFirstProjection.draftVersion,
+            projectionSha256: regeneratedFirstProjection.projectionSha256,
+            confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
           },
@@ -124,9 +348,25 @@ test(
         documents.approveInvoice(
           cases[0]!.id,
           {
-            caseRevision: firstProjection.caseRevision,
-            draftVersion: firstProjection.draftVersion,
+            caseRevision: regeneratedFirstProjection.caseRevision,
+            draftVersion: regeneratedFirstProjection.draftVersion,
+            projectionSha256: regeneratedFirstProjection.projectionSha256,
+            confirmApproval: false,
+            confirmPending: false,
+            confirmDifference: false,
+          },
+          { id: 1, canApprove: true, requestId: "missing-final-confirmation" },
+        ),
+        (error) => error instanceof AppError && error.code === "DOCUMENT_NOT_APPROVABLE",
+      );
+      await assert.rejects(
+        documents.approveInvoice(
+          cases[0]!.id,
+          {
+            caseRevision: regeneratedFirstProjection.caseRevision,
+            draftVersion: regeneratedFirstProjection.draftVersion,
             projectionSha256: "0".repeat(64),
+            confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
           },
@@ -135,44 +375,119 @@ test(
         (error) => error instanceof AppError && error.code === "DOCUMENT_PROJECTION_STALE",
       );
       const approved = await Promise.all(
-        [firstProjection, secondProjection].map((projection, index) =>
+        [regeneratedFirstProjection, exceptionalSecondProjection].map((projection, index) =>
           documents.approveInvoice(
             cases[index]!.id,
             {
               caseRevision: projection.caseRevision,
               draftVersion: projection.draftVersion,
               projectionSha256: projection.projectionSha256,
-              confirmPending: false,
-              confirmDifference: false,
+              confirmApproval: true,
+              confirmPending: index === 1,
+              confirmDifference: index === 1,
             },
             { id: 1, canApprove: true, requestId: `approve-${index}` },
           ),
         ),
       );
+      const expectedYear = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Rome",
+        year: "2-digit",
+      }).format(new Date());
+      const expectedFullYear = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Rome",
+        year: "numeric",
+      }).format(new Date());
       assert.deepEqual(approved.map((document) => document!.fiscalNumber).sort(), [
-        "FPR 0002/26",
-        "FPR 0003/26",
+        `FPR 0002/${expectedYear}`,
+        `FPR 0003/${expectedYear}`,
       ]);
+      const approvedEvidence = (
+        await database.getPool().query<{
+          id: string;
+          pending_payment_confirmed_at: string | null;
+          amount_difference_confirmed_at: string | null;
+        }>(
+          `SELECT id, pending_payment_confirmed_at, amount_difference_confirmed_at
+           FROM documents WHERE billing_case_id = $1`,
+          [cases[0]!.id],
+        )
+      ).rows[0]!;
+      assert.equal(approvedEvidence.pending_payment_confirmed_at, null);
+      assert.equal(approvedEvidence.amount_difference_confirmed_at, null);
+      assert.deepEqual(
+        (
+          await database.getPool().query<{ action: string }>(
+            `SELECT action FROM audit_events
+             WHERE action IN ('DOCUMENT_PENDING_PAYMENT_CONFIRMED', 'DOCUMENT_AMOUNT_DIFFERENCE_CONFIRMED')
+             ORDER BY action`,
+          )
+        ).rows.map((row) => row.action),
+        ["DOCUMENT_AMOUNT_DIFFERENCE_CONFIRMED", "DOCUMENT_PENDING_PAYMENT_CONFIRMED"],
+      );
+      const approvedProjection = await documents.getInvoiceProjection(cases[0]!.id);
+      assert.ok(
+        approvedProjection && !approvedProjection.profileMissing && "xml" in approvedProjection,
+      );
+      assert.doesNotMatch(approvedProjection.xml, /FPR 0000\//);
+      assert.match(
+        approvedProjection.xml,
+        new RegExp(approved[0]!.fiscalNumber.replace("/", "\\/")),
+      );
+      await assert.rejects(
+        database.getPool().query(
+          `UPDATE document_lines
+           SET document_id = $1
+           WHERE document_id = (SELECT id FROM documents WHERE billing_case_id = $2)`,
+          [approvedEvidence.id, cases[2]!.id],
+        ),
+        /immutabili/,
+      );
       assert.equal(thirdProjection.difference, 0);
       const approvalToken = (caseId: string, projection: typeof thirdProjection) =>
         `${caseId}:${projection.caseRevision}:${projection.draftVersion}:${projection.projectionSha256}`;
+      await assert.rejects(
+        documents.approveInvoices([approvalToken(cases[2]!.id, thirdProjection)], {
+          id: 1,
+          canApprove: true,
+          requestId: "approve-mass-without-confirmation",
+        }),
+        (error) => error instanceof AppError && error.code === "DOCUMENT_NOT_APPROVABLE",
+      );
+      await database
+        .getPool()
+        .query("UPDATE documents SET document_date = current_date - 1 WHERE billing_case_id = $1", [
+          cases[2]!.id,
+        ]);
+      const dateChangedProjection = await documents.getInvoiceProjection(cases[2]!.id);
+      assert.ok(
+        dateChangedProjection &&
+          !dateChangedProjection.profileMissing &&
+          "lines" in dateChangedProjection,
+      );
+      assert.equal(dateChangedProjection.requiresResave, true);
+      assert.equal((await documents.listMassApprovalCandidates()).length, 0);
       await documents.saveInvoiceDraft(
         cases[2]!.id,
         {
-          caseRevision: thirdProjection.caseRevision,
-          draftVersion: thirdProjection.draftVersion,
+          caseRevision: dateChangedProjection.caseRevision,
+          draftVersion: dateChangedProjection.draftVersion,
           differenceReason: "",
-          lines: thirdProjection.lines,
+          paymentStatus: dateChangedProjection.paymentStatus,
+          paymentMethod: dateChangedProjection.paymentMethod,
+          causale: "Cessione beni usati",
+          notes: "Pagamento verificato",
+          lines: dateChangedProjection.lines,
         },
         { id: 1, canApprove: true, requestId: "save-third-again" },
       );
       assert.deepEqual(
-        await documents.approveInvoices([approvalToken(cases[2]!.id, thirdProjection)], {
-          id: 1,
-          canApprove: true,
-          requestId: "approve-mass-stale",
-        }),
-        { approved: 0, failed: 1 },
+        await documents.approveInvoices(
+          [approvalToken(cases[2]!.id, thirdProjection)],
+          { id: 1, canApprove: true, requestId: "approve-mass-stale" },
+          true,
+        ),
+        { approved: 0, failed: 1, storagePending: 0 },
       );
       const freshThirdProjection = await documents.getInvoiceProjection(cases[2]!.id);
       assert.ok(
@@ -180,14 +495,81 @@ test(
           !freshThirdProjection.profileMissing &&
           "lines" in freshThirdProjection,
       );
-      assert.deepEqual(
-        await documents.approveInvoices([approvalToken(cases[2]!.id, freshThirdProjection)], {
-          id: 1,
-          canApprove: true,
-          requestId: "approve-mass",
-        }),
-        { approved: 1, failed: 0 },
+      const thirdOrderId = (
+        await database
+          .getPool()
+          .query<{ id: string }>("SELECT id FROM orders WHERE billing_case_id = $1", [cases[2]!.id])
+      ).rows[0]!.id;
+      await database
+        .getPool()
+        .query("UPDATE orders SET billing_case_id = NULL WHERE id = $1", [thirdOrderId]);
+      await database
+        .getPool()
+        .query("UPDATE documents SET projection_sha256 = $2 WHERE billing_case_id = $1", [
+          cases[2]!.id,
+          freshThirdProjection.projectionSha256,
+        ]);
+      await assert.rejects(
+        documents.approveInvoice(
+          cases[2]!.id,
+          {
+            caseRevision: freshThirdProjection.caseRevision,
+            draftVersion: freshThirdProjection.draftVersion,
+            projectionSha256: freshThirdProjection.projectionSha256,
+            confirmApproval: true,
+            confirmPending: false,
+            confirmDifference: false,
+          },
+          { id: 1, canApprove: true, requestId: "old-app-membership-change" },
+        ),
+        (error) => error instanceof AppError && error.code === "DOCUMENT_PROJECTION_STALE",
       );
+      await database
+        .getPool()
+        .query("UPDATE orders SET billing_case_id = $2 WHERE id = $1", [
+          thirdOrderId,
+          cases[2]!.id,
+        ]);
+      const restoredThirdProjection = await documents.getInvoiceProjection(cases[2]!.id);
+      assert.ok(
+        restoredThirdProjection &&
+          !restoredThirdProjection.profileMissing &&
+          "lines" in restoredThirdProjection,
+      );
+      await documents.saveInvoiceDraft(
+        cases[2]!.id,
+        {
+          caseRevision: restoredThirdProjection.caseRevision,
+          draftVersion: restoredThirdProjection.draftVersion,
+          differenceReason: restoredThirdProjection.differenceReason,
+          paymentStatus: restoredThirdProjection.paymentStatus,
+          paymentMethod: restoredThirdProjection.paymentMethod,
+          causale: restoredThirdProjection.causale,
+          notes: restoredThirdProjection.notes,
+          lines: restoredThirdProjection.lines,
+        },
+        { id: 1, canApprove: true, requestId: "resave-after-old-app-membership-change" },
+      );
+      const approvableThirdProjection = await documents.getInvoiceProjection(cases[2]!.id);
+      assert.ok(
+        approvableThirdProjection &&
+          !approvableThirdProjection.profileMissing &&
+          "lines" in approvableThirdProjection,
+      );
+      const finalStorageDirectory = path.join(storage, "invoices", expectedFullYear);
+      await chmod(finalStorageDirectory, 0o500);
+      try {
+        assert.deepEqual(
+          await documents.approveInvoices(
+            [approvalToken(cases[2]!.id, approvableThirdProjection)],
+            { id: 1, canApprove: true, requestId: "approve-mass" },
+            true,
+          ),
+          { approved: 1, failed: 0, storagePending: 1 },
+        );
+      } finally {
+        await chmod(finalStorageDirectory, 0o700);
+      }
       const rows = (
         await database.getPool().query<{
           id: string;
@@ -232,6 +614,17 @@ test(
         ).rows[0].count,
         "3",
       );
+      const draftAudit = (
+        await database.getPool().query<{
+          before_json: unknown;
+          after_json: unknown;
+        }>(
+          `SELECT before_json, after_json FROM audit_events
+           WHERE action = 'DOCUMENT_DRAFT_SAVED' ORDER BY id DESC LIMIT 1`,
+        )
+      ).rows[0]!;
+      assert.ok(draftAudit.before_json);
+      assert.ok(draftAudit.after_json);
       await database.closePool();
     } finally {
       await import("./client.server.ts").then(({ closePool }) => closePool());

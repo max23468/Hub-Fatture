@@ -96,9 +96,11 @@ export const copy = {
       `${count} documenti standard, totale ${euroFormatter.format(total / 100)}.`,
     massApprovalConfirm:
       "Ho controllato le proiezioni: approva, numera e prepara tutti i documenti elencati.",
+    massApprovalConsequence:
+      "La numerazione fiscale è irreversibile. Ogni documento usa il profilo salvato nella propria proiezione; l’helper non è ancora attivo e gli XML restano nel percorso manuale.",
     massApprovalAction: "Approva tutti i documenti standard",
-    massApprovalResult: (approved: string, failed: string) =>
-      `Documenti approvati: ${approved}. Non approvati perché cambiati o non più idonei: ${failed}.`,
+    massApprovalResult: (approved: string, failed: string, storagePending: string) =>
+      `Documenti approvati: ${approved}. Non approvati perché cambiati o non più idonei: ${failed}. Archiviazioni da riconciliare: ${storagePending}.`,
   },
   orderDetail: {
     order: (number: string) => `Ordine ${number}`,
@@ -165,6 +167,8 @@ export const copy = {
   },
   document: {
     profileMissing: "Il profilo fiscale approvato non è ancora configurato.",
+    storagePending:
+      "Il documento è approvato e numerato. L’archiviazione XML verrà riconciliata automaticamente prima del download.",
     draftTitle: "Bozza fiscale",
     draftIntro:
       "Una riga semplificata per ordine. Salva prima di approvare per fissare data, importi e descrizioni.",
@@ -172,6 +176,15 @@ export const copy = {
     description: "Descrizione",
     quantity: "Quantità",
     unitAmount: "Importo unitario",
+    paymentStatus: "Stato del pagamento",
+    paymentMethod: "Modalità di pagamento",
+    paymentPaid: "Pagato",
+    paymentPending: "In attesa",
+    paymentCash: "MP01 · Contanti",
+    paymentTransfer: "MP05 · Bonifico",
+    paymentCard: "MP08 · Carta",
+    causale: "Causale",
+    notes: "Note",
     differenceReason: "Motivo della differenza (obbligatorio se il totale cambia)",
     saveDraft: "Salva e valida bozza",
     comparisonTitle: "Confronto fiscale",
@@ -184,6 +197,7 @@ export const copy = {
     comparisonRecipient: "Destinatario",
     comparisonLines: "Righe",
     comparisonPayment: "Pagamento",
+    comparisonNotes: "Causale e note",
     comparisonTechnical: "Dati tecnici e fiscali",
     comparisonField: "Dato",
     comparisonSource: "Origine",
@@ -198,12 +212,28 @@ export const copy = {
       status: "Stato e modalità",
       document: "Documento",
       tax: "Regime e natura",
+      causale: "Causale",
+      notes: "Note",
     },
     technicalXml: "Mostra XML tecnico",
     saveBeforeApproval: "Salva la bozza per rendere approvabile questa proiezione.",
+    resaveAfterDateChange:
+      "La data prevista è cambiata: salva e valida di nuovo la bozza prima dell’approvazione.",
     ownerOnly: "Solo Matteo può approvare e assegnare il numero fiscale.",
     confirmPending: "Confermo che il pagamento è ancora pendente e voglio proseguire.",
     confirmDifference: "Confermo la differenza d’importo motivata nella bozza.",
+    finalConfirmation: "Conferma finale",
+    confirmDocument: "Documento",
+    confirmRecipient: "Destinatario",
+    confirmTotal: "Totale",
+    confirmProfile: "Profilo fiscale",
+    confirmPayment: "Pagamento",
+    confirmHelper: "Percorso Aruba",
+    manualHelperMode: "Manuale; helper non ancora attivo",
+    irreversibleNumbering:
+      "Con l’approvazione viene assegnato un numero fiscale definitivo che non potrà essere riutilizzato per un altro documento.",
+    confirmApproval:
+      "Confermo i dati riepilogati e autorizzo l’approvazione e la numerazione irreversibile.",
     approve: "Approva, numera e prepara per Aruba",
   },
   documents: {
@@ -396,8 +426,10 @@ export const auditActionLabels = {
   CUSTOMER_CORRECTED: "Anagrafica cliente corretta",
   DRAFT_TRIGGER_CHANGED: "Regola di preparazione modificata",
   DOCUMENT_APPROVED: "Documento approvato",
+  DOCUMENT_AMOUNT_DIFFERENCE_CONFIRMED: "Differenza d’importo confermata",
   DOCUMENT_DRAFT_SAVED: "Bozza fiscale salvata",
   DOCUMENT_NUMBERED: "Numero fiscale assegnato",
+  DOCUMENT_PENDING_PAYMENT_CONFIRMED: "Pagamento pendente confermato",
   FISCAL_PROFILE_ACTIVATED: "Profilo fiscale approvato",
   LOGIN_FAILED: "Accesso rifiutato",
   LOGIN_RATE_LIMITED: "Accessi temporaneamente bloccati",
@@ -432,7 +464,8 @@ export const billingCaseStatusLabels: Record<string, string> = {
 export const anomalyLabels: Record<string, { title: string; action: string }> = {
   PENDING_PAYMENT: {
     title: "Pagamento non ancora acquisito",
-    action: "Attendi l\u2019incasso oppure registra il pagamento sul canale di vendita.",
+    action:
+      "Attendi l’incasso oppure registralo nella bozza fiscale senza modificare il canale di vendita.",
   },
   TOTALS_MISMATCH: {
     title: "Totale dell\u2019ordine non riconciliato",
