@@ -148,7 +148,7 @@ test(
         },
         { id: 1, canApprove: true, requestId: "save-exceptional-second" },
       );
-      const exceptionalSecondProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      let exceptionalSecondProjection = await documents.getInvoiceProjection(cases[1]!.id);
       assert.ok(
         exceptionalSecondProjection &&
           !exceptionalSecondProjection.profileMissing &&
@@ -157,6 +157,82 @@ test(
       assert.equal(exceptionalSecondProjection.paymentStatus, "PENDING");
       assert.equal(exceptionalSecondProjection.paymentMethod, "MP05");
       assert.equal(exceptionalSecondProjection.difference, 1);
+      await orders.correctBillingCaseCustomer(
+        cases[1]!.id,
+        {
+          kind: "PRIVATE_IT",
+          displayName: "Mario Rossi",
+          firstName: "Mario",
+          lastName: "Rossi",
+          email: "mario.rossi@example.invalid",
+          billingAddress: {
+            line1: "Via Roma 2",
+            postalCode: "00100",
+            city: "Roma",
+            province: "RM",
+            countryCode: "IT",
+          },
+          taxIdentifiers: [
+            {
+              type: "CODICE_FISCALE",
+              value: "RSSMRA80A01H501U",
+              sourceField: "correzione-manuale",
+            },
+          ],
+        },
+        exceptionalSecondProjection.caseRevision,
+        "Indirizzo verificato",
+        { id: 1, requestId: "correct-customer-with-draft" },
+      );
+      const correctedSecondProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        correctedSecondProjection &&
+          !correctedSecondProjection.profileMissing &&
+          "lines" in correctedSecondProjection,
+      );
+      assert.equal(
+        correctedSecondProjection.draftVersion,
+        exceptionalSecondProjection.draftVersion,
+      );
+      assert.equal(correctedSecondProjection.paymentStatus, "PENDING");
+      assert.equal(correctedSecondProjection.paymentMethod, "MP05");
+      assert.equal(correctedSecondProjection.causale, "Cessione beni usati");
+      assert.equal(correctedSecondProjection.notes, "Incasso da registrare");
+      await assert.rejects(
+        documents.approveInvoice(
+          cases[1]!.id,
+          {
+            caseRevision: correctedSecondProjection.caseRevision,
+            draftVersion: correctedSecondProjection.draftVersion,
+            projectionSha256: exceptionalSecondProjection.projectionSha256,
+            confirmApproval: true,
+            confirmPending: true,
+            confirmDifference: true,
+          },
+          { id: 1, canApprove: true, requestId: "customer-correction-stale" },
+        ),
+        (error) => error instanceof AppError && error.code === "DOCUMENT_PROJECTION_STALE",
+      );
+      await documents.saveInvoiceDraft(
+        cases[1]!.id,
+        {
+          caseRevision: correctedSecondProjection.caseRevision,
+          draftVersion: correctedSecondProjection.draftVersion,
+          differenceReason: correctedSecondProjection.differenceReason,
+          paymentStatus: correctedSecondProjection.paymentStatus,
+          paymentMethod: correctedSecondProjection.paymentMethod,
+          causale: correctedSecondProjection.causale,
+          notes: correctedSecondProjection.notes,
+          lines: correctedSecondProjection.lines,
+        },
+        { id: 1, canApprove: true, requestId: "resave-after-customer-correction" },
+      );
+      exceptionalSecondProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        exceptionalSecondProjection &&
+          !exceptionalSecondProjection.profileMissing &&
+          "lines" in exceptionalSecondProjection,
+      );
       assert.equal((await documents.listMassApprovalCandidates()).length, 2);
       await assert.rejects(
         documents.approveInvoice(

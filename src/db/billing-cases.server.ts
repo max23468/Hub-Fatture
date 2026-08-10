@@ -295,7 +295,6 @@ export async function correctBillingCaseCustomer(
       sourceConfidence: identity.confidence,
       reviewRequired: identity.reviewRequired,
     };
-    await invalidateInvoiceDraft(client, id);
     await client.query(
       `UPDATE billing_cases
        SET customer_snapshot_json = $2, customer_corrected_at = now()
