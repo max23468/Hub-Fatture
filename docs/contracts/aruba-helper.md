@@ -1,6 +1,6 @@
 # Contratto candidato dell’helper Aruba
 
-Questo contratto governa la pagina sintetica e l’helper locale unico per macOS e Windows. I locatori del pannello reale restano candidati finché la prova controllata finale non li conferma.
+Questo contratto governa la pagina sintetica e l’helper locale unico per macOS e Windows. I locatori del pannello reale restano candidati finché la prova controllata precedente al Canary Production non li conferma.
 
 ## Confini di sicurezza
 

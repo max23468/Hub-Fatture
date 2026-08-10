@@ -71,6 +71,25 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
   assert.match(glossary, /\| Pubblica\s+\| ciclo tecnico completo\s+\|/);
 });
 
+test("la prova Aruba reale chiude il collaudo prima del Canary", async () => {
+  const masterPlan = await readFile(path.join(root, "docs/Hub_Fatture_MASTER_PLAN.md"), "utf8");
+  const collaudo = `M${8}`;
+  const canary = `M${9}`;
+  const integrazione = `M${5}`;
+  assert.match(
+    masterPlan,
+    new RegExp(`### 11\\.4 ${collaudo} - prova manuale controllata come gate di uscita`),
+  );
+  assert.match(
+    masterPlan,
+    new RegExp(`senza questa prova ${collaudo} resta aperta e ${canary} non può iniziare`),
+  );
+  assert.doesNotMatch(
+    masterPlan,
+    new RegExp(`prova manuale controllata sul pannello reale chiude ${integrazione}`),
+  );
+});
+
 test("la sigla interna non compare nella superficie utente", async () => {
   const files = [...(await collect("app")), "src/errors.ts", "src/db/auth.server.ts"];
   const offenders = (await contents(files))

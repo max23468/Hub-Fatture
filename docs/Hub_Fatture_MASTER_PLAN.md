@@ -66,7 +66,7 @@ Le evidenze vivono in `docs/evidence/`; i contratti tecnici riusabili in `docs/c
 
 - M1-M3 non dipendono da Aruba e usano soltanto fixture e dati sintetici.
 - M4 comprende audit autenticato read-only, analisi dell'XML accettato, profilo fiscale, numerazione, generatore definitivo e approvazione.
-- M5 comprende l'integrazione del pannello e dell'helper e si chiude con la prova manuale controllata del candidato XML. L'indisponibilità temporanea dell'accesso presidiato non blocca l'avvio o lo sviluppo sintetico di M5, ma ne blocca il completamento e qualunque invio reale.
+- M5 comprende l'integrazione locale dell'helper e si chiude con pagina sintetica, contratto candidato, fallback manuale e controlli fail-closed verificati. La prova manuale controllata del candidato XML sul pannello reale è differita a M8: l'indisponibilità temporanea dell'accesso presidiato non blocca M5-M7, ma blocca il completamento di M8, l'avvio di M9 e qualunque invio reale.
 - Modifiche all'account Aruba, upload reali e invii richiedono sempre
   l'autorizzazione specifica del titolare nel momento in cui vengono eseguiti.
   Una richiesta affermativa di pubblicazione autorizza invece deploy e release
@@ -895,7 +895,7 @@ Vincolo di accettazione: nessuna milestone, requisito o Definition of Done può 
 Sviluppare due ambienti applicativi e un fallback:
 
 - `mock`, con una pagina Aruba sintetica locale per sviluppo, contract test ed E2E;
-- `production`, con il pannello web reale soltanto nella prova controllata e nelle altre attività autorizzate di M5 e successive;
+- `production`, con il pannello web reale soltanto nella prova controllata di M8 e nelle attività successive specificamente autorizzate;
 - `manuale`, esportando gli XML da HF e importando in seguito file ed esiti scaricati da Aruba.
 
 Credenziali, cookie, session storage, codici OTP e seed TOTP non entrano mai in HF, nel repository, nei prompt o nei log. Il profilo browser persistente è creato e posseduto dall'utente sul proprio computer.
@@ -987,9 +987,9 @@ Il download XML da HF, il caricamento manuale nel pannello e l'import successivo
 
 ---
 
-## 11. Qualifica Aruba nelle milestone M4-M5
+## 11. Qualifica Aruba nelle milestone M4, M5 e M8
 
-Questa attività non è una corsia parallela. M4 incorpora le verifiche fiscali e documentali necessarie al generatore; M5 incorpora la prova del pannello e l'automazione. Repository, autenticazione, dominio ordini e connettori vengono completati prima secondo la sequenza delle milestone.
+Questa attività non è una corsia parallela. M4 incorpora le verifiche fiscali e documentali necessarie al generatore; M5 implementa e verifica sinteticamente l'automazione; M8 qualifica il contratto candidato sul pannello reale prima del Canary Production. Repository, autenticazione, dominio ordini e connettori vengono completati prima secondo la sequenza delle milestone.
 
 La raccolta dei materiali, però, non è implementazione e può iniziare durante M2 e M3. Sessione di audit, XML della fattura accettata, eventuale XML della nota di credito e conferma del commercialista dipendono dalla disponibilità di terzi e sono il percorso critico di tutto ciò che segue M3: attenderli fino all'apertura formale di M4 aggiunge attesa senza aggiungere sicurezza. Anticipare significa soltanto raccogliere e registrare evidenze in sola lettura. Restano vietati prima del rispettivo gate qualunque codice del generatore definitivo, la numerazione reale, il caricamento di XML nel pannello e ogni attività dell'helper.
 
@@ -1050,11 +1050,11 @@ Non implementare numerazione reale finché non sono stati verificati:
 - riuso o meno del numero;
 - eventuali automatismi Aruba.
 
-Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non fiscale. L'audit read-only definisce una procedura candidata; la prova controllata prevista in 11.4 verifica in chiusura di M5 anche l'ordine osservabile soltanto dopo l'upload. Qualunque divergenza aggiorna procedura, generatore e test prima di completare M5.
+Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non fiscale. L'audit read-only definisce una procedura candidata; la prova controllata prevista in 11.4 verifica in M8 anche l'ordine osservabile soltanto dopo l'upload. Qualunque divergenza aggiorna procedura, generatore e test prima di completare M8 e prima di avviare M9.
 
-### 11.4 M5 - prova manuale controllata come gate di uscita
+### 11.4 M8 - prova manuale controllata come gate di uscita
 
-L'ultimo passaggio di M5 è una prova autorizzata con dati sintetici o anonimizzati: caricamento manuale di un XML fiscalmente valido prodotto da M4 e destinato esclusivamente alla prova, lettura della validazione e del riepilogo trasmissibile, verifica del controllo finale `Invia`, arresto prima dell'ultimo clic, readback e rimozione sicura dell'upload pendente. M5 sviluppa prima pagina sintetica, helper e arresti fail-closed dal contratto candidato ricavato dall'audit read-only; la prova reale ne verifica e fissa il contratto definitivo prima della chiusura della milestone.
+L'ultimo passaggio di M8 è una prova autorizzata con dati sintetici o anonimizzati: caricamento manuale di un XML fiscalmente valido prodotto da M4 e destinato esclusivamente alla prova, lettura della validazione e del riepilogo trasmissibile, verifica del controllo finale `Invia`, arresto prima dell'ultimo clic, readback e rimozione sicura dell'upload pendente. M5 sviluppa pagina sintetica, helper e arresti fail-closed dal contratto candidato ricavato dall'audit read-only; la prova reale di M8 ne verifica e fissa il contratto definitivo prima del Canary Production.
 
 L'autorizzazione specifica del titolare è il prerequisito della prova, non un divieto sulla prova: senza quell'autorizzazione non viene caricato alcun XML. Ottenuta l'autorizzazione, il caricamento è ammesso per il solo XML dedicato alla prova e la prova non esegue in nessun caso un invio.
 
@@ -1078,7 +1078,7 @@ La prova registra:
 - decisione operativa e autorizzazione separata per l'attivazione della 2FA Aruba, consigliata per evitare l'SMS a ogni upload;
 - conferma del commercialista per i valori fiscali non deducibili dai documenti.
 
-M4-M5 aggiornano questa specifica o producono un ADR breve con:
+M4-M5 producono il contratto candidato; M8 aggiorna questa specifica o produce un ADR breve con:
 
 - profilo fiscale finale;
 - regole numerazione;
@@ -2390,7 +2390,7 @@ Classificazione minima:
 - **P1:** import/sync/approvazione indisponibile senza perdita dati o con workaround manuale sicuro;
 - **P2:** difetto non bloccante o degradazione minore.
 
-La Production deve avere un kill switch semplice `ARUBA_SUBMISSION_ENABLED=false`: blocca la creazione di permessi per il clic automatico e forza i nuovi batch al percorso assistito/manuale, ma lascia disponibili numerazione autorizzata, export XML, caricamento manuale, consultazione, import e diagnosi. Il valore iniziale resta `false` finché M4-M5, Canary e autorizzazione all'uso ordinario non sono completati. Nessun kill switch separato per ogni funzione finché non emerge un bisogno reale.
+La Production deve avere un kill switch semplice `ARUBA_SUBMISSION_ENABLED=false`: blocca la creazione di permessi per il clic automatico e forza i nuovi batch al percorso assistito/manuale, ma lascia disponibili numerazione autorizzata, export XML, caricamento manuale, consultazione, import e diagnosi. Il valore iniziale resta `false` finché la qualifica Aruba di M8, il Canary e l'autorizzazione all'uso ordinario non sono completati. Nessun kill switch separato per ogni funzione finché non emerge un bisogno reale.
 
 Il Canary non imposta temporaneamente il flag globale a `true`. Usa invece un permesso monouso persistito in PostgreSQL e vincolato al batch, al manifest, ai documenti, alle revisioni e agli hash XML esatti, con scadenza breve. L'helper lo consuma atomicamente subito prima dell'ultimo clic, dopo aver riletto stato e autorizzazione; mismatch, scadenza, riuso o crash prima del consumo bloccano l'invio. Dopo il Canary il readback verifica che non resti alcun permesso valido. `ARUBA_SUBMISSION_ENABLED=true` viene configurato soltanto dopo la separata autorizzazione all'uso Production ordinario.
 
@@ -2748,7 +2748,7 @@ Quando una prova live espone un difetto:
 
 ## 23. Milestone
 
-Le milestone applicative sono sequenziali. M1-M3 costruiscono l'app senza dipendere da Aruba; M4 incorpora qualifica fiscale, documenti e approvazione; M5 integra il pannello e l'helper e si conclude con la prova manuale controllata. Non esiste una corsia Aruba parallela e l'helper non è un progetto iniziale autonomo.
+Le milestone applicative sono sequenziali. M1-M3 costruiscono l'app senza dipendere da Aruba; M4 incorpora qualifica fiscale, documenti e approvazione; M5 integra pagina sintetica, helper e fallback manuale; M8 qualifica il contratto sul pannello reale prima del Canary Production. Non esiste una corsia Aruba parallela e l'helper non è un progetto iniziale autonomo.
 
 Brand Foundation leggera, comparatore fiscale e PoC/decisione OCI Email Delivery entrano nelle milestone che già possiedono i relativi contratti. Non nasce una milestone intermedia e non si aggiungono un pacchetto design system separato, una libreria di diff XML o due trasporti SMTP paralleli.
 
@@ -2869,11 +2869,13 @@ Gate:
 
 ### M5 - Integrazione Aruba e helper locale
 
-Prerequisito: M4 completata. La prova controllata non è un gate di ingresso: M5 può sviluppare pagina sintetica, helper e controlli locali prima che l'accesso Aruba presidiato sia disponibile. La prova resta il gate di uscita e nessuna osservazione candidata autorizza invii reali.
+**Stato: completata.** Evidenze ripetibili: [integrazione Aruba locale](evidence/aruba-helper.md), pagina sintetica, contract test, migrazione PostgreSQL, helper multipiattaforma e gate canonico.
+
+Prerequisito: M4 completata. La qualifica del pannello reale è deliberatamente differita a M8 e non autorizza invii reali. Fino al suo superamento i locatori restano candidati e `ARUBA_SUBMISSION_ENABLED=false` resta obbligatorio in Production.
 
 Output:
 
-- mapping stati, limiti di upload, locatori minimi e percorso manuale verificati sul pannello reale;
+- mapping stati, limiti di upload, locatori minimi e percorso manuale derivati dall'audit read-only e verificati contro la pagina sintetica;
 - pagina Aruba sintetica locale per test deterministici;
 - helper TypeScript/Playwright unico per Windows e macOS con Chrome o Edge;
 - pause sicure per login, 2FA e CAPTCHA;
@@ -2884,17 +2886,17 @@ Output:
 - fallback manuale completo;
 - recovery senza retry cieco dopo stato incerto;
 - parser XML/PDF e output del pannello limitati e testati contro input ostili o eccessivi;
-- XML candidato verificato nella prova manuale controllata, con riepilogo e controllo finale osservati, arresto prima dell'ultimo clic e upload pendente rimosso senza invio.
+- XML candidato verificato localmente e pronto per la prova manuale controllata di M8.
 
 Gate:
 
-- HF-O06 chiuso; helper verde sui due sistemi operativi contro la pagina sintetica;
+- helper verde sui due sistemi operativi contro la pagina sintetica; HF-O06 resta assegnato al gate M8 senza bloccare M5-M7;
 - permesso monouso consumato una sola volta: mismatch di batch, manifest, documento, revisione o hash, scadenza, riuso e crash prima del consumo non autorizzano l'ultimo clic;
 - stato incerto fail-closed, con riconciliazione obbligatoria prima di ogni nuovo tentativo;
 - un account privo di `can_approve` non può creare un permesso di invio, nemmeno chiamando l'endpoint direttamente;
 - percorso manuale completo eseguito end-to-end senza helper;
 - nessuna credenziale, cookie, sessione o OTP Aruba raggiunge HF, verificato sui log e sulle evidenze;
-- prova manuale controllata eseguita, autorizzata, arrestata prima dell'ultimo clic e ripulita, con evidenza sanitizzata registrata.
+- contratto del pannello reale esplicitamente candidato fino alla prova M8, senza accesso, upload o invio implicati dalla chiusura tecnica di M5.
 
 ### M6 - Note di credito ed e-mail
 
@@ -2956,6 +2958,8 @@ Output:
 - deploy del candidato sullo stesso SHA e digest destinati alla `1.0.0`, con creazione dei permessi ordinari per il clic automatico bloccata (`ARUBA_SUBMISSION_ENABLED=false`);
 - readback operativo che conferma l'assenza di documenti approvati o trasmissibili e di upload Aruba pendenti;
 - import reale degli ultimi 7 giorni e riconciliazione con Aruba senza numerare o trasmettere;
+- prova manuale controllata sul pannello Aruba reale con XML sintetico o anonimizzato dedicato: autenticazione umana, caricamento, validazione e riepilogo osservati, arresto prima di `Invia`, readback e rimozione sicura dell'upload pendente;
+- contratto definitivo dei locatori, limiti, pause di autenticazione, download e stati aggiornato insieme a helper e test se il pannello reale diverge;
 - test end-to-end HF completi su Chromium e WebKit e test helper contro la pagina Aruba sintetica su Windows/macOS con Chrome o Edge, oltre a recovery, sicurezza e migrazioni;
 - comparatore fiscale verificato su fattura e TD04, inclusi proiezione stale, modifiche manuali e arrotondamenti;
 - trasporto SMTP canonico verificato end-to-end con ricevuta e reinvio;
@@ -2970,6 +2974,7 @@ Output:
 
 Gate:
 
+- prova Aruba reale di §11.4 superata con evidenza sanitizzata e HF-O06 chiuso; senza questa prova M8 resta aperta e M9 non può iniziare;
 - nessun P0/P1 o decisione bloccante aperta;
 - ogni finding dell'audit ha prova, severità e stato corrente; P2/P3 residui hanno accettazione e condizione di riapertura;
 - nessun ordine storico approvabile senza riconciliazione;
@@ -3053,7 +3058,7 @@ Audit Aruba e fixture anonimizzata, profilo fiscale e numerazione versionati, ge
 
 ### Integrazione Aruba e helper - M5
 
-Pagina Aruba sintetica e contratto candidato dei locatori derivati dall'audit read-only, helper unico per Windows e macOS, pause umane e allowlist, upload con lettura della validazione e arresto assistito, manifest e permesso monouso con consumo atomico, stato incerto fail-closed con readback e import dei file ufficiali, export XML e procedura manuale completa. La prova manuale controllata verifica il contratto sul pannello reale e chiude M5; eventuali divergenze correggono contratto, implementazione e test prima della chiusura.
+Pagina Aruba sintetica e contratto candidato dei locatori derivati dall'audit read-only, helper unico per Windows e macOS, pause umane e allowlist, upload con lettura della validazione e arresto assistito, manifest e permesso monouso con consumo atomico, stato incerto fail-closed con readback e import dei file ufficiali, export XML e procedura manuale completa. M5 si chiude sulle prove locali e multipiattaforma; la qualifica del contratto sul pannello reale resta il gate M8 previsto in §11.4.
 
 ### Note di credito ed e-mail - M6
 
@@ -3062,6 +3067,10 @@ Ingest del rimborso completato, bozza TD04 cumulativa, residuo accreditabile, nu
 ### Produzione e continuità - M7/M10
 
 Compose di produzione e Caddyfile, Dynu e IP, firewall e hardening SSH, GitHub Environment `Production`, workflow di build e pubblicazione su GHCR con attestazione e scansione, pull per digest senza build remota. Poi monitoraggio: plugin OCI, Notifications, i quattro allarmi, monitor HTTP esterno, rotazione log. Quindi continuità: `backup.sh` con timer e readback, `restore.sh` con conferma distruttiva, restore drill senza i segreti originari. Infine runbook, `.github/release.yml` con immutabilità, import storico riconciliato, collaudo M8, audit trasversale con correzione delle cause condivise, canary, record di readiness e le quattro autorizzazioni distinte - deploy, singolo invio canary, pubblicazione della release e uso Production ordinario - come richieste da §28 e §31; §26 elenca soltanto le classi di azione per cui fermarsi, non questi quattro consensi.
+
+### Collaudo e qualifica Aruba - M8
+
+Distribuire il candidato con kill switch attivo, riconciliare lo storico e completare i test trasversali. Soltanto dopo autorizzazione specifica eseguire la prova di §11.4 sul pannello reale, senza inviare: login e SMS/2FA restano umani, l'upload dedicato viene validato, riletto e rimosso. Qualunque divergenza aggiorna contratto, helper e test prima di chiudere M8 e accedere al Canary Production.
 
 ---
 
@@ -3171,7 +3180,7 @@ Deve fermarsi e chiedere prima di:
 2. Ispezionare lo stato reale del checkout senza sovrascrivere modifiche esistenti.
 3. Avviare M0-M1 localmente con fixture e mock; non attendere Aruba.
 4. Chiedere accessi solo nel momento in cui servono e far inserire nel secret store soltanto quelli gestiti da HF; l'accesso Aruba resta nel browser locale del titolare.
-5. Completare in M4 l'audit autenticato previsto in 11.1; in M5 sviluppare prima pagina sintetica, helper e controlli locali, quindi eseguire la prova reale autorizzata di 11.4 come gate finale della milestone, senza effettuare invii.
+5. Completare in M4 l'audit autenticato previsto in 11.1; in M5 sviluppare e verificare pagina sintetica, helper e controlli locali; in M8 eseguire la prova reale autorizzata di 11.4 come gate finale prima del Canary Production, senza effettuare invii.
 6. Eseguire test, typecheck e build dopo ogni milestone.
 7. Fuori da una richiesta affermativa di pubblicazione, fermarsi per
    autorizzazione prima di deploy o release; fermarsi sempre prima di invii reali
@@ -3233,9 +3242,9 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 ### Prima di completare M5
 
 - [ ] M4 completata con XML candidato immutabile.
-- [ ] Pagina Aruba sintetica e fixture dei file ufficiali derivate dall'audit read-only e dai documenti anonimizzati, poi allineate alle eventuali divergenze osservate nella prova.
-- [ ] Percorso assistito, automatico e manuale verificato; 2FA Aruba attivata dal titolare oppure costo operativo dell'SMS per upload esplicitamente accettato.
-- [ ] Prova manuale controllata autorizzata con XML valido dedicato, riepilogo e controllo finale osservati, arrestata prima dell'ultimo clic e ripulita senza invio.
+- [ ] Pagina Aruba sintetica, fixture dei file ufficiali e contratto candidato derivati dall'audit read-only e dai documenti anonimizzati.
+- [ ] Percorso assistito, automatico e manuale verificato localmente, inclusi fail-closed, readback, pulizia e permesso monouso.
+- [ ] Gate reale assegnato esplicitamente a M8, con locatori ancora candidati e `ARUBA_SUBMISSION_ENABLED=false` obbligatorio in Production.
 
 ### Prima del deploy
 
@@ -3259,11 +3268,14 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Trasporto SMTP canonico deciso; se è OCI Email Delivery, regione, dominio, SPF/DKIM, approved sender, credenziali dedicate e suppression list sono verificati.
 - [ ] Backup OCI giornaliero, Instance Principal minimo, lifecycle, soglia quota e allarme verificati; copia cifrata periodica presente sul Mac.
 
-### Prima del Canary Production
+### Prima di completare M8 e avviare il Canary Production
 
 - [ ] Import storico di 7 giorni riconciliato con Aruba.
 - [ ] Nessun ordine storico approvabile senza verifica.
+- [ ] Autorizzazione specifica ottenuta per la sola prova controllata; 2FA Aruba attivata dal titolare oppure costo operativo dell'SMS per upload esplicitamente accettato.
 - [ ] Fattura sintetica validata sulla pagina locale e caricamento controllato sul pannello reale completato.
+- [ ] Validazione, riepilogo e controllo finale osservati; prova arrestata prima di `Invia`, upload rimosso e assenza confermata dal readback, con evidenza sanitizzata.
+- [ ] Contratto dei locatori, helper e test aggiornati insieme per ogni divergenza del pannello reale; HF-O06 chiuso.
 - [ ] Nota di credito sintetica validata sulla pagina locale; se non è disponibile un TD04 già accettato, TD04 valido dedicato caricato in modo controllato sul pannello reale, arrestato prima dell'ultimo clic e ripulito senza invio.
 - [ ] Pagamento pendente e differenza importo testati.
 - [ ] Comparatore fiscale verificato su fattura e TD04; modifica successiva e hash/revisione stale bloccano l'approvazione.
@@ -3371,7 +3383,7 @@ Questi punti non sono dimenticanze. Sono sospesi intenzionalmente perché dipend
 | HF-O03 | PDF ufficiale Aruba o attivazione del fallback PDFKit già selezionato | copia cliente definitiva | download dal pannello Aruba reale | readback PDF verificato o fallback PDFKit approvato |
 | HF-O04 | Mapping campi fiscali Shopify | connettore Shopify completo | query su ordine reale e API corrente | contract fixture anonimizzata e mapper testato |
 | HF-O05 | Forma tax identifier e importi rimborso eBay | connettore eBay completo e TD04 | payload Sandbox/reali e API corrente | fixture, mapper e casi ambigui verificati |
-| HF-O06 | Locatori, pause di autenticazione, limiti, download e stati del pannello Aruba | M5 e Production | audit autenticato, prova controllata e guide correnti | helper sui due sistemi operativi, mapping, fallback manuale e recovery da stato incerto verificati |
+| HF-O06 | Locatori, pause di autenticazione, limiti, download e stati del pannello Aruba | M8 e Production | audit autenticato, prova controllata e guide correnti | helper sui due sistemi operativi, mapping, fallback manuale e recovery da stato incerto verificati sul candidato e qualificati sul pannello reale senza invio |
 | HF-O07 | Trasporto e limiti SMTP | invio copia cliente | controllo DNS del dominio mittente; solo se presente, provider esistente e PoC OCI Email Delivery | assenza di controllo DNS chiude la decisione su «SMTP esistente» senza PoC; altrimenti un solo trasporto canonico scelto con consegna, errore, suppression e reinvio verificati senza segreti o dati cliente nei log |
 | HF-O08 | Retention fiscale e tecnica definitiva | go-live | commercialista, obblighi applicabili e capacità storage | durate, eccezioni e procedura di cancellazione approvate |
 | HF-O09 | Direzione visiva della Brand Foundation leggera | UI definitiva | due o tre proposte minime coerenti con uso privato e accessibilità | il titolare approva `docs/brand/brand-foundation.md`, SVG canonico e asset richiesti senza ampliare il perimetro |
@@ -3405,4 +3417,4 @@ Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile
 
 La priorità non è costruire un motore fiscale generale, ma impedire errori operativi: dati mancanti, doppie fatture, doppi rimborsi, numerazione errata, invii non approvati e perdita di tracciabilità.
 
-Il primo lavoro concreto segue M1 e le milestone successive in ordine. La pagina Aruba sintetica e l'helper nascono soltanto in M5, dopo che M4 ha qualificato profilo fiscale, numerazione e XML tramite pannello read-only e documenti già accettati dallo SdI. La prova manuale controllata sul pannello reale chiude M5 arrestandosi prima dell'invio. Nessuna integrazione Aruba procede su una roadmap parallela.
+Il primo lavoro concreto segue M1 e le milestone successive in ordine. La pagina Aruba sintetica e l'helper nascono soltanto in M5, dopo che M4 ha qualificato profilo fiscale, numerazione e XML tramite pannello read-only e documenti già accettati dallo SdI. La prova manuale controllata sul pannello reale chiude M8 arrestandosi prima dell'invio ed è un prerequisito inderogabile di M9. Nessuna integrazione Aruba procede su una roadmap parallela.
