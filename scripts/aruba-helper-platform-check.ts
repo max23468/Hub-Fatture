@@ -70,7 +70,7 @@ const server = createServer(async (request, response) => {
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     response.end(`<!doctype html>
       <html lang="it"><body>
-        <p>Account: synthetic-aruba-account</p>
+        <p data-aruba-account="synthetic-aruba-account">Account: synthetic-aruba-account</p>
         <label for="upload">Seleziona documenti</label><input id="upload" type="file" multiple>
         <table><tbody></tbody></table>
         <button id="send" disabled>Invia</button>

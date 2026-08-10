@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
 
-import { validateVisibleDocuments } from "../../scripts/aruba-helper.ts";
+import { assertAccount, validateVisibleDocuments } from "../../scripts/aruba-helper.ts";
 
 const xml = "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml";
 
@@ -16,6 +16,12 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(page.locator('[data-aruba-state="upload-ready"]')).toBeVisible();
 
   await page.goto("/aruba-sintetica?scenario=valid");
+  await expect(assertAccount(page, "synthetic-aruba-account")).resolves.toBeUndefined();
+  await page.locator("[data-aruba-account]").evaluate((element) => {
+    element.setAttribute("hidden", "");
+  });
+  await expect(assertAccount(page, "synthetic-aruba-account")).rejects.toThrow("DOM_UNRECOGNIZED");
+  await page.reload();
   await page.getByLabel("Seleziona documenti").setInputFiles(xml);
   await expect(page.getByRole("cell", { name: "Documento valido" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Invia" })).toBeEnabled();

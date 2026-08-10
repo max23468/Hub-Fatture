@@ -180,6 +180,7 @@ export async function createArubaBatch(
   actor: ArubaActor,
   expectedMode?: unknown,
   attemptNumber = 1,
+  preservedMode?: ArubaMode,
 ): Promise<string> {
   if (!actor.canApprove) throw new AppError("ARUBA_PERMIT_FORBIDDEN", 403);
   if (
@@ -193,14 +194,18 @@ export async function createArubaBatch(
   if (unique.size !== documents.length) throw new AppError("ARUBA_BATCH_INVALID", 422);
   const configuredMode = await currentMode(client);
   const environment = getConfig().APP_ENV === "production" ? "PRODUCTION" : "MOCK";
-  const mode = effectiveArubaMode(
+  const effectiveMode = effectiveArubaMode(
     configuredMode,
     environment,
     getConfig().ARUBA_SUBMISSION_ENABLED,
   );
-  if (expectedMode !== undefined && expectedMode !== mode) {
+  if (expectedMode !== undefined && expectedMode !== effectiveMode) {
     throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
   }
+  if (preservedMode === "AUTOMATIC" && effectiveMode !== "AUTOMATIC") {
+    throw new AppError("ARUBA_PERMIT_INVALID", 409);
+  }
+  const mode = preservedMode ?? effectiveMode;
   const accountReference = await currentArubaAccount(client);
   const batchId = randomUUID();
   const digest = manifestSha256(
@@ -993,6 +998,7 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor) {
       actor,
       undefined,
       current.attempt_number + 1,
+      current.mode,
     );
     await client.query(
       "UPDATE aruba_batches SET status = 'CANCELLED', updated_at = now() WHERE id = $1",

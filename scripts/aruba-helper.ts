@@ -136,8 +136,21 @@ function assertDownloadUrl(url: string, target: URL) {
   }
 }
 
-async function assertAccount(page: Page, accountReference: string) {
-  if (!(await page.getByText(accountReference, { exact: false }).count())) {
+export async function assertAccount(page: Page, accountReference: string) {
+  const candidates = page.locator(
+    '[data-aruba-account], [aria-current="true"], [aria-selected="true"], [data-active="true"]',
+    { hasText: accountReference },
+  );
+  const count = await candidates.count();
+  if (!count || count > 20) throw new Error("DOM_UNRECOGNIZED");
+  const visible = [];
+  for (let index = 0; index < count; index += 1) {
+    const candidate = candidates.nth(index);
+    if (await candidate.isVisible()) visible.push(candidate);
+  }
+  if (visible.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+  const declaredAccount = await visible[0]!.getAttribute("data-aruba-account");
+  if (declaredAccount !== null && declaredAccount !== accountReference) {
     throw new Error("DOM_UNRECOGNIZED");
   }
 }
@@ -234,6 +247,9 @@ async function removeUploads(page: Page, value: ArubaManifest) {
     const remove = row.getByRole("button", { name: /Rimuovi|Elimina/i }).first();
     if (!(await remove.count())) throw new Error("DOM_UNRECOGNIZED");
     await remove.click();
+    await row.waitFor({ state: "hidden", timeout: 10_000 }).catch(() => {
+      throw new Error("DOM_UNRECOGNIZED");
+    });
   }
 }
 

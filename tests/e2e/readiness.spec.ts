@@ -330,28 +330,23 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
   await page.getByRole("button", { name: "Prepara nuovo tentativo" }).click();
   await page.getByRole("button", { name: "Genera codice di avvio" }).first().click();
-  const automaticToken = (await page.locator(".code-block").textContent())?.trim();
-  expect(automaticToken).toHaveLength(43);
-  const automaticProfile = await mkdtemp(path.join(tmpdir(), "hub-fatture-aruba-automatic-"));
+  const retryToken = (await page.locator(".code-block").textContent())?.trim();
+  expect(retryToken).toHaveLength(43);
+  const retryProfile = await mkdtemp(path.join(tmpdir(), "hub-fatture-aruba-retry-"));
   try {
     expect(
       await runHelper({
         hubUrl: "http://127.0.0.1:4173",
-        token: automaticToken!,
-        profileDirectory: automaticProfile,
+        token: retryToken!,
+        profileDirectory: retryProfile,
         browser: "chromium",
         headless: true,
         closeAfterStop: true,
       }),
-    ).toBe("SUBMITTED");
+    ).toBe("ASSISTED_STOP");
   } finally {
-    await rm(automaticProfile, { recursive: true, force: true });
+    await rm(retryProfile, { recursive: true, force: true });
   }
-  await page.reload();
-  await expect(page.getByText("File ufficiali archiviati")).toBeVisible();
-  const officialDownload = page.waitForEvent("download");
-  await page.getByRole("link", { name: "XML Aruba" }).click();
-  expect((await officialDownload).suggestedFilename()).toMatch(/\.xml$/);
 });
 
 test("le mutazioni senza origine valida non raggiungono l’azione", async ({ request }) => {
