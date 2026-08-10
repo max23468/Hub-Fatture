@@ -55,4 +55,4 @@ Il golden test verifica TD01 e TD04 anonimizzate, `RF14`, `N5`, i metodi di paga
 
 ## Gate di qualifica live differito
 
-La prova controllata non blocca l'avvio dello sviluppo: pagina sintetica, helper e controlli fail-closed possono essere realizzati dal contratto candidato ricavato dall'audit read-only. Prima di dichiarare completata l'integrazione Aruba resta obbligatorio, soltanto dopo autorizzazione specifica, caricare il candidato anonimizzato nel pannello, leggere validazione e riepilogo, arrestarsi prima di `Invia` e rimuovere l'upload pendente. Ogni divergenza osservata deve correggere contratto, implementazione e test prima della chiusura.
+La prova controllata non blocca le attività locali successive: pagina sintetica, helper e controlli fail-closed sono verificati dal contratto candidato ricavato dall'audit read-only. Prima del Canary Production resta obbligatorio, soltanto dopo autorizzazione specifica, caricare il candidato anonimizzato nel pannello, leggere validazione e riepilogo, arrestarsi prima di `Invia` e rimuovere l'upload pendente. Ogni divergenza osservata deve correggere contratto, implementazione e test prima di chiudere il gate.
