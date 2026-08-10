@@ -517,19 +517,19 @@ function draftAuditSnapshot(draft: DraftRow): Record<string, unknown> {
 }
 
 function sourceAuditSnapshot(caseRow: CaseRow, profile: FiscalProfile): Record<string, unknown> {
-  return documentAuditSnapshot({
-    kind: "INVOICE",
-    documentDate: today(),
-    recipient: recipient(
-      caseRow.orders[0]?.customer_snapshot_json ?? caseRow.customer_snapshot_json,
-      false,
-    ),
+  return {
+    recipients: caseRow.orders.map((order) => ({
+      orderId: order.id,
+      recipient: recipient(order.customer_snapshot_json, false),
+    })),
     lines: caseRow.orders.map(sourceLine),
     paymentStatus: caseRow.orders.some((order) => order.payment_status === "PENDING")
       ? "PENDING"
       : "PAID",
     paymentMethod: profile.payment.invoiceMethod,
-  });
+    causale: null,
+    notes: null,
+  };
 }
 
 export async function saveInvoiceDraft(

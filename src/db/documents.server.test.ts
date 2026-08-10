@@ -117,6 +117,25 @@ test(
       let [firstProjection, secondProjection, thirdProjection] = await Promise.all(
         cases.map((billingCase) => save(billingCase.id)),
       );
+      await orders.correctBillingCaseCustomer(
+        cases[2]!.id,
+        {
+          ...structuredClone(first.customer),
+          billingAddress: { ...first.customer.billingAddress, line1: "Via Milano 3" },
+        },
+        thirdProjection.caseRevision,
+        "Indirizzo verificato",
+        { id: 1, requestId: "invalidate-standard-draft-after-correction" },
+      );
+      const correctedThirdProjection = await documents.getInvoiceProjection(cases[2]!.id);
+      assert.ok(
+        correctedThirdProjection &&
+          !correctedThirdProjection.profileMissing &&
+          "lines" in correctedThirdProjection,
+      );
+      assert.equal(correctedThirdProjection.requiresResave, true);
+      assert.equal((await documents.listMassApprovalCandidates()).length, 2);
+      thirdProjection = await save(cases[2]!.id);
       await orders.importOrders([fifth], { id: 1, requestId: "reconcile-draft-after-grouping" });
       const groupedProjection = await documents.getInvoiceProjection(cases[0]!.id);
       assert.ok(
@@ -146,7 +165,43 @@ test(
       assert.equal(invalidated.draftVersion, firstProjection.draftVersion + 1);
       assert.equal(invalidated.lines.length, 2);
       assert.equal(invalidated.requiresResave, true);
+      await database.getPool().query(
+        `UPDATE orders
+         SET normalized_snapshot_json = jsonb_set(
+           normalized_snapshot_json, '{customer,billingAddress,line1}', '"Via Origine 5"'
+         )
+         WHERE external_order_id = $1`,
+        [fifth.externalOrderId],
+      );
       const regeneratedFirstProjection = await save(cases[0]!.id);
+      const reconciliationAudit = (
+        await database.getPool().query<{
+          before_json: { lines: unknown[] };
+          after_json: { lines: unknown[] };
+        }>(
+          `SELECT before_json, after_json FROM audit_events
+           WHERE action = 'ORDER_SEPARATED' AND request_id = $1`,
+          ["invalidate-draft-after-separation"],
+        )
+      ).rows[0]!;
+      assert.equal(reconciliationAudit.before_json.lines.length, 3);
+      assert.equal(reconciliationAudit.after_json.lines.length, 2);
+      const sourceAudit = (
+        await database.getPool().query<{
+          before_json: {
+            imported: { recipients: Array<{ recipient: { address: { line1: string } } }> };
+          };
+        }>(
+          `SELECT before_json FROM audit_events
+           WHERE action = 'DOCUMENT_DRAFT_SAVED' AND request_id = $1
+           ORDER BY id DESC LIMIT 1`,
+          [`save-${cases[0]!.id}`],
+        )
+      ).rows[0]!.before_json.imported.recipients;
+      assert.deepEqual(
+        sourceAudit.map(({ recipient: importedRecipient }) => importedRecipient.address.line1),
+        ["Via Esempio 1", "Via Origine 5"],
+      );
       await documents.saveInvoiceDraft(
         cases[1]!.id,
         {
@@ -261,13 +316,16 @@ test(
         )
       ).rows[0]!;
       const correctionBefore = correctionAudit.before_json as {
-        imported: { recipient: { address: { line1: string } } };
+        imported: { recipients: Array<{ recipient: { address: { line1: string } } }> };
         previous: { recipient: { address: { line1: string } } };
       };
       const correctionAfter = correctionAudit.after_json as {
         current: { recipient: { address: { line1: string } } };
       };
-      assert.equal(correctionBefore.imported.recipient.address.line1, "Via Esempio 1");
+      assert.equal(
+        correctionBefore.imported.recipients[0]!.recipient.address.line1,
+        "Via Esempio 1",
+      );
       assert.equal(correctionBefore.previous.recipient.address.line1, "Via Esempio 1");
       assert.equal(correctionAfter.current.recipient.address.line1, "Via Roma 2");
       assert.equal((await documents.listMassApprovalCandidates()).length, 2);

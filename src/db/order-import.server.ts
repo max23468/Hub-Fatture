@@ -48,15 +48,42 @@ interface GroupableOrder {
   currency: string;
 }
 
-export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: string) {
-  const draft = await client.query<{ id: string }>(
-    `SELECT id FROM documents
-     WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'
-     FOR UPDATE`,
+async function invoiceDraftAuditSnapshot(client: pg.PoolClient, caseId: string, lock = false) {
+  const result = await client.query<{ id: string; snapshot: Record<string, unknown> }>(
+    `SELECT documents.id, jsonb_build_object(
+       'recipient', documents.recipient_snapshot_json,
+       'lines', coalesce((
+         SELECT jsonb_agg(jsonb_build_object(
+           'orderId', document_lines.order_id::text,
+           'description', document_lines.description,
+           'quantity', document_lines.quantity,
+           'unitAmount', document_lines.unit_amount
+         ) ORDER BY document_lines.line_number)
+         FROM document_lines WHERE document_lines.document_id = documents.id
+       ), '[]'::jsonb),
+       'sourceTotal', documents.source_total_amount,
+       'total', documents.total_amount,
+       'difference', documents.difference_amount,
+       'paymentStatus', documents.payment_status,
+       'paymentMethod', documents.payment_method,
+       'causale', documents.causale,
+       'notes', documents.notes,
+       'draftVersion', documents.draft_version,
+       'projectionSha256', documents.projection_sha256
+     ) AS snapshot
+     FROM documents
+     WHERE documents.billing_case_id = $1
+       AND documents.kind = 'INVOICE' AND documents.status = 'DRAFT'
+     ${lock ? "FOR UPDATE OF documents" : ""}`,
     [caseId],
   );
-  const documentId = draft.rows[0]?.id;
-  if (!documentId) return;
+  return result.rows[0] ?? null;
+}
+
+export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: string) {
+  const before = await invoiceDraftAuditSnapshot(client, caseId, true);
+  const documentId = before?.id;
+  if (!documentId) return null;
   await client.query(
     `DELETE FROM document_lines
      WHERE document_id = $1
@@ -120,6 +147,8 @@ export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: strin
      WHERE id = $1`,
     [documentId],
   );
+  const after = await invoiceDraftAuditSnapshot(client, caseId);
+  return after ? { before: before.snapshot, after: after.snapshot } : null;
 }
 
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
@@ -296,7 +325,7 @@ export async function groupOrder(
     [order.id, caseId],
   );
   if (assigned.rowCount) {
-    await reconcileInvoiceDraft(client, caseId);
+    const reconciliation = await reconcileInvoiceDraft(client, caseId);
     await writeAudit(client, {
       ...auditActor(actor),
       action: forced ? "ORDER_GROUPING_FORCED" : "ORDER_GROUPED",
@@ -304,6 +333,8 @@ export async function groupOrder(
       entityType: "ORDER",
       entityId: order.id,
       metadata: { billingCaseId: caseId },
+      before: reconciliation?.before,
+      after: reconciliation?.after,
       requestId: actor.requestId,
     });
   }
