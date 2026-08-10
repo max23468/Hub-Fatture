@@ -53,6 +53,6 @@ Lo schema ufficiale `FatturaPA_v1.2.2.xsd` è conservato senza modifiche insieme
 
 Il golden test verifica TD01 e TD04 anonimizzate, `RF14`, `N5`, i metodi di pagamento e la conformità XSD offline. I test PostgreSQL verificano numerazione concorrente, permesso del solo titolare, hash stale, immutabilità, storage e approvazione in blocco.
 
-## Gate ancora aperto
+## Gate di qualifica live differito
 
-- Eseguire, soltanto dopo autorizzazione specifica, il caricamento del candidato anonimizzato nel pannello, leggere validazione e riepilogo, arrestarsi prima di `Invia` e rimuovere l'upload pendente.
+La prova controllata non blocca l'avvio dello sviluppo: pagina sintetica, helper e controlli fail-closed possono essere realizzati dal contratto candidato ricavato dall'audit read-only. Prima di dichiarare completata l'integrazione Aruba resta obbligatorio, soltanto dopo autorizzazione specifica, caricare il candidato anonimizzato nel pannello, leggere validazione e riepilogo, arrestarsi prima di `Invia` e rimuovere l'upload pendente. Ogni divergenza osservata deve correggere contratto, implementazione e test prima della chiusura.
