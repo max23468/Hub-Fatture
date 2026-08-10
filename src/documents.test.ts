@@ -5,6 +5,7 @@ import test from "node:test";
 import profileFixture from "../tests/fixtures/fatturapa/profile.mock.json" with { type: "json" };
 
 import {
+  documentInputSchema,
   generateFatturaXml,
   projectFatturaXml,
   type DocumentInput,
@@ -106,4 +107,46 @@ test("la validazione rifiuta DTD e numbering incoerente", async () => {
     () => generateFatturaXml(syntheticFiscalProfile, invoice, { year: 2025, number: 1 }),
     /Numerazione non coerente/,
   );
+});
+
+test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async () => {
+  const personalBusiness = documentInputSchema.parse({
+    ...invoice,
+    recipient: {
+      ...invoice.recipient,
+      kind: "BUSINESS_IT",
+      taxIdentifiers: [{ type: "PARTITA_IVA", value: "10987654321", countryCode: "IT" }],
+    },
+  });
+  const personalBusinessXml = generateFatturaXml(syntheticFiscalProfile, personalBusiness, {
+    year: 2026,
+    number: 3,
+  });
+  await validateFatturaXml(personalBusinessXml);
+  assert.match(personalBusinessXml, /<Nome>Mario<\/Nome>/);
+  assert.match(personalBusinessXml, /<Cognome>Rossi<\/Cognome>/);
+
+  const foreign = documentInputSchema.parse({
+    ...invoice,
+    recipient: {
+      kind: "EU",
+      displayName: "Voorbeeld Handel",
+      taxIdentifiers: [{ type: "PARTITA_IVA", value: "123456789B01", countryCode: "NL" }],
+      address: {
+        line1: "Keizersgracht 1",
+        postalCode: "1012 AB",
+        city: "Amsterdam",
+        province: "Noord-Holland",
+        countryCode: "NL",
+      },
+    },
+  });
+  const foreignXml = generateFatturaXml(syntheticFiscalProfile, foreign, {
+    year: 2026,
+    number: 4,
+  });
+  await validateFatturaXml(foreignXml);
+  assert.match(foreignXml, /<Denominazione>Voorbeeld Handel<\/Denominazione>/);
+  assert.match(foreignXml, /<CAP>00000<\/CAP>/);
+  assert.doesNotMatch(foreignXml, /1012 AB|Noord-Holland|undefined/);
 });

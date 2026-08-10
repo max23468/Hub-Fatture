@@ -12,13 +12,40 @@ const taxIdentifier = z.object({
   value: text(28),
   countryCode: country.optional(),
 });
-const address = z.object({
+const fiscalAddress = z.object({
   line1: text(60),
-  postalCode: text(5),
+  postalCode: z
+    .string()
+    .trim()
+    .regex(/^\d{5}$/),
   city: text(60),
   province: z.string().trim().max(2).optional(),
   countryCode: country,
 });
+const recipientAddress = z
+  .object({
+    line1: text(60),
+    postalCode: text(16),
+    city: text(60),
+    province: text(60).optional(),
+    countryCode: country,
+  })
+  .superRefine((value, context) => {
+    if (value.countryCode === "IT" && !/^\d{5}$/.test(value.postalCode)) {
+      context.addIssue({
+        code: "custom",
+        path: ["postalCode"],
+        message: "CAP italiano non valido",
+      });
+    }
+    if (value.countryCode === "IT" && value.province && value.province.length !== 2) {
+      context.addIssue({
+        code: "custom",
+        path: ["province"],
+        message: "Provincia italiana non valida",
+      });
+    }
+  });
 
 export const fiscalProfileSchema = z
   .object({
@@ -29,7 +56,7 @@ export const fiscalProfileSchema = z
       taxCode: text(28).optional(),
       businessName: text(80),
       taxRegime: z.literal("RF14"),
-      address,
+      address: fiscalAddress,
       phone: text(12).optional(),
       email: z.email().max(256).optional(),
     }),
@@ -148,6 +175,7 @@ export const documentInputSchema = z
     documentDate: postgresDateSchema,
     recipient: z.object({
       kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU"]),
+      displayName: text(80).optional(),
       firstName: text(60).optional(),
       lastName: text(60).optional(),
       businessName: text(80).optional(),
@@ -158,7 +186,7 @@ export const documentInputSchema = z
         .regex(/^[A-Z0-9]{7}$/)
         .optional(),
       taxIdentifiers: z.array(taxIdentifier).min(1),
-      address,
+      address: recipientAddress,
     }),
     lines: z
       .array(
@@ -178,8 +206,20 @@ export const documentInputSchema = z
     if (recipient.kind === "PRIVATE_IT" && (!recipient.firstName || !recipient.lastName)) {
       context.addIssue({ code: "custom", path: ["recipient"], message: "Nome e cognome mancanti" });
     }
-    if (recipient.kind === "BUSINESS_IT" && !recipient.businessName) {
+    if (
+      recipient.kind === "BUSINESS_IT" &&
+      !recipient.businessName &&
+      (!recipient.firstName || !recipient.lastName)
+    ) {
       context.addIssue({ code: "custom", path: ["recipient"], message: "Denominazione mancante" });
+    }
+    if (
+      recipient.kind === "EU" &&
+      !recipient.displayName &&
+      !recipient.businessName &&
+      (!recipient.firstName || !recipient.lastName)
+    ) {
+      context.addIssue({ code: "custom", path: ["recipient"], message: "Nome mancante" });
     }
     const total = value.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
     if (!Number.isSafeInteger(total) || total > POSTGRES_INTEGER_MAX) {
@@ -276,8 +316,12 @@ export function generateFatturaXml(
   const fiscalCode = taxId(input.recipient, "CODICE_FISCALE");
   if (fiscalCode) add(customerData, "CodiceFiscale", fiscalCode.value);
   const customerName = customerData.ele("Anagrafica");
-  if (input.recipient.businessName)
-    add(customerName, "Denominazione", input.recipient.businessName);
+  if (input.recipient.businessName || input.recipient.displayName)
+    add(
+      customerName,
+      "Denominazione",
+      input.recipient.businessName ?? input.recipient.displayName!,
+    );
   else {
     add(customerName, "Nome", input.recipient.firstName!);
     add(customerName, "Cognome", input.recipient.lastName!);
@@ -323,11 +367,14 @@ export function generateFatturaXml(
   return `${root.end({ prettyPrint: true })}\n`;
 }
 
-function addAddress(parent: XmlNode, value: z.infer<typeof address>): void {
+function addAddress(
+  parent: XmlNode,
+  value: z.infer<typeof fiscalAddress> | z.infer<typeof recipientAddress>,
+): void {
   add(parent, "Indirizzo", value.line1);
-  add(parent, "CAP", value.postalCode);
+  add(parent, "CAP", value.countryCode === "IT" ? value.postalCode : "00000");
   add(parent, "Comune", value.city);
-  if (value.province) add(parent, "Provincia", value.province);
+  if (value.countryCode === "IT" && value.province) add(parent, "Provincia", value.province);
   add(parent, "Nazione", value.countryCode);
 }
 

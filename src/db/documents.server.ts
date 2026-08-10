@@ -93,6 +93,7 @@ function recipient(snapshot: Record<string, unknown>): DocumentInput["recipient"
   const taxIdentifiers = Array.isArray(snapshot.taxIdentifiers) ? snapshot.taxIdentifiers : [];
   return {
     kind: snapshot.kind as DocumentInput["recipient"]["kind"],
+    displayName: stringValue(snapshot.displayName),
     firstName: stringValue(snapshot.firstName),
     lastName: stringValue(snapshot.lastName),
     businessName: stringValue(snapshot.companyName),
@@ -205,14 +206,28 @@ function joined(values: Array<string | undefined>): string {
 }
 
 function recipientIdentity(value: DocumentInput["recipient"]): string {
-  return value.businessName ?? ([value.firstName, value.lastName].filter(Boolean).join(" ") || "—");
+  return (
+    value.businessName ??
+    ([value.firstName, value.lastName].filter(Boolean).join(" ") || value.displayName || "—")
+  );
 }
 
-function recipientAddress(value: DocumentInput["recipient"]): string {
+function projectedRecipientIdentity(value: DocumentInput["recipient"]): string {
+  return (
+    value.businessName ??
+    value.displayName ??
+    ([value.firstName, value.lastName].filter(Boolean).join(" ") || "—")
+  );
+}
+
+function recipientAddress(value: DocumentInput["recipient"], projected = false): string {
   return joined([
     value.address.line1,
-    joined([value.address.postalCode, value.address.city]),
-    value.address.province,
+    joined([
+      projected && value.address.countryCode !== "IT" ? "00000" : value.address.postalCode,
+      value.address.city,
+    ]),
+    value.address.countryCode === "IT" ? value.address.province : undefined,
     value.address.countryCode,
   ]);
 }
@@ -271,7 +286,7 @@ function invoiceComparison(caseRow: CaseRow, input: DocumentInput, profile: Fisc
         field: "identity" as const,
         source: sourceRecipients(caseRow.orders, recipientIdentity),
         draft: recipientIdentity(input.recipient),
-        projected: recipientIdentity(input.recipient),
+        projected: projectedRecipientIdentity(input.recipient),
       },
       {
         field: "taxes" as const,
@@ -283,7 +298,7 @@ function invoiceComparison(caseRow: CaseRow, input: DocumentInput, profile: Fisc
         field: "address" as const,
         source: sourceRecipients(caseRow.orders, recipientAddress),
         draft: recipientAddress(input.recipient),
-        projected: recipientAddress(input.recipient),
+        projected: recipientAddress(input.recipient, true),
       },
       {
         field: "delivery" as const,
