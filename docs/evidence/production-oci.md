@@ -18,7 +18,7 @@
 - quattro allarmi abilitati per metriche assenti, CPU, memoria e load average;
 - dominio APM Always Free `hub-fatture-production` attivo con monitor HTTP `hub-fatture-health` ogni 6 minuti da Milano e allarme dedicato dopo due esecuzioni consecutive senza successo;
 - bucket privato `hub-fatture-backups`, lifecycle di 30 giorni limitato a `hub-fatture/archive/` e copia `hub-fatture/current/` esclusa;
-- dynamic group `hub-fatture-backup` ristretto alla sola VPS e policy limitata alla creazione e al readback degli oggetti cifrati, alla pubblicazione sul topic e all’esecuzione di Run Command; la VPS non può cancellare backup;
+- dynamic group `hub-fatture-backup` ristretto alla sola VPS e policy limitata alla creazione e al readback degli oggetti cifrati e alla pubblicazione sul topic; la VPS non può cancellare backup né eseguire comandi OCI;
 - Environment GitHub `Production` limitato ai branch protetti, con `max23468` come unico reviewer e segreti SSH scoped.
 - log applicativi ruotati dal driver locale Docker, access log Caddy ruotati nativamente e journal di sistema gestito da `systemd`.
 
@@ -37,8 +37,9 @@ Ambiente `Production`, regione `eu-milan-1`, istanza OCI con suffisso `v6almouq`
 ### Rollback e ritorno
 
 - backup pre-rollback completato, quindi rollback reale al commit `3eccac2a18f53b5bcd38aa7abd7ab4be39666afa` e digest `sha256:8ed61a4a81480d06e280f89385c8d71d45bcd1f2216ba507a06deb0dba32f77a`;
-- readback rollback del `2026-08-11T21:00:38Z`: schema `015_canonical_account_names.sql`, kill switch `false`, health verde, web e worker sul digest precedente e login riuscito per entrambi gli account;
-- ritorno allo stesso commit e digest correnti verificato alle `2026-08-11T21:01:45Z`, senza down migration e con gli stessi gate di health, schema e kill switch.
+- readback rollback del `2026-08-11T22:13:34Z`: schema `015_canonical_account_names.sql`, kill switch `false`, health verde, web e worker sul digest precedente e login riuscito per entrambi gli account;
+- con zero connessioni è stato inserito un solo job sintetico `shopify_sync_orders` con un unico tentativo: il worker precedente lo ha acquisito e chiuso `FAILED` con `PROVIDER_NOT_CONFIGURED`, senza chiamare provider; coda e connessioni sono rimaste a zero e il job è stato rimosso puntualmente;
+- ritorno allo stesso commit e digest correnti verificato alle `2026-08-11T22:13:59Z`, senza down migration e con gli stessi gate di health, schema, worker, coda, connessioni e kill switch.
 
 ### Backup e restore drill
 
@@ -53,7 +54,7 @@ Ambiente `Production`, regione `eu-milan-1`, istanza OCI con suffisso `v6almouq`
 
 - istanza `VM.Standard.A1.Flex` portata a 4 OCPU e 24 GB, massimo Ampere Always Free disponibile nel tenancy; boot volume mantenuto a 47 GB per non consumare senza necessità il plafond storage condiviso con le altre VPS;
 - riavvio conseguente verificato: kernel Oracle corrente, nessun pacchetto APT o snap pendente e nessun altro riavvio richiesto;
-- agent OCI, Compute Instance Monitoring, OS Management Hub, Block Volume Management, Bastion e Run Command attivi; Run Command collaudato dopo aver aggiunto il permesso minimo al dynamic group;
+- agent OCI, Compute Instance Monitoring, OS Management Hub, Block Volume Management e Bastion attivi; dopo il collaudo controllato, il plugin Run Command è stato disabilitato e il relativo permesso è stato rimosso dal dynamic group di backup preservando tutti gli altri plugin;
 - il riavvio controllato ha portato `hub-fatture-metrics-absent` da `OK` a `FIRING` alle `2026-08-11T21:13:12Z` e di nuovo a `OK` alle `2026-08-11T21:15:15Z`; la notifica di rientro è stata ricevuta e gli allarmi CPU, memoria e load average sono rimasti sani;
 - il monitor locale è stato eseguito due volte senza ricevuta backup, poi dopo il ripristino della ricevuta e ancora una volta in stato sano: la deduplicazione ha prodotto esattamente un allarme e un rientro, confermati alle `2026-08-11T21:28:00Z` dalle metriche OCI con `2` messaggi pubblicati e `2` consegnati;
 - il target del solo monitor esterno è stato portato temporaneamente su una route inesistente: due esecuzioni consecutive hanno prodotto Availability `0` alle `2026-08-11T21:27:00Z` e `2026-08-11T21:33:00Z`, quindi `hub-fatture-health-unavailable` è passato da `OK` a `FIRING` alle `2026-08-11T21:36:11Z`; ripristinato il target canonico, Availability è tornata a `1` alle `2026-08-11T21:39:00Z` e l’allarme a `OK` alle `2026-08-11T21:42:06Z`, senza downtime pubblico e con esattamente `2` messaggi pubblicati e `2` consegnati per allarme e rientro;
