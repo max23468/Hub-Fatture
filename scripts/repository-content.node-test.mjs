@@ -285,7 +285,10 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     databaseDump,
   );
   const resumeWriters = backup.lastIndexOf("\nresume_writers\n");
-  assert.match(backup, /unpause app-web app-worker.*up -d --wait app-web app-worker/s);
+  assert.match(
+    backup,
+    /unpause app-web app-worker.*up -d --wait --wait-timeout 60 app-web app-worker/s,
+  );
   assert.ok(
     pauseWriters >= 0 &&
       pauseWriters < reconcileStorage &&
