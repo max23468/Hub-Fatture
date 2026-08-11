@@ -43,7 +43,7 @@ test("la configurazione applica i limiti delle sessioni", () => {
       EBAY_ENVIRONMENT: "production",
       ARUBA_ACCOUNT_REFERENCE: "aruba-account-test",
       SMTP_TRANSPORT: "OCI_EMAIL_DELIVERY",
-      SMTP_FROM: "contabilita@negozio.it",
+      SMTP_FROM: "contabilita@numisleo.it",
       SMTP_HOST: "smtp.email.eu-milan-1.oci.oraclecloud.com",
       SMTP_USERNAME: "synthetic-user",
       SMTP_PASSWORD: "synthetic-password",
@@ -58,7 +58,7 @@ test("la configurazione applica i limiti delle sessioni", () => {
       EBAY_ENVIRONMENT: "production",
       ARUBA_ACCOUNT_REFERENCE: "aruba-account-test",
       SMTP_TRANSPORT: "EXISTING_SMTP",
-      SMTP_FROM: "contabilita@negozio.it",
+      SMTP_FROM: "contabilita@numisleo.it",
       SMTP_HOST: "smtp.example.invalid",
       SMTP_USERNAME: "synthetic-user",
       SMTP_PASSWORD: "synthetic-password",
@@ -72,7 +72,7 @@ test("la configurazione applica i limiti delle sessioni", () => {
       EBAY_ENVIRONMENT: "production",
       ARUBA_ACCOUNT_REFERENCE: "aruba-account-test",
       SMTP_TRANSPORT: "OCI_EMAIL_DELIVERY",
-      SMTP_FROM: "contabilita@negozio.it",
+      SMTP_FROM: "contabilita@numisleo.it",
       SMTP_HOST: "smtp.example.invalid",
       SMTP_USERNAME: "synthetic-user",
       SMTP_PASSWORD: "synthetic-password",
@@ -91,28 +91,18 @@ test("la configurazione applica i limiti delle sessioni", () => {
       SMTP_PASSWORD: "synthetic-password",
     }),
   );
-  for (const domain of [
-    "example",
-    "invalid",
-    "localhost",
-    "test",
-    "example.com",
-    "example.net",
-    "example.org",
-  ]) {
-    assert.throws(() =>
-      parseConfig({
-        ...base,
-        APP_ENV: "production",
-        APP_BASE_URL: "https://example.invalid",
-        EBAY_ENVIRONMENT: "production",
-        ARUBA_ACCOUNT_REFERENCE: "aruba-account-test",
-        SMTP_TRANSPORT: "OCI_EMAIL_DELIVERY",
-        SMTP_FROM: `contabilita@negozio.${domain}`,
-        SMTP_HOST: "smtp.email.eu-milan-1.oci.oraclecloud.com",
-        SMTP_USERNAME: "synthetic-user",
-        SMTP_PASSWORD: "synthetic-password",
-      }),
-    );
-  }
+  assert.throws(() =>
+    parseConfig({
+      ...base,
+      APP_ENV: "production",
+      APP_BASE_URL: "https://example.invalid",
+      EBAY_ENVIRONMENT: "production",
+      ARUBA_ACCOUNT_REFERENCE: "aruba-account-test",
+      SMTP_TRANSPORT: "OCI_EMAIL_DELIVERY",
+      SMTP_FROM: "contabilita@negozio.it",
+      SMTP_HOST: "smtp.email.eu-milan-1.oci.oraclecloud.com",
+      SMTP_USERNAME: "synthetic-user",
+      SMTP_PASSWORD: "synthetic-password",
+    }),
+  );
 });
