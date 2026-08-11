@@ -116,6 +116,36 @@ async function waitForAuthentication(page: Page) {
   await page.waitForLoadState("domcontentloaded");
 }
 
+export async function waitForUploadAuthorization(page: Page, filename: string) {
+  const uploadedDocument = page.locator("tr", { hasText: filename }).first();
+  const smsProtection = page
+    .locator(
+      '[data-aruba-state="sms-required"], input[name*="otp" i], input[aria-label*="codice ricevuto per SMS" i]',
+    )
+    .or(
+      page.getByText(
+        /Vuoi disattivare la protezione OTP su Carica Fatture|Inserisci il codice ricevuto per SMS/i,
+      ),
+    )
+    .first();
+  let state: "READY" | "SMS";
+  try {
+    state = await Promise.race([
+      smsProtection.waitFor({ state: "visible", timeout: 10_000 }).then(() => "SMS" as const),
+      uploadedDocument.waitFor({ state: "visible", timeout: 10_000 }).then(() => "READY" as const),
+    ]);
+  } catch {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  if (state === "READY") return;
+  process.stdout.write(
+    "Autorizzazione SMS richiesta: scegli Prosegui, inserisci il codice e premi Verifica nel browser.\n",
+  );
+  await uploadedDocument.waitFor({ state: "visible", timeout: 15 * 60_000 }).catch(() => {
+    throw new Error("DOM_UNRECOGNIZED");
+  });
+}
+
 function assertPageOrigin(page: Page, target: URL) {
   assertNavigationUrl(page.url(), target);
 }
@@ -477,6 +507,8 @@ export async function runHelper(
     assertPageOrigin(page, target);
     await (await uploadInput(page)).setInputFiles([...files.values()]);
     uploadStarted = true;
+    await waitForUploadAuthorization(page, value.documents[0]!.filename);
+    assertPageOrigin(page, target);
     const results = await validateVisibleDocuments(page, value);
     await event(hub, options.token, { type: "VALIDATION", documents: results });
     if (results.some((result) => result.status === "INVALID")) {
