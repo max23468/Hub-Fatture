@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { data, Form, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/settings";
 
@@ -166,6 +167,94 @@ const sections: Array<{ id: string; label: string; icon: LucideIcon }> = [
   { id: "email-cliente", label: copy.settings.customerEmailTitle, icon: Mail },
   { id: "sistema", label: copy.settings.systemTitle, icon: ShieldCheck },
 ];
+
+function SettingsNavigation() {
+  const [active, setActive] = useState(sections[0]!.id);
+
+  useEffect(() => {
+    if (window.location.hash) setActive(window.location.hash.slice(1));
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.find((entry) => entry.isIntersecting);
+        if (visible) setActive(visible.target.id);
+      },
+      { rootMargin: "-15% 0px -70%" },
+    );
+    for (const { id } of sections) {
+      const section = document.getElementById(id);
+      if (section) observer.observe(section);
+    }
+    return () => observer.disconnect();
+  }, []);
+
+  const selectSection = (id: string) => {
+    setActive(id);
+    window.history.replaceState(null, "", `#${id}`);
+    document.getElementById(id)?.scrollIntoView();
+  };
+
+  return (
+    <>
+      <label className="settings-section-picker">
+        {copy.settings.goToSection}
+        <select value={active} onChange={(event) => selectSection(event.currentTarget.value)}>
+          {sections.map(({ id, label }) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <nav className="settings-nav" aria-label={copy.settings.sectionsLabel}>
+        {sections.map(({ id, label, icon: Icon }) => (
+          <a
+            aria-current={active === id ? "location" : undefined}
+            className="settings-nav__item"
+            href={`#${id}`}
+            key={id}
+            onClick={() => setActive(id)}
+          >
+            <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
+            {label}
+          </a>
+        ))}
+      </nav>
+    </>
+  );
+}
+
+function SettingsForm({
+  accessibleSubmitLabel,
+  children,
+  className,
+  submitLabel,
+}: {
+  accessibleSubmitLabel?: string;
+  children: ReactNode;
+  className: string;
+  submitLabel: string;
+}) {
+  const [dirty, setDirty] = useState(false);
+  const updateDirty = (event: FormEvent<HTMLFormElement>) => {
+    setDirty(
+      Array.from(event.currentTarget.elements).some(
+        (element) =>
+          element instanceof HTMLSelectElement &&
+          element.dataset.initial !== undefined &&
+          element.value !== element.dataset.initial,
+      ),
+    );
+  };
+
+  return (
+    <Form method="post" className={className} onChange={updateDirty}>
+      {children}
+      <button aria-label={accessibleSubmitLabel} className="button" disabled={!dirty} type="submit">
+        {submitLabel}
+      </button>
+    </Form>
+  );
+}
 
 function SectionHeader({
   id,
@@ -533,30 +622,40 @@ function ArubaSettingsSection({
         </div>
       </dl>
       {canApprove ? (
-        <Form method="post" className="inline-form section-gap">
+        <SettingsForm
+          accessibleSubmitLabel={copy.settings.arubaSave}
+          className="inline-form section-gap"
+          key={`${aruba.mode.version}:${aruba.authProtection.version}`}
+          submitLabel={copy.settings.saveShort}
+        >
           <input type="hidden" name="csrf" value={csrfToken} />
           <input type="hidden" name="intent" value="save-aruba" />
           <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
           <input type="hidden" name="arubaAuthVersion" value={aruba.authProtection.version} />
           <label>
             {copy.settings.arubaMode}
-            <select defaultValue={aruba.mode.value} name="arubaMode">
+            <select
+              data-initial={aruba.mode.value}
+              defaultValue={aruba.mode.value}
+              name="arubaMode"
+            >
               <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
               <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
             </select>
           </label>
           <label>
             {copy.settings.arubaAuthProtection}
-            <select defaultValue={aruba.authProtection.value} name="arubaAuthProtection">
+            <select
+              data-initial={aruba.authProtection.value}
+              defaultValue={aruba.authProtection.value}
+              name="arubaAuthProtection"
+            >
               <option value="UNKNOWN">{copy.settings.arubaAuthUnknown}</option>
               <option value="TWO_FACTOR">{copy.settings.arubaTwoFactor}</option>
               <option value="SMS_PER_UPLOAD">{copy.settings.arubaSms}</option>
             </select>
           </label>
-          <button className="button" type="submit">
-            {copy.settings.arubaSave}
-          </button>
-        </Form>
+        </SettingsForm>
       ) : (
         <p>{copy.settings.arubaOwnerOnly}</p>
       )}
@@ -565,6 +664,102 @@ function ArubaSettingsSection({
           {errorFor("save-aruba")}
         </p>
       ) : null}
+    </section>
+  );
+}
+
+function SystemSettingsSection({
+  environment,
+  system,
+}: {
+  environment: string;
+  system: Awaited<ReturnType<typeof getSystemStatus>>;
+}) {
+  return (
+    <section className="settings-section" id="sistema" aria-labelledby="sistema-title">
+      <SectionHeader
+        id="sistema"
+        icon={ShieldCheck}
+        title={copy.settings.systemTitle}
+        intro={copy.settings.systemHelp}
+      />
+      <div className="system-groups">
+        <section className="system-group">
+          <h3>{copy.settings.systemOperations}</h3>
+          <dl className="facts">
+            <div>
+              <dt>{copy.settings.environment}</dt>
+              <dd>{copy.settings.environmentLabel(environment)}</dd>
+            </div>
+            <div>
+              <dt>{copy.settings.timeZone}</dt>
+              <dd>Europe/Rome</dd>
+            </div>
+            <div>
+              <dt>{copy.settings.workerQueue}</dt>
+              <dd>{copy.settings.workerQueueStatus(system.jobs.active, system.jobs.failed)}</dd>
+            </div>
+            <div>
+              <dt>{copy.settings.arubaKillSwitchStatus}</dt>
+              <dd>
+                {system.arubaSubmissionEnabled ? copy.settings.enabled : copy.settings.disabled}
+              </dd>
+            </div>
+          </dl>
+        </section>
+        <section className="system-group">
+          <h3>{copy.settings.systemData}</h3>
+          <dl className="facts">
+            <div>
+              <dt>{copy.settings.databaseSchema}</dt>
+              <dd>{system.schema.latest ?? copy.common.unavailable}</dd>
+            </div>
+            <div>
+              <dt>{copy.settings.lastBackup}</dt>
+              <dd>
+                {system.backup
+                  ? copy.settings.backupStatus(
+                      dateTime(system.backup.completedAt),
+                      system.backup.sizeBytes,
+                    )
+                  : copy.settings.backupPending}
+              </dd>
+            </div>
+          </dl>
+        </section>
+        <section className="system-group">
+          <h3>{copy.settings.systemTechnical}</h3>
+          <dl className="facts">
+            <div>
+              <dt>{copy.settings.applicationVersion}</dt>
+              <dd>{system.application.version}</dd>
+            </div>
+            <div>
+              <dt>{copy.settings.commit}</dt>
+              <dd>
+                <details className="technical-value">
+                  <summary>
+                    <code>{system.application.commit.slice(0, 18)}</code>
+                  </summary>
+                  <code>{system.application.commit}</code>
+                </details>
+              </dd>
+            </div>
+            <div>
+              <dt>{copy.settings.imageDigest}</dt>
+              <dd>
+                <details className="technical-value">
+                  <summary>
+                    <code>{system.application.imageDigest.slice(0, 18)}</code>
+                  </summary>
+                  <code>{system.application.imageDigest}</code>
+                </details>
+              </dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+      <p className="field-help">{copy.settings.systemOperationalHelp}</p>
     </section>
   );
 }
@@ -603,14 +798,7 @@ export default function Settings() {
       </div>
 
       <div className="settings-layout">
-        <nav className="settings-nav" aria-label={copy.settings.sectionsLabel}>
-          {sections.map(({ id, label, icon: Icon }) => (
-            <a className="settings-nav__item" href={"#" + id} key={id}>
-              <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
-              {label}
-            </a>
-          ))}
-        </nav>
+        <SettingsNavigation />
 
         <div className="settings-panel">
           <ProfileSettingsSection
@@ -639,21 +827,22 @@ export default function Settings() {
                 {copy.settings.saved}
               </p>
             ) : null}
-            <Form method="post" className="inline-form">
+            <SettingsForm
+              className="inline-form"
+              key={trigger.version}
+              submitLabel={copy.settings.save}
+            >
               <input type="hidden" name="csrf" value={csrfToken} />
               <input type="hidden" name="intent" value="save-trigger" />
               <input type="hidden" name="version" value={trigger.version} />
               <label>
                 {copy.settings.preparationLabel}
-                <select defaultValue={trigger.value} name="trigger">
+                <select data-initial={trigger.value} defaultValue={trigger.value} name="trigger">
                   <option value="PAID">{copy.settings.onPaid}</option>
                   <option value="FULFILLED">{copy.settings.onFulfilled}</option>
                 </select>
               </label>
-              <button className="button" type="submit">
-                {copy.settings.save}
-              </button>
-            </Form>
+            </SettingsForm>
             {errorFor("save-trigger") ? (
               <p className="error" role="alert">
                 {errorFor("save-trigger")}
@@ -775,21 +964,26 @@ export default function Settings() {
               </div>
             </dl>
             {canApprove ? (
-              <Form method="post" className="inline-form section-gap">
+              <SettingsForm
+                className="inline-form section-gap"
+                key={customerEmail.version}
+                submitLabel={copy.settings.customerEmailSave}
+              >
                 <input type="hidden" name="csrf" value={csrfToken} />
                 <input type="hidden" name="intent" value="save-customer-email" />
                 <input type="hidden" name="emailModeVersion" value={customerEmail.version} />
                 <label>
                   {copy.settings.customerEmailMode}
-                  <select defaultValue={customerEmail.mode} name="customerEmailMode">
+                  <select
+                    data-initial={customerEmail.mode}
+                    defaultValue={customerEmail.mode}
+                    name="customerEmailMode"
+                  >
                     <option value="AUTOMATIC">{copy.settings.customerEmailAutomatic}</option>
                     <option value="MANUAL">{copy.settings.customerEmailManual}</option>
                   </select>
                 </label>
-                <button className="button" type="submit">
-                  {copy.settings.customerEmailSave}
-                </button>
-              </Form>
+              </SettingsForm>
             ) : (
               <p>{copy.settings.customerEmailOwnerOnly}</p>
             )}
@@ -800,62 +994,7 @@ export default function Settings() {
             ) : null}
           </section>
 
-          <section className="settings-section" id="sistema" aria-labelledby="sistema-title">
-            <SectionHeader
-              id="sistema"
-              icon={ShieldCheck}
-              title={copy.settings.systemTitle}
-              intro={copy.settings.systemHelp}
-            />
-            <dl className="facts facts--columns">
-              <div>
-                <dt>{copy.settings.environment}</dt>
-                <dd>{copy.settings.environmentLabel(environment)}</dd>
-              </div>
-              <div>
-                <dt>{copy.settings.timeZone}</dt>
-                <dd>Europe/Rome</dd>
-              </div>
-              <div>
-                <dt>{copy.settings.applicationVersion}</dt>
-                <dd>{system.application.version}</dd>
-              </div>
-              <div>
-                <dt>{copy.settings.commit}</dt>
-                <dd>{system.application.commit}</dd>
-              </div>
-              <div>
-                <dt>{copy.settings.imageDigest}</dt>
-                <dd>{system.application.imageDigest}</dd>
-              </div>
-              <div>
-                <dt>{copy.settings.databaseSchema}</dt>
-                <dd>{system.schema.latest ?? copy.common.unavailable}</dd>
-              </div>
-              <div>
-                <dt>{copy.settings.workerQueue}</dt>
-                <dd>{copy.settings.workerQueueStatus(system.jobs.active, system.jobs.failed)}</dd>
-              </div>
-              <div>
-                <dt>{copy.settings.arubaKillSwitchStatus}</dt>
-                <dd>
-                  {system.arubaSubmissionEnabled ? copy.settings.enabled : copy.settings.disabled}
-                </dd>
-              </div>
-              <div>
-                <dt>{copy.settings.lastBackup}</dt>
-                <dd>
-                  {system.backup
-                    ? copy.settings.backupStatus(
-                        dateTime(system.backup.completedAt),
-                        system.backup.sizeBytes,
-                      )
-                    : copy.settings.backupPending}
-                </dd>
-              </div>
-            </dl>
-            <p className="field-help">{copy.settings.systemOperationalHelp}</p>
-          </section>
+          <SystemSettingsSection environment={environment} system={system} />
         </div>
       </div>
     </AppShell>

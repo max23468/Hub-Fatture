@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/orders";
 
@@ -5,6 +6,7 @@ import fixture from "../../tests/fixtures/orders/normalized.mock.json" with { ty
 import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
 import { Pager } from "../components/pager";
+import { ViewNavigation } from "../components/view-navigation";
 import { billingCaseStatusLabels, copy, orderStatusLabels } from "../copy.it";
 import { euros, date } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
@@ -132,6 +134,94 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 type ApprovalCandidates = Awaited<ReturnType<typeof loader>>["approvalCandidates"];
+type OrderFiltersValue = Awaited<ReturnType<typeof loader>>["filters"];
+
+function OrderFilters({
+  count,
+  filters,
+  view,
+}: {
+  count: number;
+  filters: OrderFiltersValue;
+  view: string;
+}) {
+  const [localDate, setLocalDate] = useState(filters.localDate);
+
+  useEffect(() => setLocalDate(filters.localDate), [filters.localDate]);
+
+  const activeFilters = [
+    filters.query,
+    filters.provider,
+    filters.localDate,
+    filters.paymentStatus,
+    filters.status,
+  ].filter(Boolean).length;
+  const resetTo = view === "tutti" ? "/ordini" : `/ordini?vista=${view}`;
+
+  return (
+    <div className="filter-block">
+      <Form method="get" className="filters" role="search" aria-label={copy.orders.filterLabel}>
+        {view !== "tutti" ? <input type="hidden" name="vista" value={view} /> : null}
+        <label>
+          {copy.orders.search}
+          <input
+            name="q"
+            defaultValue={filters.query}
+            placeholder={copy.orders.searchPlaceholder}
+          />
+        </label>
+        <label>
+          {copy.orders.salesChannel}
+          <select name="provider" defaultValue={filters.provider}>
+            <option value="">{copy.orders.allFeminine}</option>
+            <option value="SHOPIFY">Shopify</option>
+            <option value="EBAY">eBay</option>
+          </select>
+        </label>
+        <label>
+          {copy.orders.orderDate}
+          <input
+            autoComplete="off"
+            name="data"
+            onChange={(event) => setLocalDate(event.currentTarget.value)}
+            type="date"
+            value={localDate}
+          />
+        </label>
+        <label>
+          {copy.orders.payment}
+          <select name="pagamento" defaultValue={filters.paymentStatus}>
+            <option value="">{copy.orders.allMasculine}</option>
+            <option value="PAID">Pagato</option>
+            <option value="PENDING">In attesa</option>
+            <option value="REFUNDED">Rimborsato</option>
+          </select>
+        </label>
+        {view === "tutti" ? (
+          <label>
+            {copy.orders.invoicingStatus}
+            <select name="stato" defaultValue={filters.status}>
+              <option value="">{copy.orders.allMasculine}</option>
+              {Object.entries(orderStatusLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <button className="button button--secondary" type="submit">
+          {copy.orders.filter}
+        </button>
+      </Form>
+      <div className="filter-summary" aria-live="polite">
+        <span>{copy.orders.resultsOnPage(count)}</span>
+        {activeFilters ? <span>{copy.orders.activeFilters(activeFilters)}</span> : null}
+        {activeFilters ? <Link to={resetTo}>{copy.orders.resetFilters}</Link> : null}
+      </div>
+    </div>
+  );
+}
 
 function MassApprovalPanel({
   approvalCandidates,
@@ -279,50 +369,12 @@ export default function Orders() {
   const showsPreparations = view === "fatturare" || view === "verificare";
   const showsPreparationArchive = showsPreparations || view === "annullati";
   const orderFilters = (
-    <Form method="get" className="filters" role="search" aria-label={copy.orders.filterLabel}>
-      {view !== "tutti" ? <input type="hidden" name="vista" value={view} /> : null}
-      <label>
-        {copy.orders.search}
-        <input name="q" defaultValue={filters.query} placeholder={copy.orders.searchPlaceholder} />
-      </label>
-      <label>
-        {copy.orders.salesChannel}
-        <select name="provider" defaultValue={filters.provider}>
-          <option value="">{copy.orders.allFeminine}</option>
-          <option value="SHOPIFY">Shopify</option>
-          <option value="EBAY">eBay</option>
-        </select>
-      </label>
-      <label>
-        {copy.orders.orderDate}
-        <input name="data" type="date" defaultValue={filters.localDate} />
-      </label>
-      <label>
-        {copy.orders.payment}
-        <select name="pagamento" defaultValue={filters.paymentStatus}>
-          <option value="">{copy.orders.allMasculine}</option>
-          <option value="PAID">Pagato</option>
-          <option value="PENDING">In attesa</option>
-          <option value="REFUNDED">Rimborsato</option>
-        </select>
-      </label>
-      {view === "tutti" ? (
-        <label>
-          {copy.orders.invoicingStatus}
-          <select name="stato" defaultValue={filters.status}>
-            <option value="">{copy.orders.allMasculine}</option>
-            {Object.entries(orderStatusLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      <button className="button button--secondary" type="submit">
-        {copy.orders.filter}
-      </button>
-    </Form>
+    <OrderFilters
+      count={orders.rows.length}
+      filters={filters}
+      key={`${view}:${JSON.stringify(filters)}`}
+      view={view}
+    />
   );
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
@@ -332,24 +384,29 @@ export default function Orders() {
         <p>{copy.orders.intro}</p>
       </div>
 
-      <nav className="view-nav" aria-label={copy.orders.viewsLabel}>
-        {[
-          ["tutti", copy.orders.views.all],
-          ["fatturare", copy.orders.views.toInvoice],
-          ["verificare", copy.orders.views.toReview],
-          ["attesa", copy.orders.views.waiting],
-          ["annullati", copy.orders.views.cancelled],
-        ].map(([value, label]) => (
-          <Link
-            aria-current={view === value ? "page" : undefined}
-            className="view-nav__item"
-            key={value}
-            to={value === "tutti" ? "/ordini" : `/ordini?vista=${value}`}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
+      <ViewNavigation
+        active={view}
+        label={copy.orders.viewsLabel}
+        items={[
+          { value: "tutti", label: copy.orders.views.all, to: "/ordini" },
+          {
+            value: "fatturare",
+            label: copy.orders.views.toInvoice,
+            to: "/ordini?vista=fatturare",
+          },
+          {
+            value: "verificare",
+            label: copy.orders.views.toReview,
+            to: "/ordini?vista=verificare",
+          },
+          { value: "attesa", label: copy.orders.views.waiting, to: "/ordini?vista=attesa" },
+          {
+            value: "annullati",
+            label: copy.orders.views.cancelled,
+            to: "/ordini?vista=annullati",
+          },
+        ]}
+      />
 
       {imported !== null ? (
         <p className="notice" role="status">

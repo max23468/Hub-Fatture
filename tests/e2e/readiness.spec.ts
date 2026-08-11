@@ -64,8 +64,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("button", { name: "Accedi" }).click();
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-  await expect(page.getByText("Ordini importati")).toBeVisible();
-  await expect(page.locator(".summary-card")).toHaveCount(5);
+  await expect(page.getByText("Note di credito da approvare")).toBeVisible();
+  await expect(page.locator(".summary-card")).toHaveCount(12);
+  await page.getByRole("link", { name: "Documenti", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Vai agli ordini" })).toBeVisible();
+  await page.getByRole("link", { name: "Attività", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Apri la cronologia" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Controlla le connessioni" })).toBeVisible();
+  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
   const skipLink = page.getByRole("link", { name: "Vai al contenuto principale" });
   await skipLink.focus();
   await expect(skipLink).toBeVisible();
@@ -101,6 +107,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "E-mail al cliente",
   );
   await expect(page.getByRole("group", { name: "Tema" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Salva impostazione" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Salva integrazione Aruba" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Salva modalità e-mail" })).toBeDisabled();
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
   await expect(page.getByText("015_canonical_account_names.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
@@ -129,6 +138,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   await expectPlainLanguage(page);
   await expect(page.getByRole("row")).toHaveCount(4);
+  await expect(page.getByLabel(/^Data ordine/)).toHaveValue("");
   const controlHeights = await page
     .getByRole("search", { name: "Filtra gli ordini" })
     .locator("input, select, button")
@@ -141,6 +151,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("button", { name: "Filtra" }).click();
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByLabel(/^Pagamento/)).toHaveValue("PENDING");
+  await expect(page.getByText("1 filtro attivo")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Azzera filtri" })).toBeVisible();
 
   await page.getByRole("link", { name: "Da fatturare" }).click();
   await expect(page.getByRole("row")).toHaveCount(2);
@@ -239,6 +251,13 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("link", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 720 });
+  await expect(page.locator(".table-wrap--history tr").first()).toBeVisible();
+  expect(
+    await page
+      .locator(".table-wrap--history tr")
+      .first()
+      .evaluate((row) => row.getBoundingClientRect().height),
+  ).toBeLessThan(240);
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toBeVisible();
   const mobileNavigation = await page.locator(".nav-item").evaluateAll((items) =>
@@ -255,10 +274,30 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
   );
   expect(viewportFits).toBe(true);
+  await page.goto("/ordini?vista=annullati");
+  const activeView = page.locator('.view-nav__item[aria-current="page"]');
+  await expect(activeView).toBeVisible();
+  expect(
+    await activeView.evaluate((item) => item.getBoundingClientRect().left),
+  ).toBeGreaterThanOrEqual(0);
+  expect(
+    await activeView.evaluate((item) => item.getBoundingClientRect().right),
+  ).toBeLessThanOrEqual(320);
+
+  await page.getByRole("link", { name: "Impostazioni", exact: true }).click();
+  const sectionPicker = page.getByLabel("Vai alla sezione");
+  await expect(sectionPicker).toBeVisible();
+  await sectionPicker.selectOption("sistema");
+  await expect(page.getByRole("heading", { name: "Dettagli tecnici" })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByLabel("Apri il menu di Codex").click();
-  await page.getByRole("button", { name: "Esci" }).click();
+  await page.locator(".profile-menu").getByRole("button", { name: "Esci" }).click();
   await page.getByLabel("Nome utente").fill("MASSIMO");
   await page.getByLabel("Password").fill("password-massimo");
   await page.getByRole("button", { name: "Accedi" }).click();

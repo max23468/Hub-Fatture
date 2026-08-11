@@ -3,6 +3,7 @@ import type { Route } from "./+types/activity";
 
 import { AppShell } from "../components/app-shell";
 import { Pager } from "../components/pager";
+import { ViewNavigation } from "../components/view-navigation";
 import { auditActionLabel, auditActionLabels, copy } from "../copy.it";
 import { dateTime } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
@@ -104,21 +105,18 @@ export default function Activity() {
         <p>{copy.activity.intro}</p>
       </div>
 
-      <nav className="view-nav" aria-label={copy.activity.viewsLabel}>
-        {[
-          ["gestire", copy.activity.toManage],
-          ["cronologia", copy.activity.history],
-        ].map(([value, label]) => (
-          <Link
-            aria-current={view === value ? "page" : undefined}
-            className="view-nav__item"
-            key={value}
-            to={value === "gestire" ? "/attivita" : `/attivita?vista=${value}`}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
+      <ViewNavigation
+        active={view}
+        label={copy.activity.viewsLabel}
+        items={[
+          { value: "gestire", label: copy.activity.toManage, to: "/attivita" },
+          {
+            value: "cronologia",
+            label: copy.activity.history,
+            to: "/attivita?vista=cronologia",
+          },
+        ]}
+      />
 
       {privacyCompleted ? (
         <p className="notice" role="status">
@@ -211,6 +209,14 @@ export default function Activity() {
           <section className="empty-state">
             <h2>{copy.activity.nothingToManage}</h2>
             <p>{copy.activity.nothingToManageHelp}</p>
+            <div className="empty-state__actions">
+              <Link className="button button--secondary" to="/attivita?vista=cronologia">
+                {copy.activity.openHistory}
+              </Link>
+              <Link className="button button--secondary" to="/impostazioni#connessioni">
+                {copy.activity.openConnections}
+              </Link>
+            </div>
           </section>
         )
       ) : (
@@ -242,7 +248,7 @@ export default function Activity() {
             </button>
           </Form>
           {history.rows.length ? (
-            <div className="table-wrap">
+            <div className="table-wrap table-wrap--history">
               <table>
                 <thead>
                   <tr>

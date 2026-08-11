@@ -67,6 +67,15 @@ export const copy = {
     reviews: "Da verificare",
     waitingOrders: "Ordini non ancora pronti",
     pendingPayments: "Pagamenti in attesa",
+    creditNotesToApprove: "Note di credito da approvare",
+    failedUploads: "Caricamenti Aruba non riusciti",
+    rejectedBySdi: "Documenti scartati da SdI",
+    syncErrors: "Errori di sincronizzazione",
+    lastShopifySync: "Ultimo aggiornamento Shopify",
+    lastEbaySync: "Ultimo aggiornamento eBay",
+    lastArubaReadback: "Ultimo readback Aruba",
+    documentsToday: "Documenti emessi oggi",
+    documentsThisMonth: "Documenti emessi questo mese",
   },
   orders: {
     eyebrow: "Vendite online",
@@ -88,6 +97,10 @@ export const copy = {
     payment: "Pagamento",
     invoicingStatus: "Fatturazione",
     filter: "Filtra",
+    resultsOnPage: (count: number) =>
+      `${count} ${count === 1 ? "risultato" : "risultati"} in questa pagina`,
+    activeFilters: (count: number) => `${count} ${count === 1 ? "filtro attivo" : "filtri attivi"}`,
+    resetFilters: "Azzera filtri",
     allFeminine: "Tutte",
     allMasculine: "Tutti",
     loadExamples: "Carica ordini di esempio",
@@ -337,6 +350,7 @@ export const copy = {
     } as Record<string, string>,
     empty: "Nessun documento",
     emptyHelp: "Le bozze compaiono dopo il primo salvataggio della preparazione.",
+    openOrders: "Vai agli ordini",
   },
   activity: {
     eyebrow: "Controlli e cronologia",
@@ -348,6 +362,8 @@ export const copy = {
     nothingToManage: "Niente da gestire",
     nothingToManageHelp:
       "Nessuna preparazione, richiesta privacy o operazione dei canali richiede attenzione.",
+    openHistory: "Apri la cronologia",
+    openConnections: "Controlla le connessioni",
     dataRequestCompleted: "Richiesta dati Shopify registrata come gestita.",
     jobRetried: "Operazione del canale riavviata.",
     dataRequestsTitle: "Richieste dati Shopify",
@@ -384,6 +400,7 @@ export const copy = {
     title: "Impostazioni",
     intro: "Gestisci account, fatturazione, collegamenti e servizi da un’unica pagina.",
     sectionsLabel: "Sezioni delle impostazioni",
+    goToSection: "Vai alla sezione",
     profileTitle: "Profilo e sicurezza",
     profileHelp:
       "Rivedi identità, permessi e tema del menu rapido, poi proteggi l’accesso al tuo account.",
@@ -416,6 +433,7 @@ export const copy = {
     onPaid: "Quando il pagamento è confermato",
     onFulfilled: "Quando l’ordine è completamente spedito",
     save: "Salva impostazione",
+    saveShort: "Salva",
     fiscalTitle: "Profilo fiscale",
     fiscalHelp:
       "Consulta la configurazione fiscale attiva. Le modifiche richiedono un nuovo audit e una nuova versione.",
@@ -498,6 +516,9 @@ export const copy = {
     helperLastReadback: "Ultimo readback",
     systemTitle: "Sistema",
     systemHelp: "Controlla i parametri generali che influenzano tutta l’applicazione.",
+    systemOperations: "Operatività",
+    systemData: "Dati e backup",
+    systemTechnical: "Dettagli tecnici",
     environment: "Ambiente applicativo",
     environmentLabel: (value: string) =>
       value === "production" ? "Produzione" : value === "test" ? "Test" : "Sviluppo",
@@ -566,7 +587,7 @@ export const copy = {
     eyebrow: "Errore",
     notFound: "La pagina non esiste",
     unexpected: "La richiesta non è andata a buon fine",
-    action: "Ricarica la pagina oppure torna alla dashboard.",
+    action: "Torna alla dashboard per continuare.",
     home: "Torna alla dashboard",
   },
 } as const;

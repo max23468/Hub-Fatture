@@ -223,6 +223,15 @@ export async function dashboardSummary() {
     review_cases: string;
     waiting_orders: string;
     pending_payments: string;
+    credit_notes_to_approve: string;
+    failed_uploads: string;
+    rejected_by_sdi: string;
+    sync_errors: string;
+    last_shopify_sync: string | null;
+    last_ebay_sync: string | null;
+    last_aruba_readback: string | null;
+    documents_today: string;
+    documents_this_month: string;
   }>(
     `SELECT
        (SELECT count(*) FROM orders)::text AS orders,
@@ -233,7 +242,26 @@ export async function dashboardSummary() {
         WHERE trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
           AND (payment_status = 'PENDING'
             OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id = orders.id
-                        AND payments.status = 'PENDING')))::text AS pending_payments`,
+                        AND payments.status = 'PENDING')))::text AS pending_payments,
+       (SELECT count(*) FROM documents
+        WHERE kind = 'CREDIT_NOTE' AND status = 'DRAFT')::text AS credit_notes_to_approve,
+       (SELECT count(*) FROM aruba_batches
+        WHERE status = 'VALIDATION_FAILED')::text AS failed_uploads,
+       (SELECT count(*) FROM aruba_submissions
+        WHERE status = 'REJECTED')::text AS rejected_by_sdi,
+       ((SELECT count(*) FROM jobs WHERE status = 'FAILED') +
+        (SELECT count(*) FROM webhook_events WHERE status = 'FAILED'))::text AS sync_errors,
+       (SELECT max(last_synced_at)::text FROM connections
+        WHERE provider = 'SHOPIFY') AS last_shopify_sync,
+       (SELECT max(last_synced_at)::text FROM connections
+        WHERE provider = 'EBAY') AS last_ebay_sync,
+       (SELECT max(last_readback_at)::text FROM aruba_batches) AS last_aruba_readback,
+       (SELECT count(*) FROM documents
+        WHERE approved_at AT TIME ZONE 'Europe/Rome' >=
+          date_trunc('day', now() AT TIME ZONE 'Europe/Rome'))::text AS documents_today,
+       (SELECT count(*) FROM documents
+        WHERE approved_at AT TIME ZONE 'Europe/Rome' >=
+          date_trunc('month', now() AT TIME ZONE 'Europe/Rome'))::text AS documents_this_month`,
   );
   return result.rows[0]!;
 }
