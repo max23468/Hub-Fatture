@@ -206,6 +206,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.equal(compose.match(/^    image: \$\{APP_IMAGE:\?\}$/gm)?.length, 2);
   const postgres = compose.slice(compose.indexOf("\n  postgres:"), compose.indexOf("\nnetworks:"));
   assert.doesNotMatch(postgres, /\n    ports:/);
+  assert.match(postgres, /user: "999:999"/);
+  assert.match(postgres, /cap_drop: \[ALL\]/);
+  assert.match(postgres, /read_only: true/);
+  assert.match(postgres, /no-new-privileges:true/);
   assert.match(compose, /ARUBA_SUBMISSION_ENABLED: "false"/);
   assert.match(compose, /read_only: true/);
   assert.match(compose, /cap_drop: \[ALL\]/);

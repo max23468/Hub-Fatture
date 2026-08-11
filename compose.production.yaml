@@ -46,7 +46,10 @@ services:
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:?}
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
+    read_only: true
     security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:mode=1777,size=16m
     ports:
       - "80:80"
       - "443:443"
@@ -109,12 +112,19 @@ services:
   postgres:
     image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
     restart: unless-stopped
+    user: "999:999"
+    cap_drop: [ALL]
+    read_only: true
+    security_opt: [no-new-privileges:true]
     environment:
       POSTGRES_DB: hub_fatture
       POSTGRES_USER: hub_fatture
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
     volumes:
       - ./data/postgres:/var/lib/postgresql
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+      - /var/run/postgresql:uid=999,gid=999,mode=775,size=16m
     networks: [backend]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hub_fatture -d hub_fatture"]
