@@ -18,6 +18,13 @@ export type JobType =
   | "process_refund"
   | "send_customer_email";
 
+const manuallyRetryableJobTypes: JobType[] = [
+  "shopify_sync_orders",
+  "shopify_process_webhook",
+  "ebay_sync_orders",
+  "ebay_preview_history",
+];
+
 export interface ConnectorActor {
   type: "ADMIN" | "SYSTEM";
   id?: number;
@@ -414,9 +421,9 @@ export async function failedConnectorJobs() {
   }>(
     `SELECT id, type, attempts, last_error_code, created_at FROM jobs
      WHERE status = 'FAILED'
-       AND type IN ('shopify_sync_orders', 'shopify_process_webhook',
-                    'ebay_sync_orders', 'ebay_preview_history')
+       AND type = ANY($1::text[])
      ORDER BY created_at DESC, id DESC LIMIT 20`,
+    [manuallyRetryableJobTypes],
   );
   return result.rows.map((row) => ({
     id: row.id,
@@ -432,8 +439,10 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
   if (!jobId) throw new AppError("CONFLICT_REVISION", 409);
   return withTransaction(async (client) => {
     const candidate = await client.query<{ type: JobType }>(
-      "SELECT type FROM jobs WHERE id = $1 AND status = 'FAILED'",
-      [jobId],
+      `SELECT type FROM jobs
+       WHERE id = $1 AND status = 'FAILED' AND type = ANY($2::text[])
+       FOR UPDATE`,
+      [jobId, manuallyRetryableJobTypes],
     );
     if (!candidate.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
     if (candidate.rows[0].type === "ebay_preview_history") {

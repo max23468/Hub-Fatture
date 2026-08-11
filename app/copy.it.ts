@@ -1,9 +1,23 @@
 import type { AuditAction } from "../src/db/audit.server.ts";
+import { errorCatalog, type ErrorCode } from "../src/errors.ts";
 
 const euroFormatter = new Intl.NumberFormat("it-IT", {
   style: "currency",
   currency: "EUR",
 });
+
+const connectorJobLabels: Record<string, string> = {
+  shopify_sync_orders: "Aggiornamento ordini Shopify",
+  shopify_process_webhook: "Aggiornamento ricevuto da Shopify",
+  ebay_sync_orders: "Aggiornamento ordini eBay",
+  ebay_preview_history: "Anteprima ordini eBay",
+};
+
+export function errorCodeLabel(code: string | null): string {
+  return code && Object.hasOwn(errorCatalog, code)
+    ? errorCatalog[code as ErrorCode]
+    : "Errore non disponibile";
+}
 
 export const copy = {
   appName: "Hub Fatture",
@@ -341,10 +355,9 @@ export const copy = {
       `${customers} ${customers === 1 ? "cliente" : "clienti"} · ${orders} ${orders === 1 ? "ordine" : "ordini"}`,
     dataRequestComplete: "Segna come gestita",
     failedJobsTitle: "Operazioni non riuscite",
-    failedJobTitle: (type: string) =>
-      `${type.startsWith("shopify") ? "Shopify" : "eBay"} · ${type}`,
+    failedJobTitle: (type: string) => connectorJobLabels[type] ?? "Operazione del canale",
     failedJob: (code: string | null, attempts: number) =>
-      `${code ?? "Errore non disponibile"} · ${attempts} ${attempts === 1 ? "tentativo" : "tentativi"}`,
+      `${errorCodeLabel(code)} · ${attempts} ${attempts === 1 ? "tentativo" : "tentativi"}`,
     retryJob: "Riprova ora",
     reviewTitle: "Verifiche su ordini e documenti",
     searchLabel: "Cerca nel registro",
@@ -437,9 +450,9 @@ export const copy = {
       status === "COMPLETED"
         ? `eBay: ${count} ordini nell’anteprima; ${review} con rimborsi da controllare. Nessun ordine è stato importato.`
         : status === "FAILED"
-          ? `L’anteprima eBay non è riuscita (${error ?? "errore non disponibile"}).`
+          ? `L’anteprima eBay non è riuscita (${errorCodeLabel(error)}).`
           : "Anteprima eBay in elaborazione. Ricarica la pagina tra poco.",
-    connectionError: (code: string) => `Ultimo errore: ${code}`,
+    connectionError: (code: string) => `Ultimo errore: ${errorCodeLabel(code)}`,
     customerEmailTitle: "E-mail al cliente",
     customerEmailHelp:
       "Un solo servizio e-mail invia la copia soltanto dopo un esito SdI che conferma l’emissione.",

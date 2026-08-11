@@ -10,6 +10,8 @@
 - mapping Shopify e blocco prudenziale del rimborso eBay ambiguo;
 - trigger e-mail soltanto su `DELIVERED` e `NOT_DELIVERED` con PDF ufficiale;
 - trasporto SMTP sintetico Nodemailer, TLS obbligatorio sui trasporti reali, mittente approvato immutabile, retry limitato agli errori temporanei, errore sanificato, crash incerto e prevenzione del doppio invio;
+- riavvio manuale limitato alle sole sincronizzazioni Shopify/eBay mostrate in Attività: rimborsi e invii e-mail conservano i propri controlli dedicati;
+- messaggi operativi leggibili, senza tipi di job o codici d’errore interni esposti al negoziante;
 - E2E sintetico da rimborso a TD04, helper assistito, readback, PDF e invio JSON controllato.
 
 Le prove eseguibili vivono in `src/refunds.test.ts`, `src/email.test.ts`, `src/documents.test.ts`, `src/db/refunds.server.test.ts`, `src/db/documents.server.test.ts`, `src/db/migrations.server.test.ts`, `src/integrations/connectors.test.ts` e `tests/e2e/readiness.spec.ts`.
