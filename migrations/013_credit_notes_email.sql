@@ -2,6 +2,8 @@ INSERT INTO settings (key, value_json)
 VALUES ('customer_email_mode', '"AUTOMATIC"'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
+ALTER TABLE refunds DROP CONSTRAINT refunds_check;
+
 ALTER TABLE jobs
   DROP CONSTRAINT jobs_type_check,
   ADD CONSTRAINT jobs_type_check CHECK (type IN (

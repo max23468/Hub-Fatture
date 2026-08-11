@@ -564,7 +564,14 @@ test(
       noteId = await refunds.processRefund(firstRefund);
       assert.ok(noteId);
       assert.notEqual(noteId, removedNoteId);
+      await client.query("UPDATE documents SET document_date = '2026-08-10' WHERE id = $1", [
+        noteId,
+      ]);
+      await database.withTransaction((transaction) =>
+        refunds.refreshCreditNoteDraft(transaction, noteId!),
+      );
       let projection = await refunds.getCreditNoteProjection(noteId!);
+      assert.match(projection!.xml, /<Data>2026-08-10<\/Data>/);
       assert.ok(projection?.xml.includes("<TipoDocumento>TD04</TipoDocumento>"));
       assert.ok(projection?.xml.includes("<DatiFattureCollegate>"));
       assert.equal(projection?.comparison.recipient[0]?.field, "identity");
@@ -696,16 +703,36 @@ test(
         )
       ).rows[0]!.id;
       assert.equal(await refunds.processRefund(ambiguous), null);
-      await client.query(
+      const pendingWithoutAmount = (
+        await client.query<{ id: string }>(
+          `INSERT INTO refunds
+            (provider, external_account_id, external_order_id, external_refund_id,
+             order_id, status, amount, raw_json)
+           VALUES ('SHOPIFY', 'shop', 'order-credit', 'refund-pending-no-amount', $1,
+             'PENDING', NULL, '{}') RETURNING id`,
+          [order.rows[0]!.id],
+        )
+      ).rows[0]!.id;
+      const unresolvedRefundJob = await client.query<{ id: string }>(
         `INSERT INTO jobs (type, payload_json, status, attempts, max_attempts, last_error_code)
          VALUES ('process_refund', jsonb_build_object('refundId', $1::text), 'FAILED', 5, 5,
-           'CREDIT_NOTE_LIMIT_EXCEEDED')`,
+           'CREDIT_NOTE_LIMIT_EXCEEDED') RETURNING id`,
         [excessive],
+      );
+      const resolvedJob = await client.query<{ id: string }>(
+        `INSERT INTO jobs (type, payload_json, status, attempts, max_attempts, last_error_code)
+         VALUES ('process_refund', jsonb_build_object('refundId', $1::text), 'FAILED', 5, 5,
+           'CREDIT_NOTE_LIMIT_EXCEEDED') RETURNING id`,
+        [firstRefund],
       );
       const orderQueries = await import("./order-queries.server.ts");
       const activities = await orderQueries.listOpenActivities();
-      assert.ok(activities.rows.some((activity) => activity.kind === "REFUND"));
-      assert.ok(activities.rows.some((activity) => activity.kind === "REFUND_JOB"));
+      assert.ok(activities.rows.some((activity) => activity.id === ambiguous));
+      assert.ok(
+        activities.rows.some((activity) => activity.id === unresolvedRefundJob.rows[0]!.id),
+      );
+      assert.ok(!activities.rows.some((activity) => activity.id === pendingWithoutAmount));
+      assert.ok(!activities.rows.some((activity) => activity.id === resolvedJob.rows[0]!.id));
       const orderDetail = await orderQueries.getOrder(order.rows[0]!.id);
       assert.ok(orderDetail?.refunds.some((refund) => refund.id === ambiguous));
 

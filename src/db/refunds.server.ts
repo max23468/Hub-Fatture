@@ -34,13 +34,6 @@ interface Actor {
   requestId: string;
 }
 
-const romeDate = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Europe/Rome",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
 interface CreditRow {
   id: string;
   billing_case_id: string;
@@ -83,7 +76,7 @@ interface CreditRow {
 function creditInput(row: CreditRow): DocumentInput {
   return documentInputSchema.parse({
     kind: "CREDIT_NOTE",
-    documentDate: row.status === "APPROVED" ? row.document_date : romeDate.format(new Date()),
+    documentDate: row.document_date,
     recipient: row.recipient_snapshot_json,
     lines: row.lines.map((line) => ({
       orderId: line.order_id,

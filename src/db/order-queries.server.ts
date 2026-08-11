@@ -274,7 +274,8 @@ export async function listOpenActivities(page?: unknown) {
               '/ordini/' || orders.id,
               refunds.updated_at
        FROM refunds JOIN orders ON orders.id = refunds.order_id
-       WHERE refunds.status = 'AMBIGUOUS' OR refunds.amount IS NULL
+       WHERE refunds.status = 'AMBIGUOUS'
+          OR (refunds.status = 'COMPLETED' AND refunds.amount IS NULL)
        UNION ALL
        SELECT 'REFUND_JOB', jobs.id::text,
               'Rimborso non elaborato',
@@ -289,6 +290,7 @@ export async function listOpenActivities(page?: unknown) {
            THEN (jobs.payload_json ->> 'refundId')::bigint END
        JOIN orders ON orders.id = refunds.order_id
        WHERE jobs.type = 'process_refund' AND jobs.status = 'FAILED'
+         AND refunds.credit_document_id IS NULL
      ) AS activities
      ORDER BY created_at DESC, id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $1`,

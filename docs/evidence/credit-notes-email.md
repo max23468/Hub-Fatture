@@ -3,7 +3,7 @@
 ## Capacità verificate
 
 - rimborso totale/parziale, pending e ambiguo prima dell’emissione;
-- TD04 cumulativa, ricalcolo quando un rimborso cambia o scompare e nuova bozza dopo la prima TD04 approvata;
+- TD04 cumulativa con data di bozza stabile, ricalcolo quando un rimborso cambia o scompare e nuova bozza dopo la prima TD04 approvata;
 - rifiuto di fattura scartata o non emessa, doppio rimborso e superamento del residuo;
 - concorrenza PostgreSQL e rollback completo quando l’audit critico fallisce;
 - TD04 con fattura collegata, validazione XSD, numerazione, comparatore, approvazione e batch Aruba comune;
