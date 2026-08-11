@@ -313,6 +313,9 @@ export default function Documents() {
         <section className="empty-state">
           <h2>{copy.documents.empty}</h2>
           <p>{copy.documents.emptyHelp}</p>
+          <Link className="button button--secondary" to="/ordini">
+            {copy.documents.openOrders}
+          </Link>
         </section>
       )}
       {batches.length ? (
