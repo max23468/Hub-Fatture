@@ -673,6 +673,7 @@ async function monotonicSubmission(
         AND document_orders.document_kind = 'INVOICE'
        WHERE document_orders.document_id = $1
          AND refunds.status IN ('COMPLETED', 'AMBIGUOUS')
+         AND NOT refunds.applied_before_issue
          AND refunds.credit_document_id IS NULL
        ON CONFLICT DO NOTHING`,
       [documentId],

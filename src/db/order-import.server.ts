@@ -12,6 +12,14 @@ import { withTransaction } from "./client.server.ts";
 import { assertJobLease, renewLockedJobLease, type ClaimedJob } from "./connectors.server.ts";
 import { AppError } from "../errors.ts";
 import {
+  documentInputSchema,
+  fiscalProfileSchema,
+  projectFatturaXml,
+  type DocumentInput,
+  type FiscalProfile,
+} from "../documents.ts";
+import { validateFatturaXml } from "../fatturapa.server.ts";
+import {
   canonicalCustomerProfile,
   canonicalTaxIdentifiers,
   customerIdentity,
@@ -48,6 +56,7 @@ interface GroupableOrder {
   customerSnapshot: Record<string, unknown>;
   localOrderDate: string;
   currency: string;
+  isolated?: boolean;
 }
 
 async function invoiceDraftAuditSnapshot(client: pg.PoolClient, caseId: string, lock = false) {
@@ -151,6 +160,61 @@ export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: strin
   );
   const after = await invoiceDraftAuditSnapshot(client, caseId);
   return after ? { before: before.snapshot, after: after.snapshot } : null;
+}
+
+async function refreshInvoiceDraftProjection(client: pg.PoolClient, caseId: string) {
+  const result = await client.query<{
+    id: string;
+    document_date: string;
+    recipient_snapshot_json: DocumentInput["recipient"];
+    payment_status: string;
+    payment_method: string;
+    causale: string | null;
+    notes: string | null;
+    profile_json: FiscalProfile;
+    lines: DocumentInput["lines"];
+  }>(
+    `SELECT documents.id,
+            (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date::text AS document_date,
+            documents.recipient_snapshot_json, documents.payment_status,
+            documents.payment_method, documents.causale, documents.notes,
+            fiscal_profiles.profile_json,
+            coalesce((
+              SELECT jsonb_agg(jsonb_build_object(
+                'orderId', document_lines.order_id::text,
+                'description', document_lines.description,
+                'quantity', document_lines.quantity,
+                'unitAmount', document_lines.unit_amount
+              ) ORDER BY document_lines.line_number)
+              FROM document_lines WHERE document_lines.document_id = documents.id
+            ), '[]') AS lines
+     FROM documents
+     JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
+     WHERE documents.billing_case_id = $1
+       AND documents.kind = 'INVOICE' AND documents.status = 'DRAFT'`,
+    [caseId],
+  );
+  const row = result.rows[0];
+  if (!row) return;
+  const profile = fiscalProfileSchema.safeParse(row.profile_json);
+  const input = documentInputSchema.safeParse({
+    kind: "INVOICE",
+    documentDate: row.document_date,
+    recipient: row.recipient_snapshot_json,
+    lines: row.lines,
+    paymentStatus: row.payment_status,
+    paymentMethod: row.payment_method,
+    causale: row.causale ?? undefined,
+    notes: row.notes ?? undefined,
+  });
+  if (!profile.success || !input.success) throw new AppError("DOCUMENT_INVALID", 422);
+  const projection = projectFatturaXml(profile.data, input.data);
+  await validateFatturaXml(projection.xml);
+  await client.query(
+    `UPDATE documents SET document_date = $2, projection_sha256 = $3, updated_at = now()
+     WHERE id = $1`,
+    [row.id, row.document_date, projection.sha256],
+  );
 }
 
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
@@ -285,29 +349,34 @@ export async function groupOrder(
 ) {
   const lockKey = `billing-case:${order.customerId}:${order.localOrderDate}:${order.currency}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
-  // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
-  // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
-  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
-  const existing = await client.query<{ id: string }>(
-    // I frammenti interpolati sono costanti di modulo in billing-case-sql.server.ts:
-    `SELECT id FROM billing_cases
-     WHERE customer_id = $1 AND local_order_date = $2 AND currency = $3
-       AND ${openBillingCaseSql()}
-     FOR UPDATE`,
-    [order.customerId, order.localOrderDate, order.currency],
-  );
-  let caseId = existing.rows[0]?.id;
+  let caseId: string | undefined;
+  if (!order.isolated) {
+    // Il frammento interpolato è una costante di billing-case-sql.server.ts; i dati
+    // della richiesta restano nei parametri $1, $2 e $3.
+    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
+    const existing = await client.query<{ id: string }>(
+      `SELECT id FROM billing_cases
+       WHERE customer_id = $1 AND local_order_date = $2 AND currency = $3
+         AND ${openBillingCaseSql()}
+       FOR UPDATE`,
+      [order.customerId, order.localOrderDate, order.currency],
+    );
+    caseId = existing.rows[0]?.id;
+  }
   if (!caseId) {
     const created = await client.query<{ id: string }>(
       `INSERT INTO billing_cases
-        (customer_id, local_order_date, currency, status, customer_snapshot_json)
-       VALUES ($1, $2, $3, 'NEEDS_REVIEW', $4)
+        (customer_id, local_order_date, currency, status, customer_snapshot_json,
+         do_not_transmit_reason)
+       VALUES ($1, $2, $3, $5, $4, $6)
        RETURNING id`,
       [
         order.customerId,
         order.localOrderDate,
         order.currency,
         JSON.stringify(order.customerSnapshot),
+        order.isolated ? "DO_NOT_TRANSMIT" : "NEEDS_REVIEW",
+        order.isolated ? "Ordine rimborsato prima dell’emissione" : null,
       ],
     );
     caseId = created.rows[0]!.id;
@@ -319,6 +388,17 @@ export async function groupOrder(
       entityId: caseId,
       requestId: actor.requestId,
     });
+    if (order.isolated) {
+      await writeAudit(client, {
+        actorType: "SYSTEM",
+        action: "BILLING_CASE_DO_NOT_TRANSMIT",
+        eventClass: "CRITICAL",
+        entityType: "BILLING_CASE",
+        entityId: caseId,
+        metadata: { billingCaseId: caseId, reason: "REFUNDED" },
+        requestId: actor.requestId,
+      });
+    }
   }
   const assigned = await client.query(
     `UPDATE orders
@@ -683,6 +763,7 @@ async function importOne(
         customerSnapshot: normalizedSnapshot.customerSnapshot,
         localOrderDate: localDate,
         currency: input.currency,
+        isolated: refundEffect.state === "TOTAL",
       },
       actor,
     );
@@ -729,6 +810,7 @@ async function importOne(
            AND documents.billing_case_id = $1 AND documents.status = 'DRAFT'`,
         [effectiveBillingCaseId],
       );
+      await refreshInvoiceDraftProjection(client, effectiveBillingCaseId);
     }
     if (restored.rowCount || adjusted.rowCount) {
       await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
@@ -1042,8 +1124,9 @@ async function replaceOrderChildren(
          SELECT 1 FROM documents
          WHERE documents.id = refunds.credit_document_id AND documents.status = 'DRAFT'
        ))
+       AND NOT ($3::boolean AND applied_before_issue)
        AND NOT (external_refund_id = ANY($2::text[]))`,
-    [orderId, input.refunds.map((refund) => refund.externalRefundId)],
+    [orderId, input.refunds.map((refund) => refund.externalRefundId), invoiced],
   );
   for (const [index, refund] of input.refunds.entries()) {
     const previous = await client.query<{
@@ -1077,11 +1160,15 @@ async function replaceOrderChildren(
     await client.query(
       `INSERT INTO refunds
         (provider, external_account_id, external_order_id, external_refund_id, order_id,
-         status, amount, completed_at, raw_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         status, amount, completed_at, raw_json, applied_before_issue)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (provider, external_account_id, external_order_id, external_refund_id)
        DO UPDATE SET status = EXCLUDED.status, amount = EXCLUDED.amount,
                      completed_at = EXCLUDED.completed_at, raw_json = EXCLUDED.raw_json,
+                     applied_before_issue = CASE WHEN $11::boolean
+                       THEN refunds.applied_before_issue
+                       ELSE EXCLUDED.applied_before_issue
+                     END,
                      credit_document_id = CASE
                        WHEN EXCLUDED.status = 'COMPLETED' AND EXCLUDED.amount > 0
                          THEN refunds.credit_document_id
@@ -1102,6 +1189,8 @@ async function replaceOrderChildren(
         refundAmounts[index],
         refund.completedAt,
         JSON.stringify(refund.raw),
+        !invoiced && refund.status === "COMPLETED" && nextAmount !== null && nextAmount > 0,
+        invoiced,
       ],
     );
   }
@@ -1126,6 +1215,7 @@ async function replaceOrderChildren(
      SELECT 'process_refund', jsonb_build_object('refundId', refunds.id::text)
      FROM refunds
      WHERE refunds.order_id = $1 AND refunds.status IN ('COMPLETED', 'AMBIGUOUS')
+       AND NOT refunds.applied_before_issue
      ON CONFLICT DO NOTHING`,
     [orderId],
   );

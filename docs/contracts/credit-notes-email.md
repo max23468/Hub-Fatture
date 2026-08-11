@@ -15,7 +15,7 @@ Ogni rimborso è identificato dalla chiave composta da provider, account, ordine
 
 La TD04 eredita cliente, profilo fiscale e riferimenti dalla fattura originaria. Le righe sono aggregate per ordine e riportano l’importo rimborsato. Proiezione e XML definitivo usano il generatore FatturaPA comune, includono `DatiFattureCollegate` e attraversano lo stesso batch, manifest, helper assistito/automatico e fallback manuale delle fatture.
 
-Il database impedisce il doppio collegamento dello stesso rimborso, il superamento del totale originario, il collegamento a una fattura non approvata o senza esito SdI valido e la modifica di documenti approvati. Collegamento, ricalcolo cumulativo e audit critico avvengono nella stessa transazione. Ogni TD04 richiede comparatore fiscale, hash e revisione correnti, `can_approve` e conferma esplicita.
+Il database registra quale rimborso è già stato sottratto prima dell’emissione e gli impedisce di entrare anche in una TD04. Un rimborso totale viene isolato nella propria preparazione `Non trasmettere`, senza chiudere altri ordini dello stesso cliente e giorno; un rimborso parziale rigenera subito totale, righe e proiezione della bozza. Il database impedisce inoltre il doppio collegamento dello stesso rimborso, il superamento del totale originario, il collegamento a una fattura non approvata o senza esito SdI valido e la modifica di documenti approvati. Collegamento, ricalcolo cumulativo e audit critico avvengono nella stessa transazione. Ogni TD04 richiede comparatore fiscale, hash e revisione correnti, `can_approve` e conferma esplicita.
 
 ## Copia e-mail al cliente
 

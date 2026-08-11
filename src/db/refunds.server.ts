@@ -272,9 +272,10 @@ export async function processRefund(refundId: string, job?: ClaimedJob) {
       profile_version: number | null;
       series: string | null;
       credit_document_id: string | null;
+      applied_before_issue: boolean;
     }>(
       `SELECT refunds.id, refunds.status, refunds.amount, refunds.order_id, refunds.provider,
-              refunds.credit_document_id,
+              refunds.credit_document_id, refunds.applied_before_issue,
               orders.display_number, invoice.id AS invoice_id,
               invoice.billing_case_id, invoice.total_amount AS invoice_total,
               invoice.recipient_snapshot_json AS recipient,
@@ -290,6 +291,7 @@ export async function processRefund(refundId: string, job?: ClaimedJob) {
     );
     const source = refund.rows[0];
     if (!source) return null;
+    if (source.applied_before_issue) return null;
     if (source.credit_document_id) return source.credit_document_id;
     if (source.status === "AMBIGUOUS" || source.amount === null || source.amount <= 0) {
       const alreadyAudited = await client.query(

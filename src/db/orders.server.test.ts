@@ -2051,8 +2051,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     const totalRefund = structuredClone(fixture[0]);
     totalRefund.externalOrderId = "shop-order-total-refund";
     totalRefund.displayNumber = "#TOTAL-REFUND";
-    totalRefund.createdAt = "2026-08-21T08:00:00Z";
-    totalRefund.updatedAt = "2026-08-21T09:00:00Z";
+    totalRefund.createdAt = "2026-08-20T10:00:00Z";
+    totalRefund.updatedAt = "2026-08-20T11:00:00Z";
     totalRefund.refunds = [
       {
         externalRefundId: "total-refund",
@@ -2063,22 +2063,36 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
     ];
     await orders.importOrders([totalRefund], { id: 1, requestId: "test-total-refund" });
+    const isolatedRefund = (
+      await database.getPool().query(
+        `SELECT orders.trigger_status, billing_cases.id AS case_id, billing_cases.status,
+                billing_cases.do_not_transmit_reason,
+                healthy.billing_case_id AS healthy_case_id, healthy_case.status AS healthy_status
+         FROM orders
+         JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+         JOIN orders AS healthy ON healthy.external_order_id = $2
+         JOIN billing_cases AS healthy_case ON healthy_case.id = healthy.billing_case_id
+         WHERE orders.external_order_id = $1`,
+        [totalRefund.externalOrderId, mixedRefund.externalOrderId],
+      )
+    ).rows[0];
     assert.deepEqual(
-      (
-        await database.getPool().query(
-          `SELECT orders.trigger_status, billing_cases.status,
-                  billing_cases.do_not_transmit_reason
-           FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
-           WHERE orders.external_order_id = $1`,
-          [totalRefund.externalOrderId],
-        )
-      ).rows[0],
+      {
+        trigger_status: isolatedRefund.trigger_status,
+        status: isolatedRefund.status,
+        do_not_transmit_reason: isolatedRefund.do_not_transmit_reason,
+        healthy_status: isolatedRefund.healthy_status,
+      },
       {
         trigger_status: "REFUNDED_BEFORE_ISSUE",
         status: "DO_NOT_TRANSMIT",
         do_not_transmit_reason: "Ordine rimborsato prima dell’emissione",
+        healthy_status: "READY",
       },
     );
+    assert.notEqual(isolatedRefund.case_id, isolatedRefund.healthy_case_id);
+    const totalRefundCase = await orders.getBillingCase(isolatedRefund.case_id);
+    assert.equal(totalRefundCase!.reactivation_blocker, "INCOMPATIBLE_ORDERS");
 
     await database.closePool();
   } finally {

@@ -147,7 +147,19 @@ test(
       );
       assert.equal(partialRefundProjection.total, 9700);
       assert.equal(partialRefundProjection.sourceTotal, 9700);
-      assert.equal(partialRefundProjection.requiresResave, true);
+      assert.equal(partialRefundProjection.requiresResave, false);
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT applied_before_issue,
+                    (SELECT count(*)::int FROM jobs
+                     WHERE type = 'process_refund'
+                       AND payload_json ->> 'refundId' = refunds.id::text) AS jobs
+             FROM refunds WHERE external_refund_id = 'shop-refund-before-issue'`,
+          )
+        ).rows[0],
+        { applied_before_issue: true, jobs: 0 },
+      );
       await orders.importOrders([second], {
         id: 1,
         requestId: "documents-partial-refund-idempotent",
@@ -167,7 +179,7 @@ test(
         ).rows[0].count,
         "1",
       );
-      secondProjection = await save(cases[1]!.id);
+      secondProjection = partialRefundProjection;
       await orders.correctBillingCaseCustomer(
         cases[2]!.id,
         {

@@ -437,6 +437,25 @@ test(
         credited_amount: 2500,
         audit_count: "1",
       });
+      const appliedBeforeIssue = (
+        await client.query<{ id: string }>(
+          `INSERT INTO refunds
+            (provider, external_account_id, external_order_id, external_refund_id,
+             order_id, status, amount, raw_json, applied_before_issue)
+           VALUES ('SHOPIFY', 'shop', 'order-credit', 'refund-applied-before-issue', $1,
+             'COMPLETED', 100, '{}', true)
+           RETURNING id`,
+          [order.rows[0]!.id],
+        )
+      ).rows[0]!.id;
+      assert.equal(await refunds.processRefund(appliedBeforeIssue), null);
+      await assert.rejects(
+        client.query("UPDATE refunds SET credit_document_id = $2 WHERE id = $1", [
+          appliedBeforeIssue,
+          noteId,
+        ]),
+        /refunds_single_accounting_path_check/,
+      );
       await assert.rejects(
         client.query("UPDATE refunds SET amount = 2400 WHERE id = $1", [firstRefund]),
         /Il totale della nota non coincide/,

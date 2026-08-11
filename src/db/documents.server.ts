@@ -165,7 +165,7 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
          'gross_amount', orders.gross_amount - CASE
            WHEN billing_cases.status IN ('DRAFT', 'READY', 'NEEDS_REVIEW') THEN coalesce((
              SELECT sum(refunds.amount) FROM refunds
-             WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
+             WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
            ), 0)
            ELSE 0
          END,
