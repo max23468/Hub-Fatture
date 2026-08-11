@@ -35,7 +35,8 @@ RUN apt-get update \
   && apt-get install --yes --no-install-recommends libxml2-utils \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --gid 10001 hub-fatture \
-  && useradd --uid 10001 --gid hub-fatture --no-create-home --shell /usr/sbin/nologin hub-fatture
+  && useradd --uid 10001 --gid hub-fatture --no-create-home --shell /usr/sbin/nologin hub-fatture \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000
@@ -49,4 +50,4 @@ COPY --chown=hub-fatture:hub-fatture schemas ./schemas
 
 USER 10001:10001
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["node", "node_modules/@react-router/serve/bin.cjs", "./build/server/index.js"]
