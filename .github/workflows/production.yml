@@ -97,7 +97,7 @@ jobs:
       - name: Verifica attestazione del digest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          IMAGE: ghcr.io/max23468/hub-fatture@${{ needs.image.outputs.digest }}
+          IMAGE: oci://ghcr.io/max23468/hub-fatture@${{ needs.image.outputs.digest }}
         run: gh attestation verify "$IMAGE" --repo "$GITHUB_REPOSITORY"
       - name: Prepara accesso SSH
         env:
