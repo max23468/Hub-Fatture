@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   LogOut,
   Settings,
+  ShieldCheck,
   ShoppingBag,
   UserRound,
 } from "lucide-react";
@@ -24,10 +25,12 @@ const links = [
 export function AppShell({
   children,
   username,
+  canApprove,
   csrfToken,
 }: {
   children: React.ReactNode;
   username: string;
+  canApprove: boolean;
   csrfToken: string;
 }) {
   return (
@@ -41,7 +44,7 @@ export function AppShell({
           {links.map(({ to, label, icon: Icon, end }) => (
             <NavLink className="nav-item" end={end} key={to} to={to}>
               <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
-              {label}
+              <span>{label}</span>
             </NavLink>
           ))}
         </nav>
@@ -55,8 +58,29 @@ export function AppShell({
               <span className="profile-menu__label">{username}</span>
             </summary>
             <div className="profile-menu__panel">
-              <p className="profile-menu__identity">{username}</p>
+              <div className="profile-menu__identity">
+                <span className="profile-menu__avatar" aria-hidden="true">
+                  <UserRound size={20} strokeWidth={1.8} />
+                </span>
+                <span>
+                  <strong>{username}</strong>
+                  <small>
+                    {canApprove ? copy.navigation.ownerRole : copy.navigation.operatorRole}
+                  </small>
+                </span>
+              </div>
+              <p className="profile-menu__permission">
+                <ShieldCheck aria-hidden="true" size={17} strokeWidth={1.8} />
+                {canApprove ? copy.navigation.ownerPermission : copy.navigation.operatorPermission}
+              </p>
               <ThemePicker />
+              <a
+                className="button button--secondary button--full"
+                href="/impostazioni#profilo-sicurezza"
+              >
+                <Settings aria-hidden="true" size={17} strokeWidth={1.8} />
+                {copy.navigation.profileSettings}
+              </a>
               <Form method="post" action="/logout">
                 <input type="hidden" name="csrf" value={csrfToken} />
                 <button className="button button--secondary button--full" type="submit">

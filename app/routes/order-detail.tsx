@@ -22,7 +22,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const order = await getOrder(params.orderId);
   if (!order) throw new Response("Ordine non trovato", { status: 404 });
-  return { username: user.username, csrfToken: user.csrfToken, order };
+  return {
+    username: user.username,
+    canApprove: user.canApprove,
+    csrfToken: user.csrfToken,
+    order,
+  };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -40,7 +45,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function OrderDetail() {
-  const { username, csrfToken, order } = useLoaderData<typeof loader>();
+  const { username, canApprove, csrfToken, order } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const sourceSnapshot = order.raw_snapshot_json;
   const sourceCustomer = sourceSnapshot.customer ?? {};
@@ -55,7 +60,7 @@ export default function OrderDetail() {
   const addressText = address(order.billing_address_json);
   const provider = order.provider === "SHOPIFY" ? "Shopify" : "eBay";
   return (
-    <AppShell username={username} csrfToken={csrfToken}>
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className="title-block">
         <p className="eyebrow">{provider}</p>
         <h1>{copy.orderDetail.order(order.display_number)}</h1>

@@ -84,8 +84,26 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   expect(await background()).not.toBe(lightBackground);
   await page.getByLabel("Apri il menu di matteo").click();
-  await expect(page.locator(".profile-menu__identity")).toHaveText("matteo");
-  await page.getByRole("button", { name: "Esci" }).click();
+  await expect(page.locator(".profile-menu__identity")).toContainText("matteo");
+  await expect(page.locator(".profile-menu__identity")).toContainText("Titolare");
+  await expect(page.locator(".profile-menu__permission")).toContainText(
+    "Può approvare, numerare e autorizzare gli invii.",
+  );
+  expect(
+    await page
+      .locator(".profile-menu .theme-picker__choice svg")
+      .evaluateAll((icons) => icons.map((icon) => icon.getBoundingClientRect().width)),
+  ).toEqual([20, 20, 20]);
+  await page.getByRole("link", { name: "Profilo e sicurezza" }).click();
+  await expect(page).toHaveURL(/\/impostazioni#profilo-sicurezza$/);
+  await expect(page.getByRole("heading", { name: "Profilo e sicurezza" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Sezioni delle impostazioni" })).toContainText(
+    "E-mail al cliente",
+  );
+  await expect(page.getByRole("group", { name: "Tema" })).toBeVisible();
+  await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
+  await page.getByLabel("Apri il menu di matteo").click();
+  await page.locator(".profile-menu").getByRole("button", { name: "Esci" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
@@ -96,7 +114,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByLabel("Password").fill("password-codex");
   await page.getByRole("button", { name: "Accedi" }).click();
   await page.getByLabel("Apri il menu di codex").click();
-  await expect(page.locator(".profile-menu__identity")).toHaveText("codex");
+  await expect(page.locator(".profile-menu__identity")).toContainText("codex");
+  await expect(page.locator(".profile-menu__identity")).toContainText("Operatore");
 
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("button", { name: "Carica ordini di esempio" }).click();
@@ -217,6 +236,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toBeVisible();
+  const mobileNavigation = await page.locator(".nav-item").evaluateAll((items) =>
+    items.map((item) => ({
+      current: item.getAttribute("aria-current"),
+      labelWidth: item.querySelector("span")?.getBoundingClientRect().width ?? 0,
+      right: item.getBoundingClientRect().right,
+    })),
+  );
+  expect(mobileNavigation.filter((item) => item.labelWidth > 1)).toHaveLength(1);
+  expect(mobileNavigation.find((item) => item.current === "page")?.labelWidth).toBeGreaterThan(1);
+  expect(mobileNavigation.every((item) => item.right <= 320)).toBe(true);
   const viewportFits = await page.evaluate(
     () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
   );

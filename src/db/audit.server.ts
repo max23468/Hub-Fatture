@@ -1,6 +1,8 @@
 import type pg from "pg";
 
 export const auditActions = [
+  "ACCOUNT_PASSWORD_CHANGED",
+  "ACCOUNT_SESSIONS_REVOKED",
   "ADMIN_ACCOUNT_CREATED",
   "BILLING_CASE_CREATED",
   "BILLING_CASE_DO_NOT_TRANSMIT",

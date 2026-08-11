@@ -158,7 +158,7 @@ export default function Documents() {
     officialFilesByDocument.set(file.document_id, current);
   }
   return (
-    <AppShell username={username} csrfToken={csrfToken}>
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className="title-block">
         <p className="eyebrow">{copy.documents.eyebrow}</p>
         <h1>{copy.documents.title}</h1>

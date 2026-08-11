@@ -64,7 +64,8 @@ test(
       const request = new Request("http://localhost:8080", {
         headers: { cookie: sessionCookies.map((value) => value.split(";", 1)[0]).join("; ") },
       });
-      assert.equal((await auth.getSessionUser(request))?.username, "matteo");
+      const sessionUser = (await auth.getSessionUser(request))!;
+      assert.equal(sessionUser.username, "matteo");
       const sessionToken = sessionCookies
         .find((value) => value.startsWith("sessione="))!
         .split("=", 2)[1]!
@@ -84,6 +85,77 @@ test(
             .query("SELECT count(*) FROM sessions WHERE id_hash = $1", [hashToken(sessionToken)])
         ).rows[0].count,
         "1",
+      );
+      const secondSessionCookies = await auth.login({
+        username: "matteo",
+        password: "matteo88",
+        ipHash: "origine-titolare-seconda",
+        requestId: "test-login-seconda-sessione",
+      });
+      const secondRequest = new Request("http://localhost:8080", {
+        headers: {
+          cookie: secondSessionCookies.map((value) => value.split(";", 1)[0]).join("; "),
+        },
+      });
+      assert.equal((await auth.getAccountProfile(request, sessionUser)).sessions.length, 2);
+      await assert.rejects(
+        auth.changePassword(
+          request,
+          {
+            currentPassword: "sbagliata",
+            newPassword: "matteo99",
+            confirmation: "matteo99",
+          },
+          sessionUser,
+          "test-password-errata",
+        ),
+        (error) => error instanceof AppError && error.code === "AUTH_CURRENT_PASSWORD_INVALID",
+      );
+      assert.equal(
+        await auth.changePassword(
+          request,
+          {
+            currentPassword: "matteo88",
+            newPassword: "matteo99",
+            confirmation: "matteo99",
+          },
+          sessionUser,
+          "test-password-cambiata",
+        ),
+        1,
+      );
+      assert.equal(await auth.getSessionUser(secondRequest), null);
+      assert.equal((await auth.getAccountProfile(request, sessionUser)).sessions.length, 1);
+      await assert.rejects(
+        auth.login({
+          username: "matteo",
+          password: "matteo88",
+          ipHash: "origine-password-precedente",
+          requestId: "test-password-precedente",
+        }),
+        /Nome utente o password non validi/,
+      );
+      const thirdSessionCookies = await auth.login({
+        username: "matteo",
+        password: "matteo99",
+        ipHash: "origine-password-nuova",
+        requestId: "test-password-nuova",
+      });
+      const thirdRequest = new Request("http://localhost:8080", {
+        headers: { cookie: thirdSessionCookies.map((value) => value.split(";", 1)[0]).join("; ") },
+      });
+      assert.equal((await auth.getAccountProfile(request, sessionUser)).sessions.length, 2);
+      assert.equal(await auth.revokeOtherSessions(request, sessionUser, "test-revoca-sessioni"), 1);
+      assert.equal(await auth.getSessionUser(thirdRequest), null);
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query(
+              "SELECT count(*) FROM audit_events WHERE action IN ('ACCOUNT_PASSWORD_CHANGED', 'ACCOUNT_SESSIONS_REVOKED')",
+            )
+        ).rows[0].count,
+        "2",
       );
       const csrf = sessionCookies
         .find((value) => value.startsWith("csrf="))!

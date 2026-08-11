@@ -225,6 +225,34 @@ async function loadProfile(client: pg.Pool | pg.PoolClient, version?: number) {
   return { ...row, profile_json: parsed.data };
 }
 
+export async function getFiscalProfileSettings() {
+  const result = await getPool().query<{
+    version: number;
+    status: "MOCK" | "AUDITED";
+    profile_json: FiscalProfile;
+    audited_at: Date | null;
+  }>(
+    `SELECT version, status, profile_json, audited_at FROM fiscal_profiles
+     WHERE status IN ('MOCK', 'AUDITED') LIMIT 1`,
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  const profile = fiscalProfileSchema.safeParse(row.profile_json);
+  if (!profile.success) throw new AppError("DOCUMENT_FISCAL_PROFILE_MISSING", 409);
+  return {
+    version: row.version,
+    status: row.status,
+    auditedAt: row.audited_at?.toISOString() ?? null,
+    businessName: profile.data.seller.businessName,
+    taxRegime: profile.data.seller.taxRegime,
+    taxNature: profile.data.taxNature,
+    legalReference: profile.data.legalReference,
+    series: profile.data.series,
+    cadence: profile.data.numbering.cadence,
+    sharedByInvoiceAndCreditNote: profile.data.numbering.sharedByInvoiceAndCreditNote,
+  };
+}
+
 function documentInput(
   caseRow: CaseRow,
   draft: DraftRow | null,

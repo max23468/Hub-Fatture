@@ -1,6 +1,9 @@
 export const errorCatalog = {
+  AUTH_CURRENT_PASSWORD_INVALID: "La password attuale non è corretta.",
   AUTH_INVALID_CREDENTIALS: "Nome utente o password non validi.",
+  AUTH_PASSWORD_CONFIRMATION: "La conferma non coincide con la nuova password.",
   AUTH_PASSWORD_POLICY: "La password deve contenere da 8 a 128 caratteri.",
+  AUTH_PASSWORD_REUSE: "Scegli una password diversa da quella attuale.",
   AUTH_RATE_LIMITED: "Troppi tentativi. Riprova più tardi.",
   AUTH_SETUP_DISABLED: "Gli account sono già configurati.",
   AUTH_INVALID_SETUP_TOKEN: "Codice di configurazione non valido.",

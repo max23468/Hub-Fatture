@@ -96,7 +96,7 @@ export default function CreditNoteDetail() {
   const { username, canApprove, csrfToken, note } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   return (
-    <AppShell username={username} csrfToken={csrfToken}>
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className="title-block">
         <p className="eyebrow">Nota di credito</p>
         <h1>Bozza TD04</h1>

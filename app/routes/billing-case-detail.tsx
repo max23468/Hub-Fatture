@@ -536,7 +536,7 @@ export default function BillingCaseDetail() {
   const revisionField = <input type="hidden" name="revision" value={billingCase.revision} />;
   const csrfField = <input type="hidden" name="csrf" value={csrfToken} />;
   return (
-    <AppShell username={username} csrfToken={csrfToken}>
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className="title-block">
         <p className="eyebrow">{copy.preparation.eyebrow}</p>
         <h1>{copy.preparation.title(billingCase.public_number)}</h1>

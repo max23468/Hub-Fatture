@@ -72,6 +72,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     : "ASSISTED";
   return {
     username: user.username,
+    canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     orders,
     cases,
@@ -257,6 +258,7 @@ function MassApprovalPanel({
 export default function Orders() {
   const {
     username,
+    canApprove,
     csrfToken,
     orders,
     cases,
@@ -323,7 +325,7 @@ export default function Orders() {
     </Form>
   );
   return (
-    <AppShell username={username} csrfToken={csrfToken}>
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className="title-block">
         <p className="eyebrow">{copy.orders.eyebrow}</p>
         <h1>{copy.orders.title}</h1>
