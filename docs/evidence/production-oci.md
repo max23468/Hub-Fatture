@@ -14,9 +14,9 @@
 
 - istanza OCI ARM64, VNIC e hostname Ubuntu canonici `fatture-hub-vm`, con kernel e pacchetti correnti, aggiornamenti automatici, accesso SSH ristretto, `rpcbind` disabilitato e firewall su SSH/HTTP/HTTPS;
 - `fatture.opik.net` risolto sull’IPv4 stabile della VPS, senza wildcard o IPv6, e preflight negativo che rifiuta un hostname diverso;
-- plugin Compute Instance Monitoring attivo, topic `hub-fatture-operations`, sottoscrizione e-mail attiva e consegna di collaudo richiesta;
+- plugin Compute Instance Monitoring attivo, topic `hub-fatture-operations` e sottoscrizione e-mail attiva, con pubblicazione e consegna verificate tramite le metriche native del topic;
 - quattro allarmi abilitati per metriche assenti, CPU, memoria e load average;
-- dominio APM Always Free `hub-fatture-production` attivo con monitor HTTP `hub-fatture-health` ogni 6 minuti da Milano;
+- dominio APM Always Free `hub-fatture-production` attivo con monitor HTTP `hub-fatture-health` ogni 6 minuti da Milano e allarme dedicato dopo due esecuzioni consecutive senza successo;
 - bucket privato `hub-fatture-backups`, lifecycle di 30 giorni limitato a `hub-fatture/archive/` e copia `hub-fatture/current/` esclusa;
 - dynamic group `hub-fatture-backup` ristretto alla sola VPS e policy limitata alla creazione e al readback degli oggetti cifrati, alla pubblicazione sul topic e all’esecuzione di Run Command; la VPS non può cancellare backup;
 - Environment GitHub `Production` limitato ai branch protetti, con `max23468` come unico reviewer e segreti SSH scoped.
@@ -42,20 +42,21 @@ Ambiente `Production`, regione `eu-milan-1`, istanza OCI con suffisso `v6almouq`
 
 ### Backup e restore drill
 
-- backup corrente cifrato completato alle `2026-08-11T21:02:45Z`, oggetto archivio `hub-fatture/archive/2026/08/11/20260811T210258Z-f875b578447cb42f28873f336d8c72f6faeb6db3.tar.age`, dimensione `143592` byte e SHA-256 riletto da Object Storage;
-- copia `current` scaricata in `~/HubFatture-Backups/` con permessi riservati e verificata per dimensione e checksum prima della decifratura;
-- `scripts/restore.sh` eseguito sul Mac con l’identità del recovery kit, target filesystem nuovo e PostgreSQL isolato; manifest, 15 migrazioni, 2 account e 15 eventi di audit riletti;
-- il backup non contiene ancora documenti fiscali o file documento, coerentemente con una Production senza ordini reali; directory e conteggio zero coincidono nel restore;
-- la stessa immagine Production è partita sul database ripristinato: health verde, login case-insensitive di entrambi gli account, nomi canonici e rifiuto database di `can_approve=true` per `Codex` verificati; target, container e database temporanei sono poi stati rimossi.
+- un XML marcato esclusivamente come sintetico è stato collocato temporaneamente nello storage Production e il backup cifrato è stato completato alle `2026-08-11T21:24:01Z`; l’archivio immutabile `hub-fatture/archive/2026/08/11/20260811T212414Z-f875b578447cb42f28873f336d8c72f6faeb6db3.tar.age`, di `143592` byte, ha SHA-256 `ca401a2d8c9c9c3f0d9faa8df821e9e3bf96d0c9cb9a0a361b3f9998dfa67e6d` riletto da Object Storage;
+- la copia cifrata è stata scaricata in `~/HubFatture-Backups/` con permessi riservati e verificata per dimensione e checksum prima della decifratura;
+- `scripts/restore.sh` è stato eseguito sul Mac con l’identità del recovery kit, target filesystem nuovo e PostgreSQL isolato; manifest, 15 migrazioni, 2 account e 17 eventi di audit sono stati riletti, mentre documenti e oggetti storage applicativi restano zero perché la Production non contiene ordini reali;
+- il file sintetico ripristinato ha mantenuto lo SHA-256 `f2758cfd5a1eca08b355b2da84d427a9bee9e59512012c5585f036c3e19b190f`; la stessa immagine Production è partita sul database ripristinato con health verde, ricerca case-insensitive dei due account, nomi canonici e rifiuto database di `can_approve=true` per `Codex`;
+- target, container, rete e database temporanei sono stati rimossi; il file sintetico è stato eliminato dalla VPS e un nuovo backup `current` pulito, verificato alle `2026-08-11T21:28:53Z`, ha ripristinato lo stato ordinario senza modificare dati o numerazione fiscale.
 
 ### OCI e sistema operativo
 
 - istanza `VM.Standard.A1.Flex` portata a 4 OCPU e 24 GB, massimo Ampere Always Free disponibile nel tenancy; boot volume mantenuto a 47 GB per non consumare senza necessità il plafond storage condiviso con le altre VPS;
 - riavvio conseguente verificato: kernel Oracle corrente, nessun pacchetto APT o snap pendente e nessun altro riavvio richiesto;
 - agent OCI, Compute Instance Monitoring, OS Management Hub, Block Volume Management, Bastion e Run Command attivi; Run Command collaudato dopo aver aggiunto il permesso minimo al dynamic group;
-- allarmi `hub-fatture-metrics-absent`, `hub-fatture-cpu-high`, `hub-fatture-memory-high` e `hub-fatture-load-high` riletti `OK`;
-- monitor APM `hub-fatture-health` abilitato, risposta HTTP `200`, metrica Availability/Success `1` e Failure `0`;
-- timer `hub-fatture-backup` e `hub-fatture-monitor` attivi dopo il riavvio; monitor locale sano e container applicativi ripartiti automaticamente.
+- il riavvio controllato ha portato `hub-fatture-metrics-absent` da `OK` a `FIRING` alle `2026-08-11T21:13:12Z` e di nuovo a `OK` alle `2026-08-11T21:15:15Z`; la notifica di rientro è stata ricevuta e gli allarmi CPU, memoria e load average sono rimasti sani;
+- il monitor locale è stato eseguito due volte senza ricevuta backup, poi dopo il ripristino della ricevuta e ancora una volta in stato sano: la deduplicazione ha prodotto esattamente un allarme e un rientro, confermati alle `2026-08-11T21:28:00Z` dalle metriche OCI con `2` messaggi pubblicati e `2` consegnati;
+- il target del solo monitor esterno è stato portato temporaneamente su una route inesistente: due esecuzioni consecutive hanno prodotto Availability `0` alle `2026-08-11T21:27:00Z` e `2026-08-11T21:33:00Z`, quindi `hub-fatture-health-unavailable` è passato da `OK` a `FIRING` alle `2026-08-11T21:36:11Z`; ripristinato il target canonico, Availability è tornata a `1` alle `2026-08-11T21:39:00Z` e l’allarme a `OK` alle `2026-08-11T21:42:06Z`, senza downtime pubblico e con esattamente `2` messaggi pubblicati e `2` consegnati per allarme e rientro;
+- timer `hub-fatture-backup` e `hub-fatture-monitor` attivi dopo il riavvio; monitor locale sano, container applicativi ripartiti automaticamente e tutti gli allarmi riletti `OK` dopo i collaudi.
 
 ## Limiti osservati
 
