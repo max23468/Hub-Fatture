@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+const reservedEmailDomain =
+  /@(?:[^@.]+\.)*(?:example|invalid|localhost|test)$|@(?:[^@.]+\.)*example\.(?:com|net|org)$/i;
+
 const schema = z
   .object({
     ADMIN_BOOTSTRAP_TOKEN: z.string().min(32),
@@ -62,10 +65,9 @@ const schema = z
     },
   )
   .refine(
-    ({ APP_ENV, SMTP_FROM }) =>
-      APP_ENV !== "production" || !SMTP_FROM.toLowerCase().endsWith(".invalid"),
+    ({ APP_ENV, SMTP_FROM }) => APP_ENV !== "production" || !reservedEmailDomain.test(SMTP_FROM),
     {
-      message: "SMTP_FROM deve essere l’indirizzo reale del negozio in Production",
+      message: "SMTP_FROM deve usare il dominio reale del negozio in Production",
       path: ["SMTP_FROM"],
     },
   )
