@@ -228,6 +228,15 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /git checkout --detach "\$CANDIDATE"/);
   assert.match(workflow, /ref: \$\{\{ needs\.image\.outputs\.commit \}\}/);
   assert.match(workflow, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
+  assert.match(
+    workflow,
+    /IMAGE: oci:\/\/ghcr\.io\/max23468\/hub-fatture@\$\{\{ needs\.image\.outputs\.digest \}\}/,
+  );
+  const deploy = workflow.slice(workflow.indexOf("\n  deploy:"));
+  assert.match(deploy, /packages: read/);
+  const registryLogin = deploy.indexOf("docker/login-action@");
+  assert.notEqual(registryLogin, -1);
+  assert.ok(registryLogin < deploy.indexOf("Verifica attestazione"));
   assert.match(workflow, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
   assert.match(workflow, /backup\.sh deploy/);
 });
