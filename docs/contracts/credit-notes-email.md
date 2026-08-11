@@ -33,6 +33,6 @@ Un fallimento SMTP non aggiorna mai `documents.status`, le submission Aruba o le
 
 ## Trasporto
 
-Nodemailer è l’unico adapter. Ogni ambiente seleziona esattamente un trasporto: `SYNTHETIC`, `EXISTING_SMTP` oppure `OCI_EMAIL_DELIVERY`; non esistono doppio invio, bilanciamento o fallback automatico. `SYNTHETIC` usa il trasporto JSON locale e non apre connessioni di rete.
+Nodemailer è l’unico adapter. Ogni ambiente seleziona esattamente un trasporto: `SYNTHETIC`, `EXISTING_SMTP` oppure `OCI_EMAIL_DELIVERY`; non esistono doppio invio, bilanciamento o fallback automatico. `SYNTHETIC` usa il trasporto JSON locale e non apre connessioni di rete. I trasporti reali richiedono TLS e interrompono l’invio se non è disponibile; Production rifiuta il mittente sintetico. Il mittente mostrato prima dell’approvazione viene congelato sul documento insieme a destinatario, oggetto e corpo.
 
 Il controllo del DNS è stato confermato dal titolare. HF-O07 resta aperta fino all’esecuzione separatamente autorizzata del [PoC OCI Email Delivery](../runbooks/oci-email-delivery-poc.md) e alla scelta documentata fra OCI e SMTP esistente. Fino ad allora non esiste un trasporto Production approvato e Development resta sintetico.

@@ -39,10 +39,24 @@ test("la configurazione applica i limiti delle sessioni", () => {
       EBAY_ENVIRONMENT: "production",
       ARUBA_ACCOUNT_REFERENCE: "aruba-account-test",
       SMTP_TRANSPORT: "EXISTING_SMTP",
+      SMTP_FROM: "contabilita@negozio.example",
       SMTP_HOST: "smtp.example.invalid",
       SMTP_USERNAME: "synthetic-user",
       SMTP_PASSWORD: "synthetic-password",
     }).APP_ENV,
     "production",
+  );
+  assert.throws(() =>
+    parseConfig({
+      ...base,
+      APP_ENV: "production",
+      APP_BASE_URL: "https://example.invalid",
+      EBAY_ENVIRONMENT: "production",
+      ARUBA_ACCOUNT_REFERENCE: "aruba-account-test",
+      SMTP_TRANSPORT: "EXISTING_SMTP",
+      SMTP_HOST: "smtp.example.invalid",
+      SMTP_USERNAME: "synthetic-user",
+      SMTP_PASSWORD: "synthetic-password",
+    }),
   );
 });

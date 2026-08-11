@@ -9,7 +9,7 @@
 - TD04 con fattura collegata, validazione XSD, numerazione, comparatore, approvazione e batch Aruba comune;
 - mapping Shopify e blocco prudenziale del rimborso eBay ambiguo;
 - trigger e-mail soltanto su `DELIVERED` e `NOT_DELIVERED` con PDF ufficiale;
-- trasporto SMTP sintetico Nodemailer, errore sanificato, retry, crash incerto e prevenzione del doppio invio;
+- trasporto SMTP sintetico Nodemailer, TLS obbligatorio sui trasporti reali, mittente approvato immutabile, errore sanificato, retry, crash incerto e prevenzione del doppio invio;
 - E2E sintetico da rimborso a TD04, helper assistito, readback, PDF e invio JSON controllato.
 
 Le prove eseguibili vivono in `src/refunds.test.ts`, `src/email.test.ts`, `src/documents.test.ts`, `src/db/refunds.server.test.ts`, `src/db/documents.server.test.ts`, `src/db/migrations.server.test.ts`, `src/integrations/connectors.test.ts` e `tests/e2e/readiness.spec.ts`.

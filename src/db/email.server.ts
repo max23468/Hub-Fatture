@@ -109,7 +109,8 @@ export async function snapshotDocumentEmail(
   if (choice.data === "SKIP") {
     await client.query(
       `UPDATE documents SET customer_email_mode = $2, customer_email_choice = 'SKIP',
-         customer_email_recipient = NULL, customer_email_subject = NULL,
+         customer_email_sender = NULL, customer_email_recipient = NULL,
+         customer_email_subject = NULL,
          customer_email_body = NULL WHERE id = $1`,
       [documentId, emailMode],
     );
@@ -125,9 +126,9 @@ export async function snapshotDocumentEmail(
   if (!parsed.success) throw new AppError("EMAIL_RECIPIENT_MISSING", 409);
   await client.query(
     `UPDATE documents SET customer_email_mode = $2, customer_email_choice = 'SEND',
-       customer_email_recipient = $3, customer_email_subject = $4,
-       customer_email_body = $5 WHERE id = $1`,
-    [documentId, emailMode, parsed.data, subject, body],
+       customer_email_sender = $3, customer_email_recipient = $4,
+       customer_email_subject = $5, customer_email_body = $6 WHERE id = $1`,
+    [documentId, emailMode, getConfig().SMTP_FROM, parsed.data, subject, body],
   );
 }
 
@@ -144,12 +145,14 @@ async function insertDelivery(client: pg.PoolClient, documentId: string, force =
     if (existing.rows[0]) return null;
   }
   const candidate = await client.query<{
+    sender: string;
     recipient: string;
     subject: string;
     body: string;
     attachment_id: string;
   }>(
-    `SELECT documents.customer_email_recipient AS recipient,
+    `SELECT documents.customer_email_sender AS sender,
+            documents.customer_email_recipient AS recipient,
             documents.customer_email_subject AS subject,
             documents.customer_email_body AS body,
             pdf.storage_object_id AS attachment_id
@@ -182,7 +185,7 @@ async function insertDelivery(client: pg.PoolClient, documentId: string, force =
       randomUUID(),
       documentId,
       config.SMTP_TRANSPORT,
-      config.SMTP_FROM,
+      row.sender,
       row.recipient,
       row.subject,
       row.body,
@@ -255,6 +258,7 @@ async function smtpSend(delivery: DeliveryRow, attachment: Buffer): Promise<stri
           host: config.SMTP_HOST,
           port: config.SMTP_PORT,
           secure: config.SMTP_SECURE,
+          requireTLS: true,
           auth: { user: config.SMTP_USERNAME, pass: config.SMTP_PASSWORD },
           connectionTimeout: 15_000,
           greetingTimeout: 15_000,

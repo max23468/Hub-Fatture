@@ -27,16 +27,19 @@ ALTER TABLE documents
     CHECK (customer_email_mode IN ('AUTOMATIC', 'MANUAL')),
   ADD COLUMN customer_email_choice text NOT NULL DEFAULT 'SKIP'
     CHECK (customer_email_choice IN ('SEND', 'SKIP')),
+  ADD COLUMN customer_email_sender text,
   ADD COLUMN customer_email_recipient text,
   ADD COLUMN customer_email_subject text,
   ADD COLUMN customer_email_body text,
   ADD CONSTRAINT documents_customer_email_snapshot_check CHECK (
     (customer_email_choice = 'SKIP'
+      AND customer_email_sender IS NULL
       AND customer_email_recipient IS NULL
       AND customer_email_subject IS NULL
       AND customer_email_body IS NULL)
     OR
     (customer_email_choice = 'SEND'
+      AND nullif(btrim(customer_email_sender), '') IS NOT NULL
       AND nullif(btrim(customer_email_recipient), '') IS NOT NULL
       AND nullif(btrim(customer_email_subject), '') IS NOT NULL
       AND nullif(btrim(customer_email_body), '') IS NOT NULL)

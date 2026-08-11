@@ -83,11 +83,11 @@ test(
          fiscal_profile_version, currency, total_amount, source_total_amount,
          difference_amount, draft_version, projection_sha256, payment_status,
          payment_method, recipient_snapshot_json, customer_email_mode,
-         customer_email_choice, customer_email_recipient, customer_email_subject,
-         customer_email_body)
+         customer_email_choice, customer_email_sender, customer_email_recipient,
+         customer_email_subject, customer_email_body)
        VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', '2026-08-10', 1, 'EUR',
          10000, 10000, 0, 1, $2, 'PAID', 'MP08', $3, 'AUTOMATIC', 'SEND',
-         'cliente@example.invalid', 'Il tuo documento fiscale',
+         'contabilita@example.invalid', 'cliente@example.invalid', 'Il tuo documento fiscale',
          'In allegato trovi la copia leggibile del documento fiscale.') RETURNING id`,
         [billingCase.rows[0]!.id, "b".repeat(64), recipient],
       );
@@ -203,6 +203,11 @@ test(
         schedulerB.release();
       }
       assert.ok(deliveryId);
+      assert.equal(
+        (await client.query("SELECT sender FROM email_deliveries WHERE id = $1", [deliveryId]))
+          .rows[0].sender,
+        "contabilita@example.invalid",
+      );
       const jobs = await import("./connectors.server.ts");
       const firstEmailJob = await jobs.claimJob("email-synthetic");
       assert.equal(firstEmailJob?.type, "send_customer_email");

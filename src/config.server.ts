@@ -59,6 +59,14 @@ const schema = z
     },
   )
   .refine(
+    ({ APP_ENV, SMTP_FROM }) =>
+      APP_ENV !== "production" || !SMTP_FROM.toLowerCase().endsWith(".invalid"),
+    {
+      message: "SMTP_FROM deve essere l’indirizzo reale del negozio in Production",
+      path: ["SMTP_FROM"],
+    },
+  )
+  .refine(
     ({ APP_ENV, ARUBA_ACCOUNT_REFERENCE }) =>
       APP_ENV !== "production" || ARUBA_ACCOUNT_REFERENCE !== "synthetic-aruba-account",
     {

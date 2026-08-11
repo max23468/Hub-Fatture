@@ -25,6 +25,7 @@ test(
       process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
       process.env.DATABASE_URL = databaseFixture.connectionString;
       process.env.DOCUMENT_STORAGE_ROOT = storage;
+      process.env.SMTP_FROM = "approvazioni@example.invalid";
       const documents = await import("./documents.server.ts");
       const aruba = await import("./aruba.server.ts");
       const orders = await import("./orders.server.ts");
@@ -926,15 +927,16 @@ test(
       } finally {
         await chmod(finalStorageDirectory, 0o700);
       }
-      assert.equal(
+      assert.deepEqual(
         (
           await database
             .getPool()
-            .query("SELECT customer_email_choice FROM documents WHERE billing_case_id = $1", [
-              cases[2]!.id,
-            ])
-        ).rows[0].customer_email_choice,
-        "SEND",
+            .query(
+              "SELECT customer_email_choice, customer_email_sender FROM documents WHERE billing_case_id = $1",
+              [cases[2]!.id],
+            )
+        ).rows[0],
+        { customer_email_choice: "SEND", customer_email_sender: "approvazioni@example.invalid" },
       );
       const rows = (
         await database.getPool().query<{
