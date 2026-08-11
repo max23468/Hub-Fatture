@@ -256,11 +256,12 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     const result = spawnSync("sh", ["-n", script], { cwd: root, encoding: "utf8" });
     assert.equal(result.status, 0, `${script}: ${result.stderr}`);
   }
-  const [backup, deploy, monitor, restore, workflow] = await Promise.all(
+  const [backup, deploy, monitor, readback, restore, workflow] = await Promise.all(
     [
       "scripts/backup.sh",
       "scripts/production-deploy.sh",
       "scripts/monitor-local.sh",
+      "scripts/production-readback.sh",
       "scripts/restore.sh",
       ".github/workflows/production.yml",
     ].map((file) => readFile(path.join(root, file), "utf8")),
@@ -306,6 +307,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /cp "\$previous_caddy" Caddyfile/);
   assert.match(deploy, /--force-recreate/);
   assert.match(deploy, /production-readback\.sh >\/dev\/null/);
+  assert.match(readback, /--retry-max-time 180 --retry-all-errors/);
   assert.match(workflow, /compose\.yaml\.next/);
   assert.match(workflow, /Caddyfile\.next/);
   const candidateDeploy = workflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
