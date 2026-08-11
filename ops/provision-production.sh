@@ -11,6 +11,8 @@ apt-get install --yes --no-install-recommends \
   age ca-certificates curl docker.io docker-compose-v2 jq python3-venv ufw unattended-upgrades
 systemctl enable --now docker
 systemctl enable --now unattended-upgrades
+systemctl disable --now rpcbind.socket rpcbind.service 2>/dev/null || true
+systemctl mask rpcbind.socket rpcbind.service 2>/dev/null || true
 if snap list oracle-cloud-agent >/dev/null 2>&1; then
   snap start --enable oracle-cloud-agent >/dev/null
 else

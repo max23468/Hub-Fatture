@@ -213,6 +213,8 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(compose, /ARUBA_SUBMISSION_ENABLED: "false"/);
   assert.match(compose, /read_only: true/);
   assert.match(compose, /cap_drop: \[ALL\]/);
+  assert.equal(compose.match(/logging: \*default-logging/g)?.length, 4);
+  assert.match(compose, /max-size: 10m/);
   assert.match(dockerfile, /USER 10001:10001/);
   assert.match(dockerfile, /test ! -e node_modules\/typescript/);
   assert.match(caddy, /fatture\.opik\.net/);
@@ -261,6 +263,10 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     assert.doesNotMatch(content, /^\.\s+(?:\.\/)?\.env(?:\s|$)/m);
     assert.doesNotMatch(content, /\beval\b/);
   }
+  assert.match(
+    await readFile(path.join(root, "ops/provision-production.sh"), "utf8"),
+    /mask rpcbind\.socket rpcbind\.service/,
+  );
 });
 
 test("il worker riconferma la lease dopo errori transitori di heartbeat", async () => {

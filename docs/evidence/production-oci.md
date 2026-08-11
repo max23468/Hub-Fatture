@@ -12,7 +12,7 @@
 
 ## Baseline infrastrutturale verificata
 
-- istanza OCI ARM64, VNIC e hostname Ubuntu canonici `fatture-hub-vm`, con accesso SSH ristretto e firewall su SSH/HTTP/HTTPS;
+- istanza OCI ARM64, VNIC e hostname Ubuntu canonici `fatture-hub-vm`, con kernel e pacchetti correnti, aggiornamenti automatici, accesso SSH ristretto, `rpcbind` disabilitato e firewall su SSH/HTTP/HTTPS;
 - `fatture.opik.net` risolto sull’IPv4 stabile della VPS, senza wildcard o IPv6, e preflight negativo che rifiuta un hostname diverso;
 - plugin Compute Instance Monitoring attivo, topic `hub-fatture-operations`, sottoscrizione e-mail attiva e consegna di collaudo richiesta;
 - quattro allarmi abilitati per metriche assenti, CPU, memoria e load average;
@@ -20,6 +20,7 @@
 - bucket privato `hub-fatture-backups`, lifecycle di 30 giorni limitato a `hub-fatture/archive/` e copia `hub-fatture/current/` esclusa;
 - dynamic group `hub-fatture-backup` ristretto alla sola VPS e policy senza lettura o cancellazione degli oggetti per il processo di backup;
 - Environment GitHub `Production` limitato ai branch protetti, con `max23468` come unico reviewer e segreti SSH scoped.
+- log applicativi ruotati dal driver locale Docker, access log Caddy ruotati nativamente e journal di sistema gestito da `systemd`.
 
 ## Ricevute remote
 
