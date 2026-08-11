@@ -287,8 +287,35 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   const resumeWriters = backup.lastIndexOf("\nresume_writers\n");
   assert.match(
     backup,
-    /unpause app-web app-worker.*up -d --wait --wait-timeout 60 app-web app-worker/s,
+    /unpause app-web app-worker.*writers_paused=0.*SECONDS \+ 60.*until new_healthy_probe.*sleep 2/s,
   );
+  const probe = backup.match(/new_healthy_probe\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(probe, "il predicato della nuova sonda health deve essere isolabile");
+  const probeStatus = (start, exitCode = 0) =>
+    spawnSync(
+      "bash",
+      [
+        "-c",
+        `${probe}\ndocker() { printf '%s\\n' "$HEALTH_JSON"; }\nnew_healthy_probe app "$UNPAUSED_AT"`,
+      ],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          HEALTH_JSON: JSON.stringify([
+            {
+              State: {
+                Health: { Status: "healthy", Log: [{ Start: start, ExitCode: exitCode }] },
+              },
+            },
+          ]),
+          UNPAUSED_AT: "2026-08-11T20:00:00.000000000Z",
+        },
+      },
+    ).status;
+  assert.equal(probeStatus("2026-08-11T19:59:59.999999999Z"), 1);
+  assert.equal(probeStatus("2026-08-11T20:00:00.000000001Z", 1), 1);
+  assert.equal(probeStatus("2026-08-11T20:00:00.000000001Z"), 0);
   assert.ok(
     pauseWriters >= 0 &&
       pauseWriters < reconcileStorage &&

@@ -37,13 +37,28 @@ tmp=$(mktemp -d /dev/shm/hub-fatture-backup.XXXXXX)
 umask 077
 writers_paused=0
 
+new_healthy_probe() {
+  docker inspect "$1" | jq -e --arg unpausedAt "$2" '
+    .[0].State.Health as $health
+    | ($health.Status == "healthy")
+      and (($health.Log[-1].Start // "") > $unpausedAt)
+      and (($health.Log[-1].ExitCode // 1) == 0)
+  ' >/dev/null
+}
+
 resume_writers() {
   [ "$writers_paused" -eq 1 ] || return 0
   docker compose -f compose.yaml --env-file .env --env-file .deploy.env \
     unpause app-web app-worker >/dev/null
-  docker compose -f compose.yaml --env-file .env --env-file .deploy.env \
-    up -d --wait --wait-timeout 60 app-web app-worker >/dev/null
   writers_paused=0
+  unpaused_at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+  app_web_id=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ps -q app-web)
+  [ -n "$app_web_id" ] || { echo "Container app-web assente dopo il backup" >&2; return 1; }
+  deadline=$((SECONDS + 60))
+  until new_healthy_probe "$app_web_id" "$unpaused_at"; do
+    [ "$SECONDS" -lt "$deadline" ] || { echo "app-web non sano dopo il backup" >&2; return 1; }
+    sleep 2
+  done
 }
 
 cleanup() {
