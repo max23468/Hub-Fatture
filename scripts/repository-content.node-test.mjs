@@ -318,7 +318,11 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(workflow, /Caddyfile\.next/);
   assert.match(
     workflow,
-    /test -f \/opt\/hub-fatture\/\.deploy\.env.*test -x \/opt\/hub-fatture\/scripts\/backup\.sh/,
+    /test -f \/opt\/hub-fatture\/\.deploy\.env.*test -x \/opt\/hub-fatture\/scripts\/backup\.sh.*backup\.sh pre-deploy/,
+  );
+  assert.match(
+    workflow,
+    /elif sudo test -f \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json; then echo 'Script di backup Production assente'.*exit 1/,
   );
   const candidateDeploy = workflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
   const operationalInstall = workflow.indexOf("sudo install -m 750 '$target/backup.sh'");
