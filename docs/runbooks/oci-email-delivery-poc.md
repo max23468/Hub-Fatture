@@ -21,6 +21,20 @@ La tenancy espone a Milano un limite tecnico di 50.000 e-mail al giorno. Questo 
 - hard bounce ottenuto con un solo indirizzo riservato `.invalid` e suppression automatica verificata;
 - criteri e record di uscita definiti qui sotto.
 
+## Confronto con l'SMTP esistente
+
+Il readback pubblico del 2026-08-11T13:11:20Z identifica Google come servizio di posta già autorizzato dal dominio: i record MX puntano a Google e lo SPF include `_spf.google.com`. Il titolare conferma che l'indirizzo mittente è già usato dal negozio. Il confronto non ha richiesto credenziali Google né un altro invio.
+
+| Criterio                 | SMTP esistente del negozio                                                                                                                                                       | OCI Email Delivery                                                                                                                      | Esito                                                              |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Autenticazione           | funziona per l'uso umano corrente, ma Hub-Fatture non dispone di una credenziale applicativa dedicata; l'adozione richiederebbe una password per app o OAuth legati alla casella | credenziale SMTP separata, autenticazione TLS riuscita e credenziale alterata rifiutata con `EAUTH`                                     | OCI separa l'app dalla casella personale                           |
+| Deliverability osservata | posta ordinaria del negozio operativa; nessuna prova applicativa isolata con allegato, mancata consegna e reinvio                                                                | primo invio e reinvio ricevuti con allegato; hard bounce e suppression osservati                                                        | OCI copre l'intero percorso richiesto a Hub-Fatture                |
+| Limiti                   | dipendono dal piano e dall'account Google correnti; la quota applicabile non è stata qualificata per un client automatico                                                        | limite tecnico della tenancy 50.000 al giorno, prime 3.000 e-mail mensili incluse e massimo previsto 500, con margine prudenziale 2.500 | OCI ha capacità e costo verificati per il volume previsto          |
+| Diagnosi                 | nessuna ricevuta o suppression applicativa dedicata è stata dimostrata; la diagnosi resterebbe mescolata alla casella usata dal negozio                                          | errori SMTP sanificati, conteggio accettati/rifiutati e suppression OCI con ID e motivo `HARDBOUNCE`                                    | OCI offre un confine diagnostico dedicato                          |
+| Semplicità operativa     | evita nuove risorse, ma richiede collegare Hub-Fatture alla casella e al suo ciclo di credenziali e autenticazione                                                               | dominio, DKIM, SPF, mittente e credenziale dedicata sono già verificati; app e worker condividono un solo trasporto                     | OCI è più semplice da gestire senza coinvolgere la posta personale |
+
+L'SMTP esistente resta tecnicamente possibile, ma non offre oggi un'identità applicativa isolata né la stessa evidenza end-to-end. OCI soddisfa tutti e cinque i criteri senza un nuovo provider a pagamento e viene quindi scelto come unico trasporto canonico.
+
 ## Decisione
 
 `OCI_EMAIL_DELIVERY` è il solo trasporto SMTP canonico scelto per Hub-Fatture. Non esistono fallback o doppio invio. La configurazione Production e il relativo secret store appartengono alla fase di messa in produzione; l'app Development già in esecuzione resta sintetica finché non viene riavviata nel normale ciclo operativo.
