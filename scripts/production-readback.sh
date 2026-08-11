@@ -18,7 +18,8 @@ for service in app-web app-worker; do
   [ "$actual" = "$expected_image" ] || { echo "Digest $service inatteso" >&2; exit 1; }
 done
 
-curl --fail --silent --show-error --max-time 10 https://fatture.opik.net/health \
+curl --fail --silent --show-error --max-time 10 --retry 35 --retry-delay 5 \
+  --retry-max-time 180 --retry-all-errors https://fatture.opik.net/health \
   | jq -e '.status == "ok"' >/dev/null
 
 schema=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
