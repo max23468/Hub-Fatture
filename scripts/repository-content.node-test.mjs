@@ -180,6 +180,17 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   assert.match(compose, /- app_node_modules:\/workspace\/node_modules/);
   assert.match(compose, /- worker_node_modules:\/workspace\/node_modules/);
   assert.match(compose, /- worker_build_server:\/workspace\/build-server/);
+  for (const setting of [
+    "SMTP_FROM",
+    "SMTP_HOST",
+    "SMTP_PASSWORD",
+    "SMTP_PORT",
+    "SMTP_SECURE",
+    "SMTP_TRANSPORT",
+    "SMTP_USERNAME",
+  ]) {
+    assert.ok(compose.includes("  " + setting + ": ${" + setting + ":-"));
+  }
   assert.match(script, /docker compose up -d --build --wait app app-worker caddy/);
 });
 

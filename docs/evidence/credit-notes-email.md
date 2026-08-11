@@ -18,8 +18,8 @@ Le prove eseguibili vivono in `src/refunds.test.ts`, `src/email.test.ts`, `src/d
 
 I controlli canonici applicabili, eseguiti separatamente con PostgreSQL di prova reale, sono verdi: policy toolchain, formato, lint, typecheck, build server, migrazioni pulite e aggiornamento rappresentativo, test Node/PostgreSQL, smoke import e type stripping, React Doctor, build applicativa ed E2E Playwright. Su richiesta del titolare non è stato eseguito lo scan delle dipendenze e non viene quindi dichiarato come evidenza di questa sessione.
 
-## Gate esterno ancora aperto
+## Trasporto esterno verificato
 
-Il codice e le prove locali non chiudono HF-O07. Il controllo DNS è confermato, ma il PoC OCI reale non è stato eseguito: nessuna risorsa OCI, modifica DNS, credenziale o e-mail è stata richiesta o usata. La checklist e il preflight sono in [PoC OCI Email Delivery](../runbooks/oci-email-delivery-poc.md).
+Nella regione di Milano sono stati verificati dominio OCI, DKIM, mittente approvato e SPF pubblico. Compose passa la stessa configurazione SMTP ad app e worker e conserva il trasporto sintetico come protezione predefinita. La credenziale dedicata resta nel file locale ignorato da Git con permessi riservati al titolare. Il PoC ha osservato autenticazione TLS riuscita, rifiuto sanificato di una credenziale alterata, primo invio e reinvio consegnati con allegato, hard bounce su un solo indirizzo riservato `.invalid` e relativa suppression automatica. Nessun valore SMTP, destinatario o risposta integrale è entrato nei log o nelle evidenze. Il titolare stima un massimo di 500 copie mensili, sotto il margine prudenziale di 2.500: HF-O07 è chiusa su `OCI_EMAIL_DELIVERY` come unico trasporto canonico.
 
-La milestone corrente resta quindi **in corso** fino alla scelta del trasporto canonico basata sull’evidenza richiesta dalla decisione rinviata. La qualifica TD04 sul pannello Aruba reale resta un gate di collaudo successivo e separato: nessun accesso o invio Aruba reale è compreso in questa evidenza.
+La qualifica TD04 sul pannello Aruba reale resta un gate di collaudo successivo e separato: nessun accesso o invio Aruba reale è compreso in questa evidenza.
