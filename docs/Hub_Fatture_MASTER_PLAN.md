@@ -107,7 +107,7 @@ I log grezzi restano fuori dal repository quando contengono identificativi, conf
 
 ## 1. Sintesi esecutiva
 
-Hub Fatture 1.x è un'applicazione web privata e single-tenant per l'attività del titolare. Importa ordini da un solo negozio Shopify e da un solo account venditore eBay, genera bozze di fatture elettroniche semplificate nel regime del margine e richiede sempre un'approvazione esplicita. Un helper locale multipiattaforma carica quindi l'XML nel pannello web di Aruba Fatturazione Elettronica usando Chrome o Edge, legge la validazione e, in base all'impostazione scelta, si ferma prima dell'ultimo clic oppure completa l'invio usando un'autorizzazione monouso vincolata ai documenti esatti. Login, password, OTP 2FA e CAPTCHA restano sempre passaggi umani. Stati, notifiche Aruba e risultati SdI vengono riconciliati dal pannello e dai file ufficiali scaricati.
+Hub Fatture 1.x è un'applicazione web privata e single-tenant per l'attività del titolare. Importa ordini da un solo negozio Shopify e da un solo account venditore eBay, genera bozze di fatture elettroniche semplificate nel regime del margine e richiede sempre un'approvazione esplicita. Un helper locale multipiattaforma carica quindi l'XML nel pannello web di Aruba Fatturazione Elettronica usando Chrome o Edge, legge la validazione e, in base all'impostazione scelta, si ferma prima dell'ultimo clic oppure completa l'invio usando un'autorizzazione monouso vincolata ai documenti esatti. Login, password, OTP 2FA, autorizzazione SMS e CAPTCHA restano sempre passaggi umani. Stati, notifiche Aruba e risultati SdI vengono riconciliati dal pannello e dai file ufficiali scaricati.
 
 L'app non è un gestionale fiscale completo e non deve sostituire la contabilità Aruba. Il suo compito è automatizzare la raccolta degli ordini, applicare un profilo fiscale preconfigurato e verificato, preparare il documento, consentire correzioni controllate, raccogliere l'approvazione e orchestrare la trasmissione.
 
@@ -672,7 +672,7 @@ Flusso normale:
 6. Generazione e archiviazione immutabile dell'XML finale.
 7. Creazione del manifest del batch con documenti, revisioni e hash SHA-256 esatti. In modalità automatica viene creato anche un permesso monouso a scadenza breve.
 8. Avvio volontario dell'helper locale, che verifica hostname Aruba, account atteso, modalità e manifest; se la sessione non è valida mette in pausa il flusso per login, password, OTP 2FA o CAPTCHA umani.
-9. Caricamento degli XML tramite l'interfaccia web documentata e lettura dell'esito di validazione. Qualunque errore arresta il batch prima dell'invio; ogni documento viene quindi riconciliato e gli upload pendenti già accettati vengono rimossi, oppure il batch resta bloccato per pulizia manuale verificata prima di qualunque nuovo tentativo.
+9. Caricamento degli XML tramite l'interfaccia web documentata; se compare la protezione OTP, pausa per `Prosegui`, codice SMS e `Verifica` umani, quindi lettura dell'esito di validazione. Qualunque errore arresta il batch prima dell'invio; ogni documento viene quindi riconciliato e gli upload pendenti già accettati vengono rimossi, oppure il batch resta bloccato per pulizia manuale verificata prima di qualunque nuovo tentativo.
 10. In modalità `Assistita`, arresto prima dell'ultimo clic e invio eseguito dal titolare nel pannello. In modalità `Automatica dopo conferma`, rilettura e consumo atomico del permesso, nuovo confronto del batch e solo allora clic finale dell'helper.
 11. Archiviazione dell'esito tecnico sanitizzato e riconciliazione dal pannello e dai file XML, PDF e notifiche scaricati.
 
@@ -907,7 +907,7 @@ La documentazione ufficiale e le osservazioni preliminari non ancora registrate 
 - caricamento tramite selettore file XML con supporto multiplo;
 - limite corrente mostrato dal pannello di 300 documenti, 30 MB complessivi e 4,9 MB per file, da rileggere prima di fissare un batch;
 - separazione fra caricamento/validazione e invio finale;
-- con 2FA attiva, richiesta del codice a ogni nuova autenticazione ma non di un SMS per ogni upload; senza 2FA il pannello può richiedere autorizzazione SMS per ciascun caricamento;
+- con 2FA attiva, richiesta del codice a ogni nuova autenticazione ma non di un SMS per ogni upload; il titolare ha scelto di non usare la 2FA e di mantenere la protezione OTP con autorizzazione SMS per ciascun caricamento;
 - ricerca e dettaglio delle fatture inviate, timeline degli stati e download PDF, XML e P7M;
 - download massivo supportato dal pannello.
 
@@ -919,7 +919,7 @@ Questi dettagli restano ipotesi fino all'audit M4 registrato in un'evidenza sani
 
 L'helper è un comando TypeScript/Playwright della stessa repository, avviato dal titolare sul proprio computer. Usa un'installazione locale stabile di Chrome o Edge e un profilo browser dedicato. La stessa implementazione deve funzionare su Windows e macOS; non introdurre due automazioni native. Safari resta utilizzabile soltanto per il percorso manuale.
 
-Il server HF non ospita un browser Aruba e non riceve la sessione. L'helper riceve da HF un token casuale, revocabile, a scadenza breve e vincolato al solo batch; recupera il manifest via HTTPS e invia a HF soltanto stato, identificativi tecnici e readback sanitizzato. Questa comunicazione usa esclusivamente endpoint interni di Hub Fatture, non API Aruba. Il token non autorizza il clic finale, che richiede il distinto permesso monouso. L'helper non legge né esporta cookie o local storage e non deve tentare di aggirare CAPTCHA o controlli anti-automazione.
+Il server HF non ospita un browser Aruba e non riceve la sessione. L'helper riceve da HF un token casuale, revocabile, a scadenza breve e vincolato al solo batch; durante le pause umane ne rinnova la scadenza breve tramite heartbeat, entro un limite assoluto di 45 minuti dalla creazione. Se l'operazione non termina prima del limite, il server revoca il token e forza la riconciliazione mentre il token è ancora valido. Recupera il manifest via HTTPS e invia a HF soltanto stato, identificativi tecnici e readback sanitizzato. Questa comunicazione usa esclusivamente endpoint interni di Hub Fatture, non API Aruba. Il token non autorizza il clic finale, che richiede il distinto permesso monouso. L'helper non legge né esporta cookie o local storage e non deve tentare di aggirare CAPTCHA o controlli anti-automazione.
 
 Usare soltanto la UI visibile e gli URL ufficiali Aruba, con allowlist stretta dell'hostname e locatori semantici. Non chiamare endpoint interni scoperti tramite DevTools. Prima di ogni azione irreversibile rileggere account, ambiente, documenti e modalità autorizzati.
 
@@ -937,7 +937,7 @@ La scelta è globale ma viene mostrata nel riepilogo di ogni approvazione. Cambi
 3. L'utente avvia l'helper dal proprio computer.
 4. L'helper apre Chrome o Edge con il profilo dedicato e verifica il pannello Aruba reale.
 5. Se necessario, l'utente completa login, password, OTP 2FA o CAPTCHA.
-6. L'helper carica gli XML direttamente, senza salvarli come bozze Aruba modificabili.
+6. L'helper carica gli XML direttamente, senza salvarli come bozze Aruba modificabili; con la protezione scelta, il titolare completa personalmente `Prosegui`, codice SMS e `Verifica`.
 7. L'helper legge e registra la validazione di ogni documento; un solo errore arresta il batch prima dell'invio. Esegue il readback di ogni documento, rimuove gli upload pendenti già accettati quando il pannello lo consente e, negli altri casi, mantiene il batch bloccato in attesa di pulizia manuale e readback conclusivo; nessun documento del batch può essere ritentato prima della riconciliazione completa.
 8. L'helper si ferma oppure invia secondo la modalità autorizzata.
 9. L'helper legge il primo esito disponibile e aggiorna HF.
@@ -1063,7 +1063,7 @@ La prova registra:
 - validazione ottenuta dal caricamento e formato degli errori visibili;
 - limiti di upload riletti;
 - locatori semantici necessari e schermate di arresto;
-- comportamento della sessione persistente e delle pause per login, 2FA e CAPTCHA;
+- comportamento della sessione persistente e delle pause per login, 2FA, SMS e CAPTCHA;
 - tempi e limiti del readback assistito;
 - download XML/PDF/notifiche;
 - percorso manuale completo quando l'helper è indisponibile.
@@ -1075,7 +1075,7 @@ La prova registra:
 - PDF corrispondente;
 - se disponibile, XML/PDF di una nota di credito;
 - Chrome o Edge installato sul computer che eseguirà l'helper;
-- decisione operativa e autorizzazione separata per l'attivazione della 2FA Aruba, consigliata per evitare l'SMS a ogni upload;
+- decisione operativa confermata: 2FA Aruba non usata e protezione OTP con SMS per ciascun caricamento mantenuta;
 - conferma del commercialista per i valori fiscali non deducibili dai documenti.
 
 M4-M5 producono il contratto candidato; M8 aggiorna questa specifica o produce un ADR breve con:
@@ -1280,7 +1280,7 @@ La vista `Da gestire` riunisce errori, verifiche richieste, scarti, richieste pr
 - Numerazione/sezionale: protetta e configurata dopo audit.
 - Modalità Aruba: `Assistita` come default oppure `Automatica dopo conferma`.
 - Stato helper e istruzioni minime per avviarlo su Windows o macOS con Chrome/Edge.
-- 2FA Aruba: raccomandazione e stato dichiarato dall'utente, senza memorizzare seed o codici.
+- Protezione Aruba: SMS per caricamento dichiarato dall'utente, senza memorizzare numeri o codici.
 - Trasporto SMTP scelto e stato, senza mostrare credenziali.
 - Sistema: ambiente e fuso orario; versione applicativa, backup e ripristino compaiono soltanto quando M7 fornisce dati e azioni reali.
 
@@ -2667,11 +2667,11 @@ Fixture sanificate per:
 - eBay ordine con Codice Fiscale;
 - eBay ordine con P.IVA;
 - eBay rimborso ambiguo;
-- pagina Aruba sintetica: validazione positiva/negativa, login richiesto e DOM inatteso;
+- pagina Aruba sintetica: validazione positiva/negativa, login richiesto, protezione SMS dopo la selezione degli XML e DOM inatteso;
 - pagina Aruba sintetica: arresto assistito, invio automatico autorizzato e stato incerto;
 - file XML/PDF/P7M e notifiche SdI scaricati, sanitizzati e importabili.
 
-Ogni connettore copre anche timeout, risposta oltre il limite, risposta non parsabile, schema inatteso, autenticazione scaduta e rate limit, verificando la traduzione nel codice errore stabile. L'helper copre inoltre hostname inatteso, sessione scaduta, richiesta 2FA/CAPTCHA, locatore assente, documento estraneo e permesso non valido. Le fixture rappresentano il payload o DOM minimo realmente osservato, ma sono sanificate e non vengono trattate come prova dello stato live.
+Ogni connettore copre anche timeout, risposta oltre il limite, risposta non parsabile, schema inatteso, autenticazione scaduta e rate limit, verificando la traduzione nel codice errore stabile. L'helper copre inoltre hostname inatteso, sessione scaduta, richiesta 2FA/SMS/CAPTCHA, locatore assente, documento estraneo e permesso non valido. Le fixture rappresentano il payload o DOM minimo realmente osservato, ma sono sanificate e non vengono trattate come prova dello stato live.
 
 ### 22.4 End-to-end
 
@@ -2706,7 +2706,7 @@ Riferimenti da riverificare allo scaffold: [Playwright Trace Viewer](https://pla
 - session fixation.
 - rate limit login.
 - webhook signature.
-- token helper breve e vincolato al batch, allowlist hostname e consumo atomico del distinto permesso Aruba monouso.
+- token helper breve e vincolato al batch, rinnovo limitato alle pause umane con durata assoluta massima, allowlist hostname e consumo atomico del distinto permesso Aruba monouso.
 - OAuth state/PKCE dove applicabile.
 - path traversal nello storage.
 - log redaction.
@@ -2885,7 +2885,7 @@ Output:
 - mapping stati, limiti di upload, locatori minimi e percorso manuale derivati dall'audit read-only e verificati contro la pagina sintetica;
 - pagina Aruba sintetica locale per test deterministici;
 - helper TypeScript/Playwright unico per Windows e macOS con Chrome o Edge;
-- pause sicure per login, 2FA e CAPTCHA;
+- pause sicure per login, 2FA, SMS e CAPTCHA;
 - upload e validazione visibile tramite UI;
 - modalità `Assistita` e `Automatica dopo conferma`;
 - manifest e permesso monouso verificati prima dell'ultimo clic;
@@ -3147,7 +3147,7 @@ Deve fermarsi e chiedere prima di:
 | Rischio | Impatto | Mitigazione |
 |---|---|---|
 | DOM del pannello Aruba cambia senza preavviso | Helper bloccato o azione sul controllo sbagliato | Locatori semantici, allowlist, smoke sintetico, arresto fail-closed e fallback manuale completo |
-| Sessione Aruba scaduta, 2FA o CAPTCHA | Intervento umano durante il batch | Profilo browser locale persistente, pausa esplicita e nessun tentativo di bypass |
+| Sessione Aruba scaduta, 2FA, SMS o CAPTCHA | Intervento umano durante il batch | Profilo browser locale persistente, pausa esplicita e nessun tentativo di bypass |
 | Differenze Chrome/Edge fra Windows e macOS | Flusso non universale | Un solo helper Playwright e matrice sintetica sui due sistemi operativi prima della release |
 | Profilo fiscale non verificato | Documento errato | Audit Aruba + XML accettato + eventuale commercialista |
 | Numerazione sconosciuta | Rischio fiscale grave | Nessuna numerazione reale prima dell'audit |
@@ -3282,7 +3282,8 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 
 - [ ] Import storico di 7 giorni riconciliato con Aruba.
 - [ ] Nessun ordine storico approvabile senza verifica.
-- [ ] Autorizzazione specifica ottenuta per la sola prova controllata; 2FA Aruba attivata dal titolare oppure costo operativo dell'SMS per upload esplicitamente accettato.
+- [x] Costo operativo dell'SMS per caricamento esplicitamente accettato dal titolare; la protezione OTP su **Carica Fatture** resta attiva.
+- [ ] Autorizzazione specifica ottenuta per la sola prova controllata.
 - [ ] Fattura sintetica validata sulla pagina locale e caricamento controllato sul pannello reale completato.
 - [ ] Validazione, riepilogo e controllo finale osservati; prova arrestata prima di `Invia`, upload rimosso e assenza confermata dal readback, con evidenza sanitizzata.
 - [ ] Contratto dei locatori, helper e test aggiornati insieme per ogni divergenza del pannello reale; HF-O06 chiuso.
@@ -3359,8 +3360,8 @@ Vincoli che non puoi rilassare da solo:
 - nessun dato reale, segreto plaintext o credenziale in repository,
   test, log o fixture; l'unico blob sensibile ammesso è la key VPS
   cifrata in `ops/secrets/`;
-- helper Aruba soltanto da M5, soltanto locale e presidiato; login, 2FA
-  e CAPTCHA restano umani e il percorso manuale resta disponibile;
+- helper Aruba soltanto da M5, soltanto locale e presidiato; login, 2FA,
+  SMS e CAPTCHA restano umani e il percorso manuale resta disponibile;
 - approvazione, numerazione e permessi di invio richiedono `can_approve`
   e restano fuori dalla portata dell'account agente;
 - fuori da una richiesta affermativa di pubblicazione, fermati e chiedi prima di

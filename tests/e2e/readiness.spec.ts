@@ -356,7 +356,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await page.getByRole("link", { name: "Impostazioni" }).click();
   await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC");
-  await page.getByLabel("Protezione dichiarata").selectOption("TWO_FACTOR");
+  await page.getByLabel("Protezione dichiarata").selectOption("SMS_PER_UPLOAD");
   const settingsResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" && response.url().includes("/impostazioni"),
@@ -366,6 +366,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page).toHaveURL(/aruba=salvata/);
   await expect(page.getByRole("status")).toContainText("Impostazioni Aruba aggiornate");
   await expect(page.getByLabel("Modalità Aruba")).toHaveValue("AUTOMATIC");
+  await expect(page.getByLabel("Protezione dichiarata")).toHaveValue("SMS_PER_UPLOAD");
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
   await page.getByRole("button", { name: "Prepara nuovo tentativo" }).click();
   await page.getByRole("button", { name: "Genera codice di avvio" }).first().click();

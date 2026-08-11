@@ -2,7 +2,7 @@
 
 ## Capacità verificabili localmente
 
-- pagina Aruba sintetica con autenticazione in pausa, validazione valida/non valida, DOM inatteso ed esito incerto;
+- pagina Aruba sintetica con autenticazione e protezione SMS post-upload in pausa, validazione valida/non valida, DOM inatteso ed esito incerto;
 - helper TypeScript unico per Chrome o Edge su macOS e Windows, con allowlist stretta;
 - manifest immutabile, codice di avvio breve e permesso monouso distinto e atomico;
 - arresto assistito prima di `Invia` e kill switch che forza i nuovi batch Production all’assistito;

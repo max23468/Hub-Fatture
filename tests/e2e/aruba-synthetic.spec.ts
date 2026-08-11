@@ -1,7 +1,11 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
 
-import { assertAccount, validateVisibleDocuments } from "../../scripts/aruba-helper.ts";
+import {
+  assertAccount,
+  validateVisibleDocuments,
+  waitForUploadAuthorization,
+} from "../../scripts/aruba-helper.ts";
 
 const xml = "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml";
 
@@ -72,6 +76,28 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(page.getByRole("button", { name: "Invia" })).toBeDisabled();
   await page.getByRole("button", { name: "Rimuovi" }).click();
   await expect(page.getByRole("row")).toHaveCount(0);
+});
+
+test("l'helper attende l'autorizzazione SMS dopo la selezione degli XML", async ({ page }) => {
+  await page.goto("/aruba-sintetica?scenario=sms");
+  await page.getByLabel("Seleziona documenti").setInputFiles(xml);
+  let heartbeats = 0;
+  const authorization = waitForUploadAuthorization(
+    page,
+    "accepted-invoice.anonymized.xml",
+    async () => {
+      heartbeats += 1;
+    },
+  );
+  await expect(page.getByRole("dialog")).toContainText(
+    "Vuoi disattivare la protezione OTP su Carica Fatture?",
+  );
+  await page.getByRole("button", { name: "Prosegui" }).click();
+  await page.getByLabel("Inserisci il codice ricevuto per SMS").fill("123456");
+  await page.getByRole("button", { name: "Verifica" }).click();
+  await expect(authorization).resolves.toBeUndefined();
+  expect(heartbeats).toBe(1);
+  await expect(page.getByRole("cell", { name: "Documento valido" })).toBeVisible();
 });
 
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {

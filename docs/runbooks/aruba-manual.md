@@ -4,7 +4,7 @@ Questa è la procedura completa quando l’helper non è disponibile, il browser
 
 1. In **Documenti**, verificare numero, data, destinatario e totale; quindi scaricare l’XML approvato.
 2. Aprire manualmente il pannello ufficiale Aruba e completare personalmente login, OTP, 2FA o CAPTCHA. Non comunicare questi dati a Hub Fatture o all’helper.
-3. Usare il caricamento XML del pannello. Non usare **Salva in bozze** e non modificare i dati del documento nel pannello.
+3. Usare il caricamento XML del pannello. Se Aruba propone di disattivare la protezione OTP, scegliere **Prosegui**, inserire personalmente il codice SMS e premere **Verifica**; non scegliere **Disattiva protezione**. Non usare **Salva in bozze** e non modificare i dati del documento nel pannello.
 4. Leggere la validazione di ogni XML. Se anche un documento è invalido, non inviare: rimuovere tutti gli upload del batch e verificare nel pannello che non siano rimasti pendenti.
 5. Confrontare di nuovo numero, data, destinatario e totale. In una prova controllata fermarsi qui, prima di **Invia**, rimuovere l’upload e fare readback.
 6. In un invio manuale realmente autorizzato, il clic **Invia** resta un’azione personale del titolare. Se la risposta è incerta, non ripetere l’upload o l’invio: cercare prima il documento nel pannello per nome, numero, data, destinatario e totale.

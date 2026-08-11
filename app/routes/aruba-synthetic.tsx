@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Route } from "./+types/aruba-synthetic";
 
 import { getConfig } from "../../src/config.server.ts";
@@ -52,6 +52,9 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
   const [files, setFiles] = useState<UploadedFile[]>(
     scenario === "foreign" ? [{ name: "documento-estraneo.xml", valid: true }] : [],
   );
+  const pendingFiles = useRef<UploadedFile[]>([]);
+  const [smsStep, setSmsStep] = useState<"CONFIRM" | "CODE" | null>(null);
+  const [smsCode, setSmsCode] = useState("");
   const [sent, setSent] = useState(false);
   useEffect(() => {
     if (scenario !== "login-auto") return;
@@ -106,7 +109,7 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
             multiple
             onChange={async (event) => {
               const selected = [...(event.currentTarget.files ?? [])];
-              setFiles([
+              const uploaded = [
                 ...(scenario === "foreign"
                   ? [{ name: "documento-estraneo.xml", valid: true }]
                   : []),
@@ -118,11 +121,52 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
                     ),
                   ),
                 )),
-              ]);
+              ];
+              if (scenario === "sms") {
+                pendingFiles.current = uploaded;
+                setSmsStep("CONFIRM");
+              } else {
+                setFiles(uploaded);
+              }
             }}
             type="file"
           />
         </label>
+        {smsStep ? (
+          <dialog aria-labelledby="sms-dialog-title" data-aruba-state="sms-required" open>
+            {smsStep === "CONFIRM" ? (
+              <>
+                <h2 id="sms-dialog-title">Vuoi disattivare la protezione OTP su Carica Fatture?</h2>
+                <button className="button" onClick={() => setSmsStep("CODE")} type="button">
+                  Prosegui
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 id="sms-dialog-title">Verifica</h2>
+                <label>
+                  Inserisci il codice ricevuto per SMS
+                  <input
+                    inputMode="numeric"
+                    onChange={(event) => setSmsCode(event.currentTarget.value)}
+                    value={smsCode}
+                  />
+                </label>
+                <button
+                  className="button"
+                  disabled={!/^\d{6}$/.test(smsCode)}
+                  onClick={() => {
+                    setFiles(pendingFiles.current);
+                    setSmsStep(null);
+                  }}
+                  type="button"
+                >
+                  Verifica
+                </button>
+              </>
+            )}
+          </dialog>
+        ) : null}
         {files.length ? (
           <div className="table-wrap section-gap">
             <table>
