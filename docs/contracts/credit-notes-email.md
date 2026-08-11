@@ -29,7 +29,7 @@ La consegna viene accodata una sola volta quando sono presenti insieme:
 
 Validazione XML, acquisizione Aruba, `REJECTED` e stati incerti non autorizzano l’e-mail. Il job `send_customer_email` usa una chiave messaggio stabile, lease e tentativi persistenti. Registra `PENDING`, `SENT` o `FAILED`, trasporto, mittente, destinatario, Message-ID, tentativi, data ed esclusivamente un codice errore sanificato. Dopo un crash successivo all’avvio SMTP l’esito diventa `EMAIL_DELIVERY_UNCERTAIN`: non parte un retry cieco. Il reinvio manuale è vietato finché esiste un job attivo per il documento.
 
-Un fallimento SMTP non aggiorna mai `documents.status`, le submission Aruba o le notifiche SdI. Log e audit non contengono destinatario, corpo, allegato, credenziali o risposta SMTP integrale.
+Un fallimento SMTP non aggiorna mai `documents.status`, le submission Aruba o le notifiche SdI. Soltanto gli errori temporanei ricevuti prima dell’accettazione vengono ritentati automaticamente; configurazione, autenticazione e rifiuti permanenti attendono una correzione e un reinvio manuale. Log e audit non contengono destinatario, corpo, allegato, credenziali o risposta SMTP integrale.
 
 ## Trasporto
 

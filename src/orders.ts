@@ -459,9 +459,13 @@ export function orderReviewRequired(
       (payment) =>
         payment.status !== "PAID" && !(confirmablePending && payment.status === "PENDING"),
     ) ||
-    order.refunds.some((refund) => refund.status === "AMBIGUOUS" || refund.amount === null) ||
+    order.refunds.some(refundNeedsReview) ||
     !totalsReconciled
   );
+}
+
+export function refundNeedsReview(refund: { status: string; amount: unknown }): boolean {
+  return refund.status === "AMBIGUOUS" || (refund.status === "COMPLETED" && refund.amount === null);
 }
 
 /** `%` e `_` digitati in una ricerca sono testo, non caratteri jolly. */

@@ -1023,13 +1023,28 @@ async function replaceOrderChildren(
       ],
     );
   }
+  const creditDraftsToRefresh = new Set<string>();
+  const removedFromDrafts = await client.query<{ credit_document_id: string }>(
+    `SELECT refunds.credit_document_id
+     FROM refunds JOIN documents ON documents.id = refunds.credit_document_id
+     WHERE refunds.order_id = $1 AND documents.status = 'DRAFT'
+       AND NOT (refunds.external_refund_id = ANY($2::text[]))
+     FOR UPDATE OF refunds`,
+    [orderId, input.refunds.map((refund) => refund.externalRefundId)],
+  );
+  for (const refund of removedFromDrafts.rows) {
+    creditDraftsToRefresh.add(refund.credit_document_id);
+  }
   await client.query(
     `DELETE FROM refunds
-     WHERE order_id = $1 AND credit_document_id IS NULL
+     WHERE order_id = $1
+       AND (credit_document_id IS NULL OR EXISTS (
+         SELECT 1 FROM documents
+         WHERE documents.id = refunds.credit_document_id AND documents.status = 'DRAFT'
+       ))
        AND NOT (external_refund_id = ANY($2::text[]))`,
     [orderId, input.refunds.map((refund) => refund.externalRefundId)],
   );
-  const creditDraftsToRefresh = new Set<string>();
   for (const [index, refund] of input.refunds.entries()) {
     const previous = await client.query<{
       credit_document_id: string | null;

@@ -131,6 +131,24 @@ test("un rimborso pendente non blocca l’importo completato e certo", () => {
     ),
     false,
   );
+  assert.equal(
+    orderReviewRequired(
+      {
+        ...base,
+        refunds: [
+          {
+            externalRefundId: "pending-without-amount",
+            status: "PENDING",
+            amount: null,
+            completedAt: null,
+            raw: {},
+          },
+        ],
+      },
+      true,
+    ),
+    false,
+  );
 });
 
 test("sceglie identità italiane e valida i paesi supportati", () => {

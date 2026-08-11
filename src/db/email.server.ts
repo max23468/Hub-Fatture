@@ -277,18 +277,23 @@ async function smtpSend(delivery: DeliveryRow, attachment: Buffer): Promise<stri
   return info.messageId;
 }
 
-function smtpFailureIsDefinitive(error: unknown): boolean {
-  if (error instanceof AppError && error.code === "EMAIL_CONFIGURATION_MISSING") return true;
-  if (!error || typeof error !== "object") return false;
-  const failure = error as { responseCode?: unknown; command?: unknown };
-  if (
-    Number.isInteger(failure.responseCode) &&
-    Number(failure.responseCode) >= 400 &&
-    Number(failure.responseCode) <= 599
-  ) {
-    return true;
+function smtpFailureKind(error: unknown): "TEMPORARY" | "PERMANENT" | "UNCERTAIN" {
+  if (error instanceof AppError && error.code === "EMAIL_CONFIGURATION_MISSING") {
+    return "PERMANENT";
   }
-  return ["CONN", "AUTH", "EHLO", "HELO", "STARTTLS"].includes(String(failure.command ?? ""));
+  if (!error || typeof error !== "object") return "UNCERTAIN";
+  const failure = error as { responseCode?: unknown; command?: unknown };
+  const responseCode = Number(failure.responseCode);
+  if (Number.isInteger(responseCode) && responseCode >= 400 && responseCode <= 499) {
+    return "TEMPORARY";
+  }
+  if (Number.isInteger(responseCode) && responseCode >= 500 && responseCode <= 599) {
+    return "PERMANENT";
+  }
+  const command = String(failure.command ?? "");
+  if (command === "CONN") return "TEMPORARY";
+  if (["AUTH", "EHLO", "HELO", "STARTTLS"].includes(command)) return "PERMANENT";
+  return "UNCERTAIN";
 }
 
 export async function sendCustomerEmail(
@@ -359,7 +364,12 @@ export async function sendCustomerEmail(
       await failDelivery(deliveryId, "EMAIL_CONFIGURATION_MISSING");
       throw error;
     }
-    if (smtpFailureIsDefinitive(error)) {
+    const failureKind = smtpFailureKind(error);
+    if (failureKind === "TEMPORARY") {
+      await failDelivery(deliveryId, "EMAIL_DELIVERY_TEMPORARY");
+      throw new AppError("EMAIL_DELIVERY_TEMPORARY", 503);
+    }
+    if (failureKind === "PERMANENT") {
       await failDelivery(deliveryId, "EMAIL_DELIVERY_FAILED");
       throw new AppError("EMAIL_DELIVERY_FAILED", 503);
     }
@@ -412,7 +422,11 @@ async function uncertainDelivery(id: string) {
 
 async function failDelivery(
   id: string,
-  code: "EMAIL_ATTACHMENT_MISSING" | "EMAIL_CONFIGURATION_MISSING" | "EMAIL_DELIVERY_FAILED",
+  code:
+    | "EMAIL_ATTACHMENT_MISSING"
+    | "EMAIL_CONFIGURATION_MISSING"
+    | "EMAIL_DELIVERY_FAILED"
+    | "EMAIL_DELIVERY_TEMPORARY",
 ) {
   await withTransaction(async (client) => {
     await client.query(

@@ -379,7 +379,7 @@ export async function failJob(job: ClaimedJob, code: ErrorCode) {
   const retryable =
     code === "PROVIDER_RATE_LIMITED" ||
     code === "PROVIDER_UNAVAILABLE" ||
-    code === "EMAIL_DELIVERY_FAILED";
+    code === "EMAIL_DELIVERY_TEMPORARY";
   const terminal = job.attempts >= job.maxAttempts || !retryable;
   return withTransaction(async (client) => {
     const failed = await client.query(

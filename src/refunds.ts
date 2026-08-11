@@ -1,4 +1,4 @@
-import { POSTGRES_INTEGER_MAX } from "./orders.ts";
+import { POSTGRES_INTEGER_MAX, refundNeedsReview } from "./orders.ts";
 
 function money(value: number): number {
   if (!Number.isSafeInteger(value) || value < 0 || value > POSTGRES_INTEGER_MAX) {
@@ -18,7 +18,7 @@ export function preIssueRefund(
   refunds: Array<{ status: string; amount: number | null }>,
 ): { state: "UNCHANGED" | "PARTIAL" | "TOTAL" | "NEEDS_REVIEW"; billableAmount: number } {
   money(orderTotal);
-  if (refunds.some((refund) => refund.status === "AMBIGUOUS" || refund.amount === null)) {
+  if (refunds.some(refundNeedsReview)) {
     return { state: "NEEDS_REVIEW", billableAmount: orderTotal };
   }
   const refunded = refunds

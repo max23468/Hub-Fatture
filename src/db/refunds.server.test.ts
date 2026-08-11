@@ -159,7 +159,7 @@ test(
           )
         ).rows[0]!.id;
 
-      const firstRefund = await insertRefund("refund-1", 2500);
+      let firstRefund = await insertRefund("refund-1", 2500);
       await client.query("UPDATE aruba_submissions SET status = 'REJECTED' WHERE batch_id = $1", [
         batchId,
       ]);
@@ -232,9 +232,9 @@ test(
             responseCode: 451,
           });
         }),
-        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_FAILED",
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_TEMPORARY",
       );
-      assert.equal(await jobs.failJob(failedJob!, "EMAIL_DELIVERY_FAILED"), false);
+      assert.equal(await jobs.failJob(failedJob!, "EMAIL_DELIVERY_TEMPORARY"), false);
       await assert.rejects(
         email.retryCustomerEmail(invoice.rows[0]!.id, {
           id: Number(user.rows[0]!.id),
@@ -254,6 +254,31 @@ test(
         )
       ).rows[0];
       assert.deepEqual(retried, { status: "SENT", attempt_count: 2, last_error_sanitized: null });
+
+      const permanentId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
+        id: Number(user.rows[0]!.id),
+        canApprove: true,
+        requestId: "manual-email-permanent-failure",
+      });
+      const permanentJob = await jobs.claimJob("email-permanent-failure");
+      await assert.rejects(
+        email.sendCustomerEmail(permanentJob!, async () => {
+          throw Object.assign(new Error("synthetic permanent SMTP rejection"), {
+            command: "DATA",
+            responseCode: 550,
+          });
+        }),
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_FAILED",
+      );
+      assert.equal(await jobs.failJob(permanentJob!, "EMAIL_DELIVERY_FAILED"), true);
+      assert.deepEqual(
+        (
+          await client.query("SELECT status, last_error_code FROM email_deliveries WHERE id = $1", [
+            permanentId,
+          ])
+        ).rows[0],
+        { status: "FAILED", last_error_code: "EMAIL_DELIVERY_FAILED" },
+      );
 
       await assert.rejects(
         email.retryCustomerEmail(invoice.rows[0]!.id, {
@@ -467,6 +492,49 @@ test(
         requestId: "restore-linked-credit-note",
       });
       importedOrder.updatedAt = "2026-08-14T09:00:00Z";
+      importedOrder.refunds = [];
+      const disappearedNoteId = noteId;
+      await orders.importOrders([importedOrder], {
+        id: Number(user.rows[0]!.id),
+        requestId: "remove-missing-linked-refund",
+      });
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT
+               (SELECT count(*) FROM documents WHERE id = $1) AS document_count,
+               (SELECT count(*) FROM refunds WHERE external_refund_id = 'refund-1') AS refund_count,
+               (SELECT count(*) FROM audit_events
+                WHERE action = 'REFUND_CREDIT_NOTE_UPDATED'
+                  AND request_id = 'remove-missing-linked-refund') AS audit_count`,
+            [disappearedNoteId],
+          )
+        ).rows[0],
+        { document_count: "0", refund_count: "0", audit_count: "1" },
+      );
+      importedOrder.updatedAt = "2026-08-15T09:00:00Z";
+      importedOrder.refunds = [
+        {
+          externalRefundId: "refund-1",
+          status: "COMPLETED",
+          amount: "25.00",
+          completedAt: "2026-08-12T08:00:00Z",
+          raw: {},
+        },
+      ];
+      await orders.importOrders([importedOrder], {
+        id: Number(user.rows[0]!.id),
+        requestId: "restore-missing-linked-refund",
+      });
+      firstRefund = (
+        await client.query<{ id: string }>(
+          "SELECT id FROM refunds WHERE external_refund_id = 'refund-1'",
+        )
+      ).rows[0]!.id;
+      noteId = await refunds.processRefund(firstRefund);
+      assert.ok(noteId);
+      assert.notEqual(noteId, disappearedNoteId);
+      importedOrder.updatedAt = "2026-08-16T09:00:00Z";
       Object.assign(importedOrder.refunds[0], { status: "AMBIGUOUS", amount: null });
       const removedNoteId = noteId;
       await orders.importOrders([importedOrder], {
@@ -487,7 +555,7 @@ test(
         ).rows[0].credited_amount,
         0,
       );
-      importedOrder.updatedAt = "2026-08-15T09:00:00Z";
+      importedOrder.updatedAt = "2026-08-17T09:00:00Z";
       Object.assign(importedOrder.refunds[0], { status: "COMPLETED", amount: "25.00" });
       await orders.importOrders([importedOrder], {
         id: Number(user.rows[0]!.id),
@@ -565,6 +633,20 @@ test(
           mode: "ASSISTED",
           submission_status: "PENDING",
         },
+      );
+      importedOrder.updatedAt = "2026-08-18T09:00:00Z";
+      importedOrder.refunds = [];
+      await orders.importOrders([importedOrder], {
+        id: Number(user.rows[0]!.id),
+        requestId: "preserve-approved-linked-refund",
+      });
+      assert.equal(
+        (
+          await client.query(
+            "SELECT credit_document_id FROM refunds WHERE external_refund_id = 'refund-1'",
+          )
+        ).rows[0].credit_document_id,
+        noteId,
       );
 
       const concurrentA = await insertRefund("refund-2", 6000);
