@@ -246,6 +246,9 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     ),
   );
   assert.match(deploy, /data\/operations\/rollback\.env/);
+  assert.match(deploy, /current_schema.*previous_schema/);
+  assert.match(deploy, /rollback automatico vietato.*forward-fix/);
+  assert.match(deploy, /production-readback\.sh >\/dev\/null/);
   assert.match(monitor, /app-web app-worker caddy postgres/);
   assert.match(monitor, /\[ "\$current" != "\$previous" \]/);
   assert.match(restore, /sha256sum "\$archive"/);

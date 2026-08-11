@@ -29,7 +29,7 @@ Controlli conclusivi:
 
 ## Rollback
 
-Il rollback è applicativo: si ripristina il precedente `.deploy.env`, si riavvia lo stesso Compose e si ripetono health, login, schema, worker e kill switch. Non esistono down migration automatiche. Se lo schema non è compatibile, si fermano gli invii e si applica un forward-fix; un restore Production richiede autorizzazione separata.
+Il rollback è applicativo: il deploy ripristina il precedente `.deploy.env` soltanto se lo schema è rimasto invariato, riavvia lo stesso Compose e ripete il readback. Se lo schema è avanzato o non è rilevabile, il rollback automatico è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.
 
 ## Provisioning e hardening
 
