@@ -919,7 +919,7 @@ Questi dettagli restano ipotesi fino all'audit M4 registrato in un'evidenza sani
 
 L'helper è un comando TypeScript/Playwright della stessa repository, avviato dal titolare sul proprio computer. Usa un'installazione locale stabile di Chrome o Edge e un profilo browser dedicato. La stessa implementazione deve funzionare su Windows e macOS; non introdurre due automazioni native. Safari resta utilizzabile soltanto per il percorso manuale.
 
-Il server HF non ospita un browser Aruba e non riceve la sessione. L'helper riceve da HF un token casuale, revocabile, a scadenza breve e vincolato al solo batch; recupera il manifest via HTTPS e invia a HF soltanto stato, identificativi tecnici e readback sanitizzato. Questa comunicazione usa esclusivamente endpoint interni di Hub Fatture, non API Aruba. Il token non autorizza il clic finale, che richiede il distinto permesso monouso. L'helper non legge né esporta cookie o local storage e non deve tentare di aggirare CAPTCHA o controlli anti-automazione.
+Il server HF non ospita un browser Aruba e non riceve la sessione. L'helper riceve da HF un token casuale, revocabile, a scadenza breve e vincolato al solo batch; durante le pause umane ne rinnova la scadenza breve tramite heartbeat, entro un limite assoluto di 45 minuti dalla creazione. Recupera il manifest via HTTPS e invia a HF soltanto stato, identificativi tecnici e readback sanitizzato. Questa comunicazione usa esclusivamente endpoint interni di Hub Fatture, non API Aruba. Il token non autorizza il clic finale, che richiede il distinto permesso monouso. L'helper non legge né esporta cookie o local storage e non deve tentare di aggirare CAPTCHA o controlli anti-automazione.
 
 Usare soltanto la UI visibile e gli URL ufficiali Aruba, con allowlist stretta dell'hostname e locatori semantici. Non chiamare endpoint interni scoperti tramite DevTools. Prima di ogni azione irreversibile rileggere account, ambiente, documenti e modalità autorizzati.
 
@@ -2706,7 +2706,7 @@ Riferimenti da riverificare allo scaffold: [Playwright Trace Viewer](https://pla
 - session fixation.
 - rate limit login.
 - webhook signature.
-- token helper breve e vincolato al batch, allowlist hostname e consumo atomico del distinto permesso Aruba monouso.
+- token helper breve e vincolato al batch, rinnovo limitato alle pause umane con durata assoluta massima, allowlist hostname e consumo atomico del distinto permesso Aruba monouso.
 - OAuth state/PKCE dove applicabile.
 - path traversal nello storage.
 - log redaction.

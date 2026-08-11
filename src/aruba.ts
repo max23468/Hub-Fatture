@@ -108,6 +108,7 @@ export const helperEventSchema = z.discriminatedUnion("type", [
     type: z.literal("HELPER_STARTED"),
     browser: z.enum(["chrome", "msedge", "chromium"]),
   }),
+  z.object({ type: z.literal("HELPER_HEARTBEAT") }),
   z.object({
     type: z.literal("VALIDATION"),
     documents: z

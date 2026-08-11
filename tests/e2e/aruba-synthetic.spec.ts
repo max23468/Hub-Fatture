@@ -81,7 +81,14 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
 test("l'helper attende l'autorizzazione SMS dopo la selezione degli XML", async ({ page }) => {
   await page.goto("/aruba-sintetica?scenario=sms");
   await page.getByLabel("Seleziona documenti").setInputFiles(xml);
-  const authorization = waitForUploadAuthorization(page, "accepted-invoice.anonymized.xml");
+  let heartbeats = 0;
+  const authorization = waitForUploadAuthorization(
+    page,
+    "accepted-invoice.anonymized.xml",
+    async () => {
+      heartbeats += 1;
+    },
+  );
   await expect(page.getByRole("dialog")).toContainText(
     "Vuoi disattivare la protezione OTP su Carica Fatture?",
   );
@@ -89,6 +96,7 @@ test("l'helper attende l'autorizzazione SMS dopo la selezione degli XML", async 
   await page.getByLabel("Inserisci il codice ricevuto per SMS").fill("123456");
   await page.getByRole("button", { name: "Verifica" }).click();
   await expect(authorization).resolves.toBeUndefined();
+  expect(heartbeats).toBe(1);
   await expect(page.getByRole("cell", { name: "Documento valido" })).toBeVisible();
 });
 

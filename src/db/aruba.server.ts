@@ -31,6 +31,7 @@ import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./order-commands.server.ts";
 
 const HELPER_TOKEN_TTL_MS = 15 * 60_000;
+const HELPER_TOKEN_MAX_LIFETIME_MS = 45 * 60_000;
 const SEND_PERMIT_TTL_MS = 10 * 60_000;
 const BATCH_MAX_BYTES = 30_000_000;
 
@@ -56,6 +57,7 @@ interface BatchIdentity {
 
 interface TokenContext extends BatchIdentity {
   token_hash: string;
+  token_created_at: Date;
 }
 
 function panelUrl(environment: "MOCK" | "PRODUCTION"): string {
@@ -378,7 +380,7 @@ export async function createBatchForDocuments(documentIds: string[], actor: Arub
 async function loadToken(client: pg.Pool | pg.PoolClient, token: string, lock = false) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
   const result = await client.query<TokenContext>(
-    `SELECT tokens.token_hash, batches.*
+    `SELECT tokens.token_hash, tokens.created_at AS token_created_at, batches.*
      FROM aruba_helper_tokens AS tokens
      JOIN aruba_batches AS batches ON batches.id = tokens.batch_id
      WHERE tokens.token_hash = $1 AND tokens.revoked_at IS NULL AND tokens.expires_at > now()
@@ -690,6 +692,20 @@ export async function recordHelperEvent(token: string, rawEvent: unknown): Promi
   await withTransaction(async (client) => {
     const context = await loadToken(client, token, true);
     if (!context) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
+    if (event.type === "HELPER_HEARTBEAT") {
+      const expiresAt = new Date(
+        Math.min(
+          Date.now() + HELPER_TOKEN_TTL_MS,
+          context.token_created_at.getTime() + HELPER_TOKEN_MAX_LIFETIME_MS,
+        ),
+      );
+      await client.query(
+        `UPDATE aruba_helper_tokens SET last_seen_at = now(), expires_at = $2
+         WHERE token_hash = $1`,
+        [context.token_hash, expiresAt],
+      );
+      return;
+    }
     await client.query(
       "UPDATE aruba_helper_tokens SET last_seen_at = now() WHERE token_hash = $1",
       [context.token_hash],

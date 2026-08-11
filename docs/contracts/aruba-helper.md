@@ -7,7 +7,7 @@ Questo contratto governa la pagina sintetica e l’helper locale unico per macOS
 - Il solo host operativo ammesso è `https://fatturazioneelettronica.aruba.it`; in prova sono ammessi esclusivamente i loopback e `/aruba-sintetica`.
 - L’helper usa Chrome o Edge installato localmente e un profilo browser dedicato. Non legge, esporta o trasmette cookie e local storage.
 - Login, password, OTP, 2FA, SMS e CAPTCHA sono sempre umani: se richiesti, l’helper si mette in pausa.
-- Il codice di avvio scade, vale per un batch, viene revocato quando termina la propria fase e non autorizza `Invia`.
+- Il codice di avvio scade, vale per un batch, viene revocato quando termina la propria fase e non autorizza `Invia`. Durante una pausa umana l’helper ne rinnova la scadenza breve con heartbeat, entro un limite assoluto di 45 minuti dalla creazione.
 - Il permesso di invio automatico è distinto, scade ed è consumato atomicamente sul manifest esatto. In ambiente operativo il kill switch disabilita gli invii automatici ordinari e forza i nuovi batch alla modalità assistita.
 - Dopo un esito incerto il manifest espone soltanto l’operazione `READBACK`: nessun nuovo upload o invio è ammesso fino alla riconciliazione.
 

@@ -20,6 +20,7 @@ import {
 } from "../src/aruba.ts";
 
 const HELPER_VERSION = "0.0.0";
+const HELPER_HEARTBEAT_INTERVAL_MS = 60_000;
 
 export interface HelperOptions {
   hubUrl: string;
@@ -106,17 +107,46 @@ async function downloadDocuments(hub: URL, token: string, value: ArubaManifest, 
   return files;
 }
 
-async function waitForAuthentication(page: Page) {
+async function waitWithHeartbeat<T>(operation: Promise<T>, heartbeat?: () => Promise<void>) {
+  if (!heartbeat) return operation;
+  const settled = operation.then(
+    (value) => ({ state: "DONE" as const, value }),
+    (error: unknown) => ({ state: "FAILED" as const, error }),
+  );
+  await heartbeat();
+  for (;;) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const result = await Promise.race([
+      settled,
+      new Promise<{ state: "HEARTBEAT" }>((resolve) => {
+        timer = setTimeout(() => resolve({ state: "HEARTBEAT" }), HELPER_HEARTBEAT_INTERVAL_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+    if (result.state === "DONE") return result.value;
+    if (result.state === "FAILED") throw result.error;
+    await heartbeat();
+  }
+}
+
+async function waitForAuthentication(page: Page, heartbeat?: () => Promise<void>) {
   const authentication = page.locator(
     '[data-aruba-state="login-required"], input[type="password"], input[autocomplete="current-password"], input[name*="otp" i], iframe[title*="captcha" i]',
   );
   if ((await authentication.count()) === 0) return;
   process.stdout.write("Autenticazione richiesta: completa login, OTP o CAPTCHA nel browser.\n");
-  await authentication.first().waitFor({ state: "hidden", timeout: 15 * 60_000 });
+  await waitWithHeartbeat(
+    authentication.first().waitFor({ state: "hidden", timeout: 15 * 60_000 }),
+    heartbeat,
+  );
   await page.waitForLoadState("domcontentloaded");
 }
 
-export async function waitForUploadAuthorization(page: Page, filename: string) {
+export async function waitForUploadAuthorization(
+  page: Page,
+  filename: string,
+  heartbeat?: () => Promise<void>,
+) {
   const uploadedDocument = page.locator("tr", { hasText: filename }).first();
   const smsProtection = page
     .locator(
@@ -141,7 +171,10 @@ export async function waitForUploadAuthorization(page: Page, filename: string) {
   process.stdout.write(
     "Autorizzazione SMS richiesta: scegli Prosegui, inserisci il codice e premi Verifica nel browser.\n",
   );
-  await uploadedDocument.waitFor({ state: "visible", timeout: 15 * 60_000 }).catch(() => {
+  await waitWithHeartbeat(
+    uploadedDocument.waitFor({ state: "visible", timeout: 15 * 60_000 }),
+    heartbeat,
+  ).catch(() => {
     throw new Error("DOM_UNRECOGNIZED");
   });
 }
@@ -488,7 +521,8 @@ export async function runHelper(
     helperStarted = true;
     await page.goto(target.toString(), { waitUntil: "domcontentloaded" });
     assertPageOrigin(page, target);
-    await waitForAuthentication(page);
+    const heartbeat = () => event(hub, options.token, { type: "HELPER_HEARTBEAT" });
+    await waitForAuthentication(page, heartbeat);
     assertPageOrigin(page, target);
     await assertAccount(page, value.accountReference);
     if (await page.locator('[data-aruba-state="unexpected"]').count())
@@ -507,7 +541,7 @@ export async function runHelper(
     assertPageOrigin(page, target);
     await (await uploadInput(page)).setInputFiles([...files.values()]);
     uploadStarted = true;
-    await waitForUploadAuthorization(page, value.documents[0]!.filename);
+    await waitForUploadAuthorization(page, value.documents[0]!.filename, heartbeat);
     assertPageOrigin(page, target);
     const results = await validateVisibleDocuments(page, value);
     await event(hub, options.token, { type: "VALIDATION", documents: results });

@@ -655,6 +655,24 @@ test(
         type: "HELPER_STARTED",
         browser: "chromium",
       });
+      await database
+        .getPool()
+        .query(
+          "UPDATE aruba_helper_tokens SET expires_at = now() + interval '1 minute' WHERE batch_id = $1",
+          [assistedBatchId],
+        );
+      await aruba.recordHelperEvent(assistedToken.token, { type: "HELPER_HEARTBEAT" });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT expires_at > now() + interval '14 minutes' AS renewed,
+                    expires_at <= created_at + interval '45 minutes' AS bounded
+             FROM aruba_helper_tokens WHERE batch_id = $1 AND revoked_at IS NULL`,
+            [assistedBatchId],
+          )
+        ).rows[0],
+        { renewed: true, bounded: true },
+      );
       await aruba.recordHelperEvent(assistedToken.token, {
         type: "VALIDATION",
         documents: [{ id: assistedManifest.documents[0]!.id, status: "VALID" }],
