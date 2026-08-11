@@ -52,9 +52,10 @@ const schema = z
   .refine(
     ({ APP_ENV, SMTP_HOST, SMTP_PASSWORD, SMTP_TRANSPORT, SMTP_USERNAME }) =>
       APP_ENV !== "production" ||
-      (SMTP_TRANSPORT !== "SYNTHETIC" && Boolean(SMTP_HOST && SMTP_USERNAME && SMTP_PASSWORD)),
+      (SMTP_TRANSPORT === "OCI_EMAIL_DELIVERY" &&
+        Boolean(SMTP_HOST && SMTP_USERNAME && SMTP_PASSWORD)),
     {
-      message: "Il trasporto SMTP Production richiede un solo provider e credenziali complete",
+      message: "Il trasporto SMTP Production richiede OCI Email Delivery e credenziali complete",
       path: ["SMTP_TRANSPORT"],
     },
   )
