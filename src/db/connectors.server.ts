@@ -14,7 +14,9 @@ export type JobType =
   | "shopify_sync_orders"
   | "shopify_process_webhook"
   | "ebay_sync_orders"
-  | "ebay_preview_history";
+  | "ebay_preview_history"
+  | "process_refund"
+  | "send_customer_email";
 
 export interface ConnectorActor {
   type: "ADMIN" | "SYSTEM";
@@ -374,7 +376,10 @@ export async function completeJob(job: ClaimedJob, result: Record<string, unknow
 }
 
 export async function failJob(job: ClaimedJob, code: ErrorCode) {
-  const retryable = code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_UNAVAILABLE";
+  const retryable =
+    code === "PROVIDER_RATE_LIMITED" ||
+    code === "PROVIDER_UNAVAILABLE" ||
+    code === "EMAIL_DELIVERY_FAILED";
   const terminal = job.attempts >= job.maxAttempts || !retryable;
   return withTransaction(async (client) => {
     const failed = await client.query(
@@ -408,7 +413,10 @@ export async function failedConnectorJobs() {
     created_at: Date;
   }>(
     `SELECT id, type, attempts, last_error_code, created_at FROM jobs
-     WHERE status = 'FAILED' ORDER BY created_at DESC, id DESC LIMIT 20`,
+     WHERE status = 'FAILED'
+       AND type IN ('shopify_sync_orders', 'shopify_process_webhook',
+                    'ebay_sync_orders', 'ebay_preview_history')
+     ORDER BY created_at DESC, id DESC LIMIT 20`,
   );
   return result.rows.map((row) => ({
     id: row.id,

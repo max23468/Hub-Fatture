@@ -2900,6 +2900,8 @@ Gate:
 
 ### M6 - Note di credito ed e-mail
 
+**Stato: in corso.** L’implementazione e le [evidenze locali](evidence/credit-notes-email.md) sono disponibili; HF-O07 resta aperta fino al PoC e alla scelta del solo trasporto Production, senza anticipare operazioni OCI, DNS, credenziali o invii.
+
 Output:
 
 - cumulazione rimborsi;

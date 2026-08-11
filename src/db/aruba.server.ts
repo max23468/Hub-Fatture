@@ -26,6 +26,7 @@ import { hashToken } from "../crypto.server.ts";
 import { AppError } from "../errors.ts";
 import { POSTGRES_INTEGER_MAX } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
+import { customerEmailTriggerStatus, scheduleCustomerEmail } from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./order-commands.server.ts";
 
@@ -636,6 +637,22 @@ async function monotonicSubmission(
      WHERE id = $1`,
     [row.id, next, remoteId ?? null],
   );
+  if (customerEmailTriggerStatus(next)) {
+    await client.query(
+      `INSERT INTO jobs (type, payload_json)
+       SELECT 'process_refund', jsonb_build_object('refundId', refunds.id::text)
+       FROM refunds
+       JOIN document_orders
+         ON document_orders.order_id = refunds.order_id
+        AND document_orders.document_kind = 'INVOICE'
+       WHERE document_orders.document_id = $1
+         AND refunds.status IN ('COMPLETED', 'AMBIGUOUS')
+         AND refunds.credit_document_id IS NULL
+       ON CONFLICT DO NOTHING`,
+      [documentId],
+    );
+    await scheduleCustomerEmail(client, documentId);
+  }
   return row.id;
 }
 
@@ -1215,6 +1232,7 @@ async function importOfficialFile(
           );
         }
       }
+      if (kind.data === "ARUBA_PDF") await scheduleCustomerEmail(client, documentId);
       await writeAudit(client, {
         actorType: source.actorType,
         actorId: source.actorId,

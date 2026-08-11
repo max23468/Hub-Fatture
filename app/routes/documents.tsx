@@ -17,17 +17,19 @@ import {
   retryArubaBatch,
 } from "../../src/db/aruba.server.ts";
 import { listDocuments } from "../../src/db/documents.server.ts";
+import { listEmailDeliveries, retryCustomerEmail } from "../../src/db/email.server.ts";
 import { publicError } from "../../src/errors.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
-  const [documents, batches, unbatched, officialFiles] = await Promise.all([
+  const [documents, batches, unbatched, officialFiles, emailDeliveries] = await Promise.all([
     listDocuments(),
     listArubaBatches(),
     listUnbatchedApprovedDocuments(),
     listOfficialArubaFiles(),
+    listEmailDeliveries(),
   ]);
   return {
     username: user.username,
@@ -37,6 +39,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     batches,
     unbatched,
     officialFiles,
+    emailDeliveries,
     batchCreated: url.searchParams.get("batch") === "creato",
     fileImported: url.searchParams.get("file") === "importato",
   };
@@ -81,6 +84,14 @@ export async function action({ request }: Route.ActionArgs) {
     if (form.get("intent") === "retry-aruba-batch") {
       await retryArubaBatch(form.get("batchId") ?? "", actor);
       return redirect("/documenti?batch=creato");
+    }
+    if (form.get("intent") === "retry-customer-email") {
+      await retryCustomerEmail(
+        form.get("documentId") ?? "",
+        actor,
+        form.get("confirmUncertain") === "yes",
+      );
+      return redirect("/documenti?email=preparata");
     }
     throw new Response("Azione non riconosciuta", { status: 400 });
   } catch (error) {
@@ -127,6 +138,7 @@ export default function Documents() {
     batches,
     unbatched,
     officialFiles,
+    emailDeliveries,
     batchCreated,
     fileImported,
   } = useLoaderData<typeof loader>();
@@ -134,6 +146,12 @@ export default function Documents() {
   const helper = actionData && "helper" in actionData ? actionData.helper : null;
   const error = actionData && "message" in actionData ? actionData.message : null;
   const officialFilesByDocument = new Map<string, typeof officialFiles>();
+  const emailByDocument = new Map<string, (typeof emailDeliveries)[number]>();
+  for (const delivery of emailDeliveries) {
+    if (!emailByDocument.has(delivery.document_id)) {
+      emailByDocument.set(delivery.document_id, delivery);
+    }
+  }
   for (const file of officialFiles) {
     const current = officialFilesByDocument.get(file.document_id) ?? [];
     current.push(file);
@@ -199,13 +217,20 @@ export default function Documents() {
                 <th>{copy.documents.status}</th>
                 <th>{copy.documents.arubaStatus}</th>
                 <th>{copy.documents.file}</th>
+                <th>E-mail</th>
               </tr>
             </thead>
             <tbody>
               {documents.map((document) => (
                 <tr key={document.id}>
                   <td data-label={copy.documents.number}>
-                    <Link to={`/ordini/preparazione/${document.billing_case_id}`}>
+                    <Link
+                      to={
+                        document.kind === "CREDIT_NOTE"
+                          ? `/documenti/${document.id}/nota`
+                          : `/ordini/preparazione/${document.billing_case_id}`
+                      }
+                    >
                       {document.fiscal_label ?? copy.documents.draft}
                     </Link>
                   </td>
@@ -249,6 +274,35 @@ export default function Documents() {
                     ) : (
                       copy.common.unavailable
                     )}
+                  </td>
+                  <td data-label="E-mail">
+                    {emailByDocument.has(document.id)
+                      ? (copy.documents.emailStatus[emailByDocument.get(document.id)!.status] ??
+                        copy.common.unavailable)
+                      : "Non preparata"}
+                    {emailByDocument.get(document.id)?.last_error_code ===
+                    "EMAIL_DELIVERY_UNCERTAIN" ? (
+                      <p>{copy.documents.emailUncertain}</p>
+                    ) : null}
+                    {canApprove &&
+                    emailByDocument.has(document.id) &&
+                    emailByDocument.get(document.id)?.status !== "PENDING" ? (
+                      <Form method="post">
+                        <input type="hidden" name="csrf" value={csrfToken} />
+                        <input type="hidden" name="intent" value="retry-customer-email" />
+                        <input type="hidden" name="documentId" value={document.id} />
+                        {emailByDocument.get(document.id)?.last_error_code ===
+                        "EMAIL_DELIVERY_UNCERTAIN" ? (
+                          <label className="checkbox-row">
+                            <input name="confirmUncertain" required type="checkbox" value="yes" />
+                            {copy.documents.emailUncertainConfirmed}
+                          </label>
+                        ) : null}
+                        <button className="button button--secondary" type="submit">
+                          Prepara reinvio
+                        </button>
+                      </Form>
+                    ) : null}
                   </td>
                 </tr>
               ))}

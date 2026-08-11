@@ -146,6 +146,13 @@ export default function Activity() {
                           </Link>
                         ) : event.entity_type === "SETTING" ? (
                           copy.activity.settings
+                        ) : event.entity_type === "REFUND" && event.refund_order_id ? (
+                          <Link to={`/ordini/${event.refund_order_id}`}>
+                            {copy.activity.order(
+                              event.order_provider === "SHOPIFY" ? "Shopify" : "eBay",
+                              event.order_number ?? event.refund_order_id,
+                            )}
+                          </Link>
                         ) : (
                           "—"
                         )}

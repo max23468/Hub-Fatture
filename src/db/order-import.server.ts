@@ -26,6 +26,8 @@ import {
   type DraftTrigger,
   type OrderInput,
 } from "../orders.ts";
+import { preIssueRefund } from "../refunds.ts";
+import { refreshCreditNoteDraft } from "./refunds.server.ts";
 
 export interface Actor {
   id?: number;
@@ -546,6 +548,13 @@ async function importOne(
     refundAmounts,
   );
   const status = triggerStatus(input, trigger);
+  const refundEffect = preIssueRefund(
+    grossAmount,
+    input.refunds.map((refund, index) => ({
+      status: refund.status,
+      amount: refundAmounts[index]!,
+    })),
+  );
   const orderReview = orderReviewRequired(input, totalsReconciled, trigger);
   const previous = await loadPreviousOrder(client, input);
   if (previous.rows[0]?.is_stale) return "ignored";
@@ -653,6 +662,7 @@ async function importOne(
         revisionId: revision!.rows[0]!.id,
         invoiced,
         billingCaseId: order.rows[0]!.billing_case_id,
+        refundEffect: refundEffect.state,
       })
     : order.rows[0]!.billing_case_id;
   await replaceOrderChildren(
@@ -661,18 +671,11 @@ async function importOne(
     input,
     { lineAmounts, paymentAmounts, refundAmounts },
     invoiced,
+    actor,
   );
-  await writeAudit(client, {
-    ...auditActor(actor),
-    action: previous.rows[0] ? "ORDER_SOURCE_UPDATED" : "ORDER_IMPORTED",
-    eventClass: "OPERATIONAL",
-    entityType: "ORDER",
-    entityId: orderId,
-    metadata: { provider: input.provider },
-    requestId: actor.requestId,
-  });
-  if (!currentBillingCaseId && status === "ELIGIBLE") {
-    await groupOrder(
+  let effectiveBillingCaseId = currentBillingCaseId;
+  if (!effectiveBillingCaseId && (status === "ELIGIBLE" || refundEffect.state === "TOTAL")) {
+    effectiveBillingCaseId = await groupOrder(
       client,
       {
         id: orderId,
@@ -684,6 +687,108 @@ async function importOne(
       actor,
     );
   }
+  if (!invoiced && effectiveBillingCaseId && refundEffect.state === "PARTIAL") {
+    const restored = await client.query(
+      `UPDATE orders
+       SET trigger_status = 'GROUPED',
+           normalized_snapshot_json = jsonb_set(
+             normalized_snapshot_json, '{orderReviewRequired}', 'false'::jsonb)
+       WHERE id = $1 AND (
+         trigger_status <> 'GROUPED'
+         OR coalesce((normalized_snapshot_json ->> 'orderReviewRequired')::boolean, true)
+       )`,
+      [orderId],
+    );
+    const adjusted = await client.query(
+      `UPDATE document_orders SET amount = $2
+       WHERE order_id = $1 AND document_kind = 'INVOICE' AND amount <> $2`,
+      [orderId, refundEffect.billableAmount],
+    );
+    if (adjusted.rowCount) {
+      await client.query(
+        `UPDATE document_lines
+         SET unit_amount = $2, total_amount = quantity * $2
+         WHERE order_id = $1
+           AND document_id IN (SELECT id FROM documents WHERE kind = 'INVOICE' AND status = 'DRAFT')`,
+        [orderId, refundEffect.billableAmount],
+      );
+      await client.query(
+        `UPDATE documents
+         SET source_total_amount = totals.amount,
+             total_amount = totals.amount,
+             difference_amount = 0,
+             difference_reason = NULL,
+             draft_version = draft_version + 1,
+             projection_sha256 = repeat('0', 64),
+             updated_at = now()
+         FROM (
+           SELECT document_id, sum(amount)::integer AS amount
+           FROM document_orders WHERE document_kind = 'INVOICE' GROUP BY document_id
+         ) AS totals
+         WHERE documents.id = totals.document_id
+           AND documents.billing_case_id = $1 AND documents.status = 'DRAFT'`,
+        [effectiveBillingCaseId],
+      );
+    }
+    if (restored.rowCount || adjusted.rowCount) {
+      await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
+      await writeAudit(client, {
+        ...auditActor(actor),
+        action: "REFUND_APPLIED_BEFORE_ISSUE",
+        eventClass: "CRITICAL",
+        entityType: "ORDER",
+        entityId: orderId,
+        metadata: { billingCaseId: effectiveBillingCaseId, provider: input.provider },
+        requestId: actor.requestId,
+      });
+    }
+  }
+  if (!invoiced && effectiveBillingCaseId && refundEffect.state === "TOTAL") {
+    const marked = await client.query(
+      `UPDATE orders SET trigger_status = 'REFUNDED_BEFORE_ISSUE'
+       WHERE id = $1 AND trigger_status <> 'REFUNDED_BEFORE_ISSUE'`,
+      [orderId],
+    );
+    const closed = await client.query(
+      `UPDATE billing_cases
+       SET status = 'DO_NOT_TRANSMIT',
+           do_not_transmit_reason = 'Ordine rimborsato prima dell’emissione',
+           revision = revision + 1, updated_at = now()
+       WHERE id = $1 AND ${openBillingCaseSql()}`,
+      [effectiveBillingCaseId],
+    );
+    if (closed.rowCount) {
+      await writeAudit(client, {
+        actorType: "SYSTEM",
+        action: "BILLING_CASE_DO_NOT_TRANSMIT",
+        eventClass: "CRITICAL",
+        entityType: "BILLING_CASE",
+        entityId: effectiveBillingCaseId,
+        metadata: { billingCaseId: effectiveBillingCaseId, reason: "REFUNDED" },
+        requestId: actor.requestId,
+      });
+    }
+    if (marked.rowCount || closed.rowCount) {
+      await writeAudit(client, {
+        ...auditActor(actor),
+        action: "REFUND_APPLIED_BEFORE_ISSUE",
+        eventClass: "CRITICAL",
+        entityType: "ORDER",
+        entityId: orderId,
+        metadata: { billingCaseId: effectiveBillingCaseId, provider: input.provider },
+        requestId: actor.requestId,
+      });
+    }
+  }
+  await writeAudit(client, {
+    ...auditActor(actor),
+    action: previous.rows[0] ? "ORDER_SOURCE_UPDATED" : "ORDER_IMPORTED",
+    eventClass: "OPERATIONAL",
+    entityType: "ORDER",
+    entityId: orderId,
+    metadata: { provider: input.provider },
+    requestId: actor.requestId,
+  });
   return previous.rows[0] ? "updated" : "imported";
 }
 
@@ -705,12 +810,13 @@ async function applySourceConflict(
     revisionId: string;
     invoiced: boolean;
     billingCaseId: string | null;
+    refundEffect: ReturnType<typeof preIssueRefund>["state"];
   },
 ) {
   const { input, oldOrder, orderId, customerId, status, invoiced } = context;
   const reason = input.cancelledAt
     ? ("CANCELLED" as const)
-    : input.paymentStatus === "REFUNDED"
+    : input.paymentStatus === "REFUNDED" || context.refundEffect === "TOTAL"
       ? ("REFUNDED" as const)
       : null;
   if (!reason && !invoiced) {
@@ -849,6 +955,7 @@ async function replaceOrderChildren(
     "lineAmounts" | "paymentAmounts" | "refundAmounts"
   >,
   invoiced: boolean,
+  actor: Actor,
 ) {
   const { lineAmounts, paymentAmounts, refundAmounts } = amounts;
   if (!invoiced) {
@@ -918,10 +1025,40 @@ async function replaceOrderChildren(
   }
   await client.query(
     `DELETE FROM refunds
-     WHERE order_id = $1 AND NOT (external_refund_id = ANY($2::text[]))`,
+     WHERE order_id = $1 AND credit_document_id IS NULL
+       AND NOT (external_refund_id = ANY($2::text[]))`,
     [orderId, input.refunds.map((refund) => refund.externalRefundId)],
   );
+  const creditDraftsToRefresh = new Set<string>();
   for (const [index, refund] of input.refunds.entries()) {
+    const previous = await client.query<{
+      credit_document_id: string | null;
+      status: string;
+      amount: number | null;
+      completed_at: Date | null;
+    }>(
+      `SELECT refunds.credit_document_id, refunds.status, refunds.amount, refunds.completed_at
+       FROM refunds
+       WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3
+         AND external_refund_id = $4
+       FOR UPDATE`,
+      [input.provider, input.externalAccountId, input.externalOrderId, refund.externalRefundId],
+    );
+    const old = previous.rows[0];
+    const nextAmount = refundAmounts[index];
+    const changed = Boolean(
+      old &&
+      (old.status !== refund.status ||
+        old.amount !== nextAmount ||
+        old.completed_at?.toISOString() !== canonicalTimestamp(refund.completedAt)),
+    );
+    if (changed && old?.credit_document_id) {
+      const linked = await client.query<{ status: string }>(
+        "SELECT status FROM documents WHERE id = $1",
+        [old.credit_document_id],
+      );
+      if (linked.rows[0]?.status === "DRAFT") creditDraftsToRefresh.add(old.credit_document_id);
+    }
     await client.query(
       `INSERT INTO refunds
         (provider, external_account_id, external_order_id, external_refund_id, order_id,
@@ -930,7 +1067,16 @@ async function replaceOrderChildren(
        ON CONFLICT (provider, external_account_id, external_order_id, external_refund_id)
        DO UPDATE SET status = EXCLUDED.status, amount = EXCLUDED.amount,
                      completed_at = EXCLUDED.completed_at, raw_json = EXCLUDED.raw_json,
-                     updated_at = now()`,
+                     credit_document_id = CASE
+                       WHEN EXCLUDED.status = 'COMPLETED' AND EXCLUDED.amount > 0
+                         THEN refunds.credit_document_id
+                       ELSE NULL
+                     END,
+                     updated_at = now()
+       WHERE refunds.credit_document_id IS NULL OR EXISTS (
+         SELECT 1 FROM documents
+         WHERE documents.id = refunds.credit_document_id AND documents.status = 'DRAFT'
+       )`,
       [
         input.provider,
         input.externalAccountId,
@@ -944,6 +1090,30 @@ async function replaceOrderChildren(
       ],
     );
   }
+  for (const documentId of creditDraftsToRefresh) {
+    // Le modifiche e il relativo registro condividono la stessa operazione PostgreSQL.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    const total = await refreshCreditNoteDraft(client, documentId);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    await writeAudit(client, {
+      ...auditActor(actor),
+      action: "REFUND_CREDIT_NOTE_UPDATED",
+      eventClass: "CRITICAL",
+      entityType: "DOCUMENT",
+      entityId: documentId,
+      metadata: { provider: input.provider, documentKind: "CREDIT_NOTE" },
+      after: { total },
+      requestId: actor.requestId,
+    });
+  }
+  await client.query(
+    `INSERT INTO jobs (type, payload_json)
+     SELECT 'process_refund', jsonb_build_object('refundId', refunds.id::text)
+     FROM refunds
+     WHERE refunds.order_id = $1 AND refunds.status IN ('COMPLETED', 'AMBIGUOUS')
+     ON CONFLICT DO NOTHING`,
+    [orderId],
+  );
 }
 
 export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJob) {

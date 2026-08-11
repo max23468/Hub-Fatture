@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -36,7 +37,8 @@ test.beforeAll(async () => {
     `INSERT INTO settings (key, value_json) VALUES
        ('draft_trigger', '"PAID"'),
        ('aruba_mode', '"ASSISTED"'),
-       ('aruba_auth_protection', '"UNKNOWN"')
+       ('aruba_auth_protection', '"UNKNOWN"'),
+       ('customer_email_mode', '"AUTOMATIC"')
      ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, version = 1`,
   );
   await client.end();
@@ -50,7 +52,7 @@ test.afterAll(async () => {
 test.describe.configure({ mode: "serial" });
 
 test("configura i due account e accede con entrambi", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   await page.goto("/setup");
   await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
   await page.getByLabel("Password per matteo").fill("password-matteo");
@@ -245,7 +247,15 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "numero fiscale definitivo",
   );
   await page.getByLabel(/Confermo i dati riepilogati e autorizzo l’approvazione/).check();
+  const approvalResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" && response.url().includes("/ordini/preparazione/"),
+  );
   await page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }).click();
+  if ((await approvalResponse).status() >= 400) {
+    await page.getByRole("alert").waitFor();
+    throw new Error((await page.getByRole("alert").textContent()) ?? "Approvazione non riuscita");
+  }
   await expect(
     page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }),
   ).toHaveCount(0);
@@ -347,6 +357,168 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   } finally {
     await rm(retryProfile, { recursive: true, force: true });
   }
+
+  process.env.APP_ENV = "test";
+  process.env.APP_BASE_URL = "http://127.0.0.1:4173";
+  process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
+  process.env.DATABASE_URL = databaseUrl;
+  process.env.DOCUMENT_STORAGE_ROOT = storageRoot;
+  process.env.SMTP_TRANSPORT = "SYNTHETIC";
+  const database = await import("../../src/db/client.server.ts");
+  const aruba = await import("../../src/db/aruba.server.ts");
+  const documents = await import("../../src/db/documents.server.ts");
+  const refunds = await import("../../src/db/refunds.server.ts");
+  const email = await import("../../src/db/email.server.ts");
+  const jobs = await import("../../src/db/connectors.server.ts");
+  const actorRow = (
+    await database.getPool().query<{ id: string }>("SELECT id FROM users WHERE username = 'matteo'")
+  ).rows[0]!;
+  const actor = {
+    id: Number(actorRow.id),
+    canApprove: true,
+    requestId: "m6-e2e-synthetic",
+  };
+  const invoice = (
+    await database.getPool().query<{
+      id: string;
+      order_id: string;
+      filename: string;
+    }>(
+      `SELECT documents.id, document_orders.order_id, batch_documents.filename
+       FROM documents
+       JOIN document_orders ON document_orders.document_id = documents.id
+         AND document_orders.document_kind = 'INVOICE'
+       JOIN LATERAL (
+         SELECT aruba_batch_documents.filename
+         FROM aruba_batch_documents
+         JOIN aruba_batches ON aruba_batches.id = aruba_batch_documents.batch_id
+         WHERE aruba_batch_documents.document_id = documents.id
+         ORDER BY aruba_batches.created_at DESC LIMIT 1
+       ) AS batch_documents ON true
+       WHERE documents.kind = 'INVOICE' AND documents.status = 'APPROVED'
+       ORDER BY documents.approved_at DESC LIMIT 1`,
+    )
+  ).rows[0]!;
+  const officialPdf = Buffer.from(
+    await readFile("tests/fixtures/aruba/official-pdf.synthetic.base64", "utf8"),
+    "base64",
+  );
+  const deliveredNotification = await readFile(
+    "tests/fixtures/aruba/notification-delivered.synthetic.xml",
+    "utf8",
+  );
+  await aruba.importOfficialArubaFile(
+    invoice.id,
+    "ARUBA_XML",
+    (await documents.readDocumentXml(invoice.id))!,
+    actor,
+  );
+  await aruba.importOfficialArubaFile(invoice.id, "ARUBA_PDF", officialPdf, actor);
+  await aruba.importOfficialArubaFile(
+    invoice.id,
+    "SDI_NOTIFICATION",
+    Buffer.from(deliveredNotification.replace("SYNTHETIC-DOCUMENT.xml", invoice.filename)),
+    actor,
+  );
+
+  const refundId = (
+    await database.getPool().query<{ id: string }>(
+      `INSERT INTO refunds
+        (provider, external_account_id, external_order_id, external_refund_id,
+         order_id, status, amount, completed_at, raw_json)
+       SELECT orders.provider, orders.external_account_id, orders.external_order_id,
+              'm6-e2e-refund', orders.id, 'COMPLETED', 500, now(), '{}'
+       FROM orders WHERE orders.id = $1 RETURNING id`,
+      [invoice.order_id],
+    )
+  ).rows[0]!.id;
+  await database.getPool().query(
+    `UPDATE settings SET value_json = '"ASSISTED"'::jsonb, version = version + 1
+     WHERE key = 'aruba_mode'`,
+  );
+  const noteId = await refunds.processRefund(refundId);
+  expect(noteId).toBeTruthy();
+  await page.goto(`/documenti/${noteId}/nota`);
+  await expect(page.getByRole("heading", { name: "Comparatore fiscale" })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Righe" })).toContainText("rimborso m6-e2e-refund");
+  await expect(page.getByRole("table", { name: "Righe" })).toContainText("N5");
+  await expect(page.getByRole("table", { name: "Fattura originaria" })).toContainText(
+    "DatiFattureCollegate",
+  );
+  await expect(page.getByText("PDF ufficiale Aruba, dopo l’esito SdI")).toBeVisible();
+  await page
+    .getByLabel(/Confermo rimborsi, riferimenti alla fattura, totale e numerazione irreversibile/)
+    .check();
+  await page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }).click();
+  await expect(page).toHaveURL(/\/documenti$/);
+
+  const note = (
+    await database.getPool().query<{ filename: string; batch_id: string }>(
+      `SELECT batch_documents.filename, batch_documents.batch_id
+       FROM aruba_batch_documents AS batch_documents
+       JOIN aruba_batches AS batches ON batches.id = batch_documents.batch_id
+       WHERE batch_documents.document_id = $1
+       ORDER BY batches.created_at DESC LIMIT 1`,
+      [noteId],
+    )
+  ).rows[0]!;
+  const noteToken = await aruba.issueHelperToken(note.batch_id, actor);
+  const noteProfile = await mkdtemp(path.join(tmpdir(), "hub-fatture-m6-td04-"));
+  try {
+    expect(
+      await runHelper({
+        hubUrl: "http://127.0.0.1:4173",
+        token: noteToken.token,
+        profileDirectory: noteProfile,
+        browser: "chromium",
+        headless: true,
+        mockScenario: "valid",
+        closeAfterStop: true,
+      }),
+    ).toBe("ASSISTED_STOP");
+  } finally {
+    await rm(noteProfile, { recursive: true, force: true });
+  }
+  await aruba.importOfficialArubaFile(
+    noteId!,
+    "ARUBA_XML",
+    (await documents.readDocumentXml(noteId!))!,
+    actor,
+  );
+  await aruba.importOfficialArubaFile(noteId!, "ARUBA_PDF", officialPdf, actor);
+  await aruba.importOfficialArubaFile(
+    noteId!,
+    "SDI_NOTIFICATION",
+    Buffer.from(deliveredNotification.replace("SYNTHETIC-DOCUMENT.xml", note.filename)),
+    actor,
+  );
+  for (;;) {
+    const job = await jobs.claimJob("m6-e2e-email");
+    if (!job) break;
+    expect(job.type).toBe("send_customer_email");
+    await email.sendCustomerEmail(job);
+    expect(await jobs.completeJob(job)).toBe(true);
+  }
+  assert.equal(
+    (
+      await database
+        .getPool()
+        .query(
+          "SELECT status FROM email_deliveries WHERE document_id = $1 ORDER BY created_at DESC LIMIT 1",
+          [noteId],
+        )
+    ).rows[0].status,
+    "SENT",
+  );
+  assert.equal(
+    (await database.getPool().query("SELECT status FROM documents WHERE id = $1", [noteId])).rows[0]
+      .status,
+    "APPROVED",
+  );
+  await page.reload();
+  await expect(
+    page.locator(`a[href='/documenti/${noteId}/nota']`).locator("xpath=ancestor::tr"),
+  ).toContainText("Inviata");
 });
 
 test("le mutazioni senza origine valida non raggiungono l’azione", async ({ request }) => {

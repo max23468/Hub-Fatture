@@ -65,7 +65,7 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
     completedAt: "2026-08-02T10:00:00Z",
     raw: (businessOrder as { refunds: unknown[] }).refunds[0],
   });
-  assert.equal(orderReviewRequired(businessMapped, true), true);
+  assert.equal(orderReviewRequired(businessMapped, true), false);
 });
 
 test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del rimborso", async () => {

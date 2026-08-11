@@ -124,6 +124,49 @@ test(
       let [firstProjection, secondProjection, thirdProjection] = await Promise.all(
         cases.map((billingCase) => save(billingCase.id)),
       );
+      second.updatedAt = "2026-08-11T10:00:00Z";
+      second.refunds = [
+        {
+          externalRefundId: "shop-refund-before-issue",
+          status: "COMPLETED",
+          amount: "25.00",
+          completedAt: "2026-08-11T09:30:00Z",
+          raw: {},
+        },
+      ];
+      await orders.importOrders([second], {
+        id: 1,
+        requestId: "documents-partial-refund-before-issue",
+      });
+      const partialRefundProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        partialRefundProjection &&
+          !partialRefundProjection.profileMissing &&
+          "lines" in partialRefundProjection,
+      );
+      assert.equal(partialRefundProjection.total, 9700);
+      assert.equal(partialRefundProjection.sourceTotal, 9700);
+      assert.equal(partialRefundProjection.requiresResave, true);
+      await orders.importOrders([second], {
+        id: 1,
+        requestId: "documents-partial-refund-idempotent",
+      });
+      const repeatedPartialRefund = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        repeatedPartialRefund &&
+          !repeatedPartialRefund.profileMissing &&
+          "lines" in repeatedPartialRefund,
+      );
+      assert.equal(repeatedPartialRefund.draftVersion, partialRefundProjection.draftVersion);
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM audit_events WHERE action = 'REFUND_APPLIED_BEFORE_ISSUE'")
+        ).rows[0].count,
+        "1",
+      );
+      secondProjection = await save(cases[1]!.id);
       await orders.correctBillingCaseCustomer(
         cases[2]!.id,
         {
@@ -286,6 +329,8 @@ test(
             confirmApproval: true,
             confirmPending: true,
             confirmDifference: true,
+            emailChoice: "SKIP",
+            emailModeVersion: correctedSecondProjection.customerEmail.version,
           },
           { id: 1, canApprove: true, requestId: "customer-correction-stale" },
         ),
@@ -346,6 +391,8 @@ test(
             confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
+            emailChoice: "SKIP",
+            emailModeVersion: regeneratedFirstProjection.customerEmail.version,
           },
           { id: 2, canApprove: false, requestId: "codex-direct" },
         ),
@@ -361,6 +408,8 @@ test(
             confirmApproval: false,
             confirmPending: false,
             confirmDifference: false,
+            emailChoice: "SKIP",
+            emailModeVersion: regeneratedFirstProjection.customerEmail.version,
           },
           { id: 1, canApprove: true, requestId: "missing-final-confirmation" },
         ),
@@ -376,6 +425,8 @@ test(
             confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
+            emailChoice: "SKIP",
+            emailModeVersion: regeneratedFirstProjection.customerEmail.version,
           },
           { id: 1, canApprove: true, requestId: "stale" },
         ),
@@ -392,6 +443,8 @@ test(
               confirmApproval: true,
               confirmPending: index === 1,
               confirmDifference: index === 1,
+              emailChoice: "SKIP",
+              emailModeVersion: projection.customerEmail.version,
             },
             { id: 1, canApprove: true, requestId: `approve-${index}` },
           ),
@@ -539,6 +592,25 @@ test(
         ),
         (error) => error instanceof AppError && error.code === "ARUBA_IMPORT_INVALID",
       );
+      const issuedRefundId = (
+        await database.getPool().query<{ id: string }>(
+          `INSERT INTO refunds
+            (provider, external_account_id, external_order_id, external_refund_id,
+             order_id, status, amount, completed_at, raw_json)
+           SELECT orders.provider, orders.external_account_id, orders.external_order_id,
+                  'refund-waiting-for-issuance', orders.id, 'COMPLETED', 100, now(), '{}'
+           FROM orders
+           JOIN document_orders ON document_orders.order_id = orders.id
+           WHERE document_orders.document_id = $1 LIMIT 1
+           RETURNING id`,
+          [assistedManifest.documents[0]!.id],
+        )
+      ).rows[0]!.id;
+      await database.getPool().query(
+        `INSERT INTO jobs (type, payload_json, status, completed_at)
+         VALUES ('process_refund', jsonb_build_object('refundId', $1::text), 'COMPLETED', now())`,
+        [issuedRefundId],
+      );
       await aruba.importOfficialArubaFile(
         assistedManifest.documents[0]!.id,
         "SDI_NOTIFICATION",
@@ -549,6 +621,20 @@ test(
           ),
         ),
         owner,
+      );
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT status, count(*)::int AS total FROM jobs
+             WHERE type = 'process_refund' AND payload_json ->> 'refundId' = $1
+             GROUP BY status ORDER BY status`,
+            [issuedRefundId],
+          )
+        ).rows,
+        [
+          { status: "COMPLETED", total: 1 },
+          { status: "PENDING", total: 1 },
+        ],
       );
       await aruba.importOfficialArubaFile(
         assistedManifest.documents[0]!.id,
@@ -739,6 +825,8 @@ test(
           { id: 1, canApprove: true, requestId: "approve-mass-stale" },
           true,
           "ASSISTED",
+          { [cases[2]!.id]: "SKIP" },
+          thirdProjection.customerEmail.version,
         ),
         { approved: 0, failed: 1, storagePending: 0 },
       );
@@ -772,6 +860,8 @@ test(
             confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
+            emailChoice: "SKIP",
+            emailModeVersion: freshThirdProjection.customerEmail.version,
           },
           { id: 1, canApprove: true, requestId: "old-app-membership-change" },
         ),
@@ -828,12 +918,24 @@ test(
             { id: 1, canApprove: true, requestId: "approve-mass" },
             true,
             "AUTOMATIC",
+            { [cases[2]!.id]: "SEND" },
+            approvableThirdProjection.customerEmail.version,
           ),
           { approved: 1, failed: 0, storagePending: 1 },
         );
       } finally {
         await chmod(finalStorageDirectory, 0o700);
       }
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT customer_email_choice FROM documents WHERE billing_case_id = $1", [
+              cases[2]!.id,
+            ])
+        ).rows[0].customer_email_choice,
+        "SEND",
+      );
       const rows = (
         await database.getPool().query<{
           id: string;

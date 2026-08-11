@@ -15,6 +15,7 @@ export default [
   route("ordini/preparazione/:caseId", "routes/billing-case-detail.tsx"),
   route("ordini/:orderId", "routes/order-detail.tsx"),
   route("documenti", "routes/documents.tsx"),
+  route("documenti/:documentId/nota", "routes/credit-note-detail.tsx"),
   route("documenti/:documentId/xml", "routes/document-xml.ts"),
   route("documenti/:documentId/aruba/:fileId", "routes/aruba-official-file.ts"),
   route("api/aruba/helper/manifest", "routes/aruba-helper-manifest.ts"),

@@ -19,6 +19,7 @@ import {
 } from "../../src/db/connectors.server.ts";
 import { previewShopifyHistory } from "../../src/integrations/shopify.server.ts";
 import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts";
+import { getCustomerEmailSettings, setCustomerEmailMode } from "../../src/db/email.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -36,6 +37,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     ebayPreview: await latestEbayPreview(),
     aruba: await getArubaSettings(),
     arubaSaved: url.searchParams.get("aruba") === "salvata",
+    customerEmail: await getCustomerEmailSettings(),
+    customerEmailSaved: url.searchParams.get("email") === "salvata",
     preview:
       url.searchParams.get("provider") && url.searchParams.get("count")
         ? {
@@ -53,6 +56,14 @@ export async function action({ request }: Route.ActionArgs) {
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
     const intent = form.get("intent");
+    if (intent === "save-customer-email") {
+      await setCustomerEmailMode(form.get("customerEmailMode"), form.get("emailModeVersion"), {
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return redirect("/impostazioni?email=salvata");
+    }
     if (intent === "save-aruba") {
       await setArubaSettings(
         {
@@ -118,6 +129,8 @@ export default function Settings() {
     preview,
     aruba,
     arubaSaved,
+    customerEmail,
+    customerEmailSaved,
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const byProvider = new Map(connections.map((connection) => [connection.provider, connection]));
@@ -146,6 +159,11 @@ export default function Settings() {
       {arubaSaved ? (
         <p className="notice" role="status">
           {copy.settings.arubaSaved}
+        </p>
+      ) : null}
+      {customerEmailSaved ? (
+        <p className="notice" role="status">
+          {copy.settings.customerEmailSaved}
         </p>
       ) : null}
       {ebayPreview ? (
@@ -266,6 +284,50 @@ export default function Settings() {
             {error.message}
           </p>
         ) : null}
+      </section>
+      <section className="card section-gap">
+        <h2>{copy.settings.customerEmailTitle}</h2>
+        <p>{copy.settings.customerEmailHelp}</p>
+        <dl className="facts facts--columns">
+          <div>
+            <dt>{copy.settings.smtpTransport}</dt>
+            <dd>
+              {copy.settings.smtpTransportLabels[customerEmail.transport] ??
+                copy.common.unavailable}
+            </dd>
+          </div>
+          <div>
+            <dt>{copy.settings.smtpSender}</dt>
+            <dd>{customerEmail.sender}</dd>
+          </div>
+          <div>
+            <dt>{copy.settings.smtpStatus}</dt>
+            <dd>
+              {customerEmail.configured
+                ? copy.settings.smtpConfigured
+                : copy.settings.smtpNotConfigured}
+            </dd>
+          </div>
+        </dl>
+        {canApprove ? (
+          <Form method="post" className="inline-form section-gap">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="save-customer-email" />
+            <input type="hidden" name="emailModeVersion" value={customerEmail.version} />
+            <label>
+              {copy.settings.customerEmailMode}
+              <select defaultValue={customerEmail.mode} name="customerEmailMode">
+                <option value="AUTOMATIC">{copy.settings.customerEmailAutomatic}</option>
+                <option value="MANUAL">{copy.settings.customerEmailManual}</option>
+              </select>
+            </label>
+            <button className="button" type="submit">
+              {copy.settings.customerEmailSave}
+            </button>
+          </Form>
+        ) : (
+          <p>{copy.settings.customerEmailOwnerOnly}</p>
+        )}
       </section>
       <section className="card section-gap">
         <h2>{copy.settings.arubaTitle}</h2>

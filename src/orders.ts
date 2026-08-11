@@ -459,7 +459,7 @@ export function orderReviewRequired(
       (payment) =>
         payment.status !== "PAID" && !(confirmablePending && payment.status === "PENDING"),
     ) ||
-    order.refunds.some((refund) => refund.status !== "FAILED") ||
+    order.refunds.some((refund) => refund.status === "AMBIGUOUS" || refund.amount === null) ||
     !totalsReconciled
   );
 }

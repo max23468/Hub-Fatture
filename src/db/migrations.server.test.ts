@@ -23,6 +23,7 @@ const APPROVED_PAYMENT_HISTORY = "009_approved_payment_history.sql";
 const DRAFT_RECIPIENT_SNAPSHOT = "010_draft_recipient_snapshot.sql";
 const ORDER_MEMBERSHIP_DRAFT_INVALIDATION = "011_order_membership_draft_invalidation.sql";
 const ARUBA_INTEGRATION = "012_aruba_integration.sql";
+const CREDIT_NOTES_EMAIL = "013_credit_notes_email.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -39,6 +40,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, DRAFT_RECIPIENT_SNAPSHOT));
     await rm(path.join(firstTwo, ORDER_MEMBERSHIP_DRAFT_INVALIDATION));
     await rm(path.join(firstTwo, ARUBA_INTEGRATION));
+    await rm(path.join(firstTwo, CREDIT_NOTES_EMAIL));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -54,6 +56,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       DRAFT_RECIPIENT_SNAPSHOT,
       ORDER_MEMBERSHIP_DRAFT_INVALIDATION,
       ARUBA_INTEGRATION,
+      CREDIT_NOTES_EMAIL,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -77,12 +80,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       DRAFT_RECIPIENT_SNAPSHOT,
       ORDER_MEMBERSHIP_DRAFT_INVALIDATION,
       ARUBA_INTEGRATION,
+      CREDIT_NOTES_EMAIL,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "12",
+      "13",
     );
     await cleanClient.end();
 
@@ -175,6 +179,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, DRAFT_RECIPIENT_SNAPSHOT));
     await rm(path.join(beforeM4, ORDER_MEMBERSHIP_DRAFT_INVALIDATION));
     await rm(path.join(beforeM4, ARUBA_INTEGRATION));
+    await rm(path.join(beforeM4, CREDIT_NOTES_EMAIL));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -301,6 +306,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       DRAFT_RECIPIENT_SNAPSHOT,
       ORDER_MEMBERSHIP_DRAFT_INVALIDATION,
       ARUBA_INTEGRATION,
+      CREDIT_NOTES_EMAIL,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

@@ -108,6 +108,13 @@ export async function action({ request }: Route.ActionArgs) {
         },
         true,
         form.get("arubaMode"),
+        Object.fromEntries(
+          form.getAll("approval").map((value) => {
+            const caseId = String(value).split(":", 1)[0]!;
+            return [caseId, form.get(`emailChoice:${caseId}`)];
+          }),
+        ),
+        form.get("emailModeVersion"),
       );
       return redirect(
         `/ordini?vista=fatturare&approvati=${result.approved}&errori=${result.failed}&archiviazione=${result.storagePending}`,
@@ -121,6 +128,130 @@ export async function action({ request }: Route.ActionArgs) {
       `/ordini?importati=${result.imported}&aggiornati=${result.updated}&ignorati=${result.ignored}`,
     );
   });
+}
+
+type ApprovalCandidates = Awaited<ReturnType<typeof loader>>["approvalCandidates"];
+
+function MassApprovalPanel({
+  approvalCandidates,
+  arubaMode,
+  csrfToken,
+}: {
+  approvalCandidates: ApprovalCandidates;
+  arubaMode: string;
+  csrfToken: string;
+}) {
+  return (
+    <section className="card section-gap">
+      <h2>{copy.orders.massApprovalTitle}</h2>
+      <p>
+        {copy.orders.massApprovalSummary(
+          approvalCandidates.length,
+          approvalCandidates.reduce((sum, item) => sum + item.total_amount, 0),
+        )}
+      </p>
+      <Form method="post">
+        <input type="hidden" name="csrf" value={csrfToken} />
+        <input type="hidden" name="intent" value="approve-documents" />
+        <input type="hidden" name="arubaMode" value={arubaMode} />
+        <input
+          type="hidden"
+          name="emailModeVersion"
+          value={approvalCandidates[0]!.customerEmail.version}
+        />
+        <div className="detail-stack">
+          {approvalCandidates.map((candidate) => (
+            <fieldset className="status-panel" key={candidate.billing_case_id}>
+              <legend>
+                <Link to={`/ordini/preparazione/${candidate.billing_case_id}`}>
+                  {copy.preparation.title(candidate.public_number)}
+                </Link>
+              </legend>
+              <p>{`${candidate.customer_name} · ${euros(candidate.total_amount)} · profilo fiscale v${candidate.fiscal_profile_version} · pagamento registrato`}</p>
+              <dl className="facts facts--columns">
+                <div>
+                  <dt>{copy.document.emailMode}</dt>
+                  <dd>
+                    {candidate.customerEmail.mode === "AUTOMATIC"
+                      ? copy.document.emailAutomatic
+                      : copy.document.emailManual}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailSender}</dt>
+                  <dd>{candidate.customerEmail.sender}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailRecipient}</dt>
+                  <dd>{candidate.customerEmail.recipient ?? copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailSubject}</dt>
+                  <dd>{candidate.customerEmail.subject}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailBody}</dt>
+                  <dd>{candidate.customerEmail.body}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailAttachment}</dt>
+                  <dd>{candidate.customerEmail.attachment}</dd>
+                </div>
+              </dl>
+              <label className="checkbox-row">
+                <input
+                  defaultChecked={
+                    candidate.customerEmail.mode === "AUTOMATIC" &&
+                    Boolean(candidate.customerEmail.recipient)
+                  }
+                  name={`emailChoice:${candidate.billing_case_id}`}
+                  required
+                  type="radio"
+                  value="SEND"
+                />
+                {copy.document.emailSend}
+              </label>
+              <label className="checkbox-row">
+                <input
+                  defaultChecked={
+                    candidate.customerEmail.mode !== "AUTOMATIC" ||
+                    !candidate.customerEmail.recipient
+                  }
+                  name={`emailChoice:${candidate.billing_case_id}`}
+                  required
+                  type="radio"
+                  value="SKIP"
+                />
+                {copy.document.emailSkip}
+              </label>
+            </fieldset>
+          ))}
+        </div>
+        <p>
+          <strong>Percorso Aruba:</strong>{" "}
+          {arubaMode === "AUTOMATIC"
+            ? copy.document.automaticHelperMode
+            : copy.document.assistedHelperMode}
+        </p>
+        <p className="warning">{copy.orders.massApprovalConsequence}</p>
+        {approvalCandidates.map((candidate) => (
+          <input
+            key={`approval-${candidate.billing_case_id}`}
+            type="hidden"
+            name="approval"
+            value={`${candidate.billing_case_id}:${candidate.case_revision}:${candidate.draft_version}:${candidate.projection_sha256}`}
+          />
+        ))}
+        <label className="checkbox-row">
+          <input name="confirm" required type="checkbox" value="yes" />
+          {copy.orders.massApprovalConfirm}
+        </label>
+        <button className="button" type="submit">
+          {copy.orders.massApprovalAction}
+        </button>
+      </Form>
+    </section>
+  );
 }
 
 export default function Orders() {
@@ -235,52 +366,11 @@ export default function Orders() {
       ) : null}
 
       {showsPreparations && approvalCandidates.length > 1 ? (
-        <section className="card section-gap">
-          <h2>{copy.orders.massApprovalTitle}</h2>
-          <p>
-            {copy.orders.massApprovalSummary(
-              approvalCandidates.length,
-              approvalCandidates.reduce((sum, item) => sum + item.total_amount, 0),
-            )}
-          </p>
-          <Form method="post">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="approve-documents" />
-            <input type="hidden" name="arubaMode" value={arubaMode} />
-            <ul>
-              {approvalCandidates.map((candidate) => (
-                <li key={candidate.billing_case_id}>
-                  <Link to={`/ordini/preparazione/${candidate.billing_case_id}`}>
-                    {copy.preparation.title(candidate.public_number)}
-                  </Link>
-                  {` · ${candidate.customer_name} · ${euros(candidate.total_amount)} · profilo fiscale v${candidate.fiscal_profile_version} · pagamento registrato`}
-                </li>
-              ))}
-            </ul>
-            <p>
-              <strong>Percorso Aruba:</strong>{" "}
-              {arubaMode === "AUTOMATIC"
-                ? copy.document.automaticHelperMode
-                : copy.document.assistedHelperMode}
-            </p>
-            <p className="warning">{copy.orders.massApprovalConsequence}</p>
-            {approvalCandidates.map((candidate) => (
-              <input
-                key={`approval-${candidate.billing_case_id}`}
-                type="hidden"
-                name="approval"
-                value={`${candidate.billing_case_id}:${candidate.case_revision}:${candidate.draft_version}:${candidate.projection_sha256}`}
-              />
-            ))}
-            <label className="checkbox-row">
-              <input name="confirm" required type="checkbox" value="yes" />
-              {copy.orders.massApprovalConfirm}
-            </label>
-            <button className="button" type="submit">
-              {copy.orders.massApprovalAction}
-            </button>
-          </Form>
-        </section>
+        <MassApprovalPanel
+          approvalCandidates={approvalCandidates}
+          arubaMode={arubaMode}
+          csrfToken={csrfToken}
+        />
       ) : null}
 
       {!showsPreparations && view !== "annullati" ? orderFilters : null}

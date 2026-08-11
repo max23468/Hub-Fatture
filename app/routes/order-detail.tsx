@@ -10,6 +10,7 @@ import {
   fulfillmentStatusLabels,
   orderStatusLabels,
   paymentStatusLabels,
+  refundStatusLabels,
   taxIdentifierLabels,
 } from "../copy.it";
 import { address, date, dateTime, euros } from "../format";
@@ -130,6 +131,31 @@ export default function OrderDetail() {
               </ul>
             ) : (
               <p>{copy.orderDetail.noPayments}</p>
+            )}
+          </div>
+          <div className="detail-subsection">
+            <h3>{copy.orderDetail.refunds}</h3>
+            {order.refunds.length ? (
+              <ul className="plain-list">
+                {order.refunds.map((refund) => (
+                  <li key={refund.id}>
+                    <span>
+                      {refund.provider === "SHOPIFY" ? "Shopify" : "eBay"} · profilo{" "}
+                      {refund.external_account_id}
+                      {` · ordine ${refund.external_order_id} · rimborso ${refund.external_refund_id}`}
+                    </span>
+                    <span>
+                      {refund.amount === null
+                        ? copy.orderDetail.refundNeedsReview
+                        : euros(refund.amount)}
+                      {` · ${refundStatusLabels[refund.status] ?? copy.common.unknownStatus}`}
+                      {refund.completed_at ? ` · ${dateTime(refund.completed_at)}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>{copy.orderDetail.noRefunds}</p>
             )}
           </div>
         </section>

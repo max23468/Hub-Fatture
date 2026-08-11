@@ -133,6 +133,9 @@ export const copy = {
     taxIdentifier: "Dato fiscale",
     payments: "Pagamenti",
     noPayments: "Nessun pagamento registrato.",
+    refunds: "Rimborsi",
+    noRefunds: "Nessun rimborso registrato.",
+    refundNeedsReview: "Importo da verificare prima di creare la nota di credito.",
     manuallyRecorded: "registrato manualmente",
     purchasedItems: "Articoli acquistati",
     description: "Descrizione",
@@ -214,6 +217,7 @@ export const copy = {
       tax: "Regime e natura",
       causale: "Causale",
       notes: "Note",
+      relatedInvoice: "Fattura originaria",
     },
     technicalXml: "Mostra XML tecnico",
     saveBeforeApproval: "Salva la bozza per rendere approvabile questa proiezione.",
@@ -229,6 +233,17 @@ export const copy = {
     confirmProfile: "Profilo fiscale",
     confirmPayment: "Pagamento",
     confirmHelper: "Percorso Aruba",
+    customerEmailTitle: "Copia e-mail al cliente",
+    emailMode: "Modalità",
+    emailAutomatic: "Automatica dopo l’esito SdI",
+    emailManual: "Manuale con approvazione",
+    emailSender: "Mittente",
+    emailRecipient: "Destinatario",
+    emailSubject: "Oggetto",
+    emailBody: "Corpo",
+    emailAttachment: "Allegato",
+    emailSend: "Invia dopo il primo esito SdI DELIVERED o NOT_DELIVERED.",
+    emailSkip: "Non inviare per questo documento.",
     assistedHelperMode: "Assistita; l’helper si arresta prima di Invia",
     automaticHelperMode:
       "Automatica dopo conferma; il permesso monouso autorizza soltanto questo batch",
@@ -260,6 +275,13 @@ export const copy = {
     officialFile: "File scaricato da Aruba",
     importAction: "Importa e verifica",
     archivedOfficialFiles: "File ufficiali archiviati",
+    emailUncertain: "Esito SMTP incerto: verifica la mancata consegna prima del reinvio.",
+    emailUncertainConfirmed: "Ho verificato che il messaggio non è stato consegnato.",
+    emailStatus: {
+      PENDING: "In attesa",
+      SENT: "Inviata",
+      FAILED: "Non riuscita",
+    } as Record<string, string>,
     officialFileKind: {
       ARUBA_XML: "XML Aruba",
       ARUBA_P7M: "P7M",
@@ -367,6 +389,25 @@ export const copy = {
     failedJob: (type: string, code: string | null, attempts: number) =>
       `${type.startsWith("shopify") ? "Shopify" : "eBay"}: ${code ?? "errore non disponibile"}, ${attempts} tentativi.`,
     retryJob: "Riprova ora",
+    customerEmailTitle: "E-mail al cliente",
+    customerEmailHelp:
+      "Un solo servizio e-mail invia la copia soltanto dopo un esito SdI che conferma l’emissione.",
+    customerEmailMode: "Modalità invio copia",
+    customerEmailAutomatic: "Automatica dopo l’esito SdI",
+    customerEmailManual: "Manuale con approvazione",
+    customerEmailSave: "Salva modalità e-mail",
+    customerEmailSaved: "Modalità e-mail aggiornata.",
+    customerEmailOwnerOnly: "Solo il titolare può cambiare la modalità e-mail.",
+    smtpTransport: "Servizio di invio",
+    smtpSender: "Mittente",
+    smtpStatus: "Configurazione",
+    smtpConfigured: "Configurato",
+    smtpNotConfigured: "Da completare",
+    smtpTransportLabels: {
+      SYNTHETIC: "Sintetico, senza rete",
+      EXISTING_SMTP: "SMTP esistente",
+      OCI_EMAIL_DELIVERY: "OCI Email Delivery",
+    } as Record<string, string>,
     arubaTitle: "Integrazione Aruba",
     arubaHelp:
       "L’helper usa Chrome o Edge sul tuo computer. Hub Fatture non conserva credenziali, cookie o codici Aruba.",
@@ -452,6 +493,13 @@ export const paymentStatusLabels: Record<string, string> = {
   REFUNDED: "Rimborsato",
 };
 
+export const refundStatusLabels: Record<string, string> = {
+  PENDING: "In attesa",
+  COMPLETED: "Completato",
+  FAILED: "Non riuscito",
+  AMBIGUOUS: "Da verificare",
+};
+
 export const fulfillmentStatusLabels: Record<string, string> = {
   FULFILLED: "Spedito",
   PARTIAL: "Spedito in parte",
@@ -494,6 +542,11 @@ export const auditActionLabels = {
   BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
   BILLING_CASE_REACTIVATED: "Preparazione riattivata",
   CUSTOMER_CORRECTED: "Anagrafica cliente corretta",
+  CUSTOMER_EMAIL_FAILED: "Invio e-mail non riuscito",
+  CUSTOMER_EMAIL_QUEUED: "Invio e-mail preparato",
+  CUSTOMER_EMAIL_REQUEUED: "Reinvio e-mail preparato",
+  CUSTOMER_EMAIL_SENT: "E-mail inviata",
+  CUSTOMER_EMAIL_SETTINGS_CHANGED: "Modalità e-mail aggiornata",
   DRAFT_TRIGGER_CHANGED: "Regola di preparazione modificata",
   DOCUMENT_APPROVED: "Documento approvato",
   DOCUMENT_AMOUNT_DIFFERENCE_CONFIRMED: "Differenza d’importo confermata",
@@ -513,6 +566,10 @@ export const auditActionLabels = {
   ORDER_SOURCE_UPDATED: "Ordine aggiornato dal canale di vendita",
   PROVIDER_CONNECTED: "Canale di vendita collegato",
   PROVIDER_REVOKED: "Canale di vendita scollegato",
+  REFUND_APPLIED_BEFORE_ISSUE: "Rimborso applicato prima dell’emissione",
+  REFUND_CREDIT_NOTE_LINKED: "Rimborso collegato alla nota di credito",
+  REFUND_CREDIT_NOTE_UPDATED: "Nota di credito aggiornata dal rimborso",
+  REFUND_NEEDS_REVIEW: "Rimborso da verificare",
   CONNECTOR_JOB_RETRIED: "Operazione del canale riavviata",
   SHOPIFY_DATA_REQUEST_COMPLETED: "Richiesta dati Shopify gestita",
 } satisfies Record<AuditAction, string>;
