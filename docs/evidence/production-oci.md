@@ -18,7 +18,7 @@
 - quattro allarmi abilitati per metriche assenti, CPU, memoria e load average;
 - dominio APM Always Free `hub-fatture-production` attivo; il monitor HTTP viene creato soltanto quando `/health` è live;
 - bucket privato `hub-fatture-backups`, lifecycle di 30 giorni limitato a `hub-fatture/archive/` e copia `hub-fatture/current/` esclusa;
-- dynamic group `hub-fatture-backup` ristretto alla sola VPS e policy senza lettura o cancellazione degli oggetti per il processo di backup;
+- dynamic group `hub-fatture-backup` ristretto alla sola VPS e policy limitata alla creazione e al readback degli oggetti cifrati, senza cancellazione; create, `HEAD`, dimensione e metadato SHA-256 verificati con un oggetto sintetico soggetto al lifecycle `archive`;
 - Environment GitHub `Production` limitato ai branch protetti, con `max23468` come unico reviewer e segreti SSH scoped.
 - log applicativi ruotati dal driver locale Docker, access log Caddy ruotati nativamente e journal di sistema gestito da `systemd`.
 

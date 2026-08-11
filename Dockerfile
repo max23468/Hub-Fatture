@@ -45,6 +45,7 @@ COPY --chown=hub-fatture:hub-fatture --from=production-dependencies /workspace/n
 COPY --chown=hub-fatture:hub-fatture --from=build /workspace/build ./build
 COPY --chown=hub-fatture:hub-fatture --from=build /workspace/build-server ./build-server
 COPY --chown=hub-fatture:hub-fatture migrations ./migrations
+COPY --chown=hub-fatture:hub-fatture schemas ./schemas
 
 USER 10001:10001
 EXPOSE 3000

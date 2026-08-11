@@ -16,7 +16,7 @@ La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL n
 
 ## Deploy e readback
 
-Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, installa soltanto Compose, Caddyfile e script versionati, esegue il pull per digest e attende gli health check. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/rollback.env` il precedente commit e digest senza segreti.
+Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, prepara Compose e Caddyfile come candidati, installa gli script versionati, esegue il pull per digest e attende gli health check. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
 
 Controlli conclusivi:
 
@@ -29,7 +29,7 @@ Controlli conclusivi:
 
 ## Rollback
 
-Il rollback è applicativo: il deploy ripristina il precedente `.deploy.env` soltanto se lo schema è rimasto invariato, riavvia lo stesso Compose e ripete il readback. Se lo schema è avanzato o non è rilevabile, il rollback automatico è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.
+Il rollback è applicativo: soltanto se lo schema è rimasto invariato, il deploy ripristina insieme `.deploy.env`, Compose e Caddyfile precedenti, ricrea i container e ripete il readback. Se lo schema è avanzato o non è rilevabile, il rollback automatico è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.
 
 ## Provisioning e hardening
 

@@ -4,7 +4,7 @@
 
 Il timer giornaliero esegue `scripts/backup.sh`. PostgreSQL viene esportato in formato custom dentro `/dev/shm`, quindi dump, documenti e manifest non segreto vengono cifrati con il solo destinatario pubblico `age`. Solo l’archivio cifrato viene caricato nel bucket OCI privato tramite Instance Principal. Dimensione e checksum vengono riletti da Object Storage prima di aggiornare la ricevuta mostrata in **Impostazioni > Sistema**.
 
-Il processo non possiede credenziali Object Storage statiche né permessi di lettura o cancellazione non necessari al caricamento. Ogni esecuzione crea un oggetto archivio immutabile e aggiorna una copia cifrata protetta `current`; il lifecycle elimina soltanto gli archivi scaduti e non può selezionare `current`, quindi non può eliminare l’ultimo backup valido.
+Il processo non possiede credenziali Object Storage statiche. L’Instance Principal può creare e rileggere soltanto gli oggetti cifrati del bucket per verificarne dimensione e metadati, ma non può cancellarli. Ogni esecuzione crea un oggetto archivio immutabile e aggiorna una copia cifrata protetta `current`; il lifecycle elimina soltanto gli archivi scaduti e non può selezionare `current`, quindi non può eliminare l’ultimo backup valido.
 
 ## Copia sul Mac
 

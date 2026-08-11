@@ -64,16 +64,16 @@ oci os object put --auth instance_principal --namespace "$oci_namespace" \
   --metadata "{\"sha256\":\"$sha\"}" >/dev/null
 head=$(oci os object head --auth instance_principal --namespace "$oci_namespace" \
   --bucket-name "$backup_bucket" --name "$object")
-[ "$(printf '%s' "$head" | jq -r '.data."content-length"')" = "$size" ] \
+[ "$(printf '%s' "$head" | jq -r '."content-length" // empty')" = "$size" ] \
   || { echo "Dimensione backup riletta non valida" >&2; exit 1; }
-[ "$(printf '%s' "$head" | jq -r '.data."opc-meta-sha256"')" = "$sha" ] \
+[ "$(printf '%s' "$head" | jq -r '."opc-meta-sha256" // empty')" = "$sha" ] \
   || { echo "Checksum backup riletto non valido" >&2; exit 1; }
 oci os object put --auth instance_principal --namespace "$oci_namespace" \
   --bucket-name "$backup_bucket" --name "$current" --file "$archive" --force \
   --metadata "{\"sha256\":\"$sha\",\"source\":\"$object\"}" >/dev/null
 current_head=$(oci os object head --auth instance_principal --namespace "$oci_namespace" \
   --bucket-name "$backup_bucket" --name "$current")
-[ "$(printf '%s' "$current_head" | jq -r '.data."opc-meta-sha256"')" = "$sha" ] \
+[ "$(printf '%s' "$current_head" | jq -r '."opc-meta-sha256" // empty')" = "$sha" ] \
   || { echo "Copia protetta corrente non verificata" >&2; exit 1; }
 
 jq -n --arg completedAt "$created_at" --arg objectName "$object" --arg sha256 "$sha" \

@@ -217,6 +217,7 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(compose, /max-size: 10m/);
   assert.match(dockerfile, /USER 10001:10001/);
   assert.match(dockerfile, /test ! -e node_modules\/typescript/);
+  assert.match(dockerfile, /COPY --chown=hub-fatture:hub-fatture schemas \.\/schemas/);
   assert.match(caddy, /fatture\.opik\.net/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /cancel-in-progress: false/);
@@ -242,15 +243,29 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     const result = spawnSync("sh", ["-n", script], { cwd: root, encoding: "utf8" });
     assert.equal(result.status, 0, `${script}: ${result.stderr}`);
   }
-  const [deploy, monitor, restore] = await Promise.all(
-    ["scripts/production-deploy.sh", "scripts/monitor-local.sh", "scripts/restore.sh"].map((file) =>
-      readFile(path.join(root, file), "utf8"),
-    ),
+  const [backup, deploy, monitor, restore, workflow] = await Promise.all(
+    [
+      "scripts/backup.sh",
+      "scripts/production-deploy.sh",
+      "scripts/monitor-local.sh",
+      "scripts/restore.sh",
+      ".github/workflows/production.yml",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
   );
+  assert.match(backup, /jq -r '\."content-length" \/\/ empty'/);
+  assert.match(backup, /jq -r '\."opc-meta-sha256" \/\/ empty'/);
+  assert.doesNotMatch(backup, /\.data\."(?:content-length|opc-meta-sha256)"/);
   assert.match(deploy, /data\/operations\/rollback\.env/);
+  assert.match(deploy, /data\/operations\/rollback\.compose\.yaml/);
+  assert.match(deploy, /data\/operations\/rollback\.Caddyfile/);
   assert.match(deploy, /current_schema.*previous_schema/);
   assert.match(deploy, /rollback automatico vietato.*forward-fix/);
+  assert.match(deploy, /cp "\$previous_compose" compose\.yaml/);
+  assert.match(deploy, /cp "\$previous_caddy" Caddyfile/);
+  assert.match(deploy, /--force-recreate/);
   assert.match(deploy, /production-readback\.sh >\/dev\/null/);
+  assert.match(workflow, /compose\.yaml\.next/);
+  assert.match(workflow, /Caddyfile\.next/);
   assert.match(monitor, /app-web app-worker caddy postgres/);
   assert.match(monitor, /\[ "\$current" != "\$previous" \]/);
   assert.match(restore, /sha256sum "\$archive"/);
