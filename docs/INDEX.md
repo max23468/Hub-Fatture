@@ -23,6 +23,6 @@
 | [Produzione OCI](runbooks/production.md)                               | Deploy, readback, rollback e hardening                    | Corrente    | Sì             |
 | [Backup e ripristino](runbooks/backup-restore.md)                      | Backup cifrato, copia Mac e restore drill                 | Corrente    | Sì             |
 | [Incidenti Production](runbooks/incidents.md)                          | Triage P0-P2 e kill switch                                | Corrente    | Sì             |
-| [Evidenza Production OCI](evidence/production-oci.md)                  | Gate locali e ricevute remote della Production OCI        | In corso    | No             |
+| [Evidenza Production OCI](evidence/production-oci.md)                  | Gate locali e ricevute remote della Production OCI        | Verificato  | No             |
 
 Nuovi contratti, evidenze e runbook vengono creati soltanto quando esiste contenuto reale.

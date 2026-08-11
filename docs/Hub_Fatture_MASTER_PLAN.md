@@ -2930,6 +2930,8 @@ Gate:
 
 ### M7 - Produzione su OCI
 
+**Stato: completata.** Evidenze ripetibili: [Production OCI](evidence/production-oci.md), workflow Production, smoke autenticato, rollback applicativo reale e restore drill isolato.
+
 Output:
 
 - Dynu;

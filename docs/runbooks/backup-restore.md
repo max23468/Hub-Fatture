@@ -6,9 +6,11 @@ Il timer giornaliero esegue `scripts/backup.sh`. Backup e deploy acquisiscono lo
 
 Il processo non possiede credenziali Object Storage statiche. L’Instance Principal può creare e rileggere soltanto gli oggetti cifrati del bucket per verificarne dimensione e metadati, ma non può cancellarli. Ogni esecuzione crea un oggetto archivio immutabile e aggiorna una copia cifrata protetta `current`; il lifecycle elimina soltanto gli archivi scaduti e non può selezionare `current`, quindi non può eliminare l’ultimo backup valido.
 
+Il monitor locale somma le dimensioni degli oggetti tramite lo stesso Instance Principal e avvisa al raggiungimento di 15 GB, margine prudenziale rispetto ai 20 GB inclusi verificati per Object Storage. Un errore di lettura della quota è a sua volta un’anomalia; `OCI_BACKUP_WARNING_BYTES` serve soltanto per il collaudo controllato della soglia.
+
 ## Copia sul Mac
 
-Scaricare periodicamente l’oggetto cifrato più recente in `~/HubFatture-Backups/`, fuori dal checkout, verificarne dimensione e checksum rispetto alla ricevuta e sostituire la sola copia corrente dopo il confronto. L’identità privata resta in `/Users/Matteo/Documents/Hub-Fatture-Recovery/age-identity.txt`, con permessi del solo titolare e protetta da FileVault; non viene copiata sulla VPS.
+Scaricare periodicamente l’oggetto cifrato più recente in `~/HubFatture-Backups/`, fuori dal checkout, verificarne dimensione e checksum rispetto alla ricevuta e sostituire la sola copia corrente dopo il confronto. L’identità privata `age` e la chiave AEAD delle credenziali restano nel recovery kit `/Users/Matteo/Documents/Hub-Fatture-Recovery/`, con permessi del solo titolare e protetto da FileVault; non vengono copiate dalla VPS nel backup.
 
 ## Restore drill
 
@@ -18,7 +20,8 @@ La prova è conclusa soltanto dopo:
 
 - checksum dell’archivio coerente con la ricevuta;
 - schema e conteggi principali riletti;
-- documenti sintetici presenti e integri;
+- almeno un documento sintetico con file, percorso, metadati e hash collegati nel database, riletto tramite l’applicazione;
+- una credenziale sintetica cifrata nel database e decifrata dall’applicazione usando soltanto la chiave AEAD recuperata dal kit;
 - login case-insensitive di `Massimo` e `Codex`, nomi canonici e privilegi corretti;
 - health check verde nel target isolato.
 

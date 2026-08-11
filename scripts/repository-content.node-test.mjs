@@ -365,6 +365,33 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(monitor, /for service in app-web postgres/);
   assert.match(monitor, /jq -r '\.Health \/\/ empty'/);
   assert.match(monitor, /\[ "\$health" = "healthy" \]/);
+  assert.match(monitor, /OCI_BACKUP_WARNING_BYTES:-15000000000/);
+  assert.match(monitor, /oci os object list --auth instance_principal/);
+  const sumObjectBytes = monitor.match(/sum_object_bytes\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(sumObjectBytes, "il calcolo dell’uso Object Storage deve essere isolabile");
+  const summed = spawnSync(
+    "sh",
+    [
+      "-c",
+      `${sumObjectBytes}\nprintf '%s' '{"data":[{"size":12},{"size":30}]}' | sum_object_bytes`,
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert.equal(summed.status, 0, summed.stderr);
+  assert.equal(summed.stdout.trim(), "42");
+  const addProblem = monitor.match(/add_problem\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(addProblem, "il monitor deve aggregare guasti concorrenti");
+  const aggregated = spawnSync(
+    "sh",
+    [
+      "-c",
+      `problem=\n${addProblem}\nadd_problem worker\nadd_problem bucket\nprintf '%s' "$problem"`,
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert.equal(aggregated.status, 0, aggregated.stderr);
+  assert.equal(aggregated.stdout, "worker\nbucket");
+  assert.doesNotMatch(monitor, /problem=\$\{problem:-/);
   assert.match(monitor, /\[ "\$current" != "\$previous" \]/);
   assert.match(restore, /sha256sum "\$archive"/);
   assert.match(restore, /^#!\/bin\/bash\nset -euo pipefail/m);
