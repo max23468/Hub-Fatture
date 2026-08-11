@@ -85,6 +85,8 @@ function runIntent(
         confirmPending: form.get("confirmPending") === "yes",
         confirmDifference: form.get("confirmDifference") === "yes",
         arubaMode: form.get("arubaMode"),
+        emailChoice: form.get("emailChoice"),
+        emailModeVersion: form.get("emailModeVersion"),
       },
       actor,
     );
@@ -403,6 +405,64 @@ function InvoiceDocument({
             <input type="hidden" name="draftVersion" value={projection.draftVersion} />
             <input type="hidden" name="projectionSha256" value={projection.projectionSha256} />
             <input type="hidden" name="arubaMode" value={projection.arubaMode} />
+            <input type="hidden" name="emailModeVersion" value={projection.customerEmail.version} />
+            <fieldset className="section-gap">
+              <legend>{copy.document.customerEmailTitle}</legend>
+              <dl className="facts facts--columns">
+                <div>
+                  <dt>{copy.document.emailMode}</dt>
+                  <dd>
+                    {projection.customerEmail.mode === "AUTOMATIC"
+                      ? copy.document.emailAutomatic
+                      : copy.document.emailManual}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailSender}</dt>
+                  <dd>{projection.customerEmail.sender}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailRecipient}</dt>
+                  <dd>{projection.customerEmail.recipient ?? copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailSubject}</dt>
+                  <dd>{projection.customerEmail.subject}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailBody}</dt>
+                  <dd>{projection.customerEmail.body}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailAttachment}</dt>
+                  <dd>{projection.customerEmail.attachment}</dd>
+                </div>
+              </dl>
+              <label className="checkbox-row">
+                <input
+                  defaultChecked={
+                    projection.customerEmail.mode === "AUTOMATIC" &&
+                    Boolean(projection.customerEmail.recipient)
+                  }
+                  name="emailChoice"
+                  type="radio"
+                  value="SEND"
+                />
+                {copy.document.emailSend}
+              </label>
+              <label className="checkbox-row">
+                <input
+                  defaultChecked={
+                    projection.customerEmail.mode !== "AUTOMATIC" ||
+                    !projection.customerEmail.recipient
+                  }
+                  name="emailChoice"
+                  type="radio"
+                  value="SKIP"
+                />
+                {copy.document.emailSkip}
+              </label>
+            </fieldset>
             {projection.paymentPending ? (
               <label className="checkbox-row">
                 <input name="confirmPending" required type="checkbox" value="yes" />
@@ -476,7 +536,7 @@ export default function BillingCaseDetail() {
   const revisionField = <input type="hidden" name="revision" value={billingCase.revision} />;
   const csrfField = <input type="hidden" name="csrf" value={csrfToken} />;
   return (
-    <AppShell username={username} csrfToken={csrfToken}>
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className="title-block">
         <p className="eyebrow">{copy.preparation.eyebrow}</p>
         <h1>{copy.preparation.title(billingCase.public_number)}</h1>

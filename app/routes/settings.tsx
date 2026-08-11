@@ -1,41 +1,73 @@
-import { Form, redirect, useActionData, useLoaderData } from "react-router";
+import {
+  CircleUserRound,
+  FileCheck2,
+  Landmark,
+  LogOut,
+  Mail,
+  PlugZap,
+  Settings2,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
+import { data, Form, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/settings";
 
-import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
+import { ThemePicker } from "../components/theme-picker";
 import { copy } from "../copy.it";
 import { dateTime } from "../format";
-import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
-import { readForm } from "../../src/http.server.ts";
-import { getDraftTrigger, setDraftTrigger } from "../../src/db/orders.server.ts";
 import {
-  completeShopifyDataRequest,
+  assertCsrf,
+  changePassword,
+  getAccountProfile,
+  requestId,
+  requireSessionUser,
+  revokeOtherSessions,
+} from "../../src/db/auth.server.ts";
+import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts";
+import { getConfig } from "../../src/config.server.ts";
+import {
   connectionSummaries,
   enqueueEbayPreview,
-  failedConnectorJobs,
   latestEbayPreview,
-  pendingShopifyDataRequests,
-  retryFailedJob,
 } from "../../src/db/connectors.server.ts";
+import { getFiscalProfileSettings } from "../../src/db/documents.server.ts";
+import { getCustomerEmailSettings, setCustomerEmailMode } from "../../src/db/email.server.ts";
+import { publicError } from "../../src/errors.ts";
+import { readForm } from "../../src/http.server.ts";
 import { previewShopifyHistory } from "../../src/integrations/shopify.server.ts";
-import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts";
+import { getDraftTrigger, setDraftTrigger } from "../../src/db/orders.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
+  const [profile, trigger, connections, ebayPreview, aruba, customerEmail, fiscalProfile] =
+    await Promise.all([
+      getAccountProfile(request, user),
+      getDraftTrigger(),
+      connectionSummaries(),
+      latestEbayPreview(),
+      getArubaSettings(),
+      getCustomerEmailSettings(),
+      getFiscalProfileSettings(),
+    ]);
   return {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
-    trigger: await getDraftTrigger(),
+    profile,
+    trigger,
     saved: url.searchParams.get("trigger") === "salvato",
-    privacyCompleted: url.searchParams.get("privacy") === "chiusa",
-    connections: await connectionSummaries(),
-    shopifyDataRequests: await pendingShopifyDataRequests(),
-    failedJobs: await failedConnectorJobs(),
-    ebayPreview: await latestEbayPreview(),
-    aruba: await getArubaSettings(),
+    connections,
+    ebayPreview,
+    aruba,
     arubaSaved: url.searchParams.get("aruba") === "salvata",
+    customerEmail,
+    customerEmailSaved: url.searchParams.get("email") === "salvata",
+    fiscalProfile,
+    environment: getConfig().APP_ENV,
+    passwordChanged: url.searchParams.get("profilo") === "password",
+    sessionsRevoked: url.searchParams.get("profilo") === "sessioni",
     preview:
       url.searchParams.get("provider") && url.searchParams.get("count")
         ? {
@@ -48,11 +80,36 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  return actionResult(async () => {
-    const user = await requireSessionUser(request);
-    const form = await readForm(request);
+  const user = await requireSessionUser(request);
+  const form = await readForm(request);
+  const intent = form.get("intent") ?? "save-trigger";
+  try {
     assertCsrf(user, form.get("csrf") ?? "");
-    const intent = form.get("intent");
+    if (intent === "change-password") {
+      await changePassword(
+        request,
+        {
+          currentPassword: form.get("currentPassword"),
+          newPassword: form.get("newPassword"),
+          confirmation: form.get("passwordConfirmation"),
+        },
+        user,
+        requestId(request),
+      );
+      return redirect("/impostazioni?profilo=password#profilo-sicurezza");
+    }
+    if (intent === "revoke-other-sessions") {
+      await revokeOtherSessions(request, user, requestId(request));
+      return redirect("/impostazioni?profilo=sessioni#profilo-sicurezza");
+    }
+    if (intent === "save-customer-email") {
+      await setCustomerEmailMode(form.get("customerEmailMode"), form.get("emailModeVersion"), {
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return redirect("/impostazioni?email=salvata#email-cliente");
+    }
     if (intent === "save-aruba") {
       await setArubaSettings(
         {
@@ -63,89 +120,258 @@ export async function action({ request }: Route.ActionArgs) {
         },
         { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
       );
-      return redirect("/impostazioni?aruba=salvata");
-    }
-    if (intent === "complete-shopify-data-request") {
-      await completeShopifyDataRequest(form.get("eventId"), {
-        id: user.id,
-        requestId: requestId(request),
-      });
-      return redirect("/impostazioni?privacy=chiusa");
-    }
-    if (intent === "retry-connector-job") {
-      await retryFailedJob(form.get("jobId"), {
-        type: "ADMIN",
-        id: user.id,
-        requestId: requestId(request),
-      });
-      return redirect("/impostazioni?job=riavviato");
+      return redirect("/impostazioni?aruba=salvata#aruba-helper");
     }
     if (intent === "preview-ebay") {
       await enqueueEbayPreview();
-      return redirect("/impostazioni?ebayPreview=avviata");
+      return redirect("/impostazioni?ebayPreview=avviata#connessioni");
     }
     if (intent === "preview-shopify") {
       const provider = "Shopify";
       const preview = await previewShopifyHistory();
       return redirect(
-        `/impostazioni?${new URLSearchParams({
-          provider,
-          count: String(preview.count),
-          review: String(preview.reviewRequired),
-        })}`,
+        "/impostazioni?" +
+          new URLSearchParams({
+            provider,
+            count: String(preview.count),
+            review: String(preview.reviewRequired),
+          }).toString() +
+          "#connessioni",
       );
+    }
+    if (intent !== "save-trigger") {
+      throw new Response("Azione non supportata", { status: 400 });
     }
     await setDraftTrigger(form.get("trigger"), Number(form.get("version") ?? Number.NaN), {
       id: user.id,
       requestId: requestId(request),
     });
-    return redirect("/impostazioni?trigger=salvato");
-  });
+    return redirect("/impostazioni?trigger=salvato#fatturazione");
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    const result = publicError(error);
+    return data({ ...result, intent }, { status: result.status });
+  }
 }
 
-export default function Settings() {
-  const {
-    username,
-    canApprove,
-    csrfToken,
-    trigger,
-    saved,
-    privacyCompleted,
-    connections,
-    shopifyDataRequests,
-    failedJobs,
-    ebayPreview,
-    preview,
-    aruba,
-    arubaSaved,
-  } = useLoaderData<typeof loader>();
-  const error = useActionData<typeof action>();
+const sections: Array<{ id: string; label: string; icon: LucideIcon }> = [
+  { id: "profilo-sicurezza", label: copy.settings.profileTitle, icon: CircleUserRound },
+  { id: "fatturazione", label: copy.settings.billingTitle, icon: Settings2 },
+  { id: "profilo-fiscale", label: copy.settings.fiscalTitle, icon: FileCheck2 },
+  { id: "connessioni", label: copy.settings.connectionsTitle, icon: PlugZap },
+  { id: "aruba-helper", label: copy.settings.arubaTitle, icon: Landmark },
+  { id: "email-cliente", label: copy.settings.customerEmailTitle, icon: Mail },
+  { id: "sistema", label: copy.settings.systemTitle, icon: ShieldCheck },
+];
+
+function SectionHeader({
+  id,
+  icon: Icon,
+  title,
+  intro,
+}: {
+  id: string;
+  icon: LucideIcon;
+  title: string;
+  intro: string;
+}) {
+  return (
+    <header className="settings-section__header">
+      <span className="settings-section__icon" aria-hidden="true">
+        <Icon size={20} strokeWidth={1.8} />
+      </span>
+      <div>
+        <h2 id={id + "-title"}>{title}</h2>
+        <p>{intro}</p>
+      </div>
+    </header>
+  );
+}
+
+type ErrorFor = (...intents: string[]) => string | null;
+
+function ProfileSettingsSection({
+  username,
+  canApprove,
+  csrfToken,
+  profile,
+  passwordChanged,
+  sessionsRevoked,
+  errorFor,
+}: {
+  username: string;
+  canApprove: boolean;
+  csrfToken: string;
+  profile: Awaited<ReturnType<typeof getAccountProfile>>;
+  passwordChanged: boolean;
+  sessionsRevoked: boolean;
+  errorFor: ErrorFor;
+}) {
+  const otherSessions = profile.sessions.filter((session) => !session.current);
+  return (
+    <section
+      className="settings-section"
+      id="profilo-sicurezza"
+      aria-labelledby="profilo-sicurezza-title"
+    >
+      <SectionHeader
+        id="profilo-sicurezza"
+        icon={CircleUserRound}
+        title={copy.settings.profileTitle}
+        intro={copy.settings.profileHelp}
+      />
+      {passwordChanged ? (
+        <p className="notice" role="status">
+          {copy.settings.passwordChanged}
+        </p>
+      ) : null}
+      {sessionsRevoked ? (
+        <p className="notice" role="status">
+          {copy.settings.sessionsRevoked}
+        </p>
+      ) : null}
+
+      <div className="profile-overview">
+        <span className="profile-overview__avatar" aria-hidden="true">
+          <CircleUserRound size={30} strokeWidth={1.6} />
+        </span>
+        <div className="profile-overview__identity">
+          <strong>{username}</strong>
+          <span>{canApprove ? copy.navigation.ownerRole : copy.navigation.operatorRole}</span>
+        </div>
+        <p className="profile-overview__permission">
+          <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.8} />
+          {canApprove ? copy.navigation.ownerPermission : copy.navigation.operatorPermission}
+        </p>
+      </div>
+
+      <div className="settings-subsection">
+        <h3>{copy.settings.appearanceTitle}</h3>
+        <ThemePicker />
+      </div>
+
+      <div className="settings-subsection">
+        <h3>{copy.settings.passwordTitle}</h3>
+        <p>{copy.settings.passwordHelp}</p>
+        <Form method="post" className="security-form">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="change-password" />
+          <label>
+            {copy.settings.currentPassword}
+            <input
+              autoComplete="current-password"
+              maxLength={128}
+              name="currentPassword"
+              required
+              type="password"
+            />
+          </label>
+          <label>
+            {copy.settings.newPassword}
+            <input
+              autoComplete="new-password"
+              minLength={8}
+              maxLength={128}
+              name="newPassword"
+              required
+              type="password"
+            />
+          </label>
+          <label>
+            {copy.settings.passwordConfirmation}
+            <input
+              autoComplete="new-password"
+              minLength={8}
+              maxLength={128}
+              name="passwordConfirmation"
+              required
+              type="password"
+            />
+          </label>
+          {errorFor("change-password") ? (
+            <p className="error" role="alert">
+              {errorFor("change-password")}
+            </p>
+          ) : null}
+          <button className="button" type="submit">
+            {copy.settings.changePassword}
+          </button>
+        </Form>
+      </div>
+
+      <div className="settings-subsection">
+        <h3>{copy.settings.sessionsTitle}</h3>
+        <p>{copy.settings.sessionsHelp}</p>
+        <ul className="session-list">
+          {profile.sessions.map((session) => (
+            <li key={`${session.createdAt}:${session.expiresAt}:${session.current}`}>
+              <span>
+                <strong>
+                  {session.current ? copy.settings.currentSession : copy.settings.otherSession}
+                </strong>
+                <small>{copy.settings.lastActivity(dateTime(session.lastSeenAt))}</small>
+              </span>
+              <small>{copy.settings.sessionExpiry(dateTime(session.expiresAt))}</small>
+            </li>
+          ))}
+        </ul>
+        {otherSessions.length ? (
+          <Form method="post">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="revoke-other-sessions" />
+            {errorFor("revoke-other-sessions") ? (
+              <p className="error" role="alert">
+                {errorFor("revoke-other-sessions")}
+              </p>
+            ) : null}
+            <button className="button button--secondary" type="submit">
+              {copy.settings.revokeOtherSessions}
+            </button>
+          </Form>
+        ) : (
+          <p className="field-help">{copy.settings.noOtherSessions}</p>
+        )}
+      </div>
+
+      <div className="settings-subsection settings-subsection--actions">
+        <h3>{copy.settings.exitTitle}</h3>
+        <Form method="post" action="/logout">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <button className="button button--secondary" type="submit">
+            <LogOut aria-hidden="true" size={17} strokeWidth={1.8} />
+            {copy.navigation.logout}
+          </button>
+        </Form>
+      </div>
+    </section>
+  );
+}
+
+function ConnectionsSettingsSection({
+  connections,
+  ebayPreview,
+  preview,
+  csrfToken,
+  errorFor,
+}: {
+  connections: Awaited<ReturnType<typeof connectionSummaries>>;
+  ebayPreview: Awaited<ReturnType<typeof latestEbayPreview>>;
+  preview: { provider: string; count: string; review: string } | null;
+  csrfToken: string;
+  errorFor: ErrorFor;
+}) {
   const byProvider = new Map(connections.map((connection) => [connection.provider, connection]));
   return (
-    <AppShell username={username} csrfToken={csrfToken}>
-      <div className="title-block">
-        <p className="eyebrow">{copy.settings.eyebrow}</p>
-        <h1>{copy.settings.title}</h1>
-        <p>{copy.settings.intro}</p>
-      </div>
-      {saved ? (
-        <p className="notice" role="status">
-          {copy.settings.saved}
-        </p>
-      ) : null}
-      {privacyCompleted ? (
-        <p className="notice" role="status">
-          {copy.settings.dataRequestCompleted}
-        </p>
-      ) : null}
+    <section className="settings-section" id="connessioni" aria-labelledby="connessioni-title">
+      <SectionHeader
+        id="connessioni"
+        icon={PlugZap}
+        title={copy.settings.connectionsTitle}
+        intro={copy.settings.connectionsHelp}
+      />
       {preview ? (
         <p className="notice" role="status">
           {copy.settings.previewResult(preview.provider, preview.count, preview.review)}
-        </p>
-      ) : null}
-      {arubaSaved ? (
-        <p className="notice" role="status">
-          {copy.settings.arubaSaved}
         </p>
       ) : null}
       {ebayPreview ? (
@@ -158,72 +384,68 @@ export default function Settings() {
           )}
         </p>
       ) : null}
-      <section className="card">
-        <h2>{copy.settings.connectionsTitle}</h2>
-        <p>{copy.settings.connectionsHelp}</p>
-        {shopifyDataRequests.length ? (
-          <div className="notice" role="status">
-            <h3>{copy.settings.dataRequestsTitle}</h3>
-            <p>{copy.settings.dataRequestsPending(shopifyDataRequests.length)}</p>
-            <ul>
-              {shopifyDataRequests.map((dataRequest) => (
-                <li key={dataRequest.externalEventId}>
-                  <p>
-                    {copy.settings.dataRequestReceived}:{" "}
-                    <time dateTime={dataRequest.receivedAt}>
-                      {dateTime(dataRequest.receivedAt)}
-                    </time>
-                  </p>
-                  <p>
-                    {copy.settings.dataRequestCustomers}: {dataRequest.customerIds.join(", ")}
-                  </p>
-                  <p>
-                    {copy.settings.dataRequestOrders}: {dataRequest.orderIds.join(", ")}
-                  </p>
-                  <Form method="post">
-                    <input type="hidden" name="csrf" value={csrfToken} />
-                    <input type="hidden" name="intent" value="complete-shopify-data-request" />
-                    <input type="hidden" name="eventId" value={dataRequest.externalEventId} />
-                    <button className="button button--secondary" type="submit">
-                      {copy.settings.dataRequestComplete}
-                    </button>
-                  </Form>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        <div className="detail-grid">
-          {(["SHOPIFY", "EBAY"] as const).map((provider) => {
-            const connection = byProvider.get(provider);
-            const label = provider === "SHOPIFY" ? "Shopify" : "eBay";
-            return (
-              <section key={provider} className="status-panel">
+      {errorFor("preview-shopify", "preview-ebay") ? (
+        <p className="error" role="alert">
+          {errorFor("preview-shopify", "preview-ebay")}
+        </p>
+      ) : null}
+      <div className="connection-grid">
+        {(["SHOPIFY", "EBAY"] as const).map((provider) => {
+          const connection = byProvider.get(provider);
+          const label = provider === "SHOPIFY" ? "Shopify" : "eBay";
+          return (
+            <section className="connection-panel" key={provider}>
+              <header>
                 <h3>{label}</h3>
-                <p className="status">
+                <span className="status">
                   {connection?.status === "CONNECTED"
                     ? copy.settings.connected
                     : copy.settings.notConnected}
+                </span>
+              </header>
+              <dl className="facts">
+                <div>
+                  <dt>{copy.settings.connectionEnvironment}</dt>
+                  <dd>{connection?.environment ?? copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.connectionAccount}</dt>
+                  <dd>{connection?.accountReference ?? copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.lastCheck}</dt>
+                  <dd>
+                    {connection?.lastCheckedAt
+                      ? dateTime(connection.lastCheckedAt)
+                      : copy.settings.never}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.lastSync}</dt>
+                  <dd>
+                    {connection?.lastSyncedAt
+                      ? dateTime(connection.lastSyncedAt)
+                      : copy.settings.never}
+                  </dd>
+                </div>
+              </dl>
+              {connection?.lastErrorCode ? (
+                <p className="error">
+                  {copy.settings.connectionError(connection.lastErrorCode)}{" "}
+                  <a href="/attivita">{copy.settings.openActivities}</a>
                 </p>
-                {connection ? <p>{connection.accountReference}</p> : null}
-                {connection?.lastErrorCode ? (
-                  <p className="error">{copy.settings.connectionError(connection.lastErrorCode)}</p>
-                ) : null}
-                <p>
-                  {copy.settings.lastSync}: {connection?.lastSyncedAt ?? copy.settings.never}
-                </p>
-                <p>
-                  <a
-                    className="button button--secondary"
-                    href={
-                      provider === "SHOPIFY"
-                        ? "/integrations/shopify/auth"
-                        : "/integrations/ebay/auth"
-                    }
-                  >
-                    {connection ? copy.settings.reconnect : copy.settings.connect}
-                  </a>
-                </p>
+              ) : null}
+              <div className="connection-panel__actions">
+                <a
+                  className="button button--secondary"
+                  href={
+                    provider === "SHOPIFY"
+                      ? "/integrations/shopify/auth"
+                      : "/integrations/ebay/auth"
+                  }
+                >
+                  {connection ? copy.settings.reconnect : copy.settings.connect}
+                </a>
                 {connection?.status === "CONNECTED" ? (
                   <Form method="post">
                     <input type="hidden" name="csrf" value={csrfToken} />
@@ -237,103 +459,364 @@ export default function Settings() {
                     </button>
                   </Form>
                 ) : null}
-              </section>
-            );
-          })}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ArubaSettingsSection({
+  aruba,
+  arubaSaved,
+  canApprove,
+  csrfToken,
+  errorFor,
+}: {
+  aruba: Awaited<ReturnType<typeof getArubaSettings>>;
+  arubaSaved: boolean;
+  canApprove: boolean;
+  csrfToken: string;
+  errorFor: ErrorFor;
+}) {
+  return (
+    <section className="settings-section" id="aruba-helper" aria-labelledby="aruba-helper-title">
+      <SectionHeader
+        id="aruba-helper"
+        icon={Landmark}
+        title={copy.settings.arubaTitle}
+        intro={copy.settings.arubaHelp}
+      />
+      {arubaSaved ? (
+        <p className="notice" role="status">
+          {copy.settings.arubaSaved}
+        </p>
+      ) : null}
+      {aruba.automaticForcedAssisted ? (
+        <p className="warning">{copy.settings.arubaKillSwitch}</p>
+      ) : null}
+      <dl className="facts facts--columns">
+        <div>
+          <dt>{copy.settings.arubaConfiguredMode}</dt>
+          <dd>{copy.settings.arubaModeLabel(aruba.mode.value)}</dd>
         </div>
-        {failedJobs.length ? (
-          <div className="notice section-gap" role="status">
-            <h3>{copy.settings.failedJobsTitle}</h3>
-            <ul>
-              {failedJobs.map((job) => (
-                <li key={job.id}>
-                  <p>{copy.settings.failedJob(job.type, job.errorCode, job.attempts)}</p>
-                  <Form method="post">
-                    <input type="hidden" name="csrf" value={csrfToken} />
-                    <input type="hidden" name="intent" value="retry-connector-job" />
-                    <input type="hidden" name="jobId" value={job.id} />
-                    <button className="button button--secondary" type="submit">
-                      {copy.settings.retryJob}
-                    </button>
-                  </Form>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {error ? (
-          <p className="error" role="alert">
-            {error.message}
-          </p>
-        ) : null}
-      </section>
-      <section className="card section-gap">
-        <h2>{copy.settings.arubaTitle}</h2>
-        <p>{copy.settings.arubaHelp}</p>
-        {aruba.automaticForcedAssisted ? (
-          <p className="notice">{copy.settings.arubaKillSwitch}</p>
-        ) : null}
-        {canApprove ? (
-          <Form method="post" className="inline-form">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="save-aruba" />
-            <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
-            <input type="hidden" name="arubaAuthVersion" value={aruba.authProtection.version} />
-            <label>
-              {copy.settings.arubaMode}
-              <select defaultValue={aruba.mode.value} name="arubaMode">
-                <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
-                <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
-              </select>
-            </label>
-            <label>
-              {copy.settings.arubaAuthProtection}
-              <select defaultValue={aruba.authProtection.value} name="arubaAuthProtection">
-                <option value="UNKNOWN">{copy.settings.arubaAuthUnknown}</option>
-                <option value="TWO_FACTOR">{copy.settings.arubaTwoFactor}</option>
-                <option value="SMS_PER_UPLOAD">{copy.settings.arubaSms}</option>
-              </select>
-            </label>
-            <button className="button" type="submit">
-              {copy.settings.arubaSave}
-            </button>
-          </Form>
-        ) : (
-          <p>{copy.settings.arubaOwnerOnly}</p>
-        )}
-      </section>
-      <section className="card">
-        <h2>{copy.settings.preparationTitle}</h2>
-        <p>{copy.settings.preparationHelp}</p>
-        <Form method="post" className="inline-form">
+        <div>
+          <dt>{copy.settings.arubaEffectiveMode}</dt>
+          <dd>{copy.settings.arubaModeLabel(aruba.effectiveMode)}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.helperLastSeen}</dt>
+          <dd>
+            {aruba.helper.lastSeenAt ? dateTime(aruba.helper.lastSeenAt) : copy.settings.never}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.helperVersion}</dt>
+          <dd>{aruba.helper.version ?? copy.common.unavailable}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.helperBrowser}</dt>
+          <dd>{aruba.helper.browser ?? copy.common.unavailable}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.helperLastReadback}</dt>
+          <dd>
+            {aruba.helper.lastReadbackAt
+              ? dateTime(aruba.helper.lastReadbackAt)
+              : copy.settings.never}
+          </dd>
+        </div>
+      </dl>
+      {canApprove ? (
+        <Form method="post" className="inline-form section-gap">
           <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="version" value={trigger.version} />
+          <input type="hidden" name="intent" value="save-aruba" />
+          <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
+          <input type="hidden" name="arubaAuthVersion" value={aruba.authProtection.version} />
           <label>
-            {copy.settings.preparationLabel}
-            <select
-              aria-describedby={error ? "trigger-error" : undefined}
-              aria-invalid={error ? true : undefined}
-              defaultValue={trigger.value}
-              name="trigger"
-            >
-              <option value="PAID">{copy.settings.onPaid}</option>
-              <option value="FULFILLED">{copy.settings.onFulfilled}</option>
+            {copy.settings.arubaMode}
+            <select defaultValue={aruba.mode.value} name="arubaMode">
+              <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
+              <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
+            </select>
+          </label>
+          <label>
+            {copy.settings.arubaAuthProtection}
+            <select defaultValue={aruba.authProtection.value} name="arubaAuthProtection">
+              <option value="UNKNOWN">{copy.settings.arubaAuthUnknown}</option>
+              <option value="TWO_FACTOR">{copy.settings.arubaTwoFactor}</option>
+              <option value="SMS_PER_UPLOAD">{copy.settings.arubaSms}</option>
             </select>
           </label>
           <button className="button" type="submit">
-            {copy.settings.save}
+            {copy.settings.arubaSave}
           </button>
         </Form>
-        {error ? (
-          <p className="error" id="trigger-error" role="alert">
-            {error.message}
-          </p>
-        ) : null}
-      </section>
-      <section className="card section-gap">
-        <h2>{copy.settings.timeTitle}</h2>
-        <p>{copy.settings.timeHelp}</p>
-      </section>
+      ) : (
+        <p>{copy.settings.arubaOwnerOnly}</p>
+      )}
+      {errorFor("save-aruba") ? (
+        <p className="error" role="alert">
+          {errorFor("save-aruba")}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+export default function Settings() {
+  const {
+    username,
+    canApprove,
+    csrfToken,
+    profile,
+    trigger,
+    saved,
+    connections,
+    ebayPreview,
+    preview,
+    aruba,
+    arubaSaved,
+    customerEmail,
+    customerEmailSaved,
+    fiscalProfile,
+    environment,
+    passwordChanged,
+    sessionsRevoked,
+  } = useLoaderData<typeof loader>();
+  const actionError = useActionData<typeof action>();
+  const errorFor = (...intents: string[]) =>
+    actionError && intents.includes(actionError.intent) ? actionError.message : null;
+
+  return (
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
+      <div className="title-block">
+        <p className="eyebrow">{copy.settings.eyebrow}</p>
+        <h1>{copy.settings.title}</h1>
+        <p>{copy.settings.intro}</p>
+      </div>
+
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label={copy.settings.sectionsLabel}>
+          {sections.map(({ id, label, icon: Icon }) => (
+            <a className="settings-nav__item" href={"#" + id} key={id}>
+              <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
+              {label}
+            </a>
+          ))}
+        </nav>
+
+        <div className="settings-panel">
+          <ProfileSettingsSection
+            username={username}
+            canApprove={canApprove}
+            csrfToken={csrfToken}
+            profile={profile}
+            passwordChanged={passwordChanged}
+            sessionsRevoked={sessionsRevoked}
+            errorFor={errorFor}
+          />
+
+          <section
+            className="settings-section"
+            id="fatturazione"
+            aria-labelledby="fatturazione-title"
+          >
+            <SectionHeader
+              id="fatturazione"
+              icon={Settings2}
+              title={copy.settings.billingTitle}
+              intro={copy.settings.billingHelp}
+            />
+            {saved ? (
+              <p className="notice" role="status">
+                {copy.settings.saved}
+              </p>
+            ) : null}
+            <Form method="post" className="inline-form">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="save-trigger" />
+              <input type="hidden" name="version" value={trigger.version} />
+              <label>
+                {copy.settings.preparationLabel}
+                <select defaultValue={trigger.value} name="trigger">
+                  <option value="PAID">{copy.settings.onPaid}</option>
+                  <option value="FULFILLED">{copy.settings.onFulfilled}</option>
+                </select>
+              </label>
+              <button className="button" type="submit">
+                {copy.settings.save}
+              </button>
+            </Form>
+            {errorFor("save-trigger") ? (
+              <p className="error" role="alert">
+                {errorFor("save-trigger")}
+              </p>
+            ) : null}
+            <p className="field-help">{copy.settings.preparationHelp}</p>
+          </section>
+
+          <section
+            className="settings-section"
+            id="profilo-fiscale"
+            aria-labelledby="profilo-fiscale-title"
+          >
+            <SectionHeader
+              id="profilo-fiscale"
+              icon={FileCheck2}
+              title={copy.settings.fiscalTitle}
+              intro={copy.settings.fiscalHelp}
+            />
+            {fiscalProfile ? (
+              <dl className="facts facts--columns">
+                <div>
+                  <dt>{copy.settings.fiscalStatus}</dt>
+                  <dd>
+                    {fiscalProfile.status === "AUDITED"
+                      ? copy.settings.fiscalVerified
+                      : copy.settings.fiscalMock}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.fiscalVersion}</dt>
+                  <dd>{fiscalProfile.version}</dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.fiscalRegime}</dt>
+                  <dd>{fiscalProfile.taxRegime}</dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.fiscalNature}</dt>
+                  <dd>{fiscalProfile.taxNature}</dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.fiscalSeries}</dt>
+                  <dd>{fiscalProfile.series}</dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.fiscalCadence}</dt>
+                  <dd>{copy.settings.fiscalAnnual}</dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.fiscalScope}</dt>
+                  <dd>{copy.settings.fiscalShared}</dd>
+                </div>
+                <div>
+                  <dt>{copy.settings.fiscalLastAudit}</dt>
+                  <dd>
+                    {fiscalProfile.auditedAt
+                      ? dateTime(fiscalProfile.auditedAt)
+                      : copy.common.unavailable}
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="warning">{copy.settings.fiscalMissing}</p>
+            )}
+          </section>
+
+          <ConnectionsSettingsSection
+            connections={connections}
+            ebayPreview={ebayPreview}
+            preview={preview}
+            csrfToken={csrfToken}
+            errorFor={errorFor}
+          />
+
+          <ArubaSettingsSection
+            aruba={aruba}
+            arubaSaved={arubaSaved}
+            canApprove={canApprove}
+            csrfToken={csrfToken}
+            errorFor={errorFor}
+          />
+
+          <section
+            className="settings-section"
+            id="email-cliente"
+            aria-labelledby="email-cliente-title"
+          >
+            <SectionHeader
+              id="email-cliente"
+              icon={Mail}
+              title={copy.settings.customerEmailTitle}
+              intro={copy.settings.customerEmailHelp}
+            />
+            {customerEmailSaved ? (
+              <p className="notice" role="status">
+                {copy.settings.customerEmailSaved}
+              </p>
+            ) : null}
+            <dl className="facts facts--columns">
+              <div>
+                <dt>{copy.settings.smtpTransport}</dt>
+                <dd>
+                  {copy.settings.smtpTransportLabels[customerEmail.transport] ??
+                    copy.common.unavailable}
+                </dd>
+              </div>
+              <div>
+                <dt>{copy.settings.smtpSender}</dt>
+                <dd>{customerEmail.sender}</dd>
+              </div>
+              <div>
+                <dt>{copy.settings.smtpStatus}</dt>
+                <dd>
+                  {customerEmail.configured
+                    ? copy.settings.smtpConfigured
+                    : copy.settings.smtpNotConfigured}
+                </dd>
+              </div>
+            </dl>
+            {canApprove ? (
+              <Form method="post" className="inline-form section-gap">
+                <input type="hidden" name="csrf" value={csrfToken} />
+                <input type="hidden" name="intent" value="save-customer-email" />
+                <input type="hidden" name="emailModeVersion" value={customerEmail.version} />
+                <label>
+                  {copy.settings.customerEmailMode}
+                  <select defaultValue={customerEmail.mode} name="customerEmailMode">
+                    <option value="AUTOMATIC">{copy.settings.customerEmailAutomatic}</option>
+                    <option value="MANUAL">{copy.settings.customerEmailManual}</option>
+                  </select>
+                </label>
+                <button className="button" type="submit">
+                  {copy.settings.customerEmailSave}
+                </button>
+              </Form>
+            ) : (
+              <p>{copy.settings.customerEmailOwnerOnly}</p>
+            )}
+            {errorFor("save-customer-email") ? (
+              <p className="error" role="alert">
+                {errorFor("save-customer-email")}
+              </p>
+            ) : null}
+          </section>
+
+          <section className="settings-section" id="sistema" aria-labelledby="sistema-title">
+            <SectionHeader
+              id="sistema"
+              icon={ShieldCheck}
+              title={copy.settings.systemTitle}
+              intro={copy.settings.systemHelp}
+            />
+            <dl className="facts facts--columns">
+              <div>
+                <dt>{copy.settings.environment}</dt>
+                <dd>{copy.settings.environmentLabel(environment)}</dd>
+              </div>
+              <div>
+                <dt>{copy.settings.timeZone}</dt>
+                <dd>Europe/Rome</dd>
+              </div>
+            </dl>
+            <p className="field-help">{copy.settings.systemFutureHelp}</p>
+          </section>
+        </div>
+      </div>
     </AppShell>
   );
 }

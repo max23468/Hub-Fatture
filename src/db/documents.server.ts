@@ -23,6 +23,12 @@ import { getConfig } from "../config.server.ts";
 import { isDatabaseId } from "./order-commands.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import { createArubaBatch, getArubaSettings } from "./aruba.server.ts";
+import {
+  customerEmailChoiceSchema,
+  customerEmailPreview,
+  getCustomerEmailSettings,
+  snapshotDocumentEmail,
+} from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 
 interface FiscalActor {
@@ -156,7 +162,13 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
          'id', orders.id::text,
          'provider', orders.provider,
          'display_number', orders.display_number,
-         'gross_amount', orders.gross_amount,
+         'gross_amount', orders.gross_amount - CASE
+           WHEN billing_cases.status IN ('DRAFT', 'READY', 'NEEDS_REVIEW') THEN coalesce((
+             SELECT sum(refunds.amount) FROM refunds
+             WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
+           ), 0)
+           ELSE 0
+         END,
          'payment_status', orders.payment_status,
          'payment_method', (
            SELECT payments.method FROM payments
@@ -211,6 +223,34 @@ async function loadProfile(client: pg.Pool | pg.PoolClient, version?: number) {
   const parsed = fiscalProfileSchema.safeParse(row.profile_json);
   if (!parsed.success) throw new AppError("DOCUMENT_FISCAL_PROFILE_MISSING", 409);
   return { ...row, profile_json: parsed.data };
+}
+
+export async function getFiscalProfileSettings() {
+  const result = await getPool().query<{
+    version: number;
+    status: "MOCK" | "AUDITED";
+    profile_json: FiscalProfile;
+    audited_at: Date | null;
+  }>(
+    `SELECT version, status, profile_json, audited_at FROM fiscal_profiles
+     WHERE status IN ('MOCK', 'AUDITED') LIMIT 1`,
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  const profile = fiscalProfileSchema.safeParse(row.profile_json);
+  if (!profile.success) throw new AppError("DOCUMENT_FISCAL_PROFILE_MISSING", 409);
+  return {
+    version: row.version,
+    status: row.status,
+    auditedAt: row.audited_at?.toISOString() ?? null,
+    businessName: profile.data.seller.businessName,
+    taxRegime: profile.data.seller.taxRegime,
+    taxNature: profile.data.taxNature,
+    legalReference: profile.data.legalReference,
+    series: profile.data.series,
+    cadence: profile.data.numbering.cadence,
+    sharedByInvoiceAndCreditNote: profile.data.numbering.sharedByInvoiceAndCreditNote,
+  };
 }
 
 function documentInput(
@@ -306,6 +346,39 @@ function projectedRecipientTaxes(value: DocumentInput["recipient"]): string {
       : undefined,
     fiscalCode ? joined(["CODICE_FISCALE", fiscalCode.value]) : undefined,
   ]);
+}
+
+export function recipientComparison(value: DocumentInput["recipient"]) {
+  const destinationCode = value.kind === "EU" ? "XXXXXXX" : (value.recipientCode ?? "0000000");
+  return [
+    {
+      field: "identity" as const,
+      source: recipientIdentity(value),
+      draft: recipientIdentity(value),
+      projected: projectedRecipientIdentity(value),
+    },
+    {
+      field: "taxes" as const,
+      source: recipientTaxes(value),
+      draft: recipientTaxes(value),
+      projected: projectedRecipientTaxes(value),
+    },
+    {
+      field: "address" as const,
+      source: recipientAddress(value),
+      draft: recipientAddress(value),
+      projected: recipientAddress(value, true),
+    },
+    {
+      field: "delivery" as const,
+      source: joined([value.recipientCode, value.certifiedEmail]),
+      draft: joined([value.recipientCode, value.certifiedEmail]),
+      projected: joined([
+        `SdI ${destinationCode}`,
+        destinationCode === "0000000" ? value.certifiedEmail : undefined,
+      ]),
+    },
+  ];
 }
 
 function paymentStatus(value: string): string {
@@ -489,6 +562,7 @@ export async function getInvoiceProjection(caseId: string) {
     comparison: invoiceComparison(caseRow, input, profile.profile_json),
     approved: draft?.status === "APPROVED",
     arubaMode: (await getArubaSettings()).effectiveMode,
+    customerEmail: await customerEmailPreview(caseId),
   };
 }
 
@@ -826,6 +900,12 @@ export async function reconcileDocumentStorage(): Promise<void> {
   await Promise.all((await loadStoredDocuments()).map((row) => materializeStoredXml(row)));
 }
 
+export async function materializeDocumentStorage(documentId: string, xml?: string): Promise<void> {
+  const row = (await loadStoredDocuments("AND documents.id = $1", documentId))[0];
+  if (!row) throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+  await materializeStoredXml(row, xml);
+}
+
 export function startDocumentStorageReconciliation(): void {
   void reconcileDocumentStorage().catch((error: unknown) => console.error(error));
 }
@@ -840,6 +920,8 @@ export async function approveInvoice(
     confirmPending: boolean;
     confirmDifference: boolean;
     arubaMode?: unknown;
+    emailChoice: unknown;
+    emailModeVersion: unknown;
   },
   actor: FiscalActor,
 ) {
@@ -945,6 +1027,7 @@ export async function approveInvoice(
         difference: draft.difference_amount,
         differenceReason: draft.difference_reason,
       };
+      await snapshotDocumentEmail(client, draft.id, raw.emailChoice, raw.emailModeVersion);
       await client.query(
         `UPDATE documents SET status = 'APPROVED', fiscal_year = $2, fiscal_number = $3,
            document_date = $4, approved_at = $5, pending_payment_confirmed_at = $6,
@@ -1212,17 +1295,18 @@ export async function readDocumentXml(documentId: string): Promise<Buffer | null
 }
 
 export async function listMassApprovalCandidates() {
-  const result = await getPool().query<{
-    billing_case_id: string;
-    case_revision: number;
-    draft_version: number;
-    projection_sha256: string;
-    public_number: string;
-    customer_name: string;
-    total_amount: number;
-    fiscal_profile_version: number;
-  }>(
-    `SELECT billing_cases.id AS billing_case_id, billing_cases.revision AS case_revision,
+  const [result, emailSettings] = await Promise.all([
+    getPool().query<{
+      billing_case_id: string;
+      case_revision: number;
+      draft_version: number;
+      projection_sha256: string;
+      public_number: string;
+      customer_name: string;
+      total_amount: number;
+      fiscal_profile_version: number;
+    }>(
+      `SELECT billing_cases.id AS billing_case_id, billing_cases.revision AS case_revision,
             documents.draft_version, documents.projection_sha256, billing_cases.public_number,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             documents.total_amount, documents.fiscal_profile_version
@@ -1237,8 +1321,15 @@ export async function listMassApprovalCandidates() {
        AND fiscal_profiles.status IN ('MOCK', 'AUDITED')
      ORDER BY billing_cases.id
      LIMIT 100`,
+    ),
+    getCustomerEmailSettings(),
+  ]);
+  return Promise.all(
+    result.rows.map(async (row) => ({
+      ...row,
+      customerEmail: await customerEmailPreview(row.billing_case_id, emailSettings),
+    })),
   );
-  return result.rows;
 }
 
 function approvalCandidate(value: string) {
@@ -1257,6 +1348,8 @@ export async function approveInvoices(
   actor: FiscalActor,
   confirmApproval = false,
   rawArubaMode?: unknown,
+  rawEmailChoices: Record<string, unknown> = {},
+  rawEmailModeVersion?: unknown,
 ) {
   if (!actor.canApprove) throw new AppError("DOCUMENT_APPROVAL_FORBIDDEN", 403);
   if (!confirmApproval) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
@@ -1272,7 +1365,11 @@ export async function approveInvoices(
         return [candidate.caseId, candidate] as const;
       }),
     ).values(),
-  ];
+  ].map((candidate) => {
+    const emailChoice = customerEmailChoiceSchema.safeParse(rawEmailChoices[candidate.caseId]);
+    if (!emailChoice.success) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
+    return { ...candidate, emailChoice: emailChoice.data };
+  });
   const outcomes = await Promise.all(
     candidates.map(async (candidate) => {
       try {
@@ -1286,6 +1383,8 @@ export async function approveInvoices(
             confirmPending: false,
             confirmDifference: false,
             arubaMode: arubaMode.data,
+            emailChoice: candidate.emailChoice,
+            emailModeVersion: rawEmailModeVersion,
           },
           actor,
         );

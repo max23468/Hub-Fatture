@@ -28,6 +28,18 @@ const schema = z
     EBAY_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
     EBAY_RUNAME: z.string().optional(),
     SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(28_800),
+    SMTP_FROM: z.email().max(256).default("contabilita@example.invalid"),
+    SMTP_HOST: z.string().trim().min(1).optional(),
+    SMTP_PASSWORD: z.string().min(1).optional(),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+    SMTP_SECURE: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    SMTP_TRANSPORT: z
+      .enum(["SYNTHETIC", "EXISTING_SMTP", "OCI_EMAIL_DELIVERY"])
+      .default("SYNTHETIC"),
+    SMTP_USERNAME: z.string().trim().min(1).optional(),
     SHOPIFY_API_KEY: z.string().optional(),
     SHOPIFY_API_SECRET: z.string().optional(),
     SHOPIFY_SHOP: z.string().optional(),
@@ -36,6 +48,23 @@ const schema = z
     ({ APP_BASE_URL, APP_ENV }) =>
       APP_ENV !== "production" || new URL(APP_BASE_URL).protocol === "https:",
     { message: "APP_BASE_URL deve usare HTTPS in Production", path: ["APP_BASE_URL"] },
+  )
+  .refine(
+    ({ APP_ENV, SMTP_HOST, SMTP_PASSWORD, SMTP_TRANSPORT, SMTP_USERNAME }) =>
+      APP_ENV !== "production" ||
+      (SMTP_TRANSPORT !== "SYNTHETIC" && Boolean(SMTP_HOST && SMTP_USERNAME && SMTP_PASSWORD)),
+    {
+      message: "Il trasporto SMTP Production richiede un solo provider e credenziali complete",
+      path: ["SMTP_TRANSPORT"],
+    },
+  )
+  .refine(
+    ({ APP_ENV, SMTP_FROM }) =>
+      APP_ENV !== "production" || !SMTP_FROM.toLowerCase().endsWith(".invalid"),
+    {
+      message: "SMTP_FROM deve essere l’indirizzo reale del negozio in Production",
+      path: ["SMTP_FROM"],
+    },
   )
   .refine(
     ({ APP_ENV, ARUBA_ACCOUNT_REFERENCE }) =>

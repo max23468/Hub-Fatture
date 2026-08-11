@@ -9,7 +9,12 @@ import { dashboardSummary } from "../../src/db/orders.server.ts";
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const summary = await dashboardSummary();
-  return { username: user.username, csrfToken: user.csrfToken, summary };
+  return {
+    username: user.username,
+    canApprove: user.canApprove,
+    csrfToken: user.csrfToken,
+    summary,
+  };
 }
 
 export function meta(_: Route.MetaArgs) {
@@ -20,7 +25,7 @@ export function meta(_: Route.MetaArgs) {
 }
 
 export default function Home() {
-  const { username, csrfToken, summary } = useLoaderData<typeof loader>();
+  const { username, canApprove, csrfToken, summary } = useLoaderData<typeof loader>();
   const cards = [
     [summary.orders, copy.dashboard.importedOrders, "/ordini"],
     [summary.ready_cases, copy.dashboard.readyPreparations, "/ordini?vista=fatturare"],
@@ -29,7 +34,7 @@ export default function Home() {
     [summary.pending_payments, copy.dashboard.pendingPayments, "/ordini?pagamento=PENDING"],
   ] as const;
   return (
-    <AppShell username={username} csrfToken={csrfToken}>
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className="title-block">
         <p className="eyebrow">{copy.dashboard.eyebrow}</p>
         <h1>{copy.dashboard.title}</h1>

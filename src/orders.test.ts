@@ -112,6 +112,45 @@ test("il pagamento pendente resta confermabile con il trigger di evasione", () =
   assert.equal(orderReviewRequired(pending, true, "FULFILLED"), false);
 });
 
+test("un rimborso pendente non blocca l’importo completato e certo", () => {
+  assert.equal(
+    orderReviewRequired(
+      {
+        ...base,
+        refunds: [
+          {
+            externalRefundId: "pending",
+            status: "PENDING",
+            amount: "10.00",
+            completedAt: null,
+            raw: {},
+          },
+        ],
+      },
+      true,
+    ),
+    false,
+  );
+  assert.equal(
+    orderReviewRequired(
+      {
+        ...base,
+        refunds: [
+          {
+            externalRefundId: "pending-without-amount",
+            status: "PENDING",
+            amount: null,
+            completedAt: null,
+            raw: {},
+          },
+        ],
+      },
+      true,
+    ),
+    false,
+  );
+});
+
 test("sceglie identità italiane e valida i paesi supportati", () => {
   const invalidTaxId = {
     ...base,

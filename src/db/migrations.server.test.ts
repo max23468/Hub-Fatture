@@ -23,6 +23,8 @@ const APPROVED_PAYMENT_HISTORY = "009_approved_payment_history.sql";
 const DRAFT_RECIPIENT_SNAPSHOT = "010_draft_recipient_snapshot.sql";
 const ORDER_MEMBERSHIP_DRAFT_INVALIDATION = "011_order_membership_draft_invalidation.sql";
 const ARUBA_INTEGRATION = "012_aruba_integration.sql";
+const CREDIT_NOTES_EMAIL = "013_credit_notes_email.sql";
+const PRE_ISSUE_REFUNDS = "014_pre_issue_refunds.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -39,6 +41,8 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, DRAFT_RECIPIENT_SNAPSHOT));
     await rm(path.join(firstTwo, ORDER_MEMBERSHIP_DRAFT_INVALIDATION));
     await rm(path.join(firstTwo, ARUBA_INTEGRATION));
+    await rm(path.join(firstTwo, CREDIT_NOTES_EMAIL));
+    await rm(path.join(firstTwo, PRE_ISSUE_REFUNDS));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -54,6 +58,8 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       DRAFT_RECIPIENT_SNAPSHOT,
       ORDER_MEMBERSHIP_DRAFT_INVALIDATION,
       ARUBA_INTEGRATION,
+      CREDIT_NOTES_EMAIL,
+      PRE_ISSUE_REFUNDS,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -77,12 +83,14 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       DRAFT_RECIPIENT_SNAPSHOT,
       ORDER_MEMBERSHIP_DRAFT_INVALIDATION,
       ARUBA_INTEGRATION,
+      CREDIT_NOTES_EMAIL,
+      PRE_ISSUE_REFUNDS,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "12",
+      "14",
     );
     await cleanClient.end();
 
@@ -162,6 +170,65 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
   }
 });
 
+test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", async () => {
+  const database = await temporaryDatabase("pre_issue_refund_upgrade");
+  const beforeRefundAccounting = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-refund-accounting-"),
+  );
+  try {
+    await cp("migrations", beforeRefundAccounting, { recursive: true });
+    await rm(path.join(beforeRefundAccounting, PRE_ISSUE_REFUNDS));
+    await runMigrations({
+      connectionString: database.connectionString,
+      directory: beforeRefundAccounting,
+    });
+    await withClient(database.connectionString, async (client) => {
+      const order = await client.query<{ id: string }>(
+        `WITH customer AS (
+           INSERT INTO customers
+             (kind, match_key, display_name, billing_address_json,
+              source_confidence, review_required)
+           VALUES ('PRIVATE_IT', 'refund-upgrade', 'Cliente', '{}', 'TAX_ID', false)
+           RETURNING id
+         ), billing_case AS (
+           INSERT INTO billing_cases
+             (customer_id, local_order_date, currency, status, customer_snapshot_json)
+           SELECT id, '2026-08-11', 'EUR', 'READY', '{}' FROM customer
+           RETURNING id, customer_id
+         )
+         INSERT INTO orders
+           (provider, external_account_id, external_order_id, display_number,
+            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+            payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+            raw_snapshot_json, normalized_snapshot_json)
+         SELECT 'SHOPIFY', 'upgrade', 'order', '#UPGRADE', now(), now(), '2026-08-11',
+                'EUR', 1000, 'PAID', 'FULFILLED', 'GROUPED', customer_id, id, '{}', '{}'
+         FROM billing_case RETURNING id`,
+      );
+      await client.query(
+        `INSERT INTO refunds
+          (provider, external_account_id, external_order_id, external_refund_id,
+           order_id, status, amount, raw_json)
+         VALUES ('SHOPIFY', 'upgrade', 'order', 'refund', $1, 'COMPLETED', 100, '{}')`,
+        [order.rows[0]!.id],
+      );
+    });
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      PRE_ISSUE_REFUNDS,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      assert.equal(
+        (await client.query("SELECT applied_before_issue FROM refunds")).rows[0]
+          .applied_before_issue,
+        true,
+      );
+    });
+  } finally {
+    await rm(beforeRefundAccounting, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
 test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti", async () => {
   const database = await temporaryDatabase("m4_legacy_documents");
   const beforeM4 = await mkdtemp(path.join(os.tmpdir(), "hub-fatture-before-m4-"));
@@ -175,6 +242,8 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, DRAFT_RECIPIENT_SNAPSHOT));
     await rm(path.join(beforeM4, ORDER_MEMBERSHIP_DRAFT_INVALIDATION));
     await rm(path.join(beforeM4, ARUBA_INTEGRATION));
+    await rm(path.join(beforeM4, CREDIT_NOTES_EMAIL));
+    await rm(path.join(beforeM4, PRE_ISSUE_REFUNDS));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -301,6 +370,8 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       DRAFT_RECIPIENT_SNAPSHOT,
       ORDER_MEMBERSHIP_DRAFT_INVALIDATION,
       ARUBA_INTEGRATION,
+      CREDIT_NOTES_EMAIL,
+      PRE_ISSUE_REFUNDS,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

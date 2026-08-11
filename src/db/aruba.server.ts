@@ -26,6 +26,7 @@ import { hashToken } from "../crypto.server.ts";
 import { AppError } from "../errors.ts";
 import { POSTGRES_INTEGER_MAX } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
+import { customerEmailTriggerStatus, scheduleCustomerEmail } from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./order-commands.server.ts";
 
@@ -83,12 +84,32 @@ function integer(value: unknown): number {
 }
 
 export async function getArubaSettings() {
-  const result = await getPool().query<{ key: string; value_json: unknown; version: number }>(
-    "SELECT key, value_json, version FROM settings WHERE key IN ('aruba_mode', 'aruba_auth_protection')",
-  );
+  const [result, helper] = await Promise.all([
+    getPool().query<{ key: string; value_json: unknown; version: number }>(
+      "SELECT key, value_json, version FROM settings WHERE key IN ('aruba_mode', 'aruba_auth_protection')",
+    ),
+    getPool().query<{
+      helper_last_seen_at: Date | null;
+      helper_version: string | null;
+      browser_name: string | null;
+      last_readback_at: Date | null;
+    }>(
+      `SELECT
+         (SELECT max(last_seen_at) FROM aruba_helper_tokens) AS helper_last_seen_at,
+         latest.helper_version,
+         latest.browser_name,
+         (SELECT max(last_readback_at) FROM aruba_batches) AS last_readback_at
+       FROM (SELECT helper_version, browser_name FROM aruba_submissions
+             WHERE helper_version IS NOT NULL OR browser_name IS NOT NULL
+             ORDER BY coalesce(last_checked_at, submitted_at) DESC NULLS LAST, id DESC
+             LIMIT 1) AS latest
+       RIGHT JOIN (SELECT 1) AS one ON true`,
+    ),
+  ]);
   const settings = new Map(result.rows.map((row) => [row.key, row]));
   const mode = arubaModeSchema.parse(settings.get("aruba_mode")?.value_json ?? "ASSISTED");
   const environment = getConfig().APP_ENV === "production" ? "PRODUCTION" : "MOCK";
+  const helperStatus = helper.rows[0];
   return {
     mode: {
       value: mode,
@@ -101,6 +122,12 @@ export async function getArubaSettings() {
         settings.get("aruba_auth_protection")?.value_json ?? "UNKNOWN",
       ),
       version: settings.get("aruba_auth_protection")?.version ?? 0,
+    },
+    helper: {
+      lastSeenAt: helperStatus?.helper_last_seen_at?.toISOString() ?? null,
+      version: helperStatus?.helper_version ?? null,
+      browser: helperStatus?.browser_name ?? null,
+      lastReadbackAt: helperStatus?.last_readback_at?.toISOString() ?? null,
     },
   };
 }
@@ -636,6 +663,23 @@ async function monotonicSubmission(
      WHERE id = $1`,
     [row.id, next, remoteId ?? null],
   );
+  if (customerEmailTriggerStatus(next)) {
+    await client.query(
+      `INSERT INTO jobs (type, payload_json)
+       SELECT 'process_refund', jsonb_build_object('refundId', refunds.id::text)
+       FROM refunds
+       JOIN document_orders
+         ON document_orders.order_id = refunds.order_id
+        AND document_orders.document_kind = 'INVOICE'
+       WHERE document_orders.document_id = $1
+         AND refunds.status IN ('COMPLETED', 'AMBIGUOUS')
+         AND NOT refunds.applied_before_issue
+         AND refunds.credit_document_id IS NULL
+       ON CONFLICT DO NOTHING`,
+      [documentId],
+    );
+    await scheduleCustomerEmail(client, documentId);
+  }
   return row.id;
 }
 
@@ -1215,6 +1259,7 @@ async function importOfficialFile(
           );
         }
       }
+      if (kind.data === "ARUBA_PDF") await scheduleCustomerEmail(client, documentId);
       await writeAudit(client, {
         actorType: source.actorType,
         actorId: source.actorId,

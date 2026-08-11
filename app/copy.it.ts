@@ -1,9 +1,23 @@
 import type { AuditAction } from "../src/db/audit.server.ts";
+import { errorCatalog, type ErrorCode } from "../src/errors.ts";
 
 const euroFormatter = new Intl.NumberFormat("it-IT", {
   style: "currency",
   currency: "EUR",
 });
+
+const connectorJobLabels: Record<string, string> = {
+  shopify_sync_orders: "Aggiornamento ordini Shopify",
+  shopify_process_webhook: "Aggiornamento ricevuto da Shopify",
+  ebay_sync_orders: "Aggiornamento ordini eBay",
+  ebay_preview_history: "Anteprima ordini eBay",
+};
+
+export function errorCodeLabel(code: string | null): string {
+  return code && Object.hasOwn(errorCatalog, code)
+    ? errorCatalog[code as ErrorCode]
+    : "Errore non disponibile";
+}
 
 export const copy = {
   appName: "Hub Fatture",
@@ -16,6 +30,11 @@ export const copy = {
     mainLabel: "Navigazione principale",
     skipToContent: "Vai al contenuto principale",
     openProfile: (username: string) => `Apri il menu di ${username}`,
+    ownerRole: "Titolare",
+    operatorRole: "Operatore",
+    ownerPermission: "Può approvare, numerare e autorizzare gli invii.",
+    operatorPermission: "Non può eseguire operazioni fiscali irreversibili.",
+    profileSettings: "Profilo e sicurezza",
     logout: "Esci",
   },
   common: {
@@ -133,6 +152,9 @@ export const copy = {
     taxIdentifier: "Dato fiscale",
     payments: "Pagamenti",
     noPayments: "Nessun pagamento registrato.",
+    refunds: "Rimborsi",
+    noRefunds: "Nessun rimborso registrato.",
+    refundNeedsReview: "Importo da verificare prima di creare la nota di credito.",
     manuallyRecorded: "registrato manualmente",
     purchasedItems: "Articoli acquistati",
     description: "Descrizione",
@@ -214,6 +236,7 @@ export const copy = {
       tax: "Regime e natura",
       causale: "Causale",
       notes: "Note",
+      relatedInvoice: "Fattura originaria",
     },
     technicalXml: "Mostra XML tecnico",
     saveBeforeApproval: "Salva la bozza per rendere approvabile questa proiezione.",
@@ -229,6 +252,17 @@ export const copy = {
     confirmProfile: "Profilo fiscale",
     confirmPayment: "Pagamento",
     confirmHelper: "Percorso Aruba",
+    customerEmailTitle: "Copia e-mail al cliente",
+    emailMode: "Modalità",
+    emailAutomatic: "Automatica dopo l’esito SdI",
+    emailManual: "Manuale con approvazione",
+    emailSender: "Mittente",
+    emailRecipient: "Destinatario",
+    emailSubject: "Oggetto",
+    emailBody: "Corpo",
+    emailAttachment: "Allegato",
+    emailSend: "Invia dopo il primo esito SdI DELIVERED o NOT_DELIVERED.",
+    emailSkip: "Non inviare per questo documento.",
     assistedHelperMode: "Assistita; l’helper si arresta prima di Invia",
     automaticHelperMode:
       "Automatica dopo conferma; il permesso monouso autorizza soltanto questo batch",
@@ -260,6 +294,13 @@ export const copy = {
     officialFile: "File scaricato da Aruba",
     importAction: "Importa e verifica",
     archivedOfficialFiles: "File ufficiali archiviati",
+    emailUncertain: "Esito SMTP incerto: verifica la mancata consegna prima del reinvio.",
+    emailUncertainConfirmed: "Ho verificato che il messaggio non è stato consegnato.",
+    emailStatus: {
+      PENDING: "In attesa",
+      SENT: "Inviata",
+      FAILED: "Non riuscita",
+    } as Record<string, string>,
     officialFileKind: {
       ARUBA_XML: "XML Aruba",
       ARUBA_P7M: "P7M",
@@ -304,7 +345,21 @@ export const copy = {
     toManage: "Da gestire",
     history: "Cronologia",
     nothingToManage: "Niente da gestire",
-    nothingToManageHelp: "Nessuna preparazione o ordine richiede una verifica.",
+    nothingToManageHelp:
+      "Nessuna preparazione, richiesta privacy o operazione dei canali richiede attenzione.",
+    dataRequestCompleted: "Richiesta dati Shopify registrata come gestita.",
+    jobRetried: "Operazione del canale riavviata.",
+    dataRequestsTitle: "Richieste dati Shopify",
+    shopifyDataRequest: "Richiesta privacy",
+    dataRequestDetail: (customers: number, orders: number) =>
+      `${customers} ${customers === 1 ? "cliente" : "clienti"} · ${orders} ${orders === 1 ? "ordine" : "ordini"}`,
+    dataRequestComplete: "Segna come gestita",
+    failedJobsTitle: "Operazioni non riuscite",
+    failedJobTitle: (type: string) => connectorJobLabels[type] ?? "Operazione del canale",
+    failedJob: (code: string | null, attempts: number) =>
+      `${errorCodeLabel(code)} · ${attempts} ${attempts === 1 ? "tentativo" : "tentativi"}`,
+    retryJob: "Riprova ora",
+    reviewTitle: "Verifiche su ordini e documenti",
     searchLabel: "Cerca nel registro",
     search: "Cerca",
     searchPlaceholder: "Numero ordine, preparazione o motivo",
@@ -324,29 +379,64 @@ export const copy = {
     settings: "Impostazioni",
   },
   settings: {
-    eyebrow: "Preferenze di fatturazione",
+    eyebrow: "Configurazione personale e operativa",
     title: "Impostazioni",
-    intro: "Queste preferenze valgono per Shopify ed eBay.",
+    intro: "Gestisci account, fatturazione, collegamenti e servizi da un’unica pagina.",
+    sectionsLabel: "Sezioni delle impostazioni",
+    profileTitle: "Profilo e sicurezza",
+    profileHelp:
+      "Rivedi identità, permessi e tema del menu rapido, poi proteggi l’accesso al tuo account.",
+    passwordChanged: "Password aggiornata. Le altre sessioni sono state disconnesse.",
+    sessionsRevoked: "Le altre sessioni sono state disconnesse.",
+    appearanceTitle: "Aspetto",
+    passwordTitle: "Password",
+    passwordHelp:
+      "Usa da 8 a 128 caratteri. Dopo il cambio resterà attiva soltanto questa sessione.",
+    currentPassword: "Password attuale",
+    newPassword: "Nuova password",
+    passwordConfirmation: "Conferma nuova password",
+    changePassword: "Aggiorna password",
+    sessionsTitle: "Sessioni attive",
+    sessionsHelp:
+      "Sono mostrate solo le informazioni affidabili disponibili; Hub Fatture non deduce dispositivo o posizione.",
+    currentSession: "Questa sessione",
+    otherSession: "Altra sessione",
+    lastActivity: (value: string) => `Ultima attività: ${value}`,
+    sessionExpiry: (value: string) => `Scade: ${value}`,
+    revokeOtherSessions: "Disconnetti le altre sessioni",
+    noOtherSessions: "Non risultano altre sessioni attive.",
+    exitTitle: "Uscita",
+    billingTitle: "Fatturazione",
+    billingHelp: "Definisci quando un ordine diventa una preparazione fattura.",
     saved: "Impostazione aggiornata. Gli ordini in attesa sono stati ricontrollati.",
-    preparationTitle: "Quando preparare la fattura",
     preparationHelp:
       "La modifica vale per gli ordini non ancora inseriti in una preparazione. Quelli già pronti non cambiano.",
     preparationLabel: "Prepara la fattura",
     onPaid: "Quando il pagamento è confermato",
     onFulfilled: "Quando l’ordine è completamente spedito",
     save: "Salva impostazione",
-    timeTitle: "Data e ora",
-    timeHelp: "Le date degli ordini seguono l’ora italiana.",
+    fiscalTitle: "Profilo fiscale",
+    fiscalHelp:
+      "Consulta la configurazione fiscale attiva. Le modifiche richiedono un nuovo audit e una nuova versione.",
+    fiscalStatus: "Stato",
+    fiscalVerified: "Verificato",
+    fiscalMock: "Sintetico",
+    fiscalVersion: "Versione",
+    fiscalRegime: "Regime fiscale",
+    fiscalNature: "Natura IVA",
+    fiscalSeries: "Serie",
+    fiscalCadence: "Numerazione",
+    fiscalAnnual: "Annuale",
+    fiscalScope: "Ambito contatore",
+    fiscalShared: "Condiviso tra fatture e note di credito",
+    fiscalLastAudit: "Ultimo audit",
+    fiscalMissing: "Il profilo fiscale attivo non è ancora configurato.",
     connectionsTitle: "Connessioni",
     connectionsHelp: "Collega i canali di vendita e controlla gli ultimi aggiornamenti ricevuti.",
-    dataRequestsTitle: "Richieste dati Shopify",
-    dataRequestsPending: (count: number) =>
-      `${count} ${count === 1 ? "richiesta da gestire" : "richieste da gestire"}. Gli identificativi sono conservati nel registro privacy.`,
-    dataRequestReceived: "Ricevuta",
-    dataRequestCustomers: "Clienti richiesti",
-    dataRequestOrders: "Ordini richiesti",
-    dataRequestComplete: "Segna come gestita",
-    dataRequestCompleted: "Richiesta dati Shopify registrata come gestita.",
+    connectionEnvironment: "Ambiente",
+    connectionAccount: "Account",
+    lastCheck: "Ultimo controllo",
+    openActivities: "Apri Attività",
     connect: "Collega",
     reconnect: "Ricollega",
     preview: "Anteprima ultimi 7 giorni",
@@ -360,13 +450,28 @@ export const copy = {
       status === "COMPLETED"
         ? `eBay: ${count} ordini nell’anteprima; ${review} con rimborsi da controllare. Nessun ordine è stato importato.`
         : status === "FAILED"
-          ? `L’anteprima eBay non è riuscita (${error ?? "errore non disponibile"}).`
+          ? `L’anteprima eBay non è riuscita (${errorCodeLabel(error)}).`
           : "Anteprima eBay in elaborazione. Ricarica la pagina tra poco.",
-    connectionError: (code: string) => `Ultimo errore: ${code}`,
-    failedJobsTitle: "Operazioni non riuscite",
-    failedJob: (type: string, code: string | null, attempts: number) =>
-      `${type.startsWith("shopify") ? "Shopify" : "eBay"}: ${code ?? "errore non disponibile"}, ${attempts} tentativi.`,
-    retryJob: "Riprova ora",
+    connectionError: (code: string) => `Ultimo errore: ${errorCodeLabel(code)}`,
+    customerEmailTitle: "E-mail al cliente",
+    customerEmailHelp:
+      "Un solo servizio e-mail invia la copia soltanto dopo un esito SdI che conferma l’emissione.",
+    customerEmailMode: "Modalità invio copia",
+    customerEmailAutomatic: "Automatica dopo l’esito SdI",
+    customerEmailManual: "Manuale con approvazione",
+    customerEmailSave: "Salva modalità e-mail",
+    customerEmailSaved: "Modalità e-mail aggiornata.",
+    customerEmailOwnerOnly: "Solo il titolare può cambiare la modalità e-mail.",
+    smtpTransport: "Servizio di invio",
+    smtpSender: "Mittente",
+    smtpStatus: "Configurazione",
+    smtpConfigured: "Configurato",
+    smtpNotConfigured: "Da completare",
+    smtpTransportLabels: {
+      SYNTHETIC: "Sintetico, senza rete",
+      EXISTING_SMTP: "SMTP esistente",
+      OCI_EMAIL_DELIVERY: "OCI Email Delivery",
+    } as Record<string, string>,
     arubaTitle: "Integrazione Aruba",
     arubaHelp:
       "L’helper usa Chrome o Edge sul tuo computer. Hub Fatture non conserva credenziali, cookie o codici Aruba.",
@@ -382,6 +487,22 @@ export const copy = {
     arubaOwnerOnly: "Solo il titolare può cambiare la modalità Aruba.",
     arubaKillSwitch:
       "Gli invii automatici operativi sono disabilitati: i nuovi batch useranno la modalità assistita.",
+    arubaConfiguredMode: "Modalità configurata",
+    arubaEffectiveMode: "Modalità effettiva",
+    arubaModeLabel: (value: string) =>
+      value === "AUTOMATIC" ? "Automatica dopo conferma" : "Assistita",
+    helperLastSeen: "Ultimo contatto helper",
+    helperVersion: "Versione helper",
+    helperBrowser: "Browser helper",
+    helperLastReadback: "Ultimo readback",
+    systemTitle: "Sistema",
+    systemHelp: "Controlla i parametri generali che influenzano tutta l’applicazione.",
+    environment: "Ambiente applicativo",
+    environmentLabel: (value: string) =>
+      value === "production" ? "Produzione" : value === "test" ? "Test" : "Sviluppo",
+    timeZone: "Fuso orario",
+    systemFutureHelp:
+      "Versione applicativa, backup e ripristino saranno esposti qui con i controlli operativi della milestone successiva.",
   },
   customerEditor: {
     title: "Dati del destinatario",
@@ -452,6 +573,13 @@ export const paymentStatusLabels: Record<string, string> = {
   REFUNDED: "Rimborsato",
 };
 
+export const refundStatusLabels: Record<string, string> = {
+  PENDING: "In attesa",
+  COMPLETED: "Completato",
+  FAILED: "Non riuscito",
+  AMBIGUOUS: "Da verificare",
+};
+
 export const fulfillmentStatusLabels: Record<string, string> = {
   FULFILLED: "Spedito",
   PARTIAL: "Spedito in parte",
@@ -478,6 +606,8 @@ export const taxIdentifierLabels: Record<string, string> = {
 };
 
 export const auditActionLabels = {
+  ACCOUNT_PASSWORD_CHANGED: "Password dell’account aggiornata",
+  ACCOUNT_SESSIONS_REVOKED: "Altre sessioni disconnesse",
   ADMIN_ACCOUNT_CREATED: "Account amministrativo creato",
   ARUBA_ASSISTED_STOPPED: "Helper arrestato prima dell’invio",
   ARUBA_BATCH_CREATED: "Batch Aruba creato",
@@ -494,6 +624,11 @@ export const auditActionLabels = {
   BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
   BILLING_CASE_REACTIVATED: "Preparazione riattivata",
   CUSTOMER_CORRECTED: "Anagrafica cliente corretta",
+  CUSTOMER_EMAIL_FAILED: "Invio e-mail non riuscito",
+  CUSTOMER_EMAIL_QUEUED: "Invio e-mail preparato",
+  CUSTOMER_EMAIL_REQUEUED: "Reinvio e-mail preparato",
+  CUSTOMER_EMAIL_SENT: "E-mail inviata",
+  CUSTOMER_EMAIL_SETTINGS_CHANGED: "Modalità e-mail aggiornata",
   DRAFT_TRIGGER_CHANGED: "Regola di preparazione modificata",
   DOCUMENT_APPROVED: "Documento approvato",
   DOCUMENT_AMOUNT_DIFFERENCE_CONFIRMED: "Differenza d’importo confermata",
@@ -513,6 +648,11 @@ export const auditActionLabels = {
   ORDER_SOURCE_UPDATED: "Ordine aggiornato dal canale di vendita",
   PROVIDER_CONNECTED: "Canale di vendita collegato",
   PROVIDER_REVOKED: "Canale di vendita scollegato",
+  REFUND_APPLIED_BEFORE_ISSUE: "Rimborso applicato prima dell’emissione",
+  REFUND_REVERSED_BEFORE_ISSUE: "Rimborso ripristinato prima dell’emissione",
+  REFUND_CREDIT_NOTE_LINKED: "Rimborso collegato alla nota di credito",
+  REFUND_CREDIT_NOTE_UPDATED: "Nota di credito aggiornata dal rimborso",
+  REFUND_NEEDS_REVIEW: "Rimborso da verificare",
   CONNECTOR_JOB_RETRIED: "Operazione del canale riavviata",
   SHOPIFY_DATA_REQUEST_COMPLETED: "Richiesta dati Shopify gestita",
 } satisfies Record<AuditAction, string>;

@@ -2013,6 +2013,87 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     assert.deepEqual((await orders.listAuditHistory({ action: "NON_ESISTE" })).rows, []);
     assert.deepEqual((await orders.listAuditHistory({ query: "test\0non valido" })).rows, []);
 
+    const mixedRefund = structuredClone(fixture[0]);
+    mixedRefund.externalOrderId = "shop-order-mixed-refund";
+    mixedRefund.displayNumber = "#MIXED-REFUND";
+    mixedRefund.createdAt = "2026-08-20T08:00:00Z";
+    mixedRefund.updatedAt = "2026-08-20T09:00:00Z";
+    mixedRefund.refunds = [
+      {
+        externalRefundId: "completed-refund",
+        status: "COMPLETED",
+        amount: "25.00",
+        completedAt: "2026-08-20T08:30:00Z",
+        raw: {},
+      },
+      {
+        externalRefundId: "pending-refund",
+        status: "PENDING",
+        amount: "10.00",
+        completedAt: null,
+        raw: {},
+      },
+    ];
+    await orders.importOrders([mixedRefund], { id: 1, requestId: "test-mixed-refund" });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.trigger_status, billing_cases.status,
+                  (orders.normalized_snapshot_json ->> 'orderReviewRequired')::boolean
+                    AS review_required
+           FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+           WHERE orders.external_order_id = $1`,
+          [mixedRefund.externalOrderId],
+        )
+      ).rows[0],
+      { trigger_status: "GROUPED", status: "READY", review_required: false },
+    );
+    const totalRefund = structuredClone(fixture[0]);
+    totalRefund.externalOrderId = "shop-order-total-refund";
+    totalRefund.displayNumber = "#TOTAL-REFUND";
+    totalRefund.createdAt = "2026-08-20T10:00:00Z";
+    totalRefund.updatedAt = "2026-08-20T11:00:00Z";
+    totalRefund.refunds = [
+      {
+        externalRefundId: "total-refund",
+        status: "COMPLETED",
+        amount: totalRefund.total,
+        completedAt: "2026-08-21T08:30:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([totalRefund], { id: 1, requestId: "test-total-refund" });
+    const isolatedRefund = (
+      await database.getPool().query(
+        `SELECT orders.trigger_status, billing_cases.id AS case_id, billing_cases.status,
+                billing_cases.do_not_transmit_reason,
+                healthy.billing_case_id AS healthy_case_id, healthy_case.status AS healthy_status
+         FROM orders
+         JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+         JOIN orders AS healthy ON healthy.external_order_id = $2
+         JOIN billing_cases AS healthy_case ON healthy_case.id = healthy.billing_case_id
+         WHERE orders.external_order_id = $1`,
+        [totalRefund.externalOrderId, mixedRefund.externalOrderId],
+      )
+    ).rows[0];
+    assert.deepEqual(
+      {
+        trigger_status: isolatedRefund.trigger_status,
+        status: isolatedRefund.status,
+        do_not_transmit_reason: isolatedRefund.do_not_transmit_reason,
+        healthy_status: isolatedRefund.healthy_status,
+      },
+      {
+        trigger_status: "REFUNDED_BEFORE_ISSUE",
+        status: "DO_NOT_TRANSMIT",
+        do_not_transmit_reason: "Ordine rimborsato prima dell’emissione",
+        healthy_status: "READY",
+      },
+    );
+    assert.notEqual(isolatedRefund.case_id, isolatedRefund.healthy_case_id);
+    const totalRefundCase = await orders.getBillingCase(isolatedRefund.case_id);
+    assert.equal(totalRefundCase!.reactivation_blocker, "INCOMPATIBLE_ORDERS");
+
     await database.closePool();
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());

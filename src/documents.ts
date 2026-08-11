@@ -268,6 +268,12 @@ export const documentInputSchema = z
       )
       .min(1)
       .max(999),
+    relatedInvoice: z
+      .object({
+        number: text(20),
+        date: postgresDateSchema,
+      })
+      .optional(),
     paymentStatus: z.enum(["PAID", "PENDING"]),
     paymentMethod: z.enum(["MP01", "MP05", "MP08"]),
     causale: text(200).optional(),
@@ -300,6 +306,13 @@ export const documentInputSchema = z
     const total = value.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
     if (!Number.isSafeInteger(total) || total > POSTGRES_INTEGER_MAX) {
       context.addIssue({ code: "custom", path: ["lines"], message: "Totale fuori limite" });
+    }
+    if (value.kind === "INVOICE" && value.relatedInvoice) {
+      context.addIssue({
+        code: "custom",
+        path: ["relatedInvoice"],
+        message: "Una fattura non può riferire una fattura originaria",
+      });
     }
   });
 
@@ -424,7 +437,8 @@ export function generateFatturaXml(
   addAddress(customer.ele("Sede"), input.recipient.address);
 
   const body = root.ele("FatturaElettronicaBody", { xmlns: "" });
-  const generalDocument = body.ele("DatiGenerali").ele("DatiGeneraliDocumento");
+  const general = body.ele("DatiGenerali");
+  const generalDocument = general.ele("DatiGeneraliDocumento");
   add(generalDocument, "TipoDocumento", documentType);
   add(generalDocument, "Divisa", "EUR");
   add(generalDocument, "Data", input.documentDate);
@@ -436,6 +450,11 @@ export function generateFatturaXml(
   add(generalDocument, "ImportoTotaleDocumento", amount(total));
   if (input.causale) add(generalDocument, "Causale", fatturaPaText(input.causale, 200));
   if (input.notes) add(generalDocument, "Causale", fatturaPaText(input.notes, 200));
+  if (input.kind === "CREDIT_NOTE" && input.relatedInvoice) {
+    const related = general.ele("DatiFattureCollegate");
+    add(related, "IdDocumento", input.relatedInvoice.number);
+    add(related, "Data", input.relatedInvoice.date);
+  }
 
   const goods = body.ele("DatiBeniServizi");
   input.lines.forEach((line, index) => {

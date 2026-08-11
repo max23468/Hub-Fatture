@@ -1176,8 +1176,12 @@ La navigazione resta a un solo livello. Una destinazione compare soltanto quando
 
 - `Ordini`: Tutti, Da fatturare, Da verificare, In attesa e Annullati.
 - `Documenti`: Tutti, Fatture, Note di credito e viste per stato di trasmissione.
-- `Attività`: Da gestire e Cronologia.
-- `Impostazioni`: include Connessioni.
+- `Attività`: Da gestire e Cronologia; richieste privacy e job falliti restano azioni operative, non impostazioni.
+- `Impostazioni`: pagina unica con navigazione interna a Profilo e sicurezza, Fatturazione, Profilo fiscale, Connessioni, Aruba e helper, E-mail al cliente e Sistema.
+
+Il menu rapido del profilo mostra identità, capacità operative, tema e uscita. Il collegamento `Profilo e sicurezza` porta alla relativa sezione di `Impostazioni`, che ripropone lo stesso riepilogo prima dei controlli completi dell’account.
+
+Su mobile la navigazione principale resta una barra inferiore a cinque destinazioni: le icone sono sempre visibili e accessibili, mentre soltanto la destinazione attiva espone anche l’etichetta su una riga. Il cambio pagina sposta etichetta ed evidenza sulla nuova destinazione senza scorrimento orizzontale.
 
 ### 13.2 Dashboard
 
@@ -1263,10 +1267,12 @@ Per le note di credito mostrare:
 
 ### 13.7 Attività
 
-La vista `Da gestire` riunisce errori, verifiche richieste, scarti e retry operativi con la relativa azione. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
+La vista `Da gestire` riunisce errori, verifiche richieste, scarti, richieste privacy Shopify e retry dei job falliti con la relativa azione. Questi elementi non compaiono in `Impostazioni`, che mostra soltanto stato e collegamento al dettaglio operativo. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
 
 ### 13.8 Impostazioni
 
+- Pagina unica con navigazione interna; nessuna destinazione di primo livello aggiuntiva.
+- Profilo e sicurezza: stesso riepilogo del menu rapido, tema, cambio password, sessioni attive, revoca delle altre sessioni e uscita.
 - Trigger globale bozza: pagamento/evasione completa.
 - Modalità invio copia: automatica/manuale.
 - Fuso orario: Europe/Rome, non modificabile nella 1.x salvo reale necessità.
@@ -1276,6 +1282,7 @@ La vista `Da gestire` riunisce errori, verifiche richieste, scarti e retry opera
 - Stato helper e istruzioni minime per avviarlo su Windows o macOS con Chrome/Edge.
 - 2FA Aruba: raccomandazione e stato dichiarato dall'utente, senza memorizzare seed o codici.
 - Trasporto SMTP scelto e stato, senza mostrare credenziali.
+- Sistema: ambiente e fuso orario; versione applicativa, backup e ripristino compaiono soltanto quando M7 fornisce dati e azioni reali.
 
 La vista interna `Connessioni` mostra, per Shopify, eBay e il trasporto SMTP canonico:
 
@@ -1979,7 +1986,7 @@ Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` dev
 - Password di almeno 8 e non oltre 128 caratteri, hashate con `node:crypto.scrypt` e verificate con confronto constant-time.
 - Bootstrap unico e atomico: entrambi gli account vengono creati insieme oppure non viene creato nessuno dei due.
 - Session cookie `HttpOnly`, `Secure`, `SameSite`.
-- Scadenza sessione e revoca.
+- Scadenza sessione e revoca. Ogni account può cambiare la propria password confermando quella attuale; il cambio conserva la sessione corrente e revoca tutte le altre. La UI elenca soltanto date affidabili di creazione, ultima attività e scadenza, senza dedurre dispositivo, posizione o IP.
 - Rate limiting login.
 - CSRF per azioni mutative se il framework non lo copre.
 
@@ -2025,7 +2032,7 @@ Mantenere `docs/runbooks/secret-inventory.md` con soli nomi logici, ambiente, de
 
 Registrare almeno:
 
-- bootstrap degli account, login, logout e rotazione delle credenziali quando disponibile;
+- bootstrap degli account, login, logout, cambio password e revoca delle altre sessioni;
 - connessione/disconnessione provider;
 - correzioni cliente/documento;
 - raggruppamento o separazione ordini;
@@ -2900,6 +2907,8 @@ Gate:
 
 ### M6 - Note di credito ed e-mail
 
+**Stato: in corso.** L’implementazione e le [evidenze locali](evidence/credit-notes-email.md) sono disponibili; HF-O07 resta aperta fino al PoC e alla scelta del solo trasporto Production, senza anticipare operazioni OCI, DNS, credenziali o invii.
+
 Output:
 
 - cumulazione rimborsi;
@@ -2909,6 +2918,7 @@ Output:
 - un solo trasporto SMTP canonico configurato e HF-O07 chiuso con la relativa motivazione;
 - modalità automatica dopo l'esito SdI che conferma l'emissione e modalità manuale;
 - reinvio.
+- superficie `Impostazioni` riorganizzata senza duplicare il contratto e-mail: Profilo e sicurezza, stato dei servizi e configurazioni M6 condividono la stessa pagina, mentre errori e retry restano in `Attività`.
 
 Gate:
 
@@ -3062,7 +3072,7 @@ Pagina Aruba sintetica e contratto candidato dei locatori derivati dall'audit re
 
 ### Note di credito ed e-mail - M6
 
-Ingest del rimborso completato, bozza TD04 cumulativa, residuo accreditabile, nuova bozza dopo l'emissione, blocco per fattura scartata, UI dedicata. Sul fronte e-mail: precondizione DNS di §12.5, scelta del trasporto canonico, configurazione Nodemailer, template italiano, modalità automatica dopo l'esito SdI e manuale, stato ed errore con reinvio.
+Ingest del rimborso completato, bozza TD04 cumulativa, residuo accreditabile, nuova bozza dopo l'emissione, blocco per fattura scartata, UI dedicata. Sul fronte e-mail: precondizione DNS di §12.5, scelta del trasporto canonico, configurazione Nodemailer, template italiano, modalità automatica dopo l'esito SdI e manuale, stato ed errore con reinvio. La stessa tranche consolida la pagina `Impostazioni`: il menu rapido rimanda a `Profilo e sicurezza`, la configurazione e-mail riusa il contratto M6 e le azioni operative restano in `Attività`.
 
 ### Produzione e continuità - M7/M10
 

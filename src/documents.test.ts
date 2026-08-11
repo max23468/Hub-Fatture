@@ -120,6 +120,18 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   assert.match(creditXml, /<TipoDocumento>TD04<\/TipoDocumento>/);
   assert.match(creditXml, /<ModalitaPagamento>MP05<\/ModalitaPagamento>/);
   assert.match(creditXml, /<PECDestinatario>cliente@example\.invalid<\/PECDestinatario>/);
+  const linkedCreditXml = generateFatturaXml(
+    syntheticFiscalProfile,
+    {
+      ...invoice,
+      kind: "CREDIT_NOTE",
+      paymentMethod: "MP05",
+      relatedInvoice: { number: "FPR 0001/26", date: "2026-08-10" },
+    },
+    { year: 2026, number: 3 },
+  );
+  assert.match(linkedCreditXml, /<DatiFattureCollegate>/);
+  assert.match(linkedCreditXml, /<IdDocumento>FPR 0001\/26<\/IdDocumento>/);
   assert.notEqual(projectFatturaXml(syntheticFiscalProfile, invoice).sha256, "");
 });
 

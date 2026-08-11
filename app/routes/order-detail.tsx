@@ -10,6 +10,7 @@ import {
   fulfillmentStatusLabels,
   orderStatusLabels,
   paymentStatusLabels,
+  refundStatusLabels,
   taxIdentifierLabels,
 } from "../copy.it";
 import { address, date, dateTime, euros } from "../format";
@@ -21,7 +22,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const order = await getOrder(params.orderId);
   if (!order) throw new Response("Ordine non trovato", { status: 404 });
-  return { username: user.username, csrfToken: user.csrfToken, order };
+  return {
+    username: user.username,
+    canApprove: user.canApprove,
+    csrfToken: user.csrfToken,
+    order,
+  };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -39,7 +45,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function OrderDetail() {
-  const { username, csrfToken, order } = useLoaderData<typeof loader>();
+  const { username, canApprove, csrfToken, order } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const sourceSnapshot = order.raw_snapshot_json;
   const sourceCustomer = sourceSnapshot.customer ?? {};
@@ -54,7 +60,7 @@ export default function OrderDetail() {
   const addressText = address(order.billing_address_json);
   const provider = order.provider === "SHOPIFY" ? "Shopify" : "eBay";
   return (
-    <AppShell username={username} csrfToken={csrfToken}>
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className="title-block">
         <p className="eyebrow">{provider}</p>
         <h1>{copy.orderDetail.order(order.display_number)}</h1>
@@ -130,6 +136,31 @@ export default function OrderDetail() {
               </ul>
             ) : (
               <p>{copy.orderDetail.noPayments}</p>
+            )}
+          </div>
+          <div className="detail-subsection">
+            <h3>{copy.orderDetail.refunds}</h3>
+            {order.refunds.length ? (
+              <ul className="plain-list">
+                {order.refunds.map((refund) => (
+                  <li key={refund.id}>
+                    <span>
+                      {refund.provider === "SHOPIFY" ? "Shopify" : "eBay"} · profilo{" "}
+                      {refund.external_account_id}
+                      {` · ordine ${refund.external_order_id} · rimborso ${refund.external_refund_id}`}
+                    </span>
+                    <span>
+                      {refund.amount === null
+                        ? copy.orderDetail.refundNeedsReview
+                        : euros(refund.amount)}
+                      {` · ${refundStatusLabels[refund.status] ?? copy.common.unknownStatus}`}
+                      {refund.completed_at ? ` · ${dateTime(refund.completed_at)}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>{copy.orderDetail.noRefunds}</p>
             )}
           </div>
         </section>

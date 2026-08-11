@@ -14,6 +14,8 @@ import {
 } from "./db/connectors.server.ts";
 import { previewEbayHistory, syncEbayOrders } from "./integrations/ebay.server.ts";
 import { fetchShopifyOrder, syncShopifyOrders } from "./integrations/shopify.server.ts";
+import { processRefund } from "./db/refunds.server.ts";
+import { sendCustomerEmail } from "./db/email.server.ts";
 
 const workerId = randomUUID();
 let stopping = false;
@@ -41,6 +43,10 @@ async function runJob() {
     if (job.type === "ebay_sync_orders") await syncEbayOrders(job);
     let result: Record<string, unknown> = {};
     if (job.type === "ebay_preview_history") result = await previewEbayHistory();
+    if (job.type === "process_refund") {
+      await processRefund(String(job.payload.refundId ?? ""), job);
+    }
+    if (job.type === "send_customer_email") await sendCustomerEmail(job);
     if (job.type === "shopify_process_webhook") {
       const orderId = String(job.payload.orderId ?? "");
       if (!orderId) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
@@ -59,9 +65,13 @@ async function runJob() {
     if (!(await completeJob(job, result))) throw new AppError("CONFLICT_REVISION", 409);
   } catch (error) {
     const appError = error instanceof AppError ? error : new AppError("PROVIDER_UNAVAILABLE", 503);
-    const provider = job.type.startsWith("shopify") ? "SHOPIFY" : "EBAY";
     const terminal = await failJob(job, appError.code);
-    if (terminal !== null) await markConnectionError(provider, appError.code, terminal);
+    const provider = job.type.startsWith("shopify")
+      ? "SHOPIFY"
+      : job.type.startsWith("ebay")
+        ? "EBAY"
+        : null;
+    if (provider && terminal !== null) await markConnectionError(provider, appError.code, terminal);
     console.error(
       JSON.stringify({ event: "connector_job_failed", jobId: job.id, code: appError.code }),
     );

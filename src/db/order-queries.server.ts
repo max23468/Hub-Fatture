@@ -66,6 +66,16 @@ interface OrderDetailRow {
     paid_at: string | null;
     recorded_manually: boolean;
   }>;
+  refunds: Array<{
+    id: string;
+    provider: string;
+    external_account_id: string;
+    external_order_id: string;
+    external_refund_id: string;
+    status: string;
+    amount: number | null;
+    completed_at: string | null;
+  }>;
   possibleMatches: Array<{
     id: string;
     display_name: string;
@@ -161,6 +171,19 @@ export async function getOrder(id: string) {
               SELECT jsonb_agg(to_jsonb(payments) ORDER BY payments.id)
               FROM payments WHERE payments.order_id = orders.id
             ), '[]'::jsonb) AS payments,
+            coalesce((
+              SELECT jsonb_agg(jsonb_build_object(
+                'id', refunds.id::text,
+                'provider', refunds.provider,
+                'external_account_id', refunds.external_account_id,
+                'external_order_id', refunds.external_order_id,
+                'external_refund_id', refunds.external_refund_id,
+                'status', refunds.status,
+                'amount', refunds.amount,
+                'completed_at', refunds.completed_at
+              ) ORDER BY refunds.id)
+              FROM refunds WHERE refunds.order_id = orders.id
+            ), '[]'::jsonb) AS refunds,
             -- 7.3: un'identità non certa non accorpa, ma la corrispondenza possibile va mostrata.
             CASE WHEN orders.normalized_snapshot_json #>> '{customerSnapshot,sourceConfidence}'
                       = 'TAX_ID'
@@ -243,6 +266,31 @@ export async function listOpenActivities(page?: unknown) {
               orders.last_synced_at
        FROM orders
        WHERE orders.trigger_status = 'NEEDS_REVIEW' AND orders.billing_case_id IS NULL
+       UNION ALL
+       SELECT 'REFUND', refunds.id::text,
+              'Rimborso da verificare',
+              CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
+                || ' ' || orders.display_number,
+              '/ordini/' || orders.id,
+              refunds.updated_at
+       FROM refunds JOIN orders ON orders.id = refunds.order_id
+       WHERE refunds.status = 'AMBIGUOUS'
+          OR (refunds.status = 'COMPLETED' AND refunds.amount IS NULL)
+       UNION ALL
+       SELECT 'REFUND_JOB', jobs.id::text,
+              'Rimborso non elaborato',
+              CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
+                || ' ' || orders.display_number || ' · '
+                || coalesce(jobs.last_error_code, 'errore da verificare'),
+              '/ordini/' || orders.id,
+              jobs.created_at
+       FROM jobs
+       JOIN refunds ON refunds.id = CASE
+         WHEN jobs.payload_json ->> 'refundId' ~ '^[0-9]+$'
+           THEN (jobs.payload_json ->> 'refundId')::bigint END
+       JOIN orders ON orders.id = refunds.order_id
+       WHERE jobs.type = 'process_refund' AND jobs.status = 'FAILED'
+         AND refunds.credit_document_id IS NULL
      ) AS activities
      ORDER BY created_at DESC, id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $1`,
@@ -273,6 +321,7 @@ export async function listAuditHistory(filters: {
     order_provider: string | null;
     order_number: string | null;
     case_number: string | null;
+    refund_order_id: string | null;
     reason: string | null;
     request_id: string;
     created_at: string;
@@ -280,9 +329,10 @@ export async function listAuditHistory(filters: {
     `SELECT audit_events.id, audit_events.action, audit_events.actor_id,
             audit_events.actor_type, users.username AS actor_username,
             audit_events.entity_type, audit_events.entity_id, audit_events.reason,
-            event_orders.provider AS order_provider,
-            event_orders.display_number AS order_number,
+            coalesce(event_orders.provider, event_refund_orders.provider) AS order_provider,
+            coalesce(event_orders.display_number, event_refund_orders.display_number) AS order_number,
             event_cases.public_number AS case_number,
+            event_refunds.order_id AS refund_order_id,
             audit_events.request_id, audit_events.created_at
      FROM audit_events
      LEFT JOIN users ON audit_events.actor_type = 'ADMIN'
@@ -294,9 +344,14 @@ export async function listAuditHistory(filters: {
      LEFT JOIN billing_cases AS event_cases ON audit_events.entity_type = 'BILLING_CASE'
        AND event_cases.id = CASE WHEN audit_events.entity_id ~ '^[0-9]+$'
              THEN audit_events.entity_id::bigint END
+     LEFT JOIN refunds AS event_refunds ON audit_events.entity_type = 'REFUND'
+       AND event_refunds.id = CASE WHEN audit_events.entity_id ~ '^[0-9]+$'
+             THEN audit_events.entity_id::bigint END
+     LEFT JOIN orders AS event_refund_orders ON event_refund_orders.id = event_refunds.order_id
      WHERE ($1::text IS NULL OR audit_events.action = $1)
        AND ($2::text IS NULL OR audit_events.entity_id ILIKE $2
-            OR event_orders.display_number ILIKE $2 OR event_cases.public_number ILIKE $2
+            OR event_orders.display_number ILIKE $2
+            OR event_refund_orders.display_number ILIKE $2 OR event_cases.public_number ILIKE $2
             OR audit_events.request_id ILIKE $2 OR audit_events.reason ILIKE $2)
      ORDER BY audit_events.created_at DESC, audit_events.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $3`,

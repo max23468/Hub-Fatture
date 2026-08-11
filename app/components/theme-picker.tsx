@@ -49,7 +49,7 @@ export function ThemePicker() {
             onClick={() => choose(value)}
             type="button"
           >
-            <Icon aria-hidden="true" size={16} strokeWidth={1.8} />
+            <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
             {label}
           </button>
         ))}

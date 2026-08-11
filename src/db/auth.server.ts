@@ -39,6 +39,13 @@ export interface SessionUser {
   canApprove: boolean;
 }
 
+export interface AccountSession {
+  current: boolean;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+}
+
 function normalizeUsername(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -67,6 +74,11 @@ function cookies(request: Request): Map<string, string> {
         }
       }),
   );
+}
+
+function currentSessionHash(request: Request): string | null {
+  const sessionToken = cookies(request).get(SESSION_COOKIE);
+  return sessionToken ? hashToken(sessionToken) : null;
 }
 
 export async function setupAvailable(): Promise<boolean> {
@@ -272,6 +284,114 @@ export async function requireSessionUser(request: Request): Promise<SessionUser>
   const user = await getSessionUser(request);
   if (!user) throw redirect("/login");
   return user;
+}
+
+export async function getAccountProfile(request: Request, user: SessionUser) {
+  const sessionHash = currentSessionHash(request);
+  if (!sessionHash) throw new AppError("AUTH_INVALID_CREDENTIALS", 401);
+  const [account, sessions] = await Promise.all([
+    getPool().query<{ created_at: Date; last_login_at: Date | null }>(
+      "SELECT created_at, last_login_at FROM users WHERE id = $1",
+      [user.id],
+    ),
+    getPool().query<{
+      id_hash: string;
+      created_at: Date;
+      last_seen_at: Date;
+      expires_at: Date;
+    }>(
+      `SELECT id_hash, created_at, last_seen_at, expires_at FROM sessions
+       WHERE user_id = $1 AND expires_at > now()
+       ORDER BY last_seen_at DESC`,
+      [user.id],
+    ),
+  ]);
+  return {
+    createdAt: account.rows[0]!.created_at.toISOString(),
+    lastLoginAt: account.rows[0]!.last_login_at?.toISOString() ?? null,
+    sessions: sessions.rows.map((row): AccountSession => ({
+      current: row.id_hash === sessionHash,
+      createdAt: row.created_at.toISOString(),
+      lastSeenAt: row.last_seen_at.toISOString(),
+      expiresAt: row.expires_at.toISOString(),
+    })),
+  };
+}
+
+export async function changePassword(
+  request: Request,
+  input: { currentPassword: unknown; newPassword: unknown; confirmation: unknown },
+  user: SessionUser,
+  auditRequestId: string,
+) {
+  const currentPassword = typeof input.currentPassword === "string" ? input.currentPassword : "";
+  const newPassword = typeof input.newPassword === "string" ? input.newPassword : "";
+  const confirmation = typeof input.confirmation === "string" ? input.confirmation : "";
+  const sessionHash = currentSessionHash(request);
+  if (!sessionHash) throw new AppError("AUTH_INVALID_CREDENTIALS", 401);
+  if (!validPassword(newPassword)) throw new AppError("AUTH_PASSWORD_POLICY", 400);
+  if (newPassword !== confirmation) throw new AppError("AUTH_PASSWORD_CONFIRMATION", 400);
+
+  const account = await getPool().query<{ password_hash: string }>(
+    "SELECT password_hash FROM users WHERE id = $1",
+    [user.id],
+  );
+  const currentHash = account.rows[0]?.password_hash;
+  if (!currentHash || !(await verifyPassword(currentPassword, currentHash))) {
+    throw new AppError("AUTH_CURRENT_PASSWORD_INVALID", 403);
+  }
+  if (await verifyPassword(newPassword, currentHash)) {
+    throw new AppError("AUTH_PASSWORD_REUSE", 400);
+  }
+  const nextHash = await hashPassword(newPassword);
+  return withTransaction(async (client) => {
+    const updated = await client.query(
+      "UPDATE users SET password_hash = $1 WHERE id = $2 AND password_hash = $3",
+      [nextHash, user.id, currentHash],
+    );
+    if (updated.rowCount !== 1) throw new AppError("CONFLICT_REVISION", 409);
+    const revoked = await client.query(
+      "DELETE FROM sessions WHERE user_id = $1 AND id_hash <> $2",
+      [user.id, sessionHash],
+    );
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(user.id),
+      action: "ACCOUNT_PASSWORD_CHANGED",
+      eventClass: "CRITICAL",
+      entityType: "USER",
+      entityId: String(user.id),
+      requestId: auditRequestId,
+    });
+    return revoked.rowCount ?? 0;
+  });
+}
+
+export async function revokeOtherSessions(
+  request: Request,
+  user: SessionUser,
+  auditRequestId: string,
+) {
+  const sessionHash = currentSessionHash(request);
+  if (!sessionHash) throw new AppError("AUTH_INVALID_CREDENTIALS", 401);
+  return withTransaction(async (client) => {
+    const revoked = await client.query(
+      "DELETE FROM sessions WHERE user_id = $1 AND id_hash <> $2",
+      [user.id, sessionHash],
+    );
+    if (revoked.rowCount) {
+      await writeAudit(client, {
+        actorType: "ADMIN",
+        actorId: String(user.id),
+        action: "ACCOUNT_SESSIONS_REVOKED",
+        eventClass: "OPERATIONAL",
+        entityType: "USER",
+        entityId: String(user.id),
+        requestId: auditRequestId,
+      });
+    }
+    return revoked.rowCount ?? 0;
+  });
 }
 
 export function assertCsrf(user: SessionUser, submitted: string): void {

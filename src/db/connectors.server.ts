@@ -14,7 +14,16 @@ export type JobType =
   | "shopify_sync_orders"
   | "shopify_process_webhook"
   | "ebay_sync_orders"
-  | "ebay_preview_history";
+  | "ebay_preview_history"
+  | "process_refund"
+  | "send_customer_email";
+
+const manuallyRetryableJobTypes: JobType[] = [
+  "shopify_sync_orders",
+  "shopify_process_webhook",
+  "ebay_sync_orders",
+  "ebay_preview_history",
+];
 
 export interface ConnectorActor {
   type: "ADMIN" | "SYSTEM";
@@ -374,7 +383,10 @@ export async function completeJob(job: ClaimedJob, result: Record<string, unknow
 }
 
 export async function failJob(job: ClaimedJob, code: ErrorCode) {
-  const retryable = code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_UNAVAILABLE";
+  const retryable =
+    code === "PROVIDER_RATE_LIMITED" ||
+    code === "PROVIDER_UNAVAILABLE" ||
+    code === "EMAIL_DELIVERY_TEMPORARY";
   const terminal = job.attempts >= job.maxAttempts || !retryable;
   return withTransaction(async (client) => {
     const failed = await client.query(
@@ -408,7 +420,10 @@ export async function failedConnectorJobs() {
     created_at: Date;
   }>(
     `SELECT id, type, attempts, last_error_code, created_at FROM jobs
-     WHERE status = 'FAILED' ORDER BY created_at DESC, id DESC LIMIT 20`,
+     WHERE status = 'FAILED'
+       AND type = ANY($1::text[])
+     ORDER BY created_at DESC, id DESC LIMIT 20`,
+    [manuallyRetryableJobTypes],
   );
   return result.rows.map((row) => ({
     id: row.id,
@@ -424,8 +439,10 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
   if (!jobId) throw new AppError("CONFLICT_REVISION", 409);
   return withTransaction(async (client) => {
     const candidate = await client.query<{ type: JobType }>(
-      "SELECT type FROM jobs WHERE id = $1 AND status = 'FAILED'",
-      [jobId],
+      `SELECT type FROM jobs
+       WHERE id = $1 AND status = 'FAILED' AND type = ANY($2::text[])
+       FOR UPDATE`,
+      [jobId, manuallyRetryableJobTypes],
     );
     if (!candidate.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
     if (candidate.rows[0].type === "ebay_preview_history") {

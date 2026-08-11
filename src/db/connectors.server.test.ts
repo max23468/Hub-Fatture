@@ -304,6 +304,29 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).rows[0].count,
       "1",
     );
+    const protectedEmailJob = await getPool().query<{ id: string }>(
+      `INSERT INTO jobs
+        (type, payload_json, status, attempts, max_attempts, last_error_code)
+       VALUES ('send_customer_email', '{"deliveryId":"1"}', 'FAILED', 1, 5,
+         'EMAIL_DELIVERY_UNCERTAIN')
+       RETURNING id`,
+    );
+    await assert.rejects(
+      connectors.retryFailedJob(protectedEmailJob.rows[0]!.id, {
+        type: "ADMIN",
+        id: 1,
+        requestId: "email-manual-retry-forbidden",
+      }),
+      (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    assert.equal(
+      (
+        await getPool().query("SELECT status FROM jobs WHERE id = $1", [
+          protectedEmailJob.rows[0]!.id,
+        ])
+      ).rows[0].status,
+      "FAILED",
+    );
     await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [terminalJob.id]);
     const jobsBeforeReschedule = (
       await getPool().query(
