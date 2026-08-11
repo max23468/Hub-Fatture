@@ -858,24 +858,31 @@ test(
         (error) => error instanceof AppError && error.code === "ARUBA_RECONCILIATION_REQUIRED",
       );
       const retryToken = await aruba.issueHelperToken(retryBatchId, owner);
-      assert.equal((await aruba.helperManifest(retryToken.token)).attemptNumber, 2);
+      const retryManifest = await aruba.helperManifest(retryToken.token);
+      assert.equal(retryManifest.attemptNumber, 2);
       await aruba.recordHelperEvent(retryToken.token, {
         type: "HELPER_STARTED",
         browser: "chromium",
       });
-      await aruba.recordHelperEvent(retryToken.token, {
-        type: "RECONCILIATION_REQUIRED",
-        reason: "UNKNOWN_RESULT",
-      });
-      assert.equal((await aruba.helperManifest(retryToken.token)).operation, "READBACK");
+      await database.getPool().query(
+        `UPDATE aruba_helper_tokens
+         SET created_at = now() - interval '44 minutes', expires_at = now() + interval '1 minute'
+         WHERE batch_id = $1 AND revoked_at IS NULL`,
+        [retryBatchId],
+      );
+      await aruba.recordHelperEvent(retryToken.token, { type: "HELPER_HEARTBEAT" });
       await assert.rejects(
-        aruba.consumeArubaPermit(
-          retryToken.token,
-          (await aruba.helperManifest(retryToken.token)).manifestSha256,
-        ),
+        aruba.helperManifest(retryToken.token),
+        (error) => error instanceof AppError && error.code === "ARUBA_HELPER_TOKEN_INVALID",
+      );
+      const retryReadbackToken = await aruba.issueHelperToken(retryBatchId, owner);
+      const retryReadbackManifest = await aruba.helperManifest(retryReadbackToken.token);
+      assert.equal(retryReadbackManifest.operation, "READBACK");
+      await assert.rejects(
+        aruba.consumeArubaPermit(retryReadbackToken.token, retryReadbackManifest.manifestSha256),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
-      await aruba.recordHelperEvent(retryToken.token, {
+      await aruba.recordHelperEvent(retryReadbackToken.token, {
         type: "READBACK",
         documents: [{ id: invalidManifest.documents[0]!.id, status: "NOT_FOUND" }],
       });

@@ -32,6 +32,7 @@ import { isDatabaseId } from "./order-commands.server.ts";
 
 const HELPER_TOKEN_TTL_MS = 15 * 60_000;
 const HELPER_TOKEN_MAX_LIFETIME_MS = 45 * 60_000;
+const HELPER_TOKEN_RECONCILIATION_GUARD_MS = 2 * 60_000;
 const SEND_PERMIT_TTL_MS = 10 * 60_000;
 const BATCH_MAX_BYTES = 30_000_000;
 
@@ -685,6 +686,35 @@ async function monotonicSubmission(
   return row.id;
 }
 
+async function requireReconciliation(
+  client: pg.PoolClient,
+  context: TokenContext,
+  reason: "BROWSER_CLOSED" | "NAVIGATION" | "UNKNOWN_RESULT" | "DOM_UNRECOGNIZED",
+) {
+  await client.query(
+    `UPDATE aruba_batches SET status = 'RECONCILIATION_REQUIRED',
+       requires_reconciliation = true, updated_at = now() WHERE id = $1`,
+    [context.id],
+  );
+  await client.query(
+    `UPDATE aruba_submissions SET
+       status = CASE WHEN status IN ('PENDING', 'VALIDATED', 'VALIDATION_FAILED', 'READY_TO_SEND')
+         THEN 'UNKNOWN' ELSE status END,
+       error_code = 'ARUBA_RECONCILIATION_REQUIRED',
+       error_message_sanitized = $2, last_checked_at = now() WHERE batch_id = $1`,
+    [context.id, reason],
+  );
+  await writeAudit(client, {
+    actorType: "SYSTEM",
+    action: "ARUBA_RECONCILIATION_REQUIRED",
+    eventClass: "CRITICAL",
+    entityType: "ARUBA_BATCH",
+    entityId: context.id,
+    metadata: { batchId: context.id, manifestSha256: context.manifest_sha256 },
+    requestId: `aruba-helper:${context.id}`,
+  });
+}
+
 export async function recordHelperEvent(token: string, rawEvent: unknown): Promise<void> {
   const parsed = helperEventSchema.safeParse(rawEvent);
   if (!parsed.success) throw new AppError("ARUBA_BATCH_INVALID", 422);
@@ -693,12 +723,16 @@ export async function recordHelperEvent(token: string, rawEvent: unknown): Promi
     const context = await loadToken(client, token, true);
     if (!context) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
     if (event.type === "HELPER_HEARTBEAT") {
-      const expiresAt = new Date(
-        Math.min(
-          Date.now() + HELPER_TOKEN_TTL_MS,
-          context.token_created_at.getTime() + HELPER_TOKEN_MAX_LIFETIME_MS,
-        ),
-      );
+      const maximumExpiry = context.token_created_at.getTime() + HELPER_TOKEN_MAX_LIFETIME_MS;
+      if (maximumExpiry - Date.now() <= HELPER_TOKEN_RECONCILIATION_GUARD_MS) {
+        await requireReconciliation(client, context, "UNKNOWN_RESULT");
+        await client.query(
+          "UPDATE aruba_helper_tokens SET last_seen_at = now(), revoked_at = now() WHERE token_hash = $1",
+          [context.token_hash],
+        );
+        return;
+      }
+      const expiresAt = new Date(Math.min(Date.now() + HELPER_TOKEN_TTL_MS, maximumExpiry));
       await client.query(
         `UPDATE aruba_helper_tokens SET last_seen_at = now(), expires_at = $2
          WHERE token_hash = $1`,
@@ -818,28 +852,7 @@ export async function recordHelperEvent(token: string, rawEvent: unknown): Promi
       ) {
         throw new AppError("ARUBA_BATCH_INVALID", 409);
       }
-      await client.query(
-        `UPDATE aruba_batches SET status = 'RECONCILIATION_REQUIRED',
-           requires_reconciliation = true, updated_at = now() WHERE id = $1`,
-        [context.id],
-      );
-      await client.query(
-        `UPDATE aruba_submissions SET
-           status = CASE WHEN status IN ('PENDING', 'VALIDATED', 'VALIDATION_FAILED', 'READY_TO_SEND')
-             THEN 'UNKNOWN' ELSE status END,
-           error_code = 'ARUBA_RECONCILIATION_REQUIRED',
-           error_message_sanitized = $2, last_checked_at = now() WHERE batch_id = $1`,
-        [context.id, event.reason],
-      );
-      await writeAudit(client, {
-        actorType: "SYSTEM",
-        action: "ARUBA_RECONCILIATION_REQUIRED",
-        eventClass: "CRITICAL",
-        entityType: "ARUBA_BATCH",
-        entityId: context.id,
-        metadata: { batchId: context.id, manifestSha256: context.manifest_sha256 },
-        requestId: `aruba-helper:${context.id}`,
-      });
+      await requireReconciliation(client, context, event.reason);
       return;
     }
     if (event.type === "SUBMITTED") {
