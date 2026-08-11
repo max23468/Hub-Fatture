@@ -41,9 +41,13 @@ resume_writers() {
   [ "$writers_paused" -eq 1 ] || return 0
   docker compose -f compose.yaml --env-file .env --env-file .deploy.env \
     unpause app-web app-worker >/dev/null
-  docker compose -f compose.yaml --env-file .env --env-file .deploy.env \
-    up -d --wait --wait-timeout 60 app-web app-worker >/dev/null
   writers_paused=0
+  deadline=$((SECONDS + 60))
+  while [ "$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ps \
+    --format json app-web | jq -r '.Health // empty')" != healthy ]; do
+    [ "$SECONDS" -lt "$deadline" ] || { echo "app-web non sano dopo il backup" >&2; return 1; }
+    sleep 2
+  done
 }
 
 cleanup() {
