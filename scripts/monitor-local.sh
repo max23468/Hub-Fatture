@@ -17,6 +17,11 @@ for service in app-web app-worker caddy postgres; do
   printf '%s\n' "$running" | grep -qx "$service" \
     || problem=${problem:-"$service non in esecuzione"}
 done
+for service in app-web postgres; do
+  health=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ps \
+    --format json "$service" | jq -r '.Health // empty')
+  [ "$health" = "healthy" ] || problem=${problem:-"$service non sano: ${health:-assente}"}
+done
 use=$(df -P "$root" | awk 'NR == 2 { gsub(/%/, "", $5); print $5 }')
 [ "$use" -lt 85 ] || problem=${problem:-"spazio disco oltre 85%"}
 if [ -f data/operations/backup-receipt.json ]; then

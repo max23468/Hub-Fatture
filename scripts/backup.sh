@@ -7,6 +7,8 @@ cd "$root"
 # shellcheck disable=SC1091
 . ./scripts/read-env.sh
 notifications_topic=$(env_value .env OCI_NOTIFICATIONS_TOPIC_OCID)
+exec 9>./backup.lock
+flock -n 9 || { echo "Un altro backup è in corso" >&2; exit 1; }
 
 notify_failure() {
   status=${1:-$?}

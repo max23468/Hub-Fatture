@@ -255,6 +255,8 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(backup, /jq -r '\."content-length" \/\/ empty'/);
   assert.match(backup, /jq -r '\."opc-meta-sha256" \/\/ empty'/);
   assert.doesNotMatch(backup, /\.data\."(?:content-length|opc-meta-sha256)"/);
+  assert.match(backup, /exec 9>\.\/backup\.lock/);
+  assert.match(backup, /flock -n 9/);
   const pauseWriters = backup.lastIndexOf("\n  pause app-web app-worker");
   const reconcileStorage = backup.indexOf("reconcileDocumentStorage", pauseWriters);
   const databaseDump = backup.indexOf("pg_dump", reconcileStorage);
@@ -283,9 +285,13 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(workflow, /compose\.yaml\.next/);
   assert.match(workflow, /Caddyfile\.next/);
   assert.match(monitor, /app-web app-worker caddy postgres/);
+  assert.match(monitor, /for service in app-web postgres/);
+  assert.match(monitor, /jq -r '\.Health \/\/ empty'/);
+  assert.match(monitor, /\[ "\$health" = "healthy" \]/);
   assert.match(monitor, /\[ "\$current" != "\$previous" \]/);
   assert.match(restore, /sha256sum "\$archive"/);
   const preflight = await readFile(path.join(root, "scripts/production-preflight.sh"), "utf8");
+  assert.match(preflight, /for command in age curl docker flock jq oci/);
   assert.match(preflight, /dns_ip.*expected_public_ip/);
   assert.doesNotMatch(preflight, /^\.\s+(?:\.\/)?\.env(?:\s|$)/m);
   assert.doesNotMatch(preflight, /\beval\b/);
