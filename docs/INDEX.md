@@ -20,5 +20,9 @@
 | [Note di credito ed e-mail](contracts/credit-notes-email.md)           | Contratto TD04, trigger e trasporto cliente               | Candidato   | Sì             |
 | [PoC OCI Email Delivery](runbooks/oci-email-delivery-poc.md)           | Preflight e prova Development con stop gate               | Completato  | Sì             |
 | [Evidenza note ed e-mail](evidence/credit-notes-email.md)              | Prove sintetiche e gate trasporto residuo                 | Corrente    | No             |
+| [Produzione OCI](runbooks/production.md)                               | Deploy, readback, rollback e hardening                    | Corrente    | Sì             |
+| [Backup e ripristino](runbooks/backup-restore.md)                      | Backup cifrato, copia Mac e restore drill                 | Corrente    | Sì             |
+| [Incidenti Production](runbooks/incidents.md)                          | Triage P0-P2 e kill switch                                | Corrente    | Sì             |
+| [Evidenza Production OCI](evidence/production-oci.md)                  | Gate locali e ricevute remote della Production OCI        | In corso    | No             |
 
 Nuovi contratti, evidenze e runbook vengono creati soltanto quando esiste contenuto reale.

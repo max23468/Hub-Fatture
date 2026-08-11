@@ -37,11 +37,12 @@ import { publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
 import { previewShopifyHistory } from "../../src/integrations/shopify.server.ts";
 import { getDraftTrigger, setDraftTrigger } from "../../src/db/orders.server.ts";
+import { getSystemStatus } from "../../src/db/system.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
-  const [profile, trigger, connections, ebayPreview, aruba, customerEmail, fiscalProfile] =
+  const [profile, trigger, connections, ebayPreview, aruba, customerEmail, fiscalProfile, system] =
     await Promise.all([
       getAccountProfile(request, user),
       getDraftTrigger(),
@@ -50,6 +51,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       getArubaSettings(),
       getCustomerEmailSettings(),
       getFiscalProfileSettings(),
+      getSystemStatus(),
     ]);
   return {
     username: user.username,
@@ -66,6 +68,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     customerEmailSaved: url.searchParams.get("email") === "salvata",
     fiscalProfile,
     environment: getConfig().APP_ENV,
+    system,
     passwordChanged: url.searchParams.get("profilo") === "password",
     sessionsRevoked: url.searchParams.get("profilo") === "sessioni",
     preview:
@@ -583,6 +586,7 @@ export default function Settings() {
     customerEmailSaved,
     fiscalProfile,
     environment,
+    system,
     passwordChanged,
     sessionsRevoked,
   } = useLoaderData<typeof loader>();
@@ -812,8 +816,45 @@ export default function Settings() {
                 <dt>{copy.settings.timeZone}</dt>
                 <dd>Europe/Rome</dd>
               </div>
+              <div>
+                <dt>{copy.settings.applicationVersion}</dt>
+                <dd>{system.application.version}</dd>
+              </div>
+              <div>
+                <dt>{copy.settings.commit}</dt>
+                <dd>{system.application.commit}</dd>
+              </div>
+              <div>
+                <dt>{copy.settings.imageDigest}</dt>
+                <dd>{system.application.imageDigest}</dd>
+              </div>
+              <div>
+                <dt>{copy.settings.databaseSchema}</dt>
+                <dd>{system.schema.latest ?? copy.common.unavailable}</dd>
+              </div>
+              <div>
+                <dt>{copy.settings.workerQueue}</dt>
+                <dd>{copy.settings.workerQueueStatus(system.jobs.active, system.jobs.failed)}</dd>
+              </div>
+              <div>
+                <dt>{copy.settings.arubaKillSwitchStatus}</dt>
+                <dd>
+                  {system.arubaSubmissionEnabled ? copy.settings.enabled : copy.settings.disabled}
+                </dd>
+              </div>
+              <div>
+                <dt>{copy.settings.lastBackup}</dt>
+                <dd>
+                  {system.backup
+                    ? copy.settings.backupStatus(
+                        dateTime(system.backup.completedAt),
+                        system.backup.sizeBytes,
+                      )
+                    : copy.settings.backupPending}
+                </dd>
+              </div>
             </dl>
-            <p className="field-help">{copy.settings.systemFutureHelp}</p>
+            <p className="field-help">{copy.settings.systemOperationalHelp}</p>
           </section>
         </div>
       </div>

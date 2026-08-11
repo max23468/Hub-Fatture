@@ -29,7 +29,7 @@ test(
       const refunds = await import("./refunds.server.ts");
       const client = database.getPool();
       const user = await client.query<{ id: string }>(
-        "INSERT INTO users (username, password_hash, can_approve) VALUES ('matteo', 'synthetic', true) RETURNING id",
+        "INSERT INTO users (username, password_hash, can_approve) VALUES ('Massimo', 'synthetic', true) RETURNING id",
       );
       await client.query(
         "INSERT INTO fiscal_profiles (version, status, profile_json) VALUES (1, 'MOCK', $1)",

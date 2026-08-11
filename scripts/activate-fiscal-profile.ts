@@ -27,7 +27,7 @@ const profile = fiscalProfileFromAcceptedInvoiceXml(
 try {
   const owner = (
     await getPool().query<{ id: number; can_approve: boolean }>(
-      "SELECT id, can_approve FROM users WHERE username = 'matteo'",
+      "SELECT id, can_approve FROM users WHERE username = 'Massimo'",
     )
   ).rows[0];
   if (!owner?.can_approve) throw new Error("L’account del titolare non è configurato");

@@ -9,7 +9,7 @@ Prerequisiti:
 - serie privata `FPR` annuale verificata;
 - regola a cavallo d’anno confermata: data di approvazione e numerazione del nuovo anno;
 - procedura di scarto confermata: correzione con stessa data e stesso numero;
-- account `matteo` già configurato nel database;
+- account `Massimo` già configurato nel database;
 - variabili dell’ambiente applicativo caricate.
 
 Con un XML TD01 accettato disponibile in un percorso locale esterno al repository:

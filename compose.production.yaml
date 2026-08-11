@@ -1,0 +1,131 @@
+name: hub-fatture-production
+
+x-app-environment: &app-environment
+  ADMIN_BOOTSTRAP_TOKEN: ${ADMIN_BOOTSTRAP_TOKEN:?}
+  APP_BASE_URL: https://fatture.opik.net
+  APP_COMMIT_SHA: ${APP_COMMIT_SHA:?}
+  APP_ENV: production
+  APP_IMAGE_DIGEST: ${APP_IMAGE_DIGEST:?}
+  APP_VERSION: ${APP_VERSION:-0.0.0}
+  ARUBA_ACCOUNT_REFERENCE: ${ARUBA_ACCOUNT_REFERENCE:?}
+  ARUBA_SUBMISSION_ENABLED: "false"
+  BACKUP_RECEIPT_PATH: /app/operations/backup-receipt.json
+  CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:?}
+  DATABASE_URL: postgres://hub_fatture:${POSTGRES_PASSWORD:?}@postgres:5432/hub_fatture
+  DOCUMENT_STORAGE_ROOT: /app/storage/documents
+  EBAY_ACCOUNT_REFERENCE: ${EBAY_ACCOUNT_REFERENCE:-botCF}
+  EBAY_CLIENT_ID: ${EBAY_CLIENT_ID:-}
+  EBAY_CLIENT_SECRET: ${EBAY_CLIENT_SECRET:-}
+  EBAY_ENVIRONMENT: production
+  EBAY_RUNAME: ${EBAY_RUNAME:-}
+  SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
+  SHOPIFY_API_KEY: ${SHOPIFY_API_KEY:-}
+  SHOPIFY_API_SECRET: ${SHOPIFY_API_SECRET:-}
+  SHOPIFY_SHOP: ${SHOPIFY_SHOP:-}
+  SMTP_FROM: ${SMTP_FROM:?}
+  SMTP_HOST: smtp.email.eu-milan-1.oci.oraclecloud.com
+  SMTP_PASSWORD: ${SMTP_PASSWORD:?}
+  SMTP_PORT: "587"
+  SMTP_SECURE: "false"
+  SMTP_TRANSPORT: OCI_EMAIL_DELIVERY
+  SMTP_USERNAME: ${SMTP_USERNAME:?}
+
+x-app-security: &app-security
+  cap_drop: [ALL]
+  init: true
+  read_only: true
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:mode=1777,size=64m
+
+services:
+  caddy:
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    restart: unless-stopped
+    environment:
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:?}
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+      - ./data/logs/caddy:/var/log/caddy
+    networks: [frontend]
+    depends_on:
+      app-web:
+        condition: service_healthy
+    cpus: 0.25
+    mem_limit: 192m
+
+  app-web:
+    image: ${APP_IMAGE:?}
+    restart: unless-stopped
+    <<: *app-security
+    command: ["sh", "-c", "node build-server/db/migrate.js && npm start"]
+    environment: *app-environment
+    volumes:
+      - ./data/documents:/app/storage/documents
+      - ./data/operations:/app/operations:ro
+    networks: [frontend, backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    cpus: 0.35
+    mem_limit: 768m
+
+  app-worker:
+    image: ${APP_IMAGE:?}
+    restart: unless-stopped
+    <<: *app-security
+    command: ["node", "build-server/worker.js"]
+    environment: *app-environment
+    volumes:
+      - ./data/documents:/app/storage/documents
+      - ./data/operations:/app/operations:ro
+    networks: [frontend, backend]
+    depends_on:
+      app-web:
+        condition: service_healthy
+    cpus: 0.3
+    mem_limit: 768m
+
+  postgres:
+    image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hub_fatture
+      POSTGRES_USER: hub_fatture
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub_fatture -d hub_fatture"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    shm_size: 128m
+    cpus: 0.5
+    mem_limit: 2g
+
+networks:
+  frontend: {}
+  backend:
+    internal: true

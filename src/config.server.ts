@@ -4,12 +4,16 @@ const schema = z
   .object({
     ADMIN_BOOTSTRAP_TOKEN: z.string().min(32),
     APP_BASE_URL: z.url(),
+    APP_COMMIT_SHA: z.string().default("development"),
     APP_ENV: z.enum(["development", "production", "test"]).default("development"),
+    APP_IMAGE_DIGEST: z.string().default("local"),
+    APP_VERSION: z.string().default("0.0.0"),
     ARUBA_ACCOUNT_REFERENCE: z.string().trim().min(1).max(200).default("synthetic-aruba-account"),
     ARUBA_SUBMISSION_ENABLED: z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+    BACKUP_RECEIPT_PATH: z.string().trim().min(1).optional(),
     CREDENTIALS_ENCRYPTION_KEY: z
       .string()
       .transform((value) => value.trim() || undefined)

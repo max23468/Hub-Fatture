@@ -194,6 +194,68 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   assert.match(script, /docker compose up -d --build --wait app app-worker caddy/);
 });
 
+test("la baseline Production usa un solo digest senza esporre PostgreSQL", async () => {
+  const [compose, dockerfile, caddy, workflow] = await Promise.all(
+    [
+      "compose.production.yaml",
+      "Dockerfile",
+      "ops/Caddyfile.production",
+      ".github/workflows/production.yml",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
+  );
+  assert.equal(compose.match(/^    image: \$\{APP_IMAGE:\?\}$/gm)?.length, 2);
+  const postgres = compose.slice(compose.indexOf("\n  postgres:"), compose.indexOf("\nnetworks:"));
+  assert.doesNotMatch(postgres, /\n    ports:/);
+  assert.match(compose, /ARUBA_SUBMISSION_ENABLED: "false"/);
+  assert.match(compose, /read_only: true/);
+  assert.match(compose, /cap_drop: \[ALL\]/);
+  assert.match(dockerfile, /USER 10001:10001/);
+  assert.match(dockerfile, /test ! -e node_modules\/typescript/);
+  assert.match(caddy, /fatture\.opik\.net/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /git checkout --detach "\$CANDIDATE"/);
+  assert.match(workflow, /ref: \$\{\{ needs\.image\.outputs\.commit \}\}/);
+  assert.match(workflow, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
+  assert.match(workflow, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
+  assert.match(workflow, /backup\.sh deploy/);
+});
+
+test("gli script Production sono sintatticamente validi e conservano i gate di continuità", async () => {
+  const scripts = [
+    "ops/provision-production.sh",
+    "scripts/backup.sh",
+    "scripts/monitor-local.sh",
+    "scripts/production-deploy.sh",
+    "scripts/production-preflight.sh",
+    "scripts/production-readback.sh",
+    "scripts/read-env.sh",
+    "scripts/restore.sh",
+  ];
+  for (const script of scripts) {
+    const result = spawnSync("sh", ["-n", script], { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, `${script}: ${result.stderr}`);
+  }
+  const [deploy, monitor, restore] = await Promise.all(
+    ["scripts/production-deploy.sh", "scripts/monitor-local.sh", "scripts/restore.sh"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
+  assert.match(deploy, /data\/operations\/rollback\.env/);
+  assert.match(monitor, /app-web app-worker caddy postgres/);
+  assert.match(monitor, /\[ "\$current" != "\$previous" \]/);
+  assert.match(restore, /sha256sum "\$archive"/);
+  const preflight = await readFile(path.join(root, "scripts/production-preflight.sh"), "utf8");
+  assert.match(preflight, /dns_ip.*expected_public_ip/);
+  assert.doesNotMatch(preflight, /^\.\s+(?:\.\/)?\.env(?:\s|$)/m);
+  assert.doesNotMatch(preflight, /\beval\b/);
+  for (const file of ["scripts/backup.sh", "scripts/monitor-local.sh"]) {
+    const content = await readFile(path.join(root, file), "utf8");
+    assert.doesNotMatch(content, /^\.\s+(?:\.\/)?\.env(?:\s|$)/m);
+    assert.doesNotMatch(content, /\beval\b/);
+  }
+});
+
 test("il worker riconferma la lease dopo errori transitori di heartbeat", async () => {
   const worker = await readFile(path.join(root, "src/worker.ts"), "utf8");
   assert.doesNotMatch(worker, /leaseLost/);

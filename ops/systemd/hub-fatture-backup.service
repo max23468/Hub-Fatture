@@ -1,0 +1,14 @@
+[Unit]
+Description=Backup cifrato Hub Fatture
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=HUB_FATTURE_ROOT=/opt/hub-fatture
+ExecStart=/opt/hub-fatture/scripts/backup.sh scheduled
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+NoNewPrivileges=true

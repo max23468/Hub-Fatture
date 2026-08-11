@@ -4,7 +4,7 @@ Questo documento descrive capacità e gate delle fondazioni applicative. Evita r
 
 ## Capacità
 
-- React Router protetto da due account amministrativi nominali e fissi, `matteo` e `codex`.
+- React Router protetto da due account amministrativi nominali e fissi, `Massimo` e `Codex`; il login è case-insensitive e la forma canonica resta stabile in interfaccia e audit.
 - Password con minimo 8 caratteri e hash `scrypt` con i parametri di costo scritti nell’hash; session token e CSRF token hashati in PostgreSQL, entrambi i cookie `HttpOnly`.
 - Setup iniziale vincolato a token, rate limit login atomico per username, audit e cookie sicuri in Production.
 - Il rate limit del login ferma davvero le verifiche, e lo fa per origine: chi attacca blocca sé stesso, non il titolare che arriva da un altro indirizzo. Una soglia molto più alta per username resta come argine agli attacchi distribuiti. L’origine deriva dall’ultimo valore di `X-Forwarded-For`, l’unico che il client non può falsificare dietro l’unico ingresso Caddy; in accesso diretto tutte le richieste condividono un secchio. L’`ip_hash` vive quanto la finestra e viene rimosso dalla potatura di ogni login. Ogni episodio di blocco lascia un evento critico, uno solo, deduplicato sull’evento già registrato e non su un contatore che sotto concorrenza può scavalcare la soglia.

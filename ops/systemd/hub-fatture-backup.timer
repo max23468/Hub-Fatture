@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup giornaliero Hub Fatture
+
+[Timer]
+OnCalendar=*-*-* 02:17:00 Europe/Rome
+Persistent=true
+RandomizedDelaySec=15m
+Unit=hub-fatture-backup.service
+
+[Install]
+WantedBy=timers.target
