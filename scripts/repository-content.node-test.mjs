@@ -234,7 +234,9 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   );
   const deploy = workflow.slice(workflow.indexOf("\n  deploy:"));
   assert.match(deploy, /packages: read/);
-  assert.ok(deploy.indexOf("docker/login-action@") < deploy.indexOf("Verifica attestazione"));
+  const registryLogin = deploy.indexOf("docker/login-action@");
+  assert.notEqual(registryLogin, -1);
+  assert.ok(registryLogin < deploy.indexOf("Verifica attestazione"));
   assert.match(workflow, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
   assert.match(workflow, /backup\.sh deploy/);
 });
