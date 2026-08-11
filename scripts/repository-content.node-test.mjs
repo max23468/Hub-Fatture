@@ -217,6 +217,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(compose, /max-size: 10m/);
   assert.match(dockerfile, /USER 10001:10001/);
   assert.match(dockerfile, /test ! -e node_modules\/typescript/);
+  assert.match(dockerfile, /rm -rf \/usr\/local\/lib\/node_modules\/npm/);
+  assert.doesNotMatch(dockerfile, /CMD \["npm"/);
+  assert.doesNotMatch(compose, /npm start/);
+  assert.match(compose, /node node_modules\/@react-router\/serve\/bin\.cjs/);
   assert.match(dockerfile, /COPY --chown=hub-fatture:hub-fatture schemas \.\/schemas/);
   assert.match(caddy, /fatture\.opik\.net/);
   assert.match(workflow, /workflow_dispatch:/);

@@ -77,7 +77,12 @@ services:
     image: ${APP_IMAGE:?}
     restart: unless-stopped
     <<: *app-security
-    command: ["sh", "-c", "node build-server/db/migrate.js && npm start"]
+    command:
+      [
+        "sh",
+        "-c",
+        "node build-server/db/migrate.js && exec node node_modules/@react-router/serve/bin.cjs ./build/server/index.js",
+      ]
     environment: *app-environment
     volumes:
       - ./data/documents:/app/storage/documents
