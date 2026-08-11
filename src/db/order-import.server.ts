@@ -716,8 +716,12 @@ async function importOne(
     totalsReconciled,
     reviewFingerprint: fingerprint,
   };
+  const becameHistorical = Boolean(
+    input.historical && oldOrder?.billing_case_id && !oldOrder.historical && !invoiced,
+  );
   const sourceConflict = Boolean(
-    oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint,
+    becameHistorical ||
+    (oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint),
   );
   const revision = sourceConflict
     ? await client.query<{ id: string }>(
@@ -800,6 +804,7 @@ async function importOne(
         invoiced,
         billingCaseId: order.rows[0]!.billing_case_id,
         refundEffect: refundEffect.state,
+        becameHistorical,
       })
     : order.rows[0]!.billing_case_id;
   const previousAppliedRefundAmount = await replaceOrderChildren(
@@ -962,6 +967,7 @@ async function applySourceConflict(
     invoiced: boolean;
     billingCaseId: string | null;
     refundEffect: ReturnType<typeof preIssueRefund>["state"];
+    becameHistorical: boolean;
   },
 ) {
   const { input, oldOrder, orderId, customerId, status, invoiced } = context;
@@ -969,7 +975,9 @@ async function applySourceConflict(
     ? ("CANCELLED" as const)
     : input.paymentStatus === "REFUNDED" || context.refundEffect === "TOTAL"
       ? ("REFUNDED" as const)
-      : null;
+      : context.becameHistorical
+        ? ("HISTORICAL" as const)
+        : null;
   if (!reason && !invoiced) {
     await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
       orderId,
@@ -992,7 +1000,9 @@ async function applySourceConflict(
         ? "Ordine annullato dalla sorgente"
         : reason === "REFUNDED"
           ? "Ordine rimborsato prima dell’emissione"
-          : null,
+          : reason === "HISTORICAL"
+            ? "Ordine storico da confrontare con Aruba"
+            : null,
     ],
   );
   await writeAudit(client, {
@@ -1068,6 +1078,13 @@ async function applySourceConflict(
         actor,
       );
     }
+  }
+  if (reason === "HISTORICAL") {
+    await client.query(
+      `UPDATE orders SET billing_case_id = NULL, trigger_status = $2 WHERE id = $1`,
+      [orderId, status],
+    );
+    return null;
   }
   if (
     !reason &&
@@ -1299,7 +1316,7 @@ async function replaceOrderChildren(
 export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJob) {
   let orders: OrderInput[];
   try {
-    orders = orderInputSchema.array().min(1).parse(input);
+    orders = orderInputSchema.array().parse(input);
   } catch {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }

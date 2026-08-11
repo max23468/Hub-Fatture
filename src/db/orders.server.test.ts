@@ -1559,6 +1559,59 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       "1",
     );
 
+    const upgradedHistorical = structuredClone(fixture[0]);
+    upgradedHistorical.externalOrderId = "shop-order-upgraded-historical";
+    upgradedHistorical.externalCustomerId = "shop-customer-upgraded-historical";
+    upgradedHistorical.customer.taxIdentifiers[0].value = "RSSMRA80A01H501E";
+    upgradedHistorical.createdAt = "2026-08-18T08:00:00Z";
+    upgradedHistorical.updatedAt = "2026-08-18T09:00:00Z";
+    upgradedHistorical.historical = false;
+    await orders.importOrders([upgradedHistorical], {
+      id: 1,
+      requestId: "test-before-history-upgrade",
+    });
+    const upgradedBefore = (
+      await database.getPool().query(
+        `SELECT orders.id, orders.billing_case_id, billing_cases.status
+         FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+         WHERE orders.external_order_id = $1`,
+        [upgradedHistorical.externalOrderId],
+      )
+    ).rows[0];
+    assert.equal(upgradedBefore.status, "READY");
+    upgradedHistorical.historical = true;
+    upgradedHistorical.updatedAt = "2026-08-18T10:00:00Z";
+    await orders.importOrders([upgradedHistorical], {
+      id: 1,
+      requestId: "test-history-upgrade",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_case_id, trigger_status,
+                  normalized_snapshot_json ->> 'historical' AS historical
+           FROM orders WHERE id = $1`,
+          [upgradedBefore.id],
+        )
+      ).rows[0],
+      { billing_case_id: null, trigger_status: "LEGACY_BILLING_REVIEW", historical: "true" },
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [upgradedBefore.billing_case_id])
+      ).rows[0].status,
+      "DO_NOT_TRANSMIT",
+    );
+    await assert.rejects(
+      orders.forcePrepareOrder(upgradedBefore.id, {
+        id: 1,
+        requestId: "test-force-upgraded-historical",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
+    );
+
     const historical = structuredClone(fixture[0]);
     historical.externalOrderId = "shop-order-historical";
     historical.externalCustomerId = "shop-customer-historical";

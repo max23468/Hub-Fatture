@@ -49,6 +49,10 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).rows[0].total,
       0,
     );
+    assert.deepEqual(
+      await importOrders([], { type: "SYSTEM", requestId: "shopify-history-empty" }),
+      { imported: 0, updated: 0, ignored: 0 },
+    );
     await connectors.completeHistoryImport(
       "SHOPIFY",
       "2026-08-12T10:00:00Z",
@@ -109,6 +113,13 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).rows[0].total,
       0,
     );
+    assert.deepEqual(await importOrders([], { type: "SYSTEM", requestId: "ebay-history-empty" }), {
+      imported: 0,
+      updated: 0,
+      ignored: 0,
+    });
+    await connectors.completeHistoryImport("EBAY", "2026-08-12T10:00:00Z", "2026-08-12T09:55:00Z");
+    assert.equal(await connectors.historyImportPending("EBAY"), false);
     await getPool().query("DELETE FROM jobs WHERE type = 'shopify_sync_orders'");
     await connectors.saveConnection(
       {
@@ -119,7 +130,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       },
       systemActor,
     );
-    assert.equal((await connectors.readCursor("EBAY")).cursor, "cursor-sintetico");
+    assert.equal((await connectors.readCursor("EBAY")).cursor, "2026-08-12T10:00:00Z");
     assert.ok(
       (
         await getPool().query(
@@ -137,6 +148,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       systemActor,
     );
     assert.equal((await connectors.readCursor("EBAY")).cursor, null);
+    assert.equal(await connectors.historyImportPending("EBAY"), true);
     assert.equal(
       (
         await getPool().query(
