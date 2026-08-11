@@ -218,7 +218,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await connectionClient.query(
     `INSERT INTO connections
        (provider, environment, account_reference, encrypted_credentials, status)
-     VALUES ('SHOPIFY', 'DEVELOPMENT', 'shop.example.invalid', 'synthetic', 'CONNECTED')`,
+     VALUES ('SHOPIFY', 'DEVELOPMENT', 'shop.example.invalid', 'synthetic', 'CONNECTED')
+     ON CONFLICT (provider, environment) DO UPDATE SET status = 'CONNECTED'`,
   );
   await connectionClient.end();
   await page.getByRole("link", { name: "Impostazioni" }).click();
@@ -273,6 +274,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toBeLessThan(240);
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toBeVisible();
+  await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Ordini");
   const mobileNavigation = await page.locator(".nav-item").evaluateAll((items) =>
     items.map((item) => ({
       current: item.getAttribute("aria-current"),
