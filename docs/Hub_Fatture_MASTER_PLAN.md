@@ -2907,7 +2907,7 @@ Gate:
 
 ### M6 - Note di credito ed e-mail
 
-**Stato: in corso.** L’implementazione e le [evidenze locali](evidence/credit-notes-email.md) sono disponibili; HF-O07 resta aperta fino al PoC e alla scelta del solo trasporto Production, senza anticipare operazioni OCI, DNS, credenziali o invii.
+**Stato: completata.** Evidenze ripetibili: [note di credito ed e-mail](evidence/credit-notes-email.md), prove PostgreSQL, E2E sintetico e PoC OCI Email Delivery. HF-O07 è chiusa su `OCI_EMAIL_DELIVERY` come unico trasporto canonico, con volume massimo stimato di 500 copie mensili rispetto al margine prudenziale di 2.500.
 
 Output:
 
@@ -3394,7 +3394,7 @@ Questi punti non sono dimenticanze. Sono sospesi intenzionalmente perché dipend
 | HF-O04 | Mapping campi fiscali Shopify | connettore Shopify completo | query su ordine reale e API corrente | contract fixture anonimizzata e mapper testato |
 | HF-O05 | Forma tax identifier e importi rimborso eBay | connettore eBay completo e TD04 | payload Sandbox/reali e API corrente | fixture, mapper e casi ambigui verificati |
 | HF-O06 | Locatori, pause di autenticazione, limiti, download e stati del pannello Aruba | M8 e Production | audit autenticato, prova controllata e guide correnti | helper sui due sistemi operativi, mapping, fallback manuale e recovery da stato incerto verificati sul candidato e qualificati sul pannello reale senza invio |
-| HF-O07 | Trasporto e limiti SMTP | invio copia cliente | controllo DNS del dominio mittente; solo se presente, provider esistente e PoC OCI Email Delivery | assenza di controllo DNS chiude la decisione su «SMTP esistente» senza PoC; altrimenti un solo trasporto canonico scelto con consegna, errore, suppression e reinvio verificati senza segreti o dati cliente nei log |
+| HF-O07 | Trasporto e limiti SMTP — chiusa su `OCI_EMAIL_DELIVERY` | invio copia cliente | PoC OCI nella regione di Milano e stima del titolare | dominio, SPF/DKIM, mittente, autenticazione, consegna, errore, hard bounce, suppression e reinvio verificati; volume massimo stimato di 500 copie mensili sotto il margine prudenziale di 2.500 |
 | HF-O08 | Retention fiscale e tecnica definitiva | go-live | commercialista, obblighi applicabili e capacità storage | durate, eccezioni e procedura di cancellazione approvate |
 | HF-O09 | Direzione visiva della Brand Foundation leggera | UI definitiva | due o tre proposte minime coerenti con uso privato e accessibilità | il titolare approva `docs/brand/brand-foundation.md`, SVG canonico e asset richiesti senza ampliare il perimetro |
 

@@ -52,17 +52,20 @@ const schema = z
   .refine(
     ({ APP_ENV, SMTP_HOST, SMTP_PASSWORD, SMTP_TRANSPORT, SMTP_USERNAME }) =>
       APP_ENV !== "production" ||
-      (SMTP_TRANSPORT !== "SYNTHETIC" && Boolean(SMTP_HOST && SMTP_USERNAME && SMTP_PASSWORD)),
+      (SMTP_TRANSPORT === "OCI_EMAIL_DELIVERY" &&
+        SMTP_HOST === "smtp.email.eu-milan-1.oci.oraclecloud.com" &&
+        Boolean(SMTP_USERNAME && SMTP_PASSWORD)),
     {
-      message: "Il trasporto SMTP Production richiede un solo provider e credenziali complete",
+      message:
+        "Il trasporto SMTP Production richiede OCI Email Delivery a Milano e credenziali complete",
       path: ["SMTP_TRANSPORT"],
     },
   )
   .refine(
     ({ APP_ENV, SMTP_FROM }) =>
-      APP_ENV !== "production" || !SMTP_FROM.toLowerCase().endsWith(".invalid"),
+      APP_ENV !== "production" || SMTP_FROM.toLowerCase().endsWith("@numisleo.it"),
     {
-      message: "SMTP_FROM deve essere l’indirizzo reale del negozio in Production",
+      message: "SMTP_FROM deve usare il dominio numisleo.it in Production",
       path: ["SMTP_FROM"],
     },
   )
@@ -91,6 +94,9 @@ export function parseConfig(environment: NodeJS.ProcessEnv): Config {
   return schema.parse({
     ...environment,
     APP_BASE_URL: environment.APP_BASE_URL ?? environment.APP_URL ?? environment.HOST,
+    SMTP_HOST: environment.SMTP_HOST || undefined,
+    SMTP_PASSWORD: environment.SMTP_PASSWORD || undefined,
+    SMTP_USERNAME: environment.SMTP_USERNAME || undefined,
   });
 }
 

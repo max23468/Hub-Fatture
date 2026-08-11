@@ -2,9 +2,9 @@
 
 ## Stato e confine
 
-Il titolare ha confermato il controllo del dominio mittente e dei suoi record DNS. Questa sessione prepara il PoC ma non autorizza creazione di risorse OCI, modifiche DNS/SPF/DKIM, richiesta o uso di credenziali SMTP, consultazione di suppression contenenti dati reali o invio di e-mail.
+Il titolare ha confermato il controllo del dominio mittente e ha autorizzato il PoC Development. Nella regione di Milano risultano attivi il dominio e-mail, la firma DKIM e un mittente approvato; il record SPF con OCI Europa è pubblicato e verificato sui quattro server Aruba e sui resolver pubblici. La credenziale SMTP dedicata è custodita soltanto nel file locale ignorato da Git e leggibile dal solo titolare.
 
-Il preflight documentale corrente rileva inoltre che la tabella ufficiale dei [limiti OCI](https://docs.oracle.com/en-us/iaas/Content/General/service-limits/default.htm#email-delivery-limits) indica `max-emails-day = 0` per Always Free. Prima di qualsiasi risorsa va quindi verificata nella tenancy e nella regione scelte l’esistenza di una quota gratuita effettivamente utilizzabile. In assenza, il vincolo «nessun provider a pagamento» rende OCI non idoneo e il trasporto canonico resta l’SMTP esistente.
+La tenancy espone a Milano un limite tecnico di 50.000 e-mail al giorno. Questo limite non è una soglia di spesa: il listino OCI include gratuitamente le prime 3.000 e-mail al mese e tariffa l'eccedenza. Il titolare stima al massimo 500 copie mensili; anche applicando il margine operativo prudenziale di 2.500 invii, Hub-Fatture resta nella fascia gratuita.
 
 ## Preparazione completata
 
@@ -12,25 +12,41 @@ Il preflight documentale corrente rileva inoltre che la tabella ufficiale dei [l
 - Development sintetico senza rete e Production fail-closed senza configurazione completa;
 - sender, destinatario, contenuto, allegato, tentativi e Message-ID persistiti senza finire nei log;
 - casi consegna, errore, retry e crash riproducibili localmente con trasporto JSON;
+- dominio, DKIM e mittente approvato verificati attivi nella stessa regione;
+- SPF OCI pubblicato e verificato sui DNS autorevoli e pubblici;
+- configurazione Compose condivisa da app e worker, protetta dal default sintetico;
+- autenticazione TLS riuscita e credenziale alterata rifiutata con il solo codice sanificato;
+- primo invio e reinvio manuale accettati verso il mittente controllato, con allegato sintetico;
+- primo invio e reinvio confermati nella casella controllata, allegati compresi;
+- hard bounce ottenuto con un solo indirizzo riservato `.invalid` e suppression automatica verificata;
 - criteri e record di uscita definiti qui sotto.
 
-## Esecuzione futura, solo dopo autorizzazioni specifiche
+## Confronto con l'SMTP esistente
 
-1. Rileggere nella Console OCI regione, endpoint, quote, limiti e assenza di costi attivabili; interrompere se l’invio gratuito non è disponibile.
-2. Scegliere un compartment non root e una regione sola. Approved sender e domini sono regionali: [documentazione Oracle](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/gettingstarted_topic-Create_an_approved_sender.htm).
-3. Creare identità e policy minime dedicate, dominio e approved sender. Non riusare credenziali applicative esistenti.
-4. Preparare e far approvare le modifiche DNS seguendo le guide OCI per [SPF](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/configurespf.htm) e DKIM; applicarle soltanto con un’autorizzazione DNS separata.
-5. Creare credenziali SMTP dedicate e custodirle nel secret store soltanto con autorizzazione separata.
-6. Con documento e destinatario controllati, provare inbox, Message-ID, errore stabile, hard bounce, [suppression](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/managingsuppressionlist.htm) e reinvio. Ogni invio richiede un’ulteriore autorizzazione esplicita.
-7. Confrontare OCI e SMTP esistente per autenticazione, deliverability osservata, limiti, diagnosi, costi e semplicità operativa.
-8. Scegliere un solo trasporto Production, aggiornare contratto ed evidenza e rimuovere le risorse OCI se il PoC fallisce.
+Il readback pubblico del 2026-08-11T13:11:20Z identifica Google come servizio di posta già autorizzato dal dominio: i record MX puntano a Google e lo SPF include `_spf.google.com`. Il titolare conferma che l'indirizzo mittente è già usato dal negozio. Il confronto non ha richiesto credenziali Google né un altro invio.
+
+| Criterio                 | SMTP esistente del negozio                                                                                                                                                       | OCI Email Delivery                                                                                                                      | Esito                                                              |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Autenticazione           | funziona per l'uso umano corrente, ma Hub-Fatture non dispone di una credenziale applicativa dedicata; l'adozione richiederebbe una password per app o OAuth legati alla casella | credenziale SMTP separata, autenticazione TLS riuscita e credenziale alterata rifiutata con `EAUTH`                                     | OCI separa l'app dalla casella personale                           |
+| Deliverability osservata | posta ordinaria del negozio operativa; nessuna prova applicativa isolata con allegato, mancata consegna e reinvio                                                                | primo invio e reinvio ricevuti con allegato; hard bounce e suppression osservati                                                        | OCI copre l'intero percorso richiesto a Hub-Fatture                |
+| Limiti                   | dipendono dal piano e dall'account Google correnti; la quota applicabile non è stata qualificata per un client automatico                                                        | limite tecnico della tenancy 50.000 al giorno, prime 3.000 e-mail mensili incluse e massimo previsto 500, con margine prudenziale 2.500 | OCI ha capacità e costo verificati per il volume previsto          |
+| Diagnosi                 | nessuna ricevuta o suppression applicativa dedicata è stata dimostrata; la diagnosi resterebbe mescolata alla casella usata dal negozio                                          | errori SMTP sanificati, conteggio accettati/rifiutati e suppression OCI con ID e motivo `HARDBOUNCE`                                    | OCI offre un confine diagnostico dedicato                          |
+| Semplicità operativa     | evita nuove risorse, ma richiede collegare Hub-Fatture alla casella e al suo ciclo di credenziali e autenticazione                                                               | dominio, DKIM, SPF, mittente e credenziale dedicata sono già verificati; app e worker condividono un solo trasporto                     | OCI è più semplice da gestire senza coinvolgere la posta personale |
+
+L'SMTP esistente resta tecnicamente possibile, ma non offre oggi un'identità applicativa isolata né la stessa evidenza end-to-end. OCI soddisfa tutti e cinque i criteri senza un nuovo provider a pagamento e viene quindi scelto come unico trasporto canonico.
+
+## Decisione
+
+`OCI_EMAIL_DELIVERY` è il solo trasporto SMTP canonico scelto per Hub-Fatture. Non esistono fallback o doppio invio. La configurazione Production e il relativo secret store appartengono alla fase di messa in produzione; l'app Development già in esecuzione resta sintetica finché non viene riavviata nel normale ciclo operativo.
+
+HF-O07 si riapre se il volume previsto raggiunge 2.500 invii mensili, se cambia la fascia gratuita o se consegna e suppression non restano affidabili. In quel caso Hub-Fatture torna a `SYNTHETIC` finché il titolare non approva un nuovo trasporto gratuito.
 
 ## Evidenza necessaria per chiudere HF-O07
 
-- quota e assenza di costi lette dalla tenancy nella regione scelta;
+- volume previsto compatibile con la fascia gratuita e assenza di costi verificata;
 - sender e allineamento SPF/DKIM verificati senza pubblicare valori sensibili;
 - consegna, errore, hard bounce, suppression e reinvio osservati con dati sintetici;
 - nessun destinatario, contenuto, credenziale o risposta SMTP integrale nei log;
 - decisione `EXISTING_SMTP` o `OCI_EMAIL_DELIVERY`, con motivazione e rollback.
 
-Senza tutti questi punti la decisione sul trasporto e la milestone corrente restano aperte.
+Tutti i punti sono verificati. HF-O07 è chiusa su `OCI_EMAIL_DELIVERY`.

@@ -18,7 +18,7 @@
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                    | Export, upload manuale, readback e import                 | Corrente    | Sì             |
 | [Integrazione Aruba locale](evidence/aruba-helper.md)                  | Capacità locali e gate reale pre-Canary                   | Corrente    | No             |
 | [Note di credito ed e-mail](contracts/credit-notes-email.md)           | Contratto TD04, trigger e trasporto cliente               | Candidato   | Sì             |
-| [PoC OCI Email Delivery](runbooks/oci-email-delivery-poc.md)           | Preflight e prova Development con stop gate               | Preparato   | Sì             |
+| [PoC OCI Email Delivery](runbooks/oci-email-delivery-poc.md)           | Preflight e prova Development con stop gate               | Completato  | Sì             |
 | [Evidenza note ed e-mail](evidence/credit-notes-email.md)              | Prove sintetiche e gate trasporto residuo                 | Corrente    | No             |
 
 Nuovi contratti, evidenze e runbook vengono creati soltanto quando esiste contenuto reale.
