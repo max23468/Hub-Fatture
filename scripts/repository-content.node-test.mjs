@@ -349,16 +349,16 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(workflow, /Caddyfile\.next/);
   assert.match(
     workflow,
-    /test -f \/opt\/hub-fatture\/\.deploy\.env.*test -x \/opt\/hub-fatture\/scripts\/backup\.sh.*backup\.sh pre-deploy/,
+    /test -f \/opt\/hub-fatture\/\.deploy\.env.*HUB_FATTURE_ROOT=\/opt\/hub-fatture '\$target\/backup\.sh' pre-deploy/,
   );
-  assert.match(
-    workflow,
-    /elif sudo test -f \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json; then echo 'Script di backup Production assente'.*exit 1/,
-  );
+  assert.doesNotMatch(workflow, /\/opt\/hub-fatture\/scripts\/backup\.sh pre-deploy/);
+  const preDeployBackup = workflow.indexOf("'$target/backup.sh' pre-deploy");
   const candidateDeploy = workflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
   const operationalInstall = workflow.indexOf("sudo install -m 750 '$target/backup.sh'");
   assert.ok(
-    candidateDeploy >= 0 && candidateDeploy < operationalInstall,
+    preDeployBackup >= 0 &&
+      preDeployBackup < candidateDeploy &&
+      candidateDeploy < operationalInstall,
     "il bundle operativo candidato va installato solo dopo il readback del deploy",
   );
   assert.match(monitor, /app-web app-worker caddy postgres/);
