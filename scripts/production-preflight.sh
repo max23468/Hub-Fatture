@@ -2,10 +2,11 @@
 set -eu
 
 root=${HUB_FATTURE_ROOT:-/opt/hub-fatture}
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 expected_hostname=${EXPECTED_HOSTNAME:-fatture-hub-vm}
 expected_region=${OCI_REGION:-eu-milan-1}
 # shellcheck disable=SC1091
-. "$root/scripts/read-env.sh"
+. "$script_dir/read-env.sh"
 
 fail() {
   echo "Preflight Production bloccato: $1" >&2
@@ -31,17 +32,20 @@ metadata=$(curl --fail --silent --show-error --max-time 3 \
   || fail "regione OCI inattesa"
 
 for name in ADMIN_BOOTSTRAP_TOKEN AGE_RECIPIENT CADDY_ACME_EMAIL CREDENTIALS_ENCRYPTION_KEY \
-  EXPECTED_PUBLIC_IP OCI_BACKUP_BUCKET OCI_NAMESPACE POSTGRES_PASSWORD SMTP_FROM SMTP_PASSWORD \
-  SMTP_USERNAME; do
+  EXPECTED_PUBLIC_IP OCI_BACKUP_BUCKET OCI_NAMESPACE OCI_NOTIFICATIONS_TOPIC_OCID \
+  POSTGRES_PASSWORD SMTP_FROM SMTP_PASSWORD SMTP_USERNAME; do
   value=$(env_value "$root/.env" "$name")
   [ -n "$value" ] || fail "variabile $name assente"
 done
 expected_public_ip=$(env_value "$root/.env" EXPECTED_PUBLIC_IP)
+notifications_topic=$(env_value "$root/.env" OCI_NOTIFICATIONS_TOPIC_OCID)
 smtp_from=$(env_value "$root/.env" SMTP_FROM)
 printf '%s' "$expected_public_ip" | grep -Eq '^([0-9]{1,3}[.]){3}[0-9]{1,3}$' \
   || fail "IP pubblico atteso non valido"
 dns_ip=$(getent ahostsv4 fatture.opik.net | awk 'NR == 1 { print $1 }')
 [ "$dns_ip" = "$expected_public_ip" ] || fail "Dynu non punta all’IP OCI atteso"
+printf '%s' "$notifications_topic" | grep -Eq '^ocid1\.onstopic\.oc1\.' \
+  || fail "Notifications Topic OCI non valido"
 [ "$(env_value "$root/.env" ARUBA_SUBMISSION_ENABLED)" = "false" ] \
   || fail "kill switch Aruba non disabilitato"
 case "$(printf '%s' "$smtp_from" | tr '[:upper:]' '[:lower:]')" in

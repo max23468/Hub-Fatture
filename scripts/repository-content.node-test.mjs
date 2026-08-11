@@ -257,6 +257,11 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.doesNotMatch(backup, /\.data\."(?:content-length|opc-meta-sha256)"/);
   assert.match(backup, /exec 9>\.\/backup\.lock/);
   assert.match(backup, /flock -n 9/);
+  assert.ok(
+    backup.indexOf("trap notify_failure EXIT HUP INT TERM") <
+      backup.indexOf("exec 9>./backup.lock"),
+    "la contesa del lock deve attraversare il trap di notifica",
+  );
   const pauseWriters = backup.lastIndexOf("\n  pause app-web app-worker");
   const reconcileStorage = backup.indexOf("reconcileDocumentStorage", pauseWriters);
   const databaseDump = backup.indexOf("pg_dump", reconcileStorage);
@@ -276,6 +281,11 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /data\/operations\/rollback\.env/);
   assert.match(deploy, /data\/operations\/rollback\.compose\.yaml/);
   assert.match(deploy, /data\/operations\/rollback\.Caddyfile/);
+  assert.match(deploy, /exec 9>\.\/backup\.lock/);
+  assert.doesNotMatch(deploy, /deploy\.lock/);
+  assert.match(deploy, /HUB_FATTURE_CANDIDATE_DIR/);
+  assert.match(deploy, /"\$candidate_dir\/production-preflight\.sh"/);
+  assert.match(deploy, /"\$candidate_dir\/production-readback\.sh"/);
   assert.match(deploy, /current_schema.*previous_schema/);
   assert.match(deploy, /rollback automatico vietato.*forward-fix/);
   assert.match(deploy, /cp "\$previous_compose" compose\.yaml/);
@@ -284,6 +294,12 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /production-readback\.sh >\/dev\/null/);
   assert.match(workflow, /compose\.yaml\.next/);
   assert.match(workflow, /Caddyfile\.next/);
+  const candidateDeploy = workflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
+  const operationalInstall = workflow.indexOf("sudo install -m 750 '$target/backup.sh'");
+  assert.ok(
+    candidateDeploy >= 0 && candidateDeploy < operationalInstall,
+    "il bundle operativo candidato va installato solo dopo il readback del deploy",
+  );
   assert.match(monitor, /app-web app-worker caddy postgres/);
   assert.match(monitor, /for service in app-web postgres/);
   assert.match(monitor, /jq -r '\.Health \/\/ empty'/);
@@ -292,6 +308,8 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(restore, /sha256sum "\$archive"/);
   const preflight = await readFile(path.join(root, "scripts/production-preflight.sh"), "utf8");
   assert.match(preflight, /for command in age curl docker flock jq oci/);
+  assert.match(preflight, /OCI_NOTIFICATIONS_TOPIC_OCID/);
+  assert.match(preflight, /\^ocid1\\\.onstopic\\\.oc1\\\./);
   assert.match(preflight, /dns_ip.*expected_public_ip/);
   assert.doesNotMatch(preflight, /^\.\s+(?:\.\/)?\.env(?:\s|$)/m);
   assert.doesNotMatch(preflight, /\beval\b/);

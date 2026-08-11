@@ -7,8 +7,6 @@ cd "$root"
 # shellcheck disable=SC1091
 . ./scripts/read-env.sh
 notifications_topic=$(env_value .env OCI_NOTIFICATIONS_TOPIC_OCID)
-exec 9>./backup.lock
-flock -n 9 || { echo "Un altro backup è in corso" >&2; exit 1; }
 
 notify_failure() {
   status=${1:-$?}
@@ -22,6 +20,9 @@ notify_failure() {
   exit "$status"
 }
 trap notify_failure EXIT HUP INT TERM
+
+exec 9>./backup.lock
+flock -n 9 || { echo "Un backup o deploy è già in corso" >&2; exit 1; }
 
 for name in AGE_RECIPIENT OCI_BACKUP_BUCKET OCI_NAMESPACE; do
   value=$(env_value .env "$name")

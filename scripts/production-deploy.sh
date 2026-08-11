@@ -11,14 +11,19 @@ printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$
   || { echo "Versione non valida" >&2; exit 2; }
 
 root=${HUB_FATTURE_ROOT:-/opt/hub-fatture}
+candidate_dir=${HUB_FATTURE_CANDIDATE_DIR:-$root/scripts}
 image="ghcr.io/max23468/hub-fatture@$digest"
 cd "$root"
-exec 9>./deploy.lock
-flock -n 9 || { echo "Un altro deploy è in corso" >&2; exit 1; }
+exec 9>./backup.lock
+flock -n 9 || { echo "Un backup o deploy è già in corso" >&2; exit 1; }
 [ -f compose.yaml.next ] || { echo "Compose candidato assente" >&2; exit 1; }
 [ -f Caddyfile.next ] || { echo "Caddyfile candidato assente" >&2; exit 1; }
+[ -x "$candidate_dir/production-preflight.sh" ] \
+  || { echo "Preflight candidato assente" >&2; exit 1; }
+[ -x "$candidate_dir/production-readback.sh" ] \
+  || { echo "Readback candidato assente" >&2; exit 1; }
 
-./scripts/production-preflight.sh
+"$candidate_dir/production-preflight.sh"
 docker pull "$image"
 docker image inspect "$image" >/dev/null
 
@@ -77,7 +82,7 @@ rollback() {
 }
 
 if ! docker compose -f compose.yaml --env-file .env --env-file .deploy.env up -d --wait --force-recreate \
-  || ! ./scripts/production-readback.sh >data/operations/deploy-receipt.json.next; then
+  || ! "$candidate_dir/production-readback.sh" >data/operations/deploy-receipt.json.next; then
   if rollback; then
     echo "Deploy non riuscito; rollback applicativo verificato" >&2
   else

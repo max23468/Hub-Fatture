@@ -11,12 +11,12 @@ La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL n
 1. Gate locali e CI verdi sul commit esatto.
 2. DNS Dynu, istanza, regione e hostname verificati da `scripts/production-preflight.sh`.
 3. Environment `Production` limitato a `main` e protetto dal solo titolare.
-4. `.env` VPS con permessi `600`, senza valori nei log o nella repository.
+4. `.env` VPS con permessi `600`, Notifications Topic OCI obbligatorio e nessun valore nei log o nella repository.
 5. Digest di rollback presente in `.deploy.env` e ultimo backup verificato quando il deploy modifica schema o storage.
 
 ## Deploy e readback
 
-Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, prepara Compose e Caddyfile come candidati, installa gli script versionati, esegue il pull per digest e attende gli health check. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
+Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, prepara Compose, Caddyfile e bundle operativo come candidati, esegue il pull per digest e attende gli health check. Gli script e le unità `systemd` candidate vengono installati soltanto dopo il readback riuscito, così un rollback continua a usare il bundle operativo precedente. Backup e deploy condividono lo stesso lock per l’intera fase critica. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
 
 Controlli conclusivi:
 
