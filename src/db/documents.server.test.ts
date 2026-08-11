@@ -125,6 +125,35 @@ test(
       let [firstProjection, secondProjection, thirdProjection] = await Promise.all(
         cases.map((billingCase) => save(billingCase.id)),
       );
+      assert.equal(secondProjection.lines.length, 1);
+      assert.equal(secondProjection.lines[0]!.unitAmount % 2, 0);
+      await documents.saveInvoiceDraft(
+        cases[1]!.id,
+        {
+          caseRevision: secondProjection.caseRevision,
+          draftVersion: secondProjection.draftVersion,
+          differenceReason: "",
+          paymentStatus: secondProjection.paymentStatus,
+          paymentMethod: secondProjection.paymentMethod,
+          causale: "",
+          notes: "",
+          lines: [
+            {
+              ...secondProjection.lines[0]!,
+              quantity: 2,
+              unitAmount: secondProjection.lines[0]!.unitAmount / 2,
+            },
+          ],
+        },
+        { id: 1, canApprove: true, requestId: "documents-split-line-before-refund" },
+      );
+      const splitLineProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        splitLineProjection &&
+          !splitLineProjection.profileMissing &&
+          "lines" in splitLineProjection,
+      );
+      secondProjection = splitLineProjection;
       second.updatedAt = "2026-08-11T10:00:00Z";
       second.refunds = [
         {
@@ -148,6 +177,10 @@ test(
       assert.equal(partialRefundProjection.total, 9700);
       assert.equal(partialRefundProjection.sourceTotal, 9700);
       assert.equal(partialRefundProjection.requiresResave, false);
+      assert.deepEqual(
+        partialRefundProjection.lines.map(({ quantity, unitAmount }) => ({ quantity, unitAmount })),
+        [{ quantity: 1, unitAmount: 9700 }],
+      );
       assert.deepEqual(
         (
           await database.getPool().query(
@@ -179,7 +212,82 @@ test(
         ).rows[0].count,
         "1",
       );
-      secondProjection = partialRefundProjection;
+      second.updatedAt = "2026-08-11T11:00:00Z";
+      second.refunds = [
+        {
+          externalRefundId: "shop-refund-before-issue",
+          status: "PENDING",
+          amount: null,
+          completedAt: null,
+          raw: {},
+        },
+      ];
+      await orders.importOrders([second], {
+        id: 1,
+        requestId: "documents-partial-refund-reversed",
+      });
+      const restoredRefundProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        restoredRefundProjection &&
+          !restoredRefundProjection.profileMissing &&
+          "lines" in restoredRefundProjection,
+      );
+      assert.equal(restoredRefundProjection.total, 12_200);
+      assert.equal(restoredRefundProjection.sourceTotal, 12_200);
+      assert.equal(restoredRefundProjection.requiresResave, false);
+      assert.deepEqual(
+        restoredRefundProjection.lines.map(({ quantity, unitAmount }) => ({
+          quantity,
+          unitAmount,
+        })),
+        [{ quantity: 1, unitAmount: 12_200 }],
+      );
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT orders.trigger_status, billing_cases.status AS case_status,
+                    refunds.applied_before_issue
+             FROM orders
+             JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+             JOIN refunds ON refunds.order_id = orders.id
+             WHERE refunds.external_refund_id = 'shop-refund-before-issue'`,
+          )
+        ).rows[0],
+        { trigger_status: "GROUPED", case_status: "READY", applied_before_issue: false },
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query(
+              "SELECT count(*) FROM audit_events WHERE action = 'REFUND_REVERSED_BEFORE_ISSUE'",
+            )
+        ).rows[0].count,
+        "1",
+      );
+      second.updatedAt = "2026-08-11T12:00:00Z";
+      second.refunds = [
+        {
+          externalRefundId: "shop-refund-before-issue",
+          status: "COMPLETED",
+          amount: "25.00",
+          completedAt: "2026-08-11T09:30:00Z",
+          raw: {},
+        },
+      ];
+      await orders.importOrders([second], {
+        id: 1,
+        requestId: "documents-partial-refund-reapplied",
+      });
+      const reappliedRefundProjection = await documents.getInvoiceProjection(cases[1]!.id);
+      assert.ok(
+        reappliedRefundProjection &&
+          !reappliedRefundProjection.profileMissing &&
+          "lines" in reappliedRefundProjection,
+      );
+      assert.equal(reappliedRefundProjection.total, 9700);
+      assert.equal(reappliedRefundProjection.requiresResave, false);
+      secondProjection = reappliedRefundProjection;
       await orders.correctBillingCaseCustomer(
         cases[2]!.id,
         {

@@ -649,6 +649,7 @@ export const auditActionLabels = {
   PROVIDER_CONNECTED: "Canale di vendita collegato",
   PROVIDER_REVOKED: "Canale di vendita scollegato",
   REFUND_APPLIED_BEFORE_ISSUE: "Rimborso applicato prima dell’emissione",
+  REFUND_REVERSED_BEFORE_ISSUE: "Rimborso ripristinato prima dell’emissione",
   REFUND_CREDIT_NOTE_LINKED: "Rimborso collegato alla nota di credito",
   REFUND_CREDIT_NOTE_UPDATED: "Nota di credito aggiornata dal rimborso",
   REFUND_NEEDS_REVIEW: "Rimborso da verificare",

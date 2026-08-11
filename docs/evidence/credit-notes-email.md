@@ -2,7 +2,7 @@
 
 ## Capacità verificate
 
-- rimborso totale isolato in `Non trasmettere` e rimborso parziale assorbito una sola volta con bozza e proiezione aggiornate; pending e ambiguo restano esclusi;
+- rimborso totale isolato in `Non trasmettere` e rimborso parziale assorbito una sola volta con importo esatto, anche dopo una modifica manuale delle righe; revoca e ritorno a pending ripristinano la bozza piena, mentre l’ambiguo resta escluso;
 - TD04 cumulativa con data di bozza stabile, ricalcolo quando un rimborso cambia o scompare e nuova bozza dopo la prima TD04 approvata;
 - rifiuto di fattura scartata o non emessa, doppio rimborso e superamento del residuo;
 - concorrenza PostgreSQL e rollback completo quando l’audit critico fallisce;

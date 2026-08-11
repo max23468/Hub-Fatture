@@ -217,6 +217,46 @@ async function refreshInvoiceDraftProjection(client: pg.PoolClient, caseId: stri
   );
 }
 
+async function reconcilePreIssueInvoiceAmount(
+  client: pg.PoolClient,
+  orderId: string,
+  caseId: string,
+  amount: number,
+) {
+  const adjusted = await client.query(
+    `UPDATE document_orders SET amount = $2
+     WHERE order_id = $1 AND document_kind = 'INVOICE' AND amount <> $2`,
+    [orderId, amount],
+  );
+  if (!adjusted.rowCount) return false;
+  await client.query(
+    `UPDATE document_lines
+     SET quantity = 1, unit_amount = $2, total_amount = $2
+     WHERE order_id = $1
+       AND document_id IN (SELECT id FROM documents WHERE kind = 'INVOICE' AND status = 'DRAFT')`,
+    [orderId, amount],
+  );
+  await client.query(
+    `UPDATE documents
+     SET source_total_amount = totals.amount,
+         total_amount = totals.amount,
+         difference_amount = 0,
+         difference_reason = NULL,
+         draft_version = draft_version + 1,
+         projection_sha256 = repeat('0', 64),
+         updated_at = now()
+     FROM (
+       SELECT document_id, sum(amount)::integer AS amount
+       FROM document_orders WHERE document_kind = 'INVOICE' GROUP BY document_id
+     ) AS totals
+     WHERE documents.id = totals.document_id
+       AND documents.billing_case_id = $1 AND documents.status = 'DRAFT'`,
+    [caseId],
+  );
+  await refreshInvoiceDraftProjection(client, caseId);
+  return true;
+}
+
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
   const canonicalProfile = canonicalCustomerProfile(input);
   return {
@@ -745,7 +785,7 @@ async function importOne(
         refundEffect: refundEffect.state,
       })
     : order.rows[0]!.billing_case_id;
-  await replaceOrderChildren(
+  const previousAppliedRefundAmount = await replaceOrderChildren(
     client,
     orderId,
     input,
@@ -780,39 +820,13 @@ async function importOne(
        )`,
       [orderId],
     );
-    const adjusted = await client.query(
-      `UPDATE document_orders SET amount = $2
-       WHERE order_id = $1 AND document_kind = 'INVOICE' AND amount <> $2`,
-      [orderId, refundEffect.billableAmount],
+    const adjusted = await reconcilePreIssueInvoiceAmount(
+      client,
+      orderId,
+      effectiveBillingCaseId,
+      refundEffect.billableAmount,
     );
-    if (adjusted.rowCount) {
-      await client.query(
-        `UPDATE document_lines
-         SET unit_amount = $2, total_amount = quantity * $2
-         WHERE order_id = $1
-           AND document_id IN (SELECT id FROM documents WHERE kind = 'INVOICE' AND status = 'DRAFT')`,
-        [orderId, refundEffect.billableAmount],
-      );
-      await client.query(
-        `UPDATE documents
-         SET source_total_amount = totals.amount,
-             total_amount = totals.amount,
-             difference_amount = 0,
-             difference_reason = NULL,
-             draft_version = draft_version + 1,
-             projection_sha256 = repeat('0', 64),
-             updated_at = now()
-         FROM (
-           SELECT document_id, sum(amount)::integer AS amount
-           FROM document_orders WHERE document_kind = 'INVOICE' GROUP BY document_id
-         ) AS totals
-         WHERE documents.id = totals.document_id
-           AND documents.billing_case_id = $1 AND documents.status = 'DRAFT'`,
-        [effectiveBillingCaseId],
-      );
-      await refreshInvoiceDraftProjection(client, effectiveBillingCaseId);
-    }
-    if (restored.rowCount || adjusted.rowCount) {
+    if (restored.rowCount || adjusted) {
       await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
       await writeAudit(client, {
         ...auditActor(actor),
@@ -821,6 +835,44 @@ async function importOne(
         entityType: "ORDER",
         entityId: orderId,
         metadata: { billingCaseId: effectiveBillingCaseId, provider: input.provider },
+        requestId: actor.requestId,
+      });
+    }
+  }
+  if (
+    !invoiced &&
+    effectiveBillingCaseId &&
+    previousAppliedRefundAmount > 0 &&
+    (refundEffect.state === "UNCHANGED" || refundEffect.state === "NEEDS_REVIEW")
+  ) {
+    const restored =
+      refundEffect.state === "UNCHANGED"
+        ? await client.query(
+            `UPDATE orders
+             SET trigger_status = 'GROUPED',
+                 normalized_snapshot_json = jsonb_set(
+                   normalized_snapshot_json, '{orderReviewRequired}', 'false'::jsonb)
+             WHERE id = $1 AND trigger_status <> 'GROUPED'`,
+            [orderId],
+          )
+        : { rowCount: 0 };
+    const adjusted = await reconcilePreIssueInvoiceAmount(
+      client,
+      orderId,
+      effectiveBillingCaseId,
+      grossAmount,
+    );
+    if (restored.rowCount || adjusted) {
+      await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
+      await writeAudit(client, {
+        ...auditActor(actor),
+        action: "REFUND_REVERSED_BEFORE_ISSUE",
+        eventClass: "CRITICAL",
+        entityType: "ORDER",
+        entityId: orderId,
+        metadata: { billingCaseId: effectiveBillingCaseId, provider: input.provider },
+        before: { billableAmount: grossAmount - previousAppliedRefundAmount },
+        after: { billableAmount: grossAmount },
         requestId: actor.requestId,
       });
     }
@@ -1040,6 +1092,11 @@ async function replaceOrderChildren(
   actor: Actor,
 ) {
   const { lineAmounts, paymentAmounts, refundAmounts } = amounts;
+  const previousApplied = await client.query<{ amount: number }>(
+    `SELECT coalesce(sum(amount), 0)::integer AS amount FROM refunds
+     WHERE order_id = $1 AND applied_before_issue`,
+    [orderId],
+  );
   if (!invoiced) {
     await client.query("DELETE FROM order_lines WHERE order_id = $1", [orderId]);
     for (const [index, line] of input.lines.entries()) {
@@ -1219,6 +1276,7 @@ async function replaceOrderChildren(
      ON CONFLICT DO NOTHING`,
     [orderId],
   );
+  return previousApplied.rows[0]?.amount ?? 0;
 }
 
 export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJob) {
