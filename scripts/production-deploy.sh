@@ -78,6 +78,7 @@ rollback() {
     ./scripts/production-readback.sh >/dev/null
   else
     docker compose -f compose.yaml --env-file .env --env-file .deploy.env down
+    rm -f .deploy.env compose.yaml Caddyfile
   fi
 }
 

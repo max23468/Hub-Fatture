@@ -305,11 +305,16 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /rollback automatico vietato.*forward-fix/);
   assert.match(deploy, /cp "\$previous_compose" compose\.yaml/);
   assert.match(deploy, /cp "\$previous_caddy" Caddyfile/);
+  assert.match(deploy, /rm -f \.deploy\.env compose\.yaml Caddyfile/);
   assert.match(deploy, /--force-recreate/);
   assert.match(deploy, /production-readback\.sh >\/dev\/null/);
   assert.match(readback, /--retry-max-time 180 --retry-all-errors/);
   assert.match(workflow, /compose\.yaml\.next/);
   assert.match(workflow, /Caddyfile\.next/);
+  assert.match(
+    workflow,
+    /test -f \/opt\/hub-fatture\/\.deploy\.env.*test -x \/opt\/hub-fatture\/scripts\/backup\.sh/,
+  );
   const candidateDeploy = workflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
   const operationalInstall = workflow.indexOf("sudo install -m 750 '$target/backup.sh'");
   assert.ok(
