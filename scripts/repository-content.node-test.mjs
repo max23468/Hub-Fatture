@@ -257,6 +257,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.doesNotMatch(backup, /\.data\."(?:content-length|opc-meta-sha256)"/);
   assert.match(backup, /exec 9>\.\/backup\.lock/);
   assert.match(backup, /flock -n 9/);
+  assert.match(backup, /^#!\/bin\/bash\nset -euo pipefail/m);
   assert.ok(
     backup.indexOf("trap notify_failure EXIT HUP INT TERM") <
       backup.indexOf("exec 9>./backup.lock"),
@@ -306,8 +307,9 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(monitor, /\[ "\$health" = "healthy" \]/);
   assert.match(monitor, /\[ "\$current" != "\$previous" \]/);
   assert.match(restore, /sha256sum "\$archive"/);
+  assert.match(restore, /^#!\/bin\/bash\nset -euo pipefail/m);
   const preflight = await readFile(path.join(root, "scripts/production-preflight.sh"), "utf8");
-  assert.match(preflight, /for command in age curl docker flock jq oci/);
+  assert.match(preflight, /for command in age bash curl docker flock jq oci/);
   assert.match(preflight, /OCI_NOTIFICATIONS_TOPIC_OCID/);
   assert.match(preflight, /\^ocid1\\\.onstopic\\\.oc1\\\./);
   assert.match(preflight, /dns_ip.*expected_public_ip/);

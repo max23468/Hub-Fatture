@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/bin/bash
+set -euo pipefail
 
 reason=${1:-scheduled}
 root=${HUB_FATTURE_ROOT:-/opt/hub-fatture}

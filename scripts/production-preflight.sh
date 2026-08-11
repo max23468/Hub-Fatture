@@ -19,7 +19,7 @@ fail() {
 [ -f "$root/.env" ] || fail "configurazione Production assente"
 [ "$(stat -c %a "$root/.env")" = "600" ] || fail "permessi .env diversi da 600"
 
-for command in age curl docker flock jq oci; do
+for command in age bash curl docker flock jq oci; do
   command -v "$command" >/dev/null 2>&1 || fail "comando $command assente"
 done
 docker compose version >/dev/null 2>&1 || fail "Docker Compose non disponibile"
