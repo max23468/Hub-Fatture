@@ -255,6 +255,22 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(backup, /jq -r '\."content-length" \/\/ empty'/);
   assert.match(backup, /jq -r '\."opc-meta-sha256" \/\/ empty'/);
   assert.doesNotMatch(backup, /\.data\."(?:content-length|opc-meta-sha256)"/);
+  const pauseWriters = backup.lastIndexOf("\n  pause app-web app-worker");
+  const reconcileStorage = backup.indexOf("reconcileDocumentStorage", pauseWriters);
+  const databaseDump = backup.indexOf("pg_dump", reconcileStorage);
+  const documentArchive = backup.indexOf(
+    "data/documents data/operations/deploy-receipt.json",
+    databaseDump,
+  );
+  const resumeWriters = backup.lastIndexOf("\nresume_writers\n");
+  assert.ok(
+    pauseWriters >= 0 &&
+      pauseWriters < reconcileStorage &&
+      reconcileStorage < databaseDump &&
+      databaseDump < documentArchive &&
+      documentArchive < resumeWriters,
+    "lo storage deve essere riconciliato e le scritture sospese durante lo snapshot",
+  );
   assert.match(deploy, /data\/operations\/rollback\.env/);
   assert.match(deploy, /data\/operations\/rollback\.compose\.yaml/);
   assert.match(deploy, /data\/operations\/rollback\.Caddyfile/);
