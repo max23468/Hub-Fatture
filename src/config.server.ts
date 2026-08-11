@@ -53,9 +53,11 @@ const schema = z
     ({ APP_ENV, SMTP_HOST, SMTP_PASSWORD, SMTP_TRANSPORT, SMTP_USERNAME }) =>
       APP_ENV !== "production" ||
       (SMTP_TRANSPORT === "OCI_EMAIL_DELIVERY" &&
-        Boolean(SMTP_HOST && SMTP_USERNAME && SMTP_PASSWORD)),
+        SMTP_HOST === "smtp.email.eu-milan-1.oci.oraclecloud.com" &&
+        Boolean(SMTP_USERNAME && SMTP_PASSWORD)),
     {
-      message: "Il trasporto SMTP Production richiede OCI Email Delivery e credenziali complete",
+      message:
+        "Il trasporto SMTP Production richiede OCI Email Delivery a Milano e credenziali complete",
       path: ["SMTP_TRANSPORT"],
     },
   )
