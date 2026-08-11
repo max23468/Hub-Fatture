@@ -349,7 +349,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(workflow, /Caddyfile\.next/);
   assert.match(
     workflow,
-    /test -f \/opt\/hub-fatture\/\.deploy\.env.*HUB_FATTURE_ROOT=\/opt\/hub-fatture '\$target\/backup\.sh' pre-deploy/,
+    /test -f \/opt\/hub-fatture\/\.deploy\.env && sudo test -f \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json; then sudo env HUB_FATTURE_ROOT=\/opt\/hub-fatture '\$target\/backup\.sh' pre-deploy/,
   );
   assert.doesNotMatch(workflow, /\/opt\/hub-fatture\/scripts\/backup\.sh pre-deploy/);
   const preDeployBackup = workflow.indexOf("'$target/backup.sh' pre-deploy");
