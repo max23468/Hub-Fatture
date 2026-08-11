@@ -16,6 +16,13 @@ image="ghcr.io/max23468/hub-fatture@$digest"
 cd "$root"
 exec 9>./backup.lock
 flock -n 9 || { echo "Un backup o deploy è già in corso" >&2; exit 1; }
+if [ -f .deploy.env ] && [ ! -f data/operations/deploy-receipt.json ]; then
+  residual_containers=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ps --all -q) \
+    || { echo "Stato del primo deploy non rilevabile" >&2; exit 1; }
+  [ -z "$residual_containers" ] \
+    || { echo "Container residui dal primo deploy fallito" >&2; exit 1; }
+  rm -f .deploy.env compose.yaml Caddyfile data/operations/deploy-receipt.json.next
+fi
 [ -f compose.yaml.next ] || { echo "Compose candidato assente" >&2; exit 1; }
 [ -f Caddyfile.next ] || { echo "Caddyfile candidato assente" >&2; exit 1; }
 [ -x "$candidate_dir/production-preflight.sh" ] \
@@ -77,7 +84,10 @@ rollback() {
     docker compose -f compose.yaml --env-file .env --env-file .deploy.env up -d --wait --force-recreate
     ./scripts/production-readback.sh >/dev/null
   else
-    docker compose -f compose.yaml --env-file .env --env-file .deploy.env down
+    if ! docker compose -f compose.yaml --env-file .env --env-file .deploy.env down; then
+      echo "Arresto del primo deploy fallito" >&2
+      return 1
+    fi
     rm -f .deploy.env compose.yaml Caddyfile
   fi
 }
