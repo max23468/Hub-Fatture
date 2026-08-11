@@ -296,6 +296,9 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /data\/operations\/rollback\.env/);
   assert.match(deploy, /data\/operations\/rollback\.compose\.yaml/);
   assert.match(deploy, /data\/operations\/rollback\.Caddyfile/);
+  assert.match(deploy, /\.deploy\.env.*! -f data\/operations\/deploy-receipt\.json/);
+  assert.match(deploy, /ps --all -q/);
+  assert.match(deploy, /Container residui dal primo deploy fallito/);
   assert.match(deploy, /exec 9>\.\/backup\.lock/);
   assert.doesNotMatch(deploy, /deploy\.lock/);
   assert.match(deploy, /HUB_FATTURE_CANDIDATE_DIR/);
@@ -305,11 +308,22 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /rollback automatico vietato.*forward-fix/);
   assert.match(deploy, /cp "\$previous_compose" compose\.yaml/);
   assert.match(deploy, /cp "\$previous_caddy" Caddyfile/);
+  assert.match(deploy, /rm -f \.deploy\.env compose\.yaml Caddyfile/);
+  assert.match(deploy, /if ! docker compose .* down; then/);
+  assert.match(deploy, /return 1/);
   assert.match(deploy, /--force-recreate/);
   assert.match(deploy, /production-readback\.sh >\/dev\/null/);
   assert.match(readback, /--retry-max-time 180 --retry-all-errors/);
   assert.match(workflow, /compose\.yaml\.next/);
   assert.match(workflow, /Caddyfile\.next/);
+  assert.match(
+    workflow,
+    /test -f \/opt\/hub-fatture\/\.deploy\.env.*test -x \/opt\/hub-fatture\/scripts\/backup\.sh.*backup\.sh pre-deploy/,
+  );
+  assert.match(
+    workflow,
+    /elif sudo test -f \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json; then echo 'Script di backup Production assente'.*exit 1/,
+  );
   const candidateDeploy = workflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
   const operationalInstall = workflow.indexOf("sudo install -m 750 '$target/backup.sh'");
   assert.ok(
