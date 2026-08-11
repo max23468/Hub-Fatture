@@ -42,11 +42,12 @@ Ambiente `Production`, regione `eu-milan-1`, istanza OCI con suffisso `v6almouq`
 
 ### Backup e restore drill
 
-- un XML marcato esclusivamente come sintetico è stato collocato temporaneamente nello storage Production e il backup cifrato è stato completato alle `2026-08-11T21:24:01Z`; l’archivio immutabile `hub-fatture/archive/2026/08/11/20260811T212414Z-f875b578447cb42f28873f336d8c72f6faeb6db3.tar.age`, di `143592` byte, ha SHA-256 `ca401a2d8c9c9c3f0d9faa8df821e9e3bf96d0c9cb9a0a361b3f9998dfa67e6d` riletto da Object Storage;
-- la copia cifrata è stata scaricata in `~/HubFatture-Backups/` con permessi riservati e verificata per dimensione e checksum prima della decifratura;
-- `scripts/restore.sh` è stato eseguito sul Mac con l’identità del recovery kit, target filesystem nuovo e PostgreSQL isolato; manifest, 15 migrazioni, 2 account e 17 eventi di audit sono stati riletti, mentre documenti e oggetti storage applicativi restano zero perché la Production non contiene ordini reali;
-- il file sintetico ripristinato ha mantenuto lo SHA-256 `f2758cfd5a1eca08b355b2da84d427a9bee9e59512012c5585f036c3e19b190f`; la stessa immagine Production è partita sul database ripristinato con health verde, ricerca case-insensitive dei due account, nomi canonici e rifiuto database di `can_approve=true` per `Codex`;
-- target, container, rete e database temporanei sono stati rimossi; il file sintetico è stato eliminato dalla VPS e un nuovo backup `current` pulito, verificato alle `2026-08-11T21:28:53Z`, ha ripristinato lo stato ordinario senza modificare dati o numerazione fiscale.
+- il backup Production `current` pulito, verificato alle `2026-08-11T21:28:53Z`, è stato scaricato e ripristinato sul Mac in un primo PostgreSQL isolato; qui, senza modificare la Production, sono stati creati una fattura sintetica collegata al relativo oggetto storage e una connessione sintetica cifrata tramite il codice applicativo;
+- la chiave AEAD Production è stata copiata fuori dalla VPS nel recovery kit protetto, con permessi `600` e corrispondenza verificata tramite digest senza stampare il valore; il database isolato non contiene la credenziale sintetica in chiaro;
+- il nuovo archivio cifrato `hub-fatture/archive/2026/08/11/20260811T215518Z-recovery-drill-linked.tar.age`, di `153832` byte e SHA-256 `cadb73a26d6228b5b6493fbbd04512bb54110265e5abf17cec5583595dd0d43e`, è stato caricato nel bucket, riletto per metadati e dimensione, riscaricato e verificato prima della decifratura;
+- `scripts/restore.sh` ha ripristinato l’archivio riscaricato in un secondo PostgreSQL e filesystem isolati: 15 migrazioni, 2 account, 18 eventi di audit, 1 documento, 1 oggetto storage e 1 connessione cifrata sono risultati coerenti;
+- la stessa immagine Production ha riletto il documento tramite il collegamento database/storage verificandone lo SHA-256 `f2758cfd5a1eca08b355b2da84d427a9bee9e59512012c5585f036c3e19b190f`, ha decifrato la credenziale esclusivamente con la chiave del recovery kit ed è risultata sana; login case-insensitive, nomi canonici e rifiuto database di `can_approve=true` per `Codex` restano verificati;
+- target, container, rete, dump e database temporanei sono stati rimossi; la Production è rimasta priva di documenti, connessioni e dati sintetici, senza modifiche alla numerazione fiscale, e il suo backup `current` è rimasto quello pulito.
 
 ### OCI e sistema operativo
 
