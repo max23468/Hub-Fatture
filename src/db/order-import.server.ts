@@ -530,6 +530,7 @@ interface PreviousOrderRow {
   deferred_review_required: boolean;
   customer_id: string;
   trigger_status: string;
+  historical: boolean;
   historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
 }
 
@@ -542,6 +543,8 @@ async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
   return client.query<PreviousOrderRow>(
     `SELECT orders.id, orders.billing_case_id, orders.customer_id, orders.trigger_status,
             orders.historical_reconciliation_outcome,
+            coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+              AS historical,
             $4::timestamptz < orders.updated_at_source AS is_stale,
             CASE WHEN billing_cases.status IN ('APPROVED', 'CLOSED')
               THEN coalesce(latest_revision.snapshot ->> 'reviewFingerprint',
@@ -681,6 +684,7 @@ async function importOne(
   if (previous.rows[0]?.is_stale) return "ignored";
 
   const oldOrder = previous.rows[0];
+  const historical = input.historical || Boolean(oldOrder?.historical);
   const status =
     oldOrder?.historical_reconciliation_outcome === "ALREADY_INVOICED"
       ? "INVOICED"
@@ -688,7 +692,7 @@ async function importOne(
           {
             ...input,
             historical:
-              input.historical && oldOrder?.historical_reconciliation_outcome !== "NOT_INVOICED",
+              historical && oldOrder?.historical_reconciliation_outcome !== "NOT_INVOICED",
           },
           trigger,
         );
@@ -700,6 +704,7 @@ async function importOne(
     : await upsertCustomer(client, input, identity);
   const normalizedSnapshot = {
     ...input,
+    historical,
     customerSnapshot: customerSnapshot(input, identity),
     totalAmount: grossAmount,
     shippingAmount,

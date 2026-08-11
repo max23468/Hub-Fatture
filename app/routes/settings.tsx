@@ -29,26 +29,34 @@ import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts
 import { getConfig } from "../../src/config.server.ts";
 import {
   connectionSummaries,
-  enqueueEbayPreview,
-  latestEbayPreview,
+  enqueueEbayHistory,
+  latestEbayHistory,
 } from "../../src/db/connectors.server.ts";
 import { getFiscalProfileSettings } from "../../src/db/documents.server.ts";
 import { getCustomerEmailSettings, setCustomerEmailMode } from "../../src/db/email.server.ts";
-import { publicError } from "../../src/errors.ts";
+import { AppError, publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
-import { previewShopifyHistory } from "../../src/integrations/shopify.server.ts";
+import {
+  importShopifyHistory,
+  previewShopifyHistory,
+} from "../../src/integrations/shopify.server.ts";
 import { getDraftTrigger, setDraftTrigger } from "../../src/db/orders.server.ts";
+import {
+  defaultHistoricalStartDate,
+  historicalOrderWindow,
+  localOrderDate,
+} from "../../src/orders.ts";
 import { getSystemStatus } from "../../src/db/system.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
-  const [profile, trigger, connections, ebayPreview, aruba, customerEmail, fiscalProfile, system] =
+  const [profile, trigger, connections, ebayHistory, aruba, customerEmail, fiscalProfile, system] =
     await Promise.all([
       getAccountProfile(request, user),
       getDraftTrigger(),
       connectionSummaries(),
-      latestEbayPreview(),
+      latestEbayHistory(),
       getArubaSettings(),
       getCustomerEmailSettings(),
       getFiscalProfileSettings(),
@@ -62,7 +70,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     trigger,
     saved: url.searchParams.get("trigger") === "salvato",
     connections,
-    ebayPreview,
+    ebayHistory,
     aruba,
     arubaSaved: url.searchParams.get("aruba") === "salvata",
     customerEmail,
@@ -80,6 +88,19 @@ export async function loader({ request }: Route.LoaderArgs) {
             review: url.searchParams.get("review") ?? "0",
           }
         : null,
+    imported:
+      url.searchParams.get("provider") && url.searchParams.has("imported")
+        ? {
+            provider: url.searchParams.get("provider")!,
+            imported: url.searchParams.get("imported") ?? "0",
+            updated: url.searchParams.get("updated") ?? "0",
+            ignored: url.searchParams.get("ignored") ?? "0",
+          }
+        : null,
+    historyStart:
+      historicalOrderWindow(url.searchParams.get("historyStart"))?.startDate ??
+      defaultHistoricalStartDate(),
+    historyToday: localOrderDate(new Date().toISOString()),
   };
 }
 
@@ -126,19 +147,42 @@ export async function action({ request }: Route.ActionArgs) {
       );
       return redirect("/impostazioni?aruba=salvata#aruba-helper");
     }
-    if (intent === "preview-ebay") {
-      await enqueueEbayPreview();
-      return redirect("/impostazioni?ebayPreview=avviata#connessioni");
+    if (["preview-ebay", "import-ebay"].includes(intent)) {
+      const start = historicalOrderWindow(form.get("historyStart"));
+      if (!start) throw new AppError("ORDER_INVALID_INPUT", 422);
+      await enqueueEbayHistory(start.startDate, intent === "import-ebay" ? "IMPORT" : "PREVIEW");
+      return redirect(
+        `/impostazioni?historyStart=${encodeURIComponent(start.startDate)}#connessioni`,
+      );
     }
     if (intent === "preview-shopify") {
       const provider = "Shopify";
-      const preview = await previewShopifyHistory();
+      const preview = await previewShopifyHistory(form.get("historyStart"));
       return redirect(
         "/impostazioni?" +
           new URLSearchParams({
             provider,
             count: String(preview.count),
             review: String(preview.reviewRequired),
+            historyStart: String(form.get("historyStart")),
+          }).toString() +
+          "#connessioni",
+      );
+    }
+    if (intent === "import-shopify") {
+      const result = await importShopifyHistory(form.get("historyStart"), {
+        type: "ADMIN",
+        id: user.id,
+        requestId: requestId(request),
+      });
+      return redirect(
+        "/impostazioni?" +
+          new URLSearchParams({
+            provider: "Shopify",
+            imported: String(result.imported),
+            updated: String(result.updated),
+            ignored: String(result.ignored),
+            historyStart: String(form.get("historyStart")),
           }).toString() +
           "#connessioni",
       );
@@ -441,13 +485,19 @@ function ProfileSettingsSection({
 
 function ConnectionsSettingsSection({
   connections,
-  ebayPreview,
+  ebayHistory,
+  historyStart,
+  historyToday,
+  imported,
   preview,
   csrfToken,
   errorFor,
 }: {
   connections: Awaited<ReturnType<typeof connectionSummaries>>;
-  ebayPreview: Awaited<ReturnType<typeof latestEbayPreview>>;
+  ebayHistory: Awaited<ReturnType<typeof latestEbayHistory>>;
+  historyStart: string;
+  historyToday: string;
+  imported: { provider: string; imported: string; updated: string; ignored: string } | null;
   preview: { provider: string; count: string; review: string } | null;
   csrfToken: string;
   errorFor: ErrorFor;
@@ -466,19 +516,24 @@ function ConnectionsSettingsSection({
           {copy.settings.previewResult(preview.provider, preview.count, preview.review)}
         </p>
       ) : null}
-      {ebayPreview ? (
+      {imported ? (
         <p className="notice" role="status">
-          {copy.settings.ebayPreviewStatus(
-            ebayPreview.status,
-            ebayPreview.count,
-            ebayPreview.reviewRequired,
-            ebayPreview.errorCode,
+          {copy.settings.historyImportResult(
+            imported.provider,
+            imported.imported,
+            imported.updated,
+            imported.ignored,
           )}
         </p>
       ) : null}
-      {errorFor("preview-shopify", "preview-ebay") ? (
+      {ebayHistory ? (
+        <p className="notice" role="status">
+          {copy.settings.ebayHistoryStatus(ebayHistory)}
+        </p>
+      ) : null}
+      {errorFor("preview-shopify", "preview-ebay", "import-shopify", "import-ebay") ? (
         <p className="error" role="alert">
-          {errorFor("preview-shopify", "preview-ebay")}
+          {errorFor("preview-shopify", "preview-ebay", "import-shopify", "import-ebay")}
         </p>
       ) : null}
       <div className="connection-grid">
@@ -538,20 +593,43 @@ function ConnectionsSettingsSection({
                 >
                   {connection ? copy.settings.reconnect : copy.settings.connect}
                 </a>
-                {connection?.status === "CONNECTED" ? (
-                  <Form method="post">
-                    <input type="hidden" name="csrf" value={csrfToken} />
+              </div>
+              {connection?.status === "CONNECTED" && !connection.historyImported ? (
+                <Form method="post" className="settings-subsection">
+                  <input type="hidden" name="csrf" value={csrfToken} />
+                  <label>
+                    {copy.settings.historyStart(label)}
                     <input
-                      type="hidden"
+                      defaultValue={historyStart}
+                      max={historyToday}
+                      name="historyStart"
+                      required
+                      type="date"
+                    />
+                  </label>
+                  <p className="field-help">{copy.settings.historyHelp}</p>
+                  <div className="connection-panel__actions">
+                    <button
+                      className="button button--secondary"
                       name="intent"
                       value={provider === "SHOPIFY" ? "preview-shopify" : "preview-ebay"}
-                    />
-                    <button className="button button--secondary" type="submit">
+                      type="submit"
+                    >
                       {copy.settings.preview}
                     </button>
-                  </Form>
-                ) : null}
-              </div>
+                    <button
+                      className="button"
+                      name="intent"
+                      value={provider === "SHOPIFY" ? "import-shopify" : "import-ebay"}
+                      type="submit"
+                    >
+                      {copy.settings.importHistory}
+                    </button>
+                  </div>
+                </Form>
+              ) : connection?.historyImported ? (
+                <p className="notice">{copy.settings.historyReady}</p>
+              ) : null}
             </section>
           );
         })}
@@ -773,7 +851,10 @@ export default function Settings() {
     trigger,
     saved,
     connections,
-    ebayPreview,
+    ebayHistory,
+    historyStart,
+    historyToday,
+    imported,
     preview,
     aruba,
     arubaSaved,
@@ -912,7 +993,10 @@ export default function Settings() {
 
           <ConnectionsSettingsSection
             connections={connections}
-            ebayPreview={ebayPreview}
+            ebayHistory={ebayHistory}
+            historyStart={historyStart}
+            historyToday={historyToday}
+            imported={imported}
             preview={preview}
             csrfToken={csrfToken}
             errorFor={errorFor}

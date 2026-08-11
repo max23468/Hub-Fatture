@@ -41,6 +41,7 @@ interface ConnectionRow {
   last_checked_at: Date | null;
   last_synced_at: Date | null;
   last_error_code: string | null;
+  history_imported?: boolean;
 }
 
 export interface ClaimedJob {
@@ -146,7 +147,13 @@ export async function loadConnection<T>(provider: Provider): Promise<{
 
 export async function connectionSummaries() {
   const result = await getPool().query<ConnectionRow>(
-    `SELECT * FROM connections
+    `SELECT connections.*,
+            EXISTS (
+              SELECT 1 FROM sync_cursors
+              WHERE sync_cursors.provider = connections.provider
+                AND sync_cursors.stream = 'history_import'
+            ) AS history_imported
+     FROM connections
      WHERE (provider = 'SHOPIFY' AND environment = $1)
         OR (provider = 'EBAY' AND environment = $2)
      ORDER BY provider`,
@@ -160,7 +167,45 @@ export async function connectionSummaries() {
     lastCheckedAt: row.last_checked_at?.toISOString() ?? null,
     lastSyncedAt: row.last_synced_at?.toISOString() ?? null,
     lastErrorCode: row.last_error_code,
+    historyImported: Boolean(row.history_imported),
   }));
+}
+
+export async function historyImportPending(provider: Provider) {
+  const result = await getPool().query<{ pending: boolean }>(
+    `SELECT NOT EXISTS (
+       SELECT 1 FROM sync_cursors WHERE provider = $1 AND stream = 'history_import'
+     ) AS pending
+     FROM connections
+     WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'`,
+    [provider, activeEnvironment(provider)],
+  );
+  if (!result.rows[0]) throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
+  return result.rows[0].pending;
+}
+
+export async function completeHistoryImport(
+  provider: Provider,
+  cursor: string,
+  overlapFrom: string,
+  job?: ClaimedJob,
+) {
+  await withTransaction(async (client) => {
+    if (job) await assertJobLease(client, job);
+    await client.query(
+      `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+       VALUES ($1, 'orders', $2, $3), ($1, 'history_import', $2, $3)
+       ON CONFLICT (provider, stream) DO UPDATE SET
+         cursor = EXCLUDED.cursor, overlap_from = EXCLUDED.overlap_from, updated_at = now()`,
+      [provider, cursor, overlapFrom],
+    );
+    await client.query(
+      `UPDATE connections SET last_checked_at = now(), last_synced_at = now(), updated_at = now(),
+         last_error_code = NULL, last_error_message_sanitized = NULL
+       WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'`,
+      [provider, activeEnvironment(provider)],
+    );
+  });
 }
 
 export async function markConnectionSynced(provider: Provider, job?: ClaimedJob) {
@@ -228,25 +273,34 @@ export async function enqueueJob(type: JobType, payload: Record<string, unknown>
   ]);
 }
 
-export async function enqueueEbayPreview() {
+export async function enqueueEbayHistory(startDate: string, mode: "PREVIEW" | "IMPORT") {
   await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
     await client.query(
-      `INSERT INTO jobs (type) VALUES ('ebay_preview_history') ON CONFLICT DO NOTHING`,
+      `INSERT INTO jobs (type, payload_json)
+       VALUES ('ebay_preview_history', $1) ON CONFLICT DO NOTHING`,
+      [JSON.stringify({ startDate, mode })],
     );
   });
 }
 
-export async function latestEbayPreview() {
+export async function latestEbayHistory() {
   const result = await getPool().query<{
     id: string;
     status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
-    result_json: { count?: unknown; reviewRequired?: unknown };
+    payload_json: { mode?: unknown; startDate?: unknown };
+    result_json: {
+      count?: unknown;
+      reviewRequired?: unknown;
+      imported?: unknown;
+      updated?: unknown;
+      ignored?: unknown;
+    };
     last_error_code: string | null;
     created_at: Date;
     completed_at: Date | null;
   }>(
-    `SELECT id, status, result_json, last_error_code, created_at, completed_at
+    `SELECT id, status, payload_json, result_json, last_error_code, created_at, completed_at
      FROM jobs WHERE type = 'ebay_preview_history' ORDER BY created_at DESC, id DESC LIMIT 1`,
   );
   const row = result.rows[0];
@@ -254,8 +308,13 @@ export async function latestEbayPreview() {
   return {
     id: row.id,
     status: row.status,
+    mode: row.payload_json.mode === "IMPORT" ? "IMPORT" : "PREVIEW",
+    startDate: typeof row.payload_json.startDate === "string" ? row.payload_json.startDate : null,
     count: Number(row.result_json.count ?? 0),
     reviewRequired: Number(row.result_json.reviewRequired ?? 0),
+    imported: Number(row.result_json.imported ?? 0),
+    updated: Number(row.result_json.updated ?? 0),
+    ignored: Number(row.result_json.ignored ?? 0),
     errorCode: row.last_error_code,
     createdAt: row.created_at.toISOString(),
     completedAt: row.completed_at?.toISOString() ?? null,
@@ -271,6 +330,11 @@ export async function scheduleDueSyncs() {
      END
      FROM connections
      WHERE status = 'CONNECTED'
+       AND EXISTS (
+         SELECT 1 FROM sync_cursors
+         WHERE sync_cursors.provider = connections.provider
+           AND sync_cursors.stream = 'history_import'
+       )
        AND ((provider = 'SHOPIFY' AND environment = $1)
          OR (provider = 'EBAY' AND environment = $2))
        AND (last_synced_at IS NULL OR last_synced_at <= now() - interval '10 minutes')

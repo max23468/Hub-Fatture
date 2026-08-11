@@ -7,12 +7,17 @@ import {
   claimJob,
   completeJob,
   failJob,
+  historyImportPending,
   jobLeaseCurrent,
   markConnectionError,
   renewJobLease,
   scheduleDueSyncs,
 } from "./db/connectors.server.ts";
-import { previewEbayHistory, syncEbayOrders } from "./integrations/ebay.server.ts";
+import {
+  importEbayHistory,
+  previewEbayHistory,
+  syncEbayOrders,
+} from "./integrations/ebay.server.ts";
 import { fetchShopifyOrder, syncShopifyOrders } from "./integrations/shopify.server.ts";
 import { processRefund } from "./db/refunds.server.ts";
 import { sendCustomerEmail } from "./db/email.server.ts";
@@ -42,7 +47,16 @@ async function runJob() {
     if (job.type === "shopify_sync_orders") await syncShopifyOrders(job);
     if (job.type === "ebay_sync_orders") await syncEbayOrders(job);
     let result: Record<string, unknown> = {};
-    if (job.type === "ebay_preview_history") result = await previewEbayHistory();
+    if (job.type === "ebay_preview_history") {
+      result =
+        job.payload.mode === "IMPORT"
+          ? await importEbayHistory(
+              job.payload.startDate,
+              { type: "SYSTEM", requestId: `ebay-history:${job.id}` },
+              job,
+            )
+          : await previewEbayHistory(job.payload.startDate);
+    }
     if (job.type === "process_refund") {
       await processRefund(String(job.payload.refundId ?? ""), job);
     }
@@ -51,6 +65,7 @@ async function runJob() {
       const orderId = String(job.payload.orderId ?? "");
       if (!orderId) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
       const order = await fetchShopifyOrder(orderId);
+      if (await historyImportPending("SHOPIFY")) order.historical = true;
       await assertLease();
       await importOrders(
         [order],

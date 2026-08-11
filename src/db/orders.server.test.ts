@@ -1615,10 +1615,33 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         reconciled: true,
       },
     );
+    historical.updatedAt = "2026-08-19T09:30:00Z";
+    historical.historical = false;
+    await orders.importOrders([historical], {
+      id: 1,
+      requestId: "test-reimport-historical-clear",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT trigger_status,
+                  normalized_snapshot_json ->> 'historical' AS historical,
+                  historical_reconciliation_outcome
+           FROM orders WHERE id = $1`,
+          [historicalId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "GROUPED",
+        historical: "true",
+        historical_reconciliation_outcome: "NOT_INVOICED",
+      },
+    );
 
     const alreadyInvoiced = structuredClone(historical);
     alreadyInvoiced.externalOrderId = "shop-order-historical-invoiced";
     alreadyInvoiced.customer.taxIdentifiers[0].value = "RSSMRA80A01H501D";
+    alreadyInvoiced.historical = true;
     await orders.importOrders([alreadyInvoiced], {
       id: 1,
       requestId: "test-import-historical-invoiced",
@@ -1636,6 +1659,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       { id: 1, requestId: "test-reconcile-historical-invoiced" },
     );
     alreadyInvoiced.updatedAt = "2026-08-19T10:00:00Z";
+    alreadyInvoiced.historical = false;
     await orders.importOrders([alreadyInvoiced], {
       id: 1,
       requestId: "test-reimport-historical-invoiced",
@@ -1643,7 +1667,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     assert.deepEqual(
       (
         await database.getPool().query(
-          `SELECT trigger_status, billing_case_id, historical_reconciliation_outcome
+          `SELECT trigger_status, billing_case_id, historical_reconciliation_outcome,
+                  normalized_snapshot_json ->> 'historical' AS historical
            FROM orders WHERE id = $1`,
           [alreadyInvoicedId],
         )
@@ -1652,7 +1677,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         trigger_status: "INVOICED",
         billing_case_id: null,
         historical_reconciliation_outcome: "ALREADY_INVOICED",
+        historical: "true",
       },
+    );
+    await assert.rejects(
+      orders.forcePrepareOrder(alreadyInvoicedId, {
+        id: 1,
+        requestId: "test-force-reimported-historical",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
     );
     assert.equal(
       (

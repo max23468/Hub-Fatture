@@ -358,6 +358,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(readback, /--retry-max-time 180 --retry-all-errors/);
   assert.match(candidateReadback, /status = 'APPROVED'/);
   assert.match(candidateReadback, /historical_reconciliation_outcome IS NULL/);
+  assert.match(candidateReadback, /sync_cursors\.stream = 'history_import'/);
   assert.match(candidateReadback, /status NOT IN \('RECONCILED', 'CANCELLED'\)/);
   assert.match(candidateReadback, /consumed_at IS NULL AND expires_at > now\(\)/);
   assert.match(workflow, /compose\.yaml\.next/);

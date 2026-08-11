@@ -213,7 +213,18 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione anticipata richiesta")).toBeVisible();
 
+  const connectionClient = new pg.Client({ connectionString: databaseUrl });
+  await connectionClient.connect();
+  await connectionClient.query(
+    `INSERT INTO connections
+       (provider, environment, account_reference, encrypted_credentials, status)
+     VALUES ('SHOPIFY', 'DEVELOPMENT', 'shop.example.invalid', 'synthetic', 'CONNECTED')`,
+  );
+  await connectionClient.end();
   await page.getByRole("link", { name: "Impostazioni" }).click();
+  await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveAttribute("type", "date");
+  await expect(page.getByRole("button", { name: "Controlla intervallo" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Importa storico" })).toBeVisible();
   await page.getByLabel("Prepara la fattura").selectOption("FULFILLED");
   await page.getByRole("button", { name: "Salva impostazione" }).click();
   await expect(page.getByRole("status")).toContainText("Impostazione aggiornata");

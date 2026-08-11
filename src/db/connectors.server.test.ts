@@ -39,6 +39,41 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       (await connectors.loadConnection<{ accessToken: string }>("SHOPIFY")).credentials,
       { accessToken: "token-sintetico" },
     );
+    assert.equal(await connectors.historyImportPending("SHOPIFY"), true);
+    await connectors.scheduleDueSyncs();
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'shopify_sync_orders'",
+        )
+      ).rows[0].total,
+      0,
+    );
+    await connectors.completeHistoryImport(
+      "SHOPIFY",
+      "2026-08-12T10:00:00Z",
+      "2026-08-12T09:55:00Z",
+    );
+    assert.equal(await connectors.historyImportPending("SHOPIFY"), false);
+    assert.equal(
+      (await connectors.connectionSummaries()).find(({ provider }) => provider === "SHOPIFY")
+        ?.historyImported,
+      true,
+    );
+    await getPool().query(
+      `UPDATE connections SET last_synced_at = now() - interval '11 minutes'
+       WHERE provider = 'SHOPIFY' AND environment = 'DEVELOPMENT'`,
+    );
+    await connectors.scheduleDueSyncs();
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'shopify_sync_orders'",
+        )
+      ).rows[0].total,
+      1,
+    );
+    await getPool().query("DELETE FROM jobs WHERE type = 'shopify_sync_orders'");
     await connectors.saveConnection(
       {
         provider: "EBAY",
@@ -60,6 +95,21 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     assert.equal((await connectors.loadConnection("EBAY")).accountReference, "sandbox-sintetica");
     await connectors.markConnectionSynced("EBAY");
     await connectors.writeCursor("EBAY", "cursor-sintetico", "2026-08-01T00:00:00Z");
+    assert.equal(await connectors.historyImportPending("EBAY"), true);
+    await getPool().query(
+      `UPDATE connections SET last_synced_at = now() - interval '11 minutes'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+    );
+    await connectors.scheduleDueSyncs();
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_sync_orders'",
+        )
+      ).rows[0].total,
+      0,
+    );
+    await getPool().query("DELETE FROM jobs WHERE type = 'shopify_sync_orders'");
     await connectors.saveConnection(
       {
         provider: "EBAY",
@@ -343,8 +393,8 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       jobsBeforeReschedule,
     );
     await getPool().query("UPDATE jobs SET status = 'COMPLETED' WHERE status = 'PENDING'");
-    await connectors.enqueueEbayPreview();
-    await connectors.enqueueEbayPreview();
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
     assert.equal(
       (
         await getPool().query(
@@ -355,15 +405,32 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     const previewJob = await connectors.claimJob("worker-preview");
     assert.equal(previewJob?.type, "ebay_preview_history");
-    await connectors.completeJob(previewJob!, { count: 3, reviewRequired: 1 });
+    assert.deepEqual(previewJob?.payload, { startDate: "2026-08-05", mode: "IMPORT" });
+    await connectors.completeJob(previewJob!, {
+      count: 3,
+      reviewRequired: 1,
+      imported: 2,
+      updated: 1,
+      ignored: 0,
+    });
     assert.deepEqual(
       (({ id: _id, createdAt: _createdAt, completedAt: _completedAt, ...preview }) => preview)(
-        (await connectors.latestEbayPreview())!,
+        (await connectors.latestEbayHistory())!,
       ),
-      { status: "COMPLETED", count: 3, reviewRequired: 1, errorCode: null },
+      {
+        status: "COMPLETED",
+        mode: "IMPORT",
+        startDate: "2026-08-05",
+        count: 3,
+        reviewRequired: 1,
+        imported: 2,
+        updated: 1,
+        ignored: 0,
+        errorCode: null,
+      },
     );
     await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [previewJob!.id]);
-    await connectors.enqueueEbayPreview();
+    await connectors.enqueueEbayHistory("2026-08-05", "PREVIEW");
     await assert.rejects(
       connectors.retryFailedJob(previewJob!.id, {
         type: "ADMIN",

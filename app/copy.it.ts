@@ -11,7 +11,7 @@ const connectorJobLabels: Record<string, string> = {
   shopify_sync_orders: "Aggiornamento ordini Shopify",
   shopify_process_webhook: "Aggiornamento ricevuto da Shopify",
   ebay_sync_orders: "Aggiornamento ordini eBay",
-  ebay_preview_history: "Anteprima ordini eBay",
+  ebay_preview_history: "Storico ordini eBay",
 };
 
 export function errorCodeLabel(code: string | null): string {
@@ -467,19 +467,36 @@ export const copy = {
     openActivities: "Apri Attività",
     connect: "Collega",
     reconnect: "Ricollega",
-    preview: "Anteprima ultimi 7 giorni",
+    preview: "Controlla intervallo",
+    historyStart: (provider: string) => `Importa ordini ${provider} dal`,
+    historyHelp: "Gli ordini importati restano bloccati finché non vengono confrontati con Aruba.",
+    importHistory: "Importa storico",
+    historyReady: "Import iniziale completato. Gli aggiornamenti automatici sono attivi.",
     connected: "Collegato",
     notConnected: "Non collegato",
     lastSync: "Ultima sincronizzazione",
     never: "Mai",
     previewResult: (provider: string, count: string, review: string) =>
       `${provider}: ${count} ordini nell’anteprima; ${review} con rimborsi da controllare. Nessun ordine è stato importato.`,
-    ebayPreviewStatus: (status: string, count: number, review: number, error: string | null) =>
-      status === "COMPLETED"
-        ? `eBay: ${count} ordini nell’anteprima; ${review} con rimborsi da controllare. Nessun ordine è stato importato.`
-        : status === "FAILED"
-          ? `L’anteprima eBay non è riuscita (${errorCodeLabel(error)}).`
-          : "Anteprima eBay in elaborazione. Ricarica la pagina tra poco.",
+    historyImportResult: (provider: string, imported: string, updated: string, ignored: string) =>
+      `${provider}: storico importato. Nuovi: ${imported}; aggiornati: ${updated}; meno recenti ignorati: ${ignored}.`,
+    ebayHistoryStatus: (history: {
+      status: string;
+      mode: string;
+      count: number;
+      reviewRequired: number;
+      imported: number;
+      updated: number;
+      ignored: number;
+      errorCode: string | null;
+    }) =>
+      history.status === "COMPLETED" && history.mode === "IMPORT"
+        ? `eBay: storico importato. Nuovi: ${history.imported}; aggiornati: ${history.updated}; meno recenti ignorati: ${history.ignored}.`
+        : history.status === "COMPLETED"
+          ? `eBay: ${history.count} ordini nell’anteprima; ${history.reviewRequired} con rimborsi da controllare. Nessun ordine è stato importato.`
+          : history.status === "FAILED"
+            ? `${history.mode === "IMPORT" ? "L’import" : "L’anteprima"} eBay non è riuscita (${errorCodeLabel(history.errorCode)}).`
+            : `${history.mode === "IMPORT" ? "Import" : "Anteprima"} eBay in elaborazione. Ricarica la pagina tra poco.`,
     connectionError: (code: string) => `Ultimo errore: ${errorCodeLabel(code)}`,
     customerEmailTitle: "E-mail al cliente",
     customerEmailHelp:

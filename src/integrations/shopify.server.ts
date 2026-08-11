@@ -8,6 +8,8 @@ import { z } from "zod";
 import { getConfig } from "../config.server.ts";
 import {
   ingestShopifyWebhook,
+  completeHistoryImport,
+  historyImportPending,
   jobLeaseCurrent,
   loadConnection,
   markConnectionSynced,
@@ -22,7 +24,12 @@ import {
 } from "../db/connectors.server.ts";
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
-import type { OrderInput } from "../orders.ts";
+import {
+  defaultHistoricalStartDate,
+  historicalOrderWindow,
+  markHistoricalOrders,
+  type OrderInput,
+} from "../orders.ts";
 import { providerJson } from "./provider-http.server.ts";
 import { providerOrder } from "./provider-order.ts";
 
@@ -451,6 +458,7 @@ export function shopifyUpdatedAtQuery(start: string) {
 }
 
 export async function syncShopifyOrders(job?: ClaimedJob) {
+  if (await historyImportPending("SHOPIFY")) throw new AppError("CONFLICT_REVISION", 409);
   const cursor = await readCursor("SHOPIFY");
   const start = cursor.overlapFrom ?? new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const end = new Date().toISOString();
@@ -464,10 +472,28 @@ export async function syncShopifyOrders(job?: ClaimedJob) {
   return { count: orders.length, from: start, to: end };
 }
 
-export async function previewShopifyHistory(days = 7) {
-  const safeDays = Math.min(7, Math.max(1, Math.trunc(days)));
-  const orders = await fetchOrdersSince(new Date(Date.now() - safeDays * 86_400_000).toISOString());
+async function shopifyHistory(value: unknown) {
+  const window = historicalOrderWindow(value);
+  if (!window) throw new AppError("ORDER_INVALID_INPUT", 422);
+  return markHistoricalOrders(await fetchOrdersSince(window.fetchFrom), window.startDate);
+}
+
+export async function previewShopifyHistory(startDate: unknown = defaultHistoricalStartDate()) {
+  const orders = await shopifyHistory(startDate);
   return {
+    count: orders.length,
+    reviewRequired: orders.filter((order) => order.refunds.length).length,
+  };
+}
+
+export async function importShopifyHistory(startDate: unknown, actor: ConnectorActor) {
+  if (!(await historyImportPending("SHOPIFY"))) throw new AppError("CONFLICT_REVISION", 409);
+  const end = new Date().toISOString();
+  const orders = await shopifyHistory(startDate);
+  const result = await importOrders(orders, actor);
+  await completeHistoryImport("SHOPIFY", end, new Date(Date.parse(end) - OVERLAP_MS).toISOString());
+  return {
+    ...result,
     count: orders.length,
     reviewRequired: orders.filter((order) => order.refunds.length).length,
   };

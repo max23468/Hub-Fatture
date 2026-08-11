@@ -6,7 +6,7 @@ La Production canonica è la VPS OCI `fatture-hub-vm` in `eu-milan-1`, raggiunta
 
 La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL non pubblica porte; Caddy è l’unico ingresso. `ARUBA_SUBMISSION_ENABLED=false` è fissato anche nel Compose e ogni readback deve confermarlo.
 
-Per un candidato precedente al Canary Production, dopo il normale readback eseguire anche `scripts/production-release-candidate-readback.sh`: il controllo fallisce se trova documenti approvati, ordini storici non riconciliati, batch Aruba aperti o permessi non consumati ancora validi.
+Per un candidato precedente al Canary Production, dopo il normale readback eseguire anche `scripts/production-release-candidate-readback.sh`: il controllo fallisce se trova documenti approvati, import iniziali non completati, ordini storici non riconciliati, batch Aruba aperti o permessi non consumati ancora validi.
 
 ## Prima del deploy
 
