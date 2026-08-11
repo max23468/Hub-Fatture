@@ -1591,6 +1591,77 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       orders.forcePrepareOrder(historicalId, { id: 1, requestId: "test-force-historical" }),
       (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
     );
+    const reconciledHistorical = await orders.reconcileHistoricalOrder(
+      historicalId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ricerca Aruba per ordine, data, cliente e totale: nessun documento",
+      },
+      { id: 1, requestId: "test-reconcile-historical-clear" },
+    );
+    assert.ok(reconciledHistorical?.caseId);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT trigger_status, historical_reconciliation_outcome,
+                  historical_reconciled_at IS NOT NULL AS reconciled
+           FROM orders WHERE id = $1`,
+          [historicalId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "GROUPED",
+        historical_reconciliation_outcome: "NOT_INVOICED",
+        reconciled: true,
+      },
+    );
+
+    const alreadyInvoiced = structuredClone(historical);
+    alreadyInvoiced.externalOrderId = "shop-order-historical-invoiced";
+    alreadyInvoiced.customer.taxIdentifiers[0].value = "RSSMRA80A01H501D";
+    await orders.importOrders([alreadyInvoiced], {
+      id: 1,
+      requestId: "test-import-historical-invoiced",
+    });
+    const alreadyInvoicedId = (
+      await database
+        .getPool()
+        .query("SELECT id FROM orders WHERE external_order_id = $1", [
+          alreadyInvoiced.externalOrderId,
+        ])
+    ).rows[0].id;
+    await orders.reconcileHistoricalOrder(
+      alreadyInvoicedId,
+      { outcome: "ALREADY_INVOICED", reference: "Documento Aruba FPR 0010/26 verificato" },
+      { id: 1, requestId: "test-reconcile-historical-invoiced" },
+    );
+    alreadyInvoiced.updatedAt = "2026-08-19T10:00:00Z";
+    await orders.importOrders([alreadyInvoiced], {
+      id: 1,
+      requestId: "test-reimport-historical-invoiced",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT trigger_status, billing_case_id, historical_reconciliation_outcome
+           FROM orders WHERE id = $1`,
+          [alreadyInvoicedId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "INVOICED",
+        billing_case_id: null,
+        historical_reconciliation_outcome: "ALREADY_INVOICED",
+      },
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
+      ).rows[0].count,
+      "2",
+    );
 
     const concurrentA = structuredClone(fixture[0]);
     concurrentA.externalOrderId = "shop-order-concurrent-a";

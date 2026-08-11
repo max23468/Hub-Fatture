@@ -1,4 +1,5 @@
 import { AppError } from "../errors.ts";
+import { z } from "zod";
 import {
   draftTriggerSchema,
   POSTGRES_INTEGER_MAX,
@@ -10,6 +11,10 @@ import { getPool, withTransaction } from "./client.server.ts";
 import { groupOrder, serializeOrderMutations, type Actor } from "./order-import.server.ts";
 
 const POSTGRES_BIGINT_MAX = "9223372036854775807";
+const historicalReconciliationSchema = z.object({
+  outcome: z.enum(["ALREADY_INVOICED", "NOT_INVOICED"]),
+  reference: z.string().trim().min(10).max(500),
+});
 
 export function isDatabaseId(id: string) {
   return (
@@ -75,26 +80,31 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       fulfillment_status: OrderInput["fulfillmentStatus"];
       cancelled_at: string | null;
       historical: boolean;
+      historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
     }>(
       `SELECT orders.id, orders.customer_id,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text, orders.currency, orders.payment_status,
               orders.fulfillment_status, orders.cancelled_at,
+              orders.historical_reconciliation_outcome,
               coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
                 AS historical
        FROM orders
        WHERE orders.billing_case_id IS NULL`,
     );
     for (const order of ungrouped.rows) {
-      const status = triggerStatus(
-        {
-          cancelledAt: order.cancelled_at,
-          paymentStatus: order.payment_status,
-          fulfillmentStatus: order.fulfillment_status,
-          historical: order.historical,
-        },
-        trigger.data,
-      );
+      const status =
+        order.historical_reconciliation_outcome === "ALREADY_INVOICED"
+          ? "INVOICED"
+          : triggerStatus(
+              {
+                cancelledAt: order.cancelled_at,
+                paymentStatus: order.payment_status,
+                fulfillmentStatus: order.fulfillment_status,
+                historical: order.historical && order.historical_reconciliation_outcome === null,
+              },
+              trigger.data,
+            );
       const updatedOrder = await client.query(
         `UPDATE orders SET trigger_status = $2
          WHERE id = $1 AND billing_case_id IS NULL
@@ -116,6 +126,98 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       }
     }
     return { value: trigger.data, version: updated.rows[0]!.version };
+  });
+}
+
+export async function reconcileHistoricalOrder(
+  id: string,
+  raw: { outcome: unknown; reference: unknown },
+  actor: Actor,
+) {
+  if (!isDatabaseId(id)) return null;
+  const parsed = historicalReconciliationSchema.safeParse(raw);
+  if (!parsed.success || actor.id === undefined) throw new AppError("ORDER_INVALID_INPUT", 422);
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
+    await serializeOrderMutations(client);
+    const order = await client.query<{
+      id: string;
+      customer_id: string;
+      customer_snapshot: Record<string, unknown>;
+      local_order_date: string;
+      currency: string;
+      payment_status: OrderInput["paymentStatus"];
+      fulfillment_status: OrderInput["fulfillmentStatus"];
+      cancelled_at: string | null;
+      trigger_status: string;
+      historical: boolean;
+      historical_reconciled_at: Date | null;
+    }>(
+      `SELECT orders.id, orders.customer_id,
+              orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
+              orders.local_order_date::text, orders.currency, orders.payment_status,
+              orders.fulfillment_status, orders.cancelled_at, orders.trigger_status,
+              coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+                AS historical,
+              orders.historical_reconciled_at
+       FROM orders WHERE orders.id = $1 FOR UPDATE`,
+      [id],
+    );
+    const current = order.rows[0];
+    if (!current) return null;
+    if (
+      !current.historical ||
+      current.historical_reconciled_at ||
+      current.trigger_status !== "LEGACY_BILLING_REVIEW"
+    ) {
+      throw new AppError("CONFLICT_REVISION", 409);
+    }
+    const trigger = await client.query<{ value_json: unknown }>(
+      "SELECT value_json FROM settings WHERE key = 'draft_trigger' FOR SHARE",
+    );
+    const nextStatus =
+      parsed.data.outcome === "ALREADY_INVOICED"
+        ? "INVOICED"
+        : triggerStatus(
+            {
+              cancelledAt: current.cancelled_at,
+              paymentStatus: current.payment_status,
+              fulfillmentStatus: current.fulfillment_status,
+              historical: false,
+            },
+            draftTriggerSchema.parse(trigger.rows[0]?.value_json ?? "PAID"),
+          );
+    await client.query(
+      `UPDATE orders SET trigger_status = $2, historical_reconciliation_outcome = $3,
+         historical_reconciliation_reference = $4, historical_reconciled_at = now()
+       WHERE id = $1`,
+      [id, nextStatus, parsed.data.outcome, parsed.data.reference],
+    );
+    await writeAudit(client, {
+      actorType: actor.type ?? "ADMIN",
+      actorId: String(actor.id),
+      action: "ORDER_HISTORY_RECONCILED",
+      eventClass: "CRITICAL",
+      entityType: "ORDER",
+      entityId: id,
+      after: { outcome: parsed.data.outcome, reference: parsed.data.reference },
+      requestId: actor.requestId,
+    });
+    const caseId =
+      nextStatus === "ELIGIBLE"
+        ? await groupOrder(
+            client,
+            {
+              id: current.id,
+              customerId: current.customer_id,
+              customerSnapshot: current.customer_snapshot,
+              localOrderDate: current.local_order_date,
+              currency: current.currency,
+            },
+            actor,
+          )
+        : null;
+    return { caseId, outcome: parsed.data.outcome };
   });
 }
 
@@ -143,11 +245,13 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
       cancelled_at: string | null;
       payment_status: OrderInput["paymentStatus"];
       historical: boolean;
+      historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
     }>(
       `SELECT orders.id, orders.customer_id, orders.billing_case_id,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
               orders.local_order_date::text,
               orders.currency, orders.cancelled_at, orders.payment_status,
+              orders.historical_reconciliation_outcome,
               coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
                 AS historical
        FROM orders
@@ -158,7 +262,11 @@ export async function forcePrepareOrder(id: string, actor: Actor) {
     const current = order.rows[0];
     if (!current) return null;
     if (current.billing_case_id) return current.billing_case_id;
-    if (current.historical || current.cancelled_at || current.payment_status === "REFUNDED") {
+    if (
+      (current.historical && current.historical_reconciliation_outcome !== "NOT_INVOICED") ||
+      current.cancelled_at ||
+      current.payment_status === "REFUNDED"
+    ) {
       throw new AppError("ORDER_NOT_PREPARABLE", 409);
     }
     return groupOrder(

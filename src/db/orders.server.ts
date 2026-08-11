@@ -1,4 +1,9 @@
-export { forcePrepareOrder, getDraftTrigger, setDraftTrigger } from "./order-commands.server.ts";
+export {
+  forcePrepareOrder,
+  getDraftTrigger,
+  reconcileHistoricalOrder,
+  setDraftTrigger,
+} from "./order-commands.server.ts";
 export { importOrders } from "./order-import.server.ts";
 export {
   getOrder,

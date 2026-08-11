@@ -59,6 +59,14 @@ test("nessun riferimento a nomi storici del Master Plan", () => {
   assert.deepEqual(tracked("Hub-Fatture-Master-Plan[.]md|docs/MASTER_PLAN[.]md"), []);
 });
 
+test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
+  const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  assert.equal(
+    manifest.scripts["test:e2e:release-candidate"],
+    "playwright test --project=chromium && playwright test --project=webkit",
+  );
+});
+
 test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
   const [agents, masterPlan, glossary] = await Promise.all(
     ["AGENTS.md", "docs/Hub_Fatture_MASTER_PLAN.md", "docs/glossario.md"].map((file) =>
@@ -249,6 +257,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     "scripts/production-deploy.sh",
     "scripts/production-preflight.sh",
     "scripts/production-readback.sh",
+    "scripts/production-release-candidate-readback.sh",
     "scripts/read-env.sh",
     "scripts/restore.sh",
   ];
@@ -256,16 +265,18 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     const result = spawnSync("sh", ["-n", script], { cwd: root, encoding: "utf8" });
     assert.equal(result.status, 0, `${script}: ${result.stderr}`);
   }
-  const [backup, deploy, monitor, readback, restore, workflow] = await Promise.all(
-    [
-      "scripts/backup.sh",
-      "scripts/production-deploy.sh",
-      "scripts/monitor-local.sh",
-      "scripts/production-readback.sh",
-      "scripts/restore.sh",
-      ".github/workflows/production.yml",
-    ].map((file) => readFile(path.join(root, file), "utf8")),
-  );
+  const [backup, deploy, monitor, readback, candidateReadback, restore, workflow] =
+    await Promise.all(
+      [
+        "scripts/backup.sh",
+        "scripts/production-deploy.sh",
+        "scripts/monitor-local.sh",
+        "scripts/production-readback.sh",
+        "scripts/production-release-candidate-readback.sh",
+        "scripts/restore.sh",
+        ".github/workflows/production.yml",
+      ].map((file) => readFile(path.join(root, file), "utf8")),
+    );
   assert.match(backup, /jq -r '\."content-length" \/\/ empty'/);
   assert.match(backup, /jq -r '\."opc-meta-sha256" \/\/ empty'/);
   assert.doesNotMatch(backup, /\.data\."(?:content-length|opc-meta-sha256)"/);
@@ -345,6 +356,10 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /--force-recreate/);
   assert.match(deploy, /production-readback\.sh >\/dev\/null/);
   assert.match(readback, /--retry-max-time 180 --retry-all-errors/);
+  assert.match(candidateReadback, /status = 'APPROVED'/);
+  assert.match(candidateReadback, /historical_reconciliation_outcome IS NULL/);
+  assert.match(candidateReadback, /status NOT IN \('RECONCILED', 'CANCELLED'\)/);
+  assert.match(candidateReadback, /consumed_at IS NULL AND expires_at > now\(\)/);
   assert.match(workflow, /compose\.yaml\.next/);
   assert.match(workflow, /Caddyfile\.next/);
   assert.match(

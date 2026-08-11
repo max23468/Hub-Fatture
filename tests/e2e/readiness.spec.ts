@@ -111,7 +111,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Salva integrazione Aruba" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Salva modalità e-mail" })).toBeDisabled();
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
-  await expect(page.getByText("015_canonical_account_names.sql", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("016_historical_order_reconciliation.sql", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -444,6 +446,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const refunds = await import("../../src/db/refunds.server.ts");
   const email = await import("../../src/db/email.server.ts");
   const jobs = await import("../../src/db/connectors.server.ts");
+  const orders = await import("../../src/db/orders.server.ts");
   const actorRow = (
     await database
       .getPool()
@@ -454,6 +457,32 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     canApprove: true,
     requestId: "m6-e2e-synthetic",
   };
+  const historicalFixture = JSON.parse(
+    await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
+  )[0];
+  historicalFixture.externalOrderId = "release-candidate-history";
+  historicalFixture.externalCustomerId = "release-candidate-customer";
+  historicalFixture.customer.taxIdentifiers[0].value = "RSSMRA80A01H501E";
+  historicalFixture.historical = true;
+  await orders.importOrders([historicalFixture], {
+    id: actor.id,
+    requestId: "release-candidate-history",
+  });
+  const historicalId = (
+    await database
+      .getPool()
+      .query<{ id: string }>(
+        "SELECT id FROM orders WHERE external_order_id = 'release-candidate-history'",
+      )
+  ).rows[0]!.id;
+  await page.goto(`/ordini/${historicalId}`);
+  await page.getByLabel("Esito del confronto").selectOption("ALREADY_INVOICED");
+  await page
+    .getByLabel("Riferimento verificato o motivazione")
+    .fill("Documento Aruba FPR 0010/26 verificato");
+  await page.getByRole("button", { name: "Registra la riconciliazione" }).click();
+  await expect(page.getByText("Storico riconciliato")).toBeVisible();
+  await expect(page.getByText("Fatturato", { exact: true })).toBeVisible();
   const invoice = (
     await database.getPool().query<{
       id: string;

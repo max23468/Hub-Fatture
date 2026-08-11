@@ -16,7 +16,11 @@ import {
 import { address, date, dateTime, euros } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
-import { forcePrepareOrder, getOrder } from "../../src/db/orders.server.ts";
+import {
+  forcePrepareOrder,
+  getOrder,
+  reconcileHistoricalOrder,
+} from "../../src/db/orders.server.ts";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -35,6 +39,19 @@ export async function action({ request, params }: Route.ActionArgs) {
     const user = await requireSessionUser(request);
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
+    if (form.get("intent") === "reconcile-history") {
+      const result = await reconcileHistoricalOrder(
+        params.orderId,
+        { outcome: form.get("outcome"), reference: form.get("reference") },
+        { id: user.id, requestId: requestId(request) },
+      );
+      if (!result) throw new Response("Ordine non trovato", { status: 404 });
+      return redirect(
+        result.caseId
+          ? `/ordini/preparazione/${result.caseId}`
+          : `/ordini/${params.orderId}?riconciliazione=completata`,
+      );
+    }
     const caseId = await forcePrepareOrder(params.orderId, {
       id: user.id,
       requestId: requestId(request),
@@ -42,6 +59,69 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (!caseId) throw new Response("Ordine non trovato", { status: 404 });
     return redirect(`/ordini/preparazione/${caseId}`);
   });
+}
+
+function OrderStatusActions({
+  order,
+  csrfToken,
+}: {
+  order: NonNullable<Awaited<ReturnType<typeof getOrder>>>;
+  csrfToken: string;
+}) {
+  return (
+    <>
+      {!order.billing_case_id && order.trigger_status === "LEGACY_BILLING_REVIEW" ? (
+        <Form method="post" className="section-gap">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="reconcile-history" />
+          <div className="notice">
+            <strong>{copy.orderDetail.historyTitle}</strong>
+            <p>{copy.orderDetail.historyHelp}</p>
+          </div>
+          <label>
+            {copy.orderDetail.historyOutcome}
+            <select name="outcome" required defaultValue="">
+              <option value="" disabled>
+                Seleziona un esito
+              </option>
+              <option value="ALREADY_INVOICED">{copy.orderDetail.alreadyInvoiced}</option>
+              <option value="NOT_INVOICED">{copy.orderDetail.notInvoiced}</option>
+            </select>
+          </label>
+          <label>
+            {copy.orderDetail.historyReference}
+            <textarea name="reference" required minLength={10} maxLength={500} />
+          </label>
+          <button className="button" type="submit">
+            {copy.orderDetail.reconcileHistory}
+          </button>
+        </Form>
+      ) : !order.billing_case_id &&
+        !["CANCELLED_NO_DOCUMENT", "REFUNDED_BEFORE_ISSUE", "INVOICED"].includes(
+          order.trigger_status,
+        ) ? (
+        <Form method="post" className="section-gap">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="prepare" />
+          <button className="button" type="submit">
+            {copy.orderDetail.prepareNow}
+          </button>
+        </Form>
+      ) : null}
+      {order.historical_reconciliation_outcome ? (
+        <div className="notice section-gap">
+          <strong>{copy.orderDetail.historyCompleted}</strong>
+          <p>
+            {order.historical_reconciliation_outcome === "ALREADY_INVOICED"
+              ? copy.orderDetail.alreadyInvoiced
+              : copy.orderDetail.notInvoiced}
+            {order.historical_reconciled_at ? ` · ${dateTime(order.historical_reconciled_at)}` : ""}
+          </p>
+          <p>{order.historical_reconciliation_reference}</p>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 export default function OrderDetail() {
@@ -107,15 +187,7 @@ export default function OrderDetail() {
               </dd>
             </div>
           </dl>
-          {!order.billing_case_id &&
-          !["CANCELLED_NO_DOCUMENT", "REFUNDED_BEFORE_ISSUE"].includes(order.trigger_status) ? (
-            <Form method="post" className="section-gap">
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <button className="button" type="submit">
-                {copy.orderDetail.prepareNow}
-              </button>
-            </Form>
-          ) : null}
+          <OrderStatusActions order={order} csrfToken={csrfToken} />
           <div className="detail-subsection">
             <h3>{copy.orderDetail.payments}</h3>
             {order.payments.length ? (

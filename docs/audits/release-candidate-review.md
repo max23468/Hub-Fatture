@@ -1,0 +1,38 @@
+# Audit del release candidate
+
+## Perimetro
+
+Audit trasversale del codice candidato corrente, concentrato su transazioni e concorrenza, duplicazioni, webhook e job interrotti, coerenza fra stato locale e provider, migrazioni e rollback, autorizzazioni server-side, dati fiscali e azioni irreversibili. Le prove remote non eseguite sono gate operativi aperti nel [record di readiness](../runbooks/release-readiness.md), non esiti verdi dedotti dal codice.
+
+## Metodo e prove
+
+- chiamanti delle transizioni fiscali e Aruba riletti dalle route fino alle funzioni database condivise;
+- lock, lease, idempotenza, audit critico e stati monotoni confrontati con migrazioni e test PostgreSQL;
+- limiti body e risposta, parser XML, storage, autenticazione, autorizzazioni e segreti verificati nei punti di ingresso;
+- installazione pulita e upgrade dello schema verificati dal runner di migrazione;
+- percorso completo sintetico verificato con Playwright su Chromium e WebKit; helper sintetico coperto separatamente su Chrome ed Edge dalla matrice macOS/Windows della CI;
+- gate canonico locale, audit dipendenze e React Doctor eseguiti sullo stesso albero di lavoro.
+
+## Finding
+
+| ID    | Severità | Stato  | Prova e risoluzione                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----- | -------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RC-01 | P1       | Chiuso | Gli ordini importati come storico restavano correttamente bloccati, ma non esisteva una transizione per registrarne il confronto con Aruba. La migrazione `016_historical_order_reconciliation.sql` conserva esito, riferimento e data; `reconcileHistoricalOrder` applica lock condivisi, audit atomico e due soli esiti. “Già fatturato” resta `INVOICED`; “non fatturato” entra nel normale raggruppamento soltanto dopo la registrazione. Test database, reimport e percorso browser impediscono la regressione. |
+
+Non risultano P0/P1 aperti né P2/P3 residui nell’audit locale corrente. La chiusura vale per il codice osservato, non sostituisce qualifica Aruba, deploy, scansione dell’immagine, readback Production o approvazioni del titolare.
+
+## Esito per area
+
+| Area                               | Esito corrente      | Evidenza                                                                                                                                                              |
+| ---------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transazioni e concorrenza          | Conforme localmente | numerazione, approvazione, note di credito, permessi, import e riconciliazione storico usano lock e audit nella stessa transazione; test PostgreSQL concorrenti verdi |
+| Webhook e job interrotti           | Conforme localmente | claim token, lease, riacquisizione dopo scadenza e completamento condizionale coperti dai test con PostgreSQL reale                                                   |
+| Stato Aruba e azioni irreversibili | Conforme localmente | manifest immutabile, permesso monouso, kill switch, stato incerto e readback monotono coperti da pagina e file sintetici                                              |
+| Autorizzazioni                     | Conforme localmente | sessione e CSRF sulle route; approvazione, numerazione, configurazione e permessi fiscali bloccati server-side per l’account non autorizzato                          |
+| Dati fiscali                       | Conforme localmente | profilo approvato, proiezione e hash stale, XSD TD01/TD04, arrotondamenti e snapshot immutabili coperti dai test                                                      |
+| Migrazioni e rollback              | Conforme localmente | migrazione append-only, installazione pulita, upgrade rappresentativo e rollback applicativo senza down migration verificati                                          |
+| Segreti e dati personali           | Conforme localmente | fixture sintetiche, limiti e redazione applicati; nessun nuovo segreto o dato reale introdotto                                                                        |
+
+## Limiti
+
+Restano da osservare sul candidato esatto: pannello Aruba reale senza invio, import storico reale, SMTP reale, immagine attestata e scansionata, deploy/readback, backup corrente, monitor provider e prova di auto-merge Dependabot. Qualunque modifica di codice, schema o configurazione dopo queste prove riapre la parte interessata dell’audit.

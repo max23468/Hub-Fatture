@@ -32,6 +32,9 @@ interface OrderDetailRow {
   payment_status: string;
   fulfillment_status: string;
   trigger_status: string;
+  historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
+  historical_reconciliation_reference: string | null;
+  historical_reconciled_at: string | null;
   billing_case_id: string | null;
   case_number: string | null;
   customer_name: string;

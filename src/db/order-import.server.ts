@@ -530,6 +530,7 @@ interface PreviousOrderRow {
   deferred_review_required: boolean;
   customer_id: string;
   trigger_status: string;
+  historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
 }
 
 /**
@@ -540,6 +541,7 @@ interface PreviousOrderRow {
 async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
   return client.query<PreviousOrderRow>(
     `SELECT orders.id, orders.billing_case_id, orders.customer_id, orders.trigger_status,
+            orders.historical_reconciliation_outcome,
             $4::timestamptz < orders.updated_at_source AS is_stale,
             CASE WHEN billing_cases.status IN ('APPROVED', 'CLOSED')
               THEN coalesce(latest_revision.snapshot ->> 'reviewFingerprint',
@@ -667,7 +669,6 @@ async function importOne(
     shippingAmount,
     refundAmounts,
   );
-  const status = triggerStatus(input, trigger);
   const refundEffect = preIssueRefund(
     grossAmount,
     input.refunds.map((refund, index) => ({
@@ -680,6 +681,17 @@ async function importOne(
   if (previous.rows[0]?.is_stale) return "ignored";
 
   const oldOrder = previous.rows[0];
+  const status =
+    oldOrder?.historical_reconciliation_outcome === "ALREADY_INVOICED"
+      ? "INVOICED"
+      : triggerStatus(
+          {
+            ...input,
+            historical:
+              input.historical && oldOrder?.historical_reconciliation_outcome !== "NOT_INVOICED",
+          },
+          trigger,
+        );
   const deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
   const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
   // Una preparazione già emessa non riscrive l'anagrafica: l'ordine resta sul suo cliente.
@@ -940,7 +952,7 @@ async function applySourceConflict(
     oldOrder: PreviousOrderRow;
     orderId: string;
     customerId: string;
-    status: ReturnType<typeof triggerStatus>;
+    status: ReturnType<typeof triggerStatus> | "INVOICED";
     revisionId: string;
     invoiced: boolean;
     billingCaseId: string | null;
