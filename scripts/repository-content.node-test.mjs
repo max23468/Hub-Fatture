@@ -194,6 +194,138 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
   assert.match(script, /docker compose up -d --build --wait app app-worker caddy/);
 });
 
+test("la baseline Production usa un solo digest senza esporre PostgreSQL", async () => {
+  const [compose, dockerfile, caddy, workflow] = await Promise.all(
+    [
+      "compose.production.yaml",
+      "Dockerfile",
+      "ops/Caddyfile.production",
+      ".github/workflows/production.yml",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
+  );
+  assert.equal(compose.match(/^    image: \$\{APP_IMAGE:\?\}$/gm)?.length, 2);
+  const postgres = compose.slice(compose.indexOf("\n  postgres:"), compose.indexOf("\nnetworks:"));
+  assert.doesNotMatch(postgres, /\n    ports:/);
+  assert.match(postgres, /user: "999:999"/);
+  assert.match(postgres, /cap_drop: \[ALL\]/);
+  assert.match(postgres, /read_only: true/);
+  assert.match(postgres, /no-new-privileges:true/);
+  assert.match(compose, /ARUBA_SUBMISSION_ENABLED: "false"/);
+  assert.match(compose, /read_only: true/);
+  assert.match(compose, /cap_drop: \[ALL\]/);
+  assert.equal(compose.match(/logging: \*default-logging/g)?.length, 4);
+  assert.match(compose, /max-size: 10m/);
+  assert.match(dockerfile, /USER 10001:10001/);
+  assert.match(dockerfile, /test ! -e node_modules\/typescript/);
+  assert.match(dockerfile, /COPY --chown=hub-fatture:hub-fatture schemas \.\/schemas/);
+  assert.match(caddy, /fatture\.opik\.net/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /git checkout --detach "\$CANDIDATE"/);
+  assert.match(workflow, /ref: \$\{\{ needs\.image\.outputs\.commit \}\}/);
+  assert.match(workflow, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
+  assert.match(workflow, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
+  assert.match(workflow, /backup\.sh deploy/);
+});
+
+test("gli script Production sono sintatticamente validi e conservano i gate di continuità", async () => {
+  const scripts = [
+    "ops/provision-production.sh",
+    "scripts/backup.sh",
+    "scripts/monitor-local.sh",
+    "scripts/production-deploy.sh",
+    "scripts/production-preflight.sh",
+    "scripts/production-readback.sh",
+    "scripts/read-env.sh",
+    "scripts/restore.sh",
+  ];
+  for (const script of scripts) {
+    const result = spawnSync("sh", ["-n", script], { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, `${script}: ${result.stderr}`);
+  }
+  const [backup, deploy, monitor, restore, workflow] = await Promise.all(
+    [
+      "scripts/backup.sh",
+      "scripts/production-deploy.sh",
+      "scripts/monitor-local.sh",
+      "scripts/restore.sh",
+      ".github/workflows/production.yml",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
+  );
+  assert.match(backup, /jq -r '\."content-length" \/\/ empty'/);
+  assert.match(backup, /jq -r '\."opc-meta-sha256" \/\/ empty'/);
+  assert.doesNotMatch(backup, /\.data\."(?:content-length|opc-meta-sha256)"/);
+  assert.match(backup, /exec 9>\.\/backup\.lock/);
+  assert.match(backup, /flock -n 9/);
+  assert.match(backup, /^#!\/bin\/bash\nset -euo pipefail/m);
+  assert.ok(
+    backup.indexOf("trap notify_failure EXIT HUP INT TERM") <
+      backup.indexOf("exec 9>./backup.lock"),
+    "la contesa del lock deve attraversare il trap di notifica",
+  );
+  const pauseWriters = backup.lastIndexOf("\n  pause app-web app-worker");
+  const reconcileStorage = backup.indexOf("reconcileDocumentStorage", pauseWriters);
+  const databaseDump = backup.indexOf("pg_dump", reconcileStorage);
+  const documentArchive = backup.indexOf(
+    "data/documents data/operations/deploy-receipt.json",
+    databaseDump,
+  );
+  const resumeWriters = backup.lastIndexOf("\nresume_writers\n");
+  assert.ok(
+    pauseWriters >= 0 &&
+      pauseWriters < reconcileStorage &&
+      reconcileStorage < databaseDump &&
+      databaseDump < documentArchive &&
+      documentArchive < resumeWriters,
+    "lo storage deve essere riconciliato e le scritture sospese durante lo snapshot",
+  );
+  assert.match(deploy, /data\/operations\/rollback\.env/);
+  assert.match(deploy, /data\/operations\/rollback\.compose\.yaml/);
+  assert.match(deploy, /data\/operations\/rollback\.Caddyfile/);
+  assert.match(deploy, /exec 9>\.\/backup\.lock/);
+  assert.doesNotMatch(deploy, /deploy\.lock/);
+  assert.match(deploy, /HUB_FATTURE_CANDIDATE_DIR/);
+  assert.match(deploy, /"\$candidate_dir\/production-preflight\.sh"/);
+  assert.match(deploy, /"\$candidate_dir\/production-readback\.sh"/);
+  assert.match(deploy, /current_schema.*previous_schema/);
+  assert.match(deploy, /rollback automatico vietato.*forward-fix/);
+  assert.match(deploy, /cp "\$previous_compose" compose\.yaml/);
+  assert.match(deploy, /cp "\$previous_caddy" Caddyfile/);
+  assert.match(deploy, /--force-recreate/);
+  assert.match(deploy, /production-readback\.sh >\/dev\/null/);
+  assert.match(workflow, /compose\.yaml\.next/);
+  assert.match(workflow, /Caddyfile\.next/);
+  const candidateDeploy = workflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
+  const operationalInstall = workflow.indexOf("sudo install -m 750 '$target/backup.sh'");
+  assert.ok(
+    candidateDeploy >= 0 && candidateDeploy < operationalInstall,
+    "il bundle operativo candidato va installato solo dopo il readback del deploy",
+  );
+  assert.match(monitor, /app-web app-worker caddy postgres/);
+  assert.match(monitor, /for service in app-web postgres/);
+  assert.match(monitor, /jq -r '\.Health \/\/ empty'/);
+  assert.match(monitor, /\[ "\$health" = "healthy" \]/);
+  assert.match(monitor, /\[ "\$current" != "\$previous" \]/);
+  assert.match(restore, /sha256sum "\$archive"/);
+  assert.match(restore, /^#!\/bin\/bash\nset -euo pipefail/m);
+  const preflight = await readFile(path.join(root, "scripts/production-preflight.sh"), "utf8");
+  assert.match(preflight, /for command in age bash curl docker flock jq oci/);
+  assert.match(preflight, /OCI_NOTIFICATIONS_TOPIC_OCID/);
+  assert.match(preflight, /\^ocid1\\\.onstopic\\\.oc1\\\./);
+  assert.match(preflight, /dns_ip.*expected_public_ip/);
+  assert.doesNotMatch(preflight, /^\.\s+(?:\.\/)?\.env(?:\s|$)/m);
+  assert.doesNotMatch(preflight, /\beval\b/);
+  for (const file of ["scripts/backup.sh", "scripts/monitor-local.sh"]) {
+    const content = await readFile(path.join(root, file), "utf8");
+    assert.doesNotMatch(content, /^\.\s+(?:\.\/)?\.env(?:\s|$)/m);
+    assert.doesNotMatch(content, /\beval\b/);
+  }
+  assert.match(
+    await readFile(path.join(root, "ops/provision-production.sh"), "utf8"),
+    /mask rpcbind\.socket rpcbind\.service/,
+  );
+});
+
 test("il worker riconferma la lease dopo errori transitori di heartbeat", async () => {
   const worker = await readFile(path.join(root, "src/worker.ts"), "utf8");
   assert.doesNotMatch(worker, /leaseLost/);

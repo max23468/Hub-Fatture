@@ -55,12 +55,12 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto("/setup");
   await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
-  await page.getByLabel("Password per matteo").fill("password-matteo");
-  await page.getByLabel("Password per codex").fill("password-codex");
+  await page.getByLabel("Password per Massimo").fill("password-massimo");
+  await page.getByLabel("Password per Codex").fill("password-codex");
   await page.getByRole("button", { name: "Crea gli account" }).click();
 
-  await page.getByLabel("Nome utente").fill("matteo");
-  await page.getByLabel("Password").fill("password-matteo");
+  await page.getByLabel("Nome utente").fill("mAsSiMo");
+  await page.getByLabel("Password").fill("password-massimo");
   await page.getByRole("button", { name: "Accedi" }).click();
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
@@ -74,7 +74,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const lightBackground = await background();
 
-  await page.getByLabel("Apri il menu di matteo").click();
+  await page.getByLabel("Apri il menu di Massimo").click();
   await page.getByRole("button", { name: "Scuro" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   // I token risolvono con `light-dark()`: l'attributo da solo non prova che il tema cambi.
@@ -83,8 +83,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   expect(await background()).not.toBe(lightBackground);
-  await page.getByLabel("Apri il menu di matteo").click();
-  await expect(page.locator(".profile-menu__identity")).toContainText("matteo");
+  await page.getByLabel("Apri il menu di Massimo").click();
+  await expect(page.locator(".profile-menu__identity")).toContainText("Massimo");
   await expect(page.locator(".profile-menu__identity")).toContainText("Titolare");
   await expect(page.locator(".profile-menu__permission")).toContainText(
     "Può approvare, numerare e autorizzare gli invii.",
@@ -102,7 +102,12 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   await expect(page.getByRole("group", { name: "Tema" })).toBeVisible();
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
-  await page.getByLabel("Apri il menu di matteo").click();
+  await expect(page.getByText("015_canonical_account_names.sql", { exact: true })).toBeVisible();
+  await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Apri il menu di Massimo").click();
   await page.locator(".profile-menu").getByRole("button", { name: "Esci" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.goto("/");
@@ -110,11 +115,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.goto("/setup");
   await expect(page).toHaveURL(/\/login$/);
 
-  await page.getByLabel("Nome utente").fill("codex");
+  await page.getByLabel("Nome utente").fill("CODEX");
   await page.getByLabel("Password").fill("password-codex");
   await page.getByRole("button", { name: "Accedi" }).click();
-  await page.getByLabel("Apri il menu di codex").click();
-  await expect(page.locator(".profile-menu__identity")).toContainText("codex");
+  await page.getByLabel("Apri il menu di Codex").click();
+  await expect(page.locator(".profile-menu__identity")).toContainText("Codex");
   await expect(page.locator(".profile-menu__identity")).toContainText("Operatore");
 
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
@@ -230,7 +235,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   // Il filtro applica davvero l'azione scelta e l'audit distingue i due account.
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByRole("cell", { name: "Anagrafica cliente corretta" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "codex", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Codex", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 720 });
@@ -252,10 +257,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(viewportFits).toBe(true);
 
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.getByLabel("Apri il menu di codex").click();
+  await page.getByLabel("Apri il menu di Codex").click();
   await page.getByRole("button", { name: "Esci" }).click();
-  await page.getByLabel("Nome utente").fill("matteo");
-  await page.getByLabel("Password").fill("password-matteo");
+  await page.getByLabel("Nome utente").fill("MASSIMO");
+  await page.getByLabel("Password").fill("password-massimo");
   await page.getByRole("button", { name: "Accedi" }).click();
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "Da fatturare" }).click();
@@ -401,7 +406,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const email = await import("../../src/db/email.server.ts");
   const jobs = await import("../../src/db/connectors.server.ts");
   const actorRow = (
-    await database.getPool().query<{ id: string }>("SELECT id FROM users WHERE username = 'matteo'")
+    await database
+      .getPool()
+      .query<{ id: string }>("SELECT id FROM users WHERE username = 'Massimo'")
   ).rows[0]!;
   const actor = {
     id: Number(actorRow.id),
@@ -562,7 +569,7 @@ test("le mutazioni senza origine valida non raggiungono l’azione", async ({ re
 
   // Route documento: React Router rifiuta la richiesta cross-origin prima dell'azione.
   const login = await request.post("/login", {
-    form: { username: "matteo", password: "password-matteo" },
+    form: { username: "massimo", password: "password-massimo" },
     headers,
   });
   expect(login.status()).toBeGreaterThanOrEqual(400);
@@ -572,13 +579,13 @@ test("le mutazioni senza origine valida non raggiungono l’azione", async ({ re
 test("gli errori delle azioni restano codici stabili, non 500", async ({ request }) => {
   const headers = { origin: "http://127.0.0.1:4173" };
   expect((await request.post("/logout", { form: { csrf: "x" } })).status()).toBe(403);
-  expect((await request.post("/login", { headers, data: { username: "matteo" } })).status()).toBe(
+  expect((await request.post("/login", { headers, data: { username: "Massimo" } })).status()).toBe(
     415,
   );
 
   await request.post("/login", {
     headers,
-    form: { username: "matteo", password: "password-matteo" },
+    form: { username: "MASSIMO", password: "password-massimo" },
   });
   expect((await request.post("/logout", { headers, form: { csrf: "sbagliato" } })).status()).toBe(
     403,
@@ -595,7 +602,7 @@ test("le risposte dichiarano gli header di sicurezza minimi", async ({ request }
 
   await request.post("/login", {
     headers: { origin: "http://127.0.0.1:4173" },
-    form: { username: "matteo", password: "password-matteo" },
+    form: { username: "mAsSiMo", password: "password-massimo" },
   });
   const dataHeaders = (await request.get("/ordini.data")).headers();
   expect(dataHeaders["cache-control"]).toBe("no-store, private");

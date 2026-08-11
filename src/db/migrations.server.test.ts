@@ -25,6 +25,7 @@ const ORDER_MEMBERSHIP_DRAFT_INVALIDATION = "011_order_membership_draft_invalida
 const ARUBA_INTEGRATION = "012_aruba_integration.sql";
 const CREDIT_NOTES_EMAIL = "013_credit_notes_email.sql";
 const PRE_ISSUE_REFUNDS = "014_pre_issue_refunds.sql";
+const CANONICAL_ACCOUNT_NAMES = "015_canonical_account_names.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -43,6 +44,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, ARUBA_INTEGRATION));
     await rm(path.join(firstTwo, CREDIT_NOTES_EMAIL));
     await rm(path.join(firstTwo, PRE_ISSUE_REFUNDS));
+    await rm(path.join(firstTwo, CANONICAL_ACCOUNT_NAMES));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -60,6 +62,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       ARUBA_INTEGRATION,
       CREDIT_NOTES_EMAIL,
       PRE_ISSUE_REFUNDS,
+      CANONICAL_ACCOUNT_NAMES,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -85,12 +88,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       ARUBA_INTEGRATION,
       CREDIT_NOTES_EMAIL,
       PRE_ISSUE_REFUNDS,
+      CANONICAL_ACCOUNT_NAMES,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "14",
+      "15",
     );
     await cleanClient.end();
 
@@ -170,6 +174,56 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
   }
 });
 
+test("la migrazione rende canonici e case-insensitive i due account", async () => {
+  const database = await temporaryDatabase("canonical_accounts");
+  const beforeCanonicalNames = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-canonical-accounts-"),
+  );
+  try {
+    await cp("migrations", beforeCanonicalNames, { recursive: true });
+    await rm(path.join(beforeCanonicalNames, CANONICAL_ACCOUNT_NAMES));
+    await runMigrations({
+      connectionString: database.connectionString,
+      directory: beforeCanonicalNames,
+    });
+    await withClient(database.connectionString, async (client) => {
+      await client.query(
+        `INSERT INTO users (username, password_hash, can_approve)
+         VALUES ('matteo', 'owner', true), ('codex', 'agent', false)`,
+      );
+    });
+
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      CANONICAL_ACCOUNT_NAMES,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (await client.query("SELECT username, can_approve FROM users ORDER BY username")).rows,
+        [
+          { username: "Codex", can_approve: false },
+          { username: "Massimo", can_approve: true },
+        ],
+      );
+      await assert.rejects(
+        client.query("UPDATE users SET can_approve = true WHERE username = 'Codex'"),
+        /users_approval_identity_check/,
+      );
+      await client.query("BEGIN");
+      await client.query("ALTER TABLE users DROP CONSTRAINT users_username_canonical_check");
+      await assert.rejects(
+        client.query(
+          "INSERT INTO users (username, password_hash, can_approve) VALUES ('MASSIMO', 'x', false)",
+        ),
+        /users_username_case_insensitive_idx/,
+      );
+      await client.query("ROLLBACK");
+    });
+  } finally {
+    await rm(beforeCanonicalNames, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
 test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", async () => {
   const database = await temporaryDatabase("pre_issue_refund_upgrade");
   const beforeRefundAccounting = await mkdtemp(
@@ -178,6 +232,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
   try {
     await cp("migrations", beforeRefundAccounting, { recursive: true });
     await rm(path.join(beforeRefundAccounting, PRE_ISSUE_REFUNDS));
+    await rm(path.join(beforeRefundAccounting, CANONICAL_ACCOUNT_NAMES));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeRefundAccounting,
@@ -215,6 +270,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
     });
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       PRE_ISSUE_REFUNDS,
+      CANONICAL_ACCOUNT_NAMES,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -244,6 +300,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, ARUBA_INTEGRATION));
     await rm(path.join(beforeM4, CREDIT_NOTES_EMAIL));
     await rm(path.join(beforeM4, PRE_ISSUE_REFUNDS));
+    await rm(path.join(beforeM4, CANONICAL_ACCOUNT_NAMES));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -372,6 +429,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       ARUBA_INTEGRATION,
       CREDIT_NOTES_EMAIL,
       PRE_ISSUE_REFUNDS,
+      CANONICAL_ACCOUNT_NAMES,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

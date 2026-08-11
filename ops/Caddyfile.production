@@ -1,0 +1,32 @@
+{
+	admin off
+	email {$CADDY_ACME_EMAIL}
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10MiB
+			roll_keep 5
+			roll_keep_for 168h
+		}
+		format json
+	}
+}
+
+fatture.opik.net {
+	@query expression `{query} != ''`
+	log_skip @query
+
+	request_body {
+		max_size 32MB
+	}
+
+	header {
+		-Server
+		Content-Security-Policy "frame-ancestors 'none'"
+		Referrer-Policy same-origin
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+	}
+
+	encode zstd gzip
+	reverse_proxy app-web:3000
+}

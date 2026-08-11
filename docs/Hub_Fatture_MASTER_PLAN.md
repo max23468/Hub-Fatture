@@ -113,7 +113,7 @@ L'app non è un gestionale fiscale completo e non deve sostituire la contabilit�
 
 Il prodotto sarà:
 
-- usato soltanto dal titolare e dall'agente Codex, tramite i due account amministrativi fissi `matteo` e `codex`;
+- usato soltanto dal titolare e dall'agente Codex, tramite i due account amministrativi fissi `Massimo` e `Codex`;
 - installato su una VPS Oracle Cloud Ampere A1 già disponibile e compresa nelle risorse Always Free di un account Pay As You Go;
 - raggiungibile tramite hostname gratuito Dynu e HTTPS gestito da Caddy;
 - distribuito con Docker Compose;
@@ -208,7 +208,7 @@ e quando un rimborso di prova produce correttamente:
 - Un solo account venditore eBay.
 - Un solo account Aruba.
 - Account Aruba Base; nessuna dipendenza dai Web Services Premium.
-- Due account amministrativi fissi, `matteo` e `codex`, con identità di audit distinte; le sole transizioni fiscali irreversibili restano riservate a `matteo`.
+- Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive e identità canoniche di audit distinte; le sole transizioni fiscali irreversibili restano riservate a `Massimo`.
 - Ordini Shopify ed eBay, senza inserimento manuale di vendite.
 - Beni fisici spediti esclusivamente da un magazzino in Italia.
 - Vendite in Italia e negli altri Paesi UE.
@@ -282,7 +282,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Area | Decisione | Motivazione |
 |---|---|---|
 | Modello operativo | Pannello web autonomo | Shopify, eBay e Aruba hanno pari importanza; l'app non deve dipendere dall'Admin Shopify |
-| Utenza | Due account amministrativi fissi, `matteo` e `codex`; approvazione, numerazione e permessi di invio riservati a `matteo` | È un'app privata e non servono ruoli, registrazione o onboarding; l'unico privilegio distinto è quello che rende irreversibile un documento fiscale |
+| Utenza | Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive; approvazione, numerazione e permessi di invio riservati a `Massimo` | È un'app privata e non servono ruoli, registrazione o onboarding; l'unico privilegio distinto è quello che rende irreversibile un documento fiscale |
 | Hosting | VPS OCI Ampere A1 | È già disponibile, gratuita entro i limiti e compatibile con Node/PostgreSQL |
 | Hostname | Dynu | Hostname gratuito stabile senza acquisto di dominio |
 | HTTPS | Caddy | Configurazione e rinnovo certificati semplici |
@@ -1523,7 +1523,7 @@ Per convenzione, ogni colonna `*_amount` è un `integer` in centesimi di euro; v
 - `created_at`
 - `last_login_at`
 
-Sono ammesse operativamente soltanto le due righe con username `matteo` e `codex`. `can_approve` è vero soltanto per `matteo` e autorizza le sole transizioni fiscali irreversibili descritte in 17.1; la colonna nasce nella migrazione M4.
+Sono ammesse operativamente soltanto le due righe con username canonici `Massimo` e `Codex`. Il login è case-insensitive, ma database, interfaccia e audit conservano e mostrano sempre la forma canonica. `can_approve` è vero soltanto per `Massimo` e autorizza le sole transizioni fiscali irreversibili descritte in 17.1; la colonna nasce nella migrazione M4.
 
 #### `sessions`
 
@@ -1979,8 +1979,8 @@ Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` dev
 
 ### 17.1 Autenticazione
 
-- Due account amministrativi fissi, `matteo` e `codex`, con identità di audit distinte.
-- I due account condividono tutte le capacità operative tranne le transizioni fiscali irreversibili. Approvazione, numerazione e creazione di un permesso di invio Aruba richiedono `can_approve`, valorizzato soltanto per `matteo`. L'identità di audit registra chi ha agito, non impedisce l'azione: senza questo controllo un agente potrebbe completare da solo la catena che §19.6 classifica come P0. Il controllo è server-side su ogni mutazione, come previsto da 17.6; nascondere il pulsante non è una protezione.
+- Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive e identità canoniche di audit distinte.
+- I due account condividono tutte le capacità operative tranne le transizioni fiscali irreversibili. Approvazione, numerazione e creazione di un permesso di invio Aruba richiedono `can_approve`, valorizzato soltanto per `Massimo`. L'identità di audit registra chi ha agito, non impedisce l'azione: senza questo controllo un agente potrebbe completare da solo la catena che §19.6 classifica come P0. Il controllo è server-side su ogni mutazione, come previsto da 17.6; nascondere il pulsante non è una protezione.
 - `can_approve` è una colonna booleana sui due account fissi, non un sistema di ruoli, e nasce nella migrazione M4 che introduce l'approvazione.
 - Username e password, senza secondo fattore applicativo.
 - Password di almeno 8 e non oltre 128 caratteri, hashate con `node:crypto.scrypt` e verificate con confronto constant-time.
@@ -2675,7 +2675,7 @@ Ogni connettore copre anche timeout, risposta oltre il limite, risposta non pars
 
 ### 22.4 End-to-end
 
-1. Login con `matteo` e con `codex`.
+1. Login case-insensitive con `Massimo` e con `Codex`, verificando la forma canonica in interfaccia e audit.
 2. Import ordine.
 3. Correzione cliente.
 4. Raggruppamento di due ordini.
@@ -2801,7 +2801,7 @@ Output:
 - migrazioni SQL append-only applicate dal runner compilato con advisory lock e checksum;
 - test installazione vuota e upgrade da snapshot rappresentativo;
 - Docker Compose locale;
-- autenticazione username/password per gli account fissi `matteo` e `codex`;
+- autenticazione username/password case-insensitive per gli account fissi canonici `Massimo` e `Codex`;
 - limiti di body e timeout comuni applicati prima di parsing/buffering, con errori stabili e test minimi;
 - Brand Foundation leggera approvata, con fonte unica e asset minimi versionati;
 - registro errori stabile e inventario segreti senza valori;
@@ -3163,7 +3163,7 @@ Deve fermarsi e chiedere prima di:
 | Comparatore non allineato alla bozza approvata | L'utente vede una proiezione diversa dal documento trasmesso | Stesso generatore server-side, revisione/hash e rigenerazione atomica al submit |
 | Il design system interno cresce in un pacchetto separato | Ritardo e manutenzione senza valore operativo | Un documento, token CSS, componenti locali, un SVG canonico e soli asset richiesti; niente sito, webfont, Storybook o libreria proprietaria |
 | Stato upload/invio incerto | Doppio invio | Manifest/hash, ricerca nel pannello, confronto del file scaricato e nessun retry automatico |
-| L'agente approva o numera un documento | Emissione fiscale senza decisione umana | `can_approve` soltanto su `matteo`, controllo server-side sulle tre transizioni irreversibili e test che lo verifica chiamando l'endpoint direttamente |
+| L'agente approva o numera un documento | Emissione fiscale senza decisione umana | `can_approve` soltanto su `Massimo`, controllo server-side sulle tre transizioni irreversibili e test che lo verifica chiamando l'endpoint direttamente |
 | Canary lascia aperti gli invii | Trasmissione fiscale non autorizzata | Kill switch globale sempre `false` e permesso monouso atomico legato a batch/manifest/documenti/revisioni/hash |
 | Target provider o VPS errato | Scrittura o deploy sull'ambiente sbagliato | Preflight con identità, account, risorsa e readback obbligatori |
 | Documentazione o runbook in drift | Operazioni eseguite con istruzioni obsolete | Fonte canonica, controllo link/comandi e aggiornamento nella stessa PR |

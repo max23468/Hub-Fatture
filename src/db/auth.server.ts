@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { redirect } from "react-router";
 
 import { writeAudit } from "./audit.server.ts";
-import { AGENT_USERNAME, OWNER_USERNAME } from "../auth.ts";
+import { AGENT_USERNAME, canonicalUsername, OWNER_USERNAME } from "../auth.ts";
 import { getConfig } from "../config.server.ts";
 import { hashPassword, hashToken, safeEqual, verifyPassword } from "../crypto.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
@@ -44,10 +44,6 @@ export interface AccountSession {
   createdAt: string;
   lastSeenAt: string;
   expiresAt: string;
-}
-
-function normalizeUsername(value: string): string {
-  return value.trim().toLowerCase();
 }
 
 function validPassword(value: string): boolean {
@@ -138,10 +134,9 @@ export async function login(input: {
   ipHash: string;
   requestId: string;
 }) {
-  const username = normalizeUsername(input.username);
-  const attemptKey =
-    username === OWNER_USERNAME || username === AGENT_USERNAME ? username : "__unknown__";
-  if (username.length > 64 || input.password.length > MAX_PASSWORD_LENGTH) {
+  const username = canonicalUsername(input.username);
+  const attemptKey = username ?? "__unknown__";
+  if (input.username.trim().length > 64 || input.password.length > MAX_PASSWORD_LENGTH) {
     throw new AppError("AUTH_INVALID_CREDENTIALS", 401);
   }
   const result = await withTransaction(async (client) => {
@@ -194,7 +189,7 @@ export async function login(input: {
     }
 
     const users = await client.query<UserRow>("SELECT * FROM users WHERE username = $1", [
-      username,
+      attemptKey,
     ]);
     const user = users.rows[0];
     const passwordValid = await verifyPassword(
@@ -232,11 +227,11 @@ export async function login(input: {
     // azzerare il contatore di un attaccante che stava provando lo stesso username da altrove.
     await client.query(
       "DELETE FROM login_attempts WHERE username = $1 AND ip_hash = $2 AND successful = false",
-      [username, input.ipHash],
+      [attemptKey, input.ipHash],
     );
     await client.query(
       "INSERT INTO login_attempts (username, ip_hash, successful) VALUES ($1, $2, true)",
-      [username, input.ipHash],
+      [attemptKey, input.ipHash],
     );
     await writeAudit(client, {
       actorType: "ADMIN",

@@ -1,0 +1,10 @@
+[Unit]
+Description=Monitor locale Hub Fatture
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+Environment=HUB_FATTURE_ROOT=/opt/hub-fatture
+ExecStart=/opt/hub-fatture/scripts/monitor-local.sh
+PrivateTmp=true
+NoNewPrivileges=true

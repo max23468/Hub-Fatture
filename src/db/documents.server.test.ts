@@ -33,7 +33,7 @@ test(
       await database
         .getPool()
         .query(
-          "INSERT INTO users (username, password_hash, can_approve) VALUES ('matteo', 'synthetic', true)",
+          "INSERT INTO users (username, password_hash, can_approve) VALUES ('Massimo', 'synthetic', true)",
         );
       const fixture = JSON.parse(
         await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
@@ -1370,7 +1370,7 @@ test(
         database
           .getPool()
           .query(
-            "INSERT INTO users (username, password_hash, can_approve) VALUES ('codex', 'x', true)",
+            "INSERT INTO users (username, password_hash, can_approve) VALUES ('Codex', 'x', true)",
           ),
         /users_approval_identity_check/,
       );

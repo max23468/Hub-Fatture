@@ -5,6 +5,7 @@ const euroFormatter = new Intl.NumberFormat("it-IT", {
   style: "currency",
   currency: "EUR",
 });
+const integerFormatter = new Intl.NumberFormat("it-IT");
 
 const connectorJobLabels: Record<string, string> = {
   shopify_sync_orders: "Aggiornamento ordini Shopify",
@@ -242,7 +243,7 @@ export const copy = {
     saveBeforeApproval: "Salva la bozza per rendere approvabile questa proiezione.",
     resaveAfterDateChange:
       "La data prevista è cambiata: salva e valida di nuovo la bozza prima dell’approvazione.",
-    ownerOnly: "Solo Matteo può approvare e assegnare il numero fiscale.",
+    ownerOnly: "Solo Massimo può approvare e assegnare il numero fiscale.",
     confirmPending: "Confermo che il pagamento è ancora pendente e voglio proseguire.",
     confirmDifference: "Confermo la differenza d’importo motivata nella bozza.",
     finalConfirmation: "Conferma finale",
@@ -501,8 +502,22 @@ export const copy = {
     environmentLabel: (value: string) =>
       value === "production" ? "Produzione" : value === "test" ? "Test" : "Sviluppo",
     timeZone: "Fuso orario",
-    systemFutureHelp:
-      "Versione applicativa, backup e ripristino saranno esposti qui con i controlli operativi della milestone successiva.",
+    applicationVersion: "Versione applicativa",
+    commit: "Commit distribuito",
+    imageDigest: "Digest immagine",
+    databaseSchema: "Schema database",
+    workerQueue: "Coda operativa",
+    workerQueueStatus: (active: number, failed: number) =>
+      `${active} in corso o in attesa; ${failed} non riusciti.`,
+    arubaKillSwitchStatus: "Invio automatico Aruba",
+    enabled: "Abilitato",
+    disabled: "Disabilitato",
+    lastBackup: "Ultimo backup verificato",
+    backupStatus: (completedAt: string, sizeBytes: number) =>
+      `${completedAt} · ${integerFormatter.format(sizeBytes)} byte`,
+    backupPending: "Nessuna ricevuta valida disponibile",
+    systemOperationalHelp:
+      "Questi valori sono riletti dall’applicazione, dal database e dalla ricevuta dell’ultimo backup.",
   },
   customerEditor: {
     title: "Dati del destinatario",

@@ -27,7 +27,9 @@ x-app-environment: &app-environment
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      target: development
     image: hub-fatture-app:local
     restart: unless-stopped
     working_dir: /workspace
@@ -52,7 +54,9 @@ services:
       retries: 20
 
   app-worker:
-    build: .
+    build:
+      context: .
+      target: development
     image: hub-fatture-app:local
     restart: unless-stopped
     working_dir: /workspace

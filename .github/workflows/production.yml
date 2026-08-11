@@ -1,0 +1,131 @@
+name: Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit di main da distribuire
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hub-fatture-production
+  cancel-in-progress: false
+
+jobs:
+  image:
+    name: Build, scan e attestazione
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      commit: ${{ steps.candidate.outputs.commit }}
+      version: ${{ steps.candidate.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verifica candidato già presente in main
+        id: candidate
+        env:
+          CANDIDATE: ${{ inputs.commit }}
+        run: |
+          git fetch --no-tags origin main
+          git cat-file -e "$CANDIDATE^{commit}"
+          test "$(git rev-parse "$CANDIDATE")" = "$CANDIDATE"
+          git merge-base --is-ancestor "$CANDIDATE" origin/main
+          git checkout --detach "$CANDIDATE"
+          echo "commit=$CANDIDATE" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pubblica una sola immagine ARM64
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          build-args: APP_COMMIT_SHA=${{ steps.candidate.outputs.commit }}
+          tags: ghcr.io/max23468/hub-fatture:sha-${{ steps.candidate.outputs.commit }}
+      - name: Blocca vulnerabilità alte e critiche
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/max23468/hub-fatture@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+      - name: Attesta il digest pubblicato
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3.0.0
+        with:
+          subject-name: ghcr.io/max23468/hub-fatture
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  deploy:
+    name: Deploy e readback
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: Production
+      url: https://fatture.opik.net
+    permissions:
+      attestations: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.image.outputs.commit }}
+          persist-credentials: false
+      - name: Verifica attestazione del digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ghcr.io/max23468/hub-fatture@${{ needs.image.outputs.digest }}
+        run: gh attestation verify "$IMAGE" --repo "$GITHUB_REPOSITORY"
+      - name: Prepara accesso SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.PRODUCTION_SSH_HOST_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Installa artefatti e distribuisci il digest
+        env:
+          COMMIT: ${{ needs.image.outputs.commit }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+          VERSION: ${{ needs.image.outputs.version }}
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
+        run: |
+          target="/tmp/hub-fatture-$COMMIT"
+          ssh "$SSH_USER@$SSH_HOST" "install -d -m 700 '$target'"
+          scp compose.production.yaml ops/Caddyfile.production ops/systemd/* \
+            scripts/backup.sh scripts/monitor-local.sh scripts/restore.sh scripts/production-*.sh \
+            scripts/read-env.sh \
+            "$SSH_USER@$SSH_HOST:$target/"
+          ssh "$SSH_USER@$SSH_HOST" "sudo chmod 750 '$target/'*.sh && sudo install -m 640 '$target/compose.production.yaml' /opt/hub-fatture/compose.yaml.next && sudo install -m 640 '$target/Caddyfile.production' /opt/hub-fatture/Caddyfile.next && if sudo test -f /opt/hub-fatture/.deploy.env; then sudo /opt/hub-fatture/scripts/backup.sh pre-deploy; fi && sudo env HUB_FATTURE_CANDIDATE_DIR='$target' '$target/production-deploy.sh' '$DIGEST' '$COMMIT' '$VERSION' && sudo install -m 750 '$target/backup.sh' '$target/monitor-local.sh' '$target/read-env.sh' '$target/restore.sh' '$target/production-preflight.sh' '$target/production-readback.sh' '$target/production-deploy.sh' /opt/hub-fatture/scripts/ && sudo install -m 644 '$target/'*.service '$target/'*.timer /etc/systemd/system/ && sudo /opt/hub-fatture/scripts/backup.sh deploy && sudo systemctl daemon-reload && sudo systemctl enable --now hub-fatture-backup.timer hub-fatture-monitor.timer && sudo /opt/hub-fatture/scripts/monitor-local.sh && rm -rf '$target'"
+      - name: Ricevuta finale
+        env:
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
+        run: ssh "$SSH_USER@$SSH_HOST" "sudo cat /opt/hub-fatture/data/operations/deploy-receipt.json"

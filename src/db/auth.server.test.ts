@@ -36,14 +36,14 @@ test(
       );
       await auth.setupAccounts({
         bootstrapToken: process.env.ADMIN_BOOTSTRAP_TOKEN,
-        ownerPassword: "matteo88",
+        ownerPassword: "massimo88",
         agentPassword: "codex888",
         requestId: "test-setup",
       });
       await assert.rejects(
         auth.setupAccounts({
           bootstrapToken: process.env.ADMIN_BOOTSTRAP_TOKEN,
-          ownerPassword: "matteo88",
+          ownerPassword: "massimo88",
           agentPassword: "codex888",
           requestId: "test-setup-ripetuto",
         }),
@@ -55,8 +55,8 @@ test(
       assert.match(generatedRequestId, /^[0-9a-f]{8}-[0-9a-f-]{27}$/);
       assert.notEqual(generatedRequestId, "controllato");
       const sessionCookies = await auth.login({
-        username: "matteo",
-        password: "matteo88",
+        username: "mAsSiMo",
+        password: "massimo88",
         ipHash: "origine-titolare",
         requestId: "test-login",
       });
@@ -65,7 +65,8 @@ test(
         headers: { cookie: sessionCookies.map((value) => value.split(";", 1)[0]).join("; ") },
       });
       const sessionUser = (await auth.getSessionUser(request))!;
-      assert.equal(sessionUser.username, "matteo");
+      assert.equal(sessionUser.username, "Massimo");
+      assert.equal(sessionUser.canApprove, true);
       const sessionToken = sessionCookies
         .find((value) => value.startsWith("sessione="))!
         .split("=", 2)[1]!
@@ -87,8 +88,8 @@ test(
         "1",
       );
       const secondSessionCookies = await auth.login({
-        username: "matteo",
-        password: "matteo88",
+        username: "MASSIMO",
+        password: "massimo88",
         ipHash: "origine-titolare-seconda",
         requestId: "test-login-seconda-sessione",
       });
@@ -103,8 +104,8 @@ test(
           request,
           {
             currentPassword: "sbagliata",
-            newPassword: "matteo99",
-            confirmation: "matteo99",
+            newPassword: "massimo99",
+            confirmation: "massimo99",
           },
           sessionUser,
           "test-password-errata",
@@ -115,9 +116,9 @@ test(
         await auth.changePassword(
           request,
           {
-            currentPassword: "matteo88",
-            newPassword: "matteo99",
-            confirmation: "matteo99",
+            currentPassword: "massimo88",
+            newPassword: "massimo99",
+            confirmation: "massimo99",
           },
           sessionUser,
           "test-password-cambiata",
@@ -128,16 +129,16 @@ test(
       assert.equal((await auth.getAccountProfile(request, sessionUser)).sessions.length, 1);
       await assert.rejects(
         auth.login({
-          username: "matteo",
-          password: "matteo88",
+          username: "massimo",
+          password: "massimo88",
           ipHash: "origine-password-precedente",
           requestId: "test-password-precedente",
         }),
         /Nome utente o password non validi/,
       );
       const thirdSessionCookies = await auth.login({
-        username: "matteo",
-        password: "matteo99",
+        username: "Massimo",
+        password: "massimo99",
         ipHash: "origine-password-nuova",
         requestId: "test-password-nuova",
       });
@@ -172,11 +173,23 @@ test(
         "1",
       );
 
-      await auth.login({
-        username: "codex",
+      const agentCookies = await auth.login({
+        username: "cOdEx",
         password: "codex888",
         ipHash: "origine-agente",
         requestId: "test-agent-login",
+      });
+      const agentRequest = new Request("http://localhost:8080", {
+        headers: { cookie: agentCookies.map((value) => value.split(";", 1)[0]).join("; ") },
+      });
+      assert.deepEqual(await auth.getSessionUser(agentRequest), {
+        id: 2,
+        username: "Codex",
+        csrfToken: agentCookies
+          .find((value) => value.startsWith("csrf="))!
+          .split("=", 2)[1]!
+          .split(";", 1)[0]!,
+        canApprove: false,
       });
 
       const attacco = [];
@@ -184,7 +197,7 @@ test(
         attacco.push(
           await auth
             .login({
-              username: "codex",
+              username: "CODEX",
               password: `password-errata-${index}`,
               ipHash: "origine-attaccante",
               requestId: `test-rate-limit-${index}`,
@@ -218,7 +231,7 @@ test(
       assert.equal(
         (
           await auth.login({
-            username: "codex",
+            username: "CoDeX",
             password: "codex888",
             ipHash: "origine-agente",
             requestId: "test-rate-limit-titolare",
@@ -240,12 +253,12 @@ test(
       await database
         .getPool()
         .query(
-          "INSERT INTO login_attempts (username, ip_hash, successful) SELECT 'matteo', 'origine-parallela', false FROM generate_series(1, 7)",
+          "INSERT INTO login_attempts (username, ip_hash, successful) SELECT 'Massimo', 'origine-parallela', false FROM generate_series(1, 7)",
         );
       await assert.rejects(
         auth.login({
-          username: "matteo",
-          password: "matteo88",
+          username: "MASSIMO",
+          password: "massimo88",
           ipHash: "origine-parallela",
           requestId: "test-soglia-scavalcata",
         }),
@@ -265,7 +278,7 @@ test(
       // username da un'altra origine.
       await assert.rejects(
         auth.login({
-          username: "codex",
+          username: "Codex",
           password: "codex888",
           ipHash: "origine-attaccante",
           requestId: "test-rate-limit-persiste",
@@ -285,7 +298,7 @@ test(
       );
       await database.getPool().query(
         `INSERT INTO sessions (id_hash, user_id, csrf_token_hash, expires_at)
-           SELECT 'scaduta', id, 'scaduta', now() - interval '1 hour' FROM users WHERE username = 'codex'`,
+           SELECT 'scaduta', id, 'scaduta', now() - interval '1 hour' FROM users WHERE username = 'Codex'`,
       );
       const retention = await import("./retention.server.ts");
       await retention.pruneExpired();
