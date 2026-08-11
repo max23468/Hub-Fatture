@@ -11,6 +11,10 @@ test("la configurazione applica i limiti delle sessioni", () => {
     DATABASE_URL: "postgres://example.invalid/test",
   };
   assert.equal(parseConfig(base).SESSION_TTL_SECONDS, 28_800);
+  assert.deepEqual(
+    parseConfig({ ...base, SMTP_HOST: "", SMTP_PASSWORD: "", SMTP_USERNAME: "" }),
+    parseConfig(base),
+  );
   assert.equal(
     parseConfig({ ...base, APP_BASE_URL: undefined, APP_URL: "https://app.example.invalid" })
       .APP_BASE_URL,

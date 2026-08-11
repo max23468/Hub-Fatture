@@ -91,6 +91,9 @@ export function parseConfig(environment: NodeJS.ProcessEnv): Config {
   return schema.parse({
     ...environment,
     APP_BASE_URL: environment.APP_BASE_URL ?? environment.APP_URL ?? environment.HOST,
+    SMTP_HOST: environment.SMTP_HOST || undefined,
+    SMTP_PASSWORD: environment.SMTP_PASSWORD || undefined,
+    SMTP_USERNAME: environment.SMTP_USERNAME || undefined,
   });
 }
 
