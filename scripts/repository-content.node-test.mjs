@@ -291,7 +291,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   );
   const probe = backup.match(/new_healthy_probe\(\) \{[\s\S]*?\n\}/)?.[0];
   assert.ok(probe, "il predicato della nuova sonda health deve essere isolabile");
-  const probeStatus = (start) =>
+  const probeStatus = (start, exitCode = 0) =>
     spawnSync(
       "bash",
       [
@@ -303,13 +303,18 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
         env: {
           ...process.env,
           HEALTH_JSON: JSON.stringify([
-            { State: { Health: { Status: "healthy", Log: [{ Start: start }] } } },
+            {
+              State: {
+                Health: { Status: "healthy", Log: [{ Start: start, ExitCode: exitCode }] },
+              },
+            },
           ]),
           UNPAUSED_AT: "2026-08-11T20:00:00.000000000Z",
         },
       },
     ).status;
   assert.equal(probeStatus("2026-08-11T19:59:59.999999999Z"), 1);
+  assert.equal(probeStatus("2026-08-11T20:00:00.000000001Z", 1), 1);
   assert.equal(probeStatus("2026-08-11T20:00:00.000000001Z"), 0);
   assert.ok(
     pauseWriters >= 0 &&

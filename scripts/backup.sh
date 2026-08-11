@@ -42,6 +42,7 @@ new_healthy_probe() {
     .[0].State.Health as $health
     | ($health.Status == "healthy")
       and (($health.Log[-1].Start // "") > $unpausedAt)
+      and (($health.Log[-1].ExitCode // 1) == 0)
   ' >/dev/null
 }
 
