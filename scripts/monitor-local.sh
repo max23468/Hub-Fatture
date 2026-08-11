@@ -6,9 +6,15 @@ cd "$root"
 # shellcheck disable=SC1091
 . ./scripts/read-env.sh
 notifications_topic=$(env_value .env OCI_NOTIFICATIONS_TOPIC_OCID)
+backup_bucket=$(env_value .env OCI_BACKUP_BUCKET)
+oci_namespace=$(env_value .env OCI_NAMESPACE)
 set -a
 . ./.deploy.env
 set +a
+
+sum_object_bytes() {
+  jq -er '[.data[]?.size // 0] | add // 0'
+}
 
 problem=
 running=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ps \
@@ -24,6 +30,20 @@ for service in app-web postgres; do
 done
 use=$(df -P "$root" | awk 'NR == 2 { gsub(/%/, "", $5); print $5 }')
 [ "$use" -lt 85 ] || problem=${problem:-"spazio disco oltre 85%"}
+backup_warning_bytes=${OCI_BACKUP_WARNING_BYTES:-15000000000}
+case "$backup_warning_bytes" in
+  *[!0-9]* | "") problem=${problem:-"soglia bucket backup non valida"} ;;
+  *)
+    if objects=$(oci os object list --auth instance_principal --namespace "$oci_namespace" \
+      --bucket-name "$backup_bucket" --all 2>/dev/null) \
+      && bucket_bytes=$(printf '%s' "$objects" | sum_object_bytes); then
+      [ "$bucket_bytes" -lt "$backup_warning_bytes" ] \
+        || problem=${problem:-"bucket backup oltre soglia prudenziale"}
+    else
+      problem=${problem:-"uso bucket backup non rilevabile"}
+    fi
+    ;;
+esac
 if [ -f data/operations/backup-receipt.json ]; then
   completed=$(jq -r '.completedAt // empty' data/operations/backup-receipt.json)
   if completed_epoch=$(date -u -d "$completed" +%s 2>/dev/null); then

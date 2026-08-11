@@ -365,6 +365,20 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(monitor, /for service in app-web postgres/);
   assert.match(monitor, /jq -r '\.Health \/\/ empty'/);
   assert.match(monitor, /\[ "\$health" = "healthy" \]/);
+  assert.match(monitor, /OCI_BACKUP_WARNING_BYTES:-15000000000/);
+  assert.match(monitor, /oci os object list --auth instance_principal/);
+  const sumObjectBytes = monitor.match(/sum_object_bytes\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(sumObjectBytes, "il calcolo dell’uso Object Storage deve essere isolabile");
+  const summed = spawnSync(
+    "sh",
+    [
+      "-c",
+      `${sumObjectBytes}\nprintf '%s' '{"data":[{"size":12},{"size":30}]}' | sum_object_bytes`,
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert.equal(summed.status, 0, summed.stderr);
+  assert.equal(summed.stdout.trim(), "42");
   assert.match(monitor, /\[ "\$current" != "\$previous" \]/);
   assert.match(restore, /sha256sum "\$archive"/);
   assert.match(restore, /^#!\/bin\/bash\nset -euo pipefail/m);
