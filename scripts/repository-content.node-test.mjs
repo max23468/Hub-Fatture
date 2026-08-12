@@ -55,6 +55,19 @@ test("nessuna chiave privata in chiaro è tracciata", () => {
   assert.equal(keys.stdout.trim(), "");
 });
 
+test("il readiness pubblico non espone volumi degli ordini live", async () => {
+  const readiness = await readFile(
+    path.join(root, "docs", "runbooks", "release-readiness.md"),
+    "utf8",
+  );
+  assert.doesNotMatch(readiness, /\b\d+ ordini\b/);
+  assert.doesNotMatch(readiness, /\b(?:Shopify|eBay): \d/);
+  assert.doesNotMatch(
+    readiness,
+    /\b\d+ `(?:ALREADY_INVOICED|NOT_INVOICED|LEGACY_BILLING_REVIEW|GROUPED|NEEDS_REVIEW|CANCELLED)`/,
+  );
+});
+
 test("nessun riferimento a nomi storici del Master Plan", () => {
   assert.deepEqual(tracked("Hub-Fatture-Master-Plan[.]md|docs/MASTER_PLAN[.]md"), []);
 });
