@@ -210,6 +210,22 @@ function shopifyGid(resource: "Customer" | "Order", value: unknown): string | un
   return /^\d+$/.test(identifier) ? `gid://shopify/${resource}/${identifier}` : undefined;
 }
 
+function hasValidItalianVatChecksum(value: string) {
+  const digits = value.startsWith("IT") ? value.slice(2) : value;
+  if (!/^\d{11}$/.test(digits)) return false;
+  let total = 0;
+  for (let index = 0; index < 10; index += 1) {
+    const digit = Number(digits[index]);
+    if (index % 2 === 0) {
+      total += digit;
+    } else {
+      const doubled = digit * 2;
+      total += doubled > 9 ? doubled - 9 : doubled;
+    }
+  }
+  return (10 - (total % 10)) % 10 === Number(digits[10]);
+}
+
 function fiscalIdentifierFromAddressLine(value: unknown, countryCode: string | undefined) {
   if (countryCode !== "IT") return null;
   const original = text(value)?.normalize("NFKC");
@@ -227,6 +243,9 @@ function fiscalIdentifierFromAddressLine(value: unknown, countryCode: string | u
   ];
   if (candidates.length !== 1) return null;
   const candidate = candidates[0]!;
+  if (candidate.type === "PARTITA_IVA" && !hasValidItalianVatChecksum(candidate.token)) {
+    return null;
+  }
   const start = candidate.match.index + candidate.match[0].indexOf(candidate.token);
   const remaining = `${original.slice(0, start)}${original.slice(start + candidate.token.length)}`
     .replace(/(?:CODICE\s+FISCALE|C\.?\s*F\.?|PARTITA\s+IVA|P\.?\s*IVA)/giu, " ")

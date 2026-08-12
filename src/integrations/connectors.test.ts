@@ -99,10 +99,14 @@ test("Shopify usa Interno come ultimo fallback soltanto per un identificativo it
   ]);
   assert.equal(fiscalCodeFallback.customer.billingAddress.line2, undefined);
 
-  fallback.billingAddress.address2 = "Scala A · P. IVA IT12345678901";
+  fallback.billingAddress.address2 = "Scala A · P. IVA IT12345678903";
   const vatFallback = mapShopifyOrder(fallback, "shop.example.invalid");
   assert.equal(vatFallback.customer.taxIdentifiers[0]?.type, "PARTITA_IVA");
   assert.equal(vatFallback.customer.billingAddress.line2, "Scala A");
+  fallback.billingAddress.address2 = "Riferimento interno 12345678901";
+  const invalidVatFallback = mapShopifyOrder(fallback, "shop.example.invalid");
+  assert.equal(invalidVatFallback.customer.taxIdentifiers.length, 0);
+  assert.equal(invalidVatFallback.customer.billingAddress.line2, "Riferimento interno 12345678901");
   fallback.billingAddress.address2 = "Scala A, interno 12";
   assert.equal(mapShopifyOrder(fallback, "shop.example.invalid").customer.taxIdentifiers.length, 0);
   fallback.billingAddress.address2 = "RSSMRA80A01H501U · 12345678901";
