@@ -427,56 +427,121 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
   });
 }
 
-async function fetchOrder(environment: "sandbox" | "production", token: string, orderId: string) {
+export function ebayListingMarketplaceId(payload: unknown): string {
+  const marketplaces = new Set(
+    records(record(payload).lineItems).flatMap((line) => {
+      const marketplace = text(line.listingMarketplaceId);
+      return marketplace ? [marketplace] : [];
+    }),
+  );
+  if (marketplaces.size !== 1) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  const marketplace = [...marketplaces][0]!;
+  if (!/^EBAY_[A-Z0-9_]+$/.test(marketplace)) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  return marketplace;
+}
+
+export function ebayFulfillmentHeaders(token: string, marketplaceId?: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json",
+    ...(marketplaceId ? { "X-EBAY-C-MARKETPLACE-ID": marketplaceId } : {}),
+  };
+}
+
+async function fetchOrder(
+  environment: "sandbox" | "production",
+  token: string,
+  orderId: string,
+  marketplaceId: string,
+) {
   return providerJson(
     `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order/${encodeURIComponent(orderId)}?fieldGroups=TAX_BREAKDOWN`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+    { headers: ebayFulfillmentHeaders(token, marketplaceId) },
   );
 }
 
-async function fetchOrdersSince(start: string) {
+const ebaySyncContinuationSchema = z.object({
+  kind: z.literal("EBAY_ORDERS_PAGE"),
+  end: z.iso.datetime(),
+  next: z.string().min(1),
+});
+
+type EbaySyncContinuation = z.infer<typeof ebaySyncContinuationSchema>;
+
+export function parseEbaySyncContinuation(value: string | null) {
+  if (!value) return null;
+  try {
+    return ebaySyncContinuationSchema.parse(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+async function fetchOrdersBatch(start: string, continuation: EbaySyncContinuation | null = null) {
   const connection = await loadConnection<EbayCredentials>("EBAY");
   const environment = connection.environment === "SANDBOX" ? "sandbox" : "production";
   const token = await accessToken(environment, connection.credentials.refreshToken);
-  const end = new Date().toISOString();
+  const end = continuation?.end ?? new Date().toISOString();
   const orders: OrderInput[] = [];
-  let url: string | null =
-    `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order?` +
-    new URLSearchParams({
-      filter: `lastmodifieddate:[${start}..${end}]`,
-      fieldGroups: "TAX_BREAKDOWN",
-      limit: "50",
-    });
+  let url: string | null = continuation
+    ? ebayNextUrl(environment, continuation.next)
+    : `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order?` +
+      new URLSearchParams({
+        filter: `lastmodifieddate:[${start}..${end}]`,
+        fieldGroups: "TAX_BREAKDOWN",
+        limit: "50",
+      });
   for (let page = 0; url && page < 20; page += 1) {
     const response = await providerJson(url, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      headers: ebayFulfillmentHeaders(token),
     });
     for (const summary of records(response.orders)) {
       const orderId = text(summary.orderId);
       if (!orderId) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      const marketplaceId = ebayListingMarketplaceId(summary);
       // Tax identifier is contractually present only on getOrder; la sequenza evita burst di 50 richieste.
       // react-doctor-disable-next-line react-doctor/async-await-in-loop
-      const detail = await fetchOrder(environment, token, orderId);
+      const detail = await fetchOrder(environment, token, orderId, marketplaceId);
       orders.push(mapEbayOrder(detail, connection.accountReference));
     }
     url = ebayNextUrl(environment, response.next);
   }
-  if (url) throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
-  return { connection, end, orders };
+  return {
+    connection,
+    end,
+    orders,
+    continuation: url ? { kind: "EBAY_ORDERS_PAGE" as const, end, next: url } : null,
+  };
+}
+
+async function fetchOrdersSince(start: string) {
+  const result = await fetchOrdersBatch(start);
+  if (result.continuation) throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+  return result;
 }
 
 export async function syncEbayOrders(job?: ClaimedJob) {
   if (await historyImportPending("EBAY")) throw new AppError("CONFLICT_REVISION", 409);
   const cursor = await readCursor("EBAY");
   const start = cursor.overlapFrom ?? new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const { end, orders } = await fetchOrdersSince(start);
+  const { end, orders, continuation } = await fetchOrdersBatch(
+    start,
+    parseEbaySyncContinuation(cursor.cursor),
+  );
   if (job && !(await jobLeaseCurrent(job))) throw new AppError("CONFLICT_REVISION", 409);
   if (orders.length) {
     await importOrders(orders, { type: "SYSTEM", requestId: `ebay-sync:${end}` }, job);
   }
-  await writeCursor("EBAY", end, new Date(Date.parse(end) - OVERLAP_MS).toISOString(), job);
-  await markConnectionSynced("EBAY", job);
-  return { count: orders.length, from: start, to: end };
+  await writeCursor(
+    "EBAY",
+    continuation ? JSON.stringify(continuation) : end,
+    continuation ? start : new Date(Date.parse(end) - OVERLAP_MS).toISOString(),
+    job,
+  );
+  if (!continuation) await markConnectionSynced("EBAY", job);
+  return { count: orders.length, from: start, to: end, hasMore: Boolean(continuation) };
 }
 
 async function ebayHistory(value: unknown) {

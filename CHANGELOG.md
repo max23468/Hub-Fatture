@@ -2,6 +2,8 @@
 
 ## 0.3.5
 
+- Gli ordini eBay recuperano l'identificativo fiscale con il marketplace corretto; Shopify usa come ultimo fallback un unico CF o P.IVA italiana presente nel campo interno dell'indirizzo di fatturazione.
+- Dopo il deploy, gli ordini già importati vengono riallineati automaticamente tramite il normale import idempotente, senza duplicati.
 - Pubblicazione proporzionata all'impatto delle modifiche, con classificazione conservativa e verifiche indipendenti eseguite in parallelo.
 - Deploy Production escluso per modifiche prive di impatto runtime, vincolato ai check cumulativi non mascherabili da no-op e registrato sul commit realmente installato.
 - Immagine Production costruita, analizzata e attestata una sola volta, poi riutilizzata dal deploy senza ricostruzioni divergenti.

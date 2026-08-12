@@ -807,8 +807,12 @@ Priorità prevista:
 
 1. campi localizzati dello specifico ordine (`Order.localizedFields` o equivalente corrente);
 2. tax ID dell'anagrafica cliente (`Customer.taxSettings.taxId` o equivalente corrente);
-3. anagrafica interna HF;
-4. inserimento manuale.
+3. seconda riga dell'indirizzo di fatturazione Shopify, usata dal negozio come fallback
+   storico: estrarre soltanto un singolo CF o una singola P.IVA italiana con formato valido,
+   rimuovere dall'indirizzo normalizzato il solo token consumato e conservare l'eventuale
+   contenuto reale residuo;
+4. anagrafica interna HF;
+5. inserimento manuale.
 
 Non mappare un campo soltanto dal titolo visualizzato, che può cambiare con lingua/configurazione. Salvare `key`, `countryCode`, `purpose`, `title`, `value` e il payload utile; usare `key` e `purpose` come riferimenti stabili quando la risposta reale li valorizza e configurare il mapping a partire da ordini reali.
 
@@ -864,6 +868,10 @@ Non fissare i nomi dei topic senza verifica sulla versione API corrente.
 Il piano assume che il dato fiscale sia disponibile nel dettaglio del singolo ordine, non necessariamente nell'elenco. Implementare:
 
 `getOrders -> per ogni nuovo/aggiornato ordine -> getOrder(orderId) -> buyer.taxIdentifier`
+
+La richiesta `getOrder` include `X-EBAY-C-MARKETPLACE-ID` derivato dall'unico
+`lineItems[].listingMarketplaceId` del riepilogo. Senza l'header eBay può restituire la
+forma generica del buyer e omettere `taxIdentifier` anche per ordini `EBAY_IT`.
 
 Per venditori italiani il valore può rappresentare Codice Fiscale oppure P.IVA. Non dedurne il tipo soltanto dalla presenza: conservare il tipo dichiarato da eBay e validare il formato; i casi incoerenti restano da verificare.
 
@@ -1976,6 +1984,13 @@ Valori di routine da calibrare:
 - Pulizia sessioni: giornaliera.
 
 Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify ed eBay. Per Aruba non simulare un polling headless: mostrare l'età dell'ultimo readback e proporre l'avvio dell'helper quando esistono documenti non conclusi.
+
+Quando una correzione del mapper richiede di rileggere ordini già importati, una migrazione
+append-only riporta il cursore `orders` a poco prima dell'ordine più remoto interessato e
+rende la connessione immediatamente schedulabile. Il worker usa il normale import con upsert:
+un job già pendente o in esecuzione resta unico e il replay non duplica ordini. Se il provider
+espone più risultati del limite per singolo job, il cursore conserva pagina e limite temporale
+del batch e il worker prosegue con job successivi prima di tornare alla finestra incrementale.
 
 ### 16.4 Registro errori e riconciliazione
 
