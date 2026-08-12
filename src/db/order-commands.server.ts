@@ -34,6 +34,7 @@ const historicalReconciliationSchema = z.object({
 
 function fiscalContract(profile: FiscalProfile) {
   const { phone: _phone, email: _email, ...seller } = profile.seller;
+  const { invoiceMethod: _invoiceMethod, ...payment } = profile.payment;
   const {
     lastObservedYear: _year,
     lastObservedNumber: _number,
@@ -41,7 +42,7 @@ function fiscalContract(profile: FiscalProfile) {
     approvedAt: _approvedAt,
     ...numbering
   } = profile.numbering;
-  return { ...profile, seller, numbering };
+  return { ...profile, seller, numbering, payment };
 }
 
 function hasOrderReference(references: string[], provider: string, displayNumber: string) {
@@ -148,8 +149,121 @@ function attributedInvoiceAmount(
 
 function normalizedIdentityPart(value: unknown) {
   return typeof value === "string"
-    ? value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("it")
+    ? value
+        .normalize("NFKD")
+        .replace(/\p{M}/gu, "")
+        .toLocaleLowerCase("it")
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim()
+        .replace(/\s+/g, " ")
     : "";
+}
+
+function identityTokens(value: unknown) {
+  return new Set(normalizedIdentityPart(value).split(" ").filter(Boolean));
+}
+
+function sameTokenSet(left: unknown, right: unknown) {
+  const leftTokens = identityTokens(left);
+  const rightTokens = identityTokens(right);
+  return (
+    leftTokens.size > 0 &&
+    leftTokens.size === rightTokens.size &&
+    [...leftTokens].every((token) => rightTokens.has(token))
+  );
+}
+
+function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
+  const normalizedLeft = normalizedIdentityPart(left);
+  return Boolean(normalizedLeft && normalizedLeft === normalizedIdentityPart(right));
+}
+
+function sharesStreetName(left: unknown, right: unknown) {
+  const streetTokens = (value: unknown) =>
+    normalizedIdentityPart(value)
+      .replace(/(?:\s+\d+\s*[a-z]?|\s+snc)$/u, "")
+      .split(" ")
+      .filter(Boolean);
+  const leftIdentityTokens = streetTokens(left);
+  const rightIdentityTokens = streetTokens(right);
+  const leftStreetKindIndex = leftIdentityTokens.findIndex(
+    (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
+  );
+  const rightStreetKindIndex = rightIdentityTokens.findIndex(
+    (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
+  );
+  const leftStreetKind = leftIdentityTokens[leftStreetKindIndex];
+  const rightStreetKind = rightIdentityTokens[rightStreetKindIndex];
+  if (!leftStreetKind || leftStreetKind !== rightStreetKind) return false;
+  const leftTokens = leftIdentityTokens.slice(leftStreetKindIndex + 1);
+  const rightTokens = rightIdentityTokens.slice(rightStreetKindIndex + 1);
+  return (
+    leftTokens.length >= 2 &&
+    leftTokens.length === rightTokens.length &&
+    leftTokens.every((token, index) => token === rightTokens[index])
+  );
+}
+
+function containsStructuredStreetNumber(
+  address: unknown,
+  streetNumber: unknown,
+  postalCode: unknown,
+) {
+  const expected = normalizedIdentityPart(streetNumber).replaceAll(" ", "");
+  const excludedPostalCode = normalizedIdentityPart(postalCode).replaceAll(" ", "");
+  const addressParts = normalizedIdentityPart(address).split(" ").filter(Boolean);
+  if (addressParts.at(-1) === excludedPostalCode) addressParts.pop();
+  const actual = addressParts.join(" ").match(/(?:^| )(\d+[a-z]?|\d+ [a-z]|snc)$/)?.[1];
+  return Boolean(expected && actual && expected === actual.replaceAll(" ", ""));
+}
+
+function hasSupportingAddressEvidence(
+  customerAddress: Record<string, unknown>,
+  recipientAddress: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"]["address"],
+) {
+  const samePostalCode = sameNonEmptyIdentityPart(
+    customerAddress.postalCode,
+    recipientAddress.postalCode,
+  );
+  const sameCity = sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city);
+  const sameStreetName = sharesStreetName(customerAddress.line1, recipientAddress.line1);
+  if (recipientAddress.streetNumber) {
+    return (
+      containsStructuredStreetNumber(
+        customerAddress.line1,
+        recipientAddress.streetNumber,
+        customerAddress.postalCode,
+      ) &&
+      sameStreetName &&
+      samePostalCode &&
+      sameCity
+    );
+  }
+  return (
+    sameNonEmptyIdentityPart(customerAddress.line1, recipientAddress.line1) &&
+    samePostalCode &&
+    sameCity
+  );
+}
+
+function customerIdentityNames(customer: Record<string, unknown>, business: boolean) {
+  const canonical =
+    customer.canonicalProfile && typeof customer.canonicalProfile === "object"
+      ? (customer.canonicalProfile as Record<string, unknown>)
+      : {};
+  const businessNames = [customer.companyName, canonical.companyName].filter((value) =>
+    normalizedIdentityPart(value),
+  );
+  const personalNames = [
+    [customer.firstName, customer.lastName].filter(Boolean).join(" "),
+    [canonical.firstName, canonical.lastName].filter(Boolean).join(" "),
+  ].filter((value) => normalizedIdentityPart(value));
+  const typedNames = business ? businessNames : personalNames;
+  if (typedNames.length > 0) return typedNames;
+  if ((business ? personalNames : businessNames).length > 0) return [];
+  return [customer.displayName, canonical.displayName].filter((value) =>
+    normalizedIdentityPart(value),
+  );
 }
 
 function matchesRecipientWithoutTaxId(
@@ -160,25 +274,38 @@ function matchesRecipientWithoutTaxId(
     customer.billingAddress && typeof customer.billingAddress === "object"
       ? (customer.billingAddress as Record<string, unknown>)
       : {};
-  const customerName =
-    normalizedIdentityPart(customer.companyName) ||
-    normalizedIdentityPart([customer.firstName, customer.lastName].filter(Boolean).join(" ")) ||
-    normalizedIdentityPart(customer.displayName);
+  const recipientBusinessName = normalizedIdentityPart(recipient.businessName);
   const recipientName =
-    normalizedIdentityPart(recipient.businessName) ||
+    recipientBusinessName ||
     normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
-  const customerAddress = ["line1", "postalCode", "city", "countryCode"].map((key) =>
-    normalizedIdentityPart(billingAddress[key]),
+  const customerKind = typeof customer.kind === "string" ? customer.kind.trim().toUpperCase() : "";
+  const hasCustomerBusinessName = customerIdentityNames(customer, true).length > 0;
+  const customerIsBusiness =
+    customerKind === "BUSINESS_IT" || (customerKind === "EU" && hasCustomerBusinessName);
+  const customerIsPersonal =
+    customerKind === "PRIVATE_IT" || (customerKind === "EU" && !hasCustomerBusinessName);
+  if (
+    (customerIsBusiness && !recipientBusinessName) ||
+    (customerIsPersonal && recipientBusinessName)
+  ) {
+    return false;
+  }
+  const business = customerIsBusiness || (!customerIsPersonal && Boolean(recipientBusinessName));
+  const customerCountry = normalizedIdentityPart(billingAddress.countryCode);
+  const recipientCountry = normalizedIdentityPart(recipient.address.countryCode);
+  if (!recipientName || !customerCountry || customerCountry !== recipientCountry) return false;
+  return customerIdentityNames(customer, business).some(
+    (customerName) =>
+      (business
+        ? sameNonEmptyIdentityPart(customerName, recipientName)
+        : sameTokenSet(customerName, recipientName)) &&
+      hasSupportingAddressEvidence(billingAddress, recipient.address),
   );
-  const recipientAddress = ["line1", "postalCode", "city", "countryCode"].map((key) =>
-    normalizedIdentityPart(recipient.address[key as keyof typeof recipient.address]),
-  );
-  return (
-    Boolean(customerName && recipientName && customerAddress.every(Boolean)) &&
-    customerName === recipientName &&
-    customerAddress.length === recipientAddress.length &&
-    customerAddress.every((value, index) => value === recipientAddress[index])
-  );
+}
+
+function historicalDocumentDateAllowed(orderDate: string, documentDate: string) {
+  const difference = Date.parse(`${documentDate}T00:00:00Z`) - Date.parse(`${orderDate}T00:00:00Z`);
+  return difference >= 0 && difference <= 7 * 24 * 60 * 60 * 1000;
 }
 
 function taxIdentifierKey(identifier: {
@@ -303,7 +430,7 @@ async function uniquelyMatchesUnreferencedMarketplaceInvoice(
   const matches = candidates.rows.filter(
     (candidate) =>
       !hasConflictingMarketplaceReference(invoice.references, candidate.provider) &&
-      invoice.documentDate >= candidate.local_order_date &&
+      historicalDocumentDateAllowed(candidate.local_order_date, invoice.documentDate) &&
       expectedHistoricalInvoiceAmount(candidate, invoice.documentDate) === invoice.totalAmount &&
       matchesHistoricalRecipient(candidate, invoice, invoiceTaxIdentifiers),
   );
@@ -721,7 +848,7 @@ export async function reconcileHistoricalOrder(
           !importedInvoice ||
           !archivedInvoice ||
           !invoicePath ||
-          importedInvoice.documentDate < current.local_order_date ||
+          !historicalDocumentDateAllowed(current.local_order_date, importedInvoice.documentDate) ||
           (!hasExplicitHistoricalOrderReference && !unreferencedMarketplaceMatch) ||
           !matchesHistoricalRecipient(current, importedInvoice, importedTaxIdentifiers) ||
           JSON.stringify(fiscalContract(profile.data)) !==

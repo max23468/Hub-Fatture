@@ -2326,6 +2326,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     ebayWithoutReference.customer.taxIdentifiers = [];
     delete ebayWithoutReference.customer.firstName;
     delete ebayWithoutReference.customer.lastName;
+    ebayWithoutReference.customer.displayName = "Mario Rossi";
     ebayWithoutReference.customer.billingAddress = {
       line1: "Via Cliente 2",
       postalCode: "00100",
@@ -2465,26 +2466,525 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    const historicalPaymentInvoice = Buffer.from(
+      ebayInvoiceWithoutReference
+        .toString()
+        .replace(
+          "<ModalitaPagamento>MP08</ModalitaPagamento>",
+          "<ModalitaPagamento>MP05</ModalitaPagamento>",
+        ),
+    );
     await orders.reconcileHistoricalOrder(
       ebayWithoutReferenceId,
       {
         outcome: "ALREADY_INVOICED",
-        reference: "Documento Aruba senza riferimento eBay con prova univoca completa",
-        invoiceXml: ebayInvoiceWithoutReference,
+        reference: "Documento Aruba univoco: nome, indirizzo, data e totale verificati",
+        invoiceXml: historicalPaymentInvoice,
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-without-reference" },
     );
-    assert.equal(
+    assert.deepEqual(
       (
         await database.getPool().query(
-          `SELECT count(*)::int AS count
+          `SELECT count(*)::int AS count, min(documents.payment_method) AS payment_method
            FROM document_orders
            JOIN documents ON documents.id = document_orders.document_id
            WHERE document_orders.order_id = $1 AND documents.origin = 'ARUBA_HISTORY'`,
           [ebayWithoutReferenceId],
         )
-      ).rows[0].count,
-      1,
+      ).rows[0],
+      { count: 1, payment_method: "MP05" },
+    );
+    const reorderedNameEbay = structuredClone(ebayWithoutReference);
+    reorderedNameEbay.externalOrderId = "ebay-order-historical-reordered-name";
+    reorderedNameEbay.externalCustomerId = "ebay-customer-historical-reordered-name";
+    reorderedNameEbay.displayNumber = "26-12345-67894";
+    reorderedNameEbay.customer.displayName = "Rossi Mario";
+    reorderedNameEbay.customer.billingAddress.line1 = "Strada Provinciale 12 Campo Distante 99/B";
+    reorderedNameEbay.customer.billingAddress.postalCode = "50100";
+    reorderedNameEbay.customer.billingAddress.city = "Firenze";
+    reorderedNameEbay.customer.billingAddress.province = "FI";
+    reorderedNameEbay.total = "76.00";
+    reorderedNameEbay.lines[0].grossAmount = "76.00";
+    reorderedNameEbay.payments[0].amount = "76.00";
+    reorderedNameEbay.payments[0].externalPaymentId = "ebay-payment-historical-reordered-name";
+    reorderedNameEbay.lines[0].externalLineId = "ebay-line-historical-reordered-name";
+    await orders.importOrders([reorderedNameEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-reordered-name",
+    });
+    const reorderedNameEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          reorderedNameEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const reorderedNameInvoice = ebayInvoiceWithoutReference
+      .toString()
+      .replace("FPR 0020/26", "FPR 0022/26")
+      .replaceAll("75.00", "76.00")
+      .replace(
+        "<ModalitaPagamento>MP08</ModalitaPagamento>",
+        "<ModalitaPagamento>MP01</ModalitaPagamento>",
+      );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con omonimo e sola provincia coincidente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Giuseppe Distante 12 50100</Indirizzo>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-reordered-name-only" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con stessa via ma civico differente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Strada Provinciale 12 Campo Distante 101</Indirizzo>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-conflicting-street-number" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con suffisso del civico differente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/A</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-conflicting-street-number-suffix" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con solo civico e provincia coincidenti",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Completamente Diversa</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>59100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Prato</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-street-number-and-province-only" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con stessa via e civico ma località differente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice.replace(
+              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+            ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-street-with-different-locality" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con tipo di strada differente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-different-street-type" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con tipo di strada fuori allowlist differente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Largo Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-unlisted-street-type" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con solo tipo e una parola della strada coincidenti",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Strada Provinciale 12 Campo Differente</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-partial-street-name" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con numero identificativo della strada differente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Strada Provinciale 34 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-different-street-identifier" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con identità contenuta ma non uguale",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace("<Nome>Mario</Nome>", "<Nome>Mario Bianchi</Nome>")
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-contained-recipient-name" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con token della strada riordinati",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Strada Campo Provinciale 12 Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-reordered-street-name" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      reorderedNameEbayId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba univoco: token nome e località verificati",
+        invoiceXml: Buffer.from(
+          reorderedNameInvoice
+            .replace(
+              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+            )
+            .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+            .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+        ),
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-reordered-name" },
+    );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT documents.payment_method
+           FROM document_orders
+           JOIN documents ON documents.id = document_orders.document_id
+           WHERE document_orders.order_id = $1 AND documents.origin = 'ARUBA_HISTORY'`,
+          [reorderedNameEbayId],
+        )
+      ).rows[0].payment_method,
+      "MP01",
+    );
+    const internalStreetKindEbay = structuredClone(ebayWithoutReference);
+    internalStreetKindEbay.externalOrderId = "ebay-order-historical-internal-street-kind";
+    internalStreetKindEbay.externalCustomerId = "ebay-customer-historical-internal-street-kind";
+    internalStreetKindEbay.displayNumber = "26-12345-67896";
+    internalStreetKindEbay.customer.billingAddress.line1 = "Via Piazza d'Armi 10";
+    internalStreetKindEbay.total = "78.00";
+    internalStreetKindEbay.lines[0].grossAmount = "78.00";
+    internalStreetKindEbay.payments[0].amount = "78.00";
+    internalStreetKindEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-internal-street-kind";
+    internalStreetKindEbay.lines[0].externalLineId = "ebay-line-historical-internal-street-kind";
+    await orders.importOrders([internalStreetKindEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-internal-street-kind",
+    });
+    const internalStreetKindEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          internalStreetKindEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        internalStreetKindEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba che omette un tipo di strada interno al nome",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0024/26")
+              .replaceAll("75.00", "78.00")
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via d'Armi</Indirizzo><NumeroCivico>10</NumeroCivico>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-internal-street-kind" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    const reorderedBusinessEbay = structuredClone(ebayWithoutReference);
+    reorderedBusinessEbay.externalOrderId = "ebay-order-historical-reordered-business";
+    reorderedBusinessEbay.externalCustomerId = "ebay-customer-historical-reordered-business";
+    reorderedBusinessEbay.displayNumber = "26-12345-67895";
+    reorderedBusinessEbay.customer.kind = "BUSINESS_IT";
+    reorderedBusinessEbay.customer.companyName = "Alfa Beta Srl";
+    reorderedBusinessEbay.customer.displayName = "Alfa Beta Srl";
+    reorderedBusinessEbay.customer.billingAddress.line1 = "Via Papa Pio X 10";
+    reorderedBusinessEbay.total = "77.00";
+    reorderedBusinessEbay.lines[0].grossAmount = "77.00";
+    reorderedBusinessEbay.payments[0].amount = "77.00";
+    reorderedBusinessEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-reordered-business";
+    reorderedBusinessEbay.lines[0].externalLineId = "ebay-line-historical-reordered-business";
+    await orders.importOrders([reorderedBusinessEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-reordered-business",
+    });
+    const reorderedBusinessEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          reorderedBusinessEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedBusinessEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba intestato al referente dell’azienda",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0023/26")
+              .replaceAll("75.00", "77.00")
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-business-contact-person" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedBusinessEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con ragione sociale riordinata",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0023/26")
+              .replaceAll("75.00", "77.00")
+              .replace(
+                "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
+                "<Denominazione>Beta Alfa Srl</Denominazione>",
+              )
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-reordered-business-name" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedBusinessEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba personale con token della società riordinati",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0023/26")
+              .replaceAll("75.00", "77.00")
+              .replace("<Nome>Mario</Nome>", "<Nome>Beta</Nome>")
+              .replace("<Cognome>Rossi</Cognome>", "<Cognome>Alfa Srl</Cognome>")
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-business-as-person" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedBusinessEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con numero romano alfabetico della strada differente",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0023/26")
+              .replaceAll("75.00", "77.00")
+              .replace(
+                "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
+                "<Denominazione>Alfa Beta Srl</Denominazione>",
+              )
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Papa Pio V</Indirizzo><NumeroCivico>10</NumeroCivico>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-short-street-token" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      reorderedBusinessEbayId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba con ragione sociale completa nello stesso ordine",
+        invoiceXml: Buffer.from(
+          ebayInvoiceWithoutReference
+            .toString()
+            .replace("FPR 0020/26", "FPR 0023/26")
+            .replaceAll("75.00", "77.00")
+            .replace(
+              "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
+              "<Denominazione>Alfa Beta Srl</Denominazione>",
+            )
+            .replace(
+              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
+            ),
+        ),
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-exact-business-name" },
     );
     const reusedEbayInvoice = structuredClone(ebayWithoutReference);
     reusedEbayInvoice.externalOrderId = "ebay-order-historical-reused-document";
@@ -3077,7 +3577,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "12",
+      "14",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
