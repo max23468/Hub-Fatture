@@ -8,13 +8,13 @@
 - Query e mapper: `src/integrations/shopify.server.ts`.
 - Contract check: `npm test -- src/integrations/connectors.test.ts`.
 
-Le fixture versionate sono sintetiche e anonimizzate. Il readback Development su SyncBay Dev ha confermato la forma reale dei campi italiani: `TAX_CREDENTIAL_IT` e `TAX_EMAIL_IT`, entrambi con `purpose: TAX` e `countryCode: IT`. Il mapper usa il primo come codice fiscale, conserva il secondo come PEC e mantiene chiave, Paese, finalità, titolo e valore nello snapshot dell'ordine. Nessun valore personale è stato copiato; la fixture conserva soltanto la forma osservata con dati sintetici.
+Le fixture versionate sono sintetiche e anonimizzate. Il readback Development su SyncBay Dev ha confermato la forma reale dei campi italiani: `TAX_CREDENTIAL_IT` e `TAX_EMAIL_IT`, entrambi con `purpose: TAX` e `countryCode: IT`. Il mapper usa il primo come codice fiscale, conserva il secondo come PEC e mantiene chiave, Paese, finalità, titolo e valore nello snapshot dell'ordine. Se i campi localizzati e il tax ID cliente sono entrambi assenti, il mapper esamina la seconda riga dell'indirizzo di fatturazione usata storicamente dal negozio: accetta soltanto un singolo CF o una singola P.IVA italiana con formato valido e conserva `billingAddress.address2` come sorgente. Il payload originale resta immutato; dall'indirizzo normalizzato viene rimosso soltanto il token fiscale consumato, preservando l'eventuale contenuto reale residuo. Nessun valore personale è stato copiato; la fixture conserva soltanto la forma osservata con dati sintetici.
 
 ## eBay
 
 - API: Sell Fulfillment `v1`; schema documentato `1.20.7`.
 - Endpoint Production: `https://api.ebay.com/sell/fulfillment/v1`; Sandbox: `https://api.sandbox.ebay.com/sell/fulfillment/v1`.
-- Scope: `sell.fulfillment.readonly`; `getOrders` incrementale seguito da `getOrder` per `buyer.taxIdentifier`.
+- Scope: `sell.fulfillment.readonly`; `getOrders` incrementale seguito da `getOrder` per `buyer.taxIdentifier`, con header marketplace derivato da `lineItems[].listingMarketplaceId`.
 - `legacyOrderId` non è usato: è stato dismesso il 10 aprile 2025.
 - Gli importi `paymentSummary.refunds.amount` sono netti venditore e possono escludere le imposte eBay: il mapper li conserva nel raw ma imposta il rimborso `AMBIGUOUS` senza inventare l'importo cliente.
 - eBay non pubblica una data di fine supporto per Fulfillment `v1`: la finestra operativa vale 31 giorni dall'ultimo controllo riuscito delle [release note Fulfillment](https://developer.ebay.com/api-docs/sell/fulfillment/static/release-notes.html) e dello [stato deprecazioni](https://developer.ebay.com/develop/get-started/api-deprecation-status). Il controllo si ripete almeno mensilmente e prima di ogni release; una variazione riapre il contract check prima del deploy.
@@ -22,6 +22,8 @@ Le fixture versionate sono sintetiche e anonimizzate. Il readback Development su
 - Contract check: `npm test -- src/integrations/connectors.test.ts`.
 
 Le fixture versionate sono sintetiche e anonimizzate. Il readback Production tramite il keyset `botCF` e i token tenant già custoditi da FiscalBay ha confermato `buyer.taxIdentifier` con tipo `CODICE_FISCALE` e due forme di `paymentSummary.refunds`: entrambe espongono `refundReferenceId` e `amount.value`/`amount.currency`, mentre `refundId` è opzionale. Nessun identificativo, importo o dato personale reale è stato copiato. La fixture e il mapper coprono entrambe le forme e mantengono l'importo cliente `AMBIGUOUS`.
+
+Un readback Production sanitizzato ha inoltre riprodotto la causa dell'assenza dei dati fiscali nell'import iniziale: gli stessi dettagli ordine non esponevano `buyer.taxIdentifier` senza `X-EBAY-C-MARKETPLACE-ID`, mentre con l'header `EBAY_IT` lo esponevano per gli ordini italiani. Il connettore ricava quindi l'header dal marketplace di inserzione del riepilogo e rifiuta riepiloghi senza un unico valore valido.
 
 ## Invarianti di sicurezza
 

@@ -210,7 +210,41 @@ function shopifyGid(resource: "Customer" | "Order", value: unknown): string | un
   return /^\d+$/.test(identifier) ? `gid://shopify/${resource}/${identifier}` : undefined;
 }
 
-function mapTaxIdentifiers(order: Record<string, unknown>, customer: Record<string, unknown>) {
+function fiscalIdentifierFromAddressLine(value: unknown, countryCode: string | undefined) {
+  if (countryCode !== "IT") return null;
+  const original = text(value)?.normalize("NFKC");
+  if (!original) return null;
+  const line = original.toUpperCase();
+  const candidates = [
+    ...[
+      ...line.matchAll(/(?:^|[^A-Z0-9])([A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z])(?=$|[^A-Z0-9])/g),
+    ].map((match) => ({ type: "CODICE_FISCALE" as const, match, token: match[1]! })),
+    ...[...line.matchAll(/(?:^|[^A-Z0-9])((?:IT)?(\d{11}))(?=$|[^A-Z0-9])/g)].map((match) => ({
+      type: "PARTITA_IVA" as const,
+      match,
+      token: match[1]!,
+    })),
+  ];
+  if (candidates.length !== 1) return null;
+  const candidate = candidates[0]!;
+  const start = candidate.match.index + candidate.match[0].indexOf(candidate.token);
+  const remaining = `${original.slice(0, start)}${original.slice(start + candidate.token.length)}`
+    .replace(/(?:CODICE\s+FISCALE|C\.?\s*F\.?|PARTITA\s+IVA|P\.?\s*IVA)/giu, " ")
+    .replace(/^[\s,;:./·—–-]+|[\s,;:./·—–-]+$/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return {
+    type: candidate.type,
+    value: candidate.type === "PARTITA_IVA" ? candidate.match[2]! : candidate.token,
+    remainingAddressLine: remaining || undefined,
+  };
+}
+
+function mapTaxIdentifiers(
+  order: Record<string, unknown>,
+  customer: Record<string, unknown>,
+  billingAddress: Record<string, unknown>,
+) {
   const identifiers: {
     type: "CODICE_FISCALE" | "PARTITA_IVA" | "ALTRO";
     value: string;
@@ -251,7 +285,21 @@ function mapTaxIdentifiers(order: Record<string, unknown>, customer: Record<stri
       });
     }
   }
-  return identifiers;
+  let billingAddressLine2 = text(billingAddress.address2);
+  if (!identifiers.length) {
+    const countryCode = text(billingAddress.countryCodeV2);
+    const fallback = fiscalIdentifierFromAddressLine(billingAddress.address2, countryCode);
+    if (fallback) {
+      const { remainingAddressLine, ...identifier } = fallback;
+      identifiers.push({
+        ...identifier,
+        countryCode,
+        sourceField: "billingAddress.address2",
+      });
+      billingAddressLine2 = remainingAddressLine;
+    }
+  }
+  return { identifiers, billingAddressLine2 };
 }
 
 function mapAddress(value: unknown) {
@@ -303,6 +351,7 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
   const transactions = records(order.transactions).filter((transaction) =>
     ["SALE", "CAPTURE"].includes(text(transaction.kind) ?? ""),
   );
+  const taxData = mapTaxIdentifiers(order, customer, address);
   const refunds = records(order.refunds);
   const financialStatus = text(order.displayFinancialStatus) ?? "PENDING";
   return providerOrder({
@@ -348,9 +397,9 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
       certifiedEmail: localizedFields.find((field) => field.key.toUpperCase() === "TAX_EMAIL_IT")
         ?.value,
       phone: text(record(customer.defaultPhoneNumber).phoneNumber) ?? text(address.phone),
-      billingAddress: mapAddress(address),
+      billingAddress: { ...mapAddress(address), line2: taxData.billingAddressLine2 },
       shippingAddress: mapAddress(shippingAddress),
-      taxIdentifiers: mapTaxIdentifiers(order, customer),
+      taxIdentifiers: taxData.identifiers,
     },
     lines: lineItems.map((line) => {
       const original = shopMoney(line.originalTotalSet);

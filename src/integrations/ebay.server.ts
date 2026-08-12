@@ -427,10 +427,38 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
   });
 }
 
-async function fetchOrder(environment: "sandbox" | "production", token: string, orderId: string) {
+export function ebayListingMarketplaceId(payload: unknown): string {
+  const marketplaces = new Set(
+    records(record(payload).lineItems).flatMap((line) => {
+      const marketplace = text(line.listingMarketplaceId);
+      return marketplace ? [marketplace] : [];
+    }),
+  );
+  if (marketplaces.size !== 1) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  const marketplace = [...marketplaces][0]!;
+  if (!/^EBAY_[A-Z0-9_]+$/.test(marketplace)) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  return marketplace;
+}
+
+export function ebayFulfillmentHeaders(token: string, marketplaceId?: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json",
+    ...(marketplaceId ? { "X-EBAY-C-MARKETPLACE-ID": marketplaceId } : {}),
+  };
+}
+
+async function fetchOrder(
+  environment: "sandbox" | "production",
+  token: string,
+  orderId: string,
+  marketplaceId: string,
+) {
   return providerJson(
     `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order/${encodeURIComponent(orderId)}?fieldGroups=TAX_BREAKDOWN`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+    { headers: ebayFulfillmentHeaders(token, marketplaceId) },
   );
 }
 
@@ -449,14 +477,15 @@ async function fetchOrdersSince(start: string) {
     });
   for (let page = 0; url && page < 20; page += 1) {
     const response = await providerJson(url, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      headers: ebayFulfillmentHeaders(token),
     });
     for (const summary of records(response.orders)) {
       const orderId = text(summary.orderId);
       if (!orderId) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      const marketplaceId = ebayListingMarketplaceId(summary);
       // Tax identifier is contractually present only on getOrder; la sequenza evita burst di 50 richieste.
       // react-doctor-disable-next-line react-doctor/async-await-in-loop
-      const detail = await fetchOrder(environment, token, orderId);
+      const detail = await fetchOrder(environment, token, orderId, marketplaceId);
       orders.push(mapEbayOrder(detail, connection.accountReference));
     }
     url = ebayNextUrl(environment, response.next);
