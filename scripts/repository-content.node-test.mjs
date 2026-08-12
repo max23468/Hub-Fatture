@@ -335,17 +335,15 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
     ci,
     /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.before \}\}/,
   );
-  assert.match(arubaPlatform, /workflow_dispatch:/);
-  assert.match(
-    arubaPlatform,
-    /commit:\n        description: SHA completo del candidato appartenente a main/,
-  );
+  assert.match(arubaPlatform, /repository_dispatch:\n    types: \[aruba-platform-candidate\]/);
+  assert.doesNotMatch(arubaPlatform, /workflow_dispatch:/);
+  assert.match(arubaPlatform, /ref: \$\{\{ github\.event\.client_payload\.commit \}\}/);
   assert.match(
     arubaPlatform,
     /name: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
   );
   assert.match(arubaPlatform, /npm run test:aruba:platform -- \$\{\{ matrix\.browser \}\}/);
-  assert.match(arubaPlatform, /ref: \$\{\{ inputs\.commit \}\}/);
+  assert.doesNotMatch(arubaPlatform, /inputs\.commit/);
   assert.match(arubaPlatform, /\[\[ "\$CANDIDATE" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
   assert.match(arubaPlatform, /test "\$\(git rev-parse HEAD\)" = "\$CANDIDATE"/);
   assert.match(arubaPlatform, /git merge-base --is-ancestor "\$CANDIDATE" origin\/main/);

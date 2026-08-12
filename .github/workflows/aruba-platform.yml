@@ -1,12 +1,8 @@
 name: Helper Aruba multipiattaforma
 
 on:
-  workflow_dispatch:
-    inputs:
-      commit:
-        description: SHA completo del candidato appartenente a main
-        required: true
-        type: string
+  repository_dispatch:
+    types: [aruba-platform-candidate]
 
 permissions:
   checks: write
@@ -34,11 +30,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ inputs.commit }}
+          ref: ${{ github.event.client_payload.commit }}
       - name: Verifica il candidato esatto
         shell: bash
         env:
-          CANDIDATE: ${{ inputs.commit }}
+          CANDIDATE: ${{ github.event.client_payload.commit }}
         run: |
           [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$CANDIDATE"
@@ -53,7 +49,7 @@ jobs:
         if: always()
         shell: bash
         env:
-          CANDIDATE: ${{ inputs.commit }}
+          CANDIDATE: ${{ github.event.client_payload.commit }}
           CONCLUSION: ${{ job.status == 'success' && 'success' || 'failure' }}
           GH_TOKEN: ${{ github.token }}
           RECEIPT_NAME: Helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
