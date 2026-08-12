@@ -15,29 +15,75 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  aruba-helper-platform:
-    name: Helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            browser: chrome
-          - os: windows-latest
-            browser: msedge
+  impact:
+    name: Classifica modifica
+    runs-on: ubuntu-latest
+    outputs:
+      standard: ${{ steps.impact.outputs.standard }}
+      security-data: ${{ steps.impact.outputs.security_data }}
+      database: ${{ steps.impact.outputs.database }}
+      provider: ${{ steps.impact.outputs.provider }}
+      aruba-platform: ${{ steps.impact.outputs.aruba_platform }}
+      e2e: ${{ steps.impact.outputs.e2e }}
+      lane: ${{ steps.impact.outputs.lane }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
           install: true
           cache: true
-      - run: npm ci
-      - run: npm run test:aruba:platform -- ${{ matrix.browser }}
+      - id: impact
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" -- scripts/change-impact.mjs | grep -Fxq scripts/change-impact.mjs; then
+            printf '%s\n' standard=true security_data=true database=true provider=true aruba_platform=true e2e=true lane=deploy >> "$GITHUB_OUTPUT"
+          else
+            node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          fi
+      - run: echo "Corsia selezionata - ${{ steps.impact.outputs.lane }}" >> "$GITHUB_STEP_SUMMARY"
 
-  check:
-    name: CI
+  repository:
+    name: Guardie repository
+    needs: impact
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - run: npm run check:docs
+
+  standard:
+    name: Gate standard
+    if: needs.impact.outputs.standard == 'true'
+    needs: impact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
+      - run: npm ci
+      - run: npm run check:standard
+
+  database:
+    name: PostgreSQL e migrazioni
+    if: needs.impact.outputs.database == 'true'
+    needs: impact
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -62,11 +108,127 @@ jobs:
       TEST_DATABASE_URL: postgres://hub_fatture:hub_fatture_test@127.0.0.1:5432/hub_fatture_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
           install: true
           cache: true
       - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
       - run: npm ci
+      - run: npm run build:server
+      - run: npm run test:db
+
+  security:
+    name: Audit dipendenze
+    if: needs.impact.outputs.security-data == 'true'
+    needs: impact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - run: npm ci
+      - run: npm run audit
+
+  provider:
+    name: Contract test provider
+    if: needs.impact.outputs.provider == 'true'
+    needs: impact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
+      - run: npm ci
+      - run: npm run test:provider
+
+  e2e:
+    name: E2E Chromium
+    if: needs.impact.outputs.e2e == 'true'
+    needs: impact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
+        env:
+          POSTGRES_DB: hub_fatture_test
+          POSTGRES_USER: hub_fatture
+          POSTGRES_PASSWORD: hub_fatture_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hub_fatture -d hub_fatture_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ADMIN_BOOTSTRAP_TOKEN: synthetic-bootstrap-token-for-tests
+      APP_BASE_URL: http://127.0.0.1:4173
+      APP_ENV: test
+      DATABASE_URL: postgres://hub_fatture:hub_fatture_test@127.0.0.1:5432/hub_fatture_test
+      TEST_DATABASE_URL: postgres://hub_fatture:hub_fatture_test@127.0.0.1:5432/hub_fatture_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
+      - run: npm ci
+      - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npm run check
+      - run: npm run test:e2e
+
+  aruba-helper-platform:
+    name: Helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
+    if: needs.impact.outputs.aruba-platform == 'true'
+    needs: impact
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            browser: chrome
+          - os: windows-latest
+            browser: msedge
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - run: npm ci
+      - run: npm run test:aruba:platform -- ${{ matrix.browser }}
+
+  gate:
+    name: CI
+    if: always()
+    needs: [impact, repository, standard, database, security, provider, e2e, aruba-helper-platform]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consolida i gate applicabili
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          failures=$(printf '%s' "$RESULTS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key + ": " + .value.result')
+          test -z "$failures" || { printf '%s\n' "$failures"; exit 1; }
+          echo "Tutti i gate applicabili sono conclusi."

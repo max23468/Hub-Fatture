@@ -2,7 +2,7 @@
 
 ## Confine
 
-La Production canonica è la VPS OCI `fatture-hub-vm` in `eu-milan-1`, raggiunta soltanto tramite `fatture.opik.net`. Il workflow manuale `Production` accetta esclusivamente un commit già contenuto in `main`, costruisce una sola immagine ARM64, blocca vulnerabilità alte o critiche note, pubblica e attesta il digest, quindi attende l’approvazione dell’Environment prima di accedere ai segreti SSH.
+La Production canonica è la VPS OCI `fatture-hub-vm` in `eu-milan-1`, raggiunta soltanto tramite `fatture.opik.net`. Sul push runtime a `main`, `Production artifact` costruisce una sola immagine ARM64, blocca vulnerabilità alte o critiche note, pubblica e attesta il digest senza accedere alla VPS. Il workflow manuale `Production` accetta esclusivamente un commit già contenuto in `main`, confronta il candidato con l'ultimo deployment exact-SHA riuscito, attende i gate applicabili al diff cumulativo e riusa l'artefatto; costruisce un fallback soltanto se il digest verificato non è disponibile, quindi attende l’approvazione dell’Environment prima di accedere ai segreti SSH.
 
 La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL non pubblica porte; Caddy è l’unico ingresso. `ARUBA_SUBMISSION_ENABLED=false` è fissato anche nel Compose e ogni readback deve confermarlo.
 
@@ -16,9 +16,29 @@ Per un candidato precedente al Canary Production, dopo il normale readback esegu
 4. `.env` VPS con permessi `600`, Notifications Topic OCI obbligatorio e nessun valore nei log o nella repository.
 5. Digest di rollback presente in `.deploy.env` e ultimo backup verificato quando il deploy modifica schema o storage.
 
+Il workflow verifica direttamente i check `CI`, `Foundation`, CodeQL e React
+Doctor dell'ultimo commit non distribuito che attiva la rispettiva superficie.
+Un successivo commit solo documentale non può quindi mascherare con check no-op
+un errore sul runtime ancora da distribuire; un fix successivo della stessa
+superficie sostituisce invece il gate precedente. Una modifica solo documentale,
+di test o governance che non introduce differenze runtime dal commit già
+distribuito termina senza richiedere approvazione Production. Se più PR runtime
+sono state assorbite in `main`, si distribuisce una sola volta il candidato
+finale.
+
+Un candidato precedente al deployment corrente è trattato esplicitamente come
+rollback deliberato: il workflow classifica le superfici rimosse, verifica i
+gate storici sul commit target e prova subito a riusare il relativo digest
+attestato, senza attendere il workflow artefatto di un nuovo merge. Classificatore
+e barriera dei check provengono sempre dalla revisione fidata del workflow, non
+dal candidato storico. Prima di creare il deployment exact-SHA o sostituire i
+container, il preflight confronta l'ultima migrazione del target con la ricevuta
+Production e vieta il rollback se divergono. Il deployment riuscito diventa poi
+la nuova base.
+
 ## Deploy e readback
 
-Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, prepara Compose, Caddyfile e bundle operativo come candidati, esegue il pull per digest e attende gli health check. Gli script e le unità `systemd` candidate vengono installati soltanto dopo il readback riuscito, così un rollback continua a usare il bundle operativo precedente. Backup e deploy condividono lo stesso lock per l’intera fase critica. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
+Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, prepara Compose, Caddyfile e bundle operativo come candidati, esegue il pull per digest e attende gli health check. Gli script e le unità `systemd` candidate vengono installati soltanto dopo il readback riuscito, così un rollback continua a usare il bundle operativo precedente. Backup e deploy condividono lo stesso lock per l’intera fase critica. Per codice ordinario viene riletta una ricevuta giornaliera riuscita e recente; migrazioni o modifiche allo storage producono un backup aggiuntivo prima del deploy e uno dopo il readback. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Dopo il readback il workflow registra un deployment tecnico separato, marcato con lo SHA realmente installato: questo record, non lo SHA del workflow dispatch, diventa la base del diff successivo. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
 
 Controlli conclusivi:
 
@@ -31,7 +51,7 @@ Controlli conclusivi:
 
 ## Rollback
 
-Il rollback è applicativo: soltanto se lo schema è rimasto invariato, il deploy ripristina insieme `.deploy.env`, Compose e Caddyfile precedenti, ricrea i container e ripete il readback. Se lo schema è avanzato o non è rilevabile, il rollback automatico è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.
+Il rollback è applicativo: un workflow manuale può scegliere un commit precedente già contenuto in `main`; soltanto se lo schema è rimasto invariato, il deploy ripristina insieme applicazione, Compose e Caddyfile e ripete il readback. Lo script applica inoltre lo stesso ripristino automatico del bundle precedente quando fallisce il deploy in corso. Se lo schema è avanzato o non è rilevabile, il rollback è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.
 
 ## Provisioning e hardening
 

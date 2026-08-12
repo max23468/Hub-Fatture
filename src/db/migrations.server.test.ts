@@ -31,6 +31,7 @@ const HISTORICAL_INVOICE_LINKS = "017_historical_invoice_links.sql";
 const LEGACY_WEBHOOK_HISTORY = "018_legacy_webhook_history.sql";
 const SHOPIFY_PAYMENT_FEES = "019_shopify_payment_fees.sql";
 const CREDIT_NOTE_ORDER_AMOUNTS = "020_credit_note_order_amounts.sql";
+const FISCAL_IDENTIFIER_BACKFILL = "021_fiscal_identifier_backfill.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -55,6 +56,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, LEGACY_WEBHOOK_HISTORY));
     await rm(path.join(firstTwo, SHOPIFY_PAYMENT_FEES));
     await rm(path.join(firstTwo, CREDIT_NOTE_ORDER_AMOUNTS));
+    await rm(path.join(firstTwo, FISCAL_IDENTIFIER_BACKFILL));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -78,6 +80,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       LEGACY_WEBHOOK_HISTORY,
       SHOPIFY_PAYMENT_FEES,
       CREDIT_NOTE_ORDER_AMOUNTS,
+      FISCAL_IDENTIFIER_BACKFILL,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -97,6 +100,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
     await rm(path.join(beforeHistoricalImport, LEGACY_WEBHOOK_HISTORY));
     await rm(path.join(beforeHistoricalImport, SHOPIFY_PAYMENT_FEES));
     await rm(path.join(beforeHistoricalImport, CREDIT_NOTE_ORDER_AMOUNTS));
+    await rm(path.join(beforeHistoricalImport, FISCAL_IDENTIFIER_BACKFILL));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeHistoricalImport,
@@ -118,6 +122,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
       LEGACY_WEBHOOK_HISTORY,
       SHOPIFY_PAYMENT_FEES,
       CREDIT_NOTE_ORDER_AMOUNTS,
+      FISCAL_IDENTIFIER_BACKFILL,
     ]);
     await withClient(database.connectionString, async (client) => {
       const jobs = await client.query(
@@ -162,6 +167,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
     await rm(path.join(beforeClassification, LEGACY_WEBHOOK_HISTORY));
     await rm(path.join(beforeClassification, SHOPIFY_PAYMENT_FEES));
     await rm(path.join(beforeClassification, CREDIT_NOTE_ORDER_AMOUNTS));
+    await rm(path.join(beforeClassification, FISCAL_IDENTIFIER_BACKFILL));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeClassification,
@@ -186,6 +192,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
       LEGACY_WEBHOOK_HISTORY,
       SHOPIFY_PAYMENT_FEES,
       CREDIT_NOTE_ORDER_AMOUNTS,
+      FISCAL_IDENTIFIER_BACKFILL,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -204,6 +211,103 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
     });
   } finally {
     await rm(beforeClassification, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
+test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", async () => {
+  const database = await temporaryDatabase("fiscal_identifier_backfill");
+  const beforeBackfill = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-fiscal-identifier-backfill-"),
+  );
+  try {
+    await cp("migrations", beforeBackfill, { recursive: true });
+    await rm(path.join(beforeBackfill, FISCAL_IDENTIFIER_BACKFILL));
+    await runMigrations({ connectionString: database.connectionString, directory: beforeBackfill });
+    await withClient(database.connectionString, async (client) => {
+      await client.query(
+        `INSERT INTO connections
+           (provider, environment, account_reference, encrypted_credentials, status,
+            last_synced_at)
+         VALUES
+           ('SHOPIFY', 'PRODUCTION', 'shop.example', 'encrypted', 'CONNECTED', now()),
+           ('EBAY', 'PRODUCTION', 'seller', 'encrypted', 'CONNECTED', now())`,
+      );
+      await client.query(
+        `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+         VALUES
+           ('SHOPIFY', 'history_import', 'complete', '2026-01-01T00:00:00Z'),
+           ('EBAY', 'history_import', 'complete', '2026-01-01T00:00:00Z'),
+           ('SHOPIFY', 'orders', 'recent', '2026-08-12T10:00:00Z'),
+           ('EBAY', 'orders', 'older-replay', '2025-12-01T00:00:00Z')`,
+      );
+      const customerId = (
+        await client.query(
+          `INSERT INTO customers
+             (kind, match_key, display_name, billing_address_json, source_confidence,
+              review_required)
+           VALUES ('UNKNOWN', 'fiscal-backfill', 'Cliente', '{}', 'AMBIGUOUS', true)
+           RETURNING id`,
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO orders
+           (provider, external_account_id, external_order_id, display_number,
+            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+            payment_status, fulfillment_status, trigger_status, customer_id,
+            raw_snapshot_json, normalized_snapshot_json)
+         VALUES
+           ('SHOPIFY', 'shop.example', 'shop-order', '#S', '2026-01-02T10:00:00Z',
+            '2026-01-03T10:00:00Z', '2026-01-02', 'EUR', 1000, 'PAID', 'FULFILLED',
+            'ELIGIBLE', $1, '{}', '{}'),
+           ('EBAY', 'seller', 'ebay-order', '#E', '2026-02-02T11:00:00Z',
+            '2026-02-03T11:00:00Z', '2026-02-02', 'EUR', 2000, 'PAID', 'FULFILLED',
+            'ELIGIBLE', $1, '{}', '{}')`,
+        [customerId],
+      );
+      await client.query("INSERT INTO jobs (type) VALUES ('shopify_sync_orders')");
+    });
+
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      FISCAL_IDENTIFIER_BACKFILL,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT provider, cursor, overlap_from::text
+             FROM sync_cursors WHERE stream = 'orders' ORDER BY provider`,
+          )
+        ).rows,
+        [
+          { provider: "EBAY", cursor: null, overlap_from: "2025-12-01 00:00:00+00" },
+          { provider: "SHOPIFY", cursor: null, overlap_from: "2026-01-03 09:55:00+00" },
+        ],
+      );
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT provider, last_synced_at
+             FROM connections ORDER BY provider`,
+          )
+        ).rows,
+        [
+          { provider: "EBAY", last_synced_at: null },
+          { provider: "SHOPIFY", last_synced_at: null },
+        ],
+      );
+      assert.equal(
+        (
+          await client.query(
+            `SELECT count(*) FROM jobs
+             WHERE type = 'shopify_sync_orders' AND status IN ('PENDING', 'RUNNING')`,
+          )
+        ).rows[0].count,
+        "1",
+      );
+    });
+  } finally {
+    await rm(beforeBackfill, { recursive: true, force: true });
     await database.drop();
   }
 });
@@ -232,12 +336,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       LEGACY_WEBHOOK_HISTORY,
       SHOPIFY_PAYMENT_FEES,
       CREDIT_NOTE_ORDER_AMOUNTS,
+      FISCAL_IDENTIFIER_BACKFILL,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "20",
+      "21",
     );
     await cleanClient.end();
 
@@ -330,6 +435,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
     await rm(path.join(beforeCanonicalNames, LEGACY_WEBHOOK_HISTORY));
     await rm(path.join(beforeCanonicalNames, SHOPIFY_PAYMENT_FEES));
     await rm(path.join(beforeCanonicalNames, CREDIT_NOTE_ORDER_AMOUNTS));
+    await rm(path.join(beforeCanonicalNames, FISCAL_IDENTIFIER_BACKFILL));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeCanonicalNames,
@@ -348,6 +454,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       LEGACY_WEBHOOK_HISTORY,
       SHOPIFY_PAYMENT_FEES,
       CREDIT_NOTE_ORDER_AMOUNTS,
+      FISCAL_IDENTIFIER_BACKFILL,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -391,6 +498,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
     await rm(path.join(beforeRefundAccounting, LEGACY_WEBHOOK_HISTORY));
     await rm(path.join(beforeRefundAccounting, SHOPIFY_PAYMENT_FEES));
     await rm(path.join(beforeRefundAccounting, CREDIT_NOTE_ORDER_AMOUNTS));
+    await rm(path.join(beforeRefundAccounting, FISCAL_IDENTIFIER_BACKFILL));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeRefundAccounting,
@@ -434,6 +542,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       LEGACY_WEBHOOK_HISTORY,
       SHOPIFY_PAYMENT_FEES,
       CREDIT_NOTE_ORDER_AMOUNTS,
+      FISCAL_IDENTIFIER_BACKFILL,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -469,6 +578,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, LEGACY_WEBHOOK_HISTORY));
     await rm(path.join(beforeM4, SHOPIFY_PAYMENT_FEES));
     await rm(path.join(beforeM4, CREDIT_NOTE_ORDER_AMOUNTS));
+    await rm(path.join(beforeM4, FISCAL_IDENTIFIER_BACKFILL));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -603,6 +713,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       LEGACY_WEBHOOK_HISTORY,
       SHOPIFY_PAYMENT_FEES,
       CREDIT_NOTE_ORDER_AMOUNTS,
+      FISCAL_IDENTIFIER_BACKFILL,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

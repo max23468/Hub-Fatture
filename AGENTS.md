@@ -42,6 +42,15 @@ bloccanti, merge, tag e GitHub Release quando previsti, deploy o promozione
 tecnica e verifica live. La sequenza concreta, in particolare tra versionamento,
 merge, deploy e release, è quella definita dalla policy della repository.
 
+Prima di aprire una PR di pubblicazione, completa i gate locali applicabili e
+presenta un HEAD coerente e pronto alla review, così ogni nuovo commit riapre il
+gate Codex soltanto quando corregge un finding reale. Classifica l'impatto sul
+diff cumulativo fra l'ultimo commit distribuito e il candidato finale, non sulla
+sola ultima PR. Modifiche esclusivamente documentali, di test o di governance
+non richiedono immagine, deploy o release; più modifiche runtime correlate già
+assorbite in `main` vengono distribuite insieme una sola volta sul candidato
+finale.
+
 I finding P2/P3 della review restano advisory e non autorizzano modifiche:
 l'agente li implementa soltanto su richiesta esplicita del proprietario. Quando
 la review è conclusa e l'evidenza si riferisce all'HEAD esatto, li riepiloga e

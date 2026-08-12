@@ -4,11 +4,20 @@ import test from "node:test";
 
 import { AppError } from "../errors.ts";
 import { orderReviewRequired } from "../orders.ts";
-import { EBAY_SCOPE, ebayAccountReference, ebayNextUrl, mapEbayOrder } from "./ebay.server.ts";
+import {
+  EBAY_SCOPE,
+  ebayAccountReference,
+  ebayFulfillmentHeaders,
+  ebayListingMarketplaceId,
+  ebayNextUrl,
+  mapEbayOrder,
+  parseEbaySyncContinuation,
+} from "./ebay.server.ts";
 import {
   SHOPIFY_API_SUPPORTED_UNTIL,
   SHOPIFY_API_VERSION,
   mapShopifyOrder,
+  parseShopifySyncContinuation,
   shopifyAccountReference,
   shopifyGraphqlError,
   shopifyUpdatedAtQuery,
@@ -36,9 +45,16 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
     (error) => error instanceof AppError && error.code === "AUTH_PROVIDER_ACCOUNT_MISMATCH",
   );
   assert.equal(
-    shopifyUpdatedAtQuery("2026-08-09T12:34:56.000Z"),
-    "updated_at:>='2026-08-09T12:34:56.000Z'",
+    shopifyUpdatedAtQuery("2026-08-09T12:34:56.000Z", "2026-08-10T12:34:56.000Z"),
+    "updated_at:>='2026-08-09T12:34:56.000Z' updated_at:<='2026-08-10T12:34:56.000Z'",
   );
+  assert.deepEqual(
+    parseShopifySyncContinuation(
+      '{"kind":"SHOPIFY_ORDERS_PAGE","end":"2026-08-10T12:34:56.000Z","after":"cursor"}',
+    ),
+    { kind: "SHOPIFY_ORDERS_PAGE", end: "2026-08-10T12:34:56.000Z", after: "cursor" },
+  );
+  assert.equal(parseShopifySyncContinuation("2026-08-10T12:34:56.000Z"), null);
   assert.deepEqual(privateMapped.customer.taxIdentifiers[0], {
     type: "CODICE_FISCALE",
     value: "RSSMRA80A01H501U",
@@ -70,6 +86,69 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
   assert.equal(orderReviewRequired(businessMapped, true), false);
 });
 
+test("Shopify usa Interno come ultimo fallback soltanto per un identificativo italiano valido", async () => {
+  const [payload] = await fixture("shopify-orders.json");
+  type ShopifyTaxPayload = Record<string, unknown> & {
+    localizedFields: { nodes: unknown[] };
+    customer: { taxSettings: { taxId: string | null } };
+    billingAddress: { address2: string | null; countryCodeV2: string };
+  };
+  const fallback = structuredClone(payload) as ShopifyTaxPayload;
+  fallback.localizedFields.nodes = [];
+  fallback.customer.taxSettings.taxId = null;
+  fallback.billingAddress.address2 = "C.F. RSSMRA80A01H501U";
+  const fiscalCodeFallback = mapShopifyOrder(fallback, "shop.example.invalid");
+  assert.deepEqual(fiscalCodeFallback.customer.taxIdentifiers, [
+    {
+      type: "CODICE_FISCALE",
+      value: "RSSMRA80A01H501U",
+      countryCode: "IT",
+      sourceField: "billingAddress.address2",
+    },
+  ]);
+  assert.equal(fiscalCodeFallback.customer.billingAddress.line2, undefined);
+
+  fallback.billingAddress.address2 = "Scala A · P. IVA IT12345678903";
+  const vatFallback = mapShopifyOrder(fallback, "shop.example.invalid");
+  assert.equal(vatFallback.customer.taxIdentifiers[0]?.type, "PARTITA_IVA");
+  assert.equal(vatFallback.customer.billingAddress.line2, "Scala A");
+  fallback.billingAddress.address2 = "Riferimento interno 12345678901";
+  const invalidVatFallback = mapShopifyOrder(fallback, "shop.example.invalid");
+  assert.equal(invalidVatFallback.customer.taxIdentifiers.length, 0);
+  assert.equal(invalidVatFallback.customer.billingAddress.line2, "Riferimento interno 12345678901");
+  fallback.billingAddress.address2 = "C.F. VRDLGI80A01H501Z";
+  const invalidFiscalCodeFallback = mapShopifyOrder(fallback, "shop.example.invalid");
+  assert.equal(invalidFiscalCodeFallback.customer.taxIdentifiers.length, 0);
+  assert.equal(invalidFiscalCodeFallback.customer.billingAddress.line2, "C.F. VRDLGI80A01H501Z");
+  fallback.billingAddress.address2 = "Scala A, interno 12";
+  assert.equal(mapShopifyOrder(fallback, "shop.example.invalid").customer.taxIdentifiers.length, 0);
+  fallback.billingAddress.address2 = "RSSMRA80A01H501U · 12345678901";
+  assert.equal(mapShopifyOrder(fallback, "shop.example.invalid").customer.taxIdentifiers.length, 0);
+  fallback.billingAddress.address2 = "RSSMRA80A01H501U";
+  fallback.billingAddress.countryCodeV2 = "ES";
+  assert.equal(mapShopifyOrder(fallback, "shop.example.invalid").customer.taxIdentifiers.length, 0);
+  fallback.billingAddress.countryCodeV2 = "IT";
+  fallback.billingAddress.address2 = "RSSMRA80A01H501U";
+  fallback.customer.taxSettings.taxId = "IT10987654321";
+  assert.equal(
+    mapShopifyOrder(fallback, "shop.example.invalid").customer.taxIdentifiers[0]?.sourceField,
+    "customer.taxSettings.taxId",
+  );
+  fallback.customer.taxSettings.taxId = null;
+  fallback.localizedFields.nodes = [
+    {
+      key: "TAX_CREDENTIAL_IT",
+      countryCode: "IT",
+      purpose: "TAX",
+      value: "VRDLGI80A01H501Z",
+    },
+  ];
+  assert.equal(
+    mapShopifyOrder(fallback, "shop.example.invalid").customer.taxIdentifiers[0]?.sourceField,
+    "localizedFields:TAX_CREDENTIAL_IT:TAX",
+  );
+});
+
 test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del rimborso", async () => {
   const [privateOrder, refundedOrder] = await fixture("ebay-orders.json");
   const privateMapped = mapEbayOrder(privateOrder, "botCF");
@@ -87,6 +166,29 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(refundedMapped.refunds[1]?.externalRefundId, "refund-reference-3");
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
+  const summary = {
+    lineItems: [
+      { listingMarketplaceId: "EBAY_IT", purchaseMarketplaceId: "EBAY_IE" },
+      { listingMarketplaceId: "EBAY_IT", purchaseMarketplaceId: "EBAY_US" },
+    ],
+  };
+  assert.equal(ebayListingMarketplaceId(summary), "EBAY_IT");
+  assert.deepEqual(ebayFulfillmentHeaders("token-sintetico", "EBAY_IT"), {
+    Authorization: "Bearer token-sintetico",
+    Accept: "application/json",
+    "X-EBAY-C-MARKETPLACE-ID": "EBAY_IT",
+  });
+  assert.throws(
+    () => ebayListingMarketplaceId({ lineItems: [{ listingMarketplaceId: "valore\r\ninvalido" }] }),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+  assert.throws(
+    () =>
+      ebayListingMarketplaceId({
+        lineItems: [{ listingMarketplaceId: "EBAY_IT" }, { listingMarketplaceId: "EBAY_ES" }],
+      }),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
   assert.match(EBAY_SCOPE, /commerce\.identity\.readonly/);
   assert.equal(ebayAccountReference({ username: "BotCF" }, "botcf"), "BotCF");
   assert.throws(
@@ -97,6 +199,17 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
     ebayNextUrl("sandbox", "/sell/fulfillment/v1/order?offset=50"),
     "https://api.sandbox.ebay.com/sell/fulfillment/v1/order?offset=50",
   );
+  assert.deepEqual(
+    parseEbaySyncContinuation(
+      '{"kind":"EBAY_ORDERS_PAGE","end":"2026-08-10T12:34:56.000Z","next":"/sell/fulfillment/v1/order?offset=1000"}',
+    ),
+    {
+      kind: "EBAY_ORDERS_PAGE",
+      end: "2026-08-10T12:34:56.000Z",
+      next: "/sell/fulfillment/v1/order?offset=1000",
+    },
+  );
+  assert.equal(parseEbaySyncContinuation("2026-08-10T12:34:56.000Z"), null);
   assert.throws(
     () => ebayNextUrl("sandbox", "https://attacker.example.invalid/steal"),
     (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
