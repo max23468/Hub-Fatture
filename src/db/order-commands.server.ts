@@ -148,12 +148,48 @@ function attributedInvoiceAmount(
     : null;
 }
 
+const bulgarianTransliteration = new Map(
+  Object.entries({
+    а: "a",
+    б: "b",
+    в: "v",
+    г: "g",
+    д: "d",
+    е: "e",
+    ж: "zh",
+    з: "z",
+    и: "i",
+    й: "y",
+    к: "k",
+    л: "l",
+    м: "m",
+    н: "n",
+    о: "o",
+    п: "p",
+    р: "r",
+    с: "s",
+    т: "t",
+    у: "u",
+    ф: "f",
+    х: "h",
+    ц: "ts",
+    ч: "ch",
+    ш: "sh",
+    щ: "sht",
+    ъ: "a",
+    ь: "y",
+    ю: "yu",
+    я: "ya",
+  }),
+);
+
 function normalizedIdentityPart(value: unknown) {
   return typeof value === "string"
     ? value
         .normalize("NFKD")
         .replace(/\p{M}/gu, "")
         .toLocaleLowerCase("it")
+        .replace(/[а-я]/gu, (letter) => bulgarianTransliteration.get(letter) ?? letter)
         .replace(/[^\p{L}\p{N}]+/gu, " ")
         .trim()
         .replace(/\s+/g, " ")
@@ -369,7 +405,11 @@ function structuredStreetNumberCandidates(address: unknown, postalCode: unknown)
     /^\p{L}$/u.test(value) || ["bis", "ter", "quater"].includes(value);
   const first = addressParts[0] ?? "";
   const second = addressParts[1] ?? "";
-  if (/^\d/u.test(first)) {
+  const leadingForeignPostalCode =
+    /^\d{4,6}$/u.test(first) &&
+    /^\p{L}/u.test(second) &&
+    addressParts.slice(2).some((part) => /^\d/u.test(part));
+  if (/^\d/u.test(first) && !leadingForeignPostalCode) {
     candidates.add(isCivicSuffix(second) ? `${first}${second}` : first);
   }
   const last = addressParts.at(-1) ?? "";

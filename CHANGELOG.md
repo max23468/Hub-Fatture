@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.27
+
+- L’eccezione manuale per lo storico riconosce in modo deterministico la traslitterazione bulgara di nome, indirizzo e civico, mantenendo obbligatori Paese, data, totale, riferimento FPR e unicità del documento Aruba.
+
 ## 0.3.26
 
 - La riconciliazione storica riconosce un interno alfanumerico non etichettato dopo il civico, come `14 1A`, senza scambiarlo per un secondo numero civico in conflitto con la fattura Aruba.
