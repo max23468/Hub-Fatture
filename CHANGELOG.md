@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.11
+
+- La tabella Clienti mostra l’identificativo fiscale dopo l’e-mail senza distinguerne il tipo e usa uno stato neutro quando il dato non è disponibile.
+- La tabella Attività espone lo stesso dato dopo il cliente, ricavandolo dallo snapshot autorevole di ordine, preparazione, fattura o documento anche per rimborsi, job falliti e note di credito.
+- Le nuove colonne restano leggibili nei layout desktop e passano alla presentazione a schede sui viewport più stretti.
+
 ## 0.3.10
 
 - Le anagrafiche importate e corrette separano lo snapshot sorgente immutabile, il profilo canonico usato per il matching e una forma di presentazione coerente per interfaccia e documenti.
