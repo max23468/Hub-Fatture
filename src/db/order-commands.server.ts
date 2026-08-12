@@ -218,6 +218,7 @@ const streetKindTokens = new Set([
 
 const streetConnectorTokens = new Set([
   "de",
+  "des",
   "del",
   "della",
   "delle",

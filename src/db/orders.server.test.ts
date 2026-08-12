@@ -3165,7 +3165,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     euPersonalEbay.customer.displayName = "Marie Claire Dupont";
     euPersonalEbay.customer.canonicalProfile = { displayName: "Marie Claire Dupont" };
     euPersonalEbay.customer.billingAddress = {
-      line1: "12 Rue Martin Fleurs",
+      line1: "12 Rue Martin des Fleurs",
       postalCode: "75000",
       city: "Paris",
       province: "EE",
