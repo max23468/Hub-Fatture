@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+- La riconciliazione storica eBay collega gli XML Aruba privi di riferimento marketplace soltanto quando data, totale e destinatario identificano un candidato univoco nell’intero storico.
+- Per destinatari senza identificativo fiscale sono richiesti nome, Paese, civico e un secondo elemento d’indirizzo coerenti; omonimi e rimborsi ambigui restano bloccati.
+- I metodi di pagamento storici MP01, MP05 e MP08 vengono conservati senza modificare il profilo fiscale attivo; lo stesso documento non può essere riutilizzato su ordini diversi.
+
 ## 0.3.2
 
 - Le commissioni effettive sono sottratte dal totale fatturabile soltanto per transazioni Shopify Payments riuscite; PayPal, bonifici, metodi manuali ed eBay restano al lordo.
