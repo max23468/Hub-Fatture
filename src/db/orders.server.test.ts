@@ -3165,7 +3165,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     euPersonalEbay.customer.displayName = "Marie Claire Dupont";
     euPersonalEbay.customer.canonicalProfile = { displayName: "Marie Claire Dupont" };
     euPersonalEbay.customer.billingAddress = {
-      line1: "12 Rue Martin des Fleurs",
+      line1: "12 Rue Martin des Fleurs du Lac",
       postalCode: "75000",
       city: "Paris",
       province: "EE",
@@ -3211,7 +3211,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .replace("<Cognome>Rossi</Cognome>", "<Cognome>Dupont</Cognome>")
         .replace(
           "<Indirizzo>Via Cliente 2</Indirizzo>",
-          "<Indirizzo>Avenue Martin des Fleurs</Indirizzo><NumeroCivico>12</NumeroCivico>",
+          "<Indirizzo>Avenue Martin des Fleurs du Lac</Indirizzo><NumeroCivico>12</NumeroCivico>",
         )
         .replace("<CAP>00100</CAP>", "<CAP>00000</CAP>")
         .replace("<Comune>Roma</Comune>", "<Comune>Lione</Comune>")
@@ -3242,7 +3242,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           invoiceXml: Buffer.from(
             euPersonalInvoice
               .toString()
-              .replace("Avenue Martin des Fleurs", "34 Avenue Martin des Fleurs"),
+              .replace("Avenue Martin des Fleurs du Lac", "34 Avenue Martin des Fleurs du Lac"),
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-conflicting-eu-embedded-civic" },
@@ -3265,10 +3265,29 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           outcome: "ALREADY_INVOICED",
           reference: "Documento Aruba UE con un solo token distintivo della strada",
           invoiceXml: Buffer.from(
-            euPersonalInvoice.toString().replace("Avenue Martin des Fleurs", "Avenue des Fleurs"),
+            euPersonalInvoice
+              .toString()
+              .replace("Avenue Martin des Fleurs du Lac", "Avenue des Fleurs"),
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-eu-one-street-token" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euPersonalEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "La contrazione francese non identifica la strada",
+          invoiceXml: Buffer.from(
+            euPersonalInvoice
+              .toString()
+              .replace("Avenue Martin des Fleurs du Lac", "Avenue du Lac"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-french-du-connector" },
       ),
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
@@ -3320,7 +3339,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .replaceAll("80.00", "83.00")
         .replace("<Nome>Marie</Nome>", "<Nome>Ana</Nome>")
         .replace("<Cognome>Dupont</Cognome>", "<Cognome>Popescu</Cognome>")
-        .replace("Avenue Martin des Fleurs", "Strada Jardin Bleu")
+        .replace("Avenue Martin des Fleurs du Lac", "Strada Jardin Bleu")
         .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>14</NumeroCivico>")
         .replace("<Nazione>FR</Nazione>", "<Nazione>RO</Nazione>"),
     );
@@ -3415,7 +3434,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
                 "<Nome>Marie</Nome>\n          <Cognome>Dupont</Cognome>",
                 "<Denominazione>Atelier Bleu SARL</Denominazione>",
               )
-              .replace("Avenue Martin des Fleurs", "Platz der Rosen")
+              .replace("Avenue Martin des Fleurs du Lac", "Platz der Rosen")
               .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>16</NumeroCivico>")
               .replace("<CAP>00000</CAP>", "<CAP>10115</CAP>")
               .replace("<Comune>Lione</Comune>", "<Comune>Berlin</Comune>")
@@ -3442,7 +3461,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
                 "<Nome>Marie</Nome>\n          <Cognome>Dupont</Cognome>",
                 "<Denominazione>Atelier Bleu</Denominazione>",
               )
-              .replace("Avenue Martin des Fleurs", "Straße der Rosen")
+              .replace("Avenue Martin des Fleurs du Lac", "Straße der Rosen")
               .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>16</NumeroCivico>")
               .replace("<CAP>00000</CAP>", "<CAP>10115</CAP>")
               .replace("<Comune>Lione</Comune>", "<Comune>Berlin</Comune>")
@@ -3461,6 +3480,58 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         reference: "Ordine aziendale sintetico escluso dopo il controllo del nome parziale",
       },
       { id: 1, canApprove: true, requestId: "test-clear-partial-eu-business" },
+    );
+    const streetMarkerNameEbay = structuredClone(ebayWithoutReference);
+    streetMarkerNameEbay.externalOrderId = "ebay-order-historical-street-marker-name";
+    streetMarkerNameEbay.externalCustomerId = "ebay-customer-historical-street-marker-name";
+    streetMarkerNameEbay.displayNumber = "26-12345-67907";
+    streetMarkerNameEbay.customer.billingAddress.line1 = "Via Alessandro Camera Nord 10";
+    streetMarkerNameEbay.total = "84.00";
+    streetMarkerNameEbay.lines[0].grossAmount = "84.00";
+    streetMarkerNameEbay.payments[0].amount = "84.00";
+    streetMarkerNameEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-street-marker-name";
+    streetMarkerNameEbay.lines[0].externalLineId = "ebay-line-historical-street-marker-name";
+    await orders.importOrders([streetMarkerNameEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-street-marker-name",
+    });
+    const streetMarkerNameEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          streetMarkerNameEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        streetMarkerNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Un toponimo non è una coda immobiliare",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0031/26")
+              .replaceAll("75.00", "84.00")
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Alessandro Camera Sud</Indirizzo><NumeroCivico>10</NumeroCivico>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-street-marker-as-unit" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      streetMarkerNameEbayId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ordine sintetico escluso dopo il controllo del toponimo",
+      },
+      { id: 1, canApprove: true, requestId: "test-clear-street-marker-name" },
     );
     const reusedEbayInvoice = structuredClone(ebayWithoutReference);
     reusedEbayInvoice.externalOrderId = "ebay-order-historical-reused-document";
@@ -4059,7 +4130,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "20",
+      "21",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

@@ -225,6 +225,7 @@ const streetKindTokens = new Set([
 const streetConnectorTokens = new Set([
   "de",
   "des",
+  "du",
   "der",
   "die",
   "dem",
@@ -297,7 +298,14 @@ function withoutAddressPart(tokens: string[], value: unknown) {
 }
 
 function withoutAddressUnits(tokens: string[]) {
-  const unitTailIndex = tokens.findIndex((token) => addressUnitMarkers.has(token));
+  const unitTailIndex = tokens.findIndex((token, index) => {
+    if (!addressUnitMarkers.has(token)) return false;
+    const followsStructuredCivic =
+      /^\d/u.test(tokens[index - 1] ?? "") ||
+      (/^\d/u.test(tokens[index - 2] ?? "") && /^\p{L}+$/u.test(tokens[index - 1] ?? ""));
+    const startsNumericIdentifier = /^\d/u.test(tokens[index + 1] ?? "");
+    return followsStructuredCivic || startsNumericIdentifier;
+  });
   return unitTailIndex === -1 ? tokens : tokens.slice(0, unitTailIndex);
 }
 
