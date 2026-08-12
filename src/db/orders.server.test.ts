@@ -1629,6 +1629,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     historical.historical = true;
     historical.createdAt = "2026-08-19T08:00:00Z";
     historical.updatedAt = "2026-08-19T09:00:00Z";
+    const reviewCountBeforeHistorical = Number((await orders.dashboardSummary()).review_cases);
     await orders.importOrders([historical], {
       id: 1,
       requestId: "test-historical-import",
@@ -1638,6 +1639,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .getPool()
         .query("SELECT id FROM orders WHERE external_order_id = $1", [historical.externalOrderId])
     ).rows[0].id;
+    assert.equal(
+      Number((await orders.dashboardSummary()).review_cases),
+      reviewCountBeforeHistorical + 1,
+    );
+    assert.ok(
+      (await orders.listOpenActivities()).rows.some(
+        (activity) => activity.kind === "ORDER" && activity.id === String(historicalId),
+      ),
+    );
     await orders.setDraftTrigger("PAID", 3, {
       id: 1,
       requestId: "test-historical-trigger-change",
@@ -1654,13 +1664,26 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       orders.forcePrepareOrder(historicalId, { id: 1, requestId: "test-force-historical" }),
       (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Tentativo diretto dell’account operatore",
+        },
+        { id: 2, canApprove: false, requestId: "test-reconcile-historical-forbidden" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_RECONCILIATION_FORBIDDEN",
+    );
+    assert.equal((await orders.getOrder(historicalId))!.historical_reconciliation_outcome, null);
     const reconciledHistorical = await orders.reconcileHistoricalOrder(
       historicalId,
       {
         outcome: "NOT_INVOICED",
         reference: "Ricerca Aruba per ordine, data, cliente e totale: nessun documento",
       },
-      { id: 1, requestId: "test-reconcile-historical-clear" },
+      { id: 1, canApprove: true, requestId: "test-reconcile-historical-clear" },
     );
     assert.ok(reconciledHistorical?.caseId);
     assert.deepEqual(
@@ -1728,7 +1751,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     await orders.reconcileHistoricalOrder(
       alreadyInvoicedId,
       { outcome: "ALREADY_INVOICED", reference: "Documento Aruba FPR 0010/26 verificato" },
-      { id: 1, requestId: "test-reconcile-historical-invoiced" },
+      { id: 1, canApprove: true, requestId: "test-reconcile-historical-invoiced" },
     );
     assert.deepEqual(
       (
@@ -1879,7 +1902,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         outcome: "NOT_INVOICED",
         reference: "Ricerca Aruba per ordine rimborsato: nessun documento emesso",
       },
-      { id: 1, requestId: "test-historical-refunded-reconcile" },
+      { id: 1, canApprove: true, requestId: "test-historical-refunded-reconcile" },
     );
     assert.ok(historicalRefundedResult?.caseId);
     assert.deepEqual(
@@ -1919,7 +1942,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         outcome: "NOT_INVOICED",
         reference: "Ricerca Aruba per ordine parzialmente rimborsato: nessun documento",
       },
-      { id: 1, requestId: "test-historical-partial-refund-reconcile" },
+      { id: 1, canApprove: true, requestId: "test-historical-partial-refund-reconcile" },
     );
     assert.ok(historicalPartialResult?.caseId);
     assert.deepEqual(
@@ -2551,7 +2574,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           outcome: "NOT_INVOICED",
           reference: `Ricerca Aruba senza documento per ${order.external_order_id}`,
         },
-        { id: 1, requestId: `test-${order.external_order_id}-reconcile` },
+        { id: 1, canApprove: true, requestId: `test-${order.external_order_id}-reconcile` },
       );
     }
     const forcedId = deferredIds.find(
@@ -2625,7 +2648,11 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         outcome: "NOT_INVOICED",
         reference: "Ricerca Aruba senza documento per prima bozza netta",
       },
-      { id: 1, requestId: "test-historical-refund-first-draft-reconcile" },
+      {
+        id: 1,
+        canApprove: true,
+        requestId: "test-historical-refund-first-draft-reconcile",
+      },
     );
     const documents = await import("./documents.server.ts");
     const firstProjection = await documents.getInvoiceProjection(firstDraftReconciliation!.caseId!);

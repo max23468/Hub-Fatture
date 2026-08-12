@@ -43,7 +43,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       const result = await reconcileHistoricalOrder(
         params.orderId,
         { outcome: form.get("outcome"), reference: form.get("reference") },
-        { id: user.id, requestId: requestId(request) },
+        { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
       );
       if (!result) throw new Response("Ordine non trovato", { status: 404 });
       return redirect(
@@ -63,39 +63,43 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 function OrderStatusActions({
   order,
+  canApprove,
   csrfToken,
 }: {
   order: NonNullable<Awaited<ReturnType<typeof getOrder>>>;
+  canApprove: boolean;
   csrfToken: string;
 }) {
   return (
     <>
       {!order.billing_case_id && order.trigger_status === "LEGACY_BILLING_REVIEW" ? (
-        <Form method="post" className="section-gap">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="reconcile-history" />
-          <div className="notice">
-            <strong>{copy.orderDetail.historyTitle}</strong>
-            <p>{copy.orderDetail.historyHelp}</p>
-          </div>
-          <label>
-            {copy.orderDetail.historyOutcome}
-            <select name="outcome" required defaultValue="">
-              <option value="" disabled>
-                Seleziona un esito
-              </option>
-              <option value="ALREADY_INVOICED">{copy.orderDetail.alreadyInvoiced}</option>
-              <option value="NOT_INVOICED">{copy.orderDetail.notInvoiced}</option>
-            </select>
-          </label>
-          <label>
-            {copy.orderDetail.historyReference}
-            <textarea name="reference" required minLength={10} maxLength={500} />
-          </label>
-          <button className="button" type="submit">
-            {copy.orderDetail.reconcileHistory}
-          </button>
-        </Form>
+        canApprove ? (
+          <Form method="post" className="section-gap">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="reconcile-history" />
+            <div className="notice">
+              <strong>{copy.orderDetail.historyTitle}</strong>
+              <p>{copy.orderDetail.historyHelp}</p>
+            </div>
+            <label>
+              {copy.orderDetail.historyOutcome}
+              <select name="outcome" required defaultValue="">
+                <option value="" disabled>
+                  Seleziona un esito
+                </option>
+                <option value="ALREADY_INVOICED">{copy.orderDetail.alreadyInvoiced}</option>
+                <option value="NOT_INVOICED">{copy.orderDetail.notInvoiced}</option>
+              </select>
+            </label>
+            <label>
+              {copy.orderDetail.historyReference}
+              <textarea name="reference" required minLength={10} maxLength={500} />
+            </label>
+            <button className="button" type="submit">
+              {copy.orderDetail.reconcileHistory}
+            </button>
+          </Form>
+        ) : null
       ) : !order.billing_case_id &&
         !["CANCELLED_NO_DOCUMENT", "REFUNDED_BEFORE_ISSUE", "INVOICED"].includes(
           order.trigger_status,
@@ -187,7 +191,7 @@ export default function OrderDetail() {
               </dd>
             </div>
           </dl>
-          <OrderStatusActions order={order} csrfToken={csrfToken} />
+          <OrderStatusActions order={order} canApprove={canApprove} csrfToken={csrfToken} />
           <div className="detail-subsection">
             <h3>{copy.orderDetail.payments}</h3>
             {order.payments.length ? (

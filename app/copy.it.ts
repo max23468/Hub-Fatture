@@ -114,6 +114,7 @@ export const copy = {
     status: "Stato",
     order: "Ordine",
     noTransmittedPreparations: "Preparazioni non trasmesse",
+    historicalOrders: "Ordini storici da riconciliare",
     noReviews: "Nessuna verifica richiesta",
     nothingToInvoice: "Niente da fatturare",
     preparationEmptyHelp:

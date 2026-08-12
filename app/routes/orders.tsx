@@ -37,6 +37,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const parsedDate = postgresDateSchema.safeParse(requestedDate);
   const statusByView: Record<string, string | undefined> = {
     tutti: Object.hasOwn(orderStatusLabels, requestedStatus) ? requestedStatus : undefined,
+    verificare: "LEGACY_BILLING_REVIEW",
     attesa: "WAITING_FOR_TRIGGER",
     annullati: "NO_DOCUMENT",
   };
@@ -50,10 +51,9 @@ export async function loader({ request }: Route.LoaderArgs) {
       : "",
   };
   const page = pageNumber(url.searchParams.get("pagina") ?? 1);
-  const showsPreparations = view === "fatturare" || view === "verificare";
   const emptyPage = { rows: [], hasNext: false };
   const [orders, cases] = await Promise.all([
-    showsPreparations
+    view === "fatturare"
       ? Promise.resolve(emptyPage)
       : listOrders({
           query: filters.query || undefined,
@@ -475,16 +475,17 @@ export default function Orders() {
             </table>
           </div>
         </section>
-      ) : showsPreparations ? (
+      ) : showsPreparations && !orders.rows.length ? (
         <section className="empty-state">
           <h2>{view === "verificare" ? copy.orders.noReviews : copy.orders.nothingToInvoice}</h2>
           <p>{copy.orders.preparationEmptyHelp}</p>
         </section>
       ) : null}
 
-      {!showsPreparations ? (
+      {!showsPreparations || (view === "verificare" && orders.rows.length) ? (
         <section className="section-gap">
           {view === "annullati" ? <h2>{copy.orders.cancelledOrders}</h2> : null}
+          {view === "verificare" ? <h2>{copy.orders.historicalOrders}</h2> : null}
           {view === "annullati" ? orderFilters : null}
           {orders.rows.length ? (
             <div className="table-wrap">
@@ -553,11 +554,7 @@ export default function Orders() {
           )}
         </section>
       ) : null}
-      <Pager
-        basePath="/ordini"
-        hasNext={showsPreparations ? cases.hasNext : orders.hasNext || cases.hasNext}
-        page={page}
-      />
+      <Pager basePath="/ordini" hasNext={orders.hasNext || cases.hasNext} page={page} />
     </AppShell>
   );
 }

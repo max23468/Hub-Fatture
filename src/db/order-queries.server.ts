@@ -239,7 +239,10 @@ export async function dashboardSummary() {
     `SELECT
        (SELECT count(*) FROM orders)::text AS orders,
        (SELECT count(*) FROM billing_cases WHERE status = 'READY')::text AS ready_cases,
-       (SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW')::text AS review_cases,
+       ((SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW') +
+        (SELECT count(*) FROM orders
+         WHERE trigger_status = 'LEGACY_BILLING_REVIEW'
+           AND billing_case_id IS NULL))::text AS review_cases,
        (SELECT count(*) FROM orders WHERE trigger_status = 'WAITING_FOR_TRIGGER')::text AS waiting_orders,
        (SELECT count(*) FROM orders
         WHERE trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
@@ -291,12 +294,15 @@ export async function listOpenActivities(page?: unknown) {
        UNION ALL
        SELECT 'ORDER', orders.id::text,
               'Ordine ' || orders.display_number,
+              CASE WHEN orders.trigger_status = 'LEGACY_BILLING_REVIEW'
+                THEN 'Storico da riconciliare · ' ELSE '' END ||
               coalesce(orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
                        'Cliente da verificare'),
               '/ordini/' || orders.id,
               orders.last_synced_at
        FROM orders
-       WHERE orders.trigger_status = 'NEEDS_REVIEW' AND orders.billing_case_id IS NULL
+       WHERE orders.trigger_status IN ('NEEDS_REVIEW', 'LEGACY_BILLING_REVIEW')
+         AND orders.billing_case_id IS NULL
        UNION ALL
        SELECT 'REFUND', refunds.id::text,
               'Rimborso da verificare',

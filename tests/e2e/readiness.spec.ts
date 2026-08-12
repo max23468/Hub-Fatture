@@ -484,6 +484,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
   )[0];
   historicalFixture.externalOrderId = "release-candidate-history";
+  historicalFixture.displayNumber = "#RC-HISTORY";
   historicalFixture.externalCustomerId = "release-candidate-customer";
   historicalFixture.customer.taxIdentifiers[0].value = "RSSMRA80A01H501E";
   historicalFixture.historical = true;
@@ -491,14 +492,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     id: actor.id,
     requestId: "release-candidate-history",
   });
-  const historicalId = (
-    await database
-      .getPool()
-      .query<{ id: string }>(
-        "SELECT id FROM orders WHERE external_order_id = 'release-candidate-history'",
-      )
-  ).rows[0]!.id;
-  await page.goto(`/ordini/${historicalId}`);
+  await page.goto("/ordini?vista=verificare");
+  await expect(page.getByRole("heading", { name: "Ordini storici da riconciliare" })).toBeVisible();
+  await page.getByRole("link", { name: /#RC-HISTORY/ }).click();
   await page.getByLabel("Esito del confronto").selectOption("ALREADY_INVOICED");
   await page
     .getByLabel("Riferimento verificato o motivazione")

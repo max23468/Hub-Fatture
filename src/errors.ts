@@ -10,6 +10,8 @@ export const errorCatalog = {
   CONFLICT_REVISION: "I dati sono cambiati. Ricarica la pagina e riprova.",
   ORDER_CURRENCY_NOT_SUPPORTED: "Sono ammessi soltanto ordini in euro.",
   ORDER_INVALID_INPUT: "I dati dell’ordine non sono validi.",
+  ORDER_HISTORY_RECONCILIATION_FORBIDDEN:
+    "Solo il titolare può registrare la riconciliazione dello storico.",
   ORDER_NOT_PREPARABLE:
     "Un ordine annullato o già rimborsato non può essere preparato per la fatturazione.",
   BILLING_CASE_EMPTY: "Una preparazione senza ordini resta archiviata e non può essere riattivata.",

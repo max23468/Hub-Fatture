@@ -138,8 +138,9 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
 export async function reconcileHistoricalOrder(
   id: string,
   raw: { outcome: unknown; reference: unknown },
-  actor: Actor,
+  actor: Actor & { canApprove: boolean },
 ) {
+  if (!actor.canApprove) throw new AppError("ORDER_HISTORY_RECONCILIATION_FORBIDDEN", 403);
   if (!isDatabaseId(id)) return null;
   const parsed = historicalReconciliationSchema.safeParse(raw);
   if (!parsed.success || actor.id === undefined) throw new AppError("ORDER_INVALID_INPUT", 422);
