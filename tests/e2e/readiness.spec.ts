@@ -101,9 +101,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   const sidebar = page.locator(".sidebar");
   const appMain = page.locator(".app-main");
+  const brandName = sidebar.locator(".brand-lockup__name");
   const collapseSidebar = page.getByRole("button", { name: "Comprimi navigazione" });
   await expect(collapseSidebar).toHaveAttribute("aria-expanded", "true");
   await expect(sidebar).toHaveCSS("width", "256px");
+  await expect(brandName).toHaveCSS("white-space", "nowrap");
   await collapseSidebar.click();
   await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
   await expect(page.getByRole("button", { name: "Espandi navigazione" })).toHaveAttribute(
@@ -124,6 +126,27 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
   await expect(sidebar).toHaveCSS("width", "72px");
+  const expandSidebar = page.getByRole("button", { name: "Espandi navigazione" });
+  await expandSidebar.click();
+  const brandTransitionFrames = await brandName.evaluate(async (element) => {
+    const frames: Array<{ height: number; lineHeight: number; opacity: number }> = [];
+    for (let frame = 0; frame < 4; frame += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const style = getComputedStyle(element);
+      frames.push({
+        height: element.getBoundingClientRect().height,
+        lineHeight: Number.parseFloat(style.lineHeight),
+        opacity: Number.parseFloat(style.opacity),
+      });
+    }
+    return frames;
+  });
+  expect(brandTransitionFrames.every(({ height, lineHeight }) => height <= lineHeight + 1)).toBe(
+    true,
+  );
+  expect(brandTransitionFrames.some(({ opacity }) => opacity > 0 && opacity < 1)).toBe(true);
+  await page.getByRole("button", { name: "Comprimi navigazione" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
 
   const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const lightBackground = await background();

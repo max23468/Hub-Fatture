@@ -79,7 +79,6 @@ export function GlobalSearch() {
       >
         <Search aria-hidden="true" size={19} strokeWidth={1.9} />
         <span>{copy.search.trigger}</span>
-        <kbd aria-hidden="true">⌘K</kbd>
       </button>
       {open ? (
         <dialog
