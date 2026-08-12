@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.12
+
+- La riconciliazione storica riconosce la stessa riga di indirizzo quando Aruba separa il civico in un campo strutturato.
+- Nome, civico, CAP, città, Paese, data, totale, profilo fiscale e unicità restano obbligatori; i casi non univoci continuano a essere bloccati.
+
 ## 0.3.11
 
 - La tabella Clienti mostra l’identificativo fiscale dopo l’e-mail senza distinguerne il tipo e usa uno stato neutro quando il dato non è disponibile.
