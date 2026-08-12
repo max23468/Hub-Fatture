@@ -8,7 +8,7 @@
 - Query e mapper: `src/integrations/shopify.server.ts`.
 - Contract check: `npm test -- src/integrations/connectors.test.ts`.
 
-Le fixture versionate sono sintetiche e anonimizzate. Il readback Development su SyncBay Dev ha confermato la forma reale dei campi italiani: `TAX_CREDENTIAL_IT` e `TAX_EMAIL_IT`, entrambi con `purpose: TAX` e `countryCode: IT`. Il mapper usa il primo come codice fiscale, conserva il secondo come PEC e mantiene chiave, Paese, finalità, titolo e valore nello snapshot dell'ordine. Se i campi localizzati e il tax ID cliente sono entrambi assenti, il mapper esamina la seconda riga dell'indirizzo di fatturazione usata storicamente dal negozio: accetta soltanto un singolo CF o una singola P.IVA italiana con formato valido e conserva `billingAddress.address2` come sorgente. Il payload originale resta immutato; dall'indirizzo normalizzato viene rimosso soltanto il token fiscale consumato, preservando l'eventuale contenuto reale residuo. Nessun valore personale è stato copiato; la fixture conserva soltanto la forma osservata con dati sintetici.
+Le fixture versionate sono sintetiche e anonimizzate. Il readback storico eseguito prima della rimozione dell'app da SyncBay Dev ha confermato la forma reale dei campi italiani: `TAX_CREDENTIAL_IT` e `TAX_EMAIL_IT`, entrambi con `purpose: TAX` e `countryCode: IT`. Il mapper usa il primo come codice fiscale, conserva il secondo come PEC e mantiene chiave, Paese, finalità, titolo e valore nello snapshot dell'ordine. Se i campi localizzati e il tax ID cliente sono entrambi assenti, il mapper esamina la seconda riga dell'indirizzo di fatturazione usata storicamente dal negozio: accetta soltanto un singolo CF o una singola P.IVA italiana con formato valido e conserva `billingAddress.address2` come sorgente. Il payload originale resta immutato; dall'indirizzo normalizzato viene rimosso soltanto il token fiscale consumato, preservando l'eventuale contenuto reale residuo. Nessun valore personale è stato copiato; la fixture conserva soltanto la forma osservata con dati sintetici.
 
 ## eBay
 
@@ -39,7 +39,7 @@ La migrazione append-only `021_fiscal_identifier_backfill.sql` riporta una sola 
 
 ### Mapping fiscale Shopify
 
-- Target osservato: store Development `SyncBay Dev`, app dedicata Hub Fatture, Admin GraphQL `2026-07`.
+- Target storico osservato: store Development `SyncBay Dev`, dal quale l'app Hub Fatture è stata successivamente rimossa; Admin GraphQL `2026-07`.
 - Operazione: lettura della forma dei campi localizzati di un ordine; nessuna mutazione remota.
 - Risultato sanitizzato: presenti `TAX_CREDENTIAL_IT` e `TAX_EMAIL_IT` con metadati stabili; fixture sintetica in `tests/fixtures/connectors/shopify-orders.json`.
 - Prova ripetibile: `npm test -- src/integrations/connectors.test.ts` verifica codice fiscale, PEC, titolo, e-mail ordine, indirizzo di spedizione e snapshot.
@@ -56,7 +56,7 @@ La migrazione append-only `021_fiscal_identifier_backfill.sql` riporta una sola 
 ## Chiusura della milestone
 
 - Baseline applicativa verificata: `7d69056`, comprensiva della chiusura end-to-end dei connettori e della correzione condivisa che ricostruisce sempre l'immagine Development; schema applicato fino a `004_connector_operations.sql`.
-- Readback Shopify: app dedicata Hub Fatture installata su `SyncBay Dev`; versione `hub-fatture-2` attiva con Admin GraphQL e webhook `2026-07` e scope `read_customers`, `read_fulfillments`, `read_orders`.
+- Readback storico Shopify: la prova su `SyncBay Dev` ha validato Admin GraphQL, webhook `2026-07` e scope `read_customers`, `read_fulfillments`, `read_orders`; l'app non è più installata o usata su quello store. La connessione corrente è esclusivamente Production su Numisleo.
 - Readback eBay: keyset `botCF` riusato, mapping fiscale e rimborsi verificati in sola lettura; il relay Production resta inattivo finché non esiste un endpoint HTTPS stabile, senza bloccare lo sviluppo sintetico previsto prima del go-live.
 - Gate di chiusura osservato: `TEST_DATABASE_URL=postgres://hub_fatture:***@127.0.0.1:5433/hub_fatture_test npm run check` è terminato con esito positivo sul commit `ba9cf7e35ec2da477a2fe55a7661b5c128c9110e`; la registrazione di questa ricevuta modifica soltanto l'evidenza ed è verificata dai gate CI obbligatori sull'HEAD della PR.
 - Limite Development: i Quick Tunnel sono temporanei; a tunnel chiuso una nuova prova live richiede una nuova sessione OAuth, mentre database, chiave di cifratura e stack Docker restano persistenti.

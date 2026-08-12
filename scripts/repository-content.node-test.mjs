@@ -161,20 +161,21 @@ test("il proxy locale resta accessibile soltanto dal Mac", async () => {
   assert.match(compose, /"127\.0\.0\.1:5432:5432"/);
 });
 
-test("Shopify CLI riusa database e chiave dello stack Development", async () => {
-  const [script, manifest] = await Promise.all(
-    ["scripts/development.sh", "package.json"].map((file) =>
+test("Development non può riconfigurare l'app Shopify Production", async () => {
+  const [script, manifest, shopifyConfig] = await Promise.all(
+    ["scripts/development.sh", "package.json", "shopify.app.toml"].map((file) =>
       readFile(path.join(root, file), "utf8"),
     ),
   );
   assert.match(script, /Hub Fatture Development Encryption/);
   assert.match(script, /Hub Fatture Development Bootstrap Token/);
-  assert.match(script, /127\.0\.0\.1:5432\/hub_fatture/);
-  assert.match(script, /syncbay-dev\.myshopify\.com/);
-  assert.match(script, /npm run dev:shopify:cli/);
+  assert.doesNotMatch(script, /SHOPIFY_SHOP|dev:shopify/);
   assert.doesNotMatch(script, /development-bootstrap-token-change-me/);
   assert.match(manifest, /"@shopify\/cli": "4\.6\.0"/);
-  assert.match(manifest, /"dev:shopify:cli": "npm exec -- @shopify\/cli app dev --no-color"/);
+  assert.doesNotMatch(manifest, /"dev:shopify/);
+  assert.match(shopifyConfig, /application_url = "https:\/\/fatture\.opik\.net"/);
+  assert.match(shopifyConfig, /automatically_update_urls_on_dev = false/);
+  assert.doesNotMatch(shopifyConfig, /dev_store_url/);
 });
 
 test("lo stack Development mantiene nome e riavvio stabili", async () => {
