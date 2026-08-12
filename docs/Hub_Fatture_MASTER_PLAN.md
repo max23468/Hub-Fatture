@@ -1232,7 +1232,7 @@ La sezione espone l’anagrafica corrente riconciliata dai canali senza sostitui
 
 - Viste `Tutti` e `Da verificare`.
 - Ricerca per nome, e-mail, telefono, codice fiscale, partita IVA o riferimento cliente del canale.
-- Elenco con tipo cliente, e-mail, canali collegati, ultimo ordine e conteggi operativi; il dato fiscale resta disponibile nella ricerca e nel dettaglio, non come colonna della directory.
+- Elenco con tipo cliente, e-mail, identificativo fiscale senza etichettarne il tipo, canali collegati, ultimo ordine e conteggi operativi; quando assente mostra uno stato neutro.
 - Dettaglio con anagrafica corrente, origine Shopify/eBay, ordini, preparazioni fattura e documenti collegati.
 - Le correzioni fiscali continuano ad avvenire nella Preparazione fattura: valgono per il relativo documento, restano auditate e non riscrivono ordini già importati o dati del provider.
 
@@ -1296,7 +1296,7 @@ Per le note di credito mostrare:
 
 ### 13.8 Attività
 
-La vista `Da gestire` riunisce errori, verifiche richieste, scarti, richieste privacy Shopify e retry dei job falliti con la relativa azione. Questi elementi non compaiono in `Impostazioni`, che mostra soltanto stato e collegamento al dettaglio operativo. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
+La vista `Da gestire` riunisce errori, verifiche richieste, scarti, richieste privacy Shopify e retry dei job falliti con la relativa azione. Dopo il cliente mostra l’identificativo fiscale senza etichettarne il tipo, usando lo snapshot autorevole dell’ordine, della preparazione o del documento e uno stato neutro quando assente. Questi elementi non compaiono in `Impostazioni`, che mostra soltanto stato e collegamento al dettaglio operativo. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
 
 ### 13.9 Impostazioni
 

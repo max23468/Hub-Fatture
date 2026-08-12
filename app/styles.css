@@ -1970,23 +1970,27 @@ tbody tr:last-child td {
 }
 
 .activity-table__item-column {
-  width: 12.5rem;
+  width: 11.5rem;
+}
+
+.activity-table__tax-id-column {
+  width: 10rem;
 }
 
 .activity-table__channel-column {
-  width: 8.25rem;
+  width: 7.5rem;
 }
 
 .activity-table__order-date-column {
-  width: 7.25rem;
+  width: 6.75rem;
 }
 
 .activity-table__updated-column {
-  width: 9.25rem;
+  width: 8.5rem;
 }
 
 .activity-table__action-column {
-  width: 10.75rem;
+  width: 9.75rem;
 }
 
 .activity-table th,
@@ -2004,7 +2008,8 @@ tbody tr:last-child td {
 .activity-table td:nth-child(2),
 .activity-table td:nth-child(3),
 .activity-table td:nth-child(4),
-.activity-table td:nth-child(5) {
+.activity-table td:nth-child(5),
+.activity-table td:nth-child(6) {
   white-space: nowrap;
 }
 
@@ -2392,8 +2397,8 @@ tbody tr:last-child td {
 .customer-row__facts {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 0.7fr));
-  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1.2fr) repeat(2, minmax(0, 0.6fr));
+  gap: var(--space-3);
 }
 
 .customer-row__facts > span,
@@ -2649,9 +2654,9 @@ tbody tr:last-child td {
     padding: var(--space-2) var(--space-3);
   }
 
-  .activity-table td {
+  .activity-table-wrap .activity-table td {
     display: grid;
-    grid-template-columns: minmax(7.5rem, 38%) minmax(0, 1fr);
+    grid-template-columns: 8.75rem minmax(0, 1fr);
     gap: var(--space-3);
     border-bottom: 0;
     padding: 0.4rem 0;

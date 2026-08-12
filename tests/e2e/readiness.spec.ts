@@ -260,6 +260,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "2 clienti importati",
   );
   await expect(page.locator(".customer-row")).toHaveCount(2);
+  const marioCustomer = page.locator(".customer-row").filter({ hasText: "Mario Rossi" });
+  await expect(marioCustomer).toContainText("E-mail");
+  await expect(marioCustomer).toContainText("mario.rossi@example.invalid");
+  await expect(marioCustomer).toContainText("Identificativo fiscale");
+  await expect(marioCustomer).toContainText("RSSMRA80A01H501U");
   expect(
     await page.locator(".customer-row").evaluateAll((rows) =>
       rows.every((row) => {
@@ -500,10 +505,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     page.getByRole("heading", { name: "Verifiche su ordini e documenti" }),
   ).toBeVisible();
   await expect(page.locator(".activity-table thead")).toContainText("Cliente");
+  await expect(page.locator(".activity-table thead")).toContainText("Identificativo fiscale");
   await expect(page.locator(".activity-table thead")).toContainText("Canale / tipo");
   await expect(page.locator(".activity-table thead")).toContainText("Data ordine");
   await expect(page.locator(".activity-table thead")).toContainText("Ultimo aggiornamento");
   await expect(page.getByRole("link", { name: /^Preparazione \d{6}$/ })).toBeVisible();
+  await expect(page.locator('td[data-label="Identificativo fiscale"]')).toContainText(
+    "Non disponibile",
+  );
   await page.setViewportSize({ width: 900, height: 800 });
   await expect(page.locator(".activity-table thead")).toHaveCSS("position", "absolute");
   await expect(page.locator(".activity-table tbody tr").first()).toBeVisible();
@@ -521,10 +530,19 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toBe(true);
   expect(
     await page
+      .locator('td[data-label="Identificativo fiscale"]')
+      .first()
+      .evaluate((cell) => {
+        const value = cell.querySelector("strong");
+        return value ? value.getBoundingClientRect().left - cell.getBoundingClientRect().left : 0;
+      }),
+  ).toBeGreaterThanOrEqual(150);
+  expect(
+    await page
       .locator(".activity-table tbody tr")
       .first()
       .evaluate((row) => row.getBoundingClientRect().height),
-  ).toBeLessThan(360);
+  ).toBeLessThan(380);
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(page.locator(".activity-table thead")).toHaveCSS("position", "static");
   expect(

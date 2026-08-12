@@ -994,15 +994,15 @@ test(
       );
       const orderQueries = await import("./order-queries.server.ts");
       const activities = await orderQueries.listOpenActivities();
-      assert.ok(
-        activities.rows.some((activity) => activity.kind === "REFUND" && activity.id === ambiguous),
+      const ambiguousActivity = activities.rows.find(
+        (activity) => activity.kind === "REFUND" && activity.id === ambiguous,
       );
-      assert.ok(
-        activities.rows.some(
-          (activity) =>
-            activity.kind === "REFUND_JOB" && activity.id === unresolvedRefundJob.rows[0]!.id,
-        ),
+      assert.equal(ambiguousActivity?.customer_tax_id, "RSSMRA80A01H501U");
+      const unresolvedRefundActivity = activities.rows.find(
+        (activity) =>
+          activity.kind === "REFUND_JOB" && activity.id === unresolvedRefundJob.rows[0]!.id,
       );
+      assert.equal(unresolvedRefundActivity?.customer_tax_id, "RSSMRA80A01H501U");
       assert.ok(
         !activities.rows.some(
           (activity) => activity.kind === "REFUND" && activity.id === pendingWithoutAmount,
@@ -1016,6 +1016,11 @@ test(
       const creditNoteActivities = await orderQueries.listOpenActivities(undefined, "CREDIT_NOTE");
       assert.ok(creditNoteActivities.rows.length > 0);
       assert.ok(creditNoteActivities.rows.every((activity) => activity.kind === "CREDIT_NOTE"));
+      assert.ok(
+        creditNoteActivities.rows.every(
+          (activity) => activity.customer_tax_id === "RSSMRA80A01H501U",
+        ),
+      );
       assert.equal(
         creditNoteActivities.total,
         Number((await orderQueries.dashboardSummary()).credit_notes_to_approve),

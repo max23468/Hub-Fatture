@@ -1967,11 +1967,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       Number((await orders.dashboardSummary()).review_cases),
       reviewCountBeforeHistorical + 1,
     );
-    assert.ok(
-      (await orders.listOpenActivities()).rows.some(
-        (activity) => activity.kind === "ORDER" && activity.id === String(historicalId),
-      ),
+    const historicalActivity = (await orders.listOpenActivities()).rows.find(
+      (activity) => activity.kind === "ORDER" && activity.id === String(historicalId),
     );
+    assert.equal(historicalActivity?.customer_tax_id, "RSSMRA80A01H501C");
     await orders.setDraftTrigger("PAID", 3, {
       id: 1,
       requestId: "test-historical-trigger-change",
@@ -3924,6 +3923,11 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     const beforeCorrection = await orders.getBillingCase(correctionCaseId);
     assert.equal(beforeCorrection!.status, "NEEDS_REVIEW");
     assert.ok(beforeCorrection!.anomalies.includes("CUSTOMER_INCOMPLETE"));
+    await database
+      .getPool()
+      .query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1", [
+        correctionCaseId,
+      ]);
     const correction = {
       kind: "BUSINESS_IT",
       displayName: "Rossi Srl",
@@ -3967,10 +3971,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         "Dati fiscali confermati dal cliente",
         { id: 1, requestId: "test-correction" },
       ),
-      "READY",
+      "NEEDS_REVIEW",
     );
     const afterCorrection = await orders.getBillingCase(correctionCaseId);
-    assert.deepEqual(afterCorrection!.anomalies, []);
+    assert.deepEqual(afterCorrection!.anomalies, ["SOURCE_CONFLICT"]);
     assert.equal(afterCorrection!.customer_name, "Rossi Srl");
     assert.equal(afterCorrection!.customer_snapshot_json.email, "amministrazione@example.invalid");
     assert.equal(afterCorrection!.customer_snapshot_json.recipientCode, "ABC1234");
@@ -3992,13 +3996,17 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         null,
         { id: 1, requestId: "test-correction-non-fiscal" },
       ),
-      "READY",
+      "NEEDS_REVIEW",
     );
     assert.equal(
       (await orders.getBillingCase(correctionCaseId))!.customer_snapshot_json.taxIdentifiers
         ?.length,
       2,
     );
+    const correctedActivity = (await orders.listOpenActivities()).rows.find(
+      (activity) => activity.kind === "BILLING_CASE" && activity.id === correctionCaseId,
+    );
+    assert.equal(correctedActivity?.customer_tax_id, "RSSMRA80A01H501D");
     // L'ordine conserva il valore importato: la correzione non riscrive la storia.
     assert.equal(
       (
