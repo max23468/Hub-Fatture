@@ -3490,13 +3490,13 @@ Metodo:
 
 ## 30. Registro delle decisioni rinviate
 
-Questi punti non sono dimenticanze. Sono sospesi intenzionalmente perché dipendono da dati reali, provider o approvazioni esterne. **Non resta aperta alcuna scelta di tool o dipendenza:** HF-O03 decide soltanto se installare il fallback PDFKit già selezionato; HF-O07 sceglie il provider SMTP, mentre l'adapter applicativo resta Nodemailer.
+Questi punti non sono dimenticanze. Sono sospesi intenzionalmente perché dipendono da dati reali, provider o approvazioni esterne. **Non resta aperta alcuna scelta di tool o dipendenza:** HF-O03 ha confermato il PDF ufficiale Aruba e ha escluso l'attivazione del fallback PDFKit; HF-O07 sceglie il provider SMTP, mentre l'adapter applicativo resta Nodemailer.
 
 | ID | Decisione aperta | Blocca | Fonte necessaria | Condizione di chiusura |
 |---|---|---|---|---|
 | HF-O01 | `RegimeFiscale` esatto del cedente | profilo fiscale Production | XML Aruba accettato e/o commercialista | valore registrato nel profilo versionato e golden test verde |
 | HF-O02 | Numerazione, sezionali, cambio anno, ordini a cavallo d'anno e gestione scarti | numerazione e invii reali | audit Aruba, documenti reali e conferma fiscale | procedura atomica, caso di fine anno e casi di scarto approvati |
-| HF-O03 | PDF ufficiale Aruba o attivazione del fallback PDFKit già selezionato | copia cliente definitiva | download dal pannello Aruba reale | readback PDF verificato o fallback PDFKit approvato |
+| HF-O03 | PDF ufficiale Aruba — chiusa sul download ufficiale | copia cliente definitiva | download dal pannello Aruba reale | readback di un PDF ufficiale integro, leggibile e stabile; fallback PDFKit non attivato |
 | HF-O04 | Mapping campi fiscali Shopify | connettore Shopify completo | query su ordine reale e API corrente | contract fixture anonimizzata e mapper testato |
 | HF-O05 | Forma tax identifier e importi rimborso eBay | connettore eBay completo e TD04 | payload Sandbox/reali e API corrente | fixture, mapper e casi ambigui verificati |
 | HF-O06 | Locatori, pause di autenticazione, limiti, download e stati del pannello Aruba | M8 e Production | audit autenticato, prova controllata e guide correnti | helper sui due sistemi operativi, mapping, fallback manuale e recovery da stato incerto verificati sul candidato e qualificati sul pannello reale senza invio |

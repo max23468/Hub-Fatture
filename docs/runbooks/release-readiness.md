@@ -35,7 +35,7 @@ Questa identità è una fotografia del candidato distribuito, non un’autorizza
 | Qualifica pannello Aruba reale                   | Aperto                                   | richiede sessione presidiata e autorizzazione specifica per caricare l’XML dedicato; osservare validazione e riepilogo, fermarsi prima di `Invia`, rimuovere l’upload e confermarne l’assenza                                                                                                                       |
 | Controllo TD04 sul pannello reale                | Aperto                                   | usare il TD04 accettato già disponibile quando sufficiente; altrimenti caricare un TD04 dedicato soltanto con la stessa autorizzazione specifica e senza invio                                                                                                                                                      |
 | Contratto helper e HF-O06                        | Aperto                                   | chiudere dopo la qualifica reale; ogni divergenza deve aggiornare insieme contratto dei locatori, helper e test                                                                                                                                                                                                     |
-| PDF ufficiale e HF-O03                           | Aperto                                   | verificare il download/readback del PDF ufficiale oppure ottenere l’approvazione del fallback PDFKit già previsto                                                                                                                                                                                                   |
+| PDF ufficiale e HF-O03                           | Chiuso con evidenza operativa esterna    | download dal pannello reale e readback locale verificati: PDF ufficiale A4 integro e leggibile, senza cifratura, form o JavaScript; fallback PDFKit non attivato. La copertura specifica TD04 resta nel gate separato                                                                                               |
 | E-mail OCI Email Delivery                        | Aperto                                   | esercitare dal candidato distribuito consegna reale controllata, errore, ricevuta, suppression/hard bounce applicabile e reinvio; nessuna e-mail reale è autorizzata in questo ciclo                                                                                                                                |
 | Backup OCI, copia cifrata Mac e RPO              | Da rileggere sul candidato corrente      | registrare ricevuta giornaliera corrente, checksum/dimensione, copia Mac corrispondente e RPO effettivamente osservato                                                                                                                                                                                              |
 | Restore drill e recovery kit                     | Aperto sul candidato corrente            | la procedura è già stata collaudata, ma il drill operativo richiesto per il candidato deve essere collegato all’artefatto corrente o dichiarato ancora valido con prova verificabile                                                                                                                                |
@@ -47,13 +47,19 @@ Questa identità è una fotografia del candidato distribuito, non un’autorizza
 | Audit e readiness finali                         | Aperto                                   | aggiornare audit e questo record sul nuovo commit/digest effettivamente candidato dopo ogni correzione, collegando run e readback freschi e confermando zero P0/P1                                                                                                                                                  |
 | Approvazione del titolare per il Canary          | Non richiedibile                         | può essere chiesta solo dopo la chiusura di tutti i gate precedenti sullo stesso commit/digest                                                                                                                                                                                                                      |
 
+## Evidenza sanitizzata del PDF ufficiale Aruba
+
+Durante una sessione autenticata presidiata sul pannello reale è stato acquisito un PDF ufficiale Aruba relativo a un documento già inviato. Il file è rimasto fuori dal repository e il record non conserva nome file, numero documento, dati del cliente o contenuto fiscale.
+
+Il readback locale ha verificato firma `%PDF-`, checksum SHA-256 calcolato, struttura valida con `qpdf --check`, una pagina A4 non cifrata, assenza di form e JavaScript e rendering completo a 144 DPI. L’ispezione visiva non ha rilevato testo tagliato, sovrapposizioni, glifi illeggibili o sezioni mancanti. Il percorso ufficiale è quindi utilizzabile per la copia cliente e HF-O03 è chiusa senza aggiungere PDFKit. La prova non qualifica da sola la resa di TD04 o delle fatture estere, che resta da collegare ai rispettivi gate di collaudo.
+
 ## Decisioni rinviate nel perimetro corrente
 
 | ID     | Stato  | Fonte o condizione                                                                                                           |
 | ------ | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | HF-O01 | Chiusa | profilo fiscale derivato dagli XML Aruba accettati e coperto da golden test                                                  |
 | HF-O02 | Chiusa | numerazione, cambio anno e scarto approvati e testati                                                                        |
-| HF-O03 | Aperta | manca il readback del PDF ufficiale o l’approvazione esplicita del fallback previsto                                         |
+| HF-O03 | Chiusa | PDF ufficiale scaricato dal pannello reale e verificato per integrità, leggibilità e stabilità; fallback PDFKit non attivato |
 | HF-O04 | Chiusa | mapping Shopify verificato su dati reali anonimizzati e fixture                                                              |
 | HF-O05 | Chiusa | forma eBay verificata; i casi storici non riconciliabili restano fail-closed e non riaprono il mapping                       |
 | HF-O06 | Aperta | locatori, pause, limiti, download e stati restano candidati fino alla prova controllata sul pannello reale                   |
@@ -66,7 +72,7 @@ Questa identità è una fotografia del candidato distribuito, non un’autorizza
 - Il caricamento di qualunque XML nel pannello Aruba richiede l’autorizzazione esplicita del titolare riferita al file e al relativo hash. La prova si arresta tassativamente prima di `Invia`.
 - Una prova e-mail reale richiede una richiesta esplicita separata; questo record non la autorizza.
 - Restore distruttivi, deploy, release e modifiche provider richiedono la rispettiva autorizzazione; nessuno di questi è implicato dall’aggiornamento documentale.
-- L’approvazione per accedere al Canary è distinta e non va richiesta finché resta aperto un P0/P1, HF-O03, HF-O06, HF-O08 o un altro gate del candidato.
+- L’approvazione per accedere al Canary è distinta e non va richiesta finché resta aperto un P0/P1, HF-O06, HF-O08 o un altro gate del candidato.
 
 ## Runbook applicabili
 
