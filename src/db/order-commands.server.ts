@@ -78,7 +78,8 @@ function hasConflictingMarketplaceReference(references: string[], provider: "SHO
   if (hasIncompatibleMarketplaceMarker(references, provider)) return true;
   const providerPattern = provider === "SHOPIFY" ? "shopify" : "ebay";
   const numericReference = new RegExp(
-    `(^|[^\\p{L}\\p{N}])${providerPattern}(?=$|[^\\p{L}\\p{N}])[^\\r\\n]{0,64}\\d`,
+    `(?:\\d[^\\r\\n]{0,64}(?<![\\p{L}\\p{N}])${providerPattern}(?=$|[^\\p{L}\\p{N}])|` +
+      `(^|[^\\p{L}\\p{N}])${providerPattern}(?=$|[^\\p{L}\\p{N}])[^\\r\\n]{0,64}\\d)`,
     "iu",
   );
   return references.some((reference) => numericReference.test(reference));
