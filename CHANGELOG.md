@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.26
+
+- La riconciliazione storica riconosce un interno alfanumerico non etichettato dopo il civico, come `14 1A`, senza scambiarlo per un secondo numero civico in conflitto con la fattura Aruba.
+
 ## 0.3.25
 
 - Gli ordini eBay già importati vengono riletti una sola volta e la relativa Preparazione fattura viene ricalcolata quando la riconciliazione del pagamento netto rimuove un’anomalia derivata.

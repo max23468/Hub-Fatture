@@ -374,7 +374,10 @@ function structuredStreetNumberCandidates(address: unknown, postalCode: unknown)
   }
   const last = addressParts.at(-1) ?? "";
   const penultimate = addressParts.at(-2) ?? "";
-  if (/^\d/u.test(last)) {
+  const trailingUnmarkedUnit = /^\d+[\p{L}]$/u.test(last) && /^\d+$/u.test(penultimate);
+  if (trailingUnmarkedUnit) {
+    candidates.add(penultimate);
+  } else if (/^\d/u.test(last)) {
     candidates.add(last);
   } else if (/^\d/u.test(penultimate) && isCivicSuffix(last)) {
     candidates.add(`${penultimate}${last}`);

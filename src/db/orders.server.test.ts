@@ -4274,7 +4274,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     historicalWithoutTaxId.customer.firstName = "Rossi";
     historicalWithoutTaxId.customer.lastName = "Mario Garcia";
     historicalWithoutTaxId.customer.billingAddress = {
-      line1: "Via Cliente 2",
+      line1: "Via Cliente 2 1A",
       postalCode: "00100",
       city: "Roma",
       province: "RM",
