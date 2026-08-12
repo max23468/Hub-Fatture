@@ -122,6 +122,25 @@ export async function saveConnection<T>(
       ],
     );
     if (accountChanged) {
+      await client.query(
+        `WITH obsolete AS (
+           UPDATE jobs SET status = 'COMPLETED', completed_at = now(),
+             lease_expires_at = NULL, locked_by = NULL, claim_token = NULL,
+             result_json = '{"obsoleteAccount":true}'::jsonb, last_error_code = NULL
+           WHERE status IN ('PENDING', 'RUNNING')
+             AND (($1 = 'SHOPIFY'
+                 AND type IN ('shopify_sync_orders', 'shopify_process_webhook'))
+               OR ($1 = 'EBAY' AND type IN ('ebay_sync_orders', 'ebay_preview_history')))
+           RETURNING CASE WHEN payload_json ->> 'webhookEventId' ~ '^[0-9]+$'
+             THEN (payload_json ->> 'webhookEventId')::bigint END AS webhook_event_id
+         )
+         UPDATE webhook_events SET status = 'PROCESSED', processed_at = now(),
+           lease_expires_at = NULL, error_code = NULL
+         WHERE id IN (
+           SELECT webhook_event_id FROM obsolete WHERE webhook_event_id IS NOT NULL
+         )`,
+        [input.provider],
+      );
       await client.query("DELETE FROM sync_cursors WHERE provider = $1", [input.provider]);
     }
     await writeAudit(client, {
@@ -374,23 +393,48 @@ export async function enqueueJob(type: JobType, payload: Record<string, unknown>
 export async function enqueueEbayHistory(startDate: string, mode: "PREVIEW" | "IMPORT") {
   await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
-    const connection = await client.query<{ account_reference: string }>(
-      `SELECT account_reference FROM connections
+    const connection = await client.query<{
+      account_reference: string;
+      pending: boolean;
+    }>(
+      `SELECT account_reference, NOT EXISTS (
+         SELECT 1 FROM sync_cursors
+         WHERE provider = 'EBAY' AND stream = 'history_import'
+       ) AS pending
+       FROM connections
        WHERE provider = 'EBAY' AND environment = $1
        FOR SHARE`,
       [activeEnvironment("EBAY")],
     );
     if (!connection.rows[0]) throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
+    if (!connection.rows[0].pending) return;
+    const payload = {
+      startDate,
+      mode,
+      accountReference: connection.rows[0].account_reference,
+    };
+    const active = await client.query<{
+      payload_json: Record<string, unknown>;
+    }>(
+      `SELECT payload_json FROM jobs
+       WHERE type = 'ebay_preview_history' AND status IN ('PENDING', 'RUNNING')
+       LIMIT 1 FOR UPDATE`,
+    );
+    if (active.rows[0]) {
+      const current = active.rows[0].payload_json;
+      if (
+        current.startDate === payload.startDate &&
+        current.mode === payload.mode &&
+        current.accountReference === payload.accountReference
+      ) {
+        return;
+      }
+      throw new AppError("CONFLICT_REVISION", 409);
+    }
     await client.query(
       `INSERT INTO jobs (type, payload_json)
-       VALUES ('ebay_preview_history', $1) ON CONFLICT DO NOTHING`,
-      [
-        JSON.stringify({
-          startDate,
-          mode,
-          accountReference: connection.rows[0].account_reference,
-        }),
-      ],
+       VALUES ('ebay_preview_history', $1)`,
+      [JSON.stringify(payload)],
     );
   });
 }

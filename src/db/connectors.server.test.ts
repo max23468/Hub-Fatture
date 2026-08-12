@@ -162,6 +162,9 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         )
       ).rows[0].last_synced_at,
     );
+    await connectors.enqueueJob("ebay_sync_orders");
+    const obsoleteSyncJob = await connectors.claimJob("worker-obsolete-account");
+    assert.equal(obsoleteSyncJob?.type, "ebay_sync_orders");
     await connectors.saveConnection(
       {
         provider: "EBAY",
@@ -171,6 +174,24 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       },
       systemActor,
     );
+    assert.deepEqual(
+      (
+        await getPool().query("SELECT status, result_json FROM jobs WHERE id = $1", [
+          obsoleteSyncJob!.id,
+        ])
+      ).rows[0],
+      { status: "COMPLETED", result_json: { obsoleteAccount: true } },
+    );
+    assert.equal(await connectors.failJob(obsoleteSyncJob!, "CONFLICT_REVISION"), null);
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT status FROM connections WHERE provider = 'EBAY' AND environment = 'SANDBOX'",
+        )
+      ).rows[0].status,
+      "CONNECTED",
+    );
+    await getPool().query("DELETE FROM jobs WHERE id = $1", [obsoleteSyncJob!.id]);
     assert.notEqual(
       (await connectors.connectionSummaries()).find(({ provider }) => provider === "EBAY")
         ?.connectedAt,
@@ -264,6 +285,20 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ignored: 0,
     });
     assert.equal(await connectors.completeJob(resumedHistoryJob!), true);
+    const completedHistoryJobs = (
+      await getPool().query(
+        "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_preview_history'",
+      )
+    ).rows[0].total;
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_preview_history'",
+        )
+      ).rows[0].total,
+      completedHistoryJobs,
+    );
     await getPool().query("DELETE FROM jobs WHERE id = $1", [historyJob!.id]);
     await getPool().query("DELETE FROM sync_cursors WHERE provider = 'EBAY'");
     await getPool().query(
@@ -343,6 +378,40 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       (await getPool().query("SELECT status FROM webhook_events")).rows[0].status,
       "PROCESSED",
     );
+    await connectors.ingestShopifyWebhook({
+      externalEventId: "event-account-obsoleto",
+      topic: "ORDERS_UPDATED",
+      payloadSha256: "e".repeat(64),
+      orderId: "gid://shopify/Order/2",
+    });
+    const obsoleteWebhookJob = await connectors.claimJob("worker-obsolete-webhook");
+    assert.equal(obsoleteWebhookJob?.type, "shopify_process_webhook");
+    await connectors.saveConnection(
+      {
+        provider: "SHOPIFY",
+        environment: "DEVELOPMENT",
+        accountReference: "shop-sostitutivo.example.invalid",
+        credentials: { accessToken: "token-shopify-sostitutivo" },
+      },
+      systemActor,
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT jobs.status, jobs.result_json, webhook_events.status AS event_status
+           FROM jobs JOIN webhook_events
+             ON webhook_events.id = (jobs.payload_json ->> 'webhookEventId')::bigint
+           WHERE jobs.id = $1`,
+          [obsoleteWebhookJob!.id],
+        )
+      ).rows[0],
+      {
+        status: "COMPLETED",
+        result_json: { obsoleteAccount: true },
+        event_status: "PROCESSED",
+      },
+    );
+    assert.equal(await connectors.failJob(obsoleteWebhookJob!, "CONFLICT_REVISION"), null);
 
     const webhookBody = Buffer.from(JSON.stringify({ id: 123 }));
     const webhookRequest = (topic: string, eventId: string, signature: string) =>
@@ -520,6 +589,10 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     await getPool().query("UPDATE jobs SET status = 'COMPLETED' WHERE status = 'PENDING'");
     await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
     await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    await assert.rejects(
+      connectors.enqueueEbayHistory("2026-08-05", "PREVIEW"),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
     assert.equal(
       (
         await getPool().query(
@@ -764,7 +837,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     assert.equal(
       providerAudit.rows.filter((event) => event.action === "PROVIDER_CONNECTED").length,
-      6,
+      7,
     );
     assert.equal(
       providerAudit.rows.at(-1)?.request_id,
