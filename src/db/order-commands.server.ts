@@ -217,6 +217,19 @@ function containsStructuredStreetNumber(
   return Boolean(expected && actual && expected === actual.replaceAll(" ", ""));
 }
 
+function withoutTrailingStructuredStreetNumber(
+  address: unknown,
+  streetNumber: unknown,
+  postalCode: unknown,
+) {
+  const number = normalizedIdentityPart(streetNumber);
+  const postal = normalizedIdentityPart(postalCode);
+  let value = normalizedIdentityPart(address);
+  if (postal && value.endsWith(` ${postal}`)) value = value.slice(0, -postal.length).trim();
+  if (!number || !value.endsWith(` ${number}`)) return value;
+  return value.slice(0, -number.length).trim();
+}
+
 function hasSupportingAddressEvidence(
   customerAddress: Record<string, unknown>,
   recipientAddress: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"]["address"],
@@ -227,23 +240,32 @@ function hasSupportingAddressEvidence(
   );
   const sameCity = sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city);
   const sameStreetName = sharesStreetName(customerAddress.line1, recipientAddress.line1);
+  const sameAddressLine = sameNonEmptyIdentityPart(customerAddress.line1, recipientAddress.line1);
   if (recipientAddress.streetNumber) {
+    const sameAddressWithoutStructuredNumber = sameNonEmptyIdentityPart(
+      withoutTrailingStructuredStreetNumber(
+        customerAddress.line1,
+        recipientAddress.streetNumber,
+        customerAddress.postalCode,
+      ),
+      withoutTrailingStructuredStreetNumber(
+        recipientAddress.line1,
+        recipientAddress.streetNumber,
+        recipientAddress.postalCode,
+      ),
+    );
     return (
       containsStructuredStreetNumber(
         customerAddress.line1,
         recipientAddress.streetNumber,
         customerAddress.postalCode,
       ) &&
-      sameStreetName &&
+      (sameAddressLine || sameAddressWithoutStructuredNumber || sameStreetName) &&
       samePostalCode &&
       sameCity
     );
   }
-  return (
-    sameNonEmptyIdentityPart(customerAddress.line1, recipientAddress.line1) &&
-    samePostalCode &&
-    sameCity
-  );
+  return sameAddressLine && samePostalCode && sameCity;
 }
 
 function customerIdentityNames(customer: Record<string, unknown>, business: boolean) {

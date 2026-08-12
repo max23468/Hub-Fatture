@@ -3369,6 +3369,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     historicalWithoutTaxId.externalCustomerId = "shop-customer-historical-without-tax-id";
     historicalWithoutTaxId.displayNumber = "#S-HIST-NO-TAX-ID";
     historicalWithoutTaxId.customer.taxIdentifiers = [];
+    historicalWithoutTaxId.customer.firstName = "Rossi";
+    historicalWithoutTaxId.customer.lastName = "Mario";
     historicalWithoutTaxId.customer.billingAddress = {
       line1: "Via Cliente 2",
       postalCode: "00100",
@@ -3395,6 +3397,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .replace("FPR 0001/26", "FPR 0013/26")
         .replace("#1001", historicalWithoutTaxId.displayNumber)
         .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replace(
+          "<Indirizzo>Via Cliente 2</Indirizzo>",
+          "<Indirizzo>Via Cliente</Indirizzo><NumeroCivico>2</NumeroCivico>",
+        )
         .replaceAll("123.45", "122.00"),
     );
     await assert.rejects(
