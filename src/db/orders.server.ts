@@ -22,6 +22,7 @@ export {
   correctBillingCaseCustomer,
   getBillingCase,
   listBillingCases,
+  reviewBillingCaseSourceChanges,
   separateOrderFromBillingCase,
   updateBillingCaseTransmission,
   type BillingCaseListSortKey,

@@ -103,7 +103,11 @@ async function invoiceDraftAuditSnapshot(client: pg.PoolClient, caseId: string, 
   return result.rows[0] ?? null;
 }
 
-export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: string) {
+export async function reconcileInvoiceDraft(
+  client: pg.PoolClient,
+  caseId: string,
+  fallbackDifferenceReason = "Importi personalizzati prima della modifica della regola commissioni Shopify Payments",
+) {
   const before = await invoiceDraftAuditSnapshot(client, caseId, true);
   const documentId = before?.id;
   if (!documentId) return null;
@@ -221,15 +225,14 @@ export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: strin
          difference_amount = totals.document_total - totals.source_total,
          difference_reason = CASE
            WHEN totals.document_total = totals.source_total THEN NULL
-           ELSE coalesce(documents.difference_reason,
-             'Importi personalizzati prima della modifica della regola commissioni Shopify Payments')
+           ELSE coalesce(documents.difference_reason, $2)
          END,
          draft_version = draft_version + 1,
          projection_sha256 = repeat('0', 64),
          updated_at = now()
      FROM totals
      WHERE id = $1`,
-    [documentId],
+    [documentId, fallbackDifferenceReason],
   );
   const after = await invoiceDraftAuditSnapshot(client, caseId);
   return after ? { before: before.snapshot, after: after.snapshot } : null;

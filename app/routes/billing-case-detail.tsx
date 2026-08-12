@@ -9,8 +9,12 @@ import {
   auditActionLabel,
   billingCaseStatusLabels,
   copy,
+  customerKindLabels,
+  fulfillmentStatusLabels,
   paymentStatusLabels,
   reactivationBlockerMessages,
+  refundStatusLabels,
+  taxIdentifierLabels,
 } from "../copy.it";
 import { date, dateTime, euros } from "../format";
 import type { SortValue } from "../table-sort";
@@ -29,6 +33,260 @@ type InvoiceLineSortKey = "description" | "quantity" | "unitAmount";
 
 function invoiceLineValue(line: InvoiceLine, key: InvoiceLineSortKey): SortValue {
   return line[key];
+}
+
+type SourceSnapshot = Record<string, unknown>;
+
+interface SourceRevision {
+  id: string;
+  display_number: string;
+  created_at: string;
+  previous_normalized_snapshot_json: SourceSnapshot;
+  current_normalized_snapshot_json: SourceSnapshot;
+}
+
+interface SourceChange {
+  field: string;
+  before: string;
+  after: string;
+}
+
+function objectValue(value: unknown): SourceSnapshot {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as SourceSnapshot)
+    : {};
+}
+
+function arrayValue(value: unknown): SourceSnapshot[] {
+  return Array.isArray(value) ? value.map(objectValue) : [];
+}
+
+function textValue(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : copy.common.unavailable;
+}
+
+function decimalEuros(value: unknown): string {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? euros(Math.round(parsed * 100)) : copy.common.unavailable;
+}
+
+function centsEuros(value: unknown): string {
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? euros(value)
+    : copy.common.unavailable;
+}
+
+function addressValue(customer: SourceSnapshot, field: "billingAddress" | "shippingAddress") {
+  const address = objectValue(customer[field]);
+  const parts = [
+    address.line1,
+    address.line2,
+    address.postalCode,
+    address.city,
+    address.province,
+    address.countryCode,
+  ].filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+  return parts.length ? parts.join(" · ") : copy.common.unavailable;
+}
+
+function taxIdentifiersValue(customer: SourceSnapshot): string {
+  const values = arrayValue(customer.taxIdentifiers)
+    .map((identifier) => {
+      const type = typeof identifier.type === "string" ? identifier.type : "";
+      const label = taxIdentifierLabels[type] ?? copy.common.unknownType;
+      const country =
+        typeof identifier.countryCode === "string" ? `${identifier.countryCode} · ` : "";
+      return `${label} · ${country}${textValue(identifier.value)}`;
+    })
+    .toSorted();
+  return values.length ? values.join("; ") : copy.common.unavailable;
+}
+
+function linesValue(snapshot: SourceSnapshot): string {
+  const values = arrayValue(snapshot.lines)
+    .map((line) => {
+      const quantity = typeof line.quantity === "number" ? line.quantity : 1;
+      const discount = Number(line.discountAmount);
+      return [
+        `Rif. ${textValue(line.externalLineId)}`,
+        textValue(line.description),
+        `${quantity} × ${decimalEuros(line.grossAmount)}`,
+        Number.isFinite(discount) && discount !== 0
+          ? `sconto ${decimalEuros(line.discountAmount)}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    })
+    .toSorted();
+  return values.length ? values.join("; ") : copy.common.unavailable;
+}
+
+function paymentValue(snapshot: SourceSnapshot): string {
+  const status = typeof snapshot.paymentStatus === "string" ? snapshot.paymentStatus : "";
+  const summary = paymentStatusLabels[status] ?? copy.common.unknownStatus;
+  const payments = arrayValue(snapshot.payments)
+    .map((payment) => {
+      const paymentStatus = typeof payment.status === "string" ? payment.status : "";
+      const fee = Number(payment.shopifyPaymentsFeeAmount);
+      return [
+        `Rif. ${textValue(payment.externalPaymentId)}`,
+        textValue(payment.method),
+        paymentStatusLabels[paymentStatus] ?? copy.common.unknownStatus,
+        decimalEuros(payment.amount),
+        Number.isFinite(fee) && fee !== 0
+          ? `commissione ${decimalEuros(payment.shopifyPaymentsFeeAmount)}`
+          : null,
+        typeof payment.paidAt === "string" ? dateTime(payment.paidAt) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    })
+    .toSorted();
+  return payments.length ? `${summary}; ${payments.join("; ")}` : summary;
+}
+
+function refundsValue(snapshot: SourceSnapshot): string {
+  const values = arrayValue(snapshot.refunds)
+    .map((refund) => {
+      const status = typeof refund.status === "string" ? refund.status : "";
+      const amount = refund.amount === null ? copy.common.unavailable : decimalEuros(refund.amount);
+      return [
+        `Rif. ${textValue(refund.externalRefundId)}`,
+        refundStatusLabels[status] ?? copy.common.unknownStatus,
+        amount,
+        typeof refund.completedAt === "string" ? dateTime(refund.completedAt) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    })
+    .toSorted();
+  return values.length ? values.join("; ") : copy.common.unavailable;
+}
+
+function sourceFacts(snapshot: SourceSnapshot): Record<string, string> {
+  const customer = objectValue(snapshot.customerSnapshot);
+  const kind = typeof customer.kind === "string" ? customer.kind : "";
+  const fulfillment =
+    typeof snapshot.fulfillmentStatus === "string" ? snapshot.fulfillmentStatus : "";
+  return {
+    displayNumber: textValue(snapshot.displayNumber),
+    localOrderDate:
+      typeof snapshot.localOrderDate === "string"
+        ? date(snapshot.localOrderDate)
+        : copy.common.unavailable,
+    totalAmount: centsEuros(snapshot.totalAmount),
+    billableAmount: centsEuros(snapshot.billableAmount),
+    shippingAmount: centsEuros(snapshot.shippingAmount),
+    payment: paymentValue(snapshot),
+    fulfillment: fulfillmentStatusLabels[fulfillment] ?? copy.common.unknownStatus,
+    cancellation:
+      typeof snapshot.cancelledAt === "string"
+        ? dateTime(snapshot.cancelledAt)
+        : copy.common.unavailable,
+    customerName: textValue(customer.displayName),
+    firstName: textValue(customer.firstName),
+    lastName: textValue(customer.lastName),
+    customerKind: customerKindLabels[kind] ?? copy.common.unknownType,
+    companyName: textValue(customer.companyName),
+    email: textValue(customer.email),
+    certifiedEmail: textValue(customer.certifiedEmail),
+    recipientCode: textValue(customer.recipientCode),
+    phone: textValue(customer.phone),
+    billingAddress: addressValue(customer, "billingAddress"),
+    shippingAddress: addressValue(customer, "shippingAddress"),
+    taxIdentifiers: taxIdentifiersValue(customer),
+    lines: linesValue(snapshot),
+    refunds: refundsValue(snapshot),
+    sourceReviewRequired:
+      snapshot.sourceReviewRequired === true
+        ? copy.preparation.sourceReviewRequested
+        : copy.preparation.sourceReviewNotRequested,
+  };
+}
+
+function sourceChanges(revision: SourceRevision): SourceChange[] {
+  const before = sourceFacts(revision.previous_normalized_snapshot_json);
+  const after = sourceFacts(revision.current_normalized_snapshot_json);
+  return Object.keys(before).flatMap((field) =>
+    before[field] === after[field] ? [] : [{ field, before: before[field]!, after: after[field]! }],
+  );
+}
+
+function SourceRevisionReview({
+  csrfToken,
+  revision,
+  revisions,
+  showConfirmation,
+}: {
+  csrfToken: string;
+  revision: number;
+  revisions: SourceRevision[];
+  showConfirmation: boolean;
+}) {
+  if (!revisions.length) return null;
+  return (
+    <section className="card section-gap">
+      <h2>{copy.preparation.changesTitle}</h2>
+      <p>{copy.preparation.changesIntro}</p>
+      <ol className="timeline source-revisions">
+        {revisions.map((sourceRevision) => {
+          const changes = sourceChanges(sourceRevision);
+          return (
+            <li key={sourceRevision.id}>
+              <strong>Ordine {sourceRevision.display_number}</strong>
+              <span>
+                {dateTime(sourceRevision.created_at)} · {copy.preparation.changedOrderData}
+              </span>
+              {changes.length ? (
+                <div className="table-wrap source-revisions__table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>{copy.preparation.sourceChangesField}</th>
+                        <th>{copy.preparation.sourceChangesBefore}</th>
+                        <th>{copy.preparation.sourceChangesNow}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {changes.map((change) => (
+                        <tr key={change.field}>
+                          <td data-label={copy.preparation.sourceChangesField}>
+                            <strong>
+                              {copy.preparation.sourceChangeFields[change.field] ?? change.field}
+                            </strong>
+                          </td>
+                          <td data-label={copy.preparation.sourceChangesBefore}>{change.before}</td>
+                          <td data-label={copy.preparation.sourceChangesNow}>{change.after}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <small>{copy.preparation.sourceChangesEmpty}</small>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      {showConfirmation ? (
+        <Form method="post" className="source-revisions__confirmation">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="revision" value={revision} />
+          <input type="hidden" name="intent" value="review-source-changes" />
+          <label className="checkbox-row">
+            <input name="confirmSourceReview" required type="checkbox" value="yes" />
+            {copy.preparation.sourceReviewConfirmation}
+          </label>
+          <p>{copy.preparation.sourceReviewHelp}</p>
+          <button className="button button--secondary" type="submit">
+            {copy.preparation.sourceReviewSubmit}
+          </button>
+        </Form>
+      ) : null}
+    </section>
+  );
 }
 
 function InvoiceLinesTable({ lines }: { lines: InvoiceLine[] }) {
@@ -560,24 +818,12 @@ export default function BillingCaseDetail() {
           publicNumber={billingCase.public_number}
         />
       ) : null}
-      {billingCase.revisions.length ? (
-        <section className="card section-gap">
-          <h2>{copy.preparation.changesTitle}</h2>
-          <p>{copy.preparation.changesIntro}</p>
-          <ol className="timeline">
-            {billingCase.revisions.map(
-              (revision: { id: string; display_number: string; created_at: string }) => (
-                <li key={revision.id}>
-                  <strong>Ordine {revision.display_number}</strong>
-                  <span>
-                    {dateTime(revision.created_at)} · {copy.preparation.changedOrderData}
-                  </span>
-                </li>
-              ),
-            )}
-          </ol>
-        </section>
-      ) : null}
+      <SourceRevisionReview
+        csrfToken={csrfToken}
+        revision={billingCase.revision}
+        revisions={billingCase.revisions}
+        showConfirmation={billingCase.anomalies.includes("SOURCE_CONFLICT")}
+      />
       <section className="card section-gap">
         <h2>{copy.preparation.activity}</h2>
         {billingCase.audit.length ? (
