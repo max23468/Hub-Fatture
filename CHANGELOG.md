@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.25
+
+- Gli ordini eBay già importati vengono riletti una sola volta e la relativa Preparazione fattura viene ricalcolata quando la riconciliazione del pagamento netto rimuove un’anomalia derivata.
+- La riconciliazione storica Shopify espone l’eccezione manuale auditata anche per le fatture Aruba senza riferimento ordine, mantenendo obbligatori numero documento, data, totale, identità, indirizzo e unicità.
+
 ## 0.3.24
 
 - La colonna Ordini / Documenti della tabella Clienti conserva lo stesso separatore orizzontale delle altre colonne anche quando nome o e-mail aumentano l’altezza della riga; la griglia interna non viene più applicata direttamente alla cella `td`, che torna a partecipare al normale calcolo dell’altezza della tabella.
@@ -9,8 +14,6 @@
 - La directory Clienti usa una tabella ordinabile sull’intero archivio per cliente, e-mail, identificativo fiscale, canale, ultimo ordine, ordini e documenti.
 - Le colonne riservano spazio ai contenuti variabili e all’azione Apri dettaglio senza ellissi improprie o overflow, mantenendo il passaggio a schede sui viewport stretti.
 - Anche il nuovo confronto degli aggiornamenti ricevuti nella Preparazione fattura è ordinabile dalle intestazioni.
-- Gli ordini eBay già importati vengono riletti una sola volta e la relativa Preparazione fattura viene ricalcolata quando la riconciliazione del pagamento netto rimuove un’anomalia derivata.
-- La riconciliazione storica Shopify espone l’eccezione manuale auditata anche per le fatture Aruba senza riferimento ordine, mantenendo obbligatori numero documento, data, totale, identità, indirizzo e unicità.
 
 ## 0.3.22
 
