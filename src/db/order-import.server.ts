@@ -217,7 +217,7 @@ async function refreshInvoiceDraftProjection(client: pg.PoolClient, caseId: stri
   );
 }
 
-async function reconcilePreIssueInvoiceAmount(
+export async function reconcilePreIssueInvoiceAmount(
   client: pg.PoolClient,
   orderId: string,
   caseId: string,
@@ -977,12 +977,12 @@ async function applySourceConflict(
   },
 ) {
   const { input, oldOrder, orderId, customerId, status, invoiced } = context;
-  const reason = input.cancelledAt
-    ? ("CANCELLED" as const)
-    : input.paymentStatus === "REFUNDED" || context.refundEffect === "TOTAL"
-      ? ("REFUNDED" as const)
-      : context.becameHistorical
-        ? ("HISTORICAL" as const)
+  const reason = context.becameHistorical
+    ? ("HISTORICAL" as const)
+    : input.cancelledAt
+      ? ("CANCELLED" as const)
+      : input.paymentStatus === "REFUNDED" || context.refundEffect === "TOTAL"
+        ? ("REFUNDED" as const)
         : null;
   if (!reason && !invoiced) {
     await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [

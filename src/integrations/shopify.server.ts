@@ -428,7 +428,7 @@ async function fetchOrdersSince(start: string) {
   }
   const orders: OrderInput[] = [];
   let cursor: string | null = null;
-  let connectionReference = "";
+  let connectionReference: string | null = null;
   for (let page = 0; page < 20; page += 1) {
     const result: {
       connection: { accountReference: string };
@@ -442,11 +442,17 @@ async function fetchOrdersSince(start: string) {
       }`,
       { after: cursor, query: shopifyUpdatedAtQuery(start) },
     );
-    connectionReference = result.connection.accountReference;
+    const pageConnectionReference = result.connection.accountReference;
+    if (connectionReference && connectionReference !== pageConnectionReference) {
+      throw new AppError("CONFLICT_REVISION", 409);
+    }
+    connectionReference = pageConnectionReference;
     const pageData: OrdersPage["orders"] | undefined = result.data?.orders;
     if (!pageData) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-    orders.push(...pageData.nodes.map((order) => mapShopifyOrder(order, connectionReference)));
-    if (!pageData.pageInfo.hasNextPage) return orders;
+    orders.push(...pageData.nodes.map((order) => mapShopifyOrder(order, pageConnectionReference)));
+    if (!pageData.pageInfo.hasNextPage) {
+      return { accountReference: pageConnectionReference, orders };
+    }
     cursor = pageData.pageInfo.endCursor;
     if (!cursor) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
@@ -462,7 +468,7 @@ export async function syncShopifyOrders(job?: ClaimedJob) {
   const cursor = await readCursor("SHOPIFY");
   const start = cursor.overlapFrom ?? new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const end = new Date().toISOString();
-  const orders = await fetchOrdersSince(start);
+  const { orders } = await fetchOrdersSince(start);
   if (job && !(await jobLeaseCurrent(job))) throw new AppError("CONFLICT_REVISION", 409);
   if (orders.length) {
     await importOrders(orders, { type: "SYSTEM", requestId: `shopify-sync:${end}` }, job);
@@ -475,11 +481,12 @@ export async function syncShopifyOrders(job?: ClaimedJob) {
 async function shopifyHistory(value: unknown) {
   const window = historicalOrderWindow(value);
   if (!window) throw new AppError("ORDER_INVALID_INPUT", 422);
-  return markHistoricalOrders(await fetchOrdersSince(window.fetchFrom), window.startDate);
+  const result = await fetchOrdersSince(window.fetchFrom);
+  return { ...result, orders: markHistoricalOrders(result.orders, window.startDate) };
 }
 
 export async function previewShopifyHistory(startDate: unknown = defaultHistoricalStartDate()) {
-  const orders = await shopifyHistory(startDate);
+  const { orders } = await shopifyHistory(startDate);
   return {
     count: orders.length,
     reviewRequired: orders.filter((order) => order.refunds.length).length,
@@ -489,9 +496,14 @@ export async function previewShopifyHistory(startDate: unknown = defaultHistoric
 export async function importShopifyHistory(startDate: unknown, actor: ConnectorActor) {
   if (!(await historyImportPending("SHOPIFY"))) throw new AppError("CONFLICT_REVISION", 409);
   const end = new Date().toISOString();
-  const orders = await shopifyHistory(startDate);
+  const { accountReference, orders } = await shopifyHistory(startDate);
   const result = await importOrders(orders, actor);
-  await completeHistoryImport("SHOPIFY", end, new Date(Date.parse(end) - OVERLAP_MS).toISOString());
+  await completeHistoryImport(
+    "SHOPIFY",
+    accountReference,
+    end,
+    new Date(Date.parse(end) - OVERLAP_MS).toISOString(),
+  );
   return {
     ...result,
     count: orders.length,

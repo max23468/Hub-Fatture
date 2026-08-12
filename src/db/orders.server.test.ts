@@ -1581,6 +1581,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     assert.equal(upgradedBefore.status, "READY");
     upgradedHistorical.historical = true;
     upgradedHistorical.updatedAt = "2026-08-18T10:00:00Z";
+    upgradedHistorical.refunds = [
+      {
+        externalRefundId: "upgraded-historical-total-refund",
+        status: "COMPLETED",
+        amount: upgradedHistorical.total,
+        completedAt: "2026-08-18T10:00:00Z",
+        raw: {},
+      },
+    ];
     await orders.importOrders([upgradedHistorical], {
       id: 1,
       requestId: "test-history-upgrade",
@@ -1801,6 +1810,48 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         )
       ).rows[0],
       { trigger_status: "REFUNDED_BEFORE_ISSUE", status: "DO_NOT_TRANSMIT" },
+    );
+
+    const historicalPartialRefund = structuredClone(historicalRefunded);
+    historicalPartialRefund.externalOrderId = "shop-order-historical-partial-refund";
+    historicalPartialRefund.externalCustomerId = "shop-customer-historical-partial-refund";
+    historicalPartialRefund.customer.taxIdentifiers[0].value = "RSSMRA80A01H501G";
+    historicalPartialRefund.createdAt = "2026-08-19T13:00:00Z";
+    historicalPartialRefund.updatedAt = "2026-08-19T14:00:00Z";
+    historicalPartialRefund.refunds[0].externalRefundId = "historical-partial-refund";
+    historicalPartialRefund.refunds[0].amount = "10.00";
+    await orders.importOrders([historicalPartialRefund], {
+      id: 1,
+      requestId: "test-historical-partial-refund-import",
+    });
+    const historicalPartialId = (
+      await database
+        .getPool()
+        .query("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalPartialRefund.externalOrderId,
+        ])
+    ).rows[0].id;
+    const historicalPartialResult = await orders.reconcileHistoricalOrder(
+      historicalPartialId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ricerca Aruba per ordine parzialmente rimborsato: nessun documento",
+      },
+      { id: 1, requestId: "test-historical-partial-refund-reconcile" },
+    );
+    assert.ok(historicalPartialResult?.caseId);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.trigger_status, billing_cases.status,
+                  (SELECT sum(amount)::integer FROM refunds
+                   WHERE refunds.order_id = orders.id AND applied_before_issue) AS refunded
+           FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+           WHERE orders.id = $1`,
+          [historicalPartialId],
+        )
+      ).rows[0],
+      { trigger_status: "GROUPED", status: "READY", refunded: 1000 },
     );
 
     const concurrentA = structuredClone(fixture[0]);

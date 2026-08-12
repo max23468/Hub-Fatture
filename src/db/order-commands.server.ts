@@ -6,9 +6,15 @@ import {
   triggerStatus,
   type OrderInput,
 } from "../orders.ts";
+import { preIssueRefund } from "../refunds.ts";
 import { writeAudit } from "./audit.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
-import { groupOrder, serializeOrderMutations, type Actor } from "./order-import.server.ts";
+import {
+  groupOrder,
+  reconcilePreIssueInvoiceAmount,
+  serializeOrderMutations,
+  type Actor,
+} from "./order-import.server.ts";
 
 const POSTGRES_BIGINT_MAX = "9223372036854775807";
 const historicalReconciliationSchema = z.object({
@@ -152,7 +158,8 @@ export async function reconcileHistoricalOrder(
       trigger_status: string;
       historical: boolean;
       historical_reconciled_at: Date | null;
-      fully_refunded: boolean;
+      gross_amount: number;
+      refunds: Array<{ status: string; amount: number | null }>;
     }>(
       `SELECT orders.id, orders.customer_id,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
@@ -160,11 +167,12 @@ export async function reconcileHistoricalOrder(
               orders.fulfillment_status, orders.cancelled_at, orders.trigger_status,
               coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
                 AS historical,
-              orders.historical_reconciled_at,
+              orders.historical_reconciled_at, orders.gross_amount,
               coalesce((
-                SELECT sum(refunds.amount) FROM refunds
-                WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
-              ), 0) >= orders.gross_amount AS fully_refunded
+                SELECT jsonb_agg(jsonb_build_object(
+                  'status', refunds.status, 'amount', refunds.amount
+                )) FROM refunds WHERE refunds.order_id = orders.id
+              ), '[]'::jsonb) AS refunds
        FROM orders WHERE orders.id = $1 FOR UPDATE`,
       [id],
     );
@@ -180,10 +188,11 @@ export async function reconcileHistoricalOrder(
     const trigger = await client.query<{ value_json: unknown }>(
       "SELECT value_json FROM settings WHERE key = 'draft_trigger' FOR SHARE",
     );
+    const refundEffect = preIssueRefund(current.gross_amount, current.refunds);
     const nextStatus =
       parsed.data.outcome === "ALREADY_INVOICED"
         ? "INVOICED"
-        : current.fully_refunded
+        : refundEffect.state === "TOTAL"
           ? "REFUNDED_BEFORE_ISSUE"
           : triggerStatus(
               {
@@ -227,6 +236,9 @@ export async function reconcileHistoricalOrder(
         : null;
     if (caseId && nextStatus === "REFUNDED_BEFORE_ISSUE") {
       await client.query("UPDATE orders SET trigger_status = $2 WHERE id = $1", [id, nextStatus]);
+    }
+    if (caseId && nextStatus === "ELIGIBLE" && refundEffect.state === "PARTIAL") {
+      await reconcilePreIssueInvoiceAmount(client, id, caseId, refundEffect.billableAmount);
     }
     return { caseId, outcome: parsed.data.outcome };
   });

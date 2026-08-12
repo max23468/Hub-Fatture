@@ -55,6 +55,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     await connectors.completeHistoryImport(
       "SHOPIFY",
+      "shop.example.invalid",
       "2026-08-12T10:00:00Z",
       "2026-08-12T09:55:00Z",
     );
@@ -118,7 +119,12 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       updated: 0,
       ignored: 0,
     });
-    await connectors.completeHistoryImport("EBAY", "2026-08-12T10:00:00Z", "2026-08-12T09:55:00Z");
+    await connectors.completeHistoryImport(
+      "EBAY",
+      "sandbox-sintetica",
+      "2026-08-12T10:00:00Z",
+      "2026-08-12T09:55:00Z",
+    );
     assert.equal(await connectors.historyImportPending("EBAY"), false);
     await getPool().query("DELETE FROM jobs WHERE type = 'shopify_sync_orders'");
     await connectors.saveConnection(
@@ -148,6 +154,16 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       systemActor,
     );
     assert.equal((await connectors.readCursor("EBAY")).cursor, null);
+    assert.equal(await connectors.historyImportPending("EBAY"), true);
+    await assert.rejects(
+      connectors.completeHistoryImport(
+        "EBAY",
+        "sandbox-sintetica",
+        "2026-08-12T11:00:00Z",
+        "2026-08-12T10:55:00Z",
+      ),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
     assert.equal(await connectors.historyImportPending("EBAY"), true);
     assert.equal(
       (

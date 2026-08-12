@@ -500,10 +500,11 @@ export async function importEbayHistory(
   job?: ClaimedJob,
 ) {
   if (!(await historyImportPending("EBAY"))) throw new AppError("CONFLICT_REVISION", 409);
-  const { end, orders } = await ebayHistory(startDate);
+  const { connection, end, orders } = await ebayHistory(startDate);
   const result = await importOrders(orders, actor, job);
   await completeHistoryImport(
     "EBAY",
+    connection.accountReference,
     end,
     new Date(Date.parse(end) - OVERLAP_MS).toISOString(),
     job,

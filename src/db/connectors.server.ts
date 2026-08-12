@@ -186,12 +186,21 @@ export async function historyImportPending(provider: Provider) {
 
 export async function completeHistoryImport(
   provider: Provider,
+  accountReference: string,
   cursor: string,
   overlapFrom: string,
   job?: ClaimedJob,
 ) {
   await withTransaction(async (client) => {
     if (job) await assertJobLease(client, job);
+    const connection = await client.query(
+      `SELECT id FROM connections
+       WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'
+         AND account_reference = $3
+       FOR UPDATE`,
+      [provider, activeEnvironment(provider), accountReference],
+    );
+    if (!connection.rowCount) throw new AppError("CONFLICT_REVISION", 409);
     await client.query(
       `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
        VALUES ($1, 'orders', $2, $3), ($1, 'history_import', $2, $3)
