@@ -456,7 +456,9 @@ export async function latestEbayHistory() {
     completed_at: Date | null;
   }>(
     `SELECT id, status, payload_json, result_json, last_error_code, created_at, completed_at
-     FROM jobs WHERE type = 'ebay_preview_history' ORDER BY created_at DESC, id DESC LIMIT 1`,
+     FROM jobs WHERE type = 'ebay_preview_history'
+       AND result_json ->> 'obsoleteAccount' IS DISTINCT FROM 'true'
+     ORDER BY created_at DESC, id DESC LIMIT 1`,
   );
   const row = result.rows[0];
   if (!row) return null;

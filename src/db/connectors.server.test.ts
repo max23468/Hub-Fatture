@@ -162,9 +162,13 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         )
       ).rows[0].last_synced_at,
     );
+    await getPool().query(
+      "DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import'",
+    );
     await connectors.enqueueJob("ebay_sync_orders");
     const obsoleteSyncJob = await connectors.claimJob("worker-obsolete-account");
     assert.equal(obsoleteSyncJob?.type, "ebay_sync_orders");
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
     await connectors.saveConnection(
       {
         provider: "EBAY",
@@ -191,7 +195,8 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).rows[0].status,
       "CONNECTED",
     );
-    await getPool().query("DELETE FROM jobs WHERE id = $1", [obsoleteSyncJob!.id]);
+    assert.equal(await connectors.latestEbayHistory(), null);
+    await getPool().query("DELETE FROM jobs WHERE result_json ->> 'obsoleteAccount' = 'true'");
     assert.notEqual(
       (await connectors.connectionSummaries()).find(({ provider }) => provider === "EBAY")
         ?.connectedAt,
