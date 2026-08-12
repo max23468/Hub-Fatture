@@ -2469,7 +2469,7 @@ Questo controllo è outside-in: copre Dynu, DNS, TLS, Caddy e processo applicati
 
 HF esegue un backup giornaliero automatico cifrato su un bucket OCI Object Storage privato e mantiene una seconda copia periodica sul Mac. Non introduce un altro provider: usa Object Storage nativo entro le quote senza costo verificate nel preflight e interrompe l'attivazione se richiede spesa.
 
-Il repository contiene solo script:
+Git contiene solo gli script operativi:
 
 ```text
 scripts/backup.sh
@@ -2478,7 +2478,7 @@ scripts/restore.sh
 
 `scripts/backup.sh` viene eseguito sulla VPS da un timer `systemd`: produce uno snapshot coerente, lo cifra in streaming con il solo destinatario pubblico `age`, carica l'archivio cifrato tramite OCI CLI e Instance Principal limitato al bucket e verifica oggetto, checksum e dimensione tramite readback. Nessun plaintext viene scritto su disco e nessuna credenziale Object Storage statica vive sulla VPS.
 
-Il Mac scarica periodicamente una copia già cifrata fuori dal checkout, per esempio in `~/HubFatture-Backups/`, usando una procedura breve nel runbook. Il repository non contiene backup, dump, XML o PDF reali.
+Il Mac scarica periodicamente una copia già cifrata in `backups/` dentro il checkout locale canonico `/Users/Matteo/Progetti/Hub-Fatture`, usando una procedura breve nel runbook. La directory è accessibile soltanto al titolare ed è esclusa da Git: il repository versionato non contiene backup, dump, XML o PDF reali. Prima di eliminare, ricreare o pulire il checkout con opzioni che rimuovono i file ignorati, la copia locale deve essere verificata e trasferita in una posizione protetta.
 
 Cadenza operativa iniziale:
 
