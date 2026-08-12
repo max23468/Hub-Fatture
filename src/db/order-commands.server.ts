@@ -34,6 +34,7 @@ const historicalReconciliationSchema = z.object({
 
 function fiscalContract(profile: FiscalProfile) {
   const { phone: _phone, email: _email, ...seller } = profile.seller;
+  const { invoiceMethod: _invoiceMethod, ...payment } = profile.payment;
   const {
     lastObservedYear: _year,
     lastObservedNumber: _number,
@@ -41,7 +42,7 @@ function fiscalContract(profile: FiscalProfile) {
     approvedAt: _approvedAt,
     ...numbering
   } = profile.numbering;
-  return { ...profile, seller, numbering };
+  return { ...profile, seller, numbering, payment };
 }
 
 function hasOrderReference(references: string[], provider: string, displayNumber: string) {
@@ -89,8 +90,64 @@ function attributedInvoiceAmount(
 
 function normalizedIdentityPart(value: unknown) {
   return typeof value === "string"
-    ? value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("it")
+    ? value
+        .normalize("NFKD")
+        .replace(/\p{M}/gu, "")
+        .toLocaleLowerCase("it")
+        .replace(/[^\p{L}\p{N}]+/gu, " ")
+        .trim()
+        .replace(/\s+/g, " ")
     : "";
+}
+
+function identityTokens(value: unknown) {
+  return new Set(normalizedIdentityPart(value).split(" ").filter(Boolean));
+}
+
+function sameTokenSet(left: unknown, right: unknown) {
+  const leftTokens = identityTokens(left);
+  const rightTokens = identityTokens(right);
+  return (
+    leftTokens.size > 0 &&
+    leftTokens.size === rightTokens.size &&
+    [...leftTokens].every((token) => rightTokens.has(token))
+  );
+}
+
+function containedNameWithSharedStreetNumber(
+  left: unknown,
+  right: unknown,
+  ...addresses: unknown[]
+) {
+  const leftTokens = identityTokens(left);
+  const rightTokens = identityTokens(right);
+  const contained =
+    leftTokens.size >= 2 &&
+    rightTokens.size >= 2 &&
+    ([...leftTokens].every((token) => rightTokens.has(token)) ||
+      [...rightTokens].every((token) => leftTokens.has(token)));
+  if (!contained) return false;
+  const [customerAddress, recipientAddress] = addresses;
+  const customerNumbers = new Set(
+    normalizedIdentityPart(customerAddress).match(/\b\d+[a-z]?\b/g) ?? [],
+  );
+  const recipientNumbers = normalizedIdentityPart(recipientAddress).match(/\b\d+[a-z]?\b/g) ?? [];
+  return customerNumbers.size > 0 && recipientNumbers.some((number) => customerNumbers.has(number));
+}
+
+function customerIdentityNames(customer: Record<string, unknown>) {
+  const canonical =
+    customer.canonicalProfile && typeof customer.canonicalProfile === "object"
+      ? (customer.canonicalProfile as Record<string, unknown>)
+      : {};
+  return [
+    customer.companyName,
+    [customer.firstName, customer.lastName].filter(Boolean).join(" "),
+    customer.displayName,
+    canonical.companyName,
+    [canonical.firstName, canonical.lastName].filter(Boolean).join(" "),
+    canonical.displayName,
+  ].filter((value) => normalizedIdentityPart(value));
 }
 
 function matchesRecipientWithoutTaxId(
@@ -101,25 +158,27 @@ function matchesRecipientWithoutTaxId(
     customer.billingAddress && typeof customer.billingAddress === "object"
       ? (customer.billingAddress as Record<string, unknown>)
       : {};
-  const customerName =
-    normalizedIdentityPart(customer.companyName) ||
-    normalizedIdentityPart([customer.firstName, customer.lastName].filter(Boolean).join(" ")) ||
-    normalizedIdentityPart(customer.displayName);
   const recipientName =
     normalizedIdentityPart(recipient.businessName) ||
     normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
-  const customerAddress = ["line1", "postalCode", "city", "countryCode"].map((key) =>
-    normalizedIdentityPart(billingAddress[key]),
+  const customerCountry = normalizedIdentityPart(billingAddress.countryCode);
+  const recipientCountry = normalizedIdentityPart(recipient.address.countryCode);
+  if (!recipientName || !customerCountry || customerCountry !== recipientCountry) return false;
+  return customerIdentityNames(customer).some(
+    (customerName) =>
+      sameTokenSet(customerName, recipientName) ||
+      containedNameWithSharedStreetNumber(
+        customerName,
+        recipientName,
+        billingAddress.line1,
+        recipient.address.line1,
+      ),
   );
-  const recipientAddress = ["line1", "postalCode", "city", "countryCode"].map((key) =>
-    normalizedIdentityPart(recipient.address[key as keyof typeof recipient.address]),
-  );
-  return (
-    Boolean(customerName && recipientName && customerAddress.every(Boolean)) &&
-    customerName === recipientName &&
-    customerAddress.length === recipientAddress.length &&
-    customerAddress.every((value, index) => value === recipientAddress[index])
-  );
+}
+
+function historicalDocumentDateAllowed(orderDate: string, documentDate: string) {
+  const difference = Date.parse(`${documentDate}T00:00:00Z`) - Date.parse(`${orderDate}T00:00:00Z`);
+  return difference >= 0 && difference <= 7 * 24 * 60 * 60 * 1000;
 }
 
 function taxIdentifierKey(identifier: {
@@ -242,7 +301,7 @@ async function uniquelyMatchesUnreferencedEbayInvoice(
   );
   const matches = candidates.rows.filter(
     (candidate) =>
-      invoice.documentDate >= candidate.local_order_date &&
+      historicalDocumentDateAllowed(candidate.local_order_date, invoice.documentDate) &&
       expectedHistoricalInvoiceAmount(candidate, invoice.documentDate) === invoice.totalAmount &&
       matchesHistoricalRecipient(candidate, invoice, invoiceTaxIdentifiers),
   );
@@ -660,7 +719,7 @@ export async function reconcileHistoricalOrder(
           !importedInvoice ||
           !archivedInvoice ||
           !invoicePath ||
-          importedInvoice.documentDate < current.local_order_date ||
+          !historicalDocumentDateAllowed(current.local_order_date, importedInvoice.documentDate) ||
           (!hasExplicitHistoricalOrderReference && !unreferencedEbayMatch) ||
           !matchesHistoricalRecipient(current, importedInvoice, importedTaxIdentifiers) ||
           JSON.stringify(fiscalContract(profile.data)) !==

@@ -82,6 +82,22 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   );
   assert.equal(acceptedWithoutPayment.input.paymentMethod, "MP08");
   assert.deepEqual(acceptedWithoutPayment.profile.payment, syntheticFiscalProfile.payment);
+  const historicalMp05 = invoiceXml.replace(
+    "<ModalitaPagamento>MP08</ModalitaPagamento>",
+    "<ModalitaPagamento>MP05</ModalitaPagamento>",
+  );
+  const acceptedHistoricalMp05 = acceptedInvoiceFromXml(
+    historicalMp05,
+    syntheticFiscalProfile.numbering.approvedAt,
+  );
+  assert.equal(acceptedHistoricalMp05.input.paymentMethod, "MP05");
+  assert.deepEqual(acceptedHistoricalMp05.profile.payment, syntheticFiscalProfile.payment);
+  assert.throws(() =>
+    fiscalProfileFromAcceptedInvoiceXml(
+      historicalMp05,
+      syntheticFiscalProfile.numbering.approvedAt,
+    ),
+  );
   const withoutSupplierContacts = invoiceXml.replace(/\s*<Contatti>[\s\S]*?<\/Contatti>/, "");
   await validateFatturaXml(withoutSupplierContacts);
   const acceptedWithoutSupplierContacts = acceptedInvoiceFromXml(

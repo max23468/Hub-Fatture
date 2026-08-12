@@ -2067,6 +2067,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     ebayWithoutReference.customer.taxIdentifiers = [];
     delete ebayWithoutReference.customer.firstName;
     delete ebayWithoutReference.customer.lastName;
+    ebayWithoutReference.customer.displayName = "Mario Giuseppe Rossi";
     ebayWithoutReference.customer.billingAddress = {
       line1: "Via Cliente 2",
       postalCode: "00100",
@@ -2206,26 +2207,93 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    const historicalPaymentInvoice = Buffer.from(
+      ebayInvoiceWithoutReference
+        .toString()
+        .replace("<Indirizzo>Via Cliente 2</Indirizzo>", "<Indirizzo>Corso Altrove 2</Indirizzo>")
+        .replace("<CAP>00100</CAP>", "<CAP>10100</CAP>")
+        .replace("<Comune>Roma</Comune>", "<Comune>Torino</Comune>")
+        .replace("<Provincia>RM</Provincia>", "<Provincia>TO</Provincia>")
+        .replace(
+          "<ModalitaPagamento>MP08</ModalitaPagamento>",
+          "<ModalitaPagamento>MP05</ModalitaPagamento>",
+        ),
+    );
     await orders.reconcileHistoricalOrder(
       ebayWithoutReferenceId,
       {
         outcome: "ALREADY_INVOICED",
-        reference: "Documento Aruba senza riferimento eBay con prova univoca completa",
-        invoiceXml: ebayInvoiceWithoutReference,
+        reference: "Documento Aruba univoco: nome contenuto, civico, data e totale verificati",
+        invoiceXml: historicalPaymentInvoice,
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-without-reference" },
     );
-    assert.equal(
+    assert.deepEqual(
       (
         await database.getPool().query(
-          `SELECT count(*)::int AS count
+          `SELECT count(*)::int AS count, min(documents.payment_method) AS payment_method
            FROM document_orders
            JOIN documents ON documents.id = document_orders.document_id
            WHERE document_orders.order_id = $1 AND documents.origin = 'ARUBA_HISTORY'`,
           [ebayWithoutReferenceId],
         )
-      ).rows[0].count,
-      1,
+      ).rows[0],
+      { count: 1, payment_method: "MP05" },
+    );
+    const reorderedNameEbay = structuredClone(ebayWithoutReference);
+    reorderedNameEbay.externalOrderId = "ebay-order-historical-reordered-name";
+    reorderedNameEbay.externalCustomerId = "ebay-customer-historical-reordered-name";
+    reorderedNameEbay.displayNumber = "26-12345-67894";
+    reorderedNameEbay.customer.displayName = "Rossi Mario";
+    reorderedNameEbay.customer.billingAddress.line1 = "Piazza Distante 99";
+    reorderedNameEbay.customer.billingAddress.postalCode = "50100";
+    reorderedNameEbay.customer.billingAddress.city = "Firenze";
+    reorderedNameEbay.customer.billingAddress.province = "FI";
+    reorderedNameEbay.total = "76.00";
+    reorderedNameEbay.lines[0].grossAmount = "76.00";
+    reorderedNameEbay.payments[0].amount = "76.00";
+    reorderedNameEbay.payments[0].externalPaymentId = "ebay-payment-historical-reordered-name";
+    reorderedNameEbay.lines[0].externalLineId = "ebay-line-historical-reordered-name";
+    await orders.importOrders([reorderedNameEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-reordered-name",
+    });
+    const reorderedNameEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          reorderedNameEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      reorderedNameEbayId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba univoco: stessi token nome, data e totale verificati",
+        invoiceXml: Buffer.from(
+          ebayInvoiceWithoutReference
+            .toString()
+            .replace("FPR 0020/26", "FPR 0022/26")
+            .replaceAll("75.00", "76.00")
+            .replace(
+              "<ModalitaPagamento>MP08</ModalitaPagamento>",
+              "<ModalitaPagamento>MP01</ModalitaPagamento>",
+            ),
+        ),
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-reordered-name" },
+    );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT documents.payment_method
+           FROM document_orders
+           JOIN documents ON documents.id = document_orders.document_id
+           WHERE document_orders.order_id = $1 AND documents.origin = 'ARUBA_HISTORY'`,
+          [reorderedNameEbayId],
+        )
+      ).rows[0].payment_method,
+      "MP01",
     );
     const reusedEbayInvoice = structuredClone(ebayWithoutReference);
     reusedEbayInvoice.externalOrderId = "ebay-order-historical-reused-document";
@@ -2803,7 +2871,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "10",
+      "11",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

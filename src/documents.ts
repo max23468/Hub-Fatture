@@ -115,6 +115,7 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   xml: string,
   approvedAt: string,
   latestDocumentXml = xml,
+  paymentOverride?: { invoiceMethod: "MP08" },
 ): FiscalProfile {
   const source = acceptedFiscalDocument(xml);
   if (source.type !== "TD01") {
@@ -178,7 +179,7 @@ export function fiscalProfileFromAcceptedInvoiceXml(
     },
     payment: {
       condition: payment.condition,
-      invoiceMethod: payment.method,
+      invoiceMethod: paymentOverride?.invoiceMethod ?? payment.method,
       creditNoteMethod: "MP05",
     },
   });
@@ -236,13 +237,18 @@ function acceptedPayment(body: Record<string, unknown>) {
   const methods = blocks.flatMap((block) =>
     xmlArray(block.DettaglioPagamento).map((detail) => xmlValue(detail.ModalitaPagamento)),
   );
+  const acceptedMethods = new Set(["MP01", "MP05", "MP08"] as const);
   if (
     blocks.some((block) => xmlValue(block.CondizioniPagamento) !== "TP02") ||
-    methods.some((method) => method !== "MP08")
+    methods.length !== 1 ||
+    methods.some((method) => !acceptedMethods.has(method as "MP01" | "MP05" | "MP08"))
   ) {
     throw new Error("Il pagamento della fattura non coincide con il profilo fiscale");
   }
-  return { condition: "TP02" as const, method: "MP08" as const };
+  return {
+    condition: "TP02" as const,
+    method: methods[0] as "MP01" | "MP05" | "MP08",
+  };
 }
 
 /** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
@@ -318,7 +324,9 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
     ...source,
     totalAmount,
     input,
-    profile: fiscalProfileFromAcceptedInvoiceXml(xml, importedAt),
+    profile: fiscalProfileFromAcceptedInvoiceXml(xml, importedAt, xml, {
+      invoiceMethod: "MP08",
+    }),
     references: [
       ...(general.Causale === undefined
         ? []
