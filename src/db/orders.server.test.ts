@@ -1935,6 +1935,73 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         },
       ],
     );
+    const groupedHistoricalFirst = structuredClone(historical);
+    groupedHistoricalFirst.externalOrderId = "shop-order-historical-grouped-first";
+    groupedHistoricalFirst.displayNumber = "#S-HIST-GROUP-1";
+    groupedHistoricalFirst.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
+    groupedHistoricalFirst.historical = true;
+    groupedHistoricalFirst.updatedAt = "2026-08-19T09:55:00Z";
+    groupedHistoricalFirst.payments[0].externalPaymentId = "historical-grouped-first-payment";
+    const groupedHistoricalSecond = structuredClone(groupedHistoricalFirst);
+    groupedHistoricalSecond.externalOrderId = "shop-order-historical-grouped-second";
+    groupedHistoricalSecond.displayNumber = "#S-HIST-GROUP-2";
+    groupedHistoricalSecond.payments[0].externalPaymentId = "historical-grouped-second-payment";
+    await orders.importOrders([groupedHistoricalFirst, groupedHistoricalSecond], {
+      id: 1,
+      requestId: "test-import-historical-grouped-invoice",
+    });
+    const groupedIds = (
+      await database.getPool().query<{ id: string; external_order_id: string }>(
+        `SELECT id, external_order_id FROM orders
+         WHERE external_order_id IN ($1, $2) ORDER BY external_order_id`,
+        [groupedHistoricalFirst.externalOrderId, groupedHistoricalSecond.externalOrderId],
+      )
+    ).rows;
+    const groupedLine = `<DettaglioLinee>
+        <NumeroLinea>2</NumeroLinea>
+        <Descrizione>Vendita beni usati - Ordine Shopify #S-HIST-GROUP-2</Descrizione>
+        <Quantita>1.00</Quantita>
+        <PrezzoUnitario>122.00</PrezzoUnitario>
+        <PrezzoTotale>122.00</PrezzoTotale>
+        <AliquotaIVA>0.00</AliquotaIVA>
+        <Natura>N5</Natura>
+      </DettaglioLinee>`;
+    const groupedInvoiceXml = Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 0012/26")
+        .replace("#1001", "#S-HIST-GROUP-1")
+        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replaceAll("123.45", "122.00")
+        .replace("</DettaglioLinee>", `</DettaglioLinee>\n      ${groupedLine}`)
+        .replace("<ImportoTotaleDocumento>122.00", "<ImportoTotaleDocumento>244.00")
+        .replace("<ImponibileImporto>122.00", "<ImponibileImporto>244.00")
+        .replace("<ImportoPagamento>122.00", "<ImportoPagamento>244.00"),
+    );
+    for (const grouped of groupedIds) {
+      await orders.reconcileHistoricalOrder(
+        grouped.id,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba cumulativo verificato",
+          invoiceXml: groupedInvoiceXml,
+        },
+        { id: 1, canApprove: true, requestId: `test-reconcile-${grouped.external_order_id}` },
+      );
+    }
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT count(DISTINCT documents.id)::int AS documents,
+                  count(document_orders.order_id)::int AS orders,
+                  sum(document_orders.amount)::int AS attributed_amount,
+                  max(documents.total_amount)::int AS document_total
+           FROM documents
+           JOIN document_orders ON document_orders.document_id = documents.id
+           WHERE documents.fiscal_number = 12 AND documents.fiscal_year = 2026`,
+        )
+      ).rows[0],
+      { documents: 1, orders: 2, attributed_amount: 24400, document_total: 24400 },
+    );
     alreadyInvoiced.updatedAt = "2026-08-19T10:00:00Z";
     alreadyInvoiced.historical = false;
     await orders.importOrders([alreadyInvoiced], {
@@ -2033,7 +2100,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "3",
+      "5",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

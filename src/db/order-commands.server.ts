@@ -61,6 +61,23 @@ function hasOrderReference(references: string[], provider: string, displayNumber
   });
 }
 
+function attributedInvoiceAmount(
+  invoice: ReturnType<typeof acceptedInvoiceFromXml>,
+  provider: string,
+  displayNumber: string,
+) {
+  const matchingLines = invoice.input.lines.filter((line) =>
+    hasOrderReference([line.description], provider, displayNumber),
+  );
+  if (matchingLines.length > 0) {
+    return matchingLines.reduce((sum, line) => sum + line.unitAmount * line.quantity, 0);
+  }
+  return invoice.input.lines.length === 1 &&
+    hasOrderReference(invoice.references, provider, displayNumber)
+    ? invoice.totalAmount
+    : null;
+}
+
 export function isDatabaseId(id: string) {
   return (
     /^[1-9]\d*$/.test(id) &&
@@ -288,7 +305,9 @@ export async function reconcileHistoricalOrder(
         "SELECT value_json FROM settings WHERE key = 'draft_trigger' FOR SHARE",
       );
       const refundEffect = preIssueRefund(current.gross_amount, current.refunds);
-      const historicalInvoiceTotal = importedInvoice?.totalAmount;
+      const historicalInvoiceAmount = importedInvoice
+        ? attributedInvoiceAmount(importedInvoice, current.provider, current.display_number)
+        : null;
       const historicalInvoiceDate = importedInvoice?.documentDate;
       const completedHistoricalRefunds = current.refunds.filter(
         (refund) => refund.status === "COMPLETED",
@@ -311,7 +330,7 @@ export async function reconcileHistoricalOrder(
         parsed.data.outcome === "ALREADY_INVOICED" &&
         (historicalRefundsNeedReview ||
           expectedHistoricalInvoiceTotal < 0 ||
-          historicalInvoiceTotal !== expectedHistoricalInvoiceTotal)
+          historicalInvoiceAmount !== expectedHistoricalInvoiceTotal)
       ) {
         throw new AppError("ORDER_HISTORY_INVOICE_INVALID", 422);
       }
@@ -432,7 +451,7 @@ export async function reconcileHistoricalOrder(
         await client.query(
           `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
          VALUES ($1, 'INVOICE', $2, $3)`,
-          [invoiceDocumentId, id, importedInvoice.totalAmount],
+          [invoiceDocumentId, id, historicalInvoiceAmount],
         );
       }
       await client.query(
