@@ -119,33 +119,6 @@ function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
   return Boolean(normalizedLeft && normalizedLeft === normalizedIdentityPart(right));
 }
 
-function streetNumbers(value: unknown, ...postalCodes: unknown[]) {
-  const excluded = new Set(
-    postalCodes.map((value) => normalizedIdentityPart(value).replaceAll(" ", "")).filter(Boolean),
-  );
-  return new Set(
-    (normalizedIdentityPart(value).match(/\b\d+[a-z]?\b/g) ?? []).filter(
-      (number) => !excluded.has(number),
-    ),
-  );
-}
-
-function sharesStreetNumber(left: unknown, right: unknown, ...postalCodes: unknown[]) {
-  const leftNumbers = streetNumbers(left, ...postalCodes);
-  const rightNumbers = streetNumbers(right, ...postalCodes);
-  return leftNumbers.size > 0 && [...rightNumbers].some((number) => leftNumbers.has(number));
-}
-
-function hasConflictingStreetNumbers(left: unknown, right: unknown, ...postalCodes: unknown[]) {
-  const leftNumbers = streetNumbers(left, ...postalCodes);
-  const rightNumbers = streetNumbers(right, ...postalCodes);
-  return (
-    leftNumbers.size > 0 &&
-    rightNumbers.size > 0 &&
-    ![...rightNumbers].some((number) => leftNumbers.has(number))
-  );
-}
-
 const genericStreetTokens = new Set(["civico", "corso", "piazza", "snc", "strada", "via", "viale"]);
 
 function sharesStreetName(left: unknown, right: unknown) {
@@ -160,6 +133,21 @@ function sharesStreetName(left: unknown, right: unknown) {
   );
 }
 
+function containsStructuredStreetNumber(
+  address: unknown,
+  streetNumber: unknown,
+  postalCode: unknown,
+) {
+  const expected = new Set(normalizedIdentityPart(streetNumber).match(/\b\d+[a-z]?\b/g) ?? []);
+  const excludedPostalCode = normalizedIdentityPart(postalCode).replaceAll(" ", "");
+  const actual = new Set(
+    (normalizedIdentityPart(address).match(/\b\d+[a-z]?\b/g) ?? []).filter(
+      (number) => number !== excludedPostalCode,
+    ),
+  );
+  return expected.size > 0 && [...expected].every((number) => actual.has(number));
+}
+
 function hasSupportingAddressEvidence(
   customerAddress: Record<string, unknown>,
   recipientAddress: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"]["address"],
@@ -170,23 +158,19 @@ function hasSupportingAddressEvidence(
     sameNonEmptyIdentityPart(customerAddress.province, recipientAddress.province),
     sharesStreetName(customerAddress.line1, recipientAddress.line1),
   ];
-  return (
-    (sharesStreetNumber(
-      customerAddress.line1,
-      recipientAddress.line1,
-      customerAddress.postalCode,
-      recipientAddress.postalCode,
-    ) &&
-      matchingParts.some(Boolean)) ||
-    (sharesStreetName(customerAddress.line1, recipientAddress.line1) &&
-      sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode) &&
-      sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city) &&
-      !hasConflictingStreetNumbers(
+  if (recipientAddress.streetNumber) {
+    return (
+      containsStructuredStreetNumber(
         customerAddress.line1,
-        recipientAddress.line1,
+        recipientAddress.streetNumber,
         customerAddress.postalCode,
-        recipientAddress.postalCode,
-      ))
+      ) && matchingParts.some(Boolean)
+    );
+  }
+  return (
+    sameNonEmptyIdentityPart(customerAddress.line1, recipientAddress.line1) &&
+    sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode) &&
+    sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city)
   );
 }
 

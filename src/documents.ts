@@ -53,6 +53,7 @@ const recipientAddress = z
   .object({
     line1: text(1000),
     line2: text(1000).optional(),
+    streetNumber: text(1000).optional(),
     postalCode: text(1000),
     city: text(1000),
     province: text(1000).optional(),
@@ -295,6 +296,7 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
       line1: [xmlValue(customerAddress.Indirizzo), xmlOptional(customerAddress.NumeroCivico)]
         .filter(Boolean)
         .join(" "),
+      streetNumber: xmlOptional(customerAddress.NumeroCivico),
       postalCode: xmlValue(customerAddress.CAP),
       city: xmlValue(customerAddress.Comune),
       province: xmlOptional(customerAddress.Provincia),
