@@ -524,9 +524,14 @@ test("canonicalizza gli identificativi fiscali UE senza dipendere dall’ordine"
 test("classifica imprese italiane e clienti senza tipo certo", () => {
   const businessWithOnlyTaxCode = {
     ...base,
-    customer: { ...base.customer, kind: "BUSINESS_IT" as const },
+    customer: {
+      ...base.customer,
+      kind: "BUSINESS_IT" as const,
+      displayName: "Impresa Esempio SRL",
+      companyName: "Impresa Esempio SRL",
+    },
   };
-  assert.equal(customerIdentity(businessWithOnlyTaxCode).reviewRequired, false);
+  assert.equal(customerIdentity(businessWithOnlyTaxCode).reviewRequired, true);
   const businessWithVat = {
     ...businessWithOnlyTaxCode,
     customer: {
@@ -538,6 +543,18 @@ test("classifica imprese italiane e clienti senza tipo certo", () => {
   };
   assert.equal(customerIdentity(businessWithVat).reviewRequired, false);
   assert.equal(customerIdentity(businessWithVat).matchKey, "tax:PARTITA_IVA::12345678901");
+  const businessWithVatAndTaxCode = {
+    ...businessWithVat,
+    customer: {
+      ...businessWithVat.customer,
+      taxIdentifiers: [...base.customer.taxIdentifiers, ...businessWithVat.customer.taxIdentifiers],
+    },
+  };
+  assert.equal(customerIdentity(businessWithVatAndTaxCode).reviewRequired, false);
+  assert.equal(
+    customerIdentity(businessWithVatAndTaxCode).matchKey,
+    "tax:PARTITA_IVA::12345678901",
+  );
   assert.equal(
     customerIdentity({
       ...businessWithVat,
@@ -561,7 +578,7 @@ test("classifica imprese italiane e clienti senza tipo certo", () => {
         ],
       },
     }).matchKey,
-    "tax:CODICE_FISCALE::RSSMRA80A01H501U",
+    "tax:PARTITA_IVA::12345678901",
   );
   assert.equal(
     customerIdentity({

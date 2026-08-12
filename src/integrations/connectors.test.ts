@@ -86,6 +86,28 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
   assert.equal(orderReviewRequired(businessMapped, true), false);
 });
 
+test("Shopify non interpreta il segnaposto privato come ragione sociale", async () => {
+  const [payload] = await fixture("shopify-orders.json");
+  const placeholder = structuredClone(payload) as {
+    billingAddress: { company: string | null };
+  };
+  placeholder.billingAddress.company = "  PRIVATO  ";
+
+  const mapped = mapShopifyOrder(placeholder, "shop.example.invalid");
+
+  assert.equal(mapped.customer.kind, "PRIVATE_IT");
+  assert.equal(mapped.customer.companyName, undefined);
+  assert.equal(
+    (mapped.sourceSnapshot.billingAddress as { company: string }).company,
+    "  PRIVATO  ",
+  );
+
+  placeholder.billingAddress.company = "Privato Design SRL";
+  const realCompany = mapShopifyOrder(placeholder, "shop.example.invalid");
+  assert.equal(realCompany.customer.kind, "BUSINESS_IT");
+  assert.equal(realCompany.customer.companyName, "Privato Design SRL");
+});
+
 test("Shopify usa Interno come ultimo fallback soltanto per un identificativo italiano valido", async () => {
   const [payload] = await fixture("shopify-orders.json");
   type ShopifyTaxPayload = Record<string, unknown> & {
