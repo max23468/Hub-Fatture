@@ -3205,8 +3205,11 @@ Dopo l'audit Aruba, usare i dati disponibili:
 - eventuale metadata.
 
 Se il matching non è univoco, richiedere conferma manuale. Non considerare il solo totale una prova.
+L'assenza del riferimento esplicito non impedisce il collegamento soltanto quando provider,
+data, destinatario e totale fatturabile individuano un unico ordine storico aperto; un marker
+di un marketplace diverso o qualsiasi collisione mantiene l'ordine non riconciliato.
 
-Per registrare l'esito “già fatturato”, acquisire anche l'XML ufficiale della fattura Aruba, verificarne profilo, numero e riferimento all'ordine, quindi conservarlo come documento storico immutabile. La sola nota testuale non chiude il confronto quando esistono rimborsi post-emissione, perché la TD04 deve riferire la fattura originaria.
+Per registrare l'esito “già fatturato”, acquisire anche l'XML ufficiale della fattura Aruba, verificarne profilo, numero e riferimento all'ordine quando presente oppure l'insieme univoco delle altre prove, quindi conservarlo come documento storico immutabile. La sola nota testuale non chiude il confronto quando esistono rimborsi post-emissione, perché la TD04 deve riferire la fattura originaria.
 
 Il confronto dell'importo usa il totale fatturabile canonico: per Shopify Payments, con modalità `Sottrai`, equivale al totale ordine meno la somma delle sole `OrderTransaction.fees.amount` riuscite e validate; per ogni altro metodo equivale al totale ordine. Eventuali rimborsi completati prima della fattura vengono sottratti successivamente. Un importo Aruba diverso resta non riconciliato e quindi non approvabile.
 
