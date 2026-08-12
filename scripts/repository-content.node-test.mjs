@@ -338,9 +338,17 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(arubaPlatform, /workflow_dispatch:/);
   assert.match(
     arubaPlatform,
+    /commit:\n        description: SHA completo del candidato appartenente a main/,
+  );
+  assert.match(
+    arubaPlatform,
     /name: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
   );
   assert.match(arubaPlatform, /npm run test:aruba:platform -- \$\{\{ matrix\.browser \}\}/);
+  assert.match(arubaPlatform, /ref: \$\{\{ inputs\.commit \}\}/);
+  assert.match(arubaPlatform, /\[\[ "\$CANDIDATE" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
+  assert.match(arubaPlatform, /test "\$\(git rev-parse HEAD\)" = "\$CANDIDATE"/);
+  assert.match(arubaPlatform, /git merge-base --is-ancestor "\$CANDIDATE" origin\/main/);
   assert.doesNotMatch(arubaPlatform, /name: CI\b/);
   assert.doesNotMatch(arubaPlatform, /E2E Chromium/);
   assert.match(codeql, /if: steps\.impact\.outputs\.standard == 'true'/);
