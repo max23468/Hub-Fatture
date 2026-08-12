@@ -347,33 +347,42 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
   const result = await getPool().query<{
     kind: string;
     id: string;
-    label: string;
-    detail: string;
+    reason: string;
+    case_number: string | null;
+    order_number: string | null;
+    provider: string | null;
+    customer_name: string | null;
+    error_code: string | null;
+    order_date: string | null;
     href: string;
     created_at: string;
     total_count: number;
   }>(
     `SELECT activities.*, count(*) OVER()::int AS total_count FROM (
        SELECT 'BILLING_CASE' AS kind, billing_cases.id::text AS id,
-              'Preparazione fattura ' || billing_cases.public_number AS label,
-              coalesce(billing_cases.customer_snapshot_json ->> 'displayName',
-                       'Cliente da verificare') AS detail,
+              'BILLING_CASE_REVIEW' AS reason,
+              billing_cases.public_number AS case_number,
+              NULL::text AS order_number, NULL::text AS provider,
+              billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
+              NULL::text AS error_code,
+              billing_cases.local_order_date::text AS order_date,
               '/ordini/preparazione/' || billing_cases.id AS href,
               billing_cases.updated_at AS created_at
        FROM billing_cases
        WHERE billing_cases.status = 'NEEDS_REVIEW'
        UNION ALL
        SELECT 'ORDER', orders.id::text,
-              'Ordine ' || orders.display_number,
               CASE
                 WHEN orders.trigger_status = 'LEGACY_BILLING_REVIEW'
-                  THEN 'Storico da riconciliare · '
+                  THEN 'HISTORY_RECONCILIATION'
                 WHEN orders.historical_reconciliation_outcome = 'ALREADY_INVOICED'
-                  THEN 'Fattura Aruba da collegare · '
-                ELSE ''
-              END ||
-              coalesce(orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
-                       'Cliente da verificare'),
+                  THEN 'ARUBA_INVOICE_LINK'
+                ELSE 'ORDER_REVIEW'
+              END,
+              NULL::text, orders.display_number, orders.provider::text,
+              orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
+              NULL::text,
+              orders.local_order_date::text,
               '/ordini/' || orders.id,
               orders.last_synced_at
        FROM orders
@@ -388,9 +397,10 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
            )))
        UNION ALL
        SELECT 'REFUND', refunds.id::text,
-              'Rimborso da verificare',
-              CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
-                || ' ' || orders.display_number,
+              'REFUND_REVIEW', NULL::text, orders.display_number, orders.provider::text,
+              orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
+              NULL::text,
+              orders.local_order_date::text,
               '/ordini/' || orders.id,
               refunds.updated_at
        FROM refunds JOIN orders ON orders.id = refunds.order_id
@@ -398,10 +408,10 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
           OR (refunds.status = 'COMPLETED' AND refunds.amount IS NULL)
        UNION ALL
        SELECT 'REFUND_JOB', jobs.id::text,
-              'Rimborso non elaborato',
-              CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
-                || ' ' || orders.display_number || ' · '
-                || coalesce(jobs.last_error_code, 'errore da verificare'),
+              'REFUND_JOB_FAILED', NULL::text, orders.display_number, orders.provider::text,
+              orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
+              jobs.last_error_code,
+              orders.local_order_date::text,
               '/ordini/' || orders.id,
               jobs.created_at
        FROM jobs
@@ -413,9 +423,9 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
          AND refunds.credit_document_id IS NULL
        UNION ALL
        SELECT 'CREDIT_NOTE', documents.id::text,
-              'Nota di credito da approvare',
-              coalesce(billing_cases.customer_snapshot_json ->> 'displayName',
-                       'Cliente da verificare'),
+              'CREDIT_NOTE_APPROVAL', NULL::text, NULL::text, NULL::text,
+              billing_cases.customer_snapshot_json ->> 'displayName', NULL::text,
+              billing_cases.local_order_date::text,
               '/documenti/' || documents.id || '/nota',
               documents.created_at
        FROM documents

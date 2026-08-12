@@ -8,6 +8,20 @@ const dateTimeFormatter = new Intl.DateTimeFormat("it-IT", {
   timeStyle: "short",
   timeZone: "Europe/Rome",
 });
+const compactDateFormatter = new Intl.DateTimeFormat("it-IT", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: "Europe/Rome",
+});
+const compactDateTimeFormatter = new Intl.DateTimeFormat("it-IT", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "Europe/Rome",
+});
 const regionFormatter = new Intl.DisplayNames("it", { type: "region" });
 
 type Address = Record<string, string | undefined>;
@@ -22,6 +36,14 @@ export function date(value: string): string {
 
 export function dateTime(value: string): string {
   return dateTimeFormatter.format(new Date(value));
+}
+
+export function compactDate(value: string): string {
+  return compactDateFormatter.format(new Date(`${value}T12:00:00Z`));
+}
+
+export function compactDateTime(value: string): string {
+  return compactDateTimeFormatter.format(new Date(value));
 }
 
 export function address(value: Address): string {
