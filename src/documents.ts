@@ -11,8 +11,6 @@ import {
   postgresDateSchema,
 } from "./orders.ts";
 
-export { fiscalNumberLabel } from "./fiscal-number.ts";
-
 const text = (max: number) => z.string().trim().min(1).max(max);
 const country = z.string().trim().toUpperCase().length(2);
 const taxIdentifier = z

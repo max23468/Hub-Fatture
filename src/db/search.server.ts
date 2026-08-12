@@ -1,5 +1,5 @@
 import { escapeLike } from "../orders.ts";
-import { fiscalNumberLabel } from "../documents.ts";
+import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
