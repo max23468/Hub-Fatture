@@ -5,6 +5,7 @@
 - Separati rendering, orchestrazione HTTP e persistenza nei flussi Impostazioni e Preparazione fattura, impedendo import runtime dei moduli server nel client.
 - Isolati storage documentale e validazione degli identificativi PostgreSQL, eliminando il ciclo fra documenti e comandi ordine.
 - Aggiunti il gate automatico sui cicli di import e fixture temporali deterministiche per le note di credito.
+- Il backup pre-deploy usa ora il bundle operativo della release installata, evitando incompatibilità con i moduli del candidato prima del passaggio di versione.
 
 ## 0.1.0
 
