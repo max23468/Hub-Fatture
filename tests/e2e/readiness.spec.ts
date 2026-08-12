@@ -207,9 +207,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .last()
     .click();
   await expect(page.getByRole("heading", { name: "Mario Rossi" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Dati cliente" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Anagrafica corrente" })).toBeVisible();
   await expect(page.getByText("mario.rossi@example.invalid")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Ordini" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ordini collegati" })).toBeVisible();
   await page.getByLabel("Apri la ricerca globale").click();
   await page.getByLabel("Cerca ordini, fatture e clienti").fill("nessun risultato possibile");
   await expect(page.getByText("Nessun risultato", { exact: true })).toBeVisible();
@@ -226,6 +226,68 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expectPlainLanguage(page);
   await expect(page.getByRole("row")).toHaveCount(4);
+  await page.getByRole("button", { name: "Espandi navigazione" }).click();
+  await page.getByRole("link", { name: "Clienti", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Clienti", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Riepilogo clienti" })).toContainText(
+    "2 clienti importati",
+  );
+  await expect(page.locator(".customer-row")).toHaveCount(2);
+  expect(
+    await page.locator(".customer-row").evaluateAll((rows) =>
+      rows.every((row) => {
+        const contentRight =
+          row.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(row).paddingRight);
+        return [...row.children].every(
+          (child) => child.getBoundingClientRect().right <= contentRight + 1,
+        );
+      }),
+    ),
+  ).toBe(true);
+  await expect(page.getByRole("region", { name: "Elenco clienti" })).not.toContainText(
+    "Dato fiscale",
+  );
+  await page.getByRole("search", { name: "Cerca clienti" }).getByLabel("Cerca").fill("Mario");
+  await page.getByRole("search", { name: "Cerca clienti" }).getByRole("button").click();
+  await expect(page.locator(".customer-row")).toHaveCount(1);
+  await page.getByRole("link", { name: "Mario Rossi", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Mario Rossi" })).toBeVisible();
+  const customerBackLink = page.getByRole("link", { name: "Torna ai clienti" });
+  const customerHeading = page.getByRole("heading", { name: "Mario Rossi" });
+  const [customerBackLinkBox, customerHeadingBox] = await Promise.all([
+    customerBackLink.boundingBox(),
+    customerHeading.boundingBox(),
+  ]);
+  assert(customerBackLinkBox && customerHeadingBox);
+  expect(customerBackLinkBox.y + customerBackLinkBox.height).toBeLessThan(customerHeadingBox.y);
+  await expect(page.getByRole("heading", { name: "Anagrafica corrente" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Origine dei dati" })).toBeVisible();
+  await expect(page.locator(".customer-source-list li")).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "Ordini collegati" })).toBeVisible();
+  await expect(
+    page.locator("#customer-orders-title").locator("xpath=ancestor::section").locator("li"),
+  ).toHaveCount(2);
+  await customerBackLink.click();
+  await page.getByRole("link", { name: "Da verificare", exact: true }).click();
+  await expect(page.locator(".customer-row")).toHaveCount(1);
+  await expect(page.getByText("Cliente da verificare", { exact: true })).toBeVisible();
+
+  await page.setViewportSize({ width: 320, height: 780 });
+  const mobileMore = page.getByLabel("Apri altre sezioni");
+  await expect(page.getByRole("link", { name: "Clienti", exact: true })).toBeVisible();
+  await mobileMore.click();
+  await expect(
+    page.locator(".nav-more__menu").getByRole("link", { name: "Attività", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".nav-more__menu").getByRole("link", { name: "Impostazioni", exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.getByLabel(/^Data ordine/)).toHaveValue("");
   const controlHeights = await page
     .getByRole("search", { name: "Filtra gli ordini" })
@@ -424,6 +486,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       .first()
       .evaluate((row) => row.getBoundingClientRect().height),
   ).toBeLessThan(240);
+  await page.getByRole("link", { name: "Clienti", exact: true }).click();
+  await expect(page.locator(".customer-row").first()).toBeVisible();
+  await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Clienti");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toBeVisible();
   await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Ordini");
@@ -451,6 +521,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     await activeView.evaluate((item) => item.getBoundingClientRect().right),
   ).toBeLessThanOrEqual(320);
 
+  await page.getByLabel("Apri altre sezioni").click();
   await page.getByRole("link", { name: "Impostazioni", exact: true }).click();
   const sectionPicker = page.getByLabel("Vai alla sezione");
   await expect(sectionPicker).toBeVisible();

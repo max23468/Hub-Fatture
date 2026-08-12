@@ -6,7 +6,6 @@ import type pg from "pg";
 import {
   documentInputSchema,
   fatturaPaText,
-  fiscalNumberLabel,
   fiscalProfileSchema,
   generateFatturaXml,
   projectFatturaXml,
@@ -14,6 +13,7 @@ import {
   type FiscalProfile,
 } from "../documents.ts";
 import { AppError } from "../errors.ts";
+import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { creditableRemainder } from "../refunds.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { writeAudit } from "./audit.server.ts";

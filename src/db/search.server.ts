@@ -1,7 +1,6 @@
 import { escapeLike } from "../orders.ts";
-import { fiscalNumberLabel } from "../documents.ts";
+import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { getPool } from "./client.server.ts";
-import { isDatabaseId } from "./database-id.ts";
 
 const SEARCH_RESULT_LIMIT = 5;
 const MAX_SEARCH_LENGTH = 100;
@@ -202,99 +201,5 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
       documentCount: Number(row.document_count),
       href: `/clienti/${row.id}`,
     })),
-  };
-}
-
-export async function getCustomer(id: string) {
-  if (!isDatabaseId(id)) return null;
-  const result = await getPool().query<{
-    id: string;
-    kind: string;
-    display_name: string;
-    first_name: string | null;
-    last_name: string | null;
-    company_name: string | null;
-    email: string | null;
-    phone: string | null;
-    tax_id_type: string | null;
-    tax_id_normalized: string | null;
-    vat_country: string | null;
-    billing_address_json: Record<string, string | undefined>;
-    source_confidence: string;
-    review_required: boolean;
-    order_count: string;
-    document_count: string;
-    orders: Array<{
-      id: string;
-      provider: "SHOPIFY" | "EBAY";
-      displayNumber: string;
-      localOrderDate: string;
-      grossAmount: number;
-    }>;
-    documents: Array<{
-      id: string;
-      fiscalSeries: string;
-      fiscalYear: number | null;
-      fiscalNumber: number | null;
-      caseId: string;
-      caseNumber: string;
-      documentDate: string;
-      totalAmount: number;
-      status: string;
-    }>;
-  }>(
-    `SELECT customers.*,
-            (SELECT count(*)::text FROM orders WHERE orders.customer_id = customers.id)
-              AS order_count,
-            (SELECT count(*)::text FROM billing_cases
-             JOIN documents ON documents.billing_case_id = billing_cases.id
-             WHERE billing_cases.customer_id = customers.id AND documents.kind = 'INVOICE')
-              AS document_count,
-            coalesce((
-              SELECT jsonb_agg(to_jsonb(recent_orders) ORDER BY recent_orders."localOrderDate" DESC,
-                                                            recent_orders.id DESC)
-              FROM (
-                SELECT orders.id::text, orders.provider,
-                       orders.display_number AS "displayNumber",
-                       orders.local_order_date::text AS "localOrderDate",
-                       orders.gross_amount AS "grossAmount"
-                FROM orders WHERE orders.customer_id = customers.id
-                ORDER BY orders.local_order_date DESC, orders.id DESC LIMIT 20
-              ) AS recent_orders
-            ), '[]'::jsonb) AS orders,
-            coalesce((
-              SELECT jsonb_agg(to_jsonb(recent_documents)
-                               ORDER BY recent_documents."documentDate" DESC,
-                                        recent_documents.id DESC)
-              FROM (
-                SELECT documents.id::text, documents.series AS "fiscalSeries",
-                       documents.fiscal_year AS "fiscalYear",
-                       documents.fiscal_number AS "fiscalNumber",
-                       billing_cases.id::text AS "caseId",
-                       billing_cases.public_number AS "caseNumber",
-                       documents.document_date::text AS "documentDate",
-                       documents.total_amount AS "totalAmount", documents.status
-                FROM billing_cases
-                JOIN documents ON documents.billing_case_id = billing_cases.id
-                WHERE billing_cases.customer_id = customers.id AND documents.kind = 'INVOICE'
-                ORDER BY documents.document_date DESC, documents.id DESC LIMIT 20
-              ) AS recent_documents
-            ), '[]'::jsonb) AS documents
-     FROM customers WHERE customers.id = $1`,
-    [id],
-  );
-  const customer = result.rows[0];
-  if (!customer) return null;
-  return {
-    ...customer,
-    documents: customer.documents.map(
-      ({ fiscalSeries, fiscalYear, fiscalNumber, ...document }) => ({
-        ...document,
-        fiscalLabel:
-          fiscalYear && fiscalNumber
-            ? fiscalNumberLabel(fiscalSeries, fiscalYear, fiscalNumber)
-            : null,
-      }),
-    ),
   };
 }
