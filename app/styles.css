@@ -41,6 +41,7 @@
   --space-8: 2rem;
   --space-12: 3rem;
   --control-height: 2.75rem;
+  --sidebar-width: 16rem;
   color: var(--color-text);
   background: var(--color-bg);
 }
@@ -288,7 +289,7 @@ select:hover {
   position: fixed;
   inset: 0 auto 0 0;
   display: flex;
-  width: 16rem;
+  width: var(--sidebar-width);
   flex-direction: column;
   gap: var(--space-8);
   border-right: 1px solid rgb(255 255 255 / 12%);
@@ -308,6 +309,7 @@ select:hover {
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   min-height: 2.75rem;
   align-items: center;
@@ -319,9 +321,40 @@ select:hover {
   text-decoration: none;
 }
 
+.nav-item svg,
+.sidebar-toggle svg {
+  flex: 0 0 auto;
+}
+
 .nav-item[aria-current="page"] {
   background: #087b99;
   color: #ffffff;
+}
+
+.sidebar-toggle {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: var(--control-height);
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: auto;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: #e9f6f8;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 650;
+  padding: 0.625rem 0.75rem;
+}
+
+.sidebar-toggle__label {
+  white-space: nowrap;
+}
+
+.sidebar-toggle:hover {
+  background: rgb(255 255 255 / 8%);
 }
 
 .view-nav {
@@ -357,8 +390,62 @@ select:hover {
 
 .app-main {
   min-height: 100vh;
-  margin-left: 16rem;
+  margin-left: var(--sidebar-width);
   padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+@media (min-width: 48.0625rem) {
+  :root[data-sidebar="collapsed"] {
+    --sidebar-width: 4.5rem;
+  }
+
+  :root[data-sidebar="collapsed"] .sidebar {
+    padding-inline: var(--space-3);
+  }
+
+  :root[data-sidebar="collapsed"] .sidebar .brand-lockup,
+  :root[data-sidebar="collapsed"] .nav-item,
+  :root[data-sidebar="collapsed"] .sidebar-toggle {
+    justify-content: center;
+  }
+
+  :root[data-sidebar="collapsed"] .brand-lockup__name,
+  :root[data-sidebar="collapsed"] .nav-item__label,
+  :root[data-sidebar="collapsed"] .sidebar-toggle__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  :root[data-sidebar="collapsed"] .nav-item::after,
+  :root[data-sidebar="collapsed"] .sidebar-toggle::after {
+    position: absolute;
+    z-index: 30;
+    top: 50%;
+    left: calc(100% + var(--space-3));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    content: attr(data-tooltip);
+    font-size: 0.875rem;
+    font-weight: 650;
+    opacity: 0;
+    padding: var(--space-2) var(--space-3);
+    pointer-events: none;
+    transform: translateY(-50%);
+    white-space: nowrap;
+  }
+
+  :root[data-sidebar="collapsed"] .nav-item:hover::after,
+  :root[data-sidebar="collapsed"] .nav-item:focus-visible::after,
+  :root[data-sidebar="collapsed"] .sidebar-toggle:hover::after,
+  :root[data-sidebar="collapsed"] .sidebar-toggle:focus-visible::after {
+    opacity: 1;
+  }
 }
 
 .page-header {
@@ -1956,6 +2043,10 @@ tbody tr:last-child td {
     gap: var(--space-1);
   }
 
+  .sidebar-toggle {
+    display: none;
+  }
+
   .nav-item {
     position: relative;
     min-height: 3.5rem;
@@ -2187,5 +2278,15 @@ tbody tr:last-child td {
       background-color 150ms ease,
       border-color 150ms ease,
       color 150ms ease;
+  }
+}
+
+@media (min-width: 48.0625rem) and (prefers-reduced-motion: no-preference) {
+  .sidebar,
+  .app-main {
+    transition:
+      width 150ms ease,
+      margin-left 150ms ease,
+      padding 150ms ease;
   }
 }

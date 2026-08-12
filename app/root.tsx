@@ -13,7 +13,7 @@ import { copy } from "./copy.it";
 import favicon from "../docs/brand/assets/favicon.svg?url";
 import "./styles.css";
 
-const themeBootstrap = `try{const t=localStorage.getItem("tema");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch{}`;
+const uiBootstrap = `try{const t=localStorage.getItem("tema");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;const s=localStorage.getItem("sidebar");const n=matchMedia("(min-width:48.0625rem) and (max-width:63.999rem)").matches;document.documentElement.dataset.sidebar=s==="collapsed"||(s!=="expanded"&&n)?"collapsed":"expanded"}catch{}`;
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -23,7 +23,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <link rel="icon" href={favicon} type="image/svg+xml" />
-        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+        <script dangerouslySetInnerHTML={{ __html: uiBootstrap }} />
         <Links />
       </head>
       <body>

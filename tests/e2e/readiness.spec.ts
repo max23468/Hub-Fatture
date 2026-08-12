@@ -97,6 +97,32 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(skipLink).toBeVisible();
   await expectPlainLanguage(page);
 
+  const sidebar = page.locator(".sidebar");
+  const appMain = page.locator(".app-main");
+  const collapseSidebar = page.getByRole("button", { name: "Comprimi navigazione" });
+  await expect(collapseSidebar).toHaveAttribute("aria-expanded", "true");
+  await expect(sidebar).toHaveCSS("width", "256px");
+  await collapseSidebar.click();
+  await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
+  await expect(page.getByRole("button", { name: "Espandi navigazione" })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await expect(sidebar).toHaveCSS("width", "72px");
+  await expect(appMain).toHaveCSS("margin-left", "72px");
+  const settingsNavigation = page.getByRole("link", { name: "Impostazioni", exact: true }).first();
+  await settingsNavigation.hover();
+  expect(
+    await settingsNavigation.evaluate((element) => getComputedStyle(element, "::after").opacity),
+  ).toBe("1");
+  await settingsNavigation.focus();
+  await expect(settingsNavigation).toBeFocused();
+  await expect(settingsNavigation).toHaveAccessibleName("Impostazioni");
+  expect(await page.evaluate(() => localStorage.getItem("sidebar"))).toBe("collapsed");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
+  await expect(sidebar).toHaveCSS("width", "72px");
+
   const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const lightBackground = await background();
 
