@@ -119,9 +119,18 @@ function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
   return Boolean(normalizedLeft && normalizedLeft === normalizedIdentityPart(right));
 }
 
-function sharesStreetNumber(left: unknown, right: unknown) {
-  const leftNumbers = new Set(normalizedIdentityPart(left).match(/\b\d+[a-z]?\b/g) ?? []);
-  const rightNumbers = normalizedIdentityPart(right).match(/\b\d+[a-z]?\b/g) ?? [];
+function sharesStreetNumber(left: unknown, right: unknown, ...postalCodes: unknown[]) {
+  const excluded = new Set(
+    postalCodes.map((value) => normalizedIdentityPart(value).replaceAll(" ", "")).filter(Boolean),
+  );
+  const leftNumbers = new Set(
+    (normalizedIdentityPart(left).match(/\b\d+[a-z]?\b/g) ?? []).filter(
+      (number) => !excluded.has(number),
+    ),
+  );
+  const rightNumbers = (normalizedIdentityPart(right).match(/\b\d+[a-z]?\b/g) ?? []).filter(
+    (number) => !excluded.has(number),
+  );
   return leftNumbers.size > 0 && rightNumbers.some((number) => leftNumbers.has(number));
 }
 
@@ -133,7 +142,10 @@ function sharesStreetName(left: unknown, right: unknown) {
       (token) => !/^\d/.test(token) && token.length >= 3 && !genericStreetTokens.has(token),
     ),
   );
-  return [...identityTokens(right)].some((token) => !/^\d/.test(token) && leftTokens.has(token));
+  return (
+    [...identityTokens(right)].filter((token) => !/^\d/.test(token) && leftTokens.has(token))
+      .length >= 2
+  );
 }
 
 function postalCodeAppearsInAddress(postalCode: unknown, address: unknown) {
@@ -158,7 +170,12 @@ function hasSupportingAddressEvidence(
       postalCodeAppearsInAddress(recipientAddress.postalCode, customerAddress.line1),
   ];
   return (
-    (sharesStreetNumber(customerAddress.line1, recipientAddress.line1) &&
+    (sharesStreetNumber(
+      customerAddress.line1,
+      recipientAddress.line1,
+      customerAddress.postalCode,
+      recipientAddress.postalCode,
+    ) &&
       matchingParts.some(Boolean)) ||
     (sharesStreetName(customerAddress.line1, recipientAddress.line1) &&
       sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode) &&
@@ -166,11 +183,7 @@ function hasSupportingAddressEvidence(
   );
 }
 
-function containedNameWithSharedStreetNumber(
-  left: unknown,
-  right: unknown,
-  ...addresses: unknown[]
-) {
+function containedName(left: unknown, right: unknown) {
   const leftTokens = identityTokens(left);
   const rightTokens = identityTokens(right);
   const contained =
@@ -178,9 +191,7 @@ function containedNameWithSharedStreetNumber(
     rightTokens.size >= 2 &&
     ([...leftTokens].every((token) => rightTokens.has(token)) ||
       [...rightTokens].every((token) => leftTokens.has(token)));
-  if (!contained) return false;
-  const [customerAddress, recipientAddress] = addresses;
-  return sharesStreetNumber(customerAddress, recipientAddress);
+  return contained;
 }
 
 function customerIdentityNames(customer: Record<string, unknown>) {
@@ -216,12 +227,7 @@ function matchesRecipientWithoutTaxId(
     return (
       (sameTokenSet(customerName, recipientName) &&
         hasSupportingAddressEvidence(billingAddress, recipient.address)) ||
-      (containedNameWithSharedStreetNumber(
-        customerName,
-        recipientName,
-        billingAddress.line1,
-        recipient.address.line1,
-      ) &&
+      (containedName(customerName, recipientName) &&
         hasSupportingAddressEvidence(billingAddress, recipient.address))
     );
   });

@@ -2248,7 +2248,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     reorderedNameEbay.externalCustomerId = "ebay-customer-historical-reordered-name";
     reorderedNameEbay.displayNumber = "26-12345-67894";
     reorderedNameEbay.customer.displayName = "Rossi Mario";
-    reorderedNameEbay.customer.billingAddress.line1 = "Piazza Distante 99";
+    reorderedNameEbay.customer.billingAddress.line1 = "Piazza Campo Distante 99";
     reorderedNameEbay.customer.billingAddress.postalCode = "50100";
     reorderedNameEbay.customer.billingAddress.city = "Firenze";
     reorderedNameEbay.customer.billingAddress.province = "FI";
@@ -2284,6 +2284,11 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           reference: "Documento Aruba con omonimo e sola provincia coincidente",
           invoiceXml: Buffer.from(
             reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Giuseppe Distante 12 50100</Indirizzo>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
               .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
               .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
           ),
@@ -2302,7 +2307,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           reorderedNameInvoice
             .replace(
               "<Indirizzo>Via Cliente 2</Indirizzo>",
-              "<Indirizzo>Piazza Distante 101</Indirizzo>",
+              "<Indirizzo>Piazza Campo Distante 101</Indirizzo>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
             .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
