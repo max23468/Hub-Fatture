@@ -64,6 +64,37 @@ function hasOrderReference(references: string[], provider: string, displayNumber
   });
 }
 
+function hasBareOrderReference(references: string[], displayNumber: string) {
+  const expectedNumber = displayNumber.toLowerCase();
+  const boundary = /[\p{L}\p{N}]/u;
+  return references.some((reference) => {
+    const value = reference.toLowerCase();
+    for (let index = value.indexOf(expectedNumber); index >= 0;) {
+      const prefix = value.slice(Math.max(0, index - 32), index);
+      if (
+        !boundary.test(value[index - 1] ?? "") &&
+        !boundary.test(value[index + expectedNumber.length] ?? "") &&
+        /(?:^|[^\p{L}\p{N}])ordine(?:\s+n(?:umero)?\.?)?\s*$/u.test(prefix)
+      ) {
+        return true;
+      }
+      index = value.indexOf(expectedNumber, index + expectedNumber.length);
+    }
+    return false;
+  });
+}
+
+function hasGenericOrderReference(references: string[]) {
+  return references.some((reference) =>
+    Array.from(
+      reference.matchAll(
+        /(?:^|[^\p{L}\p{N}])ordine(?:\s+n(?:umero)?\.?)?\s*#?\s*([\p{L}\p{N}][\p{L}\p{N}-]{0,63})/giu,
+      ),
+      (match) => match[1]!,
+    ).some((candidate) => /\d/u.test(candidate)),
+  );
+}
+
 function hasIncompatibleMarketplaceMarker(references: string[], provider: "SHOPIFY" | "EBAY") {
   const expected = provider.toLowerCase();
   return references.some((reference) =>
@@ -76,6 +107,7 @@ function hasIncompatibleMarketplaceMarker(references: string[], provider: "SHOPI
 
 function hasConflictingMarketplaceReference(references: string[], provider: "SHOPIFY" | "EBAY") {
   if (hasIncompatibleMarketplaceMarker(references, provider)) return true;
+  if (hasGenericOrderReference(references)) return true;
   const providerPattern = provider === "SHOPIFY" ? "shopify" : "ebay";
   const providerMarker = new RegExp(
     `(^|[^\\p{L}\\p{N}])${providerPattern}(?=$|[^\\p{L}\\p{N}])`,
@@ -603,7 +635,8 @@ export async function reconcileHistoricalOrder(
         current.billable_amount,
       );
       const hasExplicitHistoricalOrderReference = importedInvoice
-        ? hasOrderReference(importedInvoice.references, current.provider, current.display_number)
+        ? hasOrderReference(importedInvoice.references, current.provider, current.display_number) ||
+          hasBareOrderReference(importedInvoice.references, current.display_number)
         : false;
       const usesUnreferencedMarketplaceFallback = Boolean(
         importedInvoice &&
