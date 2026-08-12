@@ -2002,6 +2002,65 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ).rows[0],
       { documents: 1, orders: 2, attributed_amount: 24400, document_total: 24400 },
     );
+    const historicalWithoutTaxId = structuredClone(historical);
+    historicalWithoutTaxId.externalOrderId = "shop-order-historical-without-tax-id";
+    historicalWithoutTaxId.externalCustomerId = "shop-customer-historical-without-tax-id";
+    historicalWithoutTaxId.displayNumber = "#S-HIST-NO-TAX-ID";
+    historicalWithoutTaxId.customer.taxIdentifiers = [];
+    historicalWithoutTaxId.customer.billingAddress = {
+      line1: "Via Cliente 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithoutTaxId.historical = true;
+    historicalWithoutTaxId.updatedAt = "2026-08-19T09:57:00Z";
+    historicalWithoutTaxId.payments[0].externalPaymentId = "historical-without-tax-id-payment";
+    await orders.importOrders([historicalWithoutTaxId], {
+      id: 1,
+      requestId: "test-import-historical-without-tax-id",
+    });
+    const historicalWithoutTaxIdId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithoutTaxId.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const historicalWithoutTaxIdXml = Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 0013/26")
+        .replace("#1001", historicalWithoutTaxId.displayNumber)
+        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replaceAll("123.45", "122.00"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithoutTaxIdId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con destinatario diverso",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml
+              .toString()
+              .replace("<Nome>Mario</Nome>", "<Nome>Luigi</Nome>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-wrong-recipient-without-tax-id" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      historicalWithoutTaxIdId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba con destinatario verificato senza identificativo fiscale",
+        invoiceXml: historicalWithoutTaxIdXml,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-recipient-without-tax-id" },
+    );
     alreadyInvoiced.updatedAt = "2026-08-19T10:00:00Z";
     alreadyInvoiced.historical = false;
     await orders.importOrders([alreadyInvoiced], {
@@ -2100,7 +2159,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "5",
+      "6",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

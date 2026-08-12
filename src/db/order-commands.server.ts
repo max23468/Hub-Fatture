@@ -78,6 +78,40 @@ function attributedInvoiceAmount(
     : null;
 }
 
+function normalizedIdentityPart(value: unknown) {
+  return typeof value === "string"
+    ? value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("it")
+    : "";
+}
+
+function matchesRecipientWithoutTaxId(
+  customer: Record<string, unknown>,
+  recipient: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"],
+) {
+  const billingAddress =
+    customer.billingAddress && typeof customer.billingAddress === "object"
+      ? (customer.billingAddress as Record<string, unknown>)
+      : {};
+  const customerName =
+    normalizedIdentityPart(customer.companyName) ||
+    normalizedIdentityPart([customer.firstName, customer.lastName].filter(Boolean).join(" "));
+  const recipientName =
+    normalizedIdentityPart(recipient.businessName) ||
+    normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
+  const customerAddress = ["line1", "postalCode", "city", "countryCode"].map((key) =>
+    normalizedIdentityPart(billingAddress[key]),
+  );
+  const recipientAddress = ["line1", "postalCode", "city", "countryCode"].map((key) =>
+    normalizedIdentityPart(recipient.address[key as keyof typeof recipient.address]),
+  );
+  return (
+    Boolean(customerName && recipientName && customerAddress.every(Boolean)) &&
+    customerName === recipientName &&
+    customerAddress.length === recipientAddress.length &&
+    customerAddress.every((value, index) => value === recipientAddress[index])
+  );
+}
+
 export function isDatabaseId(id: string) {
   return (
     /^[1-9]\d*$/.test(id) &&
@@ -365,10 +399,12 @@ export async function reconcileHistoricalOrder(
             current.provider,
             current.display_number,
           ) ||
-          (current.tax_identifiers.length > 0 &&
-            !current.tax_identifiers.some((identifier) =>
-              importedTaxIdentifiers.has(identifier),
-            )) ||
+          (current.tax_identifiers.length > 0
+            ? !current.tax_identifiers.some((identifier) => importedTaxIdentifiers.has(identifier))
+            : !matchesRecipientWithoutTaxId(
+                current.customer_snapshot,
+                importedInvoice.input.recipient,
+              )) ||
           JSON.stringify(fiscalContract(profile.data)) !==
             JSON.stringify(fiscalContract(importedInvoice.profile))
         ) {
