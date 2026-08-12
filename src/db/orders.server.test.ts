@@ -2545,6 +2545,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     reorderedBusinessEbay.customer.kind = "EU";
     reorderedBusinessEbay.customer.companyName = "Alfa Beta Srl";
     reorderedBusinessEbay.customer.displayName = "Alfa Beta Srl";
+    reorderedBusinessEbay.customer.billingAddress.line1 = "Via Papa Pio X 10";
     reorderedBusinessEbay.total = "77.00";
     reorderedBusinessEbay.lines[0].grossAmount = "77.00";
     reorderedBusinessEbay.payments[0].amount = "77.00";
@@ -2576,6 +2577,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
               .replace(
                 "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
                 "<Denominazione>Beta Alfa Srl</Denominazione>",
+              )
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
               ),
           ),
         },
@@ -2596,10 +2601,40 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
               .replace("FPR 0020/26", "FPR 0023/26")
               .replaceAll("75.00", "77.00")
               .replace("<Nome>Mario</Nome>", "<Nome>Beta</Nome>")
-              .replace("<Cognome>Rossi</Cognome>", "<Cognome>Alfa Srl</Cognome>"),
+              .replace("<Cognome>Rossi</Cognome>", "<Cognome>Alfa Srl</Cognome>")
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
+              ),
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-business-as-person" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedBusinessEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con numero romano alfabetico della strada differente",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0023/26")
+              .replaceAll("75.00", "77.00")
+              .replace(
+                "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
+                "<Denominazione>Alfa Beta Srl</Denominazione>",
+              )
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via Papa Pio V</Indirizzo><NumeroCivico>10</NumeroCivico>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-short-street-token" },
       ),
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
@@ -2617,6 +2652,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
             .replace(
               "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
               "<Denominazione>Alfa Beta Srl</Denominazione>",
+            )
+            .replace(
+              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
             ),
         ),
       },
