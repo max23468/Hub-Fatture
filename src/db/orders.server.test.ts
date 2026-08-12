@@ -2218,6 +2218,27 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shopifyWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con riferimento numerico eBay privo di marker",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference
+              .toString()
+              .replace("Vendita beni usati", "Vendita beni usati - 26-12345-67890"),
+          ),
+        },
+        {
+          id: 1,
+          canApprove: true,
+          requestId: "test-reconcile-shopify-history-ebay-number-reference",
+        },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       shopifyWithoutReferenceId,
       {

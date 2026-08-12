@@ -86,6 +86,9 @@ function hasBareOrderReference(references: string[], displayNumber: string) {
 
 function hasGenericOrderReference(references: string[]) {
   return references.some((reference) => {
+    if (/(?:^|[^\p{L}\p{N}])\d{2}-\d{5}-\d{5}(?=$|[^\p{L}\p{N}])/u.test(reference)) {
+      return true;
+    }
     const orderReferences = Array.from(
       reference.matchAll(
         /(?:^|[^\p{L}\p{N}])ordine(?:\s+n(?:umero)?\.?)?\s*#?\s*([\p{L}\p{N}][\p{L}\p{N}-]{0,63})/giu,
