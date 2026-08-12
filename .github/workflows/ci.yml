@@ -6,13 +6,6 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      force_aruba_platform:
-        description: Esegue la matrice helper Aruba sull'esatto ref selezionato
-        required: true
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -44,17 +37,13 @@ jobs:
           cache: true
       - id: impact
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
-          FORCE_ARUBA_PLATFORM: ${{ inputs.force_aruba_platform || false }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" -- scripts/change-impact.mjs | grep -Fxq scripts/change-impact.mjs; then
             impact=$(printf '%s\n' standard=true security_data=true database=true provider=true aruba_platform=true e2e=true lane=deploy)
           else
             impact=$(node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA")
-          fi
-          if [ "$FORCE_ARUBA_PLATFORM" = true ]; then
-            impact=$(printf '%s\n' "$impact" | sed 's/^aruba_platform=.*/aruba_platform=true/')
           fi
           printf '%s\n' "$impact" >> "$GITHUB_OUTPUT"
       - run: echo "Corsia selezionata - ${{ steps.impact.outputs.lane }}" >> "$GITHUB_STEP_SUMMARY"

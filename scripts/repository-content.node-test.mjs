@@ -301,9 +301,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
 });
 
 test("i contesti required restano stabili mentre i gate costosi sono proporzionati", async () => {
-  const [ci, codeql, dependencies, foundation, react] = await Promise.all(
+  const [ci, arubaPlatform, codeql, dependencies, foundation, react] = await Promise.all(
     [
       ".github/workflows/ci.yml",
+      ".github/workflows/aruba-platform.yml",
       ".github/workflows/codeql.yml",
       ".github/workflows/dependency-review.yml",
       ".github/workflows/foundation.yml",
@@ -316,14 +317,19 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
   assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npm run test:e2e"));
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
-  assert.match(ci, /workflow_dispatch:\n    inputs:\n      force_aruba_platform:/);
+  assert.doesNotMatch(ci, /workflow_dispatch:/);
   assert.match(
     ci,
-    /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.before \|\| github\.sha \}\}/,
+    /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.before \}\}/,
   );
-  assert.match(ci, /FORCE_ARUBA_PLATFORM: \$\{\{ inputs\.force_aruba_platform \|\| false \}\}/);
-  assert.match(ci, /if \[ "\$FORCE_ARUBA_PLATFORM" = true \]; then/);
-  assert.match(ci, /sed 's\/\^aruba_platform=\.\*\/aruba_platform=true\/'/);
+  assert.match(arubaPlatform, /workflow_dispatch:/);
+  assert.match(
+    arubaPlatform,
+    /name: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
+  );
+  assert.match(arubaPlatform, /npm run test:aruba:platform -- \$\{\{ matrix\.browser \}\}/);
+  assert.doesNotMatch(arubaPlatform, /name: CI\b/);
+  assert.doesNotMatch(arubaPlatform, /E2E Chromium/);
   assert.match(codeql, /if: steps\.impact\.outputs\.standard == 'true'/);
   assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
   assert.match(foundation, /if: steps\.impact\.outputs\.image == 'true'/);
