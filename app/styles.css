@@ -1852,6 +1852,25 @@ tbody tr:last-child td {
   padding-bottom: var(--space-2);
 }
 
+.source-revisions > li {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.source-revisions__table {
+  width: 100%;
+}
+
+.source-revisions__confirmation {
+  margin-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-5);
+}
+
+.source-revisions__confirmation p {
+  color: var(--color-text-muted);
+}
+
 .detail-page-title {
   max-width: min(52rem, calc(100% - 8rem));
   margin-bottom: var(--space-6);

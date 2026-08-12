@@ -4807,6 +4807,72 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         reason: "Dati fiscali confermati dal cliente",
       },
     );
+    await assert.rejects(
+      orders.reviewBillingCaseSourceChanges(
+        correctionCaseId,
+        await caseRevision(correctionCaseId),
+        false,
+        { id: 1, requestId: "test-source-review-missing-confirmation" },
+      ),
+      (error: unknown) => error instanceof AppError && error.code === "ORDER_INVALID_INPUT",
+    );
+    await assert.rejects(
+      orders.reviewBillingCaseSourceChanges(
+        correctionCaseId,
+        (await caseRevision(correctionCaseId)) - 1,
+        true,
+        { id: 1, requestId: "test-source-review-stale" },
+      ),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    assert.equal(
+      await orders.reviewBillingCaseSourceChanges(
+        correctionCaseId,
+        await caseRevision(correctionCaseId),
+        true,
+        { id: 1, requestId: "test-source-review" },
+      ),
+      "READY",
+    );
+    assert.deepEqual((await orders.getBillingCase(correctionCaseId))!.anomalies, []);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.trigger_status,
+                  (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean
+                    AS deferred_review_required,
+                  audit_events.before_json ->> 'triggerStatus' AS before_trigger,
+                  audit_events.after_json ->> 'triggerStatus' AS after_trigger
+           FROM orders
+           JOIN audit_events ON audit_events.entity_type = 'ORDER'
+             AND audit_events.entity_id = orders.id::text
+             AND audit_events.action = 'ORDER_SOURCE_REVIEWED'
+           WHERE orders.external_order_id = $1`,
+          [incompleteForCorrection.externalOrderId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "GROUPED",
+        deferred_review_required: false,
+        before_trigger: "NEEDS_REVIEW",
+        after_trigger: "GROUPED",
+      },
+    );
+    assert.equal(
+      (await orders.listOpenActivities()).rows.some(
+        (activity) => activity.kind === "BILLING_CASE" && activity.id === correctionCaseId,
+      ),
+      false,
+    );
+    await assert.rejects(
+      orders.reviewBillingCaseSourceChanges(
+        correctionCaseId,
+        await caseRevision(correctionCaseId),
+        true,
+        { id: 1, requestId: "test-source-review-repeat" },
+      ),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
 
     // 7.3: l'identità non certa non accorpa e la corrispondenza possibile resta visibile.
     const ambiguousA = structuredClone(fixture[0]);
@@ -5014,6 +5080,106 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
        VALUES (1, 'MOCK', $1) ON CONFLICT (version) DO NOTHING`,
       [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
     );
+    const documents = await import("./documents.server.ts");
+
+    const reviewedDraftOrder = structuredClone(fixture[0]);
+    reviewedDraftOrder.externalOrderId = "shop-order-reviewed-draft";
+    reviewedDraftOrder.displayNumber = "#REVIEWED-DRAFT";
+    reviewedDraftOrder.externalCustomerId = "shop-customer-reviewed-draft";
+    reviewedDraftOrder.customer.taxIdentifiers[0].value = "RSSMRA80A01H501E";
+    reviewedDraftOrder.createdAt = "2026-09-03T08:00:00Z";
+    reviewedDraftOrder.updatedAt = "2026-09-03T09:00:00Z";
+    reviewedDraftOrder.payments[0].externalPaymentId = "reviewed-draft-payment";
+    await orders.importOrders([reviewedDraftOrder], {
+      id: 1,
+      requestId: "test-reviewed-draft-import",
+    });
+    const reviewedDraftCaseId = String(
+      (
+        await database
+          .getPool()
+          .query("SELECT billing_case_id FROM orders WHERE external_order_id = $1", [
+            reviewedDraftOrder.externalOrderId,
+          ])
+      ).rows[0].billing_case_id,
+    );
+    const reviewedDraftProjection = await documents.getInvoiceProjection(reviewedDraftCaseId);
+    assert.ok(
+      reviewedDraftProjection &&
+        !reviewedDraftProjection.profileMissing &&
+        "lines" in reviewedDraftProjection,
+    );
+    await documents.saveInvoiceDraft(
+      reviewedDraftCaseId,
+      {
+        caseRevision: reviewedDraftProjection.caseRevision,
+        draftVersion: reviewedDraftProjection.draftVersion,
+        differenceReason: "Rettifica manuale prima dell’aggiornamento ordine",
+        paymentStatus: reviewedDraftProjection.paymentStatus,
+        paymentMethod: reviewedDraftProjection.paymentMethod,
+        causale: reviewedDraftProjection.causale,
+        notes: reviewedDraftProjection.notes,
+        lines: reviewedDraftProjection.lines.map((line) => ({
+          ...line,
+          unitAmount: line.unitAmount - 200,
+        })),
+      },
+      { id: 1, canApprove: true, requestId: "test-reviewed-draft-save" },
+    );
+    reviewedDraftOrder.total = "130.00";
+    reviewedDraftOrder.lines[0].grossAmount = "130.00";
+    reviewedDraftOrder.payments[0].amount = "130.00";
+    reviewedDraftOrder.updatedAt = "2026-09-03T10:00:00Z";
+    await orders.importOrders([reviewedDraftOrder], {
+      id: 1,
+      requestId: "test-reviewed-draft-source-update",
+    });
+    assert.equal(
+      await orders.reviewBillingCaseSourceChanges(
+        reviewedDraftCaseId,
+        await caseRevision(reviewedDraftCaseId),
+        true,
+        { id: 1, requestId: "test-reviewed-draft-source-review" },
+      ),
+      "READY",
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT documents.source_total_amount, documents.total_amount,
+                  documents.difference_amount, documents.difference_reason,
+                  documents.draft_version, documents.projection_sha256,
+                  document_orders.amount AS source_order_amount,
+                  document_lines.unit_amount AS manual_line_amount,
+                  audit_events.before_json #>> '{invoiceDraft,sourceTotal}' AS before_source_total,
+                  audit_events.after_json #>> '{invoiceDraft,sourceTotal}' AS after_source_total,
+                  audit_events.after_json #>> '{invoiceDraft,difference}' AS after_difference
+           FROM documents
+           JOIN document_orders ON document_orders.document_id = documents.id
+           JOIN document_lines ON document_lines.document_id = documents.id
+           JOIN audit_events ON audit_events.request_id = 'test-reviewed-draft-source-review'
+           WHERE documents.billing_case_id = $1`,
+          [reviewedDraftCaseId],
+        )
+      ).rows[0],
+      {
+        source_total_amount: 13_000,
+        total_amount: 12_000,
+        difference_amount: -1_000,
+        difference_reason: "Rettifica manuale prima dell’aggiornamento ordine",
+        draft_version: 2,
+        projection_sha256: "0".repeat(64),
+        source_order_amount: 13_000,
+        manual_line_amount: 12_000,
+        before_source_total: "12200",
+        after_source_total: "13000",
+        after_difference: "-1000",
+      },
+    );
+    const reconciledProjection = await documents.getInvoiceProjection(reviewedDraftCaseId);
+    assert.ok(reconciledProjection && !reconciledProjection.profileMissing);
+    assert.equal(reconciledProjection.requiresResave, true);
+
     const refundDocumentId = (
       await database.getPool().query<{ id: string }>(
         `INSERT INTO documents
@@ -5180,7 +5346,6 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         requestId: "test-historical-refund-first-draft-reconcile",
       },
     );
-    const documents = await import("./documents.server.ts");
     const firstProjection = await documents.getInvoiceProjection(firstDraftReconciliation!.caseId!);
     assert.ok(firstProjection && !firstProjection.profileMissing && "lines" in firstProjection);
     assert.equal(firstProjection.sourceTotal, 11_200);

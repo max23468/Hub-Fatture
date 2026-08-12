@@ -699,6 +699,74 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByText("Anagrafica cliente corretta")).toBeVisible();
   await expect(page.getByText(/^Corretta il /)).toBeVisible();
 
+  // Un aggiornamento arrivato dopo la preparazione deve mostrare le differenze e offrire
+  // un modo esplicito per chiudere soltanto quel controllo.
+  const sourceReviewCaseId = new URL(page.url()).pathname.split("/").at(-1)!;
+  const sourceReviewClient = new pg.Client({ connectionString: databaseUrl });
+  await sourceReviewClient.connect();
+  await sourceReviewClient.query(
+    `WITH target_order AS (
+       SELECT id, normalized_snapshot_json
+       FROM orders
+       WHERE billing_case_id = $1
+       ORDER BY id
+       LIMIT 1
+     )
+     INSERT INTO order_source_revisions
+       (order_id, billing_case_id, previous_normalized_snapshot_json,
+        current_normalized_snapshot_json)
+     SELECT id, $1,
+            jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  jsonb_set(
+                    normalized_snapshot_json,
+                    '{customerSnapshot,displayName}',
+                    '"Cliente precedente"'::jsonb
+                  ),
+                  '{customerSnapshot,certifiedEmail}',
+                  '"vecchia-pec@example.invalid"'::jsonb
+                ),
+                '{customerSnapshot,shippingAddress,line1}',
+                '"Via spedizione precedente 4"'::jsonb
+              ),
+              '{shippingAmount}',
+              '100'::jsonb
+            ),
+            normalized_snapshot_json
+     FROM target_order`,
+    [sourceReviewCaseId],
+  );
+  await sourceReviewClient.query(
+    "UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1",
+    [sourceReviewCaseId],
+  );
+  await sourceReviewClient.query(
+    `UPDATE billing_cases
+     SET status = 'NEEDS_REVIEW', revision = revision + 1, updated_at = now()
+     WHERE id = $1`,
+    [sourceReviewCaseId],
+  );
+  await sourceReviewClient.end();
+  await page.reload();
+  await expect(page.getByText("L’ordine è cambiato dopo la preparazione")).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Prima" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Adesso" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Cliente precedente" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "vecchia-pec@example.invalid" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: /Via spedizione precedente 4/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Spese di spedizione 1,00/ })).toBeVisible();
+  await page
+    .getByRole("checkbox", {
+      name: "Confermo di avere confrontato gli aggiornamenti ricevuti con la preparazione corrente.",
+    })
+    .check();
+  await page.getByRole("button", { name: "Segna gli aggiornamenti come verificati" }).click();
+  await expect(page.getByText("Aggiornamento dell’ordine verificato")).toBeVisible();
+  await expect(page.getByText("L’ordine è cambiato dopo la preparazione")).toHaveCount(0);
+  // Il pagamento pendente è indipendente e deve continuare a bloccare la preparazione.
+  await expect(page.getByText("Pagamento non ancora acquisito")).toBeVisible();
+
   await page.getByRole("link", { name: "Attività" }).click();
   await expect(page.locator(".activity-overview")).toBeVisible();
   await expect(

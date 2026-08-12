@@ -247,6 +247,107 @@ export async function updateBillingCaseTransmission(
 }
 
 /**
+ * Chiude il solo gate introdotto da un aggiornamento del canale mentre la preparazione era
+ * già aperta. Le anomalie proprie dell'ordine restano nello snapshot e vengono ricalcolate:
+ * questa conferma non può quindi nascondere dati cliente, importi o pagamenti ancora incerti.
+ */
+export async function reviewBillingCaseSourceChanges(
+  id: string,
+  expectedRevision: unknown,
+  confirmed: boolean,
+  actor: Actor,
+) {
+  if (!isDatabaseId(id)) return null;
+  if (!confirmed) throw new AppError("ORDER_INVALID_INPUT", 422);
+  const revision = assertRevision(expectedRevision);
+  return withTransaction(async (client) => {
+    await serializeOrderMutations(client);
+    const current = await lockBillingCase(client, id, revision);
+    if (!current) return null;
+    if (current.status !== "NEEDS_REVIEW") throw new AppError("CONFLICT_REVISION", 409);
+    const pending = await client.query<{
+      id: string;
+      trigger_status: string;
+      deferred_review_required: boolean;
+      revision_id: string | null;
+    }>(
+      `SELECT orders.id, orders.trigger_status,
+              coalesce(
+                (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
+                false
+              ) AS deferred_review_required,
+              (
+                SELECT order_source_revisions.id::text
+                FROM order_source_revisions
+                WHERE order_source_revisions.order_id = orders.id
+                ORDER BY order_source_revisions.created_at DESC, order_source_revisions.id DESC
+                LIMIT 1
+              ) AS revision_id
+       FROM orders
+       WHERE orders.billing_case_id = $1
+         AND (
+           orders.trigger_status = 'NEEDS_REVIEW'
+           OR coalesce(
+             (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
+             false
+           )
+         )
+       FOR UPDATE OF orders`,
+      [id],
+    );
+    if (!pending.rowCount) throw new AppError("CONFLICT_REVISION", 409);
+    await client.query(
+      `UPDATE orders
+       SET trigger_status = CASE
+             WHEN trigger_status = 'NEEDS_REVIEW' THEN 'GROUPED'
+             ELSE trigger_status
+           END,
+           normalized_snapshot_json = jsonb_set(
+             normalized_snapshot_json,
+             '{deferredReviewRequired}',
+             'false'::jsonb
+           )
+       WHERE id = ANY($1::bigint[])`,
+      [pending.rows.map((order) => order.id)],
+    );
+    const reconciliation = await reconcileInvoiceDraft(
+      client,
+      id,
+      "Importi personalizzati prima della verifica dell’aggiornamento ordine",
+    );
+    for (const order of pending.rows) {
+      // Un solo submit può chiudere più aggiornamenti della stessa preparazione; ogni ordine
+      // conserva una ricevuta atomica riferita alla revisione sorgente più recente osservata.
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      await writeAudit(client, {
+        actorType: "ADMIN",
+        actorId: String(actor.id),
+        action: "ORDER_SOURCE_REVIEWED",
+        eventClass: "CRITICAL",
+        entityType: "ORDER",
+        entityId: order.id,
+        metadata: {
+          billingCaseId: id,
+          ...(order.revision_id ? { revisionId: order.revision_id } : {}),
+        },
+        before: {
+          triggerStatus: order.trigger_status,
+          deferredReviewRequired: order.deferred_review_required,
+          ...(reconciliation ? { invoiceDraft: reconciliation.before } : {}),
+        },
+        after: {
+          triggerStatus: order.trigger_status === "NEEDS_REVIEW" ? "GROUPED" : order.trigger_status,
+          deferredReviewRequired: false,
+          ...(reconciliation ? { invoiceDraft: reconciliation.after } : {}),
+        },
+        requestId: actor.requestId,
+      });
+    }
+    return recomputeBillingCaseStatus(client, id);
+  });
+}
+
+/**
  * Correzione anagrafica prima dell'approvazione (7.5). Lo snapshot della preparazione diventa
  * la fonte del destinatario: gli ordini conservano il valore importato, che resta confrontabile.
  */

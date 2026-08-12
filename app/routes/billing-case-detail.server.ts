@@ -12,6 +12,7 @@ import {
   addOrderToBillingCase,
   correctBillingCaseCustomer,
   getBillingCase,
+  reviewBillingCaseSourceChanges,
   separateOrderFromBillingCase,
   updateBillingCaseTransmission,
 } from "../../src/db/orders.server.ts";
@@ -82,6 +83,14 @@ function runIntent(
   }
   if (intent === "add-order") {
     return addOrderToBillingCase(caseId, form.get("orderId") ?? "", revision, actor);
+  }
+  if (intent === "review-source-changes") {
+    return reviewBillingCaseSourceChanges(
+      caseId,
+      revision,
+      form.get("confirmSourceReview") === "yes",
+      actor,
+    );
   }
   if (intent !== "correct-customer") return Promise.resolve("unknown" as const);
   const types = form.getAll("taxType");
