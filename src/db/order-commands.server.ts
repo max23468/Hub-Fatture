@@ -1112,7 +1112,6 @@ export async function reconcileHistoricalOrder(
       const usesApprovedManualReview = Boolean(
         importedInvoice &&
         parsed.data.manualReviewApproved &&
-        current.provider === "EBAY" &&
         usesUnreferencedMarketplaceFallback &&
         referenceIdentifiesInvoice(parsed.data.reference, importedInvoice.documentNumber),
       );

@@ -33,6 +33,7 @@ const SHOPIFY_PAYMENT_FEES = "019_shopify_payment_fees.sql";
 const CREDIT_NOTE_ORDER_AMOUNTS = "020_credit_note_order_amounts.sql";
 const FISCAL_IDENTIFIER_BACKFILL = "021_fiscal_identifier_backfill.sql";
 const SHOPIFY_RECIPIENT_RECLASSIFICATION = "022_shopify_recipient_reclassification.sql";
+const EBAY_PAYMENT_RECONCILIATION = "023_ebay_payment_reconciliation.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -59,6 +60,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, CREDIT_NOTE_ORDER_AMOUNTS));
     await rm(path.join(firstTwo, FISCAL_IDENTIFIER_BACKFILL));
     await rm(path.join(firstTwo, SHOPIFY_RECIPIENT_RECLASSIFICATION));
+    await rm(path.join(firstTwo, EBAY_PAYMENT_RECONCILIATION));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -84,6 +86,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       CREDIT_NOTE_ORDER_AMOUNTS,
       FISCAL_IDENTIFIER_BACKFILL,
       SHOPIFY_RECIPIENT_RECLASSIFICATION,
+      EBAY_PAYMENT_RECONCILIATION,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -105,6 +108,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
     await rm(path.join(beforeHistoricalImport, CREDIT_NOTE_ORDER_AMOUNTS));
     await rm(path.join(beforeHistoricalImport, FISCAL_IDENTIFIER_BACKFILL));
     await rm(path.join(beforeHistoricalImport, SHOPIFY_RECIPIENT_RECLASSIFICATION));
+    await rm(path.join(beforeHistoricalImport, EBAY_PAYMENT_RECONCILIATION));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeHistoricalImport,
@@ -128,6 +132,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
       CREDIT_NOTE_ORDER_AMOUNTS,
       FISCAL_IDENTIFIER_BACKFILL,
       SHOPIFY_RECIPIENT_RECLASSIFICATION,
+      EBAY_PAYMENT_RECONCILIATION,
     ]);
     await withClient(database.connectionString, async (client) => {
       const jobs = await client.query(
@@ -174,6 +179,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
     await rm(path.join(beforeClassification, CREDIT_NOTE_ORDER_AMOUNTS));
     await rm(path.join(beforeClassification, FISCAL_IDENTIFIER_BACKFILL));
     await rm(path.join(beforeClassification, SHOPIFY_RECIPIENT_RECLASSIFICATION));
+    await rm(path.join(beforeClassification, EBAY_PAYMENT_RECONCILIATION));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeClassification,
@@ -200,6 +206,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
       CREDIT_NOTE_ORDER_AMOUNTS,
       FISCAL_IDENTIFIER_BACKFILL,
       SHOPIFY_RECIPIENT_RECLASSIFICATION,
+      EBAY_PAYMENT_RECONCILIATION,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -231,6 +238,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
     await cp("migrations", beforeBackfill, { recursive: true });
     await rm(path.join(beforeBackfill, FISCAL_IDENTIFIER_BACKFILL));
     await rm(path.join(beforeBackfill, SHOPIFY_RECIPIENT_RECLASSIFICATION));
+    await rm(path.join(beforeBackfill, EBAY_PAYMENT_RECONCILIATION));
     await runMigrations({ connectionString: database.connectionString, directory: beforeBackfill });
     await withClient(database.connectionString, async (client) => {
       await client.query(
@@ -279,6 +287,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       FISCAL_IDENTIFIER_BACKFILL,
       SHOPIFY_RECIPIENT_RECLASSIFICATION,
+      EBAY_PAYMENT_RECONCILIATION,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -329,6 +338,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
   try {
     await cp("migrations", beforeReclassification, { recursive: true });
     await rm(path.join(beforeReclassification, SHOPIFY_RECIPIENT_RECLASSIFICATION));
+    await rm(path.join(beforeReclassification, EBAY_PAYMENT_RECONCILIATION));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeReclassification,
@@ -380,6 +390,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
 
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       SHOPIFY_RECIPIENT_RECLASSIFICATION,
+      EBAY_PAYMENT_RECONCILIATION,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -390,11 +401,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
           )
         ).rows,
         [
-          {
-            provider: "EBAY",
-            cursor: "ebay-recent",
-            overlap_from: "2026-08-12 10:00:00+00",
-          },
+          { provider: "EBAY", cursor: null, overlap_from: "2026-08-04 09:55:00+00" },
           { provider: "SHOPIFY", cursor: null, overlap_from: "2026-08-02 09:55:00+00" },
         ],
       );
@@ -406,13 +413,160 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
           )
         ).rows,
         [
-          { provider: "EBAY", last_synced_at: "2026-08-12 12:00:00+00" },
+          { provider: "EBAY", last_synced_at: null },
           { provider: "SHOPIFY", last_synced_at: null },
         ],
       );
     });
   } finally {
     await rm(beforeReclassification, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
+test("l'upgrade rilegge soltanto gli ordini eBay già importati", async () => {
+  const database = await temporaryDatabase("ebay_payment_reconciliation");
+  const beforeReconciliation = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-ebay-payment-reconciliation-"),
+  );
+  try {
+    await cp("migrations", beforeReconciliation, { recursive: true });
+    await rm(path.join(beforeReconciliation, EBAY_PAYMENT_RECONCILIATION));
+    await runMigrations({
+      connectionString: database.connectionString,
+      directory: beforeReconciliation,
+    });
+    await withClient(database.connectionString, async (client) => {
+      await client.query(
+        `INSERT INTO connections
+           (provider, environment, account_reference, encrypted_credentials, status,
+            last_synced_at)
+         VALUES
+           ('SHOPIFY', 'PRODUCTION', 'shop.example', 'encrypted', 'CONNECTED',
+            '2026-08-12T12:00:00Z'),
+           ('EBAY', 'PRODUCTION', 'seller', 'encrypted', 'CONNECTED',
+            '2026-08-12T12:00:00Z')`,
+      );
+      await client.query(
+        `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+         VALUES
+           ('SHOPIFY', 'orders', 'shopify-recent', '2026-08-12T10:00:00Z'),
+           ('EBAY', 'history_import', 'complete', '2026-01-01T00:00:00Z'),
+           ('EBAY', 'orders', 'ebay-recent', '2026-08-12T10:00:00Z')`,
+      );
+      const customerId = (
+        await client.query(
+          `INSERT INTO customers
+             (kind, match_key, display_name, billing_address_json, source_confidence,
+              review_required)
+           VALUES ('UNKNOWN', 'ebay-payment-reconciliation', 'Cliente', '{}',
+             'AMBIGUOUS', true)
+           RETURNING id`,
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO orders
+           (provider, external_account_id, external_order_id, display_number,
+            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+            payment_status, fulfillment_status, trigger_status, customer_id,
+            raw_snapshot_json, normalized_snapshot_json)
+         VALUES
+           ('EBAY', 'seller', 'ebay-order', '#E', '2026-08-03T09:00:00Z',
+            '2026-08-04T10:00:00Z', '2026-08-03', 'EUR', 2000, 'PAID', 'FULFILLED',
+            'ELIGIBLE', $1, '{}', '{}')`,
+        [customerId],
+      );
+    });
+
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      EBAY_PAYMENT_RECONCILIATION,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT provider, cursor, overlap_from::text
+             FROM sync_cursors WHERE stream = 'orders' ORDER BY provider`,
+          )
+        ).rows,
+        [
+          { provider: "EBAY", cursor: null, overlap_from: "2026-08-04 09:55:00+00" },
+          {
+            provider: "SHOPIFY",
+            cursor: "shopify-recent",
+            overlap_from: "2026-08-12 10:00:00+00",
+          },
+        ],
+      );
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT provider, account_reference, last_synced_at::text
+             FROM connections ORDER BY provider, account_reference`,
+          )
+        ).rows,
+        [
+          { provider: "EBAY", account_reference: "seller", last_synced_at: null },
+          {
+            provider: "SHOPIFY",
+            account_reference: "shop.example",
+            last_synced_at: "2026-08-12 12:00:00+00",
+          },
+        ],
+      );
+    });
+  } finally {
+    await rm(beforeReconciliation, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
+test("l'upgrade non crea un cursore eBay senza ordini eBay", async () => {
+  const database = await temporaryDatabase("ebay_payment_reconciliation_empty");
+  const beforeReconciliation = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-ebay-payment-reconciliation-empty-"),
+  );
+  try {
+    await cp("migrations", beforeReconciliation, { recursive: true });
+    await rm(path.join(beforeReconciliation, EBAY_PAYMENT_RECONCILIATION));
+    await runMigrations({
+      connectionString: database.connectionString,
+      directory: beforeReconciliation,
+    });
+    await withClient(database.connectionString, async (client) => {
+      await client.query(
+        `INSERT INTO connections
+           (provider, environment, account_reference, encrypted_credentials, status,
+            last_synced_at)
+         VALUES ('EBAY', 'PRODUCTION', 'seller-empty', 'encrypted', 'CONNECTED',
+           '2026-08-12T12:00:00Z')`,
+      );
+      await client.query(
+        `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+         VALUES ('EBAY', 'history_import', 'complete', '2026-01-01T00:00:00Z')`,
+      );
+    });
+
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      EBAY_PAYMENT_RECONCILIATION,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      assert.equal(
+        (
+          await client.query(
+            "SELECT count(*) FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'orders'",
+          )
+        ).rows[0].count,
+        "0",
+      );
+      assert.equal(
+        (await client.query("SELECT last_synced_at::text FROM connections WHERE provider = 'EBAY'"))
+          .rows[0].last_synced_at,
+        "2026-08-12 12:00:00+00",
+      );
+    });
+  } finally {
+    await rm(beforeReconciliation, { recursive: true, force: true });
     await database.drop();
   }
 });
@@ -443,12 +597,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       CREDIT_NOTE_ORDER_AMOUNTS,
       FISCAL_IDENTIFIER_BACKFILL,
       SHOPIFY_RECIPIENT_RECLASSIFICATION,
+      EBAY_PAYMENT_RECONCILIATION,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "22",
+      "23",
     );
     await cleanClient.end();
 
@@ -543,6 +698,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
     await rm(path.join(beforeCanonicalNames, CREDIT_NOTE_ORDER_AMOUNTS));
     await rm(path.join(beforeCanonicalNames, FISCAL_IDENTIFIER_BACKFILL));
     await rm(path.join(beforeCanonicalNames, SHOPIFY_RECIPIENT_RECLASSIFICATION));
+    await rm(path.join(beforeCanonicalNames, EBAY_PAYMENT_RECONCILIATION));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeCanonicalNames,
@@ -563,6 +719,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       CREDIT_NOTE_ORDER_AMOUNTS,
       FISCAL_IDENTIFIER_BACKFILL,
       SHOPIFY_RECIPIENT_RECLASSIFICATION,
+      EBAY_PAYMENT_RECONCILIATION,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -608,6 +765,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
     await rm(path.join(beforeRefundAccounting, CREDIT_NOTE_ORDER_AMOUNTS));
     await rm(path.join(beforeRefundAccounting, FISCAL_IDENTIFIER_BACKFILL));
     await rm(path.join(beforeRefundAccounting, SHOPIFY_RECIPIENT_RECLASSIFICATION));
+    await rm(path.join(beforeRefundAccounting, EBAY_PAYMENT_RECONCILIATION));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeRefundAccounting,
@@ -653,6 +811,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       CREDIT_NOTE_ORDER_AMOUNTS,
       FISCAL_IDENTIFIER_BACKFILL,
       SHOPIFY_RECIPIENT_RECLASSIFICATION,
+      EBAY_PAYMENT_RECONCILIATION,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -690,6 +849,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, CREDIT_NOTE_ORDER_AMOUNTS));
     await rm(path.join(beforeM4, FISCAL_IDENTIFIER_BACKFILL));
     await rm(path.join(beforeM4, SHOPIFY_RECIPIENT_RECLASSIFICATION));
+    await rm(path.join(beforeM4, EBAY_PAYMENT_RECONCILIATION));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -826,6 +986,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       CREDIT_NOTE_ORDER_AMOUNTS,
       FISCAL_IDENTIFIER_BACKFILL,
       SHOPIFY_RECIPIENT_RECLASSIFICATION,
+      EBAY_PAYMENT_RECONCILIATION,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

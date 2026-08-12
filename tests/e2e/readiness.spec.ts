@@ -307,7 +307,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
   await expect(
-    page.getByText("022_shopify_recipient_reclassification.sql", { exact: true }),
+    page.getByText("023_ebay_payment_reconciliation.sql", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
@@ -1157,7 +1157,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     page.getByLabel(
       "Autorizzo l’eccezione manuale dopo aver verificato identità, indirizzo, data, totale e unicità del documento.",
     ),
-  ).toHaveCount(0);
+  ).not.toBeChecked();
   await page
     .getByLabel("Riferimento verificato o motivazione")
     .fill("Documento Aruba FPR 9010/26 verificato");

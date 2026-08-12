@@ -634,11 +634,17 @@ function orderAmounts(input: OrderInput) {
   ) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
-  const totalsReconciled =
+  const linesReconciled =
     lineAmounts.reduce((sum, line) => sum + BigInt(line.grossAmount - line.discountAmount), 0n) +
       BigInt(shippingAmount) ===
-      BigInt(grossAmount) &&
+    BigInt(grossAmount);
+  // Nel Fulfillment API eBay gli importi del riepilogo pagamenti possono essere il
+  // netto venditore. Lo stato PAID resta autorevole, ma quel netto non va confrontato
+  // con il totale cliente; righe e spedizione continuano invece a doverlo ricostruire.
+  const paymentsReconciled =
+    input.provider === "EBAY" ||
     paymentAmounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(grossAmount);
+  const totalsReconciled = linesReconciled && paymentsReconciled;
   const shopifyPaymentsFeeAmount = shopifyPaymentsFeeAmounts.reduce(
     (sum, amount) => sum + amount,
     0,
@@ -667,6 +673,7 @@ interface PreviousOrderRow {
   billing_case_status: string | null;
   billing_case_do_not_transmit_automatic: boolean;
   deferred_review_required: boolean;
+  order_review_required: boolean;
   customer_id: string;
   trigger_status: string;
   historical: boolean;
@@ -706,7 +713,9 @@ async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
               LIMIT 1
             ), false) AS billing_case_do_not_transmit_automatic,
             coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
-              AS deferred_review_required
+              AS deferred_review_required,
+            coalesce((orders.normalized_snapshot_json ->> 'orderReviewRequired')::boolean, true)
+              AS order_review_required
      FROM orders
      LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      LEFT JOIN LATERAL (
@@ -1102,6 +1111,18 @@ async function importOne(
         requestId: actor.requestId,
       });
     }
+  }
+  // Le correzioni del mapper possono cambiare un'anomalia derivata senza cambiare il
+  // fingerprint della sorgente. Il replay richiesto dalla migrazione deve quindi
+  // riallineare anche la preparazione già persistita, non soltanto il suo snapshot.
+  if (
+    !documentIssued &&
+    effectiveBillingCaseId &&
+    oldOrder &&
+    oldOrder.order_review_required !== orderReview &&
+    !sourceConflict
+  ) {
+    await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
   }
   await writeAudit(client, {
     ...auditActor(actor),
