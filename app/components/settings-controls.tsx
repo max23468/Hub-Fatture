@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   CircleUserRound,
   FileCheck2,
   Landmark,
@@ -8,7 +9,13 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  type FormEvent,
+  type ReactNode,
+  type SelectHTMLAttributes,
+} from "react";
 import { Form } from "react-router";
 
 import { copy } from "../copy.it";
@@ -27,19 +34,21 @@ export function SettingsNavigation() {
   const [active, setActive] = useState(sections[0]!.id);
 
   useEffect(() => {
-    if (window.location.hash) setActive(window.location.hash.slice(1));
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.find((entry) => entry.isIntersecting);
-        if (visible) setActive(visible.target.id);
-      },
-      { rootMargin: "-15% 0px -70%" },
-    );
-    for (const { id } of sections) {
-      const section = document.getElementById(id);
-      if (section) observer.observe(section);
-    }
-    return () => observer.disconnect();
+    const updateActive = () => {
+      const threshold = window.innerHeight * 0.25;
+      const current = sections.reduce((selected, section) => {
+        const element = document.getElementById(section.id);
+        return element && element.getBoundingClientRect().top <= threshold ? section.id : selected;
+      }, sections[0]!.id);
+      setActive(current);
+    };
+    updateActive();
+    window.addEventListener("scroll", updateActive, { passive: true });
+    window.addEventListener("resize", updateActive);
+    return () => {
+      window.removeEventListener("scroll", updateActive);
+      window.removeEventListener("resize", updateActive);
+    };
   }, []);
 
   const selectSection = (id: string) => {
@@ -49,16 +58,19 @@ export function SettingsNavigation() {
   };
 
   return (
-    <>
+    <aside className="settings-navigation">
       <label className="settings-section-picker">
         {copy.settings.goToSection}
-        <select value={active} onChange={(event) => selectSection(event.currentTarget.value)}>
+        <SettingsSelect
+          value={active}
+          onChange={(event) => selectSection(event.currentTarget.value)}
+        >
           {sections.map(({ id, label }) => (
             <option key={id} value={id}>
               {label}
             </option>
           ))}
-        </select>
+        </SettingsSelect>
       </label>
       <nav className="settings-nav" aria-label={copy.settings.sectionsLabel}>
         {sections.map(({ id, label, icon: Icon }) => (
@@ -74,7 +86,20 @@ export function SettingsNavigation() {
           </a>
         ))}
       </nav>
-    </>
+    </aside>
+  );
+}
+
+export function SettingsSelect({
+  children,
+  className,
+  ...props
+}: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <span className={`settings-select${className ? ` ${className}` : ""}`}>
+      <select {...props}>{children}</select>
+      <ChevronDown aria-hidden="true" size={18} strokeWidth={2} />
+    </span>
   );
 }
 
@@ -127,7 +152,7 @@ export function SettingsSectionHeader({
       <span className="settings-section__icon" aria-hidden="true">
         <Icon size={20} strokeWidth={1.8} />
       </span>
-      <div>
+      <div className="settings-section__heading">
         <h2 id={id + "-title"}>{title}</h2>
         <p>{intro}</p>
       </div>

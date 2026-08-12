@@ -14,6 +14,7 @@ import { AppShell } from "../components/app-shell";
 import {
   SettingsForm,
   SettingsNavigation,
+  SettingsSelect,
   SettingsSectionHeader,
 } from "../components/settings-controls";
 import { ThemePicker } from "../components/theme-picker";
@@ -71,117 +72,136 @@ function ProfileSettingsSection({
         </p>
       ) : null}
 
-      <div className="profile-overview">
-        <span className="profile-overview__avatar" aria-hidden="true">
-          <CircleUserRound size={30} strokeWidth={1.6} />
-        </span>
-        <div className="profile-overview__identity">
-          <strong>{username}</strong>
-          <span>{canApprove ? copy.navigation.ownerRole : copy.navigation.operatorRole}</span>
+      <div className="settings-profile-grid">
+        <div className="profile-overview settings-inset-card">
+          <span className="profile-overview__avatar" aria-hidden="true">
+            <CircleUserRound size={30} strokeWidth={1.6} />
+          </span>
+          <div className="profile-overview__identity">
+            <strong>{username}</strong>
+            <span>{canApprove ? copy.navigation.ownerRole : copy.navigation.operatorRole}</span>
+          </div>
+          <p className="profile-overview__permission">
+            <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.8} />
+            {canApprove ? copy.navigation.ownerPermission : copy.navigation.operatorPermission}
+          </p>
         </div>
-        <p className="profile-overview__permission">
-          <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.8} />
-          {canApprove ? copy.navigation.ownerPermission : copy.navigation.operatorPermission}
-        </p>
+        <div className="settings-inset-card settings-appearance-card">
+          <h3>{copy.settings.appearanceTitle}</h3>
+          <ThemePicker />
+        </div>
       </div>
 
-      <div className="settings-subsection">
-        <h3>{copy.settings.appearanceTitle}</h3>
-        <ThemePicker />
-      </div>
-
-      <div className="settings-subsection">
-        <h3>{copy.settings.passwordTitle}</h3>
-        <p>{copy.settings.passwordHelp}</p>
-        <Form method="post" className="security-form">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="change-password" />
-          <label>
-            {copy.settings.currentPassword}
-            <input
-              autoComplete="current-password"
-              maxLength={128}
-              name="currentPassword"
-              required
-              type="password"
-            />
-          </label>
-          <label>
-            {copy.settings.newPassword}
-            <input
-              autoComplete="new-password"
-              minLength={8}
-              maxLength={128}
-              name="newPassword"
-              required
-              type="password"
-            />
-          </label>
-          <label>
-            {copy.settings.passwordConfirmation}
-            <input
-              autoComplete="new-password"
-              minLength={8}
-              maxLength={128}
-              name="passwordConfirmation"
-              required
-              type="password"
-            />
-          </label>
-          {errorFor("change-password") ? (
-            <p className="error" role="alert">
-              {errorFor("change-password")}
-            </p>
-          ) : null}
-          <button className="button" type="submit">
-            {copy.settings.changePassword}
-          </button>
-        </Form>
-      </div>
-
-      <div className="settings-subsection">
-        <h3>{copy.settings.sessionsTitle}</h3>
-        <p>{copy.settings.sessionsHelp}</p>
-        <ul className="session-list">
-          {profile.sessions.map((session) => (
-            <li key={`${session.createdAt}:${session.expiresAt}:${session.current}`}>
-              <span>
-                <strong>
-                  {session.current ? copy.settings.currentSession : copy.settings.otherSession}
-                </strong>
-                <small>{copy.settings.lastActivity(dateTime(session.lastSeenAt))}</small>
-              </span>
-              <small>{copy.settings.sessionExpiry(dateTime(session.expiresAt))}</small>
-            </li>
-          ))}
-        </ul>
-        {otherSessions.length ? (
-          <Form method="post">
+      <div className="settings-profile-details">
+        <div className="settings-inset-card settings-detail-card">
+          <header className="settings-detail-card__header">
+            <h3>{copy.settings.passwordTitle}</h3>
+            <p>{copy.settings.passwordHelp}</p>
+          </header>
+          <Form method="post" className="security-form">
             <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="revoke-other-sessions" />
-            {errorFor("revoke-other-sessions") ? (
+            <input type="hidden" name="intent" value="change-password" />
+            <input
+              aria-label={copy.login.username}
+              autoComplete="username"
+              className="visually-hidden"
+              name="username"
+              readOnly
+              tabIndex={-1}
+              type="text"
+              value={username}
+            />
+            <label>
+              {copy.settings.currentPassword}
+              <input
+                autoComplete="current-password"
+                maxLength={128}
+                name="currentPassword"
+                required
+                type="password"
+              />
+            </label>
+            <label>
+              {copy.settings.newPassword}
+              <input
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={128}
+                name="newPassword"
+                required
+                type="password"
+              />
+            </label>
+            <label className="security-form__confirmation">
+              {copy.settings.passwordConfirmation}
+              <input
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={128}
+                name="passwordConfirmation"
+                required
+                type="password"
+              />
+            </label>
+            {errorFor("change-password") ? (
               <p className="error" role="alert">
-                {errorFor("revoke-other-sessions")}
+                {errorFor("change-password")}
               </p>
             ) : null}
-            <button className="button button--secondary" type="submit">
-              {copy.settings.revokeOtherSessions}
+            <button className="button" type="submit">
+              {copy.settings.changePassword}
             </button>
           </Form>
-        ) : (
-          <p className="field-help">{copy.settings.noOtherSessions}</p>
-        )}
-      </div>
+          <div className="settings-password-exit">
+            <div>
+              <h4>{copy.settings.exitTitle}</h4>
+              <p>{copy.settings.exitHelp}</p>
+            </div>
+            <Form method="post" action="/logout">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <button className="button button--secondary" type="submit">
+                <LogOut aria-hidden="true" size={17} strokeWidth={1.8} />
+                {copy.navigation.logout}
+              </button>
+            </Form>
+          </div>
+        </div>
 
-      <div className="settings-subsection settings-subsection--actions">
-        <h3>{copy.settings.exitTitle}</h3>
-        <Form method="post" action="/logout">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <button className="button button--secondary" type="submit">
-            <LogOut aria-hidden="true" size={17} strokeWidth={1.8} />
-            {copy.navigation.logout}
-          </button>
-        </Form>
+        <div className="settings-inset-card settings-detail-card settings-sessions-card">
+          <header className="settings-detail-card__header">
+            <h3>{copy.settings.sessionsTitle}</h3>
+            <p>{copy.settings.sessionsHelp}</p>
+          </header>
+          <ul className="session-list">
+            {profile.sessions.map((session) => (
+              <li key={`${session.createdAt}:${session.expiresAt}:${session.current}`}>
+                <span>
+                  <strong>
+                    {session.current ? copy.settings.currentSession : copy.settings.otherSession}
+                  </strong>
+                  <small>{copy.settings.lastActivity(dateTime(session.lastSeenAt))}</small>
+                </span>
+                <small>{copy.settings.sessionExpiry(dateTime(session.expiresAt))}</small>
+              </li>
+            ))}
+          </ul>
+          {otherSessions.length ? (
+            <Form method="post" className="settings-card-action">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="revoke-other-sessions" />
+              {errorFor("revoke-other-sessions") ? (
+                <p className="error" role="alert">
+                  {errorFor("revoke-other-sessions")}
+                </p>
+              ) : null}
+              <button className="button button--secondary" type="submit">
+                {copy.settings.revokeOtherSessions}
+              </button>
+            </Form>
+          ) : (
+            <p className="field-help settings-card-action">{copy.settings.noOtherSessions}</p>
+          )}
+        </div>
       </div>
     </section>
   );
@@ -245,22 +265,31 @@ function ConnectionsSettingsSection({
       <div className="connection-grid">
         {(["SHOPIFY", "EBAY"] as const).map((provider) => {
           const connection = byProvider.get(provider);
-          const label = provider === "SHOPIFY" ? "Shopify" : "eBay";
+          const label = copy.settings.providerLabels[provider];
           const initialHistoryStart = connection
             ? ((historyProvider === provider ? historyStart : null) ??
               defaultHistoricalStartDate(Date.parse(connection.connectedAt)))
             : null;
           return (
-            <section className="connection-panel" key={provider}>
+            <section className="connection-panel settings-inset-card" key={provider}>
               <header>
-                <h3>{label}</h3>
-                <span className="status">
+                <div>
+                  <span className="connection-panel__eyebrow">{copy.settings.salesChannel}</span>
+                  <h3>{label}</h3>
+                </div>
+                <span
+                  className={`settings-status ${
+                    connection?.status === "CONNECTED"
+                      ? "settings-status--success"
+                      : "settings-status--neutral"
+                  }`}
+                >
                   {connection?.status === "CONNECTED"
                     ? copy.settings.connected
                     : copy.settings.notConnected}
                 </span>
               </header>
-              <dl className="facts">
+              <dl className="facts connection-panel__facts">
                 <div>
                   <dt>{copy.settings.connectionEnvironment}</dt>
                   <dd>{connection?.environment ?? copy.common.unavailable}</dd>
@@ -286,12 +315,14 @@ function ConnectionsSettingsSection({
                   </dd>
                 </div>
               </dl>
-              {connection?.lastErrorCode ? (
-                <p className="error">
-                  {copy.settings.connectionError(connection.lastErrorCode)}{" "}
-                  <a href="/attivita">{copy.settings.openActivities}</a>
-                </p>
-              ) : null}
+              <div className="connection-panel__feedback">
+                {connection?.lastErrorCode ? (
+                  <p className="error">
+                    {copy.settings.connectionError(connection.lastErrorCode)}{" "}
+                    <a href="/attivita">{copy.settings.openActivities}</a>
+                  </p>
+                ) : null}
+              </div>
               <div className="connection-panel__actions">
                 <a
                   className="button button--secondary"
@@ -304,43 +335,55 @@ function ConnectionsSettingsSection({
                   {connection ? copy.settings.reconnect : copy.settings.connect}
                 </a>
               </div>
-              {connection?.status === "CONNECTED" && !connection.historyImported ? (
-                <Form method="post" className="settings-subsection">
-                  <input type="hidden" name="csrf" value={csrfToken} />
-                  <label>
-                    {copy.settings.historyStart(label)}
-                    <input
-                      defaultValue={initialHistoryStart!}
-                      key={`${provider}:${initialHistoryStart}`}
-                      max={historyToday}
-                      name="historyStart"
-                      required
-                      type="date"
-                    />
-                  </label>
-                  <p className="field-help">{copy.settings.historyHelp}</p>
-                  <div className="connection-panel__actions">
-                    <button
-                      className="button button--secondary"
-                      name="intent"
-                      value={provider === "SHOPIFY" ? "preview-shopify" : "preview-ebay"}
-                      type="submit"
-                    >
-                      {copy.settings.preview}
-                    </button>
-                    <button
-                      className="button"
-                      name="intent"
-                      value={provider === "SHOPIFY" ? "import-shopify" : "import-ebay"}
-                      type="submit"
-                    >
-                      {copy.settings.importHistory}
-                    </button>
-                  </div>
-                </Form>
-              ) : connection?.historyImported ? (
-                <p className="notice section-gap">{copy.settings.historyReady}</p>
-              ) : null}
+              <section className="connection-history">
+                <header className="connection-history__header">
+                  <h4>{copy.settings.historyTitle}</h4>
+                  <span className="settings-status settings-status--neutral">
+                    {connection?.historyImported
+                      ? copy.settings.historyComplete
+                      : copy.settings.historyToComplete}
+                  </span>
+                </header>
+                {connection?.status === "CONNECTED" && !connection.historyImported ? (
+                  <Form method="post" className="connection-history__form">
+                    <input type="hidden" name="csrf" value={csrfToken} />
+                    <label>
+                      {copy.settings.historyStart(label)}
+                      <input
+                        defaultValue={initialHistoryStart!}
+                        key={`${provider}:${initialHistoryStart}`}
+                        max={historyToday}
+                        name="historyStart"
+                        required
+                        type="date"
+                      />
+                    </label>
+                    <p className="field-help">{copy.settings.historyHelp}</p>
+                    <div className="connection-panel__actions">
+                      <button
+                        className="button button--secondary"
+                        name="intent"
+                        value={provider === "SHOPIFY" ? "preview-shopify" : "preview-ebay"}
+                        type="submit"
+                      >
+                        {copy.settings.preview}
+                      </button>
+                      <button
+                        className="button"
+                        name="intent"
+                        value={provider === "SHOPIFY" ? "import-shopify" : "import-ebay"}
+                        type="submit"
+                      >
+                        {copy.settings.importHistory}
+                      </button>
+                    </div>
+                  </Form>
+                ) : connection?.historyImported ? (
+                  <p className="connection-history__ready">{copy.settings.historyReady}</p>
+                ) : (
+                  <p className="connection-history__ready">{copy.settings.historyConnectFirst}</p>
+                )}
+              </section>
             </section>
           );
         })}
@@ -378,7 +421,7 @@ function ArubaSettingsSection({
       {aruba.automaticForcedAssisted ? (
         <p className="warning">{copy.settings.arubaKillSwitch}</p>
       ) : null}
-      <dl className="facts facts--columns">
+      <dl className="settings-facts-grid settings-facts-grid--three">
         <div>
           <dt>{copy.settings.arubaConfiguredMode}</dt>
           <dd>{copy.settings.arubaModeLabel(aruba.mode.value)}</dd>
@@ -413,7 +456,7 @@ function ArubaSettingsSection({
       {canApprove ? (
         <SettingsForm
           accessibleSubmitLabel={copy.settings.arubaSave}
-          className="inline-form section-gap"
+          className="settings-choice-card settings-choice-card--two-controls"
           key={`${aruba.mode.version}:${aruba.authProtection.version}`}
           submitLabel={copy.settings.saveShort}
         >
@@ -421,20 +464,20 @@ function ArubaSettingsSection({
           <input type="hidden" name="intent" value="save-aruba" />
           <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
           <input type="hidden" name="arubaAuthVersion" value={aruba.authProtection.version} />
-          <label>
-            {copy.settings.arubaMode}
-            <select
+          <label className="settings-choice-card__field">
+            <span>{copy.settings.arubaMode}</span>
+            <SettingsSelect
               data-initial={aruba.mode.value}
               defaultValue={aruba.mode.value}
               name="arubaMode"
             >
               <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
               <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
-            </select>
+            </SettingsSelect>
           </label>
-          <label>
-            {copy.settings.arubaAuthProtection}
-            <select
+          <label className="settings-choice-card__field">
+            <span>{copy.settings.arubaAuthProtection}</span>
+            <SettingsSelect
               data-initial={aruba.authProtection.value}
               defaultValue={aruba.authProtection.value}
               name="arubaAuthProtection"
@@ -442,7 +485,7 @@ function ArubaSettingsSection({
               <option value="UNKNOWN">{copy.settings.arubaAuthUnknown}</option>
               <option value="TWO_FACTOR">{copy.settings.arubaTwoFactor}</option>
               <option value="SMS_PER_UPLOAD">{copy.settings.arubaSms}</option>
-            </select>
+            </SettingsSelect>
           </label>
         </SettingsForm>
       ) : (
@@ -473,7 +516,7 @@ function SystemSettingsSection({
         intro={copy.settings.systemHelp}
       />
       <div className="system-groups">
-        <section className="system-group">
+        <section className="system-group settings-inset-card">
           <h3>{copy.settings.systemOperations}</h3>
           <dl className="facts">
             <div>
@@ -496,7 +539,7 @@ function SystemSettingsSection({
             </div>
           </dl>
         </section>
-        <section className="system-group">
+        <section className="system-group settings-inset-card">
           <h3>{copy.settings.systemData}</h3>
           <dl className="facts">
             <div>
@@ -516,7 +559,7 @@ function SystemSettingsSection({
             </div>
           </dl>
         </section>
-        <section className="system-group">
+        <section className="system-group settings-inset-card">
           <h3>{copy.settings.systemTechnical}</h3>
           <dl className="facts">
             <div>
@@ -586,7 +629,7 @@ export default function Settings() {
 
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
-      <div className="title-block">
+      <div className="title-block dashboard-title settings-title">
         <p className="eyebrow">{copy.settings.eyebrow}</p>
         <h1>{copy.settings.title}</h1>
         <p>{copy.settings.intro}</p>
@@ -624,19 +667,26 @@ export default function Settings() {
             ) : null}
             <SettingsForm
               accessibleSubmitLabel={copy.settings.preparationSave}
-              className="inline-form"
+              className="settings-choice-card"
               key={`trigger:${trigger.version}`}
               submitLabel={copy.settings.save}
             >
               <input type="hidden" name="csrf" value={csrfToken} />
               <input type="hidden" name="intent" value="save-trigger" />
               <input type="hidden" name="version" value={trigger.version} />
-              <label>
-                {copy.settings.preparationLabel}
-                <select data-initial={trigger.value} defaultValue={trigger.value} name="trigger">
+              <label className="settings-choice-card__field">
+                <span className="settings-choice-card__title">
+                  {copy.settings.preparationLabel}
+                </span>
+                <span className="field-help">{copy.settings.preparationHelp}</span>
+                <SettingsSelect
+                  data-initial={trigger.value}
+                  defaultValue={trigger.value}
+                  name="trigger"
+                >
                   <option value="PAID">{copy.settings.onPaid}</option>
                   <option value="FULFILLED">{copy.settings.onFulfilled}</option>
-                </select>
+                </SettingsSelect>
               </label>
             </SettingsForm>
             {errorFor("save-trigger") ? (
@@ -644,15 +694,14 @@ export default function Settings() {
                 {errorFor("save-trigger")}
               </p>
             ) : null}
-            <p className="field-help">{copy.settings.preparationHelp}</p>
             {shopifyPaymentFeeModeSaved ? (
-              <p className="notice section-gap" role="status">
+              <p className="notice" role="status">
                 {copy.settings.shopifyPaymentFeeModeSaved}
               </p>
             ) : null}
             <SettingsForm
               accessibleSubmitLabel={copy.settings.shopifyPaymentFeeModeSave}
-              className="inline-form section-gap"
+              className="settings-choice-card"
               key={`shopify-payment-fees:${shopifyPaymentFeeMode.version}`}
               submitLabel={copy.settings.save}
             >
@@ -663,16 +712,19 @@ export default function Settings() {
                 name="shopifyPaymentFeeModeVersion"
                 value={shopifyPaymentFeeMode.version}
               />
-              <label>
-                {copy.settings.shopifyPaymentFeeModeLabel}
-                <select
+              <label className="settings-choice-card__field">
+                <span className="settings-choice-card__title">
+                  {copy.settings.shopifyPaymentFeeModeLabel}
+                </span>
+                <span className="field-help">{copy.settings.shopifyPaymentFeeModeHelp}</span>
+                <SettingsSelect
                   data-initial={shopifyPaymentFeeMode.value}
                   defaultValue={shopifyPaymentFeeMode.value}
                   name="shopifyPaymentFeeMode"
                 >
                   <option value="DEDUCT">{copy.settings.shopifyPaymentFeeDeduct}</option>
                   <option value="INCLUDE">{copy.settings.shopifyPaymentFeeInclude}</option>
-                </select>
+                </SettingsSelect>
               </label>
             </SettingsForm>
             {errorFor("save-shopify-payment-fee-mode") ? (
@@ -680,7 +732,6 @@ export default function Settings() {
                 {errorFor("save-shopify-payment-fee-mode")}
               </p>
             ) : null}
-            <p className="field-help">{copy.settings.shopifyPaymentFeeModeHelp}</p>
           </section>
 
           <section
@@ -695,7 +746,7 @@ export default function Settings() {
               intro={copy.settings.fiscalHelp}
             />
             {fiscalProfile ? (
-              <dl className="facts facts--columns">
+              <dl className="settings-facts-grid settings-facts-grid--four">
                 <div>
                   <dt>{copy.settings.fiscalStatus}</dt>
                   <dd>
@@ -778,7 +829,7 @@ export default function Settings() {
                 {copy.settings.customerEmailSaved}
               </p>
             ) : null}
-            <dl className="facts facts--columns">
+            <dl className="settings-facts-grid settings-facts-grid--three">
               <div>
                 <dt>{copy.settings.smtpTransport}</dt>
                 <dd>
@@ -801,23 +852,26 @@ export default function Settings() {
             </dl>
             {canApprove ? (
               <SettingsForm
-                className="inline-form section-gap"
+                className="settings-choice-card"
                 key={customerEmail.version}
                 submitLabel={copy.settings.customerEmailSave}
               >
                 <input type="hidden" name="csrf" value={csrfToken} />
                 <input type="hidden" name="intent" value="save-customer-email" />
                 <input type="hidden" name="emailModeVersion" value={customerEmail.version} />
-                <label>
-                  {copy.settings.customerEmailMode}
-                  <select
+                <label className="settings-choice-card__field">
+                  <span className="settings-choice-card__title">
+                    {copy.settings.customerEmailMode}
+                  </span>
+                  <span className="field-help">{copy.settings.customerEmailModeHelp}</span>
+                  <SettingsSelect
                     data-initial={customerEmail.mode}
                     defaultValue={customerEmail.mode}
                     name="customerEmailMode"
                   >
                     <option value="AUTOMATIC">{copy.settings.customerEmailAutomatic}</option>
                     <option value="MANUAL">{copy.settings.customerEmailManual}</option>
-                  </select>
+                  </SettingsSelect>
                 </label>
               </SettingsForm>
             ) : (
