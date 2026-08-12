@@ -13,7 +13,6 @@ const SURFACE_BY_CHECK = {
 const CONDITIONAL_SURFACE_BY_CHECK = {
   "PostgreSQL e migrazioni": "database",
   "Audit dipendenze": "securityData",
-  "Dependency review": "dependencies",
   "Contract test provider": "provider",
   "E2E Chromium": "e2e",
   "Helper Aruba (chrome / macos-latest)": "arubaPlatform",
