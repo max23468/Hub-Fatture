@@ -2082,7 +2082,6 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     ebayWithoutReference.payments[0].externalPaymentId =
       "ebay-payment-historical-without-reference";
     ebayWithoutReference.lines[0].externalLineId = "ebay-line-historical-without-reference";
-    ebayWithoutReference.lines[0].description = "Moneta commemorativa USA da una oncia OZ";
     const indistinguishableEbay = structuredClone(ebayWithoutReference);
     indistinguishableEbay.externalOrderId = "ebay-order-historical-indistinguishable";
     indistinguishableEbay.displayNumber = "26-12345-67891";
@@ -2109,7 +2108,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     const ebayInvoiceWithoutReference = Buffer.from(
       (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
         .replace("FPR 0001/26", "FPR 0020/26")
-        .replace("Vendita beni usati - Ordine Shopify #1001", "Monete estere commemorative OZ USA")
+        .replace("Vendita beni usati - Ordine Shopify #1001", "Vendita beni usati")
         .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
         .replaceAll("123.45", "75.00"),
     );
@@ -2285,7 +2284,6 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           reference: "Documento Aruba con omonimo e sola provincia coincidente",
           invoiceXml: Buffer.from(
             reorderedNameInvoice
-              .replace("Monete estere commemorative OZ USA", "Prodotto senza corrispondenza")
               .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
               .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
           ),
@@ -2301,10 +2299,14 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         outcome: "ALREADY_INVOICED",
         reference: "Documento Aruba univoco: token nome e località verificati",
         invoiceXml: Buffer.from(
-          reorderedNameInvoice.replace(
-            "Monete estere commemorative OZ USA",
-            "Moneta USA da una oncia OZ",
-          ),
+          reorderedNameInvoice
+            .replace(
+              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>Piazza Distante 101</Indirizzo>",
+            )
+            .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+            .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
         ),
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-reordered-name" },

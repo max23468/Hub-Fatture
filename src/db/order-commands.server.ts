@@ -104,44 +104,6 @@ function identityTokens(value: unknown) {
   return new Set(normalizedIdentityPart(value).split(" ").filter(Boolean));
 }
 
-const genericProductTokens = new Set([
-  "argento",
-  "commemorativa",
-  "commemorative",
-  "commemorativi",
-  "commemorativo",
-  "fdc",
-  "moneta",
-  "monete",
-  "nl",
-  "proof",
-  "puro",
-  "set",
-]);
-
-function productTokens(value: unknown) {
-  const normalized = normalizedIdentityPart(value)
-    .replace(/\bstati uniti\b/g, "usa")
-    .replace(/\boncia\b/g, "oz")
-    .replace(/\bitalian[aeio]\b/g, "italia");
-  return new Set(
-    normalized.split(" ").filter((token) => token.length >= 2 && !genericProductTokens.has(token)),
-  );
-}
-
-function hasDiscriminatingProductEvidence(
-  orderLines: Array<{ description: string }>,
-  invoiceLines: Array<{ description: string }>,
-) {
-  return orderLines.some((orderLine) => {
-    const orderTokens = productTokens(orderLine.description);
-    return invoiceLines.some((invoiceLine) => {
-      const invoiceTokens = productTokens(invoiceLine.description);
-      return [...orderTokens].filter((token) => invoiceTokens.has(token)).length >= 2;
-    });
-  });
-}
-
 function sameTokenSet(left: unknown, right: unknown) {
   const leftTokens = identityTokens(left);
   const rightTokens = identityTokens(right);
@@ -161,6 +123,17 @@ function sharesStreetNumber(left: unknown, right: unknown) {
   const leftNumbers = new Set(normalizedIdentityPart(left).match(/\b\d+[a-z]?\b/g) ?? []);
   const rightNumbers = normalizedIdentityPart(right).match(/\b\d+[a-z]?\b/g) ?? [];
   return leftNumbers.size > 0 && rightNumbers.some((number) => leftNumbers.has(number));
+}
+
+const genericStreetTokens = new Set(["civico", "corso", "piazza", "snc", "strada", "via", "viale"]);
+
+function sharesStreetName(left: unknown, right: unknown) {
+  const leftTokens = new Set(
+    [...identityTokens(left)].filter(
+      (token) => !/^\d/.test(token) && token.length >= 3 && !genericStreetTokens.has(token),
+    ),
+  );
+  return [...identityTokens(right)].some((token) => !/^\d/.test(token) && leftTokens.has(token));
 }
 
 function postalCodeAppearsInAddress(postalCode: unknown, address: unknown) {
@@ -185,7 +158,11 @@ function hasSupportingAddressEvidence(
       postalCodeAppearsInAddress(recipientAddress.postalCode, customerAddress.line1),
   ];
   return (
-    sharesStreetNumber(customerAddress.line1, recipientAddress.line1) && matchingParts.some(Boolean)
+    (sharesStreetNumber(customerAddress.line1, recipientAddress.line1) &&
+      matchingParts.some(Boolean)) ||
+    (sharesStreetName(customerAddress.line1, recipientAddress.line1) &&
+      sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode) &&
+      sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city))
   );
 }
 
@@ -224,8 +201,6 @@ function customerIdentityNames(customer: Record<string, unknown>) {
 function matchesRecipientWithoutTaxId(
   customer: Record<string, unknown>,
   recipient: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"],
-  orderLines: Array<{ description: string }>,
-  invoiceLines: Array<{ description: string }>,
 ) {
   const billingAddress =
     customer.billingAddress && typeof customer.billingAddress === "object"
@@ -238,11 +213,9 @@ function matchesRecipientWithoutTaxId(
   const recipientCountry = normalizedIdentityPart(recipient.address.countryCode);
   if (!recipientName || !customerCountry || customerCountry !== recipientCountry) return false;
   return customerIdentityNames(customer).some((customerName) => {
-    const exactNameTokens = sameTokenSet(customerName, recipientName);
     return (
-      (exactNameTokens &&
-        (hasSupportingAddressEvidence(billingAddress, recipient.address) ||
-          hasDiscriminatingProductEvidence(orderLines, invoiceLines))) ||
+      (sameTokenSet(customerName, recipientName) &&
+        hasSupportingAddressEvidence(billingAddress, recipient.address)) ||
       (containedNameWithSharedStreetNumber(
         customerName,
         recipientName,
@@ -285,7 +258,6 @@ interface HistoricalInvoiceCandidate {
   customer_snapshot: Record<string, unknown>;
   local_order_date: string;
   gross_amount: number;
-  lines: Array<{ description: string }>;
   tax_identifiers: Array<{
     type: string;
     value: string;
@@ -307,12 +279,7 @@ function matchesHistoricalRecipient(
     ? candidate.tax_identifiers.some((identifier) =>
         invoiceTaxIdentifiers.has(taxIdentifierKey(identifier)),
       )
-    : matchesRecipientWithoutTaxId(
-        candidate.customer_snapshot,
-        invoice.input.recipient,
-        candidate.lines,
-        invoice.input.lines,
-      );
+    : matchesRecipientWithoutTaxId(candidate.customer_snapshot, invoice.input.recipient);
 }
 
 function expectedHistoricalInvoiceAmount(
@@ -350,10 +317,6 @@ async function uniquelyMatchesUnreferencedEbayInvoice(
     `SELECT orders.id,
             orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
             orders.local_order_date::text, orders.gross_amount,
-            coalesce((
-              SELECT jsonb_agg(jsonb_build_object('description', order_lines.description))
-              FROM order_lines WHERE order_lines.order_id = orders.id
-            ), '[]'::jsonb) AS lines,
             coalesce((
               SELECT jsonb_agg(jsonb_build_object(
                 'type', order_tax_identifiers.type,
@@ -664,7 +627,6 @@ export async function reconcileHistoricalOrder(
         historical_invoice_id: string | null;
         gross_amount: number;
         billable_amount: number;
-        lines: Array<{ description: string }>;
         tax_identifiers: Array<{
           type: string;
           value: string;
@@ -684,10 +646,6 @@ export async function reconcileHistoricalOrder(
               coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
                 AS historical,
               orders.historical_reconciled_at, orders.gross_amount, orders.billable_amount,
-              coalesce((
-                SELECT jsonb_agg(jsonb_build_object('description', order_lines.description))
-                FROM order_lines WHERE order_lines.order_id = orders.id
-              ), '[]'::jsonb) AS lines,
               orders.historical_reconciliation_outcome,
               (SELECT document_orders.document_id::text
                FROM document_orders JOIN documents ON documents.id = document_orders.document_id
