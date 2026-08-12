@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ArrowRight, FileText, ShoppingBag } from "lucide-react";
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/orders";
 
@@ -7,8 +8,13 @@ import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
 import { Pager } from "../components/pager";
 import { ViewNavigation } from "../components/view-navigation";
-import { billingCaseStatusLabels, copy, orderStatusLabels } from "../copy.it";
-import { euros, date } from "../format";
+import {
+  billingCaseStatusLabels,
+  copy,
+  orderListStatusLabels,
+  orderStatusLabels,
+} from "../copy.it";
+import { compactDate, euros } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
 import { importOrders, listBillingCases, listOrders } from "../../src/db/orders.server.ts";
@@ -126,7 +132,10 @@ export async function action({ request }: Route.ActionArgs) {
     if (form.get("intent") !== "import-fixture" || getConfig().APP_ENV === "production") {
       throw new Response("Azione non riconosciuta", { status: 400 });
     }
-    const result = await importOrders(fixture, { id: user.id, requestId: requestId(request) });
+    const result = await importOrders(fixture, {
+      id: user.id,
+      requestId: requestId(request),
+    });
     return redirect(
       `/ordini?importati=${result.imported}&aggiornati=${result.updated}&ignorati=${result.ignored}`,
     );
@@ -154,13 +163,22 @@ function OrderFilters({
     filters.provider,
     filters.localDate,
     filters.paymentStatus,
-    filters.status,
+    view === "tutti" ? filters.status : "",
   ].filter(Boolean).length;
   const resetTo = view === "tutti" ? "/ordini" : `/ordini?vista=${view}`;
 
   return (
-    <div className="filter-block">
-      <Form method="get" className="filters" role="search" aria-label={copy.orders.filterLabel}>
+    <div className="orders-filter-area">
+      <div className="orders-filter-area__heading">
+        <strong>{copy.orders.filterTitle}</strong>
+        <span>{copy.orders.filterHelp}</span>
+      </div>
+      <Form
+        method="get"
+        className={`filters orders-filters orders-filters--${view === "tutti" ? "all" : "compact"}`}
+        role="search"
+        aria-label={copy.orders.filterLabel}
+      >
         {view !== "tutti" ? <input type="hidden" name="vista" value={view} /> : null}
         <label>
           {copy.orders.search}
@@ -221,6 +239,21 @@ function OrderFilters({
       </div>
     </div>
   );
+}
+
+function orderStatusTone(status: string) {
+  if (["WAITING_FOR_TRIGGER", "NEEDS_REVIEW", "LEGACY_BILLING_REVIEW"].includes(status)) {
+    return "warning";
+  }
+  if (status === "INVOICED") return "success";
+  if (["CANCELLED_NO_DOCUMENT", "REFUNDED_BEFORE_ISSUE"].includes(status)) return "neutral";
+  return "accent";
+}
+
+function caseStatusTone(status: string) {
+  if (["NEEDS_REVIEW", "DO_NOT_TRANSMIT"].includes(status)) return "warning";
+  if (["APPROVED", "CLOSED"].includes(status)) return "success";
+  return "accent";
 }
 
 function MassApprovalPanel({
@@ -345,6 +378,287 @@ function MassApprovalPanel({
   );
 }
 
+type OrdersPageData = Awaited<ReturnType<typeof loader>>;
+
+function PreparationList({
+  cases,
+  ordersEmpty,
+  showsPreparations,
+  view,
+}: {
+  cases: OrdersPageData["cases"];
+  ordersEmpty: boolean;
+  showsPreparations: boolean;
+  view: string;
+}) {
+  if (!cases.rows.length) {
+    return showsPreparations && ordersEmpty ? (
+      <section className="empty-state">
+        <h2>{view === "verificare" ? copy.orders.noReviews : copy.orders.nothingToInvoice}</h2>
+        <p>{copy.orders.preparationEmptyHelp}</p>
+      </section>
+    ) : null;
+  }
+
+  return (
+    <section
+      className="dashboard-panel orders-panel section-gap"
+      aria-labelledby="orders-preparations-title"
+    >
+      <header className="orders-panel__header">
+        <span className="dashboard-icon dashboard-icon--accent" aria-hidden="true">
+          <FileText size={22} strokeWidth={1.8} />
+        </span>
+        <span>
+          <h2 id="orders-preparations-title">
+            {view === "annullati"
+              ? copy.orders.noTransmittedPreparations
+              : copy.orders.preparationListTitle}
+          </h2>
+          <p>{copy.orders.preparationListHelp}</p>
+        </span>
+        <strong className="orders-panel__count">{copy.orders.pageItems(cases.rows.length)}</strong>
+      </header>
+      <div className="table-wrap orders-table-wrap">
+        <table className="orders-table orders-table--preparations">
+          <colgroup>
+            <col className="orders-table__preparation-column" />
+            <col className="orders-table__customer-column" />
+            <col className="orders-table__date-column" />
+            <col className="orders-table__orders-column" />
+            <col className="orders-table__total-column" />
+            <col className="orders-table__status-column" />
+            <col className="orders-table__action-column" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>{copy.orders.preparation}</th>
+              <th>{copy.orders.customer}</th>
+              <th>{copy.orders.date}</th>
+              <th>{copy.orders.orders}</th>
+              <th>{copy.orders.total}</th>
+              <th>{copy.orders.status}</th>
+              <th>
+                <span className="orders-table__action-label">{copy.orders.actions}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {cases.rows.map((billingCase) => (
+              <tr key={billingCase.id}>
+                <td data-label={copy.orders.preparation}>
+                  <span className="orders-table__primary">
+                    <Link
+                      aria-label={copy.orders.openPreparation(billingCase.public_number)}
+                      to={`/ordini/preparazione/${billingCase.id}`}
+                    >
+                      {billingCase.public_number}
+                    </Link>
+                    <small>{copy.orders.preparationContext}</small>
+                  </span>
+                </td>
+                <td data-label={copy.orders.customer}>
+                  <strong className="orders-table__truncate" title={billingCase.customer_name}>
+                    {billingCase.customer_name}
+                  </strong>
+                </td>
+                <td data-label={copy.orders.date}>
+                  <time dateTime={billingCase.local_order_date}>
+                    {compactDate(billingCase.local_order_date)}
+                  </time>
+                </td>
+                <td data-label={copy.orders.orders}>
+                  <strong>{billingCase.order_count}</strong>
+                </td>
+                <td data-label={copy.orders.total}>
+                  <strong>{euros(billingCase.total_amount)}</strong>
+                </td>
+                <td data-label={copy.orders.status}>
+                  <span
+                    className={`orders-status orders-status--${caseStatusTone(billingCase.status)}`}
+                  >
+                    {billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus}
+                  </span>
+                </td>
+                <td data-label={copy.orders.actions} className="orders-table__action">
+                  <Link
+                    aria-label={copy.orders.openPreparationDetail(billingCase.public_number)}
+                    className="dashboard-row-link"
+                    to={`/ordini/preparazione/${billingCase.id}`}
+                  >
+                    <span>{copy.orders.openPreparationAction}</span>
+                    <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function OrderList({
+  csrfToken,
+  filters,
+  fixtureEnabled,
+  orders,
+  showsPreparations,
+  view,
+}: {
+  csrfToken: string;
+  filters: OrdersPageData["filters"];
+  fixtureEnabled: boolean;
+  orders: OrdersPageData["orders"];
+  showsPreparations: boolean;
+  view: string;
+}) {
+  return (
+    <section
+      className="dashboard-panel orders-panel section-gap"
+      aria-labelledby="orders-list-title"
+    >
+      <header className="orders-panel__header">
+        <span className="dashboard-icon dashboard-icon--accent" aria-hidden="true">
+          <ShoppingBag size={22} strokeWidth={1.8} />
+        </span>
+        <span>
+          <h2 id="orders-list-title">
+            {view === "annullati"
+              ? copy.orders.cancelledOrders
+              : view === "verificare"
+                ? copy.orders.historicalOrders
+                : copy.orders.orderListTitle}
+          </h2>
+          <p>{copy.orders.orderListHelp}</p>
+        </span>
+        <strong className="orders-panel__count">{copy.orders.pageItems(orders.rows.length)}</strong>
+      </header>
+      {!showsPreparations ? (
+        <OrderFilters
+          count={orders.rows.length}
+          filters={filters}
+          key={`${view}:${JSON.stringify(filters)}`}
+          view={view}
+        />
+      ) : null}
+      {orders.rows.length ? (
+        <div className="table-wrap orders-table-wrap">
+          <table className="orders-table">
+            <colgroup>
+              <col className="orders-table__order-column" />
+              <col className="orders-table__customer-column" />
+              <col className="orders-table__date-column" />
+              <col className="orders-table__total-column" />
+              <col className="orders-table__status-column" />
+              <col className="orders-table__preparation-column" />
+              <col className="orders-table__action-column" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>{copy.orders.order}</th>
+                <th>{copy.orders.customer}</th>
+                <th>{copy.orders.date}</th>
+                <th>{copy.orders.total}</th>
+                <th>{copy.orders.status}</th>
+                <th>{copy.orders.preparation}</th>
+                <th>
+                  <span className="orders-table__action-label">{copy.orders.actions}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.rows.map((order) => (
+                <tr key={order.id}>
+                  <td data-label={copy.orders.order}>
+                    <span className="orders-table__primary">
+                      <Link
+                        aria-label={`${order.provider === "SHOPIFY" ? "Shopify" : "eBay"} ${order.display_number}`}
+                        to={`/ordini/${order.id}`}
+                      >
+                        {order.display_number}
+                      </Link>
+                      <small>{order.provider === "SHOPIFY" ? "Shopify" : "eBay"}</small>
+                    </span>
+                  </td>
+                  <td data-label={copy.orders.customer}>
+                    <strong className="orders-table__truncate" title={order.customer_name}>
+                      {order.customer_name}
+                    </strong>
+                  </td>
+                  <td data-label={copy.orders.date}>
+                    <time dateTime={order.local_order_date}>
+                      {compactDate(order.local_order_date)}
+                    </time>
+                  </td>
+                  <td data-label={copy.orders.total}>
+                    <strong>{euros(order.gross_amount)}</strong>
+                  </td>
+                  <td data-label={copy.orders.status}>
+                    <span
+                      className={`orders-status orders-status--${orderStatusTone(order.trigger_status)}`}
+                      title={orderStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}
+                    >
+                      {orderListStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}
+                    </span>
+                  </td>
+                  <td data-label={copy.orders.preparation}>
+                    {order.billing_case_id ? (
+                      <span className="orders-table__primary">
+                        <Link
+                          aria-label={copy.orders.openPreparation(String(order.case_number))}
+                          to={`/ordini/preparazione/${order.billing_case_id}`}
+                        >
+                          {order.case_number}
+                        </Link>
+                        <small>{copy.orders.preparationContext}</small>
+                      </span>
+                    ) : (
+                      <span className="orders-table__muted">{copy.orders.noPreparation}</span>
+                    )}
+                  </td>
+                  <td data-label={copy.orders.actions} className="orders-table__action">
+                    <Link
+                      aria-label={copy.orders.openOrder(
+                        order.provider === "SHOPIFY" ? "Shopify" : "eBay",
+                        order.display_number,
+                      )}
+                      className="dashboard-row-link"
+                      to={`/ordini/${order.id}`}
+                    >
+                      <span>{copy.orders.openOrderAction}</span>
+                      <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty-state orders-panel__empty">
+          <h2>{view === "annullati" ? copy.orders.noCancelledOrders : copy.orders.noOrders}</h2>
+          <p>
+            {fixtureEnabled
+              ? copy.orders.noOrdersHelpDevelopment
+              : copy.orders.noOrdersHelpProduction}
+          </p>
+          {fixtureEnabled ? (
+            <Form method="post">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="import-fixture" />
+              <button className="button" type="submit">
+                {copy.orders.loadExamples}
+              </button>
+            </Form>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function Orders() {
   const {
     username,
@@ -368,14 +682,6 @@ export default function Orders() {
   const error = useActionData<typeof action>();
   const showsPreparations = view === "fatturare" || view === "verificare";
   const showsPreparationArchive = showsPreparations || view === "annullati";
-  const orderFilters = (
-    <OrderFilters
-      count={orders.rows.length}
-      filters={filters}
-      key={`${view}:${JSON.stringify(filters)}`}
-      view={view}
-    />
-  );
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className="title-block">
@@ -399,7 +705,11 @@ export default function Orders() {
             label: copy.orders.views.toReview,
             to: "/ordini?vista=verificare",
           },
-          { value: "attesa", label: copy.orders.views.waiting, to: "/ordini?vista=attesa" },
+          {
+            value: "attesa",
+            label: copy.orders.views.waiting,
+            to: "/ordini?vista=attesa",
+          },
           {
             value: "annullati",
             label: copy.orders.views.cancelled,
@@ -432,127 +742,24 @@ export default function Orders() {
         />
       ) : null}
 
-      {!showsPreparations && view !== "annullati" ? orderFilters : null}
-
-      {showsPreparationArchive && cases.rows.length ? (
-        <section className="section-gap">
-          {view === "annullati" ? <h2>{copy.orders.noTransmittedPreparations}</h2> : null}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{copy.orders.preparation}</th>
-                  <th>{copy.orders.customer}</th>
-                  <th>{copy.orders.date}</th>
-                  <th>{copy.orders.orders}</th>
-                  <th>{copy.orders.total}</th>
-                  <th>{copy.orders.status}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cases.rows.map((billingCase) => (
-                  <tr key={billingCase.id}>
-                    <td data-label={copy.orders.preparation}>
-                      <Link
-                        aria-label={copy.orders.openPreparation(billingCase.public_number)}
-                        to={`/ordini/preparazione/${billingCase.id}`}
-                      >
-                        {billingCase.public_number}
-                      </Link>
-                    </td>
-                    <td data-label={copy.orders.customer}>{billingCase.customer_name}</td>
-                    <td data-label={copy.orders.date}>{date(billingCase.local_order_date)}</td>
-                    <td data-label={copy.orders.orders}>{billingCase.order_count}</td>
-                    <td data-label={copy.orders.total}>{euros(billingCase.total_amount)}</td>
-                    <td data-label={copy.orders.status}>
-                      <span className="status">
-                        {billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : showsPreparations && !orders.rows.length ? (
-        <section className="empty-state">
-          <h2>{view === "verificare" ? copy.orders.noReviews : copy.orders.nothingToInvoice}</h2>
-          <p>{copy.orders.preparationEmptyHelp}</p>
-        </section>
+      {showsPreparationArchive ? (
+        <PreparationList
+          cases={cases}
+          ordersEmpty={!orders.rows.length}
+          showsPreparations={showsPreparations}
+          view={view}
+        />
       ) : null}
 
       {!showsPreparations || (view === "verificare" && orders.rows.length) ? (
-        <section className="section-gap">
-          {view === "annullati" ? <h2>{copy.orders.cancelledOrders}</h2> : null}
-          {view === "verificare" ? <h2>{copy.orders.historicalOrders}</h2> : null}
-          {view === "annullati" ? orderFilters : null}
-          {orders.rows.length ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>{copy.orders.order}</th>
-                    <th>{copy.orders.customer}</th>
-                    <th>{copy.orders.date}</th>
-                    <th>{copy.orders.total}</th>
-                    <th>{copy.orders.status}</th>
-                    <th>{copy.orders.preparation}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.rows.map((order) => (
-                    <tr key={order.id}>
-                      <td data-label={copy.orders.order}>
-                        <Link to={`/ordini/${order.id}`}>
-                          {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
-                        </Link>
-                      </td>
-                      <td data-label={copy.orders.customer}>{order.customer_name}</td>
-                      <td data-label={copy.orders.date}>{date(order.local_order_date)}</td>
-                      <td data-label={copy.orders.total}>{euros(order.gross_amount)}</td>
-                      <td data-label={copy.orders.status}>
-                        <span className="status">
-                          {orderStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}
-                        </span>
-                      </td>
-                      <td data-label={copy.orders.preparation}>
-                        {order.billing_case_id ? (
-                          <Link
-                            aria-label={copy.orders.openPreparation(String(order.case_number))}
-                            to={`/ordini/preparazione/${order.billing_case_id}`}
-                          >
-                            {order.case_number}
-                          </Link>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="empty-state">
-              <h2>{view === "annullati" ? copy.orders.noCancelledOrders : copy.orders.noOrders}</h2>
-              <p>
-                {fixtureEnabled
-                  ? copy.orders.noOrdersHelpDevelopment
-                  : copy.orders.noOrdersHelpProduction}
-              </p>
-              {fixtureEnabled ? (
-                <Form method="post">
-                  <input type="hidden" name="csrf" value={csrfToken} />
-                  <input type="hidden" name="intent" value="import-fixture" />
-                  <button className="button" type="submit">
-                    {copy.orders.loadExamples}
-                  </button>
-                </Form>
-              ) : null}
-            </div>
-          )}
-        </section>
+        <OrderList
+          csrfToken={csrfToken}
+          filters={filters}
+          fixtureEnabled={fixtureEnabled}
+          orders={orders}
+          showsPreparations={showsPreparations}
+          view={view}
+        />
       ) : null}
       <Pager basePath="/ordini" hasNext={orders.hasNext || cases.hasNext} page={page} />
     </AppShell>
