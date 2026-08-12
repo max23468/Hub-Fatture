@@ -178,30 +178,198 @@ function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
   return Boolean(normalizedLeft && normalizedLeft === normalizedIdentityPart(right));
 }
 
-function sharesStreetName(left: unknown, right: unknown) {
-  const streetTokens = (value: unknown) =>
-    normalizedIdentityPart(value)
-      .replace(/(?:\s+\d+\s*[a-z]?|\s+snc)$/u, "")
-      .split(" ")
-      .filter(Boolean);
-  const leftIdentityTokens = streetTokens(left);
-  const rightIdentityTokens = streetTokens(right);
-  const leftStreetKindIndex = leftIdentityTokens.findIndex(
-    (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
+const streetKindTokens = new Set([
+  "via",
+  "viale",
+  "vicolo",
+  "piazza",
+  "piazzale",
+  "corso",
+  "strada",
+  "largo",
+  "lungomare",
+  "localita",
+  "frazione",
+  "contrada",
+  "rue",
+  "avenue",
+  "boulevard",
+  "chemin",
+  "route",
+  "street",
+  "road",
+  "lane",
+  "drive",
+  "place",
+  "ul",
+  "ulica",
+  "aleja",
+  "strasse",
+  "straße",
+  "platz",
+  "weg",
+  "allee",
+  "gasse",
+]);
+
+const streetConnectorTokens = new Set([
+  "d",
+  "l",
+  "au",
+  "aux",
+  "de",
+  "des",
+  "du",
+  "der",
+  "die",
+  "dem",
+  "den",
+  "del",
+  "della",
+  "delle",
+  "dei",
+  "degli",
+  "di",
+  "da",
+  "dal",
+  "dalla",
+  "das",
+  "do",
+  "dos",
+  "la",
+  "le",
+  "les",
+  "el",
+  "los",
+  "las",
+  "the",
+  "zu",
+  "zum",
+  "zur",
+  "am",
+  "im",
+  "an",
+  "auf",
+]);
+
+const addressUnitMarkers = new Set([
+  "bl",
+  "bloc",
+  "block",
+  "sc",
+  "scara",
+  "staircase",
+  "et",
+  "etaj",
+  "floor",
+  "ap",
+  "apt",
+  "apartment",
+  "apartament",
+  "unit",
+  "corp",
+  "building",
+  "camera",
+]);
+
+function normalizedAddressTokens(value: unknown) {
+  return normalizedIdentityPart(value).split(" ").filter(Boolean);
+}
+
+function compactAddressPart(value: unknown) {
+  return normalizedIdentityPart(value).replaceAll(" ", "");
+}
+
+function withoutAddressPart(tokens: string[], value: unknown) {
+  const expected = compactAddressPart(value);
+  if (!expected) return tokens;
+  return tokens.filter((_, index) => {
+    if (tokens[index] === expected) return false;
+    if (`${tokens[index]}${tokens[index + 1] ?? ""}` === expected) return false;
+    if (`${tokens[index - 1] ?? ""}${tokens[index]}` === expected) return false;
+    return true;
+  });
+}
+
+function withoutAddressUnits(tokens: string[]) {
+  const unitTailIndex = tokens.findIndex((token, index) => {
+    if (!addressUnitMarkers.has(token)) return false;
+    const followsStructuredCivic =
+      /^\d/u.test(tokens[index - 1] ?? "") ||
+      (/^\d/u.test(tokens[index - 2] ?? "") && /^\p{L}+$/u.test(tokens[index - 1] ?? ""));
+    const startsStructuredIdentifier = /^[\p{L}\p{N}]*\d[\p{L}\p{N}]*$/u.test(
+      tokens[index + 1] ?? "",
+    );
+    return followsStructuredCivic || startsStructuredIdentifier;
+  });
+  return unitTailIndex === -1 ? tokens : tokens.slice(0, unitTailIndex);
+}
+
+function distinctiveStreetTokens(
+  address: unknown,
+  streetNumber: unknown,
+  postalCode: unknown,
+  keepNumeric: boolean,
+) {
+  const tokens = withoutAddressUnits(
+    withoutAddressPart(
+      withoutAddressPart(normalizedAddressTokens(address), streetNumber),
+      postalCode,
+    ),
   );
-  const rightStreetKindIndex = rightIdentityTokens.findIndex(
-    (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
+  const kindIndex = tokens.findIndex((token) => streetKindTokens.has(token));
+  return tokens.filter(
+    (token, index) =>
+      index !== kindIndex &&
+      !streetConnectorTokens.has(token) &&
+      token !== "civico" &&
+      token !== "snc" &&
+      (keepNumeric || !/^\d/u.test(token)),
   );
-  const leftStreetKind = leftIdentityTokens[leftStreetKindIndex];
-  const rightStreetKind = rightIdentityTokens[rightStreetKindIndex];
-  if (!leftStreetKind || leftStreetKind !== rightStreetKind) return false;
-  const leftTokens = leftIdentityTokens.slice(leftStreetKindIndex + 1);
-  const rightTokens = rightIdentityTokens.slice(rightStreetKindIndex + 1);
-  return (
-    leftTokens.length >= 2 &&
-    leftTokens.length === rightTokens.length &&
-    leftTokens.every((token, index) => token === rightTokens[index])
+}
+
+function orderedCommonTokenCount(left: string[], right: string[]) {
+  const counts = Array.from({ length: left.length + 1 }, () =>
+    Array<number>(right.length + 1).fill(0),
   );
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      counts[leftIndex]![rightIndex] =
+        left[leftIndex - 1] === right[rightIndex - 1]
+          ? counts[leftIndex - 1]![rightIndex - 1]! + 1
+          : Math.max(counts[leftIndex - 1]![rightIndex]!, counts[leftIndex]![rightIndex - 1]!);
+    }
+  }
+  return counts[left.length]![right.length]!;
+}
+
+function streetKind(address: unknown, streetNumber: unknown, postalCode: unknown) {
+  return withoutAddressPart(
+    withoutAddressPart(normalizedAddressTokens(address), streetNumber),
+    postalCode,
+  ).find((token) => streetKindTokens.has(token));
+}
+
+function structuredStreetNumberCandidates(address: unknown, postalCode: unknown) {
+  const addressParts = withoutAddressUnits(
+    withoutAddressPart(normalizedAddressTokens(address), postalCode),
+  );
+  const candidates = new Set<string>();
+  const isCivicSuffix = (value: string) =>
+    /^\p{L}$/u.test(value) || ["bis", "ter", "quater"].includes(value);
+  const first = addressParts[0] ?? "";
+  const second = addressParts[1] ?? "";
+  if (/^\d/u.test(first)) {
+    candidates.add(isCivicSuffix(second) ? `${first}${second}` : first);
+  }
+  const last = addressParts.at(-1) ?? "";
+  const penultimate = addressParts.at(-2) ?? "";
+  if (/^\d/u.test(last)) {
+    candidates.add(last);
+  } else if (/^\d/u.test(penultimate) && isCivicSuffix(last)) {
+    candidates.add(`${penultimate}${last}`);
+  }
+  return candidates;
 }
 
 function containsStructuredStreetNumber(
@@ -209,25 +377,22 @@ function containsStructuredStreetNumber(
   streetNumber: unknown,
   postalCode: unknown,
 ) {
-  const expected = normalizedIdentityPart(streetNumber).replaceAll(" ", "");
-  const excludedPostalCode = normalizedIdentityPart(postalCode).replaceAll(" ", "");
-  const addressParts = normalizedIdentityPart(address).split(" ").filter(Boolean);
-  if (addressParts.at(-1) === excludedPostalCode) addressParts.pop();
-  const actual = addressParts.join(" ").match(/(?:^| )(\d+[a-z]?|\d+ [a-z]|snc)$/)?.[1];
-  return Boolean(expected && actual && expected === actual.replaceAll(" ", ""));
+  const expected = compactAddressPart(streetNumber);
+  return Boolean(expected && structuredStreetNumberCandidates(address, postalCode).has(expected));
 }
 
-function withoutTrailingStructuredStreetNumber(
+function hasConflictingStructuredStreetNumber(
   address: unknown,
   streetNumber: unknown,
   postalCode: unknown,
 ) {
-  const number = normalizedIdentityPart(streetNumber);
-  const postal = normalizedIdentityPart(postalCode);
-  let value = normalizedIdentityPart(address);
-  if (postal && value.endsWith(` ${postal}`)) value = value.slice(0, -postal.length).trim();
-  if (!number || !value.endsWith(` ${number}`)) return value;
-  return value.slice(0, -number.length).trim();
+  const expected = compactAddressPart(streetNumber);
+  const candidates = structuredStreetNumberCandidates(address, postalCode);
+  return Boolean(expected && [...candidates].some((candidate) => candidate !== expected));
+}
+
+function canonicalItalianStreetToken(token: string) {
+  return ["san", "santo", "santa", "sant"].includes(token) ? "san" : token;
 }
 
 function hasSupportingAddressEvidence(
@@ -239,31 +404,77 @@ function hasSupportingAddressEvidence(
     recipientAddress.postalCode,
   );
   const sameCity = sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city);
-  const sameStreetName = sharesStreetName(customerAddress.line1, recipientAddress.line1);
   const sameAddressLine = sameNonEmptyIdentityPart(customerAddress.line1, recipientAddress.line1);
   if (recipientAddress.streetNumber) {
-    const sameAddressWithoutStructuredNumber = sameNonEmptyIdentityPart(
-      withoutTrailingStructuredStreetNumber(
+    const customerCountry = normalizedIdentityPart(customerAddress.countryCode);
+    const recipientCountry = normalizedIdentityPart(recipientAddress.countryCode);
+    const customerStreetTokens = distinctiveStreetTokens(
+      customerAddress.line1,
+      recipientAddress.streetNumber,
+      customerAddress.postalCode,
+      customerCountry === "it",
+    );
+    const recipientStreetTokens = distinctiveStreetTokens(
+      recipientAddress.line1,
+      recipientAddress.streetNumber,
+      recipientAddress.postalCode,
+      customerCountry === "it",
+    );
+    if (
+      !customerCountry ||
+      customerCountry !== recipientCountry ||
+      !containsStructuredStreetNumber(
         customerAddress.line1,
         recipientAddress.streetNumber,
         customerAddress.postalCode,
-      ),
-      withoutTrailingStructuredStreetNumber(
+      ) ||
+      hasConflictingStructuredStreetNumber(
+        customerAddress.line1,
+        recipientAddress.streetNumber,
+        customerAddress.postalCode,
+      ) ||
+      hasConflictingStructuredStreetNumber(
         recipientAddress.line1,
         recipientAddress.streetNumber,
         recipientAddress.postalCode,
-      ),
-    );
-    return (
-      containsStructuredStreetNumber(
-        customerAddress.line1,
-        recipientAddress.streetNumber,
-        customerAddress.postalCode,
-      ) &&
-      (sameAddressLine || sameAddressWithoutStructuredNumber || sameStreetName) &&
-      samePostalCode &&
-      sameCity
-    );
+      )
+    ) {
+      return false;
+    }
+    const sharedStreetTokens = orderedCommonTokenCount(customerStreetTokens, recipientStreetTokens);
+    if (customerCountry === "it") {
+      const sameStreetTokens =
+        customerStreetTokens.length > 0 &&
+        customerStreetTokens.length === recipientStreetTokens.length &&
+        customerStreetTokens.every((token, index) => token === recipientStreetTokens[index]);
+      const sameKnownShortStreetVariant =
+        customerStreetTokens.length > 0 &&
+        customerStreetTokens.length <= 2 &&
+        customerStreetTokens.length === recipientStreetTokens.length &&
+        customerStreetTokens.every((token) => !/^\d/u.test(token)) &&
+        recipientStreetTokens.every((token) => !/^\d/u.test(token)) &&
+        customerStreetTokens.every(
+          (token, index) =>
+            canonicalItalianStreetToken(token) ===
+            canonicalItalianStreetToken(recipientStreetTokens[index]!),
+        );
+      return (
+        samePostalCode &&
+        sameCity &&
+        streetKind(
+          customerAddress.line1,
+          recipientAddress.streetNumber,
+          customerAddress.postalCode,
+        ) ===
+          streetKind(
+            recipientAddress.line1,
+            recipientAddress.streetNumber,
+            recipientAddress.postalCode,
+          ) &&
+        (sameStreetTokens || sameKnownShortStreetVariant)
+      );
+    }
+    return sharedStreetTokens >= 2;
   }
   return sameAddressLine && samePostalCode && sameCity;
 }
@@ -288,6 +499,16 @@ function customerIdentityNames(customer: Record<string, unknown>, business: bool
   );
 }
 
+function hasExplicitBusinessName(customer: Record<string, unknown>) {
+  const canonical =
+    customer.canonicalProfile && typeof customer.canonicalProfile === "object"
+      ? (customer.canonicalProfile as Record<string, unknown>)
+      : {};
+  return [customer.companyName, canonical.companyName].some((value) =>
+    Boolean(normalizedIdentityPart(value)),
+  );
+}
+
 function matchesRecipientWithoutTaxId(
   customer: Record<string, unknown>,
   recipient: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"],
@@ -301,7 +522,7 @@ function matchesRecipientWithoutTaxId(
     recipientBusinessName ||
     normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
   const customerKind = typeof customer.kind === "string" ? customer.kind.trim().toUpperCase() : "";
-  const hasCustomerBusinessName = customerIdentityNames(customer, true).length > 0;
+  const hasCustomerBusinessName = hasExplicitBusinessName(customer);
   const customerIsBusiness =
     customerKind === "BUSINESS_IT" || (customerKind === "EU" && hasCustomerBusinessName);
   const customerIsPersonal =
