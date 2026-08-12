@@ -28,7 +28,7 @@ import { POSTGRES_INTEGER_MAX } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
 import { customerEmailTriggerStatus, scheduleCustomerEmail } from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
-import { isDatabaseId } from "./order-commands.server.ts";
+import { isDatabaseId } from "./database-id.ts";
 
 const HELPER_TOKEN_TTL_MS = 15 * 60_000;
 const HELPER_TOKEN_MAX_LIFETIME_MS = 45 * 60_000;

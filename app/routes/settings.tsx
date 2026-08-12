@@ -7,327 +7,26 @@ import {
   PlugZap,
   Settings2,
   ShieldCheck,
-  type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { data, Form, redirect, useActionData, useLoaderData } from "react-router";
-import type { Route } from "./+types/settings";
+import { Form, useActionData, useLoaderData } from "react-router";
 
 import { AppShell } from "../components/app-shell";
+import {
+  SettingsForm,
+  SettingsNavigation,
+  SettingsSectionHeader,
+} from "../components/settings-controls";
 import { ThemePicker } from "../components/theme-picker";
 import { copy } from "../copy.it";
 import { dateTime } from "../format";
-import {
-  assertCsrf,
-  changePassword,
-  getAccountProfile,
-  requestId,
-  requireSessionUser,
-  revokeOtherSessions,
-} from "../../src/db/auth.server.ts";
-import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts";
-import { getConfig } from "../../src/config.server.ts";
-import {
-  connectionSummaries,
-  enqueueEbayHistory,
-  latestEbayHistory,
-} from "../../src/db/connectors.server.ts";
-import { getFiscalProfileSettings } from "../../src/db/documents.server.ts";
-import { getCustomerEmailSettings, setCustomerEmailMode } from "../../src/db/email.server.ts";
-import { AppError, publicError } from "../../src/errors.ts";
-import { readForm } from "../../src/http.server.ts";
-import {
-  importShopifyHistory,
-  previewShopifyHistory,
-} from "../../src/integrations/shopify.server.ts";
-import { getDraftTrigger, setDraftTrigger } from "../../src/db/orders.server.ts";
-import {
-  defaultHistoricalStartDate,
-  historicalOrderWindow,
-  localOrderDate,
-} from "../../src/orders.ts";
-import { getSystemStatus } from "../../src/db/system.server.ts";
+import type { getAccountProfile } from "../../src/db/auth.server.ts";
+import type { getArubaSettings } from "../../src/db/aruba.server.ts";
+import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
+import { defaultHistoricalStartDate } from "../../src/orders.ts";
+import type { getSystemStatus } from "../../src/db/system.server.ts";
+import { action, loader } from "./settings.server.ts";
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const user = await requireSessionUser(request);
-  const url = new URL(request.url);
-  const requestedHistoryProvider = url.searchParams.get("historyProvider");
-  const [profile, trigger, connections, ebayHistory, aruba, customerEmail, fiscalProfile, system] =
-    await Promise.all([
-      getAccountProfile(request, user),
-      getDraftTrigger(),
-      connectionSummaries(),
-      latestEbayHistory(),
-      getArubaSettings(),
-      getCustomerEmailSettings(),
-      getFiscalProfileSettings(),
-      getSystemStatus(),
-    ]);
-  return {
-    username: user.username,
-    canApprove: user.canApprove,
-    csrfToken: user.csrfToken,
-    profile,
-    trigger,
-    saved: url.searchParams.get("trigger") === "salvato",
-    connections,
-    ebayHistory,
-    aruba,
-    arubaSaved: url.searchParams.get("aruba") === "salvata",
-    customerEmail,
-    customerEmailSaved: url.searchParams.get("email") === "salvata",
-    fiscalProfile,
-    environment: getConfig().APP_ENV,
-    system,
-    passwordChanged: url.searchParams.get("profilo") === "password",
-    sessionsRevoked: url.searchParams.get("profilo") === "sessioni",
-    preview:
-      url.searchParams.get("provider") && url.searchParams.get("count")
-        ? {
-            provider: url.searchParams.get("provider")!,
-            count: url.searchParams.get("count")!,
-            review: url.searchParams.get("review") ?? "0",
-          }
-        : null,
-    imported:
-      url.searchParams.get("provider") && url.searchParams.has("imported")
-        ? {
-            provider: url.searchParams.get("provider")!,
-            imported: url.searchParams.get("imported") ?? "0",
-            updated: url.searchParams.get("updated") ?? "0",
-            ignored: url.searchParams.get("ignored") ?? "0",
-          }
-        : null,
-    historyStart: historicalOrderWindow(url.searchParams.get("historyStart"))?.startDate ?? null,
-    historyProvider:
-      requestedHistoryProvider === "SHOPIFY" || requestedHistoryProvider === "EBAY"
-        ? requestedHistoryProvider
-        : null,
-    historyToday: localOrderDate(new Date().toISOString()),
-  };
-}
-
-export async function action({ request }: Route.ActionArgs) {
-  const user = await requireSessionUser(request);
-  const form = await readForm(request);
-  const intent = form.get("intent") ?? "save-trigger";
-  try {
-    assertCsrf(user, form.get("csrf") ?? "");
-    if (intent === "change-password") {
-      await changePassword(
-        request,
-        {
-          currentPassword: form.get("currentPassword"),
-          newPassword: form.get("newPassword"),
-          confirmation: form.get("passwordConfirmation"),
-        },
-        user,
-        requestId(request),
-      );
-      return redirect("/impostazioni?profilo=password#profilo-sicurezza");
-    }
-    if (intent === "revoke-other-sessions") {
-      await revokeOtherSessions(request, user, requestId(request));
-      return redirect("/impostazioni?profilo=sessioni#profilo-sicurezza");
-    }
-    if (intent === "save-customer-email") {
-      await setCustomerEmailMode(form.get("customerEmailMode"), form.get("emailModeVersion"), {
-        id: user.id,
-        canApprove: user.canApprove,
-        requestId: requestId(request),
-      });
-      return redirect("/impostazioni?email=salvata#email-cliente");
-    }
-    if (intent === "save-aruba") {
-      await setArubaSettings(
-        {
-          mode: form.get("arubaMode"),
-          modeVersion: form.get("arubaModeVersion"),
-          authProtection: form.get("arubaAuthProtection"),
-          authVersion: form.get("arubaAuthVersion"),
-        },
-        { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
-      );
-      return redirect("/impostazioni?aruba=salvata#aruba-helper");
-    }
-    if (["preview-ebay", "import-ebay"].includes(intent)) {
-      const start = historicalOrderWindow(form.get("historyStart"));
-      if (!start) throw new AppError("ORDER_INVALID_INPUT", 422);
-      await enqueueEbayHistory(start.startDate, intent === "import-ebay" ? "IMPORT" : "PREVIEW");
-      return redirect(
-        `/impostazioni?historyStart=${encodeURIComponent(start.startDate)}&historyProvider=EBAY#connessioni`,
-      );
-    }
-    if (intent === "preview-shopify") {
-      const provider = "Shopify";
-      const preview = await previewShopifyHistory(form.get("historyStart"));
-      return redirect(
-        "/impostazioni?" +
-          new URLSearchParams({
-            provider,
-            count: String(preview.count),
-            review: String(preview.reviewRequired),
-            historyStart: String(form.get("historyStart")),
-            historyProvider: "SHOPIFY",
-          }).toString() +
-          "#connessioni",
-      );
-    }
-    if (intent === "import-shopify") {
-      const result = await importShopifyHistory(form.get("historyStart"), {
-        type: "ADMIN",
-        id: user.id,
-        requestId: requestId(request),
-      });
-      return redirect(
-        "/impostazioni?" +
-          new URLSearchParams({
-            provider: "Shopify",
-            imported: String(result.imported),
-            updated: String(result.updated),
-            ignored: String(result.ignored),
-            historyStart: String(form.get("historyStart")),
-            historyProvider: "SHOPIFY",
-          }).toString() +
-          "#connessioni",
-      );
-    }
-    if (intent !== "save-trigger") {
-      throw new Response("Azione non supportata", { status: 400 });
-    }
-    await setDraftTrigger(form.get("trigger"), Number(form.get("version") ?? Number.NaN), {
-      id: user.id,
-      requestId: requestId(request),
-    });
-    return redirect("/impostazioni?trigger=salvato#fatturazione");
-  } catch (error) {
-    if (error instanceof Response) throw error;
-    const result = publicError(error);
-    return data({ ...result, intent }, { status: result.status });
-  }
-}
-
-const sections: Array<{ id: string; label: string; icon: LucideIcon }> = [
-  { id: "profilo-sicurezza", label: copy.settings.profileTitle, icon: CircleUserRound },
-  { id: "fatturazione", label: copy.settings.billingTitle, icon: Settings2 },
-  { id: "profilo-fiscale", label: copy.settings.fiscalTitle, icon: FileCheck2 },
-  { id: "connessioni", label: copy.settings.connectionsTitle, icon: PlugZap },
-  { id: "aruba-helper", label: copy.settings.arubaTitle, icon: Landmark },
-  { id: "email-cliente", label: copy.settings.customerEmailTitle, icon: Mail },
-  { id: "sistema", label: copy.settings.systemTitle, icon: ShieldCheck },
-];
-
-function SettingsNavigation() {
-  const [active, setActive] = useState(sections[0]!.id);
-
-  useEffect(() => {
-    if (window.location.hash) setActive(window.location.hash.slice(1));
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.find((entry) => entry.isIntersecting);
-        if (visible) setActive(visible.target.id);
-      },
-      { rootMargin: "-15% 0px -70%" },
-    );
-    for (const { id } of sections) {
-      const section = document.getElementById(id);
-      if (section) observer.observe(section);
-    }
-    return () => observer.disconnect();
-  }, []);
-
-  const selectSection = (id: string) => {
-    setActive(id);
-    window.history.replaceState(null, "", `#${id}`);
-    document.getElementById(id)?.scrollIntoView();
-  };
-
-  return (
-    <>
-      <label className="settings-section-picker">
-        {copy.settings.goToSection}
-        <select value={active} onChange={(event) => selectSection(event.currentTarget.value)}>
-          {sections.map(({ id, label }) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <nav className="settings-nav" aria-label={copy.settings.sectionsLabel}>
-        {sections.map(({ id, label, icon: Icon }) => (
-          <a
-            aria-current={active === id ? "location" : undefined}
-            className="settings-nav__item"
-            href={`#${id}`}
-            key={id}
-            onClick={() => setActive(id)}
-          >
-            <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
-            {label}
-          </a>
-        ))}
-      </nav>
-    </>
-  );
-}
-
-function SettingsForm({
-  accessibleSubmitLabel,
-  children,
-  className,
-  submitLabel,
-}: {
-  accessibleSubmitLabel?: string;
-  children: ReactNode;
-  className: string;
-  submitLabel: string;
-}) {
-  const [dirty, setDirty] = useState(false);
-  const updateDirty = (event: FormEvent<HTMLFormElement>) => {
-    setDirty(
-      Array.from(event.currentTarget.elements).some(
-        (element) =>
-          element instanceof HTMLSelectElement &&
-          element.dataset.initial !== undefined &&
-          element.value !== element.dataset.initial,
-      ),
-    );
-  };
-
-  return (
-    <Form method="post" className={className} onChange={updateDirty}>
-      {children}
-      <button aria-label={accessibleSubmitLabel} className="button" disabled={!dirty} type="submit">
-        {submitLabel}
-      </button>
-    </Form>
-  );
-}
-
-function SectionHeader({
-  id,
-  icon: Icon,
-  title,
-  intro,
-}: {
-  id: string;
-  icon: LucideIcon;
-  title: string;
-  intro: string;
-}) {
-  return (
-    <header className="settings-section__header">
-      <span className="settings-section__icon" aria-hidden="true">
-        <Icon size={20} strokeWidth={1.8} />
-      </span>
-      <div>
-        <h2 id={id + "-title"}>{title}</h2>
-        <p>{intro}</p>
-      </div>
-    </header>
-  );
-}
+export { action, loader };
 
 type ErrorFor = (...intents: string[]) => string | null;
 
@@ -355,7 +54,7 @@ function ProfileSettingsSection({
       id="profilo-sicurezza"
       aria-labelledby="profilo-sicurezza-title"
     >
-      <SectionHeader
+      <SettingsSectionHeader
         id="profilo-sicurezza"
         icon={CircleUserRound}
         title={copy.settings.profileTitle}
@@ -512,7 +211,7 @@ function ConnectionsSettingsSection({
   const byProvider = new Map(connections.map((connection) => [connection.provider, connection]));
   return (
     <section className="settings-section" id="connessioni" aria-labelledby="connessioni-title">
-      <SectionHeader
+      <SettingsSectionHeader
         id="connessioni"
         icon={PlugZap}
         title={copy.settings.connectionsTitle}
@@ -665,7 +364,7 @@ function ArubaSettingsSection({
 }) {
   return (
     <section className="settings-section" id="aruba-helper" aria-labelledby="aruba-helper-title">
-      <SectionHeader
+      <SettingsSectionHeader
         id="aruba-helper"
         icon={Landmark}
         title={copy.settings.arubaTitle}
@@ -767,7 +466,7 @@ function SystemSettingsSection({
 }) {
   return (
     <section className="settings-section" id="sistema" aria-labelledby="sistema-title">
-      <SectionHeader
+      <SettingsSectionHeader
         id="sistema"
         icon={ShieldCheck}
         title={copy.settings.systemTitle}
@@ -910,7 +609,7 @@ export default function Settings() {
             id="fatturazione"
             aria-labelledby="fatturazione-title"
           >
-            <SectionHeader
+            <SettingsSectionHeader
               id="fatturazione"
               icon={Settings2}
               title={copy.settings.billingTitle}
@@ -950,7 +649,7 @@ export default function Settings() {
             id="profilo-fiscale"
             aria-labelledby="profilo-fiscale-title"
           >
-            <SectionHeader
+            <SettingsSectionHeader
               id="profilo-fiscale"
               icon={FileCheck2}
               title={copy.settings.fiscalTitle}
@@ -1029,7 +728,7 @@ export default function Settings() {
             id="email-cliente"
             aria-labelledby="email-cliente-title"
           >
-            <SectionHeader
+            <SettingsSectionHeader
               id="email-cliente"
               icon={Mail}
               title={copy.settings.customerEmailTitle}

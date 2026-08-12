@@ -27,6 +27,7 @@ test(
       process.env.DOCUMENT_STORAGE_ROOT = storage;
       process.env.SMTP_FROM = "approvazioni@example.invalid";
       const documents = await import("./documents.server.ts");
+      const documentStorage = await import("./document-storage.server.ts");
       const aruba = await import("./aruba.server.ts");
       const orders = await import("./orders.server.ts");
       const database = await import("./client.server.ts");
@@ -76,13 +77,13 @@ test(
       const secondClient = await database.getPool().connect();
       await firstClient.query("BEGIN");
       await secondClient.query("BEGIN");
-      const firstArchive = await documents.archiveImportedInvoiceXml(
+      const firstArchive = await documentStorage.archiveImportedInvoiceXml(
         firstClient,
         importedPath,
         importedXml,
       );
       let secondArchiveFinished = false;
-      const secondArchivePending = documents
+      const secondArchivePending = documentStorage
         .archiveImportedInvoiceXml(secondClient, importedPath, importedXml)
         .then((archive) => {
           secondArchiveFinished = true;
@@ -1134,7 +1135,7 @@ test(
       ).rows;
       assert.equal(rows.length, 3);
       for (const row of rows) {
-        const xml = await documents.readDocumentXml(row.id);
+        const xml = await documentStorage.readDocumentXml(row.id);
         assert.ok(xml?.includes(Buffer.from("<RegimeFiscale>RF14</RegimeFiscale>")));
       }
       const mixedDocuments = (
@@ -1394,7 +1395,7 @@ test(
       );
       await unlink(path.join(storage, rows[0]!.relative_path));
       assert.ok(
-        (await documents.readDocumentXml(rows[0]!.id))?.includes(
+        (await documentStorage.readDocumentXml(rows[0]!.id))?.includes(
           Buffer.from("<RegimeFiscale>RF14</RegimeFiscale>"),
         ),
       );

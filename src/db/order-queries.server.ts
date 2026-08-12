@@ -8,7 +8,7 @@ import {
 } from "../orders.ts";
 import { auditActions } from "./audit.server.ts";
 import { getPool } from "./client.server.ts";
-import { isDatabaseId } from "./order-commands.server.ts";
+import { isDatabaseId } from "./database-id.ts";
 
 interface SourceCustomer {
   kind?: string;

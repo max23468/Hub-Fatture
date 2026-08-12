@@ -1361,30 +1361,19 @@ Gli ambienti sono separati logicamente:
 
 Per esporre temporaneamente lo sviluppo locale sono ammessi Cloudflare Quick Tunnel o ngrok. Non usarli come URL di produzione.
 
-### 14.2 Moduli suggeriti
+### 14.2 Confini modulari
 
-```text
-src/
-  auth/
-  settings/
-  customers/
-  orders/
-  billing-cases/
-  documents/
-  refunds/
-  integrations/
-    shopify/
-    ebay/
-    aruba/
-    smtp/
-  aruba-helper/
-  jobs/
-  audit/
-  storage/
-  web/
-```
+La struttura segue le responsabilità osservate, non un albero di cartelle preparato in anticipo:
 
-Usare le convenzioni del framework scelto, senza imporre questa struttura se produce duplicazione.
+- `src/*.ts` contiene dominio puro, schemi e trasformazioni senza accesso a rete, filesystem o database;
+- `src/db/*.server.ts` possiede SQL, transazioni e persistenza per capacità; storage documentale, comandi ordine e validazione degli ID database sono moduli distinti;
+- `src/integrations/*.server.ts` traduce i contratti dei provider e usa il livello dati senza incorporare query SQL;
+- `app/routes/*.tsx` compone il rendering e i componenti della schermata; quando parsing HTTP e orchestrazione server diventano sostanziali vivono nel modulo `*.server.ts` adiacente;
+- `app/components/` contiene componenti condivisi o sezioni autonome con API tipizzate, senza accesso runtime ai moduli server.
+
+All'interno di `src/db` i consumatori importano il modulo proprietario della capacità, non un barrel generico né una facciata mantenuta per compatibilità interna. Le dipendenze devono restare acicliche: una primitiva condivisa viene estratta nel livello più basso che la possiede, mentre un ciclo non viene mascherato con import dinamici o re-export. Il gate unitario percorre gli import locali di `app` e `src` e fallisce se compare un ciclo.
+
+La lunghezza di un file non è da sola un difetto. Si estrae un modulo quando esistono motivi di modifica distinti, un confine di effetto reale o dipendenze riusabili; non si frammentano query e transazioni coese per rispettare una soglia numerica.
 
 ### 14.3 Stack e dipendenze accettate
 
@@ -2543,6 +2532,9 @@ Il volume atteso è di circa 300-400 fatture mensili e qualche centinaio di ordi
 ### 21.3 Manutenibilità
 
 - Monolite, moduli netti.
+- Grafo degli import aciclico e verificato automaticamente; niente barrel interni che nascondano dipendenze fra capacità.
+- Route orientate alla composizione: orchestrazione HTTP sostanziale in moduli server adiacenti e controlli UI condivisi in componenti stabili.
+- Nessuna facciata di retrocompatibilità interna: dopo un'estrazione i consumatori importano direttamente il nuovo proprietario.
 - Niente astrazioni con una sola implementazione salvo confini esterni reali.
 - Tipi e validazione ai confini API.
 - Migrazioni versionate.
@@ -2634,6 +2626,7 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - mapping stati esterni;
 - generazione XML a partire dalla fixture Aruba.
 - classificazione strutturata delle differenze fra sorgente, bozza e proiezione XML.
+- limiti degli identificativi `bigint` PostgreSQL e assenza di cicli nel grafo degli import applicativi.
 
 ### 22.2 Test di integrazione
 

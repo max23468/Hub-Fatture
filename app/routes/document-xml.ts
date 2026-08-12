@@ -1,7 +1,7 @@
 import type { Route } from "./+types/document-xml";
 
 import { requireSessionUser } from "../../src/db/auth.server.ts";
-import { readDocumentXml } from "../../src/db/documents.server.ts";
+import { readDocumentXml } from "../../src/db/document-storage.server.ts";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   await requireSessionUser(request);

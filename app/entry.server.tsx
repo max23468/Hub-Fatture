@@ -6,7 +6,7 @@ import { ServerRouter } from "react-router";
 import type { EntryContext, RouterContextProvider } from "react-router";
 
 import { startRetention } from "../src/db/retention.server.ts";
-import { startDocumentStorageReconciliation } from "../src/db/documents.server.ts";
+import { startDocumentStorageReconciliation } from "../src/db/document-storage.server.ts";
 import { securePrivateHeaders } from "../src/http.server.ts";
 
 startRetention();

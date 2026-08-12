@@ -75,7 +75,7 @@ docker compose -f compose.yaml --env-file .env --env-file .deploy.env \
 writers_paused=1
 docker compose -f compose.yaml --env-file .env --env-file .deploy.env \
   run --rm --no-deps app-web node -e \
-  "import('./build-server/db/documents.server.js').then(m => m.reconcileDocumentStorage())" \
+  "import('./build-server/db/document-storage.server.js').then(m => m.reconcileDocumentStorage())" \
   >/dev/null
 
 docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
