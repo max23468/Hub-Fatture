@@ -574,6 +574,11 @@ function matchesManuallyReviewedRecipient(
   const recipientName =
     recipientBusinessName ||
     normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
+  const recipientPostalCodeForStreetNumber =
+    normalizedIdentityPart(recipient.address.countryCode) !== "it" &&
+    compactAddressPart(recipient.address.postalCode) === "00000"
+      ? billingAddress.postalCode
+      : recipient.address.postalCode;
   if (
     !recipient.address.streetNumber ||
     !recipientName ||
@@ -591,7 +596,7 @@ function matchesManuallyReviewedRecipient(
     hasConflictingStructuredStreetNumber(
       recipient.address.line1,
       recipient.address.streetNumber,
-      recipient.address.postalCode,
+      recipientPostalCodeForStreetNumber,
     )
   ) {
     return false;

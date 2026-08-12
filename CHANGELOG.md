@@ -6,6 +6,11 @@
 - La conferma rimuove soltanto il conflitto sorgente, conserva anomalie indipendenti e registra una ricevuta auditata per ogni ordine verificato.
 - Le bozze già salvate vengono riconciliate atomicamente con i nuovi importi, preservando le personalizzazioni manuali e impedendo l’approvazione di una proiezione obsoleta.
 
+## 0.3.22
+
+- L’eccezione manuale eBay riconosce il CAP estero riportato all’inizio dell’indirizzo quando la fattura Aruba usa il segnaposto FatturaPA `00000`, senza scambiarlo per un secondo civico.
+- Paese, civico, identità personale, data, totale, riferimento FPR e unicità del documento restano obbligatori e auditati.
+
 ## 0.3.20
 
 - La riconciliazione storica eBay può registrare un’eccezione manuale esplicita quando l’identificativo fiscale ricevuto dal marketplace è discordante ma identità personale, civico, Paese, data, totale, riferimento FPR e unicità del documento coincidono.

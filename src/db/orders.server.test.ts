@@ -2931,6 +2931,82 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         manual_review_approved: "true",
       },
     );
+    const foreignPostalCodeEbay = structuredClone(ebayWithoutReference);
+    foreignPostalCodeEbay.externalOrderId = "ebay-order-historical-foreign-postal-code";
+    foreignPostalCodeEbay.externalCustomerId = "ebay-customer-historical-foreign-postal-code";
+    foreignPostalCodeEbay.displayNumber = "26-12345-67933";
+    foreignPostalCodeEbay.createdAt = "2026-07-28T19:48:00Z";
+    foreignPostalCodeEbay.updatedAt = "2026-07-28T19:49:00Z";
+    foreignPostalCodeEbay.customer.kind = "EU";
+    foreignPostalCodeEbay.customer.displayName = "Răzvan-Mihail Dragoș";
+    foreignPostalCodeEbay.customer.firstName = "Răzvan-Mihail";
+    foreignPostalCodeEbay.customer.lastName = "Dragoș";
+    foreignPostalCodeEbay.customer.taxIdentifiers = [];
+    foreignPostalCodeEbay.customer.billingAddress = {
+      line1: "Bvd. Ferdinand I, Nr. 60, Et. 2, Ap. 3",
+      postalCode: "021383",
+      city: "Bucuresti Sectorul 2",
+      province: "Bucuresti",
+      countryCode: "RO",
+    };
+    foreignPostalCodeEbay.total = "93.85";
+    foreignPostalCodeEbay.lines[0].grossAmount = "93.85";
+    foreignPostalCodeEbay.lines[0].externalLineId = "ebay-line-historical-foreign-postal-code";
+    foreignPostalCodeEbay.payments[0].amount = "93.85";
+    foreignPostalCodeEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-foreign-postal-code";
+    await orders.importOrders([foreignPostalCodeEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-foreign-postal-code",
+    });
+    const foreignPostalCodeEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          foreignPostalCodeEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const foreignPostalCodeInvoice = Buffer.from(
+      ebayInvoiceWithoutReference
+        .toString()
+        .replace("FPR 0020/26", "FPR 0033/26")
+        .replace("<Data>2026-08-19</Data>", "<Data>2026-07-28</Data>")
+        .replaceAll("75.00", "93.85")
+        .replace(
+          '<CessionarioCommittente xmlns="">\n      <DatiAnagrafici>\n        <CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>',
+          '<CessionarioCommittente xmlns="">\n      <DatiAnagrafici>',
+        )
+        .replace("<Nome>Mario</Nome>", "<Nome>MIHAIL</Nome>")
+        .replace("<Cognome>Rossi</Cognome>", "<Cognome>RAZVAN</Cognome>")
+        .replace(
+          "<Indirizzo>Via Cliente 2</Indirizzo>",
+          "<Indirizzo>021383 BVD FERDNAND I 60</Indirizzo><NumeroCivico>60</NumeroCivico>",
+        )
+        .replace("<CAP>00100</CAP>", "<CAP>00000</CAP>")
+        .replace("<Comune>Roma</Comune>", "<Comune>BUCARESTI</Comune>")
+        .replace(
+          "<Provincia>RM</Provincia>\n        <Nazione>IT</Nazione>",
+          "<Nazione>RO</Nazione>",
+        ),
+    );
+    await orders.reconcileHistoricalOrder(
+      foreignPostalCodeEbayId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0033/26 verificato manualmente",
+        invoiceXml: foreignPostalCodeInvoice,
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-approve-foreign-postal-code" },
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT trigger_status FROM orders WHERE id = $1", [foreignPostalCodeEbayId])
+      ).rows[0].trigger_status,
+      "INVOICED",
+    );
     const internalStreetKindEbay = structuredClone(ebayWithoutReference);
     internalStreetKindEbay.externalOrderId = "ebay-order-historical-internal-street-kind";
     internalStreetKindEbay.externalCustomerId = "ebay-customer-historical-internal-street-kind";
@@ -4367,7 +4443,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "23",
+      "24",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
