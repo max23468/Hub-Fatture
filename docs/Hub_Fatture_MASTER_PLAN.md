@@ -3211,6 +3211,8 @@ di un marketplace diverso o qualsiasi collisione mantiene l'ordine non riconcili
 
 Per registrare l'esito “già fatturato”, acquisire anche l'XML ufficiale della fattura Aruba, verificarne profilo, numero e riferimento all'ordine quando presente oppure l'insieme univoco delle altre prove, quindi conservarlo come documento storico immutabile. La sola nota testuale non chiude il confronto quando esistono rimborsi post-emissione, perché la TD04 deve riferire la fattura originaria.
 
+La modalità di pagamento presente nell'XML è documentale: validarla fra i valori supportati e conservarla sul documento storico, senza confonderla con il metodo predefinito del profilo fiscale né con la regola separata sulle commissioni del marketplace.
+
 Il confronto dell'importo usa il totale fatturabile canonico: per Shopify Payments, con modalità `Sottrai`, equivale al totale ordine meno la somma delle sole `OrderTransaction.fees.amount` riuscite e validate; per ogni altro metodo equivale al totale ordine. Eventuali rimborsi completati prima della fattura vengono sottratti successivamente. Un importo Aruba diverso resta non riconciliato e quindi non approvabile.
 
 ---
