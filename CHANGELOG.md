@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.21
+
+- Le preparazioni bloccate da un aggiornamento dell’ordine mostrano il confronto leggibile fra i dati precedenti e quelli correnti e richiedono una conferma esplicita prima di chiudere il controllo.
+- La conferma rimuove soltanto il conflitto sorgente, conserva anomalie indipendenti e registra una ricevuta auditata per ogni ordine verificato.
+- Le bozze già salvate vengono riconciliate atomicamente con i nuovi importi, preservando le personalizzazioni manuali e impedendo l’approvazione di una proiezione obsoleta.
+
 ## 0.3.20
 
 - La riconciliazione storica eBay può registrare un’eccezione manuale esplicita quando l’identificativo fiscale ricevuto dal marketplace è discordante ma identità personale, civico, Paese, data, totale, riferimento FPR e unicità del documento coincidono.
