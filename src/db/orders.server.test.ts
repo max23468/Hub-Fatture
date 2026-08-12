@@ -3233,6 +3233,23 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euPersonalEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Il civico incorporato nell’indirizzo XML è discordante",
+          invoiceXml: Buffer.from(
+            euPersonalInvoice
+              .toString()
+              .replace("Avenue Martin des Fleurs", "34 Avenue Martin des Fleurs"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-conflicting-eu-embedded-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       duplicateEuPersonalEbayId,
       {
@@ -3273,7 +3290,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     euAddressWithUnitEbay.customer.displayName = "Ana Maria Popescu";
     euAddressWithUnitEbay.customer.canonicalProfile = { displayName: "Ana Maria Popescu" };
     euAddressWithUnitEbay.customer.billingAddress = {
-      line1: "Strada Jardin Bleu 14 bloc 2 ap 7",
+      line1: "Strada Jardin Bleu 14 apt 12/B",
       postalCode: "10000",
       city: "Bucarest",
       province: "EE",
@@ -3316,7 +3333,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           invoiceXml: Buffer.from(
             euAddressWithUnitInvoice
               .toString()
-              .replace("Strada Jardin Bleu", "Avenue Rouge Vert bloc 3 ap 9"),
+              .replace("Strada Jardin Bleu", "Avenue Rouge Bleu apt 12/B"),
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-unit-markers-as-street" },
@@ -3333,7 +3350,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           invoiceXml: Buffer.from(
             euAddressWithUnitInvoice
               .toString()
-              .replace("<NumeroCivico>14</NumeroCivico>", "<NumeroCivico>7</NumeroCivico>"),
+              .replace("<NumeroCivico>14</NumeroCivico>", "<NumeroCivico>12</NumeroCivico>"),
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-unit-identifier-as-civic" },

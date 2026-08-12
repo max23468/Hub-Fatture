@@ -297,13 +297,8 @@ function withoutAddressPart(tokens: string[], value: unknown) {
 }
 
 function withoutAddressUnits(tokens: string[]) {
-  const excludedIndexes = new Set<number>();
-  tokens.forEach((token, index) => {
-    if (!addressUnitMarkers.has(token)) return;
-    excludedIndexes.add(index);
-    if (/^[\p{L}\p{N}]+$/u.test(tokens[index + 1] ?? "")) excludedIndexes.add(index + 1);
-  });
-  return tokens.filter((_, index) => !excludedIndexes.has(index));
+  const unitTailIndex = tokens.findIndex((token) => addressUnitMarkers.has(token));
+  return unitTailIndex === -1 ? tokens : tokens.slice(0, unitTailIndex);
 }
 
 function distinctiveStreetTokens(
@@ -351,30 +346,38 @@ function streetKind(address: unknown, streetNumber: unknown, postalCode: unknown
   ).find((token) => streetKindTokens.has(token));
 }
 
+function structuredStreetNumberCandidates(address: unknown, postalCode: unknown) {
+  const addressParts = withoutAddressUnits(
+    withoutAddressPart(normalizedAddressTokens(address), postalCode),
+  );
+  const candidates = new Set<string>();
+  const addCandidate = (parts: string[]) => {
+    if (/^\d/u.test(parts[0] ?? "")) candidates.add(parts.join(""));
+  };
+  addCandidate(addressParts.slice(0, 1));
+  addCandidate(addressParts.slice(0, 2));
+  addCandidate(addressParts.slice(-1));
+  addCandidate(addressParts.slice(-2));
+  return candidates;
+}
+
 function containsStructuredStreetNumber(
   address: unknown,
   streetNumber: unknown,
   postalCode: unknown,
 ) {
   const expected = compactAddressPart(streetNumber);
-  const addressParts = withoutAddressPart(normalizedAddressTokens(address), postalCode);
-  if (!expected) return false;
-  return addressParts.some((part, index) => {
-    const matchLength =
-      part === expected ? 1 : `${part}${addressParts[index + 1] ?? ""}` === expected ? 2 : 0;
-    if (!matchLength) return false;
-    if (index > 0 && addressUnitMarkers.has(addressParts[index - 1]!)) return false;
-    const endIndex = index + matchLength;
-    if (index === 0 || endIndex === addressParts.length) return true;
-    const unitTail = addressParts.slice(endIndex);
-    return (
-      unitTail.length >= 2 &&
-      unitTail.length % 2 === 0 &&
-      unitTail.every((token, tailIndex) =>
-        tailIndex % 2 === 0 ? addressUnitMarkers.has(token) : /^[\p{L}\p{N}]+$/u.test(token),
-      )
-    );
-  });
+  return Boolean(expected && structuredStreetNumberCandidates(address, postalCode).has(expected));
+}
+
+function hasConflictingStructuredStreetNumber(
+  address: unknown,
+  streetNumber: unknown,
+  postalCode: unknown,
+) {
+  const expected = compactAddressPart(streetNumber);
+  const candidates = structuredStreetNumberCandidates(address, postalCode);
+  return Boolean(expected && candidates.size > 0 && !candidates.has(expected));
 }
 
 function hasSupportingAddressEvidence(
@@ -409,6 +412,11 @@ function hasSupportingAddressEvidence(
         customerAddress.line1,
         recipientAddress.streetNumber,
         customerAddress.postalCode,
+      ) ||
+      hasConflictingStructuredStreetNumber(
+        recipientAddress.line1,
+        recipientAddress.streetNumber,
+        recipientAddress.postalCode,
       )
     ) {
       return false;
