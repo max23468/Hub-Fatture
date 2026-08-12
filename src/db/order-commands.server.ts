@@ -64,10 +64,24 @@ function hasOrderReference(references: string[], provider: string, displayNumber
   });
 }
 
-function hasMarketplaceMarker(references: string[]) {
+function hasIncompatibleMarketplaceMarker(references: string[], provider: "SHOPIFY" | "EBAY") {
+  const expected = provider.toLowerCase();
   return references.some((reference) =>
-    /(^|[^\p{L}\p{N}])(ebay|shopify)(?=$|[^\p{L}\p{N}])/iu.test(reference),
+    Array.from(
+      reference.matchAll(/(^|[^\p{L}\p{N}])(ebay|shopify)(?=$|[^\p{L}\p{N}])/giu),
+      (match) => match[2]!.toLowerCase(),
+    ).some((marker) => marker !== expected),
   );
+}
+
+function hasConflictingMarketplaceReference(references: string[], provider: "SHOPIFY" | "EBAY") {
+  if (hasIncompatibleMarketplaceMarker(references, provider)) return true;
+  const providerPattern = provider === "SHOPIFY" ? "shopify" : "ebay";
+  const numericReference = new RegExp(
+    `(^|[^\\p{L}\\p{N}])${providerPattern}(?=$|[^\\p{L}\\p{N}])[^\\r\\n]{0,64}\\d`,
+    "iu",
+  );
+  return references.some((reference) => numericReference.test(reference));
 }
 
 function attributedInvoiceAmount(
@@ -145,9 +159,11 @@ type ImportedHistoricalInvoice = ReturnType<typeof acceptedInvoiceFromXml>;
 
 interface HistoricalInvoiceCandidate {
   id: string;
+  provider: "SHOPIFY" | "EBAY";
   customer_snapshot: Record<string, unknown>;
   local_order_date: string;
   gross_amount: number;
+  billable_amount: number;
   tax_identifiers: Array<{
     type: string;
     value: string;
@@ -189,24 +205,23 @@ function expectedHistoricalInvoiceAmount(
     return null;
   }
   const amount =
-    candidate.gross_amount -
+    (candidate.provider === "SHOPIFY" ? candidate.billable_amount : candidate.gross_amount) -
     candidate.refunds
       .filter((refund) => refund.status === "COMPLETED" && refund.completed_date! < documentDate)
       .reduce((sum, refund) => sum + refund.amount!, 0);
   return amount >= 0 ? amount : null;
 }
 
-async function uniquelyMatchesUnreferencedEbayInvoice(
+async function uniquelyMatchesUnreferencedMarketplaceInvoice(
   client: pg.PoolClient,
   currentId: string,
   invoice: ImportedHistoricalInvoice,
   invoiceTaxIdentifiers: Set<string>,
 ) {
-  if (hasMarketplaceMarker(invoice.references)) return false;
   const candidates = await client.query<HistoricalInvoiceCandidate>(
-    `SELECT orders.id,
+    `SELECT orders.id, orders.provider,
             orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
-            orders.local_order_date::text, orders.gross_amount,
+            orders.local_order_date::text, orders.gross_amount, orders.billable_amount,
             coalesce((
               SELECT jsonb_agg(jsonb_build_object(
                 'type', order_tax_identifiers.type,
@@ -242,6 +257,7 @@ async function uniquelyMatchesUnreferencedEbayInvoice(
   );
   const matches = candidates.rows.filter(
     (candidate) =>
+      !hasConflictingMarketplaceReference(invoice.references, candidate.provider) &&
       invoice.documentDate >= candidate.local_order_date &&
       expectedHistoricalInvoiceAmount(candidate, invoice.documentDate) === invoice.totalAmount &&
       matchesHistoricalRecipient(candidate, invoice, invoiceTaxIdentifiers),
@@ -586,16 +602,15 @@ export async function reconcileHistoricalOrder(
       const hasExplicitHistoricalOrderReference = importedInvoice
         ? hasOrderReference(importedInvoice.references, current.provider, current.display_number)
         : false;
-      const usesUnreferencedEbayFallback = Boolean(
+      const usesUnreferencedMarketplaceFallback = Boolean(
         importedInvoice &&
-        current.provider === "EBAY" &&
         !hasExplicitHistoricalOrderReference &&
-        !hasMarketplaceMarker(importedInvoice.references),
+        !hasConflictingMarketplaceReference(importedInvoice.references, current.provider),
       );
       const historicalInvoiceAmount = importedInvoice
         ? hasExplicitHistoricalOrderReference
           ? attributedInvoiceAmount(importedInvoice, current.provider, current.display_number)
-          : usesUnreferencedEbayFallback
+          : usesUnreferencedMarketplaceFallback
             ? importedInvoice.totalAmount
             : null
         : null;
@@ -646,9 +661,9 @@ export async function reconcileHistoricalOrder(
           "SELECT version, profile_json FROM fiscal_profiles WHERE status IN ('MOCK', 'AUDITED')",
         );
         const profile = fiscalProfileSchema.safeParse(activeProfile.rows[0]?.profile_json);
-        const unreferencedEbayMatch =
-          importedInvoice && usesUnreferencedEbayFallback
-            ? await uniquelyMatchesUnreferencedEbayInvoice(
+        const unreferencedMarketplaceMatch =
+          importedInvoice && usesUnreferencedMarketplaceFallback
+            ? await uniquelyMatchesUnreferencedMarketplaceInvoice(
                 client,
                 current.id,
                 importedInvoice,
@@ -661,7 +676,7 @@ export async function reconcileHistoricalOrder(
           !archivedInvoice ||
           !invoicePath ||
           importedInvoice.documentDate < current.local_order_date ||
-          (!hasExplicitHistoricalOrderReference && !unreferencedEbayMatch) ||
+          (!hasExplicitHistoricalOrderReference && !unreferencedMarketplaceMatch) ||
           !matchesHistoricalRecipient(current, importedInvoice, importedTaxIdentifiers) ||
           JSON.stringify(fiscalContract(profile.data)) !==
             JSON.stringify(fiscalContract(importedInvoice.profile))
@@ -685,7 +700,7 @@ export async function reconcileHistoricalOrder(
         ) {
           throw new AppError("ORDER_HISTORY_INVOICE_INVALID", 422);
         }
-        if (previous && usesUnreferencedEbayFallback) {
+        if (previous && usesUnreferencedMarketplaceFallback) {
           const linkedOrders = await client.query(
             `SELECT order_id FROM document_orders
              WHERE document_id = $1 AND document_kind = 'INVOICE'
