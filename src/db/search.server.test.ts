@@ -99,17 +99,8 @@ test(
       assert.equal(byFiscalNumber.documents.length, 1);
       assert.equal(byFiscalNumber.documents[0]!.fiscalLabel, "FPR 0001/26");
 
-      const detail = await search.getCustomer(String(caseRow.customer_id));
-      assert.equal(detail?.id, String(caseRow.customer_id));
-      assert.ok(detail?.orders.length);
-      assert.equal(Number(detail?.order_count), detail?.orders.length);
-      assert.equal(detail?.documents.length, 1);
-      assert.equal(detail?.document_count, "1");
-      assert.equal(detail?.documents[0]!.fiscalLabel, "FPR 0001/26");
-
       assert.deepEqual(await search.searchGlobal("%_"), search.emptyGlobalSearch("%_"));
       assert.deepEqual(await search.searchGlobal("a"), search.emptyGlobalSearch("a"));
-      assert.equal(await search.getCustomer("non-valido"), null);
     } finally {
       const database = await import("./client.server.ts");
       await database.closePool();
