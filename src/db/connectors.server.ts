@@ -374,10 +374,23 @@ export async function enqueueJob(type: JobType, payload: Record<string, unknown>
 export async function enqueueEbayHistory(startDate: string, mode: "PREVIEW" | "IMPORT") {
   await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
+    const connection = await client.query<{ account_reference: string }>(
+      `SELECT account_reference FROM connections
+       WHERE provider = 'EBAY' AND environment = $1
+       FOR SHARE`,
+      [activeEnvironment("EBAY")],
+    );
+    if (!connection.rows[0]) throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
     await client.query(
       `INSERT INTO jobs (type, payload_json)
        VALUES ('ebay_preview_history', $1) ON CONFLICT DO NOTHING`,
-      [JSON.stringify({ startDate, mode })],
+      [
+        JSON.stringify({
+          startDate,
+          mode,
+          accountReference: connection.rows[0].account_reference,
+        }),
+      ],
     );
   });
 }

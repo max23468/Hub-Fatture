@@ -501,6 +501,16 @@ export async function importEbayHistory(
 ) {
   const completed = job ? await completedHistoryImportResult("EBAY", job) : null;
   if (completed) return completed;
+  if (job) {
+    const expectedAccount = job.payload.accountReference;
+    const currentAccount = await loadConnection<unknown>("EBAY");
+    if (
+      typeof expectedAccount !== "string" ||
+      currentAccount.accountReference !== expectedAccount
+    ) {
+      return { count: 0, reviewRequired: 0, imported: 0, updated: 0, ignored: 0 };
+    }
+  }
   if (!(await historyImportPending("EBAY"))) throw new AppError("CONFLICT_REVISION", 409);
   const { connection, end, orders } = await ebayHistory(startDate);
   const reviewRequired = orders.filter((order) => order.refunds.length).length;

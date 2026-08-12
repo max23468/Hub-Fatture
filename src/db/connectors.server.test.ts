@@ -208,8 +208,32 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
     );
     await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    const staleHistoryJob = await connectors.claimJob("worker-history-stale");
+    assert.deepEqual(staleHistoryJob?.payload, {
+      startDate: "2026-08-05",
+      mode: "IMPORT",
+      accountReference: "sandbox-sostitutiva",
+    });
+    await getPool().query(
+      `UPDATE connections SET account_reference = 'sandbox-risultante'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+    );
+    const { importEbayHistory } = await import("../integrations/ebay.server.ts");
+    assert.deepEqual(
+      await importEbayHistory(
+        "2026-08-05",
+        { type: "SYSTEM", requestId: `ebay-history:${staleHistoryJob!.id}` },
+        staleHistoryJob!,
+      ),
+      { count: 0, reviewRequired: 0, imported: 0, updated: 0, ignored: 0 },
+    );
+    assert.equal(await connectors.historyImportPending("EBAY"), true);
+    assert.equal(await connectors.completeJob(staleHistoryJob!), true);
+    await getPool().query("DELETE FROM jobs WHERE id = $1", [staleHistoryJob!.id]);
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
     const historyJob = await connectors.claimJob("worker-history-import");
     assert.equal(historyJob?.type, "ebay_preview_history");
+    assert.equal(historyJob?.payload.accountReference, "sandbox-risultante");
     assert.deepEqual(
       await importOrders(
         [],
@@ -217,7 +241,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         historyJob!,
         {
           provider: "EBAY",
-          accountReference: "sandbox-sostitutiva",
+          accountReference: "sandbox-risultante",
           cursor: "2026-08-12T11:00:00Z",
           overlapFrom: "2026-08-12T10:55:00Z",
           count: 0,
@@ -506,7 +530,11 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     const previewJob = await connectors.claimJob("worker-preview");
     assert.equal(previewJob?.type, "ebay_preview_history");
-    assert.deepEqual(previewJob?.payload, { startDate: "2026-08-05", mode: "IMPORT" });
+    assert.deepEqual(previewJob?.payload, {
+      startDate: "2026-08-05",
+      mode: "IMPORT",
+      accountReference: "sandbox-risultante",
+    });
     await connectors.completeJob(previewJob!, {
       count: 3,
       reviewRequired: 1,
