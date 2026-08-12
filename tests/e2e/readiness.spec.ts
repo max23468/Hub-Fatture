@@ -653,7 +653,6 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
         .replace("FPR 0001/26", "FPR 9010/26")
         .replace("#1001", "#RC-HISTORY")
-        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
         .replaceAll("123.45", "122.00"),
     ),
   });
