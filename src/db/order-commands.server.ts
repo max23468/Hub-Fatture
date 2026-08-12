@@ -150,25 +150,26 @@ function hasSupportingAddressEvidence(
   customerAddress: Record<string, unknown>,
   recipientAddress: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"]["address"],
 ) {
-  const matchingParts = [
-    sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode),
-    sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city),
-    sameNonEmptyIdentityPart(customerAddress.province, recipientAddress.province),
-    sharesStreetName(customerAddress.line1, recipientAddress.line1),
-  ];
+  const samePostalCode = sameNonEmptyIdentityPart(
+    customerAddress.postalCode,
+    recipientAddress.postalCode,
+  );
+  const sameCity = sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city);
+  const sameStreetName = sharesStreetName(customerAddress.line1, recipientAddress.line1);
   if (recipientAddress.streetNumber) {
     return (
       containsStructuredStreetNumber(
         customerAddress.line1,
         recipientAddress.streetNumber,
         customerAddress.postalCode,
-      ) && matchingParts.some(Boolean)
+      ) &&
+      (sameStreetName || (samePostalCode && sameCity))
     );
   }
   return (
     sameNonEmptyIdentityPart(customerAddress.line1, recipientAddress.line1) &&
-    sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode) &&
-    sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city)
+    samePostalCode &&
+    sameCity
   );
 }
 
