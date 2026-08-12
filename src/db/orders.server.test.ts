@@ -2592,6 +2592,71 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ],
     );
 
+    const firstDraftHistorical = structuredClone(fixture[0]);
+    firstDraftHistorical.externalOrderId = "shop-order-historical-refund-first-draft";
+    firstDraftHistorical.displayNumber = "#HISTORICAL-REFUND-FIRST-DRAFT";
+    firstDraftHistorical.createdAt = "2026-09-02T08:00:00Z";
+    firstDraftHistorical.updatedAt = "2026-09-02T09:00:00Z";
+    firstDraftHistorical.historical = true;
+    firstDraftHistorical.payments[0].externalPaymentId = "historical-refund-first-draft-payment";
+    firstDraftHistorical.refunds = [
+      {
+        externalRefundId: "historical-refund-first-draft",
+        status: "COMPLETED",
+        amount: "10.00",
+        completedAt: "2026-09-02T09:00:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([firstDraftHistorical], {
+      id: 1,
+      requestId: "test-historical-refund-first-draft-import",
+    });
+    const firstDraftHistoricalId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          firstDraftHistorical.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const firstDraftReconciliation = await orders.reconcileHistoricalOrder(
+      firstDraftHistoricalId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ricerca Aruba senza documento per prima bozza netta",
+      },
+      { id: 1, requestId: "test-historical-refund-first-draft-reconcile" },
+    );
+    const documents = await import("./documents.server.ts");
+    const firstProjection = await documents.getInvoiceProjection(firstDraftReconciliation!.caseId!);
+    assert.ok(firstProjection && !firstProjection.profileMissing && "lines" in firstProjection);
+    assert.equal(firstProjection.sourceTotal, 11_200);
+    assert.equal(firstProjection.lines[0]!.unitAmount, 11_200);
+    await documents.saveInvoiceDraft(
+      firstDraftReconciliation!.caseId!,
+      {
+        caseRevision: firstProjection.caseRevision,
+        draftVersion: firstProjection.draftVersion,
+        differenceReason: "",
+        paymentStatus: firstProjection.paymentStatus,
+        paymentMethod: firstProjection.paymentMethod,
+        causale: firstProjection.causale,
+        notes: firstProjection.notes,
+        lines: firstProjection.lines,
+      },
+      { id: 1, canApprove: true, requestId: "test-historical-refund-first-draft-save" },
+    );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT document_orders.amount FROM document_orders
+           WHERE document_orders.order_id = $1`,
+          [firstDraftHistoricalId],
+        )
+      ).rows[0].amount,
+      11_200,
+    );
+
     await database.closePool();
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());
