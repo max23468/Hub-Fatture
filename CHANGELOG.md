@@ -1,15 +1,21 @@
 # Changelog
 
-## 0.3.6
+## 0.3.7
 
 - La riconciliazione storica eBay collega gli XML Aruba privi di riferimento marketplace soltanto quando data, totale e destinatario identificano un candidato univoco nell’intero storico.
 - Per destinatari senza identificativo fiscale sono richiesti identità completa e indirizzo coerente; l’ordine dei token resta flessibile soltanto per nome e cognome di persona, mentre ragioni sociali, omonimi e rimborsi ambigui restano prudenzialmente bloccati.
 - I metodi di pagamento storici MP01, MP05 e MP08 vengono conservati senza modificare il profilo fiscale attivo; lo stesso documento non può essere riutilizzato su ordini diversi.
 
-## 0.3.5
+## 0.3.6
 
 - Gli ordini eBay recuperano l'identificativo fiscale con il marketplace corretto; Shopify usa come ultimo fallback un unico CF o P.IVA italiana presente nel campo interno dell'indirizzo di fatturazione.
 - Dopo il deploy, gli ordini già importati vengono riallineati automaticamente tramite il normale import idempotente, senza duplicati.
+- Il nome Hub Fatture resta su una sola riga e accompagna apertura e chiusura della sidebar desktop con una transizione coordinata di larghezza e opacità.
+- Corretto il ritorno a capo istantaneo che compariva perché il nome tornava visibile prima che la sidebar avesse recuperato una larghezza sufficiente.
+- Il pulsante di ricerca non mostra più il badge della scorciatoia da tastiera; la scorciatoia resta disponibile senza occupare spazio nell'interfaccia.
+
+## 0.3.5
+
 - Pubblicazione proporzionata all'impatto delle modifiche, con classificazione conservativa e verifiche indipendenti eseguite in parallelo.
 - Deploy Production escluso per modifiche prive di impatto runtime, vincolato ai check cumulativi non mascherabili da no-op e registrato sul commit realmente installato.
 - Immagine Production costruita, analizzata e attestata una sola volta, poi riutilizzata dal deploy senza ricostruzioni divergenti.
