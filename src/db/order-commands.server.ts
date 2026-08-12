@@ -206,18 +206,19 @@ function customerIdentityNames(customer: Record<string, unknown>, business: bool
     customer.canonicalProfile && typeof customer.canonicalProfile === "object"
       ? (customer.canonicalProfile as Record<string, unknown>)
       : {};
-  const typedNames = business
-    ? [customer.companyName, canonical.companyName]
-    : [
-        [customer.firstName, customer.lastName].filter(Boolean).join(" "),
-        [canonical.firstName, canonical.lastName].filter(Boolean).join(" "),
-      ];
-  const normalizedTypedNames = typedNames.filter((value) => normalizedIdentityPart(value));
-  return normalizedTypedNames.length > 0
-    ? normalizedTypedNames
-    : [customer.displayName, canonical.displayName].filter((value) =>
-        normalizedIdentityPart(value),
-      );
+  const businessNames = [customer.companyName, canonical.companyName].filter((value) =>
+    normalizedIdentityPart(value),
+  );
+  const personalNames = [
+    [customer.firstName, customer.lastName].filter(Boolean).join(" "),
+    [canonical.firstName, canonical.lastName].filter(Boolean).join(" "),
+  ].filter((value) => normalizedIdentityPart(value));
+  const typedNames = business ? businessNames : personalNames;
+  if (typedNames.length > 0) return typedNames;
+  if ((business ? personalNames : businessNames).length > 0) return [];
+  return [customer.displayName, canonical.displayName].filter((value) =>
+    normalizedIdentityPart(value),
+  );
 }
 
 function matchesRecipientWithoutTaxId(

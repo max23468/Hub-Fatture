@@ -2562,6 +2562,26 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedBusinessEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba personale con token della società riordinati",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0023/26")
+              .replaceAll("75.00", "77.00")
+              .replace("<Nome>Mario</Nome>", "<Nome>Beta</Nome>")
+              .replace("<Cognome>Rossi</Cognome>", "<Cognome>Alfa Srl</Cognome>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-business-as-person" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       reorderedBusinessEbayId,
       {
