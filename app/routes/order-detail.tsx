@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/order-detail";
 
@@ -83,6 +84,7 @@ function OrderStatusActions({
   canApprove: boolean;
   csrfToken: string;
 }) {
+  const [historicalOutcome, setHistoricalOutcome] = useState("");
   const needsInvoiceAttachment =
     order.historical_reconciliation_outcome === "ALREADY_INVOICED" && !order.historical_invoice_id;
   return (
@@ -102,7 +104,12 @@ function OrderStatusActions({
             ) : (
               <label>
                 {copy.orderDetail.historyOutcome}
-                <select name="outcome" required defaultValue="">
+                <select
+                  name="outcome"
+                  required
+                  value={historicalOutcome}
+                  onChange={(event) => setHistoricalOutcome(event.currentTarget.value)}
+                >
                   <option value="" disabled>
                     Seleziona un esito
                   </option>
@@ -129,7 +136,7 @@ function OrderStatusActions({
                 name="invoiceXml"
                 type="file"
                 accept="application/xml,text/xml,.xml"
-                required={needsInvoiceAttachment}
+                required={needsInvoiceAttachment || historicalOutcome === "ALREADY_INVOICED"}
               />
             </label>
             <button className="button" type="submit">

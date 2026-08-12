@@ -493,11 +493,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.goto("/ordini?vista=verificare");
   await expect(page.getByRole("heading", { name: "Ordini storici da riconciliare" })).toBeVisible();
   await page.getByRole("link", { name: /#RC-HISTORY/ }).click();
+  const historicalInvoiceInput = page.getByLabel(
+    "XML ufficiale della fattura Aruba, se già presente",
+  );
+  await expect(historicalInvoiceInput).not.toHaveAttribute("required", "");
   await page.getByLabel("Esito del confronto").selectOption("ALREADY_INVOICED");
+  await expect(historicalInvoiceInput).toHaveAttribute("required", "");
   await page
     .getByLabel("Riferimento verificato o motivazione")
     .fill("Documento Aruba FPR 9010/26 verificato");
-  await page.getByLabel("XML ufficiale della fattura Aruba, se già presente").setInputFiles({
+  await historicalInvoiceInput.setInputFiles({
     name: "fattura-storica.xml",
     mimeType: "application/xml",
     buffer: Buffer.from(
