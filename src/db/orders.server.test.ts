@@ -3069,6 +3069,66 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-short-italian-street" },
     );
+    const numericToponymEbay = structuredClone(ebayWithoutReference);
+    numericToponymEbay.externalOrderId = "ebay-order-historical-numeric-toponym";
+    numericToponymEbay.externalCustomerId = "ebay-customer-historical-numeric-toponym";
+    numericToponymEbay.displayNumber = "26-12345-67905";
+    numericToponymEbay.customer.billingAddress = {
+      line1: "Via 11 Settembre 10",
+      postalCode: "50100",
+      city: "Firenze",
+      province: "FI",
+      countryCode: "IT",
+    };
+    numericToponymEbay.total = "82.00";
+    numericToponymEbay.lines[0].grossAmount = "82.00";
+    numericToponymEbay.payments[0].amount = "82.00";
+    numericToponymEbay.payments[0].externalPaymentId = "ebay-payment-historical-numeric-toponym";
+    numericToponymEbay.lines[0].externalLineId = "ebay-line-historical-numeric-toponym";
+    await orders.importOrders([numericToponymEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-numeric-toponym",
+    });
+    const numericToponymEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          numericToponymEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        numericToponymEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Il numero nel toponimo non vale come civico",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0028/26")
+              .replaceAll("75.00", "82.00")
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via 11 Settembre 10</Indirizzo><NumeroCivico>11</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-numeric-toponym-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      numericToponymEbayId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ordine sintetico escluso dopo il controllo del civico",
+      },
+      { id: 1, canApprove: true, requestId: "test-clear-numeric-toponym" },
+    );
     const euPersonalEbay = structuredClone(ebayWithoutReference);
     euPersonalEbay.externalOrderId = "ebay-order-historical-eu-personal";
     euPersonalEbay.externalCustomerId = "ebay-customer-historical-eu-personal";
@@ -3180,6 +3240,55 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         invoiceXml: euPersonalInvoice,
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-eu-personal-subset" },
+    );
+    const euAddressWithUnitEbay = structuredClone(euPersonalEbay);
+    euAddressWithUnitEbay.externalOrderId = "ebay-order-historical-eu-address-with-unit";
+    euAddressWithUnitEbay.externalCustomerId = "ebay-customer-historical-eu-address-with-unit";
+    euAddressWithUnitEbay.displayNumber = "26-12345-67906";
+    euAddressWithUnitEbay.customer.displayName = "Ana Maria Popescu";
+    euAddressWithUnitEbay.customer.canonicalProfile = { displayName: "Ana Maria Popescu" };
+    euAddressWithUnitEbay.customer.billingAddress = {
+      line1: "Strada Jardin Bleu 14 bloc 2 ap 7",
+      postalCode: "10000",
+      city: "Bucarest",
+      province: "EE",
+      countryCode: "RO",
+    };
+    euAddressWithUnitEbay.total = "83.00";
+    euAddressWithUnitEbay.lines[0].grossAmount = "83.00";
+    euAddressWithUnitEbay.payments[0].amount = "83.00";
+    euAddressWithUnitEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-eu-address-with-unit";
+    euAddressWithUnitEbay.lines[0].externalLineId = "ebay-line-historical-eu-address-with-unit";
+    await orders.importOrders([euAddressWithUnitEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-eu-address-with-unit",
+    });
+    const euAddressWithUnitEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          euAddressWithUnitEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      euAddressWithUnitEbayId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba UE univoco con unità immobiliare dopo il civico",
+        invoiceXml: Buffer.from(
+          euPersonalInvoice
+            .toString()
+            .replace("FPR 0026/26", "FPR 0029/26")
+            .replaceAll("80.00", "83.00")
+            .replace("<Nome>Marie</Nome>", "<Nome>Ana</Nome>")
+            .replace("<Cognome>Dupont</Cognome>", "<Cognome>Popescu</Cognome>")
+            .replace("Avenue Martin des Fleurs", "Strada Jardin Bleu")
+            .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>14</NumeroCivico>")
+            .replace("<Nazione>FR</Nazione>", "<Nazione>RO</Nazione>"),
+        ),
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-eu-address-with-unit" },
     );
     const euBusinessEbay = structuredClone(euPersonalEbay);
     euBusinessEbay.externalOrderId = "ebay-order-historical-eu-business";
@@ -3834,7 +3943,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "18",
+      "20",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

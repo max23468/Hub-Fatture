@@ -239,6 +239,26 @@ const streetConnectorTokens = new Set([
   "the",
 ]);
 
+const addressUnitMarkers = new Set([
+  "bl",
+  "bloc",
+  "block",
+  "sc",
+  "scara",
+  "staircase",
+  "et",
+  "etaj",
+  "floor",
+  "ap",
+  "apt",
+  "apartment",
+  "apartament",
+  "unit",
+  "corp",
+  "building",
+  "camera",
+]);
+
 function normalizedAddressTokens(value: unknown) {
   return normalizedIdentityPart(value).split(" ").filter(Boolean);
 }
@@ -308,12 +328,22 @@ function containsStructuredStreetNumber(
 ) {
   const expected = compactAddressPart(streetNumber);
   const addressParts = withoutAddressPart(normalizedAddressTokens(address), postalCode);
-  return Boolean(
-    expected &&
-    addressParts.some(
-      (part, index) => part === expected || `${part}${addressParts[index + 1] ?? ""}` === expected,
-    ),
-  );
+  if (!expected) return false;
+  return addressParts.some((part, index) => {
+    const matchLength =
+      part === expected ? 1 : `${part}${addressParts[index + 1] ?? ""}` === expected ? 2 : 0;
+    if (!matchLength) return false;
+    const endIndex = index + matchLength;
+    if (index === 0 || endIndex === addressParts.length) return true;
+    const unitTail = addressParts.slice(endIndex);
+    return (
+      unitTail.length >= 2 &&
+      unitTail.length % 2 === 0 &&
+      unitTail.every((token, tailIndex) =>
+        tailIndex % 2 === 0 ? addressUnitMarkers.has(token) : /^[\p{L}\p{N}]+$/u.test(token),
+      )
+    );
+  });
 }
 
 function hasSupportingAddressEvidence(
