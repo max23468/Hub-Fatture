@@ -1,9 +1,11 @@
-import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
+import { data, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/documents";
 
 import { AppShell } from "../components/app-shell";
+import { DocumentsView } from "../components/documents-view";
+import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
-import { date, dateTime, euros } from "../format";
+import { dateTime } from "../format";
 import { ARUBA_IMPORT_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import {
@@ -16,20 +18,71 @@ import {
   listUnbatchedApprovedDocuments,
   retryArubaBatch,
 } from "../../src/db/aruba.server.ts";
-import { listDocuments } from "../../src/db/documents.server.ts";
+import { documentArchiveSummary, listDocuments } from "../../src/db/documents.server.ts";
 import { listEmailDeliveries, retryCustomerEmail } from "../../src/db/email.server.ts";
 import { publicError } from "../../src/errors.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
+import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
-  const [documents, batches, unbatched, officialFiles, emailDeliveries] = await Promise.all([
-    listDocuments(),
+  const requestedView = url.searchParams.get("vista") ?? "tutti";
+  const view = ["tutti", "fatture", "note-credito", "da-trasmettere", "da-riconciliare"].includes(
+    requestedView,
+  )
+    ? requestedView
+    : "tutti";
+  const requestedKind = url.searchParams.get("tipo") ?? "";
+  const requestedStatus = url.searchParams.get("stato") ?? "";
+  const requestedArubaStatus = url.searchParams.get("trasmissione") ?? "";
+  const requestedDateFrom = url.searchParams.get("dal") ?? "";
+  const requestedDateTo = url.searchParams.get("al") ?? "";
+  const parsedDateFrom = postgresDateSchema.safeParse(requestedDateFrom);
+  const parsedDateTo = postgresDateSchema.safeParse(requestedDateTo);
+  const allowedArubaStatuses = ["NOT_PREPARED", ...Object.keys(copy.documents.arubaBatchStatus)];
+  const kindByView: Record<string, "INVOICE" | "CREDIT_NOTE" | undefined> = {
+    fatture: "INVOICE",
+    "note-credito": "CREDIT_NOTE",
+  };
+  const transmissionByView: Record<string, "TO_SEND" | "RECONCILIATION_REQUIRED" | undefined> = {
+    "da-trasmettere": "TO_SEND",
+    "da-riconciliare": "RECONCILIATION_REQUIRED",
+  };
+  const transmission = transmissionByView[view];
+  const filters = {
+    query: url.searchParams.get("q")?.trim() ?? "",
+    kind:
+      kindByView[view] ??
+      (view === "tutti" && ["INVOICE", "CREDIT_NOTE"].includes(requestedKind) ? requestedKind : ""),
+    status: ["DRAFT", "APPROVED"].includes(requestedStatus) ? requestedStatus : "",
+    arubaStatus:
+      !transmission && allowedArubaStatuses.includes(requestedArubaStatus)
+        ? requestedArubaStatus
+        : "",
+    dateFrom: parsedDateFrom.success ? parsedDateFrom.data : "",
+    dateTo: parsedDateTo.success ? parsedDateTo.data : "",
+  };
+  const page = pageNumber(url.searchParams.get("pagina") ?? 1);
+  const [documents, summary, batches, unbatched] = await Promise.all([
+    listDocuments({
+      query: filters.query || undefined,
+      kind: filters.kind ? (filters.kind as "INVOICE" | "CREDIT_NOTE") : undefined,
+      status: filters.status ? (filters.status as "DRAFT" | "APPROVED") : undefined,
+      arubaStatus: filters.arubaStatus || undefined,
+      transmission,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
+      page,
+    }),
+    documentArchiveSummary(),
     listArubaBatches(),
     listUnbatchedApprovedDocuments(),
-    listOfficialArubaFiles(),
-    listEmailDeliveries(),
+  ]);
+  const documentIds = documents.rows.map((document) => document.id);
+  const [officialFiles, emailDeliveries] = await Promise.all([
+    listOfficialArubaFiles(documentIds),
+    listEmailDeliveries(documentIds),
   ]);
   return {
     username: user.username,
@@ -40,6 +93,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     unbatched,
     officialFiles,
     emailDeliveries,
+    filters,
+    page,
+    summary,
+    view,
     batchCreated: url.searchParams.get("batch") === "creato",
     fileImported: url.searchParams.get("file") === "importato",
   };
@@ -101,34 +158,6 @@ export async function action({ request }: Route.ActionArgs) {
   }
 }
 
-function ImportForm({ csrfToken, documentId }: { csrfToken: string; documentId: string }) {
-  return (
-    <details>
-      <summary>{copy.documents.importOfficial}</summary>
-      <Form className="section-gap" encType="multipart/form-data" method="post">
-        <input type="hidden" name="csrf" value={csrfToken} />
-        <input type="hidden" name="documentId" value={documentId} />
-        <label>
-          {copy.documents.fileType}
-          <select name="fileKind">
-            <option value="ARUBA_XML">XML Aruba</option>
-            <option value="ARUBA_P7M">P7M</option>
-            <option value="ARUBA_PDF">PDF</option>
-            <option value="SDI_NOTIFICATION">Notifica SdI</option>
-          </select>
-        </label>
-        <label>
-          {copy.documents.officialFile}
-          <input name="file" required type="file" />
-        </label>
-        <button className="button button--secondary" type="submit">
-          {copy.documents.importAction}
-        </button>
-      </Form>
-    </details>
-  );
-}
-
 export default function Documents() {
   const {
     username,
@@ -139,31 +168,51 @@ export default function Documents() {
     unbatched,
     officialFiles,
     emailDeliveries,
+    filters,
+    page,
+    summary,
+    view,
     batchCreated,
     fileImported,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const helper = actionData && "helper" in actionData ? actionData.helper : null;
   const error = actionData && "message" in actionData ? actionData.message : null;
-  const officialFilesByDocument = new Map<string, typeof officialFiles>();
-  const emailByDocument = new Map<string, (typeof emailDeliveries)[number]>();
-  for (const delivery of emailDeliveries) {
-    if (!emailByDocument.has(delivery.document_id)) {
-      emailByDocument.set(delivery.document_id, delivery);
-    }
-  }
-  for (const file of officialFiles) {
-    const current = officialFilesByDocument.get(file.document_id) ?? [];
-    current.push(file);
-    officialFilesByDocument.set(file.document_id, current);
-  }
+
   return (
-    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
+    <AppShell canApprove={canApprove} csrfToken={csrfToken} username={username}>
       <div className="title-block">
         <p className="eyebrow">{copy.documents.eyebrow}</p>
         <h1>{copy.documents.title}</h1>
         <p>{copy.documents.intro}</p>
       </div>
+      <ViewNavigation
+        active={view}
+        items={[
+          { label: copy.documents.all, to: "/documenti", value: "tutti" },
+          {
+            label: copy.documents.invoices,
+            to: "/documenti?vista=fatture",
+            value: "fatture",
+          },
+          {
+            label: copy.documents.creditNotes,
+            to: "/documenti?vista=note-credito",
+            value: "note-credito",
+          },
+          {
+            label: copy.documents.toSend,
+            to: "/documenti?vista=da-trasmettere",
+            value: "da-trasmettere",
+          },
+          {
+            label: copy.documents.toReconcile,
+            to: "/documenti?vista=da-riconciliare",
+            value: "da-riconciliare",
+          },
+        ]}
+        label={copy.documents.viewsLabel}
+      />
       {batchCreated ? (
         <p className="notice" role="status">
           {copy.documents.batchCreated}
@@ -175,7 +224,7 @@ export default function Documents() {
         </p>
       ) : null}
       {helper ? (
-        <section className="notice" aria-labelledby="helper-code" role="status">
+        <section aria-labelledby="helper-code" className="notice" role="status">
           <h2 id="helper-code">{copy.documents.helperCodeTitle}</h2>
           <p>{copy.documents.helperCodeHelp(dateTime(helper.expiresAt))}</p>
           <code className="code-block">{helper.token}</code>
@@ -186,195 +235,19 @@ export default function Documents() {
           {error}
         </p>
       ) : null}
-      {canApprove && unbatched.length ? (
-        <section className="card section-gap">
-          <h2>{copy.documents.manualBatchTitle}</h2>
-          <p>{copy.documents.manualBatchHelp}</p>
-          <Form method="post">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="create-aruba-batch" />
-            {unbatched.map((document) => (
-              <label className="checkbox-row" key={document.id}>
-                <input name="documentId" type="checkbox" value={document.id} />
-                {document.fiscal_label} · {document.customer_name} · {euros(document.total_amount)}
-              </label>
-            ))}
-            <button className="button section-gap" type="submit">
-              {copy.documents.createBatch}
-            </button>
-          </Form>
-        </section>
-      ) : null}
-      {documents.length ? (
-        <div className="table-wrap section-gap">
-          <table>
-            <thead>
-              <tr>
-                <th>{copy.documents.number}</th>
-                <th>{copy.documents.customer}</th>
-                <th>{copy.documents.date}</th>
-                <th>{copy.documents.total}</th>
-                <th>{copy.documents.status}</th>
-                <th>{copy.documents.arubaStatus}</th>
-                <th>{copy.documents.file}</th>
-                <th>E-mail</th>
-              </tr>
-            </thead>
-            <tbody>
-              {documents.map((document) => (
-                <tr key={document.id}>
-                  <td data-label={copy.documents.number}>
-                    <Link
-                      to={
-                        document.kind === "CREDIT_NOTE"
-                          ? `/documenti/${document.id}/nota`
-                          : document.origin === "ARUBA_HISTORY"
-                            ? `/ordini/${document.historical_order_id}`
-                            : `/ordini/preparazione/${document.billing_case_id}`
-                      }
-                    >
-                      {document.fiscal_label ?? copy.documents.draft}
-                    </Link>
-                  </td>
-                  <td data-label={copy.documents.customer}>{document.customer_name}</td>
-                  <td data-label={copy.documents.date}>{date(document.document_date)}</td>
-                  <td data-label={copy.documents.total}>{euros(document.total_amount)}</td>
-                  <td data-label={copy.documents.status}>
-                    {document.status === "APPROVED"
-                      ? copy.documents.approved
-                      : copy.documents.draft}
-                  </td>
-                  <td data-label={copy.documents.arubaStatus}>
-                    {document.origin === "ARUBA_HISTORY"
-                      ? copy.documents.arubaHistory
-                      : document.aruba_status
-                        ? (copy.documents.arubaBatchStatus[document.aruba_status] ??
-                          copy.common.unavailable)
-                        : copy.documents.notPrepared}
-                  </td>
-                  <td data-label={copy.documents.file}>
-                    {document.xml_sha256 ? (
-                      <>
-                        <a href={`/documenti/${document.id}/xml`}>{copy.documents.downloadXml}</a>
-                        {officialFilesByDocument.has(document.id) ? (
-                          <div>
-                            <strong>{copy.documents.archivedOfficialFiles}</strong>
-                            <ul className="plain-list">
-                              {officialFilesByDocument.get(document.id)?.map((file) => (
-                                <li key={file.id}>
-                                  <a href={`/documenti/${document.id}/aruba/${file.id}`}>
-                                    {copy.documents.officialFileKind[file.kind]}
-                                  </a>{" "}
-                                  · {dateTime(file.imported_at)}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-                        {canApprove && document.aruba_batch_id ? (
-                          <ImportForm csrfToken={csrfToken} documentId={document.id} />
-                        ) : null}
-                      </>
-                    ) : (
-                      copy.common.unavailable
-                    )}
-                  </td>
-                  <td data-label="E-mail">
-                    {emailByDocument.has(document.id)
-                      ? (copy.documents.emailStatus[emailByDocument.get(document.id)!.status] ??
-                        copy.common.unavailable)
-                      : "Non preparata"}
-                    {emailByDocument.get(document.id)?.last_error_code ===
-                    "EMAIL_DELIVERY_UNCERTAIN" ? (
-                      <p>{copy.documents.emailUncertain}</p>
-                    ) : null}
-                    {canApprove &&
-                    emailByDocument.has(document.id) &&
-                    emailByDocument.get(document.id)?.status !== "PENDING" ? (
-                      <Form method="post">
-                        <input type="hidden" name="csrf" value={csrfToken} />
-                        <input type="hidden" name="intent" value="retry-customer-email" />
-                        <input type="hidden" name="documentId" value={document.id} />
-                        {emailByDocument.get(document.id)?.last_error_code ===
-                        "EMAIL_DELIVERY_UNCERTAIN" ? (
-                          <label className="checkbox-row">
-                            <input name="confirmUncertain" required type="checkbox" value="yes" />
-                            {copy.documents.emailUncertainConfirmed}
-                          </label>
-                        ) : null}
-                        <button className="button button--secondary" type="submit">
-                          Prepara reinvio
-                        </button>
-                      </Form>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <section className="empty-state">
-          <h2>{copy.documents.empty}</h2>
-          <p>{copy.documents.emptyHelp}</p>
-          <Link className="button button--secondary" to="/ordini">
-            {copy.documents.openOrders}
-          </Link>
-        </section>
-      )}
-      {batches.length ? (
-        <section className="card section-gap">
-          <h2>{copy.documents.batchesTitle}</h2>
-          <p>{copy.documents.batchesHelp}</p>
-          <ul className="plain-list">
-            {batches.map((batch) => (
-              <li key={batch.id}>
-                <strong>{copy.documents.batchSummary(batch.document_count, batch.mode)}</strong>
-                <span>
-                  {copy.documents.arubaBatchStatus[batch.status] ?? copy.common.unavailable} ·{" "}
-                  {dateTime(batch.created_at)}
-                  {batch.last_readback_at
-                    ? ` · ${copy.documents.lastReadback(dateTime(batch.last_readback_at))}`
-                    : ""}
-                </span>
-                {canApprove && batch.status !== "CANCELLED" && !batch.can_retry ? (
-                  <Form method="post">
-                    <input type="hidden" name="csrf" value={csrfToken} />
-                    <input type="hidden" name="intent" value="issue-helper-token" />
-                    <input type="hidden" name="batchId" value={batch.id} />
-                    <button className="button button--secondary" type="submit">
-                      {copy.documents.issueHelperCode}
-                    </button>
-                  </Form>
-                ) : null}
-                {canApprove &&
-                batch.mode === "AUTOMATIC" &&
-                !batch.permit_consumed_at &&
-                ["PREPARED", "HELPER_ACTIVE", "VALIDATION_FAILED"].includes(batch.status) ? (
-                  <Form method="post">
-                    <input type="hidden" name="csrf" value={csrfToken} />
-                    <input type="hidden" name="intent" value="authorize-aruba-permit" />
-                    <input type="hidden" name="batchId" value={batch.id} />
-                    <button className="button button--secondary" type="submit">
-                      {copy.documents.authorizePermit}
-                    </button>
-                  </Form>
-                ) : null}
-                {canApprove && batch.can_retry ? (
-                  <Form method="post">
-                    <input type="hidden" name="csrf" value={csrfToken} />
-                    <input type="hidden" name="intent" value="retry-aruba-batch" />
-                    <input type="hidden" name="batchId" value={batch.id} />
-                    <button className="button button--secondary" type="submit">
-                      {copy.documents.retryBatch}
-                    </button>
-                  </Form>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <DocumentsView
+        batches={batches}
+        canApprove={canApprove}
+        csrfToken={csrfToken}
+        documents={documents}
+        emailDeliveries={emailDeliveries}
+        filters={filters}
+        officialFiles={officialFiles}
+        page={page}
+        summary={summary}
+        unbatched={unbatched}
+        view={view}
+      />
     </AppShell>
   );
 }

@@ -867,9 +867,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }),
   ).toHaveCount(0);
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
-  await expect(page.getByRole("cell", { name: "Approvata", exact: true })).toBeVisible();
+  const approvedDocument = page.locator(".document-row").filter({ hasText: "Approvato" }).first();
+  await expect(approvedDocument).toBeVisible();
+  await approvedDocument.locator(".document-row__tools > summary").click();
   const download = page.waitForEvent("download");
-  await page.getByRole("link", { name: "Scarica XML" }).click();
+  await approvedDocument.getByRole("link", { name: "Scarica XML" }).click();
   expect((await download).suggestedFilename()).toMatch(/\.xml$/);
 
   await page.getByRole("button", { name: "Genera codice di avvio" }).click();
@@ -1180,8 +1182,223 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   await page.reload();
   await expect(
-    page.locator(`a[href='/documenti/${noteId}/nota']`).locator("xpath=ancestor::tr"),
+    page.locator(".document-row").filter({
+      has: page.locator(`a[href='/documenti/${noteId}/nota']`),
+    }),
   ).toContainText("Inviata");
+});
+
+test("l’archivio Documenti resta leggibile con decine di elementi", async ({ page }) => {
+  test.setTimeout(120_000);
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  const existing = Number(
+    (await client.query<{ total: number }>("SELECT count(*)::integer AS total FROM documents"))
+      .rows[0]!.total,
+  );
+  const hasUsers = Number(
+    (await client.query<{ total: number }>("SELECT count(*)::integer AS total FROM users")).rows[0]!
+      .total,
+  );
+
+  try {
+    await client.query(
+      `INSERT INTO customers
+         (kind, match_key, display_name, billing_address_json,
+          source_confidence, review_required)
+       SELECT 'PRIVATE_IT', 'e2e-document-archive-' || series,
+              CASE WHEN series = 55
+                   THEN 'Laboratorio Artigianale Internazionale con una denominazione volutamente molto lunga'
+                   ELSE 'Cliente archivio E2E ' || lpad(series::text, 2, '0') END,
+              '{}', 'TAX_ID', false
+       FROM generate_series(1, 55) AS series`,
+    );
+    await client.query(
+      `INSERT INTO billing_cases
+         (customer_id, local_order_date, currency, status, customer_snapshot_json)
+       SELECT id, '2026-06-01'::date + row_number() OVER (ORDER BY id)::integer,
+              'EUR', 'READY', jsonb_build_object('displayName', display_name)
+       FROM customers
+       WHERE match_key LIKE 'e2e-document-archive-%'`,
+    );
+    await client.query(
+      `INSERT INTO documents
+         (billing_case_id, kind, status, document_type, series, document_date,
+          fiscal_profile_version, currency, total_amount, source_total_amount,
+          difference_amount, projection_sha256)
+       SELECT billing_cases.id, 'INVOICE', 'DRAFT', 'TD01', 'FPR',
+              billing_cases.local_order_date, 1, 'EUR',
+              100000 + 860 * row_number() OVER (ORDER BY billing_cases.id),
+              100000 + 860 * row_number() OVER (ORDER BY billing_cases.id), 0, repeat('0', 64)
+       FROM billing_cases
+       JOIN customers ON customers.id = billing_cases.customer_id
+       WHERE customers.match_key LIKE 'e2e-document-archive-%'`,
+    );
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    if (!hasUsers) {
+      await page.goto("/setup");
+      await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
+      await page.getByLabel("Password per Massimo").fill("password-massimo");
+      await page.getByLabel("Password per Codex").fill("password-codex");
+      await page.getByRole("button", { name: "Crea gli account" }).click();
+    } else {
+      await page.goto("/login");
+    }
+    await page.getByLabel("Nome utente").fill("MASSIMO");
+    await page.getByLabel("Password").fill("password-massimo");
+    await page.getByRole("button", { name: "Accedi" }).click();
+    await page.getByRole("link", { name: "Documenti", exact: true }).click();
+
+    await expect(page.getByRole("heading", { name: "Archivio documenti" })).toBeVisible();
+    await expect(page.locator(".document-row")).toHaveCount(50);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    const actionMargins = await page.locator(".document-row").evaluateAll((rows) =>
+      rows.map((row) => {
+        const action = row.querySelector<HTMLElement>(".document-row__action");
+        if (!action) return Number.POSITIVE_INFINITY;
+        return row.getBoundingClientRect().right - action.getBoundingClientRect().right;
+      }),
+    );
+    expect(Math.min(...actionMargins)).toBeGreaterThanOrEqual(12);
+    const priceStateSpacing = await page.locator(".document-row").evaluateAll((rows) =>
+      rows.map((row) => {
+        const facts = row.querySelector<HTMLElement>(".document-row__facts");
+        const amount = row.querySelector<HTMLElement>(
+          ".document-row__facts > span:last-child strong",
+        );
+        const state = row.querySelector<HTMLElement>(".document-row__state");
+        if (!facts || !amount || !state) return null;
+        return {
+          amountOverflow:
+            amount.getBoundingClientRect().right - facts.getBoundingClientRect().right,
+          visibleGap: state.getBoundingClientRect().left - amount.getBoundingClientRect().right,
+        };
+      }),
+    );
+    expect(priceStateSpacing).not.toContain(null);
+    expect(
+      Math.max(...priceStateSpacing.map((spacing) => spacing?.amountOverflow ?? Infinity)),
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      Math.min(...priceStateSpacing.map((spacing) => spacing?.visibleGap ?? -Infinity)),
+    ).toBeGreaterThanOrEqual(24);
+    await page.locator(".document-row__action").first().focus();
+    await expect(page.locator(".document-row__action").first()).toBeFocused();
+
+    const filters = page.locator(".document-filters");
+    await filters
+      .getByLabel("Cerca")
+      .fill("Laboratorio Artigianale Internazionale con una denominazione volutamente molto lunga");
+    await filters.getByRole("button", { name: "Filtra" }).click();
+    await expect(page.locator(".document-row")).toHaveCount(1);
+    await expect(page.locator(".document-row__customer")).toContainText(
+      "Laboratorio Artigianale Internazionale",
+    );
+    await page.getByRole("link", { name: "Azzera filtri" }).click();
+    await expect(page.locator(".document-row")).toHaveCount(50);
+
+    const expectedSecondPage = existing + 55 - 50;
+    await page.getByRole("link", { name: "Pagina successiva" }).click();
+    await expect(page.locator(".document-row")).toHaveCount(expectedSecondPage);
+
+    await page.goto("/documenti?vista=da-trasmettere&trasmissione=RECONCILED");
+    await expect(page.getByLabel("Stato trasmissione")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Da trasmettere" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/documenti");
+    const intermediateContainment = await page
+      .locator(".document-row")
+      .first()
+      .evaluate((row) => {
+        const panel = row.closest<HTMLElement>(".document-archive");
+        const action = row.querySelector<HTMLElement>(".document-row__action");
+        if (!panel || !action) return null;
+        const grid = row.querySelector<HTMLElement>(".document-row__grid");
+        return {
+          actionRight: action.getBoundingClientRect().right,
+          panelRight: panel.getBoundingClientRect().right,
+          gridHeight: grid?.getBoundingClientRect().height ?? Number.POSITIVE_INFINITY,
+          rowHeight: row.getBoundingClientRect().height,
+        };
+      });
+    expect(intermediateContainment).not.toBeNull();
+    expect(
+      intermediateContainment!.panelRight - intermediateContainment!.actionRight,
+    ).toBeGreaterThanOrEqual(12);
+    expect(intermediateContainment!.gridHeight).toBeLessThan(190);
+    expect(intermediateContainment!.rowHeight).toBeLessThan(240);
+
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/documenti");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+
+    await page.setViewportSize({ width: 320, height: 720 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    const mobileHeaderContainment = await page
+      .locator(".document-archive > .document-panel-header")
+      .evaluate((header) => {
+        const count = header.querySelector<HTMLElement>(":scope > strong");
+        if (!count) return null;
+        return {
+          countLeft: count.getBoundingClientRect().left,
+          countRight: count.getBoundingClientRect().right,
+          headerLeft: header.getBoundingClientRect().left,
+          headerRight: header.getBoundingClientRect().right,
+        };
+      });
+    expect(mobileHeaderContainment).not.toBeNull();
+    expect(mobileHeaderContainment!.countLeft).toBeGreaterThanOrEqual(
+      mobileHeaderContainment!.headerLeft,
+    );
+    expect(mobileHeaderContainment!.countRight).toBeLessThanOrEqual(
+      mobileHeaderContainment!.headerRight,
+    );
+    await expect(page.locator(".document-row").first()).toBeVisible();
+    expect(
+      await page
+        .locator(".document-row")
+        .first()
+        .evaluate((row) => row.getBoundingClientRect().height),
+    ).toBeLessThan(380);
+
+    await page.getByLabel("Apri il menu di Massimo").click();
+    await page.getByRole("button", { name: "Scuro" }).click({ force: true });
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator(".document-archive")).toBeVisible();
+  } finally {
+    await client.query(
+      `DELETE FROM documents
+       USING billing_cases, customers
+       WHERE documents.billing_case_id = billing_cases.id
+         AND billing_cases.customer_id = customers.id
+         AND customers.match_key LIKE 'e2e-document-archive-%'`,
+    );
+    await client.query(
+      `DELETE FROM billing_cases
+       USING customers
+       WHERE billing_cases.customer_id = customers.id
+         AND customers.match_key LIKE 'e2e-document-archive-%'`,
+    );
+    await client.query("DELETE FROM customers WHERE match_key LIKE 'e2e-document-archive-%'");
+    await client.end();
+  }
 });
 
 test("la Dashboard non mostra come sano un collegamento revocato", async ({ page }) => {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.18
+
+- La pagina Documenti adotta la gerarchia visiva delle altre superfici operative, con viste rapide, riepilogo, filtri coerenti e un unico archivio per fatture e note di credito.
+- L’archivio pagina cinquanta documenti alla volta, carica file ed e-mail soltanto per le righe visibili e mantiene leggibili testi e importi lunghi su desktop e viewport stretti.
+- Data, totale e stato conservano una separazione minima verificata anche con importi a sei cifre; file e azioni restano disponibili in pannelli espandibili senza appesantire ogni riga.
+
 ## 0.3.17
 
 - La riconciliazione eBay riconosce le varianti strutturate osservate negli indirizzi europei, comprese unità immobiliari alfanumeriche, suffissi civici e connettori linguistici non distintivi.

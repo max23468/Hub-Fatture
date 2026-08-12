@@ -845,9 +845,7 @@ test(
         ),
         owner,
       );
-      const officialFiles = (await aruba.listOfficialArubaFiles()).filter(
-        (file) => file.document_id === assistedManifest.documents[0]!.id,
-      );
+      const officialFiles = await aruba.listOfficialArubaFiles([assistedManifest.documents[0]!.id]);
       assert.equal(officialFiles.length, 5);
       const storedPdf = officialFiles.find((file) => file.kind === "ARUBA_PDF");
       assert.ok(storedPdf);
