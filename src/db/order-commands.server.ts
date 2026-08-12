@@ -85,14 +85,21 @@ function hasBareOrderReference(references: string[], displayNumber: string) {
 }
 
 function hasGenericOrderReference(references: string[]) {
-  return references.some((reference) =>
-    Array.from(
+  return references.some((reference) => {
+    const orderReferences = Array.from(
       reference.matchAll(
         /(?:^|[^\p{L}\p{N}])ordine(?:\s+n(?:umero)?\.?)?\s*#?\s*([\p{L}\p{N}][\p{L}\p{N}-]{0,63})/giu,
       ),
       (match) => match[1]!,
-    ).some((candidate) => /\d/u.test(candidate)),
-  );
+    );
+    const hashReferences = Array.from(
+      reference.matchAll(
+        /(?:^|[^\p{L}\p{N}])#([\p{L}\p{N}][\p{L}\p{N}-]{0,63})(?=$|[^\p{L}\p{N}-])/giu,
+      ),
+      (match) => match[1]!,
+    );
+    return [...orderReferences, ...hashReferences].some((candidate) => /\d/u.test(candidate));
+  });
 }
 
 function hasIncompatibleMarketplaceMarker(references: string[], provider: "SHOPIFY" | "EBAY") {
