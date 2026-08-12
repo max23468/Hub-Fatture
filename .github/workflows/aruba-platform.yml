@@ -9,6 +9,7 @@ on:
         type: string
 
 permissions:
+  checks: write
   contents: read
 
 concurrency:
@@ -48,3 +49,17 @@ jobs:
           cache: true
       - run: npm ci
       - run: npm run test:aruba:platform -- ${{ matrix.browser }}
+      - name: Registra la ricevuta sul candidato
+        if: always()
+        shell: bash
+        env:
+          CANDIDATE: ${{ inputs.commit }}
+          CONCLUSION: ${{ job.status == 'success' && 'success' || 'failure' }}
+          GH_TOKEN: ${{ github.token }}
+          RECEIPT_NAME: Helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/check-runs" \
+            -f name="$RECEIPT_NAME" \
+            -f head_sha="$CANDIDATE" \
+            -f status=completed \
+            -f conclusion="$CONCLUSION"
