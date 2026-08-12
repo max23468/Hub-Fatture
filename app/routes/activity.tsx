@@ -18,7 +18,7 @@ import { listAuditHistory, listOpenActivities } from "../../src/db/orders.server
 import { pageNumber } from "../../src/orders.ts";
 import { publicError } from "../../src/errors.ts";
 
-const emptyPage = { rows: [], hasNext: false };
+const emptyPage = { rows: [], hasNext: false, total: 0 };
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -27,13 +27,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   const page = pageNumber(url.searchParams.get("pagina") ?? 1);
   const query = url.searchParams.get("q") ?? "";
   const action = url.searchParams.get("azione") ?? "";
+  const activityKind = url.searchParams.get("tipo") === "note-credito" ? "CREDIT_NOTE" : undefined;
   const [open, history, shopifyDataRequests, failedJobs] = await Promise.all([
-    view === "gestire" ? listOpenActivities(page) : Promise.resolve(emptyPage),
+    view === "gestire" ? listOpenActivities(page, activityKind) : Promise.resolve(emptyPage),
     view === "cronologia"
       ? listAuditHistory({ query: query || undefined, action: action || undefined, page })
       : Promise.resolve(emptyPage),
-    view === "gestire" ? pendingShopifyDataRequests() : Promise.resolve([]),
-    view === "gestire" ? failedConnectorJobs() : Promise.resolve([]),
+    view === "gestire" && !activityKind ? pendingShopifyDataRequests() : Promise.resolve([]),
+    view === "gestire" && !activityKind ? failedConnectorJobs() : Promise.resolve([]),
   ]);
   return {
     username: user.username,
@@ -43,6 +44,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     page,
     query,
     action,
+    activityKind,
     open,
     history,
     shopifyDataRequests,
@@ -89,6 +91,7 @@ export default function Activity() {
     page,
     query,
     action,
+    activityKind,
     open,
     history,
     shopifyDataRequests,
@@ -131,6 +134,13 @@ export default function Activity() {
       {actionError ? (
         <p className="error" role="alert">
           {actionError.message}
+        </p>
+      ) : null}
+
+      {view === "gestire" && activityKind ? (
+        <p className="filter-summary section-gap">
+          <span>{copy.activity.creditNotesFilter(open.total)}</span>
+          <Link to="/attivita">{copy.activity.clearFilters}</Link>
         </p>
       ) : null}
 

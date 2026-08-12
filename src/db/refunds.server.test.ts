@@ -753,6 +753,13 @@ test(
       );
       assert.ok(!activities.rows.some((activity) => activity.id === pendingWithoutAmount));
       assert.ok(!activities.rows.some((activity) => activity.id === resolvedJob.rows[0]!.id));
+      const creditNoteActivities = await orderQueries.listOpenActivities(undefined, "CREDIT_NOTE");
+      assert.ok(creditNoteActivities.rows.length > 0);
+      assert.ok(creditNoteActivities.rows.every((activity) => activity.kind === "CREDIT_NOTE"));
+      assert.equal(
+        creditNoteActivities.total,
+        Number((await orderQueries.dashboardSummary()).credit_notes_to_approve),
+      );
       const orderDetail = await orderQueries.getOrder(order.rows[0]!.id);
       assert.ok(orderDetail?.refunds.some((refund) => refund.id === ambiguous));
 

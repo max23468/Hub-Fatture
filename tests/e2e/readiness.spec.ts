@@ -70,6 +70,20 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Stato operativo" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Collegamenti" })).toBeVisible();
   await expect(page.locator(".work-item")).toHaveCount(4);
+  const dashboardDestinations = [
+    ["Preparazioni pronte", "/ordini?vista=fatturare", "Ordini"],
+    ["Da verificare", "/ordini?vista=verificare", "Ordini"],
+    ["Pagamenti in attesa", "/ordini?pagamento=PENDING", "Ordini"],
+    ["Note di credito da approvare", "/attivita?tipo=note-credito", "Attività"],
+  ] as const;
+  for (const [label, destination, heading] of dashboardDestinations) {
+    const link = page.locator(".work-item").filter({ hasText: label }).getByRole("link");
+    await expect(link).toHaveAttribute("href", destination);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`${destination.replace("?", "\\?")}$`));
+    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    await page.goto("/");
+  }
   await expect(page.locator(".connection")).toHaveCount(3);
   await expect(page.locator(".documents-chart__day")).toHaveCount(7);
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
@@ -662,7 +676,15 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   const noteId = await refunds.processRefund(refundId);
   expect(noteId).toBeTruthy();
-  await page.goto(`/documenti/${noteId}/nota`);
+  await page.goto("/");
+  const creditNotesItem = page
+    .locator(".work-item")
+    .filter({ hasText: "Note di credito da approvare" });
+  await creditNotesItem.getByRole("link").click();
+  await expect(page).toHaveURL(/\/attivita\?tipo=note-credito$/);
+  const creditNoteLink = page.locator(`a[href='/documenti/${noteId}/nota']`);
+  await expect(creditNoteLink).toContainText("Nota di credito da approvare");
+  await creditNoteLink.click();
   await expect(page.getByRole("heading", { name: "Comparatore fiscale" })).toBeVisible();
   await expect(page.getByRole("table", { name: "Righe" })).toContainText("rimborso m6-e2e-refund");
   await expect(page.getByRole("table", { name: "Righe" })).toContainText("N5");

@@ -86,7 +86,7 @@ export default function Home() {
       value: Number(summary.credit_notes_to_approve),
       label: copy.dashboard.creditNotesToApprove,
       detail: copy.dashboard.creditNoteDetail,
-      to: "/attivita",
+      to: "/attivita?tipo=note-credito",
       action: copy.dashboard.openActivity,
       icon: BadgeEuro,
       tone: "accent",
