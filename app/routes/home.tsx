@@ -119,6 +119,7 @@ export default function Home() {
     {
       label: "Shopify",
       value: summary.last_shopify_sync,
+      connected: summary.shopify_connection_status === "CONNECTED",
       never: copy.dashboard.neverUpdated,
       to: "/impostazioni#connessioni",
       icon: ShoppingCart,
@@ -126,6 +127,7 @@ export default function Home() {
     {
       label: "eBay",
       value: summary.last_ebay_sync,
+      connected: summary.ebay_connection_status === "CONNECTED",
       never: copy.dashboard.neverUpdated,
       to: "/impostazioni#connessioni",
       icon: Tag,
@@ -133,19 +135,25 @@ export default function Home() {
     {
       label: "Aruba",
       value: summary.last_aruba_readback,
+      connected: true,
       never: copy.dashboard.neverRead,
       to: "/impostazioni#aruba-helper",
       icon: Cloud,
     },
   ].map((connection) => {
-    const stale = connection.value
-      ? new Date(currentTime).getTime() - new Date(connection.value).getTime() > 24 * 60 * 60 * 1000
-      : true;
+    const stale =
+      !connection.connected ||
+      (connection.value
+        ? new Date(currentTime).getTime() - new Date(connection.value).getTime() >
+          24 * 60 * 60 * 1000
+        : true);
     return { ...connection, stale };
   });
 
   const incidentCount = incidents.reduce((total, incident) => total + incident.value, 0);
-  const hasMissingUpdates = connections.some((connection) => !connection.value);
+  const hasMissingUpdates = connections.some(
+    (connection) => !connection.value || !connection.connected,
+  );
   const status = incidentCount
     ? {
         label: copy.dashboard.attentionNeeded,
@@ -232,7 +240,7 @@ export default function Home() {
       >
         <h2 id="dashboard-connections-title">{copy.dashboard.connections}</h2>
         <div className="connection-list">
-          {connections.map(({ label, value, never, to, icon: Icon, stale }) => (
+          {connections.map(({ label, value, connected, never, to, icon: Icon, stale }) => (
             <Link className="connection" key={label} to={to}>
               <span className="dashboard-icon dashboard-icon--neutral" aria-hidden="true">
                 <Icon size={22} strokeWidth={1.7} />
@@ -246,7 +254,13 @@ export default function Home() {
                     }
                   >
                     <span aria-hidden="true" />
-                    {value ? (stale ? copy.dashboard.stale : copy.dashboard.updated) : never}
+                    {!connected
+                      ? copy.settings.notConnected
+                      : value
+                        ? stale
+                          ? copy.dashboard.stale
+                          : copy.dashboard.updated
+                        : never}
                   </span>
                 </span>
                 <span>{value ? dateTime(value) : copy.settings.never}</span>

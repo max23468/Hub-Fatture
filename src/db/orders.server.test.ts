@@ -44,6 +44,17 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
             String(caseId),
           ])
       ).rows[0]?.revision ?? 0;
+    await database.getPool().query(
+      `INSERT INTO connections
+          (provider, environment, account_reference, encrypted_credentials, status, last_synced_at)
+       VALUES
+          ('SHOPIFY', 'DEVELOPMENT', 'revoked-shop.invalid', 'synthetic', 'REVOKED', now()),
+          ('EBAY', 'SANDBOX', 'connected-ebay', 'synthetic', 'CONNECTED', now())`,
+    );
+    const connectionSummary = await orders.dashboardSummary();
+    assert.equal(connectionSummary.shopify_connection_status, "REVOKED");
+    assert.ok(connectionSummary.last_shopify_sync);
+    assert.equal(connectionSummary.ebay_connection_status, "CONNECTED");
     const fixture = JSON.parse(
       await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
     );

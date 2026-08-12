@@ -665,6 +665,36 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toContainText("Inviata");
 });
 
+test("la Dashboard non mostra come sano un collegamento revocato", async ({ page }) => {
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  const revoked = await client.query(
+    `UPDATE connections
+     SET status = 'REVOKED', last_synced_at = now(), updated_at = now()
+     WHERE provider = 'SHOPIFY' AND environment = 'DEVELOPMENT'`,
+  );
+  assert.equal(revoked.rowCount, 1);
+
+  try {
+    await page.goto("/login");
+    await page.getByLabel("Nome utente").fill("MASSIMO");
+    await page.getByLabel("Password").fill("password-massimo");
+    await page.getByRole("button", { name: "Accedi" }).click();
+
+    const shopifyConnection = page.locator(".connection").filter({ hasText: "Shopify" });
+    await expect(shopifyConnection).toContainText("Non collegato");
+    await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toBeVisible();
+    await expect(page.getByText("Tutto sotto controllo", { exact: true })).toHaveCount(0);
+  } finally {
+    await client.query(
+      `UPDATE connections
+       SET status = 'CONNECTED', updated_at = now()
+       WHERE provider = 'SHOPIFY' AND environment = 'DEVELOPMENT'`,
+    );
+    await client.end();
+  }
+});
+
 test("le mutazioni senza origine valida non raggiungono l’azione", async ({ request }) => {
   const headers = { origin: "http://attaccante.invalid" };
 
