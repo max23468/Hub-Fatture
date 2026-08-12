@@ -250,6 +250,11 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
     /node "\$RUNNER_TEMP\/hub-fatture-production-tooling\/change-impact\.mjs"/,
   );
   assert.match(workflow, /deployments\?environment=Production&task=hub-fatture-production/);
+  assert.doesNotMatch(
+    workflow,
+    /deployments\?environment=Production&per_page=100/,
+    "una baseline legacy non prova quale SHA sia stato realmente installato",
+  );
   assert.match(workflow, /task:"hub-fatture-production"/);
   assert.match(workflow, /-f state=success/);
   assert.match(workflow, /BASE: \$\{\{ needs\.candidate\.outputs\.check_base \}\}/);

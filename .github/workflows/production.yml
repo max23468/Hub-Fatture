@@ -73,9 +73,6 @@ jobs:
           }
           base=$(find_successful_base "repos/$GITHUB_REPOSITORY/deployments?environment=Production&task=hub-fatture-production&per_page=100")
           if [ -z "$base" ]; then
-            base=$(find_successful_base "repos/$GITHUB_REPOSITORY/deployments?environment=Production&per_page=100")
-          fi
-          if [ -z "$base" ]; then
             base=0000000000000000000000000000000000000000
             check_base=$base
             rollback=false

@@ -10,6 +10,16 @@ const SURFACE_BY_CHECK = {
   "Analyze (javascript-typescript)": "standard",
   "react-doctor": "react",
 };
+const CONDITIONAL_SURFACE_BY_CHECK = {
+  "PostgreSQL e migrazioni": "database",
+  "Audit dipendenze": "securityData",
+  "Dependency review": "dependencies",
+  "Contract test provider": "provider",
+  "E2E Chromium": "e2e",
+  "Helper Aruba (chrome / macos-latest)": "arubaPlatform",
+  "Helper Aruba (msedge / windows-latest)": "arubaPlatform",
+};
+const CONDITIONAL_CHECKS = new Set(Object.keys(CONDITIONAL_SURFACE_BY_CHECK));
 
 export function checkConclusions(checkRuns, required = REQUIRED) {
   const latest = new Map();
@@ -24,7 +34,11 @@ export function checkConclusions(checkRuns, required = REQUIRED) {
   for (const name of required) {
     const check = latest.get(name);
     if (!check || check.status !== "completed") pending.push(name);
-    else if (!["success", "neutral", "skipped"].includes(check.conclusion)) failed.push(name);
+    else if (
+      !["success", "neutral", "skipped"].includes(check.conclusion) ||
+      (CONDITIONAL_CHECKS.has(name) && check.conclusion === "skipped")
+    )
+      failed.push(name);
   }
   return { pending, failed };
 }
@@ -35,8 +49,17 @@ export function selectCheckTargets(entries, candidate, required = REQUIRED) {
     for (const name of required) {
       if (entry.impact[SURFACE_BY_CHECK[name]]) targets[name] = entry.sha;
     }
+    for (const [name, surface] of Object.entries(CONDITIONAL_SURFACE_BY_CHECK)) {
+      if (entry.impact[surface]) targets[name] = entry.sha;
+    }
   }
   return targets;
+}
+
+export function revisionRangeArguments(base, candidate) {
+  return /^0{40}$/.test(base)
+    ? ["rev-list", "--reverse", "--first-parent", candidate]
+    : ["rev-list", "--reverse", "--first-parent", `${base}..${candidate}`];
 }
 
 function changedFilesForCommit(sha) {
@@ -60,13 +83,11 @@ function changedFilesForCommit(sha) {
 }
 
 export function resolveCheckTargets(base, candidate) {
-  const commits = /^0{40}$/.test(base)
-    ? [candidate]
-    : execFileSync("git", ["rev-list", "--reverse", `${base}..${candidate}`], {
-        encoding: "utf8",
-      })
-        .split("\n")
-        .filter(Boolean);
+  const commits = execFileSync("git", revisionRangeArguments(base, candidate), {
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean);
   const entries = commits.map((sha) => ({
     sha,
     impact: classifyFiles(changedFilesForCommit(sha)),
