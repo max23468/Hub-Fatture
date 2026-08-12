@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Manifest della release allegato con il nome canonico `release-manifest.json`, senza modifiche al comportamento applicativo.
+
 ## 0.2.2
 
 - Allowlist GitHub Actions allineata ai repository Docker approvati con pin SHA obbligatorio, evitando che un aggiornamento valido venga rifiutato prima dell’avvio dei job.
