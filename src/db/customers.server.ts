@@ -2,6 +2,27 @@ import { containsNullByte, escapeLike, PAGE_SIZE, pageOffset, paginate } from ".
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
+export type CustomerListSortKey =
+  | "cliente"
+  | "email"
+  | "fiscale"
+  | "canale"
+  | "ultimoOrdine"
+  | "ordini"
+  | "documenti";
+
+type SortDirection = "asc" | "desc";
+
+const customerListSortSql: Record<CustomerListSortKey, string> = {
+  cliente: "lower(customers.display_name)",
+  email: "lower(customers.email)",
+  fiscale: "lower(customers.tax_id_normalized)",
+  canale: "array_to_string(coalesce(sources.providers, ARRAY[]::text[]), ' ')",
+  ultimoOrdine: "order_summary.last_order_date",
+  ordini: "coalesce(order_summary.order_count, 0)",
+  documenti: "coalesce(document_summary.document_count, 0)",
+};
+
 export async function customerDirectorySummary() {
   const result = await getPool().query<{
     total: number;
@@ -30,9 +51,13 @@ export async function listCustomers(filters: {
   query?: string;
   needsReview?: boolean;
   page?: unknown;
+  sort?: { key: CustomerListSortKey; direction: SortDirection };
 }) {
   const empty = { rows: [] as never[], hasNext: false };
   if (containsNullByte(filters)) return empty;
+  const sort = filters.sort ?? { key: "ultimoOrdine", direction: "desc" };
+  const orderBy = customerListSortSql[sort.key];
+  const direction = sort.direction === "asc" ? "ASC" : "DESC";
   const result = await getPool().query<{
     id: string;
     kind: string;
@@ -87,8 +112,8 @@ export async function listCustomers(filters: {
                 AND customer_source_records.external_customer_id ILIKE $1
             ))
        AND ($2::boolean IS NULL OR customers.review_required = $2)
-     ORDER BY customers.review_required DESC,
-              order_summary.last_order_date DESC NULLS LAST,
+     ORDER BY ${orderBy} ${direction} NULLS LAST,
+              customers.review_required DESC,
               customers.updated_at DESC, customers.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $3`,
     [

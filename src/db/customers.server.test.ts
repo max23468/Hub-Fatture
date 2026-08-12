@@ -42,6 +42,23 @@ test(
       assert.equal(directory.rows[1].preparation_count, 1);
 
       assert.deepEqual(
+        (
+          await customers.listCustomers({
+            sort: { key: "cliente", direction: "desc" },
+          })
+        ).rows.map((row) => row.display_name),
+        ["Mario Rossi", "Cliente da verificare"],
+      );
+      assert.deepEqual(
+        (
+          await customers.listCustomers({
+            sort: { key: "ordini", direction: "desc" },
+          })
+        ).rows.map((row) => row.display_name),
+        ["Mario Rossi", "Cliente da verificare"],
+      );
+
+      assert.deepEqual(
         (await customers.listCustomers({ needsReview: true })).rows.map((row) => row.display_name),
         ["Cliente da verificare"],
       );
