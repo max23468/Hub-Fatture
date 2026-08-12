@@ -19,6 +19,14 @@ async function expectPlainLanguage(page: Page) {
   );
 }
 
+async function expectViewportFits(page: Page) {
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+}
+
 // Lo schema viene azzerato all'avvio del server, i dati a ogni worker: un retry riparte
 // da database vuoto invece di trovare gli account già creati e saltare il flusso di setup.
 test.beforeAll(async () => {
@@ -56,16 +64,36 @@ test.describe.configure({ mode: "serial" });
 test("configura i due account e accede con entrambi", async ({ page }) => {
   test.setTimeout(240_000);
   await page.goto("/setup");
-  await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.getByLabel("Codice di configurazione").fill("codice-di-configurazione-errato");
   await page.getByLabel("Password per Massimo").fill("password-massimo");
   await page.getByLabel("Password per Codex").fill("password-codex");
   await page.getByRole("button", { name: "Crea gli account" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expectViewportFits(page);
+  await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("button", { name: "Crea gli account" }).click();
 
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.getByLabel("Nome utente").fill("mAsSiMo");
+  await page.getByLabel("Password").fill("password-errata");
+  await page.getByRole("button", { name: "Accedi" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expectViewportFits(page);
   await page.getByLabel("Nome utente").fill("mAsSiMo");
   await page.getByLabel("Password").fill("password-massimo");
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Accedi" }).click();
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.goto("/pagina-inesistente-di-esempio");
+  await expect(page.getByRole("heading", { name: "La pagina non esiste" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Torna alla dashboard" })).toBeVisible();
+  await expectViewportFits(page);
+  await page.getByRole("link", { name: "Torna alla dashboard" }).click();
+  await page.setViewportSize({ width: 1280, height: 720 });
   await expect(page.getByText("Note di credito da approvare")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Da fare ora" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Stato operativo" })).toBeVisible();
@@ -220,7 +248,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       searchRequests.push(request.url());
     }
   });
-  await page.keyboard.press("Meta+k");
+  await page.getByLabel("Apri la ricerca globale").click();
   await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toBeVisible();
   await page.getByLabel("Cerca ordini, fatture e clienti").fill("Mario Rossi");
   await expect(page.getByRole("heading", { name: "Ordini" })).toBeVisible();
@@ -380,11 +408,24 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByText("Fattura in preparazione", { exact: true })).toBeVisible();
   await expectPlainLanguage(page);
   await expect(page.getByText("PRIVATE_IT")).toHaveCount(0);
-  await expect(page.locator(".detail-stack > .card")).toHaveCount(2);
+  await expect(page.locator(".order-detail-grid > .order-detail-panel")).toHaveCount(2);
   await expect(
     page.locator(".detail-subsection").getByRole("heading", { name: "Pagamenti" }),
   ).toBeVisible();
   await expect(page.locator(".customer-comparison__section")).toHaveCount(2);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const orderDetailPanelHeights = await page
+    .locator(".order-detail-grid > .order-detail-panel")
+    .evaluateAll((panels) => panels.map((panel) => panel.getBoundingClientRect().height));
+  expect(orderDetailPanelHeights).toHaveLength(2);
+  expect(Math.abs(orderDetailPanelHeights[0]! - orderDetailPanelHeights[1]!)).toBeLessThanOrEqual(
+    1,
+  );
+  for (const width of [1280, 1024, 320]) {
+    await page.setViewportSize({ width, height: width === 320 ? 780 : 800 });
+    await expectViewportFits(page);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "In attesa" }).click();
@@ -908,6 +949,12 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "DatiFattureCollegate",
   );
   await expect(page.getByText("PDF ufficiale Aruba, dopo l’esito SdI")).toBeVisible();
+  for (const width of [1280, 900, 320]) {
+    await page.setViewportSize({ width, height: width === 320 ? 780 : 800 });
+    await expectViewportFits(page);
+    await expect(page.locator(".comparison-table").first()).toBeVisible();
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page
     .getByLabel(/Confermo rimborsi, riferimenti alla fattura, totale e numerazione irreversibile/)
     .check();

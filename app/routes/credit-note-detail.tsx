@@ -1,7 +1,9 @@
+import { ArrowLeft, BadgeEuro, CircleCheck, FileCode2, Mail } from "lucide-react";
 import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/credit-note-detail";
 
 import { AppShell } from "../components/app-shell";
+import { DetailSectionHeader } from "../components/detail-section-header";
 import { copy } from "../copy.it";
 import { date, euros } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
@@ -27,31 +29,33 @@ function ComparisonTable({
 }) {
   const labels = copy.document.comparisonLabels as Record<string, string>;
   return (
-    <div className="table-wrap section-gap">
-      <table>
-        <caption>{title}</caption>
-        <thead>
-          <tr>
-            <th>{copy.document.comparisonField}</th>
-            <th>{copy.document.comparisonSource}</th>
-            <th>{copy.document.comparisonDraft}</th>
-            <th>{copy.document.comparisonProjection}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.field}>
-              <th scope="row">
-                {lineLabels ? copy.document.comparisonLine(row.field) : labels[row.field]}
-              </th>
-              <td data-label={copy.document.comparisonSource}>{row.source}</td>
-              <td data-label={copy.document.comparisonDraft}>{row.draft}</td>
-              <td data-label={copy.document.comparisonProjection}>{row.projected}</td>
+    <section className="comparison-table">
+      <h3>{title}</h3>
+      <div className="table-wrap">
+        <table aria-label={title}>
+          <thead>
+            <tr>
+              <th>{copy.document.comparisonField}</th>
+              <th>{copy.document.comparisonSource}</th>
+              <th>{copy.document.comparisonDraft}</th>
+              <th>{copy.document.comparisonProjection}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.field}>
+                <th scope="row">
+                  {lineLabels ? copy.document.comparisonLine(row.field) : labels[row.field]}
+                </th>
+                <td data-label={copy.document.comparisonSource}>{row.source}</td>
+                <td data-label={copy.document.comparisonDraft}>{row.draft}</td>
+                <td data-label={copy.document.comparisonProjection}>{row.projected}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -97,126 +101,153 @@ export default function CreditNoteDetail() {
   const error = useActionData<typeof action>();
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
-      <div className="title-block">
-        <p className="eyebrow">Nota di credito</p>
-        <h1>Bozza TD04</h1>
-        <p>
-          Fattura originaria {note.invoiceNumber} del {date(note.invoiceDate)}
-        </p>
+      <div className="title-block dashboard-title detail-page-title">
+        <p className="eyebrow">{copy.creditNote.eyebrow}</p>
+        <h1>{copy.creditNote.title}</h1>
+        <p>{copy.creditNote.sourceInvoice(note.invoiceNumber, date(note.invoiceDate))}</p>
       </div>
       {error ? (
         <p className="error" role="alert">
           {error.message}
         </p>
       ) : null}
-      <section className="card">
-        <h2>Residuo accreditabile</h2>
-        <dl className="facts facts--columns">
+      <section className="dashboard-panel credit-note-balance">
+        <DetailSectionHeader
+          description={copy.creditNote.balanceHelp}
+          icon={<BadgeEuro size={22} strokeWidth={1.8} />}
+          title={copy.creditNote.balanceTitle}
+        />
+        <dl className="credit-note-balance__facts">
           <div>
-            <dt>Totale fattura</dt>
+            <dt>{copy.creditNote.invoiceTotal}</dt>
             <dd>{euros(note.invoiceTotal)}</dd>
           </div>
           <div>
-            <dt>Totale note</dt>
+            <dt>{copy.creditNote.creditedTotal}</dt>
             <dd>{euros(note.creditedAmount)}</dd>
           </div>
           <div>
-            <dt>Residuo dopo questa bozza</dt>
+            <dt>{copy.creditNote.remainingAfterDraft}</dt>
             <dd>{euros(note.remainder)}</dd>
           </div>
           <div>
-            <dt>Totale bozza</dt>
+            <dt>{copy.creditNote.draftTotal}</dt>
             <dd>{euros(note.total)}</dd>
           </div>
         </dl>
       </section>
-      <section className="card section-gap">
-        <h2>Comparatore fiscale</h2>
-        <p>{copy.document.xsdValid}</p>
-        <ComparisonTable
-          title={copy.document.comparisonRecipient}
-          rows={note.comparison.recipient}
+      <section className="dashboard-panel credit-note-comparator section-gap">
+        <DetailSectionHeader
+          description={copy.creditNote.comparisonHelp}
+          icon={<CircleCheck size={22} strokeWidth={1.8} />}
+          title={copy.creditNote.comparisonTitle}
         />
-        <ComparisonTable
-          lineLabels
-          title={copy.document.comparisonLines}
-          rows={note.comparison.lines}
-        />
-        <ComparisonTable title={copy.document.comparisonPayment} rows={note.comparison.payment} />
-        <ComparisonTable title="Fattura originaria" rows={note.comparison.notes} />
-        <ComparisonTable
-          title={copy.document.comparisonTechnical}
-          rows={note.comparison.technical}
-        />
-        <details className="section-gap">
-          <summary>Mostra XML tecnico</summary>
+        <p className="notice comparison-status">{copy.document.xsdValid}</p>
+        <div className="comparison-grid">
+          <ComparisonTable
+            title={copy.document.comparisonRecipient}
+            rows={note.comparison.recipient}
+          />
+          <ComparisonTable
+            lineLabels
+            title={copy.document.comparisonLines}
+            rows={note.comparison.lines}
+          />
+          <ComparisonTable title={copy.document.comparisonPayment} rows={note.comparison.payment} />
+          <ComparisonTable
+            title={copy.creditNote.sourceInvoiceComparison}
+            rows={note.comparison.notes}
+          />
+          <ComparisonTable
+            title={copy.document.comparisonTechnical}
+            rows={note.comparison.technical}
+          />
+        </div>
+        <details className="technical-details">
+          <summary>
+            <FileCode2 aria-hidden="true" size={18} strokeWidth={1.8} />
+            {copy.document.technicalXml}
+          </summary>
           <pre className="code-block">{note.xml}</pre>
         </details>
       </section>
       {note.status === "DRAFT" && canApprove ? (
-        <Form className="card section-gap" method="post">
+        <Form className="dashboard-panel credit-note-approval section-gap" method="post">
           <input type="hidden" name="csrf" value={csrfToken} />
           <input type="hidden" name="draftVersion" value={note.draftVersion} />
           <input type="hidden" name="projectionSha256" value={note.projectionSha256} />
           <input type="hidden" name="arubaMode" value={note.arubaMode} />
           <input type="hidden" name="emailModeVersion" value={note.customerEmail.version} />
-          <h2>{copy.document.customerEmailTitle}</h2>
-          <dl className="facts facts--columns">
+          <DetailSectionHeader
+            description={copy.creditNote.approvalHelp}
+            icon={<Mail size={22} strokeWidth={1.8} />}
+            title={copy.creditNote.approvalTitle}
+          />
+          <div className="credit-note-approval__grid">
             <div>
-              <dt>{copy.document.emailSender}</dt>
-              <dd>{note.customerEmail.sender}</dd>
+              <h3>{copy.document.customerEmailTitle}</h3>
+              <dl className="facts credit-note-email-facts">
+                <div>
+                  <dt>{copy.document.emailSender}</dt>
+                  <dd>{note.customerEmail.sender}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailRecipient}</dt>
+                  <dd>{note.customerEmail.recipient ?? copy.common.unavailable}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailSubject}</dt>
+                  <dd>{note.customerEmail.subject}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailBody}</dt>
+                  <dd>{note.customerEmail.body}</dd>
+                </div>
+                <div>
+                  <dt>{copy.document.emailAttachment}</dt>
+                  <dd>{note.customerEmail.attachment}</dd>
+                </div>
+              </dl>
             </div>
-            <div>
-              <dt>{copy.document.emailRecipient}</dt>
-              <dd>{note.customerEmail.recipient ?? copy.common.unavailable}</dd>
-            </div>
-            <div>
-              <dt>{copy.document.emailSubject}</dt>
-              <dd>{note.customerEmail.subject}</dd>
-            </div>
-            <div>
-              <dt>{copy.document.emailBody}</dt>
-              <dd>{note.customerEmail.body}</dd>
-            </div>
-            <div>
-              <dt>{copy.document.emailAttachment}</dt>
-              <dd>{note.customerEmail.attachment}</dd>
-            </div>
-          </dl>
-          <label className="checkbox-row">
-            <input
-              defaultChecked={
-                note.customerEmail.mode === "AUTOMATIC" && Boolean(note.customerEmail.recipient)
-              }
-              name="emailChoice"
-              type="radio"
-              value="SEND"
-            />
-            {copy.document.emailSend}
-          </label>
-          <label className="checkbox-row">
-            <input
-              defaultChecked={
-                note.customerEmail.mode !== "AUTOMATIC" || !note.customerEmail.recipient
-              }
-              name="emailChoice"
-              type="radio"
-              value="SKIP"
-            />
-            {copy.document.emailSkip}
-          </label>
-          <label className="checkbox-row section-gap">
-            <input name="confirmApproval" required type="checkbox" value="yes" />
-            Confermo rimborsi, riferimenti alla fattura, totale e numerazione irreversibile.
-          </label>
-          <button className="button" type="submit">
-            Approva, numera e prepara per Aruba
-          </button>
+            <fieldset className="credit-note-approval__options">
+              <legend>{copy.document.customerEmailTitle}</legend>
+              <label className="checkbox-row">
+                <input
+                  defaultChecked={
+                    note.customerEmail.mode === "AUTOMATIC" && Boolean(note.customerEmail.recipient)
+                  }
+                  name="emailChoice"
+                  type="radio"
+                  value="SEND"
+                />
+                {copy.document.emailSend}
+              </label>
+              <label className="checkbox-row">
+                <input
+                  defaultChecked={
+                    note.customerEmail.mode !== "AUTOMATIC" || !note.customerEmail.recipient
+                  }
+                  name="emailChoice"
+                  type="radio"
+                  value="SKIP"
+                />
+                {copy.document.emailSkip}
+              </label>
+              <label className="checkbox-row credit-note-confirmation">
+                <input name="confirmApproval" required type="checkbox" value="yes" />
+                {copy.creditNote.confirmation}
+              </label>
+              <button className="button" type="submit">
+                {copy.creditNote.approve}
+              </button>
+            </fieldset>
+          </div>
         </Form>
       ) : null}
-      <p className="section-gap">
-        <Link to="/documenti">Torna ai documenti</Link>
-      </p>
+      <Link className="dashboard-row-link detail-back-link section-gap" to="/documenti">
+        <ArrowLeft aria-hidden="true" size={17} strokeWidth={1.8} />
+        {copy.creditNote.back}
+      </Link>
     </AppShell>
   );
 }

@@ -9,16 +9,27 @@ import {
 
 const xml = "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml";
 
+async function expectViewportFits(page: import("@playwright/test").Page) {
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+}
+
 test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", async ({
   page,
 }) => {
   await page.goto("/aruba-sintetica?scenario=login");
+  await page.setViewportSize({ width: 320, height: 780 });
   await expect(page.locator('[data-aruba-state="login-required"]')).toContainText(
     "Completa manualmente password, OTP o CAPTCHA",
   );
+  await expectViewportFits(page);
   await page.getByRole("button", { name: "Autenticazione completata" }).click();
   await expect(page.locator('[data-aruba-state="upload-ready"]')).toBeVisible();
 
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/aruba-sintetica?scenario=valid");
   await expect(assertAccount(page, "synthetic-aruba-account")).resolves.toBeUndefined();
   await page.locator("[data-aruba-account]").evaluate((element) => {
@@ -28,6 +39,11 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await page.reload();
   await page.getByLabel("Seleziona documenti").setInputFiles(xml);
   await expect(page.getByRole("cell", { name: "Documento valido" })).toBeVisible();
+  for (const width of [1024, 600, 320]) {
+    await page.setViewportSize({ width, height: width === 320 ? 780 : 800 });
+    await expectViewportFits(page);
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
   await expect(page.getByRole("button", { name: "Invia" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Salva in bozze" })).toBeDisabled();
   const visibleRow = page.locator("tbody tr").first();
@@ -79,6 +95,7 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
 });
 
 test("l'helper attende l'autorizzazione SMS dopo la selezione degli XML", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/aruba-sintetica?scenario=sms");
   await page.getByLabel("Seleziona documenti").setInputFiles(xml);
   let heartbeats = 0;
@@ -92,6 +109,7 @@ test("l'helper attende l'autorizzazione SMS dopo la selezione degli XML", async 
   await expect(page.getByRole("dialog")).toContainText(
     "Vuoi disattivare la protezione OTP su Carica Fatture?",
   );
+  await expectViewportFits(page);
   await page.getByRole("button", { name: "Prosegui" }).click();
   await page.getByLabel("Inserisci il codice ricevuto per SMS").fill("123456");
   await page.getByRole("button", { name: "Verifica" }).click();
@@ -101,9 +119,12 @@ test("l'helper attende l'autorizzazione SMS dopo la selezione degli XML", async 
 });
 
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/aruba-sintetica?scenario=unexpected");
   await expect(page.locator('[data-aruba-state="unexpected"]')).toBeVisible();
+  await expectViewportFits(page);
 
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/aruba-sintetica?scenario=uncertain");
   await page.getByLabel("Seleziona documenti").setInputFiles(xml);
   await page.getByRole("button", { name: "Invia" }).click();

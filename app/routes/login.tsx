@@ -1,8 +1,9 @@
+import { LogIn } from "lucide-react";
 import { Form, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/login";
 
 import { actionResult } from "../action";
-import { BrandLockup } from "../components/brand-lockup";
+import { PublicCardHeader, PublicPage } from "../components/public-page";
 import { copy } from "../copy.it";
 import { clientIpHash, getSessionUser, login, requestId } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
@@ -30,12 +31,16 @@ export async function action({ request }: Route.ActionArgs) {
 export default function Login() {
   const error = useActionData<typeof action>();
   return (
-    <main className="auth-shell">
-      <BrandLockup />
-      <section className="card" aria-labelledby="login-title">
-        <p className="eyebrow">{copy.login.eyebrow}</p>
-        <h1 id="login-title">{copy.login.title}</h1>
-        <Form method="post">
+    <PublicPage compact>
+      <section className="card public-card" aria-labelledby="login-title">
+        <PublicCardHeader
+          description={copy.login.intro}
+          eyebrow={copy.login.eyebrow}
+          icon={<LogIn size={22} strokeWidth={1.8} />}
+          title={copy.login.title}
+          titleId="login-title"
+        />
+        <Form className="public-form" method="post">
           <label>
             {copy.login.username}
             <input
@@ -56,11 +61,11 @@ export default function Login() {
               {error.message}
             </p>
           ) : null}
-          <button className="button" type="submit">
+          <button className="button button--full" type="submit">
             {copy.login.submit}
           </button>
         </Form>
       </section>
-    </main>
+    </PublicPage>
   );
 }
