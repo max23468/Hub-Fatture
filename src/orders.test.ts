@@ -6,7 +6,10 @@ import {
   customerDisplayName,
   customerIdentity,
   decimalToCents,
+  defaultHistoricalStartDate,
+  historicalOrderWindow,
   localOrderDate,
+  markHistoricalOrders,
   orderInputSchema,
   orderReviewRequired,
   triggerStatus,
@@ -103,6 +106,37 @@ test("valida input, denaro, data e trigger", () => {
   assert.equal(
     triggerStatus({ ...base, cancelledAt: "2026-03-30T10:00:00Z" }, "PAID"),
     "CANCELLED_NO_DOCUMENT",
+  );
+});
+
+test("la finestra storica usa il giorno di Roma e marca solo gli ordini richiesti", () => {
+  const now = Date.parse("2026-08-12T10:00:00Z");
+  assert.equal(defaultHistoricalStartDate(now), "2026-08-05");
+  assert.equal(defaultHistoricalStartDate(Date.parse("2026-10-25T22:30:00Z")), "2026-10-18");
+  assert.deepEqual(historicalOrderWindow("2026-08-05", now), {
+    startDate: "2026-08-05",
+    fetchFrom: "2026-08-04T00:00:00.000Z",
+  });
+  assert.equal(historicalOrderWindow("2026-08-13", now), null);
+  const marked = markHistoricalOrders(
+    [
+      { ...base, externalOrderId: "before", createdAt: "2026-08-04T21:59:59Z" },
+      { ...base, externalOrderId: "included", createdAt: "2026-08-04T22:00:00Z" },
+      {
+        ...base,
+        externalOrderId: "updated",
+        createdAt: "2026-08-01T08:00:00Z",
+        updatedAt: "2026-08-05T08:00:00Z",
+      },
+    ],
+    "2026-08-05",
+  );
+  assert.deepEqual(
+    marked.map(({ externalOrderId, historical }) => ({ externalOrderId, historical })),
+    [
+      { externalOrderId: "included", historical: true },
+      { externalOrderId: "updated", historical: true },
+    ],
   );
 });
 

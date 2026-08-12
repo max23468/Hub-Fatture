@@ -353,6 +353,7 @@ export async function createBatchForDocuments(documentIds: string[], actor: Arub
        JOIN storage_objects ON storage_objects.id = documents.storage_object_id
        LEFT JOIN aruba_batch_documents ON aruba_batch_documents.document_id = documents.id
        WHERE documents.id = ANY($1::bigint[]) AND documents.status = 'APPROVED'
+         AND documents.origin = 'HUB'
          AND aruba_batch_documents.document_id IS NULL
        FOR UPDATE OF documents`,
       [ids],
@@ -1099,6 +1100,7 @@ export async function listUnbatchedApprovedDocuments() {
      FROM documents
      JOIN billing_cases ON billing_cases.id = documents.billing_case_id
      WHERE documents.status = 'APPROVED'
+       AND documents.origin = 'HUB'
        AND NOT EXISTS (
          SELECT 1 FROM aruba_batch_documents
          WHERE aruba_batch_documents.document_id = documents.id

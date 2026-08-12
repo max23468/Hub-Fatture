@@ -111,7 +111,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Salva integrazione Aruba" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Salva modalità e-mail" })).toBeDisabled();
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
-  await expect(page.getByText("015_canonical_account_names.sql", { exact: true })).toBeVisible();
+  await expect(page.getByText("017_historical_invoice_links.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -211,7 +211,29 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione anticipata richiesta")).toBeVisible();
 
+  const connectionClient = new pg.Client({ connectionString: databaseUrl });
+  await connectionClient.connect();
+  await connectionClient.query(
+    `INSERT INTO connections
+       (provider, environment, account_reference, encrypted_credentials, status, created_at)
+     VALUES
+       ('SHOPIFY', 'DEVELOPMENT', 'shop.example.invalid', 'synthetic', 'CONNECTED',
+        '2026-08-01T10:00:00Z'),
+       ('EBAY', 'SANDBOX', 'ebay-synthetic', 'synthetic', 'CONNECTED',
+        '2026-08-10T10:00:00Z')
+     ON CONFLICT (provider, environment) DO UPDATE SET
+       status = 'CONNECTED', created_at = EXCLUDED.created_at`,
+  );
+  await connectionClient.end();
   await page.getByRole("link", { name: "Impostazioni" }).click();
+  await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveAttribute("type", "date");
+  await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveValue("2026-07-25");
+  await expect(page.getByLabel("Importa ordini eBay dal")).toHaveValue("2026-08-03");
+  await page.goto("/impostazioni?historyStart=2026-08-09&historyProvider=EBAY#connessioni");
+  await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveValue("2026-07-25");
+  await expect(page.getByLabel("Importa ordini eBay dal")).toHaveValue("2026-08-09");
+  await expect(page.getByRole("button", { name: "Controlla intervallo" })).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Importa storico" })).toHaveCount(2);
   await page.getByLabel("Prepara la fattura").selectOption("FULFILLED");
   await page.getByRole("button", { name: "Salva impostazione" }).click();
   await expect(page.getByRole("status")).toContainText("Impostazione aggiornata");
@@ -260,6 +282,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toBeLessThan(240);
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toBeVisible();
+  await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Ordini");
   const mobileNavigation = await page.locator(".nav-item").evaluateAll((items) =>
     items.map((item) => ({
       current: item.getAttribute("aria-current"),
@@ -444,6 +467,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const refunds = await import("../../src/db/refunds.server.ts");
   const email = await import("../../src/db/email.server.ts");
   const jobs = await import("../../src/db/connectors.server.ts");
+  const orders = await import("../../src/db/orders.server.ts");
   const actorRow = (
     await database
       .getPool()
@@ -454,6 +478,44 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     canApprove: true,
     requestId: "m6-e2e-synthetic",
   };
+  const historicalFixture = JSON.parse(
+    await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
+  )[0];
+  historicalFixture.externalOrderId = "release-candidate-history";
+  historicalFixture.displayNumber = "#RC-HISTORY";
+  historicalFixture.externalCustomerId = "release-candidate-customer";
+  historicalFixture.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
+  historicalFixture.historical = true;
+  await orders.importOrders([historicalFixture], {
+    id: actor.id,
+    requestId: "release-candidate-history",
+  });
+  await page.goto("/ordini?vista=verificare");
+  await expect(page.getByRole("heading", { name: "Ordini storici da riconciliare" })).toBeVisible();
+  await page.getByRole("link", { name: /#RC-HISTORY/ }).click();
+  const historicalInvoiceInput = page.getByLabel(
+    "XML ufficiale della fattura Aruba, se già presente",
+  );
+  await expect(historicalInvoiceInput).not.toHaveAttribute("required", "");
+  await page.getByLabel("Esito del confronto").selectOption("ALREADY_INVOICED");
+  await expect(historicalInvoiceInput).toHaveAttribute("required", "");
+  await page
+    .getByLabel("Riferimento verificato o motivazione")
+    .fill("Documento Aruba FPR 9010/26 verificato");
+  await historicalInvoiceInput.setInputFiles({
+    name: "fattura-storica.xml",
+    mimeType: "application/xml",
+    buffer: Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 9010/26")
+        .replace("#1001", "#RC-HISTORY")
+        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replaceAll("123.45", "122.00"),
+    ),
+  });
+  await page.getByRole("button", { name: "Registra la riconciliazione" }).click();
+  await expect(page.getByText("Storico riconciliato")).toBeVisible();
+  await expect(page.getByText("Fatturato", { exact: true })).toBeVisible();
   const invoice = (
     await database.getPool().query<{
       id: string;
@@ -472,6 +534,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
          ORDER BY aruba_batches.created_at DESC LIMIT 1
        ) AS batch_documents ON true
        WHERE documents.kind = 'INVOICE' AND documents.status = 'APPROVED'
+         AND documents.origin = 'HUB'
        ORDER BY documents.approved_at DESC LIMIT 1`,
     )
   ).rows[0]!;

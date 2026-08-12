@@ -3,7 +3,12 @@ import { createHash } from "node:crypto";
 import { create } from "xmlbuilder2";
 import { z } from "zod";
 
-import { containsNullByte, POSTGRES_INTEGER_MAX, postgresDateSchema } from "./orders.ts";
+import {
+  containsNullByte,
+  decimalToCents,
+  POSTGRES_INTEGER_MAX,
+  postgresDateSchema,
+} from "./orders.ts";
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const country = z.string().trim().toUpperCase().length(2);
@@ -131,11 +136,10 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   const supplierVat = xmlRecord(supplierData.IdFiscaleIVA);
   const supplierName = xmlRecord(supplierData.Anagrafica);
   const supplierAddress = xmlRecord(supplier.Sede);
-  const contacts = xmlRecord(supplier.Contatti);
+  const contacts = supplier.Contatti ? xmlRecord(supplier.Contatti) : {};
   const goods = xmlRecord(body.DatiBeniServizi);
   const summary = xmlRecord(goods.DatiRiepilogo);
-  const paymentBlock = xmlRecord(body.DatiPagamento);
-  const payment = xmlRecord(paymentBlock.DettaglioPagamento);
+  const payment = acceptedPayment(body);
   return fiscalProfileSchema.parse({
     transmitter: {
       countryCode: xmlValue(transmitter.IdPaese),
@@ -173,8 +177,8 @@ export function fiscalProfileFromAcceptedInvoiceXml(
       approvedAt,
     },
     payment: {
-      condition: xmlValue(paymentBlock.CondizioniPagamento),
-      invoiceMethod: xmlValue(payment.ModalitaPagamento),
+      condition: payment.condition,
+      invoiceMethod: payment.method,
       creditNoteMethod: "MP05",
     },
   });
@@ -197,20 +201,130 @@ function acceptedFiscalDocument(xml: string) {
   if (
     xmlValue(root["@versione"]) !== "FPR12" ||
     !["TD01", "TD04"].includes(type) ||
+    xmlValue(general.Divisa) !== "EUR" ||
     !documentNumber ||
     Number(documentNumber[2]) !== year % 100
   ) {
-    throw new Error("Il documento non contiene un progressivo FPR12 valido");
+    throw new Error("Il documento fiscale non è FPR12, EUR o numerato correttamente");
   }
   return {
     xml,
     header,
     body,
     type,
+    documentDate,
+    documentNumber: xmlValue(general.Numero),
+    totalAmount: xmlOptional(general.ImportoTotaleDocumento)
+      ? decimalToCents(xmlValue(general.ImportoTotaleDocumento))
+      : undefined,
     year,
     number: Number(documentNumber[1]),
     transmitter: `${xmlValue(transmitter.IdPaese)}:${xmlValue(transmitter.IdCodice)}`,
     seller: `${xmlValue(supplierVat.IdPaese)}:${xmlValue(supplierVat.IdCodice)}`,
+  };
+}
+
+function xmlArray(input: unknown): Record<string, unknown>[] {
+  return (Array.isArray(input) ? input : [input]).map(xmlRecord);
+}
+
+function acceptedPayment(body: Record<string, unknown>) {
+  if (body.DatiPagamento === undefined) {
+    return { condition: "TP02" as const, method: "MP08" as const };
+  }
+  const blocks = xmlArray(body.DatiPagamento);
+  const methods = blocks.flatMap((block) =>
+    xmlArray(block.DettaglioPagamento).map((detail) => xmlValue(detail.ModalitaPagamento)),
+  );
+  if (
+    blocks.some((block) => xmlValue(block.CondizioniPagamento) !== "TP02") ||
+    methods.some((method) => method !== "MP08")
+  ) {
+    throw new Error("Il pagamento della fattura non coincide con il profilo fiscale");
+  }
+  return { condition: "TP02" as const, method: "MP08" as const };
+}
+
+/** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
+export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
+  const source = acceptedFiscalDocument(xml);
+  if (source.type !== "TD01") throw new Error("Il documento storico non è una fattura TD01");
+  const general = xmlRecord(xmlRecord(source.body.DatiGenerali).DatiGeneraliDocumento);
+  const transmission = xmlRecord(source.header.DatiTrasmissione);
+  const customer = xmlRecord(source.header.CessionarioCommittente);
+  const customerData = xmlRecord(customer.DatiAnagrafici);
+  const name = xmlRecord(customerData.Anagrafica);
+  const customerAddress = xmlRecord(customer.Sede);
+  const vat = customerData.IdFiscaleIVA ? xmlRecord(customerData.IdFiscaleIVA) : null;
+  const countryCode = xmlValue(customerAddress.Nazione);
+  const businessName = xmlOptional(name.Denominazione);
+  const recipient = {
+    kind:
+      countryCode !== "IT"
+        ? ("EU" as const)
+        : businessName
+          ? ("BUSINESS_IT" as const)
+          : ("PRIVATE_IT" as const),
+    displayName: countryCode !== "IT" ? businessName : undefined,
+    firstName: xmlOptional(name.Nome),
+    lastName: xmlOptional(name.Cognome),
+    businessName,
+    certifiedEmail: xmlOptional(transmission.PECDestinatario),
+    recipientCode: xmlOptional(transmission.CodiceDestinatario),
+    taxIdentifiers: [
+      ...(vat
+        ? [
+            {
+              type: "PARTITA_IVA" as const,
+              value: xmlValue(vat.IdCodice),
+              countryCode: xmlValue(vat.IdPaese),
+            },
+          ]
+        : []),
+      ...(customerData.CodiceFiscale
+        ? [{ type: "CODICE_FISCALE" as const, value: xmlValue(customerData.CodiceFiscale) }]
+        : []),
+    ],
+    address: {
+      line1: [xmlValue(customerAddress.Indirizzo), xmlOptional(customerAddress.NumeroCivico)]
+        .filter(Boolean)
+        .join(" "),
+      postalCode: xmlValue(customerAddress.CAP),
+      city: xmlValue(customerAddress.Comune),
+      province: xmlOptional(customerAddress.Provincia),
+      countryCode,
+    },
+  };
+  const goods = xmlRecord(source.body.DatiBeniServizi);
+  const lines = xmlArray(goods.DettaglioLinee).map((line) => ({
+    description: xmlValue(line.Descrizione),
+    quantity: 1,
+    unitAmount: decimalToCents(xmlValue(line.PrezzoTotale)),
+  }));
+  const payment = acceptedPayment(source.body);
+  const totalAmount = source.totalAmount ?? lines.reduce((sum, line) => sum + line.unitAmount, 0);
+  const input = documentInputSchema.parse({
+    kind: "INVOICE",
+    documentDate: source.documentDate,
+    recipient,
+    lines,
+    paymentStatus: "PAID",
+    paymentMethod: payment.method,
+  });
+  if (lines.reduce((sum, line) => sum + line.unitAmount, 0) !== totalAmount) {
+    throw new Error("Il totale della fattura storica non coincide con le righe");
+  }
+  return {
+    ...source,
+    totalAmount,
+    input,
+    profile: fiscalProfileFromAcceptedInvoiceXml(xml, importedAt),
+    references: [
+      ...(general.Causale === undefined
+        ? []
+        : (Array.isArray(general.Causale) ? general.Causale : [general.Causale]).map(xmlValue)),
+      ...lines.map((line) => line.description),
+    ],
   };
 }
 

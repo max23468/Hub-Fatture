@@ -9,7 +9,15 @@ import {
   orderBillableSql,
 } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
-import { assertJobLease, renewLockedJobLease, type ClaimedJob } from "./connectors.server.ts";
+import {
+  assertJobLease,
+  completeHistoryImportInTransaction,
+  lockHistoryImportConnection,
+  renewLockedJobLease,
+  type ClaimedJob,
+  type HistoryImportResult,
+  type Provider,
+} from "./connectors.server.ts";
 import { AppError } from "../errors.ts";
 import {
   documentInputSchema,
@@ -217,7 +225,7 @@ async function refreshInvoiceDraftProjection(client: pg.PoolClient, caseId: stri
   );
 }
 
-async function reconcilePreIssueInvoiceAmount(
+export async function reconcilePreIssueInvoiceAmount(
   client: pg.PoolClient,
   orderId: string,
   caseId: string,
@@ -448,6 +456,34 @@ export async function groupOrder(
   );
   if (assigned.rowCount) {
     const reconciliation = await reconcileInvoiceDraft(client, caseId);
+    const refund = await client.query<{
+      gross_amount: number;
+      refunds: Array<{ status: string; amount: number | null }>;
+    }>(
+      `SELECT orders.gross_amount,
+              coalesce(jsonb_agg(jsonb_build_object(
+                'status', refunds.status, 'amount', refunds.amount
+              )) FILTER (WHERE refunds.id IS NOT NULL), '[]'::jsonb) AS refunds
+       FROM orders LEFT JOIN refunds ON refunds.order_id = orders.id
+       WHERE orders.id = $1
+       GROUP BY orders.id`,
+      [order.id],
+    );
+    const refundEffect = preIssueRefund(refund.rows[0]!.gross_amount, refund.rows[0]!.refunds);
+    if (
+      refundEffect.state === "PARTIAL" &&
+      (await reconcilePreIssueInvoiceAmount(client, order.id, caseId, refundEffect.billableAmount))
+    ) {
+      await writeAudit(client, {
+        ...auditActor(actor),
+        action: "REFUND_APPLIED_BEFORE_ISSUE",
+        eventClass: "CRITICAL",
+        entityType: "ORDER",
+        entityId: order.id,
+        metadata: { billingCaseId: caseId },
+        requestId: actor.requestId,
+      });
+    }
     await writeAudit(client, {
       ...auditActor(actor),
       action: forced ? "ORDER_GROUPING_FORCED" : "ORDER_GROUPED",
@@ -530,6 +566,8 @@ interface PreviousOrderRow {
   deferred_review_required: boolean;
   customer_id: string;
   trigger_status: string;
+  historical: boolean;
+  historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
 }
 
 /**
@@ -540,6 +578,9 @@ interface PreviousOrderRow {
 async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
   return client.query<PreviousOrderRow>(
     `SELECT orders.id, orders.billing_case_id, orders.customer_id, orders.trigger_status,
+            orders.historical_reconciliation_outcome,
+            coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+              AS historical,
             $4::timestamptz < orders.updated_at_source AS is_stale,
             CASE WHEN billing_cases.status IN ('APPROVED', 'CLOSED')
               THEN coalesce(latest_revision.snapshot ->> 'reviewFingerprint',
@@ -667,7 +708,6 @@ async function importOne(
     shippingAmount,
     refundAmounts,
   );
-  const status = triggerStatus(input, trigger);
   const refundEffect = preIssueRefund(
     grossAmount,
     input.refunds.map((refund, index) => ({
@@ -680,14 +720,29 @@ async function importOne(
   if (previous.rows[0]?.is_stale) return "ignored";
 
   const oldOrder = previous.rows[0];
+  const historical = input.historical || Boolean(oldOrder?.historical);
+  const status =
+    oldOrder?.historical_reconciliation_outcome === "ALREADY_INVOICED"
+      ? "INVOICED"
+      : triggerStatus(
+          {
+            ...input,
+            historical:
+              historical && oldOrder?.historical_reconciliation_outcome !== "NOT_INVOICED",
+          },
+          trigger,
+        );
   const deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
   const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
+  const documentIssued =
+    invoiced || oldOrder?.historical_reconciliation_outcome === "ALREADY_INVOICED";
   // Una preparazione già emessa non riscrive l'anagrafica: l'ordine resta sul suo cliente.
   const customerId = invoiced
     ? oldOrder!.customer_id
     : await upsertCustomer(client, input, identity);
   const normalizedSnapshot = {
     ...input,
+    historical,
     customerSnapshot: customerSnapshot(input, identity),
     totalAmount: grossAmount,
     shippingAmount,
@@ -699,8 +754,12 @@ async function importOne(
     totalsReconciled,
     reviewFingerprint: fingerprint,
   };
+  const becameHistorical = Boolean(
+    input.historical && oldOrder?.billing_case_id && !oldOrder.historical && !invoiced,
+  );
   const sourceConflict = Boolean(
-    oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint,
+    becameHistorical ||
+    (oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint),
   );
   const revision = sourceConflict
     ? await client.query<{ id: string }>(
@@ -772,6 +831,8 @@ async function importOne(
     ],
   );
   const orderId = order.rows[0]!.id;
+  const historicalReconciliationPending =
+    historical && oldOrder?.historical_reconciliation_outcome == null;
   const currentBillingCaseId = sourceConflict
     ? await applySourceConflict(client, actor, {
         input,
@@ -783,6 +844,7 @@ async function importOne(
         invoiced,
         billingCaseId: order.rows[0]!.billing_case_id,
         refundEffect: refundEffect.state,
+        becameHistorical,
       })
     : order.rows[0]!.billing_case_id;
   const previousAppliedRefundAmount = await replaceOrderChildren(
@@ -790,11 +852,15 @@ async function importOne(
     orderId,
     input,
     { lineAmounts, paymentAmounts, refundAmounts },
-    invoiced,
+    documentIssued,
     actor,
   );
   let effectiveBillingCaseId = currentBillingCaseId;
-  if (!effectiveBillingCaseId && (status === "ELIGIBLE" || refundEffect.state === "TOTAL")) {
+  if (
+    !historicalReconciliationPending &&
+    !effectiveBillingCaseId &&
+    (status === "ELIGIBLE" || (status !== "INVOICED" && refundEffect.state === "TOTAL"))
+  ) {
     effectiveBillingCaseId = await groupOrder(
       client,
       {
@@ -808,7 +874,7 @@ async function importOne(
       actor,
     );
   }
-  if (!invoiced && effectiveBillingCaseId && refundEffect.state === "PARTIAL") {
+  if (!documentIssued && effectiveBillingCaseId && refundEffect.state === "PARTIAL") {
     const restored = await client.query(
       `UPDATE orders
        SET trigger_status = 'GROUPED',
@@ -840,7 +906,7 @@ async function importOne(
     }
   }
   if (
-    !invoiced &&
+    !documentIssued &&
     effectiveBillingCaseId &&
     previousAppliedRefundAmount > 0 &&
     (refundEffect.state === "UNCHANGED" || refundEffect.state === "NEEDS_REVIEW")
@@ -877,7 +943,7 @@ async function importOne(
       });
     }
   }
-  if (!invoiced && effectiveBillingCaseId && refundEffect.state === "TOTAL") {
+  if (!documentIssued && effectiveBillingCaseId && refundEffect.state === "TOTAL") {
     const marked = await client.query(
       `UPDATE orders SET trigger_status = 'REFUNDED_BEFORE_ISSUE'
        WHERE id = $1 AND trigger_status <> 'REFUNDED_BEFORE_ISSUE'`,
@@ -940,19 +1006,22 @@ async function applySourceConflict(
     oldOrder: PreviousOrderRow;
     orderId: string;
     customerId: string;
-    status: ReturnType<typeof triggerStatus>;
+    status: ReturnType<typeof triggerStatus> | "INVOICED";
     revisionId: string;
     invoiced: boolean;
     billingCaseId: string | null;
     refundEffect: ReturnType<typeof preIssueRefund>["state"];
+    becameHistorical: boolean;
   },
 ) {
   const { input, oldOrder, orderId, customerId, status, invoiced } = context;
-  const reason = input.cancelledAt
-    ? ("CANCELLED" as const)
-    : input.paymentStatus === "REFUNDED" || context.refundEffect === "TOTAL"
-      ? ("REFUNDED" as const)
-      : null;
+  const reason = context.becameHistorical
+    ? ("HISTORICAL" as const)
+    : input.cancelledAt
+      ? ("CANCELLED" as const)
+      : input.paymentStatus === "REFUNDED" || context.refundEffect === "TOTAL"
+        ? ("REFUNDED" as const)
+        : null;
   if (!reason && !invoiced) {
     await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
       orderId,
@@ -975,7 +1044,9 @@ async function applySourceConflict(
         ? "Ordine annullato dalla sorgente"
         : reason === "REFUNDED"
           ? "Ordine rimborsato prima dell’emissione"
-          : null,
+          : reason === "HISTORICAL"
+            ? "Ordine storico da confrontare con Aruba"
+            : null,
     ],
   );
   await writeAudit(client, {
@@ -1051,6 +1122,13 @@ async function applySourceConflict(
         actor,
       );
     }
+  }
+  if (reason === "HISTORICAL") {
+    await client.query(
+      `UPDATE orders SET billing_case_id = NULL, trigger_status = $2 WHERE id = $1`,
+      [orderId, status],
+    );
+    return null;
   }
   if (
     !reason &&
@@ -1279,10 +1357,24 @@ async function replaceOrderChildren(
   return previousApplied.rows[0]?.amount ?? 0;
 }
 
-export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJob) {
+interface HistoryImportCompletion {
+  provider: Provider;
+  accountReference: string;
+  cursor: string;
+  overlapFrom: string;
+  count: number;
+  reviewRequired: number;
+}
+
+export async function importOrders(
+  input: unknown,
+  actor: Actor,
+  job?: ClaimedJob,
+  history?: HistoryImportCompletion,
+) {
   let orders: OrderInput[];
   try {
-    orders = orderInputSchema.array().min(1).parse(input);
+    orders = orderInputSchema.array().parse(input);
   } catch {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
@@ -1292,8 +1384,21 @@ export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJo
   if (new Set(sourceKeys).size !== sourceKeys.length) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
+  if (
+    history &&
+    orders.some(
+      (order) =>
+        order.provider !== history.provider || order.externalAccountId !== history.accountReference,
+    )
+  ) {
+    throw new AppError("CONFLICT_REVISION", 409);
+  }
   return withTransaction(async (client) => {
-    if (job) await assertJobLease(client, job);
+    if (history) {
+      await lockHistoryImportConnection(client, history.provider, history.accountReference, job);
+    } else if (job) {
+      await assertJobLease(client, job);
+    }
     await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
     await serializeOrderMutations(client);
     const trigger = await currentTrigger(client);
@@ -1301,11 +1406,29 @@ export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJo
     // Il batch resta seriale: ogni raggruppamento deve osservare gli ordini precedenti nella stessa transazione.
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
     for (const order of orders) results.push(await importOne(client, order, trigger, actor));
-    if (job) await renewLockedJobLease(client, job);
-    return {
+    const result: HistoryImportResult = {
+      count: history?.count ?? orders.length,
+      reviewRequired: history?.reviewRequired ?? 0,
       imported: results.filter((result) => result === "imported").length,
       updated: results.filter((result) => result === "updated").length,
       ignored: results.filter((result) => result === "ignored").length,
+    };
+    if (history) {
+      await completeHistoryImportInTransaction(
+        client,
+        history.provider,
+        history.accountReference,
+        history.cursor,
+        history.overlapFrom,
+        job,
+        result,
+      );
+    }
+    if (job) await renewLockedJobLease(client, job);
+    return {
+      imported: result.imported,
+      updated: result.updated,
+      ignored: result.ignored,
     };
   });
 }

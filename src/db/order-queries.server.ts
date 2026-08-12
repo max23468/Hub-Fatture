@@ -32,6 +32,10 @@ interface OrderDetailRow {
   payment_status: string;
   fulfillment_status: string;
   trigger_status: string;
+  historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
+  historical_reconciliation_reference: string | null;
+  historical_reconciled_at: string | null;
+  historical_invoice_id: string | null;
   billing_case_id: string | null;
   case_number: string | null;
   customer_name: string;
@@ -138,6 +142,16 @@ export async function listOrders(filters: {
                 ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'))
             OR ($3 = 'NO_DOCUMENT' AND orders.trigger_status IN
                 ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'))
+            OR ($3 = 'LEGACY_BILLING_REVIEW' AND (
+              orders.trigger_status = 'LEGACY_BILLING_REVIEW'
+              OR (orders.historical_reconciliation_outcome = 'ALREADY_INVOICED'
+                AND NOT EXISTS (
+                  SELECT 1 FROM document_orders
+                  JOIN documents ON documents.id = document_orders.document_id
+                  WHERE document_orders.order_id = orders.id
+                    AND documents.origin = 'ARUBA_HISTORY'
+                ))
+            ))
             OR orders.trigger_status = $3)
        AND ($4::date IS NULL OR orders.local_order_date = $4)
        AND ($5::text IS NULL OR orders.payment_status = $5)
@@ -159,6 +173,11 @@ export async function getOrder(id: string) {
             orders.normalized_snapshot_json #>> '{customerSnapshot,sourceConfidence}' AS source_confidence,
             (orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean AS review_required,
             billing_cases.public_number AS case_number,
+            (SELECT document_orders.document_id::text
+             FROM document_orders JOIN documents ON documents.id = document_orders.document_id
+             WHERE document_orders.order_id = orders.id
+               AND document_orders.document_kind = 'INVOICE'
+               AND documents.origin = 'ARUBA_HISTORY' LIMIT 1) AS historical_invoice_id,
             coalesce((
               SELECT jsonb_agg(to_jsonb(order_lines) ORDER BY order_lines.id)
               FROM order_lines WHERE order_lines.order_id = orders.id
@@ -236,7 +255,17 @@ export async function dashboardSummary() {
     `SELECT
        (SELECT count(*) FROM orders)::text AS orders,
        (SELECT count(*) FROM billing_cases WHERE status = 'READY')::text AS ready_cases,
-       (SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW')::text AS review_cases,
+       ((SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW') +
+        (SELECT count(*) FROM orders
+         WHERE billing_case_id IS NULL AND (
+           trigger_status = 'LEGACY_BILLING_REVIEW'
+           OR (historical_reconciliation_outcome = 'ALREADY_INVOICED'
+             AND NOT EXISTS (
+               SELECT 1 FROM document_orders
+               JOIN documents ON documents.id = document_orders.document_id
+               WHERE document_orders.order_id = orders.id
+                 AND documents.origin = 'ARUBA_HISTORY'
+             )))))::text AS review_cases,
        (SELECT count(*) FROM orders WHERE trigger_status = 'WAITING_FOR_TRIGGER')::text AS waiting_orders,
        (SELECT count(*) FROM orders
         WHERE trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
@@ -257,10 +286,10 @@ export async function dashboardSummary() {
         WHERE provider = 'EBAY') AS last_ebay_sync,
        (SELECT max(last_readback_at)::text FROM aruba_batches) AS last_aruba_readback,
        (SELECT count(*) FROM documents
-        WHERE approved_at AT TIME ZONE 'Europe/Rome' >=
+        WHERE origin = 'HUB' AND approved_at AT TIME ZONE 'Europe/Rome' >=
           date_trunc('day', now() AT TIME ZONE 'Europe/Rome'))::text AS documents_today,
        (SELECT count(*) FROM documents
-        WHERE approved_at AT TIME ZONE 'Europe/Rome' >=
+        WHERE origin = 'HUB' AND approved_at AT TIME ZONE 'Europe/Rome' >=
           date_trunc('month', now() AT TIME ZONE 'Europe/Rome'))::text AS documents_this_month`,
   );
   return result.rows[0]!;
@@ -288,12 +317,27 @@ export async function listOpenActivities(page?: unknown) {
        UNION ALL
        SELECT 'ORDER', orders.id::text,
               'Ordine ' || orders.display_number,
+              CASE
+                WHEN orders.trigger_status = 'LEGACY_BILLING_REVIEW'
+                  THEN 'Storico da riconciliare · '
+                WHEN orders.historical_reconciliation_outcome = 'ALREADY_INVOICED'
+                  THEN 'Fattura Aruba da collegare · '
+                ELSE ''
+              END ||
               coalesce(orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
                        'Cliente da verificare'),
               '/ordini/' || orders.id,
               orders.last_synced_at
        FROM orders
-       WHERE orders.trigger_status = 'NEEDS_REVIEW' AND orders.billing_case_id IS NULL
+       WHERE orders.billing_case_id IS NULL AND (
+         orders.trigger_status IN ('NEEDS_REVIEW', 'LEGACY_BILLING_REVIEW')
+         OR (orders.historical_reconciliation_outcome = 'ALREADY_INVOICED'
+           AND NOT EXISTS (
+             SELECT 1 FROM document_orders
+             JOIN documents ON documents.id = document_orders.document_id
+             WHERE document_orders.order_id = orders.id
+               AND documents.origin = 'ARUBA_HISTORY'
+           )))
        UNION ALL
        SELECT 'REFUND', refunds.id::text,
               'Rimborso da verificare',

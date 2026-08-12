@@ -6,6 +6,7 @@ import profileFixture from "../tests/fixtures/fatturapa/profile.mock.json" with 
 
 import {
   documentInputSchema,
+  acceptedInvoiceFromXml,
   generateFatturaXml,
   projectFatturaXml,
   type DocumentInput,
@@ -61,6 +62,40 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   assert.match(invoiceXml, /<RegimeFiscale>RF14<\/RegimeFiscale>/);
   assert.match(invoiceXml, /<Natura>N5<\/Natura>/);
   assert.match(invoiceXml, /<ModalitaPagamento>MP08<\/ModalitaPagamento>/);
+  const withoutTotal = invoiceXml.replace(
+    /\s*<ImportoTotaleDocumento>123\.45<\/ImportoTotaleDocumento>/,
+    "",
+  );
+  await validateFatturaXml(withoutTotal);
+  assert.equal(
+    acceptedInvoiceFromXml(withoutTotal, syntheticFiscalProfile.numbering.approvedAt).totalAmount,
+    12345,
+  );
+  const withoutPayment = invoiceXml.replace(
+    /\s*<DatiPagamento xmlns="">[\s\S]*?<\/DatiPagamento>/,
+    "",
+  );
+  await validateFatturaXml(withoutPayment);
+  const acceptedWithoutPayment = acceptedInvoiceFromXml(
+    withoutPayment,
+    syntheticFiscalProfile.numbering.approvedAt,
+  );
+  assert.equal(acceptedWithoutPayment.input.paymentMethod, "MP08");
+  assert.deepEqual(acceptedWithoutPayment.profile.payment, syntheticFiscalProfile.payment);
+  const withoutSupplierContacts = invoiceXml.replace(/\s*<Contatti>[\s\S]*?<\/Contatti>/, "");
+  await validateFatturaXml(withoutSupplierContacts);
+  const acceptedWithoutSupplierContacts = acceptedInvoiceFromXml(
+    withoutSupplierContacts,
+    syntheticFiscalProfile.numbering.approvedAt,
+  );
+  assert.equal(acceptedWithoutSupplierContacts.profile.seller.phone, undefined);
+  assert.equal(acceptedWithoutSupplierContacts.profile.seller.email, undefined);
+  const foreignCurrency = invoiceXml.replace("<Divisa>EUR</Divisa>", "<Divisa>USD</Divisa>");
+  await validateFatturaXml(foreignCurrency);
+  assert.throws(
+    () => acceptedInvoiceFromXml(foreignCurrency, syntheticFiscalProfile.numbering.approvedAt),
+    /non è FPR12, EUR o numerato correttamente/,
+  );
 
   const creditXml = generateFatturaXml(
     syntheticFiscalProfile,

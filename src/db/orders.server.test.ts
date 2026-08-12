@@ -34,6 +34,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
     process.env.DATABASE_URL = clean.connectionString;
     const orders = await import("./orders.server.ts");
+    const refunds = await import("./refunds.server.ts");
     const database = await import("./client.server.ts");
     const caseRevision = async (caseId: string | number) =>
       (
@@ -1559,6 +1560,68 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       "1",
     );
 
+    const upgradedHistorical = structuredClone(fixture[0]);
+    upgradedHistorical.externalOrderId = "shop-order-upgraded-historical";
+    upgradedHistorical.externalCustomerId = "shop-customer-upgraded-historical";
+    upgradedHistorical.customer.taxIdentifiers[0].value = "RSSMRA80A01H501E";
+    upgradedHistorical.createdAt = "2026-08-18T08:00:00Z";
+    upgradedHistorical.updatedAt = "2026-08-18T09:00:00Z";
+    upgradedHistorical.historical = false;
+    await orders.importOrders([upgradedHistorical], {
+      id: 1,
+      requestId: "test-before-history-upgrade",
+    });
+    const upgradedBefore = (
+      await database.getPool().query(
+        `SELECT orders.id, orders.billing_case_id, billing_cases.status
+         FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+         WHERE orders.external_order_id = $1`,
+        [upgradedHistorical.externalOrderId],
+      )
+    ).rows[0];
+    assert.equal(upgradedBefore.status, "READY");
+    upgradedHistorical.historical = true;
+    upgradedHistorical.updatedAt = "2026-08-18T10:00:00Z";
+    upgradedHistorical.refunds = [
+      {
+        externalRefundId: "upgraded-historical-total-refund",
+        status: "COMPLETED",
+        amount: upgradedHistorical.total,
+        completedAt: "2026-08-18T10:00:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([upgradedHistorical], {
+      id: 1,
+      requestId: "test-history-upgrade",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_case_id, trigger_status,
+                  normalized_snapshot_json ->> 'historical' AS historical
+           FROM orders WHERE id = $1`,
+          [upgradedBefore.id],
+        )
+      ).rows[0],
+      { billing_case_id: null, trigger_status: "LEGACY_BILLING_REVIEW", historical: "true" },
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [upgradedBefore.billing_case_id])
+      ).rows[0].status,
+      "DO_NOT_TRANSMIT",
+    );
+    await assert.rejects(
+      orders.forcePrepareOrder(upgradedBefore.id, {
+        id: 1,
+        requestId: "test-force-upgraded-historical",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
+    );
+
     const historical = structuredClone(fixture[0]);
     historical.externalOrderId = "shop-order-historical";
     historical.externalCustomerId = "shop-customer-historical";
@@ -1566,6 +1629,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     historical.historical = true;
     historical.createdAt = "2026-08-19T08:00:00Z";
     historical.updatedAt = "2026-08-19T09:00:00Z";
+    const reviewCountBeforeHistorical = Number((await orders.dashboardSummary()).review_cases);
     await orders.importOrders([historical], {
       id: 1,
       requestId: "test-historical-import",
@@ -1575,6 +1639,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .getPool()
         .query("SELECT id FROM orders WHERE external_order_id = $1", [historical.externalOrderId])
     ).rows[0].id;
+    assert.equal(
+      Number((await orders.dashboardSummary()).review_cases),
+      reviewCountBeforeHistorical + 1,
+    );
+    assert.ok(
+      (await orders.listOpenActivities()).rows.some(
+        (activity) => activity.kind === "ORDER" && activity.id === String(historicalId),
+      ),
+    );
     await orders.setDraftTrigger("PAID", 3, {
       id: 1,
       requestId: "test-historical-trigger-change",
@@ -1590,6 +1663,599 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     await assert.rejects(
       orders.forcePrepareOrder(historicalId, { id: 1, requestId: "test-force-historical" }),
       (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Tentativo diretto dell’account operatore",
+        },
+        { id: 2, canApprove: false, requestId: "test-reconcile-historical-forbidden" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_RECONCILIATION_FORBIDDEN",
+    );
+    assert.equal((await orders.getOrder(historicalId))!.historical_reconciliation_outcome, null);
+    const reconciledHistorical = await orders.reconcileHistoricalOrder(
+      historicalId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ricerca Aruba per ordine, data, cliente e totale: nessun documento",
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-historical-clear" },
+    );
+    assert.ok(reconciledHistorical?.caseId);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT trigger_status, historical_reconciliation_outcome,
+                  historical_reconciled_at IS NOT NULL AS reconciled
+           FROM orders WHERE id = $1`,
+          [historicalId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "GROUPED",
+        historical_reconciliation_outcome: "NOT_INVOICED",
+        reconciled: true,
+      },
+    );
+    historical.updatedAt = "2026-08-19T09:30:00Z";
+    historical.historical = false;
+    await orders.importOrders([historical], {
+      id: 1,
+      requestId: "test-reimport-historical-clear",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT trigger_status,
+                  normalized_snapshot_json ->> 'historical' AS historical,
+                  historical_reconciliation_outcome
+           FROM orders WHERE id = $1`,
+          [historicalId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "GROUPED",
+        historical: "true",
+        historical_reconciliation_outcome: "NOT_INVOICED",
+      },
+    );
+
+    const alreadyInvoiced = structuredClone(historical);
+    alreadyInvoiced.externalOrderId = "shop-order-historical-invoiced";
+    alreadyInvoiced.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
+    alreadyInvoiced.historical = true;
+    alreadyInvoiced.refunds = [
+      {
+        externalRefundId: "historical-invoiced-existing-refund",
+        status: "COMPLETED",
+        amount: "10.00",
+        completedAt: "2026-08-20T09:45:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([alreadyInvoiced], {
+      id: 1,
+      requestId: "test-import-historical-invoiced",
+    });
+    const alreadyInvoicedId = (
+      await database
+        .getPool()
+        .query("SELECT id FROM orders WHERE external_order_id = $1", [
+          alreadyInvoiced.externalOrderId,
+        ])
+    ).rows[0].id;
+    await database.getPool().query(
+      `INSERT INTO fiscal_profiles (version, status, profile_json)
+       VALUES (1, 'MOCK', $1)`,
+      [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
+    );
+    const historicalInvoiceXml = Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 0010/26")
+        .replace("#1001", "#S-1001")
+        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replaceAll("123.45", "122.00"),
+    );
+    await database.getPool().query(
+      `UPDATE orders SET trigger_status = 'INVOICED',
+         historical_reconciliation_outcome = 'ALREADY_INVOICED',
+         historical_reconciliation_reference = 'Documento Aruba da collegare dopo aggiornamento',
+         historical_reconciled_at = now()
+       WHERE id = $1`,
+      [alreadyInvoicedId],
+    );
+    assert.ok(
+      (await orders.listOpenActivities()).rows.some(
+        (activity) => activity.kind === "ORDER" && activity.id === String(alreadyInvoicedId),
+      ),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        alreadyInvoicedId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba non riferito all’ordine",
+          invoiceXml: Buffer.from(
+            historicalInvoiceXml
+              .toString()
+              .replace("#S-1001", "#S-10010")
+              .replace("</FatturaElettronica>", "<!-- Shopify #S-1001 --></FatturaElettronica>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-unrelated-invoice" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      alreadyInvoicedId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0010/26 verificato",
+        invoiceXml: historicalInvoiceXml,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-historical-invoiced" },
+    );
+    const historicalDocumentCount = Number(
+      (
+        await database
+          .getPool()
+          .query("SELECT count(*) FROM documents WHERE origin = 'ARUBA_HISTORY'")
+      ).rows[0].count,
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        alreadyInvoicedId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Secondo collegamento non consentito",
+          invoiceXml: Buffer.from(historicalInvoiceXml.toString().replace("0010/26", "0011/26")),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-historical-twice" },
+      ),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    assert.equal(
+      Number(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM documents WHERE origin = 'ARUBA_HISTORY'")
+        ).rows[0].count,
+      ),
+      historicalDocumentCount,
+    );
+    const existingHistoricalRefundId = (
+      await database
+        .getPool()
+        .query<{ id: string }>(
+          "SELECT id FROM refunds WHERE external_refund_id = 'historical-invoiced-existing-refund'",
+        )
+    ).rows[0]!.id;
+    const historicalCreditNoteId = await refunds.processRefund(existingHistoricalRefundId);
+    assert.ok(historicalCreditNoteId);
+    assert.equal(
+      (await refunds.getCreditNoteProjection(historicalCreditNoteId!))?.invoiceNumber,
+      "FPR 0010/26",
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT applied_before_issue,
+                  (SELECT count(*)::int FROM jobs
+                   WHERE type = 'process_refund'
+                     AND payload_json ->> 'refundId' = refunds.id::text) AS jobs
+           FROM refunds WHERE external_refund_id = 'historical-invoiced-existing-refund'`,
+        )
+      ).rows[0],
+      { applied_before_issue: false, jobs: 1 },
+    );
+
+    const netHistorical = structuredClone(historical);
+    netHistorical.externalOrderId = "shop-order-historical-net-invoice";
+    netHistorical.displayNumber = "#S-HIST-NET";
+    netHistorical.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
+    netHistorical.historical = true;
+    netHistorical.updatedAt = "2026-08-19T09:50:00Z";
+    netHistorical.payments[0].externalPaymentId = "historical-net-invoice-payment";
+    netHistorical.refunds = [
+      {
+        externalRefundId: "historical-net-invoice-refund",
+        status: "COMPLETED",
+        amount: "10.00",
+        completedAt: "2026-08-18T09:40:00Z",
+        raw: {},
+      },
+      {
+        externalRefundId: "historical-net-invoice-post-refund",
+        status: "COMPLETED",
+        amount: "5.00",
+        completedAt: "2026-08-20T09:40:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([netHistorical], {
+      id: 1,
+      requestId: "test-import-historical-net-invoice",
+    });
+    const netHistoricalId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          netHistorical.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      netHistoricalId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba netto del rimborso pre-emissione",
+        invoiceXml: Buffer.from(
+          (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+            .replace("FPR 0001/26", "FPR 0011/26")
+            .replace("#1001", netHistorical.displayNumber)
+            .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+            .replaceAll("123.45", "112.00")
+            .replace(/\s*<Contatti>[\s\S]*?<\/Contatti>/, ""),
+        ),
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-historical-net-invoice" },
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT refunds.external_refund_id, refunds.applied_before_issue,
+                  document_orders.amount,
+                  (SELECT count(*)::int FROM jobs
+                   WHERE type = 'process_refund'
+                     AND payload_json ->> 'refundId' = refunds.id::text) AS jobs
+           FROM refunds
+           JOIN document_orders ON document_orders.order_id = refunds.order_id
+           WHERE refunds.external_refund_id IN
+             ('historical-net-invoice-refund', 'historical-net-invoice-post-refund')
+           ORDER BY refunds.external_refund_id`,
+        )
+      ).rows,
+      [
+        {
+          external_refund_id: "historical-net-invoice-post-refund",
+          applied_before_issue: false,
+          amount: 11200,
+          jobs: 1,
+        },
+        {
+          external_refund_id: "historical-net-invoice-refund",
+          applied_before_issue: true,
+          amount: 11200,
+          jobs: 0,
+        },
+      ],
+    );
+    const groupedHistoricalFirst = structuredClone(historical);
+    groupedHistoricalFirst.externalOrderId = "shop-order-historical-grouped-first";
+    groupedHistoricalFirst.displayNumber = "#S-HIST-GROUP-1";
+    groupedHistoricalFirst.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
+    groupedHistoricalFirst.historical = true;
+    groupedHistoricalFirst.updatedAt = "2026-08-19T09:55:00Z";
+    groupedHistoricalFirst.payments[0].externalPaymentId = "historical-grouped-first-payment";
+    const groupedHistoricalSecond = structuredClone(groupedHistoricalFirst);
+    groupedHistoricalSecond.externalOrderId = "shop-order-historical-grouped-second";
+    groupedHistoricalSecond.displayNumber = "#S-HIST-GROUP-2";
+    groupedHistoricalSecond.payments[0].externalPaymentId = "historical-grouped-second-payment";
+    await orders.importOrders([groupedHistoricalFirst, groupedHistoricalSecond], {
+      id: 1,
+      requestId: "test-import-historical-grouped-invoice",
+    });
+    const groupedIds = (
+      await database.getPool().query<{ id: string; external_order_id: string }>(
+        `SELECT id, external_order_id FROM orders
+         WHERE external_order_id IN ($1, $2) ORDER BY external_order_id`,
+        [groupedHistoricalFirst.externalOrderId, groupedHistoricalSecond.externalOrderId],
+      )
+    ).rows;
+    const groupedLine = `<DettaglioLinee>
+        <NumeroLinea>2</NumeroLinea>
+        <Descrizione>Vendita beni usati - Ordine Shopify #S-HIST-GROUP-2</Descrizione>
+        <Quantita>1.00</Quantita>
+        <PrezzoUnitario>122.00</PrezzoUnitario>
+        <PrezzoTotale>122.00</PrezzoTotale>
+        <AliquotaIVA>0.00</AliquotaIVA>
+        <Natura>N5</Natura>
+      </DettaglioLinee>`;
+    const groupedInvoiceXml = Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 0012/26")
+        .replace("#1001", "#S-HIST-GROUP-1")
+        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replaceAll("123.45", "122.00")
+        .replace("</DettaglioLinee>", `</DettaglioLinee>\n      ${groupedLine}`)
+        .replace("<ImportoTotaleDocumento>122.00", "<ImportoTotaleDocumento>244.00")
+        .replace("<ImponibileImporto>122.00", "<ImponibileImporto>244.00")
+        .replace("<ImportoPagamento>122.00", "<ImportoPagamento>244.00"),
+    );
+    for (const grouped of groupedIds) {
+      await orders.reconcileHistoricalOrder(
+        grouped.id,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba cumulativo verificato",
+          invoiceXml: groupedInvoiceXml,
+        },
+        { id: 1, canApprove: true, requestId: `test-reconcile-${grouped.external_order_id}` },
+      );
+    }
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT count(DISTINCT documents.id)::int AS documents,
+                  count(document_orders.order_id)::int AS orders,
+                  sum(document_orders.amount)::int AS attributed_amount,
+                  max(documents.total_amount)::int AS document_total
+           FROM documents
+           JOIN document_orders ON document_orders.document_id = documents.id
+           WHERE documents.fiscal_number = 12 AND documents.fiscal_year = 2026`,
+        )
+      ).rows[0],
+      { documents: 1, orders: 2, attributed_amount: 24400, document_total: 24400 },
+    );
+    const historicalWithoutTaxId = structuredClone(historical);
+    historicalWithoutTaxId.externalOrderId = "shop-order-historical-without-tax-id";
+    historicalWithoutTaxId.externalCustomerId = "shop-customer-historical-without-tax-id";
+    historicalWithoutTaxId.displayNumber = "#S-HIST-NO-TAX-ID";
+    historicalWithoutTaxId.customer.taxIdentifiers = [];
+    historicalWithoutTaxId.customer.billingAddress = {
+      line1: "Via Cliente 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithoutTaxId.historical = true;
+    historicalWithoutTaxId.updatedAt = "2026-08-19T09:57:00Z";
+    historicalWithoutTaxId.payments[0].externalPaymentId = "historical-without-tax-id-payment";
+    await orders.importOrders([historicalWithoutTaxId], {
+      id: 1,
+      requestId: "test-import-historical-without-tax-id",
+    });
+    const historicalWithoutTaxIdId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithoutTaxId.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const historicalWithoutTaxIdXml = Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 0013/26")
+        .replace("#1001", historicalWithoutTaxId.displayNumber)
+        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replaceAll("123.45", "122.00"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithoutTaxIdId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con destinatario diverso",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml
+              .toString()
+              .replace("<Nome>Mario</Nome>", "<Nome>Luigi</Nome>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-wrong-recipient-without-tax-id" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      historicalWithoutTaxIdId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba con destinatario verificato senza identificativo fiscale",
+        invoiceXml: historicalWithoutTaxIdXml,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-recipient-without-tax-id" },
+    );
+    alreadyInvoiced.updatedAt = "2026-08-19T10:00:00Z";
+    alreadyInvoiced.historical = false;
+    await orders.importOrders([alreadyInvoiced], {
+      id: 1,
+      requestId: "test-reimport-historical-invoiced",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT trigger_status, billing_case_id, historical_reconciliation_outcome,
+                  normalized_snapshot_json ->> 'historical' AS historical
+           FROM orders WHERE id = $1`,
+          [alreadyInvoicedId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "INVOICED",
+        billing_case_id: null,
+        historical_reconciliation_outcome: "ALREADY_INVOICED",
+        historical: "true",
+      },
+    );
+    alreadyInvoiced.updatedAt = "2026-08-19T10:30:00Z";
+    alreadyInvoiced.refunds.push({
+      externalRefundId: "historical-invoiced-total-refund",
+      status: "COMPLETED",
+      amount: alreadyInvoiced.total,
+      completedAt: "2026-08-19T10:30:00Z",
+      raw: {},
+    });
+    await orders.importOrders([alreadyInvoiced], {
+      id: 1,
+      requestId: "test-refund-reimported-historical-invoiced",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.trigger_status, orders.billing_case_id,
+                  orders.historical_reconciliation_outcome,
+                  refunds.id AS refund_id, refunds.applied_before_issue,
+                  (SELECT count(*)::int FROM jobs
+                   WHERE type = 'process_refund'
+                     AND payload_json ->> 'refundId' = refunds.id::text) AS jobs
+           FROM orders JOIN refunds ON refunds.order_id = orders.id
+           WHERE orders.id = $1
+             AND refunds.external_refund_id = 'historical-invoiced-total-refund'`,
+          [alreadyInvoicedId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "INVOICED",
+        billing_case_id: null,
+        historical_reconciliation_outcome: "ALREADY_INVOICED",
+        refund_id: (
+          await database
+            .getPool()
+            .query(
+              "SELECT id FROM refunds WHERE external_refund_id = 'historical-invoiced-total-refund'",
+            )
+        ).rows[0].id,
+        applied_before_issue: false,
+        jobs: 1,
+      },
+    );
+    const historicalInvoicedRefundId = (
+      await database
+        .getPool()
+        .query(
+          "SELECT id FROM refunds WHERE external_refund_id = 'historical-invoiced-total-refund'",
+        )
+    ).rows[0].id;
+    await assert.rejects(
+      refunds.processRefund(historicalInvoicedRefundId),
+      (error: unknown) => error instanceof AppError && error.code === "CREDIT_NOTE_LIMIT_EXCEEDED",
+    );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT count(*)::int AS count FROM audit_events
+           WHERE action = 'REFUND_NEEDS_REVIEW' AND entity_type = 'REFUND' AND entity_id = $1`,
+          [historicalInvoicedRefundId],
+        )
+      ).rows[0].count,
+      0,
+    );
+    await assert.rejects(
+      orders.forcePrepareOrder(alreadyInvoicedId, {
+        id: 1,
+        requestId: "test-force-reimported-historical",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
+      ).rows[0].count,
+      "6",
+    );
+
+    const historicalRefunded = structuredClone(fixture[0]);
+    historicalRefunded.externalOrderId = "shop-order-historical-refunded";
+    historicalRefunded.externalCustomerId = "shop-customer-historical-refunded";
+    historicalRefunded.customer.taxIdentifiers[0].value = "RSSMRA80A01H501F";
+    historicalRefunded.createdAt = "2026-08-19T11:00:00Z";
+    historicalRefunded.updatedAt = "2026-08-19T12:00:00Z";
+    historicalRefunded.historical = true;
+    historicalRefunded.refunds = [
+      {
+        externalRefundId: "historical-total-refund",
+        status: "COMPLETED",
+        amount: historicalRefunded.total,
+        completedAt: "2026-08-19T12:00:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([historicalRefunded], {
+      id: 1,
+      requestId: "test-historical-refunded-import",
+    });
+    const historicalRefundedBefore = (
+      await database
+        .getPool()
+        .query(
+          `SELECT id, billing_case_id, trigger_status FROM orders WHERE external_order_id = $1`,
+          [historicalRefunded.externalOrderId],
+        )
+    ).rows[0];
+    assert.deepEqual(historicalRefundedBefore, {
+      id: historicalRefundedBefore.id,
+      billing_case_id: null,
+      trigger_status: "LEGACY_BILLING_REVIEW",
+    });
+    const historicalRefundedResult = await orders.reconcileHistoricalOrder(
+      historicalRefundedBefore.id,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ricerca Aruba per ordine rimborsato: nessun documento emesso",
+      },
+      { id: 1, canApprove: true, requestId: "test-historical-refunded-reconcile" },
+    );
+    assert.ok(historicalRefundedResult?.caseId);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.trigger_status, billing_cases.status
+           FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+           WHERE orders.id = $1`,
+          [historicalRefundedBefore.id],
+        )
+      ).rows[0],
+      { trigger_status: "REFUNDED_BEFORE_ISSUE", status: "DO_NOT_TRANSMIT" },
+    );
+
+    const historicalPartialRefund = structuredClone(historicalRefunded);
+    historicalPartialRefund.externalOrderId = "shop-order-historical-partial-refund";
+    historicalPartialRefund.externalCustomerId = "shop-customer-historical-partial-refund";
+    historicalPartialRefund.customer.taxIdentifiers[0].value = "RSSMRA80A01H501G";
+    historicalPartialRefund.createdAt = "2026-08-19T13:00:00Z";
+    historicalPartialRefund.updatedAt = "2026-08-19T14:00:00Z";
+    historicalPartialRefund.refunds[0].externalRefundId = "historical-partial-refund";
+    historicalPartialRefund.refunds[0].amount = "10.00";
+    await orders.importOrders([historicalPartialRefund], {
+      id: 1,
+      requestId: "test-historical-partial-refund-import",
+    });
+    const historicalPartialId = (
+      await database
+        .getPool()
+        .query("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalPartialRefund.externalOrderId,
+        ])
+    ).rows[0].id;
+    const historicalPartialResult = await orders.reconcileHistoricalOrder(
+      historicalPartialId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ricerca Aruba per ordine parzialmente rimborsato: nessun documento",
+      },
+      { id: 1, canApprove: true, requestId: "test-historical-partial-refund-reconcile" },
+    );
+    assert.ok(historicalPartialResult?.caseId);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.trigger_status, billing_cases.status,
+                  (SELECT sum(amount)::integer FROM refunds
+                   WHERE refunds.order_id = orders.id AND applied_before_issue) AS refunded
+           FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+           WHERE orders.id = $1`,
+          [historicalPartialId],
+        )
+      ).rows[0],
+      { trigger_status: "GROUPED", status: "READY", refunded: 1000 },
     );
 
     const concurrentA = structuredClone(fixture[0]);
@@ -2093,6 +2759,229 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     assert.notEqual(isolatedRefund.case_id, isolatedRefund.healthy_case_id);
     const totalRefundCase = await orders.getBillingCase(isolatedRefund.case_id);
     assert.equal(totalRefundCase!.reactivation_blocker, "INCOMPATIBLE_ORDERS");
+
+    await database.getPool().query(
+      `UPDATE settings SET value_json = '"PAID"', version = version + 1
+       WHERE key = 'draft_trigger'`,
+    );
+    const refundAnchor = structuredClone(fixture[0]);
+    refundAnchor.externalOrderId = "shop-order-historical-refund-anchor";
+    refundAnchor.displayNumber = "#HISTORICAL-REFUND-ANCHOR";
+    refundAnchor.createdAt = "2026-09-01T08:00:00Z";
+    refundAnchor.updatedAt = "2026-09-01T09:00:00Z";
+    refundAnchor.payments[0].externalPaymentId = "historical-refund-anchor-payment";
+    await orders.importOrders([refundAnchor], {
+      id: 1,
+      requestId: "test-historical-refund-anchor-import",
+    });
+    const refundAnchorRow = (
+      await database
+        .getPool()
+        .query<{ id: string; billing_case_id: string }>(
+          "SELECT id, billing_case_id FROM orders WHERE external_order_id = $1",
+          [refundAnchor.externalOrderId],
+        )
+    ).rows[0]!;
+    await database.getPool().query(
+      `INSERT INTO fiscal_profiles (version, status, profile_json)
+       VALUES (1, 'MOCK', $1) ON CONFLICT (version) DO NOTHING`,
+      [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
+    );
+    const refundDocumentId = (
+      await database.getPool().query<{ id: string }>(
+        `INSERT INTO documents
+           (billing_case_id, kind, status, document_type, series, document_date,
+            fiscal_profile_version, currency, total_amount, source_total_amount,
+            difference_amount, projection_sha256, payment_status, payment_method,
+            recipient_snapshot_json)
+         VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', '2026-09-01', 1, 'EUR',
+                 12200, 12200, 0, $2, 'PAID', 'MP08', $3)
+         RETURNING id`,
+        [
+          refundAnchorRow.billing_case_id,
+          "0".repeat(64),
+          {
+            kind: refundAnchor.customer.kind,
+            displayName: refundAnchor.customer.displayName,
+            firstName: refundAnchor.customer.firstName,
+            lastName: refundAnchor.customer.lastName,
+            taxIdentifiers: refundAnchor.customer.taxIdentifiers.map(
+              (identifier: { type: string; value: string; countryCode?: string }) => ({
+                type: identifier.type,
+                value: identifier.value,
+                countryCode: identifier.countryCode,
+              }),
+            ),
+            address: refundAnchor.customer.billingAddress,
+          },
+        ],
+      )
+    ).rows[0]!.id;
+    await database.getPool().query(
+      `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+       VALUES ($1, 'INVOICE', $2, 12200)`,
+      [refundDocumentId, refundAnchorRow.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO document_lines
+         (document_id, order_id, line_number, description, quantity, unit_amount,
+          total_amount, tax_nature)
+       VALUES ($1, $2, 1, 'Ordine di controllo', 1, 12200, 12200, 'N5')`,
+      [refundDocumentId, refundAnchorRow.id],
+    );
+    const deferredHistorical = structuredClone(fixture[0]);
+    deferredHistorical.externalOrderId = "shop-order-historical-refund-deferred-force";
+    deferredHistorical.displayNumber = "#HISTORICAL-REFUND-DEFERRED-FORCE";
+    deferredHistorical.createdAt = "2026-09-01T08:00:00Z";
+    deferredHistorical.updatedAt = "2026-09-01T09:00:00Z";
+    deferredHistorical.historical = true;
+    deferredHistorical.paymentStatus = "PENDING";
+    deferredHistorical.fulfillmentStatus = "FULFILLED";
+    deferredHistorical.payments[0].externalPaymentId = "historical-refund-deferred-force-payment";
+    deferredHistorical.payments[0].status = "PENDING";
+    deferredHistorical.payments[0].paidAt = null;
+    deferredHistorical.refunds = [
+      {
+        externalRefundId: "historical-refund-deferred-force",
+        status: "COMPLETED",
+        amount: "10.00",
+        completedAt: "2026-09-01T09:00:00Z",
+        raw: {},
+      },
+    ];
+    const triggeredHistorical = structuredClone(deferredHistorical);
+    triggeredHistorical.externalOrderId = "shop-order-historical-refund-deferred-trigger";
+    triggeredHistorical.displayNumber = "#HISTORICAL-REFUND-DEFERRED-TRIGGER";
+    triggeredHistorical.payments[0].externalPaymentId =
+      "historical-refund-deferred-trigger-payment";
+    triggeredHistorical.refunds[0].externalRefundId = "historical-refund-deferred-trigger";
+    await orders.importOrders([deferredHistorical, triggeredHistorical], {
+      id: 1,
+      requestId: "test-historical-refund-deferred-import",
+    });
+    const deferredIds = (
+      await database.getPool().query<{ id: string; external_order_id: string }>(
+        `SELECT id, external_order_id FROM orders
+         WHERE external_order_id IN ($1, $2)`,
+        [deferredHistorical.externalOrderId, triggeredHistorical.externalOrderId],
+      )
+    ).rows;
+    for (const order of deferredIds) {
+      await orders.reconcileHistoricalOrder(
+        order.id,
+        {
+          outcome: "NOT_INVOICED",
+          reference: `Ricerca Aruba senza documento per ${order.external_order_id}`,
+        },
+        { id: 1, canApprove: true, requestId: `test-${order.external_order_id}-reconcile` },
+      );
+    }
+    const forcedId = deferredIds.find(
+      (order) => order.external_order_id === deferredHistorical.externalOrderId,
+    )!.id;
+    await orders.forcePrepareOrder(forcedId, {
+      id: 1,
+      requestId: "test-historical-refund-deferred-force",
+    });
+    const finalTriggerVersion = (
+      await database.getPool().query("SELECT version FROM settings WHERE key = 'draft_trigger'")
+    ).rows[0].version;
+    await orders.setDraftTrigger("FULFILLED", finalTriggerVersion, {
+      id: 1,
+      requestId: "test-historical-refund-deferred-trigger",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.external_order_id, orders.trigger_status, document_orders.amount
+           FROM orders JOIN document_orders ON document_orders.order_id = orders.id
+           WHERE orders.external_order_id IN ($1, $2)
+           ORDER BY orders.external_order_id`,
+          [deferredHistorical.externalOrderId, triggeredHistorical.externalOrderId],
+        )
+      ).rows,
+      [
+        {
+          external_order_id: deferredHistorical.externalOrderId,
+          trigger_status: "GROUPED",
+          amount: 11_200,
+        },
+        {
+          external_order_id: triggeredHistorical.externalOrderId,
+          trigger_status: "GROUPED",
+          amount: 11_200,
+        },
+      ],
+    );
+
+    const firstDraftHistorical = structuredClone(fixture[0]);
+    firstDraftHistorical.externalOrderId = "shop-order-historical-refund-first-draft";
+    firstDraftHistorical.displayNumber = "#HISTORICAL-REFUND-FIRST-DRAFT";
+    firstDraftHistorical.createdAt = "2026-09-02T08:00:00Z";
+    firstDraftHistorical.updatedAt = "2026-09-02T09:00:00Z";
+    firstDraftHistorical.historical = true;
+    firstDraftHistorical.payments[0].externalPaymentId = "historical-refund-first-draft-payment";
+    firstDraftHistorical.refunds = [
+      {
+        externalRefundId: "historical-refund-first-draft",
+        status: "COMPLETED",
+        amount: "10.00",
+        completedAt: "2026-09-02T09:00:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([firstDraftHistorical], {
+      id: 1,
+      requestId: "test-historical-refund-first-draft-import",
+    });
+    const firstDraftHistoricalId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          firstDraftHistorical.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const firstDraftReconciliation = await orders.reconcileHistoricalOrder(
+      firstDraftHistoricalId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ricerca Aruba senza documento per prima bozza netta",
+      },
+      {
+        id: 1,
+        canApprove: true,
+        requestId: "test-historical-refund-first-draft-reconcile",
+      },
+    );
+    const documents = await import("./documents.server.ts");
+    const firstProjection = await documents.getInvoiceProjection(firstDraftReconciliation!.caseId!);
+    assert.ok(firstProjection && !firstProjection.profileMissing && "lines" in firstProjection);
+    assert.equal(firstProjection.sourceTotal, 11_200);
+    assert.equal(firstProjection.lines[0]!.unitAmount, 11_200);
+    await documents.saveInvoiceDraft(
+      firstDraftReconciliation!.caseId!,
+      {
+        caseRevision: firstProjection.caseRevision,
+        draftVersion: firstProjection.draftVersion,
+        differenceReason: "",
+        paymentStatus: firstProjection.paymentStatus,
+        paymentMethod: firstProjection.paymentMethod,
+        causale: firstProjection.causale,
+        notes: firstProjection.notes,
+        lines: firstProjection.lines,
+      },
+      { id: 1, canApprove: true, requestId: "test-historical-refund-first-draft-save" },
+    );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT document_orders.amount FROM document_orders
+           WHERE document_orders.order_id = $1`,
+          [firstDraftHistoricalId],
+        )
+      ).rows[0].amount,
+      11_200,
+    );
 
     await database.closePool();
   } finally {

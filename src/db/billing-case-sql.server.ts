@@ -12,12 +12,12 @@ const openStatusList = OPEN_BILLING_CASE_STATUSES.map((status) => `'${status}'`)
 export const openBillingCaseSql = (alias = "billing_cases") =>
   `${alias}.status IN (${openStatusList})`;
 
-/** Un ordine annullato, rimborsato o storico non entra in una preparazione. */
+/** Un ordine annullato, rimborsato o storico non riconciliato non entra in una preparazione. */
 export const orderBillableSql = (alias = "orders") =>
-  `${alias}.cancelled_at IS NULL AND ${alias}.payment_status <> 'REFUNDED' AND ${alias}.trigger_status NOT IN ('LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') AND NOT coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false)`;
+  `${alias}.cancelled_at IS NULL AND ${alias}.payment_status <> 'REFUNDED' AND ${alias}.trigger_status NOT IN ('LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') AND (NOT coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) OR ${alias}.historical_reconciliation_outcome = 'NOT_INVOICED')`;
 
 export const orderNotBillableSql = (alias = "orders") =>
-  `(${alias}.cancelled_at IS NOT NULL OR ${alias}.payment_status = 'REFUNDED' OR ${alias}.trigger_status IN ('LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') OR coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false))`;
+  `(${alias}.cancelled_at IS NOT NULL OR ${alias}.payment_status = 'REFUNDED' OR ${alias}.trigger_status IN ('LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') OR (coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) AND ${alias}.historical_reconciliation_outcome IS DISTINCT FROM 'NOT_INVOICED'))`;
 
 export const hasCaseOrdersSql = `EXISTS (
   SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id

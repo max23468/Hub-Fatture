@@ -218,6 +218,7 @@ const romeDateFormatter = new Intl.DateTimeFormat("en-CA", {
   month: "2-digit",
   day: "2-digit",
 });
+const DAY_MS = 86_400_000;
 
 export function decimalToCents(value: string): number {
   const match = /^(-?)(\d+)(?:\.(\d{1,2})0*)?$/.exec(value);
@@ -235,6 +236,29 @@ export function localOrderDate(instant: string): string {
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((candidate) => candidate.type === type)?.value;
   return `${part("year")?.padStart(4, "0")}-${part("month")}-${part("day")}`;
+}
+
+export function defaultHistoricalStartDate(now = Date.now()) {
+  const today = localOrderDate(new Date(now).toISOString());
+  return new Date(Date.parse(`${today}T00:00:00Z`) - 7 * DAY_MS).toISOString().slice(0, 10);
+}
+
+export function historicalOrderWindow(value: unknown, now = Date.now()) {
+  const parsed = postgresDateSchema.safeParse(value);
+  if (!parsed.success || parsed.data > localOrderDate(new Date(now).toISOString())) return null;
+  return {
+    startDate: parsed.data,
+    // I provider ricevono un sovrainsieme UTC; il filtro sotto applica il giorno Europe/Rome.
+    fetchFrom: new Date(Date.parse(`${parsed.data}T00:00:00Z`) - DAY_MS).toISOString(),
+  };
+}
+
+export function markHistoricalOrders(orders: OrderInput[], startDate: string) {
+  return orders.flatMap((order) =>
+    localOrderDate(order.createdAt) >= startDate || localOrderDate(order.updatedAt) >= startDate
+      ? [{ ...order, historical: true }]
+      : [],
+  );
 }
 
 function normalized(value: string | undefined): string {

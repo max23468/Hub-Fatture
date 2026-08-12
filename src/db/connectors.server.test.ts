@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { closePool, getPool, withTransaction } from "./client.server.ts";
-import { temporaryDatabase } from "./database-fixture.ts";
+import { temporaryDatabase, withClient } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { importOrders } from "./order-import.server.ts";
 import { AppError } from "../errors.ts";
@@ -39,6 +39,46 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       (await connectors.loadConnection<{ accessToken: string }>("SHOPIFY")).credentials,
       { accessToken: "token-sintetico" },
     );
+    assert.equal(await connectors.historyImportPending("SHOPIFY"), true);
+    await connectors.scheduleDueSyncs();
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'shopify_sync_orders'",
+        )
+      ).rows[0].total,
+      0,
+    );
+    assert.deepEqual(
+      await importOrders([], { type: "SYSTEM", requestId: "shopify-history-empty" }),
+      { imported: 0, updated: 0, ignored: 0 },
+    );
+    await connectors.completeHistoryImport(
+      "SHOPIFY",
+      "shop.example.invalid",
+      "2026-08-12T10:00:00Z",
+      "2026-08-12T09:55:00Z",
+    );
+    assert.equal(await connectors.historyImportPending("SHOPIFY"), false);
+    assert.equal(
+      (await connectors.connectionSummaries()).find(({ provider }) => provider === "SHOPIFY")
+        ?.historyImported,
+      true,
+    );
+    await getPool().query(
+      `UPDATE connections SET last_synced_at = now() - interval '11 minutes'
+       WHERE provider = 'SHOPIFY' AND environment = 'DEVELOPMENT'`,
+    );
+    await connectors.scheduleDueSyncs();
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'shopify_sync_orders'",
+        )
+      ).rows[0].total,
+      1,
+    );
+    await getPool().query("DELETE FROM jobs WHERE type = 'shopify_sync_orders'");
     await connectors.saveConnection(
       {
         provider: "EBAY",
@@ -57,9 +97,10 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       },
       systemActor,
     );
-    assert.equal((await connectors.loadConnection("EBAY")).accountReference, "sandbox-sintetica");
-    await connectors.markConnectionSynced("EBAY");
-    await connectors.writeCursor("EBAY", "cursor-sintetico", "2026-08-01T00:00:00Z");
+    await getPool().query(
+      `UPDATE connections SET created_at = '2026-08-01T10:00:00Z'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+    );
     await connectors.saveConnection(
       {
         provider: "EBAY",
@@ -69,7 +110,51 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       },
       systemActor,
     );
-    assert.equal((await connectors.readCursor("EBAY")).cursor, "cursor-sintetico");
+    assert.equal(
+      (await connectors.connectionSummaries()).find(({ provider }) => provider === "EBAY")
+        ?.connectedAt,
+      "2026-08-01T10:00:00.000Z",
+    );
+    assert.equal((await connectors.loadConnection("EBAY")).accountReference, "sandbox-sintetica");
+    await connectors.markConnectionSynced("EBAY");
+    await connectors.writeCursor("EBAY", "cursor-sintetico", "2026-08-01T00:00:00Z");
+    assert.equal(await connectors.historyImportPending("EBAY"), true);
+    await getPool().query(
+      `UPDATE connections SET last_synced_at = now() - interval '11 minutes'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+    );
+    await connectors.scheduleDueSyncs();
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_sync_orders'",
+        )
+      ).rows[0].total,
+      0,
+    );
+    assert.deepEqual(await importOrders([], { type: "SYSTEM", requestId: "ebay-history-empty" }), {
+      imported: 0,
+      updated: 0,
+      ignored: 0,
+    });
+    await connectors.completeHistoryImport(
+      "EBAY",
+      "sandbox-sintetica",
+      "2026-08-12T10:00:00Z",
+      "2026-08-12T09:55:00Z",
+    );
+    assert.equal(await connectors.historyImportPending("EBAY"), false);
+    await getPool().query("DELETE FROM jobs WHERE type = 'shopify_sync_orders'");
+    await connectors.saveConnection(
+      {
+        provider: "EBAY",
+        environment: "SANDBOX",
+        accountReference: "sandbox-sintetica",
+        credentials: { refreshToken: "token-sandbox-rinnovato" },
+      },
+      systemActor,
+    );
+    assert.equal((await connectors.readCursor("EBAY")).cursor, "2026-08-12T10:00:00Z");
     assert.ok(
       (
         await getPool().query(
@@ -77,16 +162,98 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         )
       ).rows[0].last_synced_at,
     );
-    await connectors.saveConnection(
-      {
-        provider: "EBAY",
-        environment: "SANDBOX",
-        accountReference: "sandbox-sostitutiva",
-        credentials: { refreshToken: "token-sandbox-sostitutivo" },
-      },
-      systemActor,
+    await getPool().query(
+      "DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import'",
+    );
+    await connectors.enqueueJob("ebay_sync_orders");
+    const obsoleteSyncJob = await connectors.claimJob("worker-obsolete-account");
+    assert.equal(obsoleteSyncJob?.type, "ebay_sync_orders");
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    await getPool().query(
+      `UPDATE jobs SET status = 'COMPLETED', completed_at = now(),
+         result_json = '{"count":1,"reviewRequired":0,"imported":1,"updated":0,"ignored":0}'
+       WHERE type = 'ebay_preview_history'`,
+    );
+    assert.equal((await connectors.latestEbayHistory())?.imported, 1);
+    await getPool().query(
+      `UPDATE connections SET last_synced_at = now() - interval '11 minutes'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+    );
+    await withClient(database.connectionString, async (client) => {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:EBAY'))");
+      let scheduled = false;
+      let saved = false;
+      const scheduling = connectors.scheduleDueSyncs().finally(() => {
+        scheduled = true;
+      });
+      const saving = connectors
+        .saveConnection(
+          {
+            provider: "EBAY",
+            environment: "SANDBOX",
+            accountReference: "sandbox-sostitutiva",
+            credentials: { refreshToken: "token-sandbox-sostitutivo" },
+          },
+          systemActor,
+        )
+        .finally(() => {
+          saved = true;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      assert.equal(scheduled, false);
+      assert.equal(saved, false);
+      await client.query("COMMIT");
+      await Promise.all([scheduling, saving]);
+    });
+    assert.deepEqual(
+      (
+        await getPool().query("SELECT status, result_json FROM jobs WHERE id = $1", [
+          obsoleteSyncJob!.id,
+        ])
+      ).rows[0],
+      { status: "COMPLETED", result_json: { obsoleteAccount: true } },
+    );
+    assert.equal(await connectors.failJob(obsoleteSyncJob!, "CONFLICT_REVISION"), null);
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT status FROM connections WHERE provider = 'EBAY' AND environment = 'SANDBOX'",
+        )
+      ).rows[0].status,
+      "CONNECTED",
+    );
+    assert.equal(await connectors.latestEbayHistory(), null);
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::int AS total FROM jobs
+           WHERE type = 'ebay_sync_orders' AND status IN ('PENDING', 'RUNNING')`,
+        )
+      ).rows[0].total,
+      0,
+    );
+    await getPool().query(
+      `DELETE FROM jobs
+       WHERE type IN ('shopify_sync_orders', 'ebay_sync_orders', 'ebay_preview_history')`,
+    );
+    assert.notEqual(
+      (await connectors.connectionSummaries()).find(({ provider }) => provider === "EBAY")
+        ?.connectedAt,
+      "2026-08-01T10:00:00.000Z",
     );
     assert.equal((await connectors.readCursor("EBAY")).cursor, null);
+    assert.equal(await connectors.historyImportPending("EBAY"), true);
+    await assert.rejects(
+      connectors.completeHistoryImport(
+        "EBAY",
+        "sandbox-sintetica",
+        "2026-08-12T11:00:00Z",
+        "2026-08-12T10:55:00Z",
+      ),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    assert.equal(await connectors.historyImportPending("EBAY"), true);
     assert.equal(
       (
         await getPool().query(
@@ -94,6 +261,94 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         )
       ).rows[0].last_synced_at,
       null,
+    );
+    await assert.rejects(
+      importOrders([], { type: "SYSTEM", requestId: "ebay-history-obsolete-account" }, undefined, {
+        provider: "EBAY",
+        accountReference: "sandbox-sintetica",
+        cursor: "2026-08-12T11:00:00Z",
+        overlapFrom: "2026-08-12T10:55:00Z",
+        count: 0,
+        reviewRequired: 0,
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    const staleHistoryJob = await connectors.claimJob("worker-history-stale");
+    assert.deepEqual(staleHistoryJob?.payload, {
+      startDate: "2026-08-05",
+      mode: "IMPORT",
+      accountReference: "sandbox-sostitutiva",
+    });
+    await getPool().query(
+      `UPDATE connections SET account_reference = 'sandbox-risultante'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+    );
+    const { importEbayHistory } = await import("../integrations/ebay.server.ts");
+    assert.deepEqual(
+      await importEbayHistory(
+        "2026-08-05",
+        { type: "SYSTEM", requestId: `ebay-history:${staleHistoryJob!.id}` },
+        staleHistoryJob!,
+      ),
+      { count: 0, reviewRequired: 0, imported: 0, updated: 0, ignored: 0 },
+    );
+    assert.equal(await connectors.historyImportPending("EBAY"), true);
+    assert.equal(await connectors.completeJob(staleHistoryJob!), true);
+    await getPool().query("DELETE FROM jobs WHERE id = $1", [staleHistoryJob!.id]);
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    const historyJob = await connectors.claimJob("worker-history-import");
+    assert.equal(historyJob?.type, "ebay_preview_history");
+    assert.equal(historyJob?.payload.accountReference, "sandbox-risultante");
+    assert.deepEqual(
+      await importOrders(
+        [],
+        { type: "SYSTEM", requestId: `ebay-history:${historyJob!.id}` },
+        historyJob!,
+        {
+          provider: "EBAY",
+          accountReference: "sandbox-risultante",
+          cursor: "2026-08-12T11:00:00Z",
+          overlapFrom: "2026-08-12T10:55:00Z",
+          count: 0,
+          reviewRequired: 0,
+        },
+      ),
+      { imported: 0, updated: 0, ignored: 0 },
+    );
+    await getPool().query(
+      "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
+      [historyJob!.id],
+    );
+    const resumedHistoryJob = await connectors.claimJob("worker-history-resume");
+    assert.equal(resumedHistoryJob?.id, historyJob!.id);
+    assert.deepEqual(await connectors.completedHistoryImportResult("EBAY", resumedHistoryJob!), {
+      count: 0,
+      reviewRequired: 0,
+      imported: 0,
+      updated: 0,
+      ignored: 0,
+    });
+    assert.equal(await connectors.completeJob(resumedHistoryJob!), true);
+    const completedHistoryJobs = (
+      await getPool().query(
+        "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_preview_history'",
+      )
+    ).rows[0].total;
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT count(*)::int AS total FROM jobs WHERE type = 'ebay_preview_history'",
+        )
+      ).rows[0].total,
+      completedHistoryJobs,
+    );
+    await getPool().query("DELETE FROM jobs WHERE id = $1", [historyJob!.id]);
+    await getPool().query("DELETE FROM sync_cursors WHERE provider = 'EBAY'");
+    await getPool().query(
+      `UPDATE connections SET last_synced_at = NULL
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
     );
     const stored = await getPool().query<{ encrypted_credentials: string }>(
       "SELECT encrypted_credentials FROM connections",
@@ -168,6 +423,40 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       (await getPool().query("SELECT status FROM webhook_events")).rows[0].status,
       "PROCESSED",
     );
+    await connectors.ingestShopifyWebhook({
+      externalEventId: "event-account-obsoleto",
+      topic: "ORDERS_UPDATED",
+      payloadSha256: "e".repeat(64),
+      orderId: "gid://shopify/Order/2",
+    });
+    const obsoleteWebhookJob = await connectors.claimJob("worker-obsolete-webhook");
+    assert.equal(obsoleteWebhookJob?.type, "shopify_process_webhook");
+    await connectors.saveConnection(
+      {
+        provider: "SHOPIFY",
+        environment: "DEVELOPMENT",
+        accountReference: "shop-sostitutivo.example.invalid",
+        credentials: { accessToken: "token-shopify-sostitutivo" },
+      },
+      systemActor,
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT jobs.status, jobs.result_json, webhook_events.status AS event_status
+           FROM jobs JOIN webhook_events
+             ON webhook_events.id = (jobs.payload_json ->> 'webhookEventId')::bigint
+           WHERE jobs.id = $1`,
+          [obsoleteWebhookJob!.id],
+        )
+      ).rows[0],
+      {
+        status: "COMPLETED",
+        result_json: { obsoleteAccount: true },
+        event_status: "PROCESSED",
+      },
+    );
+    assert.equal(await connectors.failJob(obsoleteWebhookJob!, "CONFLICT_REVISION"), null);
 
     const webhookBody = Buffer.from(JSON.stringify({ id: 123 }));
     const webhookRequest = (topic: string, eventId: string, signature: string) =>
@@ -343,8 +632,12 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       jobsBeforeReschedule,
     );
     await getPool().query("UPDATE jobs SET status = 'COMPLETED' WHERE status = 'PENDING'");
-    await connectors.enqueueEbayPreview();
-    await connectors.enqueueEbayPreview();
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    await assert.rejects(
+      connectors.enqueueEbayHistory("2026-08-05", "PREVIEW"),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
     assert.equal(
       (
         await getPool().query(
@@ -355,15 +648,36 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     const previewJob = await connectors.claimJob("worker-preview");
     assert.equal(previewJob?.type, "ebay_preview_history");
-    await connectors.completeJob(previewJob!, { count: 3, reviewRequired: 1 });
+    assert.deepEqual(previewJob?.payload, {
+      startDate: "2026-08-05",
+      mode: "IMPORT",
+      accountReference: "sandbox-risultante",
+    });
+    await connectors.completeJob(previewJob!, {
+      count: 3,
+      reviewRequired: 1,
+      imported: 2,
+      updated: 1,
+      ignored: 0,
+    });
     assert.deepEqual(
       (({ id: _id, createdAt: _createdAt, completedAt: _completedAt, ...preview }) => preview)(
-        (await connectors.latestEbayPreview())!,
+        (await connectors.latestEbayHistory())!,
       ),
-      { status: "COMPLETED", count: 3, reviewRequired: 1, errorCode: null },
+      {
+        status: "COMPLETED",
+        mode: "IMPORT",
+        startDate: "2026-08-05",
+        count: 3,
+        reviewRequired: 1,
+        imported: 2,
+        updated: 1,
+        ignored: 0,
+        errorCode: null,
+      },
     );
     await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [previewJob!.id]);
-    await connectors.enqueueEbayPreview();
+    await connectors.enqueueEbayHistory("2026-08-05", "PREVIEW");
     await assert.rejects(
       connectors.retryFailedJob(previewJob!.id, {
         type: "ADMIN",
@@ -492,6 +806,58 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ["gid://shopify/Order/1002"],
     );
 
+    await getPool().query(
+      `UPDATE connections SET account_reference = 'sandbox-deadlock-old'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX';
+       DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import';
+       DELETE FROM jobs WHERE type = 'ebay_preview_history'`,
+    );
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    const deadlockJob = await connectors.claimJob("worker-deadlock-regression");
+    const [saveClient, importClient] = await Promise.all([
+      getPool().connect(),
+      getPool().connect(),
+    ]);
+    try {
+      await saveClient.query("BEGIN");
+      await importClient.query("BEGIN");
+      await saveClient.query("SELECT pg_advisory_xact_lock(hashtext('connector:EBAY'))");
+      await saveClient.query(
+        `SELECT id FROM connections
+         WHERE provider = 'EBAY' AND environment = 'SANDBOX' FOR UPDATE`,
+      );
+      const importing = connectors.lockHistoryImportConnection(
+        importClient,
+        "EBAY",
+        "sandbox-deadlock-old",
+        deadlockJob!,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await saveClient.query(
+        `UPDATE connections SET account_reference = 'sandbox-deadlock-new'
+         WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+      );
+      await Promise.race([
+        saveClient.query(
+          `UPDATE jobs SET status = 'COMPLETED', completed_at = now()
+           WHERE id = $1`,
+          [deadlockJob!.id],
+        ),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Ordine dei lock eBay incoerente")), 500),
+        ),
+      ]);
+      await saveClient.query("COMMIT");
+      await assert.rejects(
+        importing,
+        (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+      );
+      await importClient.query("ROLLBACK");
+    } finally {
+      saveClient.release();
+      importClient.release();
+    }
+
     const redactBody = Buffer.from(
       JSON.stringify({
         shop_domain: "shop.example.invalid",
@@ -568,7 +934,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     assert.equal(
       providerAudit.rows.filter((event) => event.action === "PROVIDER_CONNECTED").length,
-      5,
+      7,
     );
     assert.equal(
       providerAudit.rows.at(-1)?.request_id,

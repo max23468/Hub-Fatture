@@ -273,9 +273,11 @@ export async function processRefund(refundId: string, job?: ClaimedJob) {
       series: string | null;
       credit_document_id: string | null;
       applied_before_issue: boolean;
+      historical_reconciliation_outcome: string | null;
     }>(
       `SELECT refunds.id, refunds.status, refunds.amount, refunds.order_id, refunds.provider,
               refunds.credit_document_id, refunds.applied_before_issue,
+              orders.historical_reconciliation_outcome,
               orders.display_number, invoice.id AS invoice_id,
               invoice.billing_case_id, invoice.total_amount AS invoice_total,
               invoice.recipient_snapshot_json AS recipient,
@@ -313,9 +315,35 @@ export async function processRefund(refundId: string, job?: ClaimedJob) {
       if (job) await renewLockedJobLease(client, job);
       return null;
     }
+    if (
+      source.status === "COMPLETED" &&
+      !source.invoice_id &&
+      source.historical_reconciliation_outcome === "ALREADY_INVOICED"
+    ) {
+      const alreadyAudited = await client.query(
+        `SELECT 1 FROM audit_events
+         WHERE action = 'REFUND_NEEDS_REVIEW' AND entity_type = 'REFUND' AND entity_id = $1 LIMIT 1`,
+        [source.id],
+      );
+      if (!alreadyAudited.rows[0]) {
+        await writeAudit(client, {
+          actorType: "SYSTEM",
+          action: "REFUND_NEEDS_REVIEW",
+          eventClass: "CRITICAL",
+          entityType: "REFUND",
+          entityId: source.id,
+          metadata: { provider: source.provider, reviewRequired: true },
+          requestId: `process-refund:${source.id}`,
+        });
+      }
+      if (job) await renewLockedJobLease(client, job);
+      return null;
+    }
     if (source.status !== "COMPLETED" || !source.invoice_id) return null;
     const issued = await client.query(
-      `SELECT 1 FROM aruba_submissions
+      `SELECT 1 FROM documents WHERE id = $1 AND origin = 'ARUBA_HISTORY'
+       UNION ALL
+       SELECT 1 FROM aruba_submissions
        WHERE document_id = $1 AND status IN ('DELIVERED', 'NOT_DELIVERED') LIMIT 1`,
       [source.invoice_id],
     );
