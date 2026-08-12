@@ -215,7 +215,97 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toBeDisabled();
   await expect(page.getByRole("button", { name: "Salva integrazione Aruba" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Salva modalità e-mail" })).toBeDisabled();
+  await expect(
+    page.getByText(
+      "Scegli se inviare automaticamente la copia dopo l’esito SdI o richiedere una conferma prima dell’invio.",
+    ),
+  ).toBeVisible();
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
+  await expect(page.locator('.settings-nav__item[aria-current="location"]')).toHaveText(
+    "Profilo e sicurezza",
+  );
+  await expect(page.locator(".settings-section")).toHaveCount(7);
+  expect(
+    await page.locator(".settings-section .button").evaluateAll((buttons) =>
+      buttons.every((button) => {
+        const section = button.closest(".settings-section");
+        if (!section) return false;
+        return section.getBoundingClientRect().right - button.getBoundingClientRect().right >= 24;
+      }),
+    ),
+  ).toBe(true);
+  expect(
+    await page
+      .locator(".settings-profile-grid > *, .settings-profile-details > *")
+      .evaluateAll((cards) => {
+        const widths = cards.map((card) => card.getBoundingClientRect().width);
+        return Math.max(...widths) - Math.min(...widths);
+      }),
+  ).toBeLessThanOrEqual(1);
+  expect(
+    await page.locator(".settings-facts-grid--four > div").evaluateAll((cards) => {
+      const rects = cards.map((card) => card.getBoundingClientRect());
+      return {
+        count: rects.length,
+        heightDelta:
+          Math.max(...rects.map(({ height }) => height)) -
+          Math.min(...rects.map(({ height }) => height)),
+        widthDelta:
+          Math.max(...rects.map(({ width }) => width)) -
+          Math.min(...rects.map(({ width }) => width)),
+      };
+    }),
+  ).toEqual({ count: 8, heightDelta: 0, widthDelta: 0 });
+  expect(
+    await page.locator(".settings-select").evaluateAll((wrappers) => {
+      const visible = wrappers.filter((wrapper) => wrapper.getBoundingClientRect().width > 0);
+      return (
+        visible.length > 0 &&
+        visible.every((wrapper) => {
+          const select = wrapper.querySelector("select")!;
+          const icon = wrapper.querySelector("svg")!;
+          const selectBox = select.getBoundingClientRect();
+          const iconBox = icon.getBoundingClientRect();
+          return (
+            getComputedStyle(select).appearance === "none" &&
+            selectBox.right - iconBox.right >= 12 &&
+            Number.parseFloat(getComputedStyle(select).paddingRight) >= 40
+          );
+        })
+      );
+    }),
+  ).toBe(true);
+  expect(
+    await page.locator(".system-groups > .system-group").evaluateAll((cards) => {
+      const [operations, data] = cards.map((card) => card.getBoundingClientRect());
+      return Math.abs(operations!.height - data!.height);
+    }),
+  ).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    await page.evaluate(() => document.documentElement.clientWidth),
+  );
+
+  const denseSessionsClient = new pg.Client({ connectionString: databaseUrl });
+  await denseSessionsClient.connect();
+  await denseSessionsClient.query(
+    `INSERT INTO sessions (id_hash, user_id, csrf_token_hash, expires_at, created_at, last_seen_at)
+     SELECT 'dense-session-' || value,
+            (SELECT id FROM users WHERE can_approve = true),
+            'synthetic-csrf-' || value,
+            now() + interval '8 hours',
+            now() - (value * interval '1 day'),
+            now() - (value * interval '10 minutes')
+     FROM generate_series(1, 30) AS value`,
+  );
+  await denseSessionsClient.end();
+  await page.reload();
+  await expect(page.locator(".session-list li")).toHaveCount(31);
+  expect(
+    await page.locator(".session-list").evaluate((list) => list.clientHeight),
+  ).toBeLessThanOrEqual(304);
+  expect(
+    await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
+  ).toBe(true);
   await expect(page.getByText("021_fiscal_identifier_backfill.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
@@ -494,10 +584,35 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await shopifyConnection.evaluate((panel) => {
       const actions = panel.querySelector(".connection-panel__actions")!;
-      const notice = panel.querySelector(".notice")!;
-      return notice.getBoundingClientRect().top - actions.getBoundingClientRect().bottom;
+      const history = panel.querySelector(".connection-history")!;
+      return history.getBoundingClientRect().top - actions.getBoundingClientRect().bottom;
     }),
-  ).toBeGreaterThanOrEqual(24);
+  ).toBeGreaterThanOrEqual(16);
+  expect(
+    await page.locator(".connection-panel").evaluateAll((panels) => {
+      const rects = panels.map((panel) => panel.getBoundingClientRect());
+      const alignedTops = [
+        "header",
+        ".connection-panel__facts",
+        ".connection-panel__actions",
+        ".connection-history",
+      ].every((selector) => {
+        const tops = panels.map(
+          (panel) => panel.querySelector(selector)!.getBoundingClientRect().top,
+        );
+        return Math.max(...tops) - Math.min(...tops) <= 1;
+      });
+      return {
+        alignedTops,
+        heightDelta:
+          Math.max(...rects.map(({ height }) => height)) -
+          Math.min(...rects.map(({ height }) => height)),
+        widthDelta:
+          Math.max(...rects.map(({ width }) => width)) -
+          Math.min(...rects.map(({ width }) => width)),
+      };
+    }),
+  ).toEqual({ alignedTops: true, heightDelta: 0, widthDelta: 0 });
   await page.getByLabel("Prepara la fattura").selectOption("FULFILLED");
   await page.getByRole("button", { name: "Salva regola di preparazione fattura" }).click();
   await expect(page.getByRole("status")).toContainText("Impostazione aggiornata");

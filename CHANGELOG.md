@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.14
+
+- La pagina Impostazioni adotta la stessa gerarchia visiva di Dashboard, Clienti e Attività, con navigazione interna, sezioni leggibili e controlli che restano utilizzabili da desktop a 320 px.
+- Profilo, sicurezza, dati fiscali, connessioni e stato di sistema usano griglie e riquadri uniformi; oltre trenta sessioni restano contenute e Shopify ed eBay condividono lo stesso schema anche quando l’importazione iniziale è in stati diversi.
+- I menu a tendina riservano spazio all’indicatore, le azioni mantengono distanza dai bordi e collegamenti diretti, tema scuro e zoom 200% non nascondono contenuti o comandi.
+
 ## 0.3.13
 
 - Dettaglio ordine e nota di credito TD04 adottano la stessa gerarchia visiva delle pagine operative, con dati principali, contesto e azioni separati.
