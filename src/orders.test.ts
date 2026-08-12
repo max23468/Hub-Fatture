@@ -112,6 +112,7 @@ test("valida input, denaro, data e trigger", () => {
 test("la finestra storica usa il giorno di Roma e marca solo gli ordini richiesti", () => {
   const now = Date.parse("2026-08-12T10:00:00Z");
   assert.equal(defaultHistoricalStartDate(now), "2026-08-05");
+  assert.equal(defaultHistoricalStartDate(Date.parse("2026-10-25T22:30:00Z")), "2026-10-18");
   assert.deepEqual(historicalOrderWindow("2026-08-05", now), {
     startDate: "2026-08-05",
     fetchFrom: "2026-08-04T00:00:00.000Z",

@@ -239,7 +239,8 @@ export function localOrderDate(instant: string): string {
 }
 
 export function defaultHistoricalStartDate(now = Date.now()) {
-  return localOrderDate(new Date(now - 7 * DAY_MS).toISOString());
+  const today = localOrderDate(new Date(now).toISOString());
+  return new Date(Date.parse(`${today}T00:00:00Z`) - 7 * DAY_MS).toISOString().slice(0, 10);
 }
 
 export function historicalOrderWindow(value: unknown, now = Date.now()) {
