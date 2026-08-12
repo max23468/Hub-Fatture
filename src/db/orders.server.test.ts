@@ -2151,6 +2151,31 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shopifyWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con riferimento Shopify distribuito",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference
+              .toString()
+              .replace(
+                "<ImportoTotaleDocumento>120.00</ImportoTotaleDocumento>",
+                "<ImportoTotaleDocumento>120.00</ImportoTotaleDocumento>" +
+                  "<Causale>Ordine #1002</Causale><Causale>Shopify</Causale>",
+              ),
+          ),
+        },
+        {
+          id: 1,
+          canApprove: true,
+          requestId: "test-reconcile-shopify-history-split-reference",
+        },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       shopifyWithoutReferenceId,
       {

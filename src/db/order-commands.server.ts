@@ -77,12 +77,14 @@ function hasIncompatibleMarketplaceMarker(references: string[], provider: "SHOPI
 function hasConflictingMarketplaceReference(references: string[], provider: "SHOPIFY" | "EBAY") {
   if (hasIncompatibleMarketplaceMarker(references, provider)) return true;
   const providerPattern = provider === "SHOPIFY" ? "shopify" : "ebay";
-  const numericReference = new RegExp(
-    `(?:\\d[^\\r\\n]*(?<![\\p{L}\\p{N}])${providerPattern}(?=$|[^\\p{L}\\p{N}])|` +
-      `(^|[^\\p{L}\\p{N}])${providerPattern}(?=$|[^\\p{L}\\p{N}])[^\\r\\n]*\\d)`,
+  const providerMarker = new RegExp(
+    `(^|[^\\p{L}\\p{N}])${providerPattern}(?=$|[^\\p{L}\\p{N}])`,
     "iu",
   );
-  return references.some((reference) => numericReference.test(reference));
+  return (
+    references.some((reference) => providerMarker.test(reference)) &&
+    references.some((reference) => /\d/u.test(reference))
+  );
 }
 
 function attributedInvoiceAmount(
