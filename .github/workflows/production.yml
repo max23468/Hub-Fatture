@@ -20,6 +20,12 @@ jobs:
   candidate:
     name: Classifica candidato Production
     runs-on: ubuntu-latest
+    environment:
+      name: Production
+      url: https://fatture.opik.net
+    permissions:
+      contents: read
+      deployments: write
     outputs:
       commit: ${{ steps.candidate.outputs.commit }}
       version: ${{ steps.candidate.outputs.version }}
@@ -56,11 +62,23 @@ jobs:
           git checkout --detach "$CANDIDATE"
           echo "commit=$CANDIDATE" >> "$GITHUB_OUTPUT"
           echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+      - name: Prepara accesso SSH per la baseline live
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.PRODUCTION_SSH_HOST_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
       - name: Trova l'ultimo commit distribuito con successo
         id: impact
         env:
           CANDIDATE: ${{ steps.candidate.outputs.commit }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
         run: |
           find_successful_base() {
             while IFS=$'\t' read -r deployment sha; do
@@ -71,7 +89,21 @@ jobs:
               fi
             done < <(gh api "$1" --jq '.[] | [.id, .sha] | @tsv')
           }
-          base=$(find_successful_base "repos/$GITHUB_REPOSITORY/deployments?environment=Production&task=hub-fatture-production&per_page=100")
+          github_base=$(find_successful_base "repos/$GITHUB_REPOSITORY/deployments?environment=Production&task=hub-fatture-production&per_page=100")
+          # La ricevuta sulla VPS è autorevole anche se GitHub ha perso lo stato terminale.
+          # shellcheck disable=SC2029
+          live_base=$(ssh "$SSH_USER@$SSH_HOST" 'if sudo test -f /opt/hub-fatture/data/operations/deploy-receipt.json; then sudo jq -er .commit /opt/hub-fatture/data/operations/deploy-receipt.json; fi')
+          if [ -n "$live_base" ]; then
+            printf '%s' "$live_base" | grep -Eq '^[0-9a-f]{40}$'
+            git cat-file -e "$live_base^{commit}"
+            base=$live_base
+            if [ "$github_base" != "$live_base" ]; then
+              deployment=$(jq -n --arg ref "$live_base" '{ref:$ref,environment:"Production",task:"hub-fatture-production",description:"Riconciliazione da ricevuta live verificata",auto_merge:false,required_contexts:[]}' | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+              gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -X POST -f state=success -f environment=Production -f environment_url=https://fatture.opik.net -f description="Baseline riconciliata dalla ricevuta live" >/dev/null
+            fi
+          else
+            base=$github_base
+          fi
           if [ -z "$base" ]; then
             base=0000000000000000000000000000000000000000
             check_base=$base
@@ -337,4 +369,13 @@ jobs:
         env:
           DEPLOYMENT: ${{ steps.deployment.outputs.id }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT/statuses" -X POST -f state=success -f environment=Production -f environment_url=https://fatture.opik.net -f description="Deploy exact-SHA verificato" >/dev/null
+        run: |
+          for delay in 0 2 5 10 20 30; do
+            sleep "$delay"
+            if gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT/statuses" -X POST -f state=success -f environment=Production -f environment_url=https://fatture.opik.net -f description="Deploy exact-SHA verificato" >/dev/null; then
+              exit 0
+            fi
+            echo "Registrazione terminale non riuscita; nuovo tentativo tra poco." >&2
+          done
+          echo "Deploy live riuscito ma stato GitHub non registrato: la prossima esecuzione riconcilierà la ricevuta VPS." >&2
+          exit 1

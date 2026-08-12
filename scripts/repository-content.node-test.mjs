@@ -256,6 +256,9 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
     "una baseline legacy non prova quale SHA sia stato realmente installato",
   );
   assert.match(workflow, /task:"hub-fatture-production"/);
+  assert.match(workflow, /deploy-receipt\.json; then sudo jq -er \.commit/);
+  assert.match(workflow, /Riconciliazione da ricevuta live verificata/);
+  assert.match(workflow, /for delay in 0 2 5 10 20 30/);
   assert.match(workflow, /-f state=success/);
   assert.match(workflow, /BASE: \$\{\{ needs\.candidate\.outputs\.check_base \}\}/);
   assert.match(workflow, /git merge-base --is-ancestor "\$base" "\$CANDIDATE"/);
