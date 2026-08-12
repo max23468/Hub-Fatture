@@ -91,7 +91,8 @@ test("Dependabot auto-unisce soltanto minor e patch npm e GitHub Actions", async
   assert.match(config, /npm-minor-patch:[\s\S]*update-types:\s*\n\s*- minor\s*\n\s*- patch/);
   assert.match(config, /actions-minor-patch:[\s\S]*update-types:\s*\n\s*- minor\s*\n\s*- patch/);
   assert.match(workflow, /package-ecosystem == 'npm'/);
-  assert.match(workflow, /package-ecosystem == 'github-actions'/);
+  assert.match(workflow, /package-ecosystem == 'github_actions'/);
+  assert.doesNotMatch(workflow, /package-ecosystem == 'github-actions'/);
   assert.match(workflow, /version-update:semver-patch/);
   assert.match(workflow, /version-update:semver-minor/);
   assert.match(workflow, /head\.repo\.full_name == github\.repository/);
