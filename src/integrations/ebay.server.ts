@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { getConfig } from "../config.server.ts";
 import {
-  completeHistoryImport,
+  completedHistoryImportResult,
   historyImportPending,
   jobLeaseCurrent,
   loadConnection,
@@ -499,20 +499,23 @@ export async function importEbayHistory(
   actor: ConnectorActor,
   job?: ClaimedJob,
 ) {
+  const completed = job ? await completedHistoryImportResult("EBAY", job) : null;
+  if (completed) return completed;
   if (!(await historyImportPending("EBAY"))) throw new AppError("CONFLICT_REVISION", 409);
   const { connection, end, orders } = await ebayHistory(startDate);
-  const result = await importOrders(orders, actor, job);
-  await completeHistoryImport(
-    "EBAY",
-    connection.accountReference,
-    end,
-    new Date(Date.parse(end) - OVERLAP_MS).toISOString(),
-    job,
-  );
+  const reviewRequired = orders.filter((order) => order.refunds.length).length;
+  const result = await importOrders(orders, actor, job, {
+    provider: "EBAY",
+    accountReference: connection.accountReference,
+    cursor: end,
+    overlapFrom: new Date(Date.parse(end) - OVERLAP_MS).toISOString(),
+    count: orders.length,
+    reviewRequired,
+  });
   return {
     ...result,
     count: orders.length,
-    reviewRequired: orders.filter((order) => order.refunds.length).length,
+    reviewRequired,
   };
 }
 

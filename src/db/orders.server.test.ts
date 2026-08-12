@@ -34,6 +34,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
     process.env.DATABASE_URL = clean.connectionString;
     const orders = await import("./orders.server.ts");
+    const refunds = await import("./refunds.server.ts");
     const database = await import("./client.server.ts");
     const caseRevision = async (caseId: string | number) =>
       (
@@ -1704,6 +1705,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     alreadyInvoiced.externalOrderId = "shop-order-historical-invoiced";
     alreadyInvoiced.customer.taxIdentifiers[0].value = "RSSMRA80A01H501D";
     alreadyInvoiced.historical = true;
+    alreadyInvoiced.refunds = [
+      {
+        externalRefundId: "historical-invoiced-existing-refund",
+        status: "COMPLETED",
+        amount: "10.00",
+        completedAt: "2026-08-19T09:45:00Z",
+        raw: {},
+      },
+    ];
     await orders.importOrders([alreadyInvoiced], {
       id: 1,
       requestId: "test-import-historical-invoiced",
@@ -1719,6 +1729,18 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       alreadyInvoicedId,
       { outcome: "ALREADY_INVOICED", reference: "Documento Aruba FPR 0010/26 verificato" },
       { id: 1, requestId: "test-reconcile-historical-invoiced" },
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT applied_before_issue,
+                  (SELECT count(*)::int FROM jobs
+                   WHERE type = 'process_refund'
+                     AND payload_json ->> 'refundId' = refunds.id::text) AS jobs
+           FROM refunds WHERE external_refund_id = 'historical-invoiced-existing-refund'`,
+        )
+      ).rows[0],
+      { applied_before_issue: false, jobs: 1 },
     );
     alreadyInvoiced.updatedAt = "2026-08-19T10:00:00Z";
     alreadyInvoiced.historical = false;
@@ -1743,15 +1765,13 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
     );
     alreadyInvoiced.updatedAt = "2026-08-19T10:30:00Z";
-    alreadyInvoiced.refunds = [
-      {
-        externalRefundId: "historical-invoiced-total-refund",
-        status: "COMPLETED",
-        amount: alreadyInvoiced.total,
-        completedAt: "2026-08-19T10:30:00Z",
-        raw: {},
-      },
-    ];
+    alreadyInvoiced.refunds.push({
+      externalRefundId: "historical-invoiced-total-refund",
+      status: "COMPLETED",
+      amount: alreadyInvoiced.total,
+      completedAt: "2026-08-19T10:30:00Z",
+      raw: {},
+    });
     await orders.importOrders([alreadyInvoiced], {
       id: 1,
       requestId: "test-refund-reimported-historical-invoiced",
@@ -1759,8 +1779,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     assert.deepEqual(
       (
         await database.getPool().query(
-          `SELECT trigger_status, billing_case_id, historical_reconciliation_outcome
-           FROM orders WHERE id = $1`,
+          `SELECT orders.trigger_status, orders.billing_case_id,
+                  orders.historical_reconciliation_outcome,
+                  refunds.id AS refund_id, refunds.applied_before_issue,
+                  (SELECT count(*)::int FROM jobs
+                   WHERE type = 'process_refund'
+                     AND payload_json ->> 'refundId' = refunds.id::text) AS jobs
+           FROM orders JOIN refunds ON refunds.order_id = orders.id
+           WHERE orders.id = $1
+             AND refunds.external_refund_id = 'historical-invoiced-total-refund'`,
           [alreadyInvoicedId],
         )
       ).rows[0],
@@ -1768,7 +1795,34 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         trigger_status: "INVOICED",
         billing_case_id: null,
         historical_reconciliation_outcome: "ALREADY_INVOICED",
+        refund_id: (
+          await database
+            .getPool()
+            .query(
+              "SELECT id FROM refunds WHERE external_refund_id = 'historical-invoiced-total-refund'",
+            )
+        ).rows[0].id,
+        applied_before_issue: false,
+        jobs: 1,
       },
+    );
+    const historicalInvoicedRefundId = (
+      await database
+        .getPool()
+        .query(
+          "SELECT id FROM refunds WHERE external_refund_id = 'historical-invoiced-total-refund'",
+        )
+    ).rows[0].id;
+    assert.equal(await refunds.processRefund(historicalInvoicedRefundId), null);
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT count(*)::int AS count FROM audit_events
+           WHERE action = 'REFUND_NEEDS_REVIEW' AND entity_type = 'REFUND' AND entity_id = $1`,
+          [historicalInvoicedRefundId],
+        )
+      ).rows[0].count,
+      1,
     );
     await assert.rejects(
       orders.forcePrepareOrder(alreadyInvoicedId, {

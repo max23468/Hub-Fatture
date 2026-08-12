@@ -41,7 +41,16 @@ interface ConnectionRow {
   last_checked_at: Date | null;
   last_synced_at: Date | null;
   last_error_code: string | null;
+  created_at: Date;
   history_imported?: boolean;
+}
+
+export interface HistoryImportResult {
+  count: number;
+  reviewRequired: number;
+  imported: number;
+  updated: number;
+  ignored: number;
 }
 
 export interface ClaimedJob {
@@ -97,6 +106,11 @@ export async function saveConnection<T>(
            WHEN connections.account_reference = EXCLUDED.account_reference
              THEN connections.last_synced_at
            ELSE NULL
+         END,
+         created_at = CASE
+           WHEN connections.account_reference = EXCLUDED.account_reference
+             THEN connections.created_at
+           ELSE now()
          END,
          last_error_code = NULL, last_error_message_sanitized = NULL
        RETURNING id`,
@@ -167,6 +181,7 @@ export async function connectionSummaries() {
     lastCheckedAt: row.last_checked_at?.toISOString() ?? null,
     lastSyncedAt: row.last_synced_at?.toISOString() ?? null,
     lastErrorCode: row.last_error_code,
+    connectedAt: row.created_at.toISOString(),
     historyImported: Boolean(row.history_imported),
   }));
 }
@@ -192,29 +207,103 @@ export async function completeHistoryImport(
   job?: ClaimedJob,
 ) {
   await withTransaction(async (client) => {
-    if (job) await assertJobLease(client, job);
-    const connection = await client.query(
-      `SELECT id FROM connections
-       WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'
-         AND account_reference = $3
-       FOR UPDATE`,
-      [provider, activeEnvironment(provider), accountReference],
-    );
-    if (!connection.rowCount) throw new AppError("CONFLICT_REVISION", 409);
-    await client.query(
-      `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
-       VALUES ($1, 'orders', $2, $3), ($1, 'history_import', $2, $3)
-       ON CONFLICT (provider, stream) DO UPDATE SET
-         cursor = EXCLUDED.cursor, overlap_from = EXCLUDED.overlap_from, updated_at = now()`,
-      [provider, cursor, overlapFrom],
-    );
-    await client.query(
-      `UPDATE connections SET last_checked_at = now(), last_synced_at = now(), updated_at = now(),
-         last_error_code = NULL, last_error_message_sanitized = NULL
-       WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'`,
-      [provider, activeEnvironment(provider)],
+    await lockHistoryImportConnection(client, provider, accountReference, job);
+    await completeHistoryImportInTransaction(
+      client,
+      provider,
+      accountReference,
+      cursor,
+      overlapFrom,
+      job,
     );
   });
+}
+
+export async function lockHistoryImportConnection(
+  client: pg.PoolClient,
+  provider: Provider,
+  accountReference: string,
+  job?: ClaimedJob,
+) {
+  if (job) await assertJobLease(client, job);
+  const connection = await client.query(
+    `SELECT id FROM connections
+     WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'
+       AND account_reference = $3
+       AND NOT EXISTS (
+         SELECT 1 FROM sync_cursors
+         WHERE sync_cursors.provider = $1 AND sync_cursors.stream = 'history_import'
+       )
+     FOR UPDATE`,
+    [provider, activeEnvironment(provider), accountReference],
+  );
+  if (!connection.rowCount) throw new AppError("CONFLICT_REVISION", 409);
+}
+
+export async function completeHistoryImportInTransaction(
+  client: pg.PoolClient,
+  provider: Provider,
+  accountReference: string,
+  cursor: string,
+  overlapFrom: string,
+  job?: ClaimedJob,
+  result?: HistoryImportResult,
+) {
+  if (job) await assertJobLease(client, job);
+  await client.query(
+    `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+     VALUES ($1, 'orders', $2, $3), ($1, 'history_import', $2, $3)
+     ON CONFLICT (provider, stream) DO UPDATE SET
+       cursor = EXCLUDED.cursor, overlap_from = EXCLUDED.overlap_from, updated_at = now()`,
+    [provider, cursor, overlapFrom],
+  );
+  const updated = await client.query(
+    `UPDATE connections SET last_checked_at = now(), last_synced_at = now(), updated_at = now(),
+       last_error_code = NULL, last_error_message_sanitized = NULL
+     WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'
+       AND account_reference = $3`,
+    [provider, activeEnvironment(provider), accountReference],
+  );
+  if (updated.rowCount !== 1) throw new AppError("CONFLICT_REVISION", 409);
+  if (job && result) {
+    await client.query(
+      `UPDATE jobs SET result_json = $4
+       WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3`,
+      [
+        job.id,
+        job.workerId,
+        job.claimToken,
+        JSON.stringify({ ...result, historyImportCompleted: provider }),
+      ],
+    );
+  }
+}
+
+export async function completedHistoryImportResult(
+  provider: Provider,
+  job: ClaimedJob,
+): Promise<HistoryImportResult | null> {
+  const result = await getPool().query<{ result_json: Record<string, unknown> }>(
+    `SELECT jobs.result_json FROM jobs
+     WHERE jobs.id = $1 AND jobs.status = 'RUNNING' AND jobs.locked_by = $2
+       AND jobs.claim_token = $3 AND jobs.lease_expires_at > now()
+       AND jobs.result_json ->> 'historyImportCompleted' = $4
+       AND EXISTS (
+         SELECT 1 FROM sync_cursors
+         WHERE sync_cursors.provider = $4 AND sync_cursors.stream = 'history_import'
+       )`,
+    [job.id, job.workerId, job.claimToken, provider],
+  );
+  const stored = result.rows[0]?.result_json;
+  return stored
+    ? {
+        count: Number(stored.count ?? 0),
+        reviewRequired: Number(stored.reviewRequired ?? 0),
+        imported: Number(stored.imported ?? 0),
+        updated: Number(stored.updated ?? 0),
+        ignored: Number(stored.ignored ?? 0),
+      }
+    : null;
 }
 
 export async function markConnectionSynced(provider: Provider, job?: ClaimedJob) {

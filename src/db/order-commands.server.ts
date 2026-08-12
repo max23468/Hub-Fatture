@@ -209,6 +209,19 @@ export async function reconcileHistoricalOrder(
        WHERE id = $1`,
       [id, nextStatus, parsed.data.outcome, parsed.data.reference],
     );
+    if (parsed.data.outcome === "ALREADY_INVOICED") {
+      await client.query(
+        `WITH issued_refunds AS (
+           UPDATE refunds SET applied_before_issue = false, updated_at = now()
+           WHERE order_id = $1 AND applied_before_issue
+           RETURNING id
+         )
+         INSERT INTO jobs (type, payload_json)
+         SELECT 'process_refund', jsonb_build_object('refundId', issued_refunds.id::text)
+         FROM issued_refunds ON CONFLICT DO NOTHING`,
+        [id],
+      );
+    }
     await writeAudit(client, {
       actorType: actor.type ?? "ADMIN",
       actorId: String(actor.id),

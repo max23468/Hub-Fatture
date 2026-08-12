@@ -97,9 +97,7 @@ export async function loader({ request }: Route.LoaderArgs) {
             ignored: url.searchParams.get("ignored") ?? "0",
           }
         : null,
-    historyStart:
-      historicalOrderWindow(url.searchParams.get("historyStart"))?.startDate ??
-      defaultHistoricalStartDate(),
+    historyStart: historicalOrderWindow(url.searchParams.get("historyStart"))?.startDate ?? null,
     historyToday: localOrderDate(new Date().toISOString()),
   };
 }
@@ -495,7 +493,7 @@ function ConnectionsSettingsSection({
 }: {
   connections: Awaited<ReturnType<typeof connectionSummaries>>;
   ebayHistory: Awaited<ReturnType<typeof latestEbayHistory>>;
-  historyStart: string;
+  historyStart: string | null;
   historyToday: string;
   imported: { provider: string; imported: string; updated: string; ignored: string } | null;
   preview: { provider: string; count: string; review: string } | null;
@@ -600,7 +598,10 @@ function ConnectionsSettingsSection({
                   <label>
                     {copy.settings.historyStart(label)}
                     <input
-                      defaultValue={historyStart}
+                      defaultValue={
+                        historyStart ??
+                        defaultHistoricalStartDate(Date.parse(connection.connectedAt))
+                      }
                       max={historyToday}
                       name="historyStart"
                       required

@@ -9,7 +9,15 @@ import {
   orderBillableSql,
 } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
-import { assertJobLease, renewLockedJobLease, type ClaimedJob } from "./connectors.server.ts";
+import {
+  assertJobLease,
+  completeHistoryImportInTransaction,
+  lockHistoryImportConnection,
+  renewLockedJobLease,
+  type ClaimedJob,
+  type HistoryImportResult,
+  type Provider,
+} from "./connectors.server.ts";
 import { AppError } from "../errors.ts";
 import {
   documentInputSchema,
@@ -698,6 +706,8 @@ async function importOne(
         );
   const deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
   const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
+  const documentIssued =
+    invoiced || oldOrder?.historical_reconciliation_outcome === "ALREADY_INVOICED";
   // Una preparazione già emessa non riscrive l'anagrafica: l'ordine resta sul suo cliente.
   const customerId = invoiced
     ? oldOrder!.customer_id
@@ -814,7 +824,7 @@ async function importOne(
     orderId,
     input,
     { lineAmounts, paymentAmounts, refundAmounts },
-    invoiced,
+    documentIssued,
     actor,
   );
   let effectiveBillingCaseId = currentBillingCaseId;
@@ -836,7 +846,7 @@ async function importOne(
       actor,
     );
   }
-  if (!invoiced && effectiveBillingCaseId && refundEffect.state === "PARTIAL") {
+  if (!documentIssued && effectiveBillingCaseId && refundEffect.state === "PARTIAL") {
     const restored = await client.query(
       `UPDATE orders
        SET trigger_status = 'GROUPED',
@@ -868,7 +878,7 @@ async function importOne(
     }
   }
   if (
-    !invoiced &&
+    !documentIssued &&
     effectiveBillingCaseId &&
     previousAppliedRefundAmount > 0 &&
     (refundEffect.state === "UNCHANGED" || refundEffect.state === "NEEDS_REVIEW")
@@ -905,7 +915,7 @@ async function importOne(
       });
     }
   }
-  if (!invoiced && effectiveBillingCaseId && refundEffect.state === "TOTAL") {
+  if (!documentIssued && effectiveBillingCaseId && refundEffect.state === "TOTAL") {
     const marked = await client.query(
       `UPDATE orders SET trigger_status = 'REFUNDED_BEFORE_ISSUE'
        WHERE id = $1 AND trigger_status <> 'REFUNDED_BEFORE_ISSUE'`,
@@ -1319,7 +1329,21 @@ async function replaceOrderChildren(
   return previousApplied.rows[0]?.amount ?? 0;
 }
 
-export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJob) {
+interface HistoryImportCompletion {
+  provider: Provider;
+  accountReference: string;
+  cursor: string;
+  overlapFrom: string;
+  count: number;
+  reviewRequired: number;
+}
+
+export async function importOrders(
+  input: unknown,
+  actor: Actor,
+  job?: ClaimedJob,
+  history?: HistoryImportCompletion,
+) {
   let orders: OrderInput[];
   try {
     orders = orderInputSchema.array().parse(input);
@@ -1332,8 +1356,20 @@ export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJo
   if (new Set(sourceKeys).size !== sourceKeys.length) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
+  if (
+    history &&
+    orders.some(
+      (order) =>
+        order.provider !== history.provider || order.externalAccountId !== history.accountReference,
+    )
+  ) {
+    throw new AppError("CONFLICT_REVISION", 409);
+  }
   return withTransaction(async (client) => {
     if (job) await assertJobLease(client, job);
+    if (history) {
+      await lockHistoryImportConnection(client, history.provider, history.accountReference, job);
+    }
     await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
     await serializeOrderMutations(client);
     const trigger = await currentTrigger(client);
@@ -1341,11 +1377,29 @@ export async function importOrders(input: unknown, actor: Actor, job?: ClaimedJo
     // Il batch resta seriale: ogni raggruppamento deve osservare gli ordini precedenti nella stessa transazione.
     // react-doctor-disable-next-line react-doctor/async-await-in-loop
     for (const order of orders) results.push(await importOne(client, order, trigger, actor));
-    if (job) await renewLockedJobLease(client, job);
-    return {
+    const result: HistoryImportResult = {
+      count: history?.count ?? orders.length,
+      reviewRequired: history?.reviewRequired ?? 0,
       imported: results.filter((result) => result === "imported").length,
       updated: results.filter((result) => result === "updated").length,
       ignored: results.filter((result) => result === "ignored").length,
+    };
+    if (history) {
+      await completeHistoryImportInTransaction(
+        client,
+        history.provider,
+        history.accountReference,
+        history.cursor,
+        history.overlapFrom,
+        job,
+        result,
+      );
+    }
+    if (job) await renewLockedJobLease(client, job);
+    return {
+      imported: result.imported,
+      updated: result.updated,
+      ignored: result.ignored,
     };
   });
 }

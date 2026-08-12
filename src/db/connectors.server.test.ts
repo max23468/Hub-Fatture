@@ -97,6 +97,24 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       },
       systemActor,
     );
+    await getPool().query(
+      `UPDATE connections SET created_at = '2026-08-01T10:00:00Z'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+    );
+    await connectors.saveConnection(
+      {
+        provider: "EBAY",
+        environment: "SANDBOX",
+        accountReference: "sandbox-sintetica",
+        credentials: { refreshToken: "token-sandbox-rinnovato" },
+      },
+      systemActor,
+    );
+    assert.equal(
+      (await connectors.connectionSummaries()).find(({ provider }) => provider === "EBAY")
+        ?.connectedAt,
+      "2026-08-01T10:00:00.000Z",
+    );
     assert.equal((await connectors.loadConnection("EBAY")).accountReference, "sandbox-sintetica");
     await connectors.markConnectionSynced("EBAY");
     await connectors.writeCursor("EBAY", "cursor-sintetico", "2026-08-01T00:00:00Z");
@@ -153,6 +171,11 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       },
       systemActor,
     );
+    assert.notEqual(
+      (await connectors.connectionSummaries()).find(({ provider }) => provider === "EBAY")
+        ?.connectedAt,
+      "2026-08-01T10:00:00.000Z",
+    );
     assert.equal((await connectors.readCursor("EBAY")).cursor, null);
     assert.equal(await connectors.historyImportPending("EBAY"), true);
     await assert.rejects(
@@ -172,6 +195,56 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         )
       ).rows[0].last_synced_at,
       null,
+    );
+    await assert.rejects(
+      importOrders([], { type: "SYSTEM", requestId: "ebay-history-obsolete-account" }, undefined, {
+        provider: "EBAY",
+        accountReference: "sandbox-sintetica",
+        cursor: "2026-08-12T11:00:00Z",
+        overlapFrom: "2026-08-12T10:55:00Z",
+        count: 0,
+        reviewRequired: 0,
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    const historyJob = await connectors.claimJob("worker-history-import");
+    assert.equal(historyJob?.type, "ebay_preview_history");
+    assert.deepEqual(
+      await importOrders(
+        [],
+        { type: "SYSTEM", requestId: `ebay-history:${historyJob!.id}` },
+        historyJob!,
+        {
+          provider: "EBAY",
+          accountReference: "sandbox-sostitutiva",
+          cursor: "2026-08-12T11:00:00Z",
+          overlapFrom: "2026-08-12T10:55:00Z",
+          count: 0,
+          reviewRequired: 0,
+        },
+      ),
+      { imported: 0, updated: 0, ignored: 0 },
+    );
+    await getPool().query(
+      "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
+      [historyJob!.id],
+    );
+    const resumedHistoryJob = await connectors.claimJob("worker-history-resume");
+    assert.equal(resumedHistoryJob?.id, historyJob!.id);
+    assert.deepEqual(await connectors.completedHistoryImportResult("EBAY", resumedHistoryJob!), {
+      count: 0,
+      reviewRequired: 0,
+      imported: 0,
+      updated: 0,
+      ignored: 0,
+    });
+    assert.equal(await connectors.completeJob(resumedHistoryJob!), true);
+    await getPool().query("DELETE FROM jobs WHERE id = $1", [historyJob!.id]);
+    await getPool().query("DELETE FROM sync_cursors WHERE provider = 'EBAY'");
+    await getPool().query(
+      `UPDATE connections SET last_synced_at = NULL
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
     );
     const stored = await getPool().query<{ encrypted_credentials: string }>(
       "SELECT encrypted_credentials FROM connections",
@@ -663,7 +736,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     assert.equal(
       providerAudit.rows.filter((event) => event.action === "PROVIDER_CONNECTED").length,
-      5,
+      6,
     );
     assert.equal(
       providerAudit.rows.at(-1)?.request_id,

@@ -8,7 +8,6 @@ import { z } from "zod";
 import { getConfig } from "../config.server.ts";
 import {
   ingestShopifyWebhook,
-  completeHistoryImport,
   historyImportPending,
   jobLeaseCurrent,
   loadConnection,
@@ -497,17 +496,19 @@ export async function importShopifyHistory(startDate: unknown, actor: ConnectorA
   if (!(await historyImportPending("SHOPIFY"))) throw new AppError("CONFLICT_REVISION", 409);
   const end = new Date().toISOString();
   const { accountReference, orders } = await shopifyHistory(startDate);
-  const result = await importOrders(orders, actor);
-  await completeHistoryImport(
-    "SHOPIFY",
+  const reviewRequired = orders.filter((order) => order.refunds.length).length;
+  const result = await importOrders(orders, actor, undefined, {
+    provider: "SHOPIFY",
     accountReference,
-    end,
-    new Date(Date.parse(end) - OVERLAP_MS).toISOString(),
-  );
+    cursor: end,
+    overlapFrom: new Date(Date.parse(end) - OVERLAP_MS).toISOString(),
+    count: orders.length,
+    reviewRequired,
+  });
   return {
     ...result,
     count: orders.length,
-    reviewRequired: orders.filter((order) => order.refunds.length).length,
+    reviewRequired,
   };
 }
 
