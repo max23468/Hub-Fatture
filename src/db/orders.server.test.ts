@@ -2067,7 +2067,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     ebayWithoutReference.customer.taxIdentifiers = [];
     delete ebayWithoutReference.customer.firstName;
     delete ebayWithoutReference.customer.lastName;
-    ebayWithoutReference.customer.displayName = "Mario Giuseppe Rossi";
+    ebayWithoutReference.customer.displayName = "Mario Rossi";
     ebayWithoutReference.customer.billingAddress = {
       line1: "Via Cliente 2",
       postalCode: "00100",
@@ -2241,7 +2241,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     reorderedNameEbay.externalCustomerId = "ebay-customer-historical-reordered-name";
     reorderedNameEbay.displayNumber = "26-12345-67894";
     reorderedNameEbay.customer.displayName = "Rossi Mario";
-    reorderedNameEbay.customer.billingAddress.line1 = "Piazza Campo Distante 99/B";
+    reorderedNameEbay.customer.billingAddress.line1 = "Strada Provinciale 12 Campo Distante 99/B";
     reorderedNameEbay.customer.billingAddress.postalCode = "50100";
     reorderedNameEbay.customer.billingAddress.city = "Firenze";
     reorderedNameEbay.customer.billingAddress.province = "FI";
@@ -2301,7 +2301,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
             reorderedNameInvoice
               .replace(
                 "<Indirizzo>Via Cliente 2</Indirizzo>",
-                "<Indirizzo>Piazza Campo Distante 101</Indirizzo>",
+                "<Indirizzo>Strada Provinciale 12 Campo Distante 101</Indirizzo>",
               )
               .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
               .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
@@ -2323,7 +2323,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
             reorderedNameInvoice
               .replace(
                 "<Indirizzo>Via Cliente 2</Indirizzo>",
-                "<Indirizzo>Piazza Campo Distante</Indirizzo><NumeroCivico>99/A</NumeroCivico>",
+                "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/A</NumeroCivico>",
               )
               .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
               .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
@@ -2366,7 +2366,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           invoiceXml: Buffer.from(
             reorderedNameInvoice.replace(
               "<Indirizzo>Via Cliente 2</Indirizzo>",
-              "<Indirizzo>Piazza Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             ),
           ),
         },
@@ -2385,7 +2385,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
             reorderedNameInvoice
               .replace(
                 "<Indirizzo>Via Cliente 2</Indirizzo>",
-                "<Indirizzo>Via Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+                "<Indirizzo>Via Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
               )
               .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
               .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
@@ -2407,7 +2407,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
             reorderedNameInvoice
               .replace(
                 "<Indirizzo>Via Cliente 2</Indirizzo>",
-                "<Indirizzo>Largo Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+                "<Indirizzo>Largo Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
               )
               .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
               .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
@@ -2429,7 +2429,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
             reorderedNameInvoice
               .replace(
                 "<Indirizzo>Via Cliente 2</Indirizzo>",
-                "<Indirizzo>Piazza Campo Differente</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+                "<Indirizzo>Strada Provinciale 12 Campo Differente</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
               )
               .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
               .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
@@ -2437,6 +2437,51 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-partial-street-name" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con numero identificativo della strada differente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Strada Provinciale 34 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-different-street-identifier" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con identità contenuta ma non uguale",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace("<Nome>Mario</Nome>", "<Nome>Mario Bianchi</Nome>")
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-contained-recipient-name" },
       ),
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
@@ -2450,7 +2495,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           reorderedNameInvoice
             .replace(
               "<Indirizzo>Via Cliente 2</Indirizzo>",
-              "<Indirizzo>Piazza Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
+              "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
             .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")

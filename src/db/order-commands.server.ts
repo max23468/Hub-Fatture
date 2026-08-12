@@ -122,8 +122,13 @@ function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
 const genericStreetTokens = new Set(["civico", "corso", "piazza", "snc", "strada", "via", "viale"]);
 
 function sharesStreetName(left: unknown, right: unknown) {
-  const leftIdentityTokens = [...identityTokens(left)];
-  const rightIdentityTokens = [...identityTokens(right)];
+  const streetTokens = (value: unknown) =>
+    normalizedIdentityPart(value)
+      .replace(/(?:\s+\d+\s*[a-z]?|\s+snc)$/u, "")
+      .split(" ")
+      .filter(Boolean);
+  const leftIdentityTokens = streetTokens(left);
+  const rightIdentityTokens = streetTokens(right);
   const leftStreetKind = leftIdentityTokens.find(
     (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
   );
@@ -135,8 +140,7 @@ function sharesStreetName(left: unknown, right: unknown) {
     leftIdentityTokens.filter(
       (token) =>
         token !== leftStreetKind &&
-        !/^\d/.test(token) &&
-        token.length >= 3 &&
+        (token.length >= 3 || /^\d+$/.test(token)) &&
         !genericStreetTokens.has(token),
     ),
   );
@@ -144,8 +148,7 @@ function sharesStreetName(left: unknown, right: unknown) {
     rightIdentityTokens.filter(
       (token) =>
         token !== rightStreetKind &&
-        !/^\d/.test(token) &&
-        token.length >= 3 &&
+        (token.length >= 3 || /^\d+$/.test(token)) &&
         !genericStreetTokens.has(token),
     ),
   );
@@ -198,17 +201,6 @@ function hasSupportingAddressEvidence(
   );
 }
 
-function containedName(left: unknown, right: unknown) {
-  const leftTokens = identityTokens(left);
-  const rightTokens = identityTokens(right);
-  const contained =
-    leftTokens.size >= 2 &&
-    rightTokens.size >= 2 &&
-    ([...leftTokens].every((token) => rightTokens.has(token)) ||
-      [...rightTokens].every((token) => leftTokens.has(token)));
-  return contained;
-}
-
 function customerIdentityNames(customer: Record<string, unknown>) {
   const canonical =
     customer.canonicalProfile && typeof customer.canonicalProfile === "object"
@@ -238,14 +230,11 @@ function matchesRecipientWithoutTaxId(
   const customerCountry = normalizedIdentityPart(billingAddress.countryCode);
   const recipientCountry = normalizedIdentityPart(recipient.address.countryCode);
   if (!recipientName || !customerCountry || customerCountry !== recipientCountry) return false;
-  return customerIdentityNames(customer).some((customerName) => {
-    return (
-      (sameTokenSet(customerName, recipientName) &&
-        hasSupportingAddressEvidence(billingAddress, recipient.address)) ||
-      (containedName(customerName, recipientName) &&
-        hasSupportingAddressEvidence(billingAddress, recipient.address))
-    );
-  });
+  return customerIdentityNames(customer).some(
+    (customerName) =>
+      sameTokenSet(customerName, recipientName) &&
+      hasSupportingAddressEvidence(billingAddress, recipient.address),
+  );
 }
 
 function historicalDocumentDateAllowed(orderDate: string, documentDate: string) {
