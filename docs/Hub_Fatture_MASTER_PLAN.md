@@ -1222,7 +1222,7 @@ La sezione espone l’anagrafica corrente riconciliata dai canali senza sostitui
 
 - Viste `Tutti` e `Da verificare`.
 - Ricerca per nome, e-mail, telefono, codice fiscale, partita IVA o riferimento cliente del canale.
-- Elenco con tipo cliente, dato fiscale, canali collegati, ultimo ordine e conteggi operativi.
+- Elenco con tipo cliente, e-mail, canali collegati, ultimo ordine e conteggi operativi; il dato fiscale resta disponibile nella ricerca e nel dettaglio, non come colonna della directory.
 - Dettaglio con anagrafica corrente, origine Shopify/eBay, ordini, preparazioni fattura e documenti collegati.
 - Le correzioni fiscali continuano ad avvenire nella Preparazione fattura: valgono per il relativo documento, restano auditate e non riscrivono ordini già importati o dati del provider.
 
