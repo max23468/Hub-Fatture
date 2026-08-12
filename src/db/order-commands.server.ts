@@ -163,7 +163,9 @@ function hasSupportingAddressEvidence(
         recipientAddress.streetNumber,
         customerAddress.postalCode,
       ) &&
-      (sameStreetName || (samePostalCode && sameCity))
+      sameStreetName &&
+      samePostalCode &&
+      sameCity
     );
   }
   return (
