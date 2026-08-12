@@ -129,7 +129,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const lightBackground = await background();
 
   await page.getByLabel("Apri il menu di Massimo").click();
-  await page.getByRole("button", { name: "Scuro" }).click();
+  const darkTheme = page.getByRole("button", { name: "Scuro" });
+  await expect(darkTheme).toBeVisible();
+  // Il pannello può essere riconciliato mentre i loader della Dashboard terminano: il click
+  // forzato evita di attendere una stabilità geometrica non necessaria per questo controllo.
+  await darkTheme.click({ force: true });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   // I token risolvono con `light-dark()`: l'attributo da solo non prova che il tema cambi.
   expect(await background()).not.toBe(lightBackground);
@@ -207,9 +211,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .last()
     .click();
   await expect(page.getByRole("heading", { name: "Mario Rossi" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Dati cliente" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Anagrafica corrente" })).toBeVisible();
   await expect(page.getByText("mario.rossi@example.invalid")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Ordini" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ordini collegati" })).toBeVisible();
   await page.getByLabel("Apri la ricerca globale").click();
   await page.getByLabel("Cerca ordini, fatture e clienti").fill("nessun risultato possibile");
   await expect(page.getByText("Nessun risultato", { exact: true })).toBeVisible();
@@ -226,6 +230,68 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expectPlainLanguage(page);
   await expect(page.getByRole("row")).toHaveCount(4);
+  await page.getByRole("button", { name: "Espandi navigazione" }).click();
+  await page.getByRole("link", { name: "Clienti", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Clienti", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Riepilogo clienti" })).toContainText(
+    "2 clienti importati",
+  );
+  await expect(page.locator(".customer-row")).toHaveCount(2);
+  expect(
+    await page.locator(".customer-row").evaluateAll((rows) =>
+      rows.every((row) => {
+        const contentRight =
+          row.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(row).paddingRight);
+        return [...row.children].every(
+          (child) => child.getBoundingClientRect().right <= contentRight + 1,
+        );
+      }),
+    ),
+  ).toBe(true);
+  await expect(page.getByRole("region", { name: "Elenco clienti" })).not.toContainText(
+    "Dato fiscale",
+  );
+  await page.getByRole("search", { name: "Cerca clienti" }).getByLabel("Cerca").fill("Mario");
+  await page.getByRole("search", { name: "Cerca clienti" }).getByRole("button").click();
+  await expect(page.locator(".customer-row")).toHaveCount(1);
+  await page.getByRole("link", { name: "Mario Rossi", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Mario Rossi" })).toBeVisible();
+  const customerBackLink = page.getByRole("link", { name: "Torna ai clienti" });
+  const customerHeading = page.getByRole("heading", { name: "Mario Rossi" });
+  const [customerBackLinkBox, customerHeadingBox] = await Promise.all([
+    customerBackLink.boundingBox(),
+    customerHeading.boundingBox(),
+  ]);
+  assert(customerBackLinkBox && customerHeadingBox);
+  expect(customerBackLinkBox.y + customerBackLinkBox.height).toBeLessThan(customerHeadingBox.y);
+  await expect(page.getByRole("heading", { name: "Anagrafica corrente" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Origine dei dati" })).toBeVisible();
+  await expect(page.locator(".customer-source-list li")).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "Ordini collegati" })).toBeVisible();
+  await expect(
+    page.locator("#customer-orders-title").locator("xpath=ancestor::section").locator("li"),
+  ).toHaveCount(2);
+  await customerBackLink.click();
+  await page.getByRole("link", { name: "Da verificare", exact: true }).click();
+  await expect(page.locator(".customer-row")).toHaveCount(1);
+  await expect(page.getByText("Cliente da verificare", { exact: true })).toBeVisible();
+
+  await page.setViewportSize({ width: 320, height: 780 });
+  const mobileMore = page.getByLabel("Apri altre sezioni");
+  await expect(page.getByRole("link", { name: "Clienti", exact: true })).toBeVisible();
+  await mobileMore.click();
+  await expect(
+    page.locator(".nav-more__menu").getByRole("link", { name: "Attività", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".nav-more__menu").getByRole("link", { name: "Impostazioni", exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.getByLabel(/^Data ordine/)).toHaveValue("");
   const controlHeights = await page
     .getByRole("search", { name: "Filtra gli ordini" })
@@ -406,7 +472,62 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByText(/^Corretta il /)).toBeVisible();
 
   await page.getByRole("link", { name: "Attività" }).click();
-  await expect(page.getByRole("link", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
+  await expect(page.locator(".activity-overview")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Verifiche su ordini e documenti" }),
+  ).toBeVisible();
+  await expect(page.locator(".activity-table thead")).toContainText("Cliente");
+  await expect(page.locator(".activity-table thead")).toContainText("Canale / tipo");
+  await expect(page.locator(".activity-table thead")).toContainText("Data ordine");
+  await expect(page.locator(".activity-table thead")).toContainText("Ultimo aggiornamento");
+  await expect(page.getByRole("link", { name: /^Preparazione \d{6}$/ })).toBeVisible();
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expect(page.locator(".activity-table thead")).toHaveCSS("position", "absolute");
+  await expect(page.locator(".activity-table tbody tr").first()).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator(".activity-table tbody tr").first()).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
+  expect(
+    await page
+      .locator(".activity-table tbody tr")
+      .first()
+      .evaluate((row) => row.getBoundingClientRect().height),
+  ).toBeLessThan(360);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(page.locator(".activity-table thead")).toHaveCSS("position", "static");
+  expect(
+    await page
+      .locator(".activity-table tbody tr")
+      .first()
+      .evaluate((row) =>
+        Array.from(
+          row.querySelectorAll("td:not(:last-child) a, td:not(:last-child) strong, time"),
+        ).every(
+          (element) =>
+            getComputedStyle(element).whiteSpace === "nowrap" &&
+            element.getBoundingClientRect().height < 30,
+        ),
+      ),
+  ).toBe(true);
+  expect(
+    await page
+      .locator(".activity-table__action")
+      .first()
+      .evaluate((cell) => {
+        const button = cell.querySelector(".dashboard-row-link");
+        if (!button) return 0;
+        return cell.getBoundingClientRect().right - button.getBoundingClientRect().right;
+      }),
+  ).toBeGreaterThanOrEqual(12);
   await page.getByRole("link", { name: "Cronologia" }).click();
   await page.getByLabel("Tipo di attività").selectOption("CUSTOMER_CORRECTED");
   await page.getByRole("button", { name: "Filtra" }).click();
@@ -415,6 +536,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("cell", { name: "Anagrafica cliente corretta" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Codex", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
+  await expect(page.getByText(/^Motivo: Dati confermati dal cliente$/)).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 720 });
   await expect(page.locator(".table-wrap--history tr").first()).toBeVisible();
@@ -424,6 +546,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       .first()
       .evaluate((row) => row.getBoundingClientRect().height),
   ).toBeLessThan(240);
+  await page.getByRole("link", { name: "Clienti", exact: true }).click();
+  await expect(page.locator(".customer-row").first()).toBeVisible();
+  await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Clienti");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toBeVisible();
   await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Ordini");
@@ -451,6 +581,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     await activeView.evaluate((item) => item.getBoundingClientRect().right),
   ).toBeLessThanOrEqual(320);
 
+  await page.getByLabel("Apri altre sezioni").click();
   await page.getByRole("link", { name: "Impostazioni", exact: true }).click();
   const sectionPicker = page.getByLabel("Vai alla sezione");
   await expect(sectionPicker).toBeVisible();
@@ -726,8 +857,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .filter({ hasText: "Note di credito da approvare" });
   await creditNotesItem.getByRole("link").click();
   await expect(page).toHaveURL(/\/attivita\?tipo=note-credito$/);
-  const creditNoteLink = page.locator(`a[href='/documenti/${noteId}/nota']`);
-  await expect(creditNoteLink).toContainText("Nota di credito da approvare");
+  const creditNoteLink = page.getByRole("link", { name: "Nota di credito", exact: true });
+  await expect(creditNoteLink).toHaveAttribute("href", `/documenti/${noteId}/nota`);
   await creditNoteLink.click();
   await expect(page.getByRole("heading", { name: "Comparatore fiscale" })).toBeVisible();
   await expect(page.getByRole("table", { name: "Righe" })).toContainText("rimborso m6-e2e-refund");

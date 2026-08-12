@@ -8,7 +8,6 @@ import {
   documentInputSchema,
   fatturaPaAddress,
   fatturaPaText,
-  fiscalNumberLabel,
   fiscalProfileSchema,
   foreignCustomerFallbackTaxCode,
   generateFatturaXml,
@@ -18,6 +17,7 @@ import {
 } from "../documents.ts";
 import { AppError } from "../errors.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
+import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { getConfig } from "../config.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { writeAudit } from "./audit.server.ts";

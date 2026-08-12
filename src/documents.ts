@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { create } from "xmlbuilder2";
 import { z } from "zod";
 
+import { fiscalNumberLabel } from "./fiscal-number.ts";
 import {
   containsNullByte,
   decimalToCents,
@@ -468,10 +469,6 @@ function taxId(recipient: DocumentInput["recipient"], type: string) {
 function recipientCode(recipient: DocumentInput["recipient"]): string {
   if (recipient.kind === "EU") return "XXXXXXX";
   return recipient.recipientCode ?? "0000000";
-}
-
-export function fiscalNumberLabel(series: string, year: number, number: number): string {
-  return `${series} ${String(number).padStart(4, "0")}/${String(year).slice(-2)}`;
 }
 
 export function generateFatturaXml(

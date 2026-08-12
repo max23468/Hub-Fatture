@@ -3186,7 +3186,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       "0",
     );
 
-    // 13.4: separazione, aggiunta e ultimo ordine protetto sulla stessa preparazione.
+    // 13.5: separazione, aggiunta e ultimo ordine protetto sulla stessa preparazione.
     const gateCaseId = String(gateCaseBefore.id);
     const separatedOrderId = (
       await database

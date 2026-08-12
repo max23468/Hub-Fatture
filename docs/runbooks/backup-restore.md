@@ -10,7 +10,7 @@ Il monitor locale somma le dimensioni degli oggetti tramite lo stesso Instance P
 
 ## Copia sul Mac
 
-Scaricare periodicamente l’oggetto cifrato più recente in `~/HubFatture-Backups/`, fuori dal checkout, verificarne dimensione e checksum rispetto alla ricevuta e sostituire la sola copia corrente dopo il confronto. L’identità privata `age` e la chiave AEAD delle credenziali restano nel recovery kit `/Users/Matteo/Documents/Hub-Fatture-Recovery/`, con permessi del solo titolare e protetto da FileVault; non vengono copiate dalla VPS nel backup.
+Scaricare periodicamente l’oggetto cifrato più recente in `/Users/Matteo/Progetti/Hub-Fatture/backups/`, verificarne dimensione e checksum rispetto alla ricevuta e sostituire la sola copia corrente dopo il confronto. La directory deve mantenere permessi `700`, gli archivi `600` ed è esclusa da Git tramite `.gitignore`; prima di eliminare, ricreare o eseguire una pulizia del checkout che includa i file ignorati, trasferire la copia in una posizione protetta e verificarla nuovamente. L’identità privata `age` e la chiave AEAD delle credenziali restano nel recovery kit `/Users/Matteo/Documents/Hub-Fatture-Recovery/`, con permessi del solo titolare e protetto da FileVault; non vengono copiate dalla VPS nel backup.
 
 ## Restore drill
 
