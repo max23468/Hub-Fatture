@@ -424,6 +424,9 @@ export const copy = {
       `${errorCodeLabel(code)} · ${attempts} ${attempts === 1 ? "tentativo" : "tentativi"}`,
     retryJob: "Riprova ora",
     reviewTitle: "Verifiche su ordini e documenti",
+    creditNotesFilter: (count: number) =>
+      `${count} ${count === 1 ? "nota di credito da approvare" : "note di credito da approvare"}`,
+    clearFilters: "Azzera filtro",
     searchLabel: "Cerca nel registro",
     search: "Cerca",
     searchPlaceholder: "Numero ordine, preparazione o motivo",
