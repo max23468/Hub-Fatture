@@ -339,7 +339,7 @@ function ConnectionsSettingsSection({
                   </div>
                 </Form>
               ) : connection?.historyImported ? (
-                <p className="notice">{copy.settings.historyReady}</p>
+                <p className="notice section-gap">{copy.settings.historyReady}</p>
               ) : null}
             </section>
           );
