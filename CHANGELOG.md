@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.15
+
+- La pagina Ordini adotta la stessa gerarchia visiva delle altre superfici operative, riunendo filtri, conteggio e risultati in pannelli coerenti con destinazioni e azioni sempre riconoscibili.
+- Le righe desktop sono più compatte e mantengono leggibili canale, cliente, stato e preparazione anche con cinquanta elementi; sui viewport più stretti diventano schede a due colonne con testi lunghi completi e comandi distanziati dai bordi fino a 320 px.
+- Gli stati usano etichette sintetiche con descrizione completa, la pagina 2 conserva densità e allineamenti e le viste implicite non vengono più conteggiate come filtri attivi.
+
 ## 0.3.14
 
 - La pagina Impostazioni adotta la stessa gerarchia visiva di Dashboard, Clienti e Attività, con navigazione interna, sezioni leggibili e controlli che restano utilizzabili da desktop a 320 px.

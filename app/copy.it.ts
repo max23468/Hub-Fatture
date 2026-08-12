@@ -200,6 +200,8 @@ export const copy = {
       cancelled: "Annullati",
     },
     filterLabel: "Filtra gli ordini",
+    filterTitle: "Trova gli ordini",
+    filterHelp: "Combina i criteri senza perdere la vista corrente.",
     search: "Cerca",
     searchPlaceholder: "Numero ordine o cliente",
     salesChannel: "Canale di vendita",
@@ -217,12 +219,26 @@ export const copy = {
     examplesLoaded: (imported: string, updated: string | null, ignored: string | null) =>
       `Ordini di esempio caricati. Nuovi: ${imported}; aggiornati: ${updated ?? "0"}; meno recenti ignorati: ${ignored ?? "0"}.`,
     preparation: "Preparazione fattura",
+    preparationContext: "Preparazione",
+    preparationListTitle: "Preparazioni fattura",
+    preparationListHelp:
+      "Apri una preparazione per controllare dati, anomalie e passaggi successivi.",
     customer: "Cliente",
     date: "Data",
     orders: "Ordini",
     total: "Totale",
     status: "Stato",
     order: "Ordine",
+    orderListTitle: "Elenco ordini",
+    orderListHelp: "Gli ordini più recenti, con stato e destinazione sempre riconoscibili.",
+    channel: "Canale",
+    actions: "Azioni",
+    noPreparation: "Non ancora creata",
+    openOrder: (provider: string, number: string) => `Apri dettaglio ordine ${provider} ${number}`,
+    openOrderAction: "Apri dettaglio",
+    openPreparationAction: "Apri preparazione",
+    openPreparationDetail: (number: string) => `Apri dettaglio preparazione fattura ${number}`,
+    pageItems: (count: number) => `${count} ${count === 1 ? "elemento" : "elementi"}`,
     noTransmittedPreparations: "Preparazioni non trasmesse",
     historicalOrders: "Ordini storici da riconciliare",
     noReviews: "Nessuna verifica richiesta",
@@ -944,6 +960,17 @@ export const orderStatusLabels: Record<string, string> = {
   INVOICED: "Fatturato",
   NEEDS_REVIEW: "Da verificare",
   LEGACY_BILLING_REVIEW: "Storico da riconciliare",
+};
+
+export const orderListStatusLabels: Record<string, string> = {
+  WAITING_FOR_TRIGGER: "In attesa",
+  ELIGIBLE: "Da preparare",
+  GROUPED: "In preparazione",
+  CANCELLED_NO_DOCUMENT: "Annullato",
+  REFUNDED_BEFORE_ISSUE: "Rimborsato",
+  INVOICED: "Fatturato",
+  NEEDS_REVIEW: "Da verificare",
+  LEGACY_BILLING_REVIEW: "Da riconciliare",
 };
 
 export const paymentStatusLabels: Record<string, string> = {

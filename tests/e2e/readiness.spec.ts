@@ -110,7 +110,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     await expect(link).toHaveAttribute("href", destination);
     await link.click();
     await expect(page).toHaveURL(new RegExp(`${destination.replace("?", "\\?")}$`));
-    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     await page.goto("/");
   }
   await expect(page.locator(".connection")).toHaveCount(3);
@@ -341,8 +341,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByLabel("Apri la ricerca globale").click();
   await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toBeVisible();
   await page.getByLabel("Cerca ordini, fatture e clienti").fill("Mario Rossi");
-  await expect(page.getByRole("heading", { name: "Ordini" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Clienti" })).toBeVisible();
+  const searchDialog = page.getByRole("dialog", { name: "Ricerca globale" });
+  await expect(searchDialog.getByRole("heading", { name: "Ordini" })).toBeVisible();
+  await expect(searchDialog.getByRole("heading", { name: "Clienti" })).toBeVisible();
   await expect.poll(() => searchRequests.length).toBe(1);
   await page.waitForTimeout(500);
   expect(searchRequests).toHaveLength(1);
@@ -444,6 +445,28 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .locator("input, select, button")
     .evaluateAll((controls) => controls.map((control) => control.getBoundingClientRect().height));
   expect([...new Set(controlHeights)]).toEqual([44]);
+  await expect(page.getByRole("heading", { name: "Elenco ordini" })).toBeVisible();
+  const firstOrderRow = page.locator(".orders-table tbody tr").first();
+  await expect(firstOrderRow).toBeVisible();
+  expect(await firstOrderRow.evaluate((row) => row.getBoundingClientRect().height)).toBeLessThan(
+    70,
+  );
+  expect(
+    await firstOrderRow.evaluate((row) => {
+      const actionCell = row.querySelector<HTMLElement>(".orders-table__action");
+      const action = actionCell?.querySelector<HTMLElement>(".dashboard-row-link");
+      return actionCell && action
+        ? actionCell.getBoundingClientRect().right - action.getBoundingClientRect().right
+        : 0;
+    }),
+  ).toBeGreaterThanOrEqual(12);
+  expect(
+    await firstOrderRow.evaluate((row) => {
+      const detail = row.querySelector<HTMLAnchorElement>("td:first-child a");
+      const action = row.querySelector<HTMLAnchorElement>(".orders-table__action a");
+      return detail?.getAttribute("href") === action?.getAttribute("href");
+    }),
+  ).toBe(true);
   await expect(page.getByRole("navigation", { name: "Navigazione principale" })).not.toContainText(
     "Schede",
   );
@@ -475,6 +498,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const archivedOrderFilters = page.getByRole("search", { name: "Filtra gli ordini" });
   await archivedOrderFilters.getByLabel("Cerca").fill("ordine-inesistente");
   await archivedOrderFilters.getByRole("button", { name: "Filtra" }).click();
+  await expect(page.getByText("1 filtro attivo")).toBeVisible();
   await expect(page.getByRole("cell", { name: "Da non trasmettere", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Nessun ordine annullato" })).toBeVisible();
   await page
@@ -519,7 +543,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "In attesa" }).click();
-  await page.getByRole("link", { name: /#S-1002/ }).click();
+  await expect(page.getByText(/filtr[oi] attiv[oi]/)).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Azzera filtri" })).toHaveCount(0);
+  await page.getByRole("link", { name: "Shopify #S-1002", exact: true }).click();
   await page.getByRole("button", { name: "Prepara la fattura ora" }).click();
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione anticipata richiesta")).toBeVisible();
@@ -753,6 +779,17 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toBe(true);
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toBeVisible();
+  const mobileOrderRow = page.locator(".orders-table tbody tr").first();
+  await expect(mobileOrderRow).toHaveCSS("display", "grid");
+  expect(await mobileOrderRow.evaluate((row) => row.getBoundingClientRect().height)).toBeLessThan(
+    380,
+  );
+  expect(
+    await mobileOrderRow.evaluate((row) => {
+      const action = row.querySelector<HTMLElement>(".orders-table__action a");
+      return action ? row.getBoundingClientRect().right - action.getBoundingClientRect().right : 0;
+    }),
+  ).toBeGreaterThanOrEqual(12);
   await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Ordini");
   const mobileNavigation = await page.locator(".nav-item").evaluateAll((items) =>
     items.map((item) => ({
@@ -964,7 +1001,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   });
   await page.goto("/ordini?vista=verificare");
   await expect(page.getByRole("heading", { name: "Ordini storici da riconciliare" })).toBeVisible();
-  await page.getByRole("link", { name: /#RC-HISTORY/ }).click();
+  await page.getByRole("link", { name: "Shopify #RC-HISTORY", exact: true }).click();
   const historicalInvoiceInput = page.getByLabel(
     "XML ufficiale della fattura Aruba, se già presente",
   );
