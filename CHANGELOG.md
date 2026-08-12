@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Manifest della release allegato con il nome canonico `release-manifest.json`, senza modifiche al comportamento applicativo.
+
 ## 0.3.0
 
 - Aggiunta la ricerca globale da ogni pagina per ordini, fatture e clienti, con risultati immediati, scorciatoia da tastiera e campi anagrafici e fiscali.
