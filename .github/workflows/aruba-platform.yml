@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   aruba-helper-platform:
-    name: Helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
+    name: Esegui helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:

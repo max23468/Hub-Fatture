@@ -340,7 +340,7 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(arubaPlatform, /ref: \$\{\{ github\.event\.client_payload\.commit \}\}/);
   assert.match(
     arubaPlatform,
-    /name: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
+    /name: Esegui helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
   );
   assert.match(arubaPlatform, /npm run test:aruba:platform -- \$\{\{ matrix\.browser \}\}/);
   assert.doesNotMatch(arubaPlatform, /inputs\.commit/);
@@ -352,6 +352,10 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(
     arubaPlatform,
     /RECEIPT_NAME: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
+  );
+  assert.doesNotMatch(
+    arubaPlatform,
+    /name: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
   );
   assert.match(arubaPlatform, /gh api --method POST "repos\/\$\{GITHUB_REPOSITORY\}\/check-runs"/);
   assert.match(arubaPlatform, /-f head_sha="\$CANDIDATE"/);
