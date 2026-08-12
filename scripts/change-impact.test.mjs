@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { classifyFiles } from "./change-impact.mjs";
+
+const script = fileURLToPath(new URL("./change-impact.mjs", import.meta.url));
 
 test("la documentazione resta nella corsia docs senza artefatto o deploy", () => {
   const impact = classifyFiles(["docs/runbooks/production.md", "README.md"]);
@@ -73,4 +80,33 @@ test("un percorso sconosciuto ricade fail-closed nel gate completo", () => {
   assert.equal(impact.provider, true);
   assert.equal(impact.migrationStorage, true);
   assert.equal(impact.deploy, true);
+});
+
+test("le eliminazioni runtime restano nel calcolo dell'impatto Git", async (context) => {
+  const repository = await mkdtemp(path.join(tmpdir(), "hub-fatture-impact-"));
+  context.after(() => rm(repository, { recursive: true, force: true }));
+  const git = (...arguments_) =>
+    execFileSync("git", arguments_, { cwd: repository, encoding: "utf8" }).trim();
+
+  git("init", "--quiet");
+  git("config", "user.email", "tests@hub-fatture.invalid");
+  git("config", "user.name", "Hub Fatture tests");
+  await mkdir(path.join(repository, "app"));
+  await writeFile(path.join(repository, "app", "removed.ts"), "export const removed = true;\n");
+  git("add", "app/removed.ts");
+  git("commit", "--quiet", "-m", "test: add runtime file");
+  const base = git("rev-parse", "HEAD");
+  await rm(path.join(repository, "app", "removed.ts"));
+  git("commit", "--quiet", "-am", "test: remove runtime file");
+  const head = git("rev-parse", "HEAD");
+
+  const impact = JSON.parse(
+    execFileSync(process.execPath, [script, base, head, "json"], {
+      cwd: repository,
+      encoding: "utf8",
+    }),
+  );
+  assert.deepEqual(impact.files, ["app/removed.ts"]);
+  assert.equal(impact.runtime, true);
+  assert.equal(impact.image, true);
 });

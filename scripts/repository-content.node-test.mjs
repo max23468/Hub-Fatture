@@ -248,6 +248,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
     /IMAGE: oci:\/\/ghcr\.io\/max23468\/hub-fatture@\$\{\{ needs\.image\.outputs\.digest \}\}/,
   );
   const deploy = workflow.slice(workflow.indexOf("\n  deploy:"));
+  const image = workflow.slice(workflow.indexOf("\n  image:"), workflow.indexOf("\n  deploy:"));
+  assert.match(image, /actions: read/);
+  assert.match(image, /actions\/workflows\/production-artifact\.yml\/runs/);
+  assert.match(image, /test "\$conclusion" = success/);
   assert.match(deploy, /packages: read/);
   const registryLogin = deploy.indexOf("docker/login-action@");
   assert.notEqual(registryLogin, -1);

@@ -151,7 +151,7 @@ function changedFiles(base, head) {
   const effectiveBase = /^0{40}$/.test(base) ? emptyTree : base;
   return execFileSync(
     "git",
-    ["diff", "--name-only", "--diff-filter=ACMRTUXB", effectiveBase, head, "--"],
+    ["diff", "--name-only", "--diff-filter=ACDMRTUXB", effectiveBase, head, "--"],
     { encoding: "utf8" },
   )
     .split("\n")
