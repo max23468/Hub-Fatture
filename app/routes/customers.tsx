@@ -283,8 +283,10 @@ export default function Customers() {
                         )}
                       </td>
                       <td className="customer-table__activity" data-label={copy.customers.activity}>
-                        <span>{copy.customers.orderCount(customer.order_count)}</span>
-                        <span>{copy.customers.documentCount(customer.document_count)}</span>
+                        <span className="customer-table__activity-stack">
+                          <span>{copy.customers.orderCount(customer.order_count)}</span>
+                          <span>{copy.customers.documentCount(customer.document_count)}</span>
+                        </span>
                       </td>
                       <td className="customer-table__action" data-label={copy.customers.actions}>
                         <Link
