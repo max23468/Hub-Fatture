@@ -392,6 +392,14 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(backup, /exec 9>\.\/backup\.lock/);
   assert.match(backup, /flock -n 9/);
   assert.match(backup, /^#!\/bin\/bash\nset -euo pipefail/m);
+  assert.match(
+    candidateReadback,
+    /historical_reconciliation_outcome IS NULL\s+AND \(trigger_status <> 'LEGACY_BILLING_REVIEW'\s+OR historical_reconciled_at IS NOT NULL\s+OR billing_case_id IS NOT NULL\s+OR EXISTS \(\s+SELECT 1 FROM document_orders\s+WHERE document_orders\.order_id = orders\.id\)\)/,
+  );
+  assert.match(
+    candidateReadback,
+    /historical_reconciliation_outcome = 'ALREADY_INVOICED'\s+AND NOT EXISTS \(\s+SELECT 1 FROM document_orders\s+JOIN documents ON documents\.id = document_orders\.document_id\s+WHERE document_orders\.order_id = orders\.id\s+AND documents\.origin = 'ARUBA_HISTORY'/,
+  );
   assert.ok(
     backup.indexOf("trap notify_failure EXIT HUP INT TERM") <
       backup.indexOf("exec 9>./backup.lock"),

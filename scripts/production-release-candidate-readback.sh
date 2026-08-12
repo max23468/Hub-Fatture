@@ -11,7 +11,13 @@ state=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ex
       (SELECT count(*) FROM documents WHERE status = 'APPROVED' AND origin = 'HUB'),
       (SELECT count(*) FROM orders
        WHERE coalesce((normalized_snapshot_json ->> 'historical')::boolean, false)
-         AND (historical_reconciliation_outcome IS NULL
+         AND ((historical_reconciliation_outcome IS NULL
+             AND (trigger_status <> 'LEGACY_BILLING_REVIEW'
+               OR historical_reconciled_at IS NOT NULL
+               OR billing_case_id IS NOT NULL
+               OR EXISTS (
+                 SELECT 1 FROM document_orders
+                 WHERE document_orders.order_id = orders.id)))
            OR (historical_reconciliation_outcome = 'ALREADY_INVOICED'
              AND NOT EXISTS (
                SELECT 1 FROM document_orders
