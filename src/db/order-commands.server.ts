@@ -280,6 +280,19 @@ export async function reconcileHistoricalOrder(
         "SELECT value_json FROM settings WHERE key = 'draft_trigger' FOR SHARE",
       );
       const refundEffect = preIssueRefund(current.gross_amount, current.refunds);
+      const historicalInvoiceTotal = importedInvoice?.totalAmount;
+      const refundsAppliedBeforeIssue =
+        parsed.data.outcome === "ALREADY_INVOICED" &&
+        refundEffect.state !== "NEEDS_REVIEW" &&
+        historicalInvoiceTotal === refundEffect.billableAmount &&
+        historicalInvoiceTotal !== current.gross_amount;
+      if (
+        parsed.data.outcome === "ALREADY_INVOICED" &&
+        (refundEffect.state === "NEEDS_REVIEW" ||
+          (historicalInvoiceTotal !== current.gross_amount && !refundsAppliedBeforeIssue))
+      ) {
+        throw new AppError("ORDER_HISTORY_INVOICE_INVALID", 422);
+      }
       const nextStatus =
         parsed.data.outcome === "ALREADY_INVOICED"
           ? "INVOICED"
@@ -397,7 +410,7 @@ export async function reconcileHistoricalOrder(
         await client.query(
           `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
          VALUES ($1, 'INVOICE', $2, $3)`,
-          [invoiceDocumentId, id, current.gross_amount],
+          [invoiceDocumentId, id, importedInvoice.totalAmount],
         );
       }
       await client.query(
@@ -407,7 +420,7 @@ export async function reconcileHistoricalOrder(
        WHERE id = $1`,
         [id, nextStatus, parsed.data.outcome, parsed.data.reference],
       );
-      if (parsed.data.outcome === "ALREADY_INVOICED") {
+      if (parsed.data.outcome === "ALREADY_INVOICED" && !refundsAppliedBeforeIssue) {
         await client.query(
           `UPDATE refunds SET applied_before_issue = false, updated_at = now()
          WHERE order_id = $1 AND applied_before_issue`,

@@ -1756,7 +1756,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     const historicalInvoiceXml = Buffer.from(
       (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
         .replace("FPR 0001/26", "FPR 0010/26")
-        .replace("#1001", "#S-1001"),
+        .replace("#1001", "#S-1001")
+        .replaceAll("123.45", "122.00"),
     );
     await database.getPool().query(
       `UPDATE orders SET trigger_status = 'INVOICED',
@@ -1851,6 +1852,62 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         )
       ).rows[0],
       { applied_before_issue: false, jobs: 1 },
+    );
+
+    const netHistorical = structuredClone(historical);
+    netHistorical.externalOrderId = "shop-order-historical-net-invoice";
+    netHistorical.displayNumber = "#S-HIST-NET";
+    netHistorical.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
+    netHistorical.historical = true;
+    netHistorical.updatedAt = "2026-08-19T09:50:00Z";
+    netHistorical.payments[0].externalPaymentId = "historical-net-invoice-payment";
+    netHistorical.refunds = [
+      {
+        externalRefundId: "historical-net-invoice-refund",
+        status: "COMPLETED",
+        amount: "10.00",
+        completedAt: "2026-08-19T09:40:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([netHistorical], {
+      id: 1,
+      requestId: "test-import-historical-net-invoice",
+    });
+    const netHistoricalId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          netHistorical.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      netHistoricalId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba netto del rimborso pre-emissione",
+        invoiceXml: Buffer.from(
+          (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+            .replace("FPR 0001/26", "FPR 0011/26")
+            .replace("#1001", netHistorical.displayNumber)
+            .replaceAll("123.45", "112.00"),
+        ),
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-historical-net-invoice" },
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT refunds.applied_before_issue, document_orders.amount,
+                  (SELECT count(*)::int FROM jobs
+                   WHERE type = 'process_refund'
+                     AND payload_json ->> 'refundId' = refunds.id::text) AS jobs
+           FROM refunds
+           JOIN document_orders ON document_orders.order_id = refunds.order_id
+           WHERE refunds.external_refund_id = 'historical-net-invoice-refund'`,
+        )
+      ).rows[0],
+      { applied_before_issue: true, amount: 11200, jobs: 0 },
     );
     alreadyInvoiced.updatedAt = "2026-08-19T10:00:00Z";
     alreadyInvoiced.historical = false;
@@ -1950,7 +2007,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "2",
+      "3",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
