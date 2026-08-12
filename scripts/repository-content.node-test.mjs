@@ -316,6 +316,14 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
   assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npm run test:e2e"));
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
+  assert.match(ci, /workflow_dispatch:\n    inputs:\n      force_aruba_platform:/);
+  assert.match(
+    ci,
+    /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.before \|\| github\.sha \}\}/,
+  );
+  assert.match(ci, /FORCE_ARUBA_PLATFORM: \$\{\{ inputs\.force_aruba_platform \|\| false \}\}/);
+  assert.match(ci, /if \[ "\$FORCE_ARUBA_PLATFORM" = true \]; then/);
+  assert.match(ci, /sed 's\/\^aruba_platform=\.\*\/aruba_platform=true\/'/);
   assert.match(codeql, /if: steps\.impact\.outputs\.standard == 'true'/);
   assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
   assert.match(foundation, /if: steps\.impact\.outputs\.image == 'true'/);
