@@ -240,7 +240,15 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /git checkout --detach "\$CANDIDATE"/);
   assert.match(workflow, /ref: \$\{\{ needs\.candidate\.outputs\.commit \}\}/);
   assert.match(artifact, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
-  assert.match(workflow, /node scripts\/commit-checks\.mjs/);
+  assert.match(
+    workflow,
+    /node "\$RUNNER_TEMP\/hub-fatture-production-tooling\/commit-checks\.mjs"/,
+  );
+  assert.match(workflow, /install -m 600 scripts\/change-impact\.mjs scripts\/commit-checks\.mjs/);
+  assert.match(
+    workflow,
+    /node "\$RUNNER_TEMP\/hub-fatture-production-tooling\/change-impact\.mjs"/,
+  );
   assert.match(workflow, /deployments\?environment=Production&task=hub-fatture-production/);
   assert.match(workflow, /task:"hub-fatture-production"/);
   assert.match(workflow, /-f state=success/);
@@ -265,6 +273,14 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   const registryLogin = deploy.indexOf("docker/login-action@");
   assert.notEqual(registryLogin, -1);
   assert.ok(registryLogin < deploy.indexOf("Verifica attestazione"));
+  const schemaPreflight = deploy.indexOf("Blocca rollback con schema divergente");
+  const exactDeployment = deploy.indexOf("Crea il deployment per il candidato esatto");
+  const installCandidate = deploy.indexOf("Installa artefatti e distribuisci il digest");
+  assert.notEqual(schemaPreflight, -1);
+  assert.ok(schemaPreflight < exactDeployment);
+  assert.ok(exactDeployment < installCandidate);
+  assert.match(deploy, /candidate_schema.*deployed_schema/s);
+  assert.match(deploy, /test "\$candidate_schema" = "\$deployed_schema"/);
   assert.match(workflow, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
   assert.match(workflow, /if \[ '\$BACKUP_REQUIRED' = true \]/);
   assert.match(workflow, /backup\.sh deploy/);

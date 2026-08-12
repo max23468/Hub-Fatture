@@ -2261,7 +2261,10 @@ manuale è stato avviato da un HEAD di `main` più recente.
 Un candidato antenato della base distribuita è invece un rollback deliberato:
 la classificazione copre le superfici rimosse, i gate si riferiscono al commit
 target e il digest attestato storico viene cercato immediatamente, senza
-confondere il percorso con un avanzamento cumulativo.
+confondere il percorso con un avanzamento cumulativo. L'orchestrazione resta
+quella fidata della revisione del workflow e un preflight blocca il rollback
+prima di sostituire container quando lo schema del target non coincide con la
+ricevuta Production.
 
 La CI non esegue deploy automatici su merge. Action di terze parti vanno vincolate a commit completi, con permessi minimi, timeout e `concurrency` appropriata. I workflow di verifica possono cancellare run obsoleti; un deploy Production già avviato non viene cancellato da un nuovo push. Dependabot copre npm, GitHub Actions, Dockerfile e Compose e apre PR verso `main`; gli aggiornamenti npm e GitHub Actions minor/patch sono raggruppati e possono essere uniti automaticamente dopo i gate, mentre major, Docker e Compose restano deliberati manualmente.
 

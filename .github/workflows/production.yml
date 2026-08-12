@@ -39,6 +39,11 @@ jobs:
         with:
           install: true
           cache: true
+      - name: Conserva il tooling della revisione fidata
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/hub-fatture-production-tooling"
+          install -m 600 scripts/change-impact.mjs scripts/commit-checks.mjs \
+            "$RUNNER_TEMP/hub-fatture-production-tooling/"
       - name: Verifica candidato già presente in main
         id: candidate
         env:
@@ -94,7 +99,7 @@ jobs:
             echo "base=$base"
             echo "check_base=$check_base"
             echo "rollback=$rollback"
-            node scripts/change-impact.mjs "$impact_base" "$impact_head"
+            node "$RUNNER_TEMP/hub-fatture-production-tooling/change-impact.mjs" "$impact_base" "$impact_head"
           } >> "$GITHUB_OUTPUT"
       - name: Riepiloga il perimetro Production
         env:
@@ -118,6 +123,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Conserva il tooling della revisione fidata
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/hub-fatture-production-tooling"
+          install -m 600 scripts/change-impact.mjs scripts/commit-checks.mjs \
+            "$RUNNER_TEMP/hub-fatture-production-tooling/"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
           ref: ${{ needs.candidate.outputs.commit }}
           fetch-depth: 0
           persist-credentials: false
@@ -130,7 +144,7 @@ jobs:
           BASE: ${{ needs.candidate.outputs.check_base }}
           CANDIDATE: ${{ needs.candidate.outputs.commit }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/commit-checks.mjs
+        run: node "$RUNNER_TEMP/hub-fatture-production-tooling/commit-checks.mjs"
 
   image:
     name: Build, scan e attestazione
@@ -254,15 +268,6 @@ jobs:
         with:
           ref: ${{ needs.candidate.outputs.commit }}
           persist-credentials: false
-      - name: Crea il deployment per il candidato esatto
-        id: deployment
-        env:
-          CANDIDATE: ${{ needs.candidate.outputs.commit }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          deployment=$(jq -n --arg ref "$CANDIDATE" '{ref:$ref,environment:"Production",task:"hub-fatture-production",description:"Hub Fatture Production exact candidate",auto_merge:false,required_contexts:[]}' | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
-          echo "id=$deployment" >> "$GITHUB_OUTPUT"
-          gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -X POST -f state=in_progress -f environment=Production -f environment_url=https://fatture.opik.net -f description="Deploy exact-SHA in corso" >/dev/null
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -283,6 +288,31 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
+      - name: Blocca rollback con schema divergente
+        env:
+          ROLLBACK: ${{ needs.candidate.outputs.rollback }}
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
+        run: |
+          if [ "$ROLLBACK" = true ]; then
+            candidate_schema=$(find migrations -maxdepth 1 -type f -name '*.sql' -print | sed 's#^.*/##' | sort | tail -n 1)
+            test -n "$candidate_schema"
+            # shellcheck disable=SC2029
+            deployed_schema=$(ssh "$SSH_USER@$SSH_HOST" "sudo jq -er .schema /opt/hub-fatture/data/operations/deploy-receipt.json")
+            test "$candidate_schema" = "$deployed_schema" || {
+              echo "Rollback vietato: lo schema Production è avanzato rispetto al candidato." >&2
+              exit 1
+            }
+          fi
+      - name: Crea il deployment per il candidato esatto
+        id: deployment
+        env:
+          CANDIDATE: ${{ needs.candidate.outputs.commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          deployment=$(jq -n --arg ref "$CANDIDATE" '{ref:$ref,environment:"Production",task:"hub-fatture-production",description:"Hub Fatture Production exact candidate",auto_merge:false,required_contexts:[]}' | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          echo "id=$deployment" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -X POST -f state=in_progress -f environment=Production -f environment_url=https://fatture.opik.net -f description="Deploy exact-SHA in corso" >/dev/null
       - name: Installa artefatti e distribuisci il digest
         env:
           BACKUP_REQUIRED: ${{ needs.candidate.outputs.backup }}

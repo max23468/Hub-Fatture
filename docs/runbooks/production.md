@@ -29,9 +29,12 @@ finale.
 Un candidato precedente al deployment corrente è trattato esplicitamente come
 rollback deliberato: il workflow classifica le superfici rimosse, verifica i
 gate storici sul commit target e prova subito a riusare il relativo digest
-attestato, senza attendere il workflow artefatto di un nuovo merge. Il deployment
-exact-SHA riuscito diventa poi la nuova base. Restano validi i vincoli sullo
-schema descritti sotto.
+attestato, senza attendere il workflow artefatto di un nuovo merge. Classificatore
+e barriera dei check provengono sempre dalla revisione fidata del workflow, non
+dal candidato storico. Prima di creare il deployment exact-SHA o sostituire i
+container, il preflight confronta l'ultima migrazione del target con la ricevuta
+Production e vieta il rollback se divergono. Il deployment riuscito diventa poi
+la nuova base.
 
 ## Deploy e readback
 
