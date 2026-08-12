@@ -34,6 +34,17 @@ Ambiente `Production`, regione `eu-milan-1`, istanza OCI con suffisso `v6almouq`
 - smoke autenticato finale del `2026-08-11T21:12:42Z`: `mAsSiMo` e `CODEX` accedono rispettivamente come `Massimo` titolare e `Codex` operatore; menu, profilo e audit usano i nomi canonici e solo `Massimo` espone il permesso fiscale;
 - readback database: due soli account, `Massimo` con `can_approve=true` e `Codex` con `can_approve=false`; indice univoco case-insensitive e vincolo che rifiuta il privilegio su `Codex` verificati anche nel restore isolato.
 
+### Candidato corrente
+
+- workflow manuale [Production 31574255912](https://github.com/max23468/Hub-Fatture/actions/runs/31574255912) concluso con successo dopo approvazione dell’Environment sul commit `03b8bef537a58595867f2a7ce1b0d081f7ac3cfb`;
+- digest ARM64 `sha256:4062ebd4959d1c038da0e1b5e28782350b2319cae6d1f7aec28057c770381da7` senza vulnerabilità alte o critiche rilevate, attestato e verificato prima del pull;
+- readback permanente indipendente del `2026-08-12T07:36:07Z`: health `ok`, versione `0.1.0`, schema `018_legacy_webhook_history.sql`, stesso commit e digest su web e worker, `ARUBA_SUBMISSION_ENABLED=false`;
+- smoke autenticato Safari nella sezione **Sistema**: ambiente Production, versione, commit, digest, schema e backup coincidono con le ricevute; coda operativa a zero e invio automatico Aruba disabilitato;
+- readback candidato: zero documenti approvati, zero ordini storici locali non riconciliati, zero batch Aruba aperti e zero permessi Aruba attivi; i due import iniziali Shopify ed eBay sono ancora mancanti e mantengono aperto il relativo gate;
+- backup giornaliero autonomo completato alle `2026-08-12T00:32:23Z`; backup pre-deploy e post-deploy cifrati e verificati, con ricevuta corrente delle `2026-08-12T07:33:35Z`, `143592` byte e SHA-256 `4100ff6964b616b112e137343940cb201a6584f0b4f3b51a2a1ee27cdeff4f7d`;
+- copia corrente scaricata cifrata sul Mac e confrontata con dimensione e checksum della ricevuta; timer backup e monitor riletti attivi, con RPO osservato inferiore a otto ore al momento del deploy;
+- gli artefatti applicativi di rollback sono presenti, ma lo schema è avanzato da `015` a `018`: il rollback automatico all’immagine precedente è vietato e il percorso del candidato è backup più forward-fix. Il restore Production resta distruttivo e richiede autorizzazione separata; gli script di rollback e restore già collaudati non sono cambiati.
+
 ### Rollback e ritorno
 
 - backup pre-rollback completato, quindi rollback reale al commit `3eccac2a18f53b5bcd38aa7abd7ab4be39666afa` e digest `sha256:8ed61a4a81480d06e280f89385c8d71d45bcd1f2216ba507a06deb0dba32f77a`;
