@@ -382,6 +382,19 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   const customerRows = page.locator(".customer-table tbody tr");
   await expect(customerRows).toHaveCount(2);
+  expect(
+    await customerRows.evaluateAll((rows) =>
+      rows.every((row) => {
+        const activityCell = row.querySelector<HTMLElement>(".customer-table__activity");
+        return (
+          activityCell !== null &&
+          Math.abs(
+            activityCell.getBoundingClientRect().bottom - row.getBoundingClientRect().bottom,
+          ) < 1
+        );
+      }),
+    ),
+  ).toBe(true);
   const marioCustomer = customerRows.filter({ hasText: "Mario Rossi" });
   await expect(marioCustomer).toContainText("mario.rossi@example.invalid");
   await expect(marioCustomer).toContainText("RSSMRA80A01H501U");

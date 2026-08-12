@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.24
+
+- La colonna Ordini / Documenti della tabella Clienti conserva lo stesso separatore orizzontale delle altre colonne anche quando nome o e-mail aumentano l’altezza della riga; la griglia interna non viene più applicata direttamente alla cella `td`, che torna a partecipare al normale calcolo dell’altezza della tabella.
+
 ## 0.3.23
 
 - La directory Clienti usa una tabella ordinabile sull’intero archivio per cliente, e-mail, identificativo fiscale, canale, ultimo ordine, ordini e documenti.

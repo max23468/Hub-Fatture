@@ -4427,7 +4427,7 @@ tbody tr:last-child td {
 }
 
 .customer-table__activity-sorters,
-.customer-table__activity {
+.customer-table__activity-stack {
   display: grid;
   min-width: 0;
   gap: 0.125rem;
