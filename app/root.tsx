@@ -1,3 +1,4 @@
+import { CircleAlert, FileQuestion } from "lucide-react";
 import {
   isRouteErrorResponse,
   Links,
@@ -8,7 +9,7 @@ import {
   useRouteError,
 } from "react-router";
 
-import { BrandLockup } from "./components/brand-lockup";
+import { PublicCardHeader, PublicPage } from "./components/public-page";
 import { copy } from "./copy.it";
 import favicon from "../docs/brand/assets/favicon.svg?url";
 import "./styles.css";
@@ -43,16 +44,26 @@ export function ErrorBoundary() {
   const error = useRouteError();
   const notFound = isRouteErrorResponse(error) && error.status === 404;
   return (
-    <main className="auth-shell">
-      <BrandLockup />
-      <section className="card" aria-labelledby="error-title">
-        <p className="eyebrow">{copy.error.eyebrow}</p>
-        <h1 id="error-title">{notFound ? copy.error.notFound : copy.error.unexpected}</h1>
-        <p>{copy.error.action}</p>
+    <PublicPage compact>
+      <section className="card public-card public-state" aria-labelledby="error-title">
+        <PublicCardHeader
+          description={notFound ? copy.error.notFoundHelp : copy.error.unexpectedHelp}
+          eyebrow={copy.error.eyebrow}
+          icon={
+            notFound ? (
+              <FileQuestion size={22} strokeWidth={1.8} />
+            ) : (
+              <CircleAlert size={22} strokeWidth={1.8} />
+            )
+          }
+          title={notFound ? copy.error.notFound : copy.error.unexpected}
+          titleId="error-title"
+        />
+        <p className="public-state__action">{copy.error.action}</p>
         <a className="button" href="/">
           {copy.error.home}
         </a>
       </section>
-    </main>
+    </PublicPage>
   );
 }

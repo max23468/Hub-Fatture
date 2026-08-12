@@ -1,6 +1,19 @@
+import {
+  CircleAlert,
+  CircleHelp,
+  CloudUpload,
+  Download,
+  FileCheck2,
+  Save,
+  Send,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Route } from "./+types/aruba-synthetic";
 
+import { DetailSectionHeader } from "../components/detail-section-header";
+import { copy } from "../copy.it";
 import { getConfig } from "../../src/config.server.ts";
 
 export function loader({ request }: Route.LoaderArgs) {
@@ -66,12 +79,18 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
 
   if (!authenticated) {
     return (
-      <main className="auth-shell" data-aruba-state="login-required">
-        <section className="card">
-          <h1>Accesso richiesto</h1>
-          <p>Completa manualmente password, OTP o CAPTCHA. L’helper resta in pausa.</p>
+      <main className="synthetic-page synthetic-page--state" data-aruba-state="login-required">
+        <section className="dashboard-panel synthetic-state-card">
+          <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
+            <ShieldCheck size={24} strokeWidth={1.8} />
+          </span>
+          <div>
+            <p className="eyebrow">{copy.arubaSynthetic.eyebrow}</p>
+            <h1>{copy.arubaSynthetic.loginTitle}</h1>
+            <p>{copy.arubaSynthetic.loginHelp}</p>
+          </div>
           <button className="button" onClick={() => setAuthenticated(true)} type="button">
-            Autenticazione completata
+            {copy.arubaSynthetic.loginAction}
           </button>
         </section>
       </main>
@@ -79,9 +98,19 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
   }
   if (scenario === "unexpected") {
     return (
-      <main className="auth-shell" data-aruba-state="unexpected">
-        <section className="card">
-          <h1>Pagina non riconosciuta</h1>
+      <main className="synthetic-page synthetic-page--state" data-aruba-state="unexpected">
+        <section className="dashboard-panel synthetic-state-card">
+          <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
+            <CircleHelp size={24} strokeWidth={1.8} />
+          </span>
+          <div>
+            <p className="eyebrow">{copy.arubaSynthetic.eyebrow}</p>
+            <h1>{copy.arubaSynthetic.unexpectedTitle}</h1>
+            <p>{copy.arubaSynthetic.unexpectedHelp}</p>
+          </div>
+          <a className="button button--secondary" href="/aruba-sintetica">
+            {copy.arubaSynthetic.backToSimulator}
+          </a>
         </section>
       </main>
     );
@@ -90,22 +119,45 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
   const invalid = files.some((file) => !file.valid);
   return (
     <main
-      className="app-main"
+      className="synthetic-page"
       data-aruba-state={
         sent ? (scenario === "uncertain" ? "uncertain" : "submitted") : "upload-ready"
       }
     >
-      <div className="title-block">
-        <p className="eyebrow">Pagina sintetica locale</p>
-        <h1>Carica fatture da inviare</h1>
-        <p>Questa pagina non comunica con Aruba e usa soltanto documenti sintetici.</p>
-        <p data-aruba-account={accountReference}>Account: {accountReference}</p>
-      </div>
-      <section className="card">
-        <label>
-          Seleziona documenti
+      <header className="synthetic-header">
+        <div className="title-block">
+          <p className="eyebrow">{copy.arubaSynthetic.eyebrow}</p>
+          <h1>{copy.arubaSynthetic.title}</h1>
+          <p>{copy.arubaSynthetic.intro}</p>
+        </div>
+        <p className="synthetic-account" data-aruba-account={accountReference}>
+          <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.8} />
+          <span>{copy.arubaSynthetic.account(accountReference)}</span>
+        </p>
+      </header>
+      <section className="dashboard-panel synthetic-upload-panel">
+        <DetailSectionHeader
+          description={copy.arubaSynthetic.uploadHelp}
+          icon={<CloudUpload size={22} strokeWidth={1.8} />}
+          title={copy.arubaSynthetic.uploadTitle}
+        />
+        <label className="synthetic-file-picker">
+          <span>{copy.arubaSynthetic.selectDocuments}</span>
+          <span className="synthetic-file-picker__control">
+            <span className="dashboard-row-link">
+              <CloudUpload aria-hidden="true" size={17} strokeWidth={1.8} />
+              {copy.arubaSynthetic.browseDocuments}
+            </span>
+            <span>
+              {files.length
+                ? copy.arubaSynthetic.selectedDocuments(files.length)
+                : copy.arubaSynthetic.noDocumentsSelected}
+            </span>
+          </span>
           <input
             accept=".xml,application/xml"
+            aria-label={copy.arubaSynthetic.selectDocuments}
+            className="visually-hidden"
             multiple
             onChange={async (event) => {
               const selected = [...(event.currentTarget.files ?? [])];
@@ -134,48 +186,53 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
         </label>
         {smsStep ? (
           <dialog aria-labelledby="sms-dialog-title" data-aruba-state="sms-required" open>
-            {smsStep === "CONFIRM" ? (
-              <>
-                <h2 id="sms-dialog-title">Vuoi disattivare la protezione OTP su Carica Fatture?</h2>
-                <button className="button" onClick={() => setSmsStep("CODE")} type="button">
-                  Prosegui
-                </button>
-              </>
-            ) : (
-              <>
-                <h2 id="sms-dialog-title">Verifica</h2>
-                <label>
-                  Inserisci il codice ricevuto per SMS
-                  <input
-                    inputMode="numeric"
-                    onChange={(event) => setSmsCode(event.currentTarget.value)}
-                    value={smsCode}
-                  />
-                </label>
-                <button
-                  className="button"
-                  disabled={!/^\d{6}$/.test(smsCode)}
-                  onClick={() => {
-                    setFiles(pendingFiles.current);
-                    setSmsStep(null);
-                  }}
-                  type="button"
-                >
-                  Verifica
-                </button>
-              </>
-            )}
+            <div className="synthetic-dialog__content">
+              <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
+                <ShieldCheck size={22} strokeWidth={1.8} />
+              </span>
+              {smsStep === "CONFIRM" ? (
+                <>
+                  <h2 id="sms-dialog-title">{copy.arubaSynthetic.otpQuestion}</h2>
+                  <button className="button" onClick={() => setSmsStep("CODE")} type="button">
+                    {copy.arubaSynthetic.continue}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h2 id="sms-dialog-title">{copy.arubaSynthetic.verificationTitle}</h2>
+                  <label>
+                    {copy.arubaSynthetic.smsCode}
+                    <input
+                      inputMode="numeric"
+                      onChange={(event) => setSmsCode(event.currentTarget.value)}
+                      value={smsCode}
+                    />
+                  </label>
+                  <button
+                    className="button"
+                    disabled={!/^\d{6}$/.test(smsCode)}
+                    onClick={() => {
+                      setFiles(pendingFiles.current);
+                      setSmsStep(null);
+                    }}
+                    type="button"
+                  >
+                    {copy.arubaSynthetic.verify}
+                  </button>
+                </>
+              )}
+            </div>
           </dialog>
         ) : null}
         {files.length ? (
-          <div className="table-wrap section-gap">
+          <div className="table-wrap synthetic-documents">
             <table>
-              <caption>Documenti caricati</caption>
+              <caption>{copy.arubaSynthetic.uploadedDocuments}</caption>
               <thead>
                 <tr>
-                  <th>File</th>
-                  <th>Validazione</th>
-                  <th>Azione</th>
+                  <th>{copy.arubaSynthetic.file}</th>
+                  <th>{copy.arubaSynthetic.validation}</th>
+                  <th>{copy.arubaSynthetic.action}</th>
                 </tr>
               </thead>
               <tbody>
@@ -188,23 +245,30 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
                     data-total-cents={file.totalCents}
                     key={file.name}
                   >
-                    <td>
-                      {file.name}
-                      {file.fiscalNumber && file.documentDate && file.totalCents !== undefined
-                        ? ` · ${file.fiscalNumber} · ${file.documentDate} · ${(file.totalCents / 100).toFixed(2)}`
-                        : ""}
+                    <td data-label={copy.arubaSynthetic.file}>
+                      <strong className="synthetic-document__name">{file.name}</strong>
+                      {file.fiscalNumber && file.documentDate && file.totalCents !== undefined ? (
+                        <small>
+                          {file.fiscalNumber} · {file.documentDate} ·{" "}
+                          {(file.totalCents / 100).toFixed(2)}
+                        </small>
+                      ) : null}
                     </td>
-                    <td>
+                    <td data-label={copy.arubaSynthetic.validation}>
                       {sent && scenario !== "uncertain"
-                        ? "Inviato · ID Aruba: MOCK-001"
+                        ? copy.arubaSynthetic.sent
                         : file.valid
-                          ? "Documento valido"
-                          : "Dettagli errori"}
+                          ? copy.arubaSynthetic.valid
+                          : copy.arubaSynthetic.invalid}
                     </td>
-                    <td>
+                    <td
+                      className="synthetic-document__actions"
+                      data-label={copy.arubaSynthetic.action}
+                    >
                       {sent && scenario !== "uncertain" && file.url ? (
                         <a download={file.name} href={file.url}>
-                          Scarica XML
+                          <Download aria-hidden="true" size={17} strokeWidth={1.8} />
+                          {copy.arubaSynthetic.download}
                         </a>
                       ) : null}
                       <button
@@ -216,7 +280,8 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
                         }
                         type="button"
                       >
-                        Rimuovi
+                        <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
+                        {copy.arubaSynthetic.remove}
                       </button>
                     </td>
                   </tr>
@@ -225,24 +290,36 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
             </table>
           </div>
         ) : null}
-        {invalid ? <p className="error">Uno o più documenti contengono errori.</p> : null}
+        {invalid ? (
+          <p className="error synthetic-status">
+            <CircleAlert aria-hidden="true" size={19} strokeWidth={1.8} />
+            {copy.arubaSynthetic.invalidNotice}
+          </p>
+        ) : null}
         {sent ? (
-          <p role="status">
-            {scenario === "uncertain" ? "Stato non disponibile" : "Documenti acquisiti · MOCK-001"}
+          <p className="synthetic-status" role="status">
+            <FileCheck2 aria-hidden="true" size={19} strokeWidth={1.8} />
+            {scenario === "uncertain"
+              ? copy.arubaSynthetic.uncertain
+              : copy.arubaSynthetic.acquired}
           </p>
         ) : (
-          <button
-            className="button section-gap"
-            disabled={!files.length || invalid}
-            onClick={() => setSent(true)}
-            type="button"
-          >
-            Invia
-          </button>
+          <div className="synthetic-actions">
+            <button
+              className="button"
+              disabled={!files.length || invalid}
+              onClick={() => setSent(true)}
+              type="button"
+            >
+              <Send aria-hidden="true" size={17} strokeWidth={1.8} />
+              {copy.arubaSynthetic.send}
+            </button>
+            <button className="button button--secondary" disabled type="button">
+              <Save aria-hidden="true" size={17} strokeWidth={1.8} />
+              {copy.arubaSynthetic.saveDrafts}
+            </button>
+          </div>
         )}
-        <button className="button button--secondary section-gap" disabled type="button">
-          Salva in bozze
-        </button>
       </section>
     </main>
   );

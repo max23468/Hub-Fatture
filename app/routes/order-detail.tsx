@@ -1,9 +1,11 @@
+import { CreditCard, PackageCheck, ReceiptText, UserRound } from "lucide-react";
 import { useState } from "react";
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/order-detail";
 
 import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
+import { DetailSectionHeader } from "../components/detail-section-header";
 import {
   customerKindLabels,
   customerMatchLabels,
@@ -189,7 +191,7 @@ export default function OrderDetail() {
   const provider = order.provider === "SHOPIFY" ? "Shopify" : "eBay";
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
-      <div className="title-block">
+      <div className="title-block dashboard-title detail-page-title">
         <p className="eyebrow">{provider}</p>
         <h1>{copy.orderDetail.order(order.display_number)}</h1>
         <p>
@@ -201,10 +203,14 @@ export default function OrderDetail() {
           {error.message}
         </p>
       ) : null}
-      <div className="detail-stack">
-        <section className="card">
-          <h2>{copy.orderDetail.orderStatus}</h2>
-          <dl className="facts facts--columns">
+      <div className="order-detail-grid">
+        <section className="dashboard-panel order-detail-panel order-status-panel">
+          <DetailSectionHeader
+            description={copy.orderDetail.orderStatusHelp}
+            icon={<PackageCheck size={22} strokeWidth={1.8} />}
+            title={copy.orderDetail.orderStatus}
+          />
+          <dl className="facts order-status-facts">
             <div>
               <dt>{copy.orderDetail.payment}</dt>
               <dd>{paymentStatusLabels[order.payment_status] ?? copy.common.unknownStatus}</dd>
@@ -249,7 +255,10 @@ export default function OrderDetail() {
           </dl>
           <OrderStatusActions order={order} canApprove={canApprove} csrfToken={csrfToken} />
           <div className="detail-subsection">
-            <h3>{copy.orderDetail.payments}</h3>
+            <h3 className="detail-subsection__title">
+              <CreditCard aria-hidden="true" size={19} strokeWidth={1.8} />
+              {copy.orderDetail.payments}
+            </h3>
             {order.payments.length ? (
               <ul className="plain-list">
                 {order.payments.map((payment) => (
@@ -274,7 +283,10 @@ export default function OrderDetail() {
             )}
           </div>
           <div className="detail-subsection">
-            <h3>{copy.orderDetail.refunds}</h3>
+            <h3 className="detail-subsection__title">
+              <ReceiptText aria-hidden="true" size={19} strokeWidth={1.8} />
+              {copy.orderDetail.refunds}
+            </h3>
             {order.refunds.length ? (
               <ul className="plain-list">
                 {order.refunds.map((refund) => (
@@ -299,8 +311,12 @@ export default function OrderDetail() {
             )}
           </div>
         </section>
-        <section className="card">
-          <h2>{copy.orderDetail.customerData}</h2>
+        <section className="dashboard-panel order-detail-panel order-customer-panel">
+          <DetailSectionHeader
+            description={copy.orderDetail.customerDataHelp}
+            icon={<UserRound size={22} strokeWidth={1.8} />}
+            title={copy.orderDetail.customerData}
+          />
           <div className="customer-comparison">
             <div className="customer-comparison__section">
               <h3>{copy.orderDetail.hubCustomerData}</h3>
@@ -411,8 +427,12 @@ export default function OrderDetail() {
           ) : null}
         </section>
       </div>
-      <section className="card section-gap">
-        <h2>{copy.orderDetail.purchasedItems}</h2>
+      <section className="dashboard-panel order-detail-panel order-items-panel section-gap">
+        <DetailSectionHeader
+          description={copy.orderDetail.purchasedItemsHelp}
+          icon={<ReceiptText size={22} strokeWidth={1.8} />}
+          title={copy.orderDetail.purchasedItems}
+        />
         <div className="table-wrap">
           <table>
             <thead>
