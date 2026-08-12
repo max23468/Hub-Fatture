@@ -1834,6 +1834,48 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-clear-indistinguishable-ebay-history" },
     );
+    const indistinguishableShopify = structuredClone(ebayWithoutReference);
+    indistinguishableShopify.provider = "SHOPIFY";
+    indistinguishableShopify.externalAccountId = "shop.example.invalid";
+    indistinguishableShopify.externalOrderId = "shop-order-historical-indistinguishable";
+    indistinguishableShopify.externalCustomerId = "shop-customer-historical-indistinguishable";
+    indistinguishableShopify.displayNumber = "#S-HIST-INDISTINGUISHABLE";
+    indistinguishableShopify.updatedAt = "2026-08-18T09:15:00Z";
+    indistinguishableShopify.payments[0].externalPaymentId =
+      "shop-payment-historical-indistinguishable";
+    indistinguishableShopify.lines[0].externalLineId = "shop-line-historical-indistinguishable";
+    await orders.importOrders([indistinguishableShopify], {
+      id: 1,
+      requestId: "test-import-shopify-history-indistinguishable-from-ebay",
+    });
+    const indistinguishableShopifyId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          indistinguishableShopify.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        ebayWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba senza riferimento ambiguo fra eBay e Shopify",
+          invoiceXml: ebayInvoiceWithoutReference,
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-cross-provider-ambiguous" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      indistinguishableShopifyId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ordine Shopify di prova escluso dopo verifica Aruba",
+      },
+      { id: 1, canApprove: true, requestId: "test-clear-indistinguishable-shopify-history" },
+    );
     await assert.rejects(
       orders.reconcileHistoricalOrder(
         ebayWithoutReferenceId,
@@ -2461,7 +2503,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "9",
+      "10",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

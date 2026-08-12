@@ -219,8 +219,7 @@ async function uniquelyMatchesUnreferencedEbayInvoice(
               )) FROM refunds WHERE refunds.order_id = orders.id
             ), '[]'::jsonb) AS refunds
      FROM orders
-     WHERE orders.provider = 'EBAY'
-       AND coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+     WHERE coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
        AND (
          orders.id = $1
          OR (orders.trigger_status = 'LEGACY_BILLING_REVIEW'
