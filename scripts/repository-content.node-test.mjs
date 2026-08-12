@@ -318,6 +318,16 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
 });
 
+test("il job PostgreSQL installa il validatore XML usato dalle suite DB", async () => {
+  const workflow = await readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
+  const database = workflow.slice(
+    workflow.indexOf("\n  database:"),
+    workflow.indexOf("\n  security:"),
+  );
+  assert.match(database, /apt-get install --yes libxml2-utils/);
+  assert.match(database, /npm run test:db/);
+});
+
 test("la modifica del classificatore forza i gate senza eseguirlo come autorità", async () => {
   const workflows = [
     "ci.yml",
