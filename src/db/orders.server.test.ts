@@ -4333,6 +4333,62 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-recipient-without-tax-id" },
     );
+    const bulgarianHistorical = structuredClone(historicalWithoutTaxId);
+    bulgarianHistorical.externalOrderId = "shop-order-historical-bulgarian-transliteration";
+    bulgarianHistorical.externalCustomerId = "shop-customer-historical-bulgarian-transliteration";
+    bulgarianHistorical.displayNumber = "#S-HIST-BG";
+    bulgarianHistorical.customer.kind = "EU";
+    bulgarianHistorical.customer.firstName = "Валентин";
+    bulgarianHistorical.customer.lastName = "Радев";
+    bulgarianHistorical.customer.billingAddress = {
+      line1: "ул. Пчела, 3-Б",
+      postalCode: "1619",
+      city: "София",
+      countryCode: "BG",
+    };
+    bulgarianHistorical.total = "191.71";
+    bulgarianHistorical.lines[0].grossAmount = "191.71";
+    bulgarianHistorical.payments[0].amount = "191.71";
+    delete bulgarianHistorical.payments[0].shopifyPaymentsFeeAmount;
+    bulgarianHistorical.payments[0].externalPaymentId = "historical-bulgarian-payment";
+    await orders.importOrders([bulgarianHistorical], {
+      id: 1,
+      requestId: "test-import-historical-bulgarian-transliteration",
+    });
+    const bulgarianHistoricalId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          bulgarianHistorical.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      bulgarianHistoricalId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0034/26 verificato fra cirillico e alfabeto latino",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0034/26")
+            .replaceAll("122.00", "191.71")
+            .replace("<Nome>Mario</Nome>", "<Nome>VALENTIN</Nome>")
+            .replace("<Cognome>Rossi</Cognome>", "<Cognome>RADEV</Cognome>")
+            .replace(
+              "<Indirizzo>Via Cliente</Indirizzo><NumeroCivico>2</NumeroCivico>",
+              "<Indirizzo>1618 PCHELA</Indirizzo><NumeroCivico>3B</NumeroCivico>",
+            )
+            .replace("<CAP>00100</CAP>", "<CAP>00000</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>SOFIA</Comune>")
+            .replace(
+              "<Provincia>RM</Provincia>\n        <Nazione>IT</Nazione>",
+              "<Nazione>BG</Nazione>",
+            ),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-bulgarian-transliteration" },
+    );
     const historicalWithDifferentTaxIdType = structuredClone(historical);
     historicalWithDifferentTaxIdType.externalOrderId = "shop-order-historical-tax-id-type";
     historicalWithDifferentTaxIdType.externalCustomerId = "shop-customer-historical-tax-id-type";
@@ -4503,7 +4559,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "24",
+      "25",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
