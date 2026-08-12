@@ -111,9 +111,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Salva integrazione Aruba" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Salva modalità e-mail" })).toBeDisabled();
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
-  await expect(
-    page.getByText("016_historical_order_reconciliation.sql", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("017_historical_invoice_links.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -486,7 +484,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   historicalFixture.externalOrderId = "release-candidate-history";
   historicalFixture.displayNumber = "#RC-HISTORY";
   historicalFixture.externalCustomerId = "release-candidate-customer";
-  historicalFixture.customer.taxIdentifiers[0].value = "RSSMRA80A01H501E";
+  historicalFixture.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
   historicalFixture.historical = true;
   await orders.importOrders([historicalFixture], {
     id: actor.id,
@@ -498,7 +496,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByLabel("Esito del confronto").selectOption("ALREADY_INVOICED");
   await page
     .getByLabel("Riferimento verificato o motivazione")
-    .fill("Documento Aruba FPR 0010/26 verificato");
+    .fill("Documento Aruba FPR 9010/26 verificato");
+  await page.getByLabel("XML ufficiale della fattura Aruba, se già presente").setInputFiles({
+    name: "fattura-storica.xml",
+    mimeType: "application/xml",
+    buffer: Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 9010/26")
+        .replace("#1001", "#RC-HISTORY"),
+    ),
+  });
   await page.getByRole("button", { name: "Registra la riconciliazione" }).click();
   await expect(page.getByText("Storico riconciliato")).toBeVisible();
   await expect(page.getByText("Fatturato", { exact: true })).toBeVisible();
@@ -520,6 +527,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
          ORDER BY aruba_batches.created_at DESC LIMIT 1
        ) AS batch_documents ON true
        WHERE documents.kind = 'INVOICE' AND documents.status = 'APPROVED'
+         AND documents.origin = 'HUB'
        ORDER BY documents.approved_at DESC LIMIT 1`,
     )
   ).rows[0]!;

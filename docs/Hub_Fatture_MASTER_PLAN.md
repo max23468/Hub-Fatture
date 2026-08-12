@@ -1736,6 +1736,7 @@ aggiornare il cliente normalizzato, ma non i dati mostrati dalle preparazioni pr
 - `id`
 - `billing_case_id`
 - `kind` (`INVOICE`, `CREDIT_NOTE`)
+- `origin` (`HUB`, `ARUBA_HISTORY`)
 - `status`
 - `document_type`
 - `series`
@@ -1760,6 +1761,8 @@ aggiornare il cliente normalizzato, ma non i dati mostrati dalle preparazioni pr
 `series` e `fiscal_year` esistono perché il numero fiscale è unico soltanto dentro il proprio sezionale e anno: senza queste colonne il vincolo di §15.2 non è esprimibile. Valori e formato sono definiti dall'audit di 11.3; le colonne nascono nella migrazione M4 che introduce la numerazione.
 
 L'assenza di sezionale si rappresenta con un valore canonico esplicito, mai con `NULL`: un `UNIQUE` PostgreSQL considera distinti i `NULL`, quindi una serie nulla lascerebbe passare due documenti con lo stesso anno e numero, cioè esattamente la doppia numerazione che §14.5 deve impedire. Un `CHECK` impone che `series`, `fiscal_year` e `fiscal_number` siano tutti valorizzati dagli stati numerati in poi, e l'unicità è un indice unico sulle tre colonne limitato ai documenti già numerati.
+
+Quando il confronto storico trova una fattura già presente in Aruba, il suo XML ufficiale viene validato, archiviato immutabilmente con origine `ARUBA_HISTORY` e collegato agli ordini riconosciuti. Il documento storico partecipa all'unicità della numerazione e al residuo accreditabile, ma non può essere caricato nuovamente nel pannello Aruba; è la fonte necessaria per collegare eventuali TD04 successive senza ricostruire o indovinare i dati fiscali originari.
 
 #### `document_orders`
 
@@ -3114,6 +3117,8 @@ Dopo l'audit Aruba, usare i dati disponibili:
 - eventuale metadata.
 
 Se il matching non è univoco, richiedere conferma manuale. Non considerare il solo totale una prova.
+
+Per registrare l'esito “già fatturato”, acquisire anche l'XML ufficiale della fattura Aruba, verificarne profilo, numero e riferimento all'ordine, quindi conservarlo come documento storico immutabile. La sola nota testuale non chiude il confronto quando esistono rimborsi post-emissione, perché la TD04 deve riferire la fattura originaria.
 
 ---
 

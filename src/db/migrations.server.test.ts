@@ -27,6 +27,7 @@ const CREDIT_NOTES_EMAIL = "013_credit_notes_email.sql";
 const PRE_ISSUE_REFUNDS = "014_pre_issue_refunds.sql";
 const CANONICAL_ACCOUNT_NAMES = "015_canonical_account_names.sql";
 const HISTORICAL_ORDER_RECONCILIATION = "016_historical_order_reconciliation.sql";
+const HISTORICAL_INVOICE_LINKS = "017_historical_invoice_links.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -47,6 +48,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, PRE_ISSUE_REFUNDS));
     await rm(path.join(firstTwo, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(firstTwo, HISTORICAL_ORDER_RECONCILIATION));
+    await rm(path.join(firstTwo, HISTORICAL_INVOICE_LINKS));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -66,6 +68,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       PRE_ISSUE_REFUNDS,
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
+      HISTORICAL_INVOICE_LINKS,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -93,12 +96,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       PRE_ISSUE_REFUNDS,
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
+      HISTORICAL_INVOICE_LINKS,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "16",
+      "17",
     );
     await cleanClient.end();
 
@@ -187,6 +191,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
     await cp("migrations", beforeCanonicalNames, { recursive: true });
     await rm(path.join(beforeCanonicalNames, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(beforeCanonicalNames, HISTORICAL_ORDER_RECONCILIATION));
+    await rm(path.join(beforeCanonicalNames, HISTORICAL_INVOICE_LINKS));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeCanonicalNames,
@@ -201,6 +206,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
+      HISTORICAL_INVOICE_LINKS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -240,6 +246,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
     await rm(path.join(beforeRefundAccounting, PRE_ISSUE_REFUNDS));
     await rm(path.join(beforeRefundAccounting, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(beforeRefundAccounting, HISTORICAL_ORDER_RECONCILIATION));
+    await rm(path.join(beforeRefundAccounting, HISTORICAL_INVOICE_LINKS));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeRefundAccounting,
@@ -279,6 +286,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       PRE_ISSUE_REFUNDS,
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
+      HISTORICAL_INVOICE_LINKS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -310,6 +318,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, PRE_ISSUE_REFUNDS));
     await rm(path.join(beforeM4, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(beforeM4, HISTORICAL_ORDER_RECONCILIATION));
+    await rm(path.join(beforeM4, HISTORICAL_INVOICE_LINKS));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -440,9 +449,20 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       PRE_ISSUE_REFUNDS,
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
+      HISTORICAL_INVOICE_LINKS,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {
+      await assert.rejects(
+        client.query(
+          `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+           SELECT documents.id, 'INVOICE', orders.id, 1000
+           FROM documents CROSS JOIN orders
+           WHERE documents.status = 'APPROVED'
+             AND orders.external_order_id = 'deploy-window'`,
+        ),
+        /Le righe di un documento approvato sono immutabili/,
+      );
       const deployDraft = await client.query<{ id: string }>(
         `INSERT INTO documents
              (billing_case_id, kind, status, document_type, series, document_date,

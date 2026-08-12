@@ -8,10 +8,16 @@ receipt=$(HUB_FATTURE_ROOT="$root" ./scripts/production-readback.sh)
 state=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
   psql -U hub_fatture -d hub_fatture -At -F '|' -c "
     SELECT
-      (SELECT count(*) FROM documents WHERE status = 'APPROVED'),
+      (SELECT count(*) FROM documents WHERE status = 'APPROVED' AND origin = 'HUB'),
       (SELECT count(*) FROM orders
        WHERE coalesce((normalized_snapshot_json ->> 'historical')::boolean, false)
-         AND historical_reconciliation_outcome IS NULL),
+         AND (historical_reconciliation_outcome IS NULL
+           OR (historical_reconciliation_outcome = 'ALREADY_INVOICED'
+             AND NOT EXISTS (
+               SELECT 1 FROM document_orders
+               JOIN documents ON documents.id = document_orders.document_id
+               WHERE document_orders.order_id = orders.id
+                 AND documents.origin = 'ARUBA_HISTORY')))),
       (SELECT count(*) FROM (VALUES ('SHOPIFY'), ('EBAY')) AS expected(provider)
        WHERE NOT EXISTS (
          SELECT 1 FROM connections

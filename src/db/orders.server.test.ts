@@ -1726,7 +1726,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
 
     const alreadyInvoiced = structuredClone(historical);
     alreadyInvoiced.externalOrderId = "shop-order-historical-invoiced";
-    alreadyInvoiced.customer.taxIdentifiers[0].value = "RSSMRA80A01H501D";
+    alreadyInvoiced.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
     alreadyInvoiced.historical = true;
     alreadyInvoiced.refunds = [
       {
@@ -1748,10 +1748,97 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           alreadyInvoiced.externalOrderId,
         ])
     ).rows[0].id;
+    await database.getPool().query(
+      `INSERT INTO fiscal_profiles (version, status, profile_json)
+       VALUES (1, 'MOCK', $1)`,
+      [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
+    );
+    const historicalInvoiceXml = Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 0010/26")
+        .replace("#1001", "#S-1001"),
+    );
+    await database.getPool().query(
+      `UPDATE orders SET trigger_status = 'INVOICED',
+         historical_reconciliation_outcome = 'ALREADY_INVOICED',
+         historical_reconciliation_reference = 'Documento Aruba da collegare dopo aggiornamento',
+         historical_reconciled_at = now()
+       WHERE id = $1`,
+      [alreadyInvoicedId],
+    );
+    assert.ok(
+      (await orders.listOpenActivities()).rows.some(
+        (activity) => activity.kind === "ORDER" && activity.id === String(alreadyInvoicedId),
+      ),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        alreadyInvoicedId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba non riferito all’ordine",
+          invoiceXml: Buffer.from(
+            historicalInvoiceXml
+              .toString()
+              .replace("#S-1001", "#S-10010")
+              .replace("</FatturaElettronica>", "<!-- Shopify #S-1001 --></FatturaElettronica>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-unrelated-invoice" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       alreadyInvoicedId,
-      { outcome: "ALREADY_INVOICED", reference: "Documento Aruba FPR 0010/26 verificato" },
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0010/26 verificato",
+        invoiceXml: historicalInvoiceXml,
+      },
       { id: 1, canApprove: true, requestId: "test-reconcile-historical-invoiced" },
+    );
+    const historicalDocumentCount = Number(
+      (
+        await database
+          .getPool()
+          .query("SELECT count(*) FROM documents WHERE origin = 'ARUBA_HISTORY'")
+      ).rows[0].count,
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        alreadyInvoicedId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Secondo collegamento non consentito",
+          invoiceXml: Buffer.from(historicalInvoiceXml.toString().replace("0010/26", "0011/26")),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-historical-twice" },
+      ),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    assert.equal(
+      Number(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM documents WHERE origin = 'ARUBA_HISTORY'")
+        ).rows[0].count,
+      ),
+      historicalDocumentCount,
+    );
+    const existingHistoricalRefundId = (
+      await database
+        .getPool()
+        .query<{ id: string }>(
+          "SELECT id FROM refunds WHERE external_refund_id = 'historical-invoiced-existing-refund'",
+        )
+    ).rows[0]!.id;
+    const historicalCreditNoteId = await refunds.processRefund(existingHistoricalRefundId);
+    assert.ok(historicalCreditNoteId);
+    assert.equal(
+      (await refunds.getCreditNoteProjection(historicalCreditNoteId!))?.invoiceNumber,
+      "FPR 0010/26",
     );
     assert.deepEqual(
       (
@@ -1836,7 +1923,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           "SELECT id FROM refunds WHERE external_refund_id = 'historical-invoiced-total-refund'",
         )
     ).rows[0].id;
-    assert.equal(await refunds.processRefund(historicalInvoicedRefundId), null);
+    await assert.rejects(
+      refunds.processRefund(historicalInvoicedRefundId),
+      (error: unknown) => error instanceof AppError && error.code === "CREDIT_NOTE_LIMIT_EXCEEDED",
+    );
     assert.equal(
       (
         await database.getPool().query(
@@ -1845,7 +1935,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           [historicalInvoicedRefundId],
         )
       ).rows[0].count,
-      1,
+      0,
     );
     await assert.rejects(
       orders.forcePrepareOrder(alreadyInvoicedId, {
@@ -2485,7 +2575,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     ).rows[0]!;
     await database.getPool().query(
       `INSERT INTO fiscal_profiles (version, status, profile_json)
-       VALUES (1, 'MOCK', $1)`,
+       VALUES (1, 'MOCK', $1) ON CONFLICT (version) DO NOTHING`,
       [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
     );
     const refundDocumentId = (

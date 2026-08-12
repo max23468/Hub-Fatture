@@ -776,6 +776,7 @@ function integer(value: unknown): number {
 
 interface StoredDocumentRow {
   id: string;
+  origin: "HUB" | "ARUBA_HISTORY";
   billing_case_id: string;
   series: string;
   fiscal_year: number;
@@ -822,6 +823,7 @@ async function verifiedFile(
 }
 
 function regenerateStoredXml(row: StoredDocumentRow): string {
+  if (row.origin === "ARUBA_HISTORY") throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
   const snapshot = row.immutable_snapshot_json as Record<string, unknown>;
   const input = documentInputSchema.parse(snapshot);
   const profile = fiscalProfileSchema.parse(row.fiscal_profile_snapshot_json);
@@ -850,7 +852,7 @@ async function materializeStoredXml(row: StoredDocumentRow, approvedXml?: string
     await unlink(stagePath).catch((error: unknown) => {
       if (!errno(error, "ENOENT")) throw error;
     });
-    return;
+    return false;
   }
   const xml = approvedXml ?? regenerateStoredXml(row);
   if (!(await verifiedFile(stagePath, row.sha256, row.size_bytes))) {
@@ -871,6 +873,10 @@ async function materializeStoredXml(row: StoredDocumentRow, approvedXml?: string
   }
   try {
     await link(stagePath, absolutePath);
+    await unlink(stagePath).catch((error: unknown) => {
+      if (!errno(error, "ENOENT")) throw error;
+    });
+    return true;
   } catch (error) {
     if (!errno(error, "EEXIST")) throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
     if (!(await verifiedFile(absolutePath, row.sha256, row.size_bytes))) {
@@ -880,11 +886,12 @@ async function materializeStoredXml(row: StoredDocumentRow, approvedXml?: string
   await unlink(stagePath).catch((error: unknown) => {
     if (!errno(error, "ENOENT")) throw error;
   });
+  return false;
 }
 
 async function loadStoredDocuments(where = "", value?: string): Promise<StoredDocumentRow[]> {
   const result = await getPool().query<StoredDocumentRow>(
-    `SELECT documents.id, documents.billing_case_id, documents.series,
+    `SELECT documents.id, documents.origin, documents.billing_case_id, documents.series,
             documents.fiscal_year, documents.fiscal_number,
             documents.immutable_snapshot_json, documents.fiscal_profile_snapshot_json,
             storage_objects.relative_path, storage_objects.sha256, storage_objects.size_bytes
@@ -904,6 +911,39 @@ export async function materializeDocumentStorage(documentId: string, xml?: strin
   const row = (await loadStoredDocuments("AND documents.id = $1", documentId))[0];
   if (!row) throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
   await materializeStoredXml(row, xml);
+}
+
+export async function archiveImportedInvoiceXml(relativePath: string, xml: string) {
+  const sha256 = createHash("sha256").update(xml).digest("hex");
+  const sizeBytes = Buffer.byteLength(xml);
+  const created = await materializeStoredXml(
+    {
+      id: `history-${sha256}`,
+      origin: "ARUBA_HISTORY",
+      billing_case_id: "0",
+      series: "FPR",
+      fiscal_year: 0,
+      fiscal_number: 0,
+      immutable_snapshot_json: null,
+      fiscal_profile_snapshot_json: null,
+      relative_path: relativePath,
+      sha256,
+      size_bytes: sizeBytes,
+    },
+    xml,
+  );
+  return {
+    sha256,
+    sizeBytes,
+    async cleanupIfUnreferenced() {
+      if (!created) return;
+      const referenced = await getPool().query(
+        "SELECT 1 FROM storage_objects WHERE relative_path = $1 LIMIT 1",
+        [relativePath],
+      );
+      if (!referenced.rowCount) await unlink(storagePath(relativePath).absolutePath);
+    },
+  };
 }
 
 export function startDocumentStorageReconciliation(): void {
@@ -1138,6 +1178,7 @@ export async function approveInvoice(
         xml,
         storage: {
           id: draft.id,
+          origin: "HUB",
           billing_case_id: caseId,
           series,
           fiscal_year: year,
@@ -1251,6 +1292,7 @@ export async function listDocuments() {
     id: string;
     billing_case_id: string;
     kind: string;
+    origin: "HUB" | "ARUBA_HISTORY";
     status: string;
     series: string;
     fiscal_year: number | null;
@@ -1261,12 +1303,16 @@ export async function listDocuments() {
     xml_sha256: string | null;
     aruba_batch_id: string | null;
     aruba_status: string | null;
+    historical_order_id: string | null;
   }>(
-    `SELECT documents.id, documents.billing_case_id, documents.kind, documents.status,
+    `SELECT documents.id, documents.billing_case_id, documents.kind, documents.origin,
+            documents.status,
             documents.series, documents.fiscal_year, documents.fiscal_number,
             documents.document_date::text, documents.total_amount, documents.xml_sha256,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
-            aruba_current.id AS aruba_batch_id, aruba_current.status AS aruba_status
+            aruba_current.id AS aruba_batch_id, aruba_current.status AS aruba_status,
+            (SELECT document_orders.order_id::text FROM document_orders
+             WHERE document_orders.document_id = documents.id LIMIT 1) AS historical_order_id
      FROM documents JOIN billing_cases ON billing_cases.id = documents.billing_case_id
      LEFT JOIN LATERAL (
        SELECT aruba_batches.id, aruba_batches.status

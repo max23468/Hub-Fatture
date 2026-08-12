@@ -14,8 +14,9 @@ import {
   taxIdentifierLabels,
 } from "../copy.it";
 import { address, date, dateTime, euros } from "../format";
+import { ARUBA_UPLOAD_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
-import { readForm } from "../../src/http.server.ts";
+import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import {
   forcePrepareOrder,
   getOrder,
@@ -37,12 +38,24 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export async function action({ request, params }: Route.ActionArgs) {
   return actionResult(async () => {
     const user = await requireSessionUser(request);
-    const form = await readForm(request);
-    assertCsrf(user, form.get("csrf") ?? "");
+    const multipart = request.headers
+      .get("content-type")
+      ?.toLowerCase()
+      .startsWith("multipart/form-data;");
+    const form = multipart
+      ? await readMultipartForm(request, { maxBytes: ARUBA_UPLOAD_MAX_BYTES + 64 * 1024 })
+      : await readForm(request);
+    assertCsrf(user, String(form.get("csrf") ?? ""));
     if (form.get("intent") === "reconcile-history") {
+      const file = form.get("invoiceXml");
       const result = await reconcileHistoricalOrder(
         params.orderId,
-        { outcome: form.get("outcome"), reference: form.get("reference") },
+        {
+          outcome: form.get("outcome"),
+          reference: form.get("reference"),
+          invoiceXml:
+            file instanceof File && file.size ? Buffer.from(await file.arrayBuffer()) : undefined,
+        },
         { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
       );
       if (!result) throw new Response("Ordine non trovato", { status: 404 });
@@ -70,30 +83,54 @@ function OrderStatusActions({
   canApprove: boolean;
   csrfToken: string;
 }) {
+  const needsInvoiceAttachment =
+    order.historical_reconciliation_outcome === "ALREADY_INVOICED" && !order.historical_invoice_id;
   return (
     <>
-      {!order.billing_case_id && order.trigger_status === "LEGACY_BILLING_REVIEW" ? (
+      {!order.billing_case_id &&
+      (order.trigger_status === "LEGACY_BILLING_REVIEW" || needsInvoiceAttachment) ? (
         canApprove ? (
-          <Form method="post" className="section-gap">
+          <Form method="post" encType="multipart/form-data" className="section-gap">
             <input type="hidden" name="csrf" value={csrfToken} />
             <input type="hidden" name="intent" value="reconcile-history" />
             <div className="notice">
               <strong>{copy.orderDetail.historyTitle}</strong>
               <p>{copy.orderDetail.historyHelp}</p>
             </div>
-            <label>
-              {copy.orderDetail.historyOutcome}
-              <select name="outcome" required defaultValue="">
-                <option value="" disabled>
-                  Seleziona un esito
-                </option>
-                <option value="ALREADY_INVOICED">{copy.orderDetail.alreadyInvoiced}</option>
-                <option value="NOT_INVOICED">{copy.orderDetail.notInvoiced}</option>
-              </select>
-            </label>
+            {needsInvoiceAttachment ? (
+              <input type="hidden" name="outcome" value="ALREADY_INVOICED" />
+            ) : (
+              <label>
+                {copy.orderDetail.historyOutcome}
+                <select name="outcome" required defaultValue="">
+                  <option value="" disabled>
+                    Seleziona un esito
+                  </option>
+                  <option value="ALREADY_INVOICED">{copy.orderDetail.alreadyInvoiced}</option>
+                  <option value="NOT_INVOICED">{copy.orderDetail.notInvoiced}</option>
+                </select>
+              </label>
+            )}
             <label>
               {copy.orderDetail.historyReference}
-              <textarea name="reference" required minLength={10} maxLength={500} />
+              <textarea
+                name="reference"
+                required
+                minLength={10}
+                maxLength={500}
+                defaultValue={
+                  needsInvoiceAttachment ? (order.historical_reconciliation_reference ?? "") : ""
+                }
+              />
+            </label>
+            <label>
+              {copy.orderDetail.historyInvoiceXml}
+              <input
+                name="invoiceXml"
+                type="file"
+                accept="application/xml,text/xml,.xml"
+                required={needsInvoiceAttachment}
+              />
             </label>
             <button className="button" type="submit">
               {copy.orderDetail.reconcileHistory}

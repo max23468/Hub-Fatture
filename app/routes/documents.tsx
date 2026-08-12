@@ -228,7 +228,9 @@ export default function Documents() {
                       to={
                         document.kind === "CREDIT_NOTE"
                           ? `/documenti/${document.id}/nota`
-                          : `/ordini/preparazione/${document.billing_case_id}`
+                          : document.origin === "ARUBA_HISTORY"
+                            ? `/ordini/${document.historical_order_id}`
+                            : `/ordini/preparazione/${document.billing_case_id}`
                       }
                     >
                       {document.fiscal_label ?? copy.documents.draft}
@@ -243,10 +245,12 @@ export default function Documents() {
                       : copy.documents.draft}
                   </td>
                   <td data-label={copy.documents.arubaStatus}>
-                    {document.aruba_status
-                      ? (copy.documents.arubaBatchStatus[document.aruba_status] ??
-                        copy.common.unavailable)
-                      : copy.documents.notPrepared}
+                    {document.origin === "ARUBA_HISTORY"
+                      ? copy.documents.arubaHistory
+                      : document.aruba_status
+                        ? (copy.documents.arubaBatchStatus[document.aruba_status] ??
+                          copy.common.unavailable)
+                        : copy.documents.notPrepared}
                   </td>
                   <td data-label={copy.documents.file}>
                     {document.xml_sha256 ? (

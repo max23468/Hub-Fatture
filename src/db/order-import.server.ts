@@ -1394,9 +1394,10 @@ export async function importOrders(
     throw new AppError("CONFLICT_REVISION", 409);
   }
   return withTransaction(async (client) => {
-    if (job) await assertJobLease(client, job);
     if (history) {
       await lockHistoryImportConnection(client, history.provider, history.accountReference, job);
+    } else if (job) {
+      await assertJobLease(client, job);
     }
     await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
     await serializeOrderMutations(client);

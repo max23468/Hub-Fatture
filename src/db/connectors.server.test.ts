@@ -806,6 +806,58 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ["gid://shopify/Order/1002"],
     );
 
+    await getPool().query(
+      `UPDATE connections SET account_reference = 'sandbox-deadlock-old'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX';
+       DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import';
+       DELETE FROM jobs WHERE type = 'ebay_preview_history'`,
+    );
+    await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
+    const deadlockJob = await connectors.claimJob("worker-deadlock-regression");
+    const [saveClient, importClient] = await Promise.all([
+      getPool().connect(),
+      getPool().connect(),
+    ]);
+    try {
+      await saveClient.query("BEGIN");
+      await importClient.query("BEGIN");
+      await saveClient.query("SELECT pg_advisory_xact_lock(hashtext('connector:EBAY'))");
+      await saveClient.query(
+        `SELECT id FROM connections
+         WHERE provider = 'EBAY' AND environment = 'SANDBOX' FOR UPDATE`,
+      );
+      const importing = connectors.lockHistoryImportConnection(
+        importClient,
+        "EBAY",
+        "sandbox-deadlock-old",
+        deadlockJob!,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await saveClient.query(
+        `UPDATE connections SET account_reference = 'sandbox-deadlock-new'
+         WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+      );
+      await Promise.race([
+        saveClient.query(
+          `UPDATE jobs SET status = 'COMPLETED', completed_at = now()
+           WHERE id = $1`,
+          [deadlockJob!.id],
+        ),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Ordine dei lock eBay incoerente")), 500),
+        ),
+      ]);
+      await saveClient.query("COMMIT");
+      await assert.rejects(
+        importing,
+        (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+      );
+      await importClient.query("ROLLBACK");
+    } finally {
+      saveClient.release();
+      importClient.release();
+    }
+
     const redactBody = Buffer.from(
       JSON.stringify({
         shop_domain: "shop.example.invalid",

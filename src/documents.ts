@@ -3,7 +3,12 @@ import { createHash } from "node:crypto";
 import { create } from "xmlbuilder2";
 import { z } from "zod";
 
-import { containsNullByte, POSTGRES_INTEGER_MAX, postgresDateSchema } from "./orders.ts";
+import {
+  containsNullByte,
+  decimalToCents,
+  POSTGRES_INTEGER_MAX,
+  postgresDateSchema,
+} from "./orders.ts";
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const country = z.string().trim().toUpperCase().length(2);
@@ -207,10 +212,99 @@ function acceptedFiscalDocument(xml: string) {
     header,
     body,
     type,
+    documentDate,
+    documentNumber: xmlValue(general.Numero),
+    totalAmount: decimalToCents(xmlValue(general.ImportoTotaleDocumento)),
     year,
     number: Number(documentNumber[1]),
     transmitter: `${xmlValue(transmitter.IdPaese)}:${xmlValue(transmitter.IdCodice)}`,
     seller: `${xmlValue(supplierVat.IdPaese)}:${xmlValue(supplierVat.IdCodice)}`,
+  };
+}
+
+function xmlArray(input: unknown): Record<string, unknown>[] {
+  return (Array.isArray(input) ? input : [input]).map(xmlRecord);
+}
+
+/** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
+export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
+  const source = acceptedFiscalDocument(xml);
+  if (source.type !== "TD01") throw new Error("Il documento storico non è una fattura TD01");
+  const general = xmlRecord(xmlRecord(source.body.DatiGenerali).DatiGeneraliDocumento);
+  const transmission = xmlRecord(source.header.DatiTrasmissione);
+  const customer = xmlRecord(source.header.CessionarioCommittente);
+  const customerData = xmlRecord(customer.DatiAnagrafici);
+  const name = xmlRecord(customerData.Anagrafica);
+  const customerAddress = xmlRecord(customer.Sede);
+  const vat = customerData.IdFiscaleIVA ? xmlRecord(customerData.IdFiscaleIVA) : null;
+  const countryCode = xmlValue(customerAddress.Nazione);
+  const businessName = xmlOptional(name.Denominazione);
+  const recipient = {
+    kind:
+      countryCode !== "IT"
+        ? ("EU" as const)
+        : businessName
+          ? ("BUSINESS_IT" as const)
+          : ("PRIVATE_IT" as const),
+    displayName: countryCode !== "IT" ? businessName : undefined,
+    firstName: xmlOptional(name.Nome),
+    lastName: xmlOptional(name.Cognome),
+    businessName,
+    certifiedEmail: xmlOptional(transmission.PECDestinatario),
+    recipientCode: xmlOptional(transmission.CodiceDestinatario),
+    taxIdentifiers: [
+      ...(vat
+        ? [
+            {
+              type: "PARTITA_IVA" as const,
+              value: xmlValue(vat.IdCodice),
+              countryCode: xmlValue(vat.IdPaese),
+            },
+          ]
+        : []),
+      ...(customerData.CodiceFiscale
+        ? [{ type: "CODICE_FISCALE" as const, value: xmlValue(customerData.CodiceFiscale) }]
+        : []),
+    ],
+    address: {
+      line1: [xmlValue(customerAddress.Indirizzo), xmlOptional(customerAddress.NumeroCivico)]
+        .filter(Boolean)
+        .join(" "),
+      postalCode: xmlValue(customerAddress.CAP),
+      city: xmlValue(customerAddress.Comune),
+      province: xmlOptional(customerAddress.Provincia),
+      countryCode,
+    },
+  };
+  const goods = xmlRecord(source.body.DatiBeniServizi);
+  const lines = xmlArray(goods.DettaglioLinee).map((line) => ({
+    description: xmlValue(line.Descrizione),
+    quantity: 1,
+    unitAmount: decimalToCents(xmlValue(line.PrezzoTotale)),
+  }));
+  const payment = xmlRecord(source.body.DatiPagamento);
+  const paymentDetail = xmlRecord(payment.DettaglioPagamento);
+  const input = documentInputSchema.parse({
+    kind: "INVOICE",
+    documentDate: source.documentDate,
+    recipient,
+    lines,
+    paymentStatus: "PAID",
+    paymentMethod: xmlValue(paymentDetail.ModalitaPagamento),
+  });
+  if (lines.reduce((sum, line) => sum + line.unitAmount, 0) !== source.totalAmount) {
+    throw new Error("Il totale della fattura storica non coincide con le righe");
+  }
+  return {
+    ...source,
+    input,
+    profile: fiscalProfileFromAcceptedInvoiceXml(xml, importedAt),
+    references: [
+      ...(general.Causale === undefined
+        ? []
+        : (Array.isArray(general.Causale) ? general.Causale : [general.Causale]).map(xmlValue)),
+      ...lines.map((line) => line.description),
+    ],
   };
 }
 

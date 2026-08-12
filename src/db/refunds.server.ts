@@ -341,7 +341,9 @@ export async function processRefund(refundId: string, job?: ClaimedJob) {
     }
     if (source.status !== "COMPLETED" || !source.invoice_id) return null;
     const issued = await client.query(
-      `SELECT 1 FROM aruba_submissions
+      `SELECT 1 FROM documents WHERE id = $1 AND origin = 'ARUBA_HISTORY'
+       UNION ALL
+       SELECT 1 FROM aruba_submissions
        WHERE document_id = $1 AND status IN ('DELIVERED', 'NOT_DELIVERED') LIMIT 1`,
       [source.invoice_id],
     );

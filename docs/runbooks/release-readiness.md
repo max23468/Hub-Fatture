@@ -9,15 +9,15 @@ Questo è il record candidato corrente. Un gate è chiuso soltanto quando la col
 | Versione applicativa | `0.1.0`; nessun bump o tag di release autorizzato                                       |
 | Commit candidato     | HEAD della PR/di `main`; SHA e check esatti si rileggono dalla fonte autorevole GitHub  |
 | Digest immagine      | aperto: immagine candidata non costruita né attestata                                   |
-| Schema candidato     | `016_historical_order_reconciliation.sql` verificato localmente                         |
+| Schema candidato     | `017_historical_invoice_links.sql` verificato localmente                                |
 | Kill switch          | configurazione Production fissata a `false`; readback sul candidato non ancora eseguito |
 
 ## Gate
 
 | Gate                                                                          | Esito osservato                                                    | Riferimento                                                                                |
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| Audit trasversale del codice                                                  | Chiuso localmente; RC-01-RC-28 chiusi, nessun finding P0-P3 aperto | [Audit del release candidate](../audits/release-candidate-review.md), gate canonico locale |
-| Migrazioni pulite e upgrade                                                   | Chiuso localmente                                                  | `src/db/migrations.server.test.ts`, schema `016_historical_order_reconciliation.sql`       |
+| Audit trasversale del codice                                                  | Chiuso localmente; RC-01-RC-33 chiusi, nessun finding P0-P3 aperto | [Audit del release candidate](../audits/release-candidate-review.md), gate canonico locale |
+| Migrazioni pulite e upgrade                                                   | Chiuso localmente                                                  | `src/db/migrations.server.test.ts`, schema `017_historical_invoice_links.sql`              |
 | Import storico non approvabile prima del confronto                            | Chiuso localmente                                                  | `src/db/orders.server.test.ts`, percorso browser in `tests/e2e/readiness.spec.ts`          |
 | Import iniziale e attivazione prudenziale delle sincronizzazioni              | Chiuso localmente                                                  | `src/orders.test.ts`, `src/db/connectors.server.test.ts`                                   |
 | Flusso sintetico completo Chromium/WebKit                                     | Chiuso localmente                                                  | `npm run test:e2e:release-candidate`                                                       |

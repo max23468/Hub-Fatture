@@ -247,7 +247,7 @@ export async function lockHistoryImportConnection(
   accountReference: string,
   job?: ClaimedJob,
 ) {
-  if (job) await assertJobLease(client, job);
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:' || $1))", [provider]);
   const connection = await client.query(
     `SELECT id FROM connections
      WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'
@@ -260,6 +260,7 @@ export async function lockHistoryImportConnection(
     [provider, activeEnvironment(provider), accountReference],
   );
   if (!connection.rowCount) throw new AppError("CONFLICT_REVISION", 409);
+  if (job) await assertJobLease(client, job);
 }
 
 export async function completeHistoryImportInTransaction(

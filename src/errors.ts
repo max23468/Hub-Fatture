@@ -12,6 +12,10 @@ export const errorCatalog = {
   ORDER_INVALID_INPUT: "I dati dell’ordine non sono validi.",
   ORDER_HISTORY_RECONCILIATION_FORBIDDEN:
     "Solo il titolare può registrare la riconciliazione dello storico.",
+  ORDER_HISTORY_INVOICE_REQUIRED:
+    "Allega l’XML ufficiale della fattura Aruba prima di registrare questo esito.",
+  ORDER_HISTORY_INVOICE_INVALID:
+    "L’XML non identifica una fattura Aruba compatibile con il profilo fiscale attivo.",
   ORDER_NOT_PREPARABLE:
     "Un ordine annullato o già rimborsato non può essere preparato per la fatturazione.",
   BILLING_CASE_EMPTY: "Una preparazione senza ordini resta archiviata e non può essere riattivata.",
