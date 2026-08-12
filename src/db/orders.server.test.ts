@@ -730,6 +730,11 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       Number((await orders.dashboardSummary()).pending_payments),
       pendingPaymentsBefore + 1,
     );
+    assert.ok(
+      (await orders.listOrders({ status: "ACTIVE", paymentStatus: "PENDING" })).rows.some(
+        (order) => order.display_number === pendingPayment.displayNumber,
+      ),
+    );
     const incompleteCustomer = structuredClone(fixture[0]);
     incompleteCustomer.externalOrderId = "shop-order-incomplete-customer";
     incompleteCustomer.externalCustomerId = "shop-customer-incomplete";

@@ -155,7 +155,16 @@ export async function listOrders(filters: {
             ))
             OR orders.trigger_status = $3)
        AND ($4::date IS NULL OR orders.local_order_date = $4)
-       AND ($5::text IS NULL OR orders.payment_status = $5)
+       AND ($5::text IS NULL
+            OR ($5 = 'PENDING' AND (
+              orders.payment_status = 'PENDING'
+              OR EXISTS (
+                SELECT 1 FROM payments
+                WHERE payments.order_id = orders.id
+                  AND payments.status = 'PENDING'
+              )
+            ))
+            OR ($5 <> 'PENDING' AND orders.payment_status = $5))
      ORDER BY orders.local_order_date DESC, orders.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $6`,
     values,
@@ -330,7 +339,7 @@ export async function dashboardSummary() {
 }
 
 /** Vista `Da gestire` di 13.7: cosa richiede un intervento e dove si interviene. */
-export async function listOpenActivities(page?: unknown) {
+export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
   const result = await getPool().query<{
     kind: string;
     id: string;
@@ -338,8 +347,9 @@ export async function listOpenActivities(page?: unknown) {
     detail: string;
     href: string;
     created_at: string;
+    total_count: number;
   }>(
-    `SELECT * FROM (
+    `SELECT activities.*, count(*) OVER()::int AS total_count FROM (
        SELECT 'BILLING_CASE' AS kind, billing_cases.id::text AS id,
               'Preparazione fattura ' || billing_cases.public_number AS label,
               coalesce(billing_cases.customer_snapshot_json ->> 'displayName',
@@ -397,12 +407,29 @@ export async function listOpenActivities(page?: unknown) {
        JOIN orders ON orders.id = refunds.order_id
        WHERE jobs.type = 'process_refund' AND jobs.status = 'FAILED'
          AND refunds.credit_document_id IS NULL
+       UNION ALL
+       SELECT 'CREDIT_NOTE', documents.id::text,
+              'Nota di credito da approvare',
+              coalesce(billing_cases.customer_snapshot_json ->> 'displayName',
+                       'Cliente da verificare'),
+              '/documenti/' || documents.id || '/nota',
+              documents.created_at
+       FROM documents
+       JOIN billing_cases ON billing_cases.id = documents.billing_case_id
+       WHERE documents.kind = 'CREDIT_NOTE' AND documents.status = 'DRAFT'
      ) AS activities
+     WHERE $2::text IS NULL OR activities.kind = $2
      ORDER BY created_at DESC, id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $1`,
-    [pageOffset(page)],
+    [pageOffset(page), kind ?? null],
   );
-  return paginate(result.rows);
+  const total = result.rows[0]?.total_count ?? 0;
+  const pageResult = paginate(result.rows);
+  return {
+    rows: pageResult.rows.map(({ total_count: _, ...row }) => row),
+    hasNext: pageResult.hasNext,
+    total,
+  };
 }
 
 /** Vista `Cronologia` di 13.7: registro ricercabile e non modificabile. */

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+
+- Le code operative della Dashboard aprono viste che riflettono gli stessi criteri dei rispettivi conteggi.
+- I pagamenti in attesa includono anche gli ordini con un movimento pendente e stato sintetico già aggiornato; le note di credito in bozza sono raggiungibili dalla coda Attività filtrata.
+
 ## 0.2.4
 
 - Lo stato operativo non segnala più aggiornamenti Aruba da completare quando il primo readback non è ancora necessario; l’avviso resta vincolato alla presenza di un batch aperto.
