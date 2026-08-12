@@ -173,16 +173,6 @@ function sameTokenSet(left: unknown, right: unknown) {
   );
 }
 
-function isPersonalNameSubset(candidateName: unknown, recipientName: unknown) {
-  const candidateTokens = identityTokens(candidateName);
-  const recipientTokens = identityTokens(recipientName);
-  return (
-    recipientTokens.size >= 2 &&
-    candidateTokens.size >= recipientTokens.size &&
-    [...recipientTokens].every((token) => candidateTokens.has(token))
-  );
-}
-
 function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
   const normalizedLeft = normalizedIdentityPart(left);
   return Boolean(normalizedLeft && normalizedLeft === normalizedIdentityPart(right));
@@ -223,6 +213,7 @@ const streetKindTokens = new Set([
 ]);
 
 const streetConnectorTokens = new Set([
+  "d",
   "de",
   "des",
   "du",
@@ -542,8 +533,7 @@ function matchesRecipientWithoutTaxId(
     (customerName) =>
       (business
         ? sameNonEmptyIdentityPart(customerName, recipientName)
-        : sameTokenSet(customerName, recipientName) ||
-          (customerCountry !== "it" && isPersonalNameSubset(customerName, recipientName))) &&
+        : sameTokenSet(customerName, recipientName)) &&
       hasSupportingAddressEvidence(billingAddress, recipient.address),
   );
 }

@@ -3222,7 +3222,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .toString()
         .replace("FPR 0020/26", "FPR 0026/26")
         .replaceAll("75.00", "80.00")
-        .replace("<Nome>Mario</Nome>", "<Nome>Marie</Nome>")
+        .replace("<Nome>Mario</Nome>", "<Nome>Claire Marie</Nome>")
         .replace("<Cognome>Rossi</Cognome>", "<Cognome>Dupont</Cognome>")
         .replace(
           "<Indirizzo>Via Cliente 2</Indirizzo>",
@@ -3244,6 +3244,21 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           invoiceXml: euPersonalInvoice,
         },
         { id: 1, canApprove: true, requestId: "test-reject-duplicate-eu-personal" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euPersonalEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Il nome personale incompleto non identifica lo stesso destinatario",
+          invoiceXml: Buffer.from(
+            euPersonalInvoice.toString().replace("<Nome>Claire Marie</Nome>", "<Nome>Marie</Nome>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-partial-eu-personal-name" },
       ),
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
@@ -3310,15 +3325,31 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euPersonalEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "La contrazione apostrofata non identifica la strada",
+          invoiceXml: Buffer.from(
+            euPersonalInvoice
+              .toString()
+              .replace("Avenue Martin des Fleurs du Lac", "Avenue d'Alsace"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-french-d-connector" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       euPersonalEbayId,
       {
         outcome: "ALREADY_INVOICED",
-        reference:
-          "Documento Aruba UE univoco con nome personale contenuto e due token della strada",
+        reference: "Documento Aruba UE univoco con nome personale completo e strada coerente",
         invoiceXml: euPersonalInvoice,
       },
-      { id: 1, canApprove: true, requestId: "test-reconcile-eu-personal-subset" },
+      { id: 1, canApprove: true, requestId: "test-reconcile-eu-personal-complete" },
     );
     const euAddressWithUnitEbay = structuredClone(euPersonalEbay);
     euAddressWithUnitEbay.externalOrderId = "ebay-order-historical-eu-address-with-unit";
@@ -3355,7 +3386,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .toString()
         .replace("FPR 0026/26", "FPR 0029/26")
         .replaceAll("80.00", "83.00")
-        .replace("<Nome>Marie</Nome>", "<Nome>Ana</Nome>")
+        .replace("<Nome>Claire Marie</Nome>", "<Nome>Ana Maria</Nome>")
         .replace("<Cognome>Dupont</Cognome>", "<Cognome>Popescu</Cognome>")
         .replace("Avenue Martin des Fleurs du Lac", "Strada Jardin Bleu")
         .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>14</NumeroCivico>")
@@ -3449,7 +3480,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
               .replace("FPR 0026/26", "FPR 0030/26")
               .replaceAll("80.00", "81.00")
               .replace(
-                "<Nome>Marie</Nome>\n          <Cognome>Dupont</Cognome>",
+                "<Nome>Claire Marie</Nome>\n          <Cognome>Dupont</Cognome>",
                 "<Denominazione>Atelier Bleu SARL</Denominazione>",
               )
               .replace("Avenue Martin des Fleurs du Lac", "Platz der Rosen")
@@ -3476,7 +3507,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
               .replace("FPR 0026/26", "FPR 0027/26")
               .replaceAll("80.00", "81.00")
               .replace(
-                "<Nome>Marie</Nome>\n          <Cognome>Dupont</Cognome>",
+                "<Nome>Claire Marie</Nome>\n          <Cognome>Dupont</Cognome>",
                 "<Denominazione>Atelier Bleu</Denominazione>",
               )
               .replace("Avenue Martin des Fleurs du Lac", "Straße der Rosen")
