@@ -342,7 +342,7 @@ export async function dashboardSummary() {
   return result.rows[0]!;
 }
 
-/** Vista `Da gestire` di 13.7: cosa richiede un intervento e dove si interviene. */
+/** Vista `Da gestire` di 13.8: cosa richiede un intervento e dove si interviene. */
 export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
   const result = await getPool().query<{
     kind: string;
@@ -436,7 +436,7 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
   };
 }
 
-/** Vista `Cronologia` di 13.7: registro ricercabile e non modificabile. */
+/** Vista `Cronologia` di 13.8: registro ricercabile e non modificabile. */
 export async function listAuditHistory(filters: {
   query?: string;
   action?: string;

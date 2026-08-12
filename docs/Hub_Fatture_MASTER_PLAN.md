@@ -1188,7 +1188,7 @@ Il menu rapido del profilo mostra identità, capacità operative, tema e uscita.
 
 Su desktop la sidebar fissa può essere compressa dall'utente mantenendo visibili marchio, icone e destinazione attiva. I nomi restano accessibili e disponibili su hover o focus, la preferenza viene conservata nel browser e non esiste espansione automatica al passaggio del mouse. Al primo accesso parte aperta da 1024 px e compressa fra 769 e 1023 px; la scelta esplicita dell'utente prevale sul default responsive.
 
-Su mobile la navigazione principale resta una barra inferiore a cinque destinazioni: le icone sono sempre visibili e accessibili, mentre soltanto la destinazione attiva espone anche l'etichetta su una riga. Il cambio pagina sposta etichetta ed evidenza sulla nuova destinazione senza scorrimento orizzontale.
+Su mobile la navigazione principale resta una barra inferiore a cinque destinazioni: Dashboard, Ordini, Documenti, Clienti e `Altro`. `Altro` contiene Attività e Impostazioni. Le icone sono sempre visibili e accessibili, mentre soltanto la destinazione attiva espone anche l’etichetta su una riga. Il cambio pagina sposta etichetta ed evidenza sulla nuova destinazione senza scorrimento orizzontale.
 
 ### 13.2 Dashboard
 
@@ -1216,7 +1216,19 @@ Nessuna e-mail operativa nella 1.x: gli avvisi critici devono essere evidenti qu
 - Forzatura manuale della generazione bozza.
 - Archivio annullati.
 
-### 13.4 Preparazione fattura
+### 13.4 Clienti
+
+La sezione espone l’anagrafica corrente riconciliata dai canali senza sostituire gli snapshot storici di ordini, preparazioni o documenti.
+
+- Viste `Tutti` e `Da verificare`.
+- Ricerca per nome, e-mail, telefono, codice fiscale, partita IVA o riferimento cliente del canale.
+- Elenco con tipo cliente, dato fiscale, canali collegati, ultimo ordine e conteggi operativi.
+- Dettaglio con anagrafica corrente, origine Shopify/eBay, ordini, preparazioni fattura e documenti collegati.
+- Le correzioni fiscali continuano ad avvenire nella Preparazione fattura: valgono per il relativo documento, restano auditate e non riscrivono ordini già importati o dati del provider.
+
+Una stessa identità fiscale riconciliata fra Shopify ed eBay compare una sola volta; un’identità ambigua resta separata e visibile in `Da verificare`. La pagina non introduce modifica massiva, propagazione verso i provider o cancellazione dei dati.
+
+### 13.5 Preparazione fattura
 
 È la pagina di lavoro aperta dalle viste Da fatturare e Da verificare di Ordini. Non è una destinazione della navigazione principale e il nome tecnico `billing_case` non compare nel frontend.
 
@@ -1227,7 +1239,7 @@ Nessuna e-mail operativa nella 1.x: gli avvisi critici devono essere evidenti qu
 - `Non trasmettere` con motivo.
 - Anteprima fattura.
 
-### 13.5 Approvazione
+### 13.6 Approvazione
 
 Mostrare in una sola pagina:
 
@@ -1259,7 +1271,7 @@ Azioni:
 - approva, numera e prepara per Aruba;
 - non trasmettere.
 
-### 13.6 Documenti
+### 13.7 Documenti
 
 La sezione riunisce fatture, note di credito e documenti nei diversi stati di trasmissione. Le viste interne evitano tre archivi separati e mantengono filtri coerenti per tipo, stato, cliente e data.
 
@@ -1272,11 +1284,11 @@ Per le note di credito mostrare:
 - Anomalie di riconciliazione.
 - Anteprima e approvazione separata.
 
-### 13.7 Attività
+### 13.8 Attività
 
 La vista `Da gestire` riunisce errori, verifiche richieste, scarti, richieste privacy Shopify e retry dei job falliti con la relativa azione. Questi elementi non compaiono in `Impostazioni`, che mostra soltanto stato e collegamento al dettaglio operativo. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
 
-### 13.8 Impostazioni
+### 13.9 Impostazioni
 
 - Pagina unica con navigazione interna; nessuna destinazione di primo livello aggiuntiva.
 - Profilo e sicurezza: stesso riepilogo del menu rapido, tema, cambio password, sessioni attive, revoca delle altre sessioni e uscita.
@@ -1305,7 +1317,7 @@ Per Aruba non mostrare `riconnetti` o `verifica credenziali`: HF non possiede cr
 
 Non mostrare mai segreti.
 
-### 13.9 Fondazione UI, identità leggera e contenuti
+### 13.10 Fondazione UI, identità leggera e contenuti
 
 Hub Fatture è uno strumento operativo privato: non serve un sistema di brand esteso. Prima della UI definitiva serve però una Brand Foundation leggera e vincolante, composta soltanto da:
 
@@ -2831,6 +2843,7 @@ Output:
 - trigger globale;
 - raggruppamento giornaliero;
 - UI Ordini con viste operative e dettaglio Preparazione fattura;
+- UI Clienti con ricerca, vista Da verificare e dettaglio dei collegamenti operativi;
 - audit.
 - contratto tecnico corrente per fonti autorevoli, transazioni e concorrenza riusato dalle milestone successive.
 
@@ -2840,6 +2853,7 @@ Gate:
 - un ordine non può appartenere a due preparazioni e l'identità ambigua non accorpa;
 - il cambio del trigger globale non ricrea, non scioglie e non riapre bozze esistenti, e i soli ordini rivalutati sono quelli ancora privi di bozza;
 - una preparazione da verificare si chiude correggendo l'anagrafica dentro l'applicazione, senza dipendere da una modifica alla piattaforma sorgente;
+- la stessa identità fiscale importata da Shopify ed eBay compare una sola volta in Clienti, mentre un’identità incerta resta separata e ricercabile in Da verificare;
 - nessun identificativo visibile contiene la sigla interna.
 
 ### M3 - Connettori Shopify ed eBay
@@ -3069,7 +3083,7 @@ Normalizzatore comune, validazione EUR, trigger globale, chiave giornaliera `Eur
 
 ### UI operativa - M2 e M4
 
-Prima catalogo italiano, glossario e fondazione UI, poi Dashboard, ordini, preparazioni fattura, editor cliente e righe, `Non trasmettere`. Approvazione, comparatore fiscale, conferme eccezionali e approvazione massiva arrivano in M4 con il generatore che alimentano. Registro attività e pannello errori chiudono la superficie operativa. L'accessibilità delle azioni critiche si verifica insieme alla schermata, non in coda.
+Prima catalogo italiano, glossario e fondazione UI, poi Dashboard, ordini, Clienti con dettaglio dei collegamenti, preparazioni fattura, editor cliente e righe, `Non trasmettere`. Approvazione, comparatore fiscale, conferme eccezionali e approvazione massiva arrivano in M4 con il generatore che alimentano. Registro attività e pannello errori chiudono la superficie operativa. L'accessibilità delle azioni critiche si verifica insieme alla schermata, non in coda.
 
 ### Connettori - M3
 

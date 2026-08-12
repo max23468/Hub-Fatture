@@ -1,5 +1,6 @@
 import {
   ClipboardList,
+  Ellipsis,
   FileText,
   LayoutDashboard,
   LogOut,
@@ -9,9 +10,10 @@ import {
   ShieldCheck,
   ShoppingBag,
   UserRound,
+  UsersRound,
 } from "lucide-react";
 import { useSyncExternalStore } from "react";
-import { Form, NavLink } from "react-router";
+import { Form, NavLink, useLocation } from "react-router";
 
 import { copy } from "../copy.it";
 import { BrandLockup } from "./brand-lockup";
@@ -22,8 +24,21 @@ const links = [
   { to: "/", label: copy.navigation.dashboard, icon: LayoutDashboard, end: true },
   { to: "/ordini", label: copy.navigation.orders, icon: ShoppingBag, end: false },
   { to: "/documenti", label: copy.navigation.documents, icon: FileText, end: false },
-  { to: "/attivita", label: copy.navigation.activity, icon: ClipboardList, end: false },
-  { to: "/impostazioni", label: copy.navigation.settings, icon: Settings, end: false },
+  { to: "/clienti", label: copy.navigation.customers, icon: UsersRound, end: false },
+  {
+    to: "/attivita",
+    label: copy.navigation.activity,
+    icon: ClipboardList,
+    end: false,
+    mobileMore: true,
+  },
+  {
+    to: "/impostazioni",
+    label: copy.navigation.settings,
+    icon: Settings,
+    end: false,
+    mobileMore: true,
+  },
 ];
 
 const sidebarChangeEvent = "hub-fatture:sidebar-change";
@@ -50,6 +65,8 @@ export function AppShell({
   canApprove: boolean;
   csrfToken: string;
 }) {
+  const location = useLocation();
+  const moreActive = links.some((link) => link.mobileMore && location.pathname.startsWith(link.to));
   const sidebarCollapsed = useSyncExternalStore(
     subscribeToSidebar,
     getSidebarCollapsed,
@@ -85,10 +102,10 @@ export function AppShell({
       <aside className="sidebar">
         <BrandLockup onDark />
         <nav aria-label={copy.navigation.mainLabel} id="navigazione-principale">
-          {links.map(({ to, label, icon: Icon, end }) => (
+          {links.map(({ to, label, icon: Icon, end, mobileMore }) => (
             <NavLink
               aria-label={label}
-              className="nav-item"
+              className={`nav-item${mobileMore ? " nav-item--mobile-more" : ""}`}
               data-tooltip={label}
               end={end}
               key={to}
@@ -98,6 +115,29 @@ export function AppShell({
               <span className="nav-item__label">{label}</span>
             </NavLink>
           ))}
+          <details
+            className={`nav-more${moreActive ? " nav-more--active" : ""}`}
+            key={location.pathname}
+          >
+            <summary
+              aria-current={moreActive ? "page" : undefined}
+              aria-label={copy.navigation.openMore}
+              className="nav-item nav-more__summary"
+            >
+              <Ellipsis aria-hidden="true" size={20} strokeWidth={1.8} />
+              <span>{copy.navigation.more}</span>
+            </summary>
+            <div className="nav-more__menu">
+              {links
+                .filter((link) => link.mobileMore)
+                .map(({ to, label, icon: Icon, end }) => (
+                  <NavLink className="nav-more__item" end={end} key={to} to={to}>
+                    <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
+                    <span>{label}</span>
+                  </NavLink>
+                ))}
+            </div>
+          </details>
         </nav>
         <button
           aria-controls="navigazione-principale"

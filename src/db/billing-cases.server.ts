@@ -73,7 +73,7 @@ type BillingCaseAnomaly =
   | "ORDER_NOT_BILLABLE";
 
 /**
- * 13.4 chiede le anomalie, non un avviso unico: la preparazione deve dire quale fatto
+ * 13.5 chiede le anomalie, non un avviso unico: la preparazione deve dire quale fatto
  * osservato la trattiene e quale azione lo risolve.
  */
 function billingCaseAnomalies(
@@ -324,7 +324,7 @@ export async function correctBillingCaseCustomer(
 }
 
 /**
- * Separazione di un ordine (13.4). L'ordine torna idoneo e senza preparazione: l'indice univoco
+ * Separazione di un ordine (13.5). L'ordine torna idoneo e senza preparazione: l'indice univoco
  * parziale vieta due raggruppamenti aperti per la stessa chiave, quindi la separazione non
  * inventa una seconda preparazione dello stesso giorno ma restituisce l'ordine alla coda.
  */
@@ -371,7 +371,7 @@ export async function separateOrderFromBillingCase(
   });
 }
 
-/** Aggiunta di un ordine compatibile (13.4): stessa chiave giornaliera, nessuna preparazione. */
+/** Aggiunta di un ordine compatibile (13.5): stessa chiave giornaliera, nessuna preparazione. */
 export async function addOrderToBillingCase(
   caseId: string,
   orderId: string,
