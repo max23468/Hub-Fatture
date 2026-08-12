@@ -229,7 +229,6 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
      ON CONFLICT (provider, environment) DO UPDATE SET
        status = 'CONNECTED', created_at = EXCLUDED.created_at`,
   );
-  await connectionClient.end();
   await page.getByRole("link", { name: "Impostazioni" }).click();
   await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveAttribute("type", "date");
   await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveValue("2026-07-25");
@@ -239,6 +238,27 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByLabel("Importa ordini eBay dal")).toHaveValue("2026-08-09");
   await expect(page.getByRole("button", { name: "Controlla intervallo" })).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Importa storico" })).toHaveCount(2);
+  await connectionClient.query(
+    `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+     VALUES ('SHOPIFY', 'history_import', 'ready', now())`,
+  );
+  await connectionClient.end();
+  await page.reload();
+  const shopifyConnection = page
+    .locator(".connection-panel")
+    .filter({ has: page.getByRole("heading", { name: "Shopify" }) });
+  await expect(
+    shopifyConnection.getByText(
+      "Import iniziale completato. Gli aggiornamenti automatici sono attivi.",
+    ),
+  ).toBeVisible();
+  expect(
+    await shopifyConnection.evaluate((panel) => {
+      const actions = panel.querySelector(".connection-panel__actions")!;
+      const notice = panel.querySelector(".notice")!;
+      return notice.getBoundingClientRect().top - actions.getBoundingClientRect().bottom;
+    }),
+  ).toBeGreaterThanOrEqual(24);
   await page.getByLabel("Prepara la fattura").selectOption("FULFILLED");
   await page.getByRole("button", { name: "Salva impostazione" }).click();
   await expect(page.getByRole("status")).toContainText("Impostazione aggiornata");
