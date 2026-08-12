@@ -2516,6 +2516,70 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ).rows[0].payment_method,
       "MP01",
     );
+    const reorderedBusinessEbay = structuredClone(ebayWithoutReference);
+    reorderedBusinessEbay.externalOrderId = "ebay-order-historical-reordered-business";
+    reorderedBusinessEbay.externalCustomerId = "ebay-customer-historical-reordered-business";
+    reorderedBusinessEbay.displayNumber = "26-12345-67895";
+    reorderedBusinessEbay.customer.kind = "EU";
+    reorderedBusinessEbay.customer.companyName = "Alfa Beta Srl";
+    reorderedBusinessEbay.customer.displayName = "Alfa Beta Srl";
+    reorderedBusinessEbay.total = "77.00";
+    reorderedBusinessEbay.lines[0].grossAmount = "77.00";
+    reorderedBusinessEbay.payments[0].amount = "77.00";
+    reorderedBusinessEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-reordered-business";
+    reorderedBusinessEbay.lines[0].externalLineId = "ebay-line-historical-reordered-business";
+    await orders.importOrders([reorderedBusinessEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-reordered-business",
+    });
+    const reorderedBusinessEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          reorderedBusinessEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedBusinessEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con ragione sociale riordinata",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0023/26")
+              .replaceAll("75.00", "77.00")
+              .replace(
+                "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
+                "<Denominazione>Beta Alfa Srl</Denominazione>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-reordered-business-name" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      reorderedBusinessEbayId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba con ragione sociale completa nello stesso ordine",
+        invoiceXml: Buffer.from(
+          ebayInvoiceWithoutReference
+            .toString()
+            .replace("FPR 0020/26", "FPR 0023/26")
+            .replaceAll("75.00", "77.00")
+            .replace(
+              "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
+              "<Denominazione>Alfa Beta Srl</Denominazione>",
+            ),
+        ),
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-exact-business-name" },
+    );
     const reusedEbayInvoice = structuredClone(ebayWithoutReference);
     reusedEbayInvoice.externalOrderId = "ebay-order-historical-reused-document";
     reusedEbayInvoice.displayNumber = "26-12345-67892";
@@ -3092,7 +3156,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "11",
+      "12",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

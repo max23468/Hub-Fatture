@@ -201,19 +201,23 @@ function hasSupportingAddressEvidence(
   );
 }
 
-function customerIdentityNames(customer: Record<string, unknown>) {
+function customerIdentityNames(customer: Record<string, unknown>, business: boolean) {
   const canonical =
     customer.canonicalProfile && typeof customer.canonicalProfile === "object"
       ? (customer.canonicalProfile as Record<string, unknown>)
       : {};
-  return [
-    customer.companyName,
-    [customer.firstName, customer.lastName].filter(Boolean).join(" "),
-    customer.displayName,
-    canonical.companyName,
-    [canonical.firstName, canonical.lastName].filter(Boolean).join(" "),
-    canonical.displayName,
-  ].filter((value) => normalizedIdentityPart(value));
+  const typedNames = business
+    ? [customer.companyName, canonical.companyName]
+    : [
+        [customer.firstName, customer.lastName].filter(Boolean).join(" "),
+        [canonical.firstName, canonical.lastName].filter(Boolean).join(" "),
+      ];
+  const normalizedTypedNames = typedNames.filter((value) => normalizedIdentityPart(value));
+  return normalizedTypedNames.length > 0
+    ? normalizedTypedNames
+    : [customer.displayName, canonical.displayName].filter((value) =>
+        normalizedIdentityPart(value),
+      );
 }
 
 function matchesRecipientWithoutTaxId(
@@ -224,15 +228,18 @@ function matchesRecipientWithoutTaxId(
     customer.billingAddress && typeof customer.billingAddress === "object"
       ? (customer.billingAddress as Record<string, unknown>)
       : {};
+  const recipientBusinessName = normalizedIdentityPart(recipient.businessName);
   const recipientName =
-    normalizedIdentityPart(recipient.businessName) ||
+    recipientBusinessName ||
     normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
   const customerCountry = normalizedIdentityPart(billingAddress.countryCode);
   const recipientCountry = normalizedIdentityPart(recipient.address.countryCode);
   if (!recipientName || !customerCountry || customerCountry !== recipientCountry) return false;
-  return customerIdentityNames(customer).some(
+  return customerIdentityNames(customer, Boolean(recipientBusinessName)).some(
     (customerName) =>
-      sameTokenSet(customerName, recipientName) &&
+      (recipientBusinessName
+        ? sameNonEmptyIdentityPart(customerName, recipientName)
+        : sameTokenSet(customerName, recipientName)) &&
       hasSupportingAddressEvidence(billingAddress, recipient.address),
   );
 }
