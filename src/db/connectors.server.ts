@@ -130,7 +130,7 @@ export async function saveConnection<T>(
            UPDATE jobs SET status = 'COMPLETED', completed_at = now(),
              lease_expires_at = NULL, locked_by = NULL, claim_token = NULL,
              result_json = '{"obsoleteAccount":true}'::jsonb, last_error_code = NULL
-           WHERE status IN ('PENDING', 'RUNNING')
+           WHERE status IN ('PENDING', 'RUNNING', 'FAILED')
              AND (($1 = 'SHOPIFY'
                  AND type IN ('shopify_sync_orders', 'shopify_process_webhook'))
                OR ($1 = 'EBAY' AND type IN ('ebay_sync_orders', 'ebay_preview_history')))
@@ -167,7 +167,7 @@ export async function loadConnection<T>(provider: Provider): Promise<{
 }> {
   const result = await getPool().query<ConnectionRow>(
     `SELECT * FROM connections
-     WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'
+     WHERE provider = $1 AND environment = $2 AND status IN ('CONNECTED', 'ERROR')
      LIMIT 1`,
     [provider, activeEnvironment(provider)],
   );
@@ -342,13 +342,14 @@ export async function markConnectionSynced(provider: Provider, job?: ClaimedJob)
 }
 
 export async function markConnectionError(provider: Provider, code: ErrorCode, terminal = false) {
-  const status = terminal
-    ? "ERROR"
-    : code === "AUTH_PROVIDER_EXPIRED"
+  const status =
+    code === "AUTH_PROVIDER_EXPIRED"
       ? "REAUTH_REQUIRED"
-      : code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_UNAVAILABLE"
-        ? "CONNECTED"
-        : "ERROR";
+      : terminal
+        ? "ERROR"
+        : code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_UNAVAILABLE"
+          ? "CONNECTED"
+          : "ERROR";
   await getPool().query(
     `UPDATE connections SET status = $2, last_checked_at = now(), last_error_code = $3,
        last_error_message_sanitized = $3, updated_at = now()
@@ -671,21 +672,64 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
   const jobId = typeof id === "string" && /^\d+$/.test(id) ? id : "";
   if (!jobId) throw new AppError("CONFLICT_REVISION", 409);
   return withTransaction(async (client) => {
-    const candidate = await client.query<{ type: JobType }>(
-      `SELECT type FROM jobs
+    const candidate = await client.query<{
+      type: JobType;
+      payload_json: Record<string, unknown>;
+    }>(
+      `SELECT type, payload_json FROM jobs
        WHERE id = $1 AND status = 'FAILED' AND type = ANY($2::text[])
        FOR UPDATE`,
       [jobId, manuallyRetryableJobTypes],
     );
     if (!candidate.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
-    if (candidate.rows[0].type === "ebay_preview_history") {
+    const jobType = candidate.rows[0].type;
+    const syncProvider =
+      jobType === "shopify_sync_orders"
+        ? "SHOPIFY"
+        : jobType === "ebay_sync_orders"
+          ? "EBAY"
+          : null;
+    if (syncProvider) {
+      const ready = await client.query(
+        `SELECT 1 FROM sync_cursors
+         WHERE provider = $1 AND stream = 'history_import'`,
+        [syncProvider],
+      );
+      if (!ready.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+    }
+    if (jobType === "ebay_preview_history") {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:EBAY'))");
       await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
+      const accountReference = candidate.rows[0].payload_json.accountReference;
+      const currentImport =
+        typeof accountReference === "string"
+          ? await client.query(
+              `SELECT 1 FROM connections
+               WHERE provider = 'EBAY' AND environment = $1
+                 AND status IN ('CONNECTED', 'ERROR')
+                 AND account_reference = $2
+                 AND NOT EXISTS (
+                   SELECT 1 FROM sync_cursors
+                   WHERE provider = 'EBAY' AND stream = 'history_import'
+                 )`,
+              [activeEnvironment("EBAY"), accountReference],
+            )
+          : null;
+      if (!currentImport?.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
       const activePreview = await client.query(
         `SELECT 1 FROM jobs
          WHERE type = 'ebay_preview_history' AND status IN ('PENDING', 'RUNNING')
          LIMIT 1`,
       );
       if (activePreview.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+    } else {
+      const provider = jobType.startsWith("shopify") ? "SHOPIFY" : "EBAY";
+      const runnable = await client.query(
+        `SELECT 1 FROM connections
+         WHERE provider = $1 AND environment = $2 AND status IN ('CONNECTED', 'ERROR')`,
+        [provider, activeEnvironment(provider)],
+      );
+      if (!runnable.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
     }
     const retried = await client.query<{ id: string }>(
       `UPDATE jobs SET status = 'PENDING', run_at = now(), attempts = 0, completed_at = NULL,
@@ -739,10 +783,22 @@ export async function ingestShopifyWebhook(input: {
       return { duplicate: true };
     }
     if (input.orderId) {
+      const history = await client.query<{ pending: boolean }>(
+        `SELECT NOT EXISTS (
+           SELECT 1 FROM sync_cursors
+           WHERE provider = 'SHOPIFY' AND stream = 'history_import'
+         ) AS pending`,
+      );
       await client.query(
         `INSERT INTO jobs (type, payload_json)
          VALUES ('shopify_process_webhook', $1)`,
-        [JSON.stringify({ orderId: input.orderId, webhookEventId: event.rows[0].id })],
+        [
+          JSON.stringify({
+            orderId: input.orderId,
+            webhookEventId: event.rows[0].id,
+            historical: history.rows[0]!.pending,
+          }),
+        ],
       );
     } else {
       await client.query(

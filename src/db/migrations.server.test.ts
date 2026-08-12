@@ -28,6 +28,7 @@ const PRE_ISSUE_REFUNDS = "014_pre_issue_refunds.sql";
 const CANONICAL_ACCOUNT_NAMES = "015_canonical_account_names.sql";
 const HISTORICAL_ORDER_RECONCILIATION = "016_historical_order_reconciliation.sql";
 const HISTORICAL_INVOICE_LINKS = "017_historical_invoice_links.sql";
+const LEGACY_WEBHOOK_HISTORY = "018_legacy_webhook_history.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -49,6 +50,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(firstTwo, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(firstTwo, HISTORICAL_INVOICE_LINKS));
+    await rm(path.join(firstTwo, LEGACY_WEBHOOK_HISTORY));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -69,6 +71,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
+      LEGACY_WEBHOOK_HISTORY,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -85,6 +88,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
     await cp("migrations", beforeHistoricalImport, { recursive: true });
     await rm(path.join(beforeHistoricalImport, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeHistoricalImport, HISTORICAL_INVOICE_LINKS));
+    await rm(path.join(beforeHistoricalImport, LEGACY_WEBHOOK_HISTORY));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeHistoricalImport,
@@ -103,6 +107,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
+      LEGACY_WEBHOOK_HISTORY,
     ]);
     await withClient(database.connectionString, async (client) => {
       const jobs = await client.query(
@@ -137,6 +142,58 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
   }
 });
 
+test("l'upgrade conserva la classificazione storica dei webhook già accodati", async () => {
+  const database = await temporaryDatabase("legacy_webhook_history");
+  const beforeClassification = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-webhook-history-"),
+  );
+  try {
+    await cp("migrations", beforeClassification, { recursive: true });
+    await rm(path.join(beforeClassification, LEGACY_WEBHOOK_HISTORY));
+    await runMigrations({
+      connectionString: database.connectionString,
+      directory: beforeClassification,
+    });
+    await withClient(database.connectionString, async (client) => {
+      await client.query(
+        `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from, updated_at)
+         VALUES ('SHOPIFY', 'history_import', 'ready', '2026-08-12T10:00:00Z',
+           '2026-08-12T10:00:00Z')`,
+      );
+      await client.query(
+        `INSERT INTO jobs (type, payload_json, status, created_at)
+         VALUES
+           ('shopify_process_webhook', '{"orderId":"before"}', 'FAILED',
+             '2026-08-12T09:00:00Z'),
+           ('shopify_process_webhook', '{"orderId":"after"}', 'PENDING',
+             '2026-08-12T11:00:00Z')`,
+      );
+    });
+
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      LEGACY_WEBHOOK_HISTORY,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT payload_json ->> 'orderId' AS order_id,
+                    (payload_json ->> 'historical')::boolean AS historical
+             FROM jobs WHERE type = 'shopify_process_webhook' ORDER BY id`,
+          )
+        ).rows,
+        [
+          { order_id: "before", historical: true },
+          { order_id: "after", historical: false },
+        ],
+      );
+    });
+  } finally {
+    await rm(beforeClassification, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
 test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 }, async () => {
   const clean = await temporaryDatabase("clean");
   try {
@@ -158,12 +215,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
+      LEGACY_WEBHOOK_HISTORY,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "17",
+      "18",
     );
     await cleanClient.end();
 
@@ -253,6 +311,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
     await rm(path.join(beforeCanonicalNames, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(beforeCanonicalNames, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeCanonicalNames, HISTORICAL_INVOICE_LINKS));
+    await rm(path.join(beforeCanonicalNames, LEGACY_WEBHOOK_HISTORY));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeCanonicalNames,
@@ -268,6 +327,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
+      LEGACY_WEBHOOK_HISTORY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -308,6 +368,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
     await rm(path.join(beforeRefundAccounting, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(beforeRefundAccounting, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeRefundAccounting, HISTORICAL_INVOICE_LINKS));
+    await rm(path.join(beforeRefundAccounting, LEGACY_WEBHOOK_HISTORY));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeRefundAccounting,
@@ -348,6 +409,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
+      LEGACY_WEBHOOK_HISTORY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -380,6 +442,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(beforeM4, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeM4, HISTORICAL_INVOICE_LINKS));
+    await rm(path.join(beforeM4, LEGACY_WEBHOOK_HISTORY));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -511,6 +574,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       CANONICAL_ACCOUNT_NAMES,
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
+      LEGACY_WEBHOOK_HISTORY,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

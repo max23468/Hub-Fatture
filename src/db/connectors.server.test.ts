@@ -40,6 +40,52 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       { accessToken: "token-sintetico" },
     );
     assert.equal(await connectors.historyImportPending("SHOPIFY"), true);
+    await connectors.ingestShopifyWebhook({
+      externalEventId: "event-before-history-import",
+      topic: "ORDERS_UPDATED",
+      payloadSha256: "f".repeat(64),
+      orderId: "gid://shopify/Order/before-history-import",
+    });
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT payload_json ->> 'historical' AS historical FROM jobs
+           WHERE payload_json ->> 'orderId' = 'gid://shopify/Order/before-history-import'`,
+        )
+      ).rows[0].historical,
+      "true",
+    );
+    await getPool().query(
+      `DELETE FROM jobs
+       WHERE payload_json ->> 'orderId' = 'gid://shopify/Order/before-history-import'`,
+    );
+    await getPool().query(
+      "DELETE FROM webhook_events WHERE external_event_id = 'event-before-history-import'",
+    );
+    const failedBeforeHistoryImport = await getPool().query<{ id: string }>(
+      `INSERT INTO jobs (type, status, last_error_code)
+       VALUES ('shopify_sync_orders', 'FAILED', 'PROVIDER_UNAVAILABLE')
+       RETURNING id`,
+    );
+    await assert.rejects(
+      connectors.retryFailedJob(failedBeforeHistoryImport.rows[0]!.id, {
+        type: "ADMIN",
+        id: 1,
+        requestId: "retry-before-history-import",
+      }),
+      (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    assert.equal(
+      (
+        await getPool().query("SELECT status FROM jobs WHERE id = $1", [
+          failedBeforeHistoryImport.rows[0]!.id,
+        ])
+      ).rows[0].status,
+      "FAILED",
+    );
+    await getPool().query("DELETE FROM jobs WHERE id = $1", [
+      failedBeforeHistoryImport.rows[0]!.id,
+    ]);
     await connectors.scheduleDueSyncs();
     assert.equal(
       (
@@ -179,6 +225,13 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       `UPDATE connections SET last_synced_at = now() - interval '11 minutes'
        WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
     );
+    const obsoleteFailedHistory = await getPool().query<{ id: string }>(
+      `INSERT INTO jobs (type, payload_json, status, last_error_code)
+       VALUES ('ebay_preview_history',
+         '{"startDate":"2026-08-05","mode":"IMPORT","accountReference":"sandbox-sintetica"}',
+         'FAILED', 'PROVIDER_UNAVAILABLE')
+       RETURNING id`,
+    );
     await withClient(database.connectionString, async (client) => {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:EBAY'))");
@@ -210,6 +263,14 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       (
         await getPool().query("SELECT status, result_json FROM jobs WHERE id = $1", [
           obsoleteSyncJob!.id,
+        ])
+      ).rows[0],
+      { status: "COMPLETED", result_json: { obsoleteAccount: true } },
+    );
+    assert.deepEqual(
+      (
+        await getPool().query("SELECT status, result_json FROM jobs WHERE id = $1", [
+          obsoleteFailedHistory.rows[0]!.id,
         ])
       ).rows[0],
       { status: "COMPLETED", result_json: { obsoleteAccount: true } },
@@ -574,7 +635,12 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).rows[0].status,
       "ERROR",
     );
+    assert.equal((await connectors.loadConnection("EBAY")).accountReference, "sandbox-risultante");
     assert.equal((await connectors.failedConnectorJobs())[0]?.id, terminalJob.id);
+    await getPool().query(
+      `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+       VALUES ('EBAY', 'history_import', 'ready', now())`,
+    );
     await connectors.retryFailedJob(terminalJob.id, {
       type: "ADMIN",
       id: 1,
@@ -592,6 +658,39 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         )
       ).rows[0].count,
       "1",
+    );
+    await getPool().query(
+      "DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import'",
+    );
+    await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [terminalJob.id]);
+    await getPool().query(
+      `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+       VALUES ('EBAY', 'history_import', 'ready', now())`,
+    );
+    await connectors.markConnectionError("EBAY", "AUTH_PROVIDER_EXPIRED", true);
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT status FROM connections WHERE provider = 'EBAY' AND environment = 'SANDBOX'",
+        )
+      ).rows[0].status,
+      "REAUTH_REQUIRED",
+    );
+    await assert.rejects(
+      connectors.loadConnection("EBAY"),
+      (error: unknown) => error instanceof AppError && error.code === "PROVIDER_NOT_CONFIGURED",
+    );
+    await assert.rejects(
+      connectors.retryFailedJob(terminalJob.id, {
+        type: "ADMIN",
+        id: 1,
+        requestId: "manual-retry-while-reauth-required",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    await connectors.markConnectionSynced("EBAY");
+    await getPool().query(
+      "DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import'",
     );
     const protectedEmailJob = await getPool().query<{ id: string }>(
       `INSERT INTO jobs
@@ -677,6 +776,41 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       },
     );
     await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [previewJob!.id]);
+    await getPool().query(
+      `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+       VALUES ('EBAY', 'history_import', 'ready', now())`,
+    );
+    await assert.rejects(
+      connectors.retryFailedJob(previewJob!.id, {
+        type: "ADMIN",
+        id: 1,
+        requestId: "preview-retry-after-history-import",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    await getPool().query(
+      "DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import'",
+    );
+    await getPool().query(
+      `UPDATE jobs SET payload_json = jsonb_set(
+         payload_json, '{accountReference}', '"account-obsoleto"'::jsonb
+       ) WHERE id = $1`,
+      [previewJob!.id],
+    );
+    await assert.rejects(
+      connectors.retryFailedJob(previewJob!.id, {
+        type: "ADMIN",
+        id: 1,
+        requestId: "preview-retry-obsolete-account",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    await getPool().query(
+      `UPDATE jobs SET payload_json = jsonb_set(
+         payload_json, '{accountReference}', '"sandbox-risultante"'::jsonb
+       ) WHERE id = $1`,
+      [previewJob!.id],
+    );
     await connectors.enqueueEbayHistory("2026-08-05", "PREVIEW");
     await assert.rejects(
       connectors.retryFailedJob(previewJob!.id, {

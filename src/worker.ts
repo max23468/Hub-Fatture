@@ -65,7 +65,9 @@ async function runJob() {
       const orderId = String(job.payload.orderId ?? "");
       if (!orderId) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
       const order = await fetchShopifyOrder(orderId);
-      if (await historyImportPending("SHOPIFY")) order.historical = true;
+      if (job.payload.historical !== false || (await historyImportPending("SHOPIFY"))) {
+        order.historical = true;
+      }
       await assertLease();
       await importOrders(
         [order],
