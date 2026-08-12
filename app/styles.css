@@ -225,6 +225,15 @@ select:hover {
   height: 2.75rem;
 }
 
+.brand-lockup__name {
+  display: inline-block;
+  min-width: 0;
+  max-width: 10rem;
+  overflow: hidden;
+  opacity: 1;
+  white-space: nowrap;
+}
+
 .auth-shell {
   display: grid;
   width: min(100% - 2rem, 32rem);
@@ -413,7 +422,6 @@ select:hover {
     justify-content: center;
   }
 
-  :root[data-sidebar="collapsed"] .brand-lockup__name,
   :root[data-sidebar="collapsed"] .nav-item__label,
   :root[data-sidebar="collapsed"] .sidebar-toggle__label {
     position: absolute;
@@ -422,6 +430,15 @@ select:hover {
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+
+  :root[data-sidebar="collapsed"] .sidebar .brand-lockup {
+    gap: 0;
+  }
+
+  :root[data-sidebar="collapsed"] .brand-lockup__name {
+    max-width: 0;
+    opacity: 0;
   }
 
   :root[data-sidebar="collapsed"] .nav-item::after,
@@ -501,18 +518,6 @@ select:hover {
 .global-search__trigger[aria-expanded="true"] {
   border-color: var(--color-brand);
   color: var(--color-text);
-}
-
-.global-search__trigger kbd {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-muted);
-  color: var(--color-text-muted);
-  font-family: inherit;
-  font-size: 0.75rem;
-  font-weight: 650;
-  line-height: 1;
-  padding: 0.3rem 0.4rem;
 }
 
 .global-search__panel {
@@ -2774,8 +2779,7 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 48rem) {
-  .global-search__trigger span,
-  .global-search__trigger kbd {
+  .global-search__trigger span {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -3379,5 +3383,15 @@ tbody tr:last-child td {
       width 150ms ease,
       margin-left 150ms ease,
       padding 150ms ease;
+  }
+
+  .sidebar .brand-lockup {
+    transition: gap 150ms ease;
+  }
+
+  .sidebar .brand-lockup__name {
+    transition:
+      max-width 150ms ease,
+      opacity 100ms ease;
   }
 }
