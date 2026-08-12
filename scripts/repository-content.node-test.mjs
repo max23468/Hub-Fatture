@@ -318,6 +318,25 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
 });
 
+test("la modifica del classificatore forza i gate senza eseguirlo come autorità", async () => {
+  const workflows = [
+    "ci.yml",
+    "dependency-review.yml",
+    "codeql.yml",
+    "react-doctor.yml",
+    "foundation.yml",
+    "production-artifact.yml",
+  ];
+  for (const name of workflows) {
+    const workflow = await readFile(path.join(root, ".github", "workflows", name), "utf8");
+    assert.match(
+      workflow,
+      /git diff --name-only --no-renames "\$BASE_SHA" "\$HEAD_SHA" -- scripts\/change-impact\.mjs/,
+      `${name} deve rilevare il classificatore senza fidarsi del suo output`,
+    );
+  }
+});
+
 test("gli script Production sono sintatticamente validi e conservano i gate di continuità", async () => {
   const scripts = [
     "ops/provision-production.sh",
