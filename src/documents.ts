@@ -139,8 +139,7 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   const contacts = xmlRecord(supplier.Contatti);
   const goods = xmlRecord(body.DatiBeniServizi);
   const summary = xmlRecord(goods.DatiRiepilogo);
-  const paymentBlock = xmlRecord(body.DatiPagamento);
-  const payment = xmlRecord(paymentBlock.DettaglioPagamento);
+  const payment = acceptedPayment(body);
   return fiscalProfileSchema.parse({
     transmitter: {
       countryCode: xmlValue(transmitter.IdPaese),
@@ -178,8 +177,8 @@ export function fiscalProfileFromAcceptedInvoiceXml(
       approvedAt,
     },
     payment: {
-      condition: xmlValue(paymentBlock.CondizioniPagamento),
-      invoiceMethod: xmlValue(payment.ModalitaPagamento),
+      condition: payment.condition,
+      invoiceMethod: payment.method,
       creditNoteMethod: "MP05",
     },
   });
@@ -214,7 +213,9 @@ function acceptedFiscalDocument(xml: string) {
     type,
     documentDate,
     documentNumber: xmlValue(general.Numero),
-    totalAmount: decimalToCents(xmlValue(general.ImportoTotaleDocumento)),
+    totalAmount: xmlOptional(general.ImportoTotaleDocumento)
+      ? decimalToCents(xmlValue(general.ImportoTotaleDocumento))
+      : undefined,
     year,
     number: Number(documentNumber[1]),
     transmitter: `${xmlValue(transmitter.IdPaese)}:${xmlValue(transmitter.IdCodice)}`,
@@ -224,6 +225,23 @@ function acceptedFiscalDocument(xml: string) {
 
 function xmlArray(input: unknown): Record<string, unknown>[] {
   return (Array.isArray(input) ? input : [input]).map(xmlRecord);
+}
+
+function acceptedPayment(body: Record<string, unknown>) {
+  if (body.DatiPagamento === undefined) {
+    return { condition: "TP02" as const, method: "MP08" as const };
+  }
+  const blocks = xmlArray(body.DatiPagamento);
+  const methods = blocks.flatMap((block) =>
+    xmlArray(block.DettaglioPagamento).map((detail) => xmlValue(detail.ModalitaPagamento)),
+  );
+  if (
+    blocks.some((block) => xmlValue(block.CondizioniPagamento) !== "TP02") ||
+    methods.some((method) => method !== "MP08")
+  ) {
+    throw new Error("Il pagamento della fattura non coincide con il profilo fiscale");
+  }
+  return { condition: "TP02" as const, method: "MP08" as const };
 }
 
 /** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
@@ -282,21 +300,22 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
     quantity: 1,
     unitAmount: decimalToCents(xmlValue(line.PrezzoTotale)),
   }));
-  const payment = xmlRecord(source.body.DatiPagamento);
-  const paymentDetail = xmlRecord(payment.DettaglioPagamento);
+  const payment = acceptedPayment(source.body);
+  const totalAmount = source.totalAmount ?? lines.reduce((sum, line) => sum + line.unitAmount, 0);
   const input = documentInputSchema.parse({
     kind: "INVOICE",
     documentDate: source.documentDate,
     recipient,
     lines,
     paymentStatus: "PAID",
-    paymentMethod: xmlValue(paymentDetail.ModalitaPagamento),
+    paymentMethod: payment.method,
   });
-  if (lines.reduce((sum, line) => sum + line.unitAmount, 0) !== source.totalAmount) {
+  if (lines.reduce((sum, line) => sum + line.unitAmount, 0) !== totalAmount) {
     throw new Error("Il totale della fattura storica non coincide con le righe");
   }
   return {
     ...source,
+    totalAmount,
     input,
     profile: fiscalProfileFromAcceptedInvoiceXml(xml, importedAt),
     references: [

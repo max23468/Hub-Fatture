@@ -67,6 +67,42 @@ test(
         canApprove: true,
         requestId: "documents-profile",
       });
+      const importedXml = await readFile(
+        "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
+        "utf8",
+      );
+      const importedPath = "invoices/history/concurrent-import.xml";
+      const firstClient = await database.getPool().connect();
+      const secondClient = await database.getPool().connect();
+      await firstClient.query("BEGIN");
+      await secondClient.query("BEGIN");
+      const firstArchive = await documents.archiveImportedInvoiceXml(
+        firstClient,
+        importedPath,
+        importedXml,
+      );
+      let secondArchiveFinished = false;
+      const secondArchivePending = documents
+        .archiveImportedInvoiceXml(secondClient, importedPath, importedXml)
+        .then((archive) => {
+          secondArchiveFinished = true;
+          return archive;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal(secondArchiveFinished, false);
+      await firstArchive.cleanupIfUnreferenced();
+      await firstClient.query("COMMIT");
+      firstClient.release();
+      const secondArchive = await secondArchivePending;
+      await secondClient.query(
+        `INSERT INTO storage_objects
+          (kind, relative_path, sha256, size_bytes, content_type)
+         VALUES ('INVOICE_XML', $1, $2, $3, 'application/xml')`,
+        [importedPath, secondArchive.sha256, secondArchive.sizeBytes],
+      );
+      await secondClient.query("COMMIT");
+      secondClient.release();
+      assert.equal(await readFile(path.join(storage, importedPath), "utf8"), importedXml);
       await assert.rejects(
         documents.activateFiscalProfile(
           {

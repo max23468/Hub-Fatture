@@ -185,7 +185,6 @@ export async function reconcileHistoricalOrder(
   let importedInvoice: ReturnType<typeof acceptedInvoiceFromXml> | null = null;
   let importedTaxIdentifiers = new Set<string>();
   let invoicePath: string | null = null;
-  let archivedInvoice: Awaited<ReturnType<typeof archiveImportedInvoiceXml>> | null = null;
   if (parsed.data.outcome === "ALREADY_INVOICED") {
     if (!raw.invoiceXml?.byteLength) {
       throw new AppError("ORDER_HISTORY_INVOICE_REQUIRED", 422);
@@ -204,14 +203,17 @@ export async function reconcileHistoricalOrder(
         String(importedInvoice.year),
         `${importedInvoice.documentNumber.replaceAll(" ", "-").replaceAll("/", "-")}-${digest}.xml`,
       );
-      archivedInvoice = await archiveImportedInvoiceXml(invoicePath, xml);
     } catch (error) {
       if (error instanceof AppError && error.code === "DOCUMENT_STORAGE_FAILED") throw error;
       throw new AppError("ORDER_HISTORY_INVOICE_INVALID", 422);
     }
   }
-  try {
-    const result = await withTransaction(async (client) => {
+  return withTransaction(async (client) => {
+    let archivedInvoice: Awaited<ReturnType<typeof archiveImportedInvoiceXml>> | null = null;
+    try {
+      if (importedInvoice && invoicePath) {
+        archivedInvoice = await archiveImportedInvoiceXml(client, invoicePath, importedInvoice.xml);
+      }
       await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
       await serializeOrderMutations(client);
       const order = await client.query<{
@@ -260,7 +262,10 @@ export async function reconcileHistoricalOrder(
         [id],
       );
       const current = order.rows[0];
-      if (!current) return null;
+      if (!current) {
+        await archivedInvoice?.cleanupIfUnreferenced();
+        return null;
+      }
       const attachingInvoice =
         current.historical_reconciliation_outcome === "ALREADY_INVOICED" &&
         parsed.data.outcome === "ALREADY_INVOICED" &&
@@ -454,13 +459,11 @@ export async function reconcileHistoricalOrder(
         await reconcilePreIssueInvoiceAmount(client, id, caseId, refundEffect.billableAmount);
       }
       return { caseId, outcome: parsed.data.outcome, invoiceDocumentId };
-    });
-    if (!result) await archivedInvoice?.cleanupIfUnreferenced();
-    return result;
-  } catch (error) {
-    await archivedInvoice?.cleanupIfUnreferenced();
-    throw error;
-  }
+    } catch (error) {
+      await archivedInvoice?.cleanupIfUnreferenced();
+      throw error;
+    }
+  });
 }
 
 export async function forcePrepareOrder(id: string, actor: Actor) {

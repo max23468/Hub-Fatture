@@ -913,35 +913,52 @@ export async function materializeDocumentStorage(documentId: string, xml?: strin
   await materializeStoredXml(row, xml);
 }
 
-export async function archiveImportedInvoiceXml(relativePath: string, xml: string) {
+export async function archiveImportedInvoiceXml(
+  client: pg.PoolClient,
+  relativePath: string,
+  xml: string,
+) {
   const sha256 = createHash("sha256").update(xml).digest("hex");
   const sizeBytes = Buffer.byteLength(xml);
-  const created = await materializeStoredXml(
-    {
-      id: `history-${sha256}`,
-      origin: "ARUBA_HISTORY",
-      billing_case_id: "0",
-      series: "FPR",
-      fiscal_year: 0,
-      fiscal_number: 0,
-      immutable_snapshot_json: null,
-      fiscal_profile_snapshot_json: null,
-      relative_path: relativePath,
-      sha256,
-      size_bytes: sizeBytes,
-    },
-    xml,
-  );
+  const { reference, created } = await client
+    .query<{ referenced_before: boolean }>(
+      `WITH locked AS MATERIALIZED (
+         SELECT pg_advisory_xact_lock(hashtext($1))
+       )
+       SELECT EXISTS (
+         SELECT 1 FROM storage_objects WHERE relative_path = $2
+       ) AS referenced_before
+       FROM locked`,
+      [`document-storage:${relativePath}`, relativePath],
+    )
+    .then(async (reference) => ({
+      reference,
+      created: await materializeStoredXml(
+        {
+          id: `history-${sha256}`,
+          origin: "ARUBA_HISTORY",
+          billing_case_id: "0",
+          series: "FPR",
+          fiscal_year: 0,
+          fiscal_number: 0,
+          immutable_snapshot_json: null,
+          fiscal_profile_snapshot_json: null,
+          relative_path: relativePath,
+          sha256,
+          size_bytes: sizeBytes,
+        },
+        xml,
+      ),
+    }));
   return {
     sha256,
     sizeBytes,
     async cleanupIfUnreferenced() {
-      if (!created) return;
-      const referenced = await getPool().query(
-        "SELECT 1 FROM storage_objects WHERE relative_path = $1 LIMIT 1",
-        [relativePath],
-      );
-      if (!referenced.rowCount) await unlink(storagePath(relativePath).absolutePath);
+      if (created && !reference.rows[0]!.referenced_before) {
+        await unlink(storagePath(relativePath).absolutePath).catch((error: unknown) => {
+          if (!errno(error, "ENOENT")) throw error;
+        });
+      }
     },
   };
 }
