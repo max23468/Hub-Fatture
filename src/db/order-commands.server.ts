@@ -101,7 +101,8 @@ function matchesRecipientWithoutTaxId(
       : {};
   const customerName =
     normalizedIdentityPart(customer.companyName) ||
-    normalizedIdentityPart([customer.firstName, customer.lastName].filter(Boolean).join(" "));
+    normalizedIdentityPart([customer.firstName, customer.lastName].filter(Boolean).join(" ")) ||
+    normalizedIdentityPart(customer.displayName);
   const recipientName =
     normalizedIdentityPart(recipient.businessName) ||
     normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));

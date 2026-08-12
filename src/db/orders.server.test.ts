@@ -1769,6 +1769,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     ebayWithoutReference.externalCustomerId = "ebay-customer-historical-without-reference";
     ebayWithoutReference.displayNumber = "26-12345-67890";
     ebayWithoutReference.customer.taxIdentifiers = [];
+    delete ebayWithoutReference.customer.firstName;
+    delete ebayWithoutReference.customer.lastName;
     ebayWithoutReference.customer.billingAddress = {
       line1: "Via Cliente 2",
       postalCode: "00100",
