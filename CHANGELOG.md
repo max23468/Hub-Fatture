@@ -1,10 +1,16 @@
 # Changelog
 
-## 0.3.7
+## 0.3.8
 
 - La riconciliazione storica eBay collega gli XML Aruba privi di riferimento marketplace soltanto quando data, totale e destinatario identificano un candidato univoco nell’intero storico.
 - Per destinatari senza identificativo fiscale sono richiesti identità completa e indirizzo coerente; l’ordine dei token resta flessibile soltanto per nome e cognome di persona, mentre ragioni sociali, omonimi e rimborsi ambigui restano prudenzialmente bloccati.
 - I metodi di pagamento storici MP01, MP05 e MP08 vengono conservati senza modificare il profilo fiscale attivo; lo stesso documento non può essere riutilizzato su ordini diversi.
+
+## 0.3.7
+
+- Gli XML Aruba storici Shopify senza riferimento esplicito possono essere collegati soltanto quando data, destinatario, totale fatturabile, profilo fiscale e unicità individuano lo stesso ordine.
+- Riferimenti a ordini diversi, marker marketplace incompatibili, importi lordi in presenza di commissioni Shopify Payments, rimborsi ambigui o documenti già collegati bloccano il confronto.
+- Gli ordini Shopify restano in revisione storica e non approvabili finché il confronto con l'XML ufficiale non produce un esito verificato.
 
 ## 0.3.6
 
