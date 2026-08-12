@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.10
+
+- Le anagrafiche importate e corrette separano lo snapshot sorgente immutabile, il profilo canonico usato per il matching e una forma di presentazione coerente per interfaccia e documenti.
+- Nomi personali, città e indirizzi italiani vengono resi leggibili senza reinterpretare ragioni sociali, casing intenzionale o indirizzi esteri ambigui; e-mail, PEC, codici destinatario, Paese, provincia e CAP sono uniformati nei rispettivi formati.
+- La suite PostgreSQL limita la concorrenza del runner e i test e-mail rivendicano il job dell'esatta consegna, eliminando contesa e selezioni non deterministiche senza modificare la coda Production.
+
 ## 0.3.9
 
 - La riconciliazione storica eBay collega gli XML Aruba privi di riferimento marketplace soltanto quando data, totale e destinatario identificano un candidato univoco nell’intero storico.
