@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4
+
+- La pagina Attività organizza le verifiche in una tabella compatta per elemento, cliente, canale o tipo, data ordine e ultimo aggiornamento, con riepilogo operativo e cronologia più leggibili.
+- Paginazione a 50 righe, celle su una riga e passaggio anticipato a schede mantengono scansionabili decine di attività su desktop, viewport intermedie e mobile; l’azione resta contenuta nella propria colonna con margine stabile dal bordo.
+- La vista si concentra su ordini, documenti e operazioni non riuscite: le richieste privacy non compaiono più in Attività, mentre registrazione e gestione tecnica dei webhook Shopify restano invariate.
+
 ## 0.3.3
 
 - La nuova sezione Clienti riunisce ricerca, filtri di verifica e riepilogo delle anagrafiche collegate a Shopify ed eBay, senza esporre identificativi fiscali nell’elenco.
