@@ -233,6 +233,9 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(caddy, /fatture\.opik\.net/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /docker\/setup-buildx-action@[0-9a-f]{40} # v4\./);
+  assert.match(workflow, /docker\/login-action@[0-9a-f]{40} # v4\./);
+  assert.match(workflow, /docker\/build-push-action@[0-9a-f]{40} # v7\./);
   assert.match(workflow, /git checkout --detach "\$CANDIDATE"/);
   assert.match(workflow, /ref: \$\{\{ needs\.image\.outputs\.commit \}\}/);
   assert.match(workflow, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);

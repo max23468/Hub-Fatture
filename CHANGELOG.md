@@ -6,6 +6,7 @@
 - Stato dei collegamenti reso esplicito anche quando non esistono ancora aggiornamenti o il dato è obsoleto, senza dichiarare esiti positivi non osservati.
 - Documenti emessi accompagnati dall’andamento reale degli ultimi sette giorni, con resa coerente anche nello stato vuoto.
 - Layout della Dashboard verificato su desktop, mobile, tema chiaro e tema scuro.
+- Workflow Production aggiornato alle ultime Action Docker su Node 24, mantenendo i riferimenti fissati a SHA completi.
 
 ## 0.1.1
 
