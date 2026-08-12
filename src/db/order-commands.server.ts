@@ -125,6 +125,16 @@ function sharesStreetNumber(left: unknown, right: unknown) {
   return leftNumbers.size > 0 && rightNumbers.some((number) => leftNumbers.has(number));
 }
 
+function postalCodeAppearsInAddress(postalCode: unknown, address: unknown) {
+  const normalizedPostalCode = normalizedIdentityPart(postalCode).replaceAll(" ", "");
+  const normalizedAddress = normalizedIdentityPart(address).replaceAll(" ", "");
+  return Boolean(
+    normalizedPostalCode &&
+    normalizedPostalCode !== "00000" &&
+    normalizedAddress.includes(normalizedPostalCode),
+  );
+}
+
 function hasSupportingAddressEvidence(
   customerAddress: Record<string, unknown>,
   recipientAddress: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"]["address"],
@@ -134,6 +144,8 @@ function hasSupportingAddressEvidence(
     sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city),
     sameNonEmptyIdentityPart(customerAddress.province, recipientAddress.province),
     sharesStreetNumber(customerAddress.line1, recipientAddress.line1),
+    postalCodeAppearsInAddress(customerAddress.postalCode, recipientAddress.line1) ||
+      postalCodeAppearsInAddress(recipientAddress.postalCode, customerAddress.line1),
   ];
   return matchingParts.filter(Boolean).length >= 2;
 }

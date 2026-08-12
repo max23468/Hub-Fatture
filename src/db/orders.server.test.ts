@@ -2210,9 +2210,13 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     const historicalPaymentInvoice = Buffer.from(
       ebayInvoiceWithoutReference
         .toString()
-        .replace("<Indirizzo>Via Cliente 2</Indirizzo>", "<Indirizzo>Corso Altrove 2</Indirizzo>")
-        .replace("<CAP>00100</CAP>", "<CAP>10100</CAP>")
+        .replace(
+          "<Indirizzo>Via Cliente 2</Indirizzo>",
+          "<Indirizzo>00100 Corso Altrove 2</Indirizzo>",
+        )
+        .replace("<CAP>00100</CAP>", "<CAP>00000</CAP>")
         .replace("<Comune>Roma</Comune>", "<Comune>Torino</Comune>")
+        .replace("<Provincia>RM</Provincia>", "<Provincia>TO</Provincia>")
         .replace(
           "<ModalitaPagamento>MP08</ModalitaPagamento>",
           "<ModalitaPagamento>MP05</ModalitaPagamento>",
@@ -2222,7 +2226,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ebayWithoutReferenceId,
       {
         outcome: "ALREADY_INVOICED",
-        reference: "Documento Aruba univoco: nome, civico, provincia, data e totale verificati",
+        reference: "Documento Aruba univoco: nome, civico, CAP nell'indirizzo, data e totale",
         invoiceXml: historicalPaymentInvoice,
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-without-reference" },
