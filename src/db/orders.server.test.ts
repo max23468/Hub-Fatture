@@ -1742,6 +1742,34 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         historical: "true",
       },
     );
+    alreadyInvoiced.updatedAt = "2026-08-19T10:30:00Z";
+    alreadyInvoiced.refunds = [
+      {
+        externalRefundId: "historical-invoiced-total-refund",
+        status: "COMPLETED",
+        amount: alreadyInvoiced.total,
+        completedAt: "2026-08-19T10:30:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([alreadyInvoiced], {
+      id: 1,
+      requestId: "test-refund-reimported-historical-invoiced",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT trigger_status, billing_case_id, historical_reconciliation_outcome
+           FROM orders WHERE id = $1`,
+          [alreadyInvoicedId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "INVOICED",
+        billing_case_id: null,
+        historical_reconciliation_outcome: "ALREADY_INVOICED",
+      },
+    );
     await assert.rejects(
       orders.forcePrepareOrder(alreadyInvoicedId, {
         id: 1,

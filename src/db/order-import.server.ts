@@ -821,7 +821,7 @@ async function importOne(
   if (
     !historicalReconciliationPending &&
     !effectiveBillingCaseId &&
-    (status === "ELIGIBLE" || refundEffect.state === "TOTAL")
+    (status === "ELIGIBLE" || (status !== "INVOICED" && refundEffect.state === "TOTAL"))
   ) {
     effectiveBillingCaseId = await groupOrder(
       client,
