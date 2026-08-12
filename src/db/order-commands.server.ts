@@ -30,6 +30,7 @@ const historicalReconciliationSchema = z.object({
 });
 
 function fiscalContract(profile: FiscalProfile) {
+  const { phone: _phone, email: _email, ...seller } = profile.seller;
   const {
     lastObservedYear: _year,
     lastObservedNumber: _number,
@@ -37,7 +38,7 @@ function fiscalContract(profile: FiscalProfile) {
     approvedAt: _approvedAt,
     ...numbering
   } = profile.numbering;
-  return { ...profile, numbering };
+  return { ...profile, seller, numbering };
 }
 
 function hasOrderReference(references: string[], provider: string, displayNumber: string) {
@@ -234,7 +235,12 @@ export async function reconcileHistoricalOrder(
         historical_invoice_id: string | null;
         gross_amount: number;
         tax_identifiers: string[];
-        refunds: Array<{ status: string; amount: number | null }>;
+        refunds: Array<{
+          id: string;
+          status: string;
+          amount: number | null;
+          completed_date: string | null;
+        }>;
       }>(
         `SELECT orders.id, orders.customer_id, orders.provider, orders.display_number,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
@@ -255,7 +261,9 @@ export async function reconcileHistoricalOrder(
               ), '[]'::jsonb) AS tax_identifiers,
               coalesce((
                 SELECT jsonb_agg(jsonb_build_object(
-                  'status', refunds.status, 'amount', refunds.amount
+                  'id', refunds.id::text, 'status', refunds.status, 'amount', refunds.amount,
+                  'completed_date',
+                    (refunds.completed_at AT TIME ZONE 'Europe/Rome')::date::text
                 )) FROM refunds WHERE refunds.order_id = orders.id
               ), '[]'::jsonb) AS refunds
        FROM orders WHERE orders.id = $1 FOR UPDATE`,
@@ -281,15 +289,29 @@ export async function reconcileHistoricalOrder(
       );
       const refundEffect = preIssueRefund(current.gross_amount, current.refunds);
       const historicalInvoiceTotal = importedInvoice?.totalAmount;
-      const refundsAppliedBeforeIssue =
-        parsed.data.outcome === "ALREADY_INVOICED" &&
-        refundEffect.state !== "NEEDS_REVIEW" &&
-        historicalInvoiceTotal === refundEffect.billableAmount &&
-        historicalInvoiceTotal !== current.gross_amount;
+      const historicalInvoiceDate = importedInvoice?.documentDate;
+      const completedHistoricalRefunds = current.refunds.filter(
+        (refund) => refund.status === "COMPLETED",
+      );
+      const preIssueHistoricalRefunds = completedHistoricalRefunds.filter(
+        (refund) => refund.completed_date! < historicalInvoiceDate!,
+      );
+      const historicalRefundsNeedReview = current.refunds.some(
+        (refund) =>
+          refund.status === "AMBIGUOUS" ||
+          (refund.status === "COMPLETED" &&
+            (refund.amount === null ||
+              !refund.completed_date ||
+              refund.completed_date === historicalInvoiceDate)),
+      );
+      const expectedHistoricalInvoiceTotal =
+        current.gross_amount -
+        preIssueHistoricalRefunds.reduce((sum, refund) => sum + refund.amount!, 0);
       if (
         parsed.data.outcome === "ALREADY_INVOICED" &&
-        (refundEffect.state === "NEEDS_REVIEW" ||
-          (historicalInvoiceTotal !== current.gross_amount && !refundsAppliedBeforeIssue))
+        (historicalRefundsNeedReview ||
+          expectedHistoricalInvoiceTotal < 0 ||
+          historicalInvoiceTotal !== expectedHistoricalInvoiceTotal)
       ) {
         throw new AppError("ORDER_HISTORY_INVOICE_INVALID", 422);
       }
@@ -420,11 +442,12 @@ export async function reconcileHistoricalOrder(
        WHERE id = $1`,
         [id, nextStatus, parsed.data.outcome, parsed.data.reference],
       );
-      if (parsed.data.outcome === "ALREADY_INVOICED" && !refundsAppliedBeforeIssue) {
+      if (parsed.data.outcome === "ALREADY_INVOICED") {
         await client.query(
-          `UPDATE refunds SET applied_before_issue = false, updated_at = now()
-         WHERE order_id = $1 AND applied_before_issue`,
-          [id],
+          `UPDATE refunds
+           SET applied_before_issue = (id::text = ANY($2::text[])), updated_at = now()
+           WHERE order_id = $1 AND status = 'COMPLETED'`,
+          [id, preIssueHistoricalRefunds.map((refund) => refund.id)],
         );
         await client.query(
           `INSERT INTO jobs (type, payload_json)

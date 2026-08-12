@@ -136,7 +136,7 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   const supplierVat = xmlRecord(supplierData.IdFiscaleIVA);
   const supplierName = xmlRecord(supplierData.Anagrafica);
   const supplierAddress = xmlRecord(supplier.Sede);
-  const contacts = xmlRecord(supplier.Contatti);
+  const contacts = supplier.Contatti ? xmlRecord(supplier.Contatti) : {};
   const goods = xmlRecord(body.DatiBeniServizi);
   const summary = xmlRecord(goods.DatiRiepilogo);
   const payment = acceptedPayment(body);

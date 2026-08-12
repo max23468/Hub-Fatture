@@ -1733,7 +1733,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         externalRefundId: "historical-invoiced-existing-refund",
         status: "COMPLETED",
         amount: "10.00",
-        completedAt: "2026-08-19T09:45:00Z",
+        completedAt: "2026-08-20T09:45:00Z",
         raw: {},
       },
     ];
@@ -1757,6 +1757,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
         .replace("FPR 0001/26", "FPR 0010/26")
         .replace("#1001", "#S-1001")
+        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
         .replaceAll("123.45", "122.00"),
     );
     await database.getPool().query(
@@ -1866,7 +1867,14 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         externalRefundId: "historical-net-invoice-refund",
         status: "COMPLETED",
         amount: "10.00",
-        completedAt: "2026-08-19T09:40:00Z",
+        completedAt: "2026-08-18T09:40:00Z",
+        raw: {},
+      },
+      {
+        externalRefundId: "historical-net-invoice-post-refund",
+        status: "COMPLETED",
+        amount: "5.00",
+        completedAt: "2026-08-20T09:40:00Z",
         raw: {},
       },
     ];
@@ -1890,7 +1898,9 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
             .replace("FPR 0001/26", "FPR 0011/26")
             .replace("#1001", netHistorical.displayNumber)
-            .replaceAll("123.45", "112.00"),
+            .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+            .replaceAll("123.45", "112.00")
+            .replace(/\s*<Contatti>[\s\S]*?<\/Contatti>/, ""),
         ),
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-historical-net-invoice" },
@@ -1898,16 +1908,32 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     assert.deepEqual(
       (
         await database.getPool().query(
-          `SELECT refunds.applied_before_issue, document_orders.amount,
+          `SELECT refunds.external_refund_id, refunds.applied_before_issue,
+                  document_orders.amount,
                   (SELECT count(*)::int FROM jobs
                    WHERE type = 'process_refund'
                      AND payload_json ->> 'refundId' = refunds.id::text) AS jobs
            FROM refunds
            JOIN document_orders ON document_orders.order_id = refunds.order_id
-           WHERE refunds.external_refund_id = 'historical-net-invoice-refund'`,
+           WHERE refunds.external_refund_id IN
+             ('historical-net-invoice-refund', 'historical-net-invoice-post-refund')
+           ORDER BY refunds.external_refund_id`,
         )
-      ).rows[0],
-      { applied_before_issue: true, amount: 11200, jobs: 0 },
+      ).rows,
+      [
+        {
+          external_refund_id: "historical-net-invoice-post-refund",
+          applied_before_issue: false,
+          amount: 11200,
+          jobs: 1,
+        },
+        {
+          external_refund_id: "historical-net-invoice-refund",
+          applied_before_issue: true,
+          amount: 11200,
+          jobs: 0,
+        },
+      ],
     );
     alreadyInvoiced.updatedAt = "2026-08-19T10:00:00Z";
     alreadyInvoiced.historical = false;
