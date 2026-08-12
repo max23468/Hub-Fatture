@@ -120,6 +120,8 @@ export default function Home() {
       label: "Shopify",
       value: summary.last_shopify_sync,
       connected: summary.shopify_connection_status === "CONNECTED",
+      requiresUpdate:
+        summary.shopify_connection_status !== "CONNECTED" || !summary.last_shopify_sync,
       never: copy.dashboard.neverUpdated,
       to: "/impostazioni#connessioni",
       icon: ShoppingCart,
@@ -128,6 +130,7 @@ export default function Home() {
       label: "eBay",
       value: summary.last_ebay_sync,
       connected: summary.ebay_connection_status === "CONNECTED",
+      requiresUpdate: summary.ebay_connection_status !== "CONNECTED" || !summary.last_ebay_sync,
       never: copy.dashboard.neverUpdated,
       to: "/impostazioni#connessioni",
       icon: Tag,
@@ -136,6 +139,7 @@ export default function Home() {
       label: "Aruba",
       value: summary.last_aruba_readback,
       connected: true,
+      requiresUpdate: Number(summary.open_aruba_batches) > 0,
       never: copy.dashboard.neverRead,
       to: "/impostazioni#aruba-helper",
       icon: Cloud,
@@ -151,9 +155,7 @@ export default function Home() {
   });
 
   const incidentCount = incidents.reduce((total, incident) => total + incident.value, 0);
-  const hasMissingUpdates = connections.some(
-    (connection) => !connection.value || !connection.connected,
-  );
+  const hasMissingUpdates = connections.some((connection) => connection.requiresUpdate);
   const status = incidentCount
     ? {
         label: copy.dashboard.attentionNeeded,

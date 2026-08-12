@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Lo stato operativo non segnala più aggiornamenti Aruba da completare quando il primo readback non è ancora necessario; l’avviso resta vincolato alla presenza di un batch aperto.
+
 ## 0.2.3
 
 - Manifest della release allegato con il nome canonico `release-manifest.json`, senza modifiche al comportamento applicativo.
