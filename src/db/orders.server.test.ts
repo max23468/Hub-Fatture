@@ -1764,6 +1764,208 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
        VALUES (1, 'MOCK', $1)`,
       [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
     );
+    const ebayWithoutReference = structuredClone(fixture[1]);
+    ebayWithoutReference.externalOrderId = "ebay-order-historical-without-reference";
+    ebayWithoutReference.externalCustomerId = "ebay-customer-historical-without-reference";
+    ebayWithoutReference.displayNumber = "26-12345-67890";
+    ebayWithoutReference.customer.taxIdentifiers = [];
+    ebayWithoutReference.customer.billingAddress = {
+      line1: "Via Cliente 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    ebayWithoutReference.historical = true;
+    ebayWithoutReference.createdAt = "2026-08-18T08:00:00Z";
+    ebayWithoutReference.updatedAt = "2026-08-18T09:00:00Z";
+    ebayWithoutReference.refunds = [];
+    ebayWithoutReference.payments[0].externalPaymentId =
+      "ebay-payment-historical-without-reference";
+    ebayWithoutReference.lines[0].externalLineId = "ebay-line-historical-without-reference";
+    const indistinguishableEbay = structuredClone(ebayWithoutReference);
+    indistinguishableEbay.externalOrderId = "ebay-order-historical-indistinguishable";
+    indistinguishableEbay.displayNumber = "26-12345-67891";
+    indistinguishableEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-indistinguishable";
+    indistinguishableEbay.lines[0].externalLineId = "ebay-line-historical-indistinguishable";
+    await orders.importOrders([ebayWithoutReference, indistinguishableEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-without-reference",
+    });
+    const ebayWithoutReferenceIds = (
+      await database.getPool().query<{ id: string; external_order_id: string }>(
+        `SELECT id, external_order_id FROM orders
+         WHERE external_order_id IN ($1, $2) ORDER BY external_order_id`,
+        [ebayWithoutReference.externalOrderId, indistinguishableEbay.externalOrderId],
+      )
+    ).rows;
+    const ebayWithoutReferenceId = ebayWithoutReferenceIds.find(
+      (order) => order.external_order_id === ebayWithoutReference.externalOrderId,
+    )!.id;
+    const indistinguishableEbayId = ebayWithoutReferenceIds.find(
+      (order) => order.external_order_id === indistinguishableEbay.externalOrderId,
+    )!.id;
+    const ebayInvoiceWithoutReference = Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 0020/26")
+        .replace("Vendita beni usati - Ordine Shopify #1001", "Vendita beni usati")
+        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replaceAll("123.45", "75.00"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        ebayWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba senza riferimento eBay ma con due ordini compatibili",
+          invoiceXml: ebayInvoiceWithoutReference,
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-ambiguous" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      indistinguishableEbayId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ordine duplicato di prova escluso dopo verifica Aruba",
+      },
+      { id: 1, canApprove: true, requestId: "test-clear-indistinguishable-ebay-history" },
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        ebayWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba senza riferimento eBay con destinatario diverso",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("<Nome>Mario</Nome>", "<Nome>Luigi</Nome>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-wrong-recipient" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        ebayWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba senza riferimento eBay con importo diverso",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference.toString().replaceAll("75.00", "74.00"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-wrong-amount" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      ebayWithoutReferenceId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba senza riferimento eBay con prova univoca completa",
+        invoiceXml: ebayInvoiceWithoutReference,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-without-reference" },
+    );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT count(*)::int AS count
+           FROM document_orders
+           JOIN documents ON documents.id = document_orders.document_id
+           WHERE document_orders.order_id = $1 AND documents.origin = 'ARUBA_HISTORY'`,
+          [ebayWithoutReferenceId],
+        )
+      ).rows[0].count,
+      1,
+    );
+    const reusedEbayInvoice = structuredClone(ebayWithoutReference);
+    reusedEbayInvoice.externalOrderId = "ebay-order-historical-reused-document";
+    reusedEbayInvoice.displayNumber = "26-12345-67892";
+    reusedEbayInvoice.updatedAt = "2026-08-18T09:30:00Z";
+    reusedEbayInvoice.payments[0].externalPaymentId = "ebay-payment-historical-reused-document";
+    reusedEbayInvoice.lines[0].externalLineId = "ebay-line-historical-reused-document";
+    await orders.importOrders([reusedEbayInvoice], {
+      id: 1,
+      requestId: "test-import-ebay-history-reused-document",
+    });
+    const reusedEbayInvoiceId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          reusedEbayInvoice.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reusedEbayInvoiceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Lo stesso documento Aruba non può essere riutilizzato senza riferimento",
+          invoiceXml: ebayInvoiceWithoutReference,
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-reused-document" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      reusedEbayInvoiceId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ordine di prova escluso dopo il controllo sul documento già collegato",
+      },
+      { id: 1, canApprove: true, requestId: "test-clear-ebay-history-reused-document" },
+    );
+    const ambiguousRefundEbay = structuredClone(ebayWithoutReference);
+    ambiguousRefundEbay.externalOrderId = "ebay-order-historical-ambiguous-refund";
+    ambiguousRefundEbay.displayNumber = "26-12345-67893";
+    ambiguousRefundEbay.updatedAt = "2026-08-18T09:45:00Z";
+    ambiguousRefundEbay.payments[0].externalPaymentId = "ebay-payment-historical-ambiguous-refund";
+    ambiguousRefundEbay.lines[0].externalLineId = "ebay-line-historical-ambiguous-refund";
+    ambiguousRefundEbay.refunds = [
+      {
+        externalRefundId: "ebay-refund-historical-ambiguous",
+        status: "AMBIGUOUS",
+        amount: null,
+        completedAt: "2026-08-18T09:40:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([ambiguousRefundEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-ambiguous-refund",
+    });
+    const ambiguousRefundEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          ambiguousRefundEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        ambiguousRefundEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Il rimborso ambiguo impedisce il fallback senza riferimento eBay",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference.toString().replace("FPR 0020/26", "FPR 0021/26"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-ambiguous-refund" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     const historicalInvoiceXml = Buffer.from(
       (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
         .replace("FPR 0001/26", "FPR 0010/26")
@@ -2259,7 +2461,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "6",
+      "9",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 
+import type pg from "pg";
 import { AppError } from "../errors.ts";
 import { z } from "zod";
 import { validateUntrustedXml } from "../aruba.ts";
@@ -59,6 +60,12 @@ function hasOrderReference(references: string[], provider: string, displayNumber
     }
     return false;
   });
+}
+
+function hasMarketplaceMarker(references: string[]) {
+  return references.some((reference) =>
+    /(^|[^\p{L}\p{N}])(ebay|shopify)(?=$|[^\p{L}\p{N}])/iu.test(reference),
+  );
 }
 
 function attributedInvoiceAmount(
@@ -129,6 +136,115 @@ function taxIdentifierKey(identifier: {
       : "")
   ).toUpperCase();
   return JSON.stringify([identifier.type, countryCode, value]);
+}
+
+type ImportedHistoricalInvoice = ReturnType<typeof acceptedInvoiceFromXml>;
+
+interface HistoricalInvoiceCandidate {
+  id: string;
+  customer_snapshot: Record<string, unknown>;
+  local_order_date: string;
+  gross_amount: number;
+  tax_identifiers: Array<{
+    type: string;
+    value: string;
+    countryCode: string | null;
+  }>;
+  refunds: Array<{
+    status: string;
+    amount: number | null;
+    completed_date: string | null;
+  }>;
+}
+
+function matchesHistoricalRecipient(
+  candidate: HistoricalInvoiceCandidate,
+  invoice: ImportedHistoricalInvoice,
+  invoiceTaxIdentifiers: Set<string>,
+) {
+  return candidate.tax_identifiers.length > 0
+    ? candidate.tax_identifiers.some((identifier) =>
+        invoiceTaxIdentifiers.has(taxIdentifierKey(identifier)),
+      )
+    : matchesRecipientWithoutTaxId(candidate.customer_snapshot, invoice.input.recipient);
+}
+
+function expectedHistoricalInvoiceAmount(
+  candidate: HistoricalInvoiceCandidate,
+  documentDate: string,
+) {
+  if (
+    candidate.refunds.some(
+      (refund) =>
+        refund.status === "AMBIGUOUS" ||
+        (refund.status === "COMPLETED" &&
+          (refund.amount === null ||
+            !refund.completed_date ||
+            refund.completed_date === documentDate)),
+    )
+  ) {
+    return null;
+  }
+  const amount =
+    candidate.gross_amount -
+    candidate.refunds
+      .filter((refund) => refund.status === "COMPLETED" && refund.completed_date! < documentDate)
+      .reduce((sum, refund) => sum + refund.amount!, 0);
+  return amount >= 0 ? amount : null;
+}
+
+async function uniquelyMatchesUnreferencedEbayInvoice(
+  client: pg.PoolClient,
+  currentId: string,
+  invoice: ImportedHistoricalInvoice,
+  invoiceTaxIdentifiers: Set<string>,
+) {
+  if (hasMarketplaceMarker(invoice.references)) return false;
+  const candidates = await client.query<HistoricalInvoiceCandidate>(
+    `SELECT orders.id,
+            orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
+            orders.local_order_date::text, orders.gross_amount,
+            coalesce((
+              SELECT jsonb_agg(jsonb_build_object(
+                'type', order_tax_identifiers.type,
+                'value', order_tax_identifiers.normalized_value,
+                'countryCode', order_tax_identifiers.country_code
+              ))
+              FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id
+            ), '[]'::jsonb) AS tax_identifiers,
+            coalesce((
+              SELECT jsonb_agg(jsonb_build_object(
+                'status', refunds.status, 'amount', refunds.amount,
+                'completed_date', (refunds.completed_at AT TIME ZONE 'Europe/Rome')::date::text
+              )) FROM refunds WHERE refunds.order_id = orders.id
+            ), '[]'::jsonb) AS refunds
+     FROM orders
+     WHERE orders.provider = 'EBAY'
+       AND coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+       AND (
+         orders.id = $1
+         OR (orders.trigger_status = 'LEGACY_BILLING_REVIEW'
+           AND orders.historical_reconciliation_outcome IS NULL
+           AND orders.historical_reconciled_at IS NULL)
+         OR (orders.historical_reconciliation_outcome = 'ALREADY_INVOICED'
+           AND NOT EXISTS (
+             SELECT 1 FROM document_orders
+             JOIN documents ON documents.id = document_orders.document_id
+             WHERE document_orders.order_id = orders.id
+               AND document_orders.document_kind = 'INVOICE'
+               AND documents.origin = 'ARUBA_HISTORY'
+           ))
+       )
+     FOR UPDATE OF orders`,
+    [currentId],
+  );
+  const matches = candidates.rows.filter(
+    (candidate) =>
+      invoice.documentDate >= candidate.local_order_date &&
+      expectedHistoricalInvoiceAmount(candidate, invoice.documentDate) === invoice.totalAmount &&
+      matchesHistoricalRecipient(candidate, invoice, invoiceTaxIdentifiers),
+  );
+  return matches.length === 1 && matches[0]!.id === currentId;
 }
 
 export async function getDraftTrigger() {
@@ -358,8 +474,21 @@ export async function reconcileHistoricalOrder(
         "SELECT value_json FROM settings WHERE key = 'draft_trigger' FOR SHARE",
       );
       const refundEffect = preIssueRefund(current.gross_amount, current.refunds);
+      const hasExplicitHistoricalOrderReference = importedInvoice
+        ? hasOrderReference(importedInvoice.references, current.provider, current.display_number)
+        : false;
+      const usesUnreferencedEbayFallback = Boolean(
+        importedInvoice &&
+        current.provider === "EBAY" &&
+        !hasExplicitHistoricalOrderReference &&
+        !hasMarketplaceMarker(importedInvoice.references),
+      );
       const historicalInvoiceAmount = importedInvoice
-        ? attributedInvoiceAmount(importedInvoice, current.provider, current.display_number)
+        ? hasExplicitHistoricalOrderReference
+          ? attributedInvoiceAmount(importedInvoice, current.provider, current.display_number)
+          : usesUnreferencedEbayFallback
+            ? importedInvoice.totalAmount
+            : null
         : null;
       const historicalInvoiceDate = importedInvoice?.documentDate;
       const completedHistoricalRefunds = current.refunds.filter(
@@ -408,25 +537,23 @@ export async function reconcileHistoricalOrder(
           "SELECT version, profile_json FROM fiscal_profiles WHERE status IN ('MOCK', 'AUDITED')",
         );
         const profile = fiscalProfileSchema.safeParse(activeProfile.rows[0]?.profile_json);
+        const unreferencedEbayMatch =
+          importedInvoice && usesUnreferencedEbayFallback
+            ? await uniquelyMatchesUnreferencedEbayInvoice(
+                client,
+                current.id,
+                importedInvoice,
+                importedTaxIdentifiers,
+              )
+            : false;
         if (
           !profile.success ||
           !importedInvoice ||
           !archivedInvoice ||
           !invoicePath ||
           importedInvoice.documentDate < current.local_order_date ||
-          !hasOrderReference(
-            importedInvoice.references,
-            current.provider,
-            current.display_number,
-          ) ||
-          (current.tax_identifiers.length > 0
-            ? !current.tax_identifiers.some((identifier) =>
-                importedTaxIdentifiers.has(taxIdentifierKey(identifier)),
-              )
-            : !matchesRecipientWithoutTaxId(
-                current.customer_snapshot,
-                importedInvoice.input.recipient,
-              )) ||
+          (!hasExplicitHistoricalOrderReference && !unreferencedEbayMatch) ||
+          !matchesHistoricalRecipient(current, importedInvoice, importedTaxIdentifiers) ||
           JSON.stringify(fiscalContract(profile.data)) !==
             JSON.stringify(fiscalContract(importedInvoice.profile))
         ) {
@@ -448,6 +575,17 @@ export async function reconcileHistoricalOrder(
           (previous.origin !== "ARUBA_HISTORY" || previous.xml_sha256 !== archivedInvoice.sha256)
         ) {
           throw new AppError("ORDER_HISTORY_INVOICE_INVALID", 422);
+        }
+        if (previous && usesUnreferencedEbayFallback) {
+          const linkedOrders = await client.query(
+            `SELECT order_id FROM document_orders
+             WHERE document_id = $1 AND document_kind = 'INVOICE'
+             FOR UPDATE`,
+            [previous.id],
+          );
+          if (linkedOrders.rowCount) {
+            throw new AppError("ORDER_HISTORY_INVOICE_INVALID", 422);
+          }
         }
         invoiceDocumentId = previous?.id ?? null;
         if (!invoiceDocumentId) {
