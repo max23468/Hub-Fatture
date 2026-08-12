@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+- La nuova sezione Clienti riunisce ricerca, filtri di verifica e riepilogo delle anagrafiche collegate a Shopify ed eBay, senza esporre identificativi fiscali nell’elenco.
+- Il dettaglio cliente collega anagrafica corrente, fonti, ordini, preparazioni e documenti; il dato fiscale resta disponibile nella ricerca globale e nel dettaglio.
+- Sidebar desktop e navigazione mobile includono Clienti con layout responsivo e controlli di regressione contro colonne vuote o contenuti che sbordano dal pannello.
+
 ## 0.3.2
 
 - Le commissioni effettive sono sottratte dal totale fatturabile soltanto per transazioni Shopify Payments riuscite; PayPal, bonifici, metodi manuali ed eBay restano al lordo.
