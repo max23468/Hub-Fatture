@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.13
+
+- Dettaglio ordine e nota di credito TD04 adottano la stessa gerarchia visiva delle pagine operative, con dati principali, contesto e azioni separati.
+- Login, prima configurazione, pagina di errore e simulatore Aruba condividono componenti, spaziature e stati coerenti in tema chiaro e scuro fino a 320 px.
+- I pannelli Stato dell’ordine e Dati del cliente hanno la stessa altezza sulla griglia desktop; un controllo E2E protegge l’allineamento senza alterare il riflusso sui viewport più stretti.
+
 ## 0.3.12
 
 - La riconciliazione storica riconosce la stessa riga di indirizzo quando Aruba separa il civico in un campo strutturato.
