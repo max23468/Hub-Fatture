@@ -134,8 +134,7 @@ function sharesStreetName(left: unknown, right: unknown) {
     ),
   );
   return (
-    rightIdentityTokens.filter((token) => !/^\d/.test(token) && leftTokens.has(token)).length >=
-    2
+    rightIdentityTokens.filter((token) => !/^\d/.test(token) && leftTokens.has(token)).length >= 2
   );
 }
 
