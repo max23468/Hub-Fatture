@@ -226,6 +226,59 @@ function hasValidItalianVatChecksum(value: string) {
   return (10 - (total % 10)) % 10 === Number(digits[10]);
 }
 
+function hasValidItalianFiscalCodeChecksum(value: string) {
+  if (!/^[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]$/.test(value)) return false;
+  const oddValues: Record<string, number> = {
+    0: 1,
+    1: 0,
+    2: 5,
+    3: 7,
+    4: 9,
+    5: 13,
+    6: 15,
+    7: 17,
+    8: 19,
+    9: 21,
+    A: 1,
+    B: 0,
+    C: 5,
+    D: 7,
+    E: 9,
+    F: 13,
+    G: 15,
+    H: 17,
+    I: 19,
+    J: 21,
+    K: 2,
+    L: 4,
+    M: 18,
+    N: 20,
+    O: 11,
+    P: 3,
+    Q: 6,
+    R: 8,
+    S: 12,
+    T: 14,
+    U: 16,
+    V: 10,
+    W: 22,
+    X: 25,
+    Y: 24,
+    Z: 23,
+  };
+  let total = 0;
+  for (let index = 0; index < 15; index += 1) {
+    const character = value[index]!;
+    total +=
+      index % 2 === 0
+        ? oddValues[character]!
+        : /^\d$/.test(character)
+          ? Number(character)
+          : character.charCodeAt(0) - 65;
+  }
+  return String.fromCharCode(65 + (total % 26)) === value[15];
+}
+
 function fiscalIdentifierFromAddressLine(value: unknown, countryCode: string | undefined) {
   if (countryCode !== "IT") return null;
   const original = text(value)?.normalize("NFKC");
@@ -243,7 +296,10 @@ function fiscalIdentifierFromAddressLine(value: unknown, countryCode: string | u
   ];
   if (candidates.length !== 1) return null;
   const candidate = candidates[0]!;
-  if (candidate.type === "PARTITA_IVA" && !hasValidItalianVatChecksum(candidate.token)) {
+  if (
+    (candidate.type === "PARTITA_IVA" && !hasValidItalianVatChecksum(candidate.token)) ||
+    (candidate.type === "CODICE_FISCALE" && !hasValidItalianFiscalCodeChecksum(candidate.token))
+  ) {
     return null;
   }
   const start = candidate.match.index + candidate.match[0].indexOf(candidate.token);
@@ -529,7 +585,27 @@ export async function fetchShopifyOrder(orderId: string) {
   return mapShopifyOrder(result.data.order, result.connection.accountReference);
 }
 
-async function fetchOrdersSince(start: string) {
+const shopifySyncContinuationSchema = z.object({
+  kind: z.literal("SHOPIFY_ORDERS_PAGE"),
+  end: z.iso.datetime(),
+  after: z.string().min(1),
+});
+
+type ShopifySyncContinuation = z.infer<typeof shopifySyncContinuationSchema>;
+
+export function parseShopifySyncContinuation(value: string | null) {
+  if (!value) return null;
+  try {
+    return shopifySyncContinuationSchema.parse(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+async function fetchOrdersBatch(
+  start: string,
+  continuation: ShopifySyncContinuation | null = null,
+) {
   interface OrdersPage {
     orders: {
       nodes: unknown[];
@@ -537,7 +613,8 @@ async function fetchOrdersSince(start: string) {
     };
   }
   const orders: OrderInput[] = [];
-  let cursor: string | null = null;
+  const end = continuation?.end ?? new Date().toISOString();
+  let cursor: string | null = continuation?.after ?? null;
   let connectionReference: string | null = null;
   for (let page = 0; page < 20; page += 1) {
     const result: {
@@ -550,7 +627,7 @@ async function fetchOrdersSince(start: string) {
           pageInfo { hasNextPage endCursor }
         }
       }`,
-      { after: cursor, query: shopifyUpdatedAtQuery(start) },
+      { after: cursor, query: shopifyUpdatedAtQuery(start, end) },
     );
     const pageConnectionReference = result.connection.accountReference;
     if (connectionReference && connectionReference !== pageConnectionReference) {
@@ -561,31 +638,51 @@ async function fetchOrdersSince(start: string) {
     if (!pageData) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
     orders.push(...pageData.nodes.map((order) => mapShopifyOrder(order, pageConnectionReference)));
     if (!pageData.pageInfo.hasNextPage) {
-      return { accountReference: pageConnectionReference, orders };
+      return { accountReference: pageConnectionReference, end, orders, continuation: null };
     }
     cursor = pageData.pageInfo.endCursor;
     if (!cursor) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
-  throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+  return {
+    accountReference: connectionReference!,
+    end,
+    orders,
+    continuation: { kind: "SHOPIFY_ORDERS_PAGE" as const, end, after: cursor! },
+  };
 }
 
-export function shopifyUpdatedAtQuery(start: string) {
-  return `updated_at:>='${start}'`;
+async function fetchOrdersSince(start: string) {
+  const result = await fetchOrdersBatch(start);
+  if (result.continuation) throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+  return result;
+}
+
+export function shopifyUpdatedAtQuery(start: string, end?: string) {
+  return [`updated_at:>='${start}'`, end ? `updated_at:<='${end}'` : null]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export async function syncShopifyOrders(job?: ClaimedJob) {
   if (await historyImportPending("SHOPIFY")) throw new AppError("CONFLICT_REVISION", 409);
   const cursor = await readCursor("SHOPIFY");
   const start = cursor.overlapFrom ?? new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const end = new Date().toISOString();
-  const { orders } = await fetchOrdersSince(start);
+  const { end, orders, continuation } = await fetchOrdersBatch(
+    start,
+    parseShopifySyncContinuation(cursor.cursor),
+  );
   if (job && !(await jobLeaseCurrent(job))) throw new AppError("CONFLICT_REVISION", 409);
   if (orders.length) {
     await importOrders(orders, { type: "SYSTEM", requestId: `shopify-sync:${end}` }, job);
   }
-  await writeCursor("SHOPIFY", end, new Date(Date.parse(end) - OVERLAP_MS).toISOString(), job);
-  await markConnectionSynced("SHOPIFY", job);
-  return { count: orders.length, from: start, to: end };
+  await writeCursor(
+    "SHOPIFY",
+    continuation ? JSON.stringify(continuation) : end,
+    continuation ? start : new Date(Date.parse(end) - OVERLAP_MS).toISOString(),
+    job,
+  );
+  if (!continuation) await markConnectionSynced("SHOPIFY", job);
+  return { count: orders.length, from: start, to: end, hasMore: Boolean(continuation) };
 }
 
 async function shopifyHistory(value: unknown) {

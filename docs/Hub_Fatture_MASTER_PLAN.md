@@ -1988,7 +1988,9 @@ Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify ed eBay.
 Quando una correzione del mapper richiede di rileggere ordini già importati, una migrazione
 append-only riporta il cursore `orders` a poco prima dell'ordine più remoto interessato e
 rende la connessione immediatamente schedulabile. Il worker usa il normale import con upsert:
-un job già pendente o in esecuzione resta unico e il replay non duplica ordini.
+un job già pendente o in esecuzione resta unico e il replay non duplica ordini. Se il provider
+espone più risultati del limite per singolo job, il cursore conserva pagina e limite temporale
+del batch e il worker prosegue con job successivi prima di tornare alla finestra incrementale.
 
 ### 16.4 Registro errori e riconciliazione
 
