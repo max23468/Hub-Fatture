@@ -10,6 +10,7 @@ import { runHelper } from "../../scripts/aruba-helper.ts";
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
   "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
+const appBaseUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173";
 const storageRoot = path.resolve("storage/e2e-documents");
 
 async function expectPlainLanguage(page: Page) {
@@ -220,15 +221,21 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await connectionClient.connect();
   await connectionClient.query(
     `INSERT INTO connections
-       (provider, environment, account_reference, encrypted_credentials, status, created_at)
+       (provider, environment, account_reference, encrypted_credentials, status, created_at,
+        last_synced_at)
      VALUES
        ('SHOPIFY', 'DEVELOPMENT', 'shop.example.invalid', 'synthetic', 'CONNECTED',
-        '2026-08-01T10:00:00Z'),
+        '2026-08-01T10:00:00Z', now()),
        ('EBAY', 'SANDBOX', 'ebay-synthetic', 'synthetic', 'CONNECTED',
-        '2026-08-10T10:00:00Z')
+        '2026-08-10T10:00:00Z', now())
      ON CONFLICT (provider, environment) DO UPDATE SET
-       status = 'CONNECTED', created_at = EXCLUDED.created_at`,
+       status = 'CONNECTED', created_at = EXCLUDED.created_at,
+       last_synced_at = EXCLUDED.last_synced_at`,
   );
+  await page.goto("/");
+  const arubaConnection = page.locator(".connection").filter({ hasText: "Aruba" });
+  await expect(arubaConnection).toContainText("Mai letto");
+  await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toHaveCount(0);
   await page.getByRole("link", { name: "Impostazioni" }).click();
   await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveAttribute("type", "date");
   await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveValue("2026-07-25");
@@ -389,7 +396,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("button", { name: "Genera codice di avvio" }).click();
   const assistedToken = (await page.locator(".code-block").textContent())?.trim();
   expect(assistedToken).toHaveLength(43);
-  const assistedManifestResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/manifest", {
+  const assistedManifestResponse = await fetch(`${appBaseUrl}/api/aruba/helper/manifest`, {
     headers: { Authorization: `Bearer ${assistedToken}` },
   });
   expect(assistedManifestResponse.ok).toBe(true);
@@ -400,7 +407,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   try {
     expect(
       await runHelper({
-        hubUrl: "http://127.0.0.1:4173",
+        hubUrl: appBaseUrl,
         token: assistedToken!,
         profileDirectory: assistedProfile,
         browser: "chromium",
@@ -412,7 +419,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   } finally {
     await rm(assistedProfile, { recursive: true, force: true });
   }
-  const revokedResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/eventi", {
+  const revokedResponse = await fetch(`${appBaseUrl}/api/aruba/helper/eventi`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${assistedToken}`,
@@ -430,7 +437,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.reload();
   await page.getByRole("button", { name: "Genera codice di avvio" }).click();
   const readbackToken = (await page.locator(".code-block").textContent())?.trim();
-  const cleanupResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/eventi", {
+  const cleanupResponse = await fetch(`${appBaseUrl}/api/aruba/helper/eventi`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${readbackToken}`,
@@ -468,7 +475,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   try {
     expect(
       await runHelper({
-        hubUrl: "http://127.0.0.1:4173",
+        hubUrl: appBaseUrl,
         token: retryToken!,
         profileDirectory: retryProfile,
         browser: "chromium",
@@ -481,7 +488,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   }
 
   process.env.APP_ENV = "test";
-  process.env.APP_BASE_URL = "http://127.0.0.1:4173";
+  process.env.APP_BASE_URL = appBaseUrl;
   process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
   process.env.DATABASE_URL = databaseUrl;
   process.env.DOCUMENT_STORAGE_ROOT = storageRoot;
@@ -631,7 +638,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   try {
     expect(
       await runHelper({
-        hubUrl: "http://127.0.0.1:4173",
+        hubUrl: appBaseUrl,
         token: noteToken.token,
         profileDirectory: noteProfile,
         browser: "chromium",
@@ -734,7 +741,7 @@ test("le mutazioni senza origine valida non raggiungono l’azione", async ({ re
 });
 
 test("gli errori delle azioni restano codici stabili, non 500", async ({ request }) => {
-  const headers = { origin: "http://127.0.0.1:4173" };
+  const headers = { origin: appBaseUrl };
   expect((await request.post("/logout", { form: { csrf: "x" } })).status()).toBe(403);
   expect((await request.post("/login", { headers, data: { username: "Massimo" } })).status()).toBe(
     415,
@@ -758,7 +765,7 @@ test("le risposte dichiarano gli header di sicurezza minimi", async ({ request }
   expect(headers["cache-control"]).toBe("no-store, private");
 
   await request.post("/login", {
-    headers: { origin: "http://127.0.0.1:4173" },
+    headers: { origin: appBaseUrl },
     form: { username: "mAsSiMo", password: "password-massimo" },
   });
   const dataHeaders = (await request.get("/ordini.data")).headers();

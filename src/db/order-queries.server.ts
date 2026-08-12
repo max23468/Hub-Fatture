@@ -255,6 +255,7 @@ export async function dashboardSummary() {
     shopify_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
     ebay_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
     last_aruba_readback: string | null;
+    open_aruba_batches: string;
     documents_today: string;
     documents_this_month: string;
     documents_last_seven_days: Array<{ date: string; count: number }>;
@@ -296,6 +297,8 @@ export async function dashboardSummary() {
        (SELECT status FROM connections
         WHERE provider = 'EBAY' AND environment = $2) AS ebay_connection_status,
        (SELECT max(last_readback_at)::text FROM aruba_batches) AS last_aruba_readback,
+       (SELECT count(*) FROM aruba_batches
+        WHERE status NOT IN ('RECONCILED', 'CANCELLED'))::text AS open_aruba_batches,
        (SELECT count(*) FROM documents
         WHERE origin = 'HUB' AND approved_at AT TIME ZONE 'Europe/Rome' >=
           date_trunc('day', now() AT TIME ZONE 'Europe/Rome'))::text AS documents_today,
