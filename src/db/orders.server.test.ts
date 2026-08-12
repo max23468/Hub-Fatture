@@ -2833,6 +2833,104 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ).rows[0].payment_method,
       "MP01",
     );
+    const manuallyReviewedEbay = structuredClone(ebayWithoutReference);
+    manuallyReviewedEbay.externalOrderId = "ebay-order-historical-manual-review";
+    manuallyReviewedEbay.externalCustomerId = "ebay-customer-historical-manual-review";
+    manuallyReviewedEbay.displayNumber = "26-12345-67932";
+    manuallyReviewedEbay.customer.displayName = "Mario Rossi";
+    manuallyReviewedEbay.customer.taxIdentifiers = [
+      {
+        type: "CODICE_FISCALE",
+        value: "RSSMRA80A01H501C",
+        sourceField: "fixture.tax_identifier",
+      },
+    ];
+    manuallyReviewedEbay.total = "86.00";
+    manuallyReviewedEbay.lines[0].grossAmount = "86.00";
+    manuallyReviewedEbay.payments[0].amount = "86.00";
+    manuallyReviewedEbay.payments[0].externalPaymentId = "ebay-payment-historical-manual-review";
+    manuallyReviewedEbay.lines[0].externalLineId = "ebay-line-historical-manual-review";
+    await orders.importOrders([manuallyReviewedEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-manual-review",
+    });
+    const manuallyReviewedEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          manuallyReviewedEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const manuallyReviewedInvoice = Buffer.from(
+      ebayInvoiceWithoutReference
+        .toString()
+        .replace("FPR 0020/26", "FPR 0032/26")
+        .replaceAll("75.00", "86.00")
+        .replace("<Nome>Mario</Nome>", "<Nome>Mario Carlo</Nome>")
+        .replace(
+          "<Indirizzo>Via Cliente 2</Indirizzo>",
+          "<Indirizzo>Via Cliente</Indirizzo><NumeroCivico>2</NumeroCivico>",
+        ),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        manuallyReviewedEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0032/26 verificato manualmente",
+          invoiceXml: manuallyReviewedInvoice,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-unapproved-manual-review" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        manuallyReviewedEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0032/260 verificato manualmente",
+          invoiceXml: manuallyReviewedInvoice,
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-unidentified-manual-invoice" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      manuallyReviewedEbayId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0032/26 verificato manualmente",
+        invoiceXml: manuallyReviewedInvoice,
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-approve-manual-review" },
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.trigger_status, documents.origin,
+                  audit_events.after_json ->> 'manualReviewApproved' AS manual_review_approved
+           FROM orders
+           JOIN document_orders ON document_orders.order_id = orders.id
+             AND document_orders.document_kind = 'INVOICE'
+           JOIN documents ON documents.id = document_orders.document_id
+           JOIN audit_events ON audit_events.entity_type = 'ORDER'
+             AND audit_events.entity_id = orders.id::text
+             AND audit_events.action = 'ORDER_HISTORY_RECONCILED'
+           WHERE orders.id = $1`,
+          [manuallyReviewedEbayId],
+        )
+      ).rows[0],
+      {
+        trigger_status: "INVOICED",
+        origin: "ARUBA_HISTORY",
+        manual_review_approved: "true",
+      },
+    );
     const internalStreetKindEbay = structuredClone(ebayWithoutReference);
     internalStreetKindEbay.externalOrderId = "ebay-order-historical-internal-street-kind";
     internalStreetKindEbay.externalCustomerId = "ebay-customer-historical-internal-street-kind";
@@ -4269,7 +4367,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "22",
+      "23",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
