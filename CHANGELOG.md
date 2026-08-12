@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.8
+
+- Le fatture Aruba storiche conservano la modalità di pagamento effettiva `MP01`, `MP05` o `MP08`, purché usino l'unica condizione ammessa `TP02`.
+- Il confronto non confonde più il metodo documentale con il default `MP08` del profilo fiscale e continua a bloccare modalità mancanti, multiple o non supportate.
+
 ## 0.3.7
 
 - Gli XML Aruba storici Shopify senza riferimento esplicito possono essere collegati soltanto quando data, destinatario, totale fatturabile, profilo fiscale e unicità individuano lo stesso ordine.
