@@ -114,6 +114,29 @@ function sameTokenSet(left: unknown, right: unknown) {
   );
 }
 
+function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
+  const normalizedLeft = normalizedIdentityPart(left);
+  return Boolean(normalizedLeft && normalizedLeft === normalizedIdentityPart(right));
+}
+
+function sharesStreetNumber(left: unknown, right: unknown) {
+  const leftNumbers = new Set(normalizedIdentityPart(left).match(/\b\d+[a-z]?\b/g) ?? []);
+  const rightNumbers = normalizedIdentityPart(right).match(/\b\d+[a-z]?\b/g) ?? [];
+  return leftNumbers.size > 0 && rightNumbers.some((number) => leftNumbers.has(number));
+}
+
+function hasSupportingAddressEvidence(
+  customerAddress: Record<string, unknown>,
+  recipientAddress: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"]["address"],
+) {
+  return (
+    sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode) ||
+    sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city) ||
+    sameNonEmptyIdentityPart(customerAddress.province, recipientAddress.province) ||
+    sharesStreetNumber(customerAddress.line1, recipientAddress.line1)
+  );
+}
+
 function containedNameWithSharedStreetNumber(
   left: unknown,
   right: unknown,
@@ -128,11 +151,7 @@ function containedNameWithSharedStreetNumber(
       [...rightTokens].every((token) => leftTokens.has(token)));
   if (!contained) return false;
   const [customerAddress, recipientAddress] = addresses;
-  const customerNumbers = new Set(
-    normalizedIdentityPart(customerAddress).match(/\b\d+[a-z]?\b/g) ?? [],
-  );
-  const recipientNumbers = normalizedIdentityPart(recipientAddress).match(/\b\d+[a-z]?\b/g) ?? [];
-  return customerNumbers.size > 0 && recipientNumbers.some((number) => customerNumbers.has(number));
+  return sharesStreetNumber(customerAddress, recipientAddress);
 }
 
 function customerIdentityNames(customer: Record<string, unknown>) {
@@ -166,7 +185,8 @@ function matchesRecipientWithoutTaxId(
   if (!recipientName || !customerCountry || customerCountry !== recipientCountry) return false;
   return customerIdentityNames(customer).some(
     (customerName) =>
-      sameTokenSet(customerName, recipientName) ||
+      (sameTokenSet(customerName, recipientName) &&
+        hasSupportingAddressEvidence(billingAddress, recipient.address)) ||
       containedNameWithSharedStreetNumber(
         customerName,
         recipientName,

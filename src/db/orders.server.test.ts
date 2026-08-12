@@ -2265,20 +2265,37 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           reorderedNameEbay.externalOrderId,
         ])
     ).rows[0]!.id;
+    const reorderedNameInvoice = ebayInvoiceWithoutReference
+      .toString()
+      .replace("FPR 0020/26", "FPR 0022/26")
+      .replaceAll("75.00", "76.00")
+      .replace(
+        "<ModalitaPagamento>MP08</ModalitaPagamento>",
+        "<ModalitaPagamento>MP01</ModalitaPagamento>",
+      );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con omonimo nello stesso Paese ma indirizzo diverso",
+          invoiceXml: Buffer.from(reorderedNameInvoice),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-reordered-name-only" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       reorderedNameEbayId,
       {
         outcome: "ALREADY_INVOICED",
-        reference: "Documento Aruba univoco: stessi token nome, data e totale verificati",
+        reference: "Documento Aruba univoco: token nome e località verificati",
         invoiceXml: Buffer.from(
-          ebayInvoiceWithoutReference
-            .toString()
-            .replace("FPR 0020/26", "FPR 0022/26")
-            .replaceAll("75.00", "76.00")
-            .replace(
-              "<ModalitaPagamento>MP08</ModalitaPagamento>",
-              "<ModalitaPagamento>MP01</ModalitaPagamento>",
-            ),
+          reorderedNameInvoice
+            .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+            .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
         ),
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-reordered-name" },
