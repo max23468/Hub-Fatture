@@ -543,13 +543,16 @@ export function customerIdentity(input: CustomerContext): {
             (input.customer.firstName && input.customer.lastName),
           );
   const profileComplete = addressComplete && nameComplete;
-  const identifierOrder = ["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"];
+  const customerKind = input.customer.kind;
+  const identifierOrder =
+    customerKind === "BUSINESS_IT"
+      ? ["PARTITA_IVA", "CODICE_FISCALE", "ALTRO"]
+      : ["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"];
   const identifiers = canonicalTaxIdentifiers(input).sort(
     (left, right) =>
       identifierOrder.indexOf(left.type) - identifierOrder.indexOf(right.type) ||
       JSON.stringify(left).localeCompare(JSON.stringify(right)),
   );
-  const customerKind = input.customer.kind;
   for (const identifier of identifiers) {
     const italianIdentifier = isItalianTaxIdentifier(input, identifier);
     const needsCountry = identifier.type === "ALTRO" || !italianIdentifier;
@@ -561,7 +564,7 @@ export function customerIdentity(input: CustomerContext): {
         customerKind === "PRIVATE_IT"
           ? identifier.type === "CODICE_FISCALE"
           : customerKind === "BUSINESS_IT"
-            ? ["CODICE_FISCALE", "PARTITA_IVA"].includes(identifier.type)
+            ? identifier.type === "PARTITA_IVA"
             : customerKind === "EU";
       return {
         matchKey: `tax:${identifier.type}:${countryCode ?? ""}:${value}`,

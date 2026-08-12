@@ -73,6 +73,14 @@ function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function shopifyCompanyName(value: unknown): string | undefined {
+  const companyName = text(value);
+  if (!companyName) return undefined;
+  return companyName.normalize("NFKC").toLocaleLowerCase("it-IT").replace(/\s+/g, " ") === "privato"
+    ? undefined
+    : companyName;
+}
+
 function shopMoney(value: unknown) {
   const money = record(record(value).shopMoney);
   const amount = text(money.amount);
@@ -421,7 +429,7 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
   const shippingAddress = record(order.shippingAddress);
   const localizedFields = mapLocalizedFields(order);
   const countryCode = text(address.countryCodeV2);
-  const companyName = text(address.company);
+  const companyName = shopifyCompanyName(address.company);
   const lineItems = nodes(order.lineItems);
   const transactions = records(order.transactions).filter((transaction) =>
     ["SALE", "CAPTURE"].includes(text(transaction.kind) ?? ""),

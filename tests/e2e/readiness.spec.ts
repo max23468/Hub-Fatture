@@ -306,7 +306,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  await expect(page.getByText("021_fiscal_identifier_backfill.sql", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("022_shopify_recipient_reclassification.sql", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),

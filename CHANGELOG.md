@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.16
+
+- Gli ordini Shopify italiani con `privato` nel campo azienda vengono riconosciuti come privati senza perdere il valore originale nello snapshot sorgente.
+- Le aziende italiane richiedono una P.IVA valida: il solo codice fiscale resta acquisito ma porta l'anagrafica in revisione, mentre in presenza di entrambi gli identificativi prevale la P.IVA.
+- Dopo il deploy, gli ordini Shopify già importati vengono riletti automaticamente tramite il normale import idempotente; eBay e i documenti già emessi non vengono modificati.
+
 ## 0.3.15
 
 - La pagina Ordini adotta la stessa gerarchia visiva delle altre superfici operative, riunendo filtri, conteggio e risultati in pannelli coerenti con destinazioni e azioni sempre riconoscibili.
