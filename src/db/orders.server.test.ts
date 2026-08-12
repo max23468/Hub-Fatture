@@ -3002,6 +3002,241 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-exact-business-name" },
     );
+    const shortItalianStreetEbay = structuredClone(ebayWithoutReference);
+    shortItalianStreetEbay.externalOrderId = "ebay-order-historical-short-italian-street";
+    shortItalianStreetEbay.externalCustomerId = "ebay-customer-historical-short-italian-street";
+    shortItalianStreetEbay.displayNumber = "26-12345-67901";
+    shortItalianStreetEbay.customer.billingAddress = {
+      line1: "Via San Luca 10",
+      postalCode: "50100",
+      city: "Firenze",
+      province: "FI",
+      countryCode: "IT",
+    };
+    shortItalianStreetEbay.total = "79.00";
+    shortItalianStreetEbay.lines[0].grossAmount = "79.00";
+    shortItalianStreetEbay.payments[0].amount = "79.00";
+    shortItalianStreetEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-short-italian-street";
+    shortItalianStreetEbay.lines[0].externalLineId = "ebay-line-historical-short-italian-street";
+    await orders.importOrders([shortItalianStreetEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-short-italian-street",
+    });
+    const shortItalianStreetEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          shortItalianStreetEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const shortItalianStreetInvoice = Buffer.from(
+      ebayInvoiceWithoutReference
+        .toString()
+        .replace("FPR 0020/26", "FPR 0025/26")
+        .replaceAll("75.00", "79.00")
+        .replace(
+          "<Indirizzo>Via Cliente 2</Indirizzo>",
+          "<Indirizzo>Via Santo Luca</Indirizzo><NumeroCivico>10</NumeroCivico>",
+        )
+        .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+        .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+        .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shortItalianStreetEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con via breve ma civico differente",
+          invoiceXml: Buffer.from(
+            shortItalianStreetInvoice
+              .toString()
+              .replace("<NumeroCivico>10</NumeroCivico>", "<NumeroCivico>11</NumeroCivico>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-short-italian-wrong-number" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      shortItalianStreetEbayId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba univoco con via breve, civico, CAP e città coincidenti",
+        invoiceXml: shortItalianStreetInvoice,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-short-italian-street" },
+    );
+    const euPersonalEbay = structuredClone(ebayWithoutReference);
+    euPersonalEbay.externalOrderId = "ebay-order-historical-eu-personal";
+    euPersonalEbay.externalCustomerId = "ebay-customer-historical-eu-personal";
+    euPersonalEbay.displayNumber = "26-12345-67902";
+    euPersonalEbay.customer.kind = "EU";
+    delete euPersonalEbay.customer.firstName;
+    delete euPersonalEbay.customer.lastName;
+    delete euPersonalEbay.customer.companyName;
+    euPersonalEbay.customer.displayName = "Marie Claire Dupont";
+    euPersonalEbay.customer.canonicalProfile = { displayName: "Marie Claire Dupont" };
+    euPersonalEbay.customer.billingAddress = {
+      line1: "12 Rue Martin Fleurs",
+      postalCode: "75000",
+      city: "Paris",
+      province: "EE",
+      countryCode: "FR",
+    };
+    euPersonalEbay.total = "80.00";
+    euPersonalEbay.lines[0].grossAmount = "80.00";
+    euPersonalEbay.payments[0].amount = "80.00";
+    euPersonalEbay.payments[0].externalPaymentId = "ebay-payment-historical-eu-personal";
+    euPersonalEbay.lines[0].externalLineId = "ebay-line-historical-eu-personal";
+    const duplicateEuPersonalEbay = structuredClone(euPersonalEbay);
+    duplicateEuPersonalEbay.externalOrderId = "ebay-order-historical-eu-personal-duplicate";
+    duplicateEuPersonalEbay.externalCustomerId = "ebay-customer-historical-eu-personal-duplicate";
+    duplicateEuPersonalEbay.displayNumber = "26-12345-67903";
+    duplicateEuPersonalEbay.updatedAt = "2026-08-18T09:50:00Z";
+    duplicateEuPersonalEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-eu-personal-duplicate";
+    duplicateEuPersonalEbay.lines[0].externalLineId = "ebay-line-historical-eu-personal-duplicate";
+    await orders.importOrders([euPersonalEbay, duplicateEuPersonalEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-eu-personal",
+    });
+    const euPersonalIds = (
+      await database
+        .getPool()
+        .query<{ id: string; external_order_id: string }>(
+          `SELECT id, external_order_id FROM orders WHERE external_order_id IN ($1, $2)`,
+          [euPersonalEbay.externalOrderId, duplicateEuPersonalEbay.externalOrderId],
+        )
+    ).rows;
+    const euPersonalEbayId = euPersonalIds.find(
+      (order) => order.external_order_id === euPersonalEbay.externalOrderId,
+    )!.id;
+    const duplicateEuPersonalEbayId = euPersonalIds.find(
+      (order) => order.external_order_id === duplicateEuPersonalEbay.externalOrderId,
+    )!.id;
+    const euPersonalInvoice = Buffer.from(
+      ebayInvoiceWithoutReference
+        .toString()
+        .replace("FPR 0020/26", "FPR 0026/26")
+        .replaceAll("75.00", "80.00")
+        .replace("<Nome>Mario</Nome>", "<Nome>Marie</Nome>")
+        .replace("<Cognome>Rossi</Cognome>", "<Cognome>Dupont</Cognome>")
+        .replace(
+          "<Indirizzo>Via Cliente 2</Indirizzo>",
+          "<Indirizzo>Avenue Martin des Fleurs</Indirizzo><NumeroCivico>12</NumeroCivico>",
+        )
+        .replace("<CAP>00100</CAP>", "<CAP>00000</CAP>")
+        .replace("<Comune>Roma</Comune>", "<Comune>Lione</Comune>")
+        .replace(
+          "<Provincia>RM</Provincia>\n        <Nazione>IT</Nazione>",
+          "<Provincia>EE</Provincia>\n        <Nazione>FR</Nazione>",
+        ),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euPersonalEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba ambiguo fra due ordini UE equivalenti",
+          invoiceXml: euPersonalInvoice,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-duplicate-eu-personal" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      duplicateEuPersonalEbayId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ordine duplicato sintetico escluso dopo il controllo di unicità",
+      },
+      { id: 1, canApprove: true, requestId: "test-clear-duplicate-eu-personal" },
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euPersonalEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba UE con un solo token distintivo della strada",
+          invoiceXml: Buffer.from(
+            euPersonalInvoice.toString().replace("Avenue Martin des Fleurs", "Avenue des Fleurs"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-eu-one-street-token" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      euPersonalEbayId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference:
+          "Documento Aruba UE univoco con nome personale contenuto e due token della strada",
+        invoiceXml: euPersonalInvoice,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-eu-personal-subset" },
+    );
+    const euBusinessEbay = structuredClone(euPersonalEbay);
+    euBusinessEbay.externalOrderId = "ebay-order-historical-eu-business";
+    euBusinessEbay.externalCustomerId = "ebay-customer-historical-eu-business";
+    euBusinessEbay.displayNumber = "26-12345-67904";
+    euBusinessEbay.customer.companyName = "Atelier Bleu SARL";
+    euBusinessEbay.customer.displayName = "Atelier Bleu SARL";
+    euBusinessEbay.customer.canonicalProfile = {
+      companyName: "Atelier Bleu SARL",
+      displayName: "Atelier Bleu SARL",
+    };
+    euBusinessEbay.total = "81.00";
+    euBusinessEbay.lines[0].grossAmount = "81.00";
+    euBusinessEbay.payments[0].amount = "81.00";
+    euBusinessEbay.payments[0].externalPaymentId = "ebay-payment-historical-eu-business";
+    euBusinessEbay.lines[0].externalLineId = "ebay-line-historical-eu-business";
+    await orders.importOrders([euBusinessEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-eu-business",
+    });
+    const euBusinessEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          euBusinessEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euBusinessEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba UE con ragione sociale soltanto parziale",
+          invoiceXml: Buffer.from(
+            euPersonalInvoice
+              .toString()
+              .replace("FPR 0026/26", "FPR 0027/26")
+              .replaceAll("80.00", "81.00")
+              .replace(
+                "<Nome>Marie</Nome>\n          <Cognome>Dupont</Cognome>",
+                "<Denominazione>Atelier Bleu</Denominazione>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-partial-eu-business-name" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      euBusinessEbayId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ordine aziendale sintetico escluso dopo il controllo del nome parziale",
+      },
+      { id: 1, canApprove: true, requestId: "test-clear-partial-eu-business" },
+    );
     const reusedEbayInvoice = structuredClone(ebayWithoutReference);
     reusedEbayInvoice.externalOrderId = "ebay-order-historical-reused-document";
     reusedEbayInvoice.displayNumber = "26-12345-67892";
@@ -3599,7 +3834,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "14",
+      "18",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
