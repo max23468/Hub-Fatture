@@ -2845,7 +2845,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     reorderedBusinessEbay.externalOrderId = "ebay-order-historical-reordered-business";
     reorderedBusinessEbay.externalCustomerId = "ebay-customer-historical-reordered-business";
     reorderedBusinessEbay.displayNumber = "26-12345-67895";
-    reorderedBusinessEbay.customer.kind = "EU";
+    reorderedBusinessEbay.customer.kind = "BUSINESS_IT";
     reorderedBusinessEbay.customer.companyName = "Alfa Beta Srl";
     reorderedBusinessEbay.customer.displayName = "Alfa Beta Srl";
     reorderedBusinessEbay.customer.billingAddress.line1 = "Via Papa Pio X 10";

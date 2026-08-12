@@ -278,7 +278,7 @@ function matchesRecipientWithoutTaxId(
   const recipientName =
     recipientBusinessName ||
     normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
-  const customerKind = normalizedIdentityPart(customer.kind).toUpperCase();
+  const customerKind = typeof customer.kind === "string" ? customer.kind.trim().toUpperCase() : "";
   const hasCustomerBusinessName = customerIdentityNames(customer, true).length > 0;
   const customerIsBusiness =
     customerKind === "BUSINESS_IT" || (customerKind === "EU" && hasCustomerBusinessName);
