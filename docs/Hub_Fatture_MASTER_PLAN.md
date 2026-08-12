@@ -2194,10 +2194,10 @@ Due soli ambienti:
 
 | Ambiente | Uso | Dati e provider |
 |---|---|---|
-| Development (`dev`) | sviluppo, integrazione e collaudo | fixture, Shopify dev, eBay Sandbox, pagina Aruba sintetica locale, SMTP di test e PoC OCI Email Delivery con destinatario controllato |
+| Development (`dev`) | sviluppo, integrazione e collaudo | fixture e contract test Shopify senza app remota, eBay Sandbox, pagina Aruba sintetica locale, SMTP di test e PoC OCI Email Delivery con destinatario controllato |
 | Production (`prod`) | uso reale del titolare | database, storage e credenziali Shopify/eBay/SMTP/infrastruttura sulla VPS; sessione Aruba soltanto nel browser locale |
 
-Non creare uno staging permanente finché un bisogno osservato non giustifica il costo di un terzo database, storage e set di segreti. Development e Production devono avere configurazioni, credenziali dei provider applicabili, database e storage separati; Aruba fa eccezione perché HF non ne conserva credenziali o sessione. Il codice distribuito deriva dallo stesso commit verificato.
+Non creare uno staging permanente finché un bisogno osservato non giustifica il costo di un terzo database, storage e set di segreti. Development e Production devono avere configurazioni, credenziali dei provider applicabili, database e storage separati; Shopify non ha più un'app Development remota e in locale usa soltanto fixture e contract test, mentre Aruba fa eccezione perché HF non ne conserva credenziali o sessione. Il codice distribuito deriva dallo stesso commit verificato.
 
 Il GitHub Environment denominato `Production` è un gate di deploy, non un terzo ambiente applicativo. Deve:
 

@@ -1,6 +1,6 @@
 {
   "name": "hub-fatture",
-  "version": "0.3.23",
+  "version": "0.3.24",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,8 +14,6 @@
     "check:full": "npm run check:standard && npm run audit && npm run test:db && npm run test:provider && npm run doctor && npm run test:e2e",
     "db:migrate": "npm run build:server && node build-server/db/migrate.js",
     "dev": "react-router dev",
-    "dev:shopify": "sh scripts/development.sh shopify",
-    "dev:shopify:cli": "npm exec -- @shopify/cli app dev --no-color",
     "dev:up": "sh scripts/development.sh",
     "dev:worker": "node --watch src/worker.ts",
     "doctor": "react-doctor --scope full --blocking warning .",

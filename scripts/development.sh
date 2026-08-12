@@ -47,11 +47,3 @@ keychain_export "Hub Fatture Development eBay Account Reference" EBAY_ACCOUNT_RE
 
 cd "$project_root"
 docker compose up -d --build --wait app app-worker caddy
-
-if [ "${1:-}" = "shopify" ]; then
-  export APP_ENV="development"
-  export DATABASE_URL="postgres://hub_fatture:hub_fatture_local@127.0.0.1:5432/hub_fatture"
-  export EBAY_ENVIRONMENT="sandbox"
-  export SHOPIFY_SHOP="syncbay-dev.myshopify.com"
-  exec npm run dev:shopify:cli -- --path "$project_root"
-fi
