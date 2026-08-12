@@ -10,8 +10,10 @@ import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.ser
 import { failedConnectorJobs, retryFailedJob } from "../../src/db/connectors.server.ts";
 import { readForm } from "../../src/http.server.ts";
 import { listAuditHistory, listOpenActivities } from "../../src/db/orders.server.ts";
+import type { AuditHistorySortKey, OpenActivitySortKey } from "../../src/db/orders.server.ts";
 import { pageNumber } from "../../src/orders.ts";
 import { publicError } from "../../src/errors.ts";
+import { parseSort } from "../table-sort";
 
 const emptyPage = { rows: [], hasNext: false, total: 0 };
 
@@ -23,10 +25,29 @@ export async function loader({ request }: Route.LoaderArgs) {
   const query = url.searchParams.get("q") ?? "";
   const action = url.searchParams.get("azione") ?? "";
   const activityKind = url.searchParams.get("tipo") === "note-credito" ? "CREDIT_NOTE" : undefined;
+  const openSort = parseSort(
+    url.searchParams.get("gestisciOrdina"),
+    url.searchParams.get("gestisciDirezione"),
+    ["elemento", "cliente", "identificativo", "tipo", "data", "aggiornamento"] as const,
+    { key: "aggiornamento" as OpenActivitySortKey, direction: "desc" },
+  );
+  const historySort = parseSort(
+    url.searchParams.get("cronologiaOrdina"),
+    url.searchParams.get("cronologiaDirezione"),
+    ["attivita", "elemento", "autore", "quando"] as const,
+    { key: "quando" as AuditHistorySortKey, direction: "desc" },
+  );
   const [open, history, failedJobs] = await Promise.all([
-    view === "gestire" ? listOpenActivities(page, activityKind) : Promise.resolve(emptyPage),
+    view === "gestire"
+      ? listOpenActivities(page, activityKind, openSort)
+      : Promise.resolve(emptyPage),
     view === "cronologia"
-      ? listAuditHistory({ query: query || undefined, action: action || undefined, page })
+      ? listAuditHistory({
+          query: query || undefined,
+          action: action || undefined,
+          page,
+          sort: historySort,
+        })
       : Promise.resolve(emptyPage),
     view === "gestire" && !activityKind ? failedConnectorJobs() : Promise.resolve([]),
   ]);
@@ -39,6 +60,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     query,
     action,
     activityKind,
+    openSort,
+    historySort,
     open,
     history,
     failedJobs,
@@ -77,6 +100,8 @@ export default function Activity() {
     query,
     action,
     activityKind,
+    openSort,
+    historySort,
     open,
     history,
     failedJobs,
@@ -123,10 +148,20 @@ export default function Activity() {
               <Link to="/attivita">{copy.activity.clearFilters}</Link>
             </p>
           ) : null}
-          <ManageActivityView csrfToken={csrfToken} failedJobs={failedJobs} open={open} />
+          <ManageActivityView
+            csrfToken={csrfToken}
+            failedJobs={failedJobs}
+            open={open}
+            sort={openSort}
+          />
         </>
       ) : (
-        <ActivityHistoryView action={action} events={history.rows} query={query} />
+        <ActivityHistoryView
+          action={action}
+          events={history.rows}
+          query={query}
+          sort={historySort}
+        />
       )}
 
       <Pager

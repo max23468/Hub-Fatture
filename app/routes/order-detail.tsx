@@ -6,6 +6,7 @@ import type { Route } from "./+types/order-detail";
 import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
 import { DetailSectionHeader } from "../components/detail-section-header";
+import { SortableHeader, useSortableRows } from "../components/sortable-table";
 import {
   customerKindLabels,
   customerMatchLabels,
@@ -17,6 +18,7 @@ import {
   taxIdentifierLabels,
 } from "../copy.it";
 import { address, date, dateTime, euros } from "../format";
+import type { SortValue } from "../table-sort";
 import { ARUBA_UPLOAD_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
@@ -25,6 +27,13 @@ import {
   getOrder,
   reconcileHistoricalOrder,
 } from "../../src/db/orders.server.ts";
+
+type OrderLine = NonNullable<Awaited<ReturnType<typeof getOrder>>>["lines"][number];
+type OrderLineSortKey = "description" | "quantity" | "gross_amount" | "discount_amount";
+
+function orderLineValue(line: OrderLine, key: OrderLineSortKey): SortValue {
+  return line[key];
+}
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -171,6 +180,87 @@ function OrderStatusActions({
         </div>
       ) : null}
     </>
+  );
+}
+
+function OrderItemsPanel({ lines }: { lines: OrderLine[] }) {
+  const {
+    onSort: sortOrderLines,
+    rows: orderLines,
+    sort: orderLinesSort,
+  } = useSortableRows<OrderLine, OrderLineSortKey>(
+    lines,
+    { key: "description", direction: "asc" },
+    orderLineValue,
+  );
+
+  return (
+    <section className="dashboard-panel order-detail-panel order-items-panel section-gap">
+      <DetailSectionHeader
+        description={copy.orderDetail.purchasedItemsHelp}
+        icon={<ReceiptText size={22} strokeWidth={1.8} />}
+        title={copy.orderDetail.purchasedItems}
+      />
+      <div className="table-wrap">
+        <table className="data-table order-items-table">
+          <colgroup>
+            <col className="order-items-table__description" />
+            <col className="order-items-table__quantity" />
+            <col className="order-items-table__amount" />
+            <col className="order-items-table__discount" />
+          </colgroup>
+          <thead>
+            <tr>
+              <SortableHeader
+                label={copy.orderDetail.description}
+                onSort={sortOrderLines}
+                sort={orderLinesSort}
+                sortKey="description"
+              />
+              <SortableHeader
+                className="table-heading--numeric"
+                label={copy.orderDetail.quantity}
+                onSort={sortOrderLines}
+                sort={orderLinesSort}
+                sortKey="quantity"
+              />
+              <SortableHeader
+                className="table-heading--numeric"
+                label={copy.orderDetail.amount}
+                onSort={sortOrderLines}
+                sort={orderLinesSort}
+                sortKey="gross_amount"
+              />
+              <SortableHeader
+                className="table-heading--numeric"
+                label={copy.orderDetail.discount}
+                onSort={sortOrderLines}
+                sort={orderLinesSort}
+                sortKey="discount_amount"
+              />
+            </tr>
+          </thead>
+          <tbody>
+            {orderLines.map((line) => (
+              <tr key={line.id}>
+                <td data-label={copy.orderDetail.description} title={line.description}>
+                  <span className="table-cell__clamp">{line.description}</span>
+                </td>
+                <td className="table-cell--numeric" data-label={copy.orderDetail.quantity}>
+                  {line.quantity}
+                </td>
+                <td className="table-cell--numeric" data-label={copy.orderDetail.amount}>
+                  {euros(line.gross_amount)}
+                </td>
+                <td className="table-cell--numeric" data-label={copy.orderDetail.discount}>
+                  {euros(line.discount_amount)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -427,35 +517,7 @@ export default function OrderDetail() {
           ) : null}
         </section>
       </div>
-      <section className="dashboard-panel order-detail-panel order-items-panel section-gap">
-        <DetailSectionHeader
-          description={copy.orderDetail.purchasedItemsHelp}
-          icon={<ReceiptText size={22} strokeWidth={1.8} />}
-          title={copy.orderDetail.purchasedItems}
-        />
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>{copy.orderDetail.description}</th>
-                <th>{copy.orderDetail.quantity}</th>
-                <th>{copy.orderDetail.amount}</th>
-                <th>{copy.orderDetail.discount}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {order.lines.map((line) => (
-                <tr key={line.id}>
-                  <td data-label={copy.orderDetail.description}>{line.description}</td>
-                  <td data-label={copy.orderDetail.quantity}>{line.quantity}</td>
-                  <td data-label={copy.orderDetail.amount}>{euros(line.gross_amount)}</td>
-                  <td data-label={copy.orderDetail.discount}>{euros(line.discount_amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <OrderItemsPanel lines={order.lines} />
     </AppShell>
   );
 }

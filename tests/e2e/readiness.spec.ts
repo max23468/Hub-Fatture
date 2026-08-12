@@ -447,6 +447,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .locator("input, select, button")
     .evaluateAll((controls) => controls.map((control) => control.getBoundingClientRect().height));
   expect([...new Set(controlHeights)]).toEqual([44]);
+  const salesChannelSelect = page.getByLabel("Canale di vendita");
+  expect(
+    await salesChannelSelect.evaluate((select) => {
+      const style = getComputedStyle(select);
+      return {
+        appearance: style.appearance,
+        paddingRight: Number.parseFloat(style.paddingRight),
+      };
+    }),
+  ).toEqual({ appearance: "none", paddingRight: 44 });
   await expect(page.getByRole("heading", { name: "Elenco ordini" })).toBeVisible();
   const firstOrderRow = page.locator(".orders-table tbody tr").first();
   await expect(firstOrderRow).toBeVisible();
@@ -462,6 +472,12 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
         : 0;
     }),
   ).toBeGreaterThanOrEqual(12);
+  expect(
+    await firstOrderRow.evaluate((row) => {
+      const action = row.querySelector<HTMLElement>(".orders-table__action a");
+      return action ? action.scrollWidth <= action.clientWidth : false;
+    }),
+  ).toBe(true);
   expect(
     await firstOrderRow.evaluate((row) => {
       const detail = row.querySelector<HTMLAnchorElement>("td:first-child a");
@@ -698,7 +714,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "Non disponibile",
   );
   await page.setViewportSize({ width: 900, height: 800 });
-  await expect(page.locator(".activity-table thead")).toHaveCSS("position", "absolute");
+  await expect(page.locator(".activity-table thead")).toHaveCSS("position", "static");
   await expect(page.locator(".activity-table tbody tr").first()).toBeVisible();
   expect(
     await page.evaluate(
@@ -731,18 +747,38 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.locator(".activity-table thead")).toHaveCSS("position", "static");
   expect(
     await page
-      .locator(".activity-table tbody tr")
-      .first()
-      .evaluate((row) =>
-        Array.from(
-          row.querySelectorAll("td:not(:last-child) a, td:not(:last-child) strong, time"),
-        ).every(
-          (element) =>
-            getComputedStyle(element).whiteSpace === "nowrap" &&
-            element.getBoundingClientRect().height < 30,
+      .locator(".activity-table .table-sort-button span")
+      .evaluateAll((labels) =>
+        labels.every(
+          (label) =>
+            getComputedStyle(label).textOverflow === "clip" &&
+            label.scrollWidth <= label.clientWidth,
         ),
       ),
   ).toBe(true);
+  const firstActivityRow = page.locator(".activity-table tbody tr").first();
+  expect(
+    await firstActivityRow.evaluate((row) => {
+      const variableValues = row.querySelectorAll<HTMLElement>(
+        "td:first-child a, td:nth-child(2) strong, td:nth-child(4) strong",
+      );
+      const identifier = row.querySelector<HTMLElement>("td:nth-child(3) strong");
+      const action = row.querySelector<HTMLElement>(".activity-table__action a");
+      return {
+        actionFits: action ? action.scrollWidth <= action.clientWidth : false,
+        identifierFits: identifier ? identifier.scrollWidth <= identifier.clientWidth : false,
+        variableValuesUseAtMostTwoLines: Array.from(variableValues).every(
+          (value) =>
+            value.getBoundingClientRect().height <=
+            Number.parseFloat(getComputedStyle(value).lineHeight) * 2 + 1,
+        ),
+      };
+    }),
+  ).toEqual({
+    actionFits: true,
+    identifierFits: true,
+    variableValuesUseAtMostTwoLines: true,
+  });
   expect(
     await page
       .locator(".activity-table__action")

@@ -2,7 +2,18 @@ import { ArrowRight, CircleAlert, Clock3, RefreshCw, ShieldCheck } from "lucide-
 import { Form, Link } from "react-router";
 
 import { auditActionLabel, auditActionLabels, copy } from "../copy.it";
-import { compactDate, compactDateTime, dateTime } from "../format";
+import { compactDate, compactDateTime, dateTime, isoDateTime } from "../format";
+import { SortableHeaderLink } from "./sortable-table";
+import type { SortState } from "../table-sort";
+
+type OpenActivitySortKey =
+  | "elemento"
+  | "cliente"
+  | "identificativo"
+  | "tipo"
+  | "data"
+  | "aggiornamento";
+type AuditHistorySortKey = "attivita" | "elemento" | "autore" | "quando";
 
 interface OpenActivity {
   kind: string;
@@ -78,7 +89,13 @@ function ActivityOverview({ failedJobs, open }: { failedJobs: number; open: Open
   );
 }
 
-function ReviewActivitiesPanel({ open }: { open: OpenActivityPage }) {
+function ReviewActivitiesPanel({
+  open,
+  sort,
+}: {
+  open: OpenActivityPage;
+  sort: SortState<OpenActivitySortKey>;
+}) {
   if (!open.rows.length) return null;
   return (
     <section className="dashboard-panel activity-panel" aria-labelledby="activity-review-title">
@@ -93,7 +110,7 @@ function ReviewActivitiesPanel({ open }: { open: OpenActivityPage }) {
         <strong className="activity-panel__count">{open.total}</strong>
       </header>
       <div className="table-wrap activity-table-wrap">
-        <table className="activity-table">
+        <table className="activity-table data-table">
           <colgroup>
             <col className="activity-table__item-column" />
             <col className="activity-table__customer-column" />
@@ -105,12 +122,48 @@ function ReviewActivitiesPanel({ open }: { open: OpenActivityPage }) {
           </colgroup>
           <thead>
             <tr>
-              <th>{copy.activity.item}</th>
-              <th>{copy.activity.customer}</th>
-              <th>{copy.activity.taxIdentifier}</th>
-              <th>{copy.activity.channelOrType}</th>
-              <th>{copy.activity.orderDate}</th>
-              <th>{copy.activity.lastUpdated}</th>
+              <SortableHeaderLink
+                directionParam="gestisciDirezione"
+                keyParam="gestisciOrdina"
+                label={copy.activity.item}
+                sort={sort}
+                sortKey="elemento"
+              />
+              <SortableHeaderLink
+                directionParam="gestisciDirezione"
+                keyParam="gestisciOrdina"
+                label={copy.activity.customer}
+                sort={sort}
+                sortKey="cliente"
+              />
+              <SortableHeaderLink
+                directionParam="gestisciDirezione"
+                keyParam="gestisciOrdina"
+                label={copy.activity.taxIdentifier}
+                sort={sort}
+                sortKey="identificativo"
+              />
+              <SortableHeaderLink
+                directionParam="gestisciDirezione"
+                keyParam="gestisciOrdina"
+                label={copy.activity.channelOrType}
+                sort={sort}
+                sortKey="tipo"
+              />
+              <SortableHeaderLink
+                directionParam="gestisciDirezione"
+                keyParam="gestisciOrdina"
+                label={copy.activity.orderDate}
+                sort={sort}
+                sortKey="data"
+              />
+              <SortableHeaderLink
+                directionParam="gestisciDirezione"
+                keyParam="gestisciOrdina"
+                label={copy.activity.lastUpdated}
+                sort={sort}
+                sortKey="aggiornamento"
+              />
               <th>
                 <span className="activity-table__action-label">{copy.activity.actions}</span>
               </th>
@@ -160,7 +213,10 @@ function ReviewActivitiesPanel({ open }: { open: OpenActivityPage }) {
                     </strong>
                   </td>
                   <td data-label={copy.activity.taxIdentifier}>
-                    <strong className="activity-table__truncate">
+                    <strong
+                      className="activity-table__truncate"
+                      title={activity.customer_tax_id ?? copy.common.unavailable}
+                    >
                       {activity.customer_tax_id ?? copy.common.unavailable}
                     </strong>
                   </td>
@@ -181,7 +237,7 @@ function ReviewActivitiesPanel({ open }: { open: OpenActivityPage }) {
                     )}
                   </td>
                   <td data-label={copy.activity.lastUpdated}>
-                    <time dateTime={activity.created_at}>
+                    <time dateTime={isoDateTime(activity.created_at)}>
                       {compactDateTime(activity.created_at)}
                     </time>
                   </td>
@@ -233,7 +289,7 @@ function FailedJobsPanel({ csrfToken, jobs }: { csrfToken: string; jobs: FailedJ
               </span>
               <span>
                 <small>{copy.activity.failedAt}</small>
-                <time dateTime={job.createdAt}>{dateTime(job.createdAt)}</time>
+                <time dateTime={isoDateTime(job.createdAt)}>{dateTime(job.createdAt)}</time>
               </span>
             </span>
             <Form method="post">
@@ -277,17 +333,19 @@ export function ManageActivityView({
   csrfToken,
   failedJobs,
   open,
+  sort,
 }: {
   csrfToken: string;
   failedJobs: FailedJob[];
   open: OpenActivityPage;
+  sort: SortState<OpenActivitySortKey>;
 }) {
   if (!open.total && !failedJobs.length) return <ActivityEmpty />;
   return (
     <>
       <ActivityOverview failedJobs={failedJobs.length} open={open} />
       <div className="activity-stack">
-        <ReviewActivitiesPanel open={open} />
+        <ReviewActivitiesPanel open={open} sort={sort} />
         <FailedJobsPanel csrfToken={csrfToken} jobs={failedJobs} />
       </div>
     </>
@@ -330,10 +388,12 @@ export function ActivityHistoryView({
   action,
   events,
   query,
+  sort,
 }: {
   action: string;
   events: HistoryEvent[];
   query: string;
+  sort: SortState<AuditHistorySortKey>;
 }) {
   const hasFilters = Boolean(query || action);
   return (
@@ -388,13 +448,43 @@ export function ActivityHistoryView({
       </Form>
       {events.length ? (
         <div className="table-wrap table-wrap--history">
-          <table>
+          <table className="activity-history-table data-table">
+            <colgroup>
+              <col className="activity-history-table__activity" />
+              <col className="activity-history-table__subject" />
+              <col className="activity-history-table__author" />
+              <col className="activity-history-table__when" />
+            </colgroup>
             <thead>
               <tr>
-                <th>{copy.activity.activity}</th>
-                <th>{copy.activity.subject}</th>
-                <th>{copy.activity.author}</th>
-                <th>{copy.activity.when}</th>
+                <SortableHeaderLink
+                  directionParam="cronologiaDirezione"
+                  keyParam="cronologiaOrdina"
+                  label={copy.activity.activity}
+                  sort={sort}
+                  sortKey="attivita"
+                />
+                <SortableHeaderLink
+                  directionParam="cronologiaDirezione"
+                  keyParam="cronologiaOrdina"
+                  label={copy.activity.subject}
+                  sort={sort}
+                  sortKey="elemento"
+                />
+                <SortableHeaderLink
+                  directionParam="cronologiaDirezione"
+                  keyParam="cronologiaOrdina"
+                  label={copy.activity.author}
+                  sort={sort}
+                  sortKey="autore"
+                />
+                <SortableHeaderLink
+                  directionParam="cronologiaDirezione"
+                  keyParam="cronologiaOrdina"
+                  label={copy.activity.when}
+                  sort={sort}
+                  sortKey="quando"
+                />
               </tr>
             </thead>
             <tbody>
@@ -419,7 +509,9 @@ export function ActivityHistoryView({
                       : (event.actor_username ?? "—")}
                   </td>
                   <td data-label={copy.activity.when}>
-                    <time dateTime={event.created_at}>{dateTime(event.created_at)}</time>
+                    <time dateTime={isoDateTime(event.created_at)}>
+                      {dateTime(event.created_at)}
+                    </time>
                   </td>
                 </tr>
               ))}

@@ -7,6 +7,7 @@ import fixture from "../../tests/fixtures/orders/normalized.mock.json" with { ty
 import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
 import { Pager } from "../components/pager";
+import { SortableHeaderLink } from "../components/sortable-table";
 import { ViewNavigation } from "../components/view-navigation";
 import {
   billingCaseStatusLabels,
@@ -17,17 +18,34 @@ import {
 import { compactDate, euros } from "../format";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
-import { importOrders, listBillingCases, listOrders } from "../../src/db/orders.server.ts";
+import {
+  importOrders,
+  listBillingCases,
+  listOrders,
+  type BillingCaseListSortKey,
+  type OrderListSortKey,
+} from "../../src/db/orders.server.ts";
 import { readForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
 import { approveInvoices, listMassApprovalCandidates } from "../../src/db/documents.server.ts";
 import { getArubaSettings } from "../../src/db/aruba.server.ts";
+import { parseSort, type SortState } from "../table-sort";
 
 const caseStatusByView: Record<string, string[]> = {
   fatturare: ["READY"],
   verificare: ["NEEDS_REVIEW"],
   annullati: ["DO_NOT_TRANSMIT"],
 };
+
+const orderSortKeys = ["ordine", "cliente", "data", "totale", "stato", "preparazione"] as const;
+const preparationSortKeys = [
+  "preparazione",
+  "cliente",
+  "data",
+  "ordini",
+  "totale",
+  "stato",
+] as const;
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -57,6 +75,18 @@ export async function loader({ request }: Route.LoaderArgs) {
       : "",
   };
   const page = pageNumber(url.searchParams.get("pagina") ?? 1);
+  const orderSort = parseSort(
+    url.searchParams.get("ordiniOrdina"),
+    url.searchParams.get("ordiniDirezione"),
+    orderSortKeys,
+    { key: "data", direction: "desc" },
+  );
+  const preparationSort = parseSort(
+    url.searchParams.get("preparazioniOrdina"),
+    url.searchParams.get("preparazioniDirezione"),
+    preparationSortKeys,
+    { key: "data", direction: "desc" },
+  );
   const emptyPage = { rows: [], hasNext: false };
   const [orders, cases] = await Promise.all([
     view === "fatturare"
@@ -68,9 +98,10 @@ export async function loader({ request }: Route.LoaderArgs) {
           localDate: filters.localDate || undefined,
           paymentStatus: filters.paymentStatus || undefined,
           page,
+          sort: orderSort,
         }),
     caseStatusByView[view]
-      ? listBillingCases({ statuses: caseStatusByView[view], page })
+      ? listBillingCases({ statuses: caseStatusByView[view], page, sort: preparationSort })
       : Promise.resolve(emptyPage),
   ]);
   const approvalCandidates =
@@ -91,6 +122,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     updated: url.searchParams.get("aggiornati"),
     ignored: url.searchParams.get("ignorati"),
     filters,
+    orderSort,
+    preparationSort,
     approvalCandidates,
     arubaMode,
     approved: url.searchParams.get("approvati"),
@@ -384,11 +417,13 @@ function PreparationList({
   cases,
   ordersEmpty,
   showsPreparations,
+  sort,
   view,
 }: {
   cases: OrdersPageData["cases"];
   ordersEmpty: boolean;
   showsPreparations: boolean;
+  sort: SortState<BillingCaseListSortKey>;
   view: string;
 }) {
   if (!cases.rows.length) {
@@ -420,7 +455,7 @@ function PreparationList({
         <strong className="orders-panel__count">{copy.orders.pageItems(cases.rows.length)}</strong>
       </header>
       <div className="table-wrap orders-table-wrap">
-        <table className="orders-table orders-table--preparations">
+        <table className="orders-table orders-table--preparations data-table">
           <colgroup>
             <col className="orders-table__preparation-column" />
             <col className="orders-table__customer-column" />
@@ -432,12 +467,50 @@ function PreparationList({
           </colgroup>
           <thead>
             <tr>
-              <th>{copy.orders.preparation}</th>
-              <th>{copy.orders.customer}</th>
-              <th>{copy.orders.date}</th>
-              <th>{copy.orders.orders}</th>
-              <th>{copy.orders.total}</th>
-              <th>{copy.orders.status}</th>
+              <SortableHeaderLink
+                directionParam="preparazioniDirezione"
+                keyParam="preparazioniOrdina"
+                label={copy.orders.preparation}
+                sort={sort}
+                sortKey="preparazione"
+              />
+              <SortableHeaderLink
+                directionParam="preparazioniDirezione"
+                keyParam="preparazioniOrdina"
+                label={copy.orders.customer}
+                sort={sort}
+                sortKey="cliente"
+              />
+              <SortableHeaderLink
+                directionParam="preparazioniDirezione"
+                keyParam="preparazioniOrdina"
+                label={copy.orders.date}
+                sort={sort}
+                sortKey="data"
+              />
+              <SortableHeaderLink
+                className="table-heading--numeric"
+                directionParam="preparazioniDirezione"
+                keyParam="preparazioniOrdina"
+                label={copy.orders.orders}
+                sort={sort}
+                sortKey="ordini"
+              />
+              <SortableHeaderLink
+                className="table-heading--numeric"
+                directionParam="preparazioniDirezione"
+                keyParam="preparazioniOrdina"
+                label={copy.orders.total}
+                sort={sort}
+                sortKey="totale"
+              />
+              <SortableHeaderLink
+                directionParam="preparazioniDirezione"
+                keyParam="preparazioniOrdina"
+                label={copy.orders.status}
+                sort={sort}
+                sortKey="stato"
+              />
               <th>
                 <span className="orders-table__action-label">{copy.orders.actions}</span>
               </th>
@@ -467,10 +540,10 @@ function PreparationList({
                     {compactDate(billingCase.local_order_date)}
                   </time>
                 </td>
-                <td data-label={copy.orders.orders}>
+                <td className="table-cell--numeric" data-label={copy.orders.orders}>
                   <strong>{billingCase.order_count}</strong>
                 </td>
-                <td data-label={copy.orders.total}>
+                <td className="table-cell--numeric" data-label={copy.orders.total}>
                   <strong>{euros(billingCase.total_amount)}</strong>
                 </td>
                 <td data-label={copy.orders.status}>
@@ -505,6 +578,7 @@ function OrderList({
   fixtureEnabled,
   orders,
   showsPreparations,
+  sort,
   view,
 }: {
   csrfToken: string;
@@ -512,6 +586,7 @@ function OrderList({
   fixtureEnabled: boolean;
   orders: OrdersPageData["orders"];
   showsPreparations: boolean;
+  sort: SortState<OrderListSortKey>;
   view: string;
 }) {
   return (
@@ -545,7 +620,7 @@ function OrderList({
       ) : null}
       {orders.rows.length ? (
         <div className="table-wrap orders-table-wrap">
-          <table className="orders-table">
+          <table className="orders-table data-table">
             <colgroup>
               <col className="orders-table__order-column" />
               <col className="orders-table__customer-column" />
@@ -557,12 +632,49 @@ function OrderList({
             </colgroup>
             <thead>
               <tr>
-                <th>{copy.orders.order}</th>
-                <th>{copy.orders.customer}</th>
-                <th>{copy.orders.date}</th>
-                <th>{copy.orders.total}</th>
-                <th>{copy.orders.status}</th>
-                <th>{copy.orders.preparation}</th>
+                <SortableHeaderLink
+                  directionParam="ordiniDirezione"
+                  keyParam="ordiniOrdina"
+                  label={copy.orders.order}
+                  sort={sort}
+                  sortKey="ordine"
+                />
+                <SortableHeaderLink
+                  directionParam="ordiniDirezione"
+                  keyParam="ordiniOrdina"
+                  label={copy.orders.customer}
+                  sort={sort}
+                  sortKey="cliente"
+                />
+                <SortableHeaderLink
+                  directionParam="ordiniDirezione"
+                  keyParam="ordiniOrdina"
+                  label={copy.orders.date}
+                  sort={sort}
+                  sortKey="data"
+                />
+                <SortableHeaderLink
+                  className="table-heading--numeric"
+                  directionParam="ordiniDirezione"
+                  keyParam="ordiniOrdina"
+                  label={copy.orders.total}
+                  sort={sort}
+                  sortKey="totale"
+                />
+                <SortableHeaderLink
+                  directionParam="ordiniDirezione"
+                  keyParam="ordiniOrdina"
+                  label={copy.orders.status}
+                  sort={sort}
+                  sortKey="stato"
+                />
+                <SortableHeaderLink
+                  directionParam="ordiniDirezione"
+                  keyParam="ordiniOrdina"
+                  label={copy.orders.preparation}
+                  sort={sort}
+                  sortKey="preparazione"
+                />
                 <th>
                   <span className="orders-table__action-label">{copy.orders.actions}</span>
                 </th>
@@ -592,7 +704,7 @@ function OrderList({
                       {compactDate(order.local_order_date)}
                     </time>
                   </td>
-                  <td data-label={copy.orders.total}>
+                  <td className="table-cell--numeric" data-label={copy.orders.total}>
                     <strong>{euros(order.gross_amount)}</strong>
                   </td>
                   <td data-label={copy.orders.status}>
@@ -673,6 +785,8 @@ export default function Orders() {
     updated,
     ignored,
     filters,
+    orderSort,
+    preparationSort,
     approvalCandidates,
     arubaMode,
     approved,
@@ -747,6 +861,7 @@ export default function Orders() {
           cases={cases}
           ordersEmpty={!orders.rows.length}
           showsPreparations={showsPreparations}
+          sort={preparationSort}
           view={view}
         />
       ) : null}
@@ -758,6 +873,7 @@ export default function Orders() {
           fixtureEnabled={fixtureEnabled}
           orders={orders}
           showsPreparations={showsPreparations}
+          sort={orderSort}
           view={view}
         />
       ) : null}

@@ -430,7 +430,38 @@ export async function addOrderToBillingCase(
   });
 }
 
-export async function listBillingCases(filters: { statuses?: string[]; page?: unknown } = {}) {
+type SortDirection = "asc" | "desc";
+
+export type BillingCaseListSortKey =
+  | "preparazione"
+  | "cliente"
+  | "data"
+  | "ordini"
+  | "totale"
+  | "stato";
+
+const billingCaseListSortSql: Record<BillingCaseListSortKey, string> = {
+  preparazione: "billing_cases.public_number",
+  cliente: "billing_cases.customer_snapshot_json ->> 'displayName'",
+  data: "billing_cases.local_order_date",
+  ordini: "count(orders.id)",
+  totale: "coalesce(sum(orders.billable_amount), 0)",
+  stato: "billing_cases.status",
+};
+
+export async function listBillingCases(
+  filters: {
+    statuses?: string[];
+    page?: unknown;
+    sort?: { key: BillingCaseListSortKey; direction: SortDirection };
+  } = {},
+) {
+  const sort = filters.sort ?? { key: "data", direction: "desc" };
+  const orderBy = billingCaseListSortSql[sort.key];
+  const direction = sort.direction === "asc" ? "ASC" : "DESC";
+  // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
+  // i valori della richiesta restano nei parametri $1-$2.
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await getPool().query<{
     id: string;
     public_number: string;
@@ -448,7 +479,8 @@ export async function listBillingCases(filters: { statuses?: string[]; page?: un
      LEFT JOIN orders ON orders.billing_case_id = billing_cases.id
      WHERE $1::text[] IS NULL OR billing_cases.status = ANY($1)
      GROUP BY billing_cases.id
-     ORDER BY billing_cases.local_order_date DESC, billing_cases.id DESC
+     ORDER BY ${orderBy} ${direction} NULLS LAST,
+              billing_cases.local_order_date DESC, billing_cases.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $2`,
     [filters.statuses?.length ? filters.statuses : null, pageOffset(filters.page)],
   );

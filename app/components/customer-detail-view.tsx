@@ -16,7 +16,7 @@ import {
   orderStatusLabels,
   taxIdentifierLabels,
 } from "../copy.it";
-import { address, date, dateTime, euros } from "../format";
+import { address, date, dateTime, euros, isoDateTime } from "../format";
 import { fiscalNumberLabel } from "../../src/fiscal-number.ts";
 import type { CustomerDetail } from "../../src/db/customers.server.ts";
 
@@ -181,7 +181,9 @@ function CustomerSources({ customer }: { customer: CustomerDetail }) {
               </span>
               <span>
                 <small>{copy.customers.sourceUpdated}</small>
-                <time dateTime={source.imported_at}>{dateTime(source.imported_at)}</time>
+                <time dateTime={isoDateTime(source.imported_at)}>
+                  {dateTime(source.imported_at)}
+                </time>
               </span>
             </li>
           ))}

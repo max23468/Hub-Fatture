@@ -11,6 +11,49 @@ import { auditActions } from "./audit.server.ts";
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
+type SortDirection = "asc" | "desc";
+
+export type OpenActivitySortKey =
+  | "elemento"
+  | "cliente"
+  | "identificativo"
+  | "tipo"
+  | "data"
+  | "aggiornamento";
+
+export type AuditHistorySortKey = "attivita" | "elemento" | "autore" | "quando";
+export type OrderListSortKey = "ordine" | "cliente" | "data" | "totale" | "stato" | "preparazione";
+
+const openActivitySortSql: Record<OpenActivitySortKey, string> = {
+  elemento: "coalesce(activities.case_number, activities.order_number, activities.id)",
+  cliente: "coalesce(invoice_customer.snapshot ->> 'displayName', activities.customer_name)",
+  identificativo: "customer_tax_id.value",
+  tipo: "coalesce(activities.error_code, activities.provider, activities.kind)",
+  data: "activities.order_date",
+  aggiornamento: "activities.created_at",
+};
+
+const auditHistorySortSql: Record<AuditHistorySortKey, string> = {
+  attivita: "audit_events.action",
+  elemento:
+    "coalesce(event_cases.public_number, event_orders.display_number, event_refund_orders.display_number, audit_events.entity_id)",
+  autore: "coalesce(users.username, audit_events.actor_type)",
+  quando: "audit_events.created_at",
+};
+
+const orderListSortSql: Record<OrderListSortKey, string> = {
+  ordine: "orders.display_number",
+  cliente: "orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}'",
+  data: "orders.local_order_date",
+  totale: "orders.gross_amount",
+  stato: "orders.trigger_status",
+  preparazione: "billing_cases.public_number",
+};
+
+function sqlDirection(direction: SortDirection) {
+  return direction === "asc" ? "ASC" : "DESC";
+}
+
 interface SourceCustomer {
   kind?: string;
   displayName?: string;
@@ -101,6 +144,7 @@ export async function listOrders(filters: {
   localDate?: string;
   paymentStatus?: string;
   page?: unknown;
+  sort?: { key: OrderListSortKey; direction: SortDirection };
 }) {
   const empty = { rows: [] as never[], hasNext: false };
   if (containsNullByte(filters)) return empty;
@@ -113,6 +157,12 @@ export async function listOrders(filters: {
     filters.paymentStatus || null,
     pageOffset(filters.page),
   ];
+  const sort = filters.sort ?? { key: "data", direction: "desc" };
+  const orderBy = orderListSortSql[sort.key];
+  const direction = sqlDirection(sort.direction);
+  // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
+  // i valori della richiesta restano nei parametri $1-$6.
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await getPool().query<{
     id: string;
     provider: string;
@@ -169,7 +219,8 @@ export async function listOrders(filters: {
               )
             ))
             OR ($5 <> 'PENDING' AND orders.payment_status = $5))
-     ORDER BY orders.local_order_date DESC, orders.id DESC
+     ORDER BY ${orderBy} ${direction} NULLS LAST,
+              orders.local_order_date DESC, orders.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $6`,
     values,
   );
@@ -343,7 +394,19 @@ export async function dashboardSummary() {
 }
 
 /** Vista `Da gestire` di 13.8: cosa richiede un intervento e dove si interviene. */
-export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
+export async function listOpenActivities(
+  page?: unknown,
+  kind?: "CREDIT_NOTE",
+  sort: { key: OpenActivitySortKey; direction: SortDirection } = {
+    key: "aggiornamento",
+    direction: "desc",
+  },
+) {
+  const orderBy = openActivitySortSql[sort.key];
+  const direction = sqlDirection(sort.direction);
+  // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
+  // i valori della richiesta restano nei parametri $1-$2.
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await getPool().query<{
     kind: string;
     id: string;
@@ -486,7 +549,7 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
        LIMIT 1
      ) AS customer_tax_id ON true
      WHERE $2::text IS NULL OR activities.kind = $2
-     ORDER BY created_at DESC, id DESC
+     ORDER BY ${orderBy} ${direction} NULLS LAST, activities.created_at DESC, activities.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $1`,
     [pageOffset(page), kind ?? null],
   );
@@ -504,12 +567,19 @@ export async function listAuditHistory(filters: {
   query?: string;
   action?: string;
   page?: unknown;
+  sort?: { key: AuditHistorySortKey; direction: SortDirection };
 }) {
   const empty = { rows: [] as never[], hasNext: false };
   if (containsNullByte(filters)) return empty;
   // L'allowlist copre ogni voce offerta dal filtro: un'azione ignota non deve valere "tutte".
   const action = auditActions.find((candidate) => candidate === filters.action) ?? null;
   if (filters.action && !action) return empty;
+  const sort = filters.sort ?? { key: "quando", direction: "desc" };
+  const orderBy = auditHistorySortSql[sort.key];
+  const direction = sqlDirection(sort.direction);
+  // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
+  // i valori della richiesta restano nei parametri $1-$3.
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await getPool().query<{
     id: string;
     action: string;
@@ -553,7 +623,8 @@ export async function listAuditHistory(filters: {
             OR event_orders.display_number ILIKE $2
             OR event_refund_orders.display_number ILIKE $2 OR event_cases.public_number ILIKE $2
             OR audit_events.request_id ILIKE $2 OR audit_events.reason ILIKE $2)
-     ORDER BY audit_events.created_at DESC, audit_events.id DESC
+     ORDER BY ${orderBy} ${direction} NULLS LAST,
+              audit_events.created_at DESC, audit_events.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $3`,
     [action, filters.query ? `%${escapeLike(filters.query)}%` : null, pageOffset(filters.page)],
   );

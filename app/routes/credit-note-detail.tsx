@@ -3,6 +3,7 @@ import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-
 import type { Route } from "./+types/credit-note-detail";
 
 import { AppShell } from "../components/app-shell";
+import { ComparisonTable } from "../components/comparison-table";
 import { DetailSectionHeader } from "../components/detail-section-header";
 import { copy } from "../copy.it";
 import { date, euros } from "../format";
@@ -10,54 +11,6 @@ import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.ser
 import { approveCreditNote, getCreditNoteProjection } from "../../src/db/refunds.server.ts";
 import { publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
-
-interface ComparisonRow {
-  field: string;
-  source: string;
-  draft: string;
-  projected: string;
-}
-
-function ComparisonTable({
-  title,
-  rows,
-  lineLabels = false,
-}: {
-  title: string;
-  rows: ComparisonRow[];
-  lineLabels?: boolean;
-}) {
-  const labels = copy.document.comparisonLabels as Record<string, string>;
-  return (
-    <section className="comparison-table">
-      <h3>{title}</h3>
-      <div className="table-wrap">
-        <table aria-label={title}>
-          <thead>
-            <tr>
-              <th>{copy.document.comparisonField}</th>
-              <th>{copy.document.comparisonSource}</th>
-              <th>{copy.document.comparisonDraft}</th>
-              <th>{copy.document.comparisonProjection}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.field}>
-                <th scope="row">
-                  {lineLabels ? copy.document.comparisonLine(row.field) : labels[row.field]}
-                </th>
-                <td data-label={copy.document.comparisonSource}>{row.source}</td>
-                <td data-label={copy.document.comparisonDraft}>{row.draft}</td>
-                <td data-label={copy.document.comparisonProjection}>{row.projected}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);

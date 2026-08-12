@@ -509,6 +509,16 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     );
     assert.equal((await orders.listOrders({ paymentStatus: "PENDING" })).rows.length, 1);
     assert.equal((await orders.listOrders({ query: "shop-order-1001" })).rows.length, 1);
+    const ordersByTotalAsc = await orders.listOrders({
+      sort: { key: "totale", direction: "asc" },
+    });
+    const ordersByTotalDesc = await orders.listOrders({
+      sort: { key: "totale", direction: "desc" },
+    });
+    assert.deepEqual(
+      ordersByTotalDesc.rows.map(({ gross_amount }) => gross_amount),
+      ordersByTotalAsc.rows.map(({ gross_amount }) => gross_amount).reverse(),
+    );
     const waitingOrderId = (
       await database
         .getPool()
@@ -524,6 +534,16 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         requestId: "test-force-prepare-idempotent",
       }),
       forcedCaseId,
+    );
+    const casesByDateAsc = await orders.listBillingCases({
+      sort: { key: "data", direction: "asc" },
+    });
+    const casesByDateDesc = await orders.listBillingCases({
+      sort: { key: "data", direction: "desc" },
+    });
+    assert.deepEqual(
+      casesByDateDesc.rows.map(({ id }) => id),
+      casesByDateAsc.rows.map(({ id }) => id).reverse(),
     );
     assert.deepEqual(
       await orders.setDraftTrigger("FULFILLED", 1, {
