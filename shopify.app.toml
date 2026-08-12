@@ -2,7 +2,7 @@
 
 client_id = "8268b6c7f5d5f875bbf6d905cdcfe850"
 name = "Hub Fatture"
-application_url = "https://shopify.dev/apps/default-app-home"
+application_url = "https://fatture.opik.net"
 embedded = false
 
 [webhooks]
@@ -27,7 +27,7 @@ uri = "/webhooks/shopify"
 scopes = "read_customers,read_fulfillments,read_orders"
 
 [auth]
-redirect_urls = ["https://shopify.dev/apps/default-app-home/integrations/shopify/callback"]
+redirect_urls = ["https://fatture.opik.net/integrations/shopify/callback"]
 
 [build]
 automatically_update_urls_on_dev = true
