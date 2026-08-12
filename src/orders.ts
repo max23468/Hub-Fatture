@@ -53,6 +53,13 @@ const optionalCountryCodeSchema = optionalTextSchema.pipe(
     )
     .optional(),
 );
+const optionalRecipientCodeSchema = optionalTextSchema.pipe(
+  z
+    .string()
+    .transform((value) => value.toUpperCase())
+    .refine((value) => /^[A-Z0-9]{7}$/.test(value), "Codice destinatario non valido")
+    .optional(),
+);
 const postgresTimestampSchema = z.iso
   .datetime({ offset: true })
   .refine((value) => !value.startsWith("0000-"), "Timestamp fuori dal dominio PostgreSQL");
@@ -94,12 +101,7 @@ export const customerSchema = z.object({
   companyName: optionalTextSchema,
   email: optionalEmailSchema,
   certifiedEmail: optionalEmailSchema,
-  recipientCode: optionalTextSchema.pipe(
-    z
-      .string()
-      .regex(/^[A-Z0-9]{7}$/)
-      .optional(),
-  ),
+  recipientCode: optionalRecipientCodeSchema,
   phone: optionalTextSchema,
   billingAddress: addressSchema.default({}),
   shippingAddress: addressSchema.default({}),
@@ -266,6 +268,138 @@ export function markHistoricalOrders(orders: OrderInput[], startDate: string) {
 
 function normalized(value: string | undefined): string {
   return value?.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("it") ?? "";
+}
+
+function presentationText(value: string | undefined): string | undefined {
+  const cleaned = value?.normalize("NFKC").trim().replace(/\s+/gu, " ");
+  return cleaned || undefined;
+}
+
+function presentationWord(value: string, preserveAddressToken = false): string {
+  const lower = value.toLocaleLowerCase("it");
+  const upper = value.toLocaleUpperCase("it");
+  if (value !== lower && value !== upper) return value;
+  if (
+    preserveAddressToken &&
+    (/^(?:SP|SS|SR|SC|KM|SNC)$/u.test(upper) || /^(?=[MDCLXVI]+$)[MDCLXVI]+$/u.test(upper))
+  ) {
+    return upper;
+  }
+  const [first, ...rest] = [...lower];
+  return first ? `${first.toLocaleUpperCase("it")}${rest.join("")}` : value;
+}
+
+function presentationToken(value: string, preserveAddressToken = false): string {
+  if (/[./]/u.test(value)) return value;
+  const match = /^([^\p{L}]*)([\p{L}]+(?:['’-][\p{L}]+)*)([^\p{L}]*)$/u.exec(value);
+  if (!match) return value;
+  const core = match[2]!
+    .split(/(['’-])/u)
+    .map((part) => (/['’-]/u.test(part) ? part : presentationWord(part, preserveAddressToken)))
+    .join("");
+  return `${match[1]}${core}${match[3]}`;
+}
+
+function presentationTitle(value: string | undefined, preserveAddressToken = false) {
+  return presentationText(value)
+    ?.split(" ")
+    .map((token) => presentationToken(token, preserveAddressToken))
+    .join(" ");
+}
+
+const italianAddressPrefixes = new Set([
+  "borgo",
+  "contrada",
+  "corso",
+  "discesa",
+  "frazione",
+  "largo",
+  "localita",
+  "località",
+  "lungomare",
+  "piazza",
+  "piazzale",
+  "rione",
+  "salita",
+  "strada",
+  "traversa",
+  "viale",
+  "via",
+  "vicolo",
+]);
+
+const italianAddressComplements = new Set([
+  "edificio",
+  "interno",
+  "localita",
+  "località",
+  "palazzina",
+  "piano",
+  "scala",
+]);
+
+function presentationAddressLine(
+  value: string | undefined,
+  countryCode: string | undefined,
+  complements = false,
+) {
+  const cleaned = presentationText(value);
+  if (!cleaned || countryCode !== "IT") return cleaned;
+  const prefix = cleaned
+    .split(" ", 1)[0]!
+    .replace(/[^\p{L}]/gu, "")
+    .toLocaleLowerCase("it");
+  const allowedPrefixes = complements ? italianAddressComplements : italianAddressPrefixes;
+  return allowedPrefixes.has(prefix) ? presentationTitle(cleaned, true) : cleaned;
+}
+
+function presentationAddress(address: CustomerInput["billingAddress"]) {
+  const countryCode = presentationText(address.countryCode)?.toUpperCase();
+  const province = presentationText(address.province);
+  return {
+    line1: presentationAddressLine(address.line1, countryCode),
+    line2: presentationAddressLine(address.line2, countryCode, true),
+    postalCode:
+      countryCode === "IT"
+        ? presentationText(address.postalCode)?.replace(/\s+/gu, "")
+        : presentationText(address.postalCode),
+    city: presentationTitle(address.city, true),
+    province:
+      province && /^\p{L}{2}$/u.test(province)
+        ? province.toLocaleUpperCase("it")
+        : presentationTitle(province, true),
+    countryCode,
+  };
+}
+
+/**
+ * Forma leggibile usata da anagrafica, preparazione e documento. Il dato provider resta
+ * immutabile nello snapshot sorgente e il profilo canonico continua a governare il matching.
+ * Le parole già in casing misto e le ragioni sociali non vengono reinterpretate.
+ */
+export function presentationCustomer(customer: CustomerInput): CustomerInput {
+  const companyName = presentationText(customer.companyName);
+  const displayName = presentationText(customer.displayName);
+  const companyDisplayName = Boolean(
+    companyName && displayName && normalized(companyName) === normalized(displayName),
+  );
+  const sentenceDisplayName = Boolean(
+    displayName && /^\p{Lu}[\p{Ll}'’-]*(?: [\p{Ll}'’-]+)+$/u.test(displayName),
+  );
+  return {
+    ...customer,
+    displayName:
+      companyDisplayName || sentenceDisplayName ? displayName : presentationTitle(displayName),
+    firstName: presentationTitle(customer.firstName),
+    lastName: presentationTitle(customer.lastName),
+    companyName,
+    email: presentationText(customer.email)?.toLocaleLowerCase("it"),
+    certifiedEmail: presentationText(customer.certifiedEmail)?.toLocaleLowerCase("it"),
+    recipientCode: presentationText(customer.recipientCode)?.toUpperCase(),
+    phone: presentationText(customer.phone),
+    billingAddress: presentationAddress(customer.billingAddress),
+    shippingAddress: presentationAddress(customer.shippingAddress),
+  };
 }
 
 function normalizedTaxId(value: string): string {

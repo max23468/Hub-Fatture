@@ -566,6 +566,8 @@ HF può salvare e normalizzare una VAT UE come dato anagrafico e chiave di match
 
 La piattaforma resta fonte del dato originario. Una risincronizzazione non deve sovrascrivere modifiche manuali della bozza: registra la differenza e richiede revisione quando è rilevante.
 
+Per i dati anagrafici mantenere tre forme distinte: snapshot sorgente immutabile, profilo canonico per matching e anti-duplicazione, forma di presentazione per interfaccia e documenti. La forma di presentazione uniforma Unicode e spazi, e-mail, codici Paese/provincia e identificativi; applica maiuscole leggibili a nomi personali, città e indirizzi italiani riconoscibili soltanto quando il risultato è ad alta confidenza. Ragioni sociali, parole già in casing misto e parti ambigue restano invariate. La correzione manuale prevale e le preparazioni già create non vengono riscritte.
+
 Dati fiscali o anagrafici mancanti non impediscono la creazione della bozza interna: la preparazione nasce in `NEEDS_REVIEW` e resta non approvabile finché i campi obbligatori non sono completati.
 
 ### 7.2 Trigger globale di generazione
@@ -2701,6 +2703,7 @@ Stop point per rivalutare capacità o architettura, non trigger di migrazione au
 Usare `node:test` del runtime fissato come unico runner unitario e d'integrazione TypeScript. I test `.ts` rispettano gli stessi vincoli di type stripping degli script locali; non introdurre Vitest, Jest o un secondo runner.
 
 - normalizzazione Codice Fiscale/P.IVA senza inventare il tipo;
+- normalizzazione di presentazione field-aware senza alterare ragioni sociali, casing misto intenzionale o snapshot sorgente;
 - data ordine in Europe/Rome;
 - chiave di raggruppamento;
 - conversione stretta delle stringhe decimali esterne in centesimi, inclusi segno, zeri, cifre eccedenti e limiti del dominio DB;

@@ -6,6 +6,7 @@ import {
   customerDisplayName,
   customerIdentity,
   customerSchema,
+  presentationCustomer,
   PAGE_SIZE,
   pageOffset,
   paginate,
@@ -286,9 +287,10 @@ export async function correctBillingCaseCustomer(
     };
     const identity = customerIdentity(context);
     const canonicalProfile = canonicalCustomerProfile(context);
+    const presentation = presentationCustomer(parsed.data);
     const snapshot = {
-      ...parsed.data,
-      displayName: customerDisplayName(parsed.data) || "Cliente senza nome",
+      ...presentation,
+      displayName: customerDisplayName(presentation) || "Cliente senza nome",
       taxIdentifiers: canonicalProfile.taxIdentifiers,
       canonicalProfile,
       sourceConfidence: identity.confidence,

@@ -217,7 +217,19 @@ test(
         "contabilita@example.invalid",
       );
       const jobs = await import("./connectors.server.ts");
-      const firstEmailJob = await jobs.claimJob("email-synthetic");
+      const claimEmailJob = async (delivery: string, worker: string) => {
+        await client.query(
+          `UPDATE jobs SET run_at = '-infinity'::timestamptz
+           WHERE type = 'send_customer_email'
+             AND payload_json ->> 'deliveryId' = $1
+             AND status IN ('PENDING', 'RUNNING')`,
+          [delivery],
+        );
+        const job = await jobs.claimJob(worker);
+        assert.equal(String(job?.payload.deliveryId), delivery);
+        return job!;
+      };
+      const firstEmailJob = await claimEmailJob(deliveryId!, "email-synthetic");
       assert.equal(firstEmailJob?.type, "send_customer_email");
       await email.sendCustomerEmail(firstEmailJob!);
       assert.equal(await jobs.completeJob(firstEmailJob!), true);
@@ -232,7 +244,7 @@ test(
         canApprove: true,
         requestId: "manual-email-retry",
       });
-      const failedJob = await jobs.claimJob("email-failure");
+      const failedJob = await claimEmailJob(retryId, "email-failure");
       await assert.rejects(
         email.sendCustomerEmail(failedJob!, async () => {
           throw Object.assign(new Error("synthetic SMTP detail that must not be persisted"), {
@@ -252,7 +264,7 @@ test(
         (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
       );
       await client.query("UPDATE jobs SET run_at = now() WHERE id = $1", [failedJob!.id]);
-      const retryJob = await jobs.claimJob("email-retry");
+      const retryJob = await claimEmailJob(retryId, "email-retry");
       await email.sendCustomerEmail(retryJob!, async () => "<synthetic-retry@example.invalid>");
       assert.equal(await jobs.completeJob(retryJob!), true);
       const retried = (
@@ -268,7 +280,7 @@ test(
         canApprove: true,
         requestId: "manual-email-permanent-failure",
       });
-      const permanentJob = await jobs.claimJob("email-permanent-failure");
+      const permanentJob = await claimEmailJob(permanentId, "email-permanent-failure");
       await assert.rejects(
         email.sendCustomerEmail(permanentJob!, async () => {
           throw Object.assign(new Error("synthetic permanent SMTP rejection"), {
@@ -301,7 +313,7 @@ test(
         canApprove: true,
         requestId: "manual-email-timeout",
       });
-      const timeoutJob = await jobs.claimJob("email-timeout");
+      const timeoutJob = await claimEmailJob(timeoutId, "email-timeout");
       await assert.rejects(
         email.sendCustomerEmail(timeoutJob!, async () => {
           throw new Error("synthetic timeout after possible SMTP acceptance");
@@ -326,7 +338,7 @@ test(
         },
         true,
       );
-      const timeoutRetryJob = await jobs.claimJob("email-timeout-confirmed");
+      const timeoutRetryJob = await claimEmailJob(timeoutRetryId, "email-timeout-confirmed");
       await email.sendCustomerEmail(
         timeoutRetryJob!,
         async () => "<synthetic-timeout-retry@example.invalid>",
@@ -343,7 +355,7 @@ test(
         canApprove: true,
         requestId: "manual-email-persistence-failure",
       });
-      const persistenceJob = await jobs.claimJob("email-persistence-failure");
+      const persistenceJob = await claimEmailJob(persistenceId, "email-persistence-failure");
       await client.query(
         `CREATE FUNCTION block_email_sent_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'CUSTOMER_EMAIL_SENT' THEN RAISE EXCEPTION 'sent audit blocked'; END IF; RETURN NEW; END $$`,
       );
@@ -377,7 +389,7 @@ test(
         },
         true,
       );
-      const crashedJob = await jobs.claimJob("email-crash");
+      const crashedJob = await claimEmailJob(crashId, "email-crash");
       await client.query("UPDATE email_deliveries SET send_started_at = now() WHERE id = $1", [
         crashId,
       ]);
@@ -385,7 +397,7 @@ test(
         "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
         [crashedJob!.id],
       );
-      const recoveredJob = await jobs.claimJob("email-recovered");
+      const recoveredJob = await claimEmailJob(crashId, "email-recovered");
       assert.equal(recoveredJob?.id, crashedJob?.id);
       await assert.rejects(
         email.sendCustomerEmail(recoveredJob!),

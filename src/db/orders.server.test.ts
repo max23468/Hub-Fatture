@@ -1510,7 +1510,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     profileA.createdAt = "2026-08-21T08:00:00Z";
     profileA.updatedAt = "2026-08-21T09:00:00Z";
     profileA.customer.kind = "EU";
-    profileA.customer.displayName = "Entreprise Exemple";
+    profileA.customer.displayName = "ENTREPRISE EXEMPLE";
     profileA.customer.billingAddress.line1 = "Rue de Rome 1";
     profileA.customer.billingAddress.countryCode = "FR";
     profileA.customer.taxIdentifiers = [];
@@ -1534,6 +1534,23 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         )
       ).rows[0],
       { case_count: 1, status: "READY" },
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.raw_snapshot_json #>> '{customer,displayName}' AS source_name,
+                  orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}' AS presentation_name,
+                  customers.display_name AS customer_name
+             FROM orders JOIN customers ON customers.id = orders.customer_id
+             WHERE orders.external_order_id = $1`,
+          [profileA.externalOrderId],
+        )
+      ).rows[0],
+      {
+        source_name: "ENTREPRISE EXEMPLE",
+        presentation_name: "Entreprise Exemple",
+        customer_name: "Entreprise Exemple",
+      },
     );
     profileA.customer.displayName = "ENTREPRISE  EXEMPLE";
     profileA.customer.billingAddress.line1 = "RUE DE  ROME 1";
@@ -3911,12 +3928,13 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       kind: "BUSINESS_IT",
       displayName: "Rossi Srl",
       companyName: "Rossi Srl",
-      email: "amministrazione@example.invalid",
+      email: "AMMINISTRAZIONE@EXAMPLE.INVALID",
+      recipientCode: "abc1234",
       billingAddress: {
-        line1: "Via Esempio 1",
-        postalCode: "20100",
-        city: "Milano",
-        province: "MI",
+        line1: "VIA XX SETTEMBRE 1",
+        postalCode: "20 100",
+        city: "MILANO",
+        province: "mi",
         countryCode: "IT",
       },
       taxIdentifiers: [
@@ -3954,6 +3972,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     const afterCorrection = await orders.getBillingCase(correctionCaseId);
     assert.deepEqual(afterCorrection!.anomalies, []);
     assert.equal(afterCorrection!.customer_name, "Rossi Srl");
+    assert.equal(afterCorrection!.customer_snapshot_json.email, "amministrazione@example.invalid");
+    assert.equal(afterCorrection!.customer_snapshot_json.recipientCode, "ABC1234");
+    assert.deepEqual(afterCorrection!.customer_snapshot_json.billingAddress, {
+      line1: "Via XX Settembre 1",
+      postalCode: "20100",
+      city: "Milano",
+      province: "MI",
+      countryCode: "IT",
+    });
     assert.ok(afterCorrection!.customer_corrected_at);
     // Una correzione non fiscale non cancella gli identificativi che non stava modificando.
     assert.equal(afterCorrection!.customer_snapshot_json.taxIdentifiers?.length, 2);

@@ -12,6 +12,7 @@ import {
   markHistoricalOrders,
   orderInputSchema,
   orderReviewRequired,
+  presentationCustomer,
   triggerStatus,
 } from "./orders.ts";
 
@@ -107,6 +108,87 @@ test("valida input, denaro, data e trigger", () => {
     triggerStatus({ ...base, cancelledAt: "2026-03-30T10:00:00Z" }, "PAID"),
     "CANCELLED_NO_DOCUMENT",
   );
+});
+
+test("normalizza la presentazione senza reinterpretare casing intenzionale o aziende", () => {
+  const customer = orderInputSchema.parse({
+    ...base,
+    customer: {
+      ...base.customer,
+      displayName: "  TIZIO   caio ",
+      firstName: "tizio",
+      lastName: "D'ANGELO",
+      email: "TIZIO.CAIO@EXAMPLE.INVALID",
+      certifiedEmail: "PEC@EXAMPLE.INVALID",
+      recipientCode: "abc1234",
+      phone: "  +39 02  0000000 ",
+      billingAddress: {
+        line1: " VIA  XX  settembre 12 ",
+        line2: " SCALA  a ",
+        postalCode: "20 100",
+        city: "L'AQUILA",
+        province: "mi",
+        countryCode: "it",
+      },
+      shippingAddress: {
+        line1: " 12 MAIN  STREET ",
+        postalCode: "10 115",
+        city: "BERLIN",
+        countryCode: "de",
+      },
+    },
+  }).customer;
+
+  assert.deepEqual(presentationCustomer(customer), {
+    ...customer,
+    displayName: "Tizio Caio",
+    firstName: "Tizio",
+    lastName: "D'Angelo",
+    companyName: undefined,
+    email: "tizio.caio@example.invalid",
+    certifiedEmail: "pec@example.invalid",
+    recipientCode: "ABC1234",
+    phone: "+39 02 0000000",
+    billingAddress: {
+      line1: "Via XX Settembre 12",
+      line2: "Scala A",
+      postalCode: "20100",
+      city: "L'Aquila",
+      province: "MI",
+      countryCode: "IT",
+    },
+    shippingAddress: {
+      line1: "12 MAIN STREET",
+      line2: undefined,
+      postalCode: "10 115",
+      city: "Berlin",
+      province: undefined,
+      countryCode: "DE",
+    },
+  });
+
+  const company = presentationCustomer({
+    ...customer,
+    displayName: "eBay  GMBH",
+    firstName: "McDonald",
+    companyName: "eBay  GMBH",
+    billingAddress: { ...customer.billingAddress, line2: "ACME  S.P.A." },
+  });
+  assert.equal(company.displayName, "eBay GMBH");
+  assert.equal(company.companyName, "eBay GMBH");
+  assert.equal(company.firstName, "McDonald");
+  assert.equal(company.billingAddress.line2, "ACME S.P.A.");
+  assert.equal(
+    presentationCustomer({ ...customer, displayName: "Cliente da verificare" }).displayName,
+    "Cliente da verificare",
+  );
+
+  for (const variant of ["tizio caio", "TIZIO caio", "tizio Caio", "TIZIO CAIO"]) {
+    assert.equal(
+      presentationCustomer({ ...customer, displayName: variant }).displayName,
+      "Tizio Caio",
+    );
+  }
 });
 
 test("la finestra storica usa il giorno di Roma e marca solo gli ordini richiesti", () => {
