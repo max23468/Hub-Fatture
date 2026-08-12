@@ -1181,7 +1181,9 @@ La navigazione resta a un solo livello. Una destinazione compare soltanto quando
 
 Il menu rapido del profilo mostra identità, capacità operative, tema e uscita. Il collegamento `Profilo e sicurezza` porta alla relativa sezione di `Impostazioni`, che ripropone lo stesso riepilogo prima dei controlli completi dell’account.
 
-Su mobile la navigazione principale resta una barra inferiore a cinque destinazioni: le icone sono sempre visibili e accessibili, mentre soltanto la destinazione attiva espone anche l’etichetta su una riga. Il cambio pagina sposta etichetta ed evidenza sulla nuova destinazione senza scorrimento orizzontale.
+Su desktop la sidebar fissa può essere compressa dall'utente mantenendo visibili marchio, icone e destinazione attiva. I nomi restano accessibili e disponibili su hover o focus, la preferenza viene conservata nel browser e non esiste espansione automatica al passaggio del mouse. Al primo accesso parte aperta da 1024 px e compressa fra 769 e 1023 px; la scelta esplicita dell'utente prevale sul default responsive.
+
+Su mobile la navigazione principale resta una barra inferiore a cinque destinazioni: le icone sono sempre visibili e accessibili, mentre soltanto la destinazione attiva espone anche l'etichetta su una riga. Il cambio pagina sposta etichetta ed evidenza sulla nuova destinazione senza scorrimento orizzontale.
 
 ### 13.2 Dashboard
 

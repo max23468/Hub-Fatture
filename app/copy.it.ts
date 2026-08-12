@@ -28,6 +28,8 @@ export const copy = {
     documents: "Documenti",
     activity: "Attività",
     settings: "Impostazioni",
+    collapseSidebar: "Comprimi navigazione",
+    expandSidebar: "Espandi navigazione",
     mainLabel: "Navigazione principale",
     skipToContent: "Vai al contenuto principale",
     openProfile: (username: string) => `Apri il menu di ${username}`,

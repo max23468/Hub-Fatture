@@ -3,11 +3,14 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   ShieldCheck,
   ShoppingBag,
   UserRound,
 } from "lucide-react";
+import { useSyncExternalStore } from "react";
 import { Form, NavLink } from "react-router";
 
 import { copy } from "../copy.it";
@@ -22,6 +25,17 @@ const links = [
   { to: "/impostazioni", label: copy.navigation.settings, icon: Settings, end: false },
 ];
 
+const sidebarChangeEvent = "hub-fatture:sidebar-change";
+
+function subscribeToSidebar(callback: () => void) {
+  window.addEventListener(sidebarChangeEvent, callback);
+  return () => window.removeEventListener(sidebarChangeEvent, callback);
+}
+
+function getSidebarCollapsed() {
+  return document.documentElement.dataset.sidebar === "collapsed";
+}
+
 export function AppShell({
   children,
   username,
@@ -33,6 +47,28 @@ export function AppShell({
   canApprove: boolean;
   csrfToken: string;
 }) {
+  const sidebarCollapsed = useSyncExternalStore(
+    subscribeToSidebar,
+    getSidebarCollapsed,
+    () => false,
+  );
+
+  function toggleSidebar() {
+    const nextCollapsed = !sidebarCollapsed;
+    document.documentElement.dataset.sidebar = nextCollapsed ? "collapsed" : "expanded";
+    try {
+      localStorage.setItem("sidebar", nextCollapsed ? "collapsed" : "expanded");
+    } catch {
+      // La preferenza resta valida per la sessione anche se lo storage non è disponibile.
+    }
+    window.dispatchEvent(new Event(sidebarChangeEvent));
+  }
+
+  const sidebarAction = sidebarCollapsed
+    ? copy.navigation.expandSidebar
+    : copy.navigation.collapseSidebar;
+  const SidebarActionIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
+
   return (
     <div className="app-layout">
       <a className="skip-link" href="#contenuto-principale">
@@ -40,14 +76,33 @@ export function AppShell({
       </a>
       <aside className="sidebar">
         <BrandLockup onDark />
-        <nav aria-label={copy.navigation.mainLabel}>
+        <nav aria-label={copy.navigation.mainLabel} id="navigazione-principale">
           {links.map(({ to, label, icon: Icon, end }) => (
-            <NavLink className="nav-item" end={end} key={to} to={to}>
+            <NavLink
+              aria-label={label}
+              className="nav-item"
+              data-tooltip={label}
+              end={end}
+              key={to}
+              to={to}
+            >
               <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
-              <span>{label}</span>
+              <span className="nav-item__label">{label}</span>
             </NavLink>
           ))}
         </nav>
+        <button
+          aria-controls="navigazione-principale"
+          aria-expanded={!sidebarCollapsed}
+          aria-label={sidebarAction}
+          className="sidebar-toggle"
+          data-tooltip={sidebarAction}
+          onClick={toggleSidebar}
+          type="button"
+        >
+          <SidebarActionIcon aria-hidden="true" size={20} strokeWidth={1.8} />
+          <span className="sidebar-toggle__label">{sidebarAction}</span>
+        </button>
       </aside>
       <main className="app-main" id="contenuto-principale">
         <header className="page-header">

@@ -57,7 +57,7 @@ Sono disponibili tre preferenze: **Sistema**, **Chiaro**, **Scuro**. Al primo ac
 
 Desktop-first, con tutte le operazioni disponibili anche da smartphone.
 
-La navigazione desktop usa una sidebar fissa, non comprimibile e a un solo livello. Le destinazioni canoniche sono:
+La navigazione desktop usa una sidebar fissa, comprimibile e a un solo livello. Aperta misura 256 px e mostra marchio, nome ed etichette; compressa misura 72 px e conserva marchio, icone, stato attivo, nomi accessibili e tooltip su hover o focus. Il controllo resta in fondo alla sidebar, la preferenza viene ricordata nel browser e non è prevista l'espansione automatica al passaggio del mouse. Al primo accesso la sidebar parte aperta da 1024 px e compressa fra 769 e 1023 px; la scelta esplicita dell'utente prevale sul default responsive. Le destinazioni canoniche sono:
 
 1. Dashboard
 2. Ordini
