@@ -271,6 +271,8 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(ci, /\n  gate:\n    name: CI\n    if: always\(\)/);
   assert.match(ci, /name: PostgreSQL e migrazioni\n    if: needs\.impact\.outputs\.database/);
   assert.match(ci, /name: E2E Chromium\n    if: needs\.impact\.outputs\.e2e/);
+  const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
+  assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npm run test:e2e"));
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
   assert.match(codeql, /if: steps\.impact\.outputs\.standard == 'true'/);
   assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
