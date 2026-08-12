@@ -359,13 +359,18 @@ function structuredStreetNumberCandidates(address: unknown, postalCode: unknown)
     withoutAddressPart(normalizedAddressTokens(address), postalCode),
   );
   const candidates = new Set<string>();
-  const addCandidate = (parts: string[]) => {
-    if (/^\d/u.test(parts[0] ?? "")) candidates.add(parts.join(""));
-  };
-  addCandidate(addressParts.slice(0, 1));
-  addCandidate(addressParts.slice(0, 2));
-  addCandidate(addressParts.slice(-1));
-  addCandidate(addressParts.slice(-2));
+  const first = addressParts[0] ?? "";
+  const second = addressParts[1] ?? "";
+  if (/^\d/u.test(first)) {
+    candidates.add(/^\p{L}$/u.test(second) ? `${first}${second}` : first);
+  }
+  const last = addressParts.at(-1) ?? "";
+  const penultimate = addressParts.at(-2) ?? "";
+  if (/^\d/u.test(last)) {
+    candidates.add(last);
+  } else if (/^\d/u.test(penultimate) && /^\p{L}$/u.test(last)) {
+    candidates.add(`${penultimate}${last}`);
+  }
   return candidates;
 }
 
@@ -385,7 +390,11 @@ function hasConflictingStructuredStreetNumber(
 ) {
   const expected = compactAddressPart(streetNumber);
   const candidates = structuredStreetNumberCandidates(address, postalCode);
-  return Boolean(expected && candidates.size > 0 && !candidates.has(expected));
+  return Boolean(expected && [...candidates].some((candidate) => candidate !== expected));
+}
+
+function canonicalItalianStreetToken(token: string) {
+  return ["san", "santo", "santa", "sant"].includes(token) ? "san" : token;
 }
 
 function hasSupportingAddressEvidence(
@@ -435,13 +444,17 @@ function hasSupportingAddressEvidence(
         customerStreetTokens.length > 0 &&
         customerStreetTokens.length === recipientStreetTokens.length &&
         customerStreetTokens.every((token, index) => token === recipientStreetTokens[index]);
-      const sameShortStreetEnding =
-        sharedStreetTokens === 1 &&
+      const sameKnownShortStreetVariant =
+        customerStreetTokens.length > 0 &&
         customerStreetTokens.length <= 2 &&
-        recipientStreetTokens.length <= 2 &&
+        customerStreetTokens.length === recipientStreetTokens.length &&
         customerStreetTokens.every((token) => !/^\d/u.test(token)) &&
         recipientStreetTokens.every((token) => !/^\d/u.test(token)) &&
-        customerStreetTokens.at(-1) === recipientStreetTokens.at(-1);
+        customerStreetTokens.every(
+          (token, index) =>
+            canonicalItalianStreetToken(token) ===
+            canonicalItalianStreetToken(recipientStreetTokens[index]!),
+        );
       return (
         samePostalCode &&
         sameCity &&
@@ -455,7 +468,7 @@ function hasSupportingAddressEvidence(
             recipientAddress.streetNumber,
             recipientAddress.postalCode,
           ) &&
-        (sameStreetTokens || sameShortStreetEnding)
+        (sameStreetTokens || sameKnownShortStreetVariant)
       );
     }
     return sharedStreetTokens >= 2;

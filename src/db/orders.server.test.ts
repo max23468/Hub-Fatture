@@ -3060,6 +3060,21 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shortItalianStreetEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Due nomi propri diversi non sono la stessa via breve",
+          invoiceXml: Buffer.from(
+            shortItalianStreetInvoice.toString().replace("Via Santo Luca", "Via Mario Luca"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-different-short-street-name" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       shortItalianStreetEbayId,
       {
@@ -3242,7 +3257,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           invoiceXml: Buffer.from(
             euPersonalInvoice
               .toString()
-              .replace("Avenue Martin des Fleurs du Lac", "34 Avenue Martin des Fleurs du Lac"),
+              .replace("Avenue Martin des Fleurs du Lac", "12 Avenue Martin des Fleurs du Lac 34"),
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-conflicting-eu-embedded-civic" },
