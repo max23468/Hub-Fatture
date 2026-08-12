@@ -8,7 +8,7 @@ import { temporaryDatabase, withClient } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { importOrders } from "./order-import.server.ts";
 import { AppError } from "../errors.ts";
-import { syncEbayOrders } from "../integrations/ebay.server.ts";
+import { importEbayHistory, syncEbayOrders } from "../integrations/ebay.server.ts";
 import { mapShopifyOrder, processShopifyWebhook } from "../integrations/shopify.server.ts";
 
 test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti", async () => {
@@ -400,7 +400,6 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       `UPDATE connections SET account_reference = 'sandbox-risultante'
        WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
     );
-    const { importEbayHistory } = await import("../integrations/ebay.server.ts");
     assert.deepEqual(
       await importEbayHistory(
         "2026-08-05",
@@ -876,6 +875,55 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       (await getPool().query("SELECT status FROM jobs WHERE id = $1", [previewJob!.id])).rows[0]
         .status,
       "PENDING",
+    );
+    await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [previewJob!.id]);
+    await connectors.markConnectionError("EBAY", "PROVIDER_UNAVAILABLE", true);
+    await connectors.retryFailedJob(previewJob!.id, {
+      type: "ADMIN",
+      id: 1,
+      requestId: "preview-retry-from-error",
+    });
+    const recoveredHistoryJob = await connectors.claimJob("worker-history-retry");
+    assert.equal(recoveredHistoryJob?.id, previewJob!.id);
+    const originalHistoryFetch = globalThis.fetch;
+    globalThis.fetch = async (input) =>
+      new Response(
+        String(input).includes("/identity/v1/oauth2/token")
+          ? JSON.stringify({ access_token: "token-storico-sintetico", expires_in: 3600 })
+          : JSON.stringify({ orders: [] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    try {
+      const recoveredHistory = await importEbayHistory(
+        recoveredHistoryJob!.payload.startDate,
+        { type: "SYSTEM", requestId: "history-retry-from-error" },
+        recoveredHistoryJob!,
+      );
+      assert.deepEqual(recoveredHistory, {
+        imported: 0,
+        updated: 0,
+        ignored: 0,
+        count: 0,
+        reviewRequired: 0,
+      });
+      assert.equal(
+        await connectors.completeJob(recoveredHistoryJob!, { ...recoveredHistory }),
+        true,
+      );
+    } finally {
+      globalThis.fetch = originalHistoryFetch;
+    }
+    assert.equal(await connectors.historyImportPending("EBAY"), false);
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT status FROM connections WHERE provider = 'EBAY' AND environment = 'SANDBOX'",
+        )
+      ).rows[0].status,
+      "CONNECTED",
+    );
+    await getPool().query(
+      "DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import'",
     );
     await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [previewJob!.id]);
     await getPool().query(

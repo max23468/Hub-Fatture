@@ -250,7 +250,7 @@ export async function lockHistoryImportConnection(
   await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:' || $1))", [provider]);
   const connection = await client.query(
     `SELECT id FROM connections
-     WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'
+     WHERE provider = $1 AND environment = $2 AND status IN ('CONNECTED', 'ERROR')
        AND account_reference = $3
        AND NOT EXISTS (
          SELECT 1 FROM sync_cursors
@@ -281,9 +281,10 @@ export async function completeHistoryImportInTransaction(
     [provider, cursor, overlapFrom],
   );
   const updated = await client.query(
-    `UPDATE connections SET last_checked_at = now(), last_synced_at = now(), updated_at = now(),
+    `UPDATE connections SET status = 'CONNECTED', last_checked_at = now(),
+       last_synced_at = now(), updated_at = now(),
        last_error_code = NULL, last_error_message_sanitized = NULL
-     WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'
+     WHERE provider = $1 AND environment = $2 AND status IN ('CONNECTED', 'ERROR')
        AND account_reference = $3`,
     [provider, activeEnvironment(provider), accountReference],
   );
