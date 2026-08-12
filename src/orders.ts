@@ -4,6 +4,8 @@ export const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
 export const draftTriggerSchema = z.enum(["PAID", "FULFILLED"]);
 export type DraftTrigger = z.infer<typeof draftTriggerSchema>;
+export const shopifyPaymentFeeModeSchema = z.enum(["DEDUCT", "INCLUDE"]);
+export type ShopifyPaymentFeeMode = z.infer<typeof shopifyPaymentFeeModeSchema>;
 
 const optionalTextSchema = z
   .string()
@@ -153,6 +155,7 @@ export const orderInputSchema = z
         method: z.string().trim().min(1),
         status: z.enum(["PAID", "PENDING", "REFUNDED"]),
         amount: z.string().trim().min(1),
+        shopifyPaymentsFeeAmount: z.string().trim().min(1).default("0.00"),
         paidAt: postgresTimestampSchema.nullable().default(null),
       }),
     ),

@@ -16,16 +16,28 @@ export function creditableRemainder(invoiceTotal: number, creditedAmount: number
 export function preIssueRefund(
   orderTotal: number,
   refunds: Array<{ status: string; amount: number | null }>,
+  initialBillableAmount = orderTotal,
 ): { state: "UNCHANGED" | "PARTIAL" | "TOTAL" | "NEEDS_REVIEW"; billableAmount: number } {
   money(orderTotal);
+  money(initialBillableAmount);
+  if (initialBillableAmount > orderTotal) {
+    throw new RangeError("L’importo fatturabile supera il totale ordine");
+  }
   if (refunds.some(refundNeedsReview)) {
-    return { state: "NEEDS_REVIEW", billableAmount: orderTotal };
+    return { state: "NEEDS_REVIEW", billableAmount: initialBillableAmount };
   }
   const refunded = refunds
     .filter((refund) => refund.status === "COMPLETED")
     .reduce((sum, refund) => sum + money(refund.amount!), 0);
-  if (refunded > orderTotal) return { state: "NEEDS_REVIEW", billableAmount: orderTotal };
+  if (refunded > orderTotal) {
+    return { state: "NEEDS_REVIEW", billableAmount: initialBillableAmount };
+  }
   if (refunded === orderTotal) return { state: "TOTAL", billableAmount: 0 };
-  if (refunded > 0) return { state: "PARTIAL", billableAmount: orderTotal - refunded };
-  return { state: "UNCHANGED", billableAmount: orderTotal };
+  if (refunded > initialBillableAmount) {
+    return { state: "NEEDS_REVIEW", billableAmount: initialBillableAmount };
+  }
+  if (refunded > 0) {
+    return { state: "PARTIAL", billableAmount: initialBillableAmount - refunded };
+  }
+  return { state: "UNCHANGED", billableAmount: initialBillableAmount };
 }

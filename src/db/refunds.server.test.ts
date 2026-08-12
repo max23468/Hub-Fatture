@@ -98,6 +98,13 @@ test(
         [invoice.rows[0]!.id, order.rows[0]!.id],
       );
       await client.query(
+        `INSERT INTO document_lines
+          (document_id, order_id, line_number, description, quantity, unit_amount,
+           total_amount, tax_nature)
+         VALUES ($1, $2, 1, 'Ordine Shopify #CREDIT', 1, 10000, 10000, 'N5')`,
+        [invoice.rows[0]!.id, order.rows[0]!.id],
+      );
+      await client.query(
         `UPDATE documents SET status = 'APPROVED', fiscal_year = 2026, fiscal_number = 1,
          approved_at = now(), xml_sha256 = $2, immutable_snapshot_json = $3,
          fiscal_profile_snapshot_json = $4, storage_object_id = $5 WHERE id = $1`,
@@ -712,6 +719,234 @@ test(
         null,
       );
 
+      const netCase = await client.query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json,
+           fiscal_profile_version)
+         VALUES ($1, '2026-08-19', 'EUR', 'APPROVED', $2, 1) RETURNING id`,
+        [customer.rows[0]!.id, { ...recipient, email: "cliente@example.invalid" }],
+      );
+      const netOrder = await client.query<{ id: string }>(
+        `INSERT INTO orders
+          (provider, external_account_id, external_order_id, display_number, created_at_source,
+           updated_at_source, local_order_date, currency, gross_amount,
+           shopify_payments_fee_amount, deducted_shopify_payments_fee_amount,
+           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('SHOPIFY', 'shop', 'order-credit-net', '#CREDIT-NET',
+           '2026-08-19T09:00:00Z', '2026-08-19T09:00:00Z', '2026-08-19',
+           'EUR', 12200, 257, 257, 'PAID', 'FULFILLED', 'INVOICED', $1, $2, '{}', '{}')
+         RETURNING id`,
+        [customer.rows[0]!.id, netCase.rows[0]!.id],
+      );
+      const netInvoice = await client.query<{ id: string }>(
+        `INSERT INTO documents
+          (billing_case_id, kind, status, document_type, series, document_date,
+           fiscal_profile_version, currency, total_amount, source_total_amount,
+           difference_amount, draft_version, projection_sha256, payment_status,
+           payment_method, recipient_snapshot_json)
+         VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', '2026-08-19', 1, 'EUR',
+           11943, 11943, 0, 1, $2, 'PAID', 'MP08', $3) RETURNING id`,
+        [netCase.rows[0]!.id, "d".repeat(64), recipient],
+      );
+      await client.query(
+        `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+         VALUES ($1, 'INVOICE', $2, 11943)`,
+        [netInvoice.rows[0]!.id, netOrder.rows[0]!.id],
+      );
+      await client.query(
+        `INSERT INTO document_lines
+          (document_id, order_id, line_number, description, quantity, unit_amount,
+           total_amount, tax_nature)
+         VALUES ($1, $2, 1, 'Ordine Shopify #CREDIT-NET', 1, 11943, 11943, 'N5')`,
+        [netInvoice.rows[0]!.id, netOrder.rows[0]!.id],
+      );
+      await client.query(
+        `UPDATE documents
+         SET status = 'APPROVED', origin = 'ARUBA_HISTORY', fiscal_year = 2026,
+             fiscal_number = 9001, approved_at = now(), xml_sha256 = $2,
+             immutable_snapshot_json = $3, fiscal_profile_snapshot_json = $4,
+             storage_object_id = $5
+         WHERE id = $1`,
+        [
+          netInvoice.rows[0]!.id,
+          "e".repeat(64),
+          { kind: "INVOICE" },
+          profileFixture,
+          stored.rows[0]!.id,
+        ],
+      );
+      const grossRefund = (
+        await client.query<{ id: string }>(
+          `INSERT INTO refunds
+            (provider, external_account_id, external_order_id, external_refund_id,
+             order_id, status, amount, completed_at, raw_json)
+           VALUES ('SHOPIFY', 'shop', 'order-credit-net', 'refund-credit-net', $1,
+             'COMPLETED', 12200, now(), '{}') RETURNING id`,
+          [netOrder.rows[0]!.id],
+        )
+      ).rows[0]!.id;
+      const netCreditId = await refunds.processRefund(grossRefund);
+      assert.ok(netCreditId);
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT refunds.amount AS provider_amount, documents.total_amount,
+                    document_orders.amount AS attributed_amount,
+                    balances.credited_amount
+             FROM refunds
+             JOIN documents ON documents.id = refunds.credit_document_id
+             JOIN document_orders ON document_orders.document_id = documents.id
+               AND document_orders.order_id = refunds.order_id
+             JOIN credit_note_balances AS balances
+               ON balances.invoice_document_id = $2
+             WHERE refunds.id = $1`,
+            [grossRefund, netInvoice.rows[0]!.id],
+          )
+        ).rows[0],
+        {
+          provider_amount: 12_200,
+          total_amount: 11_943,
+          attributed_amount: 11_943,
+          credited_amount: 11_943,
+        },
+      );
+
+      const overrideCase = await client.query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json,
+           fiscal_profile_version)
+         VALUES ($1, '2026-08-20', 'EUR', 'APPROVED', $2, 1) RETURNING id`,
+        [customer.rows[0]!.id, { ...recipient, email: "cliente@example.invalid" }],
+      );
+      const overrideOrders: string[] = [];
+      for (const suffix of ["UP", "DOWN"]) {
+        const result = await client.query<{ id: string }>(
+          `INSERT INTO orders
+            (provider, external_account_id, external_order_id, display_number,
+             created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+             shopify_payments_fee_amount, deducted_shopify_payments_fee_amount,
+             payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+             raw_snapshot_json, normalized_snapshot_json)
+           VALUES ('SHOPIFY', 'shop', $1, $2, '2026-08-20T09:00:00Z',
+             '2026-08-20T09:00:00Z', '2026-08-20', 'EUR', 10000, 500, 500,
+             'PAID', 'FULFILLED', 'INVOICED', $3, $4, '{}', '{}') RETURNING id`,
+          [
+            `order-credit-override-${suffix.toLowerCase()}`,
+            `#CREDIT-${suffix}`,
+            customer.rows[0]!.id,
+            overrideCase.rows[0]!.id,
+          ],
+        );
+        overrideOrders.push(result.rows[0]!.id);
+      }
+      const overrideInvoice = await client.query<{ id: string }>(
+        `INSERT INTO documents
+          (billing_case_id, kind, status, document_type, series, document_date,
+           fiscal_profile_version, currency, total_amount, source_total_amount,
+           difference_amount, draft_version, projection_sha256, payment_status,
+           payment_method, recipient_snapshot_json)
+         VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', '2026-08-20', 1, 'EUR',
+           19000, 19000, 0, 1, $2, 'PAID', 'MP08', $3) RETURNING id`,
+        [overrideCase.rows[0]!.id, "f".repeat(64), recipient],
+      );
+      for (const orderId of overrideOrders) {
+        await client.query(
+          `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+           VALUES ($1, 'INVOICE', $2, 9500)`,
+          [overrideInvoice.rows[0]!.id, orderId],
+        );
+      }
+      await client.query(
+        `INSERT INTO document_lines
+          (document_id, order_id, line_number, description, quantity, unit_amount,
+           total_amount, tax_nature)
+         VALUES
+           ($1, $2, 1, 'Ordine Shopify #CREDIT-UP', 1, 10000, 10000, 'N5'),
+           ($1, $3, 2, 'Ordine Shopify #CREDIT-DOWN', 1, 9000, 9000, 'N5')`,
+        [overrideInvoice.rows[0]!.id, overrideOrders[0], overrideOrders[1]],
+      );
+      await client.query(
+        `UPDATE documents
+         SET status = 'APPROVED', fiscal_year = 2026,
+             fiscal_number = 9002, approved_at = now(), xml_sha256 = $2,
+             immutable_snapshot_json = $3, fiscal_profile_snapshot_json = $4,
+             storage_object_id = $5
+         WHERE id = $1`,
+        [
+          overrideInvoice.rows[0]!.id,
+          "1".repeat(64),
+          { kind: "INVOICE" },
+          profileFixture,
+          stored.rows[0]!.id,
+        ],
+      );
+      const overrideBatchId = randomUUID();
+      await client.query(
+        `INSERT INTO aruba_batches
+          (id, environment, mode, account_reference, manifest_sha256, document_count,
+           status, created_by)
+         VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic', $2, 1, 'RECONCILED', $3)`,
+        [overrideBatchId, "2".repeat(64), user.rows[0]!.id],
+      );
+      await client.query(
+        `INSERT INTO aruba_batch_documents
+          (batch_id, document_id, position, document_revision, xml_sha256, filename)
+         VALUES ($1, $2, 1, 1, $3, 'override-invoice.xml')`,
+        [overrideBatchId, overrideInvoice.rows[0]!.id, "1".repeat(64)],
+      );
+      await client.query(
+        `INSERT INTO aruba_submissions
+          (batch_id, document_id, attempt_number, environment, mode, manifest_sha256,
+           xml_sha256, status)
+         VALUES ($1, $2, 1, 'MOCK', 'ASSISTED', $3, $4, 'DELIVERED')`,
+        [overrideBatchId, overrideInvoice.rows[0]!.id, "2".repeat(64), "1".repeat(64)],
+      );
+      const overrideRefunds: string[] = [];
+      for (const [index, amount] of [10000, 9500].entries()) {
+        const result = await client.query<{ id: string }>(
+          `INSERT INTO refunds
+            (provider, external_account_id, external_order_id, external_refund_id,
+             order_id, status, amount, completed_at, raw_json)
+           VALUES ('SHOPIFY', 'shop', $1, $2, $3, 'COMPLETED', $4, now(), '{}')
+           RETURNING id`,
+          [
+            `order-credit-override-${index === 0 ? "up" : "down"}`,
+            `refund-credit-override-${index}`,
+            overrideOrders[index],
+            amount,
+          ],
+        );
+        overrideRefunds.push(result.rows[0]!.id);
+      }
+      const overrideCreditId = await refunds.processRefund(overrideRefunds[0]!);
+      assert.ok(overrideCreditId);
+      assert.equal(await refunds.processRefund(overrideRefunds[1]!), overrideCreditId);
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT refunds.amount AS provider_amount,
+                    document_orders.amount AS attributed_amount
+             FROM refunds
+             JOIN document_orders
+               ON document_orders.document_id = refunds.credit_document_id
+              AND document_orders.order_id = refunds.order_id
+             WHERE refunds.id = ANY($1::bigint[])
+             ORDER BY refunds.external_order_id DESC`,
+            [overrideRefunds],
+          )
+        ).rows,
+        [
+          { provider_amount: 10000, attributed_amount: 10000 },
+          { provider_amount: 9500, attributed_amount: 9000 },
+        ],
+      );
+      assert.equal(
+        (await client.query("SELECT total_amount FROM documents WHERE id = $1", [overrideCreditId]))
+          .rows[0].total_amount,
+        19000,
+      );
+
       const ambiguous = (
         await client.query<{ id: string }>(
           `INSERT INTO refunds
@@ -747,12 +982,25 @@ test(
       );
       const orderQueries = await import("./order-queries.server.ts");
       const activities = await orderQueries.listOpenActivities();
-      assert.ok(activities.rows.some((activity) => activity.id === ambiguous));
       assert.ok(
-        activities.rows.some((activity) => activity.id === unresolvedRefundJob.rows[0]!.id),
+        activities.rows.some((activity) => activity.kind === "REFUND" && activity.id === ambiguous),
       );
-      assert.ok(!activities.rows.some((activity) => activity.id === pendingWithoutAmount));
-      assert.ok(!activities.rows.some((activity) => activity.id === resolvedJob.rows[0]!.id));
+      assert.ok(
+        activities.rows.some(
+          (activity) =>
+            activity.kind === "REFUND_JOB" && activity.id === unresolvedRefundJob.rows[0]!.id,
+        ),
+      );
+      assert.ok(
+        !activities.rows.some(
+          (activity) => activity.kind === "REFUND" && activity.id === pendingWithoutAmount,
+        ),
+      );
+      assert.ok(
+        !activities.rows.some(
+          (activity) => activity.kind === "REFUND_JOB" && activity.id === resolvedJob.rows[0]!.id,
+        ),
+      );
       const creditNoteActivities = await orderQueries.listOpenActivities(undefined, "CREDIT_NOTE");
       assert.ok(creditNoteActivities.rows.length > 0);
       assert.ok(creditNoteActivities.rows.every((activity) => activity.kind === "CREDIT_NOTE"));

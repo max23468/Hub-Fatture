@@ -29,6 +29,8 @@ const CANONICAL_ACCOUNT_NAMES = "015_canonical_account_names.sql";
 const HISTORICAL_ORDER_RECONCILIATION = "016_historical_order_reconciliation.sql";
 const HISTORICAL_INVOICE_LINKS = "017_historical_invoice_links.sql";
 const LEGACY_WEBHOOK_HISTORY = "018_legacy_webhook_history.sql";
+const SHOPIFY_PAYMENT_FEES = "019_shopify_payment_fees.sql";
+const CREDIT_NOTE_ORDER_AMOUNTS = "020_credit_note_order_amounts.sql";
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -51,6 +53,8 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(firstTwo, HISTORICAL_INVOICE_LINKS));
     await rm(path.join(firstTwo, LEGACY_WEBHOOK_HISTORY));
+    await rm(path.join(firstTwo, SHOPIFY_PAYMENT_FEES));
+    await rm(path.join(firstTwo, CREDIT_NOTE_ORDER_AMOUNTS));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
       [BASELINE, CONNECTORS],
@@ -72,6 +76,8 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
       LEGACY_WEBHOOK_HISTORY,
+      SHOPIFY_PAYMENT_FEES,
+      CREDIT_NOTE_ORDER_AMOUNTS,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -89,6 +95,8 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
     await rm(path.join(beforeHistoricalImport, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeHistoricalImport, HISTORICAL_INVOICE_LINKS));
     await rm(path.join(beforeHistoricalImport, LEGACY_WEBHOOK_HISTORY));
+    await rm(path.join(beforeHistoricalImport, SHOPIFY_PAYMENT_FEES));
+    await rm(path.join(beforeHistoricalImport, CREDIT_NOTE_ORDER_AMOUNTS));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeHistoricalImport,
@@ -108,6 +116,8 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
       LEGACY_WEBHOOK_HISTORY,
+      SHOPIFY_PAYMENT_FEES,
+      CREDIT_NOTE_ORDER_AMOUNTS,
     ]);
     await withClient(database.connectionString, async (client) => {
       const jobs = await client.query(
@@ -150,6 +160,8 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
   try {
     await cp("migrations", beforeClassification, { recursive: true });
     await rm(path.join(beforeClassification, LEGACY_WEBHOOK_HISTORY));
+    await rm(path.join(beforeClassification, SHOPIFY_PAYMENT_FEES));
+    await rm(path.join(beforeClassification, CREDIT_NOTE_ORDER_AMOUNTS));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeClassification,
@@ -172,6 +184,8 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
 
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       LEGACY_WEBHOOK_HISTORY,
+      SHOPIFY_PAYMENT_FEES,
+      CREDIT_NOTE_ORDER_AMOUNTS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -216,12 +230,14 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
       LEGACY_WEBHOOK_HISTORY,
+      SHOPIFY_PAYMENT_FEES,
+      CREDIT_NOTE_ORDER_AMOUNTS,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "18",
+      "20",
     );
     await cleanClient.end();
 
@@ -312,6 +328,8 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
     await rm(path.join(beforeCanonicalNames, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeCanonicalNames, HISTORICAL_INVOICE_LINKS));
     await rm(path.join(beforeCanonicalNames, LEGACY_WEBHOOK_HISTORY));
+    await rm(path.join(beforeCanonicalNames, SHOPIFY_PAYMENT_FEES));
+    await rm(path.join(beforeCanonicalNames, CREDIT_NOTE_ORDER_AMOUNTS));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeCanonicalNames,
@@ -328,6 +346,8 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
       LEGACY_WEBHOOK_HISTORY,
+      SHOPIFY_PAYMENT_FEES,
+      CREDIT_NOTE_ORDER_AMOUNTS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -369,6 +389,8 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
     await rm(path.join(beforeRefundAccounting, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeRefundAccounting, HISTORICAL_INVOICE_LINKS));
     await rm(path.join(beforeRefundAccounting, LEGACY_WEBHOOK_HISTORY));
+    await rm(path.join(beforeRefundAccounting, SHOPIFY_PAYMENT_FEES));
+    await rm(path.join(beforeRefundAccounting, CREDIT_NOTE_ORDER_AMOUNTS));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeRefundAccounting,
@@ -410,6 +432,8 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
       LEGACY_WEBHOOK_HISTORY,
+      SHOPIFY_PAYMENT_FEES,
+      CREDIT_NOTE_ORDER_AMOUNTS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -443,6 +467,8 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeM4, HISTORICAL_INVOICE_LINKS));
     await rm(path.join(beforeM4, LEGACY_WEBHOOK_HISTORY));
+    await rm(path.join(beforeM4, SHOPIFY_PAYMENT_FEES));
+    await rm(path.join(beforeM4, CREDIT_NOTE_ORDER_AMOUNTS));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
     await withClient(database.connectionString, async (client) => {
@@ -575,6 +601,8 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       HISTORICAL_ORDER_RECONCILIATION,
       HISTORICAL_INVOICE_LINKS,
       LEGACY_WEBHOOK_HISTORY,
+      SHOPIFY_PAYMENT_FEES,
+      CREDIT_NOTE_ORDER_AMOUNTS,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

@@ -556,22 +556,47 @@ test(
         ),
         (error) => error instanceof AppError && error.code === "DOCUMENT_APPROVAL_FORBIDDEN",
       );
-      await assert.rejects(
-        documents.approveInvoice(
-          cases[0]!.id,
-          {
-            caseRevision: regeneratedFirstProjection.caseRevision,
-            draftVersion: regeneratedFirstProjection.draftVersion,
-            projectionSha256: regeneratedFirstProjection.projectionSha256,
-            confirmApproval: false,
-            confirmPending: false,
-            confirmDifference: false,
-            emailChoice: "SKIP",
-            emailModeVersion: regeneratedFirstProjection.customerEmail.version,
-          },
-          { id: 1, canApprove: true, requestId: "missing-final-confirmation" },
-        ),
-        (error) => error instanceof AppError && error.code === "DOCUMENT_NOT_APPROVABLE",
+      const settingLockClient = await database.getPool().connect();
+      await settingLockClient.query("BEGIN");
+      await settingLockClient.query(
+        "SELECT pg_advisory_xact_lock(hashtext('setting:shopify_payment_fee_mode'))",
+      );
+      let missingConfirmationCompleted = false;
+      const missingConfirmation = documents.approveInvoice(
+        cases[0]!.id,
+        {
+          caseRevision: regeneratedFirstProjection.caseRevision,
+          draftVersion: regeneratedFirstProjection.draftVersion,
+          projectionSha256: regeneratedFirstProjection.projectionSha256,
+          confirmApproval: false,
+          confirmPending: false,
+          confirmDifference: false,
+          emailChoice: "SKIP",
+          emailModeVersion: regeneratedFirstProjection.customerEmail.version,
+        },
+        { id: 1, canApprove: true, requestId: "missing-final-confirmation" },
+      );
+      const observedMissingConfirmation = missingConfirmation.then(
+        () => {
+          missingConfirmationCompleted = true;
+          return null;
+        },
+        (error: unknown) => {
+          missingConfirmationCompleted = true;
+          return error;
+        },
+      );
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        assert.equal(missingConfirmationCompleted, false);
+      } finally {
+        await settingLockClient.query("COMMIT");
+        settingLockClient.release();
+      }
+      const missingConfirmationError = await observedMissingConfirmation;
+      assert.ok(
+        missingConfirmationError instanceof AppError &&
+          missingConfirmationError.code === "DOCUMENT_NOT_APPROVABLE",
       );
       await assert.rejects(
         documents.approveInvoice(

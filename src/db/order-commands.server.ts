@@ -10,6 +10,7 @@ import { validateFatturaXml } from "../fatturapa.server.ts";
 import {
   draftTriggerSchema,
   POSTGRES_INTEGER_MAX,
+  shopifyPaymentFeeModeSchema,
   triggerStatus,
   type OrderInput,
 } from "../orders.ts";
@@ -20,10 +21,11 @@ import { isDatabaseId } from "./database-id.ts";
 import { archiveImportedInvoiceXml } from "./document-storage.server.ts";
 import {
   groupOrder,
+  reconcileInvoiceDraft,
   reconcilePreIssueInvoiceAmount,
-  serializeOrderMutations,
   type Actor,
 } from "./order-import.server.ts";
+import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 
 const historicalReconciliationSchema = z.object({
   outcome: z.enum(["ALREADY_INVOICED", "NOT_INVOICED"]),
@@ -257,6 +259,105 @@ export async function getDraftTrigger() {
   };
 }
 
+export async function getShopifyPaymentFeeMode() {
+  const result = await getPool().query<{ value_json: unknown; version: number }>(
+    "SELECT value_json, version FROM settings WHERE key = 'shopify_payment_fee_mode'",
+  );
+  return {
+    value: shopifyPaymentFeeModeSchema.parse(result.rows[0]?.value_json ?? "DEDUCT"),
+    version: result.rows[0]?.version ?? 0,
+  };
+}
+
+export async function setShopifyPaymentFeeMode(
+  value: unknown,
+  expectedVersion: number,
+  actor: Actor,
+) {
+  const mode = shopifyPaymentFeeModeSchema.safeParse(value);
+  if (
+    !mode.success ||
+    !Number.isInteger(expectedVersion) ||
+    expectedVersion < 0 ||
+    expectedVersion > POSTGRES_INTEGER_MAX
+  ) {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+  return withTransaction(async (client) => {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext('setting:shopify_payment_fee_mode'))",
+    );
+    await serializeOrderMutations(client);
+    const setting = await client.query<{ version: number; value_json: unknown }>(
+      "SELECT version, value_json FROM settings WHERE key = 'shopify_payment_fee_mode' FOR UPDATE",
+    );
+    if (setting.rows[0]?.version !== expectedVersion) {
+      throw new AppError("CONFLICT_REVISION", 409);
+    }
+    const previousMode = shopifyPaymentFeeModeSchema.parse(setting.rows[0]?.value_json ?? "DEDUCT");
+    const updated = await client.query<{ version: number }>(
+      `UPDATE settings SET value_json = $1, version = version + 1, updated_at = now()
+       WHERE key = 'shopify_payment_fee_mode' RETURNING version`,
+      [JSON.stringify(mode.data)],
+    );
+    // La seconda scrittura dipende dalla versione appena fissata nella stessa transazione.
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
+    const changedOrders = await client.query<{ billing_case_id: string | null }>(
+      `UPDATE orders
+       SET deducted_shopify_payments_fee_amount = CASE
+             WHEN $1 = 'DEDUCT' THEN shopify_payments_fee_amount ELSE 0
+           END,
+           normalized_snapshot_json = jsonb_set(
+             jsonb_set(
+               normalized_snapshot_json,
+               '{deductedShopifyPaymentsFeeAmount}',
+               to_jsonb(CASE WHEN $1 = 'DEDUCT' THEN shopify_payments_fee_amount ELSE 0 END)
+             ),
+             '{billableAmount}',
+             to_jsonb(gross_amount - CASE
+               WHEN $1 = 'DEDUCT' THEN shopify_payments_fee_amount ELSE 0
+             END)
+           )
+       WHERE provider = 'SHOPIFY'
+         AND deducted_shopify_payments_fee_amount <> CASE
+           WHEN $1 = 'DEDUCT' THEN shopify_payments_fee_amount ELSE 0
+         END
+         AND historical_reconciliation_outcome IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM document_orders
+           JOIN documents ON documents.id = document_orders.document_id
+           WHERE document_orders.order_id = orders.id
+             AND document_orders.document_kind = 'INVOICE'
+             AND documents.status = 'APPROVED'
+         )
+       RETURNING billing_case_id::text`,
+      [mode.data],
+    );
+    const caseIds = new Set(
+      changedOrders.rows.flatMap((order) =>
+        order.billing_case_id === null ? [] : [order.billing_case_id],
+      ),
+    );
+    for (const caseId of caseIds) {
+      // Una sola connessione transazionale aggiorna le bozze in ordine deterministico.
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      await reconcileInvoiceDraft(client, caseId);
+    }
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: actor.id === undefined ? null : String(actor.id),
+      action: "SHOPIFY_PAYMENT_FEE_MODE_CHANGED",
+      eventClass: "CRITICAL",
+      entityType: "SETTING",
+      entityId: "shopify_payment_fee_mode",
+      before: { mode: previousMode },
+      after: { mode: mode.data, updatedOrders: changedOrders.rowCount ?? 0 },
+      requestId: actor.requestId,
+    });
+    return { value: mode.data, version: updated.rows[0]!.version };
+  });
+}
+
 export async function setDraftTrigger(value: unknown, expectedVersion: number, actor: Actor) {
   const trigger = draftTriggerSchema.safeParse(value);
   if (
@@ -394,6 +495,9 @@ export async function reconcileHistoricalOrder(
         archivedInvoice = await archiveImportedInvoiceXml(client, invoicePath, importedInvoice.xml);
       }
       await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
+      await client.query(
+        "SELECT pg_advisory_xact_lock_shared(hashtext('setting:shopify_payment_fee_mode'))",
+      );
       await serializeOrderMutations(client);
       const order = await client.query<{
         id: string;
@@ -412,6 +516,7 @@ export async function reconcileHistoricalOrder(
         historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
         historical_invoice_id: string | null;
         gross_amount: number;
+        billable_amount: number;
         tax_identifiers: Array<{
           type: string;
           value: string;
@@ -430,7 +535,7 @@ export async function reconcileHistoricalOrder(
               orders.fulfillment_status, orders.cancelled_at, orders.trigger_status,
               coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
                 AS historical,
-              orders.historical_reconciled_at, orders.gross_amount,
+              orders.historical_reconciled_at, orders.gross_amount, orders.billable_amount,
               orders.historical_reconciliation_outcome,
               (SELECT document_orders.document_id::text
                FROM document_orders JOIN documents ON documents.id = document_orders.document_id
@@ -473,7 +578,11 @@ export async function reconcileHistoricalOrder(
       const trigger = await client.query<{ value_json: unknown }>(
         "SELECT value_json FROM settings WHERE key = 'draft_trigger' FOR SHARE",
       );
-      const refundEffect = preIssueRefund(current.gross_amount, current.refunds);
+      const refundEffect = preIssueRefund(
+        current.gross_amount,
+        current.refunds,
+        current.billable_amount,
+      );
       const hasExplicitHistoricalOrderReference = importedInvoice
         ? hasOrderReference(importedInvoice.references, current.provider, current.display_number)
         : false;
@@ -506,7 +615,7 @@ export async function reconcileHistoricalOrder(
               refund.completed_date === historicalInvoiceDate)),
       );
       const expectedHistoricalInvoiceTotal =
-        current.gross_amount -
+        current.billable_amount -
         preIssueHistoricalRefunds.reduce((sum, refund) => sum + refund.amount!, 0);
       if (
         parsed.data.outcome === "ALREADY_INVOICED" &&

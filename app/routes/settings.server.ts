@@ -18,7 +18,12 @@ import {
 } from "../../src/db/connectors.server.ts";
 import { getFiscalProfileSettings } from "../../src/db/documents.server.ts";
 import { getCustomerEmailSettings, setCustomerEmailMode } from "../../src/db/email.server.ts";
-import { getDraftTrigger, setDraftTrigger } from "../../src/db/orders.server.ts";
+import {
+  getDraftTrigger,
+  getShopifyPaymentFeeMode,
+  setDraftTrigger,
+  setShopifyPaymentFeeMode,
+} from "../../src/db/orders.server.ts";
 import { getSystemStatus } from "../../src/db/system.server.ts";
 import { AppError, publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
@@ -32,24 +37,36 @@ export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
   const requestedHistoryProvider = url.searchParams.get("historyProvider");
-  const [profile, trigger, connections, ebayHistory, aruba, customerEmail, fiscalProfile, system] =
-    await Promise.all([
-      getAccountProfile(request, user),
-      getDraftTrigger(),
-      connectionSummaries(),
-      latestEbayHistory(),
-      getArubaSettings(),
-      getCustomerEmailSettings(),
-      getFiscalProfileSettings(),
-      getSystemStatus(),
-    ]);
+  const [
+    profile,
+    trigger,
+    shopifyPaymentFeeMode,
+    connections,
+    ebayHistory,
+    aruba,
+    customerEmail,
+    fiscalProfile,
+    system,
+  ] = await Promise.all([
+    getAccountProfile(request, user),
+    getDraftTrigger(),
+    getShopifyPaymentFeeMode(),
+    connectionSummaries(),
+    latestEbayHistory(),
+    getArubaSettings(),
+    getCustomerEmailSettings(),
+    getFiscalProfileSettings(),
+    getSystemStatus(),
+  ]);
   return {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     profile,
     trigger,
+    shopifyPaymentFeeMode,
     saved: url.searchParams.get("trigger") === "salvato",
+    shopifyPaymentFeeModeSaved: url.searchParams.get("commissioni") === "salvata",
     connections,
     ebayHistory,
     aruba,
@@ -117,6 +134,14 @@ export async function action({ request }: Route.ActionArgs) {
         requestId: requestId(request),
       });
       return redirect("/impostazioni?email=salvata#email-cliente");
+    }
+    if (intent === "save-shopify-payment-fee-mode") {
+      await setShopifyPaymentFeeMode(
+        form.get("shopifyPaymentFeeMode"),
+        Number(form.get("shopifyPaymentFeeModeVersion") ?? Number.NaN),
+        { id: user.id, requestId: requestId(request) },
+      );
+      return redirect("/impostazioni?commissioni=salvata#fatturazione");
     }
     if (intent === "save-aruba") {
       await setArubaSettings(

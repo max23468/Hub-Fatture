@@ -77,7 +77,15 @@
         "status": "SUCCESS",
         "gateway": "shopify_payments",
         "processedAt": "2026-08-01T09:04:00Z",
-        "amountSet": { "shopMoney": { "amount": "122.00", "currencyCode": "EUR" } }
+        "amountSet": { "shopMoney": { "amount": "122.00", "currencyCode": "EUR" } },
+        "fees": [
+          {
+            "amount": { "amount": "2.57", "currencyCode": "EUR" },
+            "flatFee": { "amount": "0.25", "currencyCode": "EUR" },
+            "rate": 0.019,
+            "type": "PROCESSING_FEE"
+          }
+        ]
       }
     ],
     "refunds": []
@@ -133,7 +141,8 @@
         "status": "SUCCESS",
         "gateway": "manual",
         "processedAt": "2026-08-02T09:04:00Z",
-        "amountSet": { "shopMoney": { "amount": "244.00", "currencyCode": "EUR" } }
+        "amountSet": { "shopMoney": { "amount": "244.00", "currencyCode": "EUR" } },
+        "fees": []
       }
     ],
     "refunds": [

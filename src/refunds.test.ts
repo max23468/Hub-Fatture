@@ -37,4 +37,12 @@ test("residuo accreditabile e rimborsi prima dell’emissione", () => {
     state: "NEEDS_REVIEW",
     billableAmount: 10_000,
   });
+  assert.deepEqual(preIssueRefund(10_000, [{ status: "COMPLETED", amount: 2_500 }], 9_500), {
+    state: "PARTIAL",
+    billableAmount: 7_000,
+  });
+  assert.deepEqual(preIssueRefund(10_000, [{ status: "COMPLETED", amount: 9_600 }], 9_500), {
+    state: "NEEDS_REVIEW",
+    billableAmount: 9_500,
+  });
 });

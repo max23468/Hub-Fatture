@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import pg from "pg";
 
 import { AppError } from "../errors.ts";
-import { PAGE_SIZE } from "../orders.ts";
+import {
+  canonicalCustomerProfile,
+  customerIdentity,
+  decimalToCents,
+  localOrderDate,
+  orderInputSchema,
+  PAGE_SIZE,
+  type OrderInput,
+} from "../orders.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { temporaryDatabase, withClient } from "./database-fixture.ts";
 
@@ -23,6 +32,62 @@ async function waitForBlockedQuery(client: pg.Client) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Nessuna query bloccata nel database di test");
+}
+
+function canonicalTestTimestamp(value: string | null): string | null {
+  if (!value) return null;
+  const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/.exec(value)?.[1]?.replace(/0+$/, "");
+  const instant = new Date(value).toISOString();
+  const seconds = instant.slice(0, instant.indexOf("."));
+  return fraction ? `${seconds}.${fraction}Z` : `${seconds}Z`;
+}
+
+function legacyReviewFingerprint(raw: OrderInput): string {
+  const input = orderInputSchema.parse(raw);
+  const lines = input.lines
+    .map((line) => ({
+      ...line,
+      grossAmount: decimalToCents(line.grossAmount),
+      discountAmount: decimalToCents(line.discountAmount),
+    }))
+    .sort((left, right) => left.externalLineId.localeCompare(right.externalLineId));
+  const payments = input.payments
+    .map((payment) => {
+      const { shopifyPaymentsFeeAmount: _, ...legacyPayment } = payment;
+      return {
+        ...legacyPayment,
+        amount: decimalToCents(payment.amount),
+        paidAt: canonicalTestTimestamp(payment.paidAt),
+      };
+    })
+    .sort((left, right) => left.externalPaymentId.localeCompare(right.externalPaymentId));
+  const refunds = input.refunds
+    .map((refund) => ({
+      externalRefundId: refund.externalRefundId,
+      status: refund.status,
+      amount: refund.amount === null ? null : decimalToCents(refund.amount),
+      completedAt: canonicalTestTimestamp(refund.completedAt),
+    }))
+    .sort((left, right) => left.externalRefundId.localeCompare(right.externalRefundId));
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        displayNumber: input.displayNumber,
+        totalAmount: decimalToCents(input.total),
+        localDate: localOrderDate(input.createdAt),
+        paymentStatus: input.paymentStatus,
+        fulfillmentStatus: input.fulfillmentStatus,
+        cancelledAt: canonicalTestTimestamp(input.cancelledAt),
+        sourceReviewRequired: input.sourceReviewRequired,
+        customerIdentity: customerIdentity(input).matchKey,
+        customer: canonicalCustomerProfile(input),
+        lines,
+        payments,
+        refunds,
+        shippingAmount: decimalToCents(input.shippingAmount),
+      }),
+    )
+    .digest("hex");
 }
 
 test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }, async () => {
@@ -73,6 +138,231 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     assert.deepEqual(
       await orders.importOrders(fixture, { id: 1, requestId: "test-order-reimport" }),
       { imported: 0, updated: 3, ignored: 0 },
+    );
+    const feeOrder = structuredClone(fixture[0]);
+    feeOrder.externalOrderId = "shop-order-shopify-payments-fee";
+    feeOrder.displayNumber = "#S-FEE";
+    feeOrder.createdAt = "2026-08-09T08:15:00Z";
+    feeOrder.updatedAt = "2026-08-09T09:00:00Z";
+    feeOrder.customer.taxIdentifiers[0].value = "VRDLGI80A01H501Z";
+    feeOrder.payments[0].externalPaymentId = "shop-payment-fee";
+    feeOrder.payments[0].method = "shopify_payments";
+    feeOrder.payments[0].shopifyPaymentsFeeAmount = "2.57";
+    await orders.importOrders([feeOrder], { id: 1, requestId: "test-shopify-payment-fee" });
+    const feeState = async () =>
+      (
+        await database.getPool().query(
+          `SELECT orders.gross_amount, orders.shopify_payments_fee_amount,
+                  orders.deducted_shopify_payments_fee_amount, orders.billable_amount,
+                  payments.shopify_payments_fee_amount AS payment_fee
+           FROM orders JOIN payments ON payments.order_id = orders.id
+           WHERE orders.external_order_id = $1`,
+          [feeOrder.externalOrderId],
+        )
+      ).rows[0];
+    assert.deepEqual(await feeState(), {
+      gross_amount: 12_200,
+      shopify_payments_fee_amount: 257,
+      deducted_shopify_payments_fee_amount: 257,
+      billable_amount: 11_943,
+      payment_fee: 257,
+    });
+    const feeSetting = await orders.getShopifyPaymentFeeMode();
+    assert.equal(feeSetting.value, "DEDUCT");
+    await orders.setShopifyPaymentFeeMode("INCLUDE", feeSetting.version, {
+      id: 1,
+      requestId: "test-include-shopify-payment-fee",
+    });
+    assert.deepEqual(await feeState(), {
+      gross_amount: 12_200,
+      shopify_payments_fee_amount: 257,
+      deducted_shopify_payments_fee_amount: 0,
+      billable_amount: 12_200,
+      payment_fee: 257,
+    });
+    const includedSetting = await orders.getShopifyPaymentFeeMode();
+    await orders.setShopifyPaymentFeeMode("DEDUCT", includedSetting.version, {
+      id: 1,
+      requestId: "test-deduct-shopify-payment-fee",
+    });
+    assert.equal((await feeState()).billable_amount, 11_943);
+    await database.getPool().query(
+      `UPDATE orders
+       SET normalized_snapshot_json = jsonb_set(normalized_snapshot_json, '{historical}', 'true'),
+           historical_reconciliation_outcome = 'NOT_INVOICED',
+           historical_reconciliation_reference = 'Riconciliazione storica chiusa nel test',
+           historical_reconciled_at = now()
+       WHERE external_order_id = $1`,
+      [feeOrder.externalOrderId],
+    );
+    const closedHistorySetting = await orders.getShopifyPaymentFeeMode();
+    await orders.setShopifyPaymentFeeMode("INCLUDE", closedHistorySetting.version, {
+      id: 1,
+      requestId: "test-closed-history-shopify-payment-fee",
+    });
+    assert.equal((await feeState()).billable_amount, 11_943);
+    const restoredFeeSetting = await orders.getShopifyPaymentFeeMode();
+    await orders.setShopifyPaymentFeeMode("DEDUCT", restoredFeeSetting.version, {
+      id: 1,
+      requestId: "test-restore-shopify-payment-fee-mode",
+    });
+    const feeCaseId = (
+      await database
+        .getPool()
+        .query<{ billing_case_id: string | null }>(
+          "SELECT billing_case_id::text FROM orders WHERE external_order_id = $1",
+          [feeOrder.externalOrderId],
+        )
+    ).rows[0]!.billing_case_id;
+    await database
+      .getPool()
+      .query("DELETE FROM orders WHERE external_order_id = $1", [feeOrder.externalOrderId]);
+    if (feeCaseId) {
+      await database.getPool().query("DELETE FROM billing_cases WHERE id = $1", [feeCaseId]);
+    }
+    await database
+      .getPool()
+      .query(`DELETE FROM audit_events WHERE request_id = ANY($1::text[])`, [
+        [
+          "test-shopify-payment-fee",
+          "test-include-shopify-payment-fee",
+          "test-deduct-shopify-payment-fee",
+          "test-closed-history-shopify-payment-fee",
+          "test-restore-shopify-payment-fee-mode",
+        ],
+      ]);
+    const preFeeMigrationOrders = [
+      {
+        ...structuredClone(fixture[0]),
+        externalOrderId: "shop-order-pre-fee-paypal",
+        externalCustomerId: "shop-customer-pre-fee-paypal",
+        displayNumber: "#PRE-FEE-PAYPAL",
+        createdAt: "2026-09-10T08:00:00Z",
+        updatedAt: "2026-09-10T09:00:00Z",
+        customer: {
+          ...structuredClone(fixture[0].customer),
+          taxIdentifiers: [
+            {
+              ...structuredClone(fixture[0].customer.taxIdentifiers[0]),
+              value: "RSSMRA80A01H501X",
+            },
+          ],
+        },
+        payments: [
+          {
+            ...structuredClone(fixture[0].payments[0]),
+            externalPaymentId: "shop-payment-pre-fee-paypal",
+            method: "paypal",
+            paidAt: "2026-09-10T09:00:00Z",
+          },
+        ],
+      },
+      {
+        ...structuredClone(fixture[1]),
+        externalOrderId: "ebay-order-pre-fee",
+        externalCustomerId: "ebay-customer-pre-fee",
+        displayNumber: "E-PRE-FEE",
+        createdAt: "2026-09-11T08:00:00Z",
+        updatedAt: "2026-09-11T09:00:00Z",
+        customer: {
+          ...structuredClone(fixture[1].customer),
+          taxIdentifiers: [
+            {
+              ...structuredClone(fixture[1].customer.taxIdentifiers[0]),
+              value: "RSSMRA80A01H501Y",
+            },
+          ],
+        },
+        payments: [
+          {
+            ...structuredClone(fixture[1].payments[0]),
+            externalPaymentId: "ebay-payment-pre-fee",
+            paidAt: "2026-09-11T09:00:00Z",
+          },
+        ],
+      },
+    ];
+    for (const candidate of preFeeMigrationOrders) {
+      await orders.importOrders([candidate], {
+        id: 1,
+        requestId: `test-${candidate.externalOrderId}-initial`,
+      });
+      const storedOrder = (
+        await database
+          .getPool()
+          .query<{ id: string; billing_case_id: string }>(
+            `SELECT id, billing_case_id FROM orders WHERE external_order_id = $1`,
+            [candidate.externalOrderId],
+          )
+      ).rows[0]!;
+      await database.getPool().query(
+        `UPDATE orders
+         SET normalized_snapshot_json = jsonb_set(
+           normalized_snapshot_json #- '{payments,0,shopifyPaymentsFeeAmount}',
+           '{reviewFingerprint}', to_jsonb($2::text)
+         )
+         WHERE id = $1`,
+        [storedOrder.id, legacyReviewFingerprint(candidate)],
+      );
+      candidate.updatedAt = candidate.updatedAt.replace("09:00:00Z", "10:00:00Z");
+      await orders.importOrders([candidate], {
+        id: 1,
+        requestId: `test-${candidate.externalOrderId}-unchanged`,
+      });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT billing_cases.status,
+                    count(order_source_revisions.id)::int AS revision_count
+             FROM orders
+             JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+             LEFT JOIN order_source_revisions ON order_source_revisions.order_id = orders.id
+             WHERE orders.id = $1
+             GROUP BY billing_cases.status`,
+            [storedOrder.id],
+          )
+        ).rows[0],
+        { status: "READY", revision_count: 0 },
+      );
+    }
+    const preFeeRows = await database.getPool().query<{
+      id: string;
+      billing_case_id: string;
+      customer_id: string;
+    }>(
+      `SELECT id, billing_case_id, customer_id FROM orders
+       WHERE external_order_id = ANY($1::text[])`,
+      [preFeeMigrationOrders.map((candidate) => candidate.externalOrderId)],
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM orders WHERE id = ANY($1::bigint[])", [
+        preFeeRows.rows.map((row) => row.id),
+      ]);
+    await database
+      .getPool()
+      .query("DELETE FROM billing_cases WHERE id = ANY($1::bigint[])", [
+        preFeeRows.rows.map((row) => row.billing_case_id),
+      ]);
+    await database
+      .getPool()
+      .query("DELETE FROM customer_source_records WHERE external_customer_id = ANY($1::text[])", [
+        preFeeMigrationOrders.map((candidate) => candidate.externalCustomerId),
+      ]);
+    await database
+      .getPool()
+      .query("DELETE FROM customers WHERE id = ANY($1::bigint[])", [
+        preFeeRows.rows.map((row) => row.customer_id),
+      ]);
+    await database.getPool().query(
+      `DELETE FROM audit_events
+       WHERE request_id = ANY($1::text[])`,
+      [
+        preFeeMigrationOrders.flatMap((candidate) => [
+          `test-${candidate.externalOrderId}-initial`,
+          `test-${candidate.externalOrderId}-unchanged`,
+        ]),
+      ],
     );
     await database.getPool().query(
       `INSERT INTO payments
@@ -2142,6 +2432,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     netHistorical.historical = true;
     netHistorical.updatedAt = "2026-08-19T09:50:00Z";
     netHistorical.payments[0].externalPaymentId = "historical-net-invoice-payment";
+    netHistorical.payments[0].method = "shopify_payments";
+    netHistorical.payments[0].shopifyPaymentsFeeAmount = "2.00";
     netHistorical.refunds = [
       {
         externalRefundId: "historical-net-invoice-refund",
@@ -2179,7 +2471,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
             .replace("FPR 0001/26", "FPR 0011/26")
             .replace("#1001", netHistorical.displayNumber)
             .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
-            .replaceAll("123.45", "112.00")
+            .replaceAll("123.45", "110.00")
             .replace(/\s*<Contatti>[\s\S]*?<\/Contatti>/, ""),
         ),
       },
@@ -2204,13 +2496,13 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         {
           external_refund_id: "historical-net-invoice-post-refund",
           applied_before_issue: false,
-          amount: 11200,
+          amount: 11000,
           jobs: 1,
         },
         {
           external_refund_id: "historical-net-invoice-refund",
           applied_before_issue: true,
-          amount: 11200,
+          amount: 11000,
           jobs: 0,
         },
       ],

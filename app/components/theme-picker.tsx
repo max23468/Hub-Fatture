@@ -22,6 +22,7 @@ function applyTheme(theme: Theme) {
 }
 
 export function ThemePicker() {
+  const [hydrated, setHydrated] = useState(false);
   const [theme, setTheme] = useState<Theme>("system");
 
   useEffect(() => {
@@ -29,6 +30,7 @@ export function ThemePicker() {
     const initial = isTheme(stored) ? stored : "system";
     setTheme(initial);
     applyTheme(initial);
+    setHydrated(true);
   }, []);
 
   function choose(next: Theme) {
@@ -45,6 +47,7 @@ export function ThemePicker() {
           <button
             aria-pressed={theme === value}
             className="theme-picker__choice"
+            disabled={!hydrated}
             key={value}
             onClick={() => choose(value)}
             type="button"

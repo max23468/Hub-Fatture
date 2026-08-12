@@ -169,7 +169,7 @@ e quando un rimborso di prova produce correttamente:
 | HF-F03 | Permettere la generazione manuale anticipata di una bozza | Confermato |
 | HF-F04 | Creare automaticamente raggruppamenti giornalieri per cliente usando la data ordine in `Europe/Rome` | Confermato |
 | HF-F05 | Evitare l'accorpamento automatico quando l'identità del cliente è ambigua | Confermato |
-| HF-F06 | Produrre una riga semplificata netta per ordine, con spedizione e sconti assorbiti | Confermato |
+| HF-F06 | Produrre una riga semplificata per ordine con spedizione e sconti assorbiti; sottrarre per default solo la fee effettiva Shopify Payments, secondo un'impostazione globale modificabile | Confermato |
 | HF-F07 | Conservare il dettaglio sorgente per riconciliazione senza riprodurlo 1:1 nel documento | Confermato |
 | HF-F08 | Permettere modifiche a cliente, descrizioni, quantità, importi, pagamenti, causali e ordini inclusi fino all'approvazione | Confermato |
 | HF-F09 | Consentire differenze rispetto al totale sorgente solo con avviso, seconda conferma e motivazione obbligatoria | Confermato |
@@ -318,7 +318,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Canary Aruba | Permesso monouso atomico legato al batch, ai documenti, alle revisioni e agli hash XML, con kill switch globale ancora disabilitato | Un crash non può lasciare aperti gli invii Production né autorizzare documenti diversi dai candidati |
 | Fattura | Una riga semplificata per ordine | Non serve replicare il dettaglio commerciale delle piattaforme |
 | Sconti/spedizione | Assorbiti nell'importo netto della riga ordine | Il documento deve restare semplice; il dettaglio resta interno |
-| Commissioni | Mai in fattura | Sono costi del venditore, non corrispettivo del cliente |
+| Commissioni Shopify Payments | Regola globale modificabile: per default sottrarre dal totale fatturabile esclusivamente le commissioni effettive restituite da `OrderTransaction.fees` per transazioni `shopify_payments` riuscite | Allinea il documento al comportamento Aruba osservato senza ricostruire percentuali o applicare costi di altri gateway; PayPal, bonifico, PostePay, metodi manuali ed eBay restano sempre al totale pieno |
 | Raggruppamento | Automatico per cliente e data ordine Europe/Rome | Riduce documenti mantenendo un criterio chiaro e riproducibile |
 | Pagamenti pendenti | Consentiti con seconda conferma | L'utente può emettere, ma il rischio deve essere evidente e registrato |
 | Differenze importo | Consentite con seconda conferma e motivazione obbligatoria | Sono ammesse correzioni operative senza perdere la tracciabilità |
@@ -466,7 +466,7 @@ Creare `docs/glossario.md` quando nasce il primo testo UI. Deve fissare i termin
 - Preparazione fattura e il suo equivalente tecnico interno `billing_case`;
 - bozza, approvazione, numerazione, trasmissione, consegna e scarto;
 - fattura, nota di credito e rimborso;
-- totale sorgente, totale documento e differenza;
+- totale ordine, commissione Shopify Payments, totale fatturabile, totale documento e differenza;
 - pagamento pendente e `Non trasmettere`;
 - Shopify, eBay, Aruba e SdI;
 - Development, Production, publish Git, deploy e release.
@@ -555,7 +555,7 @@ HF può salvare e normalizzare una VAT UE come dato anagrafico e chiave di match
 2. Salva l'evento ricevuto in modo idempotente.
 3. Recupera il dettaglio completo dell'ordine dalla piattaforma.
 4. Conserva il payload originale minimizzato ai dati necessari.
-5. Normalizza cliente, indirizzi, identificativi fiscali, righe, totale, sconti, spedizione, pagamento e stato di evasione.
+5. Normalizza cliente, indirizzi, identificativi fiscali, righe, totale, sconti, spedizione, pagamento, commissione effettiva Shopify Payments e stato di evasione.
 6. Verifica la valuta: solo EUR è ammessa; altro valore porta a errore bloccante.
 7. Valuta il trigger globale:
    - ordine interamente pagato; oppure
@@ -621,14 +621,16 @@ Vendita beni usati - Ordine eBay #5678         75,00 EUR
 Regole:
 
 - quantità predefinita `1`;
-- importo pari al totale effettivamente addebitato al cliente per quell'ordine;
+- importo pari al totale fatturabile dell'ordine;
 - sconti già assorbiti;
 - spedizione inclusa;
-- commissioni marketplace e payment provider escluse;
+- per una transazione Shopify Payments riuscita, commissione effettiva sottratta solo quando la relativa impostazione globale è `Sottrai`; la modalità predefinita è `Sottrai`;
+- PayPal, bonifico, PostePay, gateway manuali, altri metodi Shopify ed eBay restano sempre al totale ordine pieno;
+- nessuna percentuale o quota fissa viene ricalcolata: l'unica fonte ammessa è l'importo `fees.amount` restituito da Shopify;
 - Natura e diciture secondo il profilo Aruba verificato;
 - totale documento uguale alla somma delle righe, salvo modifica manuale esplicitamente confermata.
 
-Internamente conservare il dettaglio di prodotti, sconti, spedizione, pagamenti e rimborsi per riconciliazione e note di credito. Le commissioni possono essere importate solo se già disponibili e utili al controllo, ma non sono un requisito del documento e non devono rallentare la 1.x.
+Internamente conservare il dettaglio di prodotti, sconti, spedizione, pagamenti, commissioni Shopify Payments e rimborsi per riconciliazione e note di credito. Conservare separatamente totale ordine, commissione osservata, commissione sottratta e totale fatturabile. Il cambio dell'impostazione ricalcola soltanto ordini e bozze ancora modificabili; documenti approvati e riconciliazioni storiche già chiuse restano immutabili.
 
 ### 7.5 Modifiche prima dell'approvazione
 
@@ -652,9 +654,9 @@ Ogni modifica registra:
 - timestamp;
 - motivazione, se richiesta.
 
-Se il totale differisce dagli ordini:
+Se il totale differisce dal totale fatturabile canonico degli ordini:
 
-- mostra totale originale, totale documento e differenza;
+- mostra totale ordine, commissioni Shopify Payments sottratte, totale fatturabile, totale documento e differenza;
 - escludi la preparazione dall'approvazione massiva standard;
 - richiedi seconda conferma;
 - rendi obbligatoria una motivazione;
@@ -757,7 +759,9 @@ Quando un rimborso risulta completato:
 
 Vincoli:
 
-- somma note di credito non superiore al totale originario;
+- l’importo lordo del rimborso resta quello autorevole del provider;
+- per ogni ordine, la TD04 accredita al massimo l’importo realmente attribuito a quell’ordine nella fattura originaria: un rimborso Shopify Payments comprensivo della commissione non può reintrodurre la commissione già esclusa dalla fattura;
+- somma note di credito non superiore al totale originario né all’importo fatturato per ciascun ordine;
 - stesso rimborso mai contabilizzato due volte;
 - una nota emessa è immutabile;
 - rimborsi successivi all'emissione aprono una nuova bozza cumulativa;
@@ -793,6 +797,7 @@ Gli ordini annullati prima dell'emissione vengono conservati come raggruppamenti
 - Totali in EUR.
 - Righe, quantità, sconti e spedizione per riconciliazione interna.
 - Transazioni e rimborsi.
+- Per ogni transazione, gateway, stato e `OrderTransaction.fees.amount` con valuta; la fee è applicabile soltanto a `shopify_payments` riuscito.
 - Campi fiscali localizzati dell'ordine.
 - Eventuale tax ID dell'anagrafica come fallback.
 
@@ -1476,6 +1481,7 @@ Lock e vincoli proteggono lo stato letto, non soltanto la scrittura finale: conf
 | Informazione | Fonte autorevole | Ruolo di HF |
 |---|---|---|
 | Ordine, pagamento, evasione, annullamento e rimborso sorgente | Shopify o eBay | snapshot storico e stato normalizzato riconciliabile |
+| Commissione Shopify Payments effettiva | `OrderTransaction.fees` di Shopify | importo osservato immutabile; la configurazione HF decide separatamente se sottrarlo dal totale fatturabile |
 | Identità normalizzata, raggruppamento, bozza, override e approvazione | PostgreSQL HF + audit | fonte primaria applicativa |
 | Profilo fiscale approvato | versione HF derivata da XML Aruba accettato e decisioni approvate | snapshot immutabile nel documento |
 | XML/PDF/notifica archiviati | file immutabile + hash e metadati DB | fonte del contenuto conservato |
@@ -1643,6 +1649,9 @@ I dati corretti in HF non sovrascrivono i valori storici degli ordini.
 - `local_order_date`
 - `currency`
 - `gross_amount`
+- `shopify_payments_fee_amount`
+- `deducted_shopify_payments_fee_amount`
+- `billable_amount` generato come `gross_amount - deducted_shopify_payments_fee_amount`
 - `payment_status`
 - `fulfillment_status`
 - `trigger_status`
@@ -1688,6 +1697,7 @@ Servono alla riconciliazione, non alla fattura 1:1.
 - `method`
 - `status`
 - `amount`
+- `shopify_payments_fee_amount`
 - `paid_at`
 - `recorded_manually`
 - `raw_json`
@@ -2621,6 +2631,9 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - chiave di raggruppamento;
 - conversione stretta delle stringhe decimali esterne in centesimi, inclusi segno, zeri, cifre eccedenti e limiti del dominio DB;
 - calcolo riga semplificata;
+- mapping fail-closed delle fee Shopify Payments: importo effettivo, valuta, gateway, stato e limiti;
+- cambio della regola commissioni con conservazione della fee osservata e ricalcolo delle sole bozze modificabili;
+- rimborso Shopify Payments lordo dopo una fattura netta: il dato provider resta invariato e la TD04 è limitata all’importo fatturato per l’ordine;
 - differenze importo;
 - residuo accreditabile;
 - esclusione della nota di credito quando la fattura originaria è scartata;
@@ -2645,6 +2658,7 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - l'account privo di `can_approve` non può approvare, numerare o creare un permesso di invio, nemmeno chiamando direttamente l'endpoint.
 - impossibilità di preparare o autorizzare un invio senza approvazione e snapshot immutabile.
 - import storico non approvabile prima della riconciliazione Aruba.
+- riconciliazione Shopify Payments sul totale fatturabile al netto della fee effettiva quando la regola è attiva; PayPal, metodi manuali ed eBay restano al lordo.
 - due browser modificano la stessa bozza/configurazione: la seconda scrittura riceve conflitto.
 - comparatore e approvazione usano la stessa revisione e lo stesso hash; una proiezione stale viene rifiutata.
 - errore remoto dopo approvazione: snapshot/audit restano coerenti, stato provider non diventa riuscito.
@@ -2661,6 +2675,7 @@ Fixture sanificate per:
 - Shopify ordine italiano privato;
 - Shopify azienda;
 - Shopify pagamento pendente;
+- Shopify Payments con fee effettiva e Shopify PayPal/manuale senza fee applicabile;
 - Shopify rimborso parziale;
 - eBay ordine con Codice Fiscale;
 - eBay ordine con P.IVA;
@@ -3108,12 +3123,15 @@ Dopo l'audit Aruba, usare i dati disponibili:
 - data;
 - cliente;
 - totale;
+- per Shopify Payments, commissione effettiva osservata e totale fatturabile secondo l'impostazione valida per l'ordine non ancora chiuso;
 - numero documento;
 - eventuale metadata.
 
 Se il matching non è univoco, richiedere conferma manuale. Non considerare il solo totale una prova.
 
 Per registrare l'esito “già fatturato”, acquisire anche l'XML ufficiale della fattura Aruba, verificarne profilo, numero e riferimento all'ordine, quindi conservarlo come documento storico immutabile. La sola nota testuale non chiude il confronto quando esistono rimborsi post-emissione, perché la TD04 deve riferire la fattura originaria.
+
+Il confronto dell'importo usa il totale fatturabile canonico: per Shopify Payments, con modalità `Sottrai`, equivale al totale ordine meno la somma delle sole `OrderTransaction.fees.amount` riuscite e validate; per ogni altro metodo equivale al totale ordine. Eventuali rimborsi completati prima della fattura vengono sottratti successivamente. Un importo Aruba diverso resta non riconciliato e quindi non approvabile.
 
 ---
 

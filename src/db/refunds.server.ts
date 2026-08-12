@@ -200,10 +200,60 @@ export async function refreshCreditNoteDraft(client: pg.PoolClient, documentId: 
     amount: number;
   }>(
     `SELECT refunds.order_id, orders.provider, orders.display_number,
-            sum(refunds.amount)::integer AS amount
-     FROM refunds JOIN orders ON orders.id = refunds.order_id
+            CASE
+              WHEN (orders.provider = 'SHOPIFY'
+                AND orders.deducted_shopify_payments_fee_amount > 0)
+                OR invoice_order_issued_amount(
+                  document_links.related_document_id,
+                  refunds.order_id
+                ) <> invoice_order.amount
+              THEN least(
+                sum(refunds.amount),
+                invoice_order_issued_amount(
+                  document_links.related_document_id,
+                  refunds.order_id
+                ) - approved_credit.amount
+              )
+              ELSE sum(refunds.amount)
+            END::integer AS amount
+     FROM refunds
+     JOIN orders ON orders.id = refunds.order_id
+     JOIN document_links ON document_links.document_id = $1
+       AND document_links.relation_type = 'CREDIT_NOTE_FOR_INVOICE'
+     JOIN document_orders AS invoice_order
+       ON invoice_order.document_id = document_links.related_document_id
+      AND invoice_order.document_kind = 'INVOICE'
+      AND invoice_order.order_id = refunds.order_id
+     LEFT JOIN LATERAL (
+       SELECT coalesce(sum(credit_order.amount), 0)::integer AS amount
+       FROM document_orders AS credit_order
+       JOIN documents AS approved_document
+         ON approved_document.id = credit_order.document_id
+        AND approved_document.status = 'APPROVED'
+       WHERE credit_order.order_id = refunds.order_id
+         AND credit_order.document_kind = 'CREDIT_NOTE'
+     ) AS approved_credit ON true
      WHERE refunds.credit_document_id = $1
-     GROUP BY refunds.order_id, orders.provider, orders.display_number
+     GROUP BY refunds.order_id, orders.provider, orders.display_number,
+              orders.deducted_shopify_payments_fee_amount,
+              document_links.related_document_id, invoice_order.amount,
+              approved_credit.amount
+     HAVING CASE
+       WHEN (orders.provider = 'SHOPIFY'
+         AND orders.deducted_shopify_payments_fee_amount > 0)
+         OR invoice_order_issued_amount(
+           document_links.related_document_id,
+           refunds.order_id
+         ) <> invoice_order.amount
+       THEN least(
+         sum(refunds.amount),
+         invoice_order_issued_amount(
+           document_links.related_document_id,
+           refunds.order_id
+         ) - approved_credit.amount
+       )
+       ELSE sum(refunds.amount)
+     END > 0
      ORDER BY refunds.order_id`,
     [documentId],
   );
@@ -265,18 +315,24 @@ export async function processRefund(refundId: string, job?: ClaimedJob) {
       invoice_id: string | null;
       billing_case_id: string | null;
       invoice_total: number | null;
+      invoice_order_amount: number | null;
+      invoice_order_source_amount: number | null;
       recipient: DocumentInput["recipient"] | null;
       profile_version: number | null;
       series: string | null;
       credit_document_id: string | null;
       applied_before_issue: boolean;
       historical_reconciliation_outcome: string | null;
+      deducted_shopify_payments_fee_amount: number;
     }>(
       `SELECT refunds.id, refunds.status, refunds.amount, refunds.order_id, refunds.provider,
               refunds.credit_document_id, refunds.applied_before_issue,
               orders.historical_reconciliation_outcome,
+              orders.deducted_shopify_payments_fee_amount,
               orders.display_number, invoice.id AS invoice_id,
               invoice.billing_case_id, invoice.total_amount AS invoice_total,
+              invoice_order_issued_amount(invoice.id, refunds.order_id) AS invoice_order_amount,
+              invoice_order.amount AS invoice_order_source_amount,
               invoice.recipient_snapshot_json AS recipient,
               invoice.fiscal_profile_version AS profile_version, invoice.series
        FROM refunds
@@ -352,9 +408,29 @@ export async function processRefund(refundId: string, job?: ClaimedJob) {
     );
     const currentBalance = balance.rows[0];
     if (!currentBalance) throw new AppError("CREDIT_NOTE_NOT_ALLOWED", 409);
+    if (source.invoice_order_amount === null) {
+      throw new AppError("CREDIT_NOTE_NOT_ALLOWED", 409);
+    }
+    const creditedOrder = await client.query<{ amount: number }>(
+      `SELECT coalesce(sum(document_orders.amount), 0)::integer AS amount
+       FROM document_orders
+       WHERE document_orders.document_kind = 'CREDIT_NOTE'
+         AND document_orders.order_id = $1`,
+      [source.order_id],
+    );
+    const orderRemainder = creditableRemainder(
+      source.invoice_order_amount,
+      creditedOrder.rows[0]!.amount,
+    );
+    const canonicalAmount =
+      (source.provider === "SHOPIFY" && source.deducted_shopify_payments_fee_amount > 0) ||
+      source.invoice_order_amount !== source.invoice_order_source_amount
+        ? Math.min(source.amount, orderRemainder)
+        : source.amount;
     if (
-      source.amount >
-      creditableRemainder(currentBalance.invoice_total, currentBalance.credited_amount)
+      canonicalAmount <= 0 ||
+      canonicalAmount >
+        creditableRemainder(currentBalance.invoice_total, currentBalance.credited_amount)
     ) {
       throw new AppError("CREDIT_NOTE_LIMIT_EXCEEDED", 409);
     }
