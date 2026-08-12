@@ -75,7 +75,7 @@ Audit trasversale del codice candidato corrente, concentrato su transazioni e co
 | RC-56 | P1       | Chiuso | La migrazione dei webhook legacy tentava di distinguere i job anteriori e posteriori al marker confrontando timestamp di transazione, che non rappresentano l’ordine di commit e potevano classificare `false` una corsa antecedente al completamento. In assenza dell’evidenza persistita ogni job legacy viene ora marcato prudenzialmente `historical: true`; il test di upgrade verifica la classificazione conservativa su entrambi i lati temporali.                                                                             |
 | RC-57 | P1       | Chiuso | Un webhook Shopify ritentato con successo da una connessione in `ERROR` completava job ed evento ma non ripristinava il connettore, lasciando ferma la sincronizzazione periodica. `completeJob` ripristina ora atomicamente `CONNECTED` e rimuove l’errore per ogni job connettore concluso con lease valida; la regressione porta un webhook a errore terminale, lo ritenta, lo completa e verifica lo stato sano.                                                                                                                   |
 
-Non risultano finding P0-P3 aperti. La chiusura locale vale per il codice osservato e non sostituisce qualifica Aruba, deploy, scansione dell’immagine, readback Production o approvazioni del titolare.
+Non risultano finding P0-P3 aperti. La chiusura locale vale per il codice osservato; deploy, scansione dell’immagine, readback e backup del candidato sono documentati separatamente nell’evidenza Production e non sostituiscono qualifica Aruba o altre approvazioni del titolare.
 
 ## Esito per area
 
@@ -91,4 +91,4 @@ Non risultano finding P0-P3 aperti. La chiusura locale vale per il codice osserv
 
 ## Limiti
 
-Restano da osservare sul candidato esatto: pannello Aruba reale senza invio, import storico reale, SMTP reale, immagine attestata e scansionata, deploy/readback, backup corrente, monitor provider e prova di auto-merge Dependabot. Qualunque modifica di codice, schema o configurazione dopo queste prove riapre la parte interessata dell’audit.
+Restano da osservare sul candidato esatto: pannello Aruba reale senza invio, import storico reale, SMTP reale, monitor provider e prova di auto-merge Dependabot. Qualunque modifica di codice, schema o configurazione dopo queste prove riapre la parte interessata dell’audit.
