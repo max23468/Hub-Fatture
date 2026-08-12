@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { closePool, getPool, withTransaction } from "./client.server.ts";
-import { temporaryDatabase } from "./database-fixture.ts";
+import { temporaryDatabase, withClient } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { importOrders } from "./order-import.server.ts";
 import { AppError } from "../errors.ts";
@@ -169,15 +169,43 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     const obsoleteSyncJob = await connectors.claimJob("worker-obsolete-account");
     assert.equal(obsoleteSyncJob?.type, "ebay_sync_orders");
     await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
-    await connectors.saveConnection(
-      {
-        provider: "EBAY",
-        environment: "SANDBOX",
-        accountReference: "sandbox-sostitutiva",
-        credentials: { refreshToken: "token-sandbox-sostitutivo" },
-      },
-      systemActor,
+    await getPool().query(
+      `UPDATE jobs SET status = 'COMPLETED', completed_at = now(),
+         result_json = '{"count":1,"reviewRequired":0,"imported":1,"updated":0,"ignored":0}'
+       WHERE type = 'ebay_preview_history'`,
     );
+    assert.equal((await connectors.latestEbayHistory())?.imported, 1);
+    await getPool().query(
+      `UPDATE connections SET last_synced_at = now() - interval '11 minutes'
+       WHERE provider = 'EBAY' AND environment = 'SANDBOX'`,
+    );
+    await withClient(database.connectionString, async (client) => {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:EBAY'))");
+      let scheduled = false;
+      let saved = false;
+      const scheduling = connectors.scheduleDueSyncs().finally(() => {
+        scheduled = true;
+      });
+      const saving = connectors
+        .saveConnection(
+          {
+            provider: "EBAY",
+            environment: "SANDBOX",
+            accountReference: "sandbox-sostitutiva",
+            credentials: { refreshToken: "token-sandbox-sostitutivo" },
+          },
+          systemActor,
+        )
+        .finally(() => {
+          saved = true;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      assert.equal(scheduled, false);
+      assert.equal(saved, false);
+      await client.query("COMMIT");
+      await Promise.all([scheduling, saving]);
+    });
     assert.deepEqual(
       (
         await getPool().query("SELECT status, result_json FROM jobs WHERE id = $1", [
@@ -196,7 +224,19 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       "CONNECTED",
     );
     assert.equal(await connectors.latestEbayHistory(), null);
-    await getPool().query("DELETE FROM jobs WHERE result_json ->> 'obsoleteAccount' = 'true'");
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::int AS total FROM jobs
+           WHERE type = 'ebay_sync_orders' AND status IN ('PENDING', 'RUNNING')`,
+        )
+      ).rows[0].total,
+      0,
+    );
+    await getPool().query(
+      `DELETE FROM jobs
+       WHERE type IN ('shopify_sync_orders', 'ebay_sync_orders', 'ebay_preview_history')`,
+    );
     assert.notEqual(
       (await connectors.connectionSummaries()).find(({ provider }) => provider === "EBAY")
         ?.connectedAt,

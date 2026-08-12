@@ -87,6 +87,9 @@ export async function saveConnection<T>(
   actor: ConnectorActor,
 ) {
   await withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:' || $1))", [
+      input.provider,
+    ]);
     const existing = await client.query<{ account_reference: string }>(
       `SELECT account_reference FROM connections
        WHERE provider = $1 AND environment = $2
@@ -455,10 +458,14 @@ export async function latestEbayHistory() {
     created_at: Date;
     completed_at: Date | null;
   }>(
-    `SELECT id, status, payload_json, result_json, last_error_code, created_at, completed_at
-     FROM jobs WHERE type = 'ebay_preview_history'
-       AND result_json ->> 'obsoleteAccount' IS DISTINCT FROM 'true'
-     ORDER BY created_at DESC, id DESC LIMIT 1`,
+    `SELECT jobs.id, jobs.status, jobs.payload_json, jobs.result_json, jobs.last_error_code,
+            jobs.created_at, jobs.completed_at
+     FROM jobs JOIN connections ON connections.provider = 'EBAY'
+       AND connections.environment = $1
+       AND connections.account_reference = jobs.payload_json ->> 'accountReference'
+     WHERE jobs.type = 'ebay_preview_history'
+     ORDER BY jobs.created_at DESC, jobs.id DESC LIMIT 1`,
+    [activeEnvironment("EBAY")],
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -479,8 +486,11 @@ export async function latestEbayHistory() {
 }
 
 export async function scheduleDueSyncs() {
-  await getPool().query(
-    `INSERT INTO jobs (type)
+  await withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:SHOPIFY'))");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:EBAY'))");
+    await client.query(
+      `INSERT INTO jobs (type)
      SELECT CASE provider
        WHEN 'SHOPIFY' THEN 'shopify_sync_orders'
        ELSE 'ebay_sync_orders'
@@ -496,8 +506,9 @@ export async function scheduleDueSyncs() {
          OR (provider = 'EBAY' AND environment = $2))
        AND (last_synced_at IS NULL OR last_synced_at <= now() - interval '10 minutes')
      ON CONFLICT DO NOTHING`,
-    [activeEnvironment("SHOPIFY"), activeEnvironment("EBAY")],
-  );
+      [activeEnvironment("SHOPIFY"), activeEnvironment("EBAY")],
+    );
+  });
 }
 
 export async function claimJob(workerId: string = randomUUID()): Promise<ClaimedJob | null> {
