@@ -49,6 +49,7 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
   assert.equal(privateMapped.customer.email, "ordine@example.invalid");
   assert.equal(privateMapped.customer.certifiedEmail, "cliente@example.invalid");
   assert.equal(privateMapped.customer.shippingAddress.line1, "Via Consegna 2");
+  assert.equal(privateMapped.payments[0]?.shopifyPaymentsFeeAmount, "2.57");
   assert.equal(privateMapped.localizedFields[0]?.title, "Codice Fiscale (optional)");
   assert.equal(privateMapped.localizedFields[1]?.key, "TAX_EMAIL_IT");
   assert.deepEqual(privateMapped.sourceSnapshot, privateOrder);
@@ -58,6 +59,7 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
     "customer.taxSettings.taxId",
   );
   assert.equal(businessMapped.paymentStatus, "PAID");
+  assert.equal(businessMapped.payments[0]?.shopifyPaymentsFeeAmount, "0.00");
   assert.deepEqual(businessMapped.refunds[0], {
     externalRefundId: "gid://shopify/Refund/5002",
     status: "COMPLETED",
@@ -131,5 +133,35 @@ test("uno schema provider inatteso non diventa un errore generico", async () => 
   assert.throws(
     () => mapShopifyOrder(malformed, "shop.example.invalid"),
     (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+});
+
+test("Shopify Payments importa solo la fee effettiva e fallisce chiuso sui dati incoerenti", async () => {
+  const [payload] = await fixture("shopify-orders.json");
+  type ShopifyFeePayload = Record<string, unknown> & {
+    transactions: Array<{
+      gateway: string;
+      fees: Array<{ amount: { currencyCode: string } }>;
+    }>;
+  };
+  const wrongCurrency = structuredClone(payload) as ShopifyFeePayload;
+  wrongCurrency.transactions[0].fees[0].amount.currencyCode = "USD";
+  assert.throws(
+    () => mapShopifyOrder(wrongCurrency, "shop.example.invalid"),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+
+  const missingFee = structuredClone(payload) as ShopifyFeePayload;
+  missingFee.transactions[0].fees = [];
+  assert.throws(
+    () => mapShopifyOrder(missingFee, "shop.example.invalid"),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+
+  const paypal = structuredClone(payload) as ShopifyFeePayload;
+  paypal.transactions[0].gateway = "paypal";
+  assert.equal(
+    mapShopifyOrder(paypal, "shop.example.invalid").payments[0]?.shopifyPaymentsFeeAmount,
+    "0.00",
   );
 });

@@ -220,6 +220,18 @@ export default function OrderDetail() {
               <dd>{orderStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}</dd>
             </div>
             <div>
+              <dt>{copy.orderDetail.orderTotal}</dt>
+              <dd>{euros(order.gross_amount)}</dd>
+            </div>
+            <div>
+              <dt>{copy.orderDetail.shopifyPaymentsFee}</dt>
+              <dd>{euros(order.deducted_shopify_payments_fee_amount)}</dd>
+            </div>
+            <div>
+              <dt>{copy.orderDetail.billableTotal}</dt>
+              <dd>{euros(order.billable_amount)}</dd>
+            </div>
+            <div>
               <dt>{copy.orderDetail.preparation}</dt>
               <dd>
                 {order.billing_case_id ? (
@@ -249,6 +261,9 @@ export default function OrderDetail() {
                     </span>
                     <span>
                       {euros(payment.amount)}
+                      {payment.shopify_payments_fee_amount > 0
+                        ? ` · commissione Shopify Payments ${euros(payment.shopify_payments_fee_amount)}`
+                        : ""}
                       {payment.paid_at ? ` · ${dateTime(payment.paid_at)}` : ""}
                     </span>
                   </li>

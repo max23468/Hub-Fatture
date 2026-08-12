@@ -37,6 +37,8 @@ function getSidebarCollapsed() {
   return document.documentElement.dataset.sidebar === "collapsed";
 }
 
+const subscribeToHydration = () => () => {};
+
 export function AppShell({
   children,
   username,
@@ -70,6 +72,11 @@ export function AppShell({
     : copy.navigation.collapseSidebar;
   const SidebarActionIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
 
+  const profileReady = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
   return (
     <div className="app-layout">
       <a className="skip-link" href="#contenuto-principale">
@@ -110,7 +117,7 @@ export function AppShell({
           <div />
           <div className="page-header__actions">
             <GlobalSearch />
-            <details className="profile-menu">
+            <details className="profile-menu" inert={!profileReady}>
               <summary aria-label={copy.navigation.openProfile(username)}>
                 <UserRound aria-hidden="true" size={20} strokeWidth={1.8} />
                 <span className="profile-menu__label">{username}</span>

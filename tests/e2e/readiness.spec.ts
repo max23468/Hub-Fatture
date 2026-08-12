@@ -39,6 +39,7 @@ test.beforeAll(async () => {
        ('draft_trigger', '"PAID"'),
        ('aruba_mode', '"ASSISTED"'),
        ('aruba_auth_protection', '"UNKNOWN"'),
+       ('shopify_payment_fee_mode', '"DEDUCT"'),
        ('customer_email_mode', '"AUTOMATIC"')
      ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, version = 1`,
   );
@@ -92,6 +93,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Apri la cronologia" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Controlla le connessioni" })).toBeVisible();
   await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   const skipLink = page.getByRole("link", { name: "Vai al contenuto principale" });
   await skipLink.focus();
   await expect(skipLink).toBeVisible();
@@ -153,11 +155,13 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "E-mail al cliente",
   );
   await expect(page.getByRole("group", { name: "Tema" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Salva impostazione" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Salva regola di preparazione fattura" }),
+  ).toBeDisabled();
   await expect(page.getByRole("button", { name: "Salva integrazione Aruba" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Salva modalità e-mail" })).toBeDisabled();
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
-  await expect(page.getByText("018_legacy_webhook_history.sql", { exact: true })).toBeVisible();
+  await expect(page.getByText("020_credit_note_order_amounts.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -360,8 +364,23 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     }),
   ).toBeGreaterThanOrEqual(24);
   await page.getByLabel("Prepara la fattura").selectOption("FULFILLED");
-  await page.getByRole("button", { name: "Salva impostazione" }).click();
+  await page.getByRole("button", { name: "Salva regola di preparazione fattura" }).click();
   await expect(page.getByRole("status")).toContainText("Impostazione aggiornata");
+  await page
+    .getByRole("combobox", { name: /^Commissioni Shopify Payments/ })
+    .selectOption("INCLUDE");
+  await page.getByRole("button", { name: "Salva regola commissioni Shopify Payments" }).click();
+  await expect(page.getByRole("status")).toContainText("Regola Shopify Payments aggiornata");
+  await expect(page.getByRole("combobox", { name: /^Commissioni Shopify Payments/ })).toHaveValue(
+    "INCLUDE",
+  );
+  await page
+    .getByRole("combobox", { name: /^Commissioni Shopify Payments/ })
+    .selectOption("DEDUCT");
+  await page.getByRole("button", { name: "Salva regola commissioni Shopify Payments" }).click();
+  await expect(page.getByRole("combobox", { name: /^Commissioni Shopify Payments/ })).toHaveValue(
+    "DEDUCT",
+  );
   await expectPlainLanguage(page);
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "Da verificare" }).click();

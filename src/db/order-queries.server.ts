@@ -30,6 +30,9 @@ interface OrderDetailRow {
   display_number: string;
   local_order_date: string;
   gross_amount: number;
+  shopify_payments_fee_amount: number;
+  deducted_shopify_payments_fee_amount: number;
+  billable_amount: number;
   payment_status: string;
   fulfillment_status: string;
   trigger_status: string;
@@ -68,6 +71,7 @@ interface OrderDetailRow {
     method: string;
     status: string;
     amount: number;
+    shopify_payments_fee_amount: number;
     paid_at: string | null;
     recorded_manually: boolean;
   }>;

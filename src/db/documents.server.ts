@@ -36,6 +36,7 @@ import {
   readDocumentXml,
   type StoredDocumentRow,
 } from "./document-storage.server.ts";
+import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 
 interface FiscalActor {
   id: number;
@@ -48,6 +49,9 @@ interface CaseOrder {
   provider: "SHOPIFY" | "EBAY";
   display_number: string;
   gross_amount: number;
+  shopify_payments_fee_amount: number;
+  deducted_shopify_payments_fee_amount: number;
+  billable_amount: number;
   payment_status: string;
   payment_method: string | null;
   customer_snapshot_json: Record<string, unknown>;
@@ -107,7 +111,9 @@ function sourceLine(order: CaseOrder) {
     orderId: order.id,
     description: `Vendita beni usati - Ordine ${label} ${order.display_number}`,
     quantity: 1,
-    unitAmount: order.gross_amount,
+    unitAmount: order.billable_amount,
+    grossAmount: order.gross_amount,
+    shopifyPaymentsFeeAmount: order.deducted_shopify_payments_fee_amount,
   };
 }
 
@@ -168,7 +174,10 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
          'id', orders.id::text,
          'provider', orders.provider,
          'display_number', orders.display_number,
-         'gross_amount', orders.gross_amount - CASE
+         'gross_amount', orders.gross_amount,
+         'shopify_payments_fee_amount', orders.shopify_payments_fee_amount,
+         'deducted_shopify_payments_fee_amount', orders.deducted_shopify_payments_fee_amount,
+         'billable_amount', orders.billable_amount - CASE
            WHEN billing_cases.status IN ('DRAFT', 'READY', 'NEEDS_REVIEW') THEN coalesce((
              SELECT sum(refunds.amount) FROM refunds
              WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
@@ -453,8 +462,11 @@ function invoiceComparison(caseRow: CaseRow, input: DocumentInput, profile: Fisc
         source: source
           ? joined([
               source.description,
-              `1 × ${money(source.unitAmount)}`,
-              money(source.unitAmount),
+              `Totale ordine ${money(source.grossAmount)}`,
+              source.shopifyPaymentsFeeAmount
+                ? `Commissione Shopify Payments −${money(source.shopifyPaymentsFeeAmount)}`
+                : undefined,
+              `Fatturabile ${money(source.unitAmount)}`,
             ])
           : "—",
         draft: joined([
@@ -538,7 +550,12 @@ export async function getInvoiceProjection(caseId: string) {
       }
     : projected;
   await validateFatturaXml(projection.xml);
-  const sourceTotal = caseRow.orders.reduce((sum, order) => sum + order.gross_amount, 0);
+  const grossTotal = caseRow.orders.reduce((sum, order) => sum + order.gross_amount, 0);
+  const shopifyPaymentsFeeTotal = caseRow.orders.reduce(
+    (sum, order) => sum + order.deducted_shopify_payments_fee_amount,
+    0,
+  );
+  const sourceTotal = caseRow.orders.reduce((sum, order) => sum + order.billable_amount, 0);
   const total = input.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
   return {
     caseRevision: caseRow.revision,
@@ -549,6 +566,8 @@ export async function getInvoiceProjection(caseId: string) {
     documentDate: input.documentDate,
     lines: input.lines,
     sourceLines: caseRow.orders.map(sourceLine),
+    grossTotal,
+    shopifyPaymentsFeeTotal,
     sourceTotal,
     total,
     difference: total - sourceTotal,
@@ -663,7 +682,7 @@ export async function saveInvoiceDraft(
     if (!parsed.success || !sameOrders(parsed.data.lines, caseRow.orders)) {
       throw new AppError("DOCUMENT_INVALID", 422);
     }
-    const sourceTotal = caseRow.orders.reduce((sum, order) => sum + order.gross_amount, 0);
+    const sourceTotal = caseRow.orders.reduce((sum, order) => sum + order.billable_amount, 0);
     const total = parsed.data.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
     if (total !== sourceTotal && !differenceReason) throw new AppError("DOCUMENT_INVALID", 422);
     const projection = projectFatturaXml(profile.profile_json, parsed.data);
@@ -713,7 +732,7 @@ export async function saveInvoiceDraft(
       await client.query(
         `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
          VALUES ($1, 'INVOICE', $2, $3)`,
-        [documentId, line.orderId, order.gross_amount],
+        [documentId, line.orderId, order.billable_amount],
       );
       await client.query(
         `INSERT INTO document_lines
@@ -809,6 +828,10 @@ export async function approveInvoice(
   } | null;
   try {
     committed = await withTransaction(async (client) => {
+      await client.query(
+        "SELECT pg_advisory_xact_lock_shared(hashtext('setting:shopify_payment_fee_mode'))",
+      );
+      await serializeOrderMutations(client);
       await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
       const caseRow = await loadCase(client, caseId, true);
       if (!caseRow) return null;

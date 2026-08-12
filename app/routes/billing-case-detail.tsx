@@ -182,6 +182,14 @@ function InvoiceDocument({
         <p>{copy.document.xsdValid}</p>
         <dl className="facts facts--columns">
           <div>
+            <dt>{copy.document.grossTotal}</dt>
+            <dd>{euros(projection.grossTotal)}</dd>
+          </div>
+          <div>
+            <dt>{copy.document.shopifyPaymentsFeeTotal}</dt>
+            <dd>{euros(projection.shopifyPaymentsFeeTotal)}</dd>
+          </div>
+          <div>
             <dt>{copy.document.sourceTotal}</dt>
             <dd>{euros(projection.sourceTotal)}</dd>
           </div>
@@ -360,7 +368,7 @@ export default function BillingCaseDetail() {
   const { username, canApprove, csrfToken, billingCase, projection, storagePending } =
     useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
-  const total = billingCase.orders.reduce((sum, order) => sum + order.gross_amount, 0);
+  const total = billingCase.orders.reduce((sum, order) => sum + order.billable_amount, 0);
   const editable = ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status);
   const revisionField = <input type="hidden" name="revision" value={billingCase.revision} />;
   const csrfField = <input type="hidden" name="csrf" value={csrfToken} />;
@@ -418,7 +426,10 @@ export default function BillingCaseDetail() {
                 </Link>
                 <span>
                   {paymentStatusLabels[order.payment_status] ?? "Pagamento da verificare"} ·{" "}
-                  {euros(order.gross_amount)}
+                  {euros(order.billable_amount)}
+                  {order.deducted_shopify_payments_fee_amount > 0
+                    ? ` · commissione Shopify Payments −${euros(order.deducted_shopify_payments_fee_amount)}`
+                    : ""}
                 </span>
                 {editable && billingCase.orders.length > 1 ? (
                   <Form method="post">
@@ -445,7 +456,7 @@ export default function BillingCaseDetail() {
                   {billingCase.addableOrders.map((order) => (
                     <option key={order.id} value={order.id}>
                       {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number} ·{" "}
-                      {euros(order.gross_amount)}
+                      {euros(order.billable_amount)}
                     </option>
                   ))}
                 </select>

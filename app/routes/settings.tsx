@@ -560,7 +560,9 @@ export default function Settings() {
     csrfToken,
     profile,
     trigger,
+    shopifyPaymentFeeMode,
     saved,
+    shopifyPaymentFeeModeSaved,
     connections,
     ebayHistory,
     historyStart,
@@ -621,8 +623,9 @@ export default function Settings() {
               </p>
             ) : null}
             <SettingsForm
+              accessibleSubmitLabel={copy.settings.preparationSave}
               className="inline-form"
-              key={trigger.version}
+              key={`trigger:${trigger.version}`}
               submitLabel={copy.settings.save}
             >
               <input type="hidden" name="csrf" value={csrfToken} />
@@ -642,6 +645,42 @@ export default function Settings() {
               </p>
             ) : null}
             <p className="field-help">{copy.settings.preparationHelp}</p>
+            {shopifyPaymentFeeModeSaved ? (
+              <p className="notice section-gap" role="status">
+                {copy.settings.shopifyPaymentFeeModeSaved}
+              </p>
+            ) : null}
+            <SettingsForm
+              accessibleSubmitLabel={copy.settings.shopifyPaymentFeeModeSave}
+              className="inline-form section-gap"
+              key={`shopify-payment-fees:${shopifyPaymentFeeMode.version}`}
+              submitLabel={copy.settings.save}
+            >
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="save-shopify-payment-fee-mode" />
+              <input
+                type="hidden"
+                name="shopifyPaymentFeeModeVersion"
+                value={shopifyPaymentFeeMode.version}
+              />
+              <label>
+                {copy.settings.shopifyPaymentFeeModeLabel}
+                <select
+                  data-initial={shopifyPaymentFeeMode.value}
+                  defaultValue={shopifyPaymentFeeMode.value}
+                  name="shopifyPaymentFeeMode"
+                >
+                  <option value="DEDUCT">{copy.settings.shopifyPaymentFeeDeduct}</option>
+                  <option value="INCLUDE">{copy.settings.shopifyPaymentFeeInclude}</option>
+                </select>
+              </label>
+            </SettingsForm>
+            {errorFor("save-shopify-payment-fee-mode") ? (
+              <p className="error" role="alert">
+                {errorFor("save-shopify-payment-fee-mode")}
+              </p>
+            ) : null}
+            <p className="field-help">{copy.settings.shopifyPaymentFeeModeHelp}</p>
           </section>
 
           <section

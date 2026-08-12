@@ -29,9 +29,9 @@ import {
   groupOrder,
   reconcileInvoiceDraft,
   recomputeBillingCaseStatus,
-  serializeOrderMutations,
   type Actor,
 } from "./order-import.server.ts";
+import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 
 export interface EditableCustomer {
   kind?: string;
@@ -52,6 +52,9 @@ interface CaseOrder {
   provider: string;
   display_number: string;
   gross_amount: number;
+  shopify_payments_fee_amount: number;
+  deducted_shopify_payments_fee_amount: number;
+  billable_amount: number;
   payment_status: string;
   trigger_status: string;
   cancelled_at: string | null;
@@ -114,6 +117,8 @@ interface BillingCaseDetailRow {
     provider: string;
     display_number: string;
     gross_amount: number;
+    deducted_shopify_payments_fee_amount: number;
+    billable_amount: number;
   }>;
   audit: Array<{
     id: string;
@@ -436,7 +441,7 @@ export async function listBillingCases(filters: { statuses?: string[]; page?: un
     `SELECT billing_cases.id, billing_cases.public_number, billing_cases.local_order_date::text,
             billing_cases.status,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
-            count(orders.id)::text AS order_count, coalesce(sum(orders.gross_amount), 0)::text AS total_amount
+            count(orders.id)::text AS order_count, coalesce(sum(orders.billable_amount), 0)::text AS total_amount
      FROM billing_cases
      LEFT JOIN orders ON orders.billing_case_id = billing_cases.id
      WHERE $1::text[] IS NULL OR billing_cases.status = ANY($1)
@@ -465,6 +470,8 @@ export async function getBillingCase(id: string) {
               SELECT jsonb_agg(to_jsonb(case_orders) ORDER BY case_orders.id)
               FROM (
                 SELECT orders.id, orders.provider, orders.display_number, orders.gross_amount,
+                       orders.shopify_payments_fee_amount,
+                       orders.deducted_shopify_payments_fee_amount, orders.billable_amount,
                        orders.payment_status, orders.fulfillment_status, orders.trigger_status,
                        orders.cancelled_at,
                        coalesce(
@@ -487,7 +494,8 @@ export async function getBillingCase(id: string) {
             coalesce((
               SELECT jsonb_agg(to_jsonb(addable) ORDER BY addable.id)
               FROM (
-                SELECT orders.id, orders.provider, orders.display_number, orders.gross_amount
+                SELECT orders.id, orders.provider, orders.display_number, orders.gross_amount,
+                       orders.deducted_shopify_payments_fee_amount, orders.billable_amount
                 FROM orders
                 WHERE orders.billing_case_id IS NULL
                   AND ${orderBillableSql()}

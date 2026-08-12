@@ -25,6 +25,7 @@ import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
 import {
   defaultHistoricalStartDate,
+  decimalToCents,
   historicalOrderWindow,
   markHistoricalOrders,
   type OrderInput,
@@ -77,6 +78,37 @@ function shopMoney(value: unknown) {
   const amount = text(money.amount);
   const currency = text(money.currencyCode);
   return amount && currency ? { amount, currency } : null;
+}
+
+function money(value: unknown) {
+  const amount = text(record(value).amount);
+  const currency = text(record(value).currencyCode);
+  return amount && currency ? { amount, currency } : null;
+}
+
+function shopifyPaymentsFee(transaction: Record<string, unknown>, orderCurrency: string) {
+  const gateway = text(transaction.gateway)?.toLowerCase();
+  if (gateway !== "shopify_payments" || transaction.status !== "SUCCESS") return "0.00";
+  const fees = records(transaction.fees);
+  if (!fees.length) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  let total = 0;
+  for (const fee of fees) {
+    const feeMoney = money(fee.amount);
+    if (!feeMoney || feeMoney.currency !== orderCurrency) {
+      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    }
+    let amount: number;
+    try {
+      amount = decimalToCents(feeMoney.amount);
+    } catch {
+      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    }
+    if (amount < 0 || !Number.isSafeInteger(total + amount)) {
+      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    }
+    total += amount;
+  }
+  return (total / 100).toFixed(2);
 }
 
 function configValues() {
@@ -336,13 +368,20 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
         discountAmount: (discount / 100).toFixed(2),
       };
     }),
-    payments: transactions.map((transaction) => ({
-      externalPaymentId: text(transaction.id),
-      method: text(transaction.gateway) ?? "SHOPIFY",
-      status: transaction.status === "SUCCESS" ? "PAID" : "PENDING",
-      amount: shopMoney(transaction.amountSet)?.amount ?? "0.00",
-      paidAt: text(transaction.processedAt) ?? null,
-    })),
+    payments: transactions.map((transaction) => {
+      const amount = shopMoney(transaction.amountSet);
+      if (!amount || amount.currency !== total.currency) {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      }
+      return {
+        externalPaymentId: text(transaction.id),
+        method: text(transaction.gateway) ?? "SHOPIFY",
+        status: transaction.status === "SUCCESS" ? "PAID" : "PENDING",
+        amount: amount.amount,
+        shopifyPaymentsFeeAmount: shopifyPaymentsFee(transaction, total.currency),
+        paidAt: text(transaction.processedAt) ?? null,
+      };
+    }),
     refunds: refunds.map((refund) => {
       const refundTransactions = nodes(refund.transactions);
       const statuses = refundTransactions.map((transaction) => text(transaction.status));
@@ -380,7 +419,11 @@ function orderFields() {
       nodes { id name quantity originalTotalSet { shopMoney { amount currencyCode } }
         discountedTotalSet { shopMoney { amount currencyCode } } }
     }
-    transactions { id kind status gateway processedAt amountSet { shopMoney { amount currencyCode } } }
+    transactions {
+      id kind status gateway processedAt
+      amountSet { shopMoney { amount currencyCode } }
+      fees { amount { amount currencyCode } flatFee { amount currencyCode } rate type }
+    }
     refunds {
       id processedAt totalRefundedSet { shopMoney { amount currencyCode } }
       transactions(first: 20) { nodes { id status } }

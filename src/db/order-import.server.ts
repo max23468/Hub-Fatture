@@ -37,12 +37,15 @@ import {
   localOrderDate,
   orderInputSchema,
   orderReviewRequired,
+  shopifyPaymentFeeModeSchema,
   triggerStatus,
   type CustomerContext,
   type DraftTrigger,
   type OrderInput,
+  type ShopifyPaymentFeeMode,
 } from "../orders.ts";
 import { preIssueRefund } from "../refunds.ts";
+import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 import { refreshCreditNoteDraft } from "./refunds.server.ts";
 
 export interface Actor {
@@ -122,8 +125,51 @@ export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: strin
     [documentId, caseId],
   );
   await client.query(
+    `WITH desired AS (
+       SELECT orders.id,
+              orders.billable_amount - coalesce((
+                SELECT sum(refunds.amount) FROM refunds
+                WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
+              ), 0) AS amount
+       FROM orders WHERE orders.billing_case_id = $2
+     )
+     UPDATE document_lines
+     SET quantity = 1, unit_amount = desired.amount, total_amount = desired.amount
+     FROM document_orders, desired
+     WHERE document_lines.document_id = $1
+       AND document_orders.document_id = document_lines.document_id
+       AND document_orders.order_id = document_lines.order_id
+       AND desired.id = document_lines.order_id
+       AND document_lines.quantity = 1
+       AND document_lines.unit_amount = document_orders.amount
+       AND document_lines.total_amount = document_orders.amount
+       AND document_orders.amount <> desired.amount`,
+    [documentId, caseId],
+  );
+  await client.query(
+    `WITH desired AS (
+       SELECT orders.id,
+              orders.billable_amount - coalesce((
+                SELECT sum(refunds.amount) FROM refunds
+                WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
+              ), 0) AS amount
+       FROM orders WHERE orders.billing_case_id = $2
+     )
+     UPDATE document_orders
+     SET amount = desired.amount
+     FROM desired
+     WHERE document_orders.document_id = $1
+       AND document_orders.order_id = desired.id
+       AND document_orders.amount <> desired.amount`,
+    [documentId, caseId],
+  );
+  await client.query(
     `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
-     SELECT $1, 'INVOICE', orders.id, orders.gross_amount
+     SELECT $1, 'INVOICE', orders.id,
+            orders.billable_amount - coalesce((
+              SELECT sum(refunds.amount) FROM refunds
+              WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
+            ), 0)
      FROM orders
      WHERE orders.billing_case_id = $2
        AND NOT EXISTS (
@@ -138,7 +184,10 @@ export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: strin
               'Vendita beni usati - Ordine '
                 || CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
                 || ' ' || orders.display_number AS description,
-              orders.gross_amount,
+              orders.billable_amount - coalesce((
+                SELECT sum(refunds.amount) FROM refunds
+                WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
+              ), 0) AS billable_amount,
               row_number() OVER (ORDER BY orders.id) AS position
        FROM orders
        WHERE orders.billing_case_id = $2
@@ -154,15 +203,30 @@ export async function reconcileInvoiceDraft(client: pg.PoolClient, caseId: strin
        (document_id, order_id, line_number, description, quantity, unit_amount,
         total_amount, tax_nature)
      SELECT $1, missing.id, offset_value.value + missing.position, missing.description,
-            1, missing.gross_amount, missing.gross_amount, 'N5'
+            1, missing.billable_amount, missing.billable_amount, 'N5'
      FROM missing CROSS JOIN offset_value`,
     [documentId, caseId],
   );
   await client.query(
-    `UPDATE documents
-     SET draft_version = draft_version + 1,
+    `WITH totals AS (
+       SELECT coalesce((SELECT sum(document_orders.amount) FROM document_orders
+                        WHERE document_orders.document_id = $1), 0)::integer AS source_total,
+              coalesce((SELECT sum(document_lines.total_amount) FROM document_lines
+                        WHERE document_lines.document_id = $1), 0)::integer AS document_total
+     )
+     UPDATE documents
+     SET source_total_amount = totals.source_total,
+         total_amount = totals.document_total,
+         difference_amount = totals.document_total - totals.source_total,
+         difference_reason = CASE
+           WHEN totals.document_total = totals.source_total THEN NULL
+           ELSE coalesce(documents.difference_reason,
+             'Importi personalizzati prima della modifica della regola commissioni Shopify Payments')
+         END,
+         draft_version = draft_version + 1,
          projection_sha256 = repeat('0', 64),
          updated_at = now()
+     FROM totals
      WHERE id = $1`,
     [documentId],
   );
@@ -300,6 +364,7 @@ function reviewFingerprint(
   localDate: string,
   lineAmounts: { grossAmount: number; discountAmount: number }[],
   paymentAmounts: number[],
+  shopifyPaymentsFeeAmounts: number[],
   shippingAmount: number,
   refundAmounts: (number | null)[],
 ) {
@@ -313,11 +378,16 @@ function reviewFingerprint(
           : 1,
     );
   const payments = input.payments
-    .map((payment, index) => ({
-      ...payment,
-      amount: paymentAmounts[index],
-      paidAt: canonicalTimestamp(payment.paidAt),
-    }))
+    .map((payment, index) => {
+      const { shopifyPaymentsFeeAmount: _, ...legacyPayment } = payment;
+      const feeAmount = shopifyPaymentsFeeAmounts[index]!;
+      return {
+        ...legacyPayment,
+        amount: paymentAmounts[index],
+        ...(feeAmount > 0 ? { shopifyPaymentsFeeAmount: feeAmount } : {}),
+        paidAt: canonicalTimestamp(payment.paidAt),
+      };
+    })
     .sort((left, right) =>
       left.externalPaymentId === right.externalPaymentId
         ? 0
@@ -458,9 +528,10 @@ export async function groupOrder(
     const reconciliation = await reconcileInvoiceDraft(client, caseId);
     const refund = await client.query<{
       gross_amount: number;
+      billable_amount: number;
       refunds: Array<{ status: string; amount: number | null }>;
     }>(
-      `SELECT orders.gross_amount,
+      `SELECT orders.gross_amount, orders.billable_amount,
               coalesce(jsonb_agg(jsonb_build_object(
                 'status', refunds.status, 'amount', refunds.amount
               )) FILTER (WHERE refunds.id IS NOT NULL), '[]'::jsonb) AS refunds
@@ -469,7 +540,11 @@ export async function groupOrder(
        GROUP BY orders.id`,
       [order.id],
     );
-    const refundEffect = preIssueRefund(refund.rows[0]!.gross_amount, refund.rows[0]!.refunds);
+    const refundEffect = preIssueRefund(
+      refund.rows[0]!.gross_amount,
+      refund.rows[0]!.refunds,
+      refund.rows[0]!.billable_amount,
+    );
     if (
       refundEffect.state === "PARTIAL" &&
       (await reconcilePreIssueInvoiceAmount(client, order.id, caseId, refundEffect.billableAmount))
@@ -500,16 +575,18 @@ export async function groupOrder(
   return caseId;
 }
 
-async function currentTrigger(client: pg.PoolClient): Promise<DraftTrigger> {
-  const result = await client.query<{ value_json: unknown }>(
-    "SELECT value_json FROM settings WHERE key = 'draft_trigger'",
+async function currentOrderSettings(client: pg.PoolClient) {
+  const result = await client.query<{ key: string; value_json: unknown }>(
+    `SELECT key, value_json FROM settings
+     WHERE key IN ('draft_trigger', 'shopify_payment_fee_mode')`,
   );
-  return draftTriggerSchema.parse(result.rows[0]?.value_json ?? "PAID");
-}
-
-export async function serializeOrderMutations(client: pg.PoolClient) {
-  // Lock globale adatto al single tenant; usare lock ordinati per ordine se la concorrenza misurata lo richiede.
-  await client.query("SELECT pg_advisory_xact_lock(hashtext('order-import-batch'))");
+  const settings = new Map(result.rows.map((row) => [row.key, row.value_json]));
+  return {
+    trigger: draftTriggerSchema.parse(settings.get("draft_trigger") ?? "PAID"),
+    shopifyPaymentFeeMode: shopifyPaymentFeeModeSchema.parse(
+      settings.get("shopify_payment_fee_mode") ?? "DEDUCT",
+    ),
+  };
 }
 
 /**
@@ -525,6 +602,9 @@ function orderAmounts(input: OrderInput) {
     discountAmount: cents(line.discountAmount),
   }));
   const paymentAmounts = input.payments.map((payment) => cents(payment.amount));
+  const shopifyPaymentsFeeAmounts = input.payments.map((payment) =>
+    cents(payment.shopifyPaymentsFeeAmount),
+  );
   const refundAmounts = input.refunds.map((refund) =>
     refund.amount === null ? null : cents(refund.amount),
   );
@@ -535,6 +615,15 @@ function orderAmounts(input: OrderInput) {
         amount < 0 || discountAmount < 0 || discountAmount > amount,
     ) ||
     paymentAmounts.some((amount) => amount < 0) ||
+    shopifyPaymentsFeeAmounts.some(
+      (amount, index) =>
+        amount < 0 ||
+        amount > paymentAmounts[index]! ||
+        (amount > 0 &&
+          (input.provider !== "SHOPIFY" ||
+            input.payments[index]!.method.toLowerCase() !== "shopify_payments" ||
+            input.payments[index]!.status !== "PAID")),
+    ) ||
     refundAmounts.some((amount) => amount !== null && amount < 0) ||
     shippingAmount < 0
   ) {
@@ -545,10 +634,19 @@ function orderAmounts(input: OrderInput) {
       BigInt(shippingAmount) ===
       BigInt(grossAmount) &&
     paymentAmounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(grossAmount);
+  const shopifyPaymentsFeeAmount = shopifyPaymentsFeeAmounts.reduce(
+    (sum, amount) => sum + amount,
+    0,
+  );
+  if (!Number.isSafeInteger(shopifyPaymentsFeeAmount) || shopifyPaymentsFeeAmount > grossAmount) {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
   return {
     grossAmount,
     lineAmounts,
     paymentAmounts,
+    shopifyPaymentsFeeAmounts,
+    shopifyPaymentsFeeAmount,
     refundAmounts,
     shippingAmount,
     totalsReconciled,
@@ -686,12 +784,15 @@ async function importOne(
   client: pg.PoolClient,
   input: OrderInput,
   trigger: DraftTrigger,
+  shopifyPaymentFeeMode: ShopifyPaymentFeeMode,
   actor: Actor,
 ) {
   const {
     grossAmount,
     lineAmounts,
     paymentAmounts,
+    shopifyPaymentsFeeAmounts,
+    shopifyPaymentsFeeAmount,
     refundAmounts,
     shippingAmount,
     totalsReconciled,
@@ -705,17 +806,25 @@ async function importOne(
     localDate,
     lineAmounts,
     paymentAmounts,
+    shopifyPaymentsFeeAmounts,
     shippingAmount,
     refundAmounts,
   );
+  const deductedShopifyPaymentsFeeAmount =
+    input.provider === "SHOPIFY" && shopifyPaymentFeeMode === "DEDUCT"
+      ? shopifyPaymentsFeeAmount
+      : 0;
+  const billableAmount = grossAmount - deductedShopifyPaymentsFeeAmount;
   const refundEffect = preIssueRefund(
     grossAmount,
     input.refunds.map((refund, index) => ({
       status: refund.status,
       amount: refundAmounts[index]!,
     })),
+    billableAmount,
   );
-  const orderReview = orderReviewRequired(input, totalsReconciled, trigger);
+  const orderReview =
+    orderReviewRequired(input, totalsReconciled, trigger) || refundEffect.state === "NEEDS_REVIEW";
   const previous = await loadPreviousOrder(client, input);
   if (previous.rows[0]?.is_stale) return "ignored";
 
@@ -745,6 +854,9 @@ async function importOne(
     historical,
     customerSnapshot: customerSnapshot(input, identity),
     totalAmount: grossAmount,
+    shopifyPaymentsFeeAmount,
+    deductedShopifyPaymentsFeeAmount,
+    billableAmount,
     shippingAmount,
     localOrderDate: localDate,
     customerIdentity: identity.confidence,
@@ -784,19 +896,22 @@ async function importOne(
     `INSERT INTO orders
       (provider, external_account_id, external_order_id, display_number,
        created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+       shopify_payments_fee_amount, deducted_shopify_payments_fee_amount,
        payment_status, fulfillment_status, trigger_status, customer_id,
        raw_snapshot_json, normalized_snapshot_json, cancelled_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      ON CONFLICT (provider, external_account_id, external_order_id) DO UPDATE SET
-       display_number = CASE WHEN $17::boolean THEN orders.display_number ELSE EXCLUDED.display_number END,
-       created_at_source = CASE WHEN $17::boolean THEN orders.created_at_source ELSE EXCLUDED.created_at_source END,
+       display_number = CASE WHEN $19::boolean THEN orders.display_number ELSE EXCLUDED.display_number END,
+       created_at_source = CASE WHEN $19::boolean THEN orders.created_at_source ELSE EXCLUDED.created_at_source END,
        updated_at_source = EXCLUDED.updated_at_source,
-       local_order_date = CASE WHEN $17::boolean THEN orders.local_order_date ELSE EXCLUDED.local_order_date END,
-       gross_amount = CASE WHEN $17::boolean THEN orders.gross_amount ELSE EXCLUDED.gross_amount END,
+       local_order_date = CASE WHEN $19::boolean THEN orders.local_order_date ELSE EXCLUDED.local_order_date END,
+       gross_amount = CASE WHEN $19::boolean THEN orders.gross_amount ELSE EXCLUDED.gross_amount END,
+       shopify_payments_fee_amount = CASE WHEN $19::boolean THEN orders.shopify_payments_fee_amount ELSE EXCLUDED.shopify_payments_fee_amount END,
+       deducted_shopify_payments_fee_amount = CASE WHEN $19::boolean THEN orders.deducted_shopify_payments_fee_amount ELSE EXCLUDED.deducted_shopify_payments_fee_amount END,
        payment_status = EXCLUDED.payment_status,
        fulfillment_status = EXCLUDED.fulfillment_status,
        trigger_status = CASE
-         WHEN orders.billing_case_id IS NOT NULL AND $17::boolean THEN 'INVOICED'
+         WHEN orders.billing_case_id IS NOT NULL AND $19::boolean THEN 'INVOICED'
          WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.cancelled_at IS NOT NULL
            THEN 'CANCELLED_NO_DOCUMENT'
          WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.payment_status = 'REFUNDED'
@@ -805,8 +920,8 @@ async function importOne(
          ELSE EXCLUDED.trigger_status
        END,
        customer_id = CASE WHEN orders.billing_case_id IS NULL THEN EXCLUDED.customer_id ELSE orders.customer_id END,
-       raw_snapshot_json = CASE WHEN $17::boolean THEN orders.raw_snapshot_json ELSE EXCLUDED.raw_snapshot_json END,
-       normalized_snapshot_json = CASE WHEN $17::boolean THEN orders.normalized_snapshot_json ELSE EXCLUDED.normalized_snapshot_json END,
+       raw_snapshot_json = CASE WHEN $19::boolean THEN orders.raw_snapshot_json ELSE EXCLUDED.raw_snapshot_json END,
+       normalized_snapshot_json = CASE WHEN $19::boolean THEN orders.normalized_snapshot_json ELSE EXCLUDED.normalized_snapshot_json END,
        last_synced_at = now(),
        cancelled_at = EXCLUDED.cancelled_at
      RETURNING id, billing_case_id, customer_id`,
@@ -820,6 +935,8 @@ async function importOne(
       localDate,
       input.currency,
       grossAmount,
+      shopifyPaymentsFeeAmount,
+      deductedShopifyPaymentsFeeAmount,
       input.paymentStatus,
       input.fulfillmentStatus,
       status,
@@ -827,7 +944,7 @@ async function importOne(
       JSON.stringify(input),
       JSON.stringify(normalizedSnapshot),
       input.cancelledAt,
-      invoiced,
+      documentIssued,
     ],
   );
   const orderId = order.rows[0]!.id;
@@ -851,7 +968,7 @@ async function importOne(
     client,
     orderId,
     input,
-    { lineAmounts, paymentAmounts, refundAmounts },
+    { lineAmounts, paymentAmounts, shopifyPaymentsFeeAmounts, refundAmounts },
     documentIssued,
     actor,
   );
@@ -926,7 +1043,7 @@ async function importOne(
       client,
       orderId,
       effectiveBillingCaseId,
-      grossAmount,
+      billableAmount,
     );
     if (restored.rowCount || adjusted) {
       await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
@@ -937,8 +1054,8 @@ async function importOne(
         entityType: "ORDER",
         entityId: orderId,
         metadata: { billingCaseId: effectiveBillingCaseId, provider: input.provider },
-        before: { billableAmount: grossAmount - previousAppliedRefundAmount },
-        after: { billableAmount: grossAmount },
+        before: { billableAmount: billableAmount - previousAppliedRefundAmount },
+        after: { billableAmount },
         requestId: actor.requestId,
       });
     }
@@ -1164,12 +1281,12 @@ async function replaceOrderChildren(
   input: OrderInput,
   amounts: Pick<
     ReturnType<typeof orderAmounts>,
-    "lineAmounts" | "paymentAmounts" | "refundAmounts"
+    "lineAmounts" | "paymentAmounts" | "shopifyPaymentsFeeAmounts" | "refundAmounts"
   >,
   invoiced: boolean,
   actor: Actor,
 ) {
-  const { lineAmounts, paymentAmounts, refundAmounts } = amounts;
+  const { lineAmounts, paymentAmounts, shopifyPaymentsFeeAmounts, refundAmounts } = amounts;
   const previousApplied = await client.query<{ amount: number }>(
     `SELECT coalesce(sum(amount), 0)::integer AS amount FROM refunds
      WHERE order_id = $1 AND applied_before_issue`,
@@ -1220,12 +1337,14 @@ async function replaceOrderChildren(
   for (const [index, payment] of input.payments.entries()) {
     await client.query(
       `INSERT INTO payments
-        (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (order_id, external_payment_id, method, status, amount,
+         shopify_payments_fee_amount, paid_at, raw_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (order_id, external_payment_id) DO UPDATE SET
          method = EXCLUDED.method,
          status = EXCLUDED.status,
          amount = EXCLUDED.amount,
+         shopify_payments_fee_amount = EXCLUDED.shopify_payments_fee_amount,
          paid_at = EXCLUDED.paid_at,
          raw_json = EXCLUDED.raw_json
        WHERE payments.recorded_manually = false`,
@@ -1235,6 +1354,7 @@ async function replaceOrderChildren(
         payment.method,
         payment.status,
         paymentAmounts[index],
+        shopifyPaymentsFeeAmounts[index],
         payment.paidAt,
         JSON.stringify(payment),
       ],
@@ -1400,12 +1520,17 @@ export async function importOrders(
       await assertJobLease(client, job);
     }
     await client.query("SELECT pg_advisory_xact_lock_shared(hashtext('setting:draft_trigger'))");
+    await client.query(
+      "SELECT pg_advisory_xact_lock_shared(hashtext('setting:shopify_payment_fee_mode'))",
+    );
     await serializeOrderMutations(client);
-    const trigger = await currentTrigger(client);
+    const { trigger, shopifyPaymentFeeMode } = await currentOrderSettings(client);
     const results = [];
     // Il batch resta seriale: ogni raggruppamento deve osservare gli ordini precedenti nella stessa transazione.
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop
-    for (const order of orders) results.push(await importOne(client, order, trigger, actor));
+    for (const order of orders) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      results.push(await importOne(client, order, trigger, shopifyPaymentFeeMode, actor));
+    }
     const result: HistoryImportResult = {
       count: history?.count ?? orders.length,
       reviewRequired: history?.reviewRequired ?? 0,
