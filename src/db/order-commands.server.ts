@@ -133,11 +133,26 @@ function sharesStreetName(left: unknown, right: unknown) {
   if (!leftStreetKind || leftStreetKind !== rightStreetKind) return false;
   const leftTokens = new Set(
     leftIdentityTokens.filter(
-      (token) => !/^\d/.test(token) && token.length >= 3 && !genericStreetTokens.has(token),
+      (token) =>
+        token !== leftStreetKind &&
+        !/^\d/.test(token) &&
+        token.length >= 3 &&
+        !genericStreetTokens.has(token),
+    ),
+  );
+  const rightTokens = new Set(
+    rightIdentityTokens.filter(
+      (token) =>
+        token !== rightStreetKind &&
+        !/^\d/.test(token) &&
+        token.length >= 3 &&
+        !genericStreetTokens.has(token),
     ),
   );
   return (
-    rightIdentityTokens.filter((token) => !/^\d/.test(token) && leftTokens.has(token)).length >= 2
+    leftTokens.size >= 2 &&
+    leftTokens.size === rightTokens.size &&
+    [...leftTokens].every((token) => rightTokens.has(token))
   );
 }
 
