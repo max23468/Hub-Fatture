@@ -2438,6 +2438,160 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     const totalRefundCase = await orders.getBillingCase(isolatedRefund.case_id);
     assert.equal(totalRefundCase!.reactivation_blocker, "INCOMPATIBLE_ORDERS");
 
+    await database.getPool().query(
+      `UPDATE settings SET value_json = '"PAID"', version = version + 1
+       WHERE key = 'draft_trigger'`,
+    );
+    const refundAnchor = structuredClone(fixture[0]);
+    refundAnchor.externalOrderId = "shop-order-historical-refund-anchor";
+    refundAnchor.displayNumber = "#HISTORICAL-REFUND-ANCHOR";
+    refundAnchor.createdAt = "2026-09-01T08:00:00Z";
+    refundAnchor.updatedAt = "2026-09-01T09:00:00Z";
+    refundAnchor.payments[0].externalPaymentId = "historical-refund-anchor-payment";
+    await orders.importOrders([refundAnchor], {
+      id: 1,
+      requestId: "test-historical-refund-anchor-import",
+    });
+    const refundAnchorRow = (
+      await database
+        .getPool()
+        .query<{ id: string; billing_case_id: string }>(
+          "SELECT id, billing_case_id FROM orders WHERE external_order_id = $1",
+          [refundAnchor.externalOrderId],
+        )
+    ).rows[0]!;
+    await database.getPool().query(
+      `INSERT INTO fiscal_profiles (version, status, profile_json)
+       VALUES (1, 'MOCK', $1)`,
+      [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
+    );
+    const refundDocumentId = (
+      await database.getPool().query<{ id: string }>(
+        `INSERT INTO documents
+           (billing_case_id, kind, status, document_type, series, document_date,
+            fiscal_profile_version, currency, total_amount, source_total_amount,
+            difference_amount, projection_sha256, payment_status, payment_method,
+            recipient_snapshot_json)
+         VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', '2026-09-01', 1, 'EUR',
+                 12200, 12200, 0, $2, 'PAID', 'MP08', $3)
+         RETURNING id`,
+        [
+          refundAnchorRow.billing_case_id,
+          "0".repeat(64),
+          {
+            kind: refundAnchor.customer.kind,
+            displayName: refundAnchor.customer.displayName,
+            firstName: refundAnchor.customer.firstName,
+            lastName: refundAnchor.customer.lastName,
+            taxIdentifiers: refundAnchor.customer.taxIdentifiers.map(
+              (identifier: { type: string; value: string; countryCode?: string }) => ({
+                type: identifier.type,
+                value: identifier.value,
+                countryCode: identifier.countryCode,
+              }),
+            ),
+            address: refundAnchor.customer.billingAddress,
+          },
+        ],
+      )
+    ).rows[0]!.id;
+    await database.getPool().query(
+      `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+       VALUES ($1, 'INVOICE', $2, 12200)`,
+      [refundDocumentId, refundAnchorRow.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO document_lines
+         (document_id, order_id, line_number, description, quantity, unit_amount,
+          total_amount, tax_nature)
+       VALUES ($1, $2, 1, 'Ordine di controllo', 1, 12200, 12200, 'N5')`,
+      [refundDocumentId, refundAnchorRow.id],
+    );
+    const deferredHistorical = structuredClone(fixture[0]);
+    deferredHistorical.externalOrderId = "shop-order-historical-refund-deferred-force";
+    deferredHistorical.displayNumber = "#HISTORICAL-REFUND-DEFERRED-FORCE";
+    deferredHistorical.createdAt = "2026-09-01T08:00:00Z";
+    deferredHistorical.updatedAt = "2026-09-01T09:00:00Z";
+    deferredHistorical.historical = true;
+    deferredHistorical.paymentStatus = "PENDING";
+    deferredHistorical.fulfillmentStatus = "FULFILLED";
+    deferredHistorical.payments[0].externalPaymentId = "historical-refund-deferred-force-payment";
+    deferredHistorical.payments[0].status = "PENDING";
+    deferredHistorical.payments[0].paidAt = null;
+    deferredHistorical.refunds = [
+      {
+        externalRefundId: "historical-refund-deferred-force",
+        status: "COMPLETED",
+        amount: "10.00",
+        completedAt: "2026-09-01T09:00:00Z",
+        raw: {},
+      },
+    ];
+    const triggeredHistorical = structuredClone(deferredHistorical);
+    triggeredHistorical.externalOrderId = "shop-order-historical-refund-deferred-trigger";
+    triggeredHistorical.displayNumber = "#HISTORICAL-REFUND-DEFERRED-TRIGGER";
+    triggeredHistorical.payments[0].externalPaymentId =
+      "historical-refund-deferred-trigger-payment";
+    triggeredHistorical.refunds[0].externalRefundId = "historical-refund-deferred-trigger";
+    await orders.importOrders([deferredHistorical, triggeredHistorical], {
+      id: 1,
+      requestId: "test-historical-refund-deferred-import",
+    });
+    const deferredIds = (
+      await database.getPool().query<{ id: string; external_order_id: string }>(
+        `SELECT id, external_order_id FROM orders
+         WHERE external_order_id IN ($1, $2)`,
+        [deferredHistorical.externalOrderId, triggeredHistorical.externalOrderId],
+      )
+    ).rows;
+    for (const order of deferredIds) {
+      await orders.reconcileHistoricalOrder(
+        order.id,
+        {
+          outcome: "NOT_INVOICED",
+          reference: `Ricerca Aruba senza documento per ${order.external_order_id}`,
+        },
+        { id: 1, requestId: `test-${order.external_order_id}-reconcile` },
+      );
+    }
+    const forcedId = deferredIds.find(
+      (order) => order.external_order_id === deferredHistorical.externalOrderId,
+    )!.id;
+    await orders.forcePrepareOrder(forcedId, {
+      id: 1,
+      requestId: "test-historical-refund-deferred-force",
+    });
+    const finalTriggerVersion = (
+      await database.getPool().query("SELECT version FROM settings WHERE key = 'draft_trigger'")
+    ).rows[0].version;
+    await orders.setDraftTrigger("FULFILLED", finalTriggerVersion, {
+      id: 1,
+      requestId: "test-historical-refund-deferred-trigger",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.external_order_id, orders.trigger_status, document_orders.amount
+           FROM orders JOIN document_orders ON document_orders.order_id = orders.id
+           WHERE orders.external_order_id IN ($1, $2)
+           ORDER BY orders.external_order_id`,
+          [deferredHistorical.externalOrderId, triggeredHistorical.externalOrderId],
+        )
+      ).rows,
+      [
+        {
+          external_order_id: deferredHistorical.externalOrderId,
+          trigger_status: "GROUPED",
+          amount: 11_200,
+        },
+        {
+          external_order_id: triggeredHistorical.externalOrderId,
+          trigger_status: "GROUPED",
+          amount: 11_200,
+        },
+      ],
+    );
+
     await database.closePool();
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());

@@ -456,6 +456,34 @@ export async function groupOrder(
   );
   if (assigned.rowCount) {
     const reconciliation = await reconcileInvoiceDraft(client, caseId);
+    const refund = await client.query<{
+      gross_amount: number;
+      refunds: Array<{ status: string; amount: number | null }>;
+    }>(
+      `SELECT orders.gross_amount,
+              coalesce(jsonb_agg(jsonb_build_object(
+                'status', refunds.status, 'amount', refunds.amount
+              )) FILTER (WHERE refunds.id IS NOT NULL), '[]'::jsonb) AS refunds
+       FROM orders LEFT JOIN refunds ON refunds.order_id = orders.id
+       WHERE orders.id = $1
+       GROUP BY orders.id`,
+      [order.id],
+    );
+    const refundEffect = preIssueRefund(refund.rows[0]!.gross_amount, refund.rows[0]!.refunds);
+    if (
+      refundEffect.state === "PARTIAL" &&
+      (await reconcilePreIssueInvoiceAmount(client, order.id, caseId, refundEffect.billableAmount))
+    ) {
+      await writeAudit(client, {
+        ...auditActor(actor),
+        action: "REFUND_APPLIED_BEFORE_ISSUE",
+        eventClass: "CRITICAL",
+        entityType: "ORDER",
+        entityId: order.id,
+        metadata: { billingCaseId: caseId },
+        requestId: actor.requestId,
+      });
+    }
     await writeAudit(client, {
       ...auditActor(actor),
       action: forced ? "ORDER_GROUPING_FORCED" : "ORDER_GROUPED",
