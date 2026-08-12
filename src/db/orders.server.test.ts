@@ -1749,6 +1749,60 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       "2",
     );
 
+    const historicalRefunded = structuredClone(fixture[0]);
+    historicalRefunded.externalOrderId = "shop-order-historical-refunded";
+    historicalRefunded.externalCustomerId = "shop-customer-historical-refunded";
+    historicalRefunded.customer.taxIdentifiers[0].value = "RSSMRA80A01H501F";
+    historicalRefunded.createdAt = "2026-08-19T11:00:00Z";
+    historicalRefunded.updatedAt = "2026-08-19T12:00:00Z";
+    historicalRefunded.historical = true;
+    historicalRefunded.refunds = [
+      {
+        externalRefundId: "historical-total-refund",
+        status: "COMPLETED",
+        amount: historicalRefunded.total,
+        completedAt: "2026-08-19T12:00:00Z",
+        raw: {},
+      },
+    ];
+    await orders.importOrders([historicalRefunded], {
+      id: 1,
+      requestId: "test-historical-refunded-import",
+    });
+    const historicalRefundedBefore = (
+      await database
+        .getPool()
+        .query(
+          `SELECT id, billing_case_id, trigger_status FROM orders WHERE external_order_id = $1`,
+          [historicalRefunded.externalOrderId],
+        )
+    ).rows[0];
+    assert.deepEqual(historicalRefundedBefore, {
+      id: historicalRefundedBefore.id,
+      billing_case_id: null,
+      trigger_status: "LEGACY_BILLING_REVIEW",
+    });
+    const historicalRefundedResult = await orders.reconcileHistoricalOrder(
+      historicalRefundedBefore.id,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ricerca Aruba per ordine rimborsato: nessun documento emesso",
+      },
+      { id: 1, requestId: "test-historical-refunded-reconcile" },
+    );
+    assert.ok(historicalRefundedResult?.caseId);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT orders.trigger_status, billing_cases.status
+           FROM orders JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+           WHERE orders.id = $1`,
+          [historicalRefundedBefore.id],
+        )
+      ).rows[0],
+      { trigger_status: "REFUNDED_BEFORE_ISSUE", status: "DO_NOT_TRANSMIT" },
+    );
+
     const concurrentA = structuredClone(fixture[0]);
     concurrentA.externalOrderId = "shop-order-concurrent-a";
     concurrentA.externalCustomerId = "shop-customer-concurrent";

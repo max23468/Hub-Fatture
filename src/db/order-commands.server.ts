@@ -152,6 +152,7 @@ export async function reconcileHistoricalOrder(
       trigger_status: string;
       historical: boolean;
       historical_reconciled_at: Date | null;
+      fully_refunded: boolean;
     }>(
       `SELECT orders.id, orders.customer_id,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
@@ -159,7 +160,11 @@ export async function reconcileHistoricalOrder(
               orders.fulfillment_status, orders.cancelled_at, orders.trigger_status,
               coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
                 AS historical,
-              orders.historical_reconciled_at
+              orders.historical_reconciled_at,
+              coalesce((
+                SELECT sum(refunds.amount) FROM refunds
+                WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
+              ), 0) >= orders.gross_amount AS fully_refunded
        FROM orders WHERE orders.id = $1 FOR UPDATE`,
       [id],
     );
@@ -178,15 +183,17 @@ export async function reconcileHistoricalOrder(
     const nextStatus =
       parsed.data.outcome === "ALREADY_INVOICED"
         ? "INVOICED"
-        : triggerStatus(
-            {
-              cancelledAt: current.cancelled_at,
-              paymentStatus: current.payment_status,
-              fulfillmentStatus: current.fulfillment_status,
-              historical: false,
-            },
-            draftTriggerSchema.parse(trigger.rows[0]?.value_json ?? "PAID"),
-          );
+        : current.fully_refunded
+          ? "REFUNDED_BEFORE_ISSUE"
+          : triggerStatus(
+              {
+                cancelledAt: current.cancelled_at,
+                paymentStatus: current.payment_status,
+                fulfillmentStatus: current.fulfillment_status,
+                historical: false,
+              },
+              draftTriggerSchema.parse(trigger.rows[0]?.value_json ?? "PAID"),
+            );
     await client.query(
       `UPDATE orders SET trigger_status = $2, historical_reconciliation_outcome = $3,
          historical_reconciliation_reference = $4, historical_reconciled_at = now()
@@ -204,7 +211,7 @@ export async function reconcileHistoricalOrder(
       requestId: actor.requestId,
     });
     const caseId =
-      nextStatus === "ELIGIBLE"
+      nextStatus === "ELIGIBLE" || nextStatus === "REFUNDED_BEFORE_ISSUE"
         ? await groupOrder(
             client,
             {
@@ -213,10 +220,14 @@ export async function reconcileHistoricalOrder(
               customerSnapshot: current.customer_snapshot,
               localOrderDate: current.local_order_date,
               currency: current.currency,
+              isolated: nextStatus === "REFUNDED_BEFORE_ISSUE",
             },
             actor,
           )
         : null;
+    if (caseId && nextStatus === "REFUNDED_BEFORE_ISSUE") {
+      await client.query("UPDATE orders SET trigger_status = $2 WHERE id = $1", [id, nextStatus]);
+    }
     return { caseId, outcome: parsed.data.outcome };
   });
 }

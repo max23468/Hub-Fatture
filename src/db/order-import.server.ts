@@ -793,6 +793,8 @@ async function importOne(
     ],
   );
   const orderId = order.rows[0]!.id;
+  const historicalReconciliationPending =
+    historical && oldOrder?.historical_reconciliation_outcome == null;
   const currentBillingCaseId = sourceConflict
     ? await applySourceConflict(client, actor, {
         input,
@@ -816,7 +818,11 @@ async function importOne(
     actor,
   );
   let effectiveBillingCaseId = currentBillingCaseId;
-  if (!effectiveBillingCaseId && (status === "ELIGIBLE" || refundEffect.state === "TOTAL")) {
+  if (
+    !historicalReconciliationPending &&
+    !effectiveBillingCaseId &&
+    (status === "ELIGIBLE" || refundEffect.state === "TOTAL")
+  ) {
     effectiveBillingCaseId = await groupOrder(
       client,
       {
