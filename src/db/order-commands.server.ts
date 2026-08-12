@@ -214,11 +214,21 @@ const streetKindTokens = new Set([
   "ul",
   "ulica",
   "aleja",
+  "strasse",
+  "straße",
+  "platz",
+  "weg",
+  "allee",
+  "gasse",
 ]);
 
 const streetConnectorTokens = new Set([
   "de",
   "des",
+  "der",
+  "die",
+  "dem",
+  "den",
   "del",
   "della",
   "delle",
@@ -238,6 +248,13 @@ const streetConnectorTokens = new Set([
   "los",
   "las",
   "the",
+  "zu",
+  "zum",
+  "zur",
+  "am",
+  "im",
+  "an",
+  "auf",
 ]);
 
 const addressUnitMarkers = new Set([
@@ -346,6 +363,7 @@ function containsStructuredStreetNumber(
     const matchLength =
       part === expected ? 1 : `${part}${addressParts[index + 1] ?? ""}` === expected ? 2 : 0;
     if (!matchLength) return false;
+    if (index > 0 && addressUnitMarkers.has(addressParts[index - 1]!)) return false;
     const endIndex = index + matchLength;
     if (index === 0 || endIndex === addressParts.length) return true;
     const unitTail = addressParts.slice(endIndex);

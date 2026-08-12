@@ -3324,6 +3324,23 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euAddressWithUnitEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "L’identificatore dell’appartamento non vale come civico",
+          invoiceXml: Buffer.from(
+            euAddressWithUnitInvoice
+              .toString()
+              .replace("<NumeroCivico>14</NumeroCivico>", "<NumeroCivico>7</NumeroCivico>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-unit-identifier-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       euAddressWithUnitEbayId,
       {
@@ -3342,6 +3359,13 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     euBusinessEbay.customer.canonicalProfile = {
       companyName: "Atelier Bleu SARL",
       displayName: "Atelier Bleu SARL",
+    };
+    euBusinessEbay.customer.billingAddress = {
+      line1: "Straße der Rosen 16",
+      postalCode: "10115",
+      city: "Berlin",
+      province: "EE",
+      countryCode: "DE",
     };
     euBusinessEbay.total = "81.00";
     euBusinessEbay.lines[0].grossAmount = "81.00";
@@ -3364,6 +3388,33 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         euBusinessEbayId,
         {
           outcome: "ALREADY_INVOICED",
+          reference: "Gli articoli tedeschi non identificano la strada",
+          invoiceXml: Buffer.from(
+            euPersonalInvoice
+              .toString()
+              .replace("FPR 0026/26", "FPR 0030/26")
+              .replaceAll("80.00", "81.00")
+              .replace(
+                "<Nome>Marie</Nome>\n          <Cognome>Dupont</Cognome>",
+                "<Denominazione>Atelier Bleu SARL</Denominazione>",
+              )
+              .replace("Avenue Martin des Fleurs", "Platz der Rosen")
+              .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>16</NumeroCivico>")
+              .replace("<CAP>00000</CAP>", "<CAP>10115</CAP>")
+              .replace("<Comune>Lione</Comune>", "<Comune>Berlin</Comune>")
+              .replace("<Nazione>FR</Nazione>", "<Nazione>DE</Nazione>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-german-connectors" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euBusinessEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
           reference: "Documento Aruba UE con ragione sociale soltanto parziale",
           invoiceXml: Buffer.from(
             euPersonalInvoice
@@ -3373,7 +3424,12 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
               .replace(
                 "<Nome>Marie</Nome>\n          <Cognome>Dupont</Cognome>",
                 "<Denominazione>Atelier Bleu</Denominazione>",
-              ),
+              )
+              .replace("Avenue Martin des Fleurs", "Straße der Rosen")
+              .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>16</NumeroCivico>")
+              .replace("<CAP>00000</CAP>", "<CAP>10115</CAP>")
+              .replace("<Comune>Lione</Comune>", "<Comune>Berlin</Comune>")
+              .replace("<Nazione>FR</Nazione>", "<Nazione>DE</Nazione>"),
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-partial-eu-business-name" },
