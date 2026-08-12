@@ -392,6 +392,8 @@ function hasSupportingAddressEvidence(
         sharedStreetTokens === 1 &&
         customerStreetTokens.length <= 2 &&
         recipientStreetTokens.length <= 2 &&
+        customerStreetTokens.every((token) => !/^\d/u.test(token)) &&
+        recipientStreetTokens.every((token) => !/^\d/u.test(token)) &&
         customerStreetTokens.at(-1) === recipientStreetTokens.at(-1);
       return (
         samePostalCode &&
