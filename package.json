@@ -29,7 +29,7 @@
     "start": "react-router-serve ./build/server/index.js",
     "start:worker": "node build-server/worker.js",
     "test": "node --test",
-    "test:db": "node --test src/db/*.test.ts",
+    "test:db": "node --test --test-concurrency=4 src/db/*.test.ts",
     "test:provider": "node --test src/integrations/*.test.ts",
     "test:unit": "node --test app/*.test.ts src/*.test.ts scripts/*.node-test.mjs scripts/*.test.mjs",
     "test:aruba:platform": "node scripts/aruba-helper-platform-check.ts",

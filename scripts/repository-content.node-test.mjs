@@ -322,13 +322,20 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
 });
 
 test("il job PostgreSQL installa il validatore XML usato dalle suite DB", async () => {
-  const workflow = await readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
+  const [workflow, packageJson] = await Promise.all([
+    readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8"),
+    readFile(path.join(root, "package.json"), "utf8"),
+  ]);
   const database = workflow.slice(
     workflow.indexOf("\n  database:"),
     workflow.indexOf("\n  security:"),
   );
   assert.match(database, /apt-get install --yes libxml2-utils/);
   assert.match(database, /npm run test:db/);
+  assert.equal(
+    JSON.parse(packageJson).scripts["test:db"],
+    "node --test --test-concurrency=4 src/db/*.test.ts",
+  );
 });
 
 test("la modifica del classificatore forza i gate senza eseguirlo come autorità", async () => {

@@ -37,6 +37,7 @@ import {
   localOrderDate,
   orderInputSchema,
   orderReviewRequired,
+  presentationCustomer,
   shopifyPaymentFeeModeSchema,
   triggerStatus,
   type CustomerContext,
@@ -331,9 +332,10 @@ export async function reconcilePreIssueInvoiceAmount(
 
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
   const canonicalProfile = canonicalCustomerProfile(input);
+  const presentation = presentationCustomer(input.customer);
   return {
-    ...input.customer,
-    displayName: customerDisplayName(input.customer) || "Cliente senza nome",
+    ...presentation,
+    displayName: customerDisplayName(presentation) || "Cliente senza nome",
     taxIdentifiers: canonicalProfile.taxIdentifiers,
     canonicalProfile,
     sourceConfidence: identity.confidence,
@@ -725,6 +727,7 @@ async function upsertCustomer(
   input: OrderInput,
   identity: ReturnType<typeof customerIdentity>,
 ) {
+  const presentation = presentationCustomer(input.customer);
   const customer = await client.query<{ id: string }>(
     `INSERT INTO customers
       (kind, match_key, display_name, first_name, last_name, company_name, email, phone,
@@ -750,16 +753,16 @@ async function upsertCustomer(
     [
       input.customer.kind,
       identity.matchKey,
-      customerDisplayName(input.customer) || "Cliente senza nome",
-      input.customer.firstName ?? null,
-      input.customer.lastName ?? null,
-      input.customer.companyName ?? null,
-      input.customer.email ?? null,
-      input.customer.phone ?? null,
+      customerDisplayName(presentation) || "Cliente senza nome",
+      presentation.firstName ?? null,
+      presentation.lastName ?? null,
+      presentation.companyName ?? null,
+      presentation.email ?? null,
+      presentation.phone ?? null,
       identity.primaryTaxId?.type ?? null,
       identity.primaryTaxId?.value ?? null,
       identity.primaryTaxId?.countryCode ?? null,
-      JSON.stringify(input.customer.billingAddress),
+      JSON.stringify(presentation.billingAddress),
       identity.confidence,
       identity.reviewRequired,
     ],
