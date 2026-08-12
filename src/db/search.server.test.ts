@@ -80,12 +80,32 @@ test(
       assert.equal(byPreparation.documents.length, 1);
       assert.equal(byPreparation.documents[0]!.caseNumber, caseRow.public_number);
 
+      const storage = await database.getPool().query<{ id: string }>(
+        `INSERT INTO storage_objects
+           (kind, relative_path, sha256, size_bytes, content_type)
+         VALUES ('INVOICE_XML', 'global-search.xml', $1, 1, 'application/xml')
+         RETURNING id`,
+        ["1".repeat(64)],
+      );
+      await database.getPool().query(
+        `UPDATE documents
+         SET status = 'APPROVED', fiscal_year = 2026, fiscal_number = 1,
+             approved_at = now(), xml_sha256 = $2, immutable_snapshot_json = $3,
+             fiscal_profile_snapshot_json = $4, storage_object_id = $5
+         WHERE billing_case_id = $1`,
+        [caseRow.id, "2".repeat(64), caseRow.customer_snapshot_json, profile, storage.rows[0]!.id],
+      );
+      const byFiscalNumber = await search.searchGlobal("FPR 0001/26");
+      assert.equal(byFiscalNumber.documents.length, 1);
+      assert.equal(byFiscalNumber.documents[0]!.fiscalLabel, "FPR 0001/26");
+
       const detail = await search.getCustomer(String(caseRow.customer_id));
       assert.equal(detail?.id, String(caseRow.customer_id));
       assert.ok(detail?.orders.length);
       assert.equal(Number(detail?.order_count), detail?.orders.length);
       assert.equal(detail?.documents.length, 1);
       assert.equal(detail?.document_count, "1");
+      assert.equal(detail?.documents[0]!.fiscalLabel, "FPR 0001/26");
 
       assert.deepEqual(await search.searchGlobal("%_"), search.emptyGlobalSearch("%_"));
       assert.deepEqual(await search.searchGlobal("a"), search.emptyGlobalSearch("a"));

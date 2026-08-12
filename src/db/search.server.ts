@@ -1,4 +1,5 @@
 import { escapeLike } from "../orders.ts";
+import { fiscalNumberLabel } from "../documents.ts";
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
@@ -105,8 +106,8 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
        WHERE documents.kind = 'INVOICE'
          AND (
            billing_cases.public_number ILIKE $1 ESCAPE '\\'
-           OR concat_ws('/', documents.series, documents.fiscal_number, documents.fiscal_year)
-                ILIKE $1 ESCAPE '\\'
+           OR concat(documents.series, ' ', lpad(documents.fiscal_number::text, 4, '0'),
+                     '/', right(documents.fiscal_year::text, 2)) ILIKE $1 ESCAPE '\\'
            OR documents.fiscal_number::text ILIKE $1 ESCAPE '\\'
            OR coalesce(billing_cases.customer_snapshot_json ->> 'displayName', '')
                 ILIKE $1 ESCAPE '\\'
@@ -184,7 +185,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
       id: row.id,
       fiscalLabel:
         row.fiscal_year && row.fiscal_number
-          ? [row.series, row.fiscal_number, row.fiscal_year].filter(Boolean).join("/")
+          ? fiscalNumberLabel(row.series, row.fiscal_year, row.fiscal_number)
           : null,
       caseNumber: row.case_number,
       customerName: row.customer_name,
@@ -232,7 +233,9 @@ export async function getCustomer(id: string) {
     }>;
     documents: Array<{
       id: string;
-      fiscalLabel: string | null;
+      fiscalSeries: string;
+      fiscalYear: number | null;
+      fiscalNumber: number | null;
       caseId: string;
       caseNumber: string;
       documentDate: string;
@@ -264,12 +267,9 @@ export async function getCustomer(id: string) {
                                ORDER BY recent_documents."documentDate" DESC,
                                         recent_documents.id DESC)
               FROM (
-                SELECT documents.id::text,
-                       CASE WHEN documents.fiscal_year IS NOT NULL
-                                  AND documents.fiscal_number IS NOT NULL
-                         THEN concat_ws('/', documents.series, documents.fiscal_number,
-                                        documents.fiscal_year)
-                         ELSE NULL END AS "fiscalLabel",
+                SELECT documents.id::text, documents.series AS "fiscalSeries",
+                       documents.fiscal_year AS "fiscalYear",
+                       documents.fiscal_number AS "fiscalNumber",
                        billing_cases.id::text AS "caseId",
                        billing_cases.public_number AS "caseNumber",
                        documents.document_date::text AS "documentDate",
@@ -283,5 +283,18 @@ export async function getCustomer(id: string) {
      FROM customers WHERE customers.id = $1`,
     [id],
   );
-  return result.rows[0] ?? null;
+  const customer = result.rows[0];
+  if (!customer) return null;
+  return {
+    ...customer,
+    documents: customer.documents.map(
+      ({ fiscalSeries, fiscalYear, fiscalNumber, ...document }) => ({
+        ...document,
+        fiscalLabel:
+          fiscalYear && fiscalNumber
+            ? fiscalNumberLabel(fiscalSeries, fiscalYear, fiscalNumber)
+            : null,
+      }),
+    ),
+  };
 }
