@@ -138,14 +138,12 @@ function containsStructuredStreetNumber(
   streetNumber: unknown,
   postalCode: unknown,
 ) {
-  const expected = new Set(normalizedIdentityPart(streetNumber).match(/\b\d+[a-z]?\b/g) ?? []);
+  const expected = normalizedIdentityPart(streetNumber).replaceAll(" ", "");
   const excludedPostalCode = normalizedIdentityPart(postalCode).replaceAll(" ", "");
-  const actual = new Set(
-    (normalizedIdentityPart(address).match(/\b\d+[a-z]?\b/g) ?? []).filter(
-      (number) => number !== excludedPostalCode,
-    ),
-  );
-  return expected.size > 0 && [...expected].every((number) => actual.has(number));
+  const addressParts = normalizedIdentityPart(address).split(" ").filter(Boolean);
+  if (addressParts.at(-1) === excludedPostalCode) addressParts.pop();
+  const actual = addressParts.join(" ").match(/(?:^| )(\d+[a-z]?|\d+ [a-z]|snc)$/)?.[1];
+  return Boolean(expected && actual && expected === actual.replaceAll(" ", ""));
 }
 
 function hasSupportingAddressEvidence(

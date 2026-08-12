@@ -2241,7 +2241,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     reorderedNameEbay.externalCustomerId = "ebay-customer-historical-reordered-name";
     reorderedNameEbay.displayNumber = "26-12345-67894";
     reorderedNameEbay.customer.displayName = "Rossi Mario";
-    reorderedNameEbay.customer.billingAddress.line1 = "Piazza Campo Distante 99";
+    reorderedNameEbay.customer.billingAddress.line1 = "Piazza Campo Distante 99/B";
     reorderedNameEbay.customer.billingAddress.postalCode = "50100";
     reorderedNameEbay.customer.billingAddress.city = "Firenze";
     reorderedNameEbay.customer.billingAddress.province = "FI";
@@ -2313,6 +2313,28 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con suffisso del civico differente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Piazza Campo Distante</Indirizzo><NumeroCivico>99/A</NumeroCivico>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-conflicting-street-number-suffix" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       reorderedNameEbayId,
       {
@@ -2322,7 +2344,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           reorderedNameInvoice
             .replace(
               "<Indirizzo>Via Cliente 2</Indirizzo>",
-              "<Indirizzo>Piazza Campo Distante 99</Indirizzo>",
+              "<Indirizzo>Piazza Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
             .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
