@@ -136,26 +136,22 @@ function sharesStreetName(left: unknown, right: unknown) {
     (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
   );
   if (!leftStreetKind || leftStreetKind !== rightStreetKind) return false;
-  const leftTokens = new Set(
-    leftIdentityTokens.filter(
-      (token) =>
-        token !== leftStreetKind &&
-        (token.length >= 3 || /^\d+$/.test(token)) &&
-        !genericStreetTokens.has(token),
-    ),
+  const leftTokens = leftIdentityTokens.filter(
+    (token) =>
+      token !== leftStreetKind &&
+      (token.length >= 3 || /^\d+$/.test(token)) &&
+      !genericStreetTokens.has(token),
   );
-  const rightTokens = new Set(
-    rightIdentityTokens.filter(
-      (token) =>
-        token !== rightStreetKind &&
-        (token.length >= 3 || /^\d+$/.test(token)) &&
-        !genericStreetTokens.has(token),
-    ),
+  const rightTokens = rightIdentityTokens.filter(
+    (token) =>
+      token !== rightStreetKind &&
+      (token.length >= 3 || /^\d+$/.test(token)) &&
+      !genericStreetTokens.has(token),
   );
   return (
-    leftTokens.size >= 2 &&
-    leftTokens.size === rightTokens.size &&
-    [...leftTokens].every((token) => rightTokens.has(token))
+    leftTokens.length >= 2 &&
+    leftTokens.length === rightTokens.length &&
+    leftTokens.every((token, index) => token === rightTokens[index])
   );
 }
 
