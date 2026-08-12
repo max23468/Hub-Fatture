@@ -82,6 +82,12 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   );
   assert.equal(acceptedWithoutPayment.input.paymentMethod, "MP08");
   assert.deepEqual(acceptedWithoutPayment.profile.payment, syntheticFiscalProfile.payment);
+  const foreignCurrency = invoiceXml.replace("<Divisa>EUR</Divisa>", "<Divisa>USD</Divisa>");
+  await validateFatturaXml(foreignCurrency);
+  assert.throws(
+    () => acceptedInvoiceFromXml(foreignCurrency, syntheticFiscalProfile.numbering.approvedAt),
+    /non è FPR12, EUR o numerato correttamente/,
+  );
 
   const creditXml = generateFatturaXml(
     syntheticFiscalProfile,

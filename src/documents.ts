@@ -201,10 +201,11 @@ function acceptedFiscalDocument(xml: string) {
   if (
     xmlValue(root["@versione"]) !== "FPR12" ||
     !["TD01", "TD04"].includes(type) ||
+    xmlValue(general.Divisa) !== "EUR" ||
     !documentNumber ||
     Number(documentNumber[2]) !== year % 100
   ) {
-    throw new Error("Il documento non contiene un progressivo FPR12 valido");
+    throw new Error("Il documento fiscale non è FPR12, EUR o numerato correttamente");
   }
   return {
     xml,
