@@ -278,12 +278,25 @@ function matchesRecipientWithoutTaxId(
   const recipientName =
     recipientBusinessName ||
     normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
+  const customerKind = normalizedIdentityPart(customer.kind).toUpperCase();
+  const hasCustomerBusinessName = customerIdentityNames(customer, true).length > 0;
+  const customerIsBusiness =
+    customerKind === "BUSINESS_IT" || (customerKind === "EU" && hasCustomerBusinessName);
+  const customerIsPersonal =
+    customerKind === "PRIVATE_IT" || (customerKind === "EU" && !hasCustomerBusinessName);
+  if (
+    (customerIsBusiness && !recipientBusinessName) ||
+    (customerIsPersonal && recipientBusinessName)
+  ) {
+    return false;
+  }
+  const business = customerIsBusiness || (!customerIsPersonal && Boolean(recipientBusinessName));
   const customerCountry = normalizedIdentityPart(billingAddress.countryCode);
   const recipientCountry = normalizedIdentityPart(recipient.address.countryCode);
   if (!recipientName || !customerCountry || customerCountry !== recipientCountry) return false;
-  return customerIdentityNames(customer, Boolean(recipientBusinessName)).some(
+  return customerIdentityNames(customer, business).some(
     (customerName) =>
-      (recipientBusinessName
+      (business
         ? sameNonEmptyIdentityPart(customerName, recipientName)
         : sameTokenSet(customerName, recipientName)) &&
       hasSupportingAddressEvidence(billingAddress, recipient.address),
