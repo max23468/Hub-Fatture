@@ -178,8 +178,6 @@ function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
   return Boolean(normalizedLeft && normalizedLeft === normalizedIdentityPart(right));
 }
 
-const genericStreetTokens = new Set(["civico", "corso", "piazza", "snc", "strada", "via", "viale"]);
-
 function sharesStreetName(left: unknown, right: unknown) {
   const streetTokens = (value: unknown) =>
     normalizedIdentityPart(value)
@@ -188,19 +186,17 @@ function sharesStreetName(left: unknown, right: unknown) {
       .filter(Boolean);
   const leftIdentityTokens = streetTokens(left);
   const rightIdentityTokens = streetTokens(right);
-  const leftStreetKind = leftIdentityTokens.find(
+  const leftStreetKindIndex = leftIdentityTokens.findIndex(
     (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
   );
-  const rightStreetKind = rightIdentityTokens.find(
+  const rightStreetKindIndex = rightIdentityTokens.findIndex(
     (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
   );
+  const leftStreetKind = leftIdentityTokens[leftStreetKindIndex];
+  const rightStreetKind = rightIdentityTokens[rightStreetKindIndex];
   if (!leftStreetKind || leftStreetKind !== rightStreetKind) return false;
-  const leftTokens = leftIdentityTokens.filter(
-    (token) => token !== leftStreetKind && !genericStreetTokens.has(token),
-  );
-  const rightTokens = rightIdentityTokens.filter(
-    (token) => token !== rightStreetKind && !genericStreetTokens.has(token),
-  );
+  const leftTokens = leftIdentityTokens.slice(leftStreetKindIndex + 1);
+  const rightTokens = rightIdentityTokens.slice(rightStreetKindIndex + 1);
   return (
     leftTokens.length >= 2 &&
     leftTokens.length === rightTokens.length &&

@@ -2797,6 +2797,50 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ).rows[0].payment_method,
       "MP01",
     );
+    const internalStreetKindEbay = structuredClone(ebayWithoutReference);
+    internalStreetKindEbay.externalOrderId = "ebay-order-historical-internal-street-kind";
+    internalStreetKindEbay.externalCustomerId = "ebay-customer-historical-internal-street-kind";
+    internalStreetKindEbay.displayNumber = "26-12345-67896";
+    internalStreetKindEbay.customer.billingAddress.line1 = "Via Piazza d'Armi 10";
+    internalStreetKindEbay.total = "78.00";
+    internalStreetKindEbay.lines[0].grossAmount = "78.00";
+    internalStreetKindEbay.payments[0].amount = "78.00";
+    internalStreetKindEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-internal-street-kind";
+    internalStreetKindEbay.lines[0].externalLineId = "ebay-line-historical-internal-street-kind";
+    await orders.importOrders([internalStreetKindEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-internal-street-kind",
+    });
+    const internalStreetKindEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          internalStreetKindEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        internalStreetKindEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba che omette un tipo di strada interno al nome",
+          invoiceXml: Buffer.from(
+            ebayInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0020/26", "FPR 0024/26")
+              .replaceAll("75.00", "78.00")
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Via d'Armi</Indirizzo><NumeroCivico>10</NumeroCivico>",
+              ),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-internal-street-kind" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     const reorderedBusinessEbay = structuredClone(ebayWithoutReference);
     reorderedBusinessEbay.externalOrderId = "ebay-order-historical-reordered-business";
     reorderedBusinessEbay.externalCustomerId = "ebay-customer-historical-reordered-business";
