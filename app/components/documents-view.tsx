@@ -23,6 +23,9 @@ import type { listEmailDeliveries } from "../../src/db/email.server.ts";
 import { copy } from "../copy.it";
 import { date, dateTime, euros } from "../format";
 import { Pager } from "./pager";
+import { SortControlLink } from "./sortable-table";
+import type { SortState } from "../table-sort";
+import type { DocumentListSortKey } from "../../src/db/documents.server.ts";
 
 type DocumentPage = Awaited<ReturnType<typeof listDocuments>>;
 type DocumentRowData = DocumentPage["rows"][number];
@@ -501,6 +504,7 @@ export function DocumentsView({
   officialFiles,
   page,
   summary,
+  sort,
   unbatched,
   view,
 }: {
@@ -513,6 +517,7 @@ export function DocumentsView({
   officialFiles: OfficialFile[];
   page: number;
   summary: DocumentSummary;
+  sort: SortState<DocumentListSortKey>;
   unbatched: UnbatchedDocument[];
   view: string;
 }) {
@@ -551,13 +556,53 @@ export function DocumentsView({
         <DocumentFilters count={documents.rows.length} filters={filters} view={view} />
         {documents.rows.length ? (
           <>
-            <div aria-hidden="true" className="document-list-header">
-              <span>{copy.documents.document}</span>
-              <span>{copy.documents.customer}</span>
-              <span>{copy.documents.dateAndTotal}</span>
-              <span>{copy.documents.status}</span>
-              <span>{copy.documents.email}</span>
-              <span>{copy.documents.actions}</span>
+            <div aria-label={copy.table.sortControls} className="document-list-header" role="group">
+              <SortControlLink
+                directionParam="direzione"
+                keyParam="ordina"
+                label={copy.documents.document}
+                sort={sort}
+                sortKey="documento"
+              />
+              <SortControlLink
+                directionParam="direzione"
+                keyParam="ordina"
+                label={copy.documents.customer}
+                sort={sort}
+                sortKey="cliente"
+              />
+              <span className="document-list-header__facts">
+                <SortControlLink
+                  directionParam="direzione"
+                  keyParam="ordina"
+                  label={copy.documents.date}
+                  sort={sort}
+                  sortKey="data"
+                />
+                <SortControlLink
+                  className="table-sort-button--numeric"
+                  directionParam="direzione"
+                  keyParam="ordina"
+                  label={copy.documents.total}
+                  sort={sort}
+                  sortKey="totale"
+                />
+              </span>
+              <SortControlLink
+                directionParam="direzione"
+                keyParam="ordina"
+                label={copy.documents.status}
+                sort={sort}
+                sortKey="stato"
+              />
+              <SortControlLink
+                directionParam="direzione"
+                keyParam="ordina"
+                label={copy.documents.email}
+                sort={sort}
+                sortKey="email"
+              />
+              <span aria-hidden="true">{copy.documents.actions}</span>
             </div>
             <ul className="document-list">
               {documents.rows.map((document) => (

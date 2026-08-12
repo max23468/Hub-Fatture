@@ -21,6 +21,15 @@ export function errorCodeLabel(code: string | null): string {
 }
 
 export const copy = {
+  table: {
+    sortControls: "Ordina la tabella",
+    sortLabel: (label: string, direction: "asc" | "desc" | null) =>
+      direction === "asc"
+        ? `${label}: ordine crescente. Attiva per ordinare in senso decrescente`
+        : direction === "desc"
+          ? `${label}: ordine decrescente. Attiva per ordinare in senso crescente`
+          : `${label}: attiva per ordinare in senso crescente`,
+  },
   appName: "Hub Fatture",
   navigation: {
     dashboard: "Dashboard",

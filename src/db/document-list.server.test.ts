@@ -154,6 +154,26 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
       firstPage.rows.some((row) => secondPage.rows.some((other) => other.id === row.id)),
       false,
     );
+    assert.equal(
+      (await documents.listDocuments({ sort: { key: "data", direction: "asc" } })).rows[0]
+        ?.document_date,
+      "2026-01-01",
+    );
+    assert.equal(
+      (await documents.listDocuments({ sort: { key: "totale", direction: "desc" } })).rows[0]
+        ?.total_amount,
+      2500,
+    );
+    assert.equal(
+      (await documents.listDocuments({ sort: { key: "documento", direction: "asc" } })).rows[0]
+        ?.public_number,
+      "000001",
+    );
+    assert.equal(
+      (await documents.listDocuments({ sort: { key: "documento", direction: "desc" } })).rows[0]
+        ?.fiscal_number,
+      1002,
+    );
 
     const invoices = await documents.listDocuments({ kind: "INVOICE" });
     assert.equal(invoices.rows.length, PAGE_SIZE);
@@ -207,8 +227,14 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
          ('00000000-0000-4000-8000-000000000011', $1, 'SYNTHETIC',
           'sender@example.invalid', 'one@example.invalid', 'Uno', 'Uno', $3, 'FAILED', 'SMTP_FAILED'),
          ('00000000-0000-4000-8000-000000000012', $2, 'SYNTHETIC',
-          'sender@example.invalid', 'two@example.invalid', 'Due', 'Due', $4, 'FAILED', 'SMTP_FAILED')`,
+          'sender@example.invalid', 'two@example.invalid', 'Due', 'Due', $4, 'PENDING', null)`,
       [toSend.id, toReconcile.id, toSend.storage_object_id, toReconcile.storage_object_id],
+    );
+    assert.deepEqual(
+      (await documents.listDocuments({ sort: { key: "email", direction: "asc" } })).rows
+        .slice(0, 2)
+        .map(({ id }) => id),
+      [toSend.id, toReconcile.id],
     );
     assert.deepEqual(
       (await aruba.listOfficialArubaFiles([toSend.id])).map((file) => file.document_id),

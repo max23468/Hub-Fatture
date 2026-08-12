@@ -1150,7 +1150,10 @@ export interface DocumentListFilters {
   dateFrom?: string;
   dateTo?: string;
   page?: number;
+  sort?: { key: DocumentListSortKey; direction: "asc" | "desc" };
 }
+
+export type DocumentListSortKey = "documento" | "cliente" | "data" | "totale" | "stato" | "email";
 
 interface DocumentListRow {
   id: string;
@@ -1178,6 +1181,11 @@ const documentRowsSql = `
          documents.document_date::text, documents.total_amount, documents.xml_sha256,
          billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
          aruba_current.id AS aruba_batch_id, aruba_current.status AS aruba_status,
+         (SELECT email_deliveries.status
+          FROM email_deliveries
+          WHERE email_deliveries.document_id = documents.id
+          ORDER BY email_deliveries.created_at DESC, email_deliveries.id DESC
+          LIMIT 1) AS email_status,
          (SELECT document_orders.order_id::text FROM document_orders
           WHERE document_orders.document_id = documents.id LIMIT 1) AS historical_order_id
   FROM documents
@@ -1190,8 +1198,27 @@ const documentRowsSql = `
     ORDER BY aruba_batches.created_at DESC LIMIT 1
   ) AS aruba_current ON true`;
 
+const documentListSortSql: Record<DocumentListSortKey, string> = {
+  documento: `CASE
+       WHEN fiscal_number IS NOT NULL AND fiscal_year IS NOT NULL
+         THEN concat_ws(' ', series, lpad(fiscal_number::text, 10, '0'), fiscal_year::text)
+       ELSE lpad(public_number, 10, '0')
+     END`,
+  cliente: "customer_name",
+  data: "document_date",
+  totale: "total_amount",
+  stato: "concat_ws(' ', status, aruba_status)",
+  email: "email_status",
+};
+
 export async function listDocuments(filters: DocumentListFilters = {}) {
   const query = filters.query?.trim();
+  const sort = filters.sort ?? { key: "data", direction: "desc" };
+  const orderBy = documentListSortSql[sort.key];
+  const direction = sort.direction === "asc" ? "ASC" : "DESC";
+  // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
+  // i valori della richiesta restano nei parametri $1-$8.
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await getPool().query<
     {
       id: string;
@@ -1217,7 +1244,7 @@ export async function listDocuments(filters: DocumentListFilters = {}) {
                 AND aruba_status = 'RECONCILIATION_REQUIRED'))
        AND ($6::date IS NULL OR document_date::date >= $6)
        AND ($7::date IS NULL OR document_date::date <= $7)
-     ORDER BY document_date DESC, id DESC
+     ORDER BY ${orderBy} ${direction} NULLS LAST, document_date DESC, id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $8`,
     [
       query ? `%${escapeLike(query)}%` : null,

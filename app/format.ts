@@ -46,6 +46,10 @@ export function compactDateTime(value: string): string {
   return compactDateTimeFormatter.format(new Date(value));
 }
 
+export function isoDateTime(value: string | Date): string {
+  return new Date(value).toISOString();
+}
+
 export function address(value: Address): string {
   const country = value.countryCode
     ? (regionFormatter.of(value.countryCode.toUpperCase()) ?? value.countryCode)

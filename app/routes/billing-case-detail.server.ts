@@ -17,7 +17,7 @@ import {
 } from "../../src/db/orders.server.ts";
 import { AppError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
-import { decimalToCents } from "../../src/orders.ts";
+import { invoiceLinesFromForm } from "../invoice-lines.ts";
 
 interface Actor {
   id: number;
@@ -35,16 +35,7 @@ function runIntent(
   if (intent === "save-document") {
     let lines;
     try {
-      const orderIds = form.getAll("documentOrderId");
-      const descriptions = form.getAll("documentDescription");
-      const quantities = form.getAll("documentQuantity");
-      const amounts = form.getAll("documentUnitAmount");
-      lines = orderIds.map((orderId, index) => ({
-        orderId,
-        description: descriptions[index],
-        quantity: Number(quantities[index]),
-        unitAmount: decimalToCents(amounts[index] ?? ""),
-      }));
+      lines = invoiceLinesFromForm(form);
     } catch {
       throw new AppError("DOCUMENT_INVALID", 422);
     }

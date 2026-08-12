@@ -13,6 +13,9 @@ export {
   listOpenActivities,
   listOrders,
   dashboardSummary,
+  type AuditHistorySortKey,
+  type OpenActivitySortKey,
+  type OrderListSortKey,
 } from "./order-queries.server.ts";
 export {
   addOrderToBillingCase,
@@ -21,5 +24,6 @@ export {
   listBillingCases,
   separateOrderFromBillingCase,
   updateBillingCaseTransmission,
+  type BillingCaseListSortKey,
   type EditableCustomer,
 } from "./billing-cases.server.ts";

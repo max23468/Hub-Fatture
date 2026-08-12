@@ -18,11 +18,18 @@ import {
   listUnbatchedApprovedDocuments,
   retryArubaBatch,
 } from "../../src/db/aruba.server.ts";
-import { documentArchiveSummary, listDocuments } from "../../src/db/documents.server.ts";
+import {
+  documentArchiveSummary,
+  listDocuments,
+  type DocumentListSortKey,
+} from "../../src/db/documents.server.ts";
 import { listEmailDeliveries, retryCustomerEmail } from "../../src/db/email.server.ts";
 import { publicError } from "../../src/errors.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
+import { parseSort } from "../table-sort";
+
+const documentSortKeys = ["documento", "cliente", "data", "totale", "stato", "email"] as const;
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -64,6 +71,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     dateTo: parsedDateTo.success ? parsedDateTo.data : "",
   };
   const page = pageNumber(url.searchParams.get("pagina") ?? 1);
+  const sort = parseSort(
+    url.searchParams.get("ordina"),
+    url.searchParams.get("direzione"),
+    documentSortKeys,
+    { key: "data" as DocumentListSortKey, direction: "desc" },
+  );
   const [documents, summary, batches, unbatched] = await Promise.all([
     listDocuments({
       query: filters.query || undefined,
@@ -74,6 +87,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       dateFrom: filters.dateFrom || undefined,
       dateTo: filters.dateTo || undefined,
       page,
+      sort,
     }),
     documentArchiveSummary(),
     listArubaBatches(),
@@ -96,6 +110,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     filters,
     page,
     summary,
+    sort,
     view,
     batchCreated: url.searchParams.get("batch") === "creato",
     fileImported: url.searchParams.get("file") === "importato",
@@ -171,6 +186,7 @@ export default function Documents() {
     filters,
     page,
     summary,
+    sort,
     view,
     batchCreated,
     fileImported,
@@ -245,6 +261,7 @@ export default function Documents() {
         officialFiles={officialFiles}
         page={page}
         summary={summary}
+        sort={sort}
         unbatched={unbatched}
         view={view}
       />

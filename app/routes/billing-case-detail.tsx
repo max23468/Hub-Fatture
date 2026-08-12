@@ -1,7 +1,9 @@
 import { Form, Link, useActionData, useLoaderData } from "react-router";
 
 import { AppShell } from "../components/app-shell";
+import { ComparisonTable } from "../components/comparison-table";
 import { CustomerEditor } from "../components/customer-editor";
+import { SortableHeader, useSortableRows } from "../components/sortable-table";
 import {
   anomalyLabels,
   auditActionLabel,
@@ -11,6 +13,7 @@ import {
   reactivationBlockerMessages,
 } from "../copy.it";
 import { date, dateTime, euros } from "../format";
+import type { SortValue } from "../table-sort";
 import type { getInvoiceProjection } from "../../src/db/documents.server.ts";
 import { action, loader } from "./billing-case-detail.server.ts";
 
@@ -21,44 +24,91 @@ type InvoiceProjection = Extract<
   { profileMissing: false }
 >;
 
-interface ComparisonRow {
-  field: string;
-  source: string;
-  draft: string;
-  projected: string;
+type InvoiceLine = InvoiceProjection["lines"][number];
+type InvoiceLineSortKey = "description" | "quantity" | "unitAmount";
+
+function invoiceLineValue(line: InvoiceLine, key: InvoiceLineSortKey): SortValue {
+  return line[key];
 }
 
-function ComparisonTable({
-  title,
-  rows,
-  lineLabels = false,
-}: {
-  title: string;
-  rows: ComparisonRow[];
-  lineLabels?: boolean;
-}) {
-  const labels = copy.document.comparisonLabels as Record<string, string>;
+function InvoiceLinesTable({ lines }: { lines: InvoiceLine[] }) {
+  const { onSort, rows, sort } = useSortableRows<InvoiceLine, InvoiceLineSortKey>(
+    lines,
+    { key: "description", direction: "asc" },
+    invoiceLineValue,
+  );
+  const originalPosition = new Map(lines.map((line, index) => [line.orderId, index]));
   return (
     <div className="table-wrap section-gap">
-      <table>
-        <caption>{title}</caption>
+      <table className="data-table invoice-lines-table">
+        <colgroup>
+          <col className="invoice-lines-table__description" />
+          <col className="invoice-lines-table__quantity" />
+          <col className="invoice-lines-table__amount" />
+        </colgroup>
         <thead>
           <tr>
-            <th>{copy.document.comparisonField}</th>
-            <th>{copy.document.comparisonSource}</th>
-            <th>{copy.document.comparisonDraft}</th>
-            <th>{copy.document.comparisonProjection}</th>
+            <SortableHeader
+              label={copy.document.description}
+              onSort={onSort}
+              sort={sort}
+              sortKey="description"
+            />
+            <SortableHeader
+              className="table-heading--numeric"
+              label={copy.document.quantity}
+              onSort={onSort}
+              sort={sort}
+              sortKey="quantity"
+            />
+            <SortableHeader
+              className="table-heading--numeric"
+              label={copy.document.unitAmount}
+              onSort={onSort}
+              sort={sort}
+              sortKey="unitAmount"
+            />
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.field}>
-              <th scope="row">
-                {lineLabels ? copy.document.comparisonLine(row.field) : labels[row.field]}
-              </th>
-              <td data-label={copy.document.comparisonSource}>{row.source}</td>
-              <td data-label={copy.document.comparisonDraft}>{row.draft}</td>
-              <td data-label={copy.document.comparisonProjection}>{row.projected}</td>
+          {rows.map((line) => (
+            <tr key={line.orderId}>
+              <td data-label={copy.document.description}>
+                <input type="hidden" name="documentOrderId" value={line.orderId} />
+                <input
+                  type="hidden"
+                  name="documentLinePosition"
+                  value={originalPosition.get(line.orderId)}
+                />
+                <input
+                  aria-label={`${copy.document.description} ${line.orderId}`}
+                  defaultValue={line.description}
+                  maxLength={1000}
+                  name="documentDescription"
+                  required
+                />
+              </td>
+              <td className="table-cell--numeric" data-label={copy.document.quantity}>
+                <input
+                  aria-label={`${copy.document.quantity} ${line.orderId}`}
+                  defaultValue={line.quantity}
+                  min={1}
+                  name="documentQuantity"
+                  required
+                  type="number"
+                />
+              </td>
+              <td className="table-cell--numeric" data-label={copy.document.unitAmount}>
+                <input
+                  aria-label={`${copy.document.unitAmount} ${line.orderId}`}
+                  defaultValue={(line.unitAmount / 100).toFixed(2)}
+                  min="0"
+                  name="documentUnitAmount"
+                  required
+                  step="0.01"
+                  type="number"
+                />
+              </td>
             </tr>
           ))}
         </tbody>
@@ -90,54 +140,7 @@ function InvoiceDocument({
             <input type="hidden" name="revision" value={projection.caseRevision} />
             <input type="hidden" name="draftVersion" value={projection.draftVersion} />
             <p>{copy.document.approvalDate(date(projection.documentDate))}</p>
-            <div className="table-wrap section-gap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>{copy.document.description}</th>
-                    <th>{copy.document.quantity}</th>
-                    <th>{copy.document.unitAmount}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {projection.lines.map((line) => (
-                    <tr key={line.orderId}>
-                      <td data-label={copy.document.description}>
-                        <input type="hidden" name="documentOrderId" value={line.orderId} />
-                        <input
-                          aria-label={`${copy.document.description} ${line.orderId}`}
-                          defaultValue={line.description}
-                          maxLength={1000}
-                          name="documentDescription"
-                          required
-                        />
-                      </td>
-                      <td data-label={copy.document.quantity}>
-                        <input
-                          aria-label={`${copy.document.quantity} ${line.orderId}`}
-                          defaultValue={line.quantity}
-                          min={1}
-                          name="documentQuantity"
-                          required
-                          type="number"
-                        />
-                      </td>
-                      <td data-label={copy.document.unitAmount}>
-                        <input
-                          aria-label={`${copy.document.unitAmount} ${line.orderId}`}
-                          defaultValue={(line.unitAmount / 100).toFixed(2)}
-                          min="0"
-                          name="documentUnitAmount"
-                          required
-                          step="0.01"
-                          type="number"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <InvoiceLinesTable lines={projection.lines} />
             <div className="detail-grid section-gap">
               <label>
                 {copy.document.paymentStatus}
@@ -177,7 +180,7 @@ function InvoiceDocument({
           </Form>
         </section>
       ) : null}
-      <section className="card section-gap" aria-labelledby="comparatore-fiscale">
+      <section className="card comparison-grid section-gap" aria-labelledby="comparatore-fiscale">
         <h2 id="comparatore-fiscale">{copy.document.comparisonTitle}</h2>
         <p>{copy.document.xsdValid}</p>
         <dl className="facts facts--columns">

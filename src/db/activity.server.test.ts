@@ -75,6 +75,43 @@ test("le attività espongono i dati operativi e paginano molte righe", async () 
     assert.equal(caseActivity?.customer_name, "Cliente attività");
     assert.equal(caseActivity?.order_date, "2026-07-01");
 
+    const oldestActivities = await orders.listOpenActivities(undefined, undefined, {
+      key: "data",
+      direction: "asc",
+    });
+    const newestActivities = await orders.listOpenActivities(undefined, undefined, {
+      key: "data",
+      direction: "desc",
+    });
+    assert.equal(oldestActivities.rows[0]?.order_date, "2026-07-01");
+    assert.equal(newestActivities.rows[0]?.order_date, "2026-07-28");
+
+    await database.getPool().query(
+      `INSERT INTO audit_events
+        (actor_type, action, event_class, entity_type, entity_id, request_id, created_at)
+       VALUES
+        ('SYSTEM', 'ORDER_GROUPED', 'OPERATIONAL', 'ORDER', '1', 'activity-sort-b',
+         '2026-07-02T10:00:00Z'),
+        ('SYSTEM', 'CUSTOMER_CORRECTED', 'OPERATIONAL', 'ORDER', '2', 'activity-sort-a',
+         '2026-07-01T10:00:00Z')`,
+    );
+    const historyByActivity = await orders.listAuditHistory({
+      query: "activity-sort-",
+      sort: { key: "attivita", direction: "asc" },
+    });
+    const historyByDate = await orders.listAuditHistory({
+      query: "activity-sort-",
+      sort: { key: "quando", direction: "asc" },
+    });
+    assert.deepEqual(
+      historyByActivity.rows.map(({ action }) => action),
+      ["CUSTOMER_CORRECTED", "ORDER_GROUPED"],
+    );
+    assert.deepEqual(
+      historyByDate.rows.map(({ request_id }) => request_id),
+      ["activity-sort-a", "activity-sort-b"],
+    );
+
     await database.closePool();
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());
