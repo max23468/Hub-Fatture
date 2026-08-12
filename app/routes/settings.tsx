@@ -51,6 +51,7 @@ import { getSystemStatus } from "../../src/db/system.server.ts";
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
+  const requestedHistoryProvider = url.searchParams.get("historyProvider");
   const [profile, trigger, connections, ebayHistory, aruba, customerEmail, fiscalProfile, system] =
     await Promise.all([
       getAccountProfile(request, user),
@@ -98,6 +99,10 @@ export async function loader({ request }: Route.LoaderArgs) {
           }
         : null,
     historyStart: historicalOrderWindow(url.searchParams.get("historyStart"))?.startDate ?? null,
+    historyProvider:
+      requestedHistoryProvider === "SHOPIFY" || requestedHistoryProvider === "EBAY"
+        ? requestedHistoryProvider
+        : null,
     historyToday: localOrderDate(new Date().toISOString()),
   };
 }
@@ -150,7 +155,7 @@ export async function action({ request }: Route.ActionArgs) {
       if (!start) throw new AppError("ORDER_INVALID_INPUT", 422);
       await enqueueEbayHistory(start.startDate, intent === "import-ebay" ? "IMPORT" : "PREVIEW");
       return redirect(
-        `/impostazioni?historyStart=${encodeURIComponent(start.startDate)}#connessioni`,
+        `/impostazioni?historyStart=${encodeURIComponent(start.startDate)}&historyProvider=EBAY#connessioni`,
       );
     }
     if (intent === "preview-shopify") {
@@ -163,6 +168,7 @@ export async function action({ request }: Route.ActionArgs) {
             count: String(preview.count),
             review: String(preview.reviewRequired),
             historyStart: String(form.get("historyStart")),
+            historyProvider: "SHOPIFY",
           }).toString() +
           "#connessioni",
       );
@@ -181,6 +187,7 @@ export async function action({ request }: Route.ActionArgs) {
             updated: String(result.updated),
             ignored: String(result.ignored),
             historyStart: String(form.get("historyStart")),
+            historyProvider: "SHOPIFY",
           }).toString() +
           "#connessioni",
       );
@@ -485,6 +492,7 @@ function ConnectionsSettingsSection({
   connections,
   ebayHistory,
   historyStart,
+  historyProvider,
   historyToday,
   imported,
   preview,
@@ -494,6 +502,7 @@ function ConnectionsSettingsSection({
   connections: Awaited<ReturnType<typeof connectionSummaries>>;
   ebayHistory: Awaited<ReturnType<typeof latestEbayHistory>>;
   historyStart: string | null;
+  historyProvider: string | null;
   historyToday: string;
   imported: { provider: string; imported: string; updated: string; ignored: string } | null;
   preview: { provider: string; count: string; review: string } | null;
@@ -538,6 +547,10 @@ function ConnectionsSettingsSection({
         {(["SHOPIFY", "EBAY"] as const).map((provider) => {
           const connection = byProvider.get(provider);
           const label = provider === "SHOPIFY" ? "Shopify" : "eBay";
+          const initialHistoryStart = connection
+            ? ((historyProvider === provider ? historyStart : null) ??
+              defaultHistoricalStartDate(Date.parse(connection.connectedAt)))
+            : null;
           return (
             <section className="connection-panel" key={provider}>
               <header>
@@ -598,10 +611,8 @@ function ConnectionsSettingsSection({
                   <label>
                     {copy.settings.historyStart(label)}
                     <input
-                      defaultValue={
-                        historyStart ??
-                        defaultHistoricalStartDate(Date.parse(connection.connectedAt))
-                      }
+                      defaultValue={initialHistoryStart!}
+                      key={`${provider}:${initialHistoryStart}`}
                       max={historyToday}
                       name="historyStart"
                       required
@@ -854,6 +865,7 @@ export default function Settings() {
     connections,
     ebayHistory,
     historyStart,
+    historyProvider,
     historyToday,
     imported,
     preview,
@@ -996,6 +1008,7 @@ export default function Settings() {
             connections={connections}
             ebayHistory={ebayHistory}
             historyStart={historyStart}
+            historyProvider={historyProvider}
             historyToday={historyToday}
             imported={imported}
             preview={preview}

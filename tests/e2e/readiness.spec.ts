@@ -217,15 +217,25 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await connectionClient.connect();
   await connectionClient.query(
     `INSERT INTO connections
-       (provider, environment, account_reference, encrypted_credentials, status)
-     VALUES ('SHOPIFY', 'DEVELOPMENT', 'shop.example.invalid', 'synthetic', 'CONNECTED')
-     ON CONFLICT (provider, environment) DO UPDATE SET status = 'CONNECTED'`,
+       (provider, environment, account_reference, encrypted_credentials, status, created_at)
+     VALUES
+       ('SHOPIFY', 'DEVELOPMENT', 'shop.example.invalid', 'synthetic', 'CONNECTED',
+        '2026-08-01T10:00:00Z'),
+       ('EBAY', 'SANDBOX', 'ebay-synthetic', 'synthetic', 'CONNECTED',
+        '2026-08-10T10:00:00Z')
+     ON CONFLICT (provider, environment) DO UPDATE SET
+       status = 'CONNECTED', created_at = EXCLUDED.created_at`,
   );
   await connectionClient.end();
   await page.getByRole("link", { name: "Impostazioni" }).click();
   await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveAttribute("type", "date");
-  await expect(page.getByRole("button", { name: "Controlla intervallo" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Importa storico" })).toBeVisible();
+  await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveValue("2026-07-25");
+  await expect(page.getByLabel("Importa ordini eBay dal")).toHaveValue("2026-08-03");
+  await page.goto("/impostazioni?historyStart=2026-08-09&historyProvider=EBAY#connessioni");
+  await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveValue("2026-07-25");
+  await expect(page.getByLabel("Importa ordini eBay dal")).toHaveValue("2026-08-09");
+  await expect(page.getByRole("button", { name: "Controlla intervallo" })).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Importa storico" })).toHaveCount(2);
   await page.getByLabel("Prepara la fattura").selectOption("FULFILLED");
   await page.getByRole("button", { name: "Salva impostazione" }).click();
   await expect(page.getByRole("status")).toContainText("Impostazione aggiornata");
