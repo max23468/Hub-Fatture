@@ -1191,6 +1191,35 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ).rows[0],
       { status: "READY", totals_reconciled: "true" },
     );
+    await database.getPool().query(
+      `WITH changed AS (
+         UPDATE orders
+         SET normalized_snapshot_json = jsonb_set(
+               jsonb_set(normalized_snapshot_json, '{totalsReconciled}', 'false'::jsonb),
+               '{orderReviewRequired}', 'true'::jsonb)
+         WHERE external_order_id = $1
+         RETURNING billing_case_id
+       )
+       UPDATE billing_cases SET status = 'NEEDS_REVIEW'
+       WHERE id = (SELECT billing_case_id FROM changed)`,
+      [ebayNetPayment.externalOrderId],
+    );
+    await orders.importOrders([ebayNetPayment], {
+      id: 1,
+      requestId: "test-ebay-net-seller-payment-replay",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_cases.status,
+                  orders.normalized_snapshot_json ->> 'totalsReconciled' AS totals_reconciled
+             FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+             WHERE orders.external_order_id = $1`,
+          [ebayNetPayment.externalOrderId],
+        )
+      ).rows[0],
+      { status: "READY", totals_reconciled: "true" },
+    );
 
     const lowerCountry = {
       ...structuredClone(fixture[0]),
@@ -4243,7 +4272,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     historicalWithoutTaxId.displayNumber = "#S-HIST-NO-TAX-ID";
     historicalWithoutTaxId.customer.taxIdentifiers = [];
     historicalWithoutTaxId.customer.firstName = "Rossi";
-    historicalWithoutTaxId.customer.lastName = "Mario";
+    historicalWithoutTaxId.customer.lastName = "Mario Garcia";
     historicalWithoutTaxId.customer.billingAddress = {
       line1: "Via Cliente 2",
       postalCode: "00100",
@@ -4268,7 +4297,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     const historicalWithoutTaxIdXml = Buffer.from(
       (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
         .replace("FPR 0001/26", "FPR 0013/26")
-        .replace("#1001", historicalWithoutTaxId.displayNumber)
+        .replace("Vendita beni usati - Ordine Shopify #1001", "Vendita beni usati")
         .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
         .replace(
           "<Indirizzo>Via Cliente 2</Indirizzo>",
@@ -4297,8 +4326,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       historicalWithoutTaxIdId,
       {
         outcome: "ALREADY_INVOICED",
-        reference: "Documento Aruba con destinatario verificato senza identificativo fiscale",
+        reference:
+          "Documento Aruba FPR 0013/26 con destinatario verificato senza identificativo fiscale",
         invoiceXml: historicalWithoutTaxIdXml,
+        manualReviewApproved: true,
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-recipient-without-tax-id" },
     );

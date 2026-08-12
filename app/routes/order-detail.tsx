@@ -151,8 +151,7 @@ function OrderStatusActions({
                 required={needsInvoiceAttachment || historicalOutcome === "ALREADY_INVOICED"}
               />
             </label>
-            {order.provider === "EBAY" &&
-            (needsInvoiceAttachment || historicalOutcome === "ALREADY_INVOICED") ? (
+            {needsInvoiceAttachment || historicalOutcome === "ALREADY_INVOICED" ? (
               <label className="checkbox-row">
                 <input name="manualReviewApproved" type="checkbox" />
                 <span>{copy.orderDetail.manualReviewApproved}</span>
