@@ -236,6 +236,21 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const arubaConnection = page.locator(".connection").filter({ hasText: "Aruba" });
   await expect(arubaConnection).toContainText("Mai letto");
   await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toHaveCount(0);
+  await connectionClient.query(
+    `INSERT INTO aruba_batches
+       (id, environment, mode, account_reference, manifest_sha256, document_count, status,
+        requires_reconciliation, created_by, last_readback_at)
+     VALUES
+       ('00000000-0000-4000-8000-000000000073', 'MOCK', 'ASSISTED', 'synthetic', $1, 1,
+        'RECONCILIATION_REQUIRED', true, (SELECT id FROM users ORDER BY id LIMIT 1), now())`,
+    ["7".repeat(64)],
+  );
+  await page.reload();
+  await expect(arubaConnection).not.toContainText("Mai letto");
+  await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toBeVisible();
+  await connectionClient.query(
+    "DELETE FROM aruba_batches WHERE id = '00000000-0000-4000-8000-000000000073'",
+  );
   await page.getByRole("link", { name: "Impostazioni" }).click();
   await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveAttribute("type", "date");
   await expect(page.getByLabel("Importa ordini Shopify dal")).toHaveValue("2026-07-25");

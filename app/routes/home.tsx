@@ -139,7 +139,7 @@ export default function Home() {
       label: "Aruba",
       value: summary.last_aruba_readback,
       connected: true,
-      requiresUpdate: Number(summary.open_aruba_batches) > 0 && !summary.last_aruba_readback,
+      requiresUpdate: Number(summary.open_aruba_batches) > 0,
       never: copy.dashboard.neverRead,
       to: "/impostazioni#aruba-helper",
       icon: Cloud,
