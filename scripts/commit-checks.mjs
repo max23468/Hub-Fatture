@@ -19,6 +19,14 @@ const CONDITIONAL_SURFACE_BY_CHECK = {
   "Helper Aruba (msedge / windows-latest)": "arubaPlatform",
 };
 const CONDITIONAL_CHECKS = new Set(Object.keys(CONDITIONAL_SURFACE_BY_CHECK));
+const WORKFLOW_MARKER_BY_CHECK = {
+  "PostgreSQL e migrazioni": "name: PostgreSQL e migrazioni",
+  "Audit dipendenze": "name: Audit dipendenze",
+  "Contract test provider": "name: Contract test provider",
+  "E2E Chromium": "name: E2E Chromium",
+  "Helper Aruba (chrome / macos-latest)": "name: Helper Aruba (",
+  "Helper Aruba (msedge / windows-latest)": "name: Helper Aruba (",
+};
 
 export function checkConclusions(checkRuns, required = REQUIRED) {
   const latest = new Map();
@@ -49,7 +57,9 @@ export function selectCheckTargets(entries, candidate, required = REQUIRED) {
       if (entry.impact[SURFACE_BY_CHECK[name]]) targets[name] = entry.sha;
     }
     for (const [name, surface] of Object.entries(CONDITIONAL_SURFACE_BY_CHECK)) {
-      if (entry.impact[surface]) targets[name] = entry.sha;
+      if (entry.impact[surface] && (entry.conditionalChecks?.includes(name) ?? true)) {
+        targets[name] = entry.sha;
+      }
     }
   }
   return targets;
@@ -81,6 +91,21 @@ function changedFilesForCommit(sha) {
     .filter(Boolean);
 }
 
+function conditionalChecksForCommit(sha) {
+  let workflow;
+  try {
+    workflow = execFileSync("git", ["show", `${sha}:.github/workflows/ci.yml`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return [];
+  }
+  return Object.entries(WORKFLOW_MARKER_BY_CHECK)
+    .filter(([, marker]) => workflow.includes(marker))
+    .map(([name]) => name);
+}
+
 export function resolveCheckTargets(base, candidate) {
   const commits = execFileSync("git", revisionRangeArguments(base, candidate), {
     encoding: "utf8",
@@ -90,6 +115,7 @@ export function resolveCheckTargets(base, candidate) {
   const entries = commits.map((sha) => ({
     sha,
     impact: classifyFiles(changedFilesForCommit(sha)),
+    conditionalChecks: conditionalChecksForCommit(sha),
   }));
   return selectCheckTargets(entries, candidate);
 }

@@ -117,6 +117,30 @@ test("conserva il target di ogni superficie CI indipendente", () => {
   assert.equal(targets["E2E Chromium"], runtime);
 });
 
+test("i commit con CI monolitica non richiedono job storici inesistenti", () => {
+  const legacy = "1".repeat(40);
+  const candidate = "2".repeat(40);
+  const targets = selectCheckTargets(
+    [
+      {
+        sha: legacy,
+        impact: { standard: true, image: true, database: true, provider: true, e2e: true },
+        conditionalChecks: [],
+      },
+      {
+        sha: candidate,
+        impact: { standard: false, image: false },
+        conditionalChecks: [],
+      },
+    ],
+    candidate,
+  );
+  assert.equal(targets.CI, legacy);
+  assert.equal("PostgreSQL e migrazioni" in targets, false);
+  assert.equal("Contract test provider" in targets, false);
+  assert.equal("E2E Chromium" in targets, false);
+});
+
 test("richiede entrambe le piattaforme Aruba sull'ultimo commit applicabile", () => {
   const aruba = "1".repeat(40);
   const docs = "2".repeat(40);
@@ -169,8 +193,13 @@ test("la baseline vuota conserva i gate runtime di un commit precedente", async 
   git("config", "user.email", "tests@hub-fatture.invalid");
   git("config", "user.name", "Hub Fatture tests");
   await mkdir(path.join(repository, "app"));
+  await mkdir(path.join(repository, ".github", "workflows"), { recursive: true });
   await writeFile(path.join(repository, "app", "runtime.ts"), "export const runtime = true;\n");
-  git("add", "app/runtime.ts");
+  await writeFile(
+    path.join(repository, ".github", "workflows", "ci.yml"),
+    "name: CI\njobs:\n  e2e:\n    name: E2E Chromium\n",
+  );
+  git("add", "app/runtime.ts", ".github/workflows/ci.yml");
   git("commit", "--quiet", "-m", "test: runtime");
   const runtime = git("rev-parse", "HEAD");
   await mkdir(path.join(repository, "docs"));
