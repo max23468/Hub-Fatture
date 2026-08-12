@@ -19,7 +19,7 @@ I due originali sono archiviati cifrati nel recovery kit locale di Hub Fatture e
 | Tipo fattura                    | XML accettato                                  | `TD01`                                                |
 | Tipo nota di credito            | XML accettato                                  | `TD04`                                                |
 | Condizioni di pagamento         | XML accettati                                  | `TP02`                                                |
-| Modalità fattura                | XML TD01 accettato                             | `MP08`                                                |
+| Modalità fattura predefinita    | XML TD01 accettato                             | `MP08`                                                |
 | Modalità nota                   | XML TD04 accettato                             | `MP05`                                                |
 | Serie privati                   | Impostazioni Aruba, associata a fatture e note | `FPR`                                                 |
 | Formato numero                  | Impostazioni e documenti accettati             | `FPR ####/##`                                         |
@@ -31,6 +31,8 @@ I due originali sono archiviati cifrati nel recovery kit locale di Hub Fatture e
 | PDF e file ufficiali            | anteprima con download separati PDF, XML e P7M | download/readback Aruba, non PDF generato da HF       |
 
 La TD04 storica contiene anche una riga al 22% estranea al perimetro 1.x, oltre alla riga `N5`. Il generatore non la replica: per le vendite comprese nel prodotto tutte le righe documentali applicano il profilo del margine `N5`. Sono invece conservate le differenze strutturali pertinenti alla nota: `TD04` e modalità `MP05`.
+
+La modalità della singola fattura è un dato documentale modificabile prima dell'approvazione, non parte invariabile del profilo del cedente: `MP01`, `MP05` e `MP08` sono ammesse con condizione `TP02`. Il profilo conserva `MP08` come default; l'import storico valida e archivia la modalità effettivamente presente nell'XML Aruba senza usarla per dichiarare incompatibile il resto del profilo fiscale.
 
 I nodi professionali vuoti aggiunti dal pannello e i dati bancari presenti soltanto nel campione storico sono opzionali e non vengono emessi. La validazione XSD dimostra che non sono necessari al documento prodotto.
 

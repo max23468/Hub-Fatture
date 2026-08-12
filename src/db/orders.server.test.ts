@@ -3070,6 +3070,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .replace("FPR 0001/26", "FPR 0010/26")
         .replace("#1001", "#S-1001")
         .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replace(
+          "<ModalitaPagamento>MP08</ModalitaPagamento>",
+          "<ModalitaPagamento>MP01</ModalitaPagamento>",
+        )
         .replaceAll("123.45", "122.00"),
     );
     await database.getPool().query(
@@ -3128,6 +3132,17 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         invoiceXml: historicalInvoiceXml,
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-historical-invoiced" },
+    );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT payment_method FROM documents
+           JOIN document_orders ON document_orders.document_id = documents.id
+           WHERE document_orders.order_id = $1 AND documents.origin = 'ARUBA_HISTORY'`,
+          [alreadyInvoicedId],
+        )
+      ).rows[0].payment_method,
+      "MP01",
     );
     const historicalDocumentCount = Number(
       (
