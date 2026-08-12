@@ -490,7 +490,8 @@ export async function retryCustomerEmail(
   });
 }
 
-export async function listEmailDeliveries() {
+export async function listEmailDeliveries(documentIds: string[]) {
+  if (!documentIds.length) return [];
   const result = await getPool().query<{
     id: string;
     document_id: string;
@@ -501,7 +502,10 @@ export async function listEmailDeliveries() {
     last_error_code: string | null;
   }>(
     `SELECT id, document_id, status, transport, attempt_count, sent_at, last_error_code
-     FROM email_deliveries ORDER BY created_at DESC, id DESC`,
+     FROM email_deliveries
+     WHERE document_id = ANY($1::bigint[])
+     ORDER BY created_at DESC, id DESC`,
+    [documentIds],
   );
   return result.rows.map((row) => ({
     ...row,

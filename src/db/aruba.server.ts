@@ -1309,7 +1309,8 @@ async function importOfficialFile(
   }
 }
 
-export async function listOfficialArubaFiles() {
+export async function listOfficialArubaFiles(documentIds: string[]) {
+  if (!documentIds.length) return [];
   const result = await getPool().query<{
     id: string;
     document_id: string;
@@ -1320,7 +1321,9 @@ export async function listOfficialArubaFiles() {
     `SELECT files.id, files.document_id, files.kind, storage.size_bytes, files.imported_at
      FROM aruba_files AS files
      JOIN storage_objects AS storage ON storage.id = files.storage_object_id
+     WHERE files.document_id = ANY($1::bigint[])
      ORDER BY files.imported_at DESC, files.id DESC`,
+    [documentIds],
   );
   return result.rows;
 }
