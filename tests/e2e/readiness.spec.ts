@@ -65,7 +65,12 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByText("Note di credito da approvare")).toBeVisible();
-  await expect(page.locator(".summary-card")).toHaveCount(12);
+  await expect(page.getByRole("heading", { name: "Da fare ora" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Stato operativo" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Collegamenti" })).toBeVisible();
+  await expect(page.locator(".work-item")).toHaveCount(4);
+  await expect(page.locator(".connection")).toHaveCount(3);
+  await expect(page.locator(".documents-chart__day")).toHaveCount(7);
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
   await expect(page.getByRole("link", { name: "Vai agli ordini" })).toBeVisible();
   await page.getByRole("link", { name: "Attività", exact: true }).click();
