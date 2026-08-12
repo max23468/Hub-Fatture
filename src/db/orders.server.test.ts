@@ -55,6 +55,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     assert.equal(connectionSummary.shopify_connection_status, "REVOKED");
     assert.ok(connectionSummary.last_shopify_sync);
     assert.equal(connectionSummary.ebay_connection_status, "CONNECTED");
+    assert.equal(connectionSummary.open_aruba_batches, "0");
     const fixture = JSON.parse(
       await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
     );
