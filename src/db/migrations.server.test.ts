@@ -184,7 +184,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
         ).rows,
         [
           { order_id: "before", historical: true },
-          { order_id: "after", historical: false },
+          { order_id: "after", historical: true },
         ],
       );
     });

@@ -605,6 +605,19 @@ export async function completeJob(job: ClaimedJob, result: Record<string, unknow
       [job.id, job.workerId, job.claimToken, JSON.stringify(result)],
     );
     if (completed.rowCount !== 1) return false;
+    const provider = job.type.startsWith("shopify")
+      ? "SHOPIFY"
+      : job.type.startsWith("ebay")
+        ? "EBAY"
+        : null;
+    if (provider) {
+      await client.query(
+        `UPDATE connections SET status = 'CONNECTED', last_checked_at = now(),
+           last_error_code = NULL, last_error_message_sanitized = NULL, updated_at = now()
+         WHERE provider = $1 AND environment = $2 AND status = 'ERROR'`,
+        [provider, activeEnvironment(provider)],
+      );
+    }
     const eventId = Number(job.payload.webhookEventId);
     if (Number.isSafeInteger(eventId)) {
       await client.query(

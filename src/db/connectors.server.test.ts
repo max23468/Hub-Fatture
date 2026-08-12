@@ -166,6 +166,33 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         ?.historyImported,
       true,
     );
+    await connectors.ingestShopifyWebhook({
+      externalEventId: "event-retry-from-error",
+      topic: "ORDERS_UPDATED",
+      payloadSha256: "b".repeat(64),
+      orderId: "gid://shopify/Order/retry-from-error",
+    });
+    const failedWebhook = await connectors.claimJob("worker-webhook-error");
+    assert.equal(failedWebhook?.type, "shopify_process_webhook");
+    failedWebhook!.maxAttempts = failedWebhook!.attempts;
+    assert.equal(await connectors.failJob(failedWebhook!, "PROVIDER_UNAVAILABLE"), true);
+    await connectors.markConnectionError("SHOPIFY", "PROVIDER_UNAVAILABLE", true);
+    await connectors.retryFailedJob(failedWebhook!.id, {
+      type: "ADMIN",
+      id: 1,
+      requestId: "webhook-retry-from-error",
+    });
+    const recoveredWebhook = await connectors.claimJob("worker-webhook-recovered");
+    assert.equal(recoveredWebhook?.id, failedWebhook!.id);
+    assert.equal(await connectors.completeJob(recoveredWebhook!), true);
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT status FROM connections WHERE provider = 'SHOPIFY' AND environment = 'DEVELOPMENT'",
+        )
+      ).rows[0].status,
+      "CONNECTED",
+    );
     await getPool().query(
       `UPDATE connections SET last_synced_at = now() - interval '11 minutes'
        WHERE provider = 'SHOPIFY' AND environment = 'DEVELOPMENT'`,
@@ -493,7 +520,10 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       }),
       (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
     );
-    assert.equal((await getPool().query("SELECT * FROM jobs")).rowCount, 1);
+    assert.equal(
+      (await getPool().query("SELECT * FROM jobs WHERE status = 'PENDING'")).rowCount,
+      1,
+    );
 
     const claimed = await connectors.claimJob("worker-1");
     assert.ok(claimed);
