@@ -260,6 +260,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /BASE: \$\{\{ needs\.candidate\.outputs\.check_base \}\}/);
   assert.match(workflow, /git merge-base --is-ancestor "\$base" "\$CANDIDATE"/);
   assert.match(workflow, /git merge-base --is-ancestor "\$CANDIDATE" "\$base"/);
+  assert.match(
+    workflow,
+    /git merge-base --is-ancestor "\$CANDIDATE" "\$base"; then\s+check_base=0{40}/,
+  );
   assert.match(workflow, /impact_base=\$CANDIDATE/);
   assert.match(workflow, /ROLLBACK: \$\{\{ needs\.candidate\.outputs\.rollback \}\}/);
   assert.match(workflow, /if \[ "\$ROLLBACK" = true \]/);

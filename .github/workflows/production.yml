@@ -84,7 +84,7 @@ jobs:
             impact_base=$base
             impact_head=$CANDIDATE
           elif git merge-base --is-ancestor "$CANDIDATE" "$base"; then
-            check_base=$CANDIDATE
+            check_base=0000000000000000000000000000000000000000
             rollback=true
             impact_base=$CANDIDATE
             impact_head=$base
