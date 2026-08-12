@@ -303,8 +303,10 @@ function withoutAddressUnits(tokens: string[]) {
     const followsStructuredCivic =
       /^\d/u.test(tokens[index - 1] ?? "") ||
       (/^\d/u.test(tokens[index - 2] ?? "") && /^\p{L}+$/u.test(tokens[index - 1] ?? ""));
-    const startsNumericIdentifier = /^\d/u.test(tokens[index + 1] ?? "");
-    return followsStructuredCivic || startsNumericIdentifier;
+    const startsStructuredIdentifier = /^[\p{L}\p{N}]*\d[\p{L}\p{N}]*$/u.test(
+      tokens[index + 1] ?? "",
+    );
+    return followsStructuredCivic || startsStructuredIdentifier;
   });
   return unitTailIndex === -1 ? tokens : tokens.slice(0, unitTailIndex);
 }
@@ -359,16 +361,18 @@ function structuredStreetNumberCandidates(address: unknown, postalCode: unknown)
     withoutAddressPart(normalizedAddressTokens(address), postalCode),
   );
   const candidates = new Set<string>();
+  const isCivicSuffix = (value: string) =>
+    /^\p{L}$/u.test(value) || ["bis", "ter", "quater"].includes(value);
   const first = addressParts[0] ?? "";
   const second = addressParts[1] ?? "";
   if (/^\d/u.test(first)) {
-    candidates.add(/^\p{L}$/u.test(second) ? `${first}${second}` : first);
+    candidates.add(isCivicSuffix(second) ? `${first}${second}` : first);
   }
   const last = addressParts.at(-1) ?? "";
   const penultimate = addressParts.at(-2) ?? "";
   if (/^\d/u.test(last)) {
     candidates.add(last);
-  } else if (/^\d/u.test(penultimate) && /^\p{L}$/u.test(last)) {
+  } else if (/^\d/u.test(penultimate) && isCivicSuffix(last)) {
     candidates.add(`${penultimate}${last}`);
   }
   return candidates;

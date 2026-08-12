@@ -3257,7 +3257,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           invoiceXml: Buffer.from(
             euPersonalInvoice
               .toString()
-              .replace("Avenue Martin des Fleurs du Lac", "12 Avenue Martin des Fleurs du Lac 34"),
+              .replace(
+                "Avenue Martin des Fleurs du Lac",
+                "12 Avenue Martin des Fleurs du Lac 34 bis",
+              ),
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-conflicting-eu-embedded-civic" },
@@ -3324,7 +3327,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     euAddressWithUnitEbay.customer.displayName = "Ana Maria Popescu";
     euAddressWithUnitEbay.customer.canonicalProfile = { displayName: "Ana Maria Popescu" };
     euAddressWithUnitEbay.customer.billingAddress = {
-      line1: "Strada Jardin Bleu 14 apt 12/B",
+      line1: "14 Strada Jardin Bleu apt B12",
       postalCode: "10000",
       city: "Bucarest",
       province: "EE",
@@ -3367,7 +3370,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           invoiceXml: Buffer.from(
             euAddressWithUnitInvoice
               .toString()
-              .replace("Strada Jardin Bleu", "Avenue Rouge Bleu apt 12/B"),
+              .replace("Strada Jardin Bleu", "Avenue Rouge Vert apt B12"),
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-unit-markers-as-street" },
