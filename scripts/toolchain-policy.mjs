@@ -7,7 +7,7 @@ const forbiddenName = /(^|[/@-])(eslint|prettier|jest|vitest|mocha|ava|biome|dpr
 // `typescript` e `@typescript/*` sono l'unica eccezione nota: `@react-router/node`
 // li dichiara come peer dependency opzionale, quindi npm li marca non-dev anche se
 // il progetto li usa soltanto per typecheck e compilazione del runner.
-// ponytail: allowlist statica per l'unica eccezione TypeScript; analizzare il grafo soltanto
+// Allowlist statica per l'unica eccezione TypeScript; analizzare il grafo soltanto
 // se compare una seconda eccezione nella chiusura Production.
 const productionToolAllowlist = /^(typescript|@typescript\/)/;
 const forbiddenInProduction =

@@ -19,7 +19,7 @@ export default function handleRequest(
   routerContext: EntryContext,
   _loadContext: RouterContextProvider,
 ) {
-  // ponytail: aggiungere nonce e `script-src` prima del deploy Production o se entra un
+  // Aggiungere nonce e `script-src` prima del deploy Production o se entra un
   // secondo script inline; fino ad allora queste direttive coprono il perimetro attuale.
   responseHeaders.set("Content-Security-Policy", "frame-ancestors 'none'");
   responseHeaders.set("Referrer-Policy", "same-origin");
