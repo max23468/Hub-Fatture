@@ -179,7 +179,7 @@ export function fiscalProfileFromAcceptedInvoiceXml(
     },
     payment: {
       condition: payment.condition,
-      invoiceMethod: payment.method,
+      invoiceMethod: "MP08",
       creditNoteMethod: "MP05",
     },
   });
@@ -237,13 +237,15 @@ function acceptedPayment(body: Record<string, unknown>) {
   const methods = blocks.flatMap((block) =>
     xmlArray(block.DettaglioPagamento).map((detail) => xmlValue(detail.ModalitaPagamento)),
   );
+  const method = z.enum(["MP01", "MP05", "MP08"]).safeParse(methods[0]);
   if (
     blocks.some((block) => xmlValue(block.CondizioniPagamento) !== "TP02") ||
-    methods.some((method) => method !== "MP08")
+    !method.success ||
+    methods.some((candidate) => candidate !== method.data)
   ) {
     throw new Error("Il pagamento della fattura non coincide con il profilo fiscale");
   }
-  return { condition: "TP02" as const, method: "MP08" as const };
+  return { condition: "TP02" as const, method: method.data };
 }
 
 /** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
