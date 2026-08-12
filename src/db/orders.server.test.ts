@@ -3291,6 +3291,59 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-clear-duplicate-eu-personal" },
     );
+    const leadingCivicNumericToponymEbay = structuredClone(euPersonalEbay);
+    leadingCivicNumericToponymEbay.externalOrderId =
+      "ebay-order-historical-leading-civic-numeric-toponym";
+    leadingCivicNumericToponymEbay.externalCustomerId =
+      "ebay-customer-historical-leading-civic-numeric-toponym";
+    leadingCivicNumericToponymEbay.displayNumber = "26-12345-67908";
+    leadingCivicNumericToponymEbay.customer.billingAddress.line1 = "12 Rue Bataille 8 Mai 1945";
+    leadingCivicNumericToponymEbay.total = "85.00";
+    leadingCivicNumericToponymEbay.lines[0].grossAmount = "85.00";
+    leadingCivicNumericToponymEbay.payments[0].amount = "85.00";
+    leadingCivicNumericToponymEbay.payments[0].externalPaymentId =
+      "ebay-payment-historical-leading-civic-numeric-toponym";
+    leadingCivicNumericToponymEbay.lines[0].externalLineId =
+      "ebay-line-historical-leading-civic-numeric-toponym";
+    await orders.importOrders([leadingCivicNumericToponymEbay], {
+      id: 1,
+      requestId: "test-import-ebay-history-leading-civic-numeric-toponym",
+    });
+    const leadingCivicNumericToponymEbayId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          leadingCivicNumericToponymEbay.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        leadingCivicNumericToponymEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Il numero finale del toponimo non sostituisce il civico iniziale",
+          invoiceXml: Buffer.from(
+            euPersonalInvoice
+              .toString()
+              .replace("FPR 0026/26", "FPR 0031/26")
+              .replaceAll("80.00", "85.00")
+              .replace("Avenue Martin des Fleurs du Lac", "Rue Bataille 8 Mai 1945")
+              .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>1945</NumeroCivico>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-toponym-number-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      leadingCivicNumericToponymEbayId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ordine sintetico escluso dopo il controllo del civico iniziale",
+      },
+      { id: 1, canApprove: true, requestId: "test-clear-leading-civic-numeric-toponym" },
+    );
     await assert.rejects(
       orders.reconcileHistoricalOrder(
         euPersonalEbayId,
@@ -3338,6 +3391,23 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-french-d-connector" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euPersonalEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "La contrazione francese plurale non identifica la strada",
+          invoiceXml: Buffer.from(
+            euPersonalInvoice
+              .toString()
+              .replace("Avenue Martin des Fleurs du Lac", "Avenue aux Fleurs"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-french-aux-connector" },
       ),
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
@@ -4179,7 +4249,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "21",
+      "22",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

@@ -214,6 +214,9 @@ const streetKindTokens = new Set([
 
 const streetConnectorTokens = new Set([
   "d",
+  "l",
+  "au",
+  "aux",
   "de",
   "des",
   "du",
@@ -421,6 +424,11 @@ function hasSupportingAddressEvidence(
       !customerCountry ||
       customerCountry !== recipientCountry ||
       !containsStructuredStreetNumber(
+        customerAddress.line1,
+        recipientAddress.streetNumber,
+        customerAddress.postalCode,
+      ) ||
+      hasConflictingStructuredStreetNumber(
         customerAddress.line1,
         recipientAddress.streetNumber,
         customerAddress.postalCode,
