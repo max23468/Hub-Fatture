@@ -8,6 +8,7 @@ import { temporaryDatabase, withClient } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { importOrders } from "./order-import.server.ts";
 import { AppError } from "../errors.ts";
+import { syncEbayOrders } from "../integrations/ebay.server.ts";
 import { mapShopifyOrder, processShopifyWebhook } from "../integrations/shopify.server.ts";
 
 test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti", async () => {
@@ -17,6 +18,8 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
   process.env.APP_BASE_URL = "http://localhost:8080";
   process.env.APP_ENV = "test";
   process.env.EBAY_ENVIRONMENT = "sandbox";
+  process.env.EBAY_CLIENT_ID = "ebay-client-sintetico";
+  process.env.EBAY_CLIENT_SECRET = "ebay-secret-sintetico";
   process.env.CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString("base64url");
   process.env.SHOPIFY_API_KEY = "shopify-key-sintetica";
   process.env.SHOPIFY_API_SECRET = "shopify-secret-sintetico";
@@ -61,6 +64,58 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     await getPool().query(
       "DELETE FROM webhook_events WHERE external_event_id = 'event-before-history-import'",
+    );
+    let serializedWebhookSettled = false;
+    let serializedWebhook!: Promise<{ duplicate: boolean }>;
+    await withClient(database.connectionString, async (client) => {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:SHOPIFY'))");
+      serializedWebhook = connectors
+        .ingestShopifyWebhook({
+          externalEventId: "event-serialized-with-history-import",
+          topic: "ORDERS_UPDATED",
+          payloadSha256: "a".repeat(64),
+          orderId: "gid://shopify/Order/serialized-with-history-import",
+        })
+        .finally(() => {
+          serializedWebhookSettled = true;
+        });
+      await client.query("SELECT pg_sleep(0.05)");
+      assert.equal(serializedWebhookSettled, false);
+      assert.equal(
+        (
+          await client.query(
+            "SELECT count(*)::int AS total FROM webhook_events WHERE external_event_id = $1",
+            ["event-serialized-with-history-import"],
+          )
+        ).rows[0].total,
+        0,
+      );
+      await client.query(
+        `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+         VALUES ('SHOPIFY', 'history_import', 'ready', now())`,
+      );
+      await client.query("COMMIT");
+    });
+    await serializedWebhook;
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT payload_json ->> 'historical' AS historical FROM jobs
+           WHERE payload_json ->> 'orderId' = 'gid://shopify/Order/serialized-with-history-import'`,
+        )
+      ).rows[0].historical,
+      "false",
+    );
+    await getPool().query(
+      `DELETE FROM jobs
+       WHERE payload_json ->> 'orderId' = 'gid://shopify/Order/serialized-with-history-import'`,
+    );
+    await getPool().query(
+      "DELETE FROM webhook_events WHERE external_event_id = 'event-serialized-with-history-import'",
+    );
+    await getPool().query(
+      "DELETE FROM sync_cursors WHERE provider = 'SHOPIFY' AND stream = 'history_import'",
     );
     const failedBeforeHistoryImport = await getPool().query<{ id: string }>(
       `INSERT INTO jobs (type, status, last_error_code)
@@ -659,6 +714,30 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).rows[0].count,
       "1",
     );
+    const retriedJob = await connectors.claimJob("worker-manual-retry");
+    assert.equal(retriedJob?.id, terminalJob.id);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) =>
+      new Response(
+        String(input).includes("/identity/v1/oauth2/token")
+          ? JSON.stringify({ access_token: "token-retry-sintetico", expires_in: 3600 })
+          : JSON.stringify({ orders: [] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    try {
+      assert.equal((await syncEbayOrders(retriedJob!)).count, 0);
+      assert.equal(await connectors.completeJob(retriedJob!), true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    assert.equal(
+      (
+        await getPool().query(
+          "SELECT status FROM connections WHERE provider = 'EBAY' AND environment = 'SANDBOX'",
+        )
+      ).rows[0].status,
+      "CONNECTED",
+    );
     await getPool().query(
       "DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import'",
     );
@@ -774,6 +853,29 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         ignored: 0,
         errorCode: null,
       },
+    );
+    await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [previewJob!.id]);
+    let serializedRetry!: Promise<void>;
+    await withClient(database.connectionString, async (client) => {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL lock_timeout = '200ms'");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:EBAY'))");
+      serializedRetry = connectors.retryFailedJob(previewJob!.id, {
+        type: "ADMIN",
+        id: 1,
+        requestId: "preview-retry-lock-order",
+      });
+      await client.query("SELECT pg_sleep(0.05)");
+      await client.query("UPDATE jobs SET payload_json = payload_json WHERE id = $1", [
+        previewJob!.id,
+      ]);
+      await client.query("COMMIT");
+    });
+    await serializedRetry;
+    assert.equal(
+      (await getPool().query("SELECT status FROM jobs WHERE id = $1", [previewJob!.id])).rows[0]
+        .status,
+      "PENDING",
     );
     await getPool().query("UPDATE jobs SET status = 'FAILED' WHERE id = $1", [previewJob!.id]);
     await getPool().query(

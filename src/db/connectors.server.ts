@@ -214,7 +214,7 @@ export async function historyImportPending(provider: Provider) {
        SELECT 1 FROM sync_cursors WHERE provider = $1 AND stream = 'history_import'
      ) AS pending
      FROM connections
-     WHERE provider = $1 AND environment = $2 AND status = 'CONNECTED'`,
+     WHERE provider = $1 AND environment = $2 AND status IN ('CONNECTED', 'ERROR')`,
     [provider, activeEnvironment(provider)],
   );
   if (!result.rows[0]) throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
@@ -672,6 +672,17 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
   const jobId = typeof id === "string" && /^\d+$/.test(id) ? id : "";
   if (!jobId) throw new AppError("CONFLICT_REVISION", 409);
   return withTransaction(async (client) => {
+    const unlocked = await client.query<{ type: JobType }>(
+      `SELECT type FROM jobs
+       WHERE id = $1 AND status = 'FAILED' AND type = ANY($2::text[])`,
+      [jobId, manuallyRetryableJobTypes],
+    );
+    if (!unlocked.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+    const provider = unlocked.rows[0].type.startsWith("shopify") ? "SHOPIFY" : "EBAY";
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:' || $1))", [provider]);
+    if (unlocked.rows[0].type === "ebay_preview_history") {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
+    }
     const candidate = await client.query<{
       type: JobType;
       payload_json: Record<string, unknown>;
@@ -698,8 +709,6 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
       if (!ready.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
     }
     if (jobType === "ebay_preview_history") {
-      await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:EBAY'))");
-      await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
       const accountReference = candidate.rows[0].payload_json.accountReference;
       const currentImport =
         typeof accountReference === "string"
@@ -723,7 +732,6 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
       );
       if (activePreview.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
     } else {
-      const provider = jobType.startsWith("shopify") ? "SHOPIFY" : "EBAY";
       const runnable = await client.query(
         `SELECT 1 FROM connections
          WHERE provider = $1 AND environment = $2 AND status IN ('CONNECTED', 'ERROR')`,
@@ -757,6 +765,7 @@ export async function ingestShopifyWebhook(input: {
   orderId: string | null;
 }) {
   return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:SHOPIFY'))");
     const event = await client.query<{ id: string; acquired: boolean }>(
       `INSERT INTO webhook_events
         (provider, external_event_id, topic, payload_sha256, claimed_at,
