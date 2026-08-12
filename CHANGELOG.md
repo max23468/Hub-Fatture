@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.17
+
+- La riconciliazione eBay riconosce le varianti strutturate osservate negli indirizzi europei, comprese unità immobiliari alfanumeriche, suffissi civici e connettori linguistici non distintivi.
+- Nome completo, civico non conflittuale, data, Paese, totale, profilo fiscale e unicità globale restano obbligatori: nomi parziali, toponimi numerati ambigui e strade soltanto simili vengono rifiutati.
+- Gli ordini storici continuano a restare non approvabili finché un XML Aruba ufficiale non produce un collegamento univoco e non riutilizzato oppure l’esito manuale li dichiara non fatturati.
+
 ## 0.3.16
 
 - Gli ordini Shopify italiani con `privato` nel campo azienda vengono riconosciuti come privati senza perdere il valore originale nello snapshot sorgente.
