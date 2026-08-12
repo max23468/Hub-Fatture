@@ -17,7 +17,7 @@ export async function pruneExpired(): Promise<void> {
   );
 }
 
-// ponytail: un timer di processo basta a un monolite a istanza singola; passare alla coda job
+// Un timer di processo basta a un monolite a istanza singola; passare alla coda job
 // solo quando esisteranno più processi che se ne contendono l'esecuzione.
 export function startRetention(): void {
   const run = () => void pruneExpired().catch((error: unknown) => console.error(error));
