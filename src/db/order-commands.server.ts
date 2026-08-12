@@ -15,7 +15,8 @@ import {
 import { preIssueRefund } from "../refunds.ts";
 import { writeAudit } from "./audit.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
-import { archiveImportedInvoiceXml } from "./documents.server.ts";
+import { isDatabaseId } from "./database-id.ts";
+import { archiveImportedInvoiceXml } from "./document-storage.server.ts";
 import {
   groupOrder,
   reconcilePreIssueInvoiceAmount,
@@ -23,7 +24,6 @@ import {
   type Actor,
 } from "./order-import.server.ts";
 
-const POSTGRES_BIGINT_MAX = "9223372036854775807";
 const historicalReconciliationSchema = z.object({
   outcome: z.enum(["ALREADY_INVOICED", "NOT_INVOICED"]),
   reference: z.string().trim().min(10).max(500),
@@ -129,14 +129,6 @@ function taxIdentifierKey(identifier: {
       : "")
   ).toUpperCase();
   return JSON.stringify([identifier.type, countryCode, value]);
-}
-
-export function isDatabaseId(id: string) {
-  return (
-    /^[1-9]\d*$/.test(id) &&
-    (id.length < POSTGRES_BIGINT_MAX.length ||
-      (id.length === POSTGRES_BIGINT_MAX.length && id <= POSTGRES_BIGINT_MAX))
-  );
 }
 
 export async function getDraftTrigger() {

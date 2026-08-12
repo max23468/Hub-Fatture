@@ -24,7 +24,7 @@ import {
   reactivationBlockerSql,
 } from "./billing-case-sql.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
-import { isDatabaseId } from "./order-commands.server.ts";
+import { isDatabaseId } from "./database-id.ts";
 import {
   groupOrder,
   reconcileInvoiceDraft,

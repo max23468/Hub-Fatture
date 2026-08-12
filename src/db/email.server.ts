@@ -11,7 +11,7 @@ import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
 import { assertJobLease, type ClaimedJob } from "./connectors.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
-import { isDatabaseId } from "./order-commands.server.ts";
+import { isDatabaseId } from "./database-id.ts";
 
 export const customerEmailModeSchema = z.enum(["AUTOMATIC", "MANUAL"]);
 export const customerEmailChoiceSchema = z.enum(["SEND", "SKIP"]);

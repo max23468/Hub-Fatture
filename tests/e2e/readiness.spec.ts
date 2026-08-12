@@ -463,7 +463,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   process.env.SMTP_TRANSPORT = "SYNTHETIC";
   const database = await import("../../src/db/client.server.ts");
   const aruba = await import("../../src/db/aruba.server.ts");
-  const documents = await import("../../src/db/documents.server.ts");
+  const documentStorage = await import("../../src/db/document-storage.server.ts");
   const refunds = await import("../../src/db/refunds.server.ts");
   const email = await import("../../src/db/email.server.ts");
   const jobs = await import("../../src/db/connectors.server.ts");
@@ -549,7 +549,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await aruba.importOfficialArubaFile(
     invoice.id,
     "ARUBA_XML",
-    (await documents.readDocumentXml(invoice.id))!,
+    (await documentStorage.readDocumentXml(invoice.id))!,
     actor,
   );
   await aruba.importOfficialArubaFile(invoice.id, "ARUBA_PDF", officialPdf, actor);
@@ -621,7 +621,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await aruba.importOfficialArubaFile(
     noteId!,
     "ARUBA_XML",
-    (await documents.readDocumentXml(noteId!))!,
+    (await documentStorage.readDocumentXml(noteId!))!,
     actor,
   );
   await aruba.importOfficialArubaFile(noteId!, "ARUBA_PDF", officialPdf, actor);

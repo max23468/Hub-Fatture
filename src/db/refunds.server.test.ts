@@ -68,7 +68,8 @@ test(
          updated_at_source, local_order_date, currency, gross_amount, payment_status,
          fulfillment_status, trigger_status, customer_id, billing_case_id,
          raw_snapshot_json, normalized_snapshot_json)
-       VALUES ('SHOPIFY', 'shop', 'order-credit', '#CREDIT', now(), now(), '2026-08-10',
+       VALUES ('SHOPIFY', 'shop', 'order-credit', '#CREDIT',
+         '2026-08-10T09:00:00Z', '2026-08-10T09:00:00Z', '2026-08-10',
          'EUR', 10000, 'PAID', 'FULFILLED', 'INVOICED', $1, $2, '{}', '{}') RETURNING id`,
         [customer.rows[0]!.id, billingCase.rows[0]!.id],
       );
