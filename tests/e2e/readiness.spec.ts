@@ -380,19 +380,35 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Riepilogo clienti" })).toContainText(
     "2 clienti importati",
   );
-  await expect(page.locator(".customer-row")).toHaveCount(2);
-  const marioCustomer = page.locator(".customer-row").filter({ hasText: "Mario Rossi" });
-  await expect(marioCustomer).toContainText("E-mail");
+  const customerRows = page.locator(".customer-table tbody tr");
+  await expect(customerRows).toHaveCount(2);
+  const marioCustomer = customerRows.filter({ hasText: "Mario Rossi" });
   await expect(marioCustomer).toContainText("mario.rossi@example.invalid");
-  await expect(marioCustomer).toContainText("Identificativo fiscale");
   await expect(marioCustomer).toContainText("RSSMRA80A01H501U");
+  await expect(page.getByRole("columnheader")).toHaveCount(7);
+  await page
+    .getByRole("link", {
+      name: "Cliente: attiva per ordinare in senso crescente",
+    })
+    .click();
+  await expect(page).toHaveURL(/ordina=cliente&direzione=asc/);
+  await page
+    .getByRole("link", {
+      name: "Cliente: ordine crescente. Attiva per ordinare in senso decrescente",
+    })
+    .click();
+  await expect(page).toHaveURL(/ordina=cliente&direzione=desc/);
+  await expect(customerRows.first()).toContainText("Mario Rossi");
   expect(
-    await page.locator(".customer-row").evaluateAll((rows) =>
+    await customerRows.evaluateAll((rows) =>
       rows.every((row) => {
-        const contentRight =
-          row.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(row).paddingRight);
-        return [...row.children].every(
-          (child) => child.getBoundingClientRect().right <= contentRight + 1,
+        const values = row.querySelectorAll<HTMLElement>(
+          ".customer-table__primary a, .customer-table__clamp, .customer-table__truncate",
+        );
+        const action = row.querySelector<HTMLElement>(".customer-table__action a");
+        return (
+          [...values].every((value) => getComputedStyle(value).textOverflow !== "ellipsis") &&
+          (action ? action.scrollWidth <= action.clientWidth : false)
         );
       }),
     ),
@@ -402,7 +418,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   await page.getByRole("search", { name: "Cerca clienti" }).getByLabel("Cerca").fill("Mario");
   await page.getByRole("search", { name: "Cerca clienti" }).getByRole("button").click();
-  await expect(page.locator(".customer-row")).toHaveCount(1);
+  await expect(customerRows).toHaveCount(1);
   await page.getByRole("link", { name: "Mario Rossi", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Mario Rossi" })).toBeVisible();
   const customerBackLink = page.getByRole("link", { name: "Torna ai clienti" });
@@ -422,7 +438,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toHaveCount(2);
   await customerBackLink.click();
   await page.getByRole("link", { name: "Da verificare", exact: true }).click();
-  await expect(page.locator(".customer-row")).toHaveCount(1);
+  await expect(customerRows).toHaveCount(1);
   await expect(page.getByText("Cliente da verificare", { exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 780 });
@@ -756,6 +772,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("cell", { name: "vecchia-pec@example.invalid" })).toBeVisible();
   await expect(page.getByRole("cell", { name: /Via spedizione precedente 4/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /Spese di spedizione 1,00/ })).toBeVisible();
+  const firstSourceChange = page.locator(".source-changes-table tbody tr").first();
+  const firstSourceChangeAscending = await firstSourceChange.innerText();
+  await page
+    .getByRole("button", {
+      name: "Dato: ordine crescente. Attiva per ordinare in senso decrescente",
+    })
+    .click();
+  await expect(firstSourceChange).not.toHaveText(firstSourceChangeAscending);
   await page
     .getByRole("checkbox", {
       name: "Confermo di avere confrontato gli aggiornamenti ricevuti con la preparazione corrente.",
@@ -876,7 +900,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       .evaluate((row) => row.getBoundingClientRect().height),
   ).toBeLessThan(240);
   await page.getByRole("link", { name: "Clienti", exact: true }).click();
-  await expect(page.locator(".customer-row").first()).toBeVisible();
+  await expect(page.locator(".customer-table tbody tr").first()).toBeVisible();
   await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Clienti");
   expect(
     await page.evaluate(

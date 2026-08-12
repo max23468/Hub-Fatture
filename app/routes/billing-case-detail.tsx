@@ -213,6 +213,66 @@ function sourceChanges(revision: SourceRevision): SourceChange[] {
   );
 }
 
+type SourceChangeSortKey = "field" | "before" | "after";
+
+function sourceChangeValue(change: SourceChange, key: SourceChangeSortKey): SortValue {
+  return key === "field"
+    ? (copy.preparation.sourceChangeFields[change.field] ?? change.field)
+    : change[key];
+}
+
+function SourceChangesTable({ changes }: { changes: SourceChange[] }) {
+  const { onSort, rows, sort } = useSortableRows<SourceChange, SourceChangeSortKey>(
+    changes,
+    { key: "field", direction: "asc" },
+    sourceChangeValue,
+  );
+  return (
+    <div className="table-wrap source-revisions__table">
+      <table className="data-table source-changes-table">
+        <colgroup>
+          <col className="source-changes-table__field" />
+          <col className="source-changes-table__value" />
+          <col className="source-changes-table__value" />
+        </colgroup>
+        <thead>
+          <tr>
+            <SortableHeader
+              label={copy.preparation.sourceChangesField}
+              onSort={onSort}
+              sort={sort}
+              sortKey="field"
+            />
+            <SortableHeader
+              label={copy.preparation.sourceChangesBefore}
+              onSort={onSort}
+              sort={sort}
+              sortKey="before"
+            />
+            <SortableHeader
+              label={copy.preparation.sourceChangesNow}
+              onSort={onSort}
+              sort={sort}
+              sortKey="after"
+            />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((change) => (
+            <tr key={change.field}>
+              <td data-label={copy.preparation.sourceChangesField}>
+                <strong>{copy.preparation.sourceChangeFields[change.field] ?? change.field}</strong>
+              </td>
+              <td data-label={copy.preparation.sourceChangesBefore}>{change.before}</td>
+              <td data-label={copy.preparation.sourceChangesNow}>{change.after}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function SourceRevisionReview({
   csrfToken,
   revision,
@@ -239,30 +299,7 @@ function SourceRevisionReview({
                 {dateTime(sourceRevision.created_at)} · {copy.preparation.changedOrderData}
               </span>
               {changes.length ? (
-                <div className="table-wrap source-revisions__table">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>{copy.preparation.sourceChangesField}</th>
-                        <th>{copy.preparation.sourceChangesBefore}</th>
-                        <th>{copy.preparation.sourceChangesNow}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {changes.map((change) => (
-                        <tr key={change.field}>
-                          <td data-label={copy.preparation.sourceChangesField}>
-                            <strong>
-                              {copy.preparation.sourceChangeFields[change.field] ?? change.field}
-                            </strong>
-                          </td>
-                          <td data-label={copy.preparation.sourceChangesBefore}>{change.before}</td>
-                          <td data-label={copy.preparation.sourceChangesNow}>{change.after}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <SourceChangesTable changes={changes} />
               ) : (
                 <small>{copy.preparation.sourceChangesEmpty}</small>
               )}

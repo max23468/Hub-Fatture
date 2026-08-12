@@ -4,12 +4,28 @@ import type { Route } from "./+types/customers";
 
 import { AppShell } from "../components/app-shell";
 import { Pager } from "../components/pager";
+import { SortableHeaderLink, SortControlLink } from "../components/sortable-table";
 import { ViewNavigation } from "../components/view-navigation";
 import { customerKindLabels, copy } from "../copy.it";
 import { date } from "../format";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
-import { customerDirectorySummary, listCustomers } from "../../src/db/customers.server.ts";
+import {
+  customerDirectorySummary,
+  listCustomers,
+  type CustomerListSortKey,
+} from "../../src/db/customers.server.ts";
 import { pageNumber } from "../../src/orders.ts";
+import { parseSort } from "../table-sort";
+
+const customerSortKeys = [
+  "cliente",
+  "email",
+  "fiscale",
+  "canale",
+  "ultimoOrdine",
+  "ordini",
+  "documenti",
+] as const;
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
@@ -17,12 +33,19 @@ export async function loader({ request }: Route.LoaderArgs) {
   const view = url.searchParams.get("vista") === "verificare" ? "verificare" : "tutti";
   const query = url.searchParams.get("q") ?? "";
   const page = pageNumber(url.searchParams.get("pagina") ?? 1);
+  const sort = parseSort(
+    url.searchParams.get("ordina"),
+    url.searchParams.get("direzione"),
+    customerSortKeys,
+    { key: "ultimoOrdine" as CustomerListSortKey, direction: "desc" },
+  );
   const [summary, customers] = await Promise.all([
     customerDirectorySummary(),
     listCustomers({
       query: query || undefined,
       needsReview: view === "verificare" ? true : undefined,
       page,
+      sort,
     }),
   ]);
   return {
@@ -34,6 +57,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     view,
     query,
     page,
+    sort,
   };
 }
 
@@ -45,8 +69,13 @@ function channelLabel(providers: string[]) {
     .join(" · ");
 }
 
+function activityAriaSort(sort: { key: CustomerListSortKey; direction: "asc" | "desc" }) {
+  if (sort.key !== "ordini" && sort.key !== "documenti") return "none" as const;
+  return sort.direction === "asc" ? ("ascending" as const) : ("descending" as const);
+}
+
 export default function Customers() {
-  const { username, canApprove, csrfToken, summary, customers, view, query, page } =
+  const { username, canApprove, csrfToken, summary, customers, view, query, page, sort } =
     useLoaderData<typeof loader>();
   const resetTo = view === "verificare" ? "/clienti?vista=verificare" : "/clienti";
 
@@ -132,57 +161,147 @@ export default function Customers() {
         </div>
 
         {customers.rows.length ? (
-          <ul className="customer-list">
-            {customers.rows.map((customer) => (
-              <li className="customer-row" key={customer.id}>
-                <span className="customer-row__main">
-                  <small className={customer.review_required ? "customer-row__state--warning" : ""}>
-                    {customer.review_required
-                      ? copy.customers.needsReview
-                      : (customerKindLabels[customer.kind] ?? copy.common.unknownType)}
-                  </small>
-                  <Link to={`/clienti/${customer.id}`}>{customer.display_name}</Link>
-                  {customer.review_required ? (
-                    <span>{customerKindLabels[customer.kind] ?? copy.common.unknownType}</span>
-                  ) : null}
-                </span>
-                <span className="customer-row__facts">
-                  <span className="customer-row__fact--email">
-                    <small>{copy.customers.email}</small>
-                    <strong>{customer.email ?? copy.common.unavailable}</strong>
-                  </span>
-                  <span>
-                    <small>{copy.customers.taxIdentifier}</small>
-                    <strong>{customer.tax_id_normalized ?? copy.common.unavailable}</strong>
-                  </span>
-                  <span>
-                    <small>{copy.customers.channels}</small>
-                    <strong>{channelLabel(customer.providers) || copy.common.unavailable}</strong>
-                  </span>
-                  <span>
-                    <small>{copy.customers.lastOrder}</small>
-                    <strong>
-                      {customer.last_order_date
-                        ? date(customer.last_order_date)
-                        : copy.common.unavailable}
-                    </strong>
-                  </span>
-                </span>
-                <span className="customer-row__activity">
-                  <span>{copy.customers.orderCount(customer.order_count)}</span>
-                  <span>{copy.customers.documentCount(customer.document_count)}</span>
-                </span>
-                <Link
-                  aria-label={copy.customers.openCustomer(customer.display_name)}
-                  className="dashboard-row-link"
-                  to={`/clienti/${customer.id}`}
-                >
-                  <span>{copy.customers.activity}</span>
-                  <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <div className="customer-table-wrap table-wrap">
+            <table className="customer-table data-table">
+              <colgroup>
+                <col className="customer-table__customer-column" />
+                <col className="customer-table__email-column" />
+                <col className="customer-table__tax-column" />
+                <col className="customer-table__channel-column" />
+                <col className="customer-table__date-column" />
+                <col className="customer-table__activity-column" />
+                <col className="customer-table__action-column" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <SortableHeaderLink
+                    directionParam="direzione"
+                    keyParam="ordina"
+                    label={copy.customers.customer}
+                    sort={sort}
+                    sortKey="cliente"
+                  />
+                  <SortableHeaderLink
+                    directionParam="direzione"
+                    keyParam="ordina"
+                    label={copy.customers.email}
+                    sort={sort}
+                    sortKey="email"
+                  />
+                  <SortableHeaderLink
+                    directionParam="direzione"
+                    keyParam="ordina"
+                    label={copy.customers.taxIdentifier}
+                    sort={sort}
+                    sortKey="fiscale"
+                  />
+                  <SortableHeaderLink
+                    directionParam="direzione"
+                    keyParam="ordina"
+                    label={copy.customers.channels}
+                    sort={sort}
+                    sortKey="canale"
+                  />
+                  <SortableHeaderLink
+                    directionParam="direzione"
+                    keyParam="ordina"
+                    label={copy.customers.lastOrder}
+                    sort={sort}
+                    sortKey="ultimoOrdine"
+                  />
+                  <th aria-sort={activityAriaSort(sort)} scope="col">
+                    <span
+                      aria-label={copy.customers.activity}
+                      className="customer-table__activity-sorters"
+                      role="group"
+                    >
+                      <SortControlLink
+                        directionParam="direzione"
+                        keyParam="ordina"
+                        label={copy.customers.orders}
+                        sort={sort}
+                        sortKey="ordini"
+                      />
+                      <SortControlLink
+                        directionParam="direzione"
+                        keyParam="ordina"
+                        label={copy.customers.documents}
+                        sort={sort}
+                        sortKey="documenti"
+                      />
+                    </span>
+                  </th>
+                  <th>{copy.customers.actions}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customers.rows.map((customer) => {
+                  const email = customer.email ?? copy.common.unavailable;
+                  const taxIdentifier = customer.tax_id_normalized ?? copy.common.unavailable;
+                  const channels = channelLabel(customer.providers) || copy.common.unavailable;
+                  return (
+                    <tr key={customer.id}>
+                      <td data-label={copy.customers.customer}>
+                        <span className="customer-table__primary">
+                          <Link to={`/clienti/${customer.id}`}>{customer.display_name}</Link>
+                          <small
+                            className={
+                              customer.review_required ? "customer-table__state--warning" : ""
+                            }
+                          >
+                            {customer.review_required
+                              ? copy.customers.needsReview
+                              : (customerKindLabels[customer.kind] ?? copy.common.unknownType)}
+                          </small>
+                          {customer.review_required ? (
+                            <span>
+                              {customerKindLabels[customer.kind] ?? copy.common.unknownType}
+                            </span>
+                          ) : null}
+                        </span>
+                      </td>
+                      <td data-label={copy.customers.email}>
+                        <strong className="customer-table__clamp" title={email}>
+                          {email}
+                        </strong>
+                      </td>
+                      <td data-label={copy.customers.taxIdentifier}>
+                        <strong className="customer-table__truncate" title={taxIdentifier}>
+                          {taxIdentifier}
+                        </strong>
+                      </td>
+                      <td data-label={copy.customers.channels}>
+                        <strong>{channels}</strong>
+                      </td>
+                      <td data-label={copy.customers.lastOrder}>
+                        {customer.last_order_date ? (
+                          <time dateTime={customer.last_order_date}>
+                            {date(customer.last_order_date)}
+                          </time>
+                        ) : (
+                          copy.common.unavailable
+                        )}
+                      </td>
+                      <td className="customer-table__activity" data-label={copy.customers.activity}>
+                        <span>{copy.customers.orderCount(customer.order_count)}</span>
+                        <span>{copy.customers.documentCount(customer.document_count)}</span>
+                      </td>
+                      <td className="customer-table__action" data-label={copy.customers.actions}>
+                        <Link
+                          aria-label={copy.customers.openCustomer(customer.display_name)}
+                          className="dashboard-row-link"
+                          to={`/clienti/${customer.id}`}
+                        >
+                          <span>{copy.customers.openDetail}</span>
+                          <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div className="customer-directory__empty">
             <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">

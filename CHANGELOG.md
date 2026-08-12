@@ -1,15 +1,21 @@
 # Changelog
 
-## 0.3.21
+## 0.3.23
 
-- Le preparazioni bloccate da un aggiornamento dell’ordine mostrano il confronto leggibile fra i dati precedenti e quelli correnti e richiedono una conferma esplicita prima di chiudere il controllo.
-- La conferma rimuove soltanto il conflitto sorgente, conserva anomalie indipendenti e registra una ricevuta auditata per ogni ordine verificato.
-- Le bozze già salvate vengono riconciliate atomicamente con i nuovi importi, preservando le personalizzazioni manuali e impedendo l’approvazione di una proiezione obsoleta.
+- La directory Clienti usa una tabella ordinabile sull’intero archivio per cliente, e-mail, identificativo fiscale, canale, ultimo ordine, ordini e documenti.
+- Le colonne riservano spazio ai contenuti variabili e all’azione Apri dettaglio senza ellissi improprie o overflow, mantenendo il passaggio a schede sui viewport stretti.
+- Anche il nuovo confronto degli aggiornamenti ricevuti nella Preparazione fattura è ordinabile dalle intestazioni.
 
 ## 0.3.22
 
 - L’eccezione manuale eBay riconosce il CAP estero riportato all’inizio dell’indirizzo quando la fattura Aruba usa il segnaposto FatturaPA `00000`, senza scambiarlo per un secondo civico.
 - Paese, civico, identità personale, data, totale, riferimento FPR e unicità del documento restano obbligatori e auditati.
+
+## 0.3.21
+
+- Le preparazioni bloccate da un aggiornamento dell’ordine mostrano il confronto leggibile fra i dati precedenti e quelli correnti e richiedono una conferma esplicita prima di chiudere il controllo.
+- La conferma rimuove soltanto il conflitto sorgente, conserva anomalie indipendenti e registra una ricevuta auditata per ogni ordine verificato.
+- Le bozze già salvate vengono riconciliate atomicamente con i nuovi importi, preservando le personalizzazioni manuali e impedendo l’approvazione di una proiezione obsoleta.
 
 ## 0.3.20
 
