@@ -152,6 +152,10 @@ export default function Customers() {
                     <strong>{customer.email ?? copy.common.unavailable}</strong>
                   </span>
                   <span>
+                    <small>{copy.customers.taxIdentifier}</small>
+                    <strong>{customer.tax_id_normalized ?? copy.common.unavailable}</strong>
+                  </span>
+                  <span>
                     <small>{copy.customers.channels}</small>
                     <strong>{channelLabel(customer.providers) || copy.common.unavailable}</strong>
                   </span>

@@ -12,6 +12,7 @@ interface OpenActivity {
   order_number: string | null;
   provider: string | null;
   customer_name: string | null;
+  customer_tax_id: string | null;
   error_code: string | null;
   order_date: string | null;
   href: string;
@@ -96,6 +97,7 @@ function ReviewActivitiesPanel({ open }: { open: OpenActivityPage }) {
           <colgroup>
             <col className="activity-table__item-column" />
             <col className="activity-table__customer-column" />
+            <col className="activity-table__tax-id-column" />
             <col className="activity-table__channel-column" />
             <col className="activity-table__order-date-column" />
             <col className="activity-table__updated-column" />
@@ -105,6 +107,7 @@ function ReviewActivitiesPanel({ open }: { open: OpenActivityPage }) {
             <tr>
               <th>{copy.activity.item}</th>
               <th>{copy.activity.customer}</th>
+              <th>{copy.activity.taxIdentifier}</th>
               <th>{copy.activity.channelOrType}</th>
               <th>{copy.activity.orderDate}</th>
               <th>{copy.activity.lastUpdated}</th>
@@ -154,6 +157,11 @@ function ReviewActivitiesPanel({ open }: { open: OpenActivityPage }) {
                       title={activity.customer_name ?? copy.activity.customerToVerify}
                     >
                       {activity.customer_name ?? copy.activity.customerToVerify}
+                    </strong>
+                  </td>
+                  <td data-label={copy.activity.taxIdentifier}>
+                    <strong className="activity-table__truncate">
+                      {activity.customer_tax_id ?? copy.common.unavailable}
                     </strong>
                   </td>
                   <td

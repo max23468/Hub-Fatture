@@ -352,18 +352,28 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
     order_number: string | null;
     provider: string | null;
     customer_name: string | null;
+    customer_tax_id: string | null;
     error_code: string | null;
     order_date: string | null;
     href: string;
     created_at: string;
     total_count: number;
   }>(
-    `SELECT activities.*, count(*) OVER()::int AS total_count FROM (
+    `SELECT activities.kind, activities.id, activities.reason, activities.case_number,
+            activities.order_number, activities.provider,
+            coalesce(invoice_customer.snapshot ->> 'displayName',
+                     activities.customer_name) AS customer_name,
+            customer_tax_id.value AS customer_tax_id, activities.error_code,
+            activities.order_date, activities.href, activities.created_at,
+            count(*) OVER()::int AS total_count
+     FROM (
        SELECT 'BILLING_CASE' AS kind, billing_cases.id::text AS id,
               'BILLING_CASE_REVIEW' AS reason,
               billing_cases.public_number AS case_number,
               NULL::text AS order_number, NULL::text AS provider,
               billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
+              billing_cases.customer_snapshot_json AS customer_snapshot_json,
+              NULL::bigint AS invoice_order_id,
               NULL::text AS error_code,
               billing_cases.local_order_date::text AS order_date,
               '/ordini/preparazione/' || billing_cases.id AS href,
@@ -381,6 +391,8 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
               END,
               NULL::text, orders.display_number, orders.provider::text,
               orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
+              orders.normalized_snapshot_json -> 'customerSnapshot',
+              NULL::bigint,
               NULL::text,
               orders.local_order_date::text,
               '/ordini/' || orders.id,
@@ -399,17 +411,22 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
        SELECT 'REFUND', refunds.id::text,
               'REFUND_REVIEW', NULL::text, orders.display_number, orders.provider::text,
               orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
+              orders.normalized_snapshot_json -> 'customerSnapshot',
+              orders.id,
               NULL::text,
               orders.local_order_date::text,
               '/ordini/' || orders.id,
               refunds.updated_at
-       FROM refunds JOIN orders ON orders.id = refunds.order_id
+       FROM refunds
+       JOIN orders ON orders.id = refunds.order_id
        WHERE refunds.status = 'AMBIGUOUS'
           OR (refunds.status = 'COMPLETED' AND refunds.amount IS NULL)
        UNION ALL
        SELECT 'REFUND_JOB', jobs.id::text,
               'REFUND_JOB_FAILED', NULL::text, orders.display_number, orders.provider::text,
               orders.normalized_snapshot_json #>> '{customerSnapshot,displayName}',
+              orders.normalized_snapshot_json -> 'customerSnapshot',
+              orders.id,
               jobs.last_error_code,
               orders.local_order_date::text,
               '/ordini/' || orders.id,
@@ -424,7 +441,8 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
        UNION ALL
        SELECT 'CREDIT_NOTE', documents.id::text,
               'CREDIT_NOTE_APPROVAL', NULL::text, NULL::text, NULL::text,
-              billing_cases.customer_snapshot_json ->> 'displayName', NULL::text,
+              documents.recipient_snapshot_json ->> 'displayName',
+              documents.recipient_snapshot_json, NULL::bigint, NULL::text,
               billing_cases.local_order_date::text,
               '/documenti/' || documents.id || '/nota',
               documents.created_at
@@ -432,6 +450,41 @@ export async function listOpenActivities(page?: unknown, kind?: "CREDIT_NOTE") {
        JOIN billing_cases ON billing_cases.id = documents.billing_case_id
        WHERE documents.kind = 'CREDIT_NOTE' AND documents.status = 'DRAFT'
      ) AS activities
+     LEFT JOIN LATERAL (
+       SELECT documents.recipient_snapshot_json AS snapshot
+       FROM document_orders
+       JOIN documents ON documents.id = document_orders.document_id
+       WHERE document_orders.order_id = activities.invoice_order_id
+         AND document_orders.document_kind = 'INVOICE'
+         AND documents.kind = 'INVOICE'
+         AND documents.status = 'APPROVED'
+       ORDER BY documents.approved_at DESC NULLS LAST, documents.id DESC
+       LIMIT 1
+     ) AS invoice_customer ON true
+     LEFT JOIN LATERAL (
+       SELECT nullif(btrim(coalesce(identifier ->> 'value',
+                                     identifier ->> 'normalizedValue')), '') AS value
+       FROM jsonb_array_elements(
+         CASE
+           WHEN jsonb_typeof(
+             coalesce(invoice_customer.snapshot,
+                      activities.customer_snapshot_json) -> 'taxIdentifiers') = 'array'
+             THEN coalesce(invoice_customer.snapshot,
+                           activities.customer_snapshot_json) -> 'taxIdentifiers'
+           ELSE '[]'::jsonb
+         END
+       ) AS identifiers(identifier)
+       WHERE nullif(btrim(coalesce(identifier ->> 'value',
+                                  identifier ->> 'normalizedValue')), '') IS NOT NULL
+       ORDER BY CASE identifier ->> 'type'
+                  WHEN 'CODICE_FISCALE' THEN 0
+                  WHEN 'PARTITA_IVA' THEN 1
+                  ELSE 2
+                END,
+                coalesce(identifier ->> 'countryCode', ''),
+                coalesce(identifier ->> 'value', identifier ->> 'normalizedValue')
+       LIMIT 1
+     ) AS customer_tax_id ON true
      WHERE $2::text IS NULL OR activities.kind = $2
      ORDER BY created_at DESC, id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $1`,
