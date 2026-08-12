@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.20
+
+- La riconciliazione storica eBay può registrare un’eccezione manuale esplicita quando l’identificativo fiscale ricevuto dal marketplace è discordante ma identità personale, civico, Paese, data, totale, riferimento FPR e unicità del documento coincidono.
+- L’eccezione resta limitata agli ordini eBay di privati, richiede una conferma auditata e continua a rifiutare aziende, riferimenti inesatti, rimborsi ambigui, candidati multipli e XML già usati.
+- Il confronto automatico, gli ordini Shopify e il gate fail-closed restano invariati.
+
 ## 0.3.19
 
 - Tutte le nove tabelle operative possono essere riordinate dalle intestazioni; colonne, testi variabili, azioni e selettori sono bilanciati in modo uniforme senza ellissi improprie o contenuti che sforano.
