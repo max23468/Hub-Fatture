@@ -65,7 +65,12 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByText("Note di credito da approvare")).toBeVisible();
-  await expect(page.locator(".summary-card")).toHaveCount(12);
+  await expect(page.getByRole("heading", { name: "Da fare ora" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Stato operativo" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Collegamenti" })).toBeVisible();
+  await expect(page.locator(".work-item")).toHaveCount(4);
+  await expect(page.locator(".connection")).toHaveCount(3);
+  await expect(page.locator(".documents-chart__day")).toHaveCount(7);
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
   await expect(page.getByRole("link", { name: "Vai agli ordini" })).toBeVisible();
   await page.getByRole("link", { name: "Attività", exact: true }).click();
@@ -658,6 +663,36 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(
     page.locator(`a[href='/documenti/${noteId}/nota']`).locator("xpath=ancestor::tr"),
   ).toContainText("Inviata");
+});
+
+test("la Dashboard non mostra come sano un collegamento revocato", async ({ page }) => {
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  const revoked = await client.query(
+    `UPDATE connections
+     SET status = 'REVOKED', last_synced_at = now(), updated_at = now()
+     WHERE provider = 'SHOPIFY' AND environment = 'DEVELOPMENT'`,
+  );
+  assert.equal(revoked.rowCount, 1);
+
+  try {
+    await page.goto("/login");
+    await page.getByLabel("Nome utente").fill("MASSIMO");
+    await page.getByLabel("Password").fill("password-massimo");
+    await page.getByRole("button", { name: "Accedi" }).click();
+
+    const shopifyConnection = page.locator(".connection").filter({ hasText: "Shopify" });
+    await expect(shopifyConnection).toContainText("Non collegato");
+    await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toBeVisible();
+    await expect(page.getByText("Tutto sotto controllo", { exact: true })).toHaveCount(0);
+  } finally {
+    await client.query(
+      `UPDATE connections
+       SET status = 'CONNECTED', updated_at = now()
+       WHERE provider = 'SHOPIFY' AND environment = 'DEVELOPMENT'`,
+    );
+    await client.end();
+  }
 });
 
 test("le mutazioni senza origine valida non raggiungono l’azione", async ({ request }) => {

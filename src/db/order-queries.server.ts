@@ -6,6 +6,7 @@ import {
   paginate,
   postgresDateSchema,
 } from "../orders.ts";
+import { getConfig } from "../config.server.ts";
 import { auditActions } from "./audit.server.ts";
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
@@ -236,6 +237,9 @@ export async function getOrder(id: string) {
 }
 
 export async function dashboardSummary() {
+  const config = getConfig();
+  const shopifyEnvironment = config.APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT";
+  const ebayEnvironment = config.EBAY_ENVIRONMENT === "production" ? "PRODUCTION" : "SANDBOX";
   const result = await getPool().query<{
     orders: string;
     ready_cases: string;
@@ -248,9 +252,12 @@ export async function dashboardSummary() {
     sync_errors: string;
     last_shopify_sync: string | null;
     last_ebay_sync: string | null;
+    shopify_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
+    ebay_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
     last_aruba_readback: string | null;
     documents_today: string;
     documents_this_month: string;
+    documents_last_seven_days: Array<{ date: string; count: number }>;
   }>(
     `SELECT
        (SELECT count(*) FROM orders)::text AS orders,
@@ -280,17 +287,41 @@ export async function dashboardSummary() {
         WHERE status = 'REJECTED')::text AS rejected_by_sdi,
        ((SELECT count(*) FROM jobs WHERE status = 'FAILED') +
         (SELECT count(*) FROM webhook_events WHERE status = 'FAILED'))::text AS sync_errors,
-       (SELECT max(last_synced_at)::text FROM connections
-        WHERE provider = 'SHOPIFY') AS last_shopify_sync,
-       (SELECT max(last_synced_at)::text FROM connections
-        WHERE provider = 'EBAY') AS last_ebay_sync,
+       (SELECT last_synced_at::text FROM connections
+        WHERE provider = 'SHOPIFY' AND environment = $1) AS last_shopify_sync,
+       (SELECT last_synced_at::text FROM connections
+        WHERE provider = 'EBAY' AND environment = $2) AS last_ebay_sync,
+       (SELECT status FROM connections
+        WHERE provider = 'SHOPIFY' AND environment = $1) AS shopify_connection_status,
+       (SELECT status FROM connections
+        WHERE provider = 'EBAY' AND environment = $2) AS ebay_connection_status,
        (SELECT max(last_readback_at)::text FROM aruba_batches) AS last_aruba_readback,
        (SELECT count(*) FROM documents
         WHERE origin = 'HUB' AND approved_at AT TIME ZONE 'Europe/Rome' >=
           date_trunc('day', now() AT TIME ZONE 'Europe/Rome'))::text AS documents_today,
        (SELECT count(*) FROM documents
         WHERE origin = 'HUB' AND approved_at AT TIME ZONE 'Europe/Rome' >=
-          date_trunc('month', now() AT TIME ZONE 'Europe/Rome'))::text AS documents_this_month`,
+          date_trunc('month', now() AT TIME ZONE 'Europe/Rome'))::text AS documents_this_month,
+       (SELECT coalesce(
+          jsonb_agg(
+            jsonb_build_object('date', daily.day::date::text, 'count', daily.document_count)
+            ORDER BY daily.day
+          ),
+          '[]'::jsonb
+        )
+        FROM (
+          SELECT days.day, count(documents.id)::int AS document_count
+          FROM generate_series(
+            date_trunc('day', now() AT TIME ZONE 'Europe/Rome') - interval '6 days',
+            date_trunc('day', now() AT TIME ZONE 'Europe/Rome'),
+            interval '1 day'
+          ) AS days(day)
+          LEFT JOIN documents
+            ON documents.origin = 'HUB'
+           AND date_trunc('day', documents.approved_at AT TIME ZONE 'Europe/Rome') = days.day
+          GROUP BY days.day
+        ) AS daily) AS documents_last_seven_days`,
+    [shopifyEnvironment, ebayEnvironment],
   );
   return result.rows[0]!;
 }
