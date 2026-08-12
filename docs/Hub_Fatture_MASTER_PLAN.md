@@ -307,7 +307,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Versioni dipendenze | La matrice 14.3 fissa le scelte; manifest, lockfile, `mise.toml` e digest fissano le versioni | Evita pin duplicati nel piano e impone una sola risoluzione verificata prima del codice |
 | Backend | Monolite TypeScript/Node.js secondo lo stack 14.3 | Volume ridotto e integrazioni più semplici in un solo deploy |
 | Frontend | React con React Router in modalità framework secondo lo stack 14.3 | Pannello autonomo full-stack nello stack TypeScript, senza dipendere dall'Admin Shopify |
-| Analisi React | React Doctor stabile con scansione completa bloccante nel gate locale/CI e Action ufficiale bloccante dai warning sulle modifiche delle PR | Conserva diagnosi React complete e feedback inline con la stessa soglia bloccante in locale e su GitHub |
+| Analisi React | React Doctor stabile con scansione completa bloccante nel gate locale e sul push runtime a `main`, più Action ufficiale bloccante dai warning sulle modifiche React delle PR | Conserva diagnosi React complete e feedback inline con la stessa soglia bloccante in locale e su GitHub senza analizzare PR estranee a React |
 | Identità visiva | Brand Foundation leggera, versionata prima della UI definitiva | Evita decisioni visive sparse senza introdurre un design system o un sito non necessari |
 | Database | PostgreSQL locale, driver `pg` e SQL versionato secondo 14.3 | Transazioni, vincoli, audit e code senza ORM o migration CLI aggiuntive |
 | Coda | Basata su PostgreSQL | Evita Redis e un servizio aggiuntivo; carico di poche centinaia di ordini al mese |
@@ -2199,6 +2199,10 @@ Per il repository pubblico e single-owner usare il flusso minimo:
 - niente push diretti intenzionali su `main`;
 - branch protection, base aggiornata, conversazioni risolte e gate richiesti applicati anche all'amministratore;
 - cancellazione esplicita dei soli branch temporanei dopo il merge;
+- prima di aprire la PR di pubblicazione, completare i gate locali applicabili e
+  presentare un HEAD coerente e già pronto alla review; un nuovo commit riapre
+  la review Codex soltanto per una correzione reale, non per completare lavoro
+  prevedibile dopo l'apertura;
 - una richiesta affermativa e inequivocabile di pubblicazione autorizza deploy
   Production e release tecniche applicabili; fuori da tale richiesta restano
   avviati dal titolare e separati dal merge.
@@ -2239,6 +2243,16 @@ GitHub Actions è l'unico sistema CI/CD. Un comando locale canonico deve poter e
 | `provider` | contratti Shopify/eBay/Aruba/SMTP | security/data quando applicabile, fixture/contract test e verifica su ambiente non produttivo |
 | `deploy` | migrazioni, immagine o modifiche remote | gate completo, scansione immagine quando applicabile, preflight, backup quando necessario, smoke, readback e rollback |
 
+La classificazione è deterministica, additiva e fail-closed: parte dai percorsi
+modificati, attiva più superfici quando necessario e assegna il gate completo a
+un percorso sconosciuto. I contesti richiesti dal ruleset restano stabili; un
+check non applicabile conclude esplicitamente senza eseguire setup, dipendenze o
+runner costosi. PostgreSQL, E2E, contract test provider e matrice Aruba girano in
+job indipendenti e paralleli soltanto quando la relativa superficie è attiva.
+La decisione di deploy usa il diff cumulativo fra l'ultimo commit Production
+distribuito con successo e il candidato finale: una singola PR docs-only non può
+nascondere modifiche runtime precedenti non ancora distribuite.
+
 La CI non esegue deploy automatici su merge. Action di terze parti vanno vincolate a commit completi, con permessi minimi, timeout e `concurrency` appropriata. I workflow di verifica possono cancellare run obsoleti; un deploy Production già avviato non viene cancellato da un nuovo push. Dependabot copre npm, GitHub Actions, Dockerfile e Compose e apre PR verso `main`; gli aggiornamenti npm e GitHub Actions minor/patch sono raggruppati e possono essere uniti automaticamente dopo i gate, mentre major, Docker e Compose restano deliberati manualmente.
 
 Il required check `codex-review` riusa il contratto già collaudato in CF Ready invece di introdurre un secondo protocollo:
@@ -2272,19 +2286,25 @@ Toolchain locale e CI:
 - `npm run lint`, `npm run format` e `npm run format:check` usano rispettivamente `oxlint --deny-warnings .`, `oxfmt --write` e `oxfmt --check`; senza `--deny-warnings` le regole native emettono soltanto warning e il gate non potrebbe fallire; `format:check` fa parte del gate standard;
 - la policy toolchain verifica che i pin di Node e npm coincidano fra `engines`, `packageManager`, `mise.toml` e `Dockerfile`, e che nella chiusura di produzione del lockfile non compaiano strumenti di build;
 - `npm test` usa `node --test`; lo stesso runner esegue i test d'integrazione contro PostgreSQL reale quando la corsia lo richiede;
-- `npm run check` compone i gate locali standard senza introdurre runner o workflow paralleli;
+- `npm run check` resta il gate locale completo; `check:docs`, `check:standard`
+  e le suite DB/provider sono composizioni interne usate dalla CI per applicare
+  soltanto le corsie necessarie senza creare un secondo contratto di test;
 - partire con le regole native ad alto segnale e senza type-aware linting: `tsc --noEmit` resta la verifica canonica dei tipi; abilitare type-aware solo se copre un difetto reale non intercettato;
 - mantenere `doctor.config.json` minimale: blocco locale/CI dai warning in su, controllo supply-chain esterno disabilitato e soli ignore effettivamente necessari.
 
 Riferimenti da riverificare allo scaffold: [Oxlint](https://oxc.rs/docs/guide/usage/linter.html), [Oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) e [Mise per Node/npm](https://mise.jdx.dev/lang/node.html).
 
-React Doctor usa due superfici con responsabilità distinte: `npm run doctor` esegue la scansione completa dalla dipendenza locale fissata e blocca `npm run check` dai warning in su; l'Action ufficiale usa sempre `version: latest`, analizza le modifiche delle PR con la stessa soglia e pubblica soltanto i finding inline, senza commenti riepilogativi quando la scansione è pulita. Un falso positivo non si aggira: l'agente lo segnala nella PR, applica la soppressione nativa più stretta possibile con una motivazione verificabile, la committa e ripete il gate. Il pin npm locale è esatto, l'Action è fissata a commit completo e il controllo supply-chain esterno resta disabilitato perché già coperto dai gate dipendenze. Lo score è informativo e non decide l'esito.
+React Doctor usa due superfici con responsabilità distinte: `npm run doctor` esegue la scansione completa dalla dipendenza locale fissata e blocca `npm run check` dai warning in su; l'Action ufficiale usa sempre `version: latest`, analizza le modifiche React delle PR con la stessa soglia, esegue la scansione completa sul push runtime a `main` e pubblica soltanto i finding inline, senza commenti riepilogativi quando la scansione è pulita. Un falso positivo non si aggira: l'agente lo segnala nella PR, applica la soppressione nativa più stretta possibile con una motivazione verificabile, la committa e ripete il gate. Il pin npm locale è esatto, l'Action è fissata a commit completo e il controllo supply-chain esterno resta disabilitato perché già coperto dai gate dipendenze. Lo score è informativo e non decide l'esito.
 
 Riferimento da riverificare allo scaffold: [configurazione React Doctor](https://www.react.doctor/docs/configuration).
 
 L'artefatto Production segue una sola corsia:
 
 - GitHub Actions costruisce una sola immagine `linux/arm64` dal commit candidato e la pubblica nel package GHCR pubblico collegato alla repository;
+- sul push runtime a `main`, build, scansione e attestazione dell'artefatto
+  candidato partono senza accedere a Production e senza effettuare deploy; il
+  workflow manuale riusa quel digest verificato e costruisce un fallback
+  soltanto se l'artefatto exact-SHA non è disponibile;
 - tag SemVer e SHA sono riferimenti leggibili, ma il digest `sha256` è l'identità canonica usata da deploy, ricevuta e rollback;
 - l'immagine riceve un'attestazione GitHub di provenienza legata al digest; il deploy la verifica prima del pull;
 - nessun segreto o dato reale entra nell'immagine, nei build argument, nei layer o nei metadati;
@@ -2302,7 +2322,9 @@ Baseline GitHub pubblica:
 - Secret Scanning, Push Protection, CodeQL, Dependency Review, vulnerability alert e security update;
 - required checks per documentazione, verifica completa e dependency review quando applicabile;
 - `codex-review` required e non aggirabile, con evidenza positiva riferita all'HEAD esatto;
-- `CI` come required check, incluso React Doctor completo tramite `npm run check`; anche il workflow separato `React Doctor` è required e blocca dai warning in su;
+- `CI` come required check aggregatore dei soli job applicabili; il workflow
+  separato `React Doctor` è required, conclude esplicitamente quando non
+  applicabile e blocca dai warning in su;
 - GitHub Environment `Production` protetto, secret scoped, reviewer unico e restrizione a `main`/tag di release;
 - package GHCR pubblico collegato alla repository, attestazioni abilitate e nessuna cancellazione automatica dei digest usati in Production o come rollback;
 - release immutabili abilitate, `.github/release.yml` minimale e pubblicazione consentita soltanto nel flusso release autorizzato;
@@ -2392,9 +2414,13 @@ richiesta serve conferma separata.
 Procedura prevista:
 
 1. Workflow manuale e serializzato sul commit/tag candidato già presente in `main`, soggetto all'approvazione del GitHub Environment `Production`; un secondo deploy non cancella quello in corso.
-2. Gate locali e CI verdi sullo stesso SHA.
+2. Gate locali e CI verdi sullo stesso SHA, verificati da una barriera
+   esplicita che attende `CI`, Foundation, CodeQL e React Doctor del commit
+   candidato invece di affidarsi all'ordine temporale dei workflow.
 3. Preflight di account, VPS, hostname, versione, configurazione proprietaria del target, backup e rollback.
-4. Build dell'immagine `linux/arm64` una volta sola in GitHub Actions, pubblicazione su GHCR, attestazione di provenienza e registrazione del digest; `web` e `worker` usano lo stesso artefatto.
+4. Riuso dell'immagine `linux/arm64` exact-SHA già costruita, scansionata e
+   attestata in GitHub Actions al merge; build di fallback una volta sola se il
+   digest non è disponibile, mentre `web` e `worker` usano lo stesso artefatto.
 5. Migrazione DB soltanto se compatibile con versione precedente e successiva; altrimenti finestra di manutenzione e autorizzazione specifica.
 6. Verifica dell'attestazione, pull da GHCR e avvio dei nuovi container dal digest esatto; nessuna build sulla VPS.
 7. Verifica della baseline Compose: app non-root, nessun container privilegiato, capability eliminate salvo necessità documentata, PostgreSQL su rete interna non pubblicata, filesystem applicativo read-only salvo volumi espliciti e limiti CPU/memoria coerenti con la VPS.
@@ -2404,6 +2430,14 @@ Procedura prevista:
 11. Registrazione della ricevuta; rollback applicativo compatibile o forward-fix se il check fallisce.
 
 Le migrazioni distruttive richiedono un backup off-host recente verificato, un restore drill valido e autorizzazione. Non alterare o cancellare migrazioni già applicate per rendere possibile un rollback.
+
+Modifiche esclusivamente documentali, di test o di governance con nessuna
+differenza runtime dal commit già distribuito terminano dopo merge e rilettura
+Git: immagine, deploy e release sono non applicabili. Più modifiche runtime
+correlate già assorbite in `main` vengono distribuite insieme una sola volta sul
+candidato finale. Prima di un deploy ordinario si verifica la ricevuta del
+backup giornaliero; migrazioni o modifiche allo storage richiedono invece un
+backup aggiuntivo prima del deploy e una nuova ricevuta coerente dopo il deploy.
 
 ### 19.6 Incidenti e kill switch
 
@@ -2808,7 +2842,8 @@ Output:
 - gate `codex-review` canonico, required e verificato su HEAD stabile, nuovo commit e finding corrente senza eseguire codice PR in contesto privilegiato;
 - auto-merge Dependabot configurato fail-closed, senza auto-approvazione né esecuzione del codice PR nel contesto privilegiato; la prova end-to-end è differita a M8 e non blocca M1-M7;
 - release immutabili abilitate e categorie minime di `.github/release.yml` definite senza creare una release anticipata;
-- React Doctor completo bloccante nel gate locale/CI e Action ufficiale bloccante dai warning sulle modifiche delle PR;
+- React Doctor completo bloccante nel gate locale e sul push runtime a `main`,
+  con Action ufficiale bloccante dai warning sulle modifiche React delle PR;
 - Playwright configurato con Chromium, smoke sintetico e trace solo al primo retry;
 - comando locale canonico e CI essenziale verificati;
 - preflight provider disponibile prima della prima scrittura remota;

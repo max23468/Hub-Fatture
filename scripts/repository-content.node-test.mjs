@@ -203,12 +203,13 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
 });
 
 test("la baseline Production usa un solo digest senza esporre PostgreSQL", async () => {
-  const [compose, dockerfile, caddy, workflow] = await Promise.all(
+  const [compose, dockerfile, caddy, workflow, artifact] = await Promise.all(
     [
       "compose.production.yaml",
       "Dockerfile",
       "ops/Caddyfile.production",
       ".github/workflows/production.yml",
+      ".github/workflows/production-artifact.yml",
     ].map((file) => readFile(path.join(root, file), "utf8")),
   );
   assert.equal(compose.match(/^    image: \$\{APP_IMAGE:\?\}$/gm)?.length, 2);
@@ -233,12 +234,15 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(caddy, /fatture\.opik\.net/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /cancel-in-progress: false/);
-  assert.match(workflow, /docker\/setup-buildx-action@[0-9a-f]{40} # v4\./);
-  assert.match(workflow, /docker\/login-action@[0-9a-f]{40} # v4\./);
-  assert.match(workflow, /docker\/build-push-action@[0-9a-f]{40} # v7\./);
+  assert.match(artifact, /docker\/setup-buildx-action@[0-9a-f]{40} # v4\./);
+  assert.match(artifact, /docker\/login-action@[0-9a-f]{40} # v4\./);
+  assert.match(artifact, /docker\/build-push-action@[0-9a-f]{40} # v7\./);
   assert.match(workflow, /git checkout --detach "\$CANDIDATE"/);
-  assert.match(workflow, /ref: \$\{\{ needs\.image\.outputs\.commit \}\}/);
-  assert.match(workflow, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
+  assert.match(workflow, /ref: \$\{\{ needs\.candidate\.outputs\.commit \}\}/);
+  assert.match(artifact, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
+  assert.match(workflow, /node scripts\/commit-checks\.mjs/);
+  assert.match(workflow, /deployments\?environment=Production/);
+  assert.match(workflow, /needs\.candidate\.outputs\.runtime == 'true'/);
   assert.match(
     workflow,
     /IMAGE: oci:\/\/ghcr\.io\/max23468\/hub-fatture@\$\{\{ needs\.image\.outputs\.digest \}\}/,
@@ -249,7 +253,29 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.notEqual(registryLogin, -1);
   assert.ok(registryLogin < deploy.indexOf("Verifica attestazione"));
   assert.match(workflow, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
+  assert.match(workflow, /if \[ '\$BACKUP_REQUIRED' = true \]/);
   assert.match(workflow, /backup\.sh deploy/);
+  assert.match(workflow, /backup-receipt\.json/);
+});
+
+test("i contesti required restano stabili mentre i gate costosi sono proporzionati", async () => {
+  const [ci, codeql, dependencies, foundation, react] = await Promise.all(
+    [
+      ".github/workflows/ci.yml",
+      ".github/workflows/codeql.yml",
+      ".github/workflows/dependency-review.yml",
+      ".github/workflows/foundation.yml",
+      ".github/workflows/react-doctor.yml",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
+  );
+  assert.match(ci, /\n  gate:\n    name: CI\n    if: always\(\)/);
+  assert.match(ci, /name: PostgreSQL e migrazioni\n    if: needs\.impact\.outputs\.database/);
+  assert.match(ci, /name: E2E Chromium\n    if: needs\.impact\.outputs\.e2e/);
+  assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
+  assert.match(codeql, /if: steps\.impact\.outputs\.standard == 'true'/);
+  assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
+  assert.match(foundation, /if: steps\.impact\.outputs\.image == 'true'/);
+  assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
 });
 
 test("gli script Production sono sintatticamente validi e conservano i gate di continuità", async () => {

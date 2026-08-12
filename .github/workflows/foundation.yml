@@ -25,6 +25,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
       - name: Verifica repository e documentazione
         # Le guardie su contenuto tracciato vivono in scripts/repository-content.node-test.mjs,
         # dove il codice di uscita di `git grep` è ispezionabile invece di essere appiattito da `!`.
@@ -46,19 +51,14 @@ jobs:
           printf '%s\n' "$PULL_REQUEST_TITLE" \
             | grep -qE '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9 /_-]+\))?!?: .+' \
             || { echo "Titolo PR non in formato Conventional Commit: $PULL_REQUEST_TITLE"; exit 1; }
-      # L'immagine si verifica quando cambia: sul push a main e sulle PR che toccano il
-      # Dockerfile. Il resto delle PR non paga un build completo per un controllo invariato.
-      - name: Rileva modifiche all'immagine app
-        id: image
+      - name: Classifica l'impatto
+        id: impact
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] \
-            || ! git diff --quiet "$BASE_SHA" HEAD -- Dockerfile; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
       - name: Verifica xmllint nell'immagine app
-        if: steps.image.outputs.changed == 'true'
+        if: steps.impact.outputs.image == 'true'
         run: |
           docker build --tag hub-fatture-app:foundation .
           docker run --rm hub-fatture-app:foundation xmllint --version

@@ -2,7 +2,7 @@
 
 ## Confine
 
-La Production canonica è la VPS OCI `fatture-hub-vm` in `eu-milan-1`, raggiunta soltanto tramite `fatture.opik.net`. Il workflow manuale `Production` accetta esclusivamente un commit già contenuto in `main`, costruisce una sola immagine ARM64, blocca vulnerabilità alte o critiche note, pubblica e attesta il digest, quindi attende l’approvazione dell’Environment prima di accedere ai segreti SSH.
+La Production canonica è la VPS OCI `fatture-hub-vm` in `eu-milan-1`, raggiunta soltanto tramite `fatture.opik.net`. Sul push runtime a `main`, `Production artifact` costruisce una sola immagine ARM64, blocca vulnerabilità alte o critiche note, pubblica e attesta il digest senza accedere alla VPS. Il workflow manuale `Production` accetta esclusivamente un commit già contenuto in `main`, confronta il candidato con l'ultimo deployment riuscito, attende i gate exact-SHA e riusa l'artefatto; costruisce un fallback soltanto se il digest verificato non è disponibile, quindi attende l’approvazione dell’Environment prima di accedere ai segreti SSH.
 
 La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL non pubblica porte; Caddy è l’unico ingresso. `ARUBA_SUBMISSION_ENABLED=false` è fissato anche nel Compose e ogni readback deve confermarlo.
 
@@ -16,9 +16,15 @@ Per un candidato precedente al Canary Production, dopo il normale readback esegu
 4. `.env` VPS con permessi `600`, Notifications Topic OCI obbligatorio e nessun valore nei log o nella repository.
 5. Digest di rollback presente in `.deploy.env` e ultimo backup verificato quando il deploy modifica schema o storage.
 
+Il workflow verifica direttamente i check `CI`, `Foundation`, CodeQL e React
+Doctor del candidato. Una modifica solo documentale, di test o governance che
+non introduce differenze runtime dal commit già distribuito termina senza
+richiedere approvazione Production. Se più PR runtime sono state assorbite in
+`main`, si distribuisce una sola volta il candidato finale.
+
 ## Deploy e readback
 
-Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, prepara Compose, Caddyfile e bundle operativo come candidati, esegue il pull per digest e attende gli health check. Gli script e le unità `systemd` candidate vengono installati soltanto dopo il readback riuscito, così un rollback continua a usare il bundle operativo precedente. Backup e deploy condividono lo stesso lock per l’intera fase critica. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
+Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, prepara Compose, Caddyfile e bundle operativo come candidati, esegue il pull per digest e attende gli health check. Gli script e le unità `systemd` candidate vengono installati soltanto dopo il readback riuscito, così un rollback continua a usare il bundle operativo precedente. Backup e deploy condividono lo stesso lock per l’intera fase critica. Per codice ordinario viene riletta una ricevuta giornaliera riuscita e recente; migrazioni o modifiche allo storage producono un backup aggiuntivo prima del deploy e uno dopo il readback. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
 
 Controlli conclusivi:
 
