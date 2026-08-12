@@ -10,6 +10,7 @@ import { runHelper } from "../../scripts/aruba-helper.ts";
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
   "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
+const e2eBaseUrl = `http://127.0.0.1:${process.env.E2E_PORT ?? 4173}`;
 const storageRoot = path.resolve("storage/e2e-documents");
 
 async function expectPlainLanguage(page: Page) {
@@ -52,7 +53,7 @@ test.afterAll(async () => {
 test.describe.configure({ mode: "serial" });
 
 test("configura i due account e accede con entrambi", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   await page.goto("/setup");
   await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
   await page.getByLabel("Password per Massimo").fill("password-massimo");
@@ -141,6 +142,44 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText(
     "Ordini di esempio caricati. Nuovi: 3; aggiornati: 0; meno recenti ignorati: 0.",
   );
+  const searchRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/ricerca.data" && url.searchParams.get("q") === "Mario Rossi") {
+      searchRequests.push(request.url());
+    }
+  });
+  await page.keyboard.press("Meta+k");
+  await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toBeVisible();
+  await page.getByLabel("Cerca ordini, fatture e clienti").fill("Mario Rossi");
+  await expect(page.getByRole("heading", { name: "Ordini" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Clienti" })).toBeVisible();
+  await expect.poll(() => searchRequests.length).toBe(1);
+  await page.waitForTimeout(500);
+  expect(searchRequests).toHaveLength(1);
+  await expect(page.getByRole("link", { name: /Mario Rossi/ }).last()).toBeVisible();
+  await page
+    .getByRole("link", { name: /Mario Rossi/ })
+    .last()
+    .click();
+  await expect(page.getByRole("heading", { name: "Mario Rossi" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dati cliente" })).toBeVisible();
+  await expect(page.getByText("mario.rossi@example.invalid")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ordini" })).toBeVisible();
+  await page.getByLabel("Apri la ricerca globale").click();
+  await page.getByLabel("Cerca ordini, fatture e clienti").fill("nessun risultato possibile");
+  await expect(page.getByText("Nessun risultato", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toHaveCount(0);
+  await expect(page.getByLabel("Apri la ricerca globale")).toBeFocused();
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.getByLabel("Apri la ricerca globale").click();
+  await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Esc", exact: true })).toBeHidden();
+  await expect(page.getByLabel("Cancella la ricerca")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expectPlainLanguage(page);
   await expect(page.getByRole("row")).toHaveCount(4);
   await expect(page.getByLabel(/^Data ordine/)).toHaveValue("");
@@ -389,7 +428,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("button", { name: "Genera codice di avvio" }).click();
   const assistedToken = (await page.locator(".code-block").textContent())?.trim();
   expect(assistedToken).toHaveLength(43);
-  const assistedManifestResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/manifest", {
+  const assistedManifestResponse = await fetch(`${e2eBaseUrl}/api/aruba/helper/manifest`, {
     headers: { Authorization: `Bearer ${assistedToken}` },
   });
   expect(assistedManifestResponse.ok).toBe(true);
@@ -400,7 +439,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   try {
     expect(
       await runHelper({
-        hubUrl: "http://127.0.0.1:4173",
+        hubUrl: e2eBaseUrl,
         token: assistedToken!,
         profileDirectory: assistedProfile,
         browser: "chromium",
@@ -412,7 +451,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   } finally {
     await rm(assistedProfile, { recursive: true, force: true });
   }
-  const revokedResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/eventi", {
+  const revokedResponse = await fetch(`${e2eBaseUrl}/api/aruba/helper/eventi`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${assistedToken}`,
@@ -430,7 +469,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.reload();
   await page.getByRole("button", { name: "Genera codice di avvio" }).click();
   const readbackToken = (await page.locator(".code-block").textContent())?.trim();
-  const cleanupResponse = await fetch("http://127.0.0.1:4173/api/aruba/helper/eventi", {
+  const cleanupResponse = await fetch(`${e2eBaseUrl}/api/aruba/helper/eventi`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${readbackToken}`,
@@ -468,7 +507,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   try {
     expect(
       await runHelper({
-        hubUrl: "http://127.0.0.1:4173",
+        hubUrl: e2eBaseUrl,
         token: retryToken!,
         profileDirectory: retryProfile,
         browser: "chromium",
@@ -481,7 +520,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   }
 
   process.env.APP_ENV = "test";
-  process.env.APP_BASE_URL = "http://127.0.0.1:4173";
+  process.env.APP_BASE_URL = e2eBaseUrl;
   process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
   process.env.DATABASE_URL = databaseUrl;
   process.env.DOCUMENT_STORAGE_ROOT = storageRoot;
@@ -631,7 +670,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   try {
     expect(
       await runHelper({
-        hubUrl: "http://127.0.0.1:4173",
+        hubUrl: e2eBaseUrl,
         token: noteToken.token,
         profileDirectory: noteProfile,
         browser: "chromium",
@@ -734,7 +773,7 @@ test("le mutazioni senza origine valida non raggiungono l’azione", async ({ re
 });
 
 test("gli errori delle azioni restano codici stabili, non 500", async ({ request }) => {
-  const headers = { origin: "http://127.0.0.1:4173" };
+  const headers = { origin: e2eBaseUrl };
   expect((await request.post("/logout", { form: { csrf: "x" } })).status()).toBe(403);
   expect((await request.post("/login", { headers, data: { username: "Massimo" } })).status()).toBe(
     415,
@@ -758,7 +797,7 @@ test("le risposte dichiarano gli header di sicurezza minimi", async ({ request }
   expect(headers["cache-control"]).toBe("no-store, private");
 
   await request.post("/login", {
-    headers: { origin: "http://127.0.0.1:4173" },
+    headers: { origin: e2eBaseUrl },
     form: { username: "mAsSiMo", password: "password-massimo" },
   });
   const dataHeaders = (await request.get("/ordini.data")).headers();

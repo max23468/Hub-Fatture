@@ -14,6 +14,7 @@ export default [
   route("ordini", "routes/orders.tsx"),
   route("ordini/preparazione/:caseId", "routes/billing-case-detail.tsx"),
   route("ordini/:orderId", "routes/order-detail.tsx"),
+  route("clienti/:customerId", "routes/customer-detail.tsx"),
   route("documenti", "routes/documents.tsx"),
   route("documenti/:documentId/nota", "routes/credit-note-detail.tsx"),
   route("documenti/:documentId/xml", "routes/document-xml.ts"),
@@ -25,6 +26,7 @@ export default [
   route("api/aruba/helper/consuma-permesso", "routes/aruba-helper-permit.ts"),
   route("aruba-sintetica", "routes/aruba-synthetic.tsx"),
   route("attivita", "routes/activity.tsx"),
+  route("ricerca", "routes/search.ts"),
   route("impostazioni", "routes/settings.tsx"),
   route("setup", "routes/setup.tsx"),
 ] satisfies RouteConfig;
