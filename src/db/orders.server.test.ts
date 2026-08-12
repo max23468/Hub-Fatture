@@ -2291,6 +2291,28 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        reorderedNameEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con stessa via ma civico differente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice
+              .replace(
+                "<Indirizzo>Via Cliente 2</Indirizzo>",
+                "<Indirizzo>Piazza Campo Distante 101</Indirizzo>",
+              )
+              .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
+              .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
+              .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-conflicting-street-number" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       reorderedNameEbayId,
       {
@@ -2300,7 +2322,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           reorderedNameInvoice
             .replace(
               "<Indirizzo>Via Cliente 2</Indirizzo>",
-              "<Indirizzo>Piazza Campo Distante 101</Indirizzo>",
+              "<Indirizzo>Piazza Campo Distante 99</Indirizzo>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
             .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")

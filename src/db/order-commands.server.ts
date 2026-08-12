@@ -119,19 +119,31 @@ function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
   return Boolean(normalizedLeft && normalizedLeft === normalizedIdentityPart(right));
 }
 
-function sharesStreetNumber(left: unknown, right: unknown, ...postalCodes: unknown[]) {
+function streetNumbers(value: unknown, ...postalCodes: unknown[]) {
   const excluded = new Set(
     postalCodes.map((value) => normalizedIdentityPart(value).replaceAll(" ", "")).filter(Boolean),
   );
-  const leftNumbers = new Set(
-    (normalizedIdentityPart(left).match(/\b\d+[a-z]?\b/g) ?? []).filter(
+  return new Set(
+    (normalizedIdentityPart(value).match(/\b\d+[a-z]?\b/g) ?? []).filter(
       (number) => !excluded.has(number),
     ),
   );
-  const rightNumbers = (normalizedIdentityPart(right).match(/\b\d+[a-z]?\b/g) ?? []).filter(
-    (number) => !excluded.has(number),
+}
+
+function sharesStreetNumber(left: unknown, right: unknown, ...postalCodes: unknown[]) {
+  const leftNumbers = streetNumbers(left, ...postalCodes);
+  const rightNumbers = streetNumbers(right, ...postalCodes);
+  return leftNumbers.size > 0 && [...rightNumbers].some((number) => leftNumbers.has(number));
+}
+
+function hasConflictingStreetNumbers(left: unknown, right: unknown, ...postalCodes: unknown[]) {
+  const leftNumbers = streetNumbers(left, ...postalCodes);
+  const rightNumbers = streetNumbers(right, ...postalCodes);
+  return (
+    leftNumbers.size > 0 &&
+    rightNumbers.size > 0 &&
+    ![...rightNumbers].some((number) => leftNumbers.has(number))
   );
-  return leftNumbers.size > 0 && rightNumbers.some((number) => leftNumbers.has(number));
 }
 
 const genericStreetTokens = new Set(["civico", "corso", "piazza", "snc", "strada", "via", "viale"]);
@@ -168,7 +180,13 @@ function hasSupportingAddressEvidence(
       matchingParts.some(Boolean)) ||
     (sharesStreetName(customerAddress.line1, recipientAddress.line1) &&
       sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode) &&
-      sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city))
+      sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city) &&
+      !hasConflictingStreetNumbers(
+        customerAddress.line1,
+        recipientAddress.line1,
+        customerAddress.postalCode,
+        recipientAddress.postalCode,
+      ))
   );
 }
 
