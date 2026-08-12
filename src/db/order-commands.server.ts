@@ -120,14 +120,17 @@ function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
 }
 
 const genericStreetTokens = new Set(["civico", "corso", "piazza", "snc", "strada", "via", "viale"]);
-const streetTypeTokens = new Set(["corso", "piazza", "strada", "via", "viale"]);
 
 function sharesStreetName(left: unknown, right: unknown) {
   const leftIdentityTokens = [...identityTokens(left)];
   const rightIdentityTokens = [...identityTokens(right)];
-  const leftStreetType = leftIdentityTokens.find((token) => streetTypeTokens.has(token));
-  const rightStreetType = rightIdentityTokens.find((token) => streetTypeTokens.has(token));
-  if (leftStreetType && rightStreetType && leftStreetType !== rightStreetType) return false;
+  const leftStreetKind = leftIdentityTokens.find(
+    (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
+  );
+  const rightStreetKind = rightIdentityTokens.find(
+    (token) => !/^\d/.test(token) && !["civico", "snc"].includes(token),
+  );
+  if (!leftStreetKind || leftStreetKind !== rightStreetKind) return false;
   const leftTokens = new Set(
     leftIdentityTokens.filter(
       (token) => !/^\d/.test(token) && token.length >= 3 && !genericStreetTokens.has(token),
