@@ -1,0 +1,86 @@
+name: Production artifact
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-artifact-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  impact:
+    name: Classifica artefatto
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.impact.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - id: impact
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" -- scripts/change-impact.mjs | grep -Fxq scripts/change-impact.mjs; then
+            echo "image=true" >> "$GITHUB_OUTPUT"
+          else
+            node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
+  image:
+    name: Artifact Production candidate
+    if: needs.impact.outputs.image == 'true'
+    needs: impact
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Costruisci e pubblica l'immagine ARM64 una volta sola
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          build-args: APP_COMMIT_SHA=${{ github.sha }}
+          tags: ghcr.io/max23468/hub-fatture:sha-${{ github.sha }}
+          cache-from: type=gha,scope=hub-fatture-production
+          cache-to: type=gha,mode=max,scope=hub-fatture-production
+      - name: Blocca vulnerabilità alte e critiche
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/max23468/hub-fatture@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+      - name: Attesta il digest pubblicato
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3.0.0
+        with:
+          subject-name: ghcr.io/max23468/hub-fatture
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

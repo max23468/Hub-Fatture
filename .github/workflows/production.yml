@@ -10,30 +10,46 @@ on:
 
 permissions:
   contents: read
+  deployments: read
 
 concurrency:
   group: hub-fatture-production
   cancel-in-progress: false
 
 jobs:
-  image:
-    name: Build, scan e attestazione
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+  candidate:
+    name: Classifica candidato Production
+    runs-on: ubuntu-latest
+    environment:
+      name: Production
+      url: https://fatture.opik.net
     permissions:
-      attestations: write
       contents: read
-      id-token: write
-      packages: write
+      deployments: write
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
       commit: ${{ steps.candidate.outputs.commit }}
       version: ${{ steps.candidate.outputs.version }}
+      base: ${{ steps.impact.outputs.base }}
+      check_base: ${{ steps.impact.outputs.check_base }}
+      rollback: ${{ steps.impact.outputs.rollback }}
+      runtime: ${{ steps.impact.outputs.runtime }}
+      image: ${{ steps.impact.outputs.image }}
+      backup: ${{ steps.impact.outputs.migration_storage }}
+      lane: ${{ steps.impact.outputs.lane }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - name: Conserva il tooling della revisione fidata
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/hub-fatture-production-tooling"
+          install -m 600 scripts/change-impact.mjs scripts/commit-checks.mjs \
+            "$RUNNER_TEMP/hub-fatture-production-tooling/"
       - name: Verifica candidato già presente in main
         id: candidate
         env:
@@ -46,13 +62,189 @@ jobs:
           git checkout --detach "$CANDIDATE"
           echo "commit=$CANDIDATE" >> "$GITHUB_OUTPUT"
           echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+      - name: Prepara accesso SSH per la baseline live
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.PRODUCTION_SSH_HOST_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Trova l'ultimo commit distribuito con successo
+        id: impact
+        env:
+          CANDIDATE: ${{ steps.candidate.outputs.commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
+        run: |
+          find_successful_base() {
+            while IFS=$'\t' read -r deployment sha; do
+              state=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses?per_page=1" --jq '.[0].state // ""')
+              if [ "$state" = "success" ]; then
+                printf '%s\n' "$sha"
+                return
+              fi
+            done < <(gh api "$1" --jq '.[] | [.id, .sha] | @tsv')
+          }
+          github_base=$(find_successful_base "repos/$GITHUB_REPOSITORY/deployments?environment=Production&task=hub-fatture-production&per_page=100")
+          # La ricevuta sulla VPS è autorevole anche se GitHub ha perso lo stato terminale.
+          # shellcheck disable=SC2029
+          live_base=$(ssh "$SSH_USER@$SSH_HOST" 'if sudo test -f /opt/hub-fatture/data/operations/deploy-receipt.json; then sudo jq -er .commit /opt/hub-fatture/data/operations/deploy-receipt.json; fi')
+          if [ -n "$live_base" ]; then
+            printf '%s' "$live_base" | grep -Eq '^[0-9a-f]{40}$'
+            git cat-file -e "$live_base^{commit}"
+            base=$live_base
+            if [ "$github_base" != "$live_base" ]; then
+              deployment=$(jq -n --arg ref "$live_base" '{ref:$ref,environment:"Production",task:"hub-fatture-production",description:"Riconciliazione da ricevuta live verificata",auto_merge:false,required_contexts:[]}' | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+              gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -X POST -f state=success -f environment=Production -f environment_url=https://fatture.opik.net -f description="Baseline riconciliata dalla ricevuta live" >/dev/null
+            fi
+          else
+            base=$github_base
+          fi
+          if [ -z "$base" ]; then
+            base=0000000000000000000000000000000000000000
+            check_base=$base
+            rollback=false
+            impact_base=$base
+            impact_head=$CANDIDATE
+          elif git merge-base --is-ancestor "$base" "$CANDIDATE"; then
+            check_base=$base
+            rollback=false
+            impact_base=$base
+            impact_head=$CANDIDATE
+          elif git merge-base --is-ancestor "$CANDIDATE" "$base"; then
+            check_base=0000000000000000000000000000000000000000
+            rollback=true
+            impact_base=$CANDIDATE
+            impact_head=$base
+          else
+            echo "Il candidato e il deployment corrente non appartengono alla stessa linea di main." >&2
+            exit 1
+          fi
+          {
+            echo "base=$base"
+            echo "check_base=$check_base"
+            echo "rollback=$rollback"
+            node "$RUNNER_TEMP/hub-fatture-production-tooling/change-impact.mjs" "$impact_base" "$impact_head"
+          } >> "$GITHUB_OUTPUT"
+      - name: Riepiloga il perimetro Production
+        env:
+          LANE: ${{ steps.impact.outputs.lane }}
+          RUNTIME: ${{ steps.impact.outputs.runtime }}
+        run: |
+          echo "Corsia dal commit distribuito - $LANE" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RUNTIME" != "true" ]; then
+            echo "Nessun artefatto runtime modificato: deploy non applicabile." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  checks:
+    name: Gate exact-SHA
+    if: needs.candidate.outputs.runtime == 'true'
+    needs: candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      checks: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Conserva il tooling della revisione fidata
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/hub-fatture-production-tooling"
+          install -m 600 scripts/change-impact.mjs scripts/commit-checks.mjs \
+            "$RUNNER_TEMP/hub-fatture-production-tooling/"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - name: Attendi i gate del commit esatto
+        env:
+          BASE: ${{ needs.candidate.outputs.check_base }}
+          CANDIDATE: ${{ needs.candidate.outputs.commit }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node "$RUNNER_TEMP/hub-fatture-production-tooling/commit-checks.mjs"
+
+  image:
+    name: Build, scan e attestazione
+    if: needs.candidate.outputs.image == 'true'
+    needs: candidate
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    outputs:
+      digest: ${{ steps.reuse.outputs.digest || steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.commit }}
+          persist-credentials: false
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pubblica una sola immagine ARM64
+      - name: Attendi e riusa l'artefatto verificato costruito al merge
+        id: reuse
+        env:
+          CANDIDATE: ${{ needs.candidate.outputs.commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ROLLBACK: ${{ needs.candidate.outputs.rollback }}
+        run: |
+          artifact_run=
+          artifact_done=false
+          if [ "$ROLLBACK" = true ]; then
+            artifact_done=true
+          else
+            for _ in $(seq 1 120); do
+              if [ -z "$artifact_run" ]; then
+                artifact_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/production-artifact.yml/runs?head_sha=$CANDIDATE&event=push&per_page=10" --jq '.workflow_runs | sort_by(.created_at) | last | .id // empty')
+              fi
+              if [ -n "$artifact_run" ]; then
+                read -r status conclusion < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run" --jq '[.status, (.conclusion // "")] | @tsv')
+                if [ "$status" = completed ]; then
+                  test "$conclusion" = success || {
+                    echo "Il workflow Production artifact $artifact_run è terminato con $conclusion." >&2
+                    exit 1
+                  }
+                  artifact_done=true
+                  break
+                fi
+              fi
+              sleep 10
+            done
+          fi
+          test "$artifact_done" = true || {
+            echo "Il workflow Production artifact non si è concluso entro venti minuti." >&2
+            exit 1
+          }
+          tag="ghcr.io/max23468/hub-fatture:sha-$CANDIDATE"
+          digest=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+          if printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' \
+            && gh attestation verify "oci://ghcr.io/max23468/hub-fatture@$digest" --repo "$GITHUB_REPOSITORY" >/dev/null; then
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+            echo "reused=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "reused=false" >> "$GITHUB_OUTPUT"
+      - name: Pubblica una sola immagine ARM64 come fallback
+        if: steps.reuse.outputs.reused != 'true'
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -60,9 +252,12 @@ jobs:
           platforms: linux/arm64
           push: true
           provenance: false
-          build-args: APP_COMMIT_SHA=${{ steps.candidate.outputs.commit }}
-          tags: ghcr.io/max23468/hub-fatture:sha-${{ steps.candidate.outputs.commit }}
+          build-args: APP_COMMIT_SHA=${{ needs.candidate.outputs.commit }}
+          tags: ghcr.io/max23468/hub-fatture:sha-${{ needs.candidate.outputs.commit }}
+          cache-from: type=gha,scope=hub-fatture-production
+          cache-to: type=gha,mode=max,scope=hub-fatture-production
       - name: Blocca vulnerabilità alte e critiche
+        if: steps.reuse.outputs.reused != 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ghcr.io/max23468/hub-fatture@${{ steps.build.outputs.digest }}
@@ -71,6 +266,7 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
       - name: Attesta il digest pubblicato
+        if: steps.reuse.outputs.reused != 'true'
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3.0.0
         with:
           subject-name: ghcr.io/max23468/hub-fatture
@@ -79,7 +275,12 @@ jobs:
 
   deploy:
     name: Deploy e readback
-    needs: image
+    if: >-
+      always() &&
+      needs.candidate.outputs.runtime == 'true' &&
+      needs.checks.result == 'success' &&
+      needs.image.result == 'success'
+    needs: [candidate, checks, image]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -88,12 +289,13 @@ jobs:
     permissions:
       attestations: read
       contents: read
+      deployments: write
       id-token: write
       packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ needs.image.outputs.commit }}
+          ref: ${{ needs.candidate.outputs.commit }}
           persist-credentials: false
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -115,23 +317,65 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
+      - name: Blocca rollback con schema divergente
+        env:
+          ROLLBACK: ${{ needs.candidate.outputs.rollback }}
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
+        run: |
+          if [ "$ROLLBACK" = true ]; then
+            candidate_schema=$(find migrations -maxdepth 1 -type f -name '*.sql' -print | sed 's#^.*/##' | sort | tail -n 1)
+            test -n "$candidate_schema"
+            # shellcheck disable=SC2029
+            deployed_schema=$(ssh "$SSH_USER@$SSH_HOST" "sudo jq -er .schema /opt/hub-fatture/data/operations/deploy-receipt.json")
+            test "$candidate_schema" = "$deployed_schema" || {
+              echo "Rollback vietato: lo schema Production è avanzato rispetto al candidato." >&2
+              exit 1
+            }
+          fi
+      - name: Crea il deployment per il candidato esatto
+        id: deployment
+        env:
+          CANDIDATE: ${{ needs.candidate.outputs.commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          deployment=$(jq -n --arg ref "$CANDIDATE" '{ref:$ref,environment:"Production",task:"hub-fatture-production",description:"Hub Fatture Production exact candidate",auto_merge:false,required_contexts:[]}' | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          echo "id=$deployment" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -X POST -f state=in_progress -f environment=Production -f environment_url=https://fatture.opik.net -f description="Deploy exact-SHA in corso" >/dev/null
       - name: Installa artefatti e distribuisci il digest
         env:
-          COMMIT: ${{ needs.image.outputs.commit }}
+          BACKUP_REQUIRED: ${{ needs.candidate.outputs.backup }}
+          COMMIT: ${{ needs.candidate.outputs.commit }}
           DIGEST: ${{ needs.image.outputs.digest }}
-          VERSION: ${{ needs.image.outputs.version }}
+          VERSION: ${{ needs.candidate.outputs.version }}
           SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
           SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
         run: |
           target="/tmp/hub-fatture-$COMMIT"
+          # shellcheck disable=SC2029
           ssh "$SSH_USER@$SSH_HOST" "install -d -m 700 '$target'"
           scp compose.production.yaml ops/Caddyfile.production ops/systemd/* \
             scripts/backup.sh scripts/monitor-local.sh scripts/restore.sh scripts/production-*.sh \
             scripts/read-env.sh \
             "$SSH_USER@$SSH_HOST:$target/"
-          ssh "$SSH_USER@$SSH_HOST" "sudo chmod 750 '$target/'*.sh && sudo install -m 640 '$target/compose.production.yaml' /opt/hub-fatture/compose.yaml.next && sudo install -m 640 '$target/Caddyfile.production' /opt/hub-fatture/Caddyfile.next && if sudo test -f /opt/hub-fatture/.deploy.env && sudo test -f /opt/hub-fatture/data/operations/deploy-receipt.json; then sudo env HUB_FATTURE_ROOT=/opt/hub-fatture /opt/hub-fatture/scripts/backup.sh pre-deploy; fi && sudo env HUB_FATTURE_CANDIDATE_DIR='$target' '$target/production-deploy.sh' '$DIGEST' '$COMMIT' '$VERSION' && sudo install -m 750 '$target/backup.sh' '$target/monitor-local.sh' '$target/read-env.sh' '$target/restore.sh' '$target/production-preflight.sh' '$target/production-readback.sh' '$target/production-release-candidate-readback.sh' '$target/production-deploy.sh' /opt/hub-fatture/scripts/ && sudo install -m 644 '$target/'*.service '$target/'*.timer /etc/systemd/system/ && sudo /opt/hub-fatture/scripts/backup.sh deploy && sudo systemctl daemon-reload && sudo systemctl enable --now hub-fatture-backup.timer hub-fatture-monitor.timer && sudo /opt/hub-fatture/scripts/monitor-local.sh && rm -rf '$target'"
+          # shellcheck disable=SC2029
+          ssh "$SSH_USER@$SSH_HOST" "sudo chmod 750 '$target/'*.sh && sudo install -m 640 '$target/compose.production.yaml' /opt/hub-fatture/compose.yaml.next && sudo install -m 640 '$target/Caddyfile.production' /opt/hub-fatture/Caddyfile.next && if [ '$BACKUP_REQUIRED' = true ] && sudo test -f /opt/hub-fatture/.deploy.env && sudo test -f /opt/hub-fatture/data/operations/deploy-receipt.json; then sudo env HUB_FATTURE_ROOT=/opt/hub-fatture /opt/hub-fatture/scripts/backup.sh pre-deploy; elif sudo test -f /opt/hub-fatture/.deploy.env; then sudo jq -e '.status == \"ok\" and ((.completedAt | fromdateiso8601) >= (now - 129600))' /opt/hub-fatture/data/operations/backup-receipt.json >/dev/null; fi && sudo env HUB_FATTURE_CANDIDATE_DIR='$target' '$target/production-deploy.sh' '$DIGEST' '$COMMIT' '$VERSION' && sudo install -m 750 '$target/backup.sh' '$target/monitor-local.sh' '$target/read-env.sh' '$target/restore.sh' '$target/production-preflight.sh' '$target/production-readback.sh' '$target/production-release-candidate-readback.sh' '$target/production-deploy.sh' /opt/hub-fatture/scripts/ && sudo install -m 644 '$target/'*.service '$target/'*.timer /etc/systemd/system/ && if [ '$BACKUP_REQUIRED' = true ]; then sudo /opt/hub-fatture/scripts/backup.sh deploy; fi && sudo systemctl daemon-reload && sudo systemctl enable --now hub-fatture-backup.timer hub-fatture-monitor.timer && sudo /opt/hub-fatture/scripts/monitor-local.sh && rm -rf '$target'"
       - name: Ricevuta finale
         env:
           SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
           SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
         run: ssh "$SSH_USER@$SSH_HOST" "sudo cat /opt/hub-fatture/data/operations/deploy-receipt.json"
+      - name: Registra il candidato distribuito con successo
+        env:
+          DEPLOYMENT: ${{ steps.deployment.outputs.id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for delay in 0 2 5 10 20 30; do
+            sleep "$delay"
+            if gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT/statuses" -X POST -f state=success -f environment=Production -f environment_url=https://fatture.opik.net -f description="Deploy exact-SHA verificato" >/dev/null; then
+              exit 0
+            fi
+            echo "Registrazione terminale non riuscita; nuovo tentativo tra poco." >&2
+          done
+          echo "Deploy live riuscito ma stato GitHub non registrato: la prossima esecuzione riconcilierà la ricevuta VPS." >&2
+          exit 1

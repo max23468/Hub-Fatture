@@ -23,7 +23,22 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          install: true
+          cache: true
+      - id: impact
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" -- scripts/change-impact.mjs | grep -Fxq scripts/change-impact.mjs; then
+            echo "react=true" >> "$GITHUB_OUTPUT"
+          else
+            node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          fi
       - id: doctor
+        if: steps.impact.outputs.react == 'true'
         uses: millionco/react-doctor@01820bb4fd4d0a4aebcd8df2b2a143a098649cb2 # v2.2.8
         with:
           version: latest
@@ -32,3 +47,5 @@ jobs:
           comment: "false"
           review-comments: "true"
           commit-status: "false"
+      - if: steps.impact.outputs.react != 'true'
+        run: echo "React Doctor non applicabile a questa corsia."

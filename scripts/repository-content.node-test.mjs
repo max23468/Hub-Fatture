@@ -203,12 +203,13 @@ test("lo stack Development mantiene nome e riavvio stabili", async () => {
 });
 
 test("la baseline Production usa un solo digest senza esporre PostgreSQL", async () => {
-  const [compose, dockerfile, caddy, workflow] = await Promise.all(
+  const [compose, dockerfile, caddy, workflow, artifact] = await Promise.all(
     [
       "compose.production.yaml",
       "Dockerfile",
       "ops/Caddyfile.production",
       ".github/workflows/production.yml",
+      ".github/workflows/production-artifact.yml",
     ].map((file) => readFile(path.join(root, file), "utf8")),
   );
   assert.equal(compose.match(/^    image: \$\{APP_IMAGE:\?\}$/gm)?.length, 2);
@@ -233,23 +234,120 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(caddy, /fatture\.opik\.net/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /cancel-in-progress: false/);
-  assert.match(workflow, /docker\/setup-buildx-action@[0-9a-f]{40} # v4\./);
-  assert.match(workflow, /docker\/login-action@[0-9a-f]{40} # v4\./);
-  assert.match(workflow, /docker\/build-push-action@[0-9a-f]{40} # v7\./);
+  assert.match(artifact, /docker\/setup-buildx-action@[0-9a-f]{40} # v4\./);
+  assert.match(artifact, /docker\/login-action@[0-9a-f]{40} # v4\./);
+  assert.match(artifact, /docker\/build-push-action@[0-9a-f]{40} # v7\./);
   assert.match(workflow, /git checkout --detach "\$CANDIDATE"/);
-  assert.match(workflow, /ref: \$\{\{ needs\.image\.outputs\.commit \}\}/);
-  assert.match(workflow, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
+  assert.match(workflow, /ref: \$\{\{ needs\.candidate\.outputs\.commit \}\}/);
+  assert.match(artifact, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
+  assert.match(
+    workflow,
+    /node "\$RUNNER_TEMP\/hub-fatture-production-tooling\/commit-checks\.mjs"/,
+  );
+  assert.match(workflow, /install -m 600 scripts\/change-impact\.mjs scripts\/commit-checks\.mjs/);
+  assert.match(
+    workflow,
+    /node "\$RUNNER_TEMP\/hub-fatture-production-tooling\/change-impact\.mjs"/,
+  );
+  assert.match(workflow, /deployments\?environment=Production&task=hub-fatture-production/);
+  assert.doesNotMatch(
+    workflow,
+    /deployments\?environment=Production&per_page=100/,
+    "una baseline legacy non prova quale SHA sia stato realmente installato",
+  );
+  assert.match(workflow, /task:"hub-fatture-production"/);
+  assert.match(workflow, /deploy-receipt\.json; then sudo jq -er \.commit/);
+  assert.match(workflow, /Riconciliazione da ricevuta live verificata/);
+  assert.match(workflow, /for delay in 0 2 5 10 20 30/);
+  assert.match(workflow, /-f state=success/);
+  assert.match(workflow, /BASE: \$\{\{ needs\.candidate\.outputs\.check_base \}\}/);
+  assert.match(workflow, /git merge-base --is-ancestor "\$base" "\$CANDIDATE"/);
+  assert.match(workflow, /git merge-base --is-ancestor "\$CANDIDATE" "\$base"/);
+  assert.match(
+    workflow,
+    /git merge-base --is-ancestor "\$CANDIDATE" "\$base"; then\s+check_base=0{40}/,
+  );
+  assert.match(workflow, /impact_base=\$CANDIDATE/);
+  assert.match(workflow, /ROLLBACK: \$\{\{ needs\.candidate\.outputs\.rollback \}\}/);
+  assert.match(workflow, /if \[ "\$ROLLBACK" = true \]/);
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.match(workflow, /needs\.candidate\.outputs\.runtime == 'true'/);
   assert.match(
     workflow,
     /IMAGE: oci:\/\/ghcr\.io\/max23468\/hub-fatture@\$\{\{ needs\.image\.outputs\.digest \}\}/,
   );
   const deploy = workflow.slice(workflow.indexOf("\n  deploy:"));
+  const image = workflow.slice(workflow.indexOf("\n  image:"), workflow.indexOf("\n  deploy:"));
+  assert.match(image, /actions: read/);
+  assert.match(image, /actions\/workflows\/production-artifact\.yml\/runs/);
+  assert.match(image, /test "\$conclusion" = success/);
   assert.match(deploy, /packages: read/);
   const registryLogin = deploy.indexOf("docker/login-action@");
   assert.notEqual(registryLogin, -1);
   assert.ok(registryLogin < deploy.indexOf("Verifica attestazione"));
+  const schemaPreflight = deploy.indexOf("Blocca rollback con schema divergente");
+  const exactDeployment = deploy.indexOf("Crea il deployment per il candidato esatto");
+  const installCandidate = deploy.indexOf("Installa artefatti e distribuisci il digest");
+  assert.notEqual(schemaPreflight, -1);
+  assert.ok(schemaPreflight < exactDeployment);
+  assert.ok(exactDeployment < installCandidate);
+  assert.match(deploy, /candidate_schema.*deployed_schema/s);
+  assert.match(deploy, /test "\$candidate_schema" = "\$deployed_schema"/);
   assert.match(workflow, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
+  assert.match(workflow, /if \[ '\$BACKUP_REQUIRED' = true \]/);
   assert.match(workflow, /backup\.sh deploy/);
+  assert.match(workflow, /backup-receipt\.json/);
+});
+
+test("i contesti required restano stabili mentre i gate costosi sono proporzionati", async () => {
+  const [ci, codeql, dependencies, foundation, react] = await Promise.all(
+    [
+      ".github/workflows/ci.yml",
+      ".github/workflows/codeql.yml",
+      ".github/workflows/dependency-review.yml",
+      ".github/workflows/foundation.yml",
+      ".github/workflows/react-doctor.yml",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
+  );
+  assert.match(ci, /\n  gate:\n    name: CI\n    if: always\(\)/);
+  assert.match(ci, /name: PostgreSQL e migrazioni\n    if: needs\.impact\.outputs\.database/);
+  assert.match(ci, /name: E2E Chromium\n    if: needs\.impact\.outputs\.e2e/);
+  const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
+  assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npm run test:e2e"));
+  assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
+  assert.match(codeql, /if: steps\.impact\.outputs\.standard == 'true'/);
+  assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
+  assert.match(foundation, /if: steps\.impact\.outputs\.image == 'true'/);
+  assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
+});
+
+test("il job PostgreSQL installa il validatore XML usato dalle suite DB", async () => {
+  const workflow = await readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
+  const database = workflow.slice(
+    workflow.indexOf("\n  database:"),
+    workflow.indexOf("\n  security:"),
+  );
+  assert.match(database, /apt-get install --yes libxml2-utils/);
+  assert.match(database, /npm run test:db/);
+});
+
+test("la modifica del classificatore forza i gate senza eseguirlo come autorità", async () => {
+  const workflows = [
+    "ci.yml",
+    "dependency-review.yml",
+    "codeql.yml",
+    "react-doctor.yml",
+    "foundation.yml",
+    "production-artifact.yml",
+  ];
+  for (const name of workflows) {
+    const workflow = await readFile(path.join(root, ".github", "workflows", name), "utf8");
+    assert.match(
+      workflow,
+      /git diff --name-only --no-renames "\$BASE_SHA" "\$HEAD_SHA" -- scripts\/change-impact\.mjs/,
+      `${name} deve rilevare il classificatore senza fidarsi del suo output`,
+    );
+  }
 });
 
 test("gli script Production sono sintatticamente validi e conservano i gate di continuità", async () => {
