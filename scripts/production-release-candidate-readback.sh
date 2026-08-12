@@ -12,12 +12,16 @@ state=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ex
       (SELECT count(*) FROM orders
        WHERE coalesce((normalized_snapshot_json ->> 'historical')::boolean, false)
          AND historical_reconciliation_outcome IS NULL),
-      (SELECT count(*) FROM connections
-       WHERE status = 'CONNECTED'
-         AND NOT EXISTS (
-           SELECT 1 FROM sync_cursors
-           WHERE sync_cursors.provider = connections.provider
-             AND sync_cursors.stream = 'history_import')),
+      (SELECT count(*) FROM (VALUES ('SHOPIFY'), ('EBAY')) AS expected(provider)
+       WHERE NOT EXISTS (
+         SELECT 1 FROM connections
+         WHERE connections.provider = expected.provider
+           AND connections.environment = 'PRODUCTION'
+           AND connections.status = 'CONNECTED'
+           AND EXISTS (
+             SELECT 1 FROM sync_cursors
+             WHERE sync_cursors.provider = connections.provider
+               AND sync_cursors.stream = 'history_import'))),
       (SELECT count(*) FROM aruba_batches
        WHERE status NOT IN ('RECONCILED', 'CANCELLED')),
       (SELECT count(*) FROM aruba_send_permits
