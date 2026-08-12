@@ -1985,6 +1985,11 @@ Valori di routine da calibrare:
 
 Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify ed eBay. Per Aruba non simulare un polling headless: mostrare l'età dell'ultimo readback e proporre l'avvio dell'helper quando esistono documenti non conclusi.
 
+Quando una correzione del mapper richiede di rileggere ordini già importati, una migrazione
+append-only riporta il cursore `orders` a poco prima dell'ordine più remoto interessato e
+rende la connessione immediatamente schedulabile. Il worker usa il normale import con upsert:
+un job già pendente o in esecuzione resta unico e il replay non duplica ordini.
+
 ### 16.4 Registro errori e riconciliazione
 
 Definire un registro chiuso di codici stabili, raggruppato almeno per `AUTH`, `VALIDATION`, `CONFLICT`, `PROVIDER`, `NETWORK`, `PARSING`, `STORAGE`, `MIGRATION` e `UNKNOWN_REMOTE_STATE`. Ogni codice specifica:

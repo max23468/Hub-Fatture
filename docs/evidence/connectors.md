@@ -25,6 +25,8 @@ Le fixture versionate sono sintetiche e anonimizzate. Il readback Production tra
 
 Un readback Production sanitizzato ha inoltre riprodotto la causa dell'assenza dei dati fiscali nell'import iniziale: gli stessi dettagli ordine non esponevano `buyer.taxIdentifier` senza `X-EBAY-C-MARKETPLACE-ID`, mentre con l'header `EBAY_IT` lo esponevano per gli ordini italiani. Il connettore ricava quindi l'header dal marketplace di inserzione del riepilogo e rifiuta riepiloghi senza un unico valore valido.
 
+La migrazione append-only `021_fiscal_identifier_backfill.sql` riporta una sola volta i cursori incrementali a prima degli ordini già importati e rende le relative connessioni subito schedulabili. Il worker esegue quindi automaticamente il riallineamento con il normale upsert idempotente, senza accodare un secondo job se ne esiste già uno pendente o in esecuzione.
+
 ## Invarianti di sicurezza
 
 - I webhook Shopify sono associati al negozio configurato; l'identità persistita deriva dall'hash del corpo firmato, la forma del payload distingue i topic privacy e topic e payload non possono cambiare durante un replay.
