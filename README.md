@@ -39,11 +39,9 @@ L'ambiente locale accetta indifferentemente `localhost` e `127.0.0.1`; in Produc
 
 I connettori richiedono una chiave casuale di 32 byte codificata Base64 URL-safe, le credenziali dell'app Shopify dedicata e il keyset eBay `botCF`. I soli nomi delle variabili sono elencati in `.env.example`; token e secret restano nel secret store. La configurazione e i gate osservabili sono descritti nell'[evidenza connettori](docs/evidence/connectors.md).
 
-Per sviluppare l'app Shopify dedicata sullo store `SyncBay Dev`, usa lo stesso database e la stessa chiave persistenti dello stack:
-
-```sh
-mise exec -- npm run dev:shopify
-```
+Shopify è collegato soltanto in Production al negozio Numisleo. Development usa fixture e
+contract test sintetici e non avvia Shopify CLI contro l'identità Production, così un tunnel
+locale non può modificare URL, redirect o webhook dell'app attiva.
 
 Prima di una futura scrittura remota, l'adapter del provider deve rilevare identità e target e passarli al confronto fail-closed:
 

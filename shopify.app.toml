@@ -30,5 +30,4 @@ scopes = "read_customers,read_fulfillments,read_orders"
 redirect_urls = ["https://fatture.opik.net/integrations/shopify/callback"]
 
 [build]
-automatically_update_urls_on_dev = true
-dev_store_url = "syncbay-dev.myshopify.com"
+automatically_update_urls_on_dev = false
