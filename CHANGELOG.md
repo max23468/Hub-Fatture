@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- Le commissioni effettive sono sottratte dal totale fatturabile soltanto per transazioni Shopify Payments riuscite; PayPal, bonifici, metodi manuali ed eBay restano al lordo.
+- La regola è modificabile nelle Impostazioni e ricalcola in modo serializzato soltanto ordini e documenti ancora modificabili, mantenendo le fee osservate come dato immutabile.
+- Riconciliazione storica, comparatore, rimborsi e TD04 usano il totale coerente con la fattura emessa; gli override manuali rispettano il residuo attribuito a ciascun ordine senza alterare il rimborso lordo del provider.
+
 ## 0.3.1
 
 - Manifest della release allegato con il nome canonico `release-manifest.json`, senza modifiche al comportamento applicativo.
