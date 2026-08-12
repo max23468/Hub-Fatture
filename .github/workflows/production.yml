@@ -24,6 +24,8 @@ jobs:
       commit: ${{ steps.candidate.outputs.commit }}
       version: ${{ steps.candidate.outputs.version }}
       base: ${{ steps.impact.outputs.base }}
+      check_base: ${{ steps.impact.outputs.check_base }}
+      rollback: ${{ steps.impact.outputs.rollback }}
       runtime: ${{ steps.impact.outputs.runtime }}
       image: ${{ steps.impact.outputs.image }}
       backup: ${{ steps.impact.outputs.migration_storage }}
@@ -70,12 +72,30 @@ jobs:
           fi
           if [ -z "$base" ]; then
             base=0000000000000000000000000000000000000000
+            check_base=$base
+            rollback=false
+            impact_base=$base
+            impact_head=$CANDIDATE
+          elif git merge-base --is-ancestor "$base" "$CANDIDATE"; then
+            check_base=$base
+            rollback=false
+            impact_base=$base
+            impact_head=$CANDIDATE
+          elif git merge-base --is-ancestor "$CANDIDATE" "$base"; then
+            check_base=$CANDIDATE
+            rollback=true
+            impact_base=$CANDIDATE
+            impact_head=$base
           else
-            git cat-file -e "$base^{commit}"
-            git merge-base --is-ancestor "$base" "$CANDIDATE"
+            echo "Il candidato e il deployment corrente non appartengono alla stessa linea di main." >&2
+            exit 1
           fi
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-          node scripts/change-impact.mjs "$base" "$CANDIDATE" >> "$GITHUB_OUTPUT"
+          {
+            echo "base=$base"
+            echo "check_base=$check_base"
+            echo "rollback=$rollback"
+            node scripts/change-impact.mjs "$impact_base" "$impact_head"
+          } >> "$GITHUB_OUTPUT"
       - name: Riepiloga il perimetro Production
         env:
           LANE: ${{ steps.impact.outputs.lane }}
@@ -107,7 +127,7 @@ jobs:
           cache: true
       - name: Attendi i gate del commit esatto
         env:
-          BASE: ${{ needs.candidate.outputs.base }}
+          BASE: ${{ needs.candidate.outputs.check_base }}
           CANDIDATE: ${{ needs.candidate.outputs.commit }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/commit-checks.mjs
@@ -142,26 +162,31 @@ jobs:
         env:
           CANDIDATE: ${{ needs.candidate.outputs.commit }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ROLLBACK: ${{ needs.candidate.outputs.rollback }}
         run: |
           artifact_run=
           artifact_done=false
-          for _ in $(seq 1 120); do
-            if [ -z "$artifact_run" ]; then
-              artifact_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/production-artifact.yml/runs?head_sha=$CANDIDATE&event=push&per_page=10" --jq '.workflow_runs | sort_by(.created_at) | last | .id // empty')
-            fi
-            if [ -n "$artifact_run" ]; then
-              read -r status conclusion < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run" --jq '[.status, (.conclusion // "")] | @tsv')
-              if [ "$status" = completed ]; then
-                test "$conclusion" = success || {
-                  echo "Il workflow Production artifact $artifact_run è terminato con $conclusion." >&2
-                  exit 1
-                }
-                artifact_done=true
-                break
+          if [ "$ROLLBACK" = true ]; then
+            artifact_done=true
+          else
+            for _ in $(seq 1 120); do
+              if [ -z "$artifact_run" ]; then
+                artifact_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/production-artifact.yml/runs?head_sha=$CANDIDATE&event=push&per_page=10" --jq '.workflow_runs | sort_by(.created_at) | last | .id // empty')
               fi
-            fi
-            sleep 10
-          done
+              if [ -n "$artifact_run" ]; then
+                read -r status conclusion < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$artifact_run" --jq '[.status, (.conclusion // "")] | @tsv')
+                if [ "$status" = completed ]; then
+                  test "$conclusion" = success || {
+                    echo "Il workflow Production artifact $artifact_run è terminato con $conclusion." >&2
+                    exit 1
+                  }
+                  artifact_done=true
+                  break
+                fi
+              fi
+              sleep 10
+            done
+          fi
           test "$artifact_done" = true || {
             echo "Il workflow Production artifact non si è concluso entro venti minuti." >&2
             exit 1

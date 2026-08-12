@@ -26,6 +26,13 @@ distribuito termina senza richiedere approvazione Production. Se più PR runtime
 sono state assorbite in `main`, si distribuisce una sola volta il candidato
 finale.
 
+Un candidato precedente al deployment corrente è trattato esplicitamente come
+rollback deliberato: il workflow classifica le superfici rimosse, verifica i
+gate storici sul commit target e prova subito a riusare il relativo digest
+attestato, senza attendere il workflow artefatto di un nuovo merge. Il deployment
+exact-SHA riuscito diventa poi la nuova base. Restano validi i vincoli sullo
+schema descritti sotto.
+
 ## Deploy e readback
 
 Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, prepara Compose, Caddyfile e bundle operativo come candidati, esegue il pull per digest e attende gli health check. Gli script e le unità `systemd` candidate vengono installati soltanto dopo il readback riuscito, così un rollback continua a usare il bundle operativo precedente. Backup e deploy condividono lo stesso lock per l’intera fase critica. Per codice ordinario viene riletta una ricevuta giornaliera riuscita e recente; migrazioni o modifiche allo storage producono un backup aggiuntivo prima del deploy e uno dopo il readback. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Dopo il readback il workflow registra un deployment tecnico separato, marcato con lo SHA realmente installato: questo record, non lo SHA del workflow dispatch, diventa la base del diff successivo. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
@@ -41,7 +48,7 @@ Controlli conclusivi:
 
 ## Rollback
 
-Il rollback è applicativo: soltanto se lo schema è rimasto invariato, il deploy ripristina insieme `.deploy.env`, Compose e Caddyfile precedenti, ricrea i container e ripete il readback. Se lo schema è avanzato o non è rilevabile, il rollback automatico è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.
+Il rollback è applicativo: un workflow manuale può scegliere un commit precedente già contenuto in `main`; soltanto se lo schema è rimasto invariato, il deploy ripristina insieme applicazione, Compose e Caddyfile e ripete il readback. Lo script applica inoltre lo stesso ripristino automatico del bundle precedente quando fallisce il deploy in corso. Se lo schema è avanzato o non è rilevabile, il rollback è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.
 
 ## Provisioning e hardening
 

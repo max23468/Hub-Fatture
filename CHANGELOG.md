@@ -6,6 +6,7 @@
 - Deploy Production escluso per modifiche prive di impatto runtime, vincolato ai check cumulativi non mascherabili da no-op e registrato sul commit realmente installato.
 - Immagine Production costruita, analizzata e attestata una sola volta, poi riutilizzata dal deploy senza ricostruzioni divergenti.
 - Backup straordinario riservato alle modifiche di schema o storage; negli altri casi il deploy riusa un backup giornaliero ancora valido.
+- Rollback deliberato verso un commit precedente distinto dall'avanzamento cumulativo e vincolato al digest attestato del target.
 
 ## 0.3.4
 
