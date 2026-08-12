@@ -129,12 +129,13 @@ function hasSupportingAddressEvidence(
   customerAddress: Record<string, unknown>,
   recipientAddress: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"]["address"],
 ) {
-  return (
-    sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode) ||
-    sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city) ||
-    sameNonEmptyIdentityPart(customerAddress.province, recipientAddress.province) ||
-    sharesStreetNumber(customerAddress.line1, recipientAddress.line1)
-  );
+  const matchingParts = [
+    sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode),
+    sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city),
+    sameNonEmptyIdentityPart(customerAddress.province, recipientAddress.province),
+    sharesStreetNumber(customerAddress.line1, recipientAddress.line1),
+  ];
+  return matchingParts.filter(Boolean).length >= 2;
 }
 
 function containedNameWithSharedStreetNumber(
@@ -187,12 +188,13 @@ function matchesRecipientWithoutTaxId(
     (customerName) =>
       (sameTokenSet(customerName, recipientName) &&
         hasSupportingAddressEvidence(billingAddress, recipient.address)) ||
-      containedNameWithSharedStreetNumber(
+      (containedNameWithSharedStreetNumber(
         customerName,
         recipientName,
         billingAddress.line1,
         recipient.address.line1,
-      ),
+      ) &&
+        hasSupportingAddressEvidence(billingAddress, recipient.address)),
   );
 }
 

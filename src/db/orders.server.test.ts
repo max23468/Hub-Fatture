@@ -2213,7 +2213,6 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .replace("<Indirizzo>Via Cliente 2</Indirizzo>", "<Indirizzo>Corso Altrove 2</Indirizzo>")
         .replace("<CAP>00100</CAP>", "<CAP>10100</CAP>")
         .replace("<Comune>Roma</Comune>", "<Comune>Torino</Comune>")
-        .replace("<Provincia>RM</Provincia>", "<Provincia>TO</Provincia>")
         .replace(
           "<ModalitaPagamento>MP08</ModalitaPagamento>",
           "<ModalitaPagamento>MP05</ModalitaPagamento>",
@@ -2223,7 +2222,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ebayWithoutReferenceId,
       {
         outcome: "ALREADY_INVOICED",
-        reference: "Documento Aruba univoco: nome contenuto, civico, data e totale verificati",
+        reference: "Documento Aruba univoco: nome, civico, provincia, data e totale verificati",
         invoiceXml: historicalPaymentInvoice,
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-without-reference" },
@@ -2278,8 +2277,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         reorderedNameEbayId,
         {
           outcome: "ALREADY_INVOICED",
-          reference: "Documento Aruba con omonimo nello stesso Paese ma indirizzo diverso",
-          invoiceXml: Buffer.from(reorderedNameInvoice),
+          reference: "Documento Aruba con omonimo e sola provincia coincidente",
+          invoiceXml: Buffer.from(
+            reorderedNameInvoice.replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
+          ),
         },
         { id: 1, canApprove: true, requestId: "test-reject-reordered-name-only" },
       ),
