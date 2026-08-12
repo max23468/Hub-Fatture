@@ -53,7 +53,7 @@ test.afterAll(async () => {
 test.describe.configure({ mode: "serial" });
 
 test("configura i due account e accede con entrambi", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   await page.goto("/setup");
   await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
   await page.getByLabel("Password per Massimo").fill("password-massimo");
@@ -182,6 +182,44 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText(
     "Ordini di esempio caricati. Nuovi: 3; aggiornati: 0; meno recenti ignorati: 0.",
   );
+  const searchRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/ricerca.data" && url.searchParams.get("q") === "Mario Rossi") {
+      searchRequests.push(request.url());
+    }
+  });
+  await page.keyboard.press("Meta+k");
+  await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toBeVisible();
+  await page.getByLabel("Cerca ordini, fatture e clienti").fill("Mario Rossi");
+  await expect(page.getByRole("heading", { name: "Ordini" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Clienti" })).toBeVisible();
+  await expect.poll(() => searchRequests.length).toBe(1);
+  await page.waitForTimeout(500);
+  expect(searchRequests).toHaveLength(1);
+  await expect(page.getByRole("link", { name: /Mario Rossi/ }).last()).toBeVisible();
+  await page
+    .getByRole("link", { name: /Mario Rossi/ })
+    .last()
+    .click();
+  await expect(page.getByRole("heading", { name: "Mario Rossi" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dati cliente" })).toBeVisible();
+  await expect(page.getByText("mario.rossi@example.invalid")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ordini" })).toBeVisible();
+  await page.getByLabel("Apri la ricerca globale").click();
+  await page.getByLabel("Cerca ordini, fatture e clienti").fill("nessun risultato possibile");
+  await expect(page.getByText("Nessun risultato", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toHaveCount(0);
+  await expect(page.getByLabel("Apri la ricerca globale")).toBeFocused();
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.getByLabel("Apri la ricerca globale").click();
+  await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Esc", exact: true })).toBeHidden();
+  await expect(page.getByLabel("Cancella la ricerca")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expectPlainLanguage(page);
   await expect(page.getByRole("row")).toHaveCount(4);
   await expect(page.getByLabel(/^Data ordine/)).toHaveValue("");
