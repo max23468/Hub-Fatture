@@ -55,14 +55,19 @@ jobs:
           CANDIDATE: ${{ steps.candidate.outputs.commit }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          base=
-          while IFS=$'\t' read -r deployment sha; do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses?per_page=1" --jq '.[0].state // ""')
-            if [ "$state" = "success" ]; then
-              base=$sha
-              break
-            fi
-          done < <(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=Production&per_page=100" --jq '.[] | [.id, .sha] | @tsv')
+          find_successful_base() {
+            while IFS=$'\t' read -r deployment sha; do
+              state=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses?per_page=1" --jq '.[0].state // ""')
+              if [ "$state" = "success" ]; then
+                printf '%s\n' "$sha"
+                return
+              fi
+            done < <(gh api "$1" --jq '.[] | [.id, .sha] | @tsv')
+          }
+          base=$(find_successful_base "repos/$GITHUB_REPOSITORY/deployments?environment=Production&task=hub-fatture-production&per_page=100")
+          if [ -z "$base" ]; then
+            base=$(find_successful_base "repos/$GITHUB_REPOSITORY/deployments?environment=Production&per_page=100")
+          fi
           if [ -z "$base" ]; then
             base=0000000000000000000000000000000000000000
           else
@@ -94,6 +99,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.candidate.outputs.commit }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
@@ -101,6 +107,7 @@ jobs:
           cache: true
       - name: Attendi i gate del commit esatto
         env:
+          BASE: ${{ needs.candidate.outputs.base }}
           CANDIDATE: ${{ needs.candidate.outputs.commit }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/commit-checks.mjs
@@ -214,6 +221,7 @@ jobs:
     permissions:
       attestations: read
       contents: read
+      deployments: write
       id-token: write
       packages: read
     steps:
@@ -221,6 +229,15 @@ jobs:
         with:
           ref: ${{ needs.candidate.outputs.commit }}
           persist-credentials: false
+      - name: Crea il deployment per il candidato esatto
+        id: deployment
+        env:
+          CANDIDATE: ${{ needs.candidate.outputs.commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          deployment=$(jq -n --arg ref "$CANDIDATE" '{ref:$ref,environment:"Production",task:"hub-fatture-production",description:"Hub Fatture Production exact candidate",auto_merge:false,required_contexts:[]}' | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          echo "id=$deployment" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -X POST -f state=in_progress -f environment=Production -f environment_url=https://fatture.opik.net -f description="Deploy exact-SHA in corso" >/dev/null
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -264,3 +281,8 @@ jobs:
           SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
           SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
         run: ssh "$SSH_USER@$SSH_HOST" "sudo cat /opt/hub-fatture/data/operations/deploy-receipt.json"
+      - name: Registra il candidato distribuito con successo
+        env:
+          DEPLOYMENT: ${{ steps.deployment.outputs.id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT/statuses" -X POST -f state=success -f environment=Production -f environment_url=https://fatture.opik.net -f description="Deploy exact-SHA verificato" >/dev/null

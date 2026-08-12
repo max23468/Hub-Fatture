@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { checkConclusions } from "./commit-checks.mjs";
+import { checkConclusions, selectCheckTargets } from "./commit-checks.mjs";
 
 const success = (name, completedAt = "2026-08-12T12:00:00Z") => ({
   name,
@@ -38,4 +38,44 @@ test("usa l'esecuzione più recente dello stesso contesto", () => {
     ["CI"],
   );
   assert.deepEqual(state, { pending: [], failed: [] });
+});
+
+test("lega ogni gate all'ultimo commit del cumulativo che attiva la sua superficie", () => {
+  const runtime = "1".repeat(40);
+  const docs = "2".repeat(40);
+  const targets = selectCheckTargets(
+    [
+      {
+        sha: runtime,
+        impact: { standard: true, image: true, react: true },
+      },
+      {
+        sha: docs,
+        impact: { standard: false, image: false, react: false },
+      },
+    ],
+    docs,
+  );
+  assert.deepEqual(targets, {
+    CI: runtime,
+    Foundation: runtime,
+    "Analyze (javascript-typescript)": runtime,
+    "react-doctor": runtime,
+  });
+});
+
+test("un fix runtime successivo sostituisce i gate del candidato fallito", () => {
+  const failed = "1".repeat(40);
+  const fixed = "2".repeat(40);
+  const targets = selectCheckTargets(
+    [
+      { sha: failed, impact: { standard: true, image: true, react: false } },
+      { sha: fixed, impact: { standard: true, image: true, react: false } },
+    ],
+    fixed,
+  );
+  assert.equal(targets.CI, fixed);
+  assert.equal(targets.Foundation, fixed);
+  assert.equal(targets["Analyze (javascript-typescript)"], fixed);
+  assert.equal(targets["react-doctor"], fixed);
 });

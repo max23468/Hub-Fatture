@@ -16,6 +16,7 @@ const TEST_ONLY = [
 ];
 
 const RUNTIME = [
+  /^\.dockerignore$/,
   /^app\//,
   /^src\//,
   /^migrations\//,
@@ -29,7 +30,6 @@ const RUNTIME = [
 ];
 
 const KNOWN_TOOLING = [
-  /^\.dockerignore$/,
   /^\.env\.example$/,
   /^\.github\//,
   /^\.gitignore$/,

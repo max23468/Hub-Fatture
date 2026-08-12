@@ -57,6 +57,13 @@ test("i tsconfig che guidano la build server richiedono un nuovo artefatto", () 
   assert.equal(impact.e2e, true);
 });
 
+test("dockerignore è un input dell'immagine Production", () => {
+  const impact = classifyFiles([".dockerignore"]);
+  assert.equal(impact.runtime, true);
+  assert.equal(impact.image, true);
+  assert.equal(impact.e2e, true);
+});
+
 test("migrazioni e storage attivano DB, sicurezza e backup aggiuntivo", () => {
   const impact = classifyFiles(["migrations/019_example.sql", "src/db/document-storage.server.ts"]);
   assert.equal(impact.lane, "deploy");

@@ -241,7 +241,11 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /ref: \$\{\{ needs\.candidate\.outputs\.commit \}\}/);
   assert.match(artifact, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
   assert.match(workflow, /node scripts\/commit-checks\.mjs/);
-  assert.match(workflow, /deployments\?environment=Production/);
+  assert.match(workflow, /deployments\?environment=Production&task=hub-fatture-production/);
+  assert.match(workflow, /task:"hub-fatture-production"/);
+  assert.match(workflow, /-f state=success/);
+  assert.match(workflow, /BASE: \$\{\{ needs\.candidate\.outputs\.base \}\}/);
+  assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /needs\.candidate\.outputs\.runtime == 'true'/);
   assert.match(
     workflow,

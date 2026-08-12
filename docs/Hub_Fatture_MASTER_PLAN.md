@@ -2252,6 +2252,12 @@ job indipendenti e paralleli soltanto quando la relativa superficie è attiva.
 La decisione di deploy usa il diff cumulativo fra l'ultimo commit Production
 distribuito con successo e il candidato finale: una singola PR docs-only non può
 nascondere modifiche runtime precedenti non ancora distribuite.
+Ogni superficie usa il check dell'ultimo commit non distribuito che l'ha
+attivata: un check no-op su un commit successivo non può mascherare un fallimento,
+mentre un fix successivo della stessa superficie sostituisce correttamente il
+gate precedente. Dopo il readback riuscito, un deployment tecnico exact-SHA
+registra come nuova base il commit realmente installato, anche quando il workflow
+manuale è stato avviato da un HEAD di `main` più recente.
 
 La CI non esegue deploy automatici su merge. Action di terze parti vanno vincolate a commit completi, con permessi minimi, timeout e `concurrency` appropriata. I workflow di verifica possono cancellare run obsoleti; un deploy Production già avviato non viene cancellato da un nuovo push. Dependabot copre npm, GitHub Actions, Dockerfile e Compose e apre PR verso `main`; gli aggiornamenti npm e GitHub Actions minor/patch sono raggruppati e possono essere uniti automaticamente dopo i gate, mentre major, Docker e Compose restano deliberati manualmente.
 
