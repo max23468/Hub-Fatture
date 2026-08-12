@@ -634,11 +634,17 @@ function orderAmounts(input: OrderInput) {
   ) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
-  const totalsReconciled =
+  const linesReconciled =
     lineAmounts.reduce((sum, line) => sum + BigInt(line.grossAmount - line.discountAmount), 0n) +
       BigInt(shippingAmount) ===
-      BigInt(grossAmount) &&
+    BigInt(grossAmount);
+  // Nel Fulfillment API eBay gli importi del riepilogo pagamenti possono essere il
+  // netto venditore. Lo stato PAID resta autorevole, ma quel netto non va confrontato
+  // con il totale cliente; righe e spedizione continuano invece a doverlo ricostruire.
+  const paymentsReconciled =
+    input.provider === "EBAY" ||
     paymentAmounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(grossAmount);
+  const totalsReconciled = linesReconciled && paymentsReconciled;
   const shopifyPaymentsFeeAmount = shopifyPaymentsFeeAmounts.reduce(
     (sum, amount) => sum + amount,
     0,

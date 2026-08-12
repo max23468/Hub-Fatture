@@ -1163,6 +1163,35 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       totals_reconciled: "false",
     });
 
+    const ebayNetPayment = structuredClone(fixture[0]);
+    ebayNetPayment.provider = "EBAY";
+    ebayNetPayment.externalAccountId = "connected-ebay";
+    ebayNetPayment.externalOrderId = "ebay-order-net-seller-payment";
+    ebayNetPayment.externalCustomerId = "ebay-customer-net-seller-payment";
+    ebayNetPayment.displayNumber = "62341";
+    ebayNetPayment.createdAt = "2026-08-14T10:00:00Z";
+    ebayNetPayment.updatedAt = "2026-08-14T11:00:00Z";
+    ebayNetPayment.customer.taxIdentifiers[0].value = "LCCMSM65L18A937C";
+    ebayNetPayment.payments[0].externalPaymentId = "ebay-net-payment";
+    ebayNetPayment.payments[0].method = "EBAY";
+    ebayNetPayment.payments[0].amount = "106.73";
+    await orders.importOrders([ebayNetPayment], {
+      id: 1,
+      requestId: "test-ebay-net-seller-payment",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_cases.status,
+                  orders.normalized_snapshot_json ->> 'totalsReconciled' AS totals_reconciled
+             FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+             WHERE orders.external_order_id = $1`,
+          [ebayNetPayment.externalOrderId],
+        )
+      ).rows[0],
+      { status: "READY", totals_reconciled: "true" },
+    );
+
     const lowerCountry = {
       ...structuredClone(fixture[0]),
       externalOrderId: "shop-order-country-lower",
