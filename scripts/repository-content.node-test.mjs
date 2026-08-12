@@ -374,6 +374,10 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   const preDeployBackup = workflow.indexOf("'$target/backup.sh' pre-deploy");
   const candidateDeploy = workflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
   const operationalInstall = workflow.indexOf("sudo install -m 750 '$target/backup.sh'");
+  assert.match(
+    workflow.slice(operationalInstall),
+    /'\$target\/production-release-candidate-readback\.sh'.*\/opt\/hub-fatture\/scripts\//,
+  );
   assert.ok(
     preDeployBackup >= 0 &&
       preDeployBackup < candidateDeploy &&
