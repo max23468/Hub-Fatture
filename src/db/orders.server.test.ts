@@ -3296,22 +3296,40 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           euAddressWithUnitEbay.externalOrderId,
         ])
     ).rows[0]!.id;
+    const euAddressWithUnitInvoice = Buffer.from(
+      euPersonalInvoice
+        .toString()
+        .replace("FPR 0026/26", "FPR 0029/26")
+        .replaceAll("80.00", "83.00")
+        .replace("<Nome>Marie</Nome>", "<Nome>Ana</Nome>")
+        .replace("<Cognome>Dupont</Cognome>", "<Cognome>Popescu</Cognome>")
+        .replace("Avenue Martin des Fleurs", "Strada Jardin Bleu")
+        .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>14</NumeroCivico>")
+        .replace("<Nazione>FR</Nazione>", "<Nazione>RO</Nazione>"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        euAddressWithUnitEbayId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "I marcatori delle unità immobiliari non identificano la strada",
+          invoiceXml: Buffer.from(
+            euAddressWithUnitInvoice
+              .toString()
+              .replace("Strada Jardin Bleu", "Avenue Rouge Vert bloc 3 ap 9"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-unit-markers-as-street" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     await orders.reconcileHistoricalOrder(
       euAddressWithUnitEbayId,
       {
         outcome: "ALREADY_INVOICED",
         reference: "Documento Aruba UE univoco con unità immobiliare dopo il civico",
-        invoiceXml: Buffer.from(
-          euPersonalInvoice
-            .toString()
-            .replace("FPR 0026/26", "FPR 0029/26")
-            .replaceAll("80.00", "83.00")
-            .replace("<Nome>Marie</Nome>", "<Nome>Ana</Nome>")
-            .replace("<Cognome>Dupont</Cognome>", "<Cognome>Popescu</Cognome>")
-            .replace("Avenue Martin des Fleurs", "Strada Jardin Bleu")
-            .replace("<NumeroCivico>12</NumeroCivico>", "<NumeroCivico>14</NumeroCivico>")
-            .replace("<Nazione>FR</Nazione>", "<Nazione>RO</Nazione>"),
-        ),
+        invoiceXml: euAddressWithUnitInvoice,
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-eu-address-with-unit" },
     );

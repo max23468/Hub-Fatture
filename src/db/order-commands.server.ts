@@ -279,15 +279,27 @@ function withoutAddressPart(tokens: string[], value: unknown) {
   });
 }
 
+function withoutAddressUnits(tokens: string[]) {
+  const excludedIndexes = new Set<number>();
+  tokens.forEach((token, index) => {
+    if (!addressUnitMarkers.has(token)) return;
+    excludedIndexes.add(index);
+    if (/^[\p{L}\p{N}]+$/u.test(tokens[index + 1] ?? "")) excludedIndexes.add(index + 1);
+  });
+  return tokens.filter((_, index) => !excludedIndexes.has(index));
+}
+
 function distinctiveStreetTokens(
   address: unknown,
   streetNumber: unknown,
   postalCode: unknown,
   keepNumeric: boolean,
 ) {
-  const tokens = withoutAddressPart(
-    withoutAddressPart(normalizedAddressTokens(address), streetNumber),
-    postalCode,
+  const tokens = withoutAddressUnits(
+    withoutAddressPart(
+      withoutAddressPart(normalizedAddressTokens(address), streetNumber),
+      postalCode,
+    ),
   );
   const kindIndex = tokens.findIndex((token) => streetKindTokens.has(token));
   return tokens.filter(
