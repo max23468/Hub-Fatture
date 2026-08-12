@@ -76,6 +76,67 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
   }
 });
 
+test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", async () => {
+  const database = await temporaryDatabase("historical_import_upgrade");
+  const beforeHistoricalImport = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-historical-import-"),
+  );
+  try {
+    await cp("migrations", beforeHistoricalImport, { recursive: true });
+    await rm(path.join(beforeHistoricalImport, HISTORICAL_ORDER_RECONCILIATION));
+    await rm(path.join(beforeHistoricalImport, HISTORICAL_INVOICE_LINKS));
+    await runMigrations({
+      connectionString: database.connectionString,
+      directory: beforeHistoricalImport,
+    });
+    await withClient(database.connectionString, async (client) => {
+      await client.query(
+        `INSERT INTO jobs
+           (type, status, locked_at, lease_expires_at, locked_by, claim_token)
+         VALUES
+           ('shopify_sync_orders', 'PENDING', NULL, NULL, NULL, NULL),
+           ('ebay_sync_orders', 'RUNNING', now(), now() + interval '2 minutes',
+            'worker-pre-upgrade', gen_random_uuid())`,
+      );
+    });
+
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      HISTORICAL_ORDER_RECONCILIATION,
+      HISTORICAL_INVOICE_LINKS,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      const jobs = await client.query(
+        `SELECT type, status, completed_at IS NOT NULL AS completed,
+                lease_expires_at, locked_by, claim_token, result_json
+         FROM jobs ORDER BY type`,
+      );
+      assert.deepEqual(jobs.rows, [
+        {
+          type: "ebay_sync_orders",
+          status: "COMPLETED",
+          completed: true,
+          lease_expires_at: null,
+          locked_by: null,
+          claim_token: null,
+          result_json: { obsoleteBeforeHistoryImport: true },
+        },
+        {
+          type: "shopify_sync_orders",
+          status: "COMPLETED",
+          completed: true,
+          lease_expires_at: null,
+          locked_by: null,
+          claim_token: null,
+          result_json: { obsoleteBeforeHistoryImport: true },
+        },
+      ]);
+    });
+  } finally {
+    await rm(beforeHistoricalImport, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
 test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 }, async () => {
   const clean = await temporaryDatabase("clean");
   try {

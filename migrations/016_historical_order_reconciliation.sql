@@ -14,3 +14,14 @@ ALTER TABLE orders
       AND historical_reconciled_at IS NOT NULL
       AND coalesce((normalized_snapshot_json ->> 'historical')::boolean, false))
   );
+
+UPDATE jobs
+SET status = 'COMPLETED',
+    completed_at = now(),
+    lease_expires_at = NULL,
+    locked_by = NULL,
+    claim_token = NULL,
+    last_error_code = NULL,
+    result_json = result_json || '{"obsoleteBeforeHistoryImport": true}'::jsonb
+WHERE type IN ('shopify_sync_orders', 'ebay_sync_orders')
+  AND status IN ('PENDING', 'RUNNING');
