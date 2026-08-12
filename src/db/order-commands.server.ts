@@ -112,6 +112,25 @@ function matchesRecipientWithoutTaxId(
   );
 }
 
+function taxIdentifierKey(identifier: {
+  type: string;
+  value: string;
+  countryCode?: string | null;
+}) {
+  const value = identifier.value
+    .normalize("NFKC")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  const countryCode = (
+    identifier.countryCode ??
+    (identifier.type === "CODICE_FISCALE" ||
+    (identifier.type === "PARTITA_IVA" && /^\d{11}$/.test(value))
+      ? "IT"
+      : "")
+  ).toUpperCase();
+  return JSON.stringify([identifier.type, countryCode, value]);
+}
+
 export function isDatabaseId(id: string) {
   return (
     /^[1-9]\d*$/.test(id) &&
@@ -246,7 +265,7 @@ export async function reconcileHistoricalOrder(
       await validateFatturaXml(xml);
       importedInvoice = acceptedInvoiceFromXml(xml, new Date().toISOString());
       importedTaxIdentifiers = new Set(
-        importedInvoice.input.recipient.taxIdentifiers.map((identifier) => identifier.value),
+        importedInvoice.input.recipient.taxIdentifiers.map(taxIdentifierKey),
       );
       const digest = createHash("sha256").update(xml).digest("hex");
       invoicePath = path.posix.join(
@@ -285,7 +304,11 @@ export async function reconcileHistoricalOrder(
         historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
         historical_invoice_id: string | null;
         gross_amount: number;
-        tax_identifiers: string[];
+        tax_identifiers: Array<{
+          type: string;
+          value: string;
+          countryCode: string | null;
+        }>;
         refunds: Array<{
           id: string;
           status: string;
@@ -307,7 +330,11 @@ export async function reconcileHistoricalOrder(
                  AND document_orders.document_kind = 'INVOICE'
                  AND documents.origin = 'ARUBA_HISTORY' LIMIT 1) AS historical_invoice_id,
               coalesce((
-                SELECT jsonb_agg(order_tax_identifiers.normalized_value)
+                SELECT jsonb_agg(jsonb_build_object(
+                  'type', order_tax_identifiers.type,
+                  'value', order_tax_identifiers.normalized_value,
+                  'countryCode', order_tax_identifiers.country_code
+                ))
                 FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id
               ), '[]'::jsonb) AS tax_identifiers,
               coalesce((
@@ -394,13 +421,16 @@ export async function reconcileHistoricalOrder(
           !importedInvoice ||
           !archivedInvoice ||
           !invoicePath ||
+          importedInvoice.documentDate < current.local_order_date ||
           !hasOrderReference(
             importedInvoice.references,
             current.provider,
             current.display_number,
           ) ||
           (current.tax_identifiers.length > 0
-            ? !current.tax_identifiers.some((identifier) => importedTaxIdentifiers.has(identifier))
+            ? !current.tax_identifiers.some((identifier) =>
+                importedTaxIdentifiers.has(taxIdentifierKey(identifier)),
+              )
             : !matchesRecipientWithoutTaxId(
                 current.customer_snapshot,
                 importedInvoice.input.recipient,

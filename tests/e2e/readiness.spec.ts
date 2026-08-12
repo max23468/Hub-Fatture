@@ -111,7 +111,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Salva integrazione Aruba" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Salva modalità e-mail" })).toBeDisabled();
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
-  await expect(page.getByText("017_historical_invoice_links.sql", { exact: true })).toBeVisible();
+  await expect(page.getByText("018_legacy_webhook_history.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),

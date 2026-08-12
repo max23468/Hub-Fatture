@@ -1778,6 +1778,23 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         alreadyInvoicedId,
         {
           outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba precedente all’ordine",
+          invoiceXml: Buffer.from(
+            historicalInvoiceXml
+              .toString()
+              .replace("<Data>2026-08-19</Data>", "<Data>2026-08-18</Data>"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-invoice-before-order" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        alreadyInvoicedId,
+        {
+          outcome: "ALREADY_INVOICED",
           reference: "Documento Aruba non riferito all’ordine",
           invoiceXml: Buffer.from(
             historicalInvoiceXml
@@ -2060,6 +2077,78 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         invoiceXml: historicalWithoutTaxIdXml,
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-recipient-without-tax-id" },
+    );
+    const historicalWithDifferentTaxIdType = structuredClone(historical);
+    historicalWithDifferentTaxIdType.externalOrderId = "shop-order-historical-tax-id-type";
+    historicalWithDifferentTaxIdType.externalCustomerId = "shop-customer-historical-tax-id-type";
+    historicalWithDifferentTaxIdType.displayNumber = "#S-HIST-TAX-ID-TYPE";
+    historicalWithDifferentTaxIdType.customer.kind = "BUSINESS_IT";
+    historicalWithDifferentTaxIdType.customer.companyName = "Cliente Esempio Srl";
+    historicalWithDifferentTaxIdType.customer.taxIdentifiers = [
+      {
+        type: "PARTITA_IVA",
+        value: "10987654321",
+        countryCode: "IT",
+        sourceField: "test",
+      },
+    ];
+    historicalWithDifferentTaxIdType.historical = true;
+    historicalWithDifferentTaxIdType.updatedAt = "2026-08-19T09:59:00Z";
+    historicalWithDifferentTaxIdType.payments[0].externalPaymentId =
+      "historical-tax-id-type-payment";
+    await orders.importOrders([historicalWithDifferentTaxIdType], {
+      id: 1,
+      requestId: "test-import-historical-tax-id-type",
+    });
+    const historicalWithDifferentTaxIdTypeId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithDifferentTaxIdType.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithDifferentTaxIdTypeId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Identificativo uguale ma tipo fiscale differente",
+          invoiceXml: Buffer.from(
+            (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+              .replace("FPR 0001/26", "FPR 0014/26")
+              .replace("#1001", historicalWithDifferentTaxIdType.displayNumber)
+              .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+              .replace("RSSMRA80A01H501U", "10987654321")
+              .replaceAll("123.45", "122.00"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-tax-id-type-mismatch" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithDifferentTaxIdTypeId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Partita IVA uguale ma paese fiscale differente",
+          invoiceXml: Buffer.from(
+            (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+              .replace("FPR 0001/26", "FPR 0015/26")
+              .replace("#1001", historicalWithDifferentTaxIdType.displayNumber)
+              .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+              .replace(
+                "<CodiceFiscale>",
+                "<IdFiscaleIVA><IdPaese>DE</IdPaese><IdCodice>10987654321</IdCodice></IdFiscaleIVA><CodiceFiscale>",
+              )
+              .replaceAll("123.45", "122.00"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-tax-id-country-mismatch" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
     alreadyInvoiced.updatedAt = "2026-08-19T10:00:00Z";
     alreadyInvoiced.historical = false;
