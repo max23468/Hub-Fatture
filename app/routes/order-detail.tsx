@@ -67,6 +67,7 @@ export async function action({ request, params }: Route.ActionArgs) {
           reference: form.get("reference"),
           invoiceXml:
             file instanceof File && file.size ? Buffer.from(await file.arrayBuffer()) : undefined,
+          manualReviewApproved: form.get("manualReviewApproved") === "on",
         },
         { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
       );
@@ -150,6 +151,13 @@ function OrderStatusActions({
                 required={needsInvoiceAttachment || historicalOutcome === "ALREADY_INVOICED"}
               />
             </label>
+            {order.provider === "EBAY" &&
+            (needsInvoiceAttachment || historicalOutcome === "ALREADY_INVOICED") ? (
+              <label className="checkbox-row">
+                <input name="manualReviewApproved" type="checkbox" />
+                <span>{copy.orderDetail.manualReviewApproved}</span>
+              </label>
+            ) : null}
             <button className="button" type="submit">
               {copy.orderDetail.reconcileHistory}
             </button>

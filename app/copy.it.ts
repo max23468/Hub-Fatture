@@ -370,6 +370,8 @@ export const copy = {
     notInvoiced: "Nessun documento corrispondente in Aruba",
     historyReference: "Riferimento verificato o motivazione",
     historyInvoiceXml: "XML ufficiale della fattura Aruba, se già presente",
+    manualReviewApproved:
+      "Autorizzo l’eccezione manuale dopo aver verificato identità, indirizzo, data, totale e unicità del documento.",
     reconcileHistory: "Registra la riconciliazione",
     historyCompleted: "Storico riconciliato",
     customerData: "Dati del cliente",

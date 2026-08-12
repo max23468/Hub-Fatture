@@ -30,6 +30,7 @@ import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 const historicalReconciliationSchema = z.object({
   outcome: z.enum(["ALREADY_INVOICED", "NOT_INVOICED"]),
   reference: z.string().trim().min(10).max(500),
+  manualReviewApproved: z.boolean().default(false),
 });
 
 function fiscalContract(profile: FiscalProfile) {
@@ -171,6 +172,15 @@ function sameTokenSet(left: unknown, right: unknown) {
     leftTokens.size === rightTokens.size &&
     [...leftTokens].every((token) => rightTokens.has(token))
   );
+}
+
+function sameOrSingleAdditionalPersonalNameToken(left: unknown, right: unknown) {
+  const leftTokens = identityTokens(left);
+  const rightTokens = identityTokens(right);
+  if (leftTokens.size < 2 || rightTokens.size < 2) return false;
+  const [smaller, larger] =
+    leftTokens.size <= rightTokens.size ? [leftTokens, rightTokens] : [rightTokens, leftTokens];
+  return larger.size - smaller.size <= 1 && [...smaller].every((token) => larger.has(token));
 }
 
 function sameNonEmptyIdentityPart(left: unknown, right: unknown) {
@@ -546,6 +556,64 @@ function matchesRecipientWithoutTaxId(
   );
 }
 
+function matchesManuallyReviewedRecipient(
+  customer: Record<string, unknown>,
+  recipient: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"],
+) {
+  const recipientBusinessName = normalizedIdentityPart(recipient.businessName);
+  const customerKind = typeof customer.kind === "string" ? customer.kind.trim().toUpperCase() : "";
+  const hasCustomerBusinessName = hasExplicitBusinessName(customer);
+  const customerIsPersonal =
+    customerKind === "PRIVATE_IT" || (customerKind === "EU" && !hasCustomerBusinessName);
+  if (!customerIsPersonal || (customerKind === "PRIVATE_IT" && recipientBusinessName)) return false;
+  if (matchesRecipientWithoutTaxId(customer, recipient)) return true;
+  const billingAddress =
+    customer.billingAddress && typeof customer.billingAddress === "object"
+      ? (customer.billingAddress as Record<string, unknown>)
+      : {};
+  const recipientName =
+    recipientBusinessName ||
+    normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
+  if (
+    !recipient.address.streetNumber ||
+    !recipientName ||
+    !sameNonEmptyIdentityPart(billingAddress.countryCode, recipient.address.countryCode) ||
+    !containsStructuredStreetNumber(
+      billingAddress.line1,
+      recipient.address.streetNumber,
+      billingAddress.postalCode,
+    ) ||
+    hasConflictingStructuredStreetNumber(
+      billingAddress.line1,
+      recipient.address.streetNumber,
+      billingAddress.postalCode,
+    ) ||
+    hasConflictingStructuredStreetNumber(
+      recipient.address.line1,
+      recipient.address.streetNumber,
+      recipient.address.postalCode,
+    )
+  ) {
+    return false;
+  }
+  return customerIdentityNames(customer, false).some((customerName) =>
+    sameOrSingleAdditionalPersonalNameToken(customerName, recipientName),
+  );
+}
+
+function referenceIdentifiesInvoice(reference: string, documentNumber: string) {
+  const expected = documentNumber
+    .normalize("NFKC")
+    .toUpperCase()
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("\\s*");
+  return new RegExp(`(^|[^A-Z0-9])${expected}(?=$|[^A-Z0-9])`, "u").test(
+    reference.normalize("NFKC").toUpperCase(),
+  );
+}
+
 function historicalDocumentDateAllowed(orderDate: string, documentDate: string) {
   const difference = Date.parse(`${documentDate}T00:00:00Z`) - Date.parse(`${orderDate}T00:00:00Z`);
   return difference >= 0 && difference <= 7 * 24 * 60 * 60 * 1000;
@@ -595,12 +663,19 @@ function matchesHistoricalRecipient(
   candidate: HistoricalInvoiceCandidate,
   invoice: ImportedHistoricalInvoice,
   invoiceTaxIdentifiers: Set<string>,
+  manualReviewApproved = false,
 ) {
-  return candidate.tax_identifiers.length > 0
-    ? candidate.tax_identifiers.some((identifier) =>
-        invoiceTaxIdentifiers.has(taxIdentifierKey(identifier)),
-      )
-    : matchesRecipientWithoutTaxId(candidate.customer_snapshot, invoice.input.recipient);
+  const strictMatch =
+    candidate.tax_identifiers.length > 0
+      ? candidate.tax_identifiers.some((identifier) =>
+          invoiceTaxIdentifiers.has(taxIdentifierKey(identifier)),
+        )
+      : matchesRecipientWithoutTaxId(candidate.customer_snapshot, invoice.input.recipient);
+  return (
+    strictMatch ||
+    (manualReviewApproved &&
+      matchesManuallyReviewedRecipient(candidate.customer_snapshot, invoice.input.recipient))
+  );
 }
 
 function expectedHistoricalInvoiceAmount(
@@ -632,6 +707,7 @@ async function uniquelyMatchesUnreferencedMarketplaceInvoice(
   currentId: string,
   invoice: ImportedHistoricalInvoice,
   invoiceTaxIdentifiers: Set<string>,
+  manualReviewApproved = false,
 ) {
   const candidates = await client.query<HistoricalInvoiceCandidate>(
     `SELECT orders.id, orders.provider,
@@ -675,7 +751,7 @@ async function uniquelyMatchesUnreferencedMarketplaceInvoice(
       !hasConflictingMarketplaceReference(invoice.references, candidate.provider) &&
       historicalDocumentDateAllowed(candidate.local_order_date, invoice.documentDate) &&
       expectedHistoricalInvoiceAmount(candidate, invoice.documentDate) === invoice.totalAmount &&
-      matchesHistoricalRecipient(candidate, invoice, invoiceTaxIdentifiers),
+      matchesHistoricalRecipient(candidate, invoice, invoiceTaxIdentifiers, manualReviewApproved),
   );
   return matches.length === 1 && matches[0]!.id === currentId;
 }
@@ -886,7 +962,12 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
 
 export async function reconcileHistoricalOrder(
   id: string,
-  raw: { outcome: unknown; reference: unknown; invoiceXml?: Buffer },
+  raw: {
+    outcome: unknown;
+    reference: unknown;
+    invoiceXml?: Buffer;
+    manualReviewApproved?: unknown;
+  },
   actor: Actor & { canApprove: boolean },
 ) {
   if (!actor.canApprove) throw new AppError("ORDER_HISTORY_RECONCILIATION_FORBIDDEN", 403);
@@ -1023,6 +1104,13 @@ export async function reconcileHistoricalOrder(
         !hasExplicitHistoricalOrderReference &&
         !hasConflictingMarketplaceReference(importedInvoice.references, current.provider),
       );
+      const usesApprovedManualReview = Boolean(
+        importedInvoice &&
+        parsed.data.manualReviewApproved &&
+        current.provider === "EBAY" &&
+        usesUnreferencedMarketplaceFallback &&
+        referenceIdentifiesInvoice(parsed.data.reference, importedInvoice.documentNumber),
+      );
       const historicalInvoiceAmount = importedInvoice
         ? hasExplicitHistoricalOrderReference
           ? attributedInvoiceAmount(importedInvoice, current.provider, current.display_number)
@@ -1084,6 +1172,7 @@ export async function reconcileHistoricalOrder(
                 current.id,
                 importedInvoice,
                 importedTaxIdentifiers,
+                usesApprovedManualReview,
               )
             : false;
         if (
@@ -1093,7 +1182,12 @@ export async function reconcileHistoricalOrder(
           !invoicePath ||
           !historicalDocumentDateAllowed(current.local_order_date, importedInvoice.documentDate) ||
           (!hasExplicitHistoricalOrderReference && !unreferencedMarketplaceMatch) ||
-          !matchesHistoricalRecipient(current, importedInvoice, importedTaxIdentifiers) ||
+          !matchesHistoricalRecipient(
+            current,
+            importedInvoice,
+            importedTaxIdentifiers,
+            usesApprovedManualReview,
+          ) ||
           JSON.stringify(fiscalContract(profile.data)) !==
             JSON.stringify(fiscalContract(importedInvoice.profile))
         ) {
@@ -1225,6 +1319,7 @@ export async function reconcileHistoricalOrder(
           outcome: parsed.data.outcome,
           reference: parsed.data.reference,
           invoiceDocumentId,
+          manualReviewApproved: usesApprovedManualReview,
         },
         requestId: actor.requestId,
       });

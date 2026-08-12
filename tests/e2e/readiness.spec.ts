@@ -1048,6 +1048,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(historicalInvoiceInput).not.toHaveAttribute("required", "");
   await page.getByLabel("Esito del confronto").selectOption("ALREADY_INVOICED");
   await expect(historicalInvoiceInput).toHaveAttribute("required", "");
+  await expect(
+    page.getByLabel(
+      "Autorizzo l’eccezione manuale dopo aver verificato identità, indirizzo, data, totale e unicità del documento.",
+    ),
+  ).toHaveCount(0);
   await page
     .getByLabel("Riferimento verificato o motivazione")
     .fill("Documento Aruba FPR 9010/26 verificato");
