@@ -143,11 +143,12 @@ function hasSupportingAddressEvidence(
     sameNonEmptyIdentityPart(customerAddress.postalCode, recipientAddress.postalCode),
     sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city),
     sameNonEmptyIdentityPart(customerAddress.province, recipientAddress.province),
-    sharesStreetNumber(customerAddress.line1, recipientAddress.line1),
     postalCodeAppearsInAddress(customerAddress.postalCode, recipientAddress.line1) ||
       postalCodeAppearsInAddress(recipientAddress.postalCode, customerAddress.line1),
   ];
-  return matchingParts.filter(Boolean).length >= 2;
+  return (
+    sharesStreetNumber(customerAddress.line1, recipientAddress.line1) && matchingParts.some(Boolean)
+  );
 }
 
 function containedNameWithSharedStreetNumber(

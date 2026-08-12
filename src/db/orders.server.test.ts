@@ -2298,6 +2298,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         reference: "Documento Aruba univoco: token nome e località verificati",
         invoiceXml: Buffer.from(
           reorderedNameInvoice
+            .replace(
+              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>Via Differente 99</Indirizzo>",
+            )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
             .replace("<Comune>Roma</Comune>", "<Comune>Firenze</Comune>")
             .replace("<Provincia>RM</Provincia>", "<Provincia>FI</Provincia>"),
