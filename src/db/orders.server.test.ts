@@ -2060,6 +2060,265 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
        VALUES (1, 'MOCK', $1)`,
       [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
     );
+    const shopifyWithoutReference = structuredClone(historical);
+    shopifyWithoutReference.externalOrderId = "shop-order-historical-without-reference";
+    shopifyWithoutReference.displayNumber = "#S-HIST-NO-REF";
+    shopifyWithoutReference.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
+    shopifyWithoutReference.historical = true;
+    shopifyWithoutReference.createdAt = "2026-08-18T08:00:00Z";
+    shopifyWithoutReference.updatedAt = "2026-08-18T09:00:00Z";
+    shopifyWithoutReference.payments[0].externalPaymentId =
+      "shop-payment-historical-without-reference";
+    shopifyWithoutReference.payments[0].method = "shopify_payments";
+    shopifyWithoutReference.payments[0].shopifyPaymentsFeeAmount = "2.00";
+    shopifyWithoutReference.lines[0].externalLineId = "shop-line-historical-without-reference";
+    shopifyWithoutReference.refunds = [];
+    await orders.importOrders([shopifyWithoutReference], {
+      id: 1,
+      requestId: "test-import-shopify-history-without-reference",
+    });
+    const shopifyWithoutReferenceId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          shopifyWithoutReference.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const shopifyInvoiceWithoutReference = Buffer.from(
+      (await readFile("tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", "utf8"))
+        .replace("FPR 0001/26", "FPR 0030/26")
+        .replace("Vendita beni usati - Ordine Shopify #1001", "Vendita beni usati")
+        .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
+        .replaceAll("123.45", "120.00"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shopifyWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba al lordo della commissione Shopify Payments",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference.toString().replaceAll("120.00", "122.00"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-shopify-history-gross-amount" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shopifyWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba riferito a un altro ordine Shopify",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference
+              .toString()
+              .replace("Vendita beni usati", "Vendita beni usati - Ordine #1002 Shopify"),
+          ),
+        },
+        {
+          id: 1,
+          canApprove: true,
+          requestId: "test-reconcile-shopify-history-reference-before-provider",
+        },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shopifyWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con riferimento Shopify distante",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference
+              .toString()
+              .replace(
+                "Vendita beni usati",
+                `Ordine #1002 ${"descrizione estesa ".repeat(8)}Shopify`,
+              ),
+          ),
+        },
+        {
+          id: 1,
+          canApprove: true,
+          requestId: "test-reconcile-shopify-history-distant-reference",
+        },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shopifyWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con riferimento Shopify distribuito",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference
+              .toString()
+              .replace(
+                "<ImportoTotaleDocumento>120.00</ImportoTotaleDocumento>",
+                "<ImportoTotaleDocumento>120.00</ImportoTotaleDocumento>" +
+                  "<Causale>Ordine #1002</Causale><Causale>Shopify</Causale>",
+              ),
+          ),
+        },
+        {
+          id: 1,
+          canApprove: true,
+          requestId: "test-reconcile-shopify-history-split-reference",
+        },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shopifyWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con riferimento a un altro ordine senza marketplace",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference
+              .toString()
+              .replace("Vendita beni usati", "Vendita beni usati - Ordine #1002"),
+          ),
+        },
+        {
+          id: 1,
+          canApprove: true,
+          requestId: "test-reconcile-shopify-history-bare-conflicting-reference",
+        },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shopifyWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con riferimento numerico a un altro ordine",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference
+              .toString()
+              .replace("Vendita beni usati", "Vendita beni usati - #1002"),
+          ),
+        },
+        {
+          id: 1,
+          canApprove: true,
+          requestId: "test-reconcile-shopify-history-hash-conflicting-reference",
+        },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        shopifyWithoutReferenceId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba con riferimento numerico eBay privo di marker",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference
+              .toString()
+              .replace("Vendita beni usati", "Vendita beni usati - 26-12345-67890"),
+          ),
+        },
+        {
+          id: 1,
+          canApprove: true,
+          requestId: "test-reconcile-shopify-history-ebay-number-reference",
+        },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      shopifyWithoutReferenceId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba univoco sul totale fatturabile Shopify Payments",
+        invoiceXml: shopifyInvoiceWithoutReference,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-shopify-history-without-reference" },
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT document_orders.amount, documents.origin
+           FROM document_orders
+           JOIN documents ON documents.id = document_orders.document_id
+           WHERE document_orders.order_id = $1`,
+          [shopifyWithoutReferenceId],
+        )
+      ).rows[0],
+      { amount: 12_000, origin: "ARUBA_HISTORY" },
+    );
+    const ambiguousShopifyFirst = structuredClone(shopifyWithoutReference);
+    ambiguousShopifyFirst.externalOrderId = "shop-order-historical-ambiguous-first";
+    ambiguousShopifyFirst.displayNumber = "#S-HIST-AMB-1";
+    ambiguousShopifyFirst.total = "91.00";
+    ambiguousShopifyFirst.payments[0].externalPaymentId = "shop-payment-historical-ambiguous-first";
+    ambiguousShopifyFirst.payments[0].amount = "91.00";
+    delete ambiguousShopifyFirst.payments[0].shopifyPaymentsFeeAmount;
+    ambiguousShopifyFirst.lines[0].externalLineId = "shop-line-historical-ambiguous-first";
+    ambiguousShopifyFirst.lines[0].grossAmount = "91.00";
+    const ambiguousShopifySecond = structuredClone(ambiguousShopifyFirst);
+    ambiguousShopifySecond.externalOrderId = "shop-order-historical-ambiguous-second";
+    ambiguousShopifySecond.displayNumber = "#S-HIST-AMB-2";
+    ambiguousShopifySecond.updatedAt = "2026-08-18T09:15:00Z";
+    ambiguousShopifySecond.payments[0].externalPaymentId =
+      "shop-payment-historical-ambiguous-second";
+    ambiguousShopifySecond.lines[0].externalLineId = "shop-line-historical-ambiguous-second";
+    await orders.importOrders([ambiguousShopifyFirst, ambiguousShopifySecond], {
+      id: 1,
+      requestId: "test-import-shopify-history-ambiguous-without-reference",
+    });
+    const ambiguousShopifyIds = (
+      await database.getPool().query<{ id: string; external_order_id: string }>(
+        `SELECT id, external_order_id FROM orders
+         WHERE external_order_id IN ($1, $2)`,
+        [ambiguousShopifyFirst.externalOrderId, ambiguousShopifySecond.externalOrderId],
+      )
+    ).rows;
+    const ambiguousShopifyFirstId = ambiguousShopifyIds.find(
+      (order) => order.external_order_id === ambiguousShopifyFirst.externalOrderId,
+    )!.id;
+    const ambiguousShopifySecondId = ambiguousShopifyIds.find(
+      (order) => order.external_order_id === ambiguousShopifySecond.externalOrderId,
+    )!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        ambiguousShopifyFirstId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba ambiguo fra due ordini Shopify",
+          invoiceXml: Buffer.from(
+            shopifyInvoiceWithoutReference
+              .toString()
+              .replace("FPR 0030/26", "FPR 0031/26")
+              .replaceAll("120.00", "91.00"),
+          ),
+        },
+        { id: 1, canApprove: true, requestId: "test-reconcile-shopify-history-ambiguous" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      ambiguousShopifySecondId,
+      {
+        outcome: "NOT_INVOICED",
+        reference: "Ordine duplicato di prova escluso dopo il confronto Aruba",
+      },
+      { id: 1, canApprove: true, requestId: "test-clear-shopify-history-ambiguous" },
+    );
     const ebayWithoutReference = structuredClone(fixture[1]);
     ebayWithoutReference.externalOrderId = "ebay-order-historical-without-reference";
     ebayWithoutReference.externalCustomerId = "ebay-customer-historical-without-reference";
@@ -3237,7 +3496,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "12",
+      "14",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
