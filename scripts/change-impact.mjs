@@ -23,6 +23,7 @@ const RUNTIME = [
   /^(?:Dockerfile|compose(?:\.production)?\.yaml|package(?:-lock)?\.json)$/,
   /^(?:react-router|vite)\.config\.ts$/,
   /^shopify\.(?:app|web)\.toml$/,
+  /^tsconfig(?:\.server)?\.json$/,
   /^ops\//,
   /^scripts\/(?:backup|monitor-local|production-|read-env|restore)\.?.*$/,
 ];
@@ -35,7 +36,6 @@ const KNOWN_TOOLING = [
   /^doctor\.config\.json$/,
   /^mise\.toml$/,
   /^scripts\//,
-  /^tsconfig(?:\.server)?\.json$/,
 ];
 
 const matches = (file, patterns) => patterns.some((pattern) => pattern.test(file));
@@ -151,7 +151,7 @@ function changedFiles(base, head) {
   const effectiveBase = /^0{40}$/.test(base) ? emptyTree : base;
   return execFileSync(
     "git",
-    ["diff", "--name-only", "--diff-filter=ACDMRTUXB", effectiveBase, head, "--"],
+    ["diff", "--name-only", "--no-renames", "--diff-filter=ACDMRTUXB", effectiveBase, head, "--"],
     { encoding: "utf8" },
   )
     .split("\n")
