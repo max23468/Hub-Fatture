@@ -5,6 +5,8 @@
 - La directory Clienti usa una tabella ordinabile sull’intero archivio per cliente, e-mail, identificativo fiscale, canale, ultimo ordine, ordini e documenti.
 - Le colonne riservano spazio ai contenuti variabili e all’azione Apri dettaglio senza ellissi improprie o overflow, mantenendo il passaggio a schede sui viewport stretti.
 - Anche il nuovo confronto degli aggiornamenti ricevuti nella Preparazione fattura è ordinabile dalle intestazioni.
+- Gli ordini eBay già importati vengono riletti una sola volta e la relativa Preparazione fattura viene ricalcolata quando la riconciliazione del pagamento netto rimuove un’anomalia derivata.
+- La riconciliazione storica Shopify espone l’eccezione manuale auditata anche per le fatture Aruba senza riferimento ordine, mantenendo obbligatori numero documento, data, totale, identità, indirizzo e unicità.
 
 ## 0.3.22
 
