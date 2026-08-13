@@ -75,7 +75,17 @@ Audit trasversale del codice candidato corrente, concentrato su transazioni e co
 | RC-56 | P1       | Chiuso | La migrazione dei webhook legacy tentava di distinguere i job anteriori e posteriori al marker confrontando timestamp di transazione, che non rappresentano l’ordine di commit e potevano classificare `false` una corsa antecedente al completamento. In assenza dell’evidenza persistita ogni job legacy viene ora marcato prudenzialmente `historical: true`; il test di upgrade verifica la classificazione conservativa su entrambi i lati temporali.                                                                             |
 | RC-57 | P1       | Chiuso | Un webhook Shopify ritentato con successo da una connessione in `ERROR` completava job ed evento ma non ripristinava il connettore, lasciando ferma la sincronizzazione periodica. `completeJob` ripristina ora atomicamente `CONNECTED` e rimuove l’errore per ogni job connettore concluso con lease valida; la regressione porta un webhook a errore terminale, lo ritenta, lo completa e verifica lo stato sano.                                                                                                                   |
 
-Non risultano finding P0-P3 aperti. La chiusura locale vale per il codice osservato; deploy, scansione dell’immagine, readback e backup del candidato sono documentati separatamente nell’evidenza Production e non sostituiscono qualifica Aruba o altre approvazioni del titolare.
+Non risultano finding P0/P1 aperti. La review exact-HEAD del merge funzionale ha lasciato come P2 advisory, accettati dal titolare e non implementati: semantica del conteggio storico nel readback, reinvio di e-mail già redatte, completezza dei metadati retention, persistenza dei fallimenti retention, scadenza dei metadati e-mail e limite temporale effettivo dei log applicativi. Si riaprono se la superficie interessata cambia o prima della finalizzazione del readiness quando impediscono di dimostrare un gate.
+
+La rilettura sul candidato `726a4a677c696eeb6604e8b4fa2613fb075bbad1`, digest `sha256:1ab9f5ac0589ac68e315cf04bc9b25e41421ba988d70c6668dced976b4516e06`, collega inoltre:
+
+- artifact, scansione, attestazione e deploy nei run `31689705817` e `31689999079`;
+- readback globale fail-closed con kill switch Aruba disabilitato;
+- WebKit 10/10 su database dedicato e helper sintetico verde su macOS/Chrome e Windows/Edge;
+- backup exact-commit, lifecycle OCI a 35 giorni, RPO osservato, restore isolato e monitor provider;
+- auto-merge fail-closed nella PR sintetica protetta `#128`, senza approvazioni o esecuzione privilegiata del contenuto della PR.
+
+Queste prove non sostituiscono la qualifica Aruba, l’e-mail reale o le autorizzazioni del titolare.
 
 ## Esito per area
 
@@ -91,4 +101,4 @@ Non risultano finding P0-P3 aperti. La chiusura locale vale per il codice osserv
 
 ## Limiti
 
-Restano da osservare sul candidato esatto: pannello Aruba reale senza invio, import storico reale, SMTP reale, monitor provider e prova di auto-merge Dependabot. Qualunque modifica di codice, schema o configurazione dopo queste prove riapre la parte interessata dell’audit.
+Restano da osservare sul candidato esatto: pannello Aruba reale senza invio per fattura e TD04, SMTP reale, rimozione autorizzata delle copie Mac precedenti e un esercizio fresco della corsia rollback modificata dopo l’ultima prova reale. Import storico, monitor provider e auto-merge Dependabot sono chiusi nel record di readiness. Qualunque modifica runtime, schema o configurazione dopo queste prove riapre la parte interessata dell’audit.
