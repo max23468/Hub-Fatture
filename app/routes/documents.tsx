@@ -162,7 +162,11 @@ export async function action({ request }: Route.ActionArgs) {
       return data({ helper: await issueHelperToken(form.get("batchId") ?? "", actor) });
     }
     if (form.get("intent") === "authorize-aruba-permit") {
-      await authorizeArubaPermit(form.get("batchId") ?? "", actor);
+      await authorizeArubaPermit(
+        form.get("batchId") ?? "",
+        actor,
+        form.get("confirmCanary") === "yes",
+      );
       return redirect("/documenti?permesso=creato");
     }
     if (form.get("intent") === "prepare-canary-aruba-batch") {

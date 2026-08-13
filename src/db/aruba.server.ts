@@ -288,8 +288,10 @@ export async function createArubaBatch(
     const permitId = randomUUID();
     await client.query(
       `INSERT INTO aruba_send_permits
-        (id, batch_id, manifest_sha256, document_count, mode, scope, authorized_by, expires_at)
-       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6, $7)`,
+        (id, batch_id, manifest_sha256, document_count, mode, scope, authorized_by,
+         expires_at, revoked_at)
+       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6, $7,
+         CASE WHEN $5 = 'CANARY' THEN now() ELSE NULL END)`,
       [
         permitId,
         batchId,
@@ -297,7 +299,7 @@ export async function createArubaBatch(
         documents.length,
         permitScope,
         actor.id,
-        new Date(Date.now() + SEND_PERMIT_TTL_MS),
+        permitScope === "CANARY" ? new Date() : new Date(Date.now() + SEND_PERMIT_TTL_MS),
       ],
     );
     await writeAudit(client, {
@@ -371,6 +373,12 @@ async function hasCanaryPrerequisites(
     [documentId, batchId],
   );
   return Boolean(result.rowCount);
+}
+
+async function hasFreshArubaCanaryPreflight(): Promise<boolean> {
+  // L’inventario provider-first introdotto dal contratto non è ancora persistito.
+  // Il Canary resta quindi deliberatamente fail-closed fino alla relativa migrazione.
+  return false;
 }
 
 export async function prepareCanaryArubaBatch(batchId: string, actor: ArubaActor) {
@@ -1058,7 +1066,8 @@ export async function consumeArubaPermit(token: string, manifestDigest: unknown)
     );
     if (
       permitScope.rows[0]?.scope === "CANARY" &&
-      !(await hasCanaryPrerequisites(client, documents[0]!.id, context.id))
+      (!(await hasCanaryPrerequisites(client, documents[0]!.id, context.id)) ||
+        !(await hasFreshArubaCanaryPreflight()))
     ) {
       throw new AppError("ARUBA_PERMIT_INVALID", 409);
     }
@@ -1141,7 +1150,11 @@ export async function listArubaBatches() {
   return result.rows;
 }
 
-export async function authorizeArubaPermit(batchId: string, actor: ArubaActor) {
+export async function authorizeArubaPermit(
+  batchId: string,
+  actor: ArubaActor,
+  confirmCanary = false,
+) {
   if (!actor.canApprove) throw new AppError("ARUBA_PERMIT_FORBIDDEN", 403);
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
@@ -1158,6 +1171,7 @@ export async function authorizeArubaPermit(batchId: string, actor: ArubaActor) {
     ]);
     const permitScope = existingPermit.rows[0]?.scope ?? "ORDINARY";
     const canary = permitScope === "CANARY";
+    if (canary && !confirmCanary) throw new AppError("ARUBA_PERMIT_INVALID", 409);
     if (
       !current ||
       current.mode !== "AUTOMATIC" ||

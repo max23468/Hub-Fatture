@@ -1284,7 +1284,8 @@ test(
                     candidate.environment, candidate.mode, candidate.document_count,
                     candidate.attempt_number > source.attempt_number AS distinct_attempt,
                     permits.scope, permits.consumed_at,
-                    permits.revoked_at,
+                    permits.revoked_at IS NOT NULL AS revoked,
+                    permits.expires_at <= now() AS expired,
                     (SELECT count(*) FROM aruba_send_permits
                      WHERE batch_id = candidate.id AND scope = 'ORDINARY') AS ordinary_permits
              FROM aruba_batches AS source
@@ -1303,7 +1304,8 @@ test(
           distinct_attempt: true,
           scope: "CANARY",
           consumed_at: null,
-          revoked_at: null,
+          revoked: true,
+          expired: true,
           ordinary_permits: "0",
         },
       );
@@ -1349,8 +1351,15 @@ test(
         ),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
-      await aruba.authorizeArubaPermit(canaryBatchId, owner);
-      await aruba.consumeArubaPermit(canaryToken.token, canaryManifest.manifestSha256);
+      await assert.rejects(
+        aruba.authorizeArubaPermit(canaryBatchId, owner),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      await aruba.authorizeArubaPermit(canaryBatchId, owner, true);
+      await assert.rejects(
+        aruba.consumeArubaPermit(canaryToken.token, canaryManifest.manifestSha256),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
       await assert.rejects(
         aruba.consumeArubaPermit(canaryToken.token, canaryManifest.manifestSha256),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
@@ -1414,7 +1423,7 @@ test(
       );
       Object.assign(runtimeConfig, { ARUBA_SUBMISSION_ENABLED: true });
       await assert.rejects(
-        aruba.authorizeArubaPermit(retryCanaryBatchId, owner),
+        aruba.authorizeArubaPermit(retryCanaryBatchId, owner, true),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
       await database.getPool().query(

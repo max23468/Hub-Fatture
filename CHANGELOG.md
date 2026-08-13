@@ -2,6 +2,9 @@
 
 ## 0.3.39
 
+- La preparazione dell’invio pilota crea una registrazione inattiva; l’attivazione richiede una seconda conferma specifica immediatamente prima del consumo.
+- Il consumo pilota resta bloccato finché l’inventario Aruba provider-first non fornisce un preflight fresco e privo di conflitti sul candidato esatto.
+
 - Il titolare può preparare un invio pilota Aruba per un solo documento già approvato mentre il kill switch globale resta disabilitato; il batch automatico viene ricreato con un manifest immutabile distinto e una conferma esplicita.
 - Il permesso pilota è unico a livello globale, scade, può essere revocato e viene consumato atomicamente soltanto dopo la validazione del documento esatto; mismatch, riuso, configurazione ordinaria attiva o un secondo permesso lasciano l’invio bloccato.
 - Revoca e retry restano fail-closed anche durante un rollback applicativo: la revoca forza anche la scadenza compresa dalla versione precedente e ogni nuovo tentativo pilota richiede una nuova conferma esplicita.

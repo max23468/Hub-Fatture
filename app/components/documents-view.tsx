@@ -493,6 +493,12 @@ function BatchPanel({
                   <input name="csrf" type="hidden" value={csrfToken} />
                   <input name="intent" type="hidden" value="authorize-aruba-permit" />
                   <input name="batchId" type="hidden" value={batch.id} />
+                  {batch.permit_scope === "CANARY" ? (
+                    <label>
+                      <input name="confirmCanary" type="checkbox" value="yes" />
+                      {copy.documents.confirmCanaryPermit}
+                    </label>
+                  ) : null}
                   <button className="button button--secondary" type="submit">
                     {batch.permit_scope === "CANARY"
                       ? copy.documents.authorizeCanaryPermit
