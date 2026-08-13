@@ -195,10 +195,10 @@ e quando un rimborso di prova produce correttamente:
 | HF-F30 | Valutare OCI Email Delivery in Development e selezionare un solo trasporto SMTP canonico prima dell'uso Production | Confermato come PoC; adozione OCI condizionata |
 | HF-F31 | Eseguire il flusso Aruba ordinario tramite un helper locale unico per Windows e macOS, usando Chrome o Edge; Safari resta supportato solo per il fallback manuale | Confermato |
 | HF-F32 | Offrire in Impostazioni le modalità `Assistita` e `Automatica dopo conferma`, con `Assistita` come default | Confermato |
-| HF-F33 | Inventariare dall'account Aruba fatture e TD04 anche quando non sono stati generati da HF, con prima scansione dell'anno fiscale corrente e aggiornamenti incrementali | Confermato |
+| HF-F33 | Inventariare dall'account Aruba fatture e TD04 anche quando non sono stati generati da HF, con prima scansione dell'anno fiscale corrente estesa agli ordini ancora riconciliabili e ai documenti precedenti non terminali, poi aggiornamenti incrementali | Confermato |
 | HF-F34 | Collegare automaticamente un documento Aruba a ordini e documenti locali soltanto con corrispondenza univoca e XML ufficiale coerente; lasciare ambiguità, conflitti e documenti privi di ordine nelle code di verifica | Confermato |
 | HF-F35 | Impedire approvazione e numerazione quando Aruba non è mai stato letto, il readback ha più di 24 ore o esiste uno stato remoto incerto; avvisare dopo un'ora e consentire al solo titolare un override singolo motivato e auditato esclusivamente per la freschezza dopo verifica manuale | Confermato |
-| HF-F36 | Eseguire una scansione completa dell'anno corrente a ogni avvio dell'helper, poi sincronizzazioni incrementali ogni 15 minuti mentre resta aperto e su comando, con sessione distinta dai batch, revocabile, legata al dispositivo e limitata a 8 ore | Confermato |
+| HF-F36 | Eseguire a ogni avvio dell'helper una scansione completa della finestra Aruba rilevante, inclusi ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, poi sincronizzazioni incrementali ogni 15 minuti mentre resta aperto e su comando, con sessione distinta dai batch, revocabile, legata al dispositivo e limitata a 8 ore | Confermato |
 | HF-F37 | Aggiornare gli stati Aruba/SdI in modo monotono e conservare osservazioni append-only senza creare submission fittizie per documenti nati fuori da HF | Confermato |
 
 `HF-F25`, propagazione delle correzioni cliente verso Shopify, è stata riclassificata come evoluzione futura in 3.3: era disattivata di default, non serve a emettere un documento e obbligherebbe a chiedere scope di scrittura Shopify. L'identificativo resta libero e non viene riusato.
@@ -947,7 +947,7 @@ Usare soltanto la UI visibile e gli URL ufficiali Aruba, con allowlist stretta d
 
 ### 10.2.1 Sincronizzazione in entrata
 
-Lo stesso helper mantiene un inventario provider-first delle fatture e TD04 presenti nell'account, anche quando sono nati fuori da HF. Esegue una scansione completa dell'anno fiscale corrente a ogni avvio, anche quando esiste già un cursore, poi sincronizzazioni incrementali ogni 15 minuti mentre resta aperto e su richiesta con `Sincronizza Aruba ora`. Paginazione, cursore con sovrapposizione e ingest idempotente devono consentire la ripresa senza duplicazioni; una sola scansione può essere attiva per account e ambiente anche da dispositivi diversi. La completezza riguarda l'elenco: i file ufficiali vengono scaricati soltanto per documenti nuovi, cambiati, candidati al collegamento o privi dell'evidenza necessaria.
+Lo stesso helper mantiene un inventario provider-first delle fatture e TD04 presenti nell'account, anche quando sono nati fuori da HF. Esegue a ogni avvio, anche quando esiste già un cursore, una scansione completa dell'anno fiscale corrente estesa all'indietro fino al più remoto ordine ancora riconciliabile e a tutti i documenti non terminali già osservati negli stream precedenti; poi esegue sincronizzazioni incrementali ogni 15 minuti mentre resta aperto e su richiesta con `Sincronizza Aruba ora`. Paginazione, cursore con sovrapposizione e ingest idempotente devono consentire la ripresa senza duplicazioni; una sola scansione può essere attiva per account e ambiente anche da dispositivi diversi. La completezza riguarda l'elenco: i file ufficiali vengono scaricati soltanto per documenti nuovi, cambiati, candidati al collegamento o privi dell'evidenza necessaria.
 
 La sincronizzazione usa una sessione distinta dal token di batch, limitata alla sola lettura/importazione, vincolata all'installazione locale, revocabile, ruotata e con durata assoluta massima di 8 ore. Non può leggere manifest di upload, creare o consumare permessi, caricare XML o inviare documenti. Login e challenge restano umani; nessuna sessione Aruba entra in HF. L'helper viene sempre avviato volontariamente: la prima versione non si installa come elemento di login o servizio automatico del sistema operativo.
 
@@ -1241,6 +1241,7 @@ Nessuna e-mail operativa nella 1.x: gli avvisi critici devono essere evidenti qu
 - Vista del dato originale e normalizzato.
 - Collegamento alla Preparazione fattura.
 - Documento Aruba collegato, stato SdI e freschezza del readback quando disponibili.
+- Un match su un solo ordine di una preparazione multi-ordine invalida atomicamente la bozza materializzata, esclude soltanto l'ordine coperto e rigenera una preparazione con i residui ancora fatturabili; un errore ripristina l'intera transazione.
 - Forzatura manuale della generazione bozza.
 - Archivio annullati.
 
@@ -2045,7 +2046,7 @@ Valori di routine da calibrare:
 
 - Shopify recovery sync: ogni 10-15 minuti.
 - eBay sync: ogni 10-15 minuti.
-- Aruba inventory: scansione completa dell'anno corrente a ogni avvio dell'helper, poi incrementale ogni 15 minuti mentre resta aperto e su comando esplicito.
+- Aruba inventory: scansione completa della finestra rilevante a ogni avvio dell'helper, inclusi ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, poi incrementale ogni 15 minuti mentre resta aperto e su comando esplicito.
 - Pulizia sessioni: giornaliera.
 
 Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify, eBay e inventario Aruba. Per Aruba non simulare un polling headless sulla VPS: la schedulazione esiste soltanto nell'helper locale aperto, con un lease server-side unico per account e ambiente. Mostrare l'età dell'ultimo inventario completo e proporre l'avvio dell'helper quando è obsoleto o esistono documenti non conclusi.
@@ -3127,7 +3128,7 @@ Output:
 - deploy del candidato sullo stesso SHA e digest destinati alla `1.0.0`, con creazione dei permessi ordinari per il clic automatico bloccata (`ARUBA_SUBMISSION_ENABLED=false`);
 - readback operativo che conferma l'assenza di documenti approvati o trasmissibili e di upload Aruba pendenti;
 - import reale degli ultimi 7 giorni e riconciliazione con Aruba senza numerare o trasmettere;
-- inventario provider-first di tutte le fatture e TD04 dell'anno fiscale corrente, riesaminato completamente a ogni avvio, deduplicato rispetto ai documenti HF e aggiornabile in modo incrementale dall'helper ogni 15 minuti, con documenti esterni non collegati e match ambigui nelle code previste;
+- inventario provider-first di tutte le fatture e TD04 dell'anno fiscale corrente, esteso fino al più remoto ordine riconciliabile e ai documenti precedenti non terminali, riesaminato completamente a ogni avvio, deduplicato rispetto ai documenti HF e aggiornabile in modo incrementale dall'helper ogni 15 minuti, con documenti esterni non collegati e match ambigui nelle code previste;
 - gate server-side che avvisa dopo un'ora e blocca approvazione/numerazione se Aruba non è mai stato letto, ha più di 24 ore o presenta uno stato remoto incerto, incluso override singolo del solo titolare motivato e auditato;
 - prova manuale controllata sul pannello Aruba reale con XML sintetico o anonimizzato dedicato: autenticazione umana, caricamento, validazione e riepilogo osservati, arresto prima di `Invia`, readback e rimozione sicura dell'upload pendente;
 - contratto definitivo dei locatori, limiti, pause di autenticazione, download e stati aggiornato insieme a helper e test se il pannello reale diverge;
@@ -3150,7 +3151,7 @@ Gate:
 - ogni finding dell'audit ha prova, severità e stato corrente; P2/P3 residui hanno accettazione e condizione di riapertura;
 - nessun ordine storico approvabile senza riconciliazione;
 - nessuna preparazione approvabile quando l'inventario Aruba è assente, bloccante o incerto; la Dashboard non combina `Mai letto` con `Tutto sotto controllo`;
-- scansione completa dell'anno corrente a ogni avvio, aggiornamento incrementale, lease concorrente, matching prudenziale, ownership file/notifiche e sessione read-only di 8 ore verificati senza capacità di upload o invio;
+- scansione completa della finestra rilevante a ogni avvio, inclusi cambio d'anno e precedenti non terminali, aggiornamento incrementale, lease concorrente, matching prudenziale, riconciliazione parziale multi-ordine, ownership file/notifiche e sessione read-only di 8 ore verificati senza capacità di upload o invio;
 - commit, digest, schema, backup, rollback e kill switch verificati;
 - nessun documento approvato o trasmissibile e nessun upload Aruba pendente;
 - prova end-to-end dell'auto-merge Dependabot chiusa senza auto-approvazione né esecuzione privilegiata del codice PR; qualsiasi esito non riconosciuto ha lasciato la PR aperta e gli eventuali branch, regole e trigger temporanei sono stati rimossi dopo la prova;
@@ -3256,7 +3257,7 @@ Al primo collegamento, proporre come default gli ultimi sette giorni calcolati r
 
 Importare ordini creati o aggiornati nel periodo, inclusi annullamenti e rimborsi collegati.
 
-Separatamente dall'import ordini, la prima sincronizzazione Aruba acquisisce tutte le fatture e TD04 dell'anno fiscale corrente. Le sincronizzazioni successive sono incrementali con overlap e non dipendono dall'esistenza di batch HF. Questa lettura reale richiede autorizzazione specifica e non abilita upload o invii.
+Separatamente dall'import ordini, la prima sincronizzazione Aruba acquisisce tutte le fatture e TD04 dell'anno fiscale corrente e si estende fino al più remoto ordine ancora riconciliabile; continua inoltre a rileggere i documenti non terminali degli stream precedenti. Le sincronizzazioni successive sono incrementali con overlap e non dipendono dall'esistenza di batch HF. Questa lettura reale richiede autorizzazione specifica e non abilita upload o invii.
 
 ### 25.2 Stato prudenziale
 
@@ -3458,11 +3459,12 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 
 - [ ] Import storico di 7 giorni riconciliato con Aruba.
 - [ ] Inventario di fatture e TD04 Aruba dell'anno fiscale corrente completato e deduplicato, con cursore e overlap verificati.
-- [ ] Nuovo avvio dell'helper verificato su inventario già popolato: l'elenco dell'intero anno viene ricontrollato, mentre i file invariati non vengono riscaricati.
+- [ ] Nuovo avvio dell'helper verificato su inventario già popolato: la finestra completa comprende ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, mentre i file invariati non vengono riscaricati.
 - [ ] Sessione helper di sola sincronizzazione, legata al dispositivo, revocabile e limitata a 8 ore verificata incapace di upload o invio; una sola scansione concorrente anche da due dispositivi.
 - [ ] Dashboard, approvazione e numerazione rispettano `Mai letto`, avviso a un'ora e blocco a 24 ore/stato incerto; l'override singolo motivato del solo titolare supera esclusivamente la freschezza dopo verifica manuale e non match, conflitti o stati incerti.
 - [ ] Deduplicazione confinata per account/ambiente, ownership esclusiva submission/remote document dei file/notifiche e mapping monotono degli stati verificati.
 - [ ] Documenti Aruba non collegati, match ambigui e conflitti di profilo compaiono in `Documenti → Da collegare`, `Da verificare` e `Attività` senza creare ordini.
+- [ ] Match su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.
 - [ ] Nessun ordine storico approvabile senza verifica.
 - [x] Account Aruba confermato senza 2FA e con protezione OTP su **Carica Fatture** disattivata; l'helper non presume un SMS ordinario e resta fail-closed davanti a challenge inattese.
 - [x] Autorizzazione specifica ottenuta per la sola prova controllata.

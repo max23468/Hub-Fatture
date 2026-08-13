@@ -28,9 +28,9 @@ La fotografia operativa osservata sulla Dashboard costituisce uno scenario di re
 ### Compreso
 
 - inventario provider-first di fatture e TD04 Aruba indipendente dai batch di Hub Fatture;
-- prima acquisizione di tutti i documenti dell’anno fiscale corrente;
+- prima acquisizione di tutti i documenti dell’anno fiscale corrente, estesa all’indietro fino al più remoto ordine ancora riconciliabile e a ogni documento non terminale già osservato negli stream precedenti;
 - deduplicazione dei documenti già presenti localmente, inclusi i 48 osservati al momento del rilievo e da ricontare prima della migrazione;
-- scansione completa dell’anno fiscale corrente a ogni avvio dell’helper e sincronizzazioni incrementali mentre resta aperto;
+- scansione completa della finestra Aruba rilevante a ogni avvio dell’helper e sincronizzazioni incrementali mentre resta aperto;
 - matching prudenziale e collegamento automatico soltanto quando univoco;
 - aggiornamento monotono degli stati Aruba/SdI;
 - blocco server-side di approvazione e numerazione quando il readback non è affidabile;
@@ -70,7 +70,7 @@ All’avvio l’helper:
 1. richiede a Hub Fatture una sessione di sola sincronizzazione;
 2. verifica hostname, ambiente, dispositivo e riferimento dell’account atteso;
 3. apre il profilo browser locale e attende l’eventuale login umano;
-4. esegue sempre una scansione completa dell’anno fiscale corrente; cursori, paginazione e upsert evitano di riscaricare file invariati senza trasformarla in una scansione parziale;
+4. esegue sempre una scansione completa della finestra Aruba rilevante: anno fiscale corrente, intervallo fino al più remoto ordine ancora riconciliabile e documenti non terminali degli stream precedenti; cursori, paginazione e upsert evitano di riscaricare file invariati senza trasformarla in una scansione parziale;
 5. invia osservazioni e file ufficiali ammessi agli endpoint interni di Hub Fatture;
 6. ripete la sincronizzazione ogni 15 minuti finché resta aperto;
 7. consente `Sincronizza Aruba ora` senza creare una seconda scansione concorrente.
@@ -88,9 +88,9 @@ CAPTCHA, challenge, login scaduto o account inatteso sospendono il ciclo; la sca
 
 ### 4.2 Prima scansione e incrementali
 
-La prima scansione enumera tutte le fatture e TD04 dell’anno fiscale corrente, con paginazione esplicita. Ogni pagina viene acquisita in ordine stabile e porta un cursore opaco composto dai riferimenti osservabili necessari a riprendere il lavoro. Il cursore diventa definitivo soltanto dopo il commit dell’intera pagina.
+La prima scansione enumera tutte le fatture e TD04 dell’anno fiscale corrente, con paginazione esplicita. Estende inoltre il limite temporale all’indietro fino alla data del più remoto ordine che Hub Fatture può ancora riconciliare e rilegge qualunque remote document non terminale già noto, anche se appartiene a un anno precedente. Ogni pagina viene acquisita in ordine stabile e porta un cursore opaco composto dai riferimenti osservabili necessari a riprendere il lavoro. Il cursore diventa definitivo soltanto dopo il commit dell’intera pagina.
 
-Ogni successivo giro di 15 minuti è incrementale e riparte dal cursore con una finestra di sovrapposizione temporale. L’overlap intercetta ritardi e cambi di stato; gli upsert idempotenti assorbono le ripetizioni. Un cambio d’anno apre un nuovo stream senza cancellare quello precedente. Al riavvio, la nuova scansione completa ricontrolla l’intero anno corrente anche se esiste già un cursore incrementale.
+Ogni successivo giro di 15 minuti è incrementale e riparte dal cursore con una finestra di sovrapposizione temporale. L’overlap intercetta ritardi e cambi di stato; gli upsert idempotenti assorbono le ripetizioni. Un cambio d’anno apre un nuovo stream senza cancellare quello precedente. Al riavvio, la nuova scansione completa ricontrolla l’intera finestra rilevante anche se esiste già un cursore incrementale; lo stream precedente resta attivo finché contiene documenti non terminali o copre ordini ancora riconciliabili.
 
 Per limitare traffico e dati:
 
@@ -146,6 +146,15 @@ Collegamenti fra inventario remoto e documento, ordine o preparazione locale:
 - versione del matcher per poter rivalutare i soli casi non definitivi.
 
 Il collegamento univoco a un ordine importa l’XML ufficiale come documento storico `ARUBA_HISTORY` quando il documento non esiste ancora localmente e riusa il matcher storico esistente. Se il documento Hub esiste già, il remote document viene collegato a quello e all’eventuale `aruba_submission`, senza duplicarlo.
+
+Se l’ordine collegato appartiene a una preparazione che contiene anche altri ordini, il match non chiude l’intera preparazione e non lascia invariata la bozza materializzata. Nella stessa transazione Hub Fatture:
+
+1. collega l’ordine coperto al documento storico e lo esclude da qualunque futura emissione;
+2. invalida la bozza corrente e le sue righe/materializzazioni, conservando l’audit della revisione superata;
+3. separa gli ordini residui e rigenera una nuova bozza/preparazione soltanto con quelli ancora fatturabili, applicando nuovamente identità, raggruppamento, importi e controlli correnti;
+4. chiude la preparazione originaria soltanto se non resta alcun ordine fatturabile.
+
+Qualunque errore esegue il rollback dell’intera transazione: non è ammesso uno stato in cui l’ordine risulta collegato ad Aruba ma resta anche in una bozza approvabile, né uno in cui gli ordini residui scompaiono dalla coda.
 
 ### `aruba_sync_sessions`
 
@@ -252,6 +261,7 @@ Non viene aggiunta una destinazione primaria `Aruba`.
 
 - Mostrano documento Aruba collegato, stato SdI e data dell’ultimo readback.
 - Un ordine già fatturato viene rimosso dalle code di emissione in modo atomico.
+- Se era parte di una preparazione multi-ordine, la bozza viene invalidata e gli ordini residui vengono separati e rigenerati atomicamente; non vengono né fatturati insieme al match né rimossi dalla coda.
 - Ambiguità e conflitti rimandano a `Da verificare` senza chiudere il caso.
 
 ### Preparazione e approvazione
@@ -320,6 +330,7 @@ La Dashboard avvisa dopo un’ora. Il blocco a 24 ore è un controllo applicativ
 - ingest idempotente di pagina e ripresa del cursore;
 - lease esclusivo fra due dispositivi;
 - collegamento atomico che chiude l’ordine e impedisce doppia fattura;
+- match parziale di una preparazione multi-ordine: invalidazione della bozza, esclusione del solo ordine coperto, rigenerazione dei residui e rollback totale su errore;
 - backfill di submission/documenti esistenti e rollback expand/contract;
 - audit append-only e immutabilità dei file.
 
@@ -328,7 +339,7 @@ I test DB usano un database dedicato al worktree. Le suite E2E che possono reset
 ### Aruba sintetica e contract
 
 - elenchi multi-pagina, overlap e cambio di stato;
-- scansione completa a ogni nuovo avvio anche in presenza di un cursore incrementale già avanzato;
+- scansione completa a ogni nuovo avvio anche in presenza di un cursore incrementale già avanzato, inclusi ordini riconciliabili a cavallo d’anno e documenti precedenti non terminali;
 - fattura e TD04 nate in Aruba;
 - documento Hub già noto e documento esterno;
 - file ufficiale assente, malformato o troppo grande;
@@ -343,6 +354,7 @@ I test DB usano un database dedicato al worktree. Le suite E2E che possono reset
 - lo scenario osservato con 6 preparazioni pronte, 1 pagamento in attesa e Aruba `Mai letto` mostra un avviso bloccante e non `Tutto sotto controllo`;
 - `Documenti → Da collegare` e risoluzione prudenziale;
 - ordine/preparazione già fatturati non più approvabili;
+- preparazione con due ordini e match Aruba su uno solo: bozza precedente non approvabile e nuovo residuo contenente esclusivamente l’altro ordine;
 - ambiguità in `Da verificare`;
 - blocchi a 0/24 ore, avviso a un’ora, override di freschezza del solo titolare e impossibilità di ignorare match/conflitti/stati incerti;
 - aggiornamento SdI visibile sulle superfici interessate.
@@ -411,12 +423,13 @@ Rollback applicativo: disabilitare l’emissione delle sessioni di sync e tornar
 ## 15. Gate di completamento prima del Canary Production
 
 - prima scansione dell’anno corrente completa, ripetibile e con cursore verificato;
-- nuova scansione completa dell’anno corrente a ogni riavvio, seguita soltanto da giri incrementali durante la sessione;
+- nuova scansione completa della finestra rilevante a ogni riavvio, compresi il più remoto ordine riconciliabile e tutti i documenti precedenti non terminali, seguita soltanto da giri incrementali durante la sessione;
 - documenti locali preesistenti deduplicati senza perdita o duplicazione;
 - deduplicazione confinata per account e ambiente e ownership esclusiva di file/notifiche verificati;
 - nessuna preparazione approvabile con Aruba mai letto, oltre 24 ore o stato incerto;
 - Dashboard priva della contraddizione fra `Mai letto` e `Tutto sotto controllo`;
 - collegamenti automatici limitati a casi univoci con XML ufficiale coerente;
+- match parziale di preparazioni multi-ordine verificato atomico, senza duplicare l’ordine coperto né perdere i residui;
 - documenti non collegati, ambigui e in conflitto visibili nelle code previste;
 - stato SdI monotono e cronologia append-only verificati;
 - mapping degli stati remoto/locali verificato senza attribuire stati di upload a documenti esterni;
@@ -445,33 +458,33 @@ Non servono altre decisioni di prodotto prima di iniziare il codice. Naming punt
 
 Questa matrice è la checklist di completezza rispetto alle decisioni che hanno originato il piano.
 
-| Decisione                                                               | Traduzione esecutiva                                                                                                  |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Inventariare anche i documenti creati direttamente in Aruba             | Inventario provider-first separato da `aruba_submissions` (§§1, 3, 5)                                                 |
-| Acquisire fatture e TD04 dell’anno fiscale corrente                     | Prima scansione e scansione completa a ogni avvio (§§2, 4.2)                                                          |
-| Deduplicare i documenti già presenti in Hub Fatture                     | Backfill e chiavi per ID remoto, numero fiscale e hash XML, sempre confinate per account/ambiente (§§2, 5, 14)        |
-| Collegare automaticamente soltanto casi univoci con XML coerente        | Matcher prudenziale e stati di esito (§6)                                                                             |
-| Mandare discordanti e ambigui in `Da verificare`                        | `AMBIGUOUS`, `PROFILE_CONFLICT` e attività dedicate (§§6, 9)                                                          |
-| Conservare i documenti senza ordine in `Documenti → Da collegare`       | `UNMATCHED`, senza creare ordini (§§1, 6, 9)                                                                          |
-| Scansione completa all’avvio, poi ogni 15 minuti e su comando           | Ciclo helper e test di riavvio (§§4, 12, 15)                                                                          |
-| Nessun avvio automatico dell’helper al login nella prima versione       | Non-obiettivo esplicito (§2)                                                                                          |
-| Bloccare approvazione e numerazione con readback inaffidabile           | Gate server-side su ogni mutazione (§8)                                                                               |
-| Avvisare dopo un’ora e bloccare dopo 24 ore o se mai letto              | Soglie di freschezza e Dashboard (§§8, 9, 11)                                                                         |
-| Consentire un override solo al titolare dopo verifica manuale           | Override limitato alla sola freschezza, motivato e auditato; conflitti e possibili duplicati non sono superabili (§8) |
-| Separare la sessione di sync dai batch                                  | Scope `ARUBA_READ_SYNC`, device-bound, revocabile, ruotato, massimo 8 ore e incapace di upload/invio (§4.1)           |
-| Evitare due sync concorrenti anche da dispositivi diversi               | Lease unico per account/ambiente e ripresa dal cursore (§4.3)                                                         |
-| Usare paginazione, cursore e overlap                                    | Commit per pagina, incrementali idempotenti e ripresa (§4.2)                                                          |
-| Scaricare file soltanto quando necessari                                | Download selettivo per nuovi, cambiati, candidati o incompleti (§4.2)                                                 |
-| Riutilizzare il matcher storico esistente                               | Integrazione col servizio storico, senza duplicare le regole (§§5, 6, 13)                                             |
-| Aggiornare gli stati SdI senza regressioni                              | Vocabolario condiviso, osservazioni append-only e terminali incompatibili (§7)                                        |
-| Modificare le pagine esistenti senza aggiungere una voce Aruba primaria | Dashboard, Documenti, Ordini, Preparazione, Attività e Impostazioni (§9)                                              |
-| Correggere il caso Dashboard osservato                                  | Regressione con 6 preparazioni, 1 pagamento, `Mai letto` e divieto di `Tutto sotto controllo` (§§1, 12)               |
-| Usare un solo helper su macOS e Windows                                 | TypeScript/Playwright con Chrome o Edge e profilo dedicato (§4.1)                                                     |
-| Continuare a usare Safari per Hub Fatture e fallback manuale            | Safari non viene automatizzato; WebKit Playwright non è Safari reale e non usa il suo profilo (§§2, 4.1, 12)          |
-| Non ospitare un browser Aruba sulla VPS                                 | Helper esclusivamente locale e polling remoto escluso (§2)                                                            |
-| Conservare credenziali e sessione Aruba sul dispositivo                 | Nessun cookie, password, OTP o sessione transita in Hub Fatture (§3)                                                  |
-| Fermarsi davanti a CAPTCHA, challenge o account inatteso                | Arresto/sospensione fail-closed (§§3, 4.1)                                                                            |
-| Consentire lavoro parallelo senza interferire col collaudo corrente     | Tranche, ownership esclusiva dei file condivisi e worktree isolati (§13)                                              |
-| Completare questa capacità prima del Canary Production                  | Collocazione, rollout e gate finali (§§14, 15)                                                                        |
-| Autorizzare separatamente la prima scansione reale                      | Confine esplicito in apertura, perimetro e rollout (§§2, 14)                                                          |
-| Non autorizzare upload, invii Aruba, e-mail reali, deploy o release     | Non-obiettivi e gate finale (§§2, 15)                                                                                 |
+| Decisione                                                               | Traduzione esecutiva                                                                                                                 |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Inventariare anche i documenti creati direttamente in Aruba             | Inventario provider-first separato da `aruba_submissions` (§§1, 3, 5)                                                                |
+| Acquisire fatture e TD04 dell’anno fiscale corrente                     | Prima scansione e scansione completa a ogni avvio, estese agli ordini ancora riconciliabili e ai precedenti non terminali (§§2, 4.2) |
+| Deduplicare i documenti già presenti in Hub Fatture                     | Backfill e chiavi per ID remoto, numero fiscale e hash XML, sempre confinate per account/ambiente (§§2, 5, 14)                       |
+| Collegare automaticamente soltanto casi univoci con XML coerente        | Matcher prudenziale e stati di esito (§6)                                                                                            |
+| Mandare discordanti e ambigui in `Da verificare`                        | `AMBIGUOUS`, `PROFILE_CONFLICT` e attività dedicate (§§6, 9)                                                                         |
+| Conservare i documenti senza ordine in `Documenti → Da collegare`       | `UNMATCHED`, senza creare ordini (§§1, 6, 9)                                                                                         |
+| Scansione completa all’avvio, poi ogni 15 minuti e su comando           | Ciclo helper e test di riavvio (§§4, 12, 15)                                                                                         |
+| Nessun avvio automatico dell’helper al login nella prima versione       | Non-obiettivo esplicito (§2)                                                                                                         |
+| Bloccare approvazione e numerazione con readback inaffidabile           | Gate server-side su ogni mutazione (§8)                                                                                              |
+| Avvisare dopo un’ora e bloccare dopo 24 ore o se mai letto              | Soglie di freschezza e Dashboard (§§8, 9, 11)                                                                                        |
+| Consentire un override solo al titolare dopo verifica manuale           | Override limitato alla sola freschezza, motivato e auditato; conflitti e possibili duplicati non sono superabili (§8)                |
+| Separare la sessione di sync dai batch                                  | Scope `ARUBA_READ_SYNC`, device-bound, revocabile, ruotato, massimo 8 ore e incapace di upload/invio (§4.1)                          |
+| Evitare due sync concorrenti anche da dispositivi diversi               | Lease unico per account/ambiente e ripresa dal cursore (§4.3)                                                                        |
+| Usare paginazione, cursore e overlap                                    | Commit per pagina, incrementali idempotenti e ripresa (§4.2)                                                                         |
+| Scaricare file soltanto quando necessari                                | Download selettivo per nuovi, cambiati, candidati o incompleti (§4.2)                                                                |
+| Riutilizzare il matcher storico esistente                               | Integrazione col servizio storico, senza duplicare le regole (§§5, 6, 13)                                                            |
+| Aggiornare gli stati SdI senza regressioni                              | Vocabolario condiviso, osservazioni append-only e terminali incompatibili (§7)                                                       |
+| Modificare le pagine esistenti senza aggiungere una voce Aruba primaria | Dashboard, Documenti, Ordini, Preparazione, Attività e Impostazioni (§9)                                                             |
+| Correggere il caso Dashboard osservato                                  | Regressione con 6 preparazioni, 1 pagamento, `Mai letto` e divieto di `Tutto sotto controllo` (§§1, 12)                              |
+| Usare un solo helper su macOS e Windows                                 | TypeScript/Playwright con Chrome o Edge e profilo dedicato (§4.1)                                                                    |
+| Continuare a usare Safari per Hub Fatture e fallback manuale            | Safari non viene automatizzato; WebKit Playwright non è Safari reale e non usa il suo profilo (§§2, 4.1, 12)                         |
+| Non ospitare un browser Aruba sulla VPS                                 | Helper esclusivamente locale e polling remoto escluso (§2)                                                                           |
+| Conservare credenziali e sessione Aruba sul dispositivo                 | Nessun cookie, password, OTP o sessione transita in Hub Fatture (§3)                                                                 |
+| Fermarsi davanti a CAPTCHA, challenge o account inatteso                | Arresto/sospensione fail-closed (§§3, 4.1)                                                                                           |
+| Consentire lavoro parallelo senza interferire col collaudo corrente     | Tranche, ownership esclusiva dei file condivisi e worktree isolati (§13)                                                             |
+| Completare questa capacità prima del Canary Production                  | Collocazione, rollout e gate finali (§§14, 15)                                                                                       |
+| Autorizzare separatamente la prima scansione reale                      | Confine esplicito in apertura, perimetro e rollout (§§2, 14)                                                                         |
+| Non autorizzare upload, invii Aruba, e-mail reali, deploy o release     | Non-obiettivi e gate finale (§§2, 15)                                                                                                |
