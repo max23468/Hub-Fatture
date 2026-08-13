@@ -4,18 +4,18 @@ Questo è il record del candidato Production osservato. Non è ancora il candida
 
 ## Identità candidata
 
-| Campo                            | Stato osservato                                                                                                         |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Versione applicativa             | `0.3.31`                                                                                                                |
-| Commit su `main` e in Production | `726a4a677c696eeb6604e8b4fa2613fb075bbad1`                                                                              |
-| Digest immagine                  | `sha256:1ab9f5ac0589ac68e315cf04bc9b25e41421ba988d70c6668dced976b4516e06`                                               |
-| Schema Production                | `025_retention_policy.sql`                                                                                              |
-| Release tecnica                  | [`v0.3.31`](https://github.com/max23468/Hub-Fatture/releases/tag/v0.3.31), Latest e immutabile                          |
-| Workflow Production              | [run 31689999079](https://github.com/max23468/Hub-Fatture/actions/runs/31689999079), concluso con successo              |
-| Artefatto e attestazione         | [run 31689705817](https://github.com/max23468/Hub-Fatture/actions/runs/31689705817), digest verificato prima del pull   |
-| Rollback tecnico                 | digest `sha256:8ec8cbebfa31ff7e7fad698f6a5c0547137c7d14c6878dbf63c4cf731078abc7`, registrato nel manifest della release |
-| Kill switch                      | `ARUBA_SUBMISSION_ENABLED=false` nel readback Production                                                                |
-| Health pubblico                  | `GET https://fatture.opik.net/health` ha restituito `{"status":"ok"}` nel readback corrente                             |
+| Campo                    | Stato osservato                                                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Versione applicativa     | `0.3.31`                                                                                                                |
+| Commit runtime candidato | `726a4a677c696eeb6604e8b4fa2613fb075bbad1`, distribuito in Production                                                   |
+| Digest immagine          | `sha256:1ab9f5ac0589ac68e315cf04bc9b25e41421ba988d70c6668dced976b4516e06`                                               |
+| Schema Production        | `025_retention_policy.sql`                                                                                              |
+| Release tecnica          | [`v0.3.31`](https://github.com/max23468/Hub-Fatture/releases/tag/v0.3.31), Latest e immutabile                          |
+| Workflow Production      | [run 31689999079](https://github.com/max23468/Hub-Fatture/actions/runs/31689999079), concluso con successo              |
+| Artefatto e attestazione | [run 31689705817](https://github.com/max23468/Hub-Fatture/actions/runs/31689705817), digest verificato prima del pull   |
+| Rollback tecnico         | digest `sha256:8ec8cbebfa31ff7e7fad698f6a5c0547137c7d14c6878dbf63c4cf731078abc7`, registrato nel manifest della release |
+| Kill switch              | `ARUBA_SUBMISSION_ENABLED=false` nel readback Production                                                                |
+| Health pubblico          | `GET https://fatture.opik.net/health` ha restituito `{"status":"ok"}` nel readback corrente                             |
 
 Questa identità è una fotografia del candidato distribuito, non un’autorizzazione al Canary. Le correzioni del readback globale, del dispatch helper exact-SHA e della retention fail-closed sono incluse e distribuite; qualunque successiva modifica runtime richiede un nuovo candidato e la ripetizione dei gate interessati.
 
