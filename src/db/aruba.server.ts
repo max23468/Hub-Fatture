@@ -7,6 +7,7 @@ import type pg from "pg";
 import {
   ARUBA_IMPORT_MAX_BYTES,
   ARUBA_PANEL_ORIGIN,
+  ARUBA_UPLOAD_MAX_BATCH_BYTES,
   ARUBA_UPLOAD_MAX_BYTES,
   arubaFileKindSchema,
   arubaModeSchema,
@@ -33,7 +34,6 @@ const HELPER_TOKEN_TTL_MS = 15 * 60_000;
 const HELPER_TOKEN_MAX_LIFETIME_MS = 45 * 60_000;
 const HELPER_TOKEN_RECONCILIATION_GUARD_MS = 2 * 60_000;
 const SEND_PERMIT_TTL_MS = 10 * 60_000;
-const BATCH_MAX_BYTES = 30_000_000;
 
 export interface ArubaActor {
   id: number;
@@ -198,7 +198,7 @@ export async function createArubaBatch(
   if (
     !documents.length ||
     documents.length > 300 ||
-    documents.reduce((sum, document) => sum + document.sizeBytes, 0) > BATCH_MAX_BYTES
+    documents.reduce((sum, document) => sum + document.sizeBytes, 0) > ARUBA_UPLOAD_MAX_BATCH_BYTES
   ) {
     throw new AppError("ARUBA_BATCH_INVALID", 422);
   }

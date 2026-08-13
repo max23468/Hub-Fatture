@@ -237,6 +237,9 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
         ) : null}
         {files.length ? (
           <div className="table-wrap synthetic-documents">
+            <button className="button button--secondary" onClick={() => setFiles([])} type="button">
+              {copy.arubaSynthetic.clearPage}
+            </button>
             <table>
               <caption>{copy.arubaSynthetic.uploadedDocuments}</caption>
               <thead>
@@ -260,8 +263,8 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
                       <strong className="synthetic-document__name">{file.name}</strong>
                       {file.fiscalNumber && file.documentDate && file.totalCents !== undefined ? (
                         <small>
-                          {file.fiscalNumber} · {file.documentDate} ·{" "}
-                          {(file.totalCents / 100).toFixed(2)}
+                          {file.fiscalNumber} · {file.documentDate.split("-").reverse().join("/")} ·{" "}
+                          {(file.totalCents / 100).toFixed(2).replace(".", ",")} €
                         </small>
                       ) : null}
                     </td>
@@ -294,6 +297,17 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
                         <Trash2 aria-hidden="true" size={17} strokeWidth={1.8} />
                         {copy.arubaSynthetic.remove}
                       </button>
+                      <button className="button button--secondary" disabled type="button">
+                        {copy.arubaSynthetic.saveDrafts}
+                      </button>
+                      <button
+                        className="button"
+                        disabled={!file.valid}
+                        onClick={() => setSent(true)}
+                        type="button"
+                      >
+                        {copy.arubaSynthetic.send}
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -323,7 +337,7 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
               type="button"
             >
               <Send aria-hidden="true" size={17} strokeWidth={1.8} />
-              {copy.arubaSynthetic.send}
+              {copy.arubaSynthetic.sendAll}
             </button>
             <button className="button button--secondary" disabled type="button">
               <Save aria-hidden="true" size={17} strokeWidth={1.8} />

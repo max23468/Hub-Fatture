@@ -3388,11 +3388,11 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Import storico di 7 giorni riconciliato con Aruba.
 - [ ] Nessun ordine storico approvabile senza verifica.
 - [x] Account Aruba confermato senza 2FA e con protezione OTP su **Carica Fatture** disattivata; l'helper non presume un SMS ordinario e resta fail-closed davanti a challenge inattese.
-- [ ] Autorizzazione specifica ottenuta per la sola prova controllata.
-- [ ] Fattura sintetica validata sulla pagina locale e caricamento controllato sul pannello reale completato.
-- [ ] Validazione, riepilogo e controllo finale osservati; prova arrestata prima di `Invia`, upload rimosso e assenza confermata dal readback, con evidenza sanitizzata.
-- [ ] Contratto dei locatori, helper e test aggiornati insieme per ogni divergenza del pannello reale; HF-O06 chiuso.
-- [ ] Nota di credito sintetica validata sulla pagina locale; se non è disponibile un TD04 già accettato, TD04 valido dedicato caricato in modo controllato sul pannello reale, arrestato prima dell'ultimo clic e ripulito senza invio.
+- [x] Autorizzazione specifica ottenuta per la sola prova controllata.
+- [x] Fattura sintetica validata sulla pagina locale e caricamento controllato sul pannello reale completato.
+- [x] Validazione, riepilogo e controllo finale osservati; prova arrestata prima di `Invia`, upload rimosso e assenza confermata dal readback, con evidenza sanitizzata.
+- [x] Contratto dei locatori, helper e test aggiornati insieme per ogni divergenza del pannello reale; HF-O06 chiuso.
+- [x] Nota di credito sintetica validata sulla pagina locale; se non è disponibile un TD04 già accettato, TD04 valido dedicato caricato in modo controllato sul pannello reale, arrestato prima dell'ultimo clic e ripulito senza invio.
 - [ ] Pagamento pendente e differenza importo testati.
 - [ ] Comparatore fiscale verificato su fattura e TD04; modifica successiva e hash/revisione stale bloccano l'approvazione.
 - [ ] E-mail test ricevuta.

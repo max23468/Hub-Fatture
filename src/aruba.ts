@@ -4,6 +4,7 @@ import { create } from "xmlbuilder2";
 import { z } from "zod";
 
 export const ARUBA_UPLOAD_MAX_BYTES = 4_900_000;
+export const ARUBA_UPLOAD_MAX_BATCH_BYTES = 30_000_000;
 export const ARUBA_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
 export const ARUBA_PANEL_ORIGIN = "https://fatturazioneelettronica.aruba.it";
 
@@ -21,17 +22,31 @@ export const arubaManifestDocumentSchema = z.object({
   totalAmount: z.number().int().nonnegative(),
 });
 
-export const arubaManifestSchema = z.object({
-  batchId: z.uuid(),
-  environment: arubaEnvironmentSchema,
-  mode: arubaModeSchema,
-  operation: z.enum(["UPLOAD", "READBACK"]),
-  accountReference: z.string().trim().min(1).max(200),
-  manifestSha256: z.string().regex(/^[0-9a-f]{64}$/),
-  attemptNumber: z.number().int().positive(),
-  panelUrl: z.url(),
-  documents: z.array(arubaManifestDocumentSchema).min(1).max(300),
-});
+export const arubaManifestSchema = z
+  .object({
+    batchId: z.uuid(),
+    environment: arubaEnvironmentSchema,
+    mode: arubaModeSchema,
+    operation: z.enum(["UPLOAD", "READBACK"]),
+    accountReference: z.string().trim().min(1).max(200),
+    manifestSha256: z.string().regex(/^[0-9a-f]{64}$/),
+    attemptNumber: z.number().int().positive(),
+    panelUrl: z.url(),
+    documents: z.array(arubaManifestDocumentSchema).min(1).max(300),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.operation === "UPLOAD" &&
+      value.documents.reduce((total, document) => total + document.sizeBytes, 0) >
+        ARUBA_UPLOAD_MAX_BATCH_BYTES
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Il caricamento Aruba supera 30 MB",
+        path: ["documents"],
+      });
+    }
+  });
 
 export type ArubaMode = z.infer<typeof arubaModeSchema>;
 export type ArubaEnvironment = z.infer<typeof arubaEnvironmentSchema>;
@@ -302,11 +317,15 @@ export function notificationStatus(
   return "SDI_PROCESSING";
 }
 
-// Contratto candidato: la prova Aruba finale sostituisce questi nomi con il DOM osservato.
-export const candidateArubaLocators = {
-  upload: ["Seleziona documenti", "Carica fattura", "Carica fatture"],
-  validationErrors: ["Dettagli errori", "errori"],
-  finalSend: ["Invia", "Invia tutte"],
-  remove: ["Rimuovi", "Elimina"],
-  forbiddenDraft: ["Salva in bozze"],
+export const verifiedArubaPanelContract = {
+  limits: {
+    fileBytes: ARUBA_UPLOAD_MAX_BYTES,
+    batchBytes: ARUBA_UPLOAD_MAX_BATCH_BYTES,
+    files: 300,
+  },
+  upload: ["SELEZIONA DOCUMENTI", "Carica fattura"],
+  validationErrors: ["DETTAGLI ERRORI", "errori"],
+  finalSend: ["INVIA TUTTE", "INVIA"],
+  remove: ["SVUOTA PAGINA", "ELIMINA"],
+  forbiddenDraft: ["SALVA IN BOZZE"],
 } as const;
