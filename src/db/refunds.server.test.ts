@@ -304,6 +304,48 @@ test(
         requestId: "email-restored-after-suppression",
       });
 
+      const concurrentId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
+        ...owner,
+        requestId: "email-concurrent-disable",
+      });
+      const concurrentJob = await claimEmailJob(concurrentId, "email-concurrent-disable");
+      let releaseSmtp!: () => void;
+      let markSmtpStarted!: () => void;
+      const smtpStarted = new Promise<void>((resolve) => {
+        markSmtpStarted = resolve;
+      });
+      const smtpRelease = new Promise<void>((resolve) => {
+        releaseSmtp = resolve;
+      });
+      const concurrentSend = email.sendCustomerEmail(concurrentJob, async () => {
+        markSmtpStarted();
+        await smtpRelease;
+        return "<synthetic-concurrent@example.invalid>";
+      });
+      await smtpStarted;
+      const concurrentSettings = await email.getCustomerEmailSettings();
+      let disableCompleted = false;
+      const concurrentDisable = email
+        .setCustomerEmailMode("DISABLED", concurrentSettings.version, {
+          ...owner,
+          requestId: "email-disable-during-smtp",
+        })
+        .then(() => {
+          disableCompleted = true;
+        });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(disableCompleted, false);
+      releaseSmtp();
+      await concurrentSend;
+      assert.equal(await jobs.completeJob(concurrentJob), true);
+      await concurrentDisable;
+      assert.equal(disableCompleted, true);
+      const concurrentDisabledSettings = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", concurrentDisabledSettings.version, {
+        ...owner,
+        requestId: "email-restored-after-concurrent-send",
+      });
+
       const retryId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
         id: Number(user.rows[0]!.id),
         canApprove: true,

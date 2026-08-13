@@ -18,6 +18,20 @@ export const customerEmailChoiceSchema = z.enum(["SEND", "SKIP"]);
 const recipientSchema = z.email().max(256);
 const subject = "Il tuo documento fiscale";
 const body = "In allegato trovi la copia leggibile del documento fiscale.";
+const customerEmailSendLock = "customer-email-send";
+
+async function withCustomerEmailSendLock<T>(callback: () => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [customerEmailSendLock]);
+    return await callback();
+  } finally {
+    await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [
+      customerEmailSendLock,
+    ]);
+    client.release();
+  }
+}
 
 async function customerEmailIsDisabled(client: pg.PoolClient): Promise<boolean> {
   const result = await client.query<{ value_json: unknown }>(
@@ -58,6 +72,9 @@ export async function setCustomerEmailMode(
     throw new AppError("CONFLICT_REVISION", 409);
   }
   await withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      customerEmailSendLock,
+    ]);
     const updated = await client.query(
       `UPDATE settings SET value_json = $2, version = version + 1, updated_at = now()
        WHERE key = 'customer_email_mode' AND version = $1`,
@@ -355,14 +372,7 @@ export async function sendCustomerEmail(
       });
       return null;
     }
-    const started = await client.query(
-      `UPDATE email_deliveries SET status = 'PENDING', attempt_count = attempt_count + 1,
-         send_started_at = now(), last_error_code = NULL, last_error_sanitized = NULL,
-         updated_at = now() WHERE id = $1`,
-      [deliveryId],
-    );
-    if (started.rowCount !== 1) throw new AppError("EMAIL_DELIVERY_FAILED", 503);
-    return { uncertain: false as const, delivery: { ...current, status: "PENDING" as const } };
+    return { uncertain: false as const, delivery: current };
   });
   if (!start) return;
   if (start.uncertain) throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
@@ -386,47 +396,81 @@ export async function sendCustomerEmail(
     await failDelivery(deliveryId, "EMAIL_ATTACHMENT_MISSING");
     throw new AppError("EMAIL_ATTACHMENT_MISSING", 409);
   }
-  let messageId: string;
-  try {
-    messageId = await send(delivery, attachment);
-  } catch (error) {
-    if (error instanceof AppError && error.code === "EMAIL_CONFIGURATION_MISSING") {
-      await failDelivery(deliveryId, "EMAIL_CONFIGURATION_MISSING");
-      throw error;
-    }
-    const failureKind = smtpFailureKind(error);
-    if (failureKind === "TEMPORARY") {
-      await failDelivery(deliveryId, "EMAIL_DELIVERY_TEMPORARY");
-      throw new AppError("EMAIL_DELIVERY_TEMPORARY", 503);
-    }
-    if (failureKind === "PERMANENT") {
-      await failDelivery(deliveryId, "EMAIL_DELIVERY_FAILED");
-      throw new AppError("EMAIL_DELIVERY_FAILED", 503);
-    }
-    await uncertainDelivery(deliveryId);
-    throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
-  }
-  try {
-    await withTransaction(async (client) => {
-      const sent = await client.query(
-        `UPDATE email_deliveries SET status = 'SENT', message_id = $2, sent_at = now(),
-           updated_at = now() WHERE id = $1 AND status = 'PENDING' AND send_started_at IS NOT NULL`,
-        [deliveryId, messageId],
+  await withCustomerEmailSendLock(async () => {
+    const ready = await withTransaction(async (client) => {
+      await assertJobLease(client, job);
+      if (await customerEmailIsDisabled(client)) {
+        await client.query(
+          `UPDATE email_deliveries SET status = 'FAILED', send_started_at = NULL,
+             last_error_code = 'EMAIL_DELIVERY_DISABLED',
+             last_error_sanitized = 'EMAIL_DELIVERY_DISABLED', updated_at = now()
+           WHERE id = $1`,
+          [deliveryId],
+        );
+        await writeAudit(client, {
+          actorType: "SYSTEM",
+          action: "CUSTOMER_EMAIL_SUPPRESSED",
+          eventClass: "CRITICAL",
+          entityType: "EMAIL_DELIVERY",
+          entityId: deliveryId,
+          reason: "EMAIL_DELIVERY_DISABLED",
+          requestId: `customer-email:${deliveryId}`,
+        });
+        return false;
+      }
+      const started = await client.query(
+        `UPDATE email_deliveries SET status = 'PENDING', attempt_count = attempt_count + 1,
+           send_started_at = now(), last_error_code = NULL, last_error_sanitized = NULL,
+           updated_at = now() WHERE id = $1 AND send_started_at IS NULL`,
+        [deliveryId],
       );
-      if (sent.rowCount !== 1) throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
-      await writeAudit(client, {
-        actorType: "SYSTEM",
-        action: "CUSTOMER_EMAIL_SENT",
-        eventClass: "CRITICAL",
-        entityType: "EMAIL_DELIVERY",
-        entityId: deliveryId,
-        requestId: `customer-email:${deliveryId}`,
-      });
+      if (started.rowCount !== 1) throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
+      return true;
     });
-  } catch {
-    await uncertainDelivery(deliveryId);
-    throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
-  }
+    if (!ready) return;
+
+    let messageId: string;
+    try {
+      messageId = await send(delivery, attachment);
+    } catch (error) {
+      if (error instanceof AppError && error.code === "EMAIL_CONFIGURATION_MISSING") {
+        await failDelivery(deliveryId, "EMAIL_CONFIGURATION_MISSING");
+        throw error;
+      }
+      const failureKind = smtpFailureKind(error);
+      if (failureKind === "TEMPORARY") {
+        await failDelivery(deliveryId, "EMAIL_DELIVERY_TEMPORARY");
+        throw new AppError("EMAIL_DELIVERY_TEMPORARY", 503);
+      }
+      if (failureKind === "PERMANENT") {
+        await failDelivery(deliveryId, "EMAIL_DELIVERY_FAILED");
+        throw new AppError("EMAIL_DELIVERY_FAILED", 503);
+      }
+      await uncertainDelivery(deliveryId);
+      throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
+    }
+    try {
+      await withTransaction(async (client) => {
+        const sent = await client.query(
+          `UPDATE email_deliveries SET status = 'SENT', message_id = $2, sent_at = now(),
+             updated_at = now() WHERE id = $1 AND status = 'PENDING' AND send_started_at IS NOT NULL`,
+          [deliveryId, messageId],
+        );
+        if (sent.rowCount !== 1) throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
+        await writeAudit(client, {
+          actorType: "SYSTEM",
+          action: "CUSTOMER_EMAIL_SENT",
+          eventClass: "CRITICAL",
+          entityType: "EMAIL_DELIVERY",
+          entityId: deliveryId,
+          requestId: `customer-email:${deliveryId}`,
+        });
+      });
+    } catch {
+      await uncertainDelivery(deliveryId);
+      throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
+    }
+  });
 }
 
 async function uncertainDelivery(id: string) {
