@@ -560,7 +560,9 @@ function InvoiceDocument({
                   <dd>
                     {projection.customerEmail.mode === "AUTOMATIC"
                       ? copy.document.emailAutomatic
-                      : copy.document.emailManual}
+                      : projection.customerEmail.mode === "DISABLED"
+                        ? copy.document.emailDisabled
+                        : copy.document.emailManual}
                   </dd>
                 </div>
                 <div>
@@ -584,30 +586,39 @@ function InvoiceDocument({
                   <dd>{projection.customerEmail.attachment}</dd>
                 </div>
               </dl>
-              <label className="checkbox-row">
-                <input
-                  defaultChecked={
-                    projection.customerEmail.mode === "AUTOMATIC" &&
-                    Boolean(projection.customerEmail.recipient)
-                  }
-                  name="emailChoice"
-                  type="radio"
-                  value="SEND"
-                />
-                {copy.document.emailSend}
-              </label>
-              <label className="checkbox-row">
-                <input
-                  defaultChecked={
-                    projection.customerEmail.mode !== "AUTOMATIC" ||
-                    !projection.customerEmail.recipient
-                  }
-                  name="emailChoice"
-                  type="radio"
-                  value="SKIP"
-                />
-                {copy.document.emailSkip}
-              </label>
+              {projection.customerEmail.mode === "DISABLED" ? (
+                <>
+                  <input name="emailChoice" type="hidden" value="SKIP" />
+                  <p className="notice">{copy.document.emailDisabledHelp}</p>
+                </>
+              ) : (
+                <>
+                  <label className="checkbox-row">
+                    <input
+                      defaultChecked={
+                        projection.customerEmail.mode === "AUTOMATIC" &&
+                        Boolean(projection.customerEmail.recipient)
+                      }
+                      name="emailChoice"
+                      type="radio"
+                      value="SEND"
+                    />
+                    {copy.document.emailSend}
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      defaultChecked={
+                        projection.customerEmail.mode !== "AUTOMATIC" ||
+                        !projection.customerEmail.recipient
+                      }
+                      name="emailChoice"
+                      type="radio"
+                      value="SKIP"
+                    />
+                    {copy.document.emailSkip}
+                  </label>
+                </>
+              )}
             </fieldset>
             {projection.paymentPending ? (
               <label className="checkbox-row">

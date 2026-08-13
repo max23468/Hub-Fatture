@@ -13,11 +13,18 @@ import { assertJobLease, type ClaimedJob } from "./connectors.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
-export const customerEmailModeSchema = z.enum(["AUTOMATIC", "MANUAL"]);
+export const customerEmailModeSchema = z.enum(["AUTOMATIC", "MANUAL", "DISABLED"]);
 export const customerEmailChoiceSchema = z.enum(["SEND", "SKIP"]);
 const recipientSchema = z.email().max(256);
 const subject = "Il tuo documento fiscale";
 const body = "In allegato trovi la copia leggibile del documento fiscale.";
+
+async function customerEmailIsDisabled(client: pg.PoolClient): Promise<boolean> {
+  const result = await client.query<{ value_json: unknown }>(
+    "SELECT value_json FROM settings WHERE key = 'customer_email_mode'",
+  );
+  return customerEmailModeSchema.parse(result.rows[0]?.value_json ?? "AUTOMATIC") === "DISABLED";
+}
 
 export function customerEmailTriggerStatus(status: string): boolean {
   return status === "DELIVERED" || status === "NOT_DELIVERED";
@@ -106,6 +113,9 @@ export async function snapshotDocumentEmail(
   );
   if (mode.rows[0]?.version !== expectedVersion) throw new AppError("CONFLICT_REVISION", 409);
   const emailMode = customerEmailModeSchema.parse(mode.rows[0]?.value_json ?? "AUTOMATIC");
+  if (emailMode === "DISABLED" && choice.data !== "SKIP") {
+    throw new AppError("EMAIL_DELIVERY_DISABLED", 409);
+  }
   if (choice.data === "SKIP") {
     await client.query(
       `UPDATE documents SET customer_email_mode = $2, customer_email_choice = 'SKIP',
@@ -136,6 +146,7 @@ async function insertDelivery(client: pg.PoolClient, documentId: string, force =
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     `customer-email:${documentId}`,
   ]);
+  if (await customerEmailIsDisabled(client)) return null;
   const config = getConfig();
   if (!force) {
     const existing = await client.query(
@@ -306,6 +317,25 @@ export async function sendCustomerEmail(
     await assertJobLease(client, job);
     const current = await loadDelivery(client, deliveryId);
     if (!current || current.status === "SENT") return null;
+    if (await customerEmailIsDisabled(client)) {
+      await client.query(
+        `UPDATE email_deliveries SET status = 'FAILED', send_started_at = NULL,
+           last_error_code = 'EMAIL_DELIVERY_DISABLED',
+           last_error_sanitized = 'EMAIL_DELIVERY_DISABLED', updated_at = now()
+         WHERE id = $1`,
+        [deliveryId],
+      );
+      await writeAudit(client, {
+        actorType: "SYSTEM",
+        action: "CUSTOMER_EMAIL_SUPPRESSED",
+        eventClass: "CRITICAL",
+        entityType: "EMAIL_DELIVERY",
+        entityId: deliveryId,
+        reason: "EMAIL_DELIVERY_DISABLED",
+        requestId: `customer-email:${deliveryId}`,
+      });
+      return null;
+    }
     if (current.status === "PENDING" && current.send_started_at) {
       await client.query(
         `UPDATE email_deliveries SET status = 'FAILED',
@@ -454,6 +484,9 @@ export async function retryCustomerEmail(
   if (!actor.canApprove) throw new AppError("EMAIL_DELIVERY_FORBIDDEN", 403);
   if (!isDatabaseId(documentId)) throw new AppError("EMAIL_DELIVERY_FAILED", 422);
   return withTransaction(async (client) => {
+    if (await customerEmailIsDisabled(client)) {
+      throw new AppError("EMAIL_DELIVERY_DISABLED", 409);
+    }
     const pending = await client.query(
       `SELECT 1
        FROM email_deliveries

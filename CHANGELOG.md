@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.32
+
+- La modalità globale `Disattivata` impedisce a Hub Fatture di proporre, accodare o reinviare copie e-mail al cliente, mantenendo consultabile lo storico.
+- Le richieste di invio manomesse vengono rifiutate lato server e gli eventuali job già accodati vengono soppressi prima del contatto SMTP, con audit dedicato.
+- Approvazioni e archivio documenti riflettono la disattivazione senza offrire azioni di invio non più consentite.
+
 ## 0.3.31
 
 - Ogni pagina privata espone un titolo descrittivo nel formato `Pagina · Hub Fatture`, con titoli contestuali per ordini e preparazioni fattura e metadati coerenti anche per errori e pagine non trovate.

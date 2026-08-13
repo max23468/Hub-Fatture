@@ -19,7 +19,7 @@ Il database registra quale rimborso è già stato sottratto prima dell’emissio
 
 ## Copia e-mail al cliente
 
-La modalità globale è `AUTOMATIC` oppure `MANUAL`. Prima dell’approvazione il titolare vede mittente, destinatario, oggetto, corpo, allegato previsto e sceglie `SEND` o `SKIP` per il singolo documento. La scelta e i contenuti approvati vengono congelati sul documento.
+La modalità globale è `AUTOMATIC`, `MANUAL` oppure `DISABLED`. Prima dell’approvazione il titolare vede mittente, destinatario, oggetto, corpo, allegato previsto e, nelle prime due modalità, sceglie `SEND` o `SKIP` per il singolo documento. In modalità `DISABLED` viene congelato soltanto `SKIP`: il server rifiuta una scelta `SEND` manomessa, non accoda nuovi invii né reinvii e sopprime prima del contatto SMTP eventuali job già accodati. Lo storico resta consultabile; un invio SMTP già materialmente iniziato non è annullabile.
 
 La consegna viene accodata una sola volta quando sono presenti insieme:
 

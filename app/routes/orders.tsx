@@ -336,7 +336,9 @@ function MassApprovalPanel({
                   <dd>
                     {candidate.customerEmail.mode === "AUTOMATIC"
                       ? copy.document.emailAutomatic
-                      : copy.document.emailManual}
+                      : candidate.customerEmail.mode === "DISABLED"
+                        ? copy.document.emailDisabled
+                        : copy.document.emailManual}
                   </dd>
                 </div>
                 <div>
@@ -360,32 +362,45 @@ function MassApprovalPanel({
                   <dd>{candidate.customerEmail.attachment}</dd>
                 </div>
               </dl>
-              <label className="checkbox-row">
-                <input
-                  defaultChecked={
-                    candidate.customerEmail.mode === "AUTOMATIC" &&
-                    Boolean(candidate.customerEmail.recipient)
-                  }
-                  name={`emailChoice:${candidate.billing_case_id}`}
-                  required
-                  type="radio"
-                  value="SEND"
-                />
-                {copy.document.emailSend}
-              </label>
-              <label className="checkbox-row">
-                <input
-                  defaultChecked={
-                    candidate.customerEmail.mode !== "AUTOMATIC" ||
-                    !candidate.customerEmail.recipient
-                  }
-                  name={`emailChoice:${candidate.billing_case_id}`}
-                  required
-                  type="radio"
-                  value="SKIP"
-                />
-                {copy.document.emailSkip}
-              </label>
+              {candidate.customerEmail.mode === "DISABLED" ? (
+                <>
+                  <input
+                    name={`emailChoice:${candidate.billing_case_id}`}
+                    type="hidden"
+                    value="SKIP"
+                  />
+                  <p className="notice">{copy.document.emailDisabledHelp}</p>
+                </>
+              ) : (
+                <>
+                  <label className="checkbox-row">
+                    <input
+                      defaultChecked={
+                        candidate.customerEmail.mode === "AUTOMATIC" &&
+                        Boolean(candidate.customerEmail.recipient)
+                      }
+                      name={`emailChoice:${candidate.billing_case_id}`}
+                      required
+                      type="radio"
+                      value="SEND"
+                    />
+                    {copy.document.emailSend}
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      defaultChecked={
+                        candidate.customerEmail.mode !== "AUTOMATIC" ||
+                        !candidate.customerEmail.recipient
+                      }
+                      name={`emailChoice:${candidate.billing_case_id}`}
+                      required
+                      type="radio"
+                      value="SKIP"
+                    />
+                    {copy.document.emailSkip}
+                  </label>
+                </>
+              )}
             </fieldset>
           ))}
         </div>

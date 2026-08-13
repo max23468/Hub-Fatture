@@ -877,6 +877,7 @@ export default function Settings() {
                   >
                     <option value="AUTOMATIC">{copy.settings.customerEmailAutomatic}</option>
                     <option value="MANUAL">{copy.settings.customerEmailManual}</option>
+                    <option value="DISABLED">{copy.settings.customerEmailDisabled}</option>
                   </SettingsSelect>
                 </label>
               </SettingsForm>
