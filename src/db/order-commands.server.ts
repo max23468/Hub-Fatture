@@ -409,6 +409,10 @@ function compactAddressPart(value: unknown) {
   return normalizedIdentityPart(value).replaceAll(" ", "");
 }
 
+function isCivicSuffixToken(value: string) {
+  return /^\p{L}$/u.test(value) || ["bis", "ter", "quater"].includes(value);
+}
+
 function withoutAddressPart(tokens: string[], value: unknown) {
   const expected = compactAddressPart(value);
   if (!expected) return tokens;
@@ -495,14 +499,16 @@ function structuredStreetNumberCandidates(
       (/^\d/u.test(normalizedParts[0] ?? "") &&
         postposedFloorMarkers.has(normalizedParts[1] ?? "") &&
         !hasExplicitCivicSeparator) ||
+      (/^\d/u.test(normalizedParts[0] ?? "") &&
+        Boolean(normalizedParts[1]) &&
+        !isCivicSuffixToken(normalizedParts[1]!) &&
+        !hasExplicitCivicSeparator) ||
       (typeof address === "string" && /^\s*\d+\s*[°ºª]/u.test(address)))
   ) {
     return new Set<string>();
   }
   const addressParts = withoutAddressUnits(normalizedParts, unitMarkers);
   const candidates = new Set<string>();
-  const isCivicSuffix = (value: string) =>
-    /^\p{L}$/u.test(value) || ["bis", "ter", "quater"].includes(value);
   const first = addressParts[0] ?? "";
   const second = addressParts[1] ?? "";
   const leadingForeignPostalCode =
@@ -510,7 +516,7 @@ function structuredStreetNumberCandidates(
     /^\p{L}/u.test(second) &&
     addressParts.slice(2).some((part) => /^\d/u.test(part));
   if (/^\d/u.test(first) && !leadingForeignPostalCode) {
-    candidates.add(isCivicSuffix(second) ? `${first}${second}` : first);
+    candidates.add(isCivicSuffixToken(second) ? `${first}${second}` : first);
   }
   const last = addressParts.at(-1) ?? "";
   const penultimate = addressParts.at(-2) ?? "";
@@ -519,7 +525,7 @@ function structuredStreetNumberCandidates(
     candidates.add(penultimate);
   } else if (/^\d/u.test(last)) {
     candidates.add(last);
-  } else if (/^\d/u.test(penultimate) && isCivicSuffix(last)) {
+  } else if (/^\d/u.test(penultimate) && isCivicSuffixToken(last)) {
     candidates.add(`${penultimate}${last}`);
   }
   return candidates;

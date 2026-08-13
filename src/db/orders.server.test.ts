@@ -4425,7 +4425,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     historicalWithUnmarkedPostposedFloor.displayNumber = "#S-HIST-UNMARKED-POSTPOSED-FLOOR";
     historicalWithUnmarkedPostposedFloor.customer.billingAddress = {
       line1: "Via della Scala 7",
-      line2: "2. Stockwerk",
+      line2: "2. Obergeschoss",
       postalCode: "00100",
       city: "Roma",
       province: "RM",
@@ -4449,7 +4449,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         historicalWithUnmarkedPostposedFloorId,
         {
           outcome: "ALREADY_INVOICED",
-          reference: "Documento Aruba FPR 0040/26 con piano tedesco esteso",
+          reference: "Documento Aruba FPR 0040/26 con complemento numerico sconosciuto",
           invoiceXml: Buffer.from(
             historicalWithoutTaxIdXml.toString().replace("FPR 0013/26", "FPR 0040/26"),
           ),
