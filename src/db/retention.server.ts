@@ -1,8 +1,33 @@
-import { getPool } from "./client.server.ts";
+import { randomUUID } from "node:crypto";
+
+import type pg from "pg";
+
+import { getPool, withTransaction } from "./client.server.ts";
+import { writeAudit } from "./audit.server.ts";
 
 export const LOGIN_ATTEMPT_WINDOW_MINUTES = 15;
 // La cadenza non supera la finestra: un `ip_hash` non deve sopravvivere alla durata dichiarata.
 const INTERVAL_MS = LOGIN_ATTEMPT_WINDOW_MINUTES * 60 * 1000;
+const POLICY_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+export const retentionDataClasses = [
+  "SOURCE_PAYLOADS",
+  "OPERATIONAL_JOBS",
+  "OPERATIONAL_AUDIT",
+  "CUSTOMER_EMAIL",
+  "ARUBA_CREDENTIALS",
+] as const;
+
+export type RetentionDataClass = (typeof retentionDataClasses)[number];
+export type RetentionResult = Record<RetentionDataClass, number>;
+
+const emptyResult = (): RetentionResult => ({
+  SOURCE_PAYLOADS: 0,
+  OPERATIONAL_JOBS: 0,
+  OPERATIONAL_AUDIT: 0,
+  CUSTOMER_EMAIL: 0,
+  ARUBA_CREDENTIALS: 0,
+});
 
 /**
  * Cancella i dati tecnici scaduti richiesti da 17.7: sessioni oltre la scadenza e tentativi
@@ -17,10 +42,140 @@ export async function pruneExpired(): Promise<void> {
   );
 }
 
+async function classHeld(client: pg.PoolClient, dataClass: RetentionDataClass): Promise<boolean> {
+  const result = await client.query<{ held: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM retention_holds
+       WHERE data_class = $1 AND released_at IS NULL
+     ) AS held`,
+    [dataClass],
+  );
+  // Un riesame scaduto non libera automaticamente il dato: il rilascio deve essere esplicito.
+  return result.rows[0]?.held ?? true;
+}
+
+async function recordRetention(
+  client: pg.PoolClient,
+  dataClass: RetentionDataClass,
+  affectedCount: number,
+  requestId: string,
+): Promise<void> {
+  if (affectedCount === 0) return;
+  await writeAudit(client, {
+    actorType: "SYSTEM",
+    action: "RETENTION_APPLIED",
+    eventClass: "OPERATIONAL",
+    entityType: "JOB",
+    metadata: { dataClass, affectedCount },
+    requestId,
+  });
+}
+
+/**
+ * Applica soltanto la retention tecnica approvata. Documenti fiscali, file Aruba/SdI,
+ * dati normalizzati e audit critici non sono candidati di queste query.
+ */
+export async function applyRetentionPolicy(): Promise<RetentionResult> {
+  return withTransaction(async (client) => {
+    const result = emptyResult();
+    const lock = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_xact_lock(764489133208) AS locked",
+    );
+    if (!lock.rows[0]?.locked) return result;
+
+    const requestId = `retention-${randomUUID()}`;
+
+    if (!(await classHeld(client, "SOURCE_PAYLOADS"))) {
+      const webhooks = await client.query(
+        `UPDATE webhook_events
+         SET request_payload_json = '{}'::jsonb
+         WHERE status = 'PROCESSED'
+           AND coalesce(processed_at, received_at) <= now() - interval '30 days'
+           AND request_payload_json <> '{}'::jsonb`,
+      );
+      const refunds = await client.query(
+        `UPDATE refunds
+         SET raw_json = '{}'::jsonb
+         WHERE status = 'COMPLETED'
+           AND coalesce(completed_at, updated_at) <= now() - interval '30 days'
+           AND raw_json <> '{}'::jsonb`,
+      );
+      result.SOURCE_PAYLOADS = (webhooks.rowCount ?? 0) + (refunds.rowCount ?? 0);
+      await recordRetention(client, "SOURCE_PAYLOADS", result.SOURCE_PAYLOADS, requestId);
+    }
+
+    if (!(await classHeld(client, "OPERATIONAL_JOBS"))) {
+      const jobs = await client.query(
+        `DELETE FROM jobs
+         WHERE status IN ('COMPLETED', 'FAILED')
+           AND coalesce(completed_at, created_at) <= now() - interval '180 days'`,
+      );
+      result.OPERATIONAL_JOBS = jobs.rowCount ?? 0;
+      await recordRetention(client, "OPERATIONAL_JOBS", result.OPERATIONAL_JOBS, requestId);
+    }
+
+    if (!(await classHeld(client, "OPERATIONAL_AUDIT"))) {
+      const audit = await client.query(
+        `DELETE FROM audit_events
+         WHERE event_class = 'OPERATIONAL'
+           AND created_at <= now() - interval '180 days'`,
+      );
+      result.OPERATIONAL_AUDIT = audit.rowCount ?? 0;
+      await recordRetention(client, "OPERATIONAL_AUDIT", result.OPERATIONAL_AUDIT, requestId);
+    }
+
+    if (!(await classHeld(client, "CUSTOMER_EMAIL"))) {
+      const deliveries = await client.query<{ document_id: string }>(
+        `UPDATE email_deliveries
+         SET sender = '[redatto]', recipient = '[redatto]', subject = '[redatto]',
+             body = '[redatto]', content_redacted_at = now()
+         WHERE status IN ('SENT', 'FAILED')
+           AND coalesce(sent_at, updated_at) <= now() - interval '90 days'
+           AND content_redacted_at IS NULL
+         RETURNING document_id`,
+      );
+      const documentIds = [...new Set(deliveries.rows.map(({ document_id }) => document_id))];
+      if (documentIds.length > 0) {
+        await client.query(
+          `UPDATE documents
+           SET customer_email_sender = '[redatto]', customer_email_recipient = '[redatto]',
+               customer_email_subject = '[redatto]', customer_email_body = '[redatto]',
+               customer_email_redacted_at = now()
+           WHERE id = ANY($1::bigint[])
+             AND customer_email_choice = 'SEND'
+             AND customer_email_redacted_at IS NULL`,
+          [documentIds],
+        );
+      }
+      result.CUSTOMER_EMAIL = deliveries.rowCount ?? 0;
+      await recordRetention(client, "CUSTOMER_EMAIL", result.CUSTOMER_EMAIL, requestId);
+    }
+
+    if (!(await classHeld(client, "ARUBA_CREDENTIALS"))) {
+      const tokens = await client.query(
+        `DELETE FROM aruba_helper_tokens
+         WHERE coalesce(revoked_at, expires_at) <= now() - interval '30 days'`,
+      );
+      const permits = await client.query(
+        `DELETE FROM aruba_send_permits
+         WHERE coalesce(consumed_at, expires_at) <= now() - interval '30 days'`,
+      );
+      result.ARUBA_CREDENTIALS = (tokens.rowCount ?? 0) + (permits.rowCount ?? 0);
+      await recordRetention(client, "ARUBA_CREDENTIALS", result.ARUBA_CREDENTIALS, requestId);
+    }
+
+    return result;
+  });
+}
+
 // Un timer di processo basta a un monolite a istanza singola; passare alla coda job
 // solo quando esisteranno più processi che se ne contendono l'esecuzione.
 export function startRetention(): void {
   const run = () => void pruneExpired().catch((error: unknown) => console.error(error));
+  const runPolicy = () =>
+    void applyRetentionPolicy().catch((error: unknown) => console.error(error));
   run();
+  runPolicy();
   setInterval(run, INTERVAL_MS).unref();
+  setInterval(runPolicy, POLICY_INTERVAL_MS).unref();
 }

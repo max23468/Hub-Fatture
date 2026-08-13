@@ -316,7 +316,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  await expect(page.getByText("024_ebay_refund_deduplication.sql", { exact: true })).toBeVisible();
+  await expect(page.getByText("025_retention_policy.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -1097,7 +1097,17 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByLabel("Modalità Aruba")).toHaveValue("AUTOMATIC");
   await expect(page.getByLabel("Protezione dichiarata")).toHaveValue("SMS_PER_UPLOAD");
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
-  await page.getByRole("button", { name: "Prepara nuovo tentativo" }).click();
+  const retryResponse = page.waitForResponse(
+    (response) => response.request().method() === "POST" && response.url().includes("/documenti"),
+  );
+  const retryButton = page.getByRole("button", { name: "Prepara nuovo tentativo" });
+  await retryButton.focus();
+  await retryButton.press("Enter");
+  if ((await retryResponse).status() >= 400) {
+    await page.getByRole("alert").waitFor();
+    throw new Error((await page.getByRole("alert").textContent()) ?? "Retry Aruba non riuscito");
+  }
+  await expect(page).toHaveURL(/batch=creato/);
   await page.getByRole("button", { name: "Genera codice di avvio" }).first().click();
   const retryToken = (await page.locator(".code-block").textContent())?.trim();
   expect(retryToken).toHaveLength(43);

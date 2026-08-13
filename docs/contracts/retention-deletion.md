@@ -1,6 +1,6 @@
 # Conservazione e cancellazione
 
-**Stato: proposta in attesa di approvazione del titolare e del commercialista.** Le durate fiscali non sono default tecnici e nessuna cancellazione automatica ulteriore viene attivata prima delle due approvazioni.
+**Stato: approvato dal titolare e dal commercialista.** Le durate, le eccezioni e la procedura seguenti sono il contratto corrente. La retention tecnica applicativa è fail-closed; la cancellazione fiscale resta esclusa dal job automatico.
 
 ## Principi e fonti
 
@@ -13,7 +13,7 @@ La politica applica insieme obbligo di conservazione, minimizzazione e limitazio
 
 Hub Fatture conserva copie operative e probatorie, ma non dichiara che il proprio storage sostituisca il servizio di conservazione a norma. Il ruolo del servizio Aruba e il recupero dei relativi pacchetti devono essere confermati dal commercialista insieme alla durata fiscale.
 
-## Matrice proposta
+## Matrice approvata
 
 | Classe                          | Contenuto                                                                                                            | Durata proposta e decorrenza                                                                   | Esito a scadenza                                                                                     |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
@@ -54,8 +54,8 @@ Ogni blocco registra classe, motivazione, approvatore, inizio, riesame previsto 
 
 Una richiesta di cancellazione dell’interessato non rimuove i dati soggetti a obbligo fiscale. Il titolare registra la richiesta, identifica la base giuridica per ciascuna classe, cancella o redige i dati eccedenti e comunica separatamente ciò che resta conservato per obbligo legale. Nessuna cancellazione fiscale è esposta come azione ordinaria nel frontend.
 
-## Condizioni di approvazione e attivazione
+## Attivazione e verifiche
 
-Il titolare approva durate tecniche, procedura, backup e gestione delle richieste. Il commercialista approva durata e decorrenza della classe fiscale, estensioni per accertamenti e contenziosi, dati contabili collegati da conservare e ruolo della conservazione Aruba.
+Il titolare ha approvato durate tecniche, procedura, backup e gestione delle richieste. Il commercialista ha approvato durata e decorrenza della classe fiscale, estensioni per accertamenti e contenziosi, dati contabili collegati da conservare e ruolo della conservazione Aruba.
 
-Dopo entrambe le approvazioni, l’implementazione deve aggiungere migrazione, job, test PostgreSQL, configurazione di logrotate/lifecycle, dry-run e readback. La prova usa soltanto dati sintetici e verifica almeno dipendenze fiscali, eccezione attiva, redazione e-mail, payload provider, file orfano, fallimento transazionale e scadenza dei backup. La politica diventa corrente soltanto sul commit e digest che superano questi gate.
+L’implementazione applicativa aggiunge migrazione, job giornaliero transazionale, hold espliciti, audit sanitizzato, test PostgreSQL e retention degli access log. La prova usa soltanto dati sintetici e verifica almeno permanenza dell’audit fiscale, hold attivo, redazione e-mail, payload provider, job conclusi e credenziali Aruba scadute. Lifecycle OCI, ricevuta del backup e copia Mac restano verifiche provider separate: non sono simulati dal job applicativo e devono essere riletti sul candidato distribuito.

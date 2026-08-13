@@ -18,7 +18,7 @@
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                    | Export, upload manuale, readback e import                 | Corrente    | Sì             |
 | [Integrazione Aruba locale](evidence/aruba-helper.md)                  | Capacità locali e gate reale pre-Canary                   | Corrente    | No             |
 | [Note di credito ed e-mail](contracts/credit-notes-email.md)           | Contratto TD04, trigger e trasporto cliente               | Candidato   | Sì             |
-| [Conservazione e cancellazione](contracts/retention-deletion.md)       | Durate, eccezioni e procedura di cancellazione            | Proposta    | Sì             |
+| [Conservazione e cancellazione](contracts/retention-deletion.md)       | Durate, eccezioni e procedura di cancellazione            | Approvato   | Sì             |
 | [PoC OCI Email Delivery](runbooks/oci-email-delivery-poc.md)           | Preflight e prova Development con stop gate               | Completato  | Sì             |
 | [Evidenza note ed e-mail](evidence/credit-notes-email.md)              | Prove sintetiche e gate trasporto residuo                 | Corrente    | No             |
 | [Produzione OCI](runbooks/production.md)                               | Deploy, readback, rollback e hardening                    | Corrente    | Sì             |
