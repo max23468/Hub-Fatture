@@ -4608,6 +4608,69 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-primary-civic" },
     );
+    const historicalWithUnmarkedAlphanumericUnit = structuredClone(historicalWithoutTaxId);
+    historicalWithUnmarkedAlphanumericUnit.externalOrderId =
+      "shop-order-historical-unmarked-alphanumeric-unit";
+    historicalWithUnmarkedAlphanumericUnit.externalCustomerId =
+      "shop-customer-historical-unmarked-alphanumeric-unit";
+    historicalWithUnmarkedAlphanumericUnit.displayNumber = "#S-HIST-UNMARKED-ALPHANUMERIC-UNIT";
+    historicalWithUnmarkedAlphanumericUnit.customer.billingAddress = {
+      line1: "Via Roma 10",
+      line2: "1A",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithUnmarkedAlphanumericUnit.payments[0].externalPaymentId =
+      "historical-unmarked-alphanumeric-unit-payment";
+    await orders.importOrders([historicalWithUnmarkedAlphanumericUnit], {
+      id: 1,
+      requestId: "test-import-historical-unmarked-alphanumeric-unit",
+    });
+    const historicalWithUnmarkedAlphanumericUnitId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithUnmarkedAlphanumericUnit.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const historicalWithWrongAlphanumericUnitXml = Buffer.from(
+      historicalWithoutTaxIdXml
+        .toString()
+        .replace("FPR 0013/26", "FPR 0043/26")
+        .replace("Via della Scala", "Via Roma")
+        .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>1A</NumeroCivico>"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithUnmarkedAlphanumericUnitId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0043/26 con unità scambiata per civico",
+          invoiceXml: historicalWithWrongAlphanumericUnitXml,
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-alphanumeric-unit-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      historicalWithUnmarkedAlphanumericUnitId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0044/26 con civico primario e unità separata",
+        invoiceXml: Buffer.from(
+          historicalWithWrongAlphanumericUnitXml
+            .toString()
+            .replace("FPR 0043/26", "FPR 0044/26")
+            .replace("<NumeroCivico>1A</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-primary-civic-before-unit" },
+    );
     const historicalWithNumberedStreet = structuredClone(historicalWithoutTaxId);
     historicalWithNumberedStreet.externalOrderId = "shop-order-historical-numbered-street";
     historicalWithNumberedStreet.externalCustomerId = "shop-customer-historical-numbered-street";
@@ -4881,7 +4944,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "28",
+      "29",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

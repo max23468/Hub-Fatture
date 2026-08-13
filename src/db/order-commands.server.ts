@@ -335,6 +335,7 @@ const secondAddressLineUnitMarkers = new Set([
 ]);
 
 const postposedFloorMarkers = new Set(["et", "etaj", "floor", "piano"]);
+const numberedItalianStreetKinds = new Set(["comunale", "provinciale", "regionale", "statale"]);
 
 function normalizedAddressTokens(value: unknown) {
   return normalizedIdentityPart(value).split(" ").filter(Boolean);
@@ -475,7 +476,14 @@ function customerStreetNumberCandidates(address: Record<string, unknown>) {
     secondAddressLineUnitMarkers,
     true,
   );
-  return secondary.size > 0 ? secondary : primary;
+  const primaryTokens = normalizedAddressTokens(address.line1);
+  const secondaryTokens = normalizedAddressTokens(address.line2);
+  const primaryIsNumberedStreetName =
+    primaryTokens[0] === "strada" && numberedItalianStreetKinds.has(primaryTokens[1] ?? "");
+  return secondary.size > 0 &&
+    (primary.size === 0 || secondaryTokens[0] === "civico" || primaryIsNumberedStreetName)
+    ? secondary
+    : primary;
 }
 
 function customerContainsStructuredStreetNumber(
