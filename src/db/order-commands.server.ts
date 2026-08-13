@@ -322,6 +322,10 @@ const addressUnitMarkers = new Set([
   "corp",
   "building",
   "camera",
+]);
+
+const secondAddressLineUnitMarkers = new Set([
+  ...addressUnitMarkers,
   "edificio",
   "interno",
   "localita",
@@ -349,9 +353,9 @@ function withoutAddressPart(tokens: string[], value: unknown) {
   });
 }
 
-function withoutAddressUnits(tokens: string[]) {
+function withoutAddressUnits(tokens: string[], markers = addressUnitMarkers) {
   const unitTailIndex = tokens.findIndex((token, index) => {
-    if (!addressUnitMarkers.has(token)) return false;
+    if (!markers.has(token)) return false;
     const followsStructuredCivic =
       /^\d/u.test(tokens[index - 1] ?? "") ||
       (/^\d/u.test(tokens[index - 2] ?? "") && /^\p{L}+$/u.test(tokens[index - 1] ?? ""));
@@ -408,9 +412,14 @@ function streetKind(address: unknown, streetNumber: unknown, postalCode: unknown
   ).find((token) => streetKindTokens.has(token));
 }
 
-function structuredStreetNumberCandidates(address: unknown, postalCode: unknown) {
+function structuredStreetNumberCandidates(
+  address: unknown,
+  postalCode: unknown,
+  unitMarkers = addressUnitMarkers,
+) {
   const addressParts = withoutAddressUnits(
     withoutAddressPart(normalizedAddressTokens(address), postalCode),
+    unitMarkers,
   );
   const candidates = new Set<string>();
   const isCivicSuffix = (value: string) =>
@@ -451,7 +460,11 @@ function customerStreetNumberCandidates(address: Record<string, unknown>) {
   const primary = structuredStreetNumberCandidates(address.line1, address.postalCode);
   return primary.size > 0
     ? primary
-    : structuredStreetNumberCandidates(address.line2, address.postalCode);
+    : structuredStreetNumberCandidates(
+        address.line2,
+        address.postalCode,
+        secondAddressLineUnitMarkers,
+      );
 }
 
 function customerContainsStructuredStreetNumber(

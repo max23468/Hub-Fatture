@@ -4274,7 +4274,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     historicalWithoutTaxId.customer.firstName = "Rossi";
     historicalWithoutTaxId.customer.lastName = "Mario Garcia";
     historicalWithoutTaxId.customer.billingAddress = {
-      line1: "Via Cliente 2 1A",
+      line1: "Via della Scala 2 1A",
       line2: "Interno 7",
       postalCode: "00100",
       city: "Roma",
@@ -4302,7 +4302,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
         .replace(
           "<Indirizzo>Via Cliente 2</Indirizzo>",
-          "<Indirizzo>Via Cliente</Indirizzo><NumeroCivico>2</NumeroCivico>",
+          "<Indirizzo>Via della Scala</Indirizzo><NumeroCivico>2</NumeroCivico>",
         )
         .replaceAll("123.45", "122.00"),
     );
@@ -4340,7 +4340,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       "shop-customer-historical-numeric-complement";
     historicalWithNumericComplement.displayNumber = "#S-HIST-NUMERIC-COMPLEMENT";
     historicalWithNumericComplement.customer.billingAddress = {
-      line1: "Via Cliente",
+      line1: "Via della Scala",
       line2: "Interno 2",
       postalCode: "00100",
       city: "Roma",
@@ -4425,7 +4425,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
               "<IdFiscaleIVA>\n          <IdPaese>BG</IdPaese>\n          <IdCodice>99999999999</IdCodice>\n        </IdFiscaleIVA>\n        <Anagrafica>\n          <Nome>VALENTIN</Nome>",
             )
             .replace(
-              "<Indirizzo>Via Cliente</Indirizzo><NumeroCivico>2</NumeroCivico>",
+              "<Indirizzo>Via della Scala</Indirizzo><NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>1618 PCHELA</Indirizzo><NumeroCivico>3B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>00000</CAP>")
