@@ -1333,14 +1333,20 @@ test(
         ).rows[0].status,
         "HELPER_ACTIVE",
       );
-      await database
-        .getPool()
-        .query(
-          "UPDATE aruba_send_permits SET expires_at = now() - interval '1 second' WHERE batch_id = $1",
-          [canaryBatchId],
-        );
+      await database.getPool().query(
+        `UPDATE aruba_send_permits
+           SET expires_at = now() - interval '1 second', revoked_at = now()
+           WHERE batch_id = $1`,
+        [canaryBatchId],
+      );
       await assert.rejects(
         aruba.consumeArubaPermit(canaryToken.token, canaryManifest.manifestSha256),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      await assert.rejects(
+        database.withTransaction((client) =>
+          aruba.createArubaBatch(client, [mixedDocuments[0]!], owner, undefined, 1, "ASSISTED"),
+        ),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
       await aruba.authorizeArubaPermit(canaryBatchId, owner);

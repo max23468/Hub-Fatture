@@ -339,12 +339,7 @@ async function hasOutstandingCanaryBatch(
      JOIN aruba_batches AS batches ON batches.id = permits.batch_id
      WHERE permits.scope = 'CANARY'
        AND ($1::uuid IS NULL OR permits.batch_id <> $1)
-       AND (
-         (permits.consumed_at IS NULL AND permits.revoked_at IS NULL
-           AND permits.expires_at > now())
-         OR (permits.consumed_at IS NOT NULL
-           AND batches.status NOT IN ('RECONCILED', 'CANCELLED'))
-       )
+       AND batches.status NOT IN ('RECONCILED', 'CANCELLED')
      LIMIT 1`,
     [excludedBatchId ?? null],
   );
