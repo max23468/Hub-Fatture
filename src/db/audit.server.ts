@@ -53,6 +53,7 @@ export const auditActions = [
   "PROVIDER_REVOKED",
   "CONNECTOR_JOB_RETRIED",
   "SHOPIFY_DATA_REQUEST_COMPLETED",
+  "RETENTION_APPLIED",
 ] as const;
 
 export type AuditAction = (typeof auditActions)[number];
@@ -97,6 +98,13 @@ export async function writeAudit(
       documentCount: number;
       arubaMode: "ASSISTED" | "AUTOMATIC";
       fileKind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
+      dataClass:
+        | "SOURCE_PAYLOADS"
+        | "OPERATIONAL_JOBS"
+        | "OPERATIONAL_AUDIT"
+        | "CUSTOMER_EMAIL"
+        | "ARUBA_CREDENTIALS";
+      affectedCount: number;
     }>;
     /** Solo campi anagrafici allowlisted o riferimenti a snapshot: mai token o payload integrali. */
     before?: Record<string, unknown> | null;
