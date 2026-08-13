@@ -47,6 +47,47 @@ if gh release view "$tag" --repo "$repository" >/dev/null 2>&1; then
   exit 1
 fi
 
+resolve_remote_tag() {
+  refs=$(gh api "repos/$repository/git/matching-refs/tags/$tag") || return 2
+  ref=$(printf '%s' "$refs" | jq -c --arg expected "refs/tags/$tag" \
+    '[.[] | select(.ref == $expected)]') || return 2
+  ref_count=$(printf '%s' "$ref" | jq -r length) || return 2
+  [ "$ref_count" -gt 0 ] || return 1
+  [ "$ref_count" -eq 1 ] || {
+    echo "Il tag remoto non è univoco" >&2
+    return 2
+  }
+  ref=$(printf '%s' "$ref" | jq -c '.[0]') || return 2
+  object_type=$(printf '%s' "$ref" | jq -r .object.type)
+  object_sha=$(printf '%s' "$ref" | jq -r .object.sha)
+  depth=0
+  while [ "$object_type" = "tag" ]; do
+    depth=$((depth + 1))
+    [ "$depth" -le 8 ] || {
+      echo "Catena del tag remoto troppo profonda" >&2
+      return 2
+    }
+    ref=$(gh api "repos/$repository/git/tags/$object_sha") || return 2
+    object_type=$(printf '%s' "$ref" | jq -r .object.type)
+    object_sha=$(printf '%s' "$ref" | jq -r .object.sha)
+  done
+  [ "$object_type" = "commit" ] || {
+    echo "Il tag remoto non risolve a un commit" >&2
+    return 2
+  }
+  printf '%s\n' "$object_sha"
+}
+
+if remote_tag_commit=$(resolve_remote_tag); then
+  [ "$remote_tag_commit" = "$commit" ] || {
+    echo "Il tag remoto $tag punta a un commit diverso dal candidato" >&2
+    exit 1
+  }
+else
+  tag_status=$?
+  [ "$tag_status" -eq 1 ] || exit "$tag_status"
+fi
+
 stage_dir=$(mktemp -d "${TMPDIR:-/tmp}/hub-fatture-release.XXXXXX")
 case "$stage_dir" in
   "${TMPDIR:-/tmp}"/hub-fatture-release.*) ;;
@@ -64,6 +105,11 @@ gh release create "$tag" "$stage_dir/release-manifest.json" \
   --title "Hub Fatture $version" \
   --notes-file "$notes" \
   --latest >/dev/null
+
+[ "$(resolve_remote_tag)" = "$commit" ] || {
+  echo "Il tag pubblicato non punta al commit candidato" >&2
+  exit 1
+}
 
 release=$(gh release view "$tag" --repo "$repository" \
   --json tagName,isDraft,isPrerelease,isImmutable,targetCommitish,assets,url)

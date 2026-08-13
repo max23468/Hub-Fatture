@@ -626,6 +626,11 @@ test("la release usa sempre il nome canonico prima di diventare immutabile", asy
   assert.match(release, /gh release create "\$tag" "\$stage_dir\/release-manifest[.]json"/);
   assert.match(release, /\[\.assets\[\][.]name\] == \["release-manifest[.]json"\]/);
   assert.doesNotMatch(release, /#["']?release-manifest[.]json/);
+  const resolveTag = release.indexOf("if remote_tag_commit=$(resolve_remote_tag)");
+  const createRelease = release.indexOf('gh release create "$tag"');
+  assert.ok(resolveTag >= 0 && resolveTag < createRelease);
+  assert.match(release, /\[ "\$remote_tag_commit" = "\$commit" \]/);
+  assert.match(release, /\[ "\$\(resolve_remote_tag\)" = "\$commit" \]/);
 });
 
 test("il worker riconferma la lease dopo errori transitori di heartbeat", async () => {
