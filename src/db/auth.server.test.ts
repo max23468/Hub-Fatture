@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { hashToken } from "../crypto.server.ts";
+import { SESSION_TTL_SECONDS } from "../config.server.ts";
 import { AppError } from "../errors.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
@@ -60,7 +61,11 @@ test(
         ipHash: "origine-titolare",
         requestId: "test-login",
       });
-      assert.ok(sessionCookies.every((value) => value.includes("SameSite=Lax; HttpOnly")));
+      assert.ok(
+        sessionCookies.every((value) =>
+          value.includes(`Max-Age=${SESSION_TTL_SECONDS}; SameSite=Lax; HttpOnly`),
+        ),
+      );
       const request = new Request("http://localhost:8080", {
         headers: { cookie: sessionCookies.map((value) => value.split(";", 1)[0]).join("; ") },
       });
@@ -87,6 +92,13 @@ test(
         ).rows[0].count,
         "1",
       );
+      const persistedSession = await database.getPool().query<{ persistent: boolean }>(
+        `SELECT expires_at BETWEEN now() + interval '364 days' AND now() + interval '366 days'
+           AS persistent
+         FROM sessions WHERE id_hash = $1`,
+        [hashToken(sessionToken)],
+      );
+      assert.equal(persistedSession.rows[0]?.persistent, true);
       const secondSessionCookies = await auth.login({
         username: "MASSIMO",
         password: "massimo88",

@@ -820,7 +820,7 @@ export const copy = {
     changePassword: "Aggiorna password",
     sessionsTitle: "Sessioni attive",
     sessionsHelp:
-      "Sono mostrate solo le informazioni affidabili disponibili; Hub Fatture non deduce dispositivo o posizione.",
+      "Ogni accesso resta valido per un anno ed è indipendente dagli altri dispositivi. Sono mostrate solo informazioni affidabili: Hub Fatture non deduce dispositivo o posizione.",
     currentSession: "Questa sessione",
     otherSession: "Altra sessione",
     lastActivity: (value: string) => `Ultima attività: ${value}`,

@@ -3,7 +3,7 @@ import { redirect } from "react-router";
 
 import { writeAudit } from "./audit.server.ts";
 import { AGENT_USERNAME, canonicalUsername, OWNER_USERNAME } from "../auth.ts";
-import { getConfig } from "../config.server.ts";
+import { getConfig, SESSION_TTL_SECONDS } from "../config.server.ts";
 import { hashPassword, hashToken, safeEqual, verifyPassword } from "../crypto.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { AppError } from "../errors.ts";
@@ -216,11 +216,10 @@ export async function login(input: {
 
     const sessionToken = randomBytes(32).toString("base64url");
     const csrfToken = randomBytes(32).toString("base64url");
-    const ttl = getConfig().SESSION_TTL_SECONDS;
     await client.query(
       `INSERT INTO sessions (id_hash, user_id, csrf_token_hash, expires_at)
        VALUES ($1, $2, $3, now() + ($4 * interval '1 second'))`,
-      [hashToken(sessionToken), user.id, hashToken(csrfToken), ttl],
+      [hashToken(sessionToken), user.id, hashToken(csrfToken), SESSION_TTL_SECONDS],
     );
     await client.query("UPDATE users SET last_login_at = now() WHERE id = $1", [user.id]);
     // Solo la coppia che ha appena avuto successo: un accesso legittimo del titolare non deve
@@ -243,7 +242,10 @@ export async function login(input: {
       requestId: input.requestId,
     });
     return {
-      cookies: [cookie(SESSION_COOKIE, sessionToken, ttl), cookie(CSRF_COOKIE, csrfToken, ttl)],
+      cookies: [
+        cookie(SESSION_COOKIE, sessionToken, SESSION_TTL_SECONDS),
+        cookie(CSRF_COOKIE, csrfToken, SESSION_TTL_SECONDS),
+      ],
     } as const;
   });
 

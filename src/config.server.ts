@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const SESSION_TTL_SECONDS = 365 * 24 * 60 * 60;
+
 const schema = z
   .object({
     ADMIN_BOOTSTRAP_TOKEN: z.string().min(32),
@@ -31,7 +33,6 @@ const schema = z
     EBAY_CLIENT_SECRET: z.string().optional(),
     EBAY_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
     EBAY_RUNAME: z.string().optional(),
-    SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(28_800),
     SMTP_FROM: z.email().max(256).default("contabilita@example.invalid"),
     SMTP_HOST: z.string().trim().min(1).optional(),
     SMTP_PASSWORD: z.string().min(1).optional(),
