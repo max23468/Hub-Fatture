@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.39
+
+- Il titolare può preparare un invio pilota Aruba per un solo documento già approvato mentre il kill switch globale resta disabilitato; il batch automatico viene ricreato con un manifest immutabile distinto e una conferma esplicita.
+- Il permesso pilota è unico a livello globale, scade, può essere revocato e viene consumato atomicamente soltanto dopo la validazione del documento esatto; mismatch, riuso, configurazione ordinaria attiva o un secondo permesso lasciano l’invio bloccato.
+- La migrazione e le regressioni PostgreSQL coprono autorizzazione, unicità, scadenza, rinnovo, hash errato, consumo monouso e assenza di permessi ordinari nel percorso pilota.
+- Il lockfile aggiorna `nanoid` alla correzione compatibile dell’advisory di disponibilità rilevato dal gate di sicurezza.
+
 ## 0.3.38
 
 - La vista Clienti non considera più azionabile un vecchio stato di revisione dell’ordine quando l’ordine è già collegato a una preparazione chiusa o marcata da non trasmettere.

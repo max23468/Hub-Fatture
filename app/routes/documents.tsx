@@ -17,6 +17,7 @@ import {
   listArubaBatches,
   listOfficialArubaFiles,
   listUnbatchedApprovedDocuments,
+  prepareCanaryArubaBatch,
   retryArubaBatch,
 } from "../../src/db/aruba.server.ts";
 import {
@@ -29,7 +30,7 @@ import {
   listEmailDeliveries,
   retryCustomerEmail,
 } from "../../src/db/email.server.ts";
-import { publicError } from "../../src/errors.ts";
+import { AppError, publicError } from "../../src/errors.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
 import { parseSort } from "../table-sort";
@@ -163,6 +164,13 @@ export async function action({ request }: Route.ActionArgs) {
     if (form.get("intent") === "authorize-aruba-permit") {
       await authorizeArubaPermit(form.get("batchId") ?? "", actor);
       return redirect("/documenti?permesso=creato");
+    }
+    if (form.get("intent") === "prepare-canary-aruba-batch") {
+      if (form.get("confirmCanary") !== "yes") {
+        throw new AppError("ARUBA_PERMIT_INVALID", 422);
+      }
+      await prepareCanaryArubaBatch(form.get("batchId") ?? "", actor);
+      return redirect("/documenti?batch=creato");
     }
     if (form.get("intent") === "retry-aruba-batch") {
       await retryArubaBatch(form.get("batchId") ?? "", actor);

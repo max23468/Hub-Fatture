@@ -1,6 +1,6 @@
 # Readiness della release
 
-Questo è il record del candidato Production osservato al termine del collaudo. Un gate è chiuso soltanto quando la colonna **Riferimento** collega una prova osservata sul commit e digest esatti. Le capacità già implementate ma non esercitate nell’ambiente richiesto restano aperte.
+Questo è il record del candidato Production osservato e del successore tecnico in pubblicazione. Un gate è chiuso soltanto quando la colonna **Riferimento** collega una prova osservata sul commit e digest esatti. Le capacità già implementate ma non esercitate nell’ambiente richiesto restano aperte.
 
 ## Identità candidata
 
@@ -17,7 +17,7 @@ Questo è il record del candidato Production osservato al termine del collaudo. 
 | Kill switch              | `ARUBA_SUBMISSION_ENABLED=false` nel readback Production                                                                |
 | Health pubblico          | `GET https://fatture.opik.net/health` ha restituito `{"status":"ok"}` nel readback corrente                             |
 
-Questa identità è una fotografia del candidato distribuito, non un’autorizzazione al Canary. Le correzioni del readback globale, del dispatch helper exact-SHA e della retention fail-closed sono incluse e distribuite; qualunque successiva modifica runtime richiede un nuovo candidato e la ripetizione dei gate interessati.
+Questa identità è una fotografia del candidato distribuito, non un’autorizzazione al Canary. Il successore `0.3.39` corregge il contratto applicativo del permesso pilota e resta aperto finché PR, gate exact-HEAD, deploy, release e readback Production non sono conclusi.
 
 ## Gate del candidato
 
@@ -46,8 +46,9 @@ Questa identità è una fotografia del candidato distribuito, non un’autorizza
 | Runbook incidente e rollback                     | Chiuso sul candidato         | rollback autorizzato a `0.3.37` tramite [Production 31708195360](https://github.com/max23468/Hub-Fatture/actions/runs/31708195360): schema invariato, digest attestato, health/readback e kill switch verificati; ripristino immediato di `0.3.38` tramite [Production 31708746170](https://github.com/max23468/Hub-Fatture/actions/runs/31708746170), senza down migration |
 | Dependabot end-to-end                            | Chiuso                       | [PR sintetica #128](https://github.com/max23468/Hub-Fatture/pull/128) su branch temporaneo protetto: auto-merge abilitato a check pendenti, sei required check e `codex-review` exact-HEAD verdi, squash eseguito da GitHub Actions, zero review/auto-approvazioni; workflow senza checkout o esecuzione del contenuto PR                                                   |
 | Retention fiscale e tecnica, HF-O08              | Chiusa                       | titolare e commercialista hanno approvato la [politica](../contracts/retention-deletion.md); migrazione, job, hold, backup precondizionale, lifecycle OCI e conservazione della sola copia Mac corrente sono distribuiti o riletti                                                                                                                                          |
-| Audit e readiness finali                         | Chiuso per il collaudo       | il record collega qualifica Aruba/TD04, e-mail OCI, backup/restore, rollback/ripristino e readback finale al commit `375a558` e digest `sha256:280621…ab4e4`; una successiva modifica runtime riapre i gate interessati                                                                                                                                                     |
-| Autorizzazione del titolare per il Canary        | Non ancora ottenuta          | il collaudo è chiuso e l’autorizzazione può ora essere richiesta, ma questo record e la chiusura del collaudo non autorizzano l’invio Canary Production                                                                                                                                                                                                                     |
+| Contratto del permesso pilota                    | In pubblicazione             | `0.3.39` aggiunge preparazione esplicita per un solo documento, manifest automatico distinto, unicità globale, revoca, scadenza e consumo atomico con kill switch `false`; regressioni PostgreSQL locali verdi, da confermare sui gate exact-HEAD e nel readback Production                                                                                                 |
+| Audit e readiness finali                         | Da rileggere sul successore  | il record collega qualifica Aruba/TD04, e-mail OCI, backup/restore e rollback del candidato distribuito; la modifica runtime `0.3.39` riapre gate tecnici, deploy e readback fino alla pubblicazione completa                                                                                                                                                               |
+| Autorizzazione del titolare per il Canary        | Non ancora richiedibile      | va richiesta soltanto dopo la pubblicazione e il readback del successore senza P0/P1; questo record non autorizza il Canary Production                                                                                                                                                                                                                                      |
 
 ## Evidenza sanitizzata del PDF ufficiale Aruba
 
@@ -78,4 +79,4 @@ Il readback locale ha verificato firma `%PDF-`, checksum SHA-256 calcolato, stru
 
 ## Runbook applicabili
 
-La procedura operativa riusa senza duplicarli [Produzione OCI](production.md), [Aruba manuale](aruba-manual.md), [Backup e ripristino](backup-restore.md), [Incidenti Production](incidents.md) e [PoC OCI Email Delivery](oci-email-delivery-poc.md). Il candidato osservato ha concluso il collaudo tecnico: nessun invio Aruba, Canary o attivazione dell’uso Production ordinario è autorizzato o registrato da questo record.
+La procedura operativa riusa senza duplicarli [Produzione OCI](production.md), [Aruba manuale](aruba-manual.md), [Backup e ripristino](backup-restore.md), [Incidenti Production](incidents.md) e [PoC OCI Email Delivery](oci-email-delivery-poc.md). Nessun invio Aruba, Canary o attivazione dell’uso Production ordinario è autorizzato o registrato da questo record.

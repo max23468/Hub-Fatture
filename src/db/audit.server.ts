@@ -28,6 +28,7 @@ export const auditActions = [
   "CUSTOMER_EMAIL_FAILED",
   "CUSTOMER_EMAIL_REQUEUED",
   "ARUBA_BATCH_CREATED",
+  "ARUBA_CANARY_BATCH_PREPARED",
   "ARUBA_HELPER_TOKEN_CREATED",
   "ARUBA_UPLOAD_VALIDATED",
   "ARUBA_VALIDATION_FAILED",
@@ -98,6 +99,7 @@ export async function writeAudit(
       manifestSha256: string;
       documentCount: number;
       arubaMode: "ASSISTED" | "AUTOMATIC";
+      permitScope: "CANARY" | "ORDINARY";
       fileKind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
       dataClass:
         | "SOURCE_PAYLOADS"

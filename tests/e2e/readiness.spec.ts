@@ -321,7 +321,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  await expect(page.getByText("028_customer_review_cleanup.sql", { exact: true })).toBeVisible();
+  await expect(page.getByText("029_aruba_canary_permit.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),

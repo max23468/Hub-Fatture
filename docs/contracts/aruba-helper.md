@@ -9,11 +9,15 @@ Questo contratto governa la pagina sintetica e l’helper locale unico per macOS
 - L’account corrente non usa la 2FA e non richiede un SMS per ogni upload. Login, password e qualunque challenge OTP/SMS/CAPTCHA inattesa sono sempre umani: se richiesti, l’helper si mette in pausa.
 - Il codice di avvio scade, vale per un batch, viene revocato quando termina la propria fase e non autorizza `Invia`. Durante una pausa umana l’helper ne rinnova la scadenza breve con heartbeat, entro un limite assoluto di 45 minuti dalla creazione; prima del limite il server revoca il token e forza il readback se l’operazione non è conclusa.
 - Il permesso di invio automatico è distinto, scade ed è consumato atomicamente sul manifest esatto. In ambiente operativo il kill switch disabilita gli invii automatici ordinari e forza i nuovi batch alla modalità assistita.
+- L’unica eccezione è l’invio pilota esplicitamente autorizzato dal titolare: parte da un batch assistito ancora intatto di un solo documento, crea un nuovo batch `AUTOMATIC` con un manifest distinto e un solo permesso interno `CANARY`, quindi annulla il batch sorgente senza modificarne il manifest. Il flag globale deve restare `false`.
+- Può esistere un solo permesso pilota non consumato e non revocato. Il server serializza preparazione e rinnovo, revoca i permessi scaduti, impedisce la preparazione concorrente e rifiuta il consumo se ambiente, modalità, batch, manifest, documento, revisione, hash, validazione, scadenza o stato del kill switch non coincidono.
 - Dopo un esito incerto il manifest espone soltanto l’operazione `READBACK`: nessun nuovo upload o invio è ammesso fino alla riconciliazione.
 
 ## Manifest
 
 Il manifest immutabile comprende ambiente, modalità, riferimento non segreto dell’account atteso, tentativo e, per ogni documento, ID, revisione, hash XML, nome file, dimensione, numero fiscale, data e totale. L’hash del manifest vincola il permesso monouso. Gli XML scaricati dall’helper vengono accettati soltanto se dimensione e SHA-256 coincidono.
+
+La preparazione dell’invio pilota avviene in **Documenti** con una conferma esplicita riferita al singolo documento e al singolo tentativo. Non abilita l’uso automatico ordinario, non invia il documento e non sostituisce l’autorizzazione separata richiesta immediatamente prima del Canary Production.
 
 Gli endpoint interni espongono manifest, singolo XML, import dei file ufficiali, eventi sanitizzati e consumo del permesso. Accettano soltanto il bearer breve; non ricevono mai dati di autenticazione Aruba.
 

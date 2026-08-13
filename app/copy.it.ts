@@ -704,11 +704,15 @@ export const copy = {
     batchLastReadback: "Ultimo readback",
     batchNeverRead: "Non ancora eseguito",
     batchActions: "Azioni batch",
-    batchSummary: (count: number, mode: string) =>
-      `${count} ${count === 1 ? "documento" : "documenti"} · ${mode === "AUTOMATIC" ? "Automatica dopo conferma" : "Assistita"}`,
+    batchSummary: (count: number, mode: string, permitScope: string | null) =>
+      `${count} ${count === 1 ? "documento" : "documenti"} · ${permitScope === "CANARY" ? "Invio pilota" : mode === "AUTOMATIC" ? "Automatica dopo conferma" : "Assistita"}`,
     lastReadback: (value: string) => `ultimo readback ${value}`,
     issueHelperCode: "Genera codice di avvio",
     authorizePermit: "Autorizza nuovo permesso monouso",
+    authorizeCanaryPermit: "Rinnova permesso pilota",
+    confirmCanaryPermit:
+      "Confermo l’autorizzazione limitata a questo singolo documento e a questo tentativo.",
+    prepareCanaryBatch: "Prepara invio pilota",
     retryBatch: "Prepara nuovo tentativo",
     arubaBatchStatus: {
       PREPARED: "Preparato",
@@ -1145,6 +1149,7 @@ export const auditActionLabels = {
   ADMIN_ACCOUNT_CREATED: "Account amministrativo creato",
   ARUBA_ASSISTED_STOPPED: "Helper arrestato prima dell’invio",
   ARUBA_BATCH_CREATED: "Batch Aruba creato",
+  ARUBA_CANARY_BATCH_PREPARED: "Invio pilota Aruba preparato",
   ARUBA_FILE_IMPORTED: "File Aruba importato",
   ARUBA_HELPER_TOKEN_CREATED: "Codice helper generato",
   ARUBA_READBACK_RECONCILED: "Readback Aruba riconciliato",

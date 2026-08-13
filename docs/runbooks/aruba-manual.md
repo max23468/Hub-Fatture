@@ -13,3 +13,15 @@ Questa è la procedura completa quando l’helper non è disponibile, il browser
 9. Se il readback resta incerto o un upload non può essere rimosso, lasciare il batch bloccato. Preparare un nuovo tentativo soltanto dopo una riconciliazione conclusiva che confermi la rimozione.
 
 Il pannello qualificato mostra i limiti di 4,9 MB per XML, 300 documenti e 30 MB per caricamento. Le protezioni di accesso possono variare con la configurazione dell’account; l’eventuale verifica resta sempre un passaggio umano. Fonti: [caricamento XML](https://guide.aruba.it/soluzioni-fatturazione-elettronica/fe/fatture-documenti/carica-fatture/come-caricare-fatture-formato-xml-pannello), [accesso al pannello](https://guide.aruba.it/soluzioni-fatturazione-elettronica/fe/accesso-homepage/accesso-pannello-e-app/come-accedere-pannello-fe), [download dei file ufficiali](https://guide.aruba.it/soluzioni-fatturazione-elettronica/fe/fatture-inviate-ricevute-bozze/fatture-inviate/come-scaricare-fatture-inviate).
+
+## Preparazione dell’invio pilota
+
+Questa procedura si usa soltanto dopo la chiusura del collaudo e l’autorizzazione separata del titolare per un singolo documento reale. Non costituisce autorizzazione a eseguire il Canary.
+
+1. Verificare dal readback Production che `ARUBA_SUBMISSION_ENABLED=false`, che non esistano altri documenti approvati o upload pendenti e che non restino permessi pilota validi.
+2. In **Documenti**, individuare il batch assistito ancora nello stato **Preparato** e contenente esattamente il documento autorizzato.
+3. Selezionare la conferma riferita al singolo documento e al singolo tentativo, quindi usare **Prepara invio pilota**. L’app crea un nuovo manifest automatico e annulla il batch assistito sorgente; non carica né invia nulla ad Aruba.
+4. Rileggere batch, manifest, documento, revisione, hash, scadenza e scope del permesso. Un secondo permesso valido, un batch già avviato, il kill switch attivo o qualunque mismatch devono bloccare l’operazione.
+5. Generare il codice helper soltanto quando si è pronti per la sessione presidiata. Il permesso viene consumato atomicamente dopo la validazione e subito prima del clic finale; un crash precedente non autorizza alcun invio.
+6. Qualunque errore o stato incerto arresta il flusso. Prima di un nuovo tentativo completare il readback, rimuovere l’upload e verificare che il vecchio permesso sia consumato, scaduto o revocato.
+7. Al termine, anche in caso di errore, verificare `ARUBA_SUBMISSION_ENABLED=false` e l’assenza di permessi pilota validi.

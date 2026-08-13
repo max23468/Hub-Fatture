@@ -43,6 +43,8 @@ export interface ArubaActor {
 
 export interface ApprovedDocumentForBatch extends ArubaManifestDocument {}
 
+type ArubaPermitScope = "CANARY" | "ORDINARY";
+
 interface BatchIdentity {
   id: string;
   environment: "MOCK" | "PRODUCTION";
@@ -193,6 +195,7 @@ export async function createArubaBatch(
   expectedMode?: unknown,
   attemptNumber = 1,
   preservedMode?: ArubaMode,
+  permitScope: ArubaPermitScope = "ORDINARY",
 ): Promise<string> {
   if (!actor.canApprove) throw new AppError("ARUBA_PERMIT_FORBIDDEN", 403);
   if (
@@ -214,7 +217,15 @@ export async function createArubaBatch(
   if (expectedMode !== undefined && expectedMode !== effectiveMode) {
     throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
   }
-  if (preservedMode === "AUTOMATIC" && effectiveMode !== "AUTOMATIC") {
+  const canaryException =
+    permitScope === "CANARY" &&
+    environment === "PRODUCTION" &&
+    !getConfig().ARUBA_SUBMISSION_ENABLED &&
+    documents.length === 1;
+  if (preservedMode === "AUTOMATIC" && effectiveMode !== "AUTOMATIC" && !canaryException) {
+    throw new AppError("ARUBA_PERMIT_INVALID", 409);
+  }
+  if (permitScope === "CANARY" && (!canaryException || preservedMode !== "AUTOMATIC")) {
     throw new AppError("ARUBA_PERMIT_INVALID", 409);
   }
   const mode = preservedMode ?? effectiveMode;
@@ -272,13 +283,14 @@ export async function createArubaBatch(
     const permitId = randomUUID();
     await client.query(
       `INSERT INTO aruba_send_permits
-        (id, batch_id, manifest_sha256, document_count, mode, authorized_by, expires_at)
-       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6)`,
+        (id, batch_id, manifest_sha256, document_count, mode, scope, authorized_by, expires_at)
+       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6, $7)`,
       [
         permitId,
         batchId,
         digest,
         documents.length,
+        permitScope,
         actor.id,
         new Date(Date.now() + SEND_PERMIT_TTL_MS),
       ],
@@ -295,11 +307,95 @@ export async function createArubaBatch(
         manifestSha256: digest,
         documentCount: documents.length,
         arubaMode: mode,
+        permitScope,
       },
       requestId: actor.requestId,
     });
   }
   return batchId;
+}
+
+async function revokeExpiredCanaryPermits(client: pg.PoolClient): Promise<void> {
+  await client.query(
+    `UPDATE aruba_send_permits
+     SET revoked_at = now()
+     WHERE scope = 'CANARY' AND consumed_at IS NULL AND revoked_at IS NULL
+       AND expires_at <= now()`,
+  );
+}
+
+export async function prepareCanaryArubaBatch(batchId: string, actor: ArubaActor) {
+  if (!actor.canApprove) throw new AppError("ARUBA_PERMIT_FORBIDDEN", 403);
+  if (!/^[0-9a-f-]{36}$/.test(batchId)) throw new AppError("ARUBA_BATCH_INVALID", 422);
+  return withTransaction(async (client) => {
+    const config = getConfig();
+    if (config.APP_ENV !== "production" || config.ARUBA_SUBMISSION_ENABLED) {
+      throw new AppError("ARUBA_PERMIT_INVALID", 409);
+    }
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
+    await revokeExpiredCanaryPermits(client);
+    const activePermit = await client.query(
+      `SELECT 1 FROM aruba_send_permits
+       WHERE scope = 'CANARY' AND consumed_at IS NULL AND revoked_at IS NULL
+       LIMIT 1`,
+    );
+    if (activePermit.rowCount) throw new AppError("ARUBA_PERMIT_INVALID", 409);
+    const batch = await client.query<BatchIdentity>(
+      "SELECT * FROM aruba_batches WHERE id = $1 FOR UPDATE",
+      [batchId],
+    );
+    const current = batch.rows[0];
+    if (
+      !current ||
+      current.environment !== "PRODUCTION" ||
+      current.mode !== "ASSISTED" ||
+      current.document_count !== 1 ||
+      current.status !== "PREPARED" ||
+      current.requires_reconciliation
+    ) {
+      throw new AppError("ARUBA_PERMIT_INVALID", 409);
+    }
+    const documents = await batchDocuments(client, batchId);
+    verifyManifest(current, documents);
+    await client.query(
+      "UPDATE aruba_helper_tokens SET revoked_at = now() WHERE batch_id = $1 AND revoked_at IS NULL",
+      [batchId],
+    );
+    const canaryBatchId = await createArubaBatch(
+      client,
+      documents,
+      actor,
+      undefined,
+      current.attempt_number,
+      "AUTOMATIC",
+      "CANARY",
+    );
+    await client.query(
+      "UPDATE aruba_batches SET status = 'CANCELLED', updated_at = now() WHERE id = $1",
+      [batchId],
+    );
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "ARUBA_CANARY_BATCH_PREPARED",
+      eventClass: "CRITICAL",
+      entityType: "ARUBA_BATCH",
+      entityId: canaryBatchId,
+      metadata: {
+        batchId: canaryBatchId,
+        manifestSha256: (
+          await client.query<{ manifest_sha256: string }>(
+            "SELECT manifest_sha256 FROM aruba_batches WHERE id = $1",
+            [canaryBatchId],
+          )
+        ).rows[0]!.manifest_sha256,
+        documentCount: 1,
+        permitScope: "CANARY",
+      },
+      requestId: actor.requestId,
+    });
+    return canaryBatchId;
+  });
 }
 
 export async function createBatchForDocuments(documentIds: string[], actor: ArubaActor) {
@@ -908,11 +1004,11 @@ export async function consumeArubaPermit(token: string, manifestDigest: unknown)
     const permit = await client.query<{ id: string }>(
       `UPDATE aruba_send_permits SET consumed_at = now()
        WHERE batch_id = $1 AND manifest_sha256 = $2 AND document_count = $3
-         AND mode = 'AUTOMATIC' AND consumed_at IS NULL AND expires_at > now()
+         AND mode = 'AUTOMATIC' AND consumed_at IS NULL AND revoked_at IS NULL
+         AND expires_at > now()
          AND (
-           $4::text = 'MOCK'
-           OR (scope = 'ORDINARY' AND $5::boolean)
-           OR scope = 'CANARY'
+           (scope = 'ORDINARY' AND ($4::text = 'MOCK' OR $5::boolean))
+           OR (scope = 'CANARY' AND $4::text = 'PRODUCTION' AND NOT $5::boolean)
          )
        RETURNING id`,
       [
@@ -960,11 +1056,13 @@ export async function listArubaBatches() {
     last_readback_at: string | null;
     manifest_sha256: string;
     permit_consumed_at: string | null;
+    permit_scope: ArubaPermitScope | null;
     can_retry: boolean;
   }>(
     `SELECT batches.id, batches.environment, batches.mode, batches.status,
             batches.document_count, batches.created_at, batches.last_readback_at,
             batches.manifest_sha256, permits.consumed_at AS permit_consumed_at,
+            permits.scope AS permit_scope,
             batches.status = 'RECONCILED' AND NOT EXISTS (
               SELECT 1 FROM aruba_submissions
               WHERE aruba_submissions.batch_id = batches.id
@@ -985,10 +1083,22 @@ export async function authorizeArubaPermit(batchId: string, actor: ArubaActor) {
       [batchId],
     );
     const current = batch.rows[0];
+    const existingPermit = await client.query<{
+      consumed_at: string | null;
+      scope: ArubaPermitScope;
+    }>("SELECT consumed_at, scope FROM aruba_send_permits WHERE batch_id = $1 FOR UPDATE", [
+      batchId,
+    ]);
+    const permitScope = existingPermit.rows[0]?.scope ?? "ORDINARY";
+    const canary = permitScope === "CANARY";
     if (
       !current ||
       current.mode !== "AUTOMATIC" ||
-      (current.environment === "PRODUCTION" && !getConfig().ARUBA_SUBMISSION_ENABLED) ||
+      (canary
+        ? current.environment !== "PRODUCTION" ||
+          getConfig().ARUBA_SUBMISSION_ENABLED ||
+          current.document_count !== 1
+        : current.environment === "PRODUCTION" && !getConfig().ARUBA_SUBMISSION_ENABLED) ||
       current.requires_reconciliation ||
       !["PREPARED", "HELPER_ACTIVE", "VALIDATION_FAILED"].includes(current.status)
     ) {
@@ -996,24 +1106,39 @@ export async function authorizeArubaPermit(batchId: string, actor: ArubaActor) {
     }
     const documents = await batchDocuments(client, batchId);
     verifyManifest(current, documents);
-    const permit = await client.query<{ consumed_at: string | null }>(
-      "SELECT consumed_at FROM aruba_send_permits WHERE batch_id = $1 FOR UPDATE",
-      [batchId],
-    );
-    if (permit.rows[0]?.consumed_at) throw new AppError("ARUBA_PERMIT_INVALID", 409);
+    if (existingPermit.rows[0]?.consumed_at) throw new AppError("ARUBA_PERMIT_INVALID", 409);
+    if (canary) {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
+      await revokeExpiredCanaryPermits(client);
+      const other = await client.query(
+        `SELECT 1 FROM aruba_send_permits
+         WHERE scope = 'CANARY' AND batch_id <> $1 AND consumed_at IS NULL
+           AND revoked_at IS NULL LIMIT 1`,
+        [batchId],
+      );
+      if (other.rowCount) throw new AppError("ARUBA_PERMIT_INVALID", 409);
+    }
     const expiresAt = new Date(Date.now() + SEND_PERMIT_TTL_MS);
     await client.query(
       `INSERT INTO aruba_send_permits
-        (id, batch_id, manifest_sha256, document_count, mode, authorized_by, expires_at)
-       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6)
+        (id, batch_id, manifest_sha256, document_count, mode, scope, authorized_by, expires_at)
+       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6, $7)
        ON CONFLICT (batch_id) DO UPDATE SET id = EXCLUDED.id,
          manifest_sha256 = EXCLUDED.manifest_sha256,
          document_count = EXCLUDED.document_count,
          mode = EXCLUDED.mode,
-         scope = 'ORDINARY',
+         scope = EXCLUDED.scope,
          authorized_by = EXCLUDED.authorized_by, authorized_at = now(),
-         expires_at = EXCLUDED.expires_at`,
-      [randomUUID(), batchId, current.manifest_sha256, current.document_count, actor.id, expiresAt],
+         expires_at = EXCLUDED.expires_at, revoked_at = NULL`,
+      [
+        randomUUID(),
+        batchId,
+        current.manifest_sha256,
+        current.document_count,
+        permitScope,
+        actor.id,
+        expiresAt,
+      ],
     );
     await writeAudit(client, {
       actorType: "ADMIN",
@@ -1027,6 +1152,7 @@ export async function authorizeArubaPermit(batchId: string, actor: ArubaActor) {
         manifestSha256: current.manifest_sha256,
         documentCount: current.document_count,
         arubaMode: current.mode,
+        permitScope,
       },
       requestId: actor.requestId,
     });
@@ -1051,6 +1177,31 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor) {
       [batchId],
     );
     if (unsafe.rowCount) throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
+    const permit = await client.query<{ scope: ArubaPermitScope; consumed_at: string | null }>(
+      "SELECT scope, consumed_at FROM aruba_send_permits WHERE batch_id = $1 FOR UPDATE",
+      [batchId],
+    );
+    const permitScope = permit.rows[0]?.scope ?? "ORDINARY";
+    if (permitScope === "CANARY") {
+      const config = getConfig();
+      if (config.APP_ENV !== "production" || config.ARUBA_SUBMISSION_ENABLED) {
+        throw new AppError("ARUBA_PERMIT_INVALID", 409);
+      }
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
+      await client.query(
+        `UPDATE aruba_send_permits SET revoked_at = now()
+         WHERE batch_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL`,
+        [batchId],
+      );
+      await revokeExpiredCanaryPermits(client);
+      const other = await client.query(
+        `SELECT 1 FROM aruba_send_permits
+         WHERE scope = 'CANARY' AND batch_id <> $1 AND consumed_at IS NULL
+           AND revoked_at IS NULL LIMIT 1`,
+        [batchId],
+      );
+      if (other.rowCount) throw new AppError("ARUBA_PERMIT_INVALID", 409);
+    }
     const retryBatchId = await createArubaBatch(
       client,
       await batchDocuments(client, batchId),
@@ -1058,6 +1209,7 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor) {
       undefined,
       current.attempt_number + 1,
       current.mode,
+      permitScope,
     );
     await client.query(
       "UPDATE aruba_batches SET status = 'CANCELLED', updated_at = now() WHERE id = $1",
