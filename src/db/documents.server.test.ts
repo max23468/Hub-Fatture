@@ -1200,12 +1200,41 @@ test(
         ARUBA_ACCOUNT_REFERENCE: "qualified-production-account",
         ARUBA_SUBMISSION_ENABLED: false,
       });
+      const otherApprovedDocuments = (
+        await database.getPool().query<{
+          id: string;
+          fiscal_year: number;
+          fiscal_number: number;
+          approved_at: Date;
+          xml_sha256: string;
+          immutable_snapshot_json: unknown;
+          fiscal_profile_snapshot_json: unknown;
+          storage_object_id: string;
+        }>(
+          `SELECT id, fiscal_year, fiscal_number, approved_at, xml_sha256,
+                  immutable_snapshot_json, fiscal_profile_snapshot_json, storage_object_id
+           FROM documents WHERE status = 'APPROVED' AND id <> $1`,
+          [mixedDocuments[0]!.id],
+        )
+      ).rows;
       const canarySourceBatchId = await database.withTransaction((client) =>
         aruba.createArubaBatch(client, [mixedDocuments[0]!], owner, undefined, 1, "ASSISTED"),
       );
-      const secondCanarySourceBatchId = await database.withTransaction((client) =>
-        aruba.createArubaBatch(client, [mixedDocuments[1]!], owner, undefined, 1, "ASSISTED"),
+      await assert.rejects(
+        aruba.prepareCanaryArubaBatch(canarySourceBatchId, owner),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
+      await database.withTransaction(async (client) => {
+        await client.query("SET LOCAL session_replication_role = replica");
+        await client.query(
+          `UPDATE documents
+           SET status = 'DRAFT', fiscal_year = NULL, fiscal_number = NULL,
+               approved_at = NULL, xml_sha256 = NULL, immutable_snapshot_json = NULL,
+               fiscal_profile_snapshot_json = NULL, storage_object_id = NULL
+           WHERE status = 'APPROVED' AND id <> $1`,
+          [mixedDocuments[0]!.id],
+        );
+      });
       await assert.rejects(
         aruba.prepareCanaryArubaBatch(canarySourceBatchId, {
           id: 2,
@@ -1251,8 +1280,10 @@ test(
       assert.deepEqual(
         (
           await database.getPool().query(
-            `SELECT source.status AS source_status, candidate.environment, candidate.mode,
-                    candidate.document_count, permits.scope, permits.consumed_at,
+            `SELECT source.status AS source_status, source.attempt_number AS source_attempt,
+                    candidate.environment, candidate.mode, candidate.document_count,
+                    candidate.attempt_number > source.attempt_number AS distinct_attempt,
+                    permits.scope, permits.consumed_at,
                     permits.revoked_at,
                     (SELECT count(*) FROM aruba_send_permits
                      WHERE batch_id = candidate.id AND scope = 'ORDINARY') AS ordinary_permits
@@ -1265,9 +1296,11 @@ test(
         ).rows[0],
         {
           source_status: "CANCELLED",
+          source_attempt: 1,
           environment: "PRODUCTION",
           mode: "AUTOMATIC",
           document_count: 1,
+          distinct_attempt: true,
           scope: "CANARY",
           consumed_at: null,
           revoked_at: null,
@@ -1275,7 +1308,7 @@ test(
         },
       );
       await assert.rejects(
-        aruba.prepareCanaryArubaBatch(secondCanarySourceBatchId, owner),
+        aruba.prepareCanaryArubaBatch(canarySourceBatchId, owner),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
       const canaryToken = await aruba.issueHelperToken(canaryBatchId, owner);
@@ -1316,6 +1349,17 @@ test(
         aruba.consumeArubaPermit(canaryToken.token, canaryManifest.manifestSha256),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
+      const secondCanarySourceBatchId = await database.withTransaction((client) =>
+        aruba.createArubaBatch(client, [mixedDocuments[0]!], owner, undefined, 1, "ASSISTED"),
+      );
+      await assert.rejects(
+        aruba.prepareCanaryArubaBatch(secondCanarySourceBatchId, owner),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      await aruba.recordHelperEvent(canaryToken.token, {
+        type: "READBACK",
+        documents: [{ id: canaryManifest.documents[0]!.id, status: "REMOVED" }],
+      });
       const secondCanaryBatchId = await aruba.prepareCanaryArubaBatch(
         secondCanarySourceBatchId,
         owner,
@@ -1364,6 +1408,28 @@ test(
       await database
         .getPool()
         .query("UPDATE aruba_batches SET status = 'CANCELLED' WHERE id = $1", [retryCanaryBatchId]);
+      await database.withTransaction(async (client) => {
+        await client.query("SET LOCAL session_replication_role = replica");
+        for (const document of otherApprovedDocuments) {
+          await client.query(
+            `UPDATE documents
+             SET status = 'APPROVED', fiscal_year = $2, fiscal_number = $3,
+                 approved_at = $4, xml_sha256 = $5, immutable_snapshot_json = $6,
+                 fiscal_profile_snapshot_json = $7, storage_object_id = $8
+             WHERE id = $1`,
+            [
+              document.id,
+              document.fiscal_year,
+              document.fiscal_number,
+              document.approved_at,
+              document.xml_sha256,
+              document.immutable_snapshot_json,
+              document.fiscal_profile_snapshot_json,
+              document.storage_object_id,
+            ],
+          );
+        }
+      });
       Object.assign(runtimeConfig, originalArubaRuntime);
       await assert.rejects(
         database.withTransaction((client) =>
