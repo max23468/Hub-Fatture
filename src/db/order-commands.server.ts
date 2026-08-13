@@ -422,12 +422,15 @@ function structuredStreetNumberCandidates(
   classifySecondAddressLine = false,
 ) {
   const normalizedParts = withoutAddressPart(normalizedAddressTokens(address), postalCode);
+  const hasExplicitCivicSeparator =
+    typeof address === "string" && /^\s*\d+[\p{L}]?\s*[,;/]/u.test(address);
   if (
     classifySecondAddressLine &&
     (unitMarkers.has(normalizedParts[0] ?? "") ||
       (!/^\d/u.test(normalizedParts[0] ?? "") && normalizedParts[0] !== "civico") ||
       (/^\d/u.test(normalizedParts[0] ?? "") &&
-        postposedFloorMarkers.has(normalizedParts[1] ?? "")) ||
+        postposedFloorMarkers.has(normalizedParts[1] ?? "") &&
+        !hasExplicitCivicSeparator) ||
       (typeof address === "string" && /^\s*\d+\s*[°ºª]/u.test(address)))
   ) {
     return new Set<string>();
