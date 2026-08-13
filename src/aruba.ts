@@ -9,7 +9,6 @@ export const ARUBA_PANEL_ORIGIN = "https://fatturazioneelettronica.aruba.it";
 
 export const arubaModeSchema = z.enum(["ASSISTED", "AUTOMATIC"]);
 export const arubaEnvironmentSchema = z.enum(["MOCK", "PRODUCTION"]);
-export const arubaAuthProtectionSchema = z.enum(["UNKNOWN", "TWO_FACTOR", "SMS_PER_UPLOAD"]);
 
 export const arubaManifestDocumentSchema = z.object({
   id: z.string().regex(/^\d+$/),

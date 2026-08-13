@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.32
+
+- L’integrazione Aruba considera ordinario il caricamento senza SMS quando la protezione per singolo upload è disattivata, continuando a fermarsi davanti a challenge OTP, SMS o CAPTCHA inattese.
+- Le Impostazioni non espongono più una dichiarazione manuale della protezione Aruba che non influenzava il comportamento dell’helper; la migrazione rimuove la relativa chiave obsoleta dai database esistenti.
+- Contratto, procedura manuale, pagina sintetica e test descrivono e verificano insieme il percorso corrente senza 2FA e senza SMS per ogni upload.
+
 ## 0.3.31
 
 - Ogni pagina privata espone un titolo descrittivo nel formato `Pagina · Hub Fatture`, con titoli contestuali per ordini e preparazioni fattura e metadati coerenti anche per errori e pagine non trovate.

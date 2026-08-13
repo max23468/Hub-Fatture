@@ -8,7 +8,6 @@ import {
   ARUBA_IMPORT_MAX_BYTES,
   ARUBA_PANEL_ORIGIN,
   ARUBA_UPLOAD_MAX_BYTES,
-  arubaAuthProtectionSchema,
   arubaFileKindSchema,
   arubaModeSchema,
   effectiveArubaMode,
@@ -89,7 +88,7 @@ function integer(value: unknown): number {
 export async function getArubaSettings() {
   const [result, helper] = await Promise.all([
     getPool().query<{ key: string; value_json: unknown; version: number }>(
-      "SELECT key, value_json, version FROM settings WHERE key IN ('aruba_mode', 'aruba_auth_protection')",
+      "SELECT key, value_json, version FROM settings WHERE key = 'aruba_mode'",
     ),
     getPool().query<{
       helper_last_seen_at: Date | null;
@@ -120,12 +119,6 @@ export async function getArubaSettings() {
     },
     effectiveMode: effectiveArubaMode(mode, environment, getConfig().ARUBA_SUBMISSION_ENABLED),
     automaticForcedAssisted: environment === "PRODUCTION" && !getConfig().ARUBA_SUBMISSION_ENABLED,
-    authProtection: {
-      value: arubaAuthProtectionSchema.parse(
-        settings.get("aruba_auth_protection")?.value_json ?? "UNKNOWN",
-      ),
-      version: settings.get("aruba_auth_protection")?.version ?? 0,
-    },
     helper: {
       lastSeenAt: helperStatus?.helper_last_seen_at?.toISOString() ?? null,
       version: helperStatus?.helper_version ?? null,
@@ -136,37 +129,26 @@ export async function getArubaSettings() {
 }
 
 export async function setArubaSettings(
-  raw: { mode: unknown; modeVersion: unknown; authProtection: unknown; authVersion: unknown },
+  raw: { mode: unknown; modeVersion: unknown },
   actor: ArubaActor,
 ) {
   if (!actor.canApprove) throw new AppError("ARUBA_PERMIT_FORBIDDEN", 403);
   const mode = arubaModeSchema.safeParse(raw.mode);
-  const auth = arubaAuthProtectionSchema.safeParse(raw.authProtection);
   const modeVersion = integer(raw.modeVersion);
-  const authVersion = integer(raw.authVersion);
-  if (!mode.success || !auth.success) throw new AppError("ARUBA_BATCH_INVALID", 422);
+  if (!mode.success) throw new AppError("ARUBA_BATCH_INVALID", 422);
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('settings:aruba'))");
     const current = await client.query<{ key: string; version: number }>(
-      `SELECT key, version FROM settings
-       WHERE key IN ('aruba_mode', 'aruba_auth_protection') FOR UPDATE`,
+      "SELECT key, version FROM settings WHERE key = 'aruba_mode' FOR UPDATE",
     );
     const versions = new Map(current.rows.map((row) => [row.key, row.version]));
-    if (
-      versions.get("aruba_mode") !== modeVersion ||
-      versions.get("aruba_auth_protection") !== authVersion
-    ) {
+    if (versions.get("aruba_mode") !== modeVersion) {
       throw new AppError("CONFLICT_REVISION", 409);
     }
     await client.query(
       `UPDATE settings SET value_json = $2, version = version + 1, updated_at = now()
        WHERE key = $1`,
       ["aruba_mode", JSON.stringify(mode.data)],
-    );
-    await client.query(
-      `UPDATE settings SET value_json = $2, version = version + 1, updated_at = now()
-       WHERE key = $1`,
-      ["aruba_auth_protection", JSON.stringify(auth.data)],
     );
     await writeAudit(client, {
       actorType: "ADMIN",
@@ -175,7 +157,7 @@ export async function setArubaSettings(
       eventClass: "CRITICAL",
       entityType: "SETTING",
       entityId: "aruba",
-      after: { mode: mode.data, authProtection: auth.data },
+      after: { mode: mode.data },
       requestId: actor.requestId,
     });
   });

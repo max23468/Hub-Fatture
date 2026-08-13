@@ -148,8 +148,6 @@ export async function action({ request }: Route.ActionArgs) {
         {
           mode: form.get("arubaMode"),
           modeVersion: form.get("arubaModeVersion"),
-          authProtection: form.get("arubaAuthProtection"),
-          authVersion: form.get("arubaAuthVersion"),
         },
         { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
       );
