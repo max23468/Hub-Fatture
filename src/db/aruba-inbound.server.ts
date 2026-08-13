@@ -2586,8 +2586,9 @@ export async function completeArubaPreflight(
          JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
          WHERE remote.environment = $1 AND remote.account_reference = $2
            AND remote.remote_status <> 'REJECTED' AND remote.document_type = $4 AND (
-           matches.order_id::text = ANY($3::text[])
-           OR EXISTS (
+           ($4 = 'TD01' AND (
+             matches.order_id::text = ANY($3::text[])
+             OR EXISTS (
              SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
              WHERE coalesce((candidate ->> 'compatible')::boolean, false) AND (
                candidate ->> 'candidateId' = ANY($3::text[])
@@ -2598,13 +2599,14 @@ export async function completeArubaPreflight(
                  WHERE candidate_order_id = ANY($3::text[])
                )
              )
-           )
+           ))) OR ($4 = 'TD04' AND matches.refund_ids::text[] && $5::text[])
          ) LIMIT 1`,
       [
         session.environment,
         session.account_reference,
         requestJson.orderIds ?? [],
         requestJson.documentType,
+        requestJson.refundIds ?? [],
       ],
     );
     const coveredStreams = new Set(covered.rows.map((row) => row.stream));
@@ -2647,6 +2649,16 @@ export async function revokeArubaReadSessions(actor: ArubaReadActor) {
 
 async function manualCoverage(client: pg.Pool | pg.PoolClient) {
   return requiredInventoryCoverage(client);
+}
+
+async function expireStaleArubaReadSessions(client: pg.PoolClient) {
+  await client.query(
+    `UPDATE aruba_sync_sessions SET status = 'EXPIRED', lease_expires_at = NULL
+     WHERE environment = $1 AND account_reference = $2
+       AND status IN ('ACTIVE', 'SCANNING')
+       AND (absolute_expires_at <= now() OR coalesce(lease_expires_at, '-infinity') <= now())`,
+    [environment(), accountReference()],
+  );
 }
 
 function parsedManualPages(raw: unknown, allowAcrossStreams = false) {
@@ -2798,9 +2810,34 @@ export async function finalizeArubaManualReadback(readbackId: string, actor: Aru
     );
     const parsed = parsedManualPages(pages);
     const required = current.coverage_json.streams ?? [];
+    const requiredStreams = new Set(required);
     if (required.some((stream) => !parsed.byStream.has(stream))) {
       throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
     }
+    const knownRemote = await client.query<{
+      remote_id: string;
+      document_type: "TD01" | "TD04";
+      fiscal_year: number;
+    }>(
+      `SELECT remote_id, document_type, fiscal_year FROM aruba_remote_documents
+       WHERE environment = $1 AND account_reference = $2`,
+      [environment(), accountReference()],
+    );
+    const capturedByStream = new Map(
+      [...parsed.byStream].map(([stream, streamPages]) => [
+        stream,
+        new Set(streamPages.flatMap((page) => page.documents.map((document) => document.remoteId))),
+      ]),
+    );
+    if (
+      knownRemote.rows.some((remote) => {
+        const stream = `${remote.document_type === "TD01" ? "invoices" : "credit-notes"}:${remote.fiscal_year}`;
+        return requiredStreams.has(stream) && !capturedByStream.get(stream)?.has(remote.remote_id);
+      })
+    ) {
+      throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
+    }
+    await expireStaleArubaReadSessions(client);
     const activeHelper = await client.query(
       `SELECT 1 FROM aruba_sync_sessions
        WHERE environment = $1 AND account_reference = $2
@@ -2931,6 +2968,7 @@ export async function completeManualArubaPreflight(
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
         `aruba-read:${environment()}:${accountReference()}`,
       ]);
+      await expireStaleArubaReadSessions(client);
       const activeHelper = await client.query(
         `SELECT 1 FROM aruba_sync_sessions
          WHERE environment = $1 AND account_reference = $2

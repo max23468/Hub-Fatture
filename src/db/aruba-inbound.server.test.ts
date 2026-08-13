@@ -788,8 +788,8 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         error instanceof Error && "code" in error && error.code === "ARUBA_READ_SESSION_FORBIDDEN",
     );
 
-    const manualReadback = await inbound.createArubaManualReadback(actor);
-    const emptyCoveragePages = manualReadback.coverage.streams.map(
+    const emptyManualReadback = await inbound.createArubaManualReadback(actor);
+    const emptyCoveragePages = emptyManualReadback.coverage.streams.map(
       (stream: string, index: number) => ({
         stream,
         scanOrdinal: 1,
@@ -801,9 +801,48 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       }),
     );
     assert.deepEqual(
-      await inbound.addArubaManualReadbackPages(manualReadback.id, emptyCoveragePages, actor),
+      await inbound.addArubaManualReadbackPages(emptyManualReadback.id, emptyCoveragePages, actor),
       { pages: emptyCoveragePages.length, documents: 0 },
     );
+    await assert.rejects(
+      inbound.finalizeArubaManualReadback(emptyManualReadback.id, actor),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_INVENTORY_INCOMPLETE",
+    );
+    const manualReadback = await inbound.createArubaManualReadback(actor);
+    const observedDocuments = await database
+      .getPool()
+      .query<{ document: (typeof invoicePage.documents)[number] }>(
+        `SELECT DISTINCT ON (document ->> 'remoteId') document
+       FROM aruba_sync_pages pages
+       CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) document
+       WHERE EXISTS (
+         SELECT 1 FROM aruba_remote_documents remote
+         WHERE remote.remote_id = document ->> 'remoteId'
+       )
+       ORDER BY document ->> 'remoteId', pages.committed_at DESC`,
+      );
+    const completeCoveragePages = manualReadback.coverage.streams.map(
+      (stream: string, index: number) => {
+        const [kind, year] = stream.split(":");
+        return {
+          stream,
+          scanOrdinal: 1,
+          pageOrdinal: 1,
+          cursor: `manual-complete-${index + 1}`,
+          terminal: true,
+          fullScan: true,
+          documents: observedDocuments.rows
+            .map((row) => row.document)
+            .filter(
+              (document) =>
+                document.fiscalYear === Number(year) &&
+                document.documentType === (kind === "invoices" ? "TD01" : "TD04"),
+            ),
+        };
+      },
+    );
+    await inbound.addArubaManualReadbackPages(manualReadback.id, completeCoveragePages, actor);
     await assert.rejects(
       inbound.finalizeArubaManualReadback(manualReadback.id, actor),
       (error: unknown) =>
@@ -858,14 +897,32 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       [actor.id],
     );
     await database.getPool().query(
-      `UPDATE aruba_document_matches SET status = 'AMBIGUOUS', method = 'NONE'
-       WHERE remote_document_id = $1`,
-      [rejectedRemote.rows[0]!.id],
+      `INSERT INTO aruba_sync_sessions
+        (id, environment, account_reference, device_id, token_hash, status,
+         absolute_expires_at, lease_expires_at, requested_by)
+       VALUES ('30000000-0000-4000-8000-000000000002', 'MOCK', 'synthetic-aruba-account',
+         'stale-manual-device', repeat('d', 64), 'ACTIVE', now() + interval '1 hour',
+         now() - interval '1 second', $1)`,
+      [actor.id],
     );
+    await database.getPool().query("UPDATE aruba_remote_documents SET remote_status = 'REJECTED'");
+    await database
+      .getPool()
+      .query(`UPDATE aruba_document_matches SET status = 'AMBIGUOUS', method = 'NONE'`);
     assert.deepEqual(await inbound.finalizeArubaManualReadback(manualReadback.id, actor), {
       completed: true,
       repeated: false,
     });
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query(
+            "SELECT status FROM aruba_sync_sessions WHERE id = '30000000-0000-4000-8000-000000000002'",
+          )
+      ).rows[0].status,
+      "EXPIRED",
+    );
     assert.deepEqual(await inbound.finalizeArubaManualReadback(manualReadback.id, actor), {
       completed: true,
       repeated: true,
@@ -1001,6 +1058,15 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         residualOrder.rows[0]!.id,
       ],
     );
+    await database.getPool().query(
+      `INSERT INTO aruba_sync_sessions
+        (id, environment, account_reference, device_id, token_hash, status,
+         absolute_expires_at, lease_expires_at, requested_by)
+       VALUES ('30000000-0000-4000-8000-000000000003', 'MOCK', 'synthetic-aruba-account',
+         'stale-specific-device', repeat('c', 64), 'SCANNING', now() + interval '1 hour',
+         now() - interval '1 second', $1)`,
+      [actor.id],
+    );
     const candidateReadback = await inbound.completeManualArubaPreflight(
       candidateReceiptId,
       [
@@ -1029,6 +1095,16 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       actor,
     );
     assert.equal(candidateReadback.passed, false);
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query(
+            "SELECT status FROM aruba_sync_sessions WHERE id = '30000000-0000-4000-8000-000000000003'",
+          )
+      ).rows[0].status,
+      "EXPIRED",
+    );
     assert.equal(
       (
         await database
@@ -1222,12 +1298,20 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
 
     const creditReceiptId = "40000000-0000-4000-8000-000000000005";
     await database.getPool().query(
+      `UPDATE aruba_document_matches SET order_id = $1, refund_ids = ARRAY[999998]::bigint[]
+       WHERE remote_document_id = (
+         SELECT id FROM aruba_remote_documents WHERE document_type = 'TD04' LIMIT 1
+       )`,
+      [residualOrder.rows[0]!.id],
+    );
+    await database.getPool().query(
       `INSERT INTO aruba_preflight_receipts
         (id, environment, account_reference, billing_case_id, document_id, draft_version,
          projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
          status, claimed_at)
        VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('f', 64), 0,
-         $6, jsonb_build_object('documentType', 'TD04', 'orderIds', ARRAY[$7::text]),
+         $6, jsonb_build_object('documentType', 'TD04', 'orderIds', ARRAY[$7::text],
+           'refundIds', jsonb_build_array('999999')),
          'RUNNING', now())`,
       [
         creditReceiptId,
