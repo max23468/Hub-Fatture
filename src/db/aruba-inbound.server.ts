@@ -440,15 +440,19 @@ interface InboundOrderCandidateRow {
   refund_amounts: number[];
 }
 
-function uniqueRefundSubset(
+export function uniqueRefundSubset(
   refunds: Array<{ id: string; amount: number }>,
   target: number,
 ): string[] | null {
   const sums = new Map<number, string[] | null>([[0, []]]);
   for (const refund of refunds.slice(0, 100)) {
     for (const [sum, selected] of [...sums.entries()].toReversed()) {
-      if (selected === null || sum + refund.amount > target) continue;
+      if (sum + refund.amount > target) continue;
       const next = sum + refund.amount;
+      if (selected === null) {
+        sums.set(next, null);
+        continue;
+      }
       const candidate = [...selected, refund.id];
       if (!sums.has(next)) sums.set(next, candidate);
       else if (JSON.stringify(sums.get(next)) !== JSON.stringify(candidate)) sums.set(next, null);
@@ -518,7 +522,13 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
               array_agg(refunds.amount::integer ORDER BY refunds.id) AS refund_amounts
        FROM refunds
        WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
-         AND refunds.amount > 0 AND refunds.credit_document_id IS NULL
+         AND refunds.amount > 0 AND (
+           refunds.credit_document_id IS NULL OR EXISTS (
+             SELECT 1 FROM documents credit
+             WHERE credit.id = refunds.credit_document_id
+               AND credit.kind = 'CREDIT_NOTE' AND credit.status = 'DRAFT'
+           )
+         )
      ) AS refundable ON refundable.amount > 0
      WHERE orders.local_order_date BETWEEN $1::date - 366 AND $1::date + 31
      ORDER BY orders.id
@@ -876,7 +886,7 @@ async function materializeExternalInvoice(
   if (existing.rows[0] && existing.rows[0].xml_sha256 !== digest) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
-  if (documentId && existing.rows[0]!.origin === "HUB") {
+  if (documentId && existing.rows[0]?.origin === "HUB") {
     const localLink = await client.query<{ order_id: string }>(
       `SELECT order_id FROM document_orders
        WHERE document_id = $1 AND document_kind = 'INVOICE' FOR UPDATE`,
@@ -1082,12 +1092,27 @@ async function materializeExternalCreditNote(
     [remote.refund_ids, remote.order_id],
   );
   const refundTotal = refunds.rows.reduce((sum, refund) => sum + refund.amount, 0);
+  const assignedDraftIds = [
+    ...new Set(refunds.rows.flatMap((refund) => refund.credit_document_id ?? [])),
+  ];
+  let assignedDraftId: string | null = null;
+  if (assignedDraftIds.length === 1) {
+    const assignedDraft = await client.query<{ id: string }>(
+      `SELECT documents.id FROM documents
+       JOIN document_links ON document_links.document_id = documents.id
+       WHERE documents.id = $1 AND documents.kind = 'CREDIT_NOTE' AND documents.status = 'DRAFT'
+         AND document_links.related_document_id = $2
+         AND document_links.relation_type = 'CREDIT_NOTE_FOR_INVOICE'
+       FOR UPDATE OF documents`,
+      [assignedDraftIds[0], sourceInvoice.id],
+    );
+    assignedDraftId = assignedDraft.rows[0]?.id ?? null;
+  }
   if (
     refunds.rowCount !== remote.refund_ids.length ||
     refundTotal !== imported.totalAmount ||
-    refunds.rows.some(
-      (refund) => refund.credit_document_id && refund.credit_document_id !== remote.document_id,
-    )
+    assignedDraftIds.length > 1 ||
+    (assignedDraftIds.length === 1 && !assignedDraftId)
   ) {
     throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   }
@@ -1097,11 +1122,11 @@ async function materializeExternalCreditNote(
      WHERE series = $1 AND fiscal_year = $2 AND fiscal_number = $3 FOR UPDATE`,
     [profile.profile.series, imported.year, imported.number],
   );
-  let documentId = existing.rows[0]?.id ?? null;
+  let documentId = existing.rows[0]?.id ?? assignedDraftId;
   if (existing.rows[0] && existing.rows[0].xml_sha256 !== digest) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
-  if (documentId && existing.rows[0]!.origin === "HUB") {
+  if (documentId && existing.rows[0]?.origin === "HUB") {
     const localLink = await client.query<{ order_id: string }>(
       `SELECT order_id FROM document_orders
        WHERE document_id = $1 AND document_kind = 'CREDIT_NOTE' FOR UPDATE`,
@@ -1121,6 +1146,7 @@ async function materializeExternalCreditNote(
     );
     return documentId;
   }
+  const shouldAdoptDraft = !existing.rows[0];
   if (!documentId) {
     const draft = await client.query<{ id: string }>(
       `INSERT INTO documents
@@ -1157,6 +1183,8 @@ async function materializeExternalCreditNote(
          AND (credit_document_id IS NULL OR credit_document_id = $2)`,
       [refunds.rows.map((refund) => refund.id), documentId],
     );
+  }
+  if (shouldAdoptDraft) {
     const snapshot = {
       generatorVersion: 2,
       kind: "CREDIT_NOTE",
@@ -1537,9 +1565,36 @@ async function ingestParsedArubaPage(
       const collided = collision.rows[0];
       if (collided?.remote_id.startsWith("historical-document-")) {
         await client.query(
-          `UPDATE aruba_remote_documents SET remote_id = $2, last_observed_at = now()
+          `UPDATE aruba_remote_documents SET remote_id = $2, document_type = $3,
+             fiscal_year = $4, series = $5, fiscal_number = $6, document_date = $7,
+             recipient_name_normalized = $8, recipient_tax_id_normalized = $9,
+             recipient_country_code = $10, recipient_address_normalized = $11,
+             total_amount = $12, currency = $13, remote_status = $14,
+             remote_status_observed_at = coalesce($15::timestamptz, now()),
+             xml_sha256 = coalesce($16, xml_sha256), last_observed_at = now(),
+             last_full_scan_at = CASE WHEN $17 THEN now() ELSE last_full_scan_at END,
+             inventory_version = inventory_version + 1, metadata_digest = $18
            WHERE id = $1`,
-          [collided.id, remote.remoteId],
+          [
+            collided.id,
+            remote.remoteId,
+            remote.documentType,
+            remote.fiscalYear,
+            remote.series,
+            remote.fiscalNumber,
+            remote.documentDate,
+            normalizedMatchText(remote.recipientName),
+            normalizedMatchText(remote.recipientTaxId),
+            remote.recipientCountryCode,
+            normalizedMatchText(remote.recipientAddress),
+            remote.totalAmount,
+            remote.currency,
+            remote.status,
+            remote.providerObservedAt,
+            remote.xmlSha256,
+            page.fullScan,
+            metadataDigest,
+          ],
         );
         storedId = collided.id;
       } else if (collided) {

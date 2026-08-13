@@ -11,6 +11,7 @@ import {
   fiscalProfileFromAcceptedInvoiceXml,
   generateFatturaXml,
 } from "../documents.ts";
+import { remoteInventoryDocumentSchema, remoteMetadataDigest } from "../aruba-inbound.ts";
 
 test("l’inventario Aruba è completo, idempotente e non collega usando il solo totale", async () => {
   const fixture = await temporaryDatabase("aruba_inbound");
@@ -181,6 +182,34 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       repeated: true,
       documents: 1,
     });
+    await database.getPool().query(
+      `UPDATE aruba_remote_documents SET remote_id = 'historical-document-synthetic',
+         metadata_digest = repeat('a', 64)
+       WHERE remote_id = 'REMOTE-001'`,
+    );
+    await inbound.ingestArubaInventoryPage(session.token, {
+      ...invoicePage,
+      scanOrdinal: 8,
+      cursor: "adopted-history",
+    });
+    await inbound.ingestArubaInventoryPage(session.token, {
+      ...invoicePage,
+      scanOrdinal: 9,
+      cursor: "adopted-history-repeat",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT remote.remote_id, matches.status,
+                  remote.metadata_digest = $1 AS digest_matches
+           FROM aruba_remote_documents remote
+           JOIN aruba_document_matches matches ON matches.remote_document_id = remote.id
+           WHERE remote.remote_id = 'REMOTE-001'`,
+          [remoteMetadataDigest(remoteInventoryDocumentSchema.parse(invoicePage.documents[0]))],
+        )
+      ).rows[0],
+      { remote_id: "REMOTE-001", status: "MATCHED", digest_matches: true },
+    );
     const importedInvoice = await inbound.importArubaRemoteOfficialFile(
       session.token,
       "REMOTE-001",
@@ -234,6 +263,47 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
        VALUES ('SHOPIFY', 'shop', 'remote-order', 'refund-002', $1,
          'COMPLETED', 1000, now(), '{}') RETURNING id`,
       [order.rows[0]!.id],
+    );
+    const assignedCreditDraftId = await database.withTransaction(async (client) => {
+      const assignedCreditDraft = await client.query<{ id: string }>(
+        `INSERT INTO documents
+        (billing_case_id, kind, status, document_type, series, document_date,
+         fiscal_profile_version, currency, total_amount, source_total_amount,
+         difference_amount, draft_version, projection_sha256, payment_status,
+         payment_method, recipient_snapshot_json)
+       SELECT billing_case_id, 'CREDIT_NOTE', 'DRAFT', 'TD04', series, '2026-08-11',
+         fiscal_profile_version, 'EUR', 2345, 2345, 0, 1, repeat('d', 64), 'PAID',
+         'MP05', recipient_snapshot_json
+       FROM documents WHERE id = $1 RETURNING id`,
+        [importedInvoice.documentId],
+      );
+      await client.query(
+        `INSERT INTO document_links (document_id, related_document_id, relation_type)
+       VALUES ($1, $2, 'CREDIT_NOTE_FOR_INVOICE')`,
+        [assignedCreditDraft.rows[0]!.id, importedInvoice.documentId],
+      );
+      await client.query(
+        `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+         VALUES ($1, 'CREDIT_NOTE', $2, 2345)`,
+        [assignedCreditDraft.rows[0]!.id, order.rows[0]!.id],
+      );
+      await client.query(`UPDATE refunds SET credit_document_id = $1 WHERE id = $2`, [
+        assignedCreditDraft.rows[0]!.id,
+        refund.rows[0]!.id,
+      ]);
+      return assignedCreditDraft.rows[0]!.id;
+    });
+    assert.equal(
+      inbound.uniqueRefundSubset(
+        [
+          { id: "a", amount: 100 },
+          { id: "b", amount: 100 },
+          { id: "c", amount: 300 },
+          { id: "d", amount: 200 },
+        ],
+        300,
+      ),
+      null,
     );
     const creditXml = generateFatturaXml(
       profile,
@@ -312,6 +382,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       ),
     ]);
     assert.ok(importedCredit.documentId);
+    assert.equal(importedCredit.documentId, assignedCreditDraftId);
     assert.equal(repeatedCredit.documentId, importedCredit.documentId);
     assert.equal(
       (
