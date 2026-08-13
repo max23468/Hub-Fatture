@@ -541,6 +541,7 @@ export async function approveCreditNote(
   const expectedVersion = Number(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
   const committed = await withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
     await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
     const row = await loadCredit(client, documentId, true);
     if (!row || row.status !== "DRAFT" || row.draft_version !== expectedVersion) {
