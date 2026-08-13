@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.35
+
+- La modalità globale `Disattivata` impedisce a Hub Fatture di proporre, accodare o reinviare copie e-mail al cliente, mantenendo consultabile lo storico.
+- Le richieste di invio manomesse vengono rifiutate lato server e gli eventuali job già accodati vengono soppressi prima del contatto SMTP, con audit dedicato.
+- Approvazioni e archivio documenti riflettono la disattivazione senza offrire azioni di invio non più consentite.
+
 ## 0.3.34
 
 - Il confronto degli indirizzi usa insieme le due righe ricevute dal marketplace, così il civico separato in `line2` resta verificabile contro l’XML Aruba senza indebolire i controlli su identità, Paese, data, totale, riferimento FPR e unicità.

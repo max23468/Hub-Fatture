@@ -13,11 +13,32 @@ import { assertJobLease, type ClaimedJob } from "./connectors.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
-export const customerEmailModeSchema = z.enum(["AUTOMATIC", "MANUAL"]);
+export const customerEmailModeSchema = z.enum(["AUTOMATIC", "MANUAL", "DISABLED"]);
 export const customerEmailChoiceSchema = z.enum(["SEND", "SKIP"]);
 const recipientSchema = z.email().max(256);
 const subject = "Il tuo documento fiscale";
 const body = "In allegato trovi la copia leggibile del documento fiscale.";
+const customerEmailSendLock = "customer-email-send";
+
+async function withCustomerEmailSendLock<T>(callback: () => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [customerEmailSendLock]);
+    return await callback();
+  } finally {
+    await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [
+      customerEmailSendLock,
+    ]);
+    client.release();
+  }
+}
+
+async function customerEmailIsDisabled(client: pg.PoolClient): Promise<boolean> {
+  const result = await client.query<{ value_json: unknown }>(
+    "SELECT value_json FROM settings WHERE key = 'customer_email_mode'",
+  );
+  return customerEmailModeSchema.parse(result.rows[0]?.value_json ?? "AUTOMATIC") === "DISABLED";
+}
 
 export function customerEmailTriggerStatus(status: string): boolean {
   return status === "DELIVERED" || status === "NOT_DELIVERED";
@@ -51,12 +72,50 @@ export async function setCustomerEmailMode(
     throw new AppError("CONFLICT_REVISION", 409);
   }
   await withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      customerEmailSendLock,
+    ]);
     const updated = await client.query(
       `UPDATE settings SET value_json = $2, version = version + 1, updated_at = now()
        WHERE key = 'customer_email_mode' AND version = $1`,
       [version, JSON.stringify(mode.data)],
     );
     if (updated.rowCount !== 1) throw new AppError("CONFLICT_REVISION", 409);
+    if (mode.data === "DISABLED") {
+      await client.query(
+        `WITH active_deliveries AS MATERIALIZED (
+           SELECT payload_json ->> 'deliveryId' AS id
+           FROM jobs
+           WHERE type = 'send_customer_email' AND status IN ('PENDING', 'RUNNING')
+         ), suppressed AS (
+           UPDATE email_deliveries SET status = 'FAILED', send_started_at = NULL,
+             last_error_code = 'EMAIL_DELIVERY_DISABLED',
+             last_error_sanitized = 'EMAIL_DELIVERY_DISABLED', updated_at = now()
+           WHERE send_started_at IS NULL
+             AND (status = 'PENDING' OR (
+               status = 'FAILED' AND id::text IN (SELECT id FROM active_deliveries)
+             ))
+           RETURNING id
+         ), completed_jobs AS (
+           UPDATE jobs SET status = 'COMPLETED', completed_at = now(),
+             lease_expires_at = NULL, locked_by = NULL, claim_token = NULL,
+             result_json = '{"emailDisabled":true}'::jsonb, last_error_code = NULL
+           WHERE type = 'send_customer_email' AND status IN ('PENDING', 'RUNNING')
+             AND payload_json ->> 'deliveryId' IN (SELECT id::text FROM suppressed)
+           RETURNING id
+         ), suppression_audits AS (
+           INSERT INTO audit_events
+             (actor_type, actor_id, action, event_class, entity_type, entity_id,
+              metadata_json, reason, request_id)
+           SELECT 'ADMIN', $1, 'CUSTOMER_EMAIL_SUPPRESSED', 'CRITICAL',
+             'EMAIL_DELIVERY', id, '{}'::jsonb, 'EMAIL_DELIVERY_DISABLED', $2
+           FROM suppressed
+           RETURNING entity_id
+         )
+         SELECT entity_id FROM suppression_audits`,
+        [String(actor.id), actor.requestId],
+      );
+    }
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),
@@ -106,6 +165,9 @@ export async function snapshotDocumentEmail(
   );
   if (mode.rows[0]?.version !== expectedVersion) throw new AppError("CONFLICT_REVISION", 409);
   const emailMode = customerEmailModeSchema.parse(mode.rows[0]?.value_json ?? "AUTOMATIC");
+  if (emailMode === "DISABLED" && choice.data !== "SKIP") {
+    throw new AppError("EMAIL_DELIVERY_DISABLED", 409);
+  }
   if (choice.data === "SKIP") {
     await client.query(
       `UPDATE documents SET customer_email_mode = $2, customer_email_choice = 'SKIP',
@@ -136,6 +198,10 @@ async function insertDelivery(client: pg.PoolClient, documentId: string, force =
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     `customer-email:${documentId}`,
   ]);
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    customerEmailSendLock,
+  ]);
+  if (await customerEmailIsDisabled(client)) return null;
   const config = getConfig();
   if (!force) {
     const existing = await client.query(
@@ -306,7 +372,7 @@ export async function sendCustomerEmail(
     await assertJobLease(client, job);
     const current = await loadDelivery(client, deliveryId);
     if (!current || current.status === "SENT") return null;
-    if (current.status === "PENDING" && current.send_started_at) {
+    if (current.send_started_at) {
       await client.query(
         `UPDATE email_deliveries SET status = 'FAILED',
            last_error_code = 'EMAIL_DELIVERY_UNCERTAIN',
@@ -325,14 +391,26 @@ export async function sendCustomerEmail(
       });
       return { uncertain: true as const };
     }
-    const started = await client.query(
-      `UPDATE email_deliveries SET status = 'PENDING', attempt_count = attempt_count + 1,
-         send_started_at = now(), last_error_code = NULL, last_error_sanitized = NULL,
-         updated_at = now() WHERE id = $1`,
-      [deliveryId],
-    );
-    if (started.rowCount !== 1) throw new AppError("EMAIL_DELIVERY_FAILED", 503);
-    return { uncertain: false as const, delivery: { ...current, status: "PENDING" as const } };
+    if (await customerEmailIsDisabled(client)) {
+      await client.query(
+        `UPDATE email_deliveries SET status = 'FAILED', send_started_at = NULL,
+           last_error_code = 'EMAIL_DELIVERY_DISABLED',
+           last_error_sanitized = 'EMAIL_DELIVERY_DISABLED', updated_at = now()
+         WHERE id = $1`,
+        [deliveryId],
+      );
+      await writeAudit(client, {
+        actorType: "SYSTEM",
+        action: "CUSTOMER_EMAIL_SUPPRESSED",
+        eventClass: "CRITICAL",
+        entityType: "EMAIL_DELIVERY",
+        entityId: deliveryId,
+        reason: "EMAIL_DELIVERY_DISABLED",
+        requestId: `customer-email:${deliveryId}`,
+      });
+      return null;
+    }
+    return { uncertain: false as const, delivery: current };
   });
   if (!start) return;
   if (start.uncertain) throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
@@ -356,47 +434,81 @@ export async function sendCustomerEmail(
     await failDelivery(deliveryId, "EMAIL_ATTACHMENT_MISSING");
     throw new AppError("EMAIL_ATTACHMENT_MISSING", 409);
   }
-  let messageId: string;
-  try {
-    messageId = await send(delivery, attachment);
-  } catch (error) {
-    if (error instanceof AppError && error.code === "EMAIL_CONFIGURATION_MISSING") {
-      await failDelivery(deliveryId, "EMAIL_CONFIGURATION_MISSING");
-      throw error;
-    }
-    const failureKind = smtpFailureKind(error);
-    if (failureKind === "TEMPORARY") {
-      await failDelivery(deliveryId, "EMAIL_DELIVERY_TEMPORARY");
-      throw new AppError("EMAIL_DELIVERY_TEMPORARY", 503);
-    }
-    if (failureKind === "PERMANENT") {
-      await failDelivery(deliveryId, "EMAIL_DELIVERY_FAILED");
-      throw new AppError("EMAIL_DELIVERY_FAILED", 503);
-    }
-    await uncertainDelivery(deliveryId);
-    throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
-  }
-  try {
-    await withTransaction(async (client) => {
-      const sent = await client.query(
-        `UPDATE email_deliveries SET status = 'SENT', message_id = $2, sent_at = now(),
-           updated_at = now() WHERE id = $1 AND status = 'PENDING' AND send_started_at IS NOT NULL`,
-        [deliveryId, messageId],
+  await withCustomerEmailSendLock(async () => {
+    const ready = await withTransaction(async (client) => {
+      await assertJobLease(client, job);
+      if (await customerEmailIsDisabled(client)) {
+        await client.query(
+          `UPDATE email_deliveries SET status = 'FAILED', send_started_at = NULL,
+             last_error_code = 'EMAIL_DELIVERY_DISABLED',
+             last_error_sanitized = 'EMAIL_DELIVERY_DISABLED', updated_at = now()
+           WHERE id = $1`,
+          [deliveryId],
+        );
+        await writeAudit(client, {
+          actorType: "SYSTEM",
+          action: "CUSTOMER_EMAIL_SUPPRESSED",
+          eventClass: "CRITICAL",
+          entityType: "EMAIL_DELIVERY",
+          entityId: deliveryId,
+          reason: "EMAIL_DELIVERY_DISABLED",
+          requestId: `customer-email:${deliveryId}`,
+        });
+        return false;
+      }
+      const started = await client.query(
+        `UPDATE email_deliveries SET status = 'PENDING', attempt_count = attempt_count + 1,
+           send_started_at = now(), last_error_code = NULL, last_error_sanitized = NULL,
+           updated_at = now() WHERE id = $1 AND send_started_at IS NULL`,
+        [deliveryId],
       );
-      if (sent.rowCount !== 1) throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
-      await writeAudit(client, {
-        actorType: "SYSTEM",
-        action: "CUSTOMER_EMAIL_SENT",
-        eventClass: "CRITICAL",
-        entityType: "EMAIL_DELIVERY",
-        entityId: deliveryId,
-        requestId: `customer-email:${deliveryId}`,
-      });
+      if (started.rowCount !== 1) throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
+      return true;
     });
-  } catch {
-    await uncertainDelivery(deliveryId);
-    throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
-  }
+    if (!ready) return;
+
+    let messageId: string;
+    try {
+      messageId = await send(delivery, attachment);
+    } catch (error) {
+      if (error instanceof AppError && error.code === "EMAIL_CONFIGURATION_MISSING") {
+        await failDelivery(deliveryId, "EMAIL_CONFIGURATION_MISSING");
+        throw error;
+      }
+      const failureKind = smtpFailureKind(error);
+      if (failureKind === "TEMPORARY") {
+        await failDelivery(deliveryId, "EMAIL_DELIVERY_TEMPORARY");
+        throw new AppError("EMAIL_DELIVERY_TEMPORARY", 503);
+      }
+      if (failureKind === "PERMANENT") {
+        await failDelivery(deliveryId, "EMAIL_DELIVERY_FAILED");
+        throw new AppError("EMAIL_DELIVERY_FAILED", 503);
+      }
+      await uncertainDelivery(deliveryId);
+      throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
+    }
+    try {
+      await withTransaction(async (client) => {
+        const sent = await client.query(
+          `UPDATE email_deliveries SET status = 'SENT', message_id = $2, sent_at = now(),
+             updated_at = now() WHERE id = $1 AND status = 'PENDING' AND send_started_at IS NOT NULL`,
+          [deliveryId, messageId],
+        );
+        if (sent.rowCount !== 1) throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
+        await writeAudit(client, {
+          actorType: "SYSTEM",
+          action: "CUSTOMER_EMAIL_SENT",
+          eventClass: "CRITICAL",
+          entityType: "EMAIL_DELIVERY",
+          entityId: deliveryId,
+          requestId: `customer-email:${deliveryId}`,
+        });
+      });
+    } catch {
+      await uncertainDelivery(deliveryId);
+      throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
+    }
+  });
 }
 
 async function uncertainDelivery(id: string) {
@@ -454,6 +566,9 @@ export async function retryCustomerEmail(
   if (!actor.canApprove) throw new AppError("EMAIL_DELIVERY_FORBIDDEN", 403);
   if (!isDatabaseId(documentId)) throw new AppError("EMAIL_DELIVERY_FAILED", 422);
   return withTransaction(async (client) => {
+    if (await customerEmailIsDisabled(client)) {
+      throw new AppError("EMAIL_DELIVERY_DISABLED", 409);
+    }
     const pending = await client.query(
       `SELECT 1
        FROM email_deliveries

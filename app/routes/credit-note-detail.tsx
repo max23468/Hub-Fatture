@@ -169,28 +169,38 @@ export default function CreditNoteDetail() {
             </div>
             <fieldset className="credit-note-approval__options">
               <legend>{copy.document.customerEmailTitle}</legend>
-              <label className="checkbox-row">
-                <input
-                  defaultChecked={
-                    note.customerEmail.mode === "AUTOMATIC" && Boolean(note.customerEmail.recipient)
-                  }
-                  name="emailChoice"
-                  type="radio"
-                  value="SEND"
-                />
-                {copy.document.emailSend}
-              </label>
-              <label className="checkbox-row">
-                <input
-                  defaultChecked={
-                    note.customerEmail.mode !== "AUTOMATIC" || !note.customerEmail.recipient
-                  }
-                  name="emailChoice"
-                  type="radio"
-                  value="SKIP"
-                />
-                {copy.document.emailSkip}
-              </label>
+              {note.customerEmail.mode === "DISABLED" ? (
+                <>
+                  <input name="emailChoice" type="hidden" value="SKIP" />
+                  <p className="notice">{copy.document.emailDisabledHelp}</p>
+                </>
+              ) : (
+                <>
+                  <label className="checkbox-row">
+                    <input
+                      defaultChecked={
+                        note.customerEmail.mode === "AUTOMATIC" &&
+                        Boolean(note.customerEmail.recipient)
+                      }
+                      name="emailChoice"
+                      type="radio"
+                      value="SEND"
+                    />
+                    {copy.document.emailSend}
+                  </label>
+                  <label className="checkbox-row">
+                    <input
+                      defaultChecked={
+                        note.customerEmail.mode !== "AUTOMATIC" || !note.customerEmail.recipient
+                      }
+                      name="emailChoice"
+                      type="radio"
+                      value="SKIP"
+                    />
+                    {copy.document.emailSkip}
+                  </label>
+                </>
+              )}
               <label className="checkbox-row credit-note-confirmation">
                 <input name="confirmApproval" required type="checkbox" value="yes" />
                 {copy.creditNote.confirmation}

@@ -24,7 +24,11 @@ import {
   listDocuments,
   type DocumentListSortKey,
 } from "../../src/db/documents.server.ts";
-import { listEmailDeliveries, retryCustomerEmail } from "../../src/db/email.server.ts";
+import {
+  getCustomerEmailSettings,
+  listEmailDeliveries,
+  retryCustomerEmail,
+} from "../../src/db/email.server.ts";
 import { publicError } from "../../src/errors.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
@@ -99,9 +103,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     listUnbatchedApprovedDocuments(),
   ]);
   const documentIds = documents.rows.map((document) => document.id);
-  const [officialFiles, emailDeliveries] = await Promise.all([
+  const [officialFiles, emailDeliveries, customerEmail] = await Promise.all([
     listOfficialArubaFiles(documentIds),
     listEmailDeliveries(documentIds),
+    getCustomerEmailSettings(),
   ]);
   return {
     username: user.username,
@@ -112,6 +117,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     unbatched,
     officialFiles,
     emailDeliveries,
+    emailEnabled: customerEmail.mode !== "DISABLED",
     filters,
     page,
     summary,
@@ -188,6 +194,7 @@ export default function Documents() {
     unbatched,
     officialFiles,
     emailDeliveries,
+    emailEnabled,
     filters,
     page,
     summary,
@@ -262,6 +269,7 @@ export default function Documents() {
         csrfToken={csrfToken}
         documents={documents}
         emailDeliveries={emailDeliveries}
+        emailEnabled={emailEnabled}
         filters={filters}
         officialFiles={officialFiles}
         page={page}
