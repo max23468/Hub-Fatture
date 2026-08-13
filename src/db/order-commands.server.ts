@@ -400,6 +400,7 @@ const numberedStreetQualifiers = new Set([
   "nacional",
   "krajowa",
 ]);
+const numberedStreetAbbreviations = new Set(["sc", "sp", "sr", "ss"]);
 
 function normalizedAddressTokens(value: unknown) {
   return normalizedIdentityPart(value).split(" ").filter(Boolean);
@@ -507,6 +508,12 @@ function structuredStreetNumberCandidates(
   ) {
     return new Set<string>();
   }
+  if (classifySecondAddressLine && normalizedParts[0] === "civico") {
+    const declaredCivic = normalizedParts[1] ?? "";
+    if (!/^\d/u.test(declaredCivic)) return new Set<string>();
+    const suffix = normalizedParts[2] ?? "";
+    return new Set([isCivicSuffixToken(suffix) ? `${declaredCivic}${suffix}` : declaredCivic]);
+  }
   let addressParts = withoutAddressUnits(normalizedParts, unitMarkers);
   const floorAfterExplicitCivic =
     typeof address === "string"
@@ -569,7 +576,8 @@ function customerStreetNumberCandidates(address: Record<string, unknown>) {
     (streetKindTokens.has(primaryTokens[0] ?? "") &&
       numberedStreetQualifiers.has(primaryTokens[1] ?? "")) ||
     (numberedStreetQualifiers.has(primaryTokens[0] ?? "") &&
-      streetKindTokens.has(primaryTokens[1] ?? ""));
+      streetKindTokens.has(primaryTokens[1] ?? "")) ||
+    numberedStreetAbbreviations.has(primaryTokens[0] ?? "");
   const primaryNumericTokens = primaryTokens.filter((token) => /^\d/u.test(token));
   const terminalYear = Number(primaryNumericTokens.at(-1));
   const primaryIsCommemorativeStreetName =
