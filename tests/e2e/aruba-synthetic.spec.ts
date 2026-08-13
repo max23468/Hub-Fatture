@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   assertAccount,
   validateVisibleDocuments,
-  waitForUploadAuthorization,
+  waitForUploadedDocument,
 } from "../../scripts/aruba-helper.ts";
 
 const xml = "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml";
@@ -38,6 +38,9 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(assertAccount(page, "synthetic-aruba-account")).rejects.toThrow("DOM_UNRECOGNIZED");
   await page.reload();
   await page.getByLabel("Seleziona documenti").setInputFiles(xml);
+  await expect(
+    waitForUploadedDocument(page, "accepted-invoice.anonymized.xml"),
+  ).resolves.toBeUndefined();
   await expect(page.getByRole("cell", { name: "Documento valido" })).toBeVisible();
   for (const width of [1024, 600, 320]) {
     await page.setViewportSize({ width, height: width === 320 ? 780 : 800 });
@@ -94,18 +97,14 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(page.getByRole("row")).toHaveCount(0);
 });
 
-test("l'helper attende l'autorizzazione SMS dopo la selezione degli XML", async ({ page }) => {
+test("l'helper gestisce in sicurezza una challenge post-upload inattesa", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 780 });
-  await page.goto("/aruba-sintetica?scenario=sms");
+  await page.goto("/aruba-sintetica?scenario=security-challenge");
   await page.getByLabel("Seleziona documenti").setInputFiles(xml);
   let heartbeats = 0;
-  const authorization = waitForUploadAuthorization(
-    page,
-    "accepted-invoice.anonymized.xml",
-    async () => {
-      heartbeats += 1;
-    },
-  );
+  const upload = waitForUploadedDocument(page, "accepted-invoice.anonymized.xml", async () => {
+    heartbeats += 1;
+  });
   await expect(page.getByRole("dialog")).toContainText(
     "Vuoi disattivare la protezione OTP su Carica Fatture?",
   );
@@ -113,7 +112,7 @@ test("l'helper attende l'autorizzazione SMS dopo la selezione degli XML", async 
   await page.getByRole("button", { name: "Prosegui" }).click();
   await page.getByLabel("Inserisci il codice ricevuto per SMS").fill("123456");
   await page.getByRole("button", { name: "Verifica" }).click();
-  await expect(authorization).resolves.toBeUndefined();
+  await expect(upload).resolves.toBeUndefined();
   expect(heartbeats).toBe(1);
   await expect(page.getByRole("cell", { name: "Documento valido" })).toBeVisible();
 });

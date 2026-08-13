@@ -462,14 +462,13 @@ function ArubaSettingsSection({
       {canApprove ? (
         <SettingsForm
           accessibleSubmitLabel={copy.settings.arubaSave}
-          className="settings-choice-card settings-choice-card--two-controls"
-          key={`${aruba.mode.version}:${aruba.authProtection.version}`}
+          className="settings-choice-card"
+          key={aruba.mode.version}
           submitLabel={copy.settings.saveShort}
         >
           <input type="hidden" name="csrf" value={csrfToken} />
           <input type="hidden" name="intent" value="save-aruba" />
           <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
-          <input type="hidden" name="arubaAuthVersion" value={aruba.authProtection.version} />
           <label className="settings-choice-card__field">
             <span>{copy.settings.arubaMode}</span>
             <SettingsSelect
@@ -479,18 +478,6 @@ function ArubaSettingsSection({
             >
               <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
               <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
-            </SettingsSelect>
-          </label>
-          <label className="settings-choice-card__field">
-            <span>{copy.settings.arubaAuthProtection}</span>
-            <SettingsSelect
-              data-initial={aruba.authProtection.value}
-              defaultValue={aruba.authProtection.value}
-              name="arubaAuthProtection"
-            >
-              <option value="UNKNOWN">{copy.settings.arubaAuthUnknown}</option>
-              <option value="TWO_FACTOR">{copy.settings.arubaTwoFactor}</option>
-              <option value="SMS_PER_UPLOAD">{copy.settings.arubaSms}</option>
             </SettingsSelect>
           </label>
         </SettingsForm>
