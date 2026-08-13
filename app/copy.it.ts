@@ -316,6 +316,9 @@ export const copy = {
     reliable: "Dati riconciliati",
     noCustomers: "Nessun cliente",
     noCustomersHelp: "I clienti compaiono dopo l’importazione del primo ordine.",
+    noCustomersToReview: "Nessun cliente da verificare",
+    noCustomersToReviewHelp:
+      "Le anagrafiche senza revisioni operative restano disponibili nella vista Tutti.",
     noResults: "Nessun cliente corrisponde alla ricerca",
     noResultsHelp: "Prova con un nome, un’e-mail o un identificativo fiscale diverso.",
     backToCustomers: "Torna ai clienti",

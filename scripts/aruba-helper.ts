@@ -202,12 +202,13 @@ function assertDownloadUrl(url: string, target: URL) {
 }
 
 export async function assertAccount(page: Page, accountReference: string) {
+  const expectedAccount = accountReference.replace(/\s+/g, " ").trim();
   const candidates = page
     .locator(
       '[data-aruba-account], [aria-current="true"], [aria-selected="true"], [data-active="true"]',
-      { hasText: accountReference },
+      { hasText: expectedAccount },
     )
-    .or(page.getByRole("button", { name: accountReference }));
+    .or(page.getByRole("button", { name: expectedAccount, exact: true }));
   const count = await candidates.count();
   if (!count || count > 20) throw new Error("DOM_UNRECOGNIZED");
   const visible = [];
@@ -217,7 +218,11 @@ export async function assertAccount(page: Page, accountReference: string) {
   }
   if (visible.length !== 1) throw new Error("DOM_UNRECOGNIZED");
   const declaredAccount = await visible[0]!.getAttribute("data-aruba-account");
-  if (declaredAccount !== null && declaredAccount !== accountReference) {
+  const observedAccount =
+    declaredAccount === null
+      ? (await visible[0]!.innerText()).replace(/\s+/g, " ").trim()
+      : declaredAccount.replace(/\s+/g, " ").trim();
+  if (observedAccount !== expectedAccount) {
     throw new Error("DOM_UNRECOGNIZED");
   }
 }

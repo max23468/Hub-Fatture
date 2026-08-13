@@ -38,6 +38,52 @@ const EBAY_REFUND_DEDUPLICATION = "024_ebay_refund_deduplication.sql";
 const RETENTION_POLICY = "025_retention_policy.sql";
 const REMOVE_ARUBA_UPLOAD_PROTECTION = "026_remove_aruba_upload_protection.sql";
 const CUSTOMER_EMAIL_DISABLED = "027_customer_email_disabled.sql";
+const CUSTOMER_REVIEW_CLEANUP = "028_customer_review_cleanup.sql";
+
+test("la migrazione clienti elimina soltanto i profili privi di collegamenti", async () => {
+  const database = await temporaryDatabase("customer_review_cleanup_upgrade");
+  const beforeCleanup = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-customer-review-cleanup-"),
+  );
+  try {
+    await cp("migrations", beforeCleanup, { recursive: true });
+    await rm(path.join(beforeCleanup, CUSTOMER_REVIEW_CLEANUP));
+    await runMigrations({ connectionString: database.connectionString, directory: beforeCleanup });
+    await withClient(database.connectionString, async (client) => {
+      const inserted = await client.query<{ id: string; match_key: string }>(
+        `INSERT INTO customers
+          (kind, match_key, display_name, billing_address_json,
+           source_confidence, review_required)
+         VALUES
+          ('PRIVATE_IT', 'cleanup-orphan', 'Orfano', '{}', 'AMBIGUOUS', true),
+          ('PRIVATE_IT', 'cleanup-source', 'Con sorgente', '{}', 'AMBIGUOUS', true)
+         RETURNING id, match_key`,
+      );
+      const sourceCustomer = inserted.rows.find((row) => row.match_key === "cleanup-source")!;
+      await client.query(
+        `INSERT INTO customer_source_records
+          (customer_id, provider, external_customer_id, raw_snapshot_json)
+         VALUES ($1, 'SHOPIFY', 'cleanup-source', '{}')`,
+        [sourceCustomer.id],
+      );
+    });
+
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      CUSTOMER_REVIEW_CLEANUP,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (await client.query("SELECT match_key FROM customers ORDER BY match_key")).rows.map(
+          (row) => row.match_key,
+        ),
+        ["cleanup-source"],
+      );
+    });
+  } finally {
+    await rm(beforeCleanup, { recursive: true, force: true });
+    await database.drop();
+  }
+});
 
 test("la migrazione privacy aggiorna un database con i connettori già applicati", async () => {
   const database = await temporaryDatabase("connector_upgrade");
@@ -68,6 +114,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(firstTwo, RETENTION_POLICY));
     await rm(path.join(firstTwo, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(firstTwo, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(firstTwo, REMOVE_ARUBA_UPLOAD_PROTECTION));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
@@ -99,6 +146,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -124,6 +172,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
     await rm(path.join(beforeHistoricalImport, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeHistoricalImport, RETENTION_POLICY));
     await rm(path.join(beforeHistoricalImport, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeHistoricalImport, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeHistoricalImport, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -153,6 +202,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       const jobs = await client.query(
@@ -203,6 +253,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
     await rm(path.join(beforeClassification, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeClassification, RETENTION_POLICY));
     await rm(path.join(beforeClassification, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeClassification, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeClassification, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -235,6 +286,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -270,6 +322,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
     await rm(path.join(beforeBackfill, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeBackfill, RETENTION_POLICY));
     await rm(path.join(beforeBackfill, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeBackfill, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeBackfill, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({ connectionString: database.connectionString, directory: beforeBackfill });
     await withClient(database.connectionString, async (client) => {
@@ -324,6 +377,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -378,6 +432,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
     await rm(path.join(beforeReclassification, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeReclassification, RETENTION_POLICY));
     await rm(path.join(beforeReclassification, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeReclassification, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeReclassification, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -435,6 +490,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -479,6 +535,7 @@ test("l'upgrade rilegge soltanto gli ordini eBay già importati", async () => {
     await rm(path.join(beforeReconciliation, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeReconciliation, RETENTION_POLICY));
     await rm(path.join(beforeReconciliation, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeReconciliation, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeReconciliation, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -532,6 +589,7 @@ test("l'upgrade rilegge soltanto gli ordini eBay già importati", async () => {
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -584,6 +642,7 @@ test("l'upgrade non crea un cursore eBay senza ordini eBay", async () => {
     await rm(path.join(beforeReconciliation, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeReconciliation, RETENTION_POLICY));
     await rm(path.join(beforeReconciliation, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeReconciliation, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeReconciliation, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -609,6 +668,7 @@ test("l'upgrade non crea un cursore eBay senza ordini eBay", async () => {
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -641,6 +701,7 @@ test("l'upgrade elimina soltanto i duplicati sintetici dei rimborsi eBay", async
     await rm(path.join(beforeDeduplication, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeDeduplication, RETENTION_POLICY));
     await rm(path.join(beforeDeduplication, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeDeduplication, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeDeduplication, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -683,6 +744,7 @@ test("l'upgrade elimina soltanto i duplicati sintetici dei rimborsi eBay", async
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -706,6 +768,7 @@ test("l'upgrade elimina la configurazione obsoleta della protezione per upload A
     await cp("migrations", beforeRemoval, { recursive: true });
     await rm(path.join(beforeRemoval, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await rm(path.join(beforeRemoval, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeRemoval, CUSTOMER_REVIEW_CLEANUP));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeRemoval,
@@ -724,6 +787,7 @@ test("l'upgrade elimina la configurazione obsoleta della protezione per upload A
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -769,12 +833,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "27",
+      "28",
     );
     assert.match(
       (
@@ -888,6 +953,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
     await rm(path.join(beforeCanonicalNames, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeCanonicalNames, RETENTION_POLICY));
     await rm(path.join(beforeCanonicalNames, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeCanonicalNames, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeCanonicalNames, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -914,6 +980,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -963,6 +1030,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
     await rm(path.join(beforeRefundAccounting, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeRefundAccounting, RETENTION_POLICY));
     await rm(path.join(beforeRefundAccounting, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeRefundAccounting, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeRefundAccounting, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -1014,6 +1082,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1055,6 +1124,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeM4, RETENTION_POLICY));
     await rm(path.join(beforeM4, CUSTOMER_EMAIL_DISABLED));
+    await rm(path.join(beforeM4, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeM4, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
@@ -1197,6 +1267,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       RETENTION_POLICY,
       REMOVE_ARUBA_UPLOAD_PROTECTION,
       CUSTOMER_EMAIL_DISABLED,
+      CUSTOMER_REVIEW_CLEANUP,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

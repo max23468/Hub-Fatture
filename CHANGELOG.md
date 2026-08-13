@@ -1,11 +1,17 @@
 # Changelog
 
-## 0.3.36
+## 0.3.37
 
 - Il contratto dell’helper Aruba riflette il pannello reale per TD01 e TD04: date italiane, account nella barra superiore, riepilogo batch con `INVIA TUTTE`, cleanup globale con `SVUOTA PAGINA` e limite complessivo di 30 MB.
 - La qualifica OCI Email Delivery usa lo stesso adapter SMTP del worker applicativo e resta fail-closed su ambiente, commit, digest e consenso exact-commit, senza scrivere dati sintetici nel database Production.
 - La prova diagnostica osserva prima un errore di autenticazione con una credenziale casuale indipendente dal segreto Production e consente poi un solo reinvio sintetico alla casella controllata.
 - Il record di readiness collega la qualifica Aruba senza invio, il PDF ufficiale, la copia cifrata Mac e i gate operativi M8 già chiusi; e-mail reale, rollback fresco e autorizzazione Canary restano gate separati.
+
+## 0.3.36
+
+- La vista Clienti segnala soltanto le revisioni anagrafiche ancora collegate a un ordine storico da riconciliare o a una preparazione realmente bloccata.
+- La migrazione elimina esclusivamente i profili rimasti senza ordini, preparazioni o record sorgente, preservando ogni anagrafica con storia operativa o fiscale.
+- Quando una risincronizzazione cambia la chiave d’identità di un ordine ancora libero, l’import rimuove subito il vecchio profilo se è diventato orfano, impedendo che il contatore torni a crescere.
 
 ## 0.3.35
 

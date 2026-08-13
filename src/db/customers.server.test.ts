@@ -28,7 +28,7 @@ test(
 
       assert.deepEqual(await customers.customerDirectorySummary(), {
         total: 2,
-        needs_review: 1,
+        needs_review: 0,
         shopify: 2,
         ebay: 1,
       });
@@ -58,10 +58,7 @@ test(
         ["Mario Rossi", "Cliente da verificare"],
       );
 
-      assert.deepEqual(
-        (await customers.listCustomers({ needsReview: true })).rows.map((row) => row.display_name),
-        ["Cliente da verificare"],
-      );
+      assert.deepEqual((await customers.listCustomers({ needsReview: true })).rows, []);
       assert.deepEqual(
         (await customers.listCustomers({ query: "RSSMRA80A01H501U" })).rows.map(
           (row) => row.display_name,
@@ -93,6 +90,90 @@ test(
       assert.equal(await customers.getCustomer("9223372036854775808"), null);
       assert.equal(await customers.getCustomer(undefined), null);
 
+      const inserted = await database.getPool().query<{
+        id: string;
+        match_key: string;
+      }>(
+        `INSERT INTO customers
+          (kind, match_key, display_name, billing_address_json,
+           source_confidence, review_required)
+         VALUES
+          ('PRIVATE_IT', 'review-orphan', 'Profilo senza collegamenti', '{}', 'AMBIGUOUS', true),
+          ('PRIVATE_IT', 'review-closed', 'Profilo storico chiuso', '{}', 'AMBIGUOUS', true),
+          ('PRIVATE_IT', 'review-actionable', 'Profilo da riconciliare', '{}', 'AMBIGUOUS', true)
+         RETURNING id, match_key`,
+      );
+      const ids = Object.fromEntries(inserted.rows.map((row) => [row.match_key, row.id]));
+      await database.getPool().query(
+        `INSERT INTO orders
+          (provider, external_account_id, external_order_id, display_number,
+           created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+           payment_status, fulfillment_status, trigger_status, customer_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         VALUES
+          ('SHOPIFY', 'review-test', 'closed', '#CLOSED', now(), now(), current_date, 'EUR', 100,
+           'PAID', 'FULFILLED', 'INVOICED', $1, '{}', '{"customerReviewRequired":true}'),
+          ('SHOPIFY', 'review-test', 'actionable', '#ACTIONABLE', now(), now(), current_date,
+           'EUR', 100, 'PAID', 'FULFILLED', 'LEGACY_BILLING_REVIEW', $2, '{}',
+           '{"customerReviewRequired":true}')`,
+        [ids["review-closed"], ids["review-actionable"]],
+      );
+      assert.equal((await customers.customerDirectorySummary()).needs_review, 1);
+      assert.deepEqual(
+        (await customers.listCustomers({ needsReview: true })).rows.map(
+          (customer) => customer.display_name,
+        ),
+        ["Profilo da riconciliare"],
+      );
+      assert.equal((await customers.getCustomer(ids["review-closed"]))?.review_required, false);
+      assert.equal((await customers.getCustomer(ids["review-actionable"]))?.review_required, true);
+      await database
+        .getPool()
+        .query("DELETE FROM orders WHERE external_account_id = 'review-test'");
+      await database.getPool().query("DELETE FROM customers WHERE match_key LIKE 'review-%'");
+
+      const candidate = structuredClone(fixture[0]);
+      candidate.externalOrderId = "customer-identity-cleanup";
+      candidate.externalCustomerId = "customer-identity-cleanup";
+      candidate.paymentStatus = "PENDING";
+      candidate.payments = candidate.payments.map((payment: Record<string, unknown>) => ({
+        ...payment,
+        status: "PENDING",
+      }));
+      candidate.customer.displayName = "Cliente Cambio Identità";
+      candidate.customer.firstName = "Cliente";
+      candidate.customer.lastName = "Cambio Identità";
+      candidate.customer.email = "identity-cleanup@example.invalid";
+      candidate.customer.taxIdentifiers = [];
+      candidate.updatedAt = "2026-08-13T10:00:00Z";
+      await orders.importOrders([candidate], { id: 1, requestId: "identity-before" });
+      const previousCustomerId = String(
+        (
+          await database
+            .getPool()
+            .query("SELECT customer_id FROM orders WHERE external_order_id = $1", [
+              candidate.externalOrderId,
+            ])
+        ).rows[0].customer_id,
+      );
+      candidate.customer.taxIdentifiers = [
+        {
+          type: "CODICE_FISCALE",
+          value: "CLNMRA80A01H501X",
+          sourceField: "synthetic-test",
+        },
+      ];
+      candidate.updatedAt = "2026-08-13T11:00:00Z";
+      await orders.importOrders([candidate], { id: 1, requestId: "identity-after" });
+      const current = await database.getPool().query(
+        `SELECT orders.customer_id,
+                (SELECT count(*) FROM customers WHERE id = $2)::integer AS old_customer_count
+         FROM orders WHERE external_order_id = $1`,
+        [candidate.externalOrderId, previousCustomerId],
+      );
+      assert.notEqual(String(current.rows[0].customer_id), previousCustomerId);
+      assert.equal(current.rows[0].old_customer_count, 0);
+
       await database.getPool().query(
         `INSERT INTO customers
          (kind, match_key, display_name, billing_address_json,
@@ -114,6 +195,8 @@ test(
 
       await database.closePool();
     } finally {
+      const database = await import("./client.server.ts");
+      await database.closePool();
       await clean.drop();
     }
   },

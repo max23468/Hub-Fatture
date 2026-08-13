@@ -23,6 +23,30 @@ const customerListSortSql: Record<CustomerListSortKey, string> = {
   documenti: "coalesce(document_summary.document_count, 0)",
 };
 
+// Il flag persistito descrive la qualità dell'ultimo profilo sorgente, non basta da solo
+// a rappresentare lavoro ancora eseguibile. La directory segnala soltanto un'anagrafica
+// che blocca un ordine storico o una preparazione ancora aperta.
+const actionableCustomerReviewSql = `customers.review_required AND EXISTS (
+  SELECT 1
+  FROM orders AS review_orders
+  LEFT JOIN billing_cases AS review_cases ON review_cases.id = review_orders.billing_case_id
+  WHERE review_orders.customer_id = customers.id
+    AND coalesce(
+      (review_orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean,
+      customers.review_required
+    )
+    AND (
+      review_orders.trigger_status IN ('NEEDS_REVIEW', 'LEGACY_BILLING_REVIEW')
+      OR (
+        review_cases.status = 'NEEDS_REVIEW'
+        AND coalesce(
+          (review_cases.customer_snapshot_json ->> 'reviewRequired')::boolean,
+          true
+        )
+      )
+    )
+)`;
+
 export async function customerDirectorySummary() {
   const result = await getPool().query<{
     total: number;
@@ -31,7 +55,7 @@ export async function customerDirectorySummary() {
     ebay: number;
   }>(
     `SELECT count(*)::integer AS total,
-            count(*) FILTER (WHERE customers.review_required)::integer AS needs_review,
+            count(*) FILTER (WHERE ${actionableCustomerReviewSql})::integer AS needs_review,
             count(*) FILTER (WHERE EXISTS (
               SELECT 1 FROM customer_source_records
               WHERE customer_source_records.customer_id = customers.id
@@ -75,7 +99,8 @@ export async function listCustomers(filters: {
     last_order_date: string | null;
   }>(
     `SELECT customers.id, customers.kind, customers.display_name, customers.email,
-            customers.tax_id_type, customers.tax_id_normalized, customers.review_required,
+            customers.tax_id_type, customers.tax_id_normalized,
+            (${actionableCustomerReviewSql}) AS review_required,
             customers.source_confidence, customers.updated_at::text,
             coalesce(sources.providers, ARRAY[]::text[]) AS providers,
             coalesce(order_summary.order_count, 0)::integer AS order_count,
@@ -111,9 +136,9 @@ export async function listCustomers(filters: {
               WHERE customer_source_records.customer_id = customers.id
                 AND customer_source_records.external_customer_id ILIKE $1
             ))
-       AND ($2::boolean IS NULL OR customers.review_required = $2)
+       AND ($2::boolean IS NULL OR (${actionableCustomerReviewSql}) = $2)
      ORDER BY ${orderBy} ${direction} NULLS LAST,
-              customers.review_required DESC,
+              (${actionableCustomerReviewSql}) DESC,
               customers.updated_at DESC, customers.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $3`,
     [
@@ -190,7 +215,8 @@ export async function getCustomer(id: string | undefined): Promise<CustomerDetai
             customers.last_name, customers.company_name, customers.email, customers.phone,
             customers.tax_id_type, customers.tax_id_normalized, customers.vat_country,
             customers.billing_address_json, customers.source_confidence,
-            customers.review_required, customers.created_at::text, customers.updated_at::text,
+            (${actionableCustomerReviewSql}) AS review_required,
+            customers.created_at::text, customers.updated_at::text,
             (SELECT count(*)::integer FROM orders
              WHERE orders.customer_id = customers.id) AS order_count,
             (SELECT count(*)::integer FROM billing_cases

@@ -37,6 +37,17 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await page.locator("[data-aruba-account]").evaluate((element) => {
     element.setAttribute("hidden", "");
   });
+  await page.evaluate(() => {
+    const accountButton = document.createElement("button");
+    accountButton.textContent = "synthetic-aruba-account";
+    document.body.append(accountButton);
+  });
+  await expect(assertAccount(page, "synthetic-aruba-account")).resolves.toBeUndefined();
+  await page
+    .getByRole("button", { name: "synthetic-aruba-account", exact: true })
+    .evaluate((element) => {
+      element.textContent = "synthetic-aruba-account secondario";
+    });
   await expect(assertAccount(page, "synthetic-aruba-account")).rejects.toThrow("DOM_UNRECOGNIZED");
   await page.reload();
   await page.getByLabel("SELEZIONA DOCUMENTI").setInputFiles(xml);
