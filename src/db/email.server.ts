@@ -372,7 +372,7 @@ export async function sendCustomerEmail(
     await assertJobLease(client, job);
     const current = await loadDelivery(client, deliveryId);
     if (!current || current.status === "SENT") return null;
-    if (current.status === "PENDING" && current.send_started_at) {
+    if (current.send_started_at) {
       await client.query(
         `UPDATE email_deliveries SET status = 'FAILED',
            last_error_code = 'EMAIL_DELIVERY_UNCERTAIN',

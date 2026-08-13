@@ -564,14 +564,49 @@ test(
         (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_UNCERTAIN",
       );
       await client.query("DROP TRIGGER email_sent_audit_block ON audit_events");
-      assert.equal(await jobs.failJob(persistenceJob!, "EMAIL_DELIVERY_UNCERTAIN"), true);
+      await client.query(
+        "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
+        [persistenceJob!.id],
+      );
+      const recoveredPersistenceJob = await claimEmailJob(
+        persistenceId,
+        "email-persistence-recovered",
+      );
+      const settingsBeforeRecoveredPersistence = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("DISABLED", settingsBeforeRecoveredPersistence.version, {
+        ...owner,
+        requestId: "email-disabled-after-uncertain-persistence",
+      });
+      await assert.rejects(
+        email.sendCustomerEmail(recoveredPersistenceJob!),
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_UNCERTAIN",
+      );
       assert.deepEqual(
         (
-          await client.query("SELECT status, last_error_code FROM email_deliveries WHERE id = $1", [
-            persistenceId,
-          ])
+          await client.query(
+            "SELECT status, last_error_code, send_started_at IS NOT NULL AS send_started FROM email_deliveries WHERE id = $1",
+            [persistenceId],
+          )
         ).rows[0],
-        { status: "FAILED", last_error_code: "EMAIL_DELIVERY_UNCERTAIN" },
+        {
+          status: "FAILED",
+          last_error_code: "EMAIL_DELIVERY_UNCERTAIN",
+          send_started: true,
+        },
+      );
+      assert.equal(await jobs.failJob(recoveredPersistenceJob!, "EMAIL_DELIVERY_UNCERTAIN"), true);
+      const settingsAfterRecoveredPersistence = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", settingsAfterRecoveredPersistence.version, {
+        ...owner,
+        requestId: "email-restored-after-uncertain-persistence",
+      });
+      await assert.rejects(
+        email.retryCustomerEmail(invoice.rows[0]!.id, {
+          id: Number(user.rows[0]!.id),
+          canApprove: true,
+          requestId: "manual-email-unverified-persistence",
+        }),
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_UNCERTAIN",
       );
 
       const crashId = await email.retryCustomerEmail(
