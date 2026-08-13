@@ -225,9 +225,15 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Salva modalità e-mail" })).toBeDisabled();
   await expect(
     page.getByText(
-      "Scegli se inviare automaticamente la copia dopo l’esito SdI o richiedere una conferma prima dell’invio.",
+      "Scegli se inviare automaticamente, richiedere una conferma o disattivare gli invii da Hub Fatture.",
     ),
   ).toBeVisible();
+  const customerEmailMode = page.getByLabel("Modalità invio copia");
+  await expect(customerEmailMode.locator("option")).toHaveText([
+    "Automatica dopo l’esito SdI",
+    "Manuale con approvazione",
+    "Disattivata",
+  ]);
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
   await expect(page.getByText(/Ogni accesso resta valido per un anno/)).toBeVisible();
   await expect(page.locator('.settings-nav__item[aria-current="location"]')).toHaveText(
@@ -315,13 +321,19 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  await expect(
-    page.getByText("026_remove_aruba_upload_protection.sql", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("027_customer_email_disabled.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
   ).toBeVisible();
+  await customerEmailMode.selectOption("DISABLED");
+  await page.getByRole("button", { name: "Salva modalità e-mail" }).click();
+  await expect(page).toHaveURL(/email=salvata/);
+  await expect(page.getByRole("status")).toContainText("Modalità e-mail aggiornata");
+  await expect(page.getByLabel("Modalità invio copia")).toHaveValue("DISABLED");
+  await page.getByLabel("Modalità invio copia").selectOption("AUTOMATIC");
+  await page.getByRole("button", { name: "Salva modalità e-mail" }).click();
+  await expect(page.getByLabel("Modalità invio copia")).toHaveValue("AUTOMATIC");
   await page.getByLabel("Apri il menu di Massimo").click();
   await page.locator(".profile-menu").getByRole("button", { name: "Esci" }).click();
   await expect(page).toHaveURL(/\/login$/);

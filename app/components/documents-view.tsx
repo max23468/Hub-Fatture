@@ -238,17 +238,19 @@ function DocumentRow({
   csrfToken,
   document,
   email,
+  emailEnabled,
   officialFiles,
 }: {
   canApprove: boolean;
   csrfToken: string;
   document: DocumentRowData;
   email?: EmailDelivery;
+  emailEnabled: boolean;
   officialFiles: OfficialFile[];
 }) {
   const label = document.fiscal_label ?? copy.documents.draftLabel(document.public_number);
   const target = documentTarget(document);
-  const canRetryEmail = Boolean(email && email.status !== "PENDING" && canApprove);
+  const canRetryEmail = Boolean(emailEnabled && email && email.status !== "PENDING" && canApprove);
   const canImportFile = Boolean(canApprove && document.aruba_batch_id && document.xml_sha256);
   const hasTools = Boolean(
     document.xml_sha256 || officialFiles.length || canRetryEmail || canImportFile,
@@ -500,6 +502,7 @@ export function DocumentsView({
   csrfToken,
   documents,
   emailDeliveries,
+  emailEnabled,
   filters,
   officialFiles,
   page,
@@ -513,6 +516,7 @@ export function DocumentsView({
   csrfToken: string;
   documents: DocumentPage;
   emailDeliveries: EmailDelivery[];
+  emailEnabled: boolean;
   filters: DocumentFiltersValue;
   officialFiles: OfficialFile[];
   page: number;
@@ -611,6 +615,7 @@ export function DocumentsView({
                   csrfToken={csrfToken}
                   document={document}
                   email={emailByDocument.get(document.id)}
+                  emailEnabled={emailEnabled}
                   key={document.id}
                   officialFiles={officialFilesByDocument.get(document.id) ?? []}
                 />

@@ -33,7 +33,9 @@ attestato, senza attendere il workflow artefatto di un nuovo merge. Classificato
 e barriera dei check provengono sempre dalla revisione fidata del workflow, non
 dal candidato storico. Prima di creare il deployment exact-SHA o sostituire i
 container, il preflight confronta l'ultima migrazione del target con la ricevuta
-Production e vieta il rollback se divergono. Il deployment riuscito diventa poi
+Production e vieta il rollback se divergono. Se in Production è attiva la
+disattivazione globale delle e-mail al cliente, vieta inoltre il ritorno a un
+candidato che non riconosce quella modalità. Il deployment riuscito diventa poi
 la nuova base.
 
 ## Deploy e readback
@@ -51,7 +53,7 @@ Controlli conclusivi:
 
 ## Rollback
 
-Il rollback è applicativo: un workflow manuale può scegliere un commit precedente già contenuto in `main`; soltanto se lo schema è rimasto invariato, il deploy ripristina insieme applicazione, Compose e Caddyfile e ripete il readback. Lo script applica inoltre lo stesso ripristino automatico del bundle precedente quando fallisce il deploy in corso. Se lo schema è avanzato o non è rilevabile, il rollback è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.
+Il rollback è applicativo: un workflow manuale può scegliere un commit precedente già contenuto in `main`; soltanto se lo schema è rimasto invariato, il deploy ripristina insieme applicazione, Compose e Caddyfile e ripete il readback. Se la modalità e-mail globale è `DISABLED`, il workflow rifiuta anche un candidato precedente che non la supporta, perché il vecchio worker potrebbe altrimenti accodare o inviare nuove copie. Lo script applica inoltre lo stesso ripristino automatico del bundle precedente quando fallisce il deploy in corso. Se lo schema è avanzato, non è rilevabile o la modalità disattivata non è supportata dal target, il rollback è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.
 
 ## Provisioning e hardening
 

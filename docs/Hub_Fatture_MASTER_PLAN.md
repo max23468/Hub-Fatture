@@ -1113,6 +1113,7 @@ Modalità:
 
 - **Automatica dopo l'esito SdI**: inviare dopo che il readback riporta un esito che conferma l'emissione, mai dopo la sola validazione del file né dopo la sola acquisizione Aruba.
 - **Manuale con approvazione**: nella schermata di approvazione l'utente decide per la singola preparazione.
+- **Disattivata**: HF non propone né accoda nuovi invii, rifiuta reinvii e scelte `Invia` manomesse e sopprime prima del contatto SMTP eventuali job già accodati. Lo storico resta consultabile; un invio SMTP già materialmente iniziato non è annullabile.
 
 Anche in modalità automatica, la schermata deve permettere di non inviare per una specifica preparazione prima dell'approvazione.
 

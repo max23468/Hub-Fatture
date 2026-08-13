@@ -31,6 +31,7 @@ export const errorCatalog = {
   CREDIT_NOTE_LIMIT_EXCEEDED: "Il rimborso supera il residuo accreditabile della fattura.",
   REFUND_NEEDS_REVIEW: "L’importo restituito al cliente deve essere verificato.",
   EMAIL_CONFIGURATION_MISSING: "Il trasporto e-mail canonico non è configurato.",
+  EMAIL_DELIVERY_DISABLED: "L’invio e-mail da Hub Fatture è disattivato.",
   EMAIL_DELIVERY_FORBIDDEN: "Solo Massimo può autorizzare l’invio di e-mail al cliente.",
   EMAIL_RECIPIENT_MISSING: "Il documento non ha un destinatario e-mail valido.",
   EMAIL_ATTACHMENT_MISSING: "La copia PDF ufficiale non è ancora disponibile.",

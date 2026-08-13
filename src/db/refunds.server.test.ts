@@ -195,6 +195,40 @@ test(
       await client.query("UPDATE aruba_submissions SET status = 'DELIVERED' WHERE batch_id = $1", [
         batchId,
       ]);
+      const owner = {
+        id: Number(user.rows[0]!.id),
+        canApprove: true,
+        requestId: "email-settings-disabled",
+      };
+      const initialEmailSettings = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("DISABLED", initialEmailSettings.version, owner);
+      const disabledEmailSettings = await email.getCustomerEmailSettings();
+      assert.equal(disabledEmailSettings.mode, "DISABLED");
+      await assert.rejects(
+        database.withTransaction((transaction) =>
+          email.snapshotDocumentEmail(
+            transaction,
+            invoice.rows[0]!.id,
+            "SEND",
+            disabledEmailSettings.version,
+          ),
+        ),
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_DISABLED",
+      );
+      assert.equal(
+        await database.withTransaction((transaction) =>
+          email.scheduleCustomerEmail(transaction, invoice.rows[0]!.id),
+        ),
+        null,
+      );
+      await assert.rejects(
+        email.retryCustomerEmail(invoice.rows[0]!.id, owner),
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_DISABLED",
+      );
+      await email.setCustomerEmailMode("MANUAL", disabledEmailSettings.version, {
+        ...owner,
+        requestId: "email-settings-restored",
+      });
       const schedulerA = await client.connect();
       const schedulerB = await client.connect();
       let deliveryId: string | null;
@@ -203,13 +237,53 @@ test(
         await schedulerB.query("BEGIN");
         deliveryId = await email.scheduleCustomerEmail(schedulerA, invoice.rows[0]!.id);
         const competingSchedule = email.scheduleCustomerEmail(schedulerB, invoice.rows[0]!.id);
+        let disablingSettled = false;
+        const settingsBeforeConcurrentDisable = await email.getCustomerEmailSettings();
+        const concurrentDisable = email
+          .setCustomerEmailMode("DISABLED", settingsBeforeConcurrentDisable.version, {
+            ...owner,
+            requestId: "email-disabled-during-schedule",
+          })
+          .finally(() => {
+            disablingSettled = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        assert.equal(disablingSettled, false);
         await schedulerA.query("COMMIT");
         assert.equal(await competingSchedule, null);
         await schedulerB.query("COMMIT");
+        await concurrentDisable;
       } finally {
         schedulerA.release();
         schedulerB.release();
       }
+      assert.ok(deliveryId);
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT email_deliveries.status, email_deliveries.last_error_code,
+                    jobs.status AS job_status
+             FROM email_deliveries
+             JOIN jobs ON jobs.payload_json ->> 'deliveryId' = email_deliveries.id::text
+             WHERE email_deliveries.id = $1`,
+            [deliveryId],
+          )
+        ).rows[0],
+        {
+          status: "FAILED",
+          last_error_code: "EMAIL_DELIVERY_DISABLED",
+          job_status: "COMPLETED",
+        },
+      );
+      const settingsAfterConcurrentDisable = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", settingsAfterConcurrentDisable.version, {
+        ...owner,
+        requestId: "email-restored-after-concurrent-schedule",
+      });
+      deliveryId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
+        ...owner,
+        requestId: "email-retry-after-concurrent-schedule",
+      });
       assert.ok(deliveryId);
       assert.equal(
         (await client.query("SELECT sender FROM email_deliveries WHERE id = $1", [deliveryId]))
@@ -238,6 +312,80 @@ test(
           .rows[0].status,
         "SENT",
       );
+
+      const suppressedId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
+        ...owner,
+        requestId: "email-disabled-before-send",
+      });
+      const restorableEmailSettings = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("DISABLED", restorableEmailSettings.version, {
+        ...owner,
+        requestId: "email-disabled-with-pending-job",
+      });
+      const suppressedEmailSettings = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", suppressedEmailSettings.version, {
+        ...owner,
+        requestId: "email-restored-after-suppression",
+      });
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT email_deliveries.status, email_deliveries.last_error_code,
+                    jobs.status AS job_status
+             FROM email_deliveries
+             JOIN jobs ON jobs.payload_json ->> 'deliveryId' = email_deliveries.id::text
+             WHERE email_deliveries.id = $1`,
+            [suppressedId],
+          )
+        ).rows[0],
+        {
+          status: "FAILED",
+          last_error_code: "EMAIL_DELIVERY_DISABLED",
+          job_status: "COMPLETED",
+        },
+      );
+
+      const concurrentId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
+        ...owner,
+        requestId: "email-concurrent-disable",
+      });
+      const concurrentJob = await claimEmailJob(concurrentId, "email-concurrent-disable");
+      let releaseSmtp!: () => void;
+      let markSmtpStarted!: () => void;
+      const smtpStarted = new Promise<void>((resolve) => {
+        markSmtpStarted = resolve;
+      });
+      const smtpRelease = new Promise<void>((resolve) => {
+        releaseSmtp = resolve;
+      });
+      const concurrentSend = email.sendCustomerEmail(concurrentJob, async () => {
+        markSmtpStarted();
+        await smtpRelease;
+        return "<synthetic-concurrent@example.invalid>";
+      });
+      await smtpStarted;
+      const concurrentSettings = await email.getCustomerEmailSettings();
+      let disableCompleted = false;
+      const concurrentDisable = email
+        .setCustomerEmailMode("DISABLED", concurrentSettings.version, {
+          ...owner,
+          requestId: "email-disable-during-smtp",
+        })
+        .then(() => {
+          disableCompleted = true;
+        });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(disableCompleted, false);
+      releaseSmtp();
+      await concurrentSend;
+      assert.equal(await jobs.completeJob(concurrentJob), true);
+      await concurrentDisable;
+      assert.equal(disableCompleted, true);
+      const concurrentDisabledSettings = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", concurrentDisabledSettings.version, {
+        ...owner,
+        requestId: "email-restored-after-concurrent-send",
+      });
 
       const retryId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
         id: Number(user.rows[0]!.id),
@@ -274,6 +422,52 @@ test(
         )
       ).rows[0];
       assert.deepEqual(retried, { status: "SENT", attempt_count: 2, last_error_sanitized: null });
+
+      const suppressedRetryId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
+        ...owner,
+        requestId: "email-temporary-before-disable",
+      });
+      const suppressedRetryJob = await claimEmailJob(
+        suppressedRetryId,
+        "email-temporary-before-disable",
+      );
+      await assert.rejects(
+        email.sendCustomerEmail(suppressedRetryJob, async () => {
+          throw Object.assign(new Error("synthetic temporary SMTP rejection"), {
+            command: "DATA",
+            responseCode: 451,
+          });
+        }),
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_TEMPORARY",
+      );
+      assert.equal(await jobs.failJob(suppressedRetryJob, "EMAIL_DELIVERY_TEMPORARY"), false);
+      const settingsBeforeRetrySuppression = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("DISABLED", settingsBeforeRetrySuppression.version, {
+        ...owner,
+        requestId: "email-disable-with-temporary-retry",
+      });
+      const settingsAfterRetrySuppression = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", settingsAfterRetrySuppression.version, {
+        ...owner,
+        requestId: "email-restore-after-temporary-retry",
+      });
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT email_deliveries.status, email_deliveries.last_error_code,
+                    jobs.status AS job_status
+             FROM email_deliveries
+             JOIN jobs ON jobs.payload_json ->> 'deliveryId' = email_deliveries.id::text
+             WHERE email_deliveries.id = $1`,
+            [suppressedRetryId],
+          )
+        ).rows[0],
+        {
+          status: "FAILED",
+          last_error_code: "EMAIL_DELIVERY_DISABLED",
+          job_status: "COMPLETED",
+        },
+      );
 
       const permanentId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
         id: Number(user.rows[0]!.id),
@@ -370,14 +564,49 @@ test(
         (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_UNCERTAIN",
       );
       await client.query("DROP TRIGGER email_sent_audit_block ON audit_events");
-      assert.equal(await jobs.failJob(persistenceJob!, "EMAIL_DELIVERY_UNCERTAIN"), true);
+      await client.query(
+        "UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
+        [persistenceJob!.id],
+      );
+      const recoveredPersistenceJob = await claimEmailJob(
+        persistenceId,
+        "email-persistence-recovered",
+      );
+      const settingsBeforeRecoveredPersistence = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("DISABLED", settingsBeforeRecoveredPersistence.version, {
+        ...owner,
+        requestId: "email-disabled-after-uncertain-persistence",
+      });
+      await assert.rejects(
+        email.sendCustomerEmail(recoveredPersistenceJob!),
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_UNCERTAIN",
+      );
       assert.deepEqual(
         (
-          await client.query("SELECT status, last_error_code FROM email_deliveries WHERE id = $1", [
-            persistenceId,
-          ])
+          await client.query(
+            "SELECT status, last_error_code, send_started_at IS NOT NULL AS send_started FROM email_deliveries WHERE id = $1",
+            [persistenceId],
+          )
         ).rows[0],
-        { status: "FAILED", last_error_code: "EMAIL_DELIVERY_UNCERTAIN" },
+        {
+          status: "FAILED",
+          last_error_code: "EMAIL_DELIVERY_UNCERTAIN",
+          send_started: true,
+        },
+      );
+      assert.equal(await jobs.failJob(recoveredPersistenceJob!, "EMAIL_DELIVERY_UNCERTAIN"), true);
+      const settingsAfterRecoveredPersistence = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", settingsAfterRecoveredPersistence.version, {
+        ...owner,
+        requestId: "email-restored-after-uncertain-persistence",
+      });
+      await assert.rejects(
+        email.retryCustomerEmail(invoice.rows[0]!.id, {
+          id: Number(user.rows[0]!.id),
+          canApprove: true,
+          requestId: "manual-email-unverified-persistence",
+        }),
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_UNCERTAIN",
       );
 
       const crashId = await email.retryCustomerEmail(
@@ -399,6 +628,11 @@ test(
       );
       const recoveredJob = await claimEmailJob(crashId, "email-recovered");
       assert.equal(recoveredJob?.id, crashedJob?.id);
+      const settingsBeforeRecoveredJob = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("DISABLED", settingsBeforeRecoveredJob.version, {
+        ...owner,
+        requestId: "email-disabled-after-send-started",
+      });
       await assert.rejects(
         email.sendCustomerEmail(recoveredJob!),
         (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_UNCERTAIN",
@@ -417,6 +651,11 @@ test(
         "APPROVED",
       );
       assert.equal(await jobs.failJob(recoveredJob!, "EMAIL_DELIVERY_UNCERTAIN"), true);
+      const settingsAfterRecoveredJob = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", settingsAfterRecoveredJob.version, {
+        ...owner,
+        requestId: "email-restored-after-uncertain-send",
+      });
       await assert.rejects(
         email.retryCustomerEmail(invoice.rows[0]!.id, {
           id: Number(user.rows[0]!.id),
