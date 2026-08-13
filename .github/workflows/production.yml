@@ -332,6 +332,14 @@ jobs:
               echo "Rollback vietato: lo schema Production è avanzato rispetto al candidato." >&2
               exit 1
             }
+            if ! grep -Fq 'z.enum(["AUTOMATIC", "MANUAL", "DISABLED"])' src/db/email.server.ts; then
+              # shellcheck disable=SC2029
+              customer_email_mode=$(ssh "$SSH_USER@$SSH_HOST" "cd /opt/hub-fatture && sudo docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres psql -U hub_fatture -d hub_fatture -Atc \"SELECT value_json #>> '{}' FROM settings WHERE key = 'customer_email_mode'\"")
+              test "$customer_email_mode" != "DISABLED" || {
+                echo "Rollback vietato: il candidato non supporta la disattivazione delle e-mail al cliente attiva in Production." >&2
+                exit 1
+              }
+            fi
           fi
       - name: Crea il deployment per il candidato esatto
         id: deployment

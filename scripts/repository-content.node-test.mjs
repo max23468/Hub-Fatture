@@ -307,6 +307,8 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.ok(exactDeployment < installCandidate);
   assert.match(deploy, /candidate_schema.*deployed_schema/s);
   assert.match(deploy, /test "\$candidate_schema" = "\$deployed_schema"/);
+  assert.match(deploy, /customer_email_mode/);
+  assert.match(deploy, /candidato non supporta la disattivazione delle e-mail/);
   assert.match(workflow, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
   assert.match(workflow, /if \[ '\$BACKUP_REQUIRED' = true \]/);
   assert.match(workflow, /backup\.sh deploy/);
