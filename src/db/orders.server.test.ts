@@ -4816,6 +4816,54 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-numbered-street" },
     );
+    const historicalWithForeignNumberedStreet = structuredClone(historicalWithoutTaxId);
+    historicalWithForeignNumberedStreet.externalOrderId =
+      "shop-order-historical-foreign-numbered-street";
+    historicalWithForeignNumberedStreet.externalCustomerId =
+      "shop-customer-historical-foreign-numbered-street";
+    historicalWithForeignNumberedStreet.displayNumber = "#S-HIST-FR-NUMBERED-STREET";
+    historicalWithForeignNumberedStreet.customer.billingAddress = {
+      line1: "Route Nationale 12",
+      line2: "5",
+      postalCode: "75001",
+      city: "Paris",
+      countryCode: "FR",
+    };
+    historicalWithForeignNumberedStreet.payments[0].externalPaymentId =
+      "historical-foreign-numbered-street-payment";
+    await orders.importOrders([historicalWithForeignNumberedStreet], {
+      id: 1,
+      requestId: "test-import-historical-foreign-numbered-street",
+    });
+    const historicalWithForeignNumberedStreetId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithForeignNumberedStreet.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithForeignNumberedStreetId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0048/26 con toponimo UE numerato e civico separato",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0048/26")
+            .replace("Via della Scala", "Route Nationale 12")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>5</NumeroCivico>")
+            .replace("<CAP>00100</CAP>", "<CAP>75001</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>Paris</Comune>")
+            .replace(
+              "<Provincia>RM</Provincia>\n        <Nazione>IT</Nazione>",
+              "<Nazione>FR</Nazione>",
+            ),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-foreign-numbered-street" },
+    );
     const bulgarianHistorical = structuredClone(historicalWithoutTaxId);
     bulgarianHistorical.externalOrderId = "shop-order-historical-bulgarian-transliteration";
     bulgarianHistorical.externalCustomerId = "shop-customer-historical-bulgarian-transliteration";
@@ -5049,7 +5097,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "31",
+      "32",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
