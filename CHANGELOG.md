@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.38
+
+- La vista Clienti non considera più azionabile un vecchio stato di revisione dell’ordine quando l’ordine è già collegato a una preparazione chiusa o marcata da non trasmettere.
+- La regressione copre esplicitamente il caso di un documento storico Aruba già riconciliato con una preparazione terminale.
+
 ## 0.3.37
 
 - Il contratto dell’helper Aruba riflette il pannello reale per TD01 e TD04: date italiane, account nella barra superiore, riepilogo batch con `INVIA TUTTE`, cleanup globale con `SVUOTA PAGINA` e limite complessivo di 30 MB.

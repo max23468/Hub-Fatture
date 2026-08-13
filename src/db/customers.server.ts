@@ -36,7 +36,10 @@ const actionableCustomerReviewSql = `customers.review_required AND EXISTS (
       customers.review_required
     )
     AND (
-      review_orders.trigger_status IN ('NEEDS_REVIEW', 'LEGACY_BILLING_REVIEW')
+      (
+        review_orders.billing_case_id IS NULL
+        AND review_orders.trigger_status IN ('NEEDS_REVIEW', 'LEGACY_BILLING_REVIEW')
+      )
       OR (
         review_cases.status = 'NEEDS_REVIEW'
         AND coalesce(
