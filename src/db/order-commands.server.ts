@@ -488,7 +488,10 @@ function customerStreetNumberCandidates(address: Record<string, unknown>) {
     secondAddressLineUnitMarkers,
     true,
   );
-  const primaryTokens = normalizedAddressTokens(address.line1);
+  const primaryTokens = withoutAddressPart(
+    normalizedAddressTokens(address.line1),
+    address.postalCode,
+  );
   const secondaryTokens = normalizedAddressTokens(address.line2);
   const primaryIsNumberedStreetName =
     streetKindTokens.has(primaryTokens[0] ?? "") &&

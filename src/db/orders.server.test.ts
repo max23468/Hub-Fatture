@@ -4823,7 +4823,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       "shop-customer-historical-foreign-numbered-street";
     historicalWithForeignNumberedStreet.displayNumber = "#S-HIST-FR-NUMBERED-STREET";
     historicalWithForeignNumberedStreet.customer.billingAddress = {
-      line1: "Route Nationale 12",
+      line1: "75001 Route Nationale 12",
       line2: "5",
       postalCode: "75001",
       city: "Paris",
