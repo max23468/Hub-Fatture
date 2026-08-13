@@ -480,8 +480,10 @@ function customerStreetNumberCandidates(address: Record<string, unknown>) {
   const secondaryTokens = normalizedAddressTokens(address.line2);
   const primaryIsNumberedStreetName =
     primaryTokens[0] === "strada" && numberedItalianStreetKinds.has(primaryTokens[1] ?? "");
+  const primaryContainsOnlyStreetNumber =
+    primaryIsNumberedStreetName && primaryTokens.filter((token) => /^\d/u.test(token)).length === 1;
   return secondary.size > 0 &&
-    (primary.size === 0 || secondaryTokens[0] === "civico" || primaryIsNumberedStreetName)
+    (primary.size === 0 || secondaryTokens[0] === "civico" || primaryContainsOnlyStreetNumber)
     ? secondary
     : primary;
 }
