@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.33
+
+- Il manifest tecnico della release viene pubblicato con il nome canonico `release-manifest.json`; la release precedente resta immutabile e viene superata senza spostarne tag o asset.
+
 ## 0.3.32
 
 - L’integrazione Aruba considera ordinario il caricamento senza SMS quando la protezione per singolo upload è disattivata, continuando a fermarsi davanti a challenge OTP, SMS o CAPTCHA inattese.
