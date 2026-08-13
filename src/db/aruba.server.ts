@@ -1240,6 +1240,7 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor, confir
       [batchId],
     );
     if (unsafe.rowCount) throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
+    const documents = await batchDocuments(client, batchId);
     const permit = await client.query<{ scope: ArubaPermitScope; consumed_at: string | null }>(
       "SELECT scope, consumed_at FROM aruba_send_permits WHERE batch_id = $1 FOR UPDATE",
       [batchId],
@@ -1258,13 +1259,16 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor, confir
         [batchId],
       );
       await revokeExpiredCanaryPermits(client);
-      if (await hasOutstandingCanaryBatch(client, batchId)) {
+      if (
+        (await hasOutstandingCanaryBatch(client, batchId)) ||
+        !(await hasCanaryPrerequisites(client, documents[0]!.id, batchId))
+      ) {
         throw new AppError("ARUBA_PERMIT_INVALID", 409);
       }
     }
     const retryBatchId = await createArubaBatch(
       client,
-      await batchDocuments(client, batchId),
+      documents,
       actor,
       undefined,
       current.attempt_number + 1,

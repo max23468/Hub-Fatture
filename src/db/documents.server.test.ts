@@ -1390,6 +1390,16 @@ test(
         aruba.retryArubaBatch(secondCanaryBatchId, owner),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
+      const concurrentBatchId = await database.withTransaction((client) =>
+        aruba.createArubaBatch(client, [mixedDocuments[0]!], owner, undefined, 1, "ASSISTED"),
+      );
+      await assert.rejects(
+        aruba.retryArubaBatch(secondCanaryBatchId, owner, true),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      await database
+        .getPool()
+        .query("UPDATE aruba_batches SET status = 'CANCELLED' WHERE id = $1", [concurrentBatchId]);
       const retryCanaryBatchId = await aruba.retryArubaBatch(secondCanaryBatchId, owner, true);
       assert.deepEqual(
         (
