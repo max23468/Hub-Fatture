@@ -16,6 +16,7 @@ import type { Route } from "./+types/home";
 import { AppShell } from "../components/app-shell";
 import { copy } from "../copy.it";
 import { dateTime } from "../format";
+import { privateRouteMeta } from "../metadata";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 import { dashboardSummary } from "../../src/db/orders.server.ts";
 
@@ -42,11 +43,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   };
 }
 
-export function meta(_: Route.MetaArgs) {
-  return [
-    { title: "Hub Fatture" },
-    { name: "description", content: "Gestione privata del flusso di fatturazione" },
-  ];
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("dashboard", { error });
 }
 
 export default function Home() {

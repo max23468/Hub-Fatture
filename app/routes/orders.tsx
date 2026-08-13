@@ -16,6 +16,7 @@ import {
   orderStatusLabels,
 } from "../copy.it";
 import { compactDate, euros } from "../format";
+import { privateRouteMeta } from "../metadata";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
 import {
@@ -46,6 +47,10 @@ const preparationSortKeys = [
   "totale",
   "stato",
 ] as const;
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("orders", { error });
+}
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);

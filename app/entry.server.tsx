@@ -8,6 +8,7 @@ import type { EntryContext, RouterContextProvider } from "react-router";
 import { startRetention } from "../src/db/retention.server.ts";
 import { startDocumentStorageReconciliation } from "../src/db/document-storage.server.ts";
 import { securePrivateHeaders } from "../src/http.server.ts";
+import { PRIVATE_ROBOTS_DIRECTIVE } from "./metadata";
 
 startRetention();
 startDocumentStorageReconciliation();
@@ -24,6 +25,7 @@ export default function handleRequest(
   responseHeaders.set("Content-Security-Policy", "frame-ancestors 'none'");
   responseHeaders.set("Referrer-Policy", "same-origin");
   responseHeaders.set("X-Content-Type-Options", "nosniff");
+  responseHeaders.set("X-Robots-Tag", PRIVATE_ROBOTS_DIRECTIVE);
   securePrivateHeaders(responseHeaders);
 
   if (request.method.toUpperCase() === "HEAD") {

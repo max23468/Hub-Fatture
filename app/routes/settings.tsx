@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Form, useActionData, useLoaderData } from "react-router";
+import type { Route } from "./+types/settings";
 
 import { AppShell } from "../components/app-shell";
 import {
@@ -20,6 +21,7 @@ import {
 import { ThemePicker } from "../components/theme-picker";
 import { copy } from "../copy.it";
 import { dateTime } from "../format";
+import { privateRouteMeta } from "../metadata";
 import type { getAccountProfile } from "../../src/db/auth.server.ts";
 import type { getArubaSettings } from "../../src/db/aruba.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
@@ -28,6 +30,10 @@ import type { getSystemStatus } from "../../src/db/system.server.ts";
 import { action, loader } from "./settings.server.ts";
 
 export { action, loader };
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("settings", { error });
+}
 
 type ErrorFor = (...intents: string[]) => string | null;
 
