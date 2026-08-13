@@ -322,6 +322,12 @@ const addressUnitMarkers = new Set([
   "corp",
   "building",
   "camera",
+  "edificio",
+  "interno",
+  "localita",
+  "palazzina",
+  "piano",
+  "scala",
 ]);
 
 function normalizedAddressTokens(value: unknown) {

@@ -4334,6 +4334,48 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-recipient-without-tax-id" },
     );
+    const historicalWithNumericComplement = structuredClone(historicalWithoutTaxId);
+    historicalWithNumericComplement.externalOrderId = "shop-order-historical-numeric-complement";
+    historicalWithNumericComplement.externalCustomerId =
+      "shop-customer-historical-numeric-complement";
+    historicalWithNumericComplement.displayNumber = "#S-HIST-NUMERIC-COMPLEMENT";
+    historicalWithNumericComplement.customer.billingAddress = {
+      line1: "Via Cliente",
+      line2: "Interno 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithNumericComplement.payments[0].externalPaymentId =
+      "historical-numeric-complement-payment";
+    await orders.importOrders([historicalWithNumericComplement], {
+      id: 1,
+      requestId: "test-import-historical-numeric-complement",
+    });
+    const historicalWithNumericComplementId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithNumericComplement.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithNumericComplementId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0035/26 senza prova del civico",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml.toString().replace("FPR 0013/26", "FPR 0035/26"),
+          ),
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-numeric-address-complement" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     const bulgarianHistorical = structuredClone(historicalWithoutTaxId);
     bulgarianHistorical.externalOrderId = "shop-order-historical-bulgarian-transliteration";
     bulgarianHistorical.externalCustomerId = "shop-customer-historical-bulgarian-transliteration";
