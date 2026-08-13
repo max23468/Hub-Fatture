@@ -100,7 +100,69 @@ export async function applyRetentionPolicy(): Promise<RetentionResult> {
            AND coalesce(completed_at, updated_at) <= now() - interval '30 days'
            AND raw_json <> '{}'::jsonb`,
       );
-      result.SOURCE_PAYLOADS = (webhooks.rowCount ?? 0) + (refunds.rowCount ?? 0);
+      const orders = await client.query(
+        `UPDATE orders
+         SET raw_snapshot_json = '{}'::jsonb
+         WHERE last_synced_at <= now() - interval '30 days'
+           AND trigger_status <> 'NEEDS_REVIEW'
+           AND (
+             NOT coalesce((normalized_snapshot_json ->> 'historical')::boolean, false)
+             OR historical_reconciliation_outcome IS NOT NULL
+           )
+           AND raw_snapshot_json <> '{}'::jsonb`,
+      );
+      const orderLines = await client.query(
+        `UPDATE order_lines
+         SET raw_json = '{}'::jsonb
+         FROM orders
+         WHERE order_lines.order_id = orders.id
+           AND orders.last_synced_at <= now() - interval '30 days'
+           AND orders.trigger_status <> 'NEEDS_REVIEW'
+           AND (
+             NOT coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+             OR orders.historical_reconciliation_outcome IS NOT NULL
+           )
+           AND order_lines.raw_json <> '{}'::jsonb`,
+      );
+      const payments = await client.query(
+        `UPDATE payments
+         SET raw_json = '{}'::jsonb
+         FROM orders
+         WHERE payments.order_id = orders.id
+           AND orders.last_synced_at <= now() - interval '30 days'
+           AND orders.trigger_status <> 'NEEDS_REVIEW'
+           AND (
+             NOT coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+             OR orders.historical_reconciliation_outcome IS NOT NULL
+           )
+           AND payments.raw_json <> '{}'::jsonb`,
+      );
+      const customerSources = await client.query(
+        `UPDATE customer_source_records
+         SET raw_snapshot_json = '{}'::jsonb
+         WHERE imported_at <= now() - interval '30 days'
+           AND raw_snapshot_json <> '{}'::jsonb
+           AND NOT EXISTS (
+             SELECT 1 FROM orders
+             WHERE orders.customer_id = customer_source_records.customer_id
+               AND orders.provider = customer_source_records.provider
+               AND (
+                 orders.last_synced_at > now() - interval '30 days'
+                 OR orders.trigger_status = 'NEEDS_REVIEW'
+                 OR (
+                   coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
+                   AND orders.historical_reconciliation_outcome IS NULL
+                 )
+               )
+           )`,
+      );
+      result.SOURCE_PAYLOADS =
+        (webhooks.rowCount ?? 0) +
+        (refunds.rowCount ?? 0) +
+        (orders.rowCount ?? 0) +
+        (orderLines.rowCount ?? 0) +
+        (payments.rowCount ?? 0) +
+        (customerSources.rowCount ?? 0);
       await recordRetention(client, "SOURCE_PAYLOADS", result.SOURCE_PAYLOADS, requestId);
     }
 

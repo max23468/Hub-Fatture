@@ -46,12 +46,36 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
          (provider, external_account_id, external_order_id, display_number,
           created_at_source, updated_at_source, local_order_date, currency, gross_amount,
           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
-          raw_snapshot_json, normalized_snapshot_json)
+          raw_snapshot_json, normalized_snapshot_json, imported_at, last_synced_at)
        VALUES ('SHOPIFY', 'retention-shop', 'retention-order', '#RETENTION',
                now() - interval '200 days', now() - interval '200 days', current_date,
-               'EUR', 1000, 'PAID', 'FULFILLED', 'INVOICED', $1, $2, '{}', '{}')
+               'EUR', 1000, 'PAID', 'FULFILLED', 'INVOICED', $1, $2,
+               '{"personal":"order"}', '{"stable":"normalized"}',
+               now() - interval '31 days', now() - interval '31 days')
        RETURNING id`,
       [customer.rows[0]!.id, billingCase.rows[0]!.id],
+    );
+    await client.query(
+      `INSERT INTO customer_source_records
+         (customer_id, provider, external_customer_id, raw_snapshot_json, imported_at)
+       VALUES ($1, 'SHOPIFY', 'retention-customer-source',
+               '{"personal":"customer"}', now() - interval '31 days')`,
+      [customer.rows[0]!.id],
+    );
+    await client.query(
+      `INSERT INTO order_lines
+         (order_id, external_line_id, description, quantity, gross_amount,
+          discount_amount, raw_json)
+       VALUES ($1, 'retention-line', 'Riga sintetica', 1, 1000, 0,
+               '{"personal":"line"}')`,
+      [order.rows[0]!.id],
+    );
+    await client.query(
+      `INSERT INTO payments
+         (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
+       VALUES ($1, 'retention-payment', 'synthetic', 'PAID', 1000,
+               now() - interval '31 days', '{"personal":"payment"}')`,
+      [order.rows[0]!.id],
     );
     const storage = await client.query<{ id: string }>(
       `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
@@ -226,7 +250,7 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
       [userId],
     );
     const second = await applyRetentionPolicy();
-    assert.equal(second.SOURCE_PAYLOADS, 2);
+    assert.equal(second.SOURCE_PAYLOADS, 6);
     assert.deepEqual(
       (
         await client.query(
@@ -245,6 +269,30 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
         )
       ).rows[0],
       { request_payload_json: { personal: "unresolved" } },
+    );
+    assert.deepEqual(
+      (
+        await client.query(
+          `SELECT orders.raw_snapshot_json, orders.normalized_snapshot_json,
+                  customer_source_records.raw_snapshot_json AS customer_raw,
+                  order_lines.raw_json AS line_raw, payments.raw_json AS payment_raw
+           FROM orders
+           JOIN customer_source_records
+             ON customer_source_records.customer_id = orders.customer_id
+            AND customer_source_records.provider = orders.provider
+           JOIN order_lines ON order_lines.order_id = orders.id
+           JOIN payments ON payments.order_id = orders.id
+           WHERE orders.id = $1`,
+          [order.rows[0]!.id],
+        )
+      ).rows[0],
+      {
+        raw_snapshot_json: {},
+        normalized_snapshot_json: { stable: "normalized" },
+        customer_raw: {},
+        line_raw: {},
+        payment_raw: {},
+      },
     );
     assert.equal(
       (
