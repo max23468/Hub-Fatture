@@ -624,11 +624,17 @@ test("la release usa sempre il nome canonico prima di diventare immutabile", asy
   const release = await readFile(path.join(root, "scripts/publish-github-release.sh"), "utf8");
   assert.match(release, /install -m 600 "\$manifest" "\$stage_dir\/release-manifest[.]json"/);
   assert.match(release, /gh release create "\$tag" "\$stage_dir\/release-manifest[.]json"/);
+  assert.match(release, /--draft >\/dev\/null/);
+  assert.match(release, /\.isDraft == true/);
+  assert.match(release, /gh release edit "\$tag" --repo "\$repository" --draft=false --latest/);
   assert.match(release, /\[\.assets\[\][.]name\] == \["release-manifest[.]json"\]/);
   assert.doesNotMatch(release, /#["']?release-manifest[.]json/);
   const resolveTag = release.indexOf("if remote_tag_commit=$(resolve_remote_tag)");
   const createRelease = release.indexOf('gh release create "$tag"');
+  const verifyDraft = release.indexOf("draft_release=$(gh release view");
+  const publishRelease = release.indexOf('gh release edit "$tag"');
   assert.ok(resolveTag >= 0 && resolveTag < createRelease);
+  assert.ok(createRelease < verifyDraft && verifyDraft < publishRelease);
   assert.match(release, /\[ "\$remote_tag_commit" = "\$commit" \]/);
   assert.match(release, /\[ "\$\(resolve_remote_tag\)" = "\$commit" \]/);
 });

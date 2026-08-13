@@ -93,8 +93,18 @@ case "$stage_dir" in
   "${TMPDIR:-/tmp}"/hub-fatture-release.*) ;;
   *) echo "Directory temporanea inattesa" >&2; exit 1 ;;
 esac
+release_id=
 cleanup() {
+  status=$?
+  if [ -n "$release_id" ]; then
+    draft=$(gh api "repos/$repository/releases/$release_id" --jq .draft 2>/dev/null || true)
+    if [ "$draft" = "true" ]; then
+      gh api -X DELETE "repos/$repository/releases/$release_id" >/dev/null 2>&1 || \
+        echo "Pulizia della draft release non riuscita" >&2
+    fi
+  fi
   rm -rf -- "$stage_dir"
+  exit "$status"
 }
 trap cleanup EXIT HUP INT TERM
 install -m 600 "$manifest" "$stage_dir/release-manifest.json"
@@ -104,7 +114,25 @@ gh release create "$tag" "$stage_dir/release-manifest.json" \
   --target "$commit" \
   --title "Hub Fatture $version" \
   --notes-file "$notes" \
-  --latest >/dev/null
+  --draft >/dev/null
+
+draft_release=$(gh release view "$tag" --repo "$repository" \
+  --json databaseId,tagName,isDraft,isPrerelease,targetCommitish,assets)
+release_id=$(printf '%s' "$draft_release" | jq -r .databaseId)
+printf '%s' "$draft_release" | jq -e \
+  --arg tag "$tag" \
+  --arg commit "$commit" '
+    .tagName == $tag and
+    .targetCommitish == $commit and
+    .isDraft == true and
+    .isPrerelease == false and
+    ([.assets[].name] == ["release-manifest.json"])
+  ' >/dev/null || {
+  echo "Verifica della draft release non conforme" >&2
+  exit 1
+}
+
+gh release edit "$tag" --repo "$repository" --draft=false --latest >/dev/null
 
 [ "$(resolve_remote_tag)" = "$commit" ] || {
   echo "Il tag pubblicato non punta al commit candidato" >&2
@@ -126,4 +154,5 @@ printf '%s' "$release" | jq -e \
   echo "Readback della release non conforme" >&2
   exit 1
 }
+release_id=
 printf '%s\n' "$release" | jq -r .url
