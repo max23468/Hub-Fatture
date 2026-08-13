@@ -1110,8 +1110,6 @@ test(
         {
           mode: "AUTOMATIC",
           modeVersion: arubaSettings.mode.version,
-          authProtection: "TWO_FACTOR",
-          authVersion: arubaSettings.authProtection.version,
         },
         owner,
       );

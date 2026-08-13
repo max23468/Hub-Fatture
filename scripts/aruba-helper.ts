@@ -142,15 +142,15 @@ async function waitForAuthentication(page: Page, heartbeat?: () => Promise<void>
   await page.waitForLoadState("domcontentloaded");
 }
 
-export async function waitForUploadAuthorization(
+export async function waitForUploadedDocument(
   page: Page,
   filename: string,
   heartbeat?: () => Promise<void>,
 ) {
   const uploadedDocument = page.locator("tr", { hasText: filename }).first();
-  const smsProtection = page
+  const securityChallenge = page
     .locator(
-      '[data-aruba-state="sms-required"], input[name*="otp" i], input[aria-label*="codice ricevuto per SMS" i]',
+      '[data-aruba-state="security-challenge-required"], input[name*="otp" i], input[aria-label*="codice ricevuto per SMS" i]',
     )
     .or(
       page.getByText(
@@ -158,10 +158,12 @@ export async function waitForUploadAuthorization(
       ),
     )
     .first();
-  let state: "READY" | "SMS";
+  let state: "READY" | "SECURITY_CHALLENGE";
   try {
     state = await Promise.race([
-      smsProtection.waitFor({ state: "visible", timeout: 10_000 }).then(() => "SMS" as const),
+      securityChallenge
+        .waitFor({ state: "visible", timeout: 10_000 })
+        .then(() => "SECURITY_CHALLENGE" as const),
       uploadedDocument.waitFor({ state: "visible", timeout: 10_000 }).then(() => "READY" as const),
     ]);
   } catch {
@@ -169,7 +171,7 @@ export async function waitForUploadAuthorization(
   }
   if (state === "READY") return;
   process.stdout.write(
-    "Autorizzazione SMS richiesta: scegli Prosegui, inserisci il codice e premi Verifica nel browser.\n",
+    "Verifica di sicurezza Aruba richiesta: completala personalmente nel browser.\n",
   );
   await waitWithHeartbeat(
     uploadedDocument.waitFor({ state: "visible", timeout: 15 * 60_000 }),
@@ -541,7 +543,7 @@ export async function runHelper(
     assertPageOrigin(page, target);
     await (await uploadInput(page)).setInputFiles([...files.values()]);
     uploadStarted = true;
-    await waitForUploadAuthorization(page, value.documents[0]!.filename, heartbeat);
+    await waitForUploadedDocument(page, value.documents[0]!.filename, heartbeat);
     assertPageOrigin(page, target);
     const results = await validateVisibleDocuments(page, value);
     await event(hub, options.token, { type: "VALIDATION", documents: results });

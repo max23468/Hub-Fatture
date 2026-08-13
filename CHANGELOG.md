@@ -1,10 +1,16 @@
 # Changelog
 
-## 0.3.32
+## 0.3.33
 
 - La modalità globale `Disattivata` impedisce a Hub Fatture di proporre, accodare o reinviare copie e-mail al cliente, mantenendo consultabile lo storico.
 - Le richieste di invio manomesse vengono rifiutate lato server e gli eventuali job già accodati vengono soppressi prima del contatto SMTP, con audit dedicato.
 - Approvazioni e archivio documenti riflettono la disattivazione senza offrire azioni di invio non più consentite.
+
+## 0.3.32
+
+- L’integrazione Aruba considera ordinario il caricamento senza SMS quando la protezione per singolo upload è disattivata, continuando a fermarsi davanti a challenge OTP, SMS o CAPTCHA inattese.
+- Le Impostazioni non espongono più una dichiarazione manuale della protezione Aruba che non influenzava il comportamento dell’helper; la migrazione rimuove la relativa chiave obsoleta dai database esistenti.
+- Contratto, procedura manuale, pagina sintetica e test descrivono e verificano insieme il percorso corrente senza 2FA e senza SMS per ogni upload.
 
 ## 0.3.31
 

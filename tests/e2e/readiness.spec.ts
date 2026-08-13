@@ -47,7 +47,6 @@ test.beforeAll(async () => {
     `INSERT INTO settings (key, value_json) VALUES
        ('draft_trigger', '"PAID"'),
        ('aruba_mode', '"ASSISTED"'),
-       ('aruba_auth_protection', '"UNKNOWN"'),
        ('shopify_payment_fee_mode', '"DEDUCT"'),
        ('customer_email_mode', '"AUTOMATIC"')
      ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, version = 1`,
@@ -322,7 +321,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  await expect(page.getByText("026_customer_email_disabled.sql", { exact: true })).toBeVisible();
+  await expect(page.getByText("027_customer_email_disabled.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -1099,7 +1098,6 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await page.getByRole("link", { name: "Impostazioni" }).click();
   await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC");
-  await page.getByLabel("Protezione dichiarata").selectOption("SMS_PER_UPLOAD");
   const settingsResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" && response.url().includes("/impostazioni"),
@@ -1109,7 +1107,6 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page).toHaveURL(/aruba=salvata/);
   await expect(page.getByRole("status")).toContainText("Impostazioni Aruba aggiornate");
   await expect(page.getByLabel("Modalità Aruba")).toHaveValue("AUTOMATIC");
-  await expect(page.getByLabel("Protezione dichiarata")).toHaveValue("SMS_PER_UPLOAD");
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
   const retryResponse = page.waitForResponse(
     (response) => response.request().method() === "POST" && response.url().includes("/documenti"),

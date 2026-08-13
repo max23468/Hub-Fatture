@@ -71,8 +71,8 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
     scenario === "foreign" ? [{ name: "documento-estraneo.xml", valid: true }] : [],
   );
   const pendingFiles = useRef<UploadedFile[]>([]);
-  const [smsStep, setSmsStep] = useState<"CONFIRM" | "CODE" | null>(null);
-  const [smsCode, setSmsCode] = useState("");
+  const [challengeStep, setChallengeStep] = useState<"CONFIRM" | "CODE" | null>(null);
+  const [challengeCode, setChallengeCode] = useState("");
   const [sent, setSent] = useState(false);
   useEffect(() => {
     if (scenario !== "login-auto") return;
@@ -179,9 +179,9 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
                   ),
                 )),
               ];
-              if (scenario === "sms") {
+              if (scenario === "security-challenge") {
                 pendingFiles.current = uploaded;
-                setSmsStep("CONFIRM");
+                setChallengeStep("CONFIRM");
               } else {
                 setFiles(uploaded);
               }
@@ -189,36 +189,42 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
             type="file"
           />
         </label>
-        {smsStep ? (
-          <dialog aria-labelledby="sms-dialog-title" data-aruba-state="sms-required" open>
+        {challengeStep ? (
+          <dialog
+            aria-labelledby="security-challenge-dialog-title"
+            data-aruba-state="security-challenge-required"
+            open
+          >
             <div className="synthetic-dialog__content">
               <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
                 <ShieldCheck size={22} strokeWidth={1.8} />
               </span>
-              {smsStep === "CONFIRM" ? (
+              {challengeStep === "CONFIRM" ? (
                 <>
-                  <h2 id="sms-dialog-title">{copy.arubaSynthetic.otpQuestion}</h2>
-                  <button className="button" onClick={() => setSmsStep("CODE")} type="button">
+                  <h2 id="security-challenge-dialog-title">{copy.arubaSynthetic.otpQuestion}</h2>
+                  <button className="button" onClick={() => setChallengeStep("CODE")} type="button">
                     {copy.arubaSynthetic.continue}
                   </button>
                 </>
               ) : (
                 <>
-                  <h2 id="sms-dialog-title">{copy.arubaSynthetic.verificationTitle}</h2>
+                  <h2 id="security-challenge-dialog-title">
+                    {copy.arubaSynthetic.verificationTitle}
+                  </h2>
                   <label>
                     {copy.arubaSynthetic.smsCode}
                     <input
                       inputMode="numeric"
-                      onChange={(event) => setSmsCode(event.currentTarget.value)}
-                      value={smsCode}
+                      onChange={(event) => setChallengeCode(event.currentTarget.value)}
+                      value={challengeCode}
                     />
                   </label>
                   <button
                     className="button"
-                    disabled={!/^\d{6}$/.test(smsCode)}
+                    disabled={!/^\d{6}$/.test(challengeCode)}
                     onClick={() => {
                       setFiles(pendingFiles.current);
-                      setSmsStep(null);
+                      setChallengeStep(null);
                     }}
                     type="button"
                   >
