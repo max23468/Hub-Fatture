@@ -4274,7 +4274,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     historicalWithoutTaxId.customer.firstName = "Rossi";
     historicalWithoutTaxId.customer.lastName = "Mario Garcia";
     historicalWithoutTaxId.customer.billingAddress = {
-      line1: "Via Cliente 2 1A",
+      line1: "Via della Scala 2 1A",
+      line2: "Interno 7",
       postalCode: "00100",
       city: "Roma",
       province: "RM",
@@ -4301,7 +4302,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
         .replace(
           "<Indirizzo>Via Cliente 2</Indirizzo>",
-          "<Indirizzo>Via Cliente</Indirizzo><NumeroCivico>2</NumeroCivico>",
+          "<Indirizzo>Via della Scala</Indirizzo><NumeroCivico>2</NumeroCivico>",
         )
         .replaceAll("123.45", "122.00"),
     );
@@ -4333,6 +4334,936 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-recipient-without-tax-id" },
     );
+    const historicalWithNumericComplement = structuredClone(historicalWithoutTaxId);
+    historicalWithNumericComplement.externalOrderId = "shop-order-historical-numeric-complement";
+    historicalWithNumericComplement.externalCustomerId =
+      "shop-customer-historical-numeric-complement";
+    historicalWithNumericComplement.displayNumber = "#S-HIST-NUMERIC-COMPLEMENT";
+    historicalWithNumericComplement.customer.billingAddress = {
+      line1: "Via della Scala",
+      line2: "Interno 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithNumericComplement.payments[0].externalPaymentId =
+      "historical-numeric-complement-payment";
+    await orders.importOrders([historicalWithNumericComplement], {
+      id: 1,
+      requestId: "test-import-historical-numeric-complement",
+    });
+    const historicalWithNumericComplementId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithNumericComplement.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithNumericComplementId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0035/26 senza prova del civico",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml.toString().replace("FPR 0013/26", "FPR 0035/26"),
+          ),
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-numeric-address-complement" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    const historicalWithPostposedFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithPostposedFloor.externalOrderId = "shop-order-historical-postposed-floor";
+    historicalWithPostposedFloor.externalCustomerId = "shop-customer-historical-postposed-floor";
+    historicalWithPostposedFloor.displayNumber = "#S-HIST-POSTPOSED-FLOOR";
+    historicalWithPostposedFloor.customer.billingAddress = {
+      line1: "Via della Scala 7",
+      line2: "2° piano",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithPostposedFloor.payments[0].externalPaymentId =
+      "historical-postposed-floor-payment";
+    await orders.importOrders([historicalWithPostposedFloor], {
+      id: 1,
+      requestId: "test-import-historical-postposed-floor",
+    });
+    const historicalWithPostposedFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithPostposedFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithPostposedFloorId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0037/26 con piano diverso dal civico",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml.toString().replace("FPR 0013/26", "FPR 0037/26"),
+          ),
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-postposed-floor-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    const historicalWithUnmarkedPostposedFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithUnmarkedPostposedFloor.externalOrderId =
+      "shop-order-historical-unmarked-postposed-floor";
+    historicalWithUnmarkedPostposedFloor.externalCustomerId =
+      "shop-customer-historical-unmarked-postposed-floor";
+    historicalWithUnmarkedPostposedFloor.displayNumber = "#S-HIST-UNMARKED-POSTPOSED-FLOOR";
+    historicalWithUnmarkedPostposedFloor.customer.billingAddress = {
+      line1: "Via della Scala 7",
+      line2: "2. Obergeschoss",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithUnmarkedPostposedFloor.payments[0].externalPaymentId =
+      "historical-unmarked-postposed-floor-payment";
+    await orders.importOrders([historicalWithUnmarkedPostposedFloor], {
+      id: 1,
+      requestId: "test-import-historical-unmarked-postposed-floor",
+    });
+    const historicalWithUnmarkedPostposedFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithUnmarkedPostposedFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithUnmarkedPostposedFloorId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0040/26 con complemento numerico sconosciuto",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml.toString().replace("FPR 0013/26", "FPR 0040/26"),
+          ),
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-eu-floor-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    const historicalWithSeparatedCivicAndUnit = structuredClone(historicalWithoutTaxId);
+    historicalWithSeparatedCivicAndUnit.externalOrderId =
+      "shop-order-historical-separated-civic-unit";
+    historicalWithSeparatedCivicAndUnit.externalCustomerId =
+      "shop-customer-historical-separated-civic-unit";
+    historicalWithSeparatedCivicAndUnit.displayNumber = "#S-HIST-SEPARATED-CIVIC-UNIT";
+    historicalWithSeparatedCivicAndUnit.customer.billingAddress = {
+      line1: "Via Roma",
+      line2: "2, Scala A",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithSeparatedCivicAndUnit.payments[0].externalPaymentId =
+      "historical-separated-civic-unit-payment";
+    await orders.importOrders([historicalWithSeparatedCivicAndUnit], {
+      id: 1,
+      requestId: "test-import-historical-separated-civic-unit",
+    });
+    const historicalWithSeparatedCivicAndUnitId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithSeparatedCivicAndUnit.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithSeparatedCivicAndUnitId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0038/26 con civico prima del complemento",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0038/26")
+            .replace("Via della Scala", "Via Roma"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-civic-before-unit" },
+    );
+    const historicalWithSeparatedCivicAndFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithSeparatedCivicAndFloor.externalOrderId =
+      "shop-order-historical-separated-civic-floor";
+    historicalWithSeparatedCivicAndFloor.externalCustomerId =
+      "shop-customer-historical-separated-civic-floor";
+    historicalWithSeparatedCivicAndFloor.displayNumber = "#S-HIST-SEPARATED-CIVIC-FLOOR";
+    historicalWithSeparatedCivicAndFloor.customer.billingAddress = {
+      line1: "Via Roma",
+      line2: "2, Piano 1",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithSeparatedCivicAndFloor.payments[0].externalPaymentId =
+      "historical-separated-civic-floor-payment";
+    await orders.importOrders([historicalWithSeparatedCivicAndFloor], {
+      id: 1,
+      requestId: "test-import-historical-separated-civic-floor",
+    });
+    const historicalWithSeparatedCivicAndFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithSeparatedCivicAndFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithSeparatedCivicAndFloorId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0047/26 con civico prima del piano",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0047/26")
+            .replace("Via della Scala", "Via Roma"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-civic-before-floor" },
+    );
+    const historicalWithOrdinalFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithOrdinalFloor.externalOrderId = "shop-order-historical-ordinal-floor";
+    historicalWithOrdinalFloor.externalCustomerId = "shop-customer-historical-ordinal-floor";
+    historicalWithOrdinalFloor.displayNumber = "#S-HIST-ORDINAL-FLOOR";
+    historicalWithOrdinalFloor.customer.billingAddress = {
+      line1: "Via Roma",
+      line2: "10, 2° piano",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithOrdinalFloor.payments[0].externalPaymentId = "historical-ordinal-floor-payment";
+    await orders.importOrders([historicalWithOrdinalFloor], {
+      id: 1,
+      requestId: "test-import-historical-ordinal-floor",
+    });
+    const historicalWithOrdinalFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithOrdinalFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithOrdinalFloorId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0099/26 con ordinale prima del piano",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0099/26")
+            .replace("Via della Scala", "Via Roma")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-civic-before-ordinal-floor" },
+    );
+    const historicalWithCardinalFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithCardinalFloor.externalOrderId = "shop-order-historical-cardinal-floor";
+    historicalWithCardinalFloor.externalCustomerId = "shop-customer-historical-cardinal-floor";
+    historicalWithCardinalFloor.displayNumber = "#S-HIST-CARDINAL-FLOOR";
+    historicalWithCardinalFloor.customer.billingAddress = {
+      line1: "Via Roma",
+      line2: "10, 2 piano",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithCardinalFloor.payments[0].externalPaymentId = "historical-cardinal-floor-payment";
+    await orders.importOrders([historicalWithCardinalFloor], {
+      id: 1,
+      requestId: "test-import-historical-cardinal-floor",
+    });
+    const historicalWithCardinalFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithCardinalFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithCardinalFloorId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0098/26 con piano cardinale dopo il civico",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0098/26")
+            .replace("Via della Scala", "Via Roma")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-civic-before-cardinal-floor" },
+    );
+    const historicalWithExplicitCivicAndFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithExplicitCivicAndFloor.externalOrderId =
+      "shop-order-historical-explicit-civic-floor";
+    historicalWithExplicitCivicAndFloor.externalCustomerId =
+      "shop-customer-historical-explicit-civic-floor";
+    historicalWithExplicitCivicAndFloor.displayNumber = "#S-HIST-EXPLICIT-CIVIC-FLOOR";
+    historicalWithExplicitCivicAndFloor.customer.billingAddress = {
+      line1: "Via Roma",
+      line2: "Civico 10, 2 piano",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithExplicitCivicAndFloor.payments[0].externalPaymentId =
+      "historical-explicit-civic-floor-payment";
+    await orders.importOrders([historicalWithExplicitCivicAndFloor], {
+      id: 1,
+      requestId: "test-import-historical-explicit-civic-floor",
+    });
+    const historicalWithExplicitCivicAndFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithExplicitCivicAndFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithExplicitCivicAndFloorId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0096/26 con prefisso civico e piano separato",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0096/26")
+            .replace("Via della Scala", "Via Roma")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-explicit-civic-before-floor" },
+    );
+    const historicalWithExplicitCivicAndUnknownUnit = structuredClone(historicalWithoutTaxId);
+    historicalWithExplicitCivicAndUnknownUnit.externalOrderId =
+      "shop-order-historical-explicit-civic-unknown-unit";
+    historicalWithExplicitCivicAndUnknownUnit.externalCustomerId =
+      "shop-customer-historical-explicit-civic-unknown-unit";
+    historicalWithExplicitCivicAndUnknownUnit.displayNumber = "#S-HIST-EXPLICIT-CIVIC-UNKNOWN-UNIT";
+    historicalWithExplicitCivicAndUnknownUnit.customer.billingAddress = {
+      line1: "Via Roma",
+      line2: "Civico 10 int. 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithExplicitCivicAndUnknownUnit.payments[0].externalPaymentId =
+      "historical-explicit-civic-unknown-unit-payment";
+    await orders.importOrders([historicalWithExplicitCivicAndUnknownUnit], {
+      id: 1,
+      requestId: "test-import-historical-explicit-civic-unknown-unit",
+    });
+    const historicalWithExplicitCivicAndUnknownUnitId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithExplicitCivicAndUnknownUnit.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithExplicitCivicAndUnknownUnitId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0095/26 con civico prima di un interno abbreviato",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0095/26")
+            .replace("Via della Scala", "Via Roma")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-explicit-civic-unknown-unit" },
+    );
+    const historicalWithSeparatedUnitNumber = structuredClone(historicalWithoutTaxId);
+    historicalWithSeparatedUnitNumber.externalOrderId =
+      "shop-order-historical-separated-unit-number";
+    historicalWithSeparatedUnitNumber.externalCustomerId =
+      "shop-customer-historical-separated-unit-number";
+    historicalWithSeparatedUnitNumber.displayNumber = "#S-HIST-SEPARATED-UNIT-NUMBER";
+    historicalWithSeparatedUnitNumber.customer.billingAddress = {
+      line1: "Via della Scala",
+      line2: "Interno n. 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithSeparatedUnitNumber.payments[0].externalPaymentId =
+      "historical-separated-unit-number-payment";
+    await orders.importOrders([historicalWithSeparatedUnitNumber], {
+      id: 1,
+      requestId: "test-import-historical-separated-unit-number",
+    });
+    const historicalWithSeparatedUnitNumberId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithSeparatedUnitNumber.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithSeparatedUnitNumberId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0039/26 senza prova del civico",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml.toString().replace("FPR 0013/26", "FPR 0039/26"),
+          ),
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-separated-unit-number" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    const historicalWithUnmarkedNumericComplement = structuredClone(historicalWithoutTaxId);
+    historicalWithUnmarkedNumericComplement.externalOrderId =
+      "shop-order-historical-unmarked-numeric-complement";
+    historicalWithUnmarkedNumericComplement.externalCustomerId =
+      "shop-customer-historical-unmarked-numeric-complement";
+    historicalWithUnmarkedNumericComplement.displayNumber = "#S-HIST-UNMARKED-NUMERIC-COMPLEMENT";
+    historicalWithUnmarkedNumericComplement.customer.billingAddress = {
+      line1: "Via Roma 10",
+      line2: "Studio 54",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithUnmarkedNumericComplement.payments[0].externalPaymentId =
+      "historical-unmarked-numeric-complement-payment";
+    await orders.importOrders([historicalWithUnmarkedNumericComplement], {
+      id: 1,
+      requestId: "test-import-historical-unmarked-numeric-complement",
+    });
+    const historicalWithUnmarkedNumericComplementId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithUnmarkedNumericComplement.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const historicalWithWrongUnmarkedComplementXml = Buffer.from(
+      historicalWithoutTaxIdXml
+        .toString()
+        .replace("FPR 0013/26", "FPR 0041/26")
+        .replace("Via della Scala", "Via Roma")
+        .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>54</NumeroCivico>"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithUnmarkedNumericComplementId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0041/26 con complemento scambiato per civico",
+          invoiceXml: historicalWithWrongUnmarkedComplementXml,
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-unmarked-complement-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      historicalWithUnmarkedNumericComplementId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0042/26 con civico della prima riga",
+        invoiceXml: Buffer.from(
+          historicalWithWrongUnmarkedComplementXml
+            .toString()
+            .replace("FPR 0041/26", "FPR 0042/26")
+            .replace("<NumeroCivico>54</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-primary-civic" },
+    );
+    const historicalWithUnmarkedAlphanumericUnit = structuredClone(historicalWithoutTaxId);
+    historicalWithUnmarkedAlphanumericUnit.externalOrderId =
+      "shop-order-historical-unmarked-alphanumeric-unit";
+    historicalWithUnmarkedAlphanumericUnit.externalCustomerId =
+      "shop-customer-historical-unmarked-alphanumeric-unit";
+    historicalWithUnmarkedAlphanumericUnit.displayNumber = "#S-HIST-UNMARKED-ALPHANUMERIC-UNIT";
+    historicalWithUnmarkedAlphanumericUnit.customer.billingAddress = {
+      line1: "Via Roma 10",
+      line2: "1A",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithUnmarkedAlphanumericUnit.payments[0].externalPaymentId =
+      "historical-unmarked-alphanumeric-unit-payment";
+    await orders.importOrders([historicalWithUnmarkedAlphanumericUnit], {
+      id: 1,
+      requestId: "test-import-historical-unmarked-alphanumeric-unit",
+    });
+    const historicalWithUnmarkedAlphanumericUnitId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithUnmarkedAlphanumericUnit.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const historicalWithWrongAlphanumericUnitXml = Buffer.from(
+      historicalWithoutTaxIdXml
+        .toString()
+        .replace("FPR 0013/26", "FPR 0043/26")
+        .replace("Via della Scala", "Via Roma")
+        .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>1A</NumeroCivico>"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithUnmarkedAlphanumericUnitId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0043/26 con unità scambiata per civico",
+          invoiceXml: historicalWithWrongAlphanumericUnitXml,
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-alphanumeric-unit-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      historicalWithUnmarkedAlphanumericUnitId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0044/26 con civico primario e unità separata",
+        invoiceXml: Buffer.from(
+          historicalWithWrongAlphanumericUnitXml
+            .toString()
+            .replace("FPR 0043/26", "FPR 0044/26")
+            .replace("<NumeroCivico>1A</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-primary-civic-before-unit" },
+    );
+    const historicalWithNumberedStreetAndCivic = structuredClone(historicalWithoutTaxId);
+    historicalWithNumberedStreetAndCivic.externalOrderId =
+      "shop-order-historical-numbered-street-and-civic";
+    historicalWithNumberedStreetAndCivic.externalCustomerId =
+      "shop-customer-historical-numbered-street-and-civic";
+    historicalWithNumberedStreetAndCivic.displayNumber = "#S-HIST-NUMBERED-STREET-AND-CIVIC";
+    historicalWithNumberedStreetAndCivic.customer.billingAddress = {
+      line1: "Strada Provinciale 12 10",
+      line2: "1A",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithNumberedStreetAndCivic.payments[0].externalPaymentId =
+      "historical-numbered-street-and-civic-payment";
+    await orders.importOrders([historicalWithNumberedStreetAndCivic], {
+      id: 1,
+      requestId: "test-import-historical-numbered-street-and-civic",
+    });
+    const historicalWithNumberedStreetAndCivicId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithNumberedStreetAndCivic.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const historicalWithWrongNumberedStreetUnitXml = Buffer.from(
+      historicalWithoutTaxIdXml
+        .toString()
+        .replace("FPR 0013/26", "FPR 0045/26")
+        .replace("Via della Scala", "Strada Provinciale 12")
+        .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>1A</NumeroCivico>"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithNumberedStreetAndCivicId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0045/26 con unità al posto del civico",
+          invoiceXml: historicalWithWrongNumberedStreetUnitXml,
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-unit-after-numbered-street" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      historicalWithNumberedStreetAndCivicId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0046/26 con toponimo numerato e civico",
+        invoiceXml: Buffer.from(
+          historicalWithWrongNumberedStreetUnitXml
+            .toString()
+            .replace("FPR 0045/26", "FPR 0046/26")
+            .replace("<NumeroCivico>1A</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-numbered-street-civic" },
+    );
+    const historicalWithNumberedStreet = structuredClone(historicalWithoutTaxId);
+    historicalWithNumberedStreet.externalOrderId = "shop-order-historical-numbered-street";
+    historicalWithNumberedStreet.externalCustomerId = "shop-customer-historical-numbered-street";
+    historicalWithNumberedStreet.displayNumber = "#S-HIST-NUMBERED-STREET";
+    historicalWithNumberedStreet.customer.billingAddress = {
+      line1: "Strada Provinciale 12",
+      line2: "2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithNumberedStreet.payments[0].externalPaymentId =
+      "historical-numbered-street-payment";
+    await orders.importOrders([historicalWithNumberedStreet], {
+      id: 1,
+      requestId: "test-import-historical-numbered-street",
+    });
+    const historicalWithNumberedStreetId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithNumberedStreet.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithNumberedStreetId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0036/26 con civico separato dal toponimo numerato",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0036/26")
+            .replace("Via della Scala", "Strada Provinciale 12"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-numbered-street" },
+    );
+    const historicalWithForeignNumberedStreet = structuredClone(historicalWithoutTaxId);
+    historicalWithForeignNumberedStreet.externalOrderId =
+      "shop-order-historical-foreign-numbered-street";
+    historicalWithForeignNumberedStreet.externalCustomerId =
+      "shop-customer-historical-foreign-numbered-street";
+    historicalWithForeignNumberedStreet.displayNumber = "#S-HIST-FR-NUMBERED-STREET";
+    historicalWithForeignNumberedStreet.customer.billingAddress = {
+      line1: "75001 Route Nationale 12",
+      line2: "5",
+      postalCode: "75001",
+      city: "Paris",
+      countryCode: "FR",
+    };
+    historicalWithForeignNumberedStreet.payments[0].externalPaymentId =
+      "historical-foreign-numbered-street-payment";
+    await orders.importOrders([historicalWithForeignNumberedStreet], {
+      id: 1,
+      requestId: "test-import-historical-foreign-numbered-street",
+    });
+    const historicalWithForeignNumberedStreetId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithForeignNumberedStreet.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithForeignNumberedStreetId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0048/26 con toponimo UE numerato e civico separato",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0048/26")
+            .replace("Via della Scala", "Route Nationale 12")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>5</NumeroCivico>")
+            .replace("<CAP>00100</CAP>", "<CAP>75001</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>Paris</Comune>")
+            .replace(
+              "<Provincia>RM</Provincia>\n        <Nazione>IT</Nazione>",
+              "<Nazione>FR</Nazione>",
+            ),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-foreign-numbered-street" },
+    );
+    const historicalWithEnglishNumberedStreet = structuredClone(historicalWithoutTaxId);
+    historicalWithEnglishNumberedStreet.externalOrderId =
+      "shop-order-historical-english-numbered-street";
+    historicalWithEnglishNumberedStreet.externalCustomerId =
+      "shop-customer-historical-english-numbered-street";
+    historicalWithEnglishNumberedStreet.displayNumber = "#S-HIST-EN-NUMBERED-STREET";
+    historicalWithEnglishNumberedStreet.customer.billingAddress = {
+      line1: "National Road N 7",
+      line2: "5",
+      postalCode: "10001",
+      city: "Athens",
+      countryCode: "GR",
+    };
+    historicalWithEnglishNumberedStreet.payments[0].externalPaymentId =
+      "historical-english-numbered-street-payment";
+    await orders.importOrders([historicalWithEnglishNumberedStreet], {
+      id: 1,
+      requestId: "test-import-historical-english-numbered-street",
+    });
+    const historicalWithEnglishNumberedStreetId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithEnglishNumberedStreet.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithEnglishNumberedStreetId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0097/26 con qualificatore prima del tipo di strada",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0097/26")
+            .replace("Via della Scala", "National Road N 7")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>5</NumeroCivico>")
+            .replace("<CAP>00100</CAP>", "<CAP>10001</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>Athens</Comune>")
+            .replace(
+              "<Provincia>RM</Provincia>\n        <Nazione>IT</Nazione>",
+              "<Nazione>GR</Nazione>",
+            ),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-english-numbered-street" },
+    );
+    const historicalWithAbbreviatedNumberedStreet = structuredClone(historicalWithoutTaxId);
+    historicalWithAbbreviatedNumberedStreet.externalOrderId =
+      "shop-order-historical-abbreviated-numbered-street";
+    historicalWithAbbreviatedNumberedStreet.externalCustomerId =
+      "shop-customer-historical-abbreviated-numbered-street";
+    historicalWithAbbreviatedNumberedStreet.displayNumber = "#S-HIST-ABBREVIATED-STREET";
+    historicalWithAbbreviatedNumberedStreet.customer.billingAddress = {
+      line1: "SP 12",
+      line2: "5",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithAbbreviatedNumberedStreet.payments[0].externalPaymentId =
+      "historical-abbreviated-numbered-street-payment";
+    await orders.importOrders([historicalWithAbbreviatedNumberedStreet], {
+      id: 1,
+      requestId: "test-import-historical-abbreviated-numbered-street",
+    });
+    const historicalWithAbbreviatedNumberedStreetId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithAbbreviatedNumberedStreet.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithAbbreviatedNumberedStreetId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0094/26 con sigla stradale numerata",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0094/26")
+            .replace("Via della Scala", "SP 12")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>5</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-abbreviated-numbered-street" },
+    );
+    const historicalWithCommemorativeStreet = structuredClone(historicalWithoutTaxId);
+    historicalWithCommemorativeStreet.externalOrderId =
+      "shop-order-historical-commemorative-street";
+    historicalWithCommemorativeStreet.externalCustomerId =
+      "shop-customer-historical-commemorative-street";
+    historicalWithCommemorativeStreet.displayNumber = "#S-HIST-FR-COMMEMORATIVE-STREET";
+    historicalWithCommemorativeStreet.customer.billingAddress = {
+      line1: "Rue du 8 Mai 1945",
+      line2: "5",
+      postalCode: "75001",
+      city: "Paris",
+      countryCode: "FR",
+    };
+    historicalWithCommemorativeStreet.payments[0].externalPaymentId =
+      "historical-commemorative-street-payment";
+    await orders.importOrders([historicalWithCommemorativeStreet], {
+      id: 1,
+      requestId: "test-import-historical-commemorative-street",
+    });
+    const historicalWithCommemorativeStreetId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithCommemorativeStreet.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithCommemorativeStreetId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0049/26 con toponimo commemorativo e civico separato",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0049/26")
+            .replace("Via della Scala", "Rue du 8 Mai 1945")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>5</NumeroCivico>")
+            .replace("<CAP>00100</CAP>", "<CAP>75001</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>Paris</Comune>")
+            .replace(
+              "<Provincia>RM</Provincia>\n        <Nazione>IT</Nazione>",
+              "<Nazione>FR</Nazione>",
+            ),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-commemorative-street" },
+    );
+    const historicalWithCivicBeforeCommemorativeStreet = structuredClone(historicalWithoutTaxId);
+    historicalWithCivicBeforeCommemorativeStreet.externalOrderId =
+      "shop-order-historical-civic-before-commemorative-street";
+    historicalWithCivicBeforeCommemorativeStreet.externalCustomerId =
+      "shop-customer-historical-civic-before-commemorative-street";
+    historicalWithCivicBeforeCommemorativeStreet.displayNumber =
+      "#S-HIST-CIVIC-BEFORE-COMMEMORATIVE-STREET";
+    historicalWithCivicBeforeCommemorativeStreet.customer.billingAddress = {
+      line1: "10 Rue des Anciens Combattants du 8 Mai 1945",
+      line2: "5",
+      postalCode: "75001",
+      city: "Paris",
+      countryCode: "FR",
+    };
+    historicalWithCivicBeforeCommemorativeStreet.payments[0].externalPaymentId =
+      "historical-civic-before-commemorative-street-payment";
+    await orders.importOrders([historicalWithCivicBeforeCommemorativeStreet], {
+      id: 1,
+      requestId: "test-import-historical-civic-before-commemorative-street",
+    });
+    const historicalWithCivicBeforeCommemorativeStreetId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithCivicBeforeCommemorativeStreet.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithCivicBeforeCommemorativeStreetId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0093/26 con civico prima della via commemorativa",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0093/26")
+            .replace("Via della Scala", "Rue des Anciens Combattants du 8 Mai 1945")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>")
+            .replace("<CAP>00100</CAP>", "<CAP>75001</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>Paris</Comune>")
+            .replace(
+              "<Provincia>RM</Provincia>\n        <Nazione>IT</Nazione>",
+              "<Nazione>FR</Nazione>",
+            ),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-civic-before-commemorative-street" },
+    );
+    const historicalWithConflictingExplicitCivic = structuredClone(historicalWithoutTaxId);
+    historicalWithConflictingExplicitCivic.externalOrderId =
+      "shop-order-historical-conflicting-explicit-civic";
+    historicalWithConflictingExplicitCivic.externalCustomerId =
+      "shop-customer-historical-conflicting-explicit-civic";
+    historicalWithConflictingExplicitCivic.displayNumber = "#S-HIST-CONFLICTING-EXPLICIT-CIVIC";
+    historicalWithConflictingExplicitCivic.customer.billingAddress = {
+      line1: "Via Roma 10",
+      line2: "Civico 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithConflictingExplicitCivic.payments[0].externalPaymentId =
+      "historical-conflicting-explicit-civic-payment";
+    await orders.importOrders([historicalWithConflictingExplicitCivic], {
+      id: 1,
+      requestId: "test-import-historical-conflicting-explicit-civic",
+    });
+    const historicalWithConflictingExplicitCivicId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithConflictingExplicitCivic.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithConflictingExplicitCivicId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0050/26 con civici espliciti discordanti",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml
+              .toString()
+              .replace("FPR 0013/26", "FPR 0050/26")
+              .replace("Via della Scala", "Via Roma"),
+          ),
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-conflicting-explicit-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     const bulgarianHistorical = structuredClone(historicalWithoutTaxId);
     bulgarianHistorical.externalOrderId = "shop-order-historical-bulgarian-transliteration";
     bulgarianHistorical.externalCustomerId = "shop-customer-historical-bulgarian-transliteration";
@@ -4342,7 +5273,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     bulgarianHistorical.customer.lastName = "Радев";
     bulgarianHistorical.customer.companyName = "ЕТ Валмерад-Валентин Радев";
     bulgarianHistorical.customer.billingAddress = {
-      line1: "ул. Пчела, 3-Б",
+      line1: "ул. Пчела",
+      line2: "3-Б",
       postalCode: "1619",
       city: "София",
       countryCode: "BG",
@@ -4381,7 +5313,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
               "<IdFiscaleIVA>\n          <IdPaese>BG</IdPaese>\n          <IdCodice>99999999999</IdCodice>\n        </IdFiscaleIVA>\n        <Anagrafica>\n          <Nome>VALENTIN</Nome>",
             )
             .replace(
-              "<Indirizzo>Via Cliente</Indirizzo><NumeroCivico>2</NumeroCivico>",
+              "<Indirizzo>Via della Scala</Indirizzo><NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>1618 PCHELA</Indirizzo><NumeroCivico>3B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>00000</CAP>")
@@ -4565,7 +5497,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "25",
+      "40",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.34
+
+- Il confronto degli indirizzi usa insieme le due righe ricevute dal marketplace, così il civico separato in `line2` resta verificabile contro l’XML Aruba senza indebolire i controlli su identità, Paese, data, totale, riferimento FPR e unicità.
+
 ## 0.3.33
 
 - Il manifest tecnico della release viene pubblicato con il nome canonico `release-manifest.json`; la release precedente resta immutabile e viene superata senza spostarne tag o asset.
