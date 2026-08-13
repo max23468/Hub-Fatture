@@ -315,8 +315,20 @@ export default function Customers() {
               <CircleAlert size={22} strokeWidth={1.8} />
             </span>
             <span>
-              <h2>{query ? copy.customers.noResults : copy.customers.noCustomers}</h2>
-              <p>{query ? copy.customers.noResultsHelp : copy.customers.noCustomersHelp}</p>
+              <h2>
+                {query
+                  ? copy.customers.noResults
+                  : view === "verificare"
+                    ? copy.customers.noCustomersToReview
+                    : copy.customers.noCustomers}
+              </h2>
+              <p>
+                {query
+                  ? copy.customers.noResultsHelp
+                  : view === "verificare"
+                    ? copy.customers.noCustomersToReviewHelp
+                    : copy.customers.noCustomersHelp}
+              </p>
             </span>
           </div>
         )}

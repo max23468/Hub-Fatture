@@ -321,7 +321,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  await expect(page.getByText("027_customer_email_disabled.sql", { exact: true })).toBeVisible();
+  await expect(page.getByText("028_customer_review_cleanup.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -472,8 +472,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toHaveCount(2);
   await customerBackLink.click();
   await page.getByRole("link", { name: "Da verificare", exact: true }).click();
-  await expect(customerRows).toHaveCount(1);
-  await expect(page.getByText("Cliente da verificare", { exact: true })).toBeVisible();
+  await expect(customerRows).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Nessun cliente da verificare" })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 780 });
   const mobileMore = page.getByLabel("Apri altre sezioni");
