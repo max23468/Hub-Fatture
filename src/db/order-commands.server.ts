@@ -416,11 +416,17 @@ function structuredStreetNumberCandidates(
   address: unknown,
   postalCode: unknown,
   unitMarkers = addressUnitMarkers,
+  rejectLeadingUnitOrdinal = false,
 ) {
-  const addressParts = withoutAddressUnits(
-    withoutAddressPart(normalizedAddressTokens(address), postalCode),
-    unitMarkers,
-  );
+  const normalizedParts = withoutAddressPart(normalizedAddressTokens(address), postalCode);
+  if (
+    rejectLeadingUnitOrdinal &&
+    /^\d/u.test(normalizedParts[0] ?? "") &&
+    unitMarkers.has(normalizedParts[1] ?? "")
+  ) {
+    return new Set<string>();
+  }
+  const addressParts = withoutAddressUnits(normalizedParts, unitMarkers);
   const candidates = new Set<string>();
   const isCivicSuffix = (value: string) =>
     /^\p{L}$/u.test(value) || ["bis", "ter", "quater"].includes(value);
@@ -462,6 +468,7 @@ function customerStreetNumberCandidates(address: Record<string, unknown>) {
     address.line2,
     address.postalCode,
     secondAddressLineUnitMarkers,
+    true,
   );
   return secondary.size > 0 ? secondary : primary;
 }

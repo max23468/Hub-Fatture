@@ -4376,6 +4376,47 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    const historicalWithPostposedFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithPostposedFloor.externalOrderId = "shop-order-historical-postposed-floor";
+    historicalWithPostposedFloor.externalCustomerId = "shop-customer-historical-postposed-floor";
+    historicalWithPostposedFloor.displayNumber = "#S-HIST-POSTPOSED-FLOOR";
+    historicalWithPostposedFloor.customer.billingAddress = {
+      line1: "Via della Scala 7",
+      line2: "2° piano",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithPostposedFloor.payments[0].externalPaymentId =
+      "historical-postposed-floor-payment";
+    await orders.importOrders([historicalWithPostposedFloor], {
+      id: 1,
+      requestId: "test-import-historical-postposed-floor",
+    });
+    const historicalWithPostposedFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithPostposedFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithPostposedFloorId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0037/26 con piano diverso dal civico",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml.toString().replace("FPR 0013/26", "FPR 0037/26"),
+          ),
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-postposed-floor-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     const historicalWithNumberedStreet = structuredClone(historicalWithoutTaxId);
     historicalWithNumberedStreet.externalOrderId = "shop-order-historical-numbered-street";
     historicalWithNumberedStreet.externalCustomerId = "shop-customer-historical-numbered-street";
