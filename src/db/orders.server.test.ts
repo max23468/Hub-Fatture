@@ -4545,6 +4545,69 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    const historicalWithUnmarkedNumericComplement = structuredClone(historicalWithoutTaxId);
+    historicalWithUnmarkedNumericComplement.externalOrderId =
+      "shop-order-historical-unmarked-numeric-complement";
+    historicalWithUnmarkedNumericComplement.externalCustomerId =
+      "shop-customer-historical-unmarked-numeric-complement";
+    historicalWithUnmarkedNumericComplement.displayNumber = "#S-HIST-UNMARKED-NUMERIC-COMPLEMENT";
+    historicalWithUnmarkedNumericComplement.customer.billingAddress = {
+      line1: "Via Roma 10",
+      line2: "Studio 54",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithUnmarkedNumericComplement.payments[0].externalPaymentId =
+      "historical-unmarked-numeric-complement-payment";
+    await orders.importOrders([historicalWithUnmarkedNumericComplement], {
+      id: 1,
+      requestId: "test-import-historical-unmarked-numeric-complement",
+    });
+    const historicalWithUnmarkedNumericComplementId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithUnmarkedNumericComplement.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    const historicalWithWrongUnmarkedComplementXml = Buffer.from(
+      historicalWithoutTaxIdXml
+        .toString()
+        .replace("FPR 0013/26", "FPR 0041/26")
+        .replace("Via della Scala", "Via Roma")
+        .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>54</NumeroCivico>"),
+    );
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithUnmarkedNumericComplementId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0041/26 con complemento scambiato per civico",
+          invoiceXml: historicalWithWrongUnmarkedComplementXml,
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-unmarked-complement-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
+    await orders.reconcileHistoricalOrder(
+      historicalWithUnmarkedNumericComplementId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0042/26 con civico della prima riga",
+        invoiceXml: Buffer.from(
+          historicalWithWrongUnmarkedComplementXml
+            .toString()
+            .replace("FPR 0041/26", "FPR 0042/26")
+            .replace("<NumeroCivico>54</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-primary-civic" },
+    );
     const historicalWithNumberedStreet = structuredClone(historicalWithoutTaxId);
     historicalWithNumberedStreet.externalOrderId = "shop-order-historical-numbered-street";
     historicalWithNumberedStreet.externalCustomerId = "shop-customer-historical-numbered-street";
@@ -4818,7 +4881,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "27",
+      "28",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
