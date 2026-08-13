@@ -252,7 +252,9 @@ La motivazione deve essere specifica e non generica; l’audit conserva utente, 
 
 Quando l’helper è indisponibile o una scansione si arresta, il fallback non usa l’override di freschezza per ignorare l’errore. Hub Fatture apre invece una sessione guidata di readback manuale per la stessa finestra che avrebbe coperto la scansione automatica e mostra al titolare gli stream obbligatori per anno/tipo, il limite temporale, i documenti non terminali già noti e gli errori da risolvere.
 
-Usando Safari o un altro browser, il titolare percorre nel pannello Aruba ogni stream fino alla pagina terminale e registra in Hub Fatture, in ordine, filtri applicati, pagina, conteggio mostrato quando disponibile, estremi tecnici primo/ultimo e assenza della pagina successiva. Importa inoltre XML/P7M/notifiche ufficiali per ogni documento nuovo, cambiato, candidato o privo di evidenza. Il server verifica copertura di tutti gli stream richiesti, sequenza senza buchi o duplicati, conteggi/estremi coerenti, deduplicazione dei file e assenza di errori irrisolti. Se Aruba non espone un conteggio, la ricevuta richiede la pagina terminale e gli estremi di ogni pagina.
+Usando Safari o un altro browser, il titolare percorre nel pannello Aruba ogni stream fino alla pagina terminale. Per ogni pagina acquisisce in Hub Fatture tutte le righe visibili con gli stessi metadati canonici usati dall’inventario automatico — inclusi ID remoto quando presente, tipo, numero/serie/anno, data, stato, destinatario/identificativi normalizzati e totale — oppure importa un export ufficiale completo che contenga l’intero stream. Registra inoltre filtri applicati, ordinale, conteggio mostrato quando disponibile, estremi tecnici primo/ultimo e assenza della pagina successiva; importa XML/P7M/notifiche ufficiali per ogni documento nuovo, cambiato, candidato o privo di evidenza.
+
+Il server verifica che il numero di righe acquisite coincida con quello della pagina/export, che ogni riga sia presente una sola volta, che sequenza, conteggi ed estremi siano coerenti e che tutti gli stream terminino senza errori irrisolti. Se Aruba non espone un conteggio, la ricevuta richiede comunque tutte le righe, la pagina terminale e gli estremi di ogni pagina. Una ricevuta con sole quantità, estremi o attestazioni, priva del contenuto integrale delle righe o di un export ufficiale completo, non può marcare l’inventario come completo e mantiene il gate bloccato.
 
 Soltanto il titolare con `can_approve` può finalizzare la ricevuta manuale. La finalizzazione aggiorna l’ultimo inventario completo con provenienza `MANUAL`, chiude l’errore operativo della scansione sostituita e rende di nuovo applicabili i normali gate; non cancella la sessione fallita né può superare file non validi, stati remoti incerti, collisioni, match possibili/ambigui o conflitti di profilo, che devono essere risolti con evidenza ufficiale. La ricevuta conserva finestra, stream/pagine, conteggi sanitizzati, hash dei file importati, autore e timestamp senza dati cliente.
 
@@ -340,7 +342,7 @@ La Dashboard avvisa dopo un’ora. Il blocco a 24 ore è un controllo applicativ
 - mapping esplicito degli stati comuni con `aruba_submissions`, terminali incompatibili e stati esclusivi dei tentativi locali;
 - effetti distinti dello stato remoto: solo `DELIVERED`/`NOT_DELIVERED` chiudono l’ordine o contabilizzano rimborsi, `SUBMITTED`/`SDI_PROCESSING` sospendono e `REJECTED` consente la riedizione;
 - calcolo freschezza, avviso e blocco; override ammesso per la sola freschezza e rifiutato per match, conflitti, errori e stato remoto incerto;
-- validazione della ricevuta manuale: tutti gli stream/pagine richiesti, pagina terminale, nessun buco/duplicato e nessun errore irrisolto;
+- validazione della ricevuta manuale: tutte le righe di ogni stream/pagina oppure export ufficiale completo, pagina terminale, nessun buco/duplicato e nessun errore irrisolto;
 - scope e scadenza della sessione read-only.
 
 ### Database
@@ -381,7 +383,7 @@ I test DB usano un database dedicato al worktree. Le suite E2E che possono reset
 - preparazione con due ordini e match Aruba su uno solo: bozza precedente non approvabile e nuovo residuo contenente esclusivamente l’altro ordine;
 - TD04 esterna emessa su rimborsi già importati: rimborsi collegati al documento e nessuna nuova bozza TD04 al giro successivo o in concorrenza;
 - fattura esterna `REJECTED`: evidenza e scarto visibili, ordine ancora rieditabile e nessuna falsa chiusura come già fatturato;
-- helper indisponibile/DOM variato: readback manuale completo rende di nuovo operativi i gate soltanto dopo copertura di tutti gli stream ed evidenze richieste;
+- helper indisponibile/DOM variato: readback manuale completo rende di nuovo operativi i gate soltanto dopo acquisizione di ogni riga di tutti gli stream, o export ufficiale completo, ed evidenze richieste;
 - account `Codex`: può preparare una risoluzione, ma la chiamata diretta agli endpoint di finalizzazione manuale o match fiscale restituisce accesso negato e non modifica ordini/rimborsi;
 - ambiguità in `Da verificare`;
 - blocchi a 0/24 ore, avviso a un’ora, override di freschezza del solo titolare e impossibilità di ignorare match/conflitti/stati incerti;
@@ -465,7 +467,7 @@ Rollback applicativo: disabilitare l’emissione delle sessioni di sync e tornar
 - mapping degli stati remoto/locali verificato senza attribuire stati di upload a documenti esterni;
 - una sola scansione concorrente e ripresa dopo crash provate;
 - token read-only, device-bound, revocabile e con limite assoluto di 8 ore verificato incapace di upload/invio;
-- fallback manuale completo verificato capace di sostituire una scansione fallita senza superare errori documentali o casi incerti;
+- fallback manuale completo verificato capace di sostituire una scansione fallita soltanto acquisendo ogni riga o un export ufficiale completo, senza superare errori documentali o casi incerti;
 - finalizzazione del readback manuale e match manuali con effetti fiscali verificati riservati a `can_approve`, inclusa chiamata diretta dell’account `Codex`;
 - suite unit, DB, provider sintetico, E2E Chromium/WebKit e helper macOS/Windows verde sull’HEAD candidato;
 - rollback operativo e fallback manuale provati;
@@ -503,7 +505,7 @@ Questa matrice è la checklist di completezza rispetto alle decisioni che hanno 
 | Bloccare approvazione e numerazione con readback inaffidabile           | Gate server-side su ogni mutazione (§8)                                                                                               |
 | Avvisare dopo un’ora e bloccare dopo 24 ore o se mai letto              | Soglie di freschezza e Dashboard (§§8, 9, 11)                                                                                         |
 | Consentire un override solo al titolare dopo verifica manuale           | Override limitato alla sola freschezza, motivato e auditato; conflitti e possibili duplicati non sono superabili (§8)                 |
-| Mantenere il fallback utilizzabile dopo una scansione fallita           | Readback manuale completo con copertura pagine/stream, import ufficiali, ricevuta e finalizzazione `can_approve` (§8.1)               |
+| Mantenere il fallback utilizzabile dopo una scansione fallita           | Readback manuale di ogni riga o export ufficiale completo, import dei file necessari, ricevuta e finalizzazione `can_approve` (§8.1)  |
 | Separare la sessione di sync dai batch                                  | Scope `ARUBA_READ_SYNC`, device-bound, revocabile, ruotato, massimo 8 ore e incapace di upload/invio (§4.1)                           |
 | Evitare due sync concorrenti anche da dispositivi diversi               | Lease unico per account/ambiente e ripresa dal cursore (§4.3)                                                                         |
 | Usare paginazione, cursore e overlap                                    | Commit per pagina, incrementali idempotenti e ripresa (§4.2)                                                                          |
