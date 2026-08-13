@@ -90,7 +90,7 @@ test("la migrazione revoca i permessi pilota precedenti e ne rende uno solo atti
         (
           await client.query(
             `SELECT count(*) FROM aruba_send_permits
-             WHERE scope = 'CANARY' AND revoked_at IS NOT NULL`,
+             WHERE scope = 'CANARY' AND revoked_at IS NOT NULL AND expires_at <= now()`,
           )
         ).rows[0].count,
         "2",

@@ -173,7 +173,7 @@ export async function action({ request }: Route.ActionArgs) {
       return redirect("/documenti?batch=creato");
     }
     if (form.get("intent") === "retry-aruba-batch") {
-      await retryArubaBatch(form.get("batchId") ?? "", actor);
+      await retryArubaBatch(form.get("batchId") ?? "", actor, form.get("confirmCanary") === "yes");
       return redirect("/documenti?batch=creato");
     }
     if (form.get("intent") === "retry-customer-email") {

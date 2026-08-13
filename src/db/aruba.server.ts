@@ -1160,7 +1160,7 @@ export async function authorizeArubaPermit(batchId: string, actor: ArubaActor) {
   });
 }
 
-export async function retryArubaBatch(batchId: string, actor: ArubaActor) {
+export async function retryArubaBatch(batchId: string, actor: ArubaActor, confirmCanary = false) {
   if (!actor.canApprove) throw new AppError("ARUBA_PERMIT_FORBIDDEN", 403);
   return withTransaction(async (client) => {
     const batch = await client.query<BatchIdentity>(
@@ -1183,13 +1183,15 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor) {
     );
     const permitScope = permit.rows[0]?.scope ?? "ORDINARY";
     if (permitScope === "CANARY") {
+      if (!confirmCanary) throw new AppError("ARUBA_PERMIT_INVALID", 409);
       const config = getConfig();
       if (config.APP_ENV !== "production" || config.ARUBA_SUBMISSION_ENABLED) {
         throw new AppError("ARUBA_PERMIT_INVALID", 409);
       }
       await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
       await client.query(
-        `UPDATE aruba_send_permits SET revoked_at = now()
+        `UPDATE aruba_send_permits
+         SET revoked_at = now(), expires_at = least(expires_at, now())
          WHERE batch_id = $1 AND consumed_at IS NULL AND revoked_at IS NULL`,
         [batchId],
       );

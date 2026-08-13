@@ -8,7 +8,7 @@ ALTER TABLE aruba_send_permits
 -- revoca e unicità globale. Il percorso applicativo precedente non ne creava,
 -- ma l'upgrade resta fail-closed anche davanti a dati predisposti manualmente.
 UPDATE aruba_send_permits
-SET revoked_at = now()
+SET revoked_at = now(), expires_at = least(expires_at, now())
 WHERE scope = 'CANARY' AND consumed_at IS NULL;
 
 CREATE UNIQUE INDEX aruba_single_active_canary_permit_idx

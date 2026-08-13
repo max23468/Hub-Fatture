@@ -1320,22 +1320,50 @@ test(
         secondCanarySourceBatchId,
         owner,
       );
+      const secondCanaryToken = await aruba.issueHelperToken(secondCanaryBatchId, owner);
+      const secondCanaryManifest = await aruba.helperManifest(secondCanaryToken.token);
+      await aruba.recordHelperEvent(secondCanaryToken.token, {
+        type: "HELPER_STARTED",
+        browser: "chromium",
+      });
+      await aruba.recordHelperEvent(secondCanaryToken.token, {
+        type: "VALIDATION",
+        documents: [{ id: secondCanaryManifest.documents[0]!.id, status: "INVALID" }],
+      });
+      await aruba.recordHelperEvent(secondCanaryToken.token, {
+        type: "READBACK",
+        documents: [{ id: secondCanaryManifest.documents[0]!.id, status: "REMOVED" }],
+      });
+      await assert.rejects(
+        aruba.retryArubaBatch(secondCanaryBatchId, owner),
+        (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      const retryCanaryBatchId = await aruba.retryArubaBatch(secondCanaryBatchId, owner, true);
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT revoked_at IS NOT NULL AS revoked,
+                    expires_at <= now() AS expired
+             FROM aruba_send_permits WHERE batch_id = $1`,
+            [secondCanaryBatchId],
+          )
+        ).rows[0],
+        { revoked: true, expired: true },
+      );
       Object.assign(runtimeConfig, { ARUBA_SUBMISSION_ENABLED: true });
       await assert.rejects(
-        aruba.authorizeArubaPermit(secondCanaryBatchId, owner),
+        aruba.authorizeArubaPermit(retryCanaryBatchId, owner),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
+      );
+      await database.getPool().query(
+        `UPDATE aruba_send_permits
+           SET revoked_at = now(), expires_at = least(expires_at, now())
+           WHERE batch_id = $1 AND consumed_at IS NULL`,
+        [retryCanaryBatchId],
       );
       await database
         .getPool()
-        .query(
-          "UPDATE aruba_send_permits SET revoked_at = now() WHERE batch_id = $1 AND consumed_at IS NULL",
-          [secondCanaryBatchId],
-        );
-      await database
-        .getPool()
-        .query("UPDATE aruba_batches SET status = 'CANCELLED' WHERE id = $1", [
-          secondCanaryBatchId,
-        ]);
+        .query("UPDATE aruba_batches SET status = 'CANCELLED' WHERE id = $1", [retryCanaryBatchId]);
       Object.assign(runtimeConfig, originalArubaRuntime);
       await assert.rejects(
         database.withTransaction((client) =>

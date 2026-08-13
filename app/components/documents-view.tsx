@@ -505,6 +505,12 @@ function BatchPanel({
                   <input name="csrf" type="hidden" value={csrfToken} />
                   <input name="intent" type="hidden" value="retry-aruba-batch" />
                   <input name="batchId" type="hidden" value={batch.id} />
+                  {batch.permit_scope === "CANARY" ? (
+                    <label>
+                      <input name="confirmCanary" type="checkbox" value="yes" />
+                      {copy.documents.confirmCanaryRetry}
+                    </label>
+                  ) : null}
                   <button className="button button--secondary" type="submit">
                     {copy.documents.retryBatch}
                   </button>

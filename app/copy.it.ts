@@ -712,6 +712,8 @@ export const copy = {
     authorizeCanaryPermit: "Rinnova permesso pilota",
     confirmCanaryPermit:
       "Confermo l’autorizzazione limitata a questo singolo documento e a questo tentativo.",
+    confirmCanaryRetry:
+      "Confermo una nuova autorizzazione limitata a questo singolo documento e al nuovo tentativo.",
     prepareCanaryBatch: "Prepara invio pilota",
     retryBatch: "Prepara nuovo tentativo",
     arubaBatchStatus: {
