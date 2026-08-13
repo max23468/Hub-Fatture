@@ -416,13 +416,13 @@ function structuredStreetNumberCandidates(
   address: unknown,
   postalCode: unknown,
   unitMarkers = addressUnitMarkers,
-  rejectLeadingUnitOrdinal = false,
+  classifySecondAddressLine = false,
 ) {
   const normalizedParts = withoutAddressPart(normalizedAddressTokens(address), postalCode);
   if (
-    rejectLeadingUnitOrdinal &&
-    /^\d/u.test(normalizedParts[0] ?? "") &&
-    unitMarkers.has(normalizedParts[1] ?? "")
+    classifySecondAddressLine &&
+    (unitMarkers.has(normalizedParts[0] ?? "") ||
+      (typeof address === "string" && /^\s*\d+\s*[°ºª]/u.test(address)))
   ) {
     return new Set<string>();
   }
