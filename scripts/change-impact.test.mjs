@@ -86,6 +86,11 @@ test("l'helper Aruba limita la matrice multipiattaforma ai cambi pertinenti", ()
   assert.equal(impact.provider, true);
 });
 
+test("l'orchestrazione Aruba richiede sempre le ricevute multipiattaforma", () => {
+  const impact = classifyFiles([".github/workflows/aruba-platform.yml"]);
+  assert.equal(impact.arubaPlatform, true);
+});
+
 test("un percorso sconosciuto ricade fail-closed nel gate completo", () => {
   const impact = classifyFiles(["nuovo-sistema/config.custom"]);
   assert.equal(impact.failClosed, true);

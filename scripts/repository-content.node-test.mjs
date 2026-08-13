@@ -55,6 +55,19 @@ test("nessuna chiave privata in chiaro è tracciata", () => {
   assert.equal(keys.stdout.trim(), "");
 });
 
+test("il readiness pubblico non espone volumi degli ordini live", async () => {
+  const readiness = await readFile(
+    path.join(root, "docs", "runbooks", "release-readiness.md"),
+    "utf8",
+  );
+  assert.doesNotMatch(readiness, /\b\d+ ordini\b/);
+  assert.doesNotMatch(readiness, /\b(?:Shopify|eBay): \d/);
+  assert.doesNotMatch(
+    readiness,
+    /\b\d+ `(?:ALREADY_INVOICED|NOT_INVOICED|LEGACY_BILLING_REVIEW|GROUPED|NEEDS_REVIEW|CANCELLED)`/,
+  );
+});
+
 test("nessun riferimento a nomi storici del Master Plan", () => {
   assert.deepEqual(tracked("Hub-Fatture-Master-Plan[.]md|docs/MASTER_PLAN[.]md"), []);
 });
@@ -301,9 +314,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
 });
 
 test("i contesti required restano stabili mentre i gate costosi sono proporzionati", async () => {
-  const [ci, codeql, dependencies, foundation, react] = await Promise.all(
+  const [ci, arubaPlatform, codeql, dependencies, foundation, react] = await Promise.all(
     [
       ".github/workflows/ci.yml",
+      ".github/workflows/aruba-platform.yml",
       ".github/workflows/codeql.yml",
       ".github/workflows/dependency-review.yml",
       ".github/workflows/foundation.yml",
@@ -316,6 +330,38 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
   assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npm run test:e2e"));
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
+  assert.doesNotMatch(ci, /workflow_dispatch:/);
+  assert.match(
+    ci,
+    /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.before \}\}/,
+  );
+  assert.match(arubaPlatform, /repository_dispatch:\n    types: \[aruba-platform-candidate\]/);
+  assert.doesNotMatch(arubaPlatform, /workflow_dispatch:/);
+  assert.match(arubaPlatform, /ref: \$\{\{ github\.event\.client_payload\.commit \}\}/);
+  assert.match(
+    arubaPlatform,
+    /name: Esegui helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
+  );
+  assert.match(arubaPlatform, /npm run test:aruba:platform -- \$\{\{ matrix\.browser \}\}/);
+  assert.doesNotMatch(arubaPlatform, /inputs\.commit/);
+  assert.match(arubaPlatform, /\[\[ "\$CANDIDATE" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
+  assert.match(arubaPlatform, /test "\$\(git rev-parse HEAD\)" = "\$CANDIDATE"/);
+  assert.match(arubaPlatform, /git merge-base --is-ancestor "\$CANDIDATE" origin\/main/);
+  assert.match(arubaPlatform, /permissions:\n  checks: write\n  contents: read/);
+  assert.match(arubaPlatform, /if: always\(\)\n        shell: bash/);
+  assert.match(
+    arubaPlatform,
+    /RECEIPT_NAME: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
+  );
+  assert.doesNotMatch(
+    arubaPlatform,
+    /name: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
+  );
+  assert.match(arubaPlatform, /gh api --method POST "repos\/\$\{GITHUB_REPOSITORY\}\/check-runs"/);
+  assert.match(arubaPlatform, /-f head_sha="\$CANDIDATE"/);
+  assert.match(arubaPlatform, /-f conclusion="\$CONCLUSION"/);
+  assert.doesNotMatch(arubaPlatform, /name: CI\b/);
+  assert.doesNotMatch(arubaPlatform, /E2E Chromium/);
   assert.match(codeql, /if: steps\.impact\.outputs\.standard == 'true'/);
   assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
   assert.match(foundation, /if: steps\.impact\.outputs\.image == 'true'/);
@@ -392,6 +438,14 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(backup, /exec 9>\.\/backup\.lock/);
   assert.match(backup, /flock -n 9/);
   assert.match(backup, /^#!\/bin\/bash\nset -euo pipefail/m);
+  assert.match(
+    candidateReadback,
+    /historical_reconciliation_outcome IS NULL\s+AND \(trigger_status <> 'LEGACY_BILLING_REVIEW'\s+OR historical_reconciled_at IS NOT NULL\s+OR billing_case_id IS NOT NULL\s+OR EXISTS \(\s+SELECT 1 FROM document_orders\s+WHERE document_orders\.order_id = orders\.id\)\)/,
+  );
+  assert.match(
+    candidateReadback,
+    /historical_reconciliation_outcome = 'ALREADY_INVOICED'\s+AND NOT EXISTS \(\s+SELECT 1 FROM document_orders\s+JOIN documents ON documents\.id = document_orders\.document_id\s+WHERE document_orders\.order_id = orders\.id\s+AND documents\.origin = 'ARUBA_HISTORY'/,
+  );
   assert.ok(
     backup.indexOf("trap notify_failure EXIT HUP INT TERM") <
       backup.indexOf("exec 9>./backup.lock"),

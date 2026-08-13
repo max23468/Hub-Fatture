@@ -5,6 +5,8 @@ import { z } from "zod";
 import { getConfig } from "../config.server.ts";
 import { getPool } from "./client.server.ts";
 
+export const BACKUP_RECEIPT_MAX_AGE_MS = 36 * 60 * 60 * 1000;
+
 const backupReceiptSchema = z.object({
   completedAt: z.iso.datetime(),
   objectName: z.string().min(1),
@@ -13,7 +15,19 @@ const backupReceiptSchema = z.object({
   status: z.literal("ok"),
 });
 
-async function backupReceipt() {
+export type BackupReceipt = z.infer<typeof backupReceiptSchema>;
+
+export function isBackupReceiptCurrent(
+  receipt: BackupReceipt | null,
+  now = new Date(),
+): receipt is BackupReceipt {
+  if (!receipt) return false;
+  const completedAt = new Date(receipt.completedAt).getTime();
+  const age = now.getTime() - completedAt;
+  return age >= 0 && age < BACKUP_RECEIPT_MAX_AGE_MS;
+}
+
+export async function readBackupReceipt(): Promise<BackupReceipt | null> {
   const path = getConfig().BACKUP_RECEIPT_PATH;
   if (!path) return null;
   try {
@@ -33,7 +47,7 @@ export async function getSystemStatus() {
               count(*) FILTER (WHERE status = 'FAILED')::text AS failed
        FROM jobs`,
     ),
-    backupReceipt(),
+    readBackupReceipt(),
   ]);
   const config = getConfig();
   return {
