@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.28
+
+- Ogni accesso crea una sessione indipendente per dispositivo che resta valida per un anno, anziché scadere dopo otto ore; cambio password, uscita e revoca manuale continuano a invalidare le sessioni interessate.
+
 ## 0.3.27
 
 - L’eccezione manuale per lo storico riconosce in modo deterministico la traslitterazione bulgara di nome, indirizzo e civico, mantenendo obbligatori Paese, data, totale, riferimento FPR e unicità del documento Aruba.
