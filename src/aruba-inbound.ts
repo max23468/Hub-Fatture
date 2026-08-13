@@ -206,7 +206,11 @@ export function remoteMatchesPreflightSearches(
   remote: RemoteInventoryDocument,
   searches: Array<{ documentType: "TD01" | "TD04"; amount: number; displayNumber: string }>,
 ): boolean {
-  if (!searches.length || searches.some((search) => search.documentType !== remote.documentType)) {
+  if (
+    remote.status === "REJECTED" ||
+    !searches.length ||
+    searches.some((search) => search.documentType !== remote.documentType)
+  ) {
     return false;
   }
   const references = new Set(remote.orderReferences.map(normalizedMatchText));

@@ -88,19 +88,17 @@ function cursorStream(environmentValue: string, account: string, stream: string)
 }
 
 async function requiredInventoryCoverage(client: pg.Pool | pg.PoolClient) {
-  const [oldest, nonTerminalYears] = await Promise.all([
-    client.query<{ oldest: string | null }>(
-      `SELECT min(local_order_date)::text AS oldest
+  const oldest = await client.query<{ oldest: string | null }>(
+    `SELECT min(local_order_date)::text AS oldest
        FROM orders
        WHERE trigger_status NOT IN ('INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')`,
-    ),
-    client.query<{ fiscal_year: number }>(
-      `SELECT DISTINCT fiscal_year FROM aruba_remote_documents
+  );
+  const nonTerminalYears = await client.query<{ fiscal_year: number }>(
+    `SELECT DISTINCT fiscal_year FROM aruba_remote_documents
        WHERE environment = $1 AND account_reference = $2
          AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')`,
-      [environment(), accountReference()],
-    ),
-  ]);
+    [environment(), accountReference()],
+  );
   const currentDate = localOrderDate(new Date().toISOString());
   const currentYear = Number(currentDate.slice(0, 4));
   const oldestDate = oldest.rows[0]?.oldest ?? currentDate;
@@ -274,9 +272,10 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
     await client.query(
       `INSERT INTO aruba_sync_pages
          (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal,
-          full_scan, row_count, payload_digest, committed_at)
+          full_scan, row_count, documents_json, payload_digest, committed_at)
        SELECT $1, pages.stream, 1, pages.page_ordinal, pages.cursor, pages.terminal,
-              pages.full_scan, pages.row_count, pages.payload_digest, pages.committed_at
+              pages.full_scan, pages.row_count, pages.documents_json,
+              pages.payload_digest, pages.committed_at
        FROM aruba_sync_pages pages
        WHERE pages.sync_session_id = (
          SELECT previous.id FROM aruba_sync_sessions previous
@@ -398,7 +397,7 @@ export async function arubaReadManifest(token: string) {
         cursor: cursor?.cursor ?? null,
         overlapFrom: cursor?.overlap_from?.toISOString() ?? null,
         lastFullScanCompletedAt: cursor?.full_scan_completed_at?.toISOString() ?? null,
-        resumePageOrdinal: interruptedPage ? interruptedPage.page_ordinal + 1 : null,
+        resumePageOrdinal: interruptedPage ? interruptedPage.page_ordinal : null,
       };
     }),
     intervalSeconds: 900,
@@ -465,7 +464,7 @@ export function uniqueRefundSubset(
 async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDocument) {
   const result = await client.query<InboundOrderCandidateRow>(
     `SELECT orders.id, orders.provider, orders.display_number, orders.local_order_date::text,
-            orders.billing_case_id, NULL::bigint::text AS invoice_document_id,
+            orders.billing_case_id, invoice.document_id::text AS invoice_document_id,
             '{}'::text[] AS refund_ids, '{}'::integer[] AS refund_amounts,
             (orders.gross_amount - orders.deducted_shopify_payments_fee_amount - coalesce((
               SELECT sum(refunds.amount) FROM refunds
@@ -483,6 +482,13 @@ async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDoc
             ) AS recipient_address
      FROM orders
      JOIN customers ON customers.id = orders.customer_id
+     LEFT JOIN LATERAL (
+       SELECT document_orders.document_id
+       FROM document_orders JOIN documents ON documents.id = document_orders.document_id
+       WHERE document_orders.order_id = orders.id AND document_orders.document_kind = 'INVOICE'
+         AND documents.status = 'APPROVED'
+       ORDER BY documents.id DESC LIMIT 1
+     ) AS invoice ON true
      WHERE orders.local_order_date BETWEEN $1::date - 31 AND $1::date + 31
        AND orders.trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
      ORDER BY orders.id
@@ -494,7 +500,8 @@ async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDoc
 
 async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInventoryDocument) {
   const result = await client.query<InboundOrderCandidateRow>(
-    `SELECT orders.id, orders.provider, orders.display_number, orders.local_order_date::text,
+    `SELECT orders.id, orders.provider, orders.display_number,
+            coalesce(refundable.refund_date, invoice.document_date)::text AS local_order_date,
             orders.billing_case_id, invoice.document_id::text AS invoice_document_id,
             refundable.amount::integer AS billable_amount, refundable.refund_ids,
             refundable.refund_amounts,
@@ -511,7 +518,7 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
      FROM orders
      JOIN customers ON customers.id = orders.customer_id
      JOIN LATERAL (
-       SELECT document_orders.document_id
+       SELECT document_orders.document_id, documents.document_date
        FROM document_orders JOIN documents ON documents.id = document_orders.document_id
        WHERE document_orders.order_id = orders.id AND document_orders.document_kind = 'INVOICE'
          AND documents.status = 'APPROVED'
@@ -519,6 +526,7 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
      ) AS invoice ON true
      JOIN LATERAL (
        SELECT sum(refunds.amount)::integer AS amount,
+              max(refunds.completed_at)::date AS refund_date,
               array_agg(refunds.id::text ORDER BY refunds.id) AS refund_ids,
               array_agg(refunds.amount::integer ORDER BY refunds.id) AS refund_amounts
        FROM refunds
@@ -531,7 +539,8 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
            )
          )
      ) AS refundable ON refundable.amount > 0
-     WHERE orders.local_order_date BETWEEN $1::date - 366 AND $1::date + 31
+     WHERE coalesce(refundable.refund_date, invoice.document_date)
+       BETWEEN $1::date - 31 AND $1::date + 31
      ORDER BY orders.id
      LIMIT 500`,
     [remote.documentDate],
@@ -679,6 +688,37 @@ async function reconcileRemoteDocument(
       [remote.remoteId, environment()],
     );
     documentId = local.rows[0]?.document_id ?? null;
+    if (remote.documentType === "TD01" && selected.invoice_document_id) {
+      const linked = await client.query<{
+        id: string;
+        series: string;
+        fiscal_year: number;
+        fiscal_number: number;
+        document_date: string;
+        total_amount: number;
+      }>(
+        `SELECT id, series, fiscal_year, fiscal_number, document_date::text, total_amount
+         FROM documents WHERE id = $1 AND kind = 'INVOICE' AND status = 'APPROVED'`,
+        [selected.invoice_document_id],
+      );
+      const existingInvoice = linked.rows[0];
+      const sameFiscalIdentity = Boolean(
+        existingInvoice &&
+        remote.series &&
+        remote.fiscalNumber &&
+        normalizedMatchText(existingInvoice.series) === normalizedMatchText(remote.series) &&
+        existingInvoice.fiscal_year === remote.fiscalYear &&
+        existingInvoice.fiscal_number === Number(remote.fiscalNumber) &&
+        existingInvoice.document_date === remote.documentDate &&
+        existingInvoice.total_amount === remote.totalAmount,
+      );
+      if (documentId === selected.invoice_document_id || sameFiscalIdentity) {
+        documentId = selected.invoice_document_id;
+      } else {
+        status = "PROFILE_CONFLICT";
+        documentId = null;
+      }
+    }
   }
   const previous = await client.query<{ method: string; status: string }>(
     `SELECT method, status FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
@@ -707,7 +747,7 @@ async function reconcileRemoteDocument(
     [
       remoteId,
       status,
-      selected ? "AUTOMATIC" : "NONE",
+      selected && status === "MATCHED" ? "AUTOMATIC" : "NONE",
       MATCHER_VERSION,
       documentId,
       selected?.id ?? null,
@@ -959,6 +999,18 @@ async function materializeExternalInvoice(
   );
   let documentId = existing.rows[0]?.id ?? null;
   if (existing.rows[0] && existing.rows[0].xml_sha256 !== digest) {
+    throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+  }
+  const priorInvoiceLinks = await client.query<{ document_id: string }>(
+    `SELECT document_orders.document_id
+     FROM document_orders
+     JOIN documents ON documents.id = document_orders.document_id
+     WHERE document_orders.order_id = ANY($1::bigint[])
+       AND document_orders.document_kind = 'INVOICE' AND documents.status = 'APPROVED'
+     FOR UPDATE OF document_orders`,
+    [matchedOrderIds],
+  );
+  if (priorInvoiceLinks.rows.some((link) => !documentId || link.document_id !== documentId)) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
   if (documentId && existing.rows[0]?.origin === "HUB") {
@@ -1612,7 +1664,26 @@ async function ingestParsedArubaPage(
     if (existingPage.rows[0].payload_digest !== digest) {
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
-    return { repeated: true, documents: page.documents.length };
+    for (const remote of page.documents) {
+      const stored = await client.query<{ id: string }>(
+        `SELECT id FROM aruba_remote_documents
+         WHERE environment = $1 AND account_reference = $2 AND remote_id = $3`,
+        [session.environment, session.account_reference, remote.remoteId],
+      );
+      if (!stored.rows[0]) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+      const files = await client.query<{ kind: string }>(
+        `SELECT kind FROM aruba_files WHERE remote_document_id = $1`,
+        [stored.rows[0].id],
+      );
+      const knownKinds = new Set(files.rows.map((file) => file.kind));
+      for (const kind of ["ARUBA_XML", "ARUBA_P7M", "ARUBA_PDF"] as const) {
+        if (!knownKinds.has(kind)) requestedFiles.push({ remoteId: remote.remoteId, kind });
+      }
+      if (!knownKinds.has("SDI_NOTIFICATION") || !isEmissionConfirmed(remote.status)) {
+        requestedFiles.push({ remoteId: remote.remoteId, kind: "SDI_NOTIFICATION" });
+      }
+    }
+    return { repeated: true, documents: page.documents.length, requestedFiles };
   }
   for (const remote of page.documents) {
     const metadataDigest = remoteMetadataDigest(remote);
@@ -1841,8 +1912,9 @@ async function ingestParsedArubaPage(
   );
   await client.query(
     `INSERT INTO aruba_sync_pages
-        (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan, row_count, payload_digest)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,
+         row_count, documents_json, payload_digest)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       session.id,
       page.stream,
@@ -1852,6 +1924,7 @@ async function ingestParsedArubaPage(
       page.terminal,
       page.fullScan,
       page.documents.length,
+      JSON.stringify(page.documents),
       digest,
     ],
   );
@@ -2098,10 +2171,11 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
-          AND matches.status = 'AMBIGUOUS') AS ambiguous,
+          AND remote.remote_status <> 'REJECTED' AND matches.status = 'AMBIGUOUS') AS ambiguous,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
+          AND remote.remote_status <> 'REJECTED'
           AND matches.status IN ('PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')) AS conflicts,
        (SELECT count(*) FROM aruba_remote_documents
         WHERE environment = $1 AND account_reference = $2) AS remote_documents`,
@@ -2400,6 +2474,7 @@ export async function consumeArubaPreflight(
     `SELECT 1 FROM aruba_document_matches matches
      JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
      WHERE remote.environment = $1 AND remote.account_reference = $2
+       AND remote.remote_status <> 'REJECTED'
        AND matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')
      LIMIT 1`,
     [current.environment, current.account_reference],
@@ -2415,20 +2490,24 @@ export async function listArubaPreflightWork(token: string) {
   const session = await loadReadSession(getPool(), token);
   if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
   const result = await withTransaction(async (client) => {
-    const [work, requested] = await Promise.all([
-      client.query(
-        `UPDATE aruba_preflight_receipts SET status = 'RUNNING'
+    await client.query(
+      `UPDATE aruba_preflight_receipts SET status = 'REQUESTED', claimed_at = NULL
+       WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
+         AND (claimed_at IS NULL OR claimed_at <= now() - interval '2 minutes')`,
+      [session.environment, session.account_reference],
+    );
+    const work = await client.query(
+      `UPDATE aruba_preflight_receipts SET status = 'RUNNING', claimed_at = now()
      WHERE id IN (
        SELECT id FROM aruba_preflight_receipts
        WHERE environment = $1 AND account_reference = $2 AND status = 'REQUESTED'
        ORDER BY requested_at LIMIT 100 FOR UPDATE SKIP LOCKED
      ) RETURNING id, request_json, requested_at`,
-        [session.environment, session.account_reference],
-      ),
-      client.query<{ value_json: { requestedAt?: string } }>(
-        `DELETE FROM settings WHERE key = 'aruba_sync_requested' RETURNING value_json`,
-      ),
-    ]);
+      [session.environment, session.account_reference],
+    );
+    const requested = await client.query<{ value_json: { requestedAt?: string } }>(
+      `DELETE FROM settings WHERE key = 'aruba_sync_requested' RETURNING value_json`,
+    );
     return { work: work.rows, syncRequestedAt: requested.rows[0]?.value_json.requestedAt ?? null };
   });
   return result;
@@ -2465,24 +2544,25 @@ export async function completeArubaPreflight(
     );
     if (!receipt.rows[0]) throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
     const requestJson = receipt.rows[0].request_json;
-    const [declaredCandidates, required, covered, authoritativeCandidates] = await Promise.all([
-      candidateIds.data.length
-        ? client.query(
-            `SELECT remote_id FROM aruba_remote_documents
-           WHERE environment = $1 AND account_reference = $2 AND remote_id = ANY($3::text[])`,
-            [session.environment, session.account_reference, candidateIds.data],
-          )
-        : Promise.resolve({ rowCount: 0 }),
-      requiredInventoryCoverage(client),
-      client.query<{ stream: string }>(
-        `SELECT DISTINCT stream FROM aruba_sync_pages
+    const declaredCandidates = candidateIds.data.length
+      ? await client.query(
+          `SELECT remote_id FROM aruba_remote_documents
+           WHERE environment = $1 AND account_reference = $2
+             AND remote_status <> 'REJECTED' AND remote_id = ANY($3::text[])`,
+          [session.environment, session.account_reference, candidateIds.data],
+        )
+      : { rowCount: 0 };
+    const required = await requiredInventoryCoverage(client);
+    const covered = await client.query<{ stream: string }>(
+      `SELECT DISTINCT stream FROM aruba_sync_pages
        WHERE sync_session_id = $1 AND committed_at >= $2`,
-        [session.id, receipt.rows[0].requested_at],
-      ),
-      client.query(
-        `SELECT 1 FROM aruba_document_matches matches
+      [session.id, receipt.rows[0].requested_at],
+    );
+    const authoritativeCandidates = await client.query(
+      `SELECT 1 FROM aruba_document_matches matches
          JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
-         WHERE remote.environment = $1 AND remote.account_reference = $2 AND (
+         WHERE remote.environment = $1 AND remote.account_reference = $2
+           AND remote.remote_status <> 'REJECTED' AND (
            matches.order_id::text = ANY($3::text[])
            OR EXISTS (
              SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
@@ -2490,9 +2570,8 @@ export async function completeArubaPreflight(
                AND coalesce((candidate ->> 'compatible')::boolean, false)
            )
          ) LIMIT 1`,
-        [session.environment, session.account_reference, requestJson.orderIds ?? []],
-      ),
-    ]);
+      [session.environment, session.account_reference, requestJson.orderIds ?? []],
+    );
     const coveredStreams = new Set(covered.rows.map((row) => row.stream));
     const passed =
       searchesCompleted.data &&
@@ -2501,7 +2580,7 @@ export async function completeArubaPreflight(
       authoritativeCandidates.rowCount === 0;
     const watermark = await currentInventoryWatermark(client);
     await client.query(
-      `UPDATE aruba_preflight_receipts SET status = $2, completed_at = now(),
+      `UPDATE aruba_preflight_receipts SET status = $2, claimed_at = NULL, completed_at = now(),
          expires_at = CASE WHEN $2 = 'PASSED' THEN now() + interval '5 minutes' ELSE NULL END,
          blocker_code = CASE WHEN $2 = 'BLOCKED' THEN 'ARUBA_REMOTE_CANDIDATE' ELSE NULL END,
          inventory_watermark = $3
@@ -2860,7 +2939,9 @@ export async function completeManualArubaPreflight(
         [evidenceSessionId],
       );
     }
-    const passed = parsed.remoteIds.length === 0;
+    const passed = parsed.pages.every((page) =>
+      page.documents.every((document) => document.status === "REJECTED"),
+    );
     await client.query(
       `INSERT INTO aruba_manual_readbacks
         (id, mode, environment, account_reference, status, coverage_json, row_count,

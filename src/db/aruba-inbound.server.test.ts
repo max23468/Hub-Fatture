@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -186,10 +187,10 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     assert.equal(firstIngest.repeated, false);
     assert.equal(firstIngest.documents, 1);
     assert.ok(firstIngest.requestedFiles?.some((file) => file.kind === "ARUBA_XML"));
-    assert.deepEqual(await inbound.ingestArubaInventoryPage(session.token, invoicePage), {
-      repeated: true,
-      documents: 1,
-    });
+    const repeatedInvoicePage = await inbound.ingestArubaInventoryPage(session.token, invoicePage);
+    assert.equal(repeatedInvoicePage.repeated, true);
+    assert.equal(repeatedInvoicePage.documents, 1);
+    assert.ok(repeatedInvoicePage.requestedFiles.some((file) => file.kind === "ARUBA_XML"));
     await database.getPool().query(
       `UPDATE aruba_remote_documents SET remote_id = 'historical-document-synthetic',
          metadata_digest = repeat('a', 64)
@@ -256,6 +257,32 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         },
       ],
     );
+    await inbound.ingestArubaInventoryPage(session.token, {
+      ...invoicePage,
+      scanOrdinal: 10,
+      cursor: "second-invoice-for-order",
+      documents: [
+        {
+          ...invoicePage.documents[0],
+          remoteId: "REMOTE-SECOND-INVOICE",
+          fiscalNumber: "2",
+        },
+      ],
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT matches.status, matches.method, matches.document_id
+           FROM aruba_remote_documents remote
+           JOIN aruba_document_matches matches ON matches.remote_document_id = remote.id
+           WHERE remote.remote_id = 'REMOTE-SECOND-INVOICE'`,
+        )
+      ).rows[0],
+      { status: "PROFILE_CONFLICT", method: "NONE", document_id: null },
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_remote_documents WHERE remote_id = 'REMOTE-SECOND-INVOICE'");
     const refund = await database.getPool().query<{ id: string }>(
       `INSERT INTO refunds
         (provider, external_account_id, external_order_id, external_refund_id, order_id,
@@ -417,10 +444,10 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          fulfillment_status, trigger_status, customer_id, raw_snapshot_json,
          normalized_snapshot_json)
        VALUES
-         ('SHOPIFY', 'shop', 'cumulative-a', '#2001', now(), now(), '2026-08-12',
+         ('SHOPIFY', 'shop', 'cumulative-a', '#2001', now(), now(), '2025-01-01',
           'EUR', 1500, 'PAID', 'FULFILLED', 'INVOICED', $1, '{}',
           '{"customerSnapshot":{"billingAddress":{"line1":"Via Cliente 1","postalCode":"00100","city":"Roma","countryCode":"IT"}}}'),
-         ('EBAY', 'ebay', 'cumulative-b', '#2002', now(), now(), '2026-08-12',
+         ('EBAY', 'ebay', 'cumulative-b', '#2002', now(), now(), '2025-01-01',
           'EUR', 1500, 'PAID', 'FULFILLED', 'INVOICED', $1, '{}',
           '{"customerSnapshot":{"billingAddress":{"line1":"Via Cliente 1","postalCode":"00100","city":"Roma","countryCode":"IT"}}}')
        RETURNING id`,
@@ -1015,6 +1042,9 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "ARUBA_PREFLIGHT_REQUIRED",
     );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_preflight_receipts WHERE id = $1", [manualReceiptId]);
 
     await database.getPool().query(
       `INSERT INTO aruba_sync_sessions
@@ -1025,12 +1055,24 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          now() - interval '1 second', $1)`,
       [actor.id],
     );
+    const interruptedPage = {
+      ...invoicePage,
+      scanOrdinal: 1,
+      pageOrdinal: 1,
+      cursor: "resume-page-1",
+      terminal: false,
+    };
     await database.getPool().query(
       `INSERT INTO aruba_sync_pages
         (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal,
-         full_scan, row_count, payload_digest)
+         full_scan, row_count, documents_json, payload_digest)
        VALUES ('50000000-0000-4000-8000-000000000001', 'invoices:2026', 1, 1,
-         'resume-page-1', false, true, 0, repeat('b', 64))`,
+         'resume-page-1', false, true, $1, $2, $3)`,
+      [
+        interruptedPage.documents.length,
+        JSON.stringify(interruptedPage.documents),
+        createHash("sha256").update(JSON.stringify(interruptedPage)).digest("hex"),
+      ],
     );
     const resumedSession = await inbound.issueArubaReadSession("synthetic-device-0003", actor);
     assert.equal(
@@ -1047,14 +1089,83 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       (await inbound.arubaReadManifest(resumedSession.token)).streams.find(
         (stream) => stream.name === "invoices:2026",
       )?.resumePageOrdinal,
-      2,
+      1,
     );
+    const resumedPage = await inbound.ingestArubaInventoryPage(
+      resumedSession.token,
+      interruptedPage,
+    );
+    assert.equal(resumedPage.repeated, true);
+    assert.ok(resumedPage.requestedFiles.some((file) => file.kind === "ARUBA_P7M"));
     await inbound.requestImmediateArubaSync(actor);
     const immediate = await inbound.listArubaPreflightWork(resumedSession.token);
     assert.ok(immediate.syncRequestedAt);
     assert.equal(
       (await inbound.listArubaPreflightWork(resumedSession.token)).syncRequestedAt,
       null,
+    );
+    const abandonedReceiptId = "40000000-0000-4000-8000-000000000003";
+    await database.getPool().query(
+      `INSERT INTO aruba_preflight_receipts
+        (id, environment, account_reference, billing_case_id, document_id, draft_version,
+         projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
+         status, claimed_at)
+       VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('d', 64), 0,
+         $6, '{}', 'RUNNING', now() - interval '3 minutes')`,
+      [
+        abandonedReceiptId,
+        currentDraft.rows[0]!.billing_case_id,
+        currentDraft.rows[0]!.id,
+        currentDraft.rows[0]!.draft_version,
+        currentDraft.rows[0]!.projection_sha256,
+        actor.id,
+      ],
+    );
+    const reclaimed = await inbound.listArubaPreflightWork(resumedSession.token);
+    assert.equal(
+      reclaimed.work.some((work) => work.id === abandonedReceiptId),
+      true,
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_preflight_receipts WHERE id = $1", [abandonedReceiptId]);
+
+    const rejectedReceiptId = "40000000-0000-4000-8000-000000000004";
+    await database.getPool().query(
+      `INSERT INTO aruba_preflight_receipts
+        (id, environment, account_reference, billing_case_id, document_id, draft_version,
+         projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
+         status, claimed_at)
+       VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('e', 64), 0,
+         $6, jsonb_build_object('orderIds', ARRAY[$7::text]), 'RUNNING', now())`,
+      [
+        rejectedReceiptId,
+        currentDraft.rows[0]!.billing_case_id,
+        currentDraft.rows[0]!.id,
+        currentDraft.rows[0]!.draft_version,
+        currentDraft.rows[0]!.projection_sha256,
+        actor.id,
+        residualOrder.rows[0]!.id,
+      ],
+    );
+    for (const [index, stream] of ["invoices:2026", "credit-notes:2026"].entries()) {
+      await inbound.ingestArubaInventoryPage(resumedSession.token, {
+        stream,
+        scanOrdinal: 4,
+        pageOrdinal: 1,
+        cursor: `rejected-preflight-${index + 1}`,
+        terminal: true,
+        fullScan: false,
+        documents: [],
+      });
+    }
+    assert.deepEqual(
+      await inbound.completeArubaPreflight(resumedSession.token, {
+        receiptId: rejectedReceiptId,
+        candidateRemoteIds: ["REMOTE-REJECTED-001"],
+        searchesCompleted: true,
+      }),
+      { passed: true },
     );
 
     await inbound.ingestArubaInventoryPage(resumedSession.token, {

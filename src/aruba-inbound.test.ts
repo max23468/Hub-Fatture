@@ -124,3 +124,12 @@ test("una preparazione multi-ordine usa insieme riferimenti e totale del gruppo"
     true,
   );
 });
+
+test("un documento scartato non blocca il preflight di una nuova revisione", () => {
+  assert.equal(
+    remoteMatchesPreflightSearches({ ...remote, status: "REJECTED", orderReferences: ["1001"] }, [
+      { documentType: "TD01", amount: 12_300, displayNumber: "1001" },
+    ]),
+    false,
+  );
+});
