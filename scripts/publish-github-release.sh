@@ -97,11 +97,8 @@ release_id=
 cleanup() {
   status=$?
   if [ -n "$release_id" ]; then
-    draft=$(gh api "repos/$repository/releases/$release_id" --jq .draft 2>/dev/null || true)
-    if [ "$draft" = "true" ]; then
-      gh api -X DELETE "repos/$repository/releases/$release_id" >/dev/null 2>&1 || \
-        echo "Pulizia della draft release non riuscita" >&2
-    fi
+    gh api -X DELETE "repos/$repository/releases/$release_id" >/dev/null 2>&1 || \
+      echo "Pulizia della release non conforme non riuscita" >&2
   fi
   rm -rf -- "$stage_dir"
   exit "$status"
