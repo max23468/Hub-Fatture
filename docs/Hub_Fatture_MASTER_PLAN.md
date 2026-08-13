@@ -1015,6 +1015,10 @@ Non creare un design personalizzato. L'audit deve verificare fatture italiane, e
 
 Il download XML da HF, il caricamento manuale nel pannello e l'import successivo di XML/PDF/notifiche costituiscono un percorso completo e sempre disponibile. È il fallback ufficiale in caso di modifica del pannello, browser non supportato, CAPTCHA persistente o helper indisponibile.
 
+Per la sincronizzazione in entrata, “completo” comprende anche la sostituzione verificabile di una scansione fallita. HF apre una sessione guidata sulla stessa finestra e presenta gli stream obbligatori per anno/tipo, il limite temporale, i precedenti non terminali e gli errori da risolvere. Il titolare percorre manualmente in Aruba tutte le pagine di ogni stream e registra filtri, ordinali, conteggio quando disponibile, estremi tecnici e pagina terminale; importa inoltre i file ufficiali necessari per documenti nuovi, cambiati, candidati o incompleti. Il server rifiuta buchi, duplicati, stream mancanti, conteggi/estremi incoerenti ed errori documentali o stati incerti ancora aperti.
+
+La ricevuta può essere finalizzata soltanto da `Massimo` con `can_approve`, perché rende di nuovo possibili approvazione e numerazione. La finalizzazione marca l'inventario completo con provenienza `MANUAL` e chiude l'errore operativo sostituito senza cancellare la sessione automatica fallita; non è un override di collisioni, parsing/file invalidi, match possibili o ambigui, conflitti di profilo o stati remoti incerti. Conservare finestra, copertura, conteggi sanitizzati, hash dei file, autore e timestamp, mai dati cliente duplicati nella ricevuta.
+
 ---
 
 ## 11. Qualifica Aruba nelle milestone M4, M5 e M8
@@ -2002,7 +2006,7 @@ Gli eventi `CRITICAL` — approvazione, numerazione, override importi, `Non tras
 - Ogni permesso Aruba è consumabile una sola volta e non sopravvive a mismatch di batch/manifest/documento/revisione/hash o scadenza; durante il Canary ne esiste al massimo uno valido.
 - Nessun segreto in tabelle di log/audit.
 - Nessuna transizione fiscale basata su un valore fornito soltanto dal browser.
-- Approvazione, numerazione e creazione di un permesso di invio soltanto da un account con `can_approve`.
+- Approvazione, numerazione, creazione di un permesso di invio, finalizzazione di un readback manuale e risoluzione manuale di match con effetti fiscali soltanto da un account con `can_approve`.
 - Stati provider monotoni salvo riconciliazione esplicita e motivata.
 - `before_json`, `after_json` e metadata audit contengono solo campi allowlisted o riferimenti a snapshot immutabili; niente token o duplicazioni integrali di XML/PDF.
 
@@ -2079,7 +2083,7 @@ Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` dev
 ### 17.1 Autenticazione
 
 - Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive e identità canoniche di audit distinte.
-- I due account condividono tutte le capacità operative tranne le transizioni fiscali irreversibili. Approvazione, numerazione e creazione di un permesso di invio Aruba richiedono `can_approve`, valorizzato soltanto per `Massimo`. L'identità di audit registra chi ha agito, non impedisce l'azione: senza questo controllo un agente potrebbe completare da solo la catena che §19.6 classifica come P0. Il controllo è server-side su ogni mutazione, come previsto da 17.6; nascondere il pulsante non è una protezione.
+- I due account condividono tutte le capacità operative tranne le transizioni fiscali irreversibili. Approvazione, numerazione, creazione di un permesso di invio Aruba, finalizzazione di un readback manuale che sblocca l'emissione e risoluzione manuale di un match che chiude un ordine o collega rimborsi richiedono `can_approve`, valorizzato soltanto per `Massimo`. L'identità di audit registra chi ha agito, non impedisce l'azione: senza questo controllo un agente potrebbe completare da solo la catena che §19.6 classifica come P0. Il controllo è server-side su ogni mutazione, come previsto da 17.6; nascondere il pulsante non è una protezione.
 - `can_approve` è una colonna booleana sui due account fissi, non un sistema di ruoli, e nasce nella migrazione M4 che introduce l'approvazione.
 - Username e password, senza secondo fattore applicativo.
 - Password di almeno 8 e non oltre 128 caratteri, hashate con `node:crypto.scrypt` e verificate con confronto constant-time.
@@ -2799,7 +2803,7 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - Webhook/job rimasto `processing` dopo crash e riacquisito soltanto a lease scaduta.
 - storage e checksum.
 - autenticazione username/password, sessioni e separazione dell'identità di audit dei due account.
-- l'account privo di `can_approve` non può approvare, numerare o creare un permesso di invio, nemmeno chiamando direttamente l'endpoint.
+- l'account privo di `can_approve` non può approvare, numerare, creare un permesso di invio, finalizzare un readback manuale o confermare un match manuale con effetti fiscali, nemmeno chiamando direttamente l'endpoint.
 - impossibilità di preparare o autorizzare un invio senza approvazione e snapshot immutabile.
 - import storico non approvabile prima della riconciliazione Aruba.
 - riconciliazione Shopify Payments sul totale fatturabile al netto della fee effettiva quando la regola è attiva; PayPal, metodi manuali ed eBay restano al lordo.
@@ -3131,6 +3135,7 @@ Output:
 - readback operativo che conferma l'assenza di documenti approvati o trasmissibili e di upload Aruba pendenti;
 - import reale degli ultimi 7 giorni e riconciliazione con Aruba senza numerare o trasmettere;
 - inventario provider-first di tutte le fatture e TD04 dell'anno fiscale corrente, esteso fino al più remoto ordine riconciliabile e ai documenti precedenti non terminali, riesaminato completamente a ogni avvio, deduplicato rispetto ai documenti HF e aggiornabile in modo incrementale dall'helper ogni 15 minuti, con documenti esterni non collegati e match ambigui nelle code previste;
+- readback manuale guidato capace di sostituire una scansione fallita soltanto dopo copertura completa di stream/pagine, import delle evidenze ufficiali richieste e ricevuta finalizzata dal titolare;
 - gate server-side che avvisa dopo un'ora e blocca approvazione/numerazione se Aruba non è mai stato letto, ha più di 24 ore o presenta uno stato remoto incerto, incluso override singolo del solo titolare motivato e auditato;
 - prova manuale controllata sul pannello Aruba reale con XML sintetico o anonimizzato dedicato: autenticazione umana, caricamento, validazione e riepilogo osservati, arresto prima di `Invia`, readback e rimozione sicura dell'upload pendente;
 - contratto definitivo dei locatori, limiti, pause di autenticazione, download e stati aggiornato insieme a helper e test se il pannello reale diverge;
@@ -3156,6 +3161,8 @@ Gate:
 - scansione completa della finestra rilevante a ogni avvio, inclusi cambio d'anno e precedenti non terminali, aggiornamento incrementale, lease concorrente, matching prudenziale, riconciliazione parziale multi-ordine, ownership file/notifiche e sessione read-only di 8 ore verificati senza capacità di upload o invio;
 - TD04 esterne emesse collegate atomicamente ai rimborsi coperti, con concorrenza incapace di generare un secondo accredito;
 - documento esterno scartato conservato come tentativo senza chiudere l'ordine, consumare l'unicità di emissione o impedire una nuova revisione;
+- fallback manuale verificato capace di chiudere un errore operativo di scansione senza superare errori documentali, stati incerti o match irrisolti;
+- account `Codex` rifiutato server-side sulla finalizzazione del readback manuale e sulle risoluzioni manuali con effetti fiscali;
 - commit, digest, schema, backup, rollback e kill switch verificati;
 - nessun documento approvato o trasmissibile e nessun upload Aruba pendente;
 - prova end-to-end dell'auto-merge Dependabot chiusa senza auto-approvazione né esecuzione privilegiata del codice PR; qualsiasi esito non riconosciuto ha lasciato la PR aperta e gli eventuali branch, regole e trigger temporanei sono stati rimossi dopo la prova;
@@ -3344,7 +3351,7 @@ Deve fermarsi e chiedere prima di:
 | Comparatore non allineato alla bozza approvata | L'utente vede una proiezione diversa dal documento trasmesso | Stesso generatore server-side, revisione/hash e rigenerazione atomica al submit |
 | Il design system interno cresce in un pacchetto separato | Ritardo e manutenzione senza valore operativo | Un documento, token CSS, componenti locali, un SVG canonico e soli asset richiesti; niente sito, webfont, Storybook o libreria proprietaria |
 | Stato upload/invio incerto | Doppio invio | Manifest/hash, ricerca nel pannello, confronto del file scaricato e nessun retry automatico |
-| L'agente approva o numera un documento | Emissione fiscale senza decisione umana | `can_approve` soltanto su `Massimo`, controllo server-side sulle tre transizioni irreversibili e test che lo verifica chiamando l'endpoint direttamente |
+| L'agente completa una transizione fiscale irreversibile | Emissione o riconciliazione fiscale senza decisione umana | `can_approve` soltanto su `Massimo`, controllo server-side su approvazione, numerazione, permessi, readback manuale e match manuali fiscali, verificato chiamando gli endpoint direttamente |
 | Canary lascia aperti gli invii | Trasmissione fiscale non autorizzata | Kill switch globale sempre `false` e permesso monouso atomico legato a batch/manifest/documenti/revisioni/hash |
 | Target provider o VPS errato | Scrittura o deploy sull'ambiente sbagliato | Preflight con identità, account, risorsa e readback obbligatori |
 | Documentazione o runbook in drift | Operazioni eseguite con istruzioni obsolete | Fonte canonica, controllo link/comandi e aggiornamento nella stessa PR |
@@ -3465,12 +3472,14 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Inventario di fatture e TD04 Aruba dell'anno fiscale corrente completato e deduplicato, con cursore e overlap verificati.
 - [ ] Nuovo avvio dell'helper verificato su inventario già popolato: la finestra completa comprende ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, mentre i file invariati non vengono riscaricati.
 - [ ] Sessione helper di sola sincronizzazione, legata al dispositivo, revocabile e limitata a 8 ore verificata incapace di upload o invio; una sola scansione concorrente anche da due dispositivi.
+- [ ] Readback manuale completo verificato dopo helper indisponibile o scansione fallita: tutti gli stream e le pagine coperti, evidenze ufficiali importate, ricevuta `MANUAL` finalizzata dal solo titolare e sessione fallita conservata.
 - [ ] Dashboard, approvazione e numerazione rispettano `Mai letto`, avviso a un'ora e blocco a 24 ore/stato incerto; l'override singolo motivato del solo titolare supera esclusivamente la freschezza dopo verifica manuale e non match, conflitti o stati incerti.
 - [ ] Deduplicazione confinata per account/ambiente, ownership esclusiva submission/remote document dei file/notifiche e mapping monotono degli stati verificati.
 - [ ] Documenti Aruba non collegati, match ambigui e conflitti di profilo compaiono in `Documenti → Da collegare`, `Da verificare` e `Attività` senza creare ordini.
 - [ ] Match emesso su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.
 - [ ] TD04 esterna `DELIVERED`/`NOT_DELIVERED` collega atomicamente tutti e soli i rimborsi coperti e una corsa concorrente non può creare una seconda nota per gli stessi rimborsi.
 - [ ] Documento esterno `REJECTED` conserva XML, match e audit ma non chiude l'ordine come fatturato, non consuma il residuo e consente la revisione/riedizione prevista.
+- [ ] Account `Codex` non può finalizzare il readback manuale né confermare un match manuale che chiude ordini o collega rimborsi, anche chiamando direttamente gli endpoint.
 - [ ] Nessun ordine storico approvabile senza verifica.
 - [x] Account Aruba confermato senza 2FA e con protezione OTP su **Carica Fatture** disattivata; l'helper non presume un SMS ordinario e resta fail-closed davanti a challenge inattese.
 - [x] Autorizzazione specifica ottenuta per la sola prova controllata.
