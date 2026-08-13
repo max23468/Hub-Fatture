@@ -504,6 +504,9 @@ function customerStreetNumberCandidates(address: Record<string, unknown>) {
   const primaryContainsOnlyStreetNumber =
     (primaryIsNumberedStreetName && primaryNumericTokens.length === 1) ||
     primaryIsCommemorativeStreetName;
+  if (secondaryTokens[0] === "civico" && primary.size > 0 && !primaryContainsOnlyStreetNumber) {
+    return new Set([...primary, ...secondary]);
+  }
   return secondary.size > 0 &&
     (primary.size === 0 || secondaryTokens[0] === "civico" || primaryContainsOnlyStreetNumber)
     ? secondary

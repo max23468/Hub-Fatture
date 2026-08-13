@@ -4912,6 +4912,52 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-commemorative-street" },
     );
+    const historicalWithConflictingExplicitCivic = structuredClone(historicalWithoutTaxId);
+    historicalWithConflictingExplicitCivic.externalOrderId =
+      "shop-order-historical-conflicting-explicit-civic";
+    historicalWithConflictingExplicitCivic.externalCustomerId =
+      "shop-customer-historical-conflicting-explicit-civic";
+    historicalWithConflictingExplicitCivic.displayNumber = "#S-HIST-CONFLICTING-EXPLICIT-CIVIC";
+    historicalWithConflictingExplicitCivic.customer.billingAddress = {
+      line1: "Via Roma 10",
+      line2: "Civico 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithConflictingExplicitCivic.payments[0].externalPaymentId =
+      "historical-conflicting-explicit-civic-payment";
+    await orders.importOrders([historicalWithConflictingExplicitCivic], {
+      id: 1,
+      requestId: "test-import-historical-conflicting-explicit-civic",
+    });
+    const historicalWithConflictingExplicitCivicId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithConflictingExplicitCivic.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithConflictingExplicitCivicId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0050/26 con civici espliciti discordanti",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml
+              .toString()
+              .replace("FPR 0013/26", "FPR 0050/26")
+              .replace("Via della Scala", "Via Roma"),
+          ),
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-conflicting-explicit-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     const bulgarianHistorical = structuredClone(historicalWithoutTaxId);
     bulgarianHistorical.externalOrderId = "shop-order-historical-bulgarian-transliteration";
     bulgarianHistorical.externalCustomerId = "shop-customer-historical-bulgarian-transliteration";
