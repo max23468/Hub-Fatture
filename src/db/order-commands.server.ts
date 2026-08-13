@@ -458,13 +458,12 @@ function hasConflictingStructuredStreetNumber(
 
 function customerStreetNumberCandidates(address: Record<string, unknown>) {
   const primary = structuredStreetNumberCandidates(address.line1, address.postalCode);
-  return primary.size > 0
-    ? primary
-    : structuredStreetNumberCandidates(
-        address.line2,
-        address.postalCode,
-        secondAddressLineUnitMarkers,
-      );
+  const secondary = structuredStreetNumberCandidates(
+    address.line2,
+    address.postalCode,
+    secondAddressLineUnitMarkers,
+  );
+  return secondary.size > 0 ? secondary : primary;
 }
 
 function customerContainsStructuredStreetNumber(

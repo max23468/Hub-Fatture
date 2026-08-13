@@ -4376,6 +4376,46 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    const historicalWithNumberedStreet = structuredClone(historicalWithoutTaxId);
+    historicalWithNumberedStreet.externalOrderId = "shop-order-historical-numbered-street";
+    historicalWithNumberedStreet.externalCustomerId = "shop-customer-historical-numbered-street";
+    historicalWithNumberedStreet.displayNumber = "#S-HIST-NUMBERED-STREET";
+    historicalWithNumberedStreet.customer.billingAddress = {
+      line1: "Strada Provinciale 12",
+      line2: "2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithNumberedStreet.payments[0].externalPaymentId =
+      "historical-numbered-street-payment";
+    await orders.importOrders([historicalWithNumberedStreet], {
+      id: 1,
+      requestId: "test-import-historical-numbered-street",
+    });
+    const historicalWithNumberedStreetId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithNumberedStreet.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithNumberedStreetId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0036/26 con civico separato dal toponimo numerato",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0036/26")
+            .replace("Via della Scala", "Strada Provinciale 12"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-numbered-street" },
+    );
     const bulgarianHistorical = structuredClone(historicalWithoutTaxId);
     bulgarianHistorical.externalOrderId = "shop-order-historical-bulgarian-transliteration";
     bulgarianHistorical.externalCustomerId = "shop-customer-historical-bulgarian-transliteration";
@@ -4609,7 +4649,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "25",
+      "26",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
