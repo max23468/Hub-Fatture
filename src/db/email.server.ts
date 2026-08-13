@@ -2,12 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import nodemailer from "nodemailer";
 import type pg from "pg";
 import { z } from "zod";
 
 import { getConfig } from "../config.server.ts";
 import { AppError } from "../errors.ts";
+import { sendCanonicalEmail, smtpFailureKind } from "../integrations/email-delivery.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import { assertJobLease, type ClaimedJob } from "./connectors.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
@@ -245,55 +245,20 @@ async function loadDelivery(client: pg.PoolClient, id: string) {
 
 async function smtpSend(delivery: DeliveryRow, attachment: Buffer): Promise<string> {
   const config = getConfig();
-  if (
-    delivery.transport !== "SYNTHETIC" &&
-    (!config.SMTP_HOST || !config.SMTP_USERNAME || !config.SMTP_PASSWORD)
-  ) {
-    throw new AppError("EMAIL_CONFIGURATION_MISSING", 503);
-  }
-  const transporter =
-    delivery.transport === "SYNTHETIC"
-      ? nodemailer.createTransport({ jsonTransport: true })
-      : nodemailer.createTransport({
-          host: config.SMTP_HOST,
-          port: config.SMTP_PORT,
-          secure: config.SMTP_SECURE,
-          requireTLS: true,
-          auth: { user: config.SMTP_USERNAME, pass: config.SMTP_PASSWORD },
-          connectionTimeout: 15_000,
-          greetingTimeout: 15_000,
-          socketTimeout: 30_000,
-        });
   const domain = delivery.sender.split("@")[1] ?? "localhost";
-  const info = await transporter.sendMail({
-    from: delivery.sender,
-    envelope: { from: delivery.sender, to: delivery.recipient },
-    to: delivery.recipient,
-    subject: delivery.subject,
-    text: delivery.body,
-    messageId: `<${delivery.message_key}@${domain}>`,
-    attachments: [{ filename: "documento-fiscale.pdf", content: attachment }],
-  });
-  return info.messageId;
-}
-
-function smtpFailureKind(error: unknown): "TEMPORARY" | "PERMANENT" | "UNCERTAIN" {
-  if (error instanceof AppError && error.code === "EMAIL_CONFIGURATION_MISSING") {
-    return "PERMANENT";
-  }
-  if (!error || typeof error !== "object") return "UNCERTAIN";
-  const failure = error as { responseCode?: unknown; command?: unknown };
-  const responseCode = Number(failure.responseCode);
-  if (Number.isInteger(responseCode) && responseCode >= 400 && responseCode <= 499) {
-    return "TEMPORARY";
-  }
-  if (Number.isInteger(responseCode) && responseCode >= 500 && responseCode <= 599) {
-    return "PERMANENT";
-  }
-  const command = String(failure.command ?? "");
-  if (command === "CONN") return "TEMPORARY";
-  if (["AUTH", "EHLO", "HELO", "STARTTLS"].includes(command)) return "PERMANENT";
-  return "UNCERTAIN";
+  const receipt = await sendCanonicalEmail(
+    { ...config, SMTP_TRANSPORT: delivery.transport },
+    {
+      sender: delivery.sender,
+      recipient: delivery.recipient,
+      subject: delivery.subject,
+      body: delivery.body,
+      attachment,
+      attachmentFilename: "documento-fiscale.pdf",
+      messageId: `<${delivery.message_key}@${domain}>`,
+    },
+  );
+  return receipt.messageId;
 }
 
 export async function sendCustomerEmail(

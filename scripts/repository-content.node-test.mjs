@@ -313,6 +313,21 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /backup-receipt\.json/);
 });
 
+test("la qualifica e-mail Production è presidiata e non espone dati sensibili", async () => {
+  const qualification = await readFile(
+    path.join(root, "src/operations/email-delivery-qualification.ts"),
+    "utf8",
+  );
+  assert.match(qualification, /config\.APP_ENV !== "production"/);
+  assert.match(qualification, /config\.SMTP_TRANSPORT !== "OCI_EMAIL_DELIVERY"/);
+  assert.match(qualification, /EMAIL_QUALIFICATION_CONFIRM !== expectedConfirmation/);
+  assert.match(qualification, /QUALIFY_EMAIL:\$\{config\.APP_COMMIT_SHA\}/);
+  assert.match(qualification, /sendCanonicalEmail\(config, message, invalidPassword\)/);
+  assert.match(qualification, /const retry = await sendCanonicalEmail\(config, message\)/);
+  assert.match(qualification, /messageIdSha256/);
+  assert.doesNotMatch(qualification, /console\.|SMTP_PASSWORD.*stdout|recipient: retry/);
+});
+
 test("i contesti required restano stabili mentre i gate costosi sono proporzionati", async () => {
   const [ci, arubaPlatform, codeql, dependencies, foundation, react] = await Promise.all(
     [

@@ -50,3 +50,26 @@ HF-O07 si riapre se il volume previsto raggiunge 2.500 invii mensili, se cambia 
 - decisione `EXISTING_SMTP` o `OCI_EMAIL_DELIVERY`, con motivazione e rollback.
 
 Tutti i punti sono verificati. HF-O07 è chiusa su `OCI_EMAIL_DELIVERY`.
+
+## Qualifica del candidato Production
+
+La qualifica sul candidato distribuito usa `build-server/operations/email-delivery-qualification.js` dentro il container worker. Lo script importa lo stesso adapter SMTP del job applicativo e non crea documenti, numeri fiscali, righe e-mail o job sintetici nel database Production.
+
+Prerequisiti:
+
+1. PR pubblicata, candidato distribuito e readback di commit, versione e digest completato;
+2. autorizzazione specifica del titolare per una sola e-mail sintetica verso il mittente controllato;
+3. `SMTP_TRANSPORT=OCI_EMAIL_DELIVERY`, configurazione completa e kill switch Aruba invariato;
+4. nessun valore SMTP o indirizzo stampato nel terminale o nell’evidenza.
+
+Esecuzione presidiata, soltanto dopo l’autorizzazione:
+
+```sh
+docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T \
+  -e "EMAIL_QUALIFICATION_CONFIRM=QUALIFY_EMAIL:<commit-esatto>" app-worker \
+  node build-server/operations/email-delivery-qualification.js
+```
+
+La diagnostica rifiuta ambienti diversi da Production, commit o digest non canonici, trasporti diversi da OCI e conferme non legate al commit. Esegue prima un’autenticazione intenzionalmente errata, che deve essere classificata come permanente senza inviare; ripete poi lo stesso messaggio sintetico con la credenziale canonica. Il solo destinatario è il mittente controllato già configurato e l’allegato dichiara esplicitamente di non essere fiscale.
+
+La ricevuta JSON ammessa contiene soltanto commit, versione, digest, trasporto, classificazione dell’errore, conteggi accettati/rifiutati e hash di Message-ID e allegato. La chiusura richiede inoltre il readback umano della singola e-mail e dell’allegato nella casella controllata. Qualunque esito diverso lascia il gate aperto e non autorizza un secondo tentativo automatico.
