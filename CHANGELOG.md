@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.36
+
+- La vista Clienti segnala soltanto le revisioni anagrafiche ancora collegate a un ordine storico da riconciliare o a una preparazione realmente bloccata.
+- La migrazione elimina esclusivamente i profili rimasti senza ordini, preparazioni o record sorgente, preservando ogni anagrafica con storia operativa o fiscale.
+- Quando una risincronizzazione cambia la chiave d’identità di un ordine ancora libero, l’import rimuove subito il vecchio profilo se è diventato orfano, impedendo che il contatore torni a crescere.
+
 ## 0.3.35
 
 - La modalità globale `Disattivata` impedisce a Hub Fatture di proporre, accodare o reinviare copie e-mail al cliente, mantenendo consultabile lo storico.

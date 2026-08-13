@@ -1124,6 +1124,21 @@ async function importOne(
   ) {
     await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
   }
+  if (oldOrder && oldOrder.customer_id !== order.rows[0]!.customer_id) {
+    await client.query(
+      `DELETE FROM customers
+       WHERE id = $1
+         AND NOT EXISTS (SELECT 1 FROM orders WHERE orders.customer_id = customers.id)
+         AND NOT EXISTS (
+           SELECT 1 FROM billing_cases WHERE billing_cases.customer_id = customers.id
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM customer_source_records
+           WHERE customer_source_records.customer_id = customers.id
+         )`,
+      [oldOrder.customer_id],
+    );
+  }
   await writeAudit(client, {
     ...auditActor(actor),
     action: previous.rows[0] ? "ORDER_SOURCE_UPDATED" : "ORDER_IMPORTED",
