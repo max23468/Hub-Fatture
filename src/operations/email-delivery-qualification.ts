@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { getConfig } from "../config.server.ts";
 import {
@@ -18,6 +18,14 @@ startxref
 
 function sha256(value: string | Buffer) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function createInvalidQualificationPassword(actualPassword: string | undefined) {
+  let candidate: string;
+  do {
+    candidate = randomBytes(32).toString("base64url");
+  } while (candidate === actualPassword);
+  return candidate;
 }
 
 async function qualify() {
@@ -46,7 +54,7 @@ async function qualify() {
     attachmentFilename: "verifica-tecnica-non-fiscale.pdf",
   };
 
-  const invalidPassword = sha256(`${config.SMTP_PASSWORD}:qualification-invalid`);
+  const invalidPassword = createInvalidQualificationPassword(config.SMTP_PASSWORD);
   let failureKind: ReturnType<typeof smtpFailureKind> | null = null;
   try {
     await sendCanonicalEmail(config, message, invalidPassword);
