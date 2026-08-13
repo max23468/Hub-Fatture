@@ -237,13 +237,53 @@ test(
         await schedulerB.query("BEGIN");
         deliveryId = await email.scheduleCustomerEmail(schedulerA, invoice.rows[0]!.id);
         const competingSchedule = email.scheduleCustomerEmail(schedulerB, invoice.rows[0]!.id);
+        let disablingSettled = false;
+        const settingsBeforeConcurrentDisable = await email.getCustomerEmailSettings();
+        const concurrentDisable = email
+          .setCustomerEmailMode("DISABLED", settingsBeforeConcurrentDisable.version, {
+            ...owner,
+            requestId: "email-disabled-during-schedule",
+          })
+          .finally(() => {
+            disablingSettled = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        assert.equal(disablingSettled, false);
         await schedulerA.query("COMMIT");
         assert.equal(await competingSchedule, null);
         await schedulerB.query("COMMIT");
+        await concurrentDisable;
       } finally {
         schedulerA.release();
         schedulerB.release();
       }
+      assert.ok(deliveryId);
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT email_deliveries.status, email_deliveries.last_error_code,
+                    jobs.status AS job_status
+             FROM email_deliveries
+             JOIN jobs ON jobs.payload_json ->> 'deliveryId' = email_deliveries.id::text
+             WHERE email_deliveries.id = $1`,
+            [deliveryId],
+          )
+        ).rows[0],
+        {
+          status: "FAILED",
+          last_error_code: "EMAIL_DELIVERY_DISABLED",
+          job_status: "COMPLETED",
+        },
+      );
+      const settingsAfterConcurrentDisable = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", settingsAfterConcurrentDisable.version, {
+        ...owner,
+        requestId: "email-restored-after-concurrent-schedule",
+      });
+      deliveryId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
+        ...owner,
+        requestId: "email-retry-after-concurrent-schedule",
+      });
       assert.ok(deliveryId);
       assert.equal(
         (await client.query("SELECT sender FROM email_deliveries WHERE id = $1", [deliveryId]))

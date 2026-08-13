@@ -191,6 +191,9 @@ async function insertDelivery(client: pg.PoolClient, documentId: string, force =
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     `customer-email:${documentId}`,
   ]);
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    customerEmailSendLock,
+  ]);
   if (await customerEmailIsDisabled(client)) return null;
   const config = getConfig();
   if (!force) {
