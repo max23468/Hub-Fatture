@@ -334,6 +334,8 @@ const secondAddressLineUnitMarkers = new Set([
   "scala",
 ]);
 
+const postposedFloorMarkers = new Set(["et", "etaj", "floor", "piano"]);
+
 function normalizedAddressTokens(value: unknown) {
   return normalizedIdentityPart(value).split(" ").filter(Boolean);
 }
@@ -422,6 +424,8 @@ function structuredStreetNumberCandidates(
   if (
     classifySecondAddressLine &&
     (unitMarkers.has(normalizedParts[0] ?? "") ||
+      (/^\d/u.test(normalizedParts[0] ?? "") &&
+        postposedFloorMarkers.has(normalizedParts[1] ?? "")) ||
       (typeof address === "string" && /^\s*\d+\s*[°ºª]/u.test(address)))
   ) {
     return new Set<string>();

@@ -4417,6 +4417,49 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
     );
+    const historicalWithUnmarkedPostposedFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithUnmarkedPostposedFloor.externalOrderId =
+      "shop-order-historical-unmarked-postposed-floor";
+    historicalWithUnmarkedPostposedFloor.externalCustomerId =
+      "shop-customer-historical-unmarked-postposed-floor";
+    historicalWithUnmarkedPostposedFloor.displayNumber = "#S-HIST-UNMARKED-POSTPOSED-FLOOR";
+    historicalWithUnmarkedPostposedFloor.customer.billingAddress = {
+      line1: "Via della Scala 7",
+      line2: "2 piano",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithUnmarkedPostposedFloor.payments[0].externalPaymentId =
+      "historical-unmarked-postposed-floor-payment";
+    await orders.importOrders([historicalWithUnmarkedPostposedFloor], {
+      id: 1,
+      requestId: "test-import-historical-unmarked-postposed-floor",
+    });
+    const historicalWithUnmarkedPostposedFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithUnmarkedPostposedFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await assert.rejects(
+      orders.reconcileHistoricalOrder(
+        historicalWithUnmarkedPostposedFloorId,
+        {
+          outcome: "ALREADY_INVOICED",
+          reference: "Documento Aruba FPR 0040/26 con piano senza simbolo ordinale",
+          invoiceXml: Buffer.from(
+            historicalWithoutTaxIdXml.toString().replace("FPR 0013/26", "FPR 0040/26"),
+          ),
+          manualReviewApproved: true,
+        },
+        { id: 1, canApprove: true, requestId: "test-reject-unmarked-floor-as-civic" },
+      ),
+      (error: unknown) =>
+        error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
+    );
     const historicalWithSeparatedCivicAndUnit = structuredClone(historicalWithoutTaxId);
     historicalWithSeparatedCivicAndUnit.externalOrderId =
       "shop-order-historical-separated-civic-unit";
