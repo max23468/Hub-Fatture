@@ -3,7 +3,7 @@ name: Dependabot auto-merge
 # Il contesto privilegiato legge soltanto metadati GitHub: nessun checkout,
 # installazione, build o esecuzione del contenuto della PR.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, reopened, synchronize]
     branches: [main, codex/m8-dependabot-base]
 
