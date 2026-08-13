@@ -951,7 +951,7 @@ Lo stesso helper mantiene un inventario provider-first delle fatture e TD04 pres
 
 La sincronizzazione usa una sessione distinta dal token di batch, limitata alla sola lettura/importazione, vincolata all'installazione locale, revocabile, ruotata e con durata assoluta massima di 8 ore. Non può leggere manifest di upload, creare o consumare permessi, caricare XML o inviare documenti. Login e challenge restano umani; nessuna sessione Aruba entra in HF. L'helper viene sempre avviato volontariamente: la prima versione non si installa come elemento di login o servizio automatico del sistema operativo.
 
-I documenti esterni non generano `aruba_submissions` fittizie. HF conserva inventario, osservazioni append-only e collegamenti separati, riusa gli stati comuni `SUBMITTED`, `SDI_PROCESSING`, `DELIVERED`, `NOT_DELIVERED` e `REJECTED`, aggiorna gli esiti senza regressioni e importa un documento storico soltanto dopo XML ufficiale valido e match univoco. Gli stati di preparazione/upload restano esclusivi dei tentativi partiti da HF; etichette remote non riconosciute o terminali incompatibili aprono uno stato incerto. Gli altri casi restano in `Documenti → Da collegare` o `Da verificare`. Il piano esecutivo è in [docs/plans/aruba-inbound-reconciliation.md](plans/aruba-inbound-reconciliation.md).
+I documenti esterni non generano `aruba_submissions` fittizie. HF conserva inventario, osservazioni append-only e collegamenti separati, riusa gli stati comuni `SUBMITTED`, `SDI_PROCESSING`, `DELIVERED`, `NOT_DELIVERED` e `REJECTED`, aggiorna gli esiti senza regressioni e importa un documento storico soltanto dopo XML ufficiale valido e match univoco. Soltanto `DELIVERED` e `NOT_DELIVERED` confermano l'emissione e consumano l'unicità della fattura o il residuo dei rimborsi coperti da una TD04: gli stati intermedi sospendono il caso senza chiuderlo, mentre `REJECTED` conserva il tentativo ma lascia possibile la revisione/riedizione e non genera note di credito. Una TD04 esterna emessa collega atomicamente tutti e soli i rimborsi completati che copre, impostando il loro `credit_document_id` sotto lo stesso lock usato dal processo di generazione, così nessun rimborso può essere riaccreditato. Gli stati di preparazione/upload restano esclusivi dei tentativi partiti da HF; etichette remote non riconosciute o terminali incompatibili aprono uno stato incerto. Gli altri casi restano in `Documenti → Da collegare` o `Da verificare`. Il piano esecutivo è in [docs/plans/aruba-inbound-reconciliation.md](plans/aruba-inbound-reconciliation.md).
 
 ### 10.3 Modalità selezionabili in Impostazioni
 
@@ -1242,6 +1242,8 @@ Nessuna e-mail operativa nella 1.x: gli avvisi critici devono essere evidenti qu
 - Collegamento alla Preparazione fattura.
 - Documento Aruba collegato, stato SdI e freschezza del readback quando disponibili.
 - Un match su un solo ordine di una preparazione multi-ordine invalida atomicamente la bozza materializzata, esclude soltanto l'ordine coperto e rigenera una preparazione con i residui ancora fatturabili; un errore ripristina l'intera transazione.
+- La chiusura e la separazione avvengono soltanto dopo `DELIVERED` o `NOT_DELIVERED`: uno stato intermedio sospende la preparazione e `REJECTED` mantiene l'ordine disponibile per revisione/riedizione.
+- Una TD04 esterna emessa collega atomicamente i rimborsi completati coperti; rimborsi ambigui, già collegati altrove o non riconciliabili non vengono consumati automaticamente.
 - Forzatura manuale della generazione bozza.
 - Archivio annullati.
 
@@ -1649,7 +1651,7 @@ Cronologia append-only delle osservazioni del pannello e dei file ufficiali, col
 
 #### `aruba_document_matches`
 
-Collegamenti fra inventario remoto e documenti, ordini o preparazioni locali, con stato `MATCHED`, `UNMATCHED`, `AMBIGUOUS`, `PROFILE_CONFLICT`, `ERROR` o `UNKNOWN_REMOTE_STATE`, segnali/versione del matcher e decisione automatica o manuale auditata. Un match automatico richiede unicità e XML ufficiale coerente; il solo totale non è mai sufficiente.
+Collegamenti fra inventario remoto e documenti, ordini, preparazioni o rimborsi locali, con stato `MATCHED`, `UNMATCHED`, `AMBIGUOUS`, `PROFILE_CONFLICT`, `ERROR` o `UNKNOWN_REMOTE_STATE`, segnali/versione del matcher e decisione automatica o manuale auditata. Un match automatico richiede unicità e XML ufficiale coerente; il solo totale non è mai sufficiente. Per le TD04 il collegamento identifica l'insieme esatto dei rimborsi coperti e aggiorna `credit_document_id` atomicamente soltanto dopo un esito che conferma l'emissione.
 
 #### `aruba_sync_sessions`
 
@@ -3152,6 +3154,8 @@ Gate:
 - nessun ordine storico approvabile senza riconciliazione;
 - nessuna preparazione approvabile quando l'inventario Aruba è assente, bloccante o incerto; la Dashboard non combina `Mai letto` con `Tutto sotto controllo`;
 - scansione completa della finestra rilevante a ogni avvio, inclusi cambio d'anno e precedenti non terminali, aggiornamento incrementale, lease concorrente, matching prudenziale, riconciliazione parziale multi-ordine, ownership file/notifiche e sessione read-only di 8 ore verificati senza capacità di upload o invio;
+- TD04 esterne emesse collegate atomicamente ai rimborsi coperti, con concorrenza incapace di generare un secondo accredito;
+- documento esterno scartato conservato come tentativo senza chiudere l'ordine, consumare l'unicità di emissione o impedire una nuova revisione;
 - commit, digest, schema, backup, rollback e kill switch verificati;
 - nessun documento approvato o trasmissibile e nessun upload Aruba pendente;
 - prova end-to-end dell'auto-merge Dependabot chiusa senza auto-approvazione né esecuzione privilegiata del codice PR; qualsiasi esito non riconosciuto ha lasciato la PR aperta e gli eventuali branch, regole e trigger temporanei sono stati rimossi dopo la prova;
@@ -3464,7 +3468,9 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Dashboard, approvazione e numerazione rispettano `Mai letto`, avviso a un'ora e blocco a 24 ore/stato incerto; l'override singolo motivato del solo titolare supera esclusivamente la freschezza dopo verifica manuale e non match, conflitti o stati incerti.
 - [ ] Deduplicazione confinata per account/ambiente, ownership esclusiva submission/remote document dei file/notifiche e mapping monotono degli stati verificati.
 - [ ] Documenti Aruba non collegati, match ambigui e conflitti di profilo compaiono in `Documenti → Da collegare`, `Da verificare` e `Attività` senza creare ordini.
-- [ ] Match su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.
+- [ ] Match emesso su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.
+- [ ] TD04 esterna `DELIVERED`/`NOT_DELIVERED` collega atomicamente tutti e soli i rimborsi coperti e una corsa concorrente non può creare una seconda nota per gli stessi rimborsi.
+- [ ] Documento esterno `REJECTED` conserva XML, match e audit ma non chiude l'ordine come fatturato, non consuma il residuo e consente la revisione/riedizione prevista.
 - [ ] Nessun ordine storico approvabile senza verifica.
 - [x] Account Aruba confermato senza 2FA e con protezione OTP su **Carica Fatture** disattivata; l'helper non presume un SMS ordinario e resta fail-closed davanti a challenge inattese.
 - [x] Autorizzazione specifica ottenuta per la sola prova controllata.
