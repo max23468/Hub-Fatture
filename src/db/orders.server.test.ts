@@ -4544,6 +4544,46 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-civic-before-floor" },
     );
+    const historicalWithOrdinalFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithOrdinalFloor.externalOrderId = "shop-order-historical-ordinal-floor";
+    historicalWithOrdinalFloor.externalCustomerId = "shop-customer-historical-ordinal-floor";
+    historicalWithOrdinalFloor.displayNumber = "#S-HIST-ORDINAL-FLOOR";
+    historicalWithOrdinalFloor.customer.billingAddress = {
+      line1: "Via Roma",
+      line2: "10, 2° piano",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithOrdinalFloor.payments[0].externalPaymentId = "historical-ordinal-floor-payment";
+    await orders.importOrders([historicalWithOrdinalFloor], {
+      id: 1,
+      requestId: "test-import-historical-ordinal-floor",
+    });
+    const historicalWithOrdinalFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithOrdinalFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithOrdinalFloorId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0099/26 con ordinale prima del piano",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0099/26")
+            .replace("Via della Scala", "Via Roma")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-civic-before-ordinal-floor" },
+    );
     const historicalWithSeparatedUnitNumber = structuredClone(historicalWithoutTaxId);
     historicalWithSeparatedUnitNumber.externalOrderId =
       "shop-order-historical-separated-unit-number";
@@ -5191,7 +5231,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "33",
+      "34",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

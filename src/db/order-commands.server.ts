@@ -507,7 +507,16 @@ function structuredStreetNumberCandidates(
   ) {
     return new Set<string>();
   }
-  const addressParts = withoutAddressUnits(normalizedParts, unitMarkers);
+  let addressParts = withoutAddressUnits(normalizedParts, unitMarkers);
+  const ordinalBeforeUnit =
+    typeof address === "string" ? address.match(/(\d+)\s*[°ºª]\s*(\p{L}+)/iu) : null;
+  if (
+    ordinalBeforeUnit &&
+    unitMarkers.has(normalizedIdentityPart(ordinalBeforeUnit[2])) &&
+    addressParts.at(-1) === ordinalBeforeUnit[1]
+  ) {
+    addressParts = addressParts.slice(0, -1);
+  }
   const candidates = new Set<string>();
   const first = addressParts[0] ?? "";
   const second = addressParts[1] ?? "";
