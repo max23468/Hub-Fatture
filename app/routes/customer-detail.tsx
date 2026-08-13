@@ -5,6 +5,7 @@ import type { Route } from "./+types/customer-detail";
 import { AppShell } from "../components/app-shell";
 import { CustomerDetailView } from "../components/customer-detail-view";
 import { customerKindLabels, copy } from "../copy.it";
+import { privateRouteMeta } from "../metadata";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 import { getCustomer } from "../../src/db/customers.server.ts";
 
@@ -20,8 +21,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   };
 }
 
-export function meta(_: Route.MetaArgs) {
-  return [{ title: "Cliente · Hub Fatture" }];
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("customer", { error });
 }
 
 export default function CustomerDetail() {

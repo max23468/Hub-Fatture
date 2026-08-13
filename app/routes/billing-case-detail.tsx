@@ -1,4 +1,5 @@
 import { Form, Link, useActionData, useLoaderData } from "react-router";
+import type { Route } from "./+types/billing-case-detail";
 
 import { AppShell } from "../components/app-shell";
 import { ComparisonTable } from "../components/comparison-table";
@@ -17,11 +18,21 @@ import {
   taxIdentifierLabels,
 } from "../copy.it";
 import { date, dateTime, euros } from "../format";
+import { privateRouteMeta } from "../metadata";
 import type { SortValue } from "../table-sort";
 import type { getInvoiceProjection } from "../../src/db/documents.server.ts";
 import { action, loader } from "./billing-case-detail.server.ts";
 
 export { action, loader };
+
+export function meta({ error, loaderData }: Route.MetaArgs) {
+  return privateRouteMeta("preparation", {
+    error,
+    title: loaderData?.billingCase
+      ? copy.preparation.title(loaderData.billingCase.public_number)
+      : undefined,
+  });
+}
 
 type InvoiceProjection = Extract<
   NonNullable<Awaited<ReturnType<typeof getInvoiceProjection>>>,

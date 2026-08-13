@@ -14,7 +14,12 @@ import type { Route } from "./+types/aruba-synthetic";
 
 import { DetailSectionHeader } from "../components/detail-section-header";
 import { copy } from "../copy.it";
+import { privateRouteMeta } from "../metadata";
 import { getConfig } from "../../src/config.server.ts";
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("arubaSynthetic", { error });
+}
 
 export function loader({ request }: Route.LoaderArgs) {
   if (getConfig().APP_ENV === "production") throw new Response("Non disponibile", { status: 404 });

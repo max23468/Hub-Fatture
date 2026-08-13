@@ -85,3 +85,9 @@ Il testo è diretto e impersonale. Mostra prima il fatto osservato, poi la conse
 Il frontend usa parole legate al lavoro del commerciante: `ordini di esempio`, `canale di vendita`, `dati ricevuti` e `quando preparare le fatture`. Termini interni come `fixture`, `trigger`, `provider`, `sorgente`, `normalizzato` e `sandbox` restano nel codice e nella documentazione tecnica.
 
 Il marchio identifica l’app e non è un indicatore di stato. Non va deformato, ricolorato per errori o successi, oppure combinato con i marchi Shopify, eBay o Aruba. La variante chiara si usa soltanto su fondi scuri; la favicon usa il contenitore dedicato.
+
+## Metadati browser e indicizzazione
+
+Ogni pagina visuale usa un titolo nel formato `Pagina · Hub Fatture`, una descrizione coerente con il contenuto e gli stessi metadati di identità per browser e anteprime social. I dettagli possono aggiungere soltanto identificativi operativi utili; nomi cliente, dati fiscali, indirizzi, importi e altri dati riservati non entrano nei metadati.
+
+Hub Fatture resta un’applicazione privata: tutte le risposte dichiarano `noindex`, `nofollow`, `noarchive`, `nosnippet` e `noimageindex`, mentre `robots.txt` vieta ogni scansione. Finché non esiste una superficie pubblica approvata non vengono pubblicati sitemap, canonical, dati strutturati JSON-LD o metadati promozionali indicizzabili.

@@ -1352,6 +1352,51 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toContainText("Inviata");
 });
 
+test("titoli e metadati identificano le pagine senza renderle indicizzabili", async ({ page }) => {
+  await page.goto("/login");
+  await expect(page).toHaveTitle("Accedi · Hub Fatture");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+    "content",
+    "noindex, nofollow, noarchive, nosnippet, noimageindex",
+  );
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute(
+    "content",
+    "Accedi · Hub Fatture",
+  );
+  await expect(page.locator('meta[name="theme-color"]')).toHaveCount(2);
+
+  await page.getByLabel("Nome utente").fill("mAsSiMo");
+  await page.getByLabel("Password").fill("password-massimo");
+  await page.getByRole("button", { name: "Accedi" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+
+  const pages = [
+    ["/", "Dashboard · Hub Fatture"],
+    ["/ordini", "Ordini · Hub Fatture"],
+    ["/documenti", "Documenti · Hub Fatture"],
+    ["/clienti", "Clienti · Hub Fatture"],
+    ["/attivita", "Attività · Hub Fatture"],
+    ["/impostazioni", "Impostazioni · Hub Fatture"],
+  ] as const;
+
+  for (const [path, title] of pages) {
+    await page.goto(path);
+    await expect(page).toHaveTitle(title);
+    await expect(page.locator('meta[name="description"]')).toHaveCount(1);
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    );
+  }
+
+  await page.goto("/ordini/ordine-inesistente-di-esempio");
+  await expect(page).toHaveTitle("La pagina non esiste · Hub Fatture");
+
+  await page.goto("/pagina-inesistente-di-esempio");
+  await expect(page).toHaveTitle("La pagina non esiste · Hub Fatture");
+});
+
 test("l’archivio Documenti resta leggibile con decine di elementi", async ({ page }) => {
   test.setTimeout(120_000);
   const client = new pg.Client({ connectionString: databaseUrl });
@@ -1635,7 +1680,15 @@ test("le risposte dichiarano gli header di sicurezza minimi", async ({ request }
   expect(headers["content-security-policy"]).toContain("frame-ancestors 'none'");
   expect(headers["x-content-type-options"]).toBe("nosniff");
   expect(headers["referrer-policy"]).toBe("same-origin");
+  expect(headers["x-robots-tag"]).toBe("noindex, nofollow, noarchive, nosnippet, noimageindex");
   expect(headers["cache-control"]).toBe("no-store, private");
+
+  const robots = await request.get("/robots.txt");
+  expect(robots.headers()["content-type"]).toContain("text/plain");
+  expect(await robots.text()).toBe("User-agent: *\nDisallow: /\n");
+  expect(robots.headers()["x-robots-tag"]).toBe(
+    "noindex, nofollow, noarchive, nosnippet, noimageindex",
+  );
 
   await request.post("/login", {
     headers: { origin: appBaseUrl },

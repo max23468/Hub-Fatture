@@ -8,10 +8,13 @@ import {
   ScrollRestoration,
   useRouteError,
 } from "react-router";
+import type { MetaFunction } from "react-router";
 
 import { PublicCardHeader, PublicPage } from "./components/public-page";
 import { copy } from "./copy.it";
+import { privateRouteMeta } from "./metadata";
 import favicon from "../docs/brand/assets/favicon.svg?url";
+import appIcon from "../docs/brand/assets/shopify-app-icon.png?url";
 import "./styles.css";
 
 const uiBootstrap = `try{const t=localStorage.getItem("tema");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;const s=localStorage.getItem("sidebar");const n=matchMedia("(min-width:48.0625rem) and (max-width:63.999rem)").matches;document.documentElement.dataset.sidebar=s==="collapsed"||(s!=="expanded"&&n)?"collapsed":"expanded"}catch{}`;
@@ -24,6 +27,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <Meta />
         <link rel="icon" href={favicon} type="image/svg+xml" />
+        <link rel="apple-touch-icon" href={appIcon} />
         <script dangerouslySetInnerHTML={{ __html: uiBootstrap }} />
         <Links />
       </head>
@@ -39,6 +43,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   return <Outlet />;
 }
+
+export const meta: MetaFunction = ({ error }) => {
+  return privateRouteMeta("app", { error });
+};
 
 export function ErrorBoundary() {
   const error = useRouteError();

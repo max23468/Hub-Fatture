@@ -5,8 +5,13 @@ import type { Route } from "./+types/login";
 import { actionResult } from "../action";
 import { PublicCardHeader, PublicPage } from "../components/public-page";
 import { copy } from "../copy.it";
+import { privateRouteMeta } from "../metadata";
 import { clientIpHash, getSessionUser, login, requestId } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("login", { error });
+}
 
 export async function loader({ request }: Route.LoaderArgs) {
   if (await getSessionUser(request)) throw redirect("/");
