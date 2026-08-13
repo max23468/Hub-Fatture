@@ -591,12 +591,13 @@ async function reconcileRemoteDocument(
     },
   }));
   const matchCandidates = evaluatedCandidates.map((candidate) => candidate.matchCandidate);
+  const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const groupedOrderCandidates = groupOrderCandidates(matchCandidates).filter(
     (candidate) => (candidate.orderIds?.length ?? 1) > 1,
   );
   if (remote.documentType === "TD01") {
     for (const grouped of groupedOrderCandidates) {
-      const anchor = candidates.find((candidate) => candidate.id === grouped.id)!;
+      const anchor = candidatesById.get(grouped.id)!;
       evaluatedCandidates.push({ source: anchor, matchCandidate: grouped });
     }
   } else {
@@ -629,19 +630,22 @@ async function reconcileRemoteDocument(
         );
       }
       if (selectedByOrder.size < 2) continue;
-      const selectedCandidates = invoiceCandidates
-        .filter((candidate) => selectedByOrder.has(candidate.id))
-        .map((candidate) => ({
+      const selectedCandidates = [];
+      for (const candidate of invoiceCandidates) {
+        const selectedAmount = selectedByOrder.get(candidate.id);
+        if (selectedAmount === undefined) continue;
+        selectedCandidates.push({
           id: candidate.id,
           billingCaseId: candidate.invoice_document_id,
           provider: candidate.provider,
           displayNumber: candidate.display_number,
           localOrderDate: candidate.local_order_date,
-          billableAmount: selectedByOrder.get(candidate.id)!,
+          billableAmount: selectedAmount,
           recipientName: candidate.recipient_name,
           recipientTaxIds: candidate.recipient_tax_ids,
           recipientAddress: candidate.recipient_address,
-        }));
+        });
+      }
       const grouped = groupOrderCandidates(selectedCandidates)[0]!;
       const anchor = invoiceCandidates.find((candidate) => candidate.id === grouped.id)!;
       evaluatedCandidates.push({
