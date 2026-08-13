@@ -423,6 +423,52 @@ test(
       ).rows[0];
       assert.deepEqual(retried, { status: "SENT", attempt_count: 2, last_error_sanitized: null });
 
+      const suppressedRetryId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
+        ...owner,
+        requestId: "email-temporary-before-disable",
+      });
+      const suppressedRetryJob = await claimEmailJob(
+        suppressedRetryId,
+        "email-temporary-before-disable",
+      );
+      await assert.rejects(
+        email.sendCustomerEmail(suppressedRetryJob, async () => {
+          throw Object.assign(new Error("synthetic temporary SMTP rejection"), {
+            command: "DATA",
+            responseCode: 451,
+          });
+        }),
+        (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_TEMPORARY",
+      );
+      assert.equal(await jobs.failJob(suppressedRetryJob, "EMAIL_DELIVERY_TEMPORARY"), false);
+      const settingsBeforeRetrySuppression = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("DISABLED", settingsBeforeRetrySuppression.version, {
+        ...owner,
+        requestId: "email-disable-with-temporary-retry",
+      });
+      const settingsAfterRetrySuppression = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", settingsAfterRetrySuppression.version, {
+        ...owner,
+        requestId: "email-restore-after-temporary-retry",
+      });
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT email_deliveries.status, email_deliveries.last_error_code,
+                    jobs.status AS job_status
+             FROM email_deliveries
+             JOIN jobs ON jobs.payload_json ->> 'deliveryId' = email_deliveries.id::text
+             WHERE email_deliveries.id = $1`,
+            [suppressedRetryId],
+          )
+        ).rows[0],
+        {
+          status: "FAILED",
+          last_error_code: "EMAIL_DELIVERY_DISABLED",
+          job_status: "COMPLETED",
+        },
+      );
+
       const permanentId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
         id: Number(user.rows[0]!.id),
         canApprove: true,

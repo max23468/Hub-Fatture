@@ -83,11 +83,18 @@ export async function setCustomerEmailMode(
     if (updated.rowCount !== 1) throw new AppError("CONFLICT_REVISION", 409);
     if (mode.data === "DISABLED") {
       await client.query(
-        `WITH suppressed AS (
+        `WITH active_deliveries AS MATERIALIZED (
+           SELECT payload_json ->> 'deliveryId' AS id
+           FROM jobs
+           WHERE type = 'send_customer_email' AND status IN ('PENDING', 'RUNNING')
+         ), suppressed AS (
            UPDATE email_deliveries SET status = 'FAILED', send_started_at = NULL,
              last_error_code = 'EMAIL_DELIVERY_DISABLED',
              last_error_sanitized = 'EMAIL_DELIVERY_DISABLED', updated_at = now()
-           WHERE status = 'PENDING' AND send_started_at IS NULL
+           WHERE send_started_at IS NULL
+             AND (status = 'PENDING' OR (
+               status = 'FAILED' AND id::text IN (SELECT id FROM active_deliveries)
+             ))
            RETURNING id
          ), completed_jobs AS (
            UPDATE jobs SET status = 'COMPLETED', completed_at = now(),
