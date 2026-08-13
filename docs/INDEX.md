@@ -15,6 +15,7 @@
 | [Audit Aruba e profilo FatturaPA](evidence/aruba-fatturapa-profile.md) | Profilo fiscale, numerazione e prove anonimizzate         | Corrente    | No             |
 | [Attivazione profilo fiscale](runbooks/fiscal-profile.md)              | Procedura sicura da XML accettato a profilo versionato    | Corrente    | Sì             |
 | [Contratto helper Aruba](contracts/aruba-helper.md)                    | Manifest, sicurezza e locatori candidati                  | Candidato   | Sì             |
+| [Piano Aruba in entrata][aruba-inbound-plan]                           | Inventario, matching, gate, UI e rollout                  | Approvato   | No             |
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                    | Export, upload manuale, readback e import                 | Corrente    | Sì             |
 | [Integrazione Aruba locale](evidence/aruba-helper.md)                  | Capacità locali e gate reale pre-Canary                   | Corrente    | No             |
 | [Note di credito ed e-mail](contracts/credit-notes-email.md)           | Contratto TD04, trigger e trasporto cliente               | Candidato   | Sì             |
@@ -27,5 +28,7 @@
 | [Evidenza Production OCI](evidence/production-oci.md)                  | Gate locali e ricevute remote della Production OCI        | Verificato  | No             |
 | [Audit del release candidate](audits/release-candidate-review.md)      | Audit trasversale e finding del candidato corrente        | Corrente    | No             |
 | [Readiness della release](runbooks/release-readiness.md)               | Gate chiusi, prove collegate e blocchi prima del canary   | Corrente    | No             |
+
+[aruba-inbound-plan]: plans/aruba-inbound-reconciliation.md
 
 Nuovi contratti, evidenze e runbook vengono creati soltanto quando esiste contenuto reale.
