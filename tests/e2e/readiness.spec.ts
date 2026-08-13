@@ -6,6 +6,7 @@ import path from "node:path";
 import pg from "pg";
 
 import { runHelper } from "../../scripts/aruba-helper.ts";
+import { SESSION_TTL_SECONDS } from "../../src/config.server.ts";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
@@ -87,6 +88,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("button", { name: "Accedi" }).click();
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  const persistentCookies = (await page.context().cookies()).filter(({ name }) =>
+    ["csrf", "sessione"].includes(name),
+  );
+  expect(persistentCookies).toHaveLength(2);
+  const expectedExpiry = Date.now() / 1000 + SESSION_TTL_SECONDS;
+  expect(persistentCookies.every(({ expires }) => Math.abs(expires - expectedExpiry) < 60)).toBe(
+    true,
+  );
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/pagina-inesistente-di-esempio");
   await expect(page.getByRole("heading", { name: "La pagina non esiste" })).toBeVisible();
@@ -221,6 +230,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     ),
   ).toBeVisible();
   await expect(page.getByText("Questa sessione", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Ogni accesso resta valido per un anno/)).toBeVisible();
   await expect(page.locator('.settings-nav__item[aria-current="location"]')).toHaveText(
     "Profilo e sicurezza",
   );

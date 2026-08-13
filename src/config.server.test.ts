@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseConfig } from "./config.server.ts";
+import { parseConfig, SESSION_TTL_SECONDS } from "./config.server.ts";
 
-test("la configurazione applica i limiti delle sessioni", () => {
+test("la configurazione applica i vincoli operativi", () => {
   const base = {
     ADMIN_BOOTSTRAP_TOKEN: "x".repeat(32),
     APP_BASE_URL: "http://localhost:8080",
     APP_ENV: "test",
     DATABASE_URL: "postgres://example.invalid/test",
   };
-  assert.equal(parseConfig(base).SESSION_TTL_SECONDS, 28_800);
+  assert.equal(SESSION_TTL_SECONDS, 31_536_000);
   assert.deepEqual(
     parseConfig({ ...base, SMTP_HOST: "", SMTP_PASSWORD: "", SMTP_USERNAME: "" }),
     parseConfig(base),
@@ -27,7 +27,6 @@ test("la configurazione applica i limiti delle sessioni", () => {
     43,
   );
   assert.throws(() => parseConfig({ ...base, CREDENTIALS_ENCRYPTION_KEY: "troppo-corta" }));
-  assert.throws(() => parseConfig({ ...base, SESSION_TTL_SECONDS: "299" }));
   assert.throws(() =>
     parseConfig({ ...base, APP_ENV: "production", APP_BASE_URL: "http://example.invalid" }),
   );

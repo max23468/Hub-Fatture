@@ -2019,7 +2019,7 @@ Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` dev
 - Password di almeno 8 e non oltre 128 caratteri, hashate con `node:crypto.scrypt` e verificate con confronto constant-time.
 - Bootstrap unico e atomico: entrambi gli account vengono creati insieme oppure non viene creato nessuno dei due.
 - Session cookie `HttpOnly`, `Secure`, `SameSite`.
-- Scadenza sessione e revoca. Ogni account può cambiare la propria password confermando quella attuale; il cambio conserva la sessione corrente e revoca tutte le altre. La UI elenca soltanto date affidabili di creazione, ultima attività e scadenza, senza dedurre dispositivo, posizione o IP.
+- Sessioni persistenti indipendenti per ogni accesso e dispositivo, con scadenza fissa a un anno e revoca esplicita. Ogni account può cambiare la propria password confermando quella attuale; il cambio conserva la sessione corrente e revoca tutte le altre. La UI elenca soltanto date affidabili di creazione, ultima attività e scadenza, senza dedurre dispositivo, posizione o IP.
 - Rate limiting login.
 - CSRF per azioni mutative se il framework non lo copre.
 
