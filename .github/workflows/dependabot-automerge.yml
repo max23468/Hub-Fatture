@@ -15,22 +15,30 @@ jobs:
   enable-automerge:
     name: Abilita auto-merge sicuro
     if: >-
-      github.event.pull_request.user.login == 'dependabot[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event.pull_request.user.login == 'dependabot[bot]' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event.pull_request.user.login == github.repository_owner &&
+       github.event.pull_request.base.ref == 'codex/m8-dependabot-base' &&
+       github.event.pull_request.head.ref == 'dependabot/github_actions/main/millionco/react-doctor-01820bb4fd4d0a4aebcd8df2b2a143a098649cb2' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Leggi i metadati Dependabot
         id: metadata
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Abilita auto-merge per minor e patch npm e GitHub Actions
         if: >-
-          (steps.metadata.outputs.package-ecosystem == 'npm' ||
-           steps.metadata.outputs.package-ecosystem == 'github_actions') &&
-          (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
-           steps.metadata.outputs.update-type == 'version-update:semver-minor')
+          ((steps.metadata.outputs.package-ecosystem == 'npm' ||
+            steps.metadata.outputs.package-ecosystem == 'github_actions') &&
+           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+            steps.metadata.outputs.update-type == 'version-update:semver-minor')) ||
+          (github.event.pull_request.user.login == github.repository_owner &&
+           github.event.pull_request.base.ref == 'codex/m8-dependabot-base' &&
+           github.event.pull_request.head.ref == 'dependabot/github_actions/main/millionco/react-doctor-01820bb4fd4d0a4aebcd8df2b2a143a098649cb2')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
