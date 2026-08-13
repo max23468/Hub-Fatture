@@ -327,6 +327,8 @@ const addressUnitMarkers = new Set([
 const secondAddressLineUnitMarkers = new Set([
   ...addressUnitMarkers,
   "edificio",
+  "dg",
+  "eg",
   "etage",
   "geschoss",
   "interno",
@@ -336,12 +338,16 @@ const secondAddressLineUnitMarkers = new Set([
   "pietro",
   "piso",
   "planta",
+  "og",
   "scala",
   "stock",
+  "ug",
 ]);
 
 const postposedFloorMarkers = new Set([
   "et",
+  "dg",
+  "eg",
   "etage",
   "etaj",
   "floor",
@@ -350,7 +356,9 @@ const postposedFloorMarkers = new Set([
   "pietro",
   "piso",
   "planta",
+  "og",
   "stock",
+  "ug",
 ]);
 const numberedStreetQualifiers = new Set([
   "comunale",
