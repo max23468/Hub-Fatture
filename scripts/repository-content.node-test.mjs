@@ -389,6 +389,13 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
 });
 
+test("la riconciliazione Aruba non tronca i candidati fiscali", async () => {
+  const inbound = await readFile(path.join(root, "src/db/aruba-inbound.server.ts"), "utf8");
+  assert.doesNotMatch(inbound, /LIMIT 500/);
+  assert.match(inbound, /jsonb_array_elements_text\([\s\S]*candidate -> 'orderIds'/);
+  assert.match(inbound, /remote\.remote_status <> 'REJECTED'/);
+});
+
 test("il job PostgreSQL installa il validatore XML usato dalle suite DB", async () => {
   const [workflow, packageJson] = await Promise.all([
     readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8"),

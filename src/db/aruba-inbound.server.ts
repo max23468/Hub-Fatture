@@ -491,8 +491,7 @@ async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDoc
      ) AS invoice ON true
      WHERE orders.local_order_date BETWEEN $1::date - 31 AND $1::date + 31
        AND orders.trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
-     ORDER BY orders.id
-     LIMIT 500`,
+     ORDER BY orders.id`,
     [remote.documentDate],
   );
   return result.rows;
@@ -541,8 +540,7 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
      ) AS refundable ON refundable.amount > 0
      WHERE coalesce(refundable.refund_date, invoice.document_date)
        BETWEEN $1::date - 31 AND $1::date + 31
-     ORDER BY orders.id
-     LIMIT 500`,
+     ORDER BY orders.id`,
     [remote.documentDate],
   );
   return result.rows;
@@ -2591,8 +2589,15 @@ export async function completeArubaPreflight(
            matches.order_id::text = ANY($3::text[])
            OR EXISTS (
              SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-             WHERE candidate ->> 'candidateId' = ANY($3::text[])
-               AND coalesce((candidate ->> 'compatible')::boolean, false)
+             WHERE coalesce((candidate ->> 'compatible')::boolean, false) AND (
+               candidate ->> 'candidateId' = ANY($3::text[])
+               OR EXISTS (
+                 SELECT 1 FROM jsonb_array_elements_text(
+                   coalesce(candidate -> 'orderIds', '[]'::jsonb)
+                 ) candidate_order_id
+                 WHERE candidate_order_id = ANY($3::text[])
+               )
+             )
            )
          ) LIMIT 1`,
       [
@@ -2841,6 +2846,7 @@ export async function finalizeArubaManualReadback(readbackId: string, actor: Aru
       `SELECT count(*) FROM aruba_document_matches matches
        JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
        WHERE remote.environment = $1 AND remote.account_reference = $2
+         AND remote.remote_status <> 'REJECTED'
          AND matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')`,
       [environment(), accountReference()],
     );

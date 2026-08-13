@@ -857,6 +857,11 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          'SYNTHETIC_FAILURE')`,
       [actor.id],
     );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches SET status = 'AMBIGUOUS', method = 'NONE'
+       WHERE remote_document_id = $1`,
+      [rejectedRemote.rows[0]!.id],
+    );
     assert.deepEqual(await inbound.finalizeArubaManualReadback(manualReadback.id, actor), {
       completed: true,
       repeated: false,
@@ -1267,6 +1272,61 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       }),
       { passed: true },
     );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_preflight_receipts WHERE id = $1", [creditReceiptId]);
+
+    await database.getPool().query(
+      `UPDATE aruba_document_matches SET status = 'UNMATCHED', method = 'NONE',
+         order_id = NULL, document_id = NULL,
+         candidates_json = jsonb_build_array(jsonb_build_object(
+           'candidateId', 'anchor-order', 'orderIds', jsonb_build_array('999999'),
+           'compatible', true
+         ))
+       WHERE remote_document_id = (
+         SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-TYPED-TD01'
+       )`,
+    );
+    const groupedReceiptId = "40000000-0000-4000-8000-000000000006";
+    await database.getPool().query(
+      `INSERT INTO aruba_preflight_receipts
+        (id, environment, account_reference, billing_case_id, document_id, draft_version,
+         projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
+         status, claimed_at)
+       VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('a', 64), 0,
+         $6, jsonb_build_object('documentType', 'TD01', 'orderIds', jsonb_build_array('999999')),
+         'RUNNING', now())`,
+      [
+        groupedReceiptId,
+        currentDraft.rows[0]!.billing_case_id,
+        currentDraft.rows[0]!.id,
+        currentDraft.rows[0]!.draft_version,
+        currentDraft.rows[0]!.projection_sha256,
+        actor.id,
+      ],
+    );
+    for (const [index, stream] of ["invoices:2026", "credit-notes:2026"].entries()) {
+      await inbound.ingestArubaInventoryPage(resumedSession.token, {
+        stream,
+        scanOrdinal: 6,
+        pageOrdinal: 1,
+        cursor: `grouped-preflight-${index + 1}`,
+        terminal: true,
+        fullScan: false,
+        documents: [],
+      });
+    }
+    assert.deepEqual(
+      await inbound.completeArubaPreflight(resumedSession.token, {
+        receiptId: groupedReceiptId,
+        candidateRemoteIds: [],
+        searchesCompleted: true,
+      }),
+      { passed: false },
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_remote_documents WHERE remote_id = 'REMOTE-TYPED-TD01'");
 
     await inbound.ingestArubaInventoryPage(resumedSession.token, {
       ...invoicePage,
