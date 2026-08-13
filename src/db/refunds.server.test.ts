@@ -464,6 +464,11 @@ test(
       );
       const recoveredJob = await claimEmailJob(crashId, "email-recovered");
       assert.equal(recoveredJob?.id, crashedJob?.id);
+      const settingsBeforeRecoveredJob = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("DISABLED", settingsBeforeRecoveredJob.version, {
+        ...owner,
+        requestId: "email-disabled-after-send-started",
+      });
       await assert.rejects(
         email.sendCustomerEmail(recoveredJob!),
         (error) => error instanceof AppError && error.code === "EMAIL_DELIVERY_UNCERTAIN",
@@ -482,6 +487,11 @@ test(
         "APPROVED",
       );
       assert.equal(await jobs.failJob(recoveredJob!, "EMAIL_DELIVERY_UNCERTAIN"), true);
+      const settingsAfterRecoveredJob = await email.getCustomerEmailSettings();
+      await email.setCustomerEmailMode("MANUAL", settingsAfterRecoveredJob.version, {
+        ...owner,
+        requestId: "email-restored-after-uncertain-send",
+      });
       await assert.rejects(
         email.retryCustomerEmail(invoice.rows[0]!.id, {
           id: Number(user.rows[0]!.id),

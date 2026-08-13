@@ -317,25 +317,6 @@ export async function sendCustomerEmail(
     await assertJobLease(client, job);
     const current = await loadDelivery(client, deliveryId);
     if (!current || current.status === "SENT") return null;
-    if (await customerEmailIsDisabled(client)) {
-      await client.query(
-        `UPDATE email_deliveries SET status = 'FAILED', send_started_at = NULL,
-           last_error_code = 'EMAIL_DELIVERY_DISABLED',
-           last_error_sanitized = 'EMAIL_DELIVERY_DISABLED', updated_at = now()
-         WHERE id = $1`,
-        [deliveryId],
-      );
-      await writeAudit(client, {
-        actorType: "SYSTEM",
-        action: "CUSTOMER_EMAIL_SUPPRESSED",
-        eventClass: "CRITICAL",
-        entityType: "EMAIL_DELIVERY",
-        entityId: deliveryId,
-        reason: "EMAIL_DELIVERY_DISABLED",
-        requestId: `customer-email:${deliveryId}`,
-      });
-      return null;
-    }
     if (current.status === "PENDING" && current.send_started_at) {
       await client.query(
         `UPDATE email_deliveries SET status = 'FAILED',
@@ -354,6 +335,25 @@ export async function sendCustomerEmail(
         requestId: `customer-email:${deliveryId}`,
       });
       return { uncertain: true as const };
+    }
+    if (await customerEmailIsDisabled(client)) {
+      await client.query(
+        `UPDATE email_deliveries SET status = 'FAILED', send_started_at = NULL,
+           last_error_code = 'EMAIL_DELIVERY_DISABLED',
+           last_error_sanitized = 'EMAIL_DELIVERY_DISABLED', updated_at = now()
+         WHERE id = $1`,
+        [deliveryId],
+      );
+      await writeAudit(client, {
+        actorType: "SYSTEM",
+        action: "CUSTOMER_EMAIL_SUPPRESSED",
+        eventClass: "CRITICAL",
+        entityType: "EMAIL_DELIVERY",
+        entityId: deliveryId,
+        reason: "EMAIL_DELIVERY_DISABLED",
+        requestId: `customer-email:${deliveryId}`,
+      });
+      return null;
     }
     const started = await client.query(
       `UPDATE email_deliveries SET status = 'PENDING', attempt_count = attempt_count + 1,
