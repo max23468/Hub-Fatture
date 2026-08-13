@@ -195,6 +195,11 @@ e quando un rimborso di prova produce correttamente:
 | HF-F30 | Valutare OCI Email Delivery in Development e selezionare un solo trasporto SMTP canonico prima dell'uso Production | Confermato come PoC; adozione OCI condizionata |
 | HF-F31 | Eseguire il flusso Aruba ordinario tramite un helper locale unico per Windows e macOS, usando Chrome o Edge; Safari resta supportato solo per il fallback manuale | Confermato |
 | HF-F32 | Offrire in Impostazioni le modalità `Assistita` e `Automatica dopo conferma`, con `Assistita` come default | Confermato |
+| HF-F33 | Inventariare dall'account Aruba fatture e TD04 anche quando non sono stati generati da HF, con prima scansione dell'anno fiscale corrente estesa agli ordini ancora riconciliabili e ai documenti precedenti non terminali, poi aggiornamenti incrementali | Confermato |
+| HF-F34 | Collegare automaticamente un documento Aruba a ordini e documenti locali soltanto con corrispondenza univoca e XML ufficiale coerente; lasciare ambiguità, conflitti e documenti privi di ordine nelle code di verifica | Confermato |
+| HF-F35 | Richiedere un preflight Aruba on-demand vincolato alla revisione subito prima di ogni approvazione; mantenere inoltre il blocco globale quando Aruba non è mai stato letto, il readback ha più di 24 ore o esiste uno stato remoto incerto, con avviso dopo un'ora e fallback manuale del solo titolare | Confermato |
+| HF-F36 | Eseguire a ogni avvio dell'helper una scansione completa della finestra Aruba rilevante, inclusi ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, poi sincronizzazioni incrementali ogni 15 minuti mentre resta aperto e su comando, con sessione distinta dai batch, revocabile, legata al dispositivo e limitata a 8 ore | Confermato |
+| HF-F37 | Aggiornare gli stati Aruba/SdI in modo monotono e conservare osservazioni append-only senza creare submission fittizie per documenti nati fuori da HF | Confermato |
 
 `HF-F25`, propagazione delle correzioni cliente verso Shopify, è stata riclassificata come evoluzione futura in 3.3: era disattivata di default, non serve a emettere un documento e obbligherebbe a chiedere scope di scrittura Shopify. L'identificativo resta libero e non viene riusato.
 
@@ -223,6 +228,7 @@ e quando un rimborso di prova produce correttamente:
 - Copia leggibile della fattura via e-mail.
 - Comparatore fiscale visuale prima dell'approvazione di fatture e note di credito.
 - Sincronizzazione di notifiche ed esiti.
+- Inventario in sola lettura di fatture e TD04 presenti in Aruba, inclusi i documenti nati fuori da HF, con riconciliazione continuativa e coda `Documenti → Da collegare`.
 - Helper Aruba locale multipiattaforma per Chrome o Edge, avviato dall'utente sul proprio computer.
 - Modalità Aruba `Assistita` e `Automatica dopo conferma`, selezionabili in Impostazioni.
 - Export XML e import dei file Aruba come fallback manuale sempre disponibile.
@@ -299,6 +305,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Test browser dell'app | Playwright con Chromium sulle PR e Chromium+WebKit in M8 | Rende riproducibili i flussi HF e fornisce trace diagnostiche senza estendere indiscriminatamente la matrice browser |
 | Integrazione Aruba | Account Base e pannello web ufficiale; nessuna API Premium | Elimina un costo ricorrente sproporzionato per un'app single-user |
 | Helper Aruba | Un solo helper locale TypeScript/Playwright per Windows e macOS, con Chrome o Edge installato | La sessione autenticata resta sul computer dell'utente e la stessa implementazione copre entrambi i sistemi operativi |
+| Inventario Aruba | Cache provider-first dei documenti presenti nell'account, indipendente dai batch HF; prima scansione dell'anno fiscale corrente e sincronizzazione incrementale locale | Rileva fatture create direttamente in Aruba, impedisce doppie emissioni e rende osservabile la freschezza reale del readback |
 | Modalità helper | `Assistita` di default e `Automatica dopo conferma` opzionale | Consente di scegliere il livello di automazione senza rimuovere l'approvazione esplicita |
 | Comparatore fiscale | Diff strutturato server-side fra sorgente, bozza e proiezione XML | Rende visibili trasformazioni, correzioni e arrotondamenti senza affidarsi a un fragile confronto testuale dell'XML |
 | Versionamento | `package.json` + SemVer/tag per le release Production | Collega codice e artefatto senza imporre bump alle modifiche locali o documentali |
@@ -938,6 +945,16 @@ Il server HF non ospita un browser Aruba e non riceve la sessione. L'helper rice
 
 Usare soltanto la UI visibile e gli URL ufficiali Aruba, con allowlist stretta dell'hostname e locatori semantici. Non chiamare endpoint interni scoperti tramite DevTools. Prima di ogni azione irreversibile rileggere account, ambiente, documenti e modalità autorizzati.
 
+### 10.2.1 Sincronizzazione in entrata
+
+Lo stesso helper mantiene un inventario provider-first delle fatture e TD04 presenti nell'account, anche quando sono nati fuori da HF. Esegue a ogni avvio, anche quando esiste già un cursore, una scansione completa dell'anno fiscale corrente estesa all'indietro fino al più remoto ordine ancora riconciliabile e a tutti i documenti non terminali già osservati negli stream precedenti; poi esegue sincronizzazioni incrementali ogni 15 minuti mentre resta aperto e su richiesta con `Sincronizza Aruba ora`. Paginazione, cursore con sovrapposizione e ingest idempotente devono consentire la ripresa senza duplicazioni; una sola scansione può essere attiva per account e ambiente anche da dispositivi diversi. La completezza riguarda l'elenco: i file ufficiali vengono scaricati soltanto per documenti nuovi, cambiati, candidati al collegamento o privi dell'evidenza necessaria.
+
+La sincronizzazione usa una sessione distinta dal token di batch, limitata alla sola lettura/importazione, vincolata all'installazione locale, revocabile, ruotata e con durata assoluta massima di 8 ore. Non può leggere manifest di upload, creare o consumare permessi, caricare XML o inviare documenti. Login e challenge restano umani; nessuna sessione Aruba entra in HF. L'helper viene sempre avviato volontariamente: la prima versione non si installa come elemento di login o servizio automatico del sistema operativo.
+
+I documenti esterni non generano `aruba_submissions` fittizie. HF conserva inventario, osservazioni append-only e collegamenti separati, riusa gli stati comuni `SUBMITTED`, `SDI_PROCESSING`, `DELIVERED`, `NOT_DELIVERED` e `REJECTED`, aggiorna gli esiti senza regressioni e materializza un documento storico `ARUBA_HISTORY` soltanto dopo XML ufficiale valido, match univoco e stato `DELIVERED` o `NOT_DELIVERED`. Negli stati intermedi, scartati o incerti XML e notifiche restano di proprietà del remote document senza creare una riga `documents`, perché `ARUBA_HISTORY` rappresenta documenti approvati e partecipa all'unicità fiscale. Soltanto `DELIVERED` e `NOT_DELIVERED` confermano l'emissione e consumano l'unicità della fattura o il residuo dei rimborsi coperti da una TD04: gli stati intermedi sospendono il caso senza chiuderlo, mentre `REJECTED` conserva il tentativo ma lascia possibile la revisione/riedizione e non genera note di credito. Una TD04 esterna emessa collega atomicamente tutti e soli i rimborsi completati che copre, impostando il loro `credit_document_id` sotto lo stesso lock usato dal processo di generazione, così nessun rimborso può essere riaccreditato. Gli stati di preparazione/upload restano esclusivi dei tentativi partiti da HF; etichette remote non riconosciute o terminali incompatibili aprono uno stato incerto. Gli altri casi restano in `Documenti → Da collegare` o `Da verificare`. Il piano esecutivo è in [docs/plans/aruba-inbound-reconciliation.md](plans/aruba-inbound-reconciliation.md).
+
+La freschezza periodica non basta ad autorizzare una mutazione fiscale. Ogni approvazione richiede un preflight Aruba on-demand completato dopo la richiesta e vincolato ad account, ambiente, preparazione, revisione/hash e ordini/rimborsi; l'helper acquisisce subito ogni possibile match e la ricevuta viene consumata entro cinque minuti. Modifiche, scadenza, errori, stati incerti o nuovi candidati bloccano e richiedono un altro preflight. L'approvazione massiva usa una sola scansione ma un manifest che vincola ogni preparazione. Se l'helper non è disponibile, soltanto `Massimo` può completare il readback manuale specifico di §10.8; una scansione globale fallita richiede invece il fallback manuale completo.
+
 ### 10.3 Modalità selezionabili in Impostazioni
 
 - **Assistita**, default: l'helper apre il pannello, attende l'eventuale autenticazione umana, carica gli XML, legge la validazione e si ferma prima dell'ultimo clic `Invia`. Il titolare controlla ed esegue il clic nel pannello.
@@ -1000,11 +1017,17 @@ Non creare un design personalizzato. L'audit deve verificare fatture italiane, e
 
 Il download XML da HF, il caricamento manuale nel pannello e l'import successivo di XML/PDF/notifiche costituiscono un percorso completo e sempre disponibile. È il fallback ufficiale in caso di modifica del pannello, browser non supportato, CAPTCHA persistente o helper indisponibile.
 
+Quando l'inventario globale è sano ma manca soltanto il preflight di una preparazione, `Massimo` può completare un readback manuale specifico: HF genera tutte le ricerche compatibili con riferimenti, tipo, data, destinatario, identificativi e importo; il titolare acquisisce ogni riga di tutte le pagine e i file ufficiali di ogni possibile candidato. La ricevuta resta vincolata alla revisione/hash, scade dopo cinque minuti e non aggiorna la freschezza globale. Una ricerca incompleta o un possibile match mantiene l'approvazione bloccata.
+
+Per la sincronizzazione in entrata, “completo” comprende anche la sostituzione verificabile di una scansione fallita. HF apre una sessione guidata sulla stessa finestra e presenta gli stream obbligatori per anno/tipo, il limite temporale, i precedenti non terminali e gli errori da risolvere. Il titolare percorre manualmente in Aruba tutte le pagine di ogni stream e acquisisce in HF ogni riga con i metadati canonici dell’inventario, oppure importa un export ufficiale completo dell’intero stream; registra inoltre filtri, ordinali, conteggi, estremi tecnici e pagina terminale e importa i file ufficiali necessari per documenti nuovi, cambiati, candidati o incompleti. Il server verifica che tutte le righe attese siano presenti una sola volta e rifiuta buchi, duplicati, stream mancanti, conteggi/estremi incoerenti ed errori documentali o stati incerti ancora aperti. Quantità, estremi o attestazioni senza il contenuto integrale delle righe non completano il readback.
+
+La ricevuta può essere finalizzata soltanto da `Massimo` con `can_approve`, perché rende di nuovo possibili approvazione e numerazione. La finalizzazione marca l'inventario completo con provenienza `MANUAL` e chiude l'errore operativo sostituito senza cancellare la sessione automatica fallita; non è un override di collisioni, parsing/file invalidi, match possibili o ambigui, conflitti di profilo o stati remoti incerti. Conservare finestra, copertura, conteggi sanitizzati, hash dei file, autore e timestamp, mai dati cliente duplicati nella ricevuta.
+
 ---
 
 ## 11. Qualifica Aruba nelle milestone M4, M5 e M8
 
-Questa attività non è una corsia parallela. M4 incorpora le verifiche fiscali e documentali necessarie al generatore; M5 implementa e verifica sinteticamente l'automazione; M8 qualifica il contratto candidato sul pannello reale prima del Canary Production. Repository, autenticazione, dominio ordini e connettori vengono completati prima secondo la sequenza delle milestone.
+Questa attività non è una roadmap parallela che possa aggirare i gate. M4 incorpora le verifiche fiscali e documentali necessarie al generatore; M5 implementa e verifica sinteticamente l'automazione; M8 qualifica il contratto candidato sul pannello reale prima del Canary Production. La riconciliazione Aruba in entrata può essere sviluppata in tranche isolate parallelamente agli altri lavori del candidato M8, ma ne fa parte e deve essere completata prima di M9.
 
 La raccolta dei materiali, però, non è implementazione e può iniziare durante M2 e M3. Sessione di audit, XML della fattura accettata, eventuale XML della nota di credito e conferma del commercialista dipendono dalla disponibilità di terzi e sono il percorso critico di tutto ciò che segue M3: attenderli fino all'apertura formale di M4 aggiunge attesa senza aggiungere sicurezza. Anticipare significa soltanto raccogliere e registrare evidenze in sola lettura. Restano vietati prima del rispettivo gate qualunque codice del generatore definitivo, la numerazione reale, il caricamento di XML nel pannello e ogni attività dell'helper.
 
@@ -1213,6 +1236,7 @@ Mostrare:
 - scarti SdI;
 - errori di sincronizzazione;
 - ultimo sync Shopify/eBay e ultimo readback Aruba, con indicazione di eventuale stato obsoleto;
+- stato dell'inventario Aruba, documenti da collegare o ambigui e azione `Sincronizza Aruba ora`; `Mai letto`, un readback bloccante o uno stato remoto incerto impediscono il riepilogo `Tutto sotto controllo`;
 - documenti emessi oggi/mese.
 
 Nessuna e-mail operativa nella 1.x: gli avvisi critici devono essere evidenti qui.
@@ -1224,6 +1248,10 @@ Nessuna e-mail operativa nella 1.x: gli avvisi critici devono essere evidenti qu
 - Ricerca per ID ordine, cliente, e-mail, codice fiscale/P.IVA.
 - Vista del dato originale e normalizzato.
 - Collegamento alla Preparazione fattura.
+- Documento Aruba collegato, stato SdI e freschezza del readback quando disponibili.
+- Un match su un solo ordine di una preparazione multi-ordine invalida atomicamente la bozza materializzata, esclude soltanto l'ordine coperto e rigenera una preparazione con i residui ancora fatturabili; un errore ripristina l'intera transazione.
+- La chiusura e la separazione avvengono soltanto dopo `DELIVERED` o `NOT_DELIVERED`: uno stato intermedio sospende la preparazione e `REJECTED` mantiene l'ordine disponibile per revisione/riedizione.
+- Una TD04 esterna emessa collega atomicamente i rimborsi completati coperti; rimborsi ambigui, già collegati altrove o non riconciliabili non vengono consumati automaticamente.
 - Forzatura manuale della generazione bozza.
 - Archivio annullati.
 
@@ -1282,9 +1310,13 @@ Azioni:
 - approva, numera e prepara per Aruba;
 - non trasmettere.
 
+Il server blocca approvazione e numerazione se l'inventario Aruba dell'anno corrente non è mai stato completato, ha più di 24 ore o presenta uno stato incerto rilevante; dopo un'ora mostra un avviso. Soltanto il titolare può superare per quella singola transizione il gate di freschezza — mai letto oppure oltre 24 ore — dopo aver verificato manualmente sul pannello l'assenza del documento corrispondente, con motivazione obbligatoria e audit. L'override non è ammesso per scansioni incomplete, match possibili o ambigui, conflitti, collisioni, file/errori di parsing o stati remoti incerti; non aggiorna il readback, non chiude conflitti e non autorizza invii.
+
 ### 13.7 Documenti
 
 La sezione riunisce fatture, note di credito e documenti nei diversi stati di trasmissione. Le viste interne evitano tre archivi separati e mantengono filtri coerenti per tipo, stato, cliente e data.
+
+La vista interna `Da collegare` raccoglie i documenti osservati in Aruba senza un ordine o documento HF collegabile in modo univoco. Mostra origine, stato remoto, ultimo aggiornamento e anomalie senza creare ordini locali; ambiguità e conflitti alimentano anche `Da verificare` e `Attività`.
 
 Per le note di credito mostrare:
 
@@ -1297,7 +1329,7 @@ Per le note di credito mostrare:
 
 ### 13.8 Attività
 
-La vista `Da gestire` riunisce errori, verifiche richieste, scarti, richieste privacy Shopify e retry dei job falliti con la relativa azione. Dopo il cliente mostra l’identificativo fiscale senza etichettarne il tipo, usando lo snapshot autorevole dell’ordine, della preparazione o del documento e uno stato neutro quando assente. Questi elementi non compaiono in `Impostazioni`, che mostra soltanto stato e collegamento al dettaglio operativo. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
+La vista `Da gestire` riunisce errori, verifiche richieste, scarti, documenti Aruba da collegare o ambigui, conflitti di profilo, stati remoti incerti, richieste privacy Shopify e retry dei job falliti con la relativa azione. Dopo il cliente mostra l’identificativo fiscale senza etichettarne il tipo, usando lo snapshot autorevole dell’ordine, della preparazione o del documento e uno stato neutro quando assente. Questi elementi non compaiono in `Impostazioni`, che mostra soltanto stato e collegamento al dettaglio operativo. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
 
 ### 13.9 Impostazioni
 
@@ -1309,7 +1341,7 @@ La vista `Da gestire` riunisce errori, verifiche richieste, scarti, richieste pr
 - Profilo fiscale: sola lettura dopo audit, con versione.
 - Numerazione/sezionale: protetta e configurata dopo audit.
 - Modalità Aruba: `Assistita` come default oppure `Automatica dopo conferma`.
-- Stato helper e istruzioni minime per avviarlo su Windows o macOS con Chrome/Edge.
+- Stato helper, sessioni di sola sincronizzazione revocabili, ultimo inventario completo, prossimo giro previsto, comando `Sincronizza Aruba ora` e istruzioni minime per avviarlo su Windows o macOS con Chrome/Edge.
 - Trasporto SMTP scelto e stato, senza mostrare credenziali.
 - Sistema: ambiente e fuso orario; versione applicativa, backup e ripristino compaiono soltanto quando M7 fornisce dati e azioni reali.
 
@@ -1323,7 +1355,7 @@ La vista interna `Connessioni` mostra, per Shopify, eBay e il trasporto SMTP can
 - verifica credenziali;
 - dettagli errore sanificati.
 
-Per Aruba non mostrare `riconnetti` o `verifica credenziali`: HF non possiede credenziali Aruba. Mostrare soltanto stato e ultima versione dell'helper, browser rilevato, ultimo readback, modalità configurata ed eventuale errore sanitizzato. `Connesso` significa soltanto che l'helper ha contattato HF di recente: non implica che la sessione Aruba sia autenticata, informazione che resta nel browser locale.
+Per Aruba non mostrare `riconnetti` o `verifica credenziali`: HF non possiede credenziali Aruba. Mostrare soltanto stato e ultima versione dell'helper, browser rilevato, ultimo inventario/readback completo, modalità configurata, sessioni di sincronizzazione ed eventuale errore sanitizzato. `Connesso` significa soltanto che l'helper ha contattato HF di recente: non implica che la sessione Aruba sia autenticata, informazione che resta nel browser locale.
 
 Non mostrare mai segreti.
 
@@ -1380,7 +1412,7 @@ Nessun Redis. Nessun microservizio. Il worker usa PostgreSQL per lock, schedulin
 
 Fuori da Compose esiste un solo componente operativo locale:
 
-- `aruba-helper`: comando TypeScript/Playwright avviato dal titolare su Windows o macOS, collegato a HF via HTTPS con un token breve vincolato al batch e a Chrome/Edge tramite un profilo dedicato. Non è un servizio remoto, non gira sulla VPS, non conserva credenziali Aruba e non chiama API Aruba.
+- `aruba-helper`: comando TypeScript/Playwright avviato dal titolare su Windows o macOS e collegato a Chrome/Edge tramite un profilo dedicato. Usa via HTTPS token di batch brevi per upload/invio e sessioni distinte di sola sincronizzazione per l'inventario in entrata. Non è un servizio remoto, non gira sulla VPS, non conserva credenziali Aruba e non chiama API Aruba.
 
 Gli ambienti sono separati logicamente:
 
@@ -1507,12 +1539,14 @@ Lock e vincoli proteggono lo stato letto, non soltanto la scrittura finale: conf
 | Identità normalizzata, raggruppamento, bozza, override e approvazione | PostgreSQL HF + audit | fonte primaria applicativa |
 | Profilo fiscale approvato | versione HF derivata da XML Aruba accettato e decisioni approvate | snapshot immutabile nel documento |
 | XML/PDF/notifica archiviati | file immutabile + hash e metadati DB | fonte del contenuto conservato |
-| Ricezione Aruba e stato SdI corrente | pannello Aruba e file ufficiali scaricati | cache operativa con data dell'ultimo readback e cronologia dei tentativi |
+| Inventario Aruba e stato SdI corrente | pannello Aruba e file ufficiali scaricati | cache provider-first con data dell'ultimo inventario completo, osservazioni append-only e collegamenti ai documenti locali |
 | Invio e-mail | esito del trasporto SMTP canonico e `message_id` | stato locale riconciliabile |
 | Release | tag/commit Git e digest immagine | `/version` e ricevuta di deploy confermano lo stato live |
 | Backup | archivio OCI cifrato, copia cifrata sul Mac, manifest e checksum | il DB conserva solo l'ultimo esito operativo |
 
 Un webhook segnala che qualcosa può essere cambiato: non sostituisce la rilettura dello stato corrente quando il provider offre un readback. Gli esiti Aruba sono aggiornati soltanto da osservazioni dell'helper o import manuali; eventi fuori ordine non devono far regredire uno stato autorevole.
+
+La presenza in Aruba è indipendente dal percorso di invio locale: `aruba_submissions` resta autorevole sui tentativi partiti da HF, mentre l'inventario remoto rappresenta anche documenti creati direttamente nel pannello. La freschezza operativa deriva dall'ultima scansione completata, non dal semplice heartbeat dell'helper.
 
 ### 14.7 Semantica delle scritture fra sistemi
 
@@ -1612,6 +1646,24 @@ Per la riga Aruba `encrypted_credentials` resta `NULL`: stato e riferimento desc
 - `cursor`
 - `overlap_from`
 - `updated_at`
+
+Per Aruba usare stream distinti per anno fiscale e tipo inventario, con cursore opaco, finestra di sovrapposizione e timestamp dell'ultima scansione completa. Il cursore viene avanzato soltanto dopo il commit idempotente dell'intera pagina.
+
+#### `aruba_remote_documents`
+
+Inventario canonico dei documenti osservati nel pannello, indipendente dall'origine locale. Conserva account/ambiente, ID remoto, tipo, numero/serie/anno, data, destinatario e identificativi normalizzati necessari al matching, totale, stato remoto corrente, hash XML ufficiale, riferimenti ai file e date di prima/ultima osservazione. Ogni chiave di deduplicazione — ID remoto, identità fiscale del documento e hash XML — è confinata per account e ambiente; collisioni incompatibili diventano conflitti, non fusioni automatiche.
+
+#### `aruba_remote_observations`
+
+Cronologia append-only delle osservazioni del pannello e dei file ufficiali, collegata a sessione e cursore. La proiezione corrente accetta soltanto transizioni monotone; `NOT_FOUND` dopo una precedente osservazione e stati conclusivi incompatibili aprono uno stato remoto incerto.
+
+#### `aruba_document_matches`
+
+Collegamenti fra inventario remoto e documenti, ordini, preparazioni o rimborsi locali, con stato `MATCHED`, `UNMATCHED`, `AMBIGUOUS`, `PROFILE_CONFLICT`, `ERROR` o `UNKNOWN_REMOTE_STATE`, segnali/versione del matcher e decisione automatica o manuale auditata. Un match automatico richiede unicità e XML ufficiale coerente; il solo totale non è mai sufficiente. Per le TD04 il collegamento identifica l'insieme esatto dei rimborsi coperti e aggiorna `credit_document_id` atomicamente soltanto dopo un esito che conferma l'emissione.
+
+#### `aruba_sync_sessions`
+
+Lease delle sessioni helper di sola lettura, con token conservato soltanto come hash, installazione/dispositivo, account/ambiente, versione helper/browser, heartbeat, scadenza assoluta entro 8 ore, cursori, conteggi sanitizzati ed errore stabile. Un vincolo o lock garantisce una sola sessione attiva per account e ambiente.
 
 #### `webhook_events`
 
@@ -1785,7 +1837,7 @@ aggiornare il cliente normalizzato, ma non i dati mostrati dalle preparazioni pr
 
 L'assenza di sezionale si rappresenta con un valore canonico esplicito, mai con `NULL`: un `UNIQUE` PostgreSQL considera distinti i `NULL`, quindi una serie nulla lascerebbe passare due documenti con lo stesso anno e numero, cioè esattamente la doppia numerazione che §14.5 deve impedire. Un `CHECK` impone che `series`, `fiscal_year` e `fiscal_number` siano tutti valorizzati dagli stati numerati in poi, e l'unicità è un indice unico sulle tre colonne limitato ai documenti già numerati.
 
-Quando il confronto storico trova una fattura già presente in Aruba, il suo XML ufficiale viene validato, archiviato immutabilmente con origine `ARUBA_HISTORY` e collegato agli ordini riconosciuti. Il documento storico partecipa all'unicità della numerazione e al residuo accreditabile, ma non può essere caricato nuovamente nel pannello Aruba; è la fonte necessaria per collegare eventuali TD04 successive senza ricostruire o indovinare i dati fiscali originari.
+Quando il confronto storico trova in Aruba una fattura con esito `DELIVERED` o `NOT_DELIVERED`, il suo XML ufficiale viene validato, archiviato immutabilmente con origine `ARUBA_HISTORY` e collegato agli ordini riconosciuti. Il documento storico partecipa all'unicità della numerazione e al residuo accreditabile, ma non può essere caricato nuovamente nel pannello Aruba; è la fonte necessaria per collegare eventuali TD04 successive senza ricostruire o indovinare i dati fiscali originari. Un documento `SUBMITTED`, `SDI_PROCESSING`, `REJECTED` o incerto resta nell'inventario remoto con file/notifiche propri e non crea `ARUBA_HISTORY`, perché quello stato locale è approvato e consumerebbe impropriamente l'unicità fiscale.
 
 #### `document_orders`
 
@@ -1853,16 +1905,36 @@ Per nota di credito -> fattura originaria.
 - `error_code`
 - `error_message_sanitized`
 
+Questa tabella registra esclusivamente tentativi di upload/invio originati da HF. I documenti nati fuori da HF vivono nell'inventario remoto e vengono collegati a `documents` senza creare submission artificiali.
+
+Per `aruba_files` e `sdi_notifications`, `submission_id` e `remote_document_id` sono owner di provenienza alternativi con vincolo “esattamente uno valorizzato”. Il collegamento opzionale a `documents` viene aggiunto dopo il match senza cambiare la provenienza e senza costruire una submission fittizia.
+
+#### `aruba_files`
+
+- `id`
+- `document_id` opzionale
+- `submission_id` opzionale
+- `remote_document_id` opzionale
+- `storage_object_id`
+- `kind`
+- `imported_at`
+- `metadata_json`
+
+`submission_id` e `remote_document_id` sono singolarmente opzionali ma soggetti al vincolo esclusivo sopra: esattamente uno dei due deve essere valorizzato.
+
 #### `sdi_notifications`
 
 - `id`
-- `submission_id`
+- `submission_id` opzionale
+- `remote_document_id` opzionale
 - `remote_notification_id`
 - `type`
 - `status`
 - `received_at`
 - `storage_object_id`
 - `metadata_json`
+
+Anche qui esattamente uno fra `submission_id` e `remote_document_id` deve essere valorizzato.
 
 #### `storage_objects`
 
@@ -1938,7 +2010,7 @@ Gli eventi `CRITICAL` — approvazione, numerazione, override importi, `Non tras
 - Ogni permesso Aruba è consumabile una sola volta e non sopravvive a mismatch di batch/manifest/documento/revisione/hash o scadenza; durante il Canary ne esiste al massimo uno valido.
 - Nessun segreto in tabelle di log/audit.
 - Nessuna transizione fiscale basata su un valore fornito soltanto dal browser.
-- Approvazione, numerazione e creazione di un permesso di invio soltanto da un account con `can_approve`.
+- Approvazione, numerazione, creazione di un permesso di invio, finalizzazione di un readback manuale e risoluzione manuale di match con effetti fiscali soltanto da un account con `can_approve`.
 - Stati provider monotoni salvo riconciliazione esplicita e motivata.
 - `before_json`, `after_json` e metadata audit contengono solo campi allowlisted o riferimenti a snapshot immutabili; niente token o duplicazioni integrali di XML/PDF.
 
@@ -1961,6 +2033,7 @@ Gli eventi `CRITICAL` — approvazione, numerazione, override importi, `Non tras
 - `shopify_sync_orders`
 - `shopify_process_webhook`
 - `ebay_sync_orders`
+- `aruba_reconcile_inventory`
 - `prepare_aruba_batch`
 - `expire_aruba_send_permit`
 - `process_refund`
@@ -1983,9 +2056,10 @@ Valori di routine da calibrare:
 
 - Shopify recovery sync: ogni 10-15 minuti.
 - eBay sync: ogni 10-15 minuti.
+- Aruba inventory: scansione completa della finestra rilevante a ogni avvio dell'helper, inclusi ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, poi incrementale ogni 15 minuti mentre resta aperto e su comando esplicito.
 - Pulizia sessioni: giornaliera.
 
-Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify ed eBay. Per Aruba non simulare un polling headless: mostrare l'età dell'ultimo readback e proporre l'avvio dell'helper quando esistono documenti non conclusi.
+Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify, eBay e inventario Aruba. Per Aruba non simulare un polling headless sulla VPS: la schedulazione esiste soltanto nell'helper locale aperto, con un lease server-side unico per account e ambiente. Mostrare l'età dell'ultimo inventario completo e proporre l'avvio dell'helper quando è obsoleto o esistono documenti non conclusi.
 
 Quando una correzione del mapper richiede di rileggere ordini già importati, una migrazione
 append-only riporta il cursore `orders` a poco prima dell'ordine più remoto interessato e
@@ -2013,7 +2087,7 @@ Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` dev
 ### 17.1 Autenticazione
 
 - Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive e identità canoniche di audit distinte.
-- I due account condividono tutte le capacità operative tranne le transizioni fiscali irreversibili. Approvazione, numerazione e creazione di un permesso di invio Aruba richiedono `can_approve`, valorizzato soltanto per `Massimo`. L'identità di audit registra chi ha agito, non impedisce l'azione: senza questo controllo un agente potrebbe completare da solo la catena che §19.6 classifica come P0. Il controllo è server-side su ogni mutazione, come previsto da 17.6; nascondere il pulsante non è una protezione.
+- I due account condividono tutte le capacità operative tranne le transizioni fiscali irreversibili. Approvazione, numerazione, creazione di un permesso di invio Aruba, finalizzazione di un readback manuale che sblocca l'emissione e risoluzione manuale di un match che chiude un ordine o collega rimborsi richiedono `can_approve`, valorizzato soltanto per `Massimo`. L'identità di audit registra chi ha agito, non impedisce l'azione: senza questo controllo un agente potrebbe completare da solo la catena che §19.6 classifica come P0. Il controllo è server-side su ogni mutazione, come previsto da 17.6; nascondere il pulsante non è una protezione.
 - `can_approve` è una colonna booleana sui due account fissi, non un sistema di ruoli, e nasce nella migrazione M4 che introduce l'approvazione.
 - Username e password, senza secondo fattore applicativo.
 - Password di almeno 8 e non oltre 128 caratteri, hashate con `node:crypto.scrypt` e verificate con confronto constant-time.
@@ -2049,6 +2123,7 @@ Mantenere `docs/runbooks/secret-inventory.md` con soli nomi logici, ambiente, de
 - Timeout espliciti e limiti di byte anche sulle risposte dei provider; `fetch` non resta mai privo di deadline e una risposta eccessiva viene trattata come errore stabile, non caricata integralmente in memoria.
 - Aggiornamenti di sicurezza del sistema operativo.
 - Token helper casuali, revocabili, a scadenza breve e vincolati al batch, mai in query string o log; hostname HF e Aruba verificati contro allowlist esatte. Il distinto permesso per l'ultimo clic resta monouso.
+- Sessioni helper di inventario separate dai batch, limitate allo scope di sola lettura/importazione, legate all'installazione locale, revocabili e ruotate, con scadenza assoluta massima di 8 ore e tecnicamente incapaci di upload o invio.
 
 ### 17.4 Dati personali
 
@@ -2732,7 +2807,7 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - Webhook/job rimasto `processing` dopo crash e riacquisito soltanto a lease scaduta.
 - storage e checksum.
 - autenticazione username/password, sessioni e separazione dell'identità di audit dei due account.
-- l'account privo di `can_approve` non può approvare, numerare o creare un permesso di invio, nemmeno chiamando direttamente l'endpoint.
+- l'account privo di `can_approve` non può approvare, numerare, creare un permesso di invio, finalizzare un readback manuale o confermare un match manuale con effetti fiscali, nemmeno chiamando direttamente l'endpoint.
 - impossibilità di preparare o autorizzare un invio senza approvazione e snapshot immutabile.
 - import storico non approvabile prima della riconciliazione Aruba.
 - riconciliazione Shopify Payments sul totale fatturabile al netto della fee effettiva quando la regola è attiva; PayPal, metodi manuali ed eBay restano al lordo.
@@ -3063,6 +3138,10 @@ Output:
 - deploy del candidato sullo stesso SHA e digest destinati alla `1.0.0`, con creazione dei permessi ordinari per il clic automatico bloccata (`ARUBA_SUBMISSION_ENABLED=false`);
 - readback operativo che conferma l'assenza di documenti approvati o trasmissibili e di upload Aruba pendenti;
 - import reale degli ultimi 7 giorni e riconciliazione con Aruba senza numerare o trasmettere;
+- inventario provider-first di tutte le fatture e TD04 dell'anno fiscale corrente, esteso fino al più remoto ordine riconciliabile e ai documenti precedenti non terminali, riesaminato completamente a ogni avvio, deduplicato rispetto ai documenti HF e aggiornabile in modo incrementale dall'helper ogni 15 minuti, con documenti esterni non collegati e match ambigui nelle code previste;
+- preflight Aruba on-demand obbligatorio per ogni approvazione, completato dopo la richiesta e vincolato a revisione/hash e candidati, con ricevuta monouso di cinque minuti e manifest per le operazioni massive;
+- readback manuale guidato capace di sostituire una scansione fallita soltanto dopo acquisizione di ogni riga di tutti gli stream o di un export ufficiale completo, import delle evidenze richieste e ricevuta finalizzata dal titolare;
+- gate server-side che avvisa dopo un'ora e blocca approvazione/numerazione se Aruba non è mai stato letto, ha più di 24 ore o presenta uno stato remoto incerto, incluso override singolo del solo titolare motivato e auditato;
 - prova manuale controllata sul pannello Aruba reale con XML sintetico o anonimizzato dedicato: autenticazione umana, caricamento, validazione e riepilogo osservati, arresto prima di `Invia`, readback e rimozione sicura dell'upload pendente;
 - contratto definitivo dei locatori, limiti, pause di autenticazione, download e stati aggiornato insieme a helper e test se il pannello reale diverge;
 - test end-to-end HF completi su Chromium e WebKit e test helper contro la pagina Aruba sintetica su Windows/macOS con Chrome o Edge, oltre a recovery, sicurezza e migrazioni;
@@ -3083,6 +3162,14 @@ Gate:
 - nessun P0/P1 o decisione bloccante aperta;
 - ogni finding dell'audit ha prova, severità e stato corrente; P2/P3 residui hanno accettazione e condizione di riapertura;
 - nessun ordine storico approvabile senza riconciliazione;
+- nessuna preparazione approvabile quando l'inventario Aruba è assente, bloccante o incerto; la Dashboard non combina `Mai letto` con `Tutto sotto controllo`;
+- nessuna approvazione basata sulla sola scansione periodica: preflight on-demand completato dopo la richiesta, vincolato alla revisione/hash, consumato entro cinque minuti e ripetuto dopo modifica, scadenza o nuovo candidato;
+- scansione completa della finestra rilevante a ogni avvio, inclusi cambio d'anno e precedenti non terminali, aggiornamento incrementale, lease concorrente, matching prudenziale, riconciliazione parziale multi-ordine, ownership file/notifiche e sessione read-only di 8 ore verificati senza capacità di upload o invio;
+- TD04 esterne emesse collegate atomicamente ai rimborsi coperti, con concorrenza incapace di generare un secondo accredito;
+- documento esterno scartato conservato come tentativo senza chiudere l'ordine, consumare l'unicità di emissione o impedire una nuova revisione;
+- `ARUBA_HISTORY` creato soltanto per `DELIVERED`/`NOT_DELIVERED`; intermedi, scarti e incerti conservati esclusivamente nell'inventario/file remoti;
+- fallback manuale verificato capace di chiudere un errore operativo soltanto dopo inventario integrale riga per riga o export ufficiale completo, senza superare errori documentali, stati incerti o match irrisolti;
+- account `Codex` rifiutato server-side sulla finalizzazione del readback manuale e sulle risoluzioni manuali con effetti fiscali;
 - commit, digest, schema, backup, rollback e kill switch verificati;
 - nessun documento approvato o trasmissibile e nessun upload Aruba pendente;
 - prova end-to-end dell'auto-merge Dependabot chiusa senza auto-approvazione né esecuzione privilegiata del codice PR; qualsiasi esito non riconosciuto ha lasciato la PR aperta e gli eventuali branch, regole e trigger temporanei sono stati rimossi dopo la prova;
@@ -3105,7 +3192,8 @@ Gate:
 - nessun altro documento trasmesso nella finestra;
 - `ARUBA_SUBMISSION_ENABLED=false` rimasto invariato e nessun permesso canary ancora valido, confermati tramite readback anche se la prova fallisce;
 - nessun P0/P1 e nessuno stato remoto incerto irrisolto;
-- catena end-to-end osservata e record di readiness aggiornato.
+- catena end-to-end osservata e record di readiness aggiornato;
+- inventario Aruba fresco e privo di match potenziali irrisolti per il documento canary.
 
 Se il canary richiede una modifica di codice, immagine, schema o configurazione operativa, il candidato cambia e va ripetuta almeno la parte del canary interessata. La sola correzione documentale della ricevuta non lo invalida.
 
@@ -3119,7 +3207,7 @@ Output:
 - draft GitHub Release completata con note verificate e `release-manifest.json` sanitizzato;
 - tag e GitHub Release immutabile `v1.0.0` pubblicati sullo stesso commit e digest superati dal canary;
 - abilitazione dell'uso Production ordinario;
-- monitoraggio rafforzato della prima giornata operativa.
+- monitoraggio rafforzato della prima giornata operativa, inclusa freschezza dell'inventario Aruba e coda dei documenti da collegare.
 
 Richiede autorizzazioni esplicite e separate per release e uso Production ordinario. Il canary non le implica.
 
@@ -3175,7 +3263,7 @@ Compose di produzione e Caddyfile, Dynu e IP, firewall e hardening SSH, GitHub E
 
 ### Collaudo e qualifica Aruba - M8
 
-Distribuire il candidato con kill switch attivo, riconciliare lo storico e completare i test trasversali. Soltanto dopo autorizzazione specifica eseguire la prova di §11.4 sul pannello reale, senza inviare: il login e qualunque challenge inattesa restano umani, l'upload dedicato viene validato, riletto e rimosso. Qualunque divergenza aggiorna contratto, helper e test prima di chiudere M8 e accedere al Canary Production.
+Distribuire il candidato con kill switch attivo, riconciliare lo storico e completare i test trasversali. Implementare inoltre in tranche isolate il piano [aruba-inbound-reconciliation.md](plans/aruba-inbound-reconciliation.md): inventario provider-first, sessione helper read-only, matching, gate server-side e UI sulle superfici esistenti. Soltanto dopo autorizzazione specifica eseguire le letture del pannello reale, senza inviare: il login e qualunque challenge inattesa restano umani, l'upload dedicato viene validato, riletto e rimosso. Qualunque divergenza aggiorna contratto, helper e test prima di chiudere M8 e accedere al Canary Production.
 
 ---
 
@@ -3186,6 +3274,8 @@ Distribuire il candidato con kill switch attivo, riconciliare lo storico e compl
 Al primo collegamento, proporre come default gli ultimi sette giorni calcolati rispetto all'attivazione del connettore, con possibilità di modificare la data prima dell'avvio.
 
 Importare ordini creati o aggiornati nel periodo, inclusi annullamenti e rimborsi collegati.
+
+Separatamente dall'import ordini, la prima sincronizzazione Aruba acquisisce tutte le fatture e TD04 dell'anno fiscale corrente e si estende fino al più remoto ordine ancora riconciliabile; continua inoltre a rileggere i documenti non terminali degli stream precedenti. Le sincronizzazioni successive sono incrementali con overlap e non dipendono dall'esistenza di batch HF. Questa lettura reale richiede autorizzazione specifica e non abilita upload o invii.
 
 ### 25.2 Stato prudenziale
 
@@ -3268,7 +3358,7 @@ Deve fermarsi e chiedere prima di:
 | Comparatore non allineato alla bozza approvata | L'utente vede una proiezione diversa dal documento trasmesso | Stesso generatore server-side, revisione/hash e rigenerazione atomica al submit |
 | Il design system interno cresce in un pacchetto separato | Ritardo e manutenzione senza valore operativo | Un documento, token CSS, componenti locali, un SVG canonico e soli asset richiesti; niente sito, webfont, Storybook o libreria proprietaria |
 | Stato upload/invio incerto | Doppio invio | Manifest/hash, ricerca nel pannello, confronto del file scaricato e nessun retry automatico |
-| L'agente approva o numera un documento | Emissione fiscale senza decisione umana | `can_approve` soltanto su `Massimo`, controllo server-side sulle tre transizioni irreversibili e test che lo verifica chiamando l'endpoint direttamente |
+| L'agente completa una transizione fiscale irreversibile | Emissione o riconciliazione fiscale senza decisione umana | `can_approve` soltanto su `Massimo`, controllo server-side su approvazione, numerazione, permessi, readback manuale e match manuali fiscali, verificato chiamando gli endpoint direttamente |
 | Canary lascia aperti gli invii | Trasmissione fiscale non autorizzata | Kill switch globale sempre `false` e permesso monouso atomico legato a batch/manifest/documenti/revisioni/hash |
 | Target provider o VPS errato | Scrittura o deploy sull'ambiente sbagliato | Preflight con identità, account, risorsa e readback obbligatori |
 | Documentazione o runbook in drift | Operazioni eseguite con istruzioni obsolete | Fonte canonica, controllo link/comandi e aggiornamento nella stessa PR |
@@ -3386,6 +3476,19 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 ### Prima di completare M8 e avviare il Canary Production
 
 - [ ] Import storico di 7 giorni riconciliato con Aruba.
+- [ ] Inventario di fatture e TD04 Aruba dell'anno fiscale corrente completato e deduplicato, con cursore e overlap verificati.
+- [ ] Nuovo avvio dell'helper verificato su inventario già popolato: la finestra completa comprende ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, mentre i file invariati non vengono riscaricati.
+- [ ] Sessione helper di sola sincronizzazione, legata al dispositivo, revocabile e limitata a 8 ore verificata incapace di upload o invio; una sola scansione concorrente anche da due dispositivi.
+- [ ] Readback manuale completo verificato dopo helper indisponibile o scansione fallita: ogni riga di tutti gli stream/pagine o export ufficiale completo acquisiti, evidenze richieste importate, ricevuta `MANUAL` finalizzata dal solo titolare e sessione fallita conservata.
+- [ ] Dashboard, approvazione e numerazione rispettano `Mai letto`, avviso a un'ora e blocco a 24 ore/stato incerto; l'override singolo motivato del solo titolare supera esclusivamente la freschezza dopo verifica manuale e non match, conflitti o stati incerti.
+- [ ] Ogni approvazione, anche massiva, richiede un preflight on-demand successivo alla richiesta e vincolato a revisione/hash; documento esterno creato fra due giri periodici, ricevuta scaduta e bozza modificata bloccano la mutazione.
+- [ ] Deduplicazione confinata per account/ambiente, ownership esclusiva submission/remote document dei file/notifiche e mapping monotono degli stati verificati.
+- [ ] Documenti Aruba non collegati, match ambigui e conflitti di profilo compaiono in `Documenti → Da collegare`, `Da verificare` e `Attività` senza creare ordini.
+- [ ] Match emesso su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.
+- [ ] TD04 esterna `DELIVERED`/`NOT_DELIVERED` collega atomicamente tutti e soli i rimborsi coperti e una corsa concorrente non può creare una seconda nota per gli stessi rimborsi.
+- [ ] Documento esterno `REJECTED` conserva XML, match e audit ma non chiude l'ordine come fatturato, non consuma il residuo e consente la revisione/riedizione prevista.
+- [ ] `REJECTED`, `SUBMITTED`, `SDI_PROCESSING` e stati incerti non creano righe `documents`/`ARUBA_HISTORY`; XML e notifiche restano collegati al remote document fino a un esito emesso.
+- [ ] Account `Codex` non può finalizzare il readback manuale né confermare un match manuale che chiude ordini o collega rimborsi, anche chiamando direttamente gli endpoint.
 - [ ] Nessun ordine storico approvabile senza verifica.
 - [x] Account Aruba confermato senza 2FA e con protezione OTP su **Carica Fatture** disattivata; l'helper non presume un SMS ordinario e resta fail-closed davanti a challenge inattese.
 - [x] Autorizzazione specifica ottenuta per la sola prova controllata.
@@ -3512,7 +3615,7 @@ Qualsiasi altra scelta di routine entro i confini della matrice 14.3 è affidata
 
 La 1.0 è conclusa quando ogni gate di §23, ogni checklist di §28 e ogni decisione di §30 sono chiusi con prove osservate e collegate dal record corrente `docs/runbooks/release-readiness.md`. Questa sezione non ripete quelle condizioni: elenca soltanto ciò che nessuna singola milestone può dichiarare da sola.
 
-1. tutti i requisiti `HF-F01`-`HF-F32` ancora attivi sono implementati o esplicitamente riclassificati dal titolare;
+1. tutti i requisiti `HF-F01`-`HF-F37` ancora attivi sono implementati o esplicitamente riclassificati dal titolare;
 2. `HF-O01`-`HF-O09` sono chiusi ciascuno con la fonte e la condizione di chiusura previste in §30, senza sostituzioni: una decisione priva della sua fonte resta bloccante e non può essere convertita in rischio accettato. L'accettazione con condizione di riapertura riguarda soltanto rischi già classificati come non bloccanti, mai una decisione fiscale;
 3. la catena completa - import, raggruppamento, modifiche, comparatore, approvazione, helper assistito e automatico, fallback manuale, stati SdI, e-mail, note di credito - è stata osservata end-to-end, non provata a pezzi;
 4. profilo fiscale, numerazione, XML fattura e TD04 derivano da fonti approvate e da golden test che falliscono se il profilo cambia involontariamente;
@@ -3520,7 +3623,7 @@ La 1.0 è conclusa quando ogni gate di §23, ogni checklist di §28 e ogni decis
 6. codice, migrazioni, lockfile, documentazione e stato live descrivono lo stesso commit: `/version`, digest distribuito e ricevuta di deploy coincidono dopo uno smoke autenticato;
 7. il Canary Production su una sola fattura reale ha chiuso l'intera catena con un permesso monouso consumato atomicamente, senza abilitare globalmente gli invii e senza P0/P1 o stati remoti irrisolti;
 8. per il solo go-live iniziale, escluso dalla pubblicazione tecnica ordinaria perché costituisce una nuova attivazione produttiva, `v1.0.0` è pubblicata sullo stesso commit e digest superati dal canary, dopo autorizzazioni separate per deploy, singolo invio canary, release e uso Production ordinario;
-9. non restano P0/P1 aperti, decisioni bloccanti sospese o ordini storici approvabili senza riconciliazione;
+9. non restano P0/P1 aperti, decisioni bloccanti sospese, ordini storici approvabili senza riconciliazione o documenti Aruba ambigui che possano causare una doppia emissione;
 10. backup, recovery kit, restore drill e rollback applicativo sono stati eseguiti davvero, non soltanto documentati, e l'RPO dichiarato è quello osservato.
 
 Una checklist compilata senza risultati osservati, ID o link alle evidenze non costituisce completamento.
@@ -3533,4 +3636,4 @@ Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile
 
 La priorità non è costruire un motore fiscale generale, ma impedire errori operativi: dati mancanti, doppie fatture, doppi rimborsi, numerazione errata, invii non approvati e perdita di tracciabilità.
 
-Il primo lavoro concreto segue M1 e le milestone successive in ordine. La pagina Aruba sintetica e l'helper nascono soltanto in M5, dopo che M4 ha qualificato profilo fiscale, numerazione e XML tramite pannello read-only e documenti già accettati dallo SdI. La prova manuale controllata sul pannello reale chiude M8 arrestandosi prima dell'invio ed è un prerequisito inderogabile di M9. Nessuna integrazione Aruba procede su una roadmap parallela.
+Il primo lavoro concreto segue M1 e le milestone successive in ordine. La pagina Aruba sintetica e l'helper nascono soltanto in M5, dopo che M4 ha qualificato profilo fiscale, numerazione e XML tramite pannello read-only e documenti già accettati dallo SdI. La riconciliazione Aruba in entrata può essere realizzata in parallelo agli altri lavori del candidato M8, ma deve essere integrata e qualificata dentro M8. La prova manuale controllata sul pannello reale chiude M8 arrestandosi prima dell'invio ed è un prerequisito inderogabile di M9.
