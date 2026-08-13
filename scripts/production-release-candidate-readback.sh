@@ -37,7 +37,7 @@ state=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ex
       (SELECT count(*) FROM aruba_batches
        WHERE status NOT IN ('RECONCILED', 'CANCELLED')),
       (SELECT count(*) FROM aruba_send_permits
-       WHERE consumed_at IS NULL AND expires_at > now())")
+       WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now())")
 
 IFS='|' read -r approved_documents unreconciled_history pending_history_imports open_aruba_batches active_permits <<EOF
 $state
