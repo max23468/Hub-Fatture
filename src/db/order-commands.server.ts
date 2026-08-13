@@ -510,7 +510,7 @@ function structuredStreetNumberCandidates(
   let addressParts = withoutAddressUnits(normalizedParts, unitMarkers);
   const floorAfterExplicitCivic =
     typeof address === "string"
-      ? address.match(/^\s*\d+[\p{L}]?\s*[,;/]\s*(\d+)\s*[°ºª]?\s*(\p{L}+)/iu)
+      ? address.match(/^\s*(?:civico\s+)?\d+[\p{L}]?\s*[,;/]\s*(\d+)\s*[°ºª]?\s*(\p{L}+)/iu)
       : null;
   if (
     floorAfterExplicitCivic &&

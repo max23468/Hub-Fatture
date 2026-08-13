@@ -4624,6 +4624,49 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-civic-before-cardinal-floor" },
     );
+    const historicalWithExplicitCivicAndFloor = structuredClone(historicalWithoutTaxId);
+    historicalWithExplicitCivicAndFloor.externalOrderId =
+      "shop-order-historical-explicit-civic-floor";
+    historicalWithExplicitCivicAndFloor.externalCustomerId =
+      "shop-customer-historical-explicit-civic-floor";
+    historicalWithExplicitCivicAndFloor.displayNumber = "#S-HIST-EXPLICIT-CIVIC-FLOOR";
+    historicalWithExplicitCivicAndFloor.customer.billingAddress = {
+      line1: "Via Roma",
+      line2: "Civico 10, 2 piano",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    historicalWithExplicitCivicAndFloor.payments[0].externalPaymentId =
+      "historical-explicit-civic-floor-payment";
+    await orders.importOrders([historicalWithExplicitCivicAndFloor], {
+      id: 1,
+      requestId: "test-import-historical-explicit-civic-floor",
+    });
+    const historicalWithExplicitCivicAndFloorId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithExplicitCivicAndFloor.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithExplicitCivicAndFloorId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0096/26 con prefisso civico e piano separato",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0096/26")
+            .replace("Via della Scala", "Via Roma")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>"),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-explicit-civic-before-floor" },
+    );
     const historicalWithSeparatedUnitNumber = structuredClone(historicalWithoutTaxId);
     historicalWithSeparatedUnitNumber.externalOrderId =
       "shop-order-historical-separated-unit-number";
@@ -5319,7 +5362,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "36",
+      "37",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);
