@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import type pg from "pg";
 
+import { getConfig } from "../config.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { writeAudit } from "./audit.server.ts";
+import { isBackupReceiptCurrent, readBackupReceipt, type BackupReceipt } from "./system.server.ts";
 
 export const LOGIN_ATTEMPT_WINDOW_MINUTES = 15;
 // La cadenza non supera la finestra: un `ip_hash` non deve sopravvivere alla durata dichiarata.
@@ -28,6 +30,18 @@ const emptyResult = (): RetentionResult => ({
   CUSTOMER_EMAIL: 0,
   ARUBA_CREDENTIALS: 0,
 });
+
+export function assertRetentionBackupVerified(
+  environment: "development" | "production" | "test",
+  receipt: BackupReceipt | null,
+  now = new Date(),
+): void {
+  if (environment === "production" && !isBackupReceiptCurrent(receipt, now)) {
+    throw new Error(
+      "Retention bloccata: ricevuta del backup verificato assente, non valida o più vecchia di 36 ore",
+    );
+  }
+}
 
 /**
  * Cancella i dati tecnici scaduti richiesti da 17.7: sessioni oltre la scadenza e tentativi
@@ -76,6 +90,9 @@ async function recordRetention(
  * dati normalizzati e audit critici non sono candidati di queste query.
  */
 export async function applyRetentionPolicy(): Promise<RetentionResult> {
+  const config = getConfig();
+  assertRetentionBackupVerified(config.APP_ENV, await readBackupReceipt());
+
   return withTransaction(async (client) => {
     const result = emptyResult();
     const lock = await client.query<{ locked: boolean }>(
