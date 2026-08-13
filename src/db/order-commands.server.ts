@@ -508,12 +508,14 @@ function structuredStreetNumberCandidates(
     return new Set<string>();
   }
   let addressParts = withoutAddressUnits(normalizedParts, unitMarkers);
-  const ordinalBeforeUnit =
-    typeof address === "string" ? address.match(/(\d+)\s*[°ºª]\s*(\p{L}+)/iu) : null;
+  const floorAfterExplicitCivic =
+    typeof address === "string"
+      ? address.match(/^\s*\d+[\p{L}]?\s*[,;/]\s*(\d+)\s*[°ºª]?\s*(\p{L}+)/iu)
+      : null;
   if (
-    ordinalBeforeUnit &&
-    unitMarkers.has(normalizedIdentityPart(ordinalBeforeUnit[2])) &&
-    addressParts.at(-1) === ordinalBeforeUnit[1]
+    floorAfterExplicitCivic &&
+    unitMarkers.has(normalizedIdentityPart(floorAfterExplicitCivic[2])) &&
+    addressParts.at(-1) === floorAfterExplicitCivic[1]
   ) {
     addressParts = addressParts.slice(0, -1);
   }
@@ -564,8 +566,10 @@ function customerStreetNumberCandidates(address: Record<string, unknown>) {
   );
   const secondaryTokens = normalizedAddressTokens(address.line2);
   const primaryIsNumberedStreetName =
-    streetKindTokens.has(primaryTokens[0] ?? "") &&
-    numberedStreetQualifiers.has(primaryTokens[1] ?? "");
+    (streetKindTokens.has(primaryTokens[0] ?? "") &&
+      numberedStreetQualifiers.has(primaryTokens[1] ?? "")) ||
+    (numberedStreetQualifiers.has(primaryTokens[0] ?? "") &&
+      streetKindTokens.has(primaryTokens[1] ?? ""));
   const primaryNumericTokens = primaryTokens.filter((token) => /^\d/u.test(token));
   const terminalYear = Number(primaryNumericTokens.at(-1));
   const primaryIsCommemorativeStreetName =
