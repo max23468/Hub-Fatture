@@ -884,6 +884,47 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
        FROM documents WHERE id = $1`,
       [draft.rows[0]!.id],
     );
+    const firstSyntheticReceipt = await inbound.ensureArubaPreflight(
+      {
+        billingCaseId: currentDraft.rows[0]!.billing_case_id,
+        documentId: currentDraft.rows[0]!.id,
+        draftVersion: currentDraft.rows[0]!.draft_version,
+        projectionSha256: currentDraft.rows[0]!.projection_sha256,
+      },
+      actor,
+    );
+    await database
+      .getPool()
+      .query(
+        "UPDATE aruba_preflight_receipts SET expires_at = now() - interval '1 second' WHERE id = $1",
+        [firstSyntheticReceipt],
+      );
+    const renewedSyntheticReceipt = await inbound.ensureArubaPreflight(
+      {
+        billingCaseId: currentDraft.rows[0]!.billing_case_id,
+        documentId: currentDraft.rows[0]!.id,
+        draftVersion: currentDraft.rows[0]!.draft_version,
+        projectionSha256: currentDraft.rows[0]!.projection_sha256,
+      },
+      actor,
+    );
+    assert.notEqual(renewedSyntheticReceipt, firstSyntheticReceipt);
+    assert.deepEqual(
+      (
+        await database
+          .getPool()
+          .query(
+            "SELECT status FROM aruba_preflight_receipts WHERE id = ANY($1::uuid[]) ORDER BY requested_at",
+            [[firstSyntheticReceipt, renewedSyntheticReceipt]],
+          )
+      ).rows.map((row) => row.status),
+      ["EXPIRED", "PASSED"],
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_preflight_receipts WHERE id = ANY($1::uuid[])", [
+        [firstSyntheticReceipt, renewedSyntheticReceipt],
+      ]);
     const manualReceiptId = "40000000-0000-4000-8000-000000000001";
     await database.getPool().query(
       `INSERT INTO aruba_preflight_receipts
@@ -891,6 +932,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json)
        VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('a', 64), 0, $6,
          jsonb_build_object(
+           'documentType', 'TD01',
            'orderIds', ARRAY[$7::text],
            'searches', jsonb_build_array(jsonb_build_object('orderId', $7::text))
          ))`,
@@ -937,8 +979,10 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       `INSERT INTO aruba_preflight_receipts
         (id, environment, account_reference, billing_case_id, document_id, draft_version,
          projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json)
-       VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('c', 64), 0, $6,
+       VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4::integer + 1, $5,
+         repeat('c', 64), 0, $6,
          jsonb_build_object(
+           'documentType', 'TD01',
            'orderIds', ARRAY[$7::text],
            'searches', jsonb_build_array(jsonb_build_object('orderId', $7::text))
          ))`,
@@ -1111,7 +1155,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
          status, claimed_at)
        VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('d', 64), 0,
-         $6, '{}', 'RUNNING', now() - interval '3 minutes')`,
+         $6, jsonb_build_object('documentType', 'TD01'), 'RUNNING', now() - interval '3 minutes')`,
       [
         abandonedReceiptId,
         currentDraft.rows[0]!.billing_case_id,
@@ -1137,7 +1181,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
          status, claimed_at)
        VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('e', 64), 0,
-         $6, jsonb_build_object('orderIds', ARRAY[$7::text]), 'RUNNING', now())`,
+         $6, jsonb_build_object('documentType', 'TD01', 'orderIds', ARRAY[$7::text]), 'RUNNING', now())`,
       [
         rejectedReceiptId,
         currentDraft.rows[0]!.billing_case_id,
@@ -1163,6 +1207,62 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       await inbound.completeArubaPreflight(resumedSession.token, {
         receiptId: rejectedReceiptId,
         candidateRemoteIds: ["REMOTE-REJECTED-001"],
+        searchesCompleted: true,
+      }),
+      { passed: true },
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_preflight_receipts WHERE id = $1", [rejectedReceiptId]);
+
+    const creditReceiptId = "40000000-0000-4000-8000-000000000005";
+    await database.getPool().query(
+      `INSERT INTO aruba_preflight_receipts
+        (id, environment, account_reference, billing_case_id, document_id, draft_version,
+         projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
+         status, claimed_at)
+       VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('f', 64), 0,
+         $6, jsonb_build_object('documentType', 'TD04', 'orderIds', ARRAY[$7::text]),
+         'RUNNING', now())`,
+      [
+        creditReceiptId,
+        currentDraft.rows[0]!.billing_case_id,
+        currentDraft.rows[0]!.id,
+        currentDraft.rows[0]!.draft_version,
+        currentDraft.rows[0]!.projection_sha256,
+        actor.id,
+        residualOrder.rows[0]!.id,
+      ],
+    );
+    await inbound.ingestArubaInventoryPage(resumedSession.token, {
+      ...invoicePage,
+      scanOrdinal: 5,
+      cursor: "typed-preflight-invoice",
+      fullScan: false,
+      documents: [
+        {
+          ...invoicePage.documents[0],
+          remoteId: "REMOTE-TYPED-TD01",
+          fiscalNumber: "200",
+          totalAmount: 5000,
+          status: "SUBMITTED",
+          orderReferences: ["#1002"],
+        },
+      ],
+    });
+    await inbound.ingestArubaInventoryPage(resumedSession.token, {
+      stream: "credit-notes:2026",
+      scanOrdinal: 5,
+      pageOrdinal: 1,
+      cursor: "typed-preflight-credit-note",
+      terminal: true,
+      fullScan: false,
+      documents: [],
+    });
+    assert.deepEqual(
+      await inbound.completeArubaPreflight(resumedSession.token, {
+        receiptId: creditReceiptId,
+        candidateRemoteIds: ["REMOTE-TYPED-TD01"],
         searchesCompleted: true,
       }),
       { passed: true },

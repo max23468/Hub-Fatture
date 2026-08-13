@@ -2297,6 +2297,7 @@ export async function requestArubaPreflight(
   }
   const request = await getPool().query<{
     id: string;
+    document_type: "TD01" | "TD04";
     order_ids: string[];
     searches: Array<{
       provider: "SHOPIFY" | "EBAY";
@@ -2311,7 +2312,7 @@ export async function requestArubaPreflight(
       refundIds: string[];
     }>;
   }>(
-    `SELECT documents.id, coalesce(array_agg(document_orders.order_id::text)
+    `SELECT documents.id, documents.document_type, coalesce(array_agg(document_orders.order_id::text)
       FILTER (WHERE document_orders.order_id IS NOT NULL), '{}') AS order_ids,
       coalesce(jsonb_agg(DISTINCT jsonb_build_object(
         'provider', orders.provider, 'displayNumber', orders.display_number,
@@ -2349,29 +2350,39 @@ export async function requestArubaPreflight(
   const manifest = {
     billingCaseId: input.billingCaseId ?? null,
     documentId: document.id,
+    documentType: document.document_type,
     draftVersion: input.draftVersion,
     projectionSha256: input.projectionSha256,
     orderIds: document.order_ids,
     refundIds: document.searches.flatMap((search) => search.refundIds),
     searches: document.searches,
   };
-  const [watermark, existing] = await Promise.all([
-    currentInventoryWatermark(getPool()),
-    getPool().query<{ id: string; status: string }>(
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `aruba-preflight:${document.id}:${input.draftVersion}:${input.projectionSha256}`,
+    ]);
+    await client.query(
+      `UPDATE aruba_preflight_receipts SET status = 'EXPIRED'
+       WHERE billing_case_id IS NOT DISTINCT FROM $1 AND document_id = $2
+         AND draft_version = $3 AND projection_sha256 = $4 AND status = 'PASSED'
+         AND expires_at <= now()`,
+      [input.billingCaseId ?? null, document.id, input.draftVersion, input.projectionSha256],
+    );
+    const watermark = await currentInventoryWatermark(client);
+    const existing = await client.query<{ id: string; status: string }>(
       `SELECT id, status FROM aruba_preflight_receipts
        WHERE billing_case_id IS NOT DISTINCT FROM $1 AND document_id = $2
          AND draft_version = $3 AND projection_sha256 = $4
          AND status IN ('REQUESTED', 'RUNNING', 'PASSED')
          AND (expires_at IS NULL OR expires_at > now())
-       ORDER BY requested_at DESC LIMIT 1`,
+      ORDER BY requested_at DESC LIMIT 1`,
       [input.billingCaseId ?? null, document.id, input.draftVersion, input.projectionSha256],
-    ),
-  ]);
-  if (existing.rows[0]) return existing.rows[0];
-  const id = randomUUID();
-  const syntheticPass = environment() === "MOCK";
-  await getPool().query(
-    `INSERT INTO aruba_preflight_receipts
+    );
+    if (existing.rows[0]) return existing.rows[0];
+    const id = randomUUID();
+    const syntheticPass = environment() === "MOCK";
+    await client.query(
+      `INSERT INTO aruba_preflight_receipts
       (id, environment, account_reference, billing_case_id, document_id, draft_version,
        projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
        status, completed_at, expires_at)
@@ -2379,22 +2390,23 @@ export async function requestArubaPreflight(
        CASE WHEN $12 THEN 'PASSED' ELSE 'REQUESTED' END,
        CASE WHEN $12 THEN now() ELSE NULL END,
        CASE WHEN $12 THEN now() + interval '5 minutes' ELSE NULL END)`,
-    [
-      id,
-      environment(),
-      accountReference(),
-      input.billingCaseId ?? null,
-      document.id,
-      input.draftVersion,
-      input.projectionSha256,
-      sharedManifestSha256 ?? payloadDigest(manifest),
-      watermark,
-      actor.id,
-      JSON.stringify({ ...manifest, sharedManifestSha256: sharedManifestSha256 ?? null }),
-      syntheticPass,
-    ],
-  );
-  return { id, status: syntheticPass ? "PASSED" : "REQUESTED" };
+      [
+        id,
+        environment(),
+        accountReference(),
+        input.billingCaseId ?? null,
+        document.id,
+        input.draftVersion,
+        input.projectionSha256,
+        sharedManifestSha256 ?? payloadDigest(manifest),
+        watermark,
+        actor.id,
+        JSON.stringify({ ...manifest, sharedManifestSha256: sharedManifestSha256 ?? null }),
+        syntheticPass,
+      ],
+    );
+    return { id, status: syntheticPass ? "PASSED" : "REQUESTED" };
+  });
 }
 
 export async function ensureArubaPreflight(
@@ -2530,7 +2542,11 @@ export async function completeArubaPreflight(
     const session = await loadReadSession(client, token, true);
     if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
     const receipt = await client.query<{
-      request_json: { orderIds?: string[]; refundIds?: string[] };
+      request_json: {
+        documentType?: "TD01" | "TD04";
+        orderIds?: string[];
+        refundIds?: string[];
+      };
       requested_at: Date;
       draft_version: number;
       projection_sha256: string;
@@ -2544,12 +2560,21 @@ export async function completeArubaPreflight(
     );
     if (!receipt.rows[0]) throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
     const requestJson = receipt.rows[0].request_json;
+    if (requestJson.documentType !== "TD01" && requestJson.documentType !== "TD04") {
+      throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
+    }
     const declaredCandidates = candidateIds.data.length
       ? await client.query(
           `SELECT remote_id FROM aruba_remote_documents
            WHERE environment = $1 AND account_reference = $2
-             AND remote_status <> 'REJECTED' AND remote_id = ANY($3::text[])`,
-          [session.environment, session.account_reference, candidateIds.data],
+             AND remote_status <> 'REJECTED' AND remote_id = ANY($3::text[])
+             AND document_type = $4`,
+          [
+            session.environment,
+            session.account_reference,
+            candidateIds.data,
+            requestJson.documentType,
+          ],
         )
       : { rowCount: 0 };
     const required = await requiredInventoryCoverage(client);
@@ -2562,7 +2587,7 @@ export async function completeArubaPreflight(
       `SELECT 1 FROM aruba_document_matches matches
          JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
          WHERE remote.environment = $1 AND remote.account_reference = $2
-           AND remote.remote_status <> 'REJECTED' AND (
+           AND remote.remote_status <> 'REJECTED' AND remote.document_type = $4 AND (
            matches.order_id::text = ANY($3::text[])
            OR EXISTS (
              SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
@@ -2570,7 +2595,12 @@ export async function completeArubaPreflight(
                AND coalesce((candidate ->> 'compatible')::boolean, false)
            )
          ) LIMIT 1`,
-      [session.environment, session.account_reference, requestJson.orderIds ?? []],
+      [
+        session.environment,
+        session.account_reference,
+        requestJson.orderIds ?? [],
+        requestJson.documentType,
+      ],
     );
     const coveredStreams = new Set(covered.rows.map((row) => row.stream));
     const passed =

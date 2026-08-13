@@ -21,7 +21,7 @@ import {
   updateBillingCaseTransmission,
 } from "../../src/db/orders.server.ts";
 import { AppError } from "../../src/errors.ts";
-import { readForm } from "../../src/http.server.ts";
+import { readArubaInventoryForm } from "../../src/http.server.ts";
 import { invoiceLinesFromForm } from "../invoice-lines.ts";
 
 interface Actor {
@@ -180,7 +180,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export async function action({ request, params }: Route.ActionArgs) {
   return actionResult(async () => {
     const user = await requireSessionUser(request);
-    const form = await readForm(request);
+    const form = await readArubaInventoryForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
     const outcome = await runIntent(form.get("intent"), params.caseId, form, form.get("revision"), {
       id: user.id,

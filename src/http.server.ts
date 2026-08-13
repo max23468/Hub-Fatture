@@ -4,6 +4,8 @@ import { AppError } from "./errors.ts";
 export const FORM_BODY_LIMIT = 16 * 1024;
 export const FORM_BODY_TIMEOUT_MS = 5_000;
 export const WEBHOOK_BODY_LIMIT = 128 * 1024;
+export const ARUBA_INVENTORY_BODY_LIMIT = 8 * 1024 * 1024;
+export const ARUBA_INVENTORY_BODY_TIMEOUT_MS = 15_000;
 
 const LOOPBACK_SIBLING: Record<string, string> = {
   localhost: "127.0.0.1",
@@ -111,6 +113,20 @@ export async function readJson(
   } catch {
     throw new AppError("ARUBA_BATCH_INVALID", 422);
   }
+}
+
+export function readArubaInventoryForm(request: Request): Promise<URLSearchParams> {
+  return readForm(request, {
+    maxBytes: ARUBA_INVENTORY_BODY_LIMIT,
+    timeoutMs: ARUBA_INVENTORY_BODY_TIMEOUT_MS,
+  });
+}
+
+export function readArubaInventoryJson(request: Request): Promise<unknown> {
+  return readJson(request, {
+    maxBytes: ARUBA_INVENTORY_BODY_LIMIT,
+    timeoutMs: ARUBA_INVENTORY_BODY_TIMEOUT_MS,
+  });
 }
 
 export async function readMultipartForm(

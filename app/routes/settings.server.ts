@@ -36,7 +36,7 @@ import {
 } from "../../src/db/orders.server.ts";
 import { getSystemStatus } from "../../src/db/system.server.ts";
 import { AppError, publicError } from "../../src/errors.ts";
-import { readForm } from "../../src/http.server.ts";
+import { readArubaInventoryForm } from "../../src/http.server.ts";
 import {
   importShopifyHistory,
   previewShopifyHistory,
@@ -122,7 +122,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const user = await requireSessionUser(request);
-  const form = await readForm(request);
+  const form = await readArubaInventoryForm(request);
   const intent = form.get("intent") ?? "save-trigger";
   try {
     assertCsrf(user, form.get("csrf") ?? "");

@@ -229,9 +229,13 @@ CREATE TABLE aruba_preflight_receipts (
   override_freshness_age_minutes integer CHECK (
     override_freshness_age_minutes IS NULL OR override_freshness_age_minutes >= 0
   ),
-  request_json jsonb NOT NULL,
-  UNIQUE (billing_case_id, document_id, draft_version, projection_sha256, status)
+  request_json jsonb NOT NULL
 );
+
+CREATE UNIQUE INDEX aruba_preflight_receipts_active_revision_idx
+  ON aruba_preflight_receipts
+    (billing_case_id, document_id, draft_version, projection_sha256)
+  WHERE status IN ('REQUESTED', 'RUNNING', 'PASSED');
 
 CREATE INDEX aruba_preflight_receipts_pending_idx
   ON aruba_preflight_receipts (status, requested_at)
