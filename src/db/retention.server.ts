@@ -237,7 +237,13 @@ export async function applyRetentionPolicy(): Promise<RetentionResult> {
       );
       const permits = await client.query(
         `DELETE FROM aruba_send_permits
-         WHERE coalesce(consumed_at, expires_at) <= now() - interval '30 days'`,
+         WHERE coalesce(consumed_at, expires_at) <= now() - interval '30 days'
+           AND NOT EXISTS (
+             SELECT 1 FROM aruba_batches
+             WHERE aruba_batches.id = aruba_send_permits.batch_id
+               AND aruba_send_permits.scope = 'CANARY'
+               AND aruba_batches.status NOT IN ('RECONCILED', 'CANCELLED')
+           )`,
       );
       result.ARUBA_CREDENTIALS = (tokens.rowCount ?? 0) + (permits.rowCount ?? 0);
       await recordRetention(client, "ARUBA_CREDENTIALS", result.ARUBA_CREDENTIALS, requestId);
