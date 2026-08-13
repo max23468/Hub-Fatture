@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.29
+
+- I rimborsi eBay presenti sia nel riepilogo pagamento sia sulle righe vengono importati una sola volta: il record con ID eBay resta autorevole e i duplicati sintetici storici non collegati a documenti vengono rimossi.
+- I rimborsi senza importo di ordini già chiusi senza fattura restano nello storico del dettaglio, ma non richiedono più un intervento fiscale impossibile nella vista Attività.
+- L’eccezione manuale dello storico riconosce la fattura personale di un cliente UE quando la ragione commerciale ricevuta contiene lo stesso nome e cognome, mantenendo obbligatori indirizzo, data, totale, riferimento FPR e unicità.
+
 ## 0.3.28
 
 - Ogni accesso crea una sessione indipendente per dispositivo che resta valida per un anno, anziché scadere dopo otto ore; cambio password, uscita e revoca manuale continuano a invalidare le sessioni interessate.

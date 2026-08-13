@@ -200,6 +200,12 @@ function identityTokens(value: unknown) {
   return new Set(normalizedIdentityPart(value).split(" ").filter(Boolean));
 }
 
+function containsPersonalIdentityTokens(value: unknown, personalIdentity: unknown) {
+  const valueTokens = identityTokens(value);
+  const personalTokens = identityTokens(personalIdentity);
+  return personalTokens.size >= 2 && [...personalTokens].every((token) => valueTokens.has(token));
+}
+
 function sameTokenSet(left: unknown, right: unknown) {
   const leftTokens = identityTokens(left);
   const rightTokens = identityTokens(right);
@@ -604,19 +610,31 @@ function matchesManuallyReviewedRecipient(
   recipient: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"],
 ) {
   const recipientBusinessName = normalizedIdentityPart(recipient.businessName);
+  const recipientName =
+    recipientBusinessName ||
+    normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
   const customerKind = typeof customer.kind === "string" ? customer.kind.trim().toUpperCase() : "";
   const hasCustomerBusinessName = hasExplicitBusinessName(customer);
+  const personalBusinessAlias =
+    customerKind === "EU" &&
+    !recipientBusinessName &&
+    Boolean(recipientName) &&
+    customerIdentityNames(customer, false).some(
+      (personalName) =>
+        sameOrSingleAdditionalPersonalNameToken(personalName, recipientName) &&
+        customerIdentityNames(customer, true).some((businessName) =>
+          containsPersonalIdentityTokens(businessName, personalName),
+        ),
+    );
   const customerIsPersonal =
-    customerKind === "PRIVATE_IT" || (customerKind === "EU" && !hasCustomerBusinessName);
+    customerKind === "PRIVATE_IT" ||
+    (customerKind === "EU" && (!hasCustomerBusinessName || personalBusinessAlias));
   if (!customerIsPersonal || (customerKind === "PRIVATE_IT" && recipientBusinessName)) return false;
   if (matchesRecipientWithoutTaxId(customer, recipient)) return true;
   const billingAddress =
     customer.billingAddress && typeof customer.billingAddress === "object"
       ? (customer.billingAddress as Record<string, unknown>)
       : {};
-  const recipientName =
-    recipientBusinessName ||
-    normalizedIdentityPart([recipient.firstName, recipient.lastName].filter(Boolean).join(" "));
   const recipientPostalCodeForStreetNumber =
     normalizedIdentityPart(recipient.address.countryCode) !== "it" &&
     compactAddressPart(recipient.address.postalCode) === "00000"

@@ -53,6 +53,28 @@ test("le attività espongono i dati operativi e paginano molte righe", async () 
       [PAGE_SIZE + 5],
     );
 
+    await database.getPool().query(
+      `WITH terminal_order AS (
+         INSERT INTO orders
+           (provider, external_account_id, external_order_id, display_number,
+            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+            payment_status, fulfillment_status, trigger_status, customer_id,
+            raw_snapshot_json, normalized_snapshot_json)
+         SELECT 'EBAY', 'activity-pagination', 'terminal-refund-order', 'TERMINAL-REFUND',
+                now(), now(), '2026-07-01', 'EUR', 1000, 'REFUNDED', 'FULFILLED',
+                'CANCELLED_NO_DOCUMENT', customer_id, '{}', '{}'
+         FROM billing_cases WHERE id = $1
+         RETURNING id
+       )
+       INSERT INTO refunds
+         (provider, external_account_id, external_order_id, external_refund_id,
+          order_id, status, amount, raw_json)
+       SELECT 'EBAY', 'activity-pagination', 'terminal-refund-order', 'terminal-refund',
+              id, 'AMBIGUOUS', NULL, '{}'
+       FROM terminal_order`,
+      [billingCase.rows[0]!.id],
+    );
+
     const firstPage = await orders.listOpenActivities();
     const secondPage = await orders.listOpenActivities(2);
     const caseActivity = [...firstPage.rows, ...secondPage.rows].find(
@@ -74,6 +96,12 @@ test("le attività espongono i dati operativi e paginano molte righe", async () 
     assert.match(caseActivity?.case_number ?? "", /^\d{6}$/);
     assert.equal(caseActivity?.customer_name, "Cliente attività");
     assert.equal(caseActivity?.order_date, "2026-07-01");
+    assert.equal(
+      [...firstPage.rows, ...secondPage.rows].some(
+        (activity) => activity.order_number === "TERMINAL-REFUND",
+      ),
+      false,
+    );
 
     const oldestActivities = await orders.listOpenActivities(undefined, undefined, {
       key: "data",

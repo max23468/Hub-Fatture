@@ -316,9 +316,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  await expect(
-    page.getByText("023_ebay_payment_reconciliation.sql", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("024_ebay_refund_deduplication.sql", { exact: true })).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),

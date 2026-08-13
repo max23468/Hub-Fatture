@@ -329,9 +329,23 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
   const buyerId = text(buyer.username) ?? text(buyer.userId);
   const lineItems = records(order.lineItems);
   const payments = records(record(order.paymentSummary).payments);
+  const paymentRefunds = records(record(order.paymentSummary).refunds);
+  const lineRefunds = lineItems.flatMap((line) => records(line.refunds));
+  const paymentRefundIds = new Set(
+    paymentRefunds
+      .map((refund) => text(refund.refundId) ?? text(refund.refundReferenceId))
+      .filter((refundId): refundId is string => Boolean(refundId)),
+  );
+  // eBay può ripetere lo stesso rimborso sulle righe senza ID o data, oltre al record
+  // autorevole nel riepilogo pagamento. Conserviamo però un eventuale record di riga
+  // con un proprio ID non presente nel riepilogo, perché rappresenta un evento distinto.
   const refunds = [
-    ...records(record(order.paymentSummary).refunds),
-    ...lineItems.flatMap((line) => records(line.refunds)),
+    ...paymentRefunds,
+    ...lineRefunds.filter((refund) => {
+      if (!paymentRefunds.length) return true;
+      const refundId = text(refund.refundId) ?? text(refund.refundReferenceId);
+      return Boolean(refundId && !paymentRefundIds.has(refundId));
+    }),
   ];
   const cancelled = text(record(order.cancelStatus).cancelState);
   const paymentStatus = text(order.orderPaymentStatus) ?? "PENDING";
