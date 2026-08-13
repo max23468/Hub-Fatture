@@ -101,4 +101,4 @@ Queste prove non sostituiscono la qualifica Aruba, l’e-mail reale o le autoriz
 
 ## Limiti
 
-Restano da osservare sul candidato esatto: pannello Aruba reale senza invio per fattura e TD04, SMTP reale, rimozione autorizzata delle copie Mac precedenti e un esercizio fresco della corsia rollback modificata dopo l’ultima prova reale. Import storico, monitor provider e auto-merge Dependabot sono chiusi nel record di readiness. Qualunque modifica runtime, schema o configurazione dopo queste prove riapre la parte interessata dell’audit.
+Restano da osservare sul candidato esatto: pannello Aruba reale senza invio per fattura e TD04, SMTP reale e un esercizio fresco della corsia rollback modificata dopo l’ultima prova reale. Import storico, copia Mac, monitor provider e auto-merge Dependabot sono chiusi nel record di readiness. Qualunque modifica runtime, schema o configurazione dopo queste prove riapre la parte interessata dell’audit.
