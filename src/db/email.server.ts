@@ -81,6 +81,37 @@ export async function setCustomerEmailMode(
       [version, JSON.stringify(mode.data)],
     );
     if (updated.rowCount !== 1) throw new AppError("CONFLICT_REVISION", 409);
+    if (mode.data === "DISABLED") {
+      const suppressed = await client.query<{ id: string }>(
+        `WITH suppressed AS (
+           UPDATE email_deliveries SET status = 'FAILED', send_started_at = NULL,
+             last_error_code = 'EMAIL_DELIVERY_DISABLED',
+             last_error_sanitized = 'EMAIL_DELIVERY_DISABLED', updated_at = now()
+           WHERE status = 'PENDING' AND send_started_at IS NULL
+           RETURNING id
+         ), completed_jobs AS (
+           UPDATE jobs SET status = 'COMPLETED', completed_at = now(),
+             lease_expires_at = NULL, locked_by = NULL, claim_token = NULL,
+             result_json = '{"emailDisabled":true}'::jsonb, last_error_code = NULL
+           WHERE type = 'send_customer_email' AND status IN ('PENDING', 'RUNNING')
+             AND payload_json ->> 'deliveryId' IN (SELECT id::text FROM suppressed)
+           RETURNING id
+         )
+         SELECT id FROM suppressed`,
+      );
+      for (const delivery of suppressed.rows) {
+        await writeAudit(client, {
+          actorType: "ADMIN",
+          actorId: String(actor.id),
+          action: "CUSTOMER_EMAIL_SUPPRESSED",
+          eventClass: "CRITICAL",
+          entityType: "EMAIL_DELIVERY",
+          entityId: delivery.id,
+          reason: "EMAIL_DELIVERY_DISABLED",
+          requestId: actor.requestId,
+        });
+      }
+    }
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),

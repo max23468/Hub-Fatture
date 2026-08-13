@@ -277,32 +277,33 @@ test(
         ...owner,
         requestId: "email-disabled-before-send",
       });
-      const suppressedJob = await claimEmailJob(suppressedId, "email-disabled");
       const restorableEmailSettings = await email.getCustomerEmailSettings();
       await email.setCustomerEmailMode("DISABLED", restorableEmailSettings.version, {
         ...owner,
         requestId: "email-disabled-with-pending-job",
       });
-      let smtpCalled = false;
-      await email.sendCustomerEmail(suppressedJob, async () => {
-        smtpCalled = true;
-        return "<must-not-send@example.invalid>";
-      });
-      assert.equal(smtpCalled, false);
-      assert.equal(await jobs.completeJob(suppressedJob), true);
-      assert.deepEqual(
-        (
-          await client.query("SELECT status, last_error_code FROM email_deliveries WHERE id = $1", [
-            suppressedId,
-          ])
-        ).rows[0],
-        { status: "FAILED", last_error_code: "EMAIL_DELIVERY_DISABLED" },
-      );
       const suppressedEmailSettings = await email.getCustomerEmailSettings();
       await email.setCustomerEmailMode("MANUAL", suppressedEmailSettings.version, {
         ...owner,
         requestId: "email-restored-after-suppression",
       });
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT email_deliveries.status, email_deliveries.last_error_code,
+                    jobs.status AS job_status
+             FROM email_deliveries
+             JOIN jobs ON jobs.payload_json ->> 'deliveryId' = email_deliveries.id::text
+             WHERE email_deliveries.id = $1`,
+            [suppressedId],
+          )
+        ).rows[0],
+        {
+          status: "FAILED",
+          last_error_code: "EMAIL_DELIVERY_DISABLED",
+          job_status: "COMPLETED",
+        },
+      );
 
       const concurrentId = await email.retryCustomerEmail(invoice.rows[0]!.id, {
         ...owner,
