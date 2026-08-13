@@ -327,14 +327,31 @@ const addressUnitMarkers = new Set([
 const secondAddressLineUnitMarkers = new Set([
   ...addressUnitMarkers,
   "edificio",
+  "etage",
+  "geschoss",
   "interno",
   "localita",
   "palazzina",
   "piano",
+  "pietro",
+  "piso",
+  "planta",
   "scala",
+  "stock",
 ]);
 
-const postposedFloorMarkers = new Set(["et", "etaj", "floor", "piano"]);
+const postposedFloorMarkers = new Set([
+  "et",
+  "etage",
+  "etaj",
+  "floor",
+  "geschoss",
+  "piano",
+  "pietro",
+  "piso",
+  "planta",
+  "stock",
+]);
 const numberedStreetQualifiers = new Set([
   "comunale",
   "provinciale",

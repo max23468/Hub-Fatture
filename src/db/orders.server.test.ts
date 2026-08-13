@@ -4425,7 +4425,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     historicalWithUnmarkedPostposedFloor.displayNumber = "#S-HIST-UNMARKED-POSTPOSED-FLOOR";
     historicalWithUnmarkedPostposedFloor.customer.billingAddress = {
       line1: "Via della Scala 7",
-      line2: "2 piano",
+      line2: "2 étage",
       postalCode: "00100",
       city: "Roma",
       province: "RM",
@@ -4449,13 +4449,13 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         historicalWithUnmarkedPostposedFloorId,
         {
           outcome: "ALREADY_INVOICED",
-          reference: "Documento Aruba FPR 0040/26 con piano senza simbolo ordinale",
+          reference: "Documento Aruba FPR 0040/26 con piano UE senza simbolo ordinale",
           invoiceXml: Buffer.from(
             historicalWithoutTaxIdXml.toString().replace("FPR 0013/26", "FPR 0040/26"),
           ),
           manualReviewApproved: true,
         },
-        { id: 1, canApprove: true, requestId: "test-reject-unmarked-floor-as-civic" },
+        { id: 1, canApprove: true, requestId: "test-reject-eu-floor-as-civic" },
       ),
       (error: unknown) =>
         error instanceof AppError && error.code === "ORDER_HISTORY_INVOICE_INVALID",
