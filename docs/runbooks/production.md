@@ -51,6 +51,17 @@ Controlli conclusivi:
 - nessun container privilegiato, database non pubblicato e filesystem applicativo read-only;
 - connessioni non configurate restano fail-closed e nessun provider viene chiamato durante lo smoke.
 
+## Release tecnica
+
+Dopo deploy e readback, pubblicare la GitHub Release esclusivamente con
+`scripts/publish-github-release.sh <tag> <commit> <manifest-json> <note-md>`.
+Lo script verifica che versione e commit del manifest coincidano con il tag e
+il candidato, copia l’asset in un percorso temporaneo col nome canonico
+`release-manifest.json`, crea la release Latest e rilegge tag, asset unico e
+immutabilità. Non usare direttamente un file temporaneo con un nome diverso:
+GitHub conserva il basename locale e una release immutabile non può essere
+corretta sostituendo l’asset.
+
 ## Rollback
 
 Il rollback è applicativo: un workflow manuale può scegliere un commit precedente già contenuto in `main`; soltanto se lo schema è rimasto invariato, il deploy ripristina insieme applicazione, Compose e Caddyfile e ripete il readback. Se la modalità e-mail globale è `DISABLED`, il workflow rifiuta anche un candidato precedente che non la supporta, perché il vecchio worker potrebbe altrimenti accodare o inviare nuove copie. Lo script applica inoltre lo stesso ripristino automatico del bundle precedente quando fallisce il deploy in corso. Se lo schema è avanzato, non è rilevabile o la modalità disattivata non è supportata dal target, il rollback è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.

@@ -430,6 +430,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     "scripts/production-preflight.sh",
     "scripts/production-readback.sh",
     "scripts/production-release-candidate-readback.sh",
+    "scripts/publish-github-release.sh",
     "scripts/read-env.sh",
     "scripts/restore.sh",
   ];
@@ -617,6 +618,28 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     await readFile(path.join(root, "ops/provision-production.sh"), "utf8"),
     /mask rpcbind\.socket rpcbind\.service/,
   );
+});
+
+test("la release usa sempre il nome canonico prima di diventare immutabile", async () => {
+  const release = await readFile(path.join(root, "scripts/publish-github-release.sh"), "utf8");
+  assert.match(release, /install -m 600 "\$manifest" "\$stage_dir\/release-manifest[.]json"/);
+  assert.match(release, /gh release create "\$tag" "\$stage_dir\/release-manifest[.]json"/);
+  assert.match(release, /--draft >\/dev\/null/);
+  assert.match(release, /\.isDraft == true/);
+  assert.match(release, /gh release edit "\$tag" --repo "\$repository" --draft=false --latest/);
+  assert.match(release, /gh api -X DELETE "repos\/\$repository\/releases\/\$release_id"/);
+  assert.match(release, /\[\.assets\[\][.]name\] == \["release-manifest[.]json"\]/);
+  assert.doesNotMatch(release, /#["']?release-manifest[.]json/);
+  const resolveTag = release.indexOf("if remote_tag_commit=$(resolve_remote_tag)");
+  const createRelease = release.indexOf('gh release create "$tag"');
+  const verifyDraft = release.indexOf("draft_release=$(gh release view");
+  const publishRelease = release.indexOf('gh release edit "$tag"');
+  const releaseVerified = release.indexOf("release_id=\nprintf");
+  assert.ok(resolveTag >= 0 && resolveTag < createRelease);
+  assert.ok(createRelease < verifyDraft && verifyDraft < publishRelease);
+  assert.ok(publishRelease < releaseVerified);
+  assert.match(release, /\[ "\$remote_tag_commit" = "\$commit" \]/);
+  assert.match(release, /\[ "\$\(resolve_remote_tag\)" = "\$commit" \]/);
 });
 
 test("il worker riconferma la lease dopo errori transitori di heartbeat", async () => {
