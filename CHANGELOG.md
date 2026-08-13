@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.40
+
+- Il manifest tecnico della release passa sempre dallo script canonico, che lo rinomina `release-manifest.json`, ne verifica identità e contenuto prima della pubblicazione e rilegge asset, tag e immutabilità dopo la creazione.
+- Il record di readiness collega il deploy e il readback Production del contratto pilota `0.3.39`; l’inventario Aruba provider-first resta l’unico gate M8 aperto e mantiene il Canary bloccato.
+
 ## 0.3.39
 
 - La preparazione dell’invio pilota crea una registrazione inattiva; l’attivazione richiede una seconda conferma specifica immediatamente prima del consumo.
