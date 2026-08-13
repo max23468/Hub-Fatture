@@ -5,7 +5,7 @@ name: Dependabot auto-merge
 on:
   pull_request:
     types: [opened, reopened, synchronize]
-    branches: [main, codex/m8-dependabot-base]
+    branches: [main, codex/m8-dependabot-base-2]
 
 permissions:
   contents: write
@@ -18,8 +18,8 @@ jobs:
       (github.event.pull_request.user.login == 'dependabot[bot]' &&
        github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event.pull_request.user.login == github.repository_owner &&
-       github.event.pull_request.base.ref == 'codex/m8-dependabot-base' &&
-       github.event.pull_request.head.ref == 'dependabot/github_actions/main/millionco/react-doctor-01820bb4fd4d0a4aebcd8df2b2a143a098649cb2' &&
+       github.event.pull_request.base.ref == 'codex/m8-dependabot-base-2' &&
+       github.event.pull_request.head.ref == 'codex/m8-dependabot-update-2' &&
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -37,8 +37,8 @@ jobs:
            (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
             steps.metadata.outputs.update-type == 'version-update:semver-minor')) ||
           (github.event.pull_request.user.login == github.repository_owner &&
-           github.event.pull_request.base.ref == 'codex/m8-dependabot-base' &&
-           github.event.pull_request.head.ref == 'dependabot/github_actions/main/millionco/react-doctor-01820bb4fd4d0a4aebcd8df2b2a143a098649cb2')
+           github.event.pull_request.base.ref == 'codex/m8-dependabot-base-2' &&
+           github.event.pull_request.head.ref == 'codex/m8-dependabot-update-2')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

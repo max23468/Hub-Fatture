@@ -2,7 +2,7 @@ name: Dependency review
 
 on:
   pull_request:
-    branches: [main, codex/m8-dependabot-base]
+    branches: [main, codex/m8-dependabot-base-2]
 
 permissions:
   contents: read

@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, codex/m8-dependabot-base]
+    branches: [main, codex/m8-dependabot-base-2]
   schedule:
     - cron: "17 4 * * 1"
 
