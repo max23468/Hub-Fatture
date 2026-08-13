@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.30
+
+- Il confronto degli indirizzi usa insieme le due righe ricevute dal marketplace, così il civico separato in `line2` resta verificabile contro l’XML Aruba senza indebolire i controlli su identità, Paese, data, totale, riferimento FPR e unicità.
+
 ## 0.3.29
 
 - I rimborsi eBay presenti sia nel riepilogo pagamento sia sulle righe vengono importati una sola volta: il record con ID eBay resta autorevole e i duplicati sintetici storici non collegati a documenti vengono rimossi.

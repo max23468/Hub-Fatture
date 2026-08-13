@@ -454,21 +454,28 @@ function canonicalItalianStreetToken(token: string) {
   return ["san", "santo", "santa", "sant"].includes(token) ? "san" : token;
 }
 
+function combinedAddressLine(address: Record<string, unknown>) {
+  return [address.line1, address.line2]
+    .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+    .join(" ");
+}
+
 function hasSupportingAddressEvidence(
   customerAddress: Record<string, unknown>,
   recipientAddress: ReturnType<typeof acceptedInvoiceFromXml>["input"]["recipient"]["address"],
 ) {
+  const customerAddressLine = combinedAddressLine(customerAddress);
   const samePostalCode = sameNonEmptyIdentityPart(
     customerAddress.postalCode,
     recipientAddress.postalCode,
   );
   const sameCity = sameNonEmptyIdentityPart(customerAddress.city, recipientAddress.city);
-  const sameAddressLine = sameNonEmptyIdentityPart(customerAddress.line1, recipientAddress.line1);
+  const sameAddressLine = sameNonEmptyIdentityPart(customerAddressLine, recipientAddress.line1);
   if (recipientAddress.streetNumber) {
     const customerCountry = normalizedIdentityPart(customerAddress.countryCode);
     const recipientCountry = normalizedIdentityPart(recipientAddress.countryCode);
     const customerStreetTokens = distinctiveStreetTokens(
-      customerAddress.line1,
+      customerAddressLine,
       recipientAddress.streetNumber,
       customerAddress.postalCode,
       customerCountry === "it",
@@ -483,12 +490,12 @@ function hasSupportingAddressEvidence(
       !customerCountry ||
       customerCountry !== recipientCountry ||
       !containsStructuredStreetNumber(
-        customerAddress.line1,
+        customerAddressLine,
         recipientAddress.streetNumber,
         customerAddress.postalCode,
       ) ||
       hasConflictingStructuredStreetNumber(
-        customerAddress.line1,
+        customerAddressLine,
         recipientAddress.streetNumber,
         customerAddress.postalCode,
       ) ||
@@ -521,7 +528,7 @@ function hasSupportingAddressEvidence(
         samePostalCode &&
         sameCity &&
         streetKind(
-          customerAddress.line1,
+          customerAddressLine,
           recipientAddress.streetNumber,
           customerAddress.postalCode,
         ) ===
@@ -640,17 +647,18 @@ function matchesManuallyReviewedRecipient(
     compactAddressPart(recipient.address.postalCode) === "00000"
       ? billingAddress.postalCode
       : recipient.address.postalCode;
+  const billingAddressLine = combinedAddressLine(billingAddress);
   if (
     !recipient.address.streetNumber ||
     !recipientName ||
     !sameNonEmptyIdentityPart(billingAddress.countryCode, recipient.address.countryCode) ||
     !containsStructuredStreetNumber(
-      billingAddress.line1,
+      billingAddressLine,
       recipient.address.streetNumber,
       billingAddress.postalCode,
     ) ||
     hasConflictingStructuredStreetNumber(
-      billingAddress.line1,
+      billingAddressLine,
       recipient.address.streetNumber,
       billingAddress.postalCode,
     ) ||

@@ -4342,7 +4342,8 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     bulgarianHistorical.customer.lastName = "Радев";
     bulgarianHistorical.customer.companyName = "ЕТ Валмерад-Валентин Радев";
     bulgarianHistorical.customer.billingAddress = {
-      line1: "ул. Пчела, 3-Б",
+      line1: "ул. Пчела",
+      line2: "3-Б",
       postalCode: "1619",
       city: "София",
       countryCode: "BG",
