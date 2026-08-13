@@ -5,9 +5,14 @@ import type { Route } from "./+types/setup";
 import { actionResult } from "../action";
 import { PublicCardHeader, PublicPage } from "../components/public-page";
 import { copy } from "../copy.it";
+import { privateRouteMeta } from "../metadata";
 import { AGENT_USERNAME, OWNER_USERNAME } from "../../src/auth.ts";
 import { requestId, setupAccounts, setupAvailable } from "../../src/db/auth.server.ts";
 import { readForm } from "../../src/http.server.ts";
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("setup", { error });
+}
 
 export async function loader() {
   if (!(await setupAvailable())) throw redirect("/login");

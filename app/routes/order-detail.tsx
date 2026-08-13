@@ -18,6 +18,7 @@ import {
   taxIdentifierLabels,
 } from "../copy.it";
 import { address, date, dateTime, euros } from "../format";
+import { privateRouteMeta } from "../metadata";
 import type { SortValue } from "../table-sort";
 import { ARUBA_UPLOAD_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
@@ -33,6 +34,13 @@ type OrderLineSortKey = "description" | "quantity" | "gross_amount" | "discount_
 
 function orderLineValue(line: OrderLine, key: OrderLineSortKey): SortValue {
   return line[key];
+}
+
+export function meta({ error, loaderData }: Route.MetaArgs) {
+  return privateRouteMeta("order", {
+    error,
+    title: loaderData?.order ? copy.orderDetail.order(loaderData.order.display_number) : undefined,
+  });
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {

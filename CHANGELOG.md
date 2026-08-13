@@ -1,15 +1,21 @@
 # Changelog
 
-## 0.3.31
+## 0.3.32
 
 - Il confronto degli indirizzi usa insieme le due righe ricevute dal marketplace, così il civico separato in `line2` resta verificabile contro l’XML Aruba senza indebolire i controlli su identità, Paese, data, totale, riferimento FPR e unicità.
+
+## 0.3.31
+
+- Ogni pagina privata espone un titolo descrittivo nel formato `Pagina · Hub Fatture`, con titoli contestuali per ordini e preparazioni fattura e metadati coerenti anche per errori e pagine non trovate.
+- L'applicazione espone description, Open Graph, Twitter Card, colore del tema e icona Apple, mentre `robots.txt`, i meta robot e l'header `X-Robots-Tag` impediscono l'indicizzazione e la condivisione di contenuti riservati.
+- Un controllo strutturale richiede metadati espliciti a ogni nuova route visuale, evitando che il browser torni a mostrare soltanto l'URL o il nome generico dell'applicazione.
 
 ## 0.3.30
 
 - La conservazione tecnica giornaliera redige o elimina soltanto payload sorgente, job, audit operativi, contenuti e-mail e credenziali Aruba scaduti secondo la policy approvata; documenti e audit fiscali restano esclusi, i blocchi sono fail-closed e in Production una ricevuta backup assente o non corrente arresta la transazione.
-- I gate del candidato associano allo SHA esatto le prove dell’helper Aruba su macOS/Chrome e Windows/Edge, mantenendo separati workflow fidato, ricevute e classificazione del diff.
+- I gate del candidato associano allo SHA esatto le prove dell'helper Aruba su macOS/Chrome e Windows/Edge, mantenendo separati workflow fidato, ricevute e classificazione del diff.
 - Il readback Production ammette gli storici lasciati intenzionalmente in revisione soltanto quando non hanno riconciliazione, preparazione fattura o documenti e non sono quindi approvabili o trasmissibili.
-- L’auto-merge Dependabot classifica gli aggiornamenti dalle sole API fidate di GitHub e resta chiuso per autore, tipo o stato non riconosciuti, senza auto-approvazione né esecuzione privilegiata del codice della PR.
+- L'auto-merge Dependabot classifica gli aggiornamenti dalle sole API fidate di GitHub e resta chiuso per autore, tipo o stato non riconosciuti, senza auto-approvazione né esecuzione privilegiata del codice della PR.
 
 ## 0.3.29
 

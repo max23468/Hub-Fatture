@@ -6,6 +6,7 @@ import { DocumentsView } from "../components/documents-view";
 import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
 import { dateTime } from "../format";
+import { privateRouteMeta } from "../metadata";
 import { ARUBA_IMPORT_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import {
@@ -30,6 +31,10 @@ import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
 import { parseSort } from "../table-sort";
 
 const documentSortKeys = ["documento", "cliente", "data", "totale", "stato", "email"] as const;
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("documents", { error });
+}
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);

@@ -6,6 +6,7 @@ import { ActivityHistoryView, ManageActivityView } from "../components/activity-
 import { Pager } from "../components/pager";
 import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
+import { privateRouteMeta } from "../metadata";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { failedConnectorJobs, retryFailedJob } from "../../src/db/connectors.server.ts";
 import { readForm } from "../../src/http.server.ts";
@@ -16,6 +17,10 @@ import { publicError } from "../../src/errors.ts";
 import { parseSort } from "../table-sort";
 
 const emptyPage = { rows: [], hasNext: false, total: 0 };
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("activity", { error });
+}
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);

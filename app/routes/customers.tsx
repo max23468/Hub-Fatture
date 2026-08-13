@@ -8,6 +8,7 @@ import { SortableHeaderLink, SortControlLink } from "../components/sortable-tabl
 import { ViewNavigation } from "../components/view-navigation";
 import { customerKindLabels, copy } from "../copy.it";
 import { date } from "../format";
+import { privateRouteMeta } from "../metadata";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 import {
   customerDirectorySummary,
@@ -26,6 +27,10 @@ const customerSortKeys = [
   "ordini",
   "documenti",
 ] as const;
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("customers", { error });
+}
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);

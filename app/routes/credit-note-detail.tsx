@@ -7,10 +7,15 @@ import { ComparisonTable } from "../components/comparison-table";
 import { DetailSectionHeader } from "../components/detail-section-header";
 import { copy } from "../copy.it";
 import { date, euros } from "../format";
+import { privateRouteMeta } from "../metadata";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { approveCreditNote, getCreditNoteProjection } from "../../src/db/refunds.server.ts";
 import { publicError } from "../../src/errors.ts";
 import { readForm } from "../../src/http.server.ts";
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("creditNote", { error });
+}
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
