@@ -5169,6 +5169,55 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-commemorative-street" },
     );
+    const historicalWithCivicBeforeCommemorativeStreet = structuredClone(historicalWithoutTaxId);
+    historicalWithCivicBeforeCommemorativeStreet.externalOrderId =
+      "shop-order-historical-civic-before-commemorative-street";
+    historicalWithCivicBeforeCommemorativeStreet.externalCustomerId =
+      "shop-customer-historical-civic-before-commemorative-street";
+    historicalWithCivicBeforeCommemorativeStreet.displayNumber =
+      "#S-HIST-CIVIC-BEFORE-COMMEMORATIVE-STREET";
+    historicalWithCivicBeforeCommemorativeStreet.customer.billingAddress = {
+      line1: "10 Rue des Anciens Combattants du 8 Mai 1945",
+      line2: "5",
+      postalCode: "75001",
+      city: "Paris",
+      countryCode: "FR",
+    };
+    historicalWithCivicBeforeCommemorativeStreet.payments[0].externalPaymentId =
+      "historical-civic-before-commemorative-street-payment";
+    await orders.importOrders([historicalWithCivicBeforeCommemorativeStreet], {
+      id: 1,
+      requestId: "test-import-historical-civic-before-commemorative-street",
+    });
+    const historicalWithCivicBeforeCommemorativeStreetId = (
+      await database
+        .getPool()
+        .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+          historicalWithCivicBeforeCommemorativeStreet.externalOrderId,
+        ])
+    ).rows[0]!.id;
+    await orders.reconcileHistoricalOrder(
+      historicalWithCivicBeforeCommemorativeStreetId,
+      {
+        outcome: "ALREADY_INVOICED",
+        reference: "Documento Aruba FPR 0093/26 con civico prima della via commemorativa",
+        invoiceXml: Buffer.from(
+          historicalWithoutTaxIdXml
+            .toString()
+            .replace("FPR 0013/26", "FPR 0093/26")
+            .replace("Via della Scala", "Rue des Anciens Combattants du 8 Mai 1945")
+            .replace("<NumeroCivico>2</NumeroCivico>", "<NumeroCivico>10</NumeroCivico>")
+            .replace("<CAP>00100</CAP>", "<CAP>75001</CAP>")
+            .replace("<Comune>Roma</Comune>", "<Comune>Paris</Comune>")
+            .replace(
+              "<Provincia>RM</Provincia>\n        <Nazione>IT</Nazione>",
+              "<Nazione>FR</Nazione>",
+            ),
+        ),
+        manualReviewApproved: true,
+      },
+      { id: 1, canApprove: true, requestId: "test-reconcile-civic-before-commemorative-street" },
+    );
     const historicalWithConflictingExplicitCivic = structuredClone(historicalWithoutTaxId);
     historicalWithConflictingExplicitCivic.externalOrderId =
       "shop-order-historical-conflicting-explicit-civic";
@@ -5448,7 +5497,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           .getPool()
           .query("SELECT count(*) FROM audit_events WHERE action = 'ORDER_HISTORY_RECONCILED'")
       ).rows[0].count,
-      "39",
+      "40",
     );
 
     const historicalRefunded = structuredClone(fixture[0]);

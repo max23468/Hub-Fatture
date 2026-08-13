@@ -535,6 +535,7 @@ function structuredStreetNumberCandidates(
     addressParts.slice(2).some((part) => /^\d/u.test(part));
   if (/^\d/u.test(first) && !leadingForeignPostalCode) {
     candidates.add(isCivicSuffixToken(second) ? `${first}${second}` : first);
+    return candidates;
   }
   const last = addressParts.at(-1) ?? "";
   const penultimate = addressParts.at(-2) ?? "";
