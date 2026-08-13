@@ -1349,17 +1349,19 @@ test(
         aruba.consumeArubaPermit(canaryToken.token, canaryManifest.manifestSha256),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
-      const secondCanarySourceBatchId = await database.withTransaction((client) =>
-        aruba.createArubaBatch(client, [mixedDocuments[0]!], owner, undefined, 1, "ASSISTED"),
-      );
       await assert.rejects(
-        aruba.prepareCanaryArubaBatch(secondCanarySourceBatchId, owner),
+        database.withTransaction((client) =>
+          aruba.createArubaBatch(client, [mixedDocuments[0]!], owner, undefined, 1, "ASSISTED"),
+        ),
         (error) => error instanceof AppError && error.code === "ARUBA_PERMIT_INVALID",
       );
       await aruba.recordHelperEvent(canaryToken.token, {
         type: "READBACK",
         documents: [{ id: canaryManifest.documents[0]!.id, status: "REMOVED" }],
       });
+      const secondCanarySourceBatchId = await database.withTransaction((client) =>
+        aruba.createArubaBatch(client, [mixedDocuments[0]!], owner, undefined, 1, "ASSISTED"),
+      );
       const secondCanaryBatchId = await aruba.prepareCanaryArubaBatch(
         secondCanarySourceBatchId,
         owner,
