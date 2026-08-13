@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  ARUBA_UPLOAD_MAX_BATCH_BYTES,
+  arubaManifestSchema,
   assertAllowedArubaDownload,
   assertAllowedArubaNavigation,
   assertAllowedArubaTarget,
@@ -73,6 +75,29 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", false), "ASSISTED");
   assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", true), "AUTOMATIC");
   assert.equal(effectiveArubaMode("AUTOMATIC", "MOCK", false), "AUTOMATIC");
+  const oversizedBatch = {
+    ...batch,
+    operation: "UPLOAD" as const,
+    manifestSha256: "b".repeat(64),
+    panelUrl: "http://127.0.0.1/aruba-sintetica",
+    documents: Array.from({ length: 7 }, (_, index) => ({
+      ...batch.documents[0]!,
+      id: String(index + 1),
+      filename: `FPR-${index + 1}.xml`,
+      sizeBytes: Math.floor(ARUBA_UPLOAD_MAX_BATCH_BYTES / 7) + 1,
+    })),
+  };
+  assert.equal(arubaManifestSchema.safeParse(oversizedBatch).success, false);
+  assert.equal(
+    arubaManifestSchema.safeParse({
+      ...oversizedBatch,
+      documents: oversizedBatch.documents.map((document) => ({
+        ...document,
+        sizeBytes: Math.floor(ARUBA_UPLOAD_MAX_BATCH_BYTES / 7),
+      })),
+    }).success,
+    true,
+  );
 
   const delivered = Buffer.from(
     '<?xml version="1.0"?><RicevutaConsegna><Id>1</Id></RicevutaConsegna>',

@@ -3,6 +3,8 @@ import path from "node:path";
 
 import {
   assertAccount,
+  finalSendButton,
+  removeUploads,
   validateVisibleDocuments,
   waitForUploadedDocument,
 } from "../../scripts/aruba-helper.ts";
@@ -37,7 +39,7 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   });
   await expect(assertAccount(page, "synthetic-aruba-account")).rejects.toThrow("DOM_UNRECOGNIZED");
   await page.reload();
-  await page.getByLabel("Seleziona documenti").setInputFiles(xml);
+  await page.getByLabel("SELEZIONA DOCUMENTI").setInputFiles(xml);
   await expect(
     waitForUploadedDocument(page, "accepted-invoice.anonymized.xml"),
   ).resolves.toBeUndefined();
@@ -47,9 +49,17 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
     await expectViewportFits(page);
   }
   await page.setViewportSize({ width: 1280, height: 800 });
-  await expect(page.getByRole("button", { name: "Invia" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Salva in bozze" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "INVIA TUTTE", exact: true })).toBeEnabled();
+  await expect(finalSendButton(page, 1)).resolves.toBeTruthy();
+  await expect(
+    page.getByRole("button", { name: "SALVA IN BOZZE", exact: true }).first(),
+  ).toBeDisabled();
   const visibleRow = page.locator("tbody tr").first();
+  await visibleRow.evaluate((element) => {
+    element.removeAttribute("data-fiscal-number");
+    element.removeAttribute("data-document-date");
+    element.removeAttribute("data-total-cents");
+  });
   await visibleRow.evaluate((element) => {
     const hiddenClone = element.cloneNode(true) as HTMLElement;
     hiddenClone.hidden = true;
@@ -90,17 +100,19 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   ).rejects.toThrow("DOM_UNRECOGNIZED");
 
   await page.goto("/aruba-sintetica?scenario=invalid");
-  await page.getByLabel("Seleziona documenti").setInputFiles(xml);
+  await page.getByLabel("SELEZIONA DOCUMENTI").setInputFiles(xml);
   await expect(page.getByRole("cell", { name: "Dettagli errori" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Invia" })).toBeDisabled();
-  await page.getByRole("button", { name: "Rimuovi" }).click();
+  await expect(page.getByRole("button", { name: "INVIA TUTTE", exact: true })).toBeDisabled();
+  await removeUploads(page, {
+    documents: [{ filename: "accepted-invoice.anonymized.xml" }],
+  });
   await expect(page.getByRole("row")).toHaveCount(0);
 });
 
 test("l'helper gestisce in sicurezza una challenge post-upload inattesa", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/aruba-sintetica?scenario=security-challenge");
-  await page.getByLabel("Seleziona documenti").setInputFiles(xml);
+  await page.getByLabel("SELEZIONA DOCUMENTI").setInputFiles(xml);
   let heartbeats = 0;
   const upload = waitForUploadedDocument(page, "accepted-invoice.anonymized.xml", async () => {
     heartbeats += 1;
@@ -125,12 +137,12 @@ test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page })
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/aruba-sintetica?scenario=uncertain");
-  await page.getByLabel("Seleziona documenti").setInputFiles(xml);
-  await page.getByRole("button", { name: "Invia" }).click();
+  await page.getByLabel("SELEZIONA DOCUMENTI").setInputFiles(xml);
+  await page.getByRole("button", { name: "INVIA TUTTE", exact: true }).click();
   await expect(page.getByText("Stato non disponibile", { exact: true })).toBeVisible();
 
   await page.goto("/aruba-sintetica?scenario=foreign");
-  await page.getByLabel("Seleziona documenti").setInputFiles(xml);
+  await page.getByLabel("SELEZIONA DOCUMENTI").setInputFiles(xml);
   await expect(
     validateVisibleDocuments(page, {
       documents: [

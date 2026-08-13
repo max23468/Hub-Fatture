@@ -1,6 +1,6 @@
-# Contratto candidato dell’helper Aruba
+# Contratto verificato dell’helper Aruba
 
-Questo contratto governa la pagina sintetica e l’helper locale unico per macOS e Windows. I locatori del pannello reale restano candidati finché la prova controllata precedente al Canary Production non li conferma.
+Questo contratto governa la pagina sintetica e l’helper locale unico per macOS e Windows. La prova controllata precedente al Canary Production lo ha qualificato sul pannello Aruba Base reale con un TD01 e un TD04 dedicati, correttamente caricati e rimossi senza invio.
 
 ## Confini di sicurezza
 
@@ -17,18 +17,23 @@ Il manifest immutabile comprende ambiente, modalità, riferimento non segreto de
 
 Gli endpoint interni espongono manifest, singolo XML, import dei file ufficiali, eventi sanitizzati e consumo del permesso. Accettano soltanto il bearer breve; non ricevono mai dati di autenticazione Aruba.
 
-## Contratto visibile candidato
+## Contratto visibile verificato
 
-| Funzione            | Etichette candidate                                                                      | Esito fail-closed                                           |
+| Funzione            | Etichette verificate                                                                     | Esito fail-closed                                           |
 | ------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| upload              | `Seleziona documenti`, `Carica fattura/e`, riga col nome file                            | arresto se il controllo o il documento caricato non compare |
+| account             | pulsante account nella barra superiore, confrontato col riferimento atteso               | mismatch o più corrispondenze arrestano l’helper            |
+| upload              | `SELEZIONA DOCUMENTI`, `Carica fattura`, riga col nome file                              | arresto se il controllo o il documento caricato non compare |
 | challenge eventuale | `Vuoi disattivare la protezione OTP`, `Inserisci il codice ricevuto per SMS`, `Verifica` | pausa finché il titolare completa personalmente la verifica |
-| validazione         | riga col nome file, `Dettagli errori`, `errori`                                          | batch non inviabile                                         |
-| rimozione           | `Rimuovi`, `Elimina`                                                                     | readback obbligatorio                                       |
-| clic finale         | `Invia`, `Invia tutte`                                                                   | vietato senza permesso esatto                               |
-| bozza vietata       | `Salva in bozze`                                                                         | non viene mai usata                                         |
+| validazione         | contatore, riga col nome file, `DETTAGLI ERRORI`, codice e descrizione                   | batch non inviabile                                         |
+| rimozione           | `SVUOTA PAGINA` per il batch; `ELIMINA` per la singola riga                              | readback obbligatorio fino alla pagina priva di righe       |
+| clic finale         | `INVIA TUTTE` per il batch; `INVIA` per la singola riga                                  | vietato senza permesso esatto                               |
+| bozza vietata       | `SALVA IN BOZZE`                                                                         | non viene mai usata                                         |
 | readback            | ricerca/inviate, nome, numero, data, totale, stato e ID remoto                           | mismatch o `NOT_FOUND` mantiene il blocco                   |
 | file ufficiali      | link visibili `Scarica XML/P7M/PDF/notifica`                                             | file assente ignorato; file malformato blocca la sessione   |
+
+Il pannello mostra le date come `GG/MM/AAAA` e gli importi con virgola e simbolo euro; gli attributi sintetici restano ammessi nei test. I limiti riletti sono 4,9 MB per documento, 300 documenti e 30 MB per caricamento. L’helper applica tutti e tre i limiti prima dell’upload.
+
+Con più documenti l’helper deve usare esclusivamente `INVIA TUTTE`: scegliere il primo `INVIA` di riga invierebbe soltanto una parte del manifest ed è quindi un DOM non riconosciuto. La modalità assistita si arresta prima di qualunque controllo di invio.
 
 L’assenza di una conferma visibile o dell’identificativo remoto dopo il clic non viene interpretata come successo: apre la riconciliazione. Gli stati conclusivi non possono regredire e un invio già osservato non può diventare `REMOVED` e ritentabile.
 

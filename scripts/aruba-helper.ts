@@ -202,10 +202,12 @@ function assertDownloadUrl(url: string, target: URL) {
 }
 
 export async function assertAccount(page: Page, accountReference: string) {
-  const candidates = page.locator(
-    '[data-aruba-account], [aria-current="true"], [aria-selected="true"], [data-active="true"]',
-    { hasText: accountReference },
-  );
+  const candidates = page
+    .locator(
+      '[data-aruba-account], [aria-current="true"], [aria-selected="true"], [data-active="true"]',
+      { hasText: accountReference },
+    )
+    .or(page.getByRole("button", { name: accountReference }));
   const count = await candidates.count();
   if (!count || count > 20) throw new Error("DOM_UNRECOGNIZED");
   const visible = [];
@@ -274,9 +276,11 @@ async function visibleDocumentIdentity(row: Locator, document: VisibleIdentityDo
     remoteId: element.getAttribute("data-remote-id"),
   }));
   const total = (document.totalAmount / 100).toFixed(2);
+  const [year, month, day] = document.documentDate.split("-");
+  const panelDate = `${day}/${month}/${year}`;
   const visibleIdentity =
     text.includes(document.fiscalNumber) &&
-    text.includes(document.documentDate) &&
+    (text.includes(document.documentDate) || text.includes(panelDate)) &&
     (text.includes(total) || text.includes(total.replace(".", ",")));
   const structuredIdentity =
     identity.number === document.fiscalNumber &&
@@ -336,7 +340,23 @@ export async function validateVisibleDocuments(
   return results;
 }
 
-async function removeUploads(page: Page, value: ArubaManifest) {
+export async function removeUploads(
+  page: Page,
+  value: { documents: Array<Pick<ArubaManifestDocument, "filename">> },
+) {
+  const clearPage = page.getByRole("button", { name: /^Svuota pagina$/i });
+  if ((await clearPage.count()) === 1 && (await clearPage.isVisible())) {
+    await clearPage.click();
+    for (const document of value.documents) {
+      await page
+        .locator("tr", { hasText: document.filename })
+        .waitFor({ state: "hidden", timeout: 10_000 })
+        .catch(() => {
+          throw new Error("DOM_UNRECOGNIZED");
+        });
+    }
+    return;
+  }
   for (const document of value.documents) {
     const row = await visibleDocumentRow(page, document.filename, true);
     if (!row) throw new Error("DOM_UNRECOGNIZED");
@@ -347,6 +367,23 @@ async function removeUploads(page: Page, value: ArubaManifest) {
       throw new Error("DOM_UNRECOGNIZED");
     });
   }
+}
+
+export async function finalSendButton(page: Page, documentCount: number) {
+  const batch = page.getByRole("button", { name: /^Invia tutte$/i });
+  if ((await batch.count()) === 1 && (await batch.isVisible()) && (await batch.isEnabled())) {
+    return batch;
+  }
+  if (documentCount !== 1) throw new Error("DOM_UNRECOGNIZED");
+  const individual = page.getByRole("button", { name: /^Invia$/i });
+  if (
+    (await individual.count()) !== 1 ||
+    !(await individual.isVisible()) ||
+    !(await individual.isEnabled())
+  ) {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  return individual;
 }
 
 type ReadbackDocument = Extract<HelperEvent, { type: "READBACK" }>["documents"][number];
@@ -556,8 +593,7 @@ export async function runHelper(
       finalStateKnown = true;
       throw new Error("VALIDATION_FAILED");
     }
-    const send = page.getByRole("button", { name: /^Invia$/i }).first();
-    if (!(await send.count()) || !(await send.isEnabled())) throw new Error("DOM_UNRECOGNIZED");
+    const send = await finalSendButton(page, value.documents.length);
     if (value.mode === "ASSISTED") {
       await event(hub, options.token, { type: "ASSISTED_STOP" });
       finalStateKnown = true;

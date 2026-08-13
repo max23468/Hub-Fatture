@@ -71,9 +71,9 @@ const server = createServer(async (request, response) => {
     response.end(`<!doctype html>
       <html lang="it"><body>
         <p data-aruba-account="synthetic-aruba-account">Account: synthetic-aruba-account</p>
-        <label for="upload">Seleziona documenti</label><input id="upload" type="file" multiple>
+        <label for="upload">SELEZIONA DOCUMENTI</label><input id="upload" type="file" multiple>
         <table><tbody></tbody></table>
-        <button id="send" disabled>Invia</button>
+        <button id="send" disabled>INVIA TUTTE</button>
         <script>
           const input = document.querySelector('#upload');
           const send = document.querySelector('#send');
@@ -82,7 +82,7 @@ const server = createServer(async (request, response) => {
             row.dataset.fiscalNumber = 'FPR 0001/26';
             row.dataset.documentDate = '2026-08-10';
             row.dataset.totalCents = '12345';
-            row.innerHTML = '<td>${filename} · FPR 0001/26 · 2026-08-10 · 123.45</td><td>Documento valido</td>';
+            row.innerHTML = '<td>${filename} · FPR 0001/26 · 10/08/2026 · 123,45 €</td><td>Documento valido</td>';
             document.querySelector('tbody').append(row);
             send.disabled = false;
           });
