@@ -60,7 +60,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          fulfillment_status, trigger_status, customer_id, billing_case_id,
          raw_snapshot_json, normalized_snapshot_json)
        VALUES ('SHOPIFY', 'shop', 'remote-order', '#1001', now(), now(), '2026-08-12',
-         'EUR', 12345, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}',
+         'EUR', 13000, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}',
          '{"customerSnapshot":{"billingAddress":{"line1":"Via Cliente 1","postalCode":"00100","city":"Roma","countryCode":"IT"}}}')
        RETURNING id`,
       [customer.rows[0]!.id, billingCase.rows[0]!.id],
@@ -69,6 +69,14 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       `INSERT INTO order_tax_identifiers
         (order_id, type, raw_value, normalized_value, source_field, country_code)
        VALUES ($1, 'CODICE_FISCALE', 'RSSMRA80A01H501U', 'RSSMRA80A01H501U', 'fixture', 'IT')`,
+      [order.rows[0]!.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO refunds
+        (provider, external_account_id, external_order_id, external_refund_id, order_id,
+         status, amount, applied_before_issue, completed_at, raw_json)
+       VALUES ('SHOPIFY', 'shop', 'remote-order', 'refund-before-issue', $1,
+         'COMPLETED', 655, true, now(), '{}')`,
       [order.rows[0]!.id],
     );
     const residualOrder = await database.getPool().query<{ id: string }>(
@@ -402,6 +410,184 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       ).rows[0].credit_document_id,
       null,
     );
+    const cumulativeOrders = await database.getPool().query<{ id: string }>(
+      `INSERT INTO orders
+        (provider, external_account_id, external_order_id, display_number, created_at_source,
+         updated_at_source, local_order_date, currency, gross_amount, payment_status,
+         fulfillment_status, trigger_status, customer_id, raw_snapshot_json,
+         normalized_snapshot_json)
+       VALUES
+         ('SHOPIFY', 'shop', 'cumulative-a', '#2001', now(), now(), '2026-08-12',
+          'EUR', 1500, 'PAID', 'FULFILLED', 'INVOICED', $1, '{}',
+          '{"customerSnapshot":{"billingAddress":{"line1":"Via Cliente 1","postalCode":"00100","city":"Roma","countryCode":"IT"}}}'),
+         ('EBAY', 'ebay', 'cumulative-b', '#2002', now(), now(), '2026-08-12',
+          'EUR', 1500, 'PAID', 'FULFILLED', 'INVOICED', $1, '{}',
+          '{"customerSnapshot":{"billingAddress":{"line1":"Via Cliente 1","postalCode":"00100","city":"Roma","countryCode":"IT"}}}')
+       RETURNING id`,
+      [customer.rows[0]!.id],
+    );
+    const cumulativeCase = await database.getPool().query<{ id: string }>(
+      `INSERT INTO billing_cases
+        (customer_id, local_order_date, currency, status, customer_snapshot_json,
+         fiscal_profile_version)
+       VALUES ($1, '2026-08-12', 'EUR', 'CLOSED', '{}', 1) RETURNING id`,
+      [customer.rows[0]!.id],
+    );
+    const cumulativeInvoice = await database.getPool().query<{ id: string }>(
+      `INSERT INTO documents
+        (billing_case_id, kind, status, document_type, series, document_date,
+         fiscal_profile_version, currency, total_amount, source_total_amount,
+         difference_amount, draft_version, projection_sha256, payment_status,
+         payment_method, recipient_snapshot_json)
+       SELECT $2, 'INVOICE', 'DRAFT', 'TD01', series, '2026-08-10',
+         fiscal_profile_version, 'EUR', 3000, 3000, 0, 1, repeat('e', 64), 'PAID',
+         payment_method, recipient_snapshot_json
+       FROM documents WHERE id = $1 RETURNING id`,
+      [importedInvoice.documentId, cumulativeCase.rows[0]!.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+       VALUES ($1, 'INVOICE', $2, 1500), ($1, 'INVOICE', $3, 1500)`,
+      [cumulativeInvoice.rows[0]!.id, cumulativeOrders.rows[0]!.id, cumulativeOrders.rows[1]!.id],
+    );
+    await database.getPool().query(
+      `UPDATE documents AS target SET status = 'APPROVED', fiscal_year = 2026,
+         fiscal_number = 10, approved_at = now(), xml_sha256 = repeat('e', 64),
+         immutable_snapshot_json = source.immutable_snapshot_json,
+         fiscal_profile_snapshot_json = source.fiscal_profile_snapshot_json,
+         storage_object_id = source.storage_object_id, origin = 'ARUBA_HISTORY'
+       FROM documents AS source WHERE target.id = $1 AND source.id = $2`,
+      [cumulativeInvoice.rows[0]!.id, importedInvoice.documentId],
+    );
+    const cumulativeRefunds = await database.getPool().query<{ id: string }>(
+      `INSERT INTO refunds
+        (provider, external_account_id, external_order_id, external_refund_id, order_id,
+         status, amount, completed_at, raw_json)
+       VALUES
+         ('SHOPIFY', 'shop', 'cumulative-a', 'cumulative-refund-a', $1,
+          'COMPLETED', 700, now(), '{}'),
+         ('EBAY', 'ebay', 'cumulative-b', 'cumulative-refund-b', $2,
+          'COMPLETED', 800, now(), '{}')
+       RETURNING id`,
+      [cumulativeOrders.rows[0]!.id, cumulativeOrders.rows[1]!.id],
+    );
+    const cumulativeDraftId = await database.withTransaction(async (client) => {
+      const cumulativeDraft = await client.query<{ id: string }>(
+        `INSERT INTO documents
+        (billing_case_id, kind, status, document_type, series, document_date,
+         fiscal_profile_version, currency, total_amount, source_total_amount,
+         difference_amount, draft_version, projection_sha256, payment_status,
+         payment_method, recipient_snapshot_json)
+       SELECT billing_case_id, 'CREDIT_NOTE', 'DRAFT', 'TD04', series, '2026-08-11',
+         fiscal_profile_version, 'EUR', 1500, 1500, 0, 1, repeat('f', 64), 'PAID',
+         'MP05', recipient_snapshot_json
+       FROM documents WHERE id = $1 RETURNING id`,
+        [cumulativeInvoice.rows[0]!.id],
+      );
+      await client.query(
+        `INSERT INTO document_links (document_id, related_document_id, relation_type)
+       VALUES ($1, $2, 'CREDIT_NOTE_FOR_INVOICE')`,
+        [cumulativeDraft.rows[0]!.id, cumulativeInvoice.rows[0]!.id],
+      );
+      await client.query(
+        `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+       VALUES ($1, 'CREDIT_NOTE', $2, 700), ($1, 'CREDIT_NOTE', $3, 800)`,
+        [cumulativeDraft.rows[0]!.id, cumulativeOrders.rows[0]!.id, cumulativeOrders.rows[1]!.id],
+      );
+      await client.query(
+        `UPDATE refunds SET credit_document_id = $1
+       WHERE id = ANY($2::bigint[])`,
+        [cumulativeDraft.rows[0]!.id, cumulativeRefunds.rows.map((refund) => refund.id)],
+      );
+      return cumulativeDraft.rows[0]!.id;
+    });
+    const cumulativeCreditXml = generateFatturaXml(
+      profile,
+      {
+        ...accepted.input,
+        kind: "CREDIT_NOTE",
+        documentDate: "2026-08-11",
+        lines: [
+          {
+            orderId: cumulativeOrders.rows[0]!.id,
+            description: "Rimborso ordine Shopify #2001",
+            quantity: 1,
+            unitAmount: 700,
+          },
+          {
+            orderId: cumulativeOrders.rows[1]!.id,
+            description: "Rimborso ordine eBay #2002",
+            quantity: 1,
+            unitAmount: 800,
+          },
+        ],
+        paymentMethod: "MP05",
+        relatedInvoice: { number: "FPR 0010/26", date: "2026-08-10" },
+      },
+      { year: 2026, number: 11 },
+    );
+    await inbound.ingestArubaInventoryPage(session.token, {
+      stream: "credit-notes:2026",
+      scanOrdinal: 2,
+      pageOrdinal: 1,
+      cursor: "cumulative-credit-end",
+      terminal: true,
+      fullScan: true,
+      documents: [
+        {
+          remoteId: "REMOTE-TD04-CUMULATIVE",
+          documentType: "TD04",
+          fiscalYear: 2026,
+          series: "FPR",
+          fiscalNumber: "11",
+          documentDate: "2026-08-11",
+          recipientName: "Mario Rossi",
+          recipientTaxId: "RSSMRA80A01H501U",
+          recipientCountryCode: "IT",
+          recipientAddress: "Via Cliente 1 00100 Roma IT",
+          totalAmount: 1500,
+          currency: "EUR",
+          status: "DELIVERED",
+          providerObservedAt: "2026-08-12T13:30:00+02:00",
+          xmlSha256: null,
+          orderReferences: ["#2001", "#2002"],
+        },
+      ],
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT matches.status, matches.order_id, matches.related_invoice_document_id,
+                  matches.refund_ids::text[]
+           FROM aruba_document_matches AS matches
+           JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
+           WHERE remote.remote_id = 'REMOTE-TD04-CUMULATIVE'`,
+        )
+      ).rows[0],
+      {
+        status: "MATCHED",
+        order_id: cumulativeOrders.rows[0]!.id,
+        related_invoice_document_id: cumulativeInvoice.rows[0]!.id,
+        refund_ids: cumulativeRefunds.rows.map((refund) => refund.id),
+      },
+    );
+    const cumulativeCredit = await inbound.importArubaRemoteOfficialFile(
+      session.token,
+      "REMOTE-TD04-CUMULATIVE",
+      "ARUBA_XML",
+      Buffer.from(cumulativeCreditXml),
+    );
+    assert.equal(cumulativeCredit.documentId, cumulativeDraftId);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT DISTINCT credit_document_id FROM refunds
+           WHERE id = ANY($1::bigint[])`,
+          [cumulativeRefunds.rows.map((refund) => refund.id)],
+        )
+      ).rows,
+      [{ credit_document_id: cumulativeDraftId }],
+    );
     const rejectedXml = generateFatturaXml(
       profile,
       {
@@ -469,7 +655,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     );
     const health = await inbound.getArubaInventoryHealth();
     assert.equal(health.status, "HEALTHY");
-    assert.equal(health.remoteDocuments, 3);
+    assert.equal(health.remoteDocuments, 4);
     const remotes = await inbound.listRemoteDocuments();
     const remoteCredit = remotes.find((remote) => remote.remote_id === "REMOTE-TD04-001");
     assert.equal(remoteCredit!.match_status, "MATCHED");

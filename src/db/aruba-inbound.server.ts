@@ -13,6 +13,7 @@ import {
   remoteMetadataDigest,
   remoteStatusTransition,
   selectOrderMatch,
+  type ArubaOrderCandidate,
   type ArubaRemoteStatus,
   type RemoteInventoryDocument,
 } from "../aruba-inbound.ts";
@@ -547,7 +548,7 @@ async function reconcileRemoteDocument(
     remote.documentType === "TD04"
       ? await creditNoteCandidates(client, remote)
       : await orderCandidates(client, remote);
-  const evaluatedCandidates = candidates.map((candidate) => {
+  const individualCandidates = candidates.map((candidate) => {
     const refundIds =
       remote.documentType === "TD04"
         ? uniqueRefundSubset(
@@ -564,36 +565,105 @@ async function reconcileRemoteDocument(
       match_amount:
         remote.documentType === "TD04" && refundIds
           ? remote.totalAmount
-          : candidate.billable_amount,
+          : remote.documentType === "TD04"
+            ? remote.totalAmount + 1
+            : candidate.billable_amount,
     };
   });
-  const matchCandidates = evaluatedCandidates.map((candidate) => ({
-    id: candidate.id,
-    billingCaseId: remote.documentType === "TD01" ? candidate.billing_case_id : null,
-    provider: candidate.provider,
-    displayNumber: candidate.display_number,
-    localOrderDate: candidate.local_order_date,
-    billableAmount: candidate.match_amount,
-    recipientName: candidate.recipient_name,
-    recipientTaxIds: candidate.recipient_tax_ids,
-    recipientAddress: candidate.recipient_address,
+  const evaluatedCandidates: Array<{
+    source: InboundOrderCandidateRow & {
+      selected_refund_ids?: string[] | null;
+      match_amount?: number;
+    };
+    matchCandidate: ArubaOrderCandidate & { billingCaseId?: string | null };
+  }> = individualCandidates.map((candidate) => ({
+    source: candidate,
+    matchCandidate: {
+      id: candidate.id,
+      billingCaseId: remote.documentType === "TD01" ? candidate.billing_case_id : null,
+      provider: candidate.provider,
+      displayNumber: candidate.display_number,
+      localOrderDate: candidate.local_order_date,
+      billableAmount: candidate.match_amount,
+      recipientName: candidate.recipient_name,
+      recipientTaxIds: candidate.recipient_tax_ids,
+      recipientAddress: candidate.recipient_address,
+    },
   }));
-  const groupedCandidates = groupOrderCandidates(matchCandidates).filter(
+  const matchCandidates = evaluatedCandidates.map((candidate) => candidate.matchCandidate);
+  const groupedOrderCandidates = groupOrderCandidates(matchCandidates).filter(
     (candidate) => (candidate.orderIds?.length ?? 1) > 1,
   );
-  const match = selectOrderMatch(remote, [
-    ...matchCandidates,
-    ...(remote.documentType === "TD01" ? groupedCandidates : []),
-  ]);
+  if (remote.documentType === "TD01") {
+    for (const grouped of groupedOrderCandidates) {
+      const anchor = candidates.find((candidate) => candidate.id === grouped.id)!;
+      evaluatedCandidates.push({ source: anchor, matchCandidate: grouped });
+    }
+  } else {
+    const byInvoice = new Map<string, InboundOrderCandidateRow[]>();
+    for (const candidate of candidates) {
+      if (!candidate.invoice_document_id) continue;
+      byInvoice.set(candidate.invoice_document_id, [
+        ...(byInvoice.get(candidate.invoice_document_id) ?? []),
+        candidate,
+      ]);
+    }
+    for (const invoiceCandidates of byInvoice.values()) {
+      if (invoiceCandidates.length < 2) continue;
+      const refundOwners = new Map<string, InboundOrderCandidateRow>();
+      const refunds = invoiceCandidates.flatMap((candidate) =>
+        candidate.refund_ids.map((id, index) => {
+          refundOwners.set(id, candidate);
+          return { id, amount: candidate.refund_amounts[index] ?? 0 };
+        }),
+      );
+      const selectedRefundIds = uniqueRefundSubset(refunds, remote.totalAmount);
+      if (!selectedRefundIds) continue;
+      const selectedByOrder = new Map<string, number>();
+      for (const refundId of selectedRefundIds) {
+        const owner = refundOwners.get(refundId)!;
+        const refundIndex = owner.refund_ids.indexOf(refundId);
+        selectedByOrder.set(
+          owner.id,
+          (selectedByOrder.get(owner.id) ?? 0) + (owner.refund_amounts[refundIndex] ?? 0),
+        );
+      }
+      if (selectedByOrder.size < 2) continue;
+      const selectedCandidates = invoiceCandidates
+        .filter((candidate) => selectedByOrder.has(candidate.id))
+        .map((candidate) => ({
+          id: candidate.id,
+          billingCaseId: candidate.invoice_document_id,
+          provider: candidate.provider,
+          displayNumber: candidate.display_number,
+          localOrderDate: candidate.local_order_date,
+          billableAmount: selectedByOrder.get(candidate.id)!,
+          recipientName: candidate.recipient_name,
+          recipientTaxIds: candidate.recipient_tax_ids,
+          recipientAddress: candidate.recipient_address,
+        }));
+      const grouped = groupOrderCandidates(selectedCandidates)[0]!;
+      const anchor = invoiceCandidates.find((candidate) => candidate.id === grouped.id)!;
+      evaluatedCandidates.push({
+        source: {
+          ...anchor,
+          selected_refund_ids: selectedRefundIds,
+          match_amount: remote.totalAmount,
+        },
+        matchCandidate: grouped,
+      });
+    }
+  }
+  const match = selectOrderMatch(
+    remote,
+    evaluatedCandidates.map((candidate) => candidate.matchCandidate),
+  );
   let status: string = remote.status === "UNKNOWN" ? "UNKNOWN_REMOTE_STATE" : match.status;
-  const selected =
+  const compatibleIndex =
     match.status === "MATCHED"
-      ? evaluatedCandidates.find(
-          (candidate) =>
-            candidate.id ===
-            match.evaluations.find((evaluation) => evaluation.compatible)?.candidateId,
-        )
-      : null;
+      ? match.evaluations.findIndex((evaluation) => evaluation.compatible)
+      : -1;
+  const selected = compatibleIndex >= 0 ? evaluatedCandidates[compatibleIndex]!.source : null;
   let documentId: string | null = null;
   if (selected) {
     const local = await client.query<{ document_id: string }>(
@@ -640,15 +710,11 @@ async function reconcileRemoteDocument(
       selected?.billing_case_id ?? null,
       selected?.invoice_document_id ?? null,
       selected?.selected_refund_ids ?? [],
+      JSON.stringify(compatibleIndex >= 0 ? match.evaluations[compatibleIndex]!.signals : {}),
       JSON.stringify(
-        match.evaluations.find((item) => item.candidateId === selected?.id)?.signals ?? {},
-      ),
-      JSON.stringify(
-        match.evaluations.map((evaluation) => ({
+        match.evaluations.map((evaluation, index) => ({
           ...evaluation,
-          refundIds:
-            evaluatedCandidates.find((candidate) => candidate.id === evaluation.candidateId)
-              ?.selected_refund_ids ?? [],
+          refundIds: evaluatedCandidates[index]!.source.selected_refund_ids ?? [],
         })),
       ),
     ],
@@ -859,9 +925,13 @@ async function materializeExternalInvoice(
     customer_id: string;
     billing_case_id: string | null;
     customer_snapshot: Record<string, unknown>;
-    billable_amount: number;
+    canonical_billable_amount: number;
   }>(
-    `SELECT orders.id, orders.customer_id, orders.billing_case_id, orders.billable_amount,
+    `SELECT orders.id, orders.customer_id, orders.billing_case_id,
+            (orders.gross_amount - orders.deducted_shopify_payments_fee_amount - coalesce((
+              SELECT sum(refunds.amount) FROM refunds
+              WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
+            ), 0))::integer AS canonical_billable_amount,
             orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot
      FROM orders WHERE orders.id = ANY($1::bigint[]) ORDER BY orders.id FOR UPDATE`,
     [matchedOrderIds],
@@ -870,7 +940,8 @@ async function materializeExternalInvoice(
   if (
     !currentOrder ||
     order.rows.length !== matchedOrderIds.length ||
-    order.rows.reduce((sum, item) => sum + item.billable_amount, 0) !== imported.totalAmount ||
+    order.rows.reduce((sum, item) => sum + item.canonical_billable_amount, 0) !==
+      imported.totalAmount ||
     new Set(order.rows.map((item) => item.customer_id)).size !== 1 ||
     new Set(order.rows.map((item) => item.billing_case_id)).size !== 1
   ) {
@@ -982,10 +1053,14 @@ async function materializeExternalInvoice(
   );
   await client.query(
     `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
-     SELECT $1, 'INVOICE', orders.id, orders.billable_amount
-     FROM orders WHERE orders.id = ANY($2::bigint[])
+     SELECT $1, 'INVOICE', source.order_id, source.amount
+     FROM unnest($2::bigint[], $3::integer[]) AS source(order_id, amount)
      ON CONFLICT (document_id, order_id) DO NOTHING`,
-    [documentId, matchedOrderIds],
+    [
+      documentId,
+      order.rows.map((item) => item.id),
+      order.rows.map((item) => item.canonical_billable_amount),
+    ],
   );
   const previousCaseId = currentOrder.billing_case_id;
   await client.query(
@@ -1084,12 +1159,18 @@ async function materializeExternalCreditNote(
   const refunds = await client.query<{
     id: string;
     amount: number;
+    order_id: string;
     credit_document_id: string | null;
   }>(
-    `SELECT id, amount, credit_document_id FROM refunds
-     WHERE id = ANY($1::bigint[]) AND order_id = $2 AND status = 'COMPLETED' AND amount > 0
-     ORDER BY id FOR UPDATE`,
-    [remote.refund_ids, remote.order_id],
+    `SELECT refunds.id, refunds.amount, refunds.order_id, refunds.credit_document_id
+     FROM refunds
+     JOIN document_orders AS invoice_order
+       ON invoice_order.document_id = $2 AND invoice_order.document_kind = 'INVOICE'
+      AND invoice_order.order_id = refunds.order_id
+     WHERE refunds.id = ANY($1::bigint[]) AND refunds.status = 'COMPLETED'
+       AND refunds.amount > 0
+     ORDER BY refunds.id FOR UPDATE OF refunds`,
+    [remote.refund_ids, sourceInvoice.id],
   );
   const refundTotal = refunds.rows.reduce((sum, refund) => sum + refund.amount, 0);
   const assignedDraftIds = [
@@ -1132,7 +1213,11 @@ async function materializeExternalCreditNote(
        WHERE document_id = $1 AND document_kind = 'CREDIT_NOTE' FOR UPDATE`,
       [documentId],
     );
-    if (!localLink.rows.some((row) => row.order_id === remote.order_id)) {
+    const matchedOrderIds = new Set(refunds.rows.map((refund) => refund.order_id));
+    if (
+      localLink.rows.length !== matchedOrderIds.size ||
+      localLink.rows.some((row) => !matchedOrderIds.has(row.order_id))
+    ) {
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
     await client.query(
@@ -1174,8 +1259,10 @@ async function materializeExternalCreditNote(
     );
     await client.query(
       `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
-       VALUES ($1, 'CREDIT_NOTE', $2, $3)`,
-      [documentId, remote.order_id, imported.totalAmount],
+       SELECT $1, 'CREDIT_NOTE', refunds.order_id, sum(refunds.amount)::integer
+       FROM refunds WHERE refunds.id = ANY($2::bigint[])
+       GROUP BY refunds.order_id`,
+      [documentId, refunds.rows.map((refund) => refund.id)],
     );
     await client.query(
       `UPDATE refunds SET credit_document_id = $2, updated_at = now()
@@ -1185,6 +1272,19 @@ async function materializeExternalCreditNote(
     );
   }
   if (shouldAdoptDraft) {
+    const linkedOrders = await client.query<{ order_id: string; amount: number }>(
+      `SELECT order_id, amount FROM document_orders
+       WHERE document_id = $1 AND document_kind = 'CREDIT_NOTE' FOR UPDATE`,
+      [documentId],
+    );
+    const matchedOrderIds = new Set(refunds.rows.map((refund) => refund.order_id));
+    if (
+      linkedOrders.rows.length !== matchedOrderIds.size ||
+      linkedOrders.rows.some((row) => !matchedOrderIds.has(row.order_id)) ||
+      linkedOrders.rows.reduce((sum, row) => sum + row.amount, 0) !== imported.totalAmount
+    ) {
+      throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
+    }
     const snapshot = {
       generatorVersion: 2,
       kind: "CREDIT_NOTE",
