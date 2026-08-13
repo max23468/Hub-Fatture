@@ -493,8 +493,17 @@ function customerStreetNumberCandidates(address: Record<string, unknown>) {
   const primaryIsNumberedStreetName =
     streetKindTokens.has(primaryTokens[0] ?? "") &&
     numberedStreetQualifiers.has(primaryTokens[1] ?? "");
+  const primaryNumericTokens = primaryTokens.filter((token) => /^\d/u.test(token));
+  const terminalYear = Number(primaryNumericTokens.at(-1));
+  const primaryIsCommemorativeStreetName =
+    streetKindTokens.has(primaryTokens[0] ?? "") &&
+    primaryNumericTokens.length >= 2 &&
+    /^\d{4}$/u.test(primaryNumericTokens.at(-1) ?? "") &&
+    terminalYear >= 1800 &&
+    terminalYear <= 2099;
   const primaryContainsOnlyStreetNumber =
-    primaryIsNumberedStreetName && primaryTokens.filter((token) => /^\d/u.test(token)).length === 1;
+    (primaryIsNumberedStreetName && primaryNumericTokens.length === 1) ||
+    primaryIsCommemorativeStreetName;
   return secondary.size > 0 &&
     (primary.size === 0 || secondaryTokens[0] === "civico" || primaryContainsOnlyStreetNumber)
     ? secondary
