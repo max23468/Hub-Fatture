@@ -1,4 +1,5 @@
 import { data, redirect } from "react-router";
+import { randomUUID } from "node:crypto";
 import type { Route } from "./+types/settings";
 
 import { getConfig } from "../../src/config.server.ts";
@@ -11,6 +12,15 @@ import {
   revokeOtherSessions,
 } from "../../src/db/auth.server.ts";
 import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts";
+import {
+  addArubaManualReadbackPages,
+  createArubaManualReadback,
+  finalizeArubaManualReadback,
+  getArubaInventoryHealth,
+  issueArubaReadSession,
+  requestImmediateArubaSync,
+  revokeArubaReadSessions,
+} from "../../src/db/aruba-inbound.server.ts";
 import {
   connectionSummaries,
   enqueueEbayHistory,
@@ -47,6 +57,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     customerEmail,
     fiscalProfile,
     system,
+    arubaInventory,
   ] = await Promise.all([
     getAccountProfile(request, user),
     getDraftTrigger(),
@@ -57,6 +68,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     getCustomerEmailSettings(),
     getFiscalProfileSettings(),
     getSystemStatus(),
+    getArubaInventoryHealth(),
   ]);
   return {
     username: user.username,
@@ -76,6 +88,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     fiscalProfile,
     environment: getConfig().APP_ENV,
     system,
+    arubaInventory,
+    arubaSyncRequested: url.searchParams.get("aruba-sync") === "richiesta",
+    arubaSessionsRevoked: url.searchParams.get("aruba-sessioni") === "revocate",
+    arubaManualReadbackCompleted: url.searchParams.get("aruba-readback") === "completato",
     passwordChanged: url.searchParams.get("profilo") === "password",
     sessionsRevoked: url.searchParams.get("profilo") === "sessioni",
     preview:
@@ -152,6 +168,56 @@ export async function action({ request }: Route.ActionArgs) {
         { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
       );
       return redirect("/impostazioni?aruba=salvata#aruba-helper");
+    }
+    if (intent === "issue-aruba-read-session") {
+      const session = await issueArubaReadSession(`browser-${randomUUID()}`, {
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return data({ intent, session });
+    }
+    if (intent === "request-aruba-sync") {
+      await requestImmediateArubaSync({
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return redirect("/impostazioni?aruba-sync=richiesta#aruba-helper");
+    }
+    if (intent === "revoke-aruba-read-sessions") {
+      await revokeArubaReadSessions({
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return redirect("/impostazioni?aruba-sessioni=revocate#aruba-helper");
+    }
+    if (intent === "create-aruba-manual-readback") {
+      const manualReadback = await createArubaManualReadback({
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return data({ intent, manualReadback });
+    }
+    if (intent === "add-aruba-manual-readback-pages") {
+      const readbackId = String(form.get("readbackId") ?? "");
+      const pages = JSON.parse(String(form.get("pagesJson") ?? "null")) as unknown;
+      const added = await addArubaManualReadbackPages(readbackId, pages, {
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return data({ intent, manualReadbackId: readbackId, added });
+    }
+    if (intent === "finalize-aruba-manual-readback") {
+      await finalizeArubaManualReadback(String(form.get("readbackId") ?? ""), {
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return redirect("/impostazioni?aruba-readback=completato#aruba-helper");
     }
     if (intent === "preview-ebay" || intent === "import-ebay") {
       const start = historicalOrderWindow(form.get("historyStart"));

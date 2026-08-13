@@ -30,6 +30,14 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   assert.throws(() =>
     assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/?token=x", "PRODUCTION"),
   );
+  assert.equal(
+    assertAllowedArubaTarget("http://127.0.0.1:4173/aruba-sintetica?scenario=inventory", "MOCK")
+      .search,
+    "?scenario=inventory",
+  );
+  assert.throws(() =>
+    assertAllowedArubaTarget("http://127.0.0.1:4173/aruba-sintetica?token=x", "MOCK"),
+  );
   const aruba = new URL("https://fatturazioneelettronica.aruba.it/");
   assert.equal(
     assertAllowedArubaNavigation(

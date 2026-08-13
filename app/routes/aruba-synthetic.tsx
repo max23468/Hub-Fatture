@@ -26,6 +26,8 @@ export function loader({ request }: Route.LoaderArgs) {
   return {
     scenario: new URL(request.url).searchParams.get("scenario") ?? "valid",
     accountReference: getConfig().ARUBA_ACCOUNT_REFERENCE,
+    invoiceXmlUrl: "/aruba-sintetica/file/invoice",
+    creditXmlUrl: "/aruba-sintetica/file/credit-note",
   };
 }
 
@@ -63,6 +65,107 @@ async function uploadedFile(file: File, valid: boolean): Promise<UploadedFile> {
   };
 }
 
+function ArubaInventorySynthetic({
+  accountReference,
+  creditXmlUrl,
+  currentYear,
+  inventoryStream,
+  invoiceXmlUrl,
+  setInventoryStream,
+}: {
+  accountReference: string;
+  creditXmlUrl: string;
+  currentYear: number;
+  inventoryStream: string;
+  invoiceXmlUrl: string;
+  setInventoryStream: (stream: string) => void;
+}) {
+  const isInvoice = inventoryStream.startsWith("invoices:");
+  const year = Number(inventoryStream.split(":")[1] ?? currentYear);
+  return (
+    <main className="synthetic-page" data-aruba-state="inventory-ready">
+      <header className="synthetic-header">
+        <div className="title-block">
+          <p className="eyebrow">Ambiente sintetico</p>
+          <h1>Inventario documenti Aruba</h1>
+          <p>Elenco paginato per i test della sincronizzazione in sola lettura.</p>
+        </div>
+        <p className="synthetic-account" data-aruba-account={accountReference}>
+          <ShieldCheck aria-hidden="true" size={18} />
+          <span>{copy.arubaSynthetic.account(accountReference)}</span>
+        </p>
+      </header>
+      <nav aria-label="Stream inventario">
+        {[currentYear, currentYear - 1]
+          .flatMap((streamYear) => [`invoices:${streamYear}`, `credit-notes:${streamYear}`])
+          .map((stream) => (
+            <button
+              data-aruba-stream={stream}
+              key={stream}
+              onClick={() => setInventoryStream(stream)}
+              type="button"
+            >
+              {stream.startsWith("invoices:") ? "Fatture" : "Note di credito"}{" "}
+              {stream.split(":")[1]}
+            </button>
+          ))}
+      </nav>
+      <label>
+        Dal
+        <input data-aruba-filter-from name="dataDa" type="date" />
+      </label>
+      <button type="button">Applica filtri</button>
+      <section className="dashboard-panel section-gap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Documento</th>
+              <th>Data</th>
+              <th>Destinatario</th>
+              <th>Totale</th>
+              <th>Stato</th>
+            </tr>
+          </thead>
+          <tbody>
+            {year === currentYear ? (
+              <tr
+                data-aruba-remote-id={isInvoice ? "SYNTH-INV-001" : "SYNTH-TD04-001"}
+                data-document-type={isInvoice ? "TD01" : "TD04"}
+                data-fiscal-year={year}
+                data-series="FPR"
+                data-fiscal-number={isInvoice ? "1" : "2"}
+                data-document-date={`${year}-08-${isInvoice ? "10" : "11"}`}
+                data-recipient-name={isInvoice ? "Mario Rossi" : "Cliente Esempio Srl"}
+                data-recipient-tax-id="RSSMRA80A01H501U"
+                data-recipient-country="IT"
+                data-recipient-address={
+                  isInvoice ? "Via Cliente 1 00100 Roma IT" : "Via Cliente 2 00100 Roma IT"
+                }
+                data-total-cents={isInvoice ? "12345" : "2345"}
+                data-remote-status={isInvoice ? "DELIVERED" : "SDI_PROCESSING"}
+                data-observed-at={`${year}-08-12T12:00:00+02:00`}
+                data-order-references={isInvoice ? "SYNTH-ORDER-001" : ""}
+                data-aruba-xml-url={isInvoice ? invoiceXmlUrl : creditXmlUrl}
+              >
+                <td>{isInvoice ? "TD01 FPR 1" : "TD04 FPR 2"}</td>
+                <td>
+                  {isInvoice ? "10" : "11"}/08/{year}
+                </td>
+                <td>{isInvoice ? "Mario Rossi" : "Cliente Esempio Srl"}</td>
+                <td>{isInvoice ? "123,45 €" : "23,45 €"}</td>
+                <td>{isInvoice ? "Consegnato" : "In elaborazione SdI"}</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+        <button aria-label="Pagina successiva" disabled type="button">
+          Pagina successiva
+        </button>
+      </section>
+    </main>
+  );
+}
+
 export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
   const scenario = loaderData.scenario;
   const accountReference = loaderData.accountReference;
@@ -74,6 +177,8 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
   const [challengeStep, setChallengeStep] = useState<"CONFIRM" | "CODE" | null>(null);
   const [challengeCode, setChallengeCode] = useState("");
   const [sent, setSent] = useState(false);
+  const currentYear = new Date().getUTCFullYear();
+  const [inventoryStream, setInventoryStream] = useState(`invoices:${currentYear}`);
   useEffect(() => {
     if (scenario !== "login-auto") return;
     const timer = window.setTimeout(() => {
@@ -118,6 +223,18 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
           </a>
         </section>
       </main>
+    );
+  }
+  if (scenario === "inventory") {
+    return (
+      <ArubaInventorySynthetic
+        accountReference={accountReference}
+        creditXmlUrl={loaderData.creditXmlUrl}
+        currentYear={currentYear}
+        inventoryStream={inventoryStream}
+        invoiceXmlUrl={loaderData.invoiceXmlUrl}
+        setInventoryStream={setInventoryStream}
+      />
     );
   }
 

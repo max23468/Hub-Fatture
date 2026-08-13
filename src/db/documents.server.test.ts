@@ -36,6 +36,13 @@ test(
         .query(
           "INSERT INTO users (username, password_hash, can_approve) VALUES ('Massimo', 'synthetic', true)",
         );
+      await database.getPool().query(
+        `INSERT INTO aruba_sync_sessions
+          (id, environment, account_reference, device_id, token_hash, status,
+           absolute_expires_at, completed_at, full_scan_completed_at, is_full_scan)
+         VALUES ('00000000-0000-4000-8000-000000000301', 'MOCK', 'synthetic-aruba-account',
+           'synthetic-device-documents', repeat('3', 64), 'COMPLETED', now(), now(), now(), true)`,
+      );
       const fixture = JSON.parse(
         await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
       );

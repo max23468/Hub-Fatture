@@ -39,6 +39,10 @@ export const auditActions = [
   "ARUBA_READBACK_RECONCILED",
   "ARUBA_FILE_IMPORTED",
   "ARUBA_SETTINGS_CHANGED",
+  "ARUBA_READ_SESSION_ISSUED",
+  "ARUBA_INVENTORY_COMPLETED",
+  "ARUBA_DOCUMENT_MATCH_RESOLVED",
+  "ARUBA_PREFLIGHT_OVERRIDDEN",
   "LOGIN_FAILED",
   "LOGIN_RATE_LIMITED",
   "LOGIN_SUCCEEDED",
@@ -78,6 +82,9 @@ export async function writeAudit(
       | "DOCUMENT"
       | "ARUBA_BATCH"
       | "ARUBA_SUBMISSION"
+      | "ARUBA_SYNC_SESSION"
+      | "ARUBA_REMOTE_DOCUMENT"
+      | "ARUBA_PREFLIGHT_RECEIPT"
       | "FISCAL_PROFILE"
       | "REFUND"
       | "EMAIL_DELIVERY";
@@ -108,6 +115,14 @@ export async function writeAudit(
         | "CUSTOMER_EMAIL"
         | "ARUBA_CREDENTIALS";
       affectedCount: number;
+      environment: "MOCK" | "PRODUCTION";
+      deviceIdSuffix: string;
+      streamCount: number;
+      fullScan: boolean;
+      readbackId: string;
+      freshnessAgeMinutes: number;
+      draftVersion: number;
+      projectionSha256: string;
     }>;
     /** Solo campi anagrafici allowlisted o riferimenti a snapshot: mai token o payload integrali. */
     before?: Record<string, unknown> | null;

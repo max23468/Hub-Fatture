@@ -214,10 +214,29 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
          ('ARUBA_PDF', 'archive/reconcile.pdf', repeat('2', 64), 100, 'application/pdf')
        RETURNING id`,
     );
+    const remoteOwners = await database.getPool().query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series,
+         fiscal_number, document_date, total_amount, remote_status,
+         remote_status_observed_at, origin, metadata_digest)
+       VALUES
+        ('MOCK', 'synthetic-aruba-account', 'archive-send', 'TD01', 2026, 'FPR', '1001',
+         '2026-08-12', 100, 'DELIVERED', now(), 'HUB_SUBMISSION', repeat('a', 64)),
+        ('MOCK', 'synthetic-aruba-account', 'archive-reconcile', 'TD01', 2026, 'FPR', '1002',
+         '2026-08-12', 100, 'UNKNOWN', now(), 'HUB_SUBMISSION', repeat('b', 64))
+       RETURNING id`,
+    );
     await database.getPool().query(
-      `INSERT INTO aruba_files (document_id, storage_object_id, kind)
-       VALUES ($1, $3, 'ARUBA_PDF'), ($2, $4, 'ARUBA_PDF')`,
-      [toSend.id, toReconcile.id, officialStorage.rows[0]!.id, officialStorage.rows[1]!.id],
+      `INSERT INTO aruba_files (document_id, remote_document_id, storage_object_id, kind)
+       VALUES ($1, $5, $3, 'ARUBA_PDF'), ($2, $6, $4, 'ARUBA_PDF')`,
+      [
+        toSend.id,
+        toReconcile.id,
+        officialStorage.rows[0]!.id,
+        officialStorage.rows[1]!.id,
+        remoteOwners.rows[0]!.id,
+        remoteOwners.rows[1]!.id,
+      ],
     );
     await database.getPool().query(
       `INSERT INTO email_deliveries

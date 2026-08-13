@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { createServer } from "node:http";
 import path from "node:path";
 
 import {
@@ -8,6 +9,7 @@ import {
   validateVisibleDocuments,
   waitForUploadedDocument,
 } from "../../scripts/aruba-helper.ts";
+import { runArubaReadCycle, type ArubaReadManifest } from "../../scripts/aruba-read-helper.ts";
 
 const xml = "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml";
 
@@ -120,6 +122,82 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(page.getByRole("row")).toHaveCount(0);
 });
 
+test("l’helper di lettura esegue full scan, incremento con overlap e download selettivo", async ({
+  page,
+  baseURL,
+}) => {
+  const token = "synthetic-device-0001." + "a".repeat(43);
+  const pages: Array<{ fullScan: boolean; stream: string }> = [];
+  const files: string[] = [];
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
+    const json = (status: number, value: unknown) => {
+      response.writeHead(status, { "Content-Type": "application/json" });
+      response.end(JSON.stringify(value));
+    };
+    if (request.headers.authorization !== `Bearer ${token}`) return json(401, {});
+    if (url.pathname === "/api/aruba/sync/heartbeat") return json(200, { ok: true });
+    if (url.pathname === "/api/aruba/sync/pagine") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      pages.push({ fullScan: body.fullScan, stream: body.stream });
+      return json(200, {
+        requestedFiles:
+          body.stream.startsWith("invoices:") && pages.length <= 2
+            ? [{ remoteId: "SYNTH-INV-001", kind: "ARUBA_XML" }]
+            : [],
+      });
+    }
+    if (url.pathname.endsWith("/file")) {
+      files.push(String(request.headers["x-aruba-file-kind"]));
+      for await (const _ of request) void _;
+      return json(200, { ok: true });
+    }
+    if (url.pathname === "/api/aruba/sync/completa") return json(200, { completed: true });
+    return json(404, {});
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("server sintetico assente");
+    const year = new Date().getUTCFullYear();
+    const streams = [`invoices:${year}`, `credit-notes:${year}`].map((name) => ({
+      name,
+      cursor: `${name}:0`,
+      overlapFrom: `${year}-08-01T00:00:00.000Z`,
+      lastFullScanCompletedAt: null,
+      resumePageOrdinal: null,
+    }));
+    const manifest: ArubaReadManifest = {
+      operation: "READ_SYNC",
+      sessionId: "00000000-0000-4000-8000-000000000001",
+      environment: "MOCK",
+      accountReference: "synthetic-aruba-account",
+      panelUrl: new URL("/aruba-sintetica?scenario=inventory", baseURL).toString(),
+      oldestReconciliationDate: `${year}-01-01`,
+      streams,
+      intervalSeconds: 900,
+      absoluteExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const hub = new URL(`http://127.0.0.1:${address.port}`);
+    await runArubaReadCycle(page, hub, token, manifest, 1, true);
+    await runArubaReadCycle(page, hub, token, manifest, 2, false);
+    expect(pages).toEqual([
+      { fullScan: true, stream: `invoices:${year}` },
+      { fullScan: true, stream: `credit-notes:${year}` },
+      { fullScan: false, stream: `invoices:${year}` },
+      { fullScan: false, stream: `credit-notes:${year}` },
+    ]);
+    expect(files).toEqual(["ARUBA_XML"]);
+    await expect(page.locator("[data-aruba-filter-from]")).toHaveValue(`${year}-08-01`);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+});
+
 test("l'helper gestisce in sicurezza una challenge post-upload inattesa", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/aruba-sintetica?scenario=security-challenge");
@@ -138,6 +216,27 @@ test("l'helper gestisce in sicurezza una challenge post-upload inattesa", async 
   await expect(upload).resolves.toBeUndefined();
   expect(heartbeats).toBe(1);
   await expect(page.getByRole("cell", { name: "Documento valido" })).toBeVisible();
+});
+
+test("la pagina sintetica espone stream completi per l’inventario in sola lettura", async ({
+  page,
+}) => {
+  await page.goto("/aruba-sintetica?scenario=inventory");
+  await expect(page.locator('[data-aruba-state="inventory-ready"]')).toBeVisible();
+  await expect(page.locator("[data-aruba-account]")).toHaveAttribute(
+    "data-aruba-account",
+    "synthetic-aruba-account",
+  );
+  const year = new Date().getUTCFullYear();
+  await page.locator(`[data-aruba-stream="invoices:${year}"]`).click();
+  const invoice = page.locator('tr[data-aruba-remote-id="SYNTH-INV-001"]');
+  await expect(invoice).toHaveAttribute("data-document-type", "TD01");
+  await expect(invoice).toHaveAttribute("data-remote-status", "DELIVERED");
+  await page.locator(`[data-aruba-stream="credit-notes:${year}"]`).click();
+  const credit = page.locator('tr[data-aruba-remote-id="SYNTH-TD04-001"]');
+  await expect(credit).toHaveAttribute("data-document-type", "TD04");
+  await expect(credit).toHaveAttribute("data-remote-status", "SDI_PROCESSING");
+  await expect(page.getByRole("button", { name: "Pagina successiva" })).toBeDisabled();
 });
 
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {

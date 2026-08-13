@@ -331,16 +331,18 @@ test("la qualifica e-mail Production è presidiata e non espone dati sensibili",
 });
 
 test("i contesti required restano stabili mentre i gate costosi sono proporzionati", async () => {
-  const [ci, arubaPlatform, codeql, dependencies, foundation, react] = await Promise.all(
-    [
-      ".github/workflows/ci.yml",
-      ".github/workflows/aruba-platform.yml",
-      ".github/workflows/codeql.yml",
-      ".github/workflows/dependency-review.yml",
-      ".github/workflows/foundation.yml",
-      ".github/workflows/react-doctor.yml",
-    ].map((file) => readFile(path.join(root, file), "utf8")),
-  );
+  const [ci, arubaPlatform, platformCheck, codeql, dependencies, foundation, react] =
+    await Promise.all(
+      [
+        ".github/workflows/ci.yml",
+        ".github/workflows/aruba-platform.yml",
+        "scripts/aruba-helper-platform-check.ts",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/dependency-review.yml",
+        ".github/workflows/foundation.yml",
+        ".github/workflows/react-doctor.yml",
+      ].map((file) => readFile(path.join(root, file), "utf8")),
+    );
   assert.match(ci, /\n  gate:\n    name: CI\n    if: always\(\)/);
   assert.match(ci, /name: PostgreSQL e migrazioni\n    if: needs\.impact\.outputs\.database/);
   assert.match(ci, /name: E2E Chromium\n    if: needs\.impact\.outputs\.e2e/);
@@ -360,6 +362,8 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
     /name: Esegui helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
   );
   assert.match(arubaPlatform, /npm run test:aruba:platform -- \$\{\{ matrix\.browser \}\}/);
+  assert.match(platformCheck, /runArubaReadHelper/);
+  assert.match(platformCheck, /requestedFiles/);
   assert.doesNotMatch(arubaPlatform, /inputs\.commit/);
   assert.match(arubaPlatform, /\[\[ "\$CANDIDATE" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
   assert.match(arubaPlatform, /test "\$\(git rev-parse HEAD\)" = "\$CANDIDATE"/);

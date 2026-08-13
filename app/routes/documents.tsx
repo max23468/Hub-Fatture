@@ -1,11 +1,11 @@
-import { data, redirect, useActionData, useLoaderData } from "react-router";
+import { data, Form, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/documents";
 
 import { AppShell } from "../components/app-shell";
 import { DocumentsView } from "../components/documents-view";
 import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
-import { dateTime } from "../format";
+import { date, dateTime, euros } from "../format";
 import { privateRouteMeta } from "../metadata";
 import { ARUBA_IMPORT_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
@@ -31,6 +31,11 @@ import {
   retryCustomerEmail,
 } from "../../src/db/email.server.ts";
 import { AppError, publicError } from "../../src/errors.ts";
+import {
+  importArubaRemoteOfficialFileAsActor,
+  listRemoteDocuments,
+  resolveArubaDocumentMatch,
+} from "../../src/db/aruba-inbound.server.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
 import { parseSort } from "../table-sort";
@@ -45,9 +50,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
   const requestedView = url.searchParams.get("vista") ?? "tutti";
-  const view = ["tutti", "fatture", "note-credito", "da-trasmettere", "da-riconciliare"].includes(
-    requestedView,
-  )
+  const view = [
+    "tutti",
+    "fatture",
+    "note-credito",
+    "da-trasmettere",
+    "da-riconciliare",
+    "da-collegare",
+  ].includes(requestedView)
     ? requestedView
     : "tutti";
   const requestedKind = url.searchParams.get("tipo") ?? "";
@@ -87,7 +97,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     documentSortKeys,
     { key: "data" as DocumentListSortKey, direction: "desc" },
   );
-  const [documents, summary, batches, unbatched] = await Promise.all([
+  const [documents, summary, batches, unbatched, remoteDocuments] = await Promise.all([
     listDocuments({
       query: filters.query || undefined,
       kind: filters.kind ? (filters.kind as "INVOICE" | "CREDIT_NOTE") : undefined,
@@ -102,6 +112,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     documentArchiveSummary(),
     listArubaBatches(),
     listUnbatchedApprovedDocuments(),
+    view === "da-collegare" ? listRemoteDocuments({ attentionOnly: true }) : Promise.resolve([]),
   ]);
   const documentIds = documents.rows.map((document) => document.id);
   const [officialFiles, emailDeliveries, customerEmail] = await Promise.all([
@@ -124,6 +135,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     summary,
     sort,
     view,
+    remoteDocuments,
     batchCreated: url.searchParams.get("batch") === "creato",
     fileImported: url.searchParams.get("file") === "importato",
   };
@@ -144,6 +156,15 @@ export async function action({ request }: Route.ActionArgs) {
       assertCsrf(user, String(form.get("csrf") ?? ""));
       const file = form.get("file");
       if (!(file instanceof File)) throw new Response("File mancante", { status: 422 });
+      if (form.get("intent") === "import-aruba-remote-file") {
+        await importArubaRemoteOfficialFileAsActor(
+          String(form.get("remoteDocumentId") ?? ""),
+          form.get("fileKind"),
+          Buffer.from(await file.arrayBuffer()),
+          actor,
+        );
+        return redirect("/documenti?vista=da-collegare&file=importato");
+      }
       await importOfficialArubaFile(
         String(form.get("documentId") ?? ""),
         form.get("fileKind"),
@@ -188,6 +209,15 @@ export async function action({ request }: Route.ActionArgs) {
       );
       return redirect("/documenti?email=preparata");
     }
+    if (form.get("intent") === "resolve-aruba-match") {
+      await resolveArubaDocumentMatch(
+        form.get("remoteDocumentId") ?? "",
+        form.get("orderId") ?? "",
+        form.get("reason"),
+        actor,
+      );
+      return redirect("/documenti?vista=da-collegare&match=collegato");
+    }
     throw new Response("Azione non riconosciuta", { status: 400 });
   } catch (error) {
     if (error instanceof Response) throw error;
@@ -214,6 +244,7 @@ export default function Documents() {
     view,
     batchCreated,
     fileImported,
+    remoteDocuments,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const helper = actionData && "helper" in actionData ? actionData.helper : null;
@@ -250,6 +281,11 @@ export default function Documents() {
             to: "/documenti?vista=da-riconciliare",
             value: "da-riconciliare",
           },
+          {
+            label: copy.documents.toLink,
+            to: "/documenti?vista=da-collegare",
+            value: "da-collegare",
+          },
         ]}
         label={copy.documents.viewsLabel}
       />
@@ -275,21 +311,124 @@ export default function Documents() {
           {error}
         </p>
       ) : null}
-      <DocumentsView
-        batches={batches}
-        canApprove={canApprove}
-        csrfToken={csrfToken}
-        documents={documents}
-        emailDeliveries={emailDeliveries}
-        emailEnabled={emailEnabled}
-        filters={filters}
-        officialFiles={officialFiles}
-        page={page}
-        summary={summary}
-        sort={sort}
-        unbatched={unbatched}
-        view={view}
-      />
+      {view === "da-collegare" ? (
+        <section className="dashboard-panel section-gap" aria-labelledby="remote-documents-title">
+          <h2 id="remote-documents-title">{copy.documents.remoteDocumentsTitle}</h2>
+          <p>{copy.documents.remoteDocumentsHelp}</p>
+          {remoteDocuments.length ? (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{copy.documents.document}</th>
+                    <th>{copy.documents.date}</th>
+                    <th>{copy.documents.total}</th>
+                    <th>{copy.documents.arubaStatus}</th>
+                    <th>{copy.documents.matchStatus}</th>
+                    <th>{copy.documents.remoteLastReadback}</th>
+                    <th>Azioni</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {remoteDocuments.map((remote) => (
+                    <tr key={remote.id}>
+                      <td>
+                        {remote.document_type} {remote.series ?? ""}{" "}
+                        {remote.fiscal_number ?? remote.remote_id}
+                      </td>
+                      <td>{date(remote.document_date)}</td>
+                      <td>{euros(remote.total_amount)}</td>
+                      <td>
+                        {copy.documents.remoteStatusLabels[remote.remote_status] ??
+                          remote.remote_status}
+                      </td>
+                      <td>
+                        {copy.documents.matchStatusLabels[remote.match_status] ??
+                          remote.match_status}
+                      </td>
+                      <td>{dateTime(remote.last_observed_at)}</td>
+                      <td>
+                        {canApprove ? (
+                          <div className="table-actions">
+                            {!remote.has_xml ? (
+                              <Form method="post" encType="multipart/form-data">
+                                <input type="hidden" name="csrf" value={csrfToken} />
+                                <input
+                                  type="hidden"
+                                  name="intent"
+                                  value="import-aruba-remote-file"
+                                />
+                                <input type="hidden" name="remoteDocumentId" value={remote.id} />
+                                <input type="hidden" name="fileKind" value="ARUBA_XML" />
+                                <label>
+                                  XML ufficiale
+                                  <input
+                                    accept=".xml,application/xml"
+                                    name="file"
+                                    required
+                                    type="file"
+                                  />
+                                </label>
+                                <button className="button button--secondary" type="submit">
+                                  Importa XML
+                                </button>
+                              </Form>
+                            ) : null}
+                            {remote.candidates.length ? (
+                              <Form method="post">
+                                <input type="hidden" name="csrf" value={csrfToken} />
+                                <input type="hidden" name="intent" value="resolve-aruba-match" />
+                                <input type="hidden" name="remoteDocumentId" value={remote.id} />
+                                <label>
+                                  Ordine compatibile
+                                  <select name="orderId" required>
+                                    {remote.candidates.map((candidate) => (
+                                      <option key={candidate.id} value={candidate.id}>
+                                        {candidate.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label>
+                                  Motivazione
+                                  <input minLength={10} maxLength={500} name="reason" required />
+                                </label>
+                                <button className="button" type="submit">
+                                  Conferma collegamento
+                                </button>
+                              </Form>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span>{copy.common.unavailable}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p>{copy.documents.noRemoteDocuments}</p>
+          )}
+        </section>
+      ) : (
+        <DocumentsView
+          batches={batches}
+          canApprove={canApprove}
+          csrfToken={csrfToken}
+          documents={documents}
+          emailDeliveries={emailDeliveries}
+          emailEnabled={emailEnabled}
+          filters={filters}
+          officialFiles={officialFiles}
+          page={page}
+          summary={summary}
+          sort={sort}
+          unbatched={unbatched}
+          view={view}
+        />
+      )}
     </AppShell>
   );
 }

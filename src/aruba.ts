@@ -72,9 +72,13 @@ export function manifestSha256(
 
 export function assertAllowedArubaTarget(url: string, environment: ArubaEnvironment): URL {
   const target = new URL(url);
-  if (target.username || target.password || target.searchParams.size) throw new Error("target");
+  if (target.username || target.password) throw new Error("target");
   if (environment === "PRODUCTION") {
-    if (target.origin !== ARUBA_PANEL_ORIGIN || target.protocol !== "https:") {
+    if (
+      target.origin !== ARUBA_PANEL_ORIGIN ||
+      target.protocol !== "https:" ||
+      target.searchParams.size
+    ) {
       throw new Error("target");
     }
     return target;
@@ -82,7 +86,8 @@ export function assertAllowedArubaTarget(url: string, environment: ArubaEnvironm
   if (
     target.protocol !== "http:" ||
     !["localhost", "127.0.0.1", "::1"].includes(target.hostname) ||
-    target.pathname !== "/aruba-sintetica"
+    target.pathname !== "/aruba-sintetica" ||
+    (target.search !== "" && target.search !== "?scenario=inventory")
   ) {
     throw new Error("target");
   }

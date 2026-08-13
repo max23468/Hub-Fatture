@@ -321,7 +321,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  await expect(page.getByText("029_aruba_canary_permit.sql", { exact: true })).toBeVisible();
+  const inboundMigration = page.getByText("030_aruba_inbound_reconciliation.sql", { exact: true });
+  await expect(inboundMigration).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -636,7 +637,15 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.goto("/");
   const arubaConnection = page.locator(".connection").filter({ hasText: "Aruba" });
   await expect(arubaConnection).toContainText("Mai letto");
-  await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toBeVisible();
+  await connectionClient.query(
+    `INSERT INTO aruba_sync_sessions
+       (id, environment, account_reference, device_id, token_hash, status,
+        absolute_expires_at, completed_at, full_scan_completed_at, is_full_scan)
+     VALUES
+       ('00000000-0000-4000-8000-000000000072', 'MOCK', 'synthetic-aruba-account',
+        'synthetic-device-readiness', repeat('6', 64), 'COMPLETED', now(), now(), now(), true)`,
+  );
   await connectionClient.query(
     `INSERT INTO aruba_batches
        (id, environment, mode, account_reference, manifest_sha256, document_count, status,

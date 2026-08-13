@@ -1254,11 +1254,13 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor, confir
       [batchId],
     );
     if (unsafe.rowCount) throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
-    const documents = await batchDocuments(client, batchId);
-    const permit = await client.query<{ scope: ArubaPermitScope; consumed_at: string | null }>(
-      "SELECT scope, consumed_at FROM aruba_send_permits WHERE batch_id = $1 FOR UPDATE",
-      [batchId],
-    );
+    const [documents, permit] = await Promise.all([
+      batchDocuments(client, batchId),
+      client.query<{ scope: ArubaPermitScope; consumed_at: string | null }>(
+        "SELECT scope, consumed_at FROM aruba_send_permits WHERE batch_id = $1 FOR UPDATE",
+        [batchId],
+      ),
+    ]);
     const permitScope = permit.rows[0]?.scope ?? "ORDINARY";
     if (permitScope === "CANARY") {
       if (!confirmCanary) throw new AppError("ARUBA_PERMIT_INVALID", 409);
@@ -1322,7 +1324,7 @@ export async function listUnbatchedApprovedDocuments() {
   return result.rows;
 }
 
-async function storeImportedFile(documentId: string, kind: ArubaFileKind, bytes: Buffer) {
+export async function storeImportedFile(documentId: string, kind: ArubaFileKind, bytes: Buffer) {
   const extension = {
     ARUBA_XML: "xml",
     ARUBA_P7M: "p7m",

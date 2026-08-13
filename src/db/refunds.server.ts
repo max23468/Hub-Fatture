@@ -17,6 +17,7 @@ import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { creditableRemainder } from "../refunds.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { writeAudit } from "./audit.server.ts";
+import { consumeArubaPreflight, ensureArubaPreflight } from "./aruba-inbound.server.ts";
 import { createArubaBatch, getArubaSettings } from "./aruba.server.ts";
 import { assertJobLease, renewLockedJobLease, type ClaimedJob } from "./connectors.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
@@ -540,6 +541,10 @@ export async function approveCreditNote(
   }
   const expectedVersion = Number(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
+  const preflightId = await ensureArubaPreflight(
+    { documentId, draftVersion: expectedVersion, projectionSha256: expectedProjection },
+    actor,
+  );
   const committed = await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
     await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
@@ -553,6 +558,11 @@ export async function approveCreditNote(
     if (projected.sha256 !== expectedProjection || row.projection_sha256 !== expectedProjection) {
       throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
     }
+    await consumeArubaPreflight(client, preflightId, {
+      documentId,
+      draftVersion: expectedVersion,
+      projectionSha256: expectedProjection,
+    });
     const year = Number(input.documentDate.slice(0, 4));
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
       `fiscal-number:${row.series}:${year}`,

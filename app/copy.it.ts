@@ -164,12 +164,15 @@ export const copy = {
     noFailedUploads: "Nessun caricamento Aruba non riuscito",
     noRejectedDocuments: "Nessun documento scartato da SdI",
     noSyncErrors: "Nessun errore di sincronizzazione",
+    noArubaConflicts: "Nessuna verifica Aruba irrisolta",
     failedUploadsCount: (count: number) =>
       `${count} ${count === 1 ? "caricamento Aruba non riuscito" : "caricamenti Aruba non riusciti"}`,
     rejectedDocumentsCount: (count: number) =>
       `${count} ${count === 1 ? "documento scartato da SdI" : "documenti scartati da SdI"}`,
     syncErrorsCount: (count: number) =>
       `${count} ${count === 1 ? "errore di sincronizzazione" : "errori di sincronizzazione"}`,
+    arubaConflictsCount: (count: number) =>
+      `${count} ${count === 1 ? "verifica Aruba irrisolta" : "verifiche Aruba irrisolte"}`,
     connections: "Collegamenti",
     updated: "Aggiornato",
     stale: "Da aggiornare",
@@ -358,6 +361,7 @@ export const copy = {
     noDocuments: "Nessun documento collegato.",
   },
   orderDetail: {
+    arubaDocuments: "Documenti e progressi rilevati in Aruba",
     order: (number: string) => `Ordine ${number}`,
     orderStatus: "Stato dell’ordine",
     orderStatusHelp: "Pagamento, spedizione e importi utili alla fatturazione.",
@@ -435,6 +439,11 @@ export const copy = {
     confirmation:
       "Confermo rimborsi, riferimenti alla fattura, totale e numerazione irreversibile.",
     approve: "Approva, numera e prepara per Aruba",
+    arubaPreflightTitle: "Controllo Aruba prima della numerazione",
+    arubaPreflightStatus: (status: string, updatedAt: string) =>
+      `${status} · ultima lettura ${updatedAt}`,
+    arubaPreflightHelp:
+      "Approva avvia un readback dedicato alla revisione corrente. Dopo l’esito positivo, conferma di nuovo entro cinque minuti.",
     back: "Torna ai documenti",
   },
   preparation: {
@@ -586,6 +595,11 @@ export const copy = {
     confirmApproval:
       "Confermo i dati riepilogati e autorizzo l’approvazione e la numerazione irreversibile.",
     approve: "Approva, numera e prepara per Aruba",
+    arubaPreflightTitle: "Controllo Aruba prima della numerazione",
+    arubaPreflightStatus: (status: string, updatedAt: string) =>
+      `${status} · ultima lettura ${updatedAt}`,
+    arubaPreflightHelp:
+      "Approva avvia un readback dedicato alla revisione corrente. Dopo l’esito positivo, conferma di nuovo entro cinque minuti.",
   },
   documents: {
     eyebrow: "Archivio fiscale",
@@ -598,6 +612,29 @@ export const copy = {
     creditNotes: "Note di credito",
     toSend: "Da trasmettere",
     toReconcile: "Da riconciliare",
+    toLink: "Da collegare",
+    remoteDocumentsTitle: "Documenti rilevati in Aruba",
+    remoteDocumentsHelp:
+      "Fatture e note di credito lette dal pannello che richiedono ancora un collegamento certo.",
+    noRemoteDocuments: "Nessun documento Aruba da collegare.",
+    matchStatus: "Collegamento",
+    remoteLastReadback: "Ultima lettura",
+    remoteStatusLabels: {
+      SUBMITTED: "Inviato",
+      SDI_PROCESSING: "In elaborazione SdI",
+      DELIVERED: "Consegnato",
+      NOT_DELIVERED: "Mancata consegna",
+      REJECTED: "Scartato",
+      UNKNOWN: "Stato incerto",
+    } as Record<string, string>,
+    matchStatusLabels: {
+      MATCHED: "Collegato",
+      UNMATCHED: "Da collegare",
+      AMBIGUOUS: "Ambiguo",
+      PROFILE_CONFLICT: "Profilo discordante",
+      ERROR: "Errore",
+      UNKNOWN_REMOTE_STATE: "Stato incerto",
+    } as Record<string, string>,
     overviewLabel: "Riepilogo documenti",
     overviewCount: (count: number) =>
       `${count} ${count === 1 ? "documento in archivio" : "documenti in archivio"}`,
@@ -733,6 +770,9 @@ export const copy = {
     openOrders: "Vai agli ordini",
   },
   activity: {
+    arubaAttentionTitle: "Verifiche Aruba",
+    arubaAttentionHelp: "Documenti non collegati, ambigui, discordanti o con stato remoto incerto.",
+    openArubaDocuments: "Apri documenti da collegare",
     eyebrow: "Controlli e cronologia",
     title: "Attività",
     intro: "Vedi subito cosa richiede attenzione e consulta le operazioni già registrate.",
@@ -954,6 +994,23 @@ export const copy = {
     arubaSaved: "Impostazioni Aruba aggiornate.",
     arubaSave: "Salva integrazione Aruba",
     arubaOwnerOnly: "Solo il titolare può cambiare la modalità Aruba.",
+    arubaInventoryStatus: "Inventario in entrata",
+    arubaInventoryLabels: {
+      NEVER: "Mai letto · approvazioni bloccate",
+      HEALTHY: "Aggiornato",
+      WARNING: "Da aggiornare",
+      BLOCKED: "Bloccato · verifica richiesta",
+    } as Record<string, string>,
+    arubaRemoteDocuments: "Documenti rilevati",
+    arubaUnresolved: "Da collegare o verificare",
+    arubaIssueReadCode: "Genera codice di sola lettura",
+    arubaReadCodeTitle: "Codice helper per la sincronizzazione",
+    arubaReadCodeHelp: (expiresAt: string) =>
+      `Valido fino a ${expiresAt}. Consente soltanto lettura e import, mai upload o invio.`,
+    arubaSyncNow: "Sincronizza Aruba ora",
+    arubaSyncRequested: "La sincronizzazione immediata è stata richiesta.",
+    arubaRevokeSessions: "Revoca sessioni di lettura",
+    arubaSessionsRevoked: "Le sessioni Aruba attive sono state revocate.",
     arubaKillSwitch:
       "Gli invii automatici operativi sono disabilitati: i nuovi batch useranno la modalità assistita.",
     arubaConfiguredMode: "Modalità configurata",
@@ -1153,6 +1210,10 @@ export const auditActionLabels = {
   ARUBA_BATCH_CREATED: "Batch Aruba creato",
   ARUBA_CANARY_BATCH_PREPARED: "Invio pilota Aruba preparato",
   ARUBA_FILE_IMPORTED: "File Aruba importato",
+  ARUBA_READ_SESSION_ISSUED: "Sessione Aruba di sola lettura creata",
+  ARUBA_INVENTORY_COMPLETED: "Inventario Aruba completato",
+  ARUBA_DOCUMENT_MATCH_RESOLVED: "Documento Aruba collegato manualmente",
+  ARUBA_PREFLIGHT_OVERRIDDEN: "Controllo Aruba sostituito dopo verifica manuale",
   ARUBA_HELPER_TOKEN_CREATED: "Codice helper generato",
   ARUBA_READBACK_RECONCILED: "Readback Aruba riconciliato",
   ARUBA_RECONCILIATION_REQUIRED: "Riconciliazione Aruba richiesta",

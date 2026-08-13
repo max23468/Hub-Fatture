@@ -28,6 +28,7 @@ import {
   getOrder,
   reconcileHistoricalOrder,
 } from "../../src/db/orders.server.ts";
+import { listOrderRemoteDocuments } from "../../src/db/aruba-inbound.server.ts";
 
 type OrderLine = NonNullable<Awaited<ReturnType<typeof getOrder>>>["lines"][number];
 type OrderLineSortKey = "description" | "quantity" | "gross_amount" | "discount_amount";
@@ -45,13 +46,17 @@ export function meta({ error, loaderData }: Route.MetaArgs) {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
-  const order = await getOrder(params.orderId);
+  const [order, remoteDocuments] = await Promise.all([
+    getOrder(params.orderId),
+    listOrderRemoteDocuments(params.orderId),
+  ]);
   if (!order) throw new Response("Ordine non trovato", { status: 404 });
   return {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     order,
+    remoteDocuments,
   };
 }
 
@@ -280,7 +285,8 @@ function OrderItemsPanel({ lines }: { lines: OrderLine[] }) {
 }
 
 export default function OrderDetail() {
-  const { username, canApprove, csrfToken, order } = useLoaderData<typeof loader>();
+  const { username, canApprove, csrfToken, order, remoteDocuments } =
+    useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const sourceSnapshot = order.raw_snapshot_json;
   const sourceCustomer = sourceSnapshot.customer ?? {};
@@ -359,6 +365,26 @@ export default function OrderDetail() {
             </div>
           </dl>
           <OrderStatusActions order={order} canApprove={canApprove} csrfToken={csrfToken} />
+          {remoteDocuments.length ? (
+            <div className="notice section-gap">
+              <strong>{copy.orderDetail.arubaDocuments}</strong>
+              <ul className="plain-list">
+                {remoteDocuments.map((remote) => (
+                  <li key={remote.remote_id}>
+                    <span>
+                      {remote.document_type} {remote.series ?? ""}{" "}
+                      {remote.fiscal_number ?? remote.remote_id}
+                    </span>
+                    <span>
+                      {copy.documents.remoteStatusLabels[remote.remote_status] ??
+                        remote.remote_status}{" "}
+                      · {dateTime(remote.last_observed_at)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <div className="detail-subsection">
             <h3 className="detail-subsection__title">
               <CreditCard aria-hidden="true" size={19} strokeWidth={1.8} />
