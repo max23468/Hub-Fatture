@@ -707,6 +707,41 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       "1",
     );
 
+    const inventoryLock = await database.getPool().connect();
+    await database.getPool().query(
+      `UPDATE aruba_preflight_receipts SET inventory_watermark =
+         (SELECT coalesce(max(inventory_watermark), 0) FROM aruba_sync_sessions)
+       WHERE id = $1`,
+      [manualReceiptId],
+    );
+    await inventoryLock.query("BEGIN");
+    await inventoryLock.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      "aruba-read:MOCK:synthetic-aruba-account",
+    ]);
+    let consumeSettled = false;
+    const serializedConsume = database
+      .withTransaction((client) =>
+        inbound.consumeArubaPreflight(client, manualReceiptId, {
+          billingCaseId: currentDraft.rows[0]!.billing_case_id,
+          documentId: currentDraft.rows[0]!.id,
+          draftVersion: currentDraft.rows[0]!.draft_version,
+          projectionSha256: currentDraft.rows[0]!.projection_sha256,
+        }),
+      )
+      .finally(() => {
+        consumeSettled = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(consumeSettled, false);
+    await inventoryLock.query("COMMIT");
+    inventoryLock.release();
+    await serializedConsume;
+    await database.getPool().query(
+      `UPDATE aruba_preflight_receipts SET status = 'PASSED', consumed_at = NULL
+       WHERE id = $1`,
+      [manualReceiptId],
+    );
+
     await database.getPool().query(
       `UPDATE aruba_sync_sessions SET inventory_watermark = 999999
        WHERE id = (SELECT id FROM aruba_sync_sessions ORDER BY started_at DESC LIMIT 1)`,

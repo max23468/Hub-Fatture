@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  groupOrderCandidates,
+  remoteMatchesPreflightSearches,
   remoteStatusTransition,
   selectOrderMatch,
   type RemoteInventoryDocument,
@@ -82,5 +84,43 @@ test("due candidati compatibili restano ambigui", () => {
       { ...candidate, id: "2" },
     ]).status,
     "AMBIGUOUS",
+  );
+});
+
+test("una preparazione multi-ordine usa insieme riferimenti e totale del gruppo", () => {
+  const grouped = groupOrderCandidates([
+    {
+      id: "1",
+      billingCaseId: "10",
+      provider: "SHOPIFY",
+      displayNumber: "1001",
+      localOrderDate: "2026-08-12",
+      billableAmount: 8_000,
+      recipientName: "Mario Rossi",
+      recipientTaxIds: ["RSSMRA80A01H501U"],
+      recipientAddress: "Via Roma 1 Milano",
+    },
+    {
+      id: "2",
+      billingCaseId: "10",
+      provider: "SHOPIFY",
+      displayNumber: "1002",
+      localOrderDate: "2026-08-13",
+      billableAmount: 4_300,
+      recipientName: "Mario Rossi",
+      recipientTaxIds: ["RSSMRA80A01H501U"],
+      recipientAddress: "Via Roma 1 Milano",
+    },
+  ]);
+  const groupedRemote = { ...remote, orderReferences: ["1002"] };
+  const match = selectOrderMatch(groupedRemote, grouped);
+  assert.equal(match.status, "MATCHED");
+  assert.deepEqual(match.evaluations[0]!.orderIds, ["1", "2"]);
+  assert.equal(
+    remoteMatchesPreflightSearches(groupedRemote, [
+      { documentType: "TD01", amount: 8_000, displayNumber: "1001" },
+      { documentType: "TD01", amount: 4_300, displayNumber: "1002" },
+    ]),
+    true,
   );
 });

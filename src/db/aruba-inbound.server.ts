@@ -6,13 +6,13 @@ import type pg from "pg";
 import { z } from "zod";
 
 import {
+  groupOrderCandidates,
   inventoryPageSchema,
   isEmissionConfirmed,
   normalizedMatchText,
   remoteMetadataDigest,
   remoteStatusTransition,
   selectOrderMatch,
-  type ArubaOrderCandidate,
   type ArubaRemoteStatus,
   type RemoteInventoryDocument,
 } from "../aruba-inbound.ts";
@@ -66,6 +66,16 @@ function panelUrl(): string {
 
 function accountReference(): string {
   return getConfig().ARUBA_ACCOUNT_REFERENCE;
+}
+
+async function lockArubaInventory(
+  client: pg.PoolClient,
+  environmentValue = environment(),
+  account = accountReference(),
+) {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+    `aruba-read:${environmentValue}:${account}`,
+  ]);
 }
 
 function payloadDigest(value: unknown): string {
@@ -547,19 +557,24 @@ async function reconcileRemoteDocument(
           : candidate.billable_amount,
     };
   });
-  const match = selectOrderMatch(
-    remote,
-    evaluatedCandidates.map((candidate): ArubaOrderCandidate => ({
-      id: candidate.id,
-      provider: candidate.provider,
-      displayNumber: candidate.display_number,
-      localOrderDate: candidate.local_order_date,
-      billableAmount: candidate.match_amount,
-      recipientName: candidate.recipient_name,
-      recipientTaxIds: candidate.recipient_tax_ids,
-      recipientAddress: candidate.recipient_address,
-    })),
+  const matchCandidates = evaluatedCandidates.map((candidate) => ({
+    id: candidate.id,
+    billingCaseId: remote.documentType === "TD01" ? candidate.billing_case_id : null,
+    provider: candidate.provider,
+    displayNumber: candidate.display_number,
+    localOrderDate: candidate.local_order_date,
+    billableAmount: candidate.match_amount,
+    recipientName: candidate.recipient_name,
+    recipientTaxIds: candidate.recipient_tax_ids,
+    recipientAddress: candidate.recipient_address,
+  }));
+  const groupedCandidates = groupOrderCandidates(matchCandidates).filter(
+    (candidate) => (candidate.orderIds?.length ?? 1) > 1,
   );
+  const match = selectOrderMatch(remote, [
+    ...matchCandidates,
+    ...(remote.documentType === "TD01" ? groupedCandidates : []),
+  ]);
   let status: string = remote.status === "UNKNOWN" ? "UNKNOWN_REMOTE_STATE" : match.status;
   const selected =
     match.status === "MATCHED"
@@ -801,24 +816,33 @@ async function materializeExternalInvoice(
     orderReferences: imported.references,
   };
   const candidates = await orderCandidates(client, evidenceRemote);
-  const verified = selectOrderMatch(
-    evidenceRemote,
-    candidates.map((candidate) => ({
-      id: candidate.id,
-      provider: candidate.provider,
-      displayNumber: candidate.display_number,
-      localOrderDate: candidate.local_order_date,
-      billableAmount: candidate.billable_amount,
-      recipientName: candidate.recipient_name,
-      recipientTaxIds: candidate.recipient_tax_ids,
-      recipientAddress: candidate.recipient_address,
-    })),
+  const individualCandidates = candidates.map((candidate) => ({
+    id: candidate.id,
+    billingCaseId: candidate.billing_case_id,
+    provider: candidate.provider,
+    displayNumber: candidate.display_number,
+    localOrderDate: candidate.local_order_date,
+    billableAmount: candidate.billable_amount,
+    recipientName: candidate.recipient_name,
+    recipientTaxIds: candidate.recipient_tax_ids,
+    recipientAddress: candidate.recipient_address,
+  }));
+  const groupedCandidates = groupOrderCandidates(individualCandidates).filter(
+    (candidate) => (candidate.orderIds?.length ?? 1) > 1,
   );
-  const selectedId =
+  const verified = selectOrderMatch(evidenceRemote, [
+    ...individualCandidates,
+    ...groupedCandidates,
+  ]);
+  const selectedEvaluation =
     verified.status === "MATCHED"
-      ? verified.evaluations.find((candidate) => candidate.compatible)?.candidateId
+      ? verified.evaluations.find((candidate) => candidate.compatible)
       : null;
-  if (selectedId !== remote.order_id) throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
+  if (selectedEvaluation?.candidateId !== remote.order_id) {
+    throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
+  }
+  const matchedOrderIds = selectedEvaluation.orderIds;
+  const matchedOrderIdSet = new Set(matchedOrderIds);
   await serializeOrderMutations(client);
   const order = await client.query<{
     id: string;
@@ -829,11 +853,17 @@ async function materializeExternalInvoice(
   }>(
     `SELECT orders.id, orders.customer_id, orders.billing_case_id, orders.billable_amount,
             orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot
-     FROM orders WHERE orders.id = $1 FOR UPDATE`,
-    [remote.order_id],
+     FROM orders WHERE orders.id = ANY($1::bigint[]) ORDER BY orders.id FOR UPDATE`,
+    [matchedOrderIds],
   );
   const currentOrder = order.rows[0];
-  if (!currentOrder || currentOrder.billable_amount !== imported.totalAmount) {
+  if (
+    !currentOrder ||
+    order.rows.length !== matchedOrderIds.length ||
+    order.rows.reduce((sum, item) => sum + item.billable_amount, 0) !== imported.totalAmount ||
+    new Set(order.rows.map((item) => item.customer_id)).size !== 1 ||
+    new Set(order.rows.map((item) => item.billing_case_id)).size !== 1
+  ) {
     throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   }
   const digest = createHash("sha256").update(xml).digest("hex");
@@ -852,7 +882,10 @@ async function materializeExternalInvoice(
        WHERE document_id = $1 AND document_kind = 'INVOICE' FOR UPDATE`,
       [documentId],
     );
-    if (localLink.rows.length !== 1 || localLink.rows[0]!.order_id !== remote.order_id) {
+    if (
+      localLink.rows.length !== matchedOrderIds.length ||
+      localLink.rows.some((row) => !matchedOrderIdSet.has(row.order_id))
+    ) {
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
     await client.query(
@@ -921,32 +954,34 @@ async function materializeExternalInvoice(
      WHERE document_id = $1 AND document_kind = 'INVOICE' FOR UPDATE`,
     [documentId],
   );
-  if (alreadyLinked.rows.some((row) => row.order_id !== remote.order_id)) {
+  if (alreadyLinked.rows.some((row) => !matchedOrderIdSet.has(row.order_id))) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
   await client.query(
     `DELETE FROM document_lines
-     WHERE order_id = $1 AND document_id IN (
+     WHERE order_id = ANY($1::bigint[]) AND document_id IN (
        SELECT id FROM documents WHERE kind = 'INVOICE' AND status = 'DRAFT'
      )`,
-    [remote.order_id],
+    [matchedOrderIds],
   );
   await client.query(
     `DELETE FROM document_orders
-     WHERE order_id = $1 AND document_kind = 'INVOICE'
+     WHERE order_id = ANY($1::bigint[]) AND document_kind = 'INVOICE'
        AND document_id IN (SELECT id FROM documents WHERE status = 'DRAFT')`,
-    [remote.order_id],
+    [matchedOrderIds],
   );
   await client.query(
     `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
-     VALUES ($1, 'INVOICE', $2, $3) ON CONFLICT (document_id, order_id) DO NOTHING`,
-    [documentId, remote.order_id, imported.totalAmount],
+     SELECT $1, 'INVOICE', orders.id, orders.billable_amount
+     FROM orders WHERE orders.id = ANY($2::bigint[])
+     ON CONFLICT (document_id, order_id) DO NOTHING`,
+    [documentId, matchedOrderIds],
   );
   const previousCaseId = currentOrder.billing_case_id;
   await client.query(
     `UPDATE orders SET trigger_status = 'INVOICED', billing_case_id = NULL
-     WHERE id = $1`,
-    [remote.order_id],
+     WHERE id = ANY($1::bigint[])`,
+    [matchedOrderIds],
   );
   if (previousCaseId) {
     const remaining = await client.query<{ count: string }>(
@@ -1693,6 +1728,7 @@ export async function ingestArubaInventoryPage(token: string, rawPage: unknown) 
   return withTransaction(async (client) => {
     const session = await loadReadSession(client, token, true);
     if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+    await lockArubaInventory(client, session.environment, session.account_reference);
     return ingestParsedArubaPage(client, session, parsed.data);
   });
 }
@@ -2192,6 +2228,11 @@ export async function consumeArubaPreflight(
   );
   const current = receipt.rows[0];
   if (!current) throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
+  await lockArubaInventory(
+    client,
+    current.environment as "MOCK" | "PRODUCTION",
+    current.account_reference,
+  );
   const watermark = await currentInventoryWatermark(client);
   if (watermark !== Number(current.inventory_watermark)) {
     throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);

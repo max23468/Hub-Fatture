@@ -13,7 +13,7 @@ import {
 } from "../src/aruba.ts";
 import {
   inventoryPageSchema,
-  normalizedMatchText,
+  remoteMatchesPreflightSearches,
   type RemoteInventoryDocument,
 } from "../src/aruba-inbound.ts";
 
@@ -336,17 +336,7 @@ export async function runArubaReadCycle(
 function preflightCandidates(work: PreflightWork, observed: RemoteInventoryDocument[]) {
   const searches = work.request_json.searches ?? [];
   return observed
-    .filter((remote) =>
-      searches.some(
-        (search) =>
-          search.documentType === remote.documentType &&
-          search.amount === remote.totalAmount &&
-          remote.orderReferences.some(
-            (reference) =>
-              normalizedMatchText(reference) === normalizedMatchText(search.displayNumber),
-          ),
-      ),
-    )
+    .filter((remote) => remoteMatchesPreflightSearches(remote, searches))
     .map((remote) => remote.remoteId);
 }
 
