@@ -145,11 +145,11 @@ Collegamenti fra inventario remoto e documento, ordine, preparazione o rimborso 
 - decisione automatica o manuale, autore, motivazione e timestamp;
 - versione del matcher per poter rivalutare i soli casi non definitivi.
 
-Il collegamento univoco a un ordine importa l’XML ufficiale come documento storico `ARUBA_HISTORY` quando il documento non esiste ancora localmente e riusa il matcher storico esistente. Se il documento Hub esiste già, il remote document viene collegato a quello e all’eventuale `aruba_submission`, senza duplicarlo. Il match e l’archiviazione dell’evidenza non equivalgono da soli a dichiarare il documento emesso: l’effetto sull’ordine dipende dallo stato remoto canonico.
+Il collegamento univoco a un ordine riusa il matcher storico esistente. Soltanto un documento `DELIVERED` o `NOT_DELIVERED` viene importato come documento storico `ARUBA_HISTORY` quando non esiste ancora localmente; se il documento Hub emesso esiste già, il remote document viene collegato a quello e all’eventuale `aruba_submission`, senza duplicarlo. Negli stati `SUBMITTED`, `SDI_PROCESSING`, `REJECTED` o incerti, XML e notifiche restano in `aruba_files`/`sdi_notifications` di proprietà del remote document e il match punta all’ordine o alla preparazione senza creare una riga `documents`: il vincolo corrente di `ARUBA_HISTORY` approvato e l’unicità fiscale restano riservati ai documenti la cui emissione è confermata.
 
 - `DELIVERED` e `NOT_DELIVERED` confermano l’emissione: il documento partecipa all’unicità delle fatture emesse e l’ordine viene chiuso/escluso da nuove emissioni.
 - `SUBMITTED` e `SDI_PROCESSING` sospendono approvazione e numerazione del caso compatibile finché arriva un esito conclusivo, senza chiudere l’ordine come fatturato.
-- `REJECTED` conserva XML, tentativo, match e audit, ma non occupa il vincolo delle fatture emesse e lascia l’ordine disponibile per la nuova revisione o riedizione prevista dalla procedura di scarto.
+- `REJECTED` conserva inventario remoto, XML/file ufficiali, match e audit senza creare `ARUBA_HISTORY`; non occupa il vincolo delle fatture emesse e lascia l’ordine disponibile per la nuova revisione o riedizione prevista dalla procedura di scarto.
 - `UNKNOWN` o conclusioni incompatibili restano fail-closed e richiedono verifica.
 
 Quando l’emissione è confermata e l’ordine collegato appartiene a una preparazione che contiene anche altri ordini, il match non chiude l’intera preparazione e non lascia invariata la bozza materializzata. Nella stessa transazione Hub Fatture:
@@ -175,7 +175,7 @@ Usare lo schema cursori esistente con provider `ARUBA` e stream separati per ann
 
 - `aruba_submissions`: rimane il registro dei tentativi di upload/invio generati da Hub Fatture.
 - `aruba_remote_documents`: rappresenta ciò che Aruba contiene, indipendentemente dall’origine.
-- `documents`: conserva la rappresentazione fiscale locale immutabile quando esiste un XML ufficiale valido e un collegamento consentito; il vincolo `ARUBA_HISTORY` viene esteso in modo esplicito alle fatture e alle TD04, mantenendo per queste ultime il riferimento alla fattura originaria.
+- `documents`: conserva la rappresentazione fiscale locale immutabile quando esiste un XML ufficiale valido, un collegamento consentito e lo stato `DELIVERED` o `NOT_DELIVERED`; `ARUBA_HISTORY` resta `APPROVED` e viene esteso in modo esplicito alle fatture e alle TD04 emesse, mantenendo per queste ultime il riferimento alla fattura originaria. Stati intermedi, scarti e stati incerti non creano righe `documents`.
 - `aruba_files`: separa provenienza e collegamento locale. `submission_id` e `remote_document_id` sono owner alternativi con vincolo “esattamente uno valorizzato”; `document_id` diventa il collegamento locale opzionale e viene valorizzato dopo il match, senza cambiare la provenienza del file.
 - `sdi_notifications`: ammette `submission_id` oppure `remote_document_id` con lo stesso vincolo “esattamente uno valorizzato”; una notifica di un documento nato fuori da Hub Fatture non richiede una submission artificiale.
 - `storage_objects`: resta il contenuto immutabile comune, referenziato dai file e dalle notifiche secondo l’owner di provenienza.
@@ -242,15 +242,21 @@ Prima di approvare, numerare o preparare una fattura/TD04 il server rilegge lo s
 - blocco quando ha più di 24 ore;
 - blocco immediato se esiste una sessione fallita/incerta rilevante, un possibile match non risolto o una scansione iniziale incompleta.
 
+Queste soglie descrivono la salute globale ma non autorizzano da sole un’approvazione. Ogni richiesta di approvazione avvia o riusa soltanto un preflight Aruba completato dopo la richiesta per quella specifica revisione: l’helper esegue subito un readback on-demand della finestra necessaria a trovare il documento candidato, importa ogni possibile risultato e restituisce una ricevuta vincolata ad account, ambiente, preparazione, `draft_version`, hash della proiezione, ordini/rimborsi inclusi e watermark dell’inventario. L’approvazione resta bloccata fino al completamento; un match, uno stato incerto, un errore o una modifica di bozza/inventario invalida la ricevuta. Dopo il successo la stessa richiesta deve essere confermata entro cinque minuti e consuma la ricevuta; trascorso il limite o per un nuovo tentativo serve un altro preflight. Le approvazioni massive usano un’unica scansione on-demand ma una ricevuta/manifest che elenca e vincola ogni preparazione.
+
+Se l’helper non è aperto, la UI chiede di avviarlo oppure offre al solo titolare il readback manuale specifico/full previsto sotto: non approva usando semplicemente l’ultimo giro periodico. La finestra di cinque minuti riduce il rischio residuo di una creazione esterna concorrente, che il pannello Aruba privo di API/lock non consente di eliminare; la conferma mostra l’istante del preflight.
+
 La regola si applica anche agli endpoint massivi e a qualunque mutazione diretta, non soltanto alla UI.
 
-Solo il titolare con `can_approve` può usare l’override dopo una verifica manuale sul pannello Aruba. L’override può superare esclusivamente il gate di freschezza — Aruba mai letto dall’app oppure ultimo inventario oltre 24 ore — quando il titolare ha verificato manualmente l’assenza di un documento remoto corrispondente. Non può superare una scansione incompleta, uno stato remoto incerto, un match possibile o ambiguo, un conflitto di profilo, una collisione di deduplicazione o un errore di parsing/file: questi casi devono essere risolti prima dell’approvazione.
+Solo il titolare con `can_approve` può usare l’override dopo un readback manuale specifico eseguito per la revisione corrente nel pannello Aruba. L’override può sostituire esclusivamente il preflight automatico/freschezza quando il titolare ha verificato l’assenza del documento remoto corrispondente nella finestra di ricerca indicata da Hub Fatture; è vincolato agli stessi ordini/rimborsi, revisione e hash e scade dopo cinque minuti. Non può superare una scansione manuale incompleta, uno stato remoto incerto, un match possibile o ambiguo, un conflitto di profilo, una collisione di deduplicazione o un errore di parsing/file: questi casi devono essere risolti prima dell’approvazione.
 
 La motivazione deve essere specifica e non generica; l’audit conserva utente, preparazione/documento, età del readback, condizione di freschezza superata, conferma della verifica manuale e timestamp. L’override vale per la sola transizione e non rende fresco Aruba, non chiude conflitti e non autorizza invii.
 
-### 8.1 Readback manuale completo
+### 8.1 Readback manuale specifico e completo
 
-Quando l’helper è indisponibile o una scansione si arresta, il fallback non usa l’override di freschezza per ignorare l’errore. Hub Fatture apre invece una sessione guidata di readback manuale per la stessa finestra che avrebbe coperto la scansione automatica e mostra al titolare gli stream obbligatori per anno/tipo, il limite temporale, i documenti non terminali già noti e gli errori da risolvere.
+Quando l’inventario globale è sano ma l’helper non è disponibile per il preflight, Hub Fatture può aprire al solo titolare un readback manuale specifico. La checklist genera tutte le ricerche compatibili con riferimenti ordine/rimborso, tipo, data, destinatario, identificativi e importo; per ciascuna il titolare acquisisce ogni riga di tutte le pagine e importa l’evidenza ufficiale di ogni possibile candidato. La ricevuta è valida soltanto per revisione/hash correnti, scade dopo cinque minuti e non aggiorna la freschezza globale. Qualunque possibile match o ricerca incompleta mantiene l’approvazione bloccata.
+
+Quando invece una scansione si arresta o l’inventario globale è incompleto, il fallback non usa l’override per ignorare l’errore e il readback specifico non basta. Hub Fatture apre una sessione guidata di readback manuale completo per la stessa finestra che avrebbe coperto la scansione automatica e mostra al titolare gli stream obbligatori per anno/tipo, il limite temporale, i documenti non terminali già noti e gli errori da risolvere.
 
 Usando Safari o un altro browser, il titolare percorre nel pannello Aruba ogni stream fino alla pagina terminale. Per ogni pagina acquisisce in Hub Fatture tutte le righe visibili con gli stessi metadati canonici usati dall’inventario automatico — inclusi ID remoto quando presente, tipo, numero/serie/anno, data, stato, destinatario/identificativi normalizzati e totale — oppure importa un export ufficiale completo che contenga l’intero stream. Registra inoltre filtri applicati, ordinale, conteggio mostrato quando disponibile, estremi tecnici primo/ultimo e assenza della pagina successiva; importa XML/P7M/notifiche ufficiali per ogni documento nuovo, cambiato, candidato o privo di evidenza.
 
@@ -285,6 +291,7 @@ Non viene aggiunta una destinazione primaria `Aruba`.
 ### Preparazione e approvazione
 
 - Mostrano freschezza Aruba e possibile documento remoto.
+- `Approva` avvia il preflight on-demand, mostra avanzamento/istante del risultato e resta bloccato finché la ricevuta vincolata alla revisione corrente non è pronta.
 - Approvazione/numerazione sono bloccate server-side secondo §8.
 - L’override del titolare richiede motivo e conferma specifica.
 
@@ -310,6 +317,7 @@ Gli endpoint esatti seguono le convenzioni React Router correnti. Le capacità m
 - import limitato verso Hub Fatture dei file ufficiali ammessi;
 - stato sintetico per Dashboard e Impostazioni;
 - richiesta di sincronizzazione immediata;
+- richiesta/completamento/consumo del preflight on-demand vincolato alla revisione o al manifest massivo;
 - apertura/compilazione della sessione di readback manuale e finalizzazione auditata;
 - risoluzione manuale di un match e override auditato.
 
@@ -341,6 +349,8 @@ La Dashboard avvisa dopo un’ora. Il blocco a 24 ore è un controllo applicativ
 - matching positivo e negativo per ogni segnale, incluso il divieto del solo totale;
 - mapping esplicito degli stati comuni con `aruba_submissions`, terminali incompatibili e stati esclusivi dei tentativi locali;
 - effetti distinti dello stato remoto: solo `DELIVERED`/`NOT_DELIVERED` chiudono l’ordine o contabilizzano rimborsi, `SUBMITTED`/`SDI_PROCESSING` sospendono e `REJECTED` consente la riedizione;
+- materializzazione `ARUBA_HISTORY` consentita soltanto per `DELIVERED`/`NOT_DELIVERED`; scarti e stati non emessi restano nel remote inventory senza consumare unicità fiscale;
+- ricevuta preflight vincolata a revisione/hash/ordini-rimborsi, scadenza di cinque minuti, consumo singolo e invalidazione su modifica o nuovo possibile match;
 - calcolo freschezza, avviso e blocco; override ammesso per la sola freschezza e rifiutato per match, conflitti, errori e stato remoto incerto;
 - validazione della ricevuta manuale: tutte le righe di ogni stream/pagina oppure export ufficiale completo, pagina terminale, nessun buco/duplicato e nessun errore irrisolto;
 - scope e scadenza della sessione read-only.
@@ -355,6 +365,8 @@ La Dashboard avvisa dopo un’ora. Il blocco a 24 ore è un controllo applicativ
 - match parziale di una preparazione multi-ordine: invalidazione della bozza, esclusione del solo ordine coperto, rigenerazione dei residui e rollback totale su errore;
 - TD04 esterna collegata atomicamente a tutti e soli i rimborsi coperti, con lock sul residuo e concorrenza contro `process_refund` incapace di creare un secondo accredito;
 - fattura esterna scartata archiviata e collegata come tentativo, senza consumare l’unicità delle fatture emesse né chiudere l’ordine;
+- vincolo `ARUBA_HISTORY = APPROVED` rispettato: nessuna riga `documents` per `REJECTED`, intermedi o incerti; file e notifiche restano di proprietà del remote document;
+- approvazione concorrente con un preflight: una sola ricevuta consumabile, revisione/hash ricontrollati sotto lock e ricevuta stale rifiutata;
 - finalizzazione concorrente/idempotente del readback manuale e conservazione della sessione automatica fallita;
 - rifiuto server-side dell’account senza `can_approve` sia sulla finalizzazione manuale sia sulla risoluzione di match con effetti fiscali;
 - backfill di submission/documenti esistenti e rollback expand/contract;
@@ -383,6 +395,8 @@ I test DB usano un database dedicato al worktree. Le suite E2E che possono reset
 - preparazione con due ordini e match Aruba su uno solo: bozza precedente non approvabile e nuovo residuo contenente esclusivamente l’altro ordine;
 - TD04 esterna emessa su rimborsi già importati: rimborsi collegati al documento e nessuna nuova bozza TD04 al giro successivo o in concorrenza;
 - fattura esterna `REJECTED`: evidenza e scarto visibili, ordine ancora rieditabile e nessuna falsa chiusura come già fatturato;
+- approvazione richiesta subito dopo una fattura creata direttamente in Aruba: il preflight on-demand la acquisisce e impedisce la doppia emissione prima del successivo giro periodico;
+- ricevuta preflight scaduta o bozza modificata: nuova approvazione bloccata fino a un nuovo readback;
 - helper indisponibile/DOM variato: readback manuale completo rende di nuovo operativi i gate soltanto dopo acquisizione di ogni riga di tutti gli stream, o export ufficiale completo, ed evidenze richieste;
 - account `Codex`: può preparare una risoluzione, ma la chiamata diretta agli endpoint di finalizzazione manuale o match fiscale restituisce accesso negato e non modifica ordini/rimborsi;
 - ambiguità in `Da verificare`;
@@ -457,11 +471,13 @@ Rollback applicativo: disabilitare l’emissione delle sessioni di sync e tornar
 - documenti locali preesistenti deduplicati senza perdita o duplicazione;
 - deduplicazione confinata per account e ambiente e ownership esclusiva di file/notifiche verificati;
 - nessuna preparazione approvabile con Aruba mai letto, oltre 24 ore o stato incerto;
+- nessuna preparazione approvabile sulla sola freschezza periodica: preflight Aruba on-demand completato dopo la richiesta, vincolato alla revisione/hash e consumato entro cinque minuti;
 - Dashboard priva della contraddizione fra `Mai letto` e `Tutto sotto controllo`;
 - collegamenti automatici limitati a casi univoci con XML ufficiale coerente;
 - match parziale di preparazioni multi-ordine verificato atomico, senza duplicare l’ordine coperto né perdere i residui;
 - TD04 esterne emesse collegate atomicamente ai rimborsi coperti senza consentire un secondo accredito;
 - ordini con documento esterno scartato disponibili per revisione/riedizione e mai chiusi come fatturati;
+- stati esterni `REJECTED`, intermedi o incerti verificati assenti da `documents`/`ARUBA_HISTORY` e presenti soltanto nell’inventario/file remoti finché non esiste un esito emesso;
 - documenti non collegati, ambigui e in conflitto visibili nelle code previste;
 - stato SdI monotono e cronologia append-only verificati;
 - mapping degli stati remoto/locali verificato senza attribuire stati di upload a documenti esterni;
@@ -504,6 +520,7 @@ Questa matrice è la checklist di completezza rispetto alle decisioni che hanno 
 | Nessun avvio automatico dell’helper al login nella prima versione       | Non-obiettivo esplicito (§2)                                                                                                          |
 | Bloccare approvazione e numerazione con readback inaffidabile           | Gate server-side su ogni mutazione (§8)                                                                                               |
 | Avvisare dopo un’ora e bloccare dopo 24 ore o se mai letto              | Soglie di freschezza e Dashboard (§§8, 9, 11)                                                                                         |
+| Evitare la finestra di doppia emissione fra due giri periodici          | Preflight on-demand per ogni approvazione, vincolato alla revisione/hash, monouso e valido cinque minuti (§8)                         |
 | Consentire un override solo al titolare dopo verifica manuale           | Override limitato alla sola freschezza, motivato e auditato; conflitti e possibili duplicati non sono superabili (§8)                 |
 | Mantenere il fallback utilizzabile dopo una scansione fallita           | Readback manuale di ogni riga o export ufficiale completo, import dei file necessari, ricevuta e finalizzazione `can_approve` (§8.1)  |
 | Separare la sessione di sync dai batch                                  | Scope `ARUBA_READ_SYNC`, device-bound, revocabile, ruotato, massimo 8 ore e incapace di upload/invio (§4.1)                           |
@@ -514,6 +531,7 @@ Questa matrice è la checklist di completezza rispetto alle decisioni che hanno 
 | Evitare doppie TD04 su rimborsi già coperti da Aruba                    | Link atomico dei rimborsi, lock sul residuo e regressione concorrente (§§5, 6, 12, 15)                                                |
 | Aggiornare gli stati SdI senza regressioni                              | Vocabolario condiviso, osservazioni append-only e terminali incompatibili (§7)                                                        |
 | Non chiudere come fatturato un documento scartato                       | Effetti distinti per stato: conferma solo su `DELIVERED`/`NOT_DELIVERED`, sospensione sugli intermedi e riedizione su `REJECTED` (§5) |
+| Non materializzare gli scarti come documenti storici approvati          | XML/notifiche su remote inventory; `ARUBA_HISTORY` soltanto per documenti emessi (§5)                                                 |
 | Modificare le pagine esistenti senza aggiungere una voce Aruba primaria | Dashboard, Documenti, Ordini, Preparazione, Attività e Impostazioni (§9)                                                              |
 | Correggere il caso Dashboard osservato                                  | Regressione con 6 preparazioni, 1 pagamento, `Mai letto` e divieto di `Tutto sotto controllo` (§§1, 12)                               |
 | Usare un solo helper su macOS e Windows                                 | TypeScript/Playwright con Chrome o Edge e profilo dedicato (§4.1)                                                                     |
