@@ -24,7 +24,10 @@ test(
       const fixture = JSON.parse(
         await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),
       );
-      await orders.importOrders(fixture, { id: 1, requestId: "test-customer-directory" });
+      await orders.importOrders(fixture, {
+        id: 1,
+        requestId: "test-customer-directory",
+      });
 
       assert.deepEqual(await customers.customerDirectorySummary(), {
         total: 2,
@@ -105,16 +108,26 @@ test(
       );
       const ids = Object.fromEntries(inserted.rows.map((row) => [row.match_key, row.id]));
       await database.getPool().query(
-        `INSERT INTO orders
+        `WITH closed_case AS (
+           INSERT INTO billing_cases
+             (customer_id, local_order_date, currency, status, customer_snapshot_json,
+              do_not_transmit_reason)
+           VALUES ($1, current_date, 'EUR', 'DO_NOT_TRANSMIT',
+                   '{"displayName":"Profilo storico chiuso","reviewRequired":true}',
+                   'Documento storico già presente')
+           RETURNING id
+         )
+         INSERT INTO orders
           (provider, external_account_id, external_order_id, display_number,
            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
-           payment_status, fulfillment_status, trigger_status, customer_id,
+           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
            raw_snapshot_json, normalized_snapshot_json)
          VALUES
           ('SHOPIFY', 'review-test', 'closed', '#CLOSED', now(), now(), current_date, 'EUR', 100,
-           'PAID', 'FULFILLED', 'INVOICED', $1, '{}', '{"customerReviewRequired":true}'),
+           'PAID', 'FULFILLED', 'LEGACY_BILLING_REVIEW', $1,
+           (SELECT id FROM closed_case), '{}', '{"customerReviewRequired":true}'),
           ('SHOPIFY', 'review-test', 'actionable', '#ACTIONABLE', now(), now(), current_date,
-           'EUR', 100, 'PAID', 'FULFILLED', 'LEGACY_BILLING_REVIEW', $2, '{}',
+           'EUR', 100, 'PAID', 'FULFILLED', 'LEGACY_BILLING_REVIEW', $2, NULL, '{}',
            '{"customerReviewRequired":true}')`,
         [ids["review-closed"], ids["review-actionable"]],
       );
@@ -130,6 +143,9 @@ test(
       await database
         .getPool()
         .query("DELETE FROM orders WHERE external_account_id = 'review-test'");
+      await database
+        .getPool()
+        .query("DELETE FROM billing_cases WHERE customer_id = $1", [ids["review-closed"]]);
       await database.getPool().query("DELETE FROM customers WHERE match_key LIKE 'review-%'");
 
       const candidate = structuredClone(fixture[0]);
@@ -146,7 +162,10 @@ test(
       candidate.customer.email = "identity-cleanup@example.invalid";
       candidate.customer.taxIdentifiers = [];
       candidate.updatedAt = "2026-08-13T10:00:00Z";
-      await orders.importOrders([candidate], { id: 1, requestId: "identity-before" });
+      await orders.importOrders([candidate], {
+        id: 1,
+        requestId: "identity-before",
+      });
       const previousCustomerId = String(
         (
           await database
@@ -164,7 +183,10 @@ test(
         },
       ];
       candidate.updatedAt = "2026-08-13T11:00:00Z";
-      await orders.importOrders([candidate], { id: 1, requestId: "identity-after" });
+      await orders.importOrders([candidate], {
+        id: 1,
+        requestId: "identity-after",
+      });
       const current = await database.getPool().query(
         `SELECT orders.customer_id,
                 (SELECT count(*) FROM customers WHERE id = $2)::integer AS old_customer_count
