@@ -4340,16 +4340,18 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     bulgarianHistorical.customer.kind = "EU";
     bulgarianHistorical.customer.firstName = "Валентин";
     bulgarianHistorical.customer.lastName = "Радев";
+    bulgarianHistorical.customer.companyName = "ЕТ Валмерад-Валентин Радев";
     bulgarianHistorical.customer.billingAddress = {
       line1: "ул. Пчела, 3-Б",
       postalCode: "1619",
       city: "София",
       countryCode: "BG",
     };
-    bulgarianHistorical.total = "191.71";
-    bulgarianHistorical.lines[0].grossAmount = "191.71";
-    bulgarianHistorical.payments[0].amount = "191.71";
-    delete bulgarianHistorical.payments[0].shopifyPaymentsFeeAmount;
+    bulgarianHistorical.total = "195.68";
+    bulgarianHistorical.lines[0].grossAmount = "195.68";
+    bulgarianHistorical.payments[0].amount = "195.68";
+    bulgarianHistorical.payments[0].method = "shopify_payments";
+    bulgarianHistorical.payments[0].shopifyPaymentsFeeAmount = "3.97";
     bulgarianHistorical.payments[0].externalPaymentId = "historical-bulgarian-payment";
     await orders.importOrders([bulgarianHistorical], {
       id: 1,
@@ -4374,6 +4376,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
             .replaceAll("122.00", "191.71")
             .replace("<Nome>Mario</Nome>", "<Nome>VALENTIN</Nome>")
             .replace("<Cognome>Rossi</Cognome>", "<Cognome>RADEV</Cognome>")
+            .replace(
+              "<CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>\n        <Anagrafica>\n          <Nome>VALENTIN</Nome>",
+              "<IdFiscaleIVA>\n          <IdPaese>BG</IdPaese>\n          <IdCodice>99999999999</IdCodice>\n        </IdFiscaleIVA>\n        <Anagrafica>\n          <Nome>VALENTIN</Nome>",
+            )
             .replace(
               "<Indirizzo>Via Cliente</Indirizzo><NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>1618 PCHELA</Indirizzo><NumeroCivico>3B</NumeroCivico>",

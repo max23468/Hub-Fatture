@@ -482,8 +482,9 @@ export async function listOpenActivities(
               refunds.updated_at
        FROM refunds
        JOIN orders ON orders.id = refunds.order_id
-       WHERE refunds.status = 'AMBIGUOUS'
-          OR (refunds.status = 'COMPLETED' AND refunds.amount IS NULL)
+       WHERE (refunds.status = 'AMBIGUOUS'
+          OR (refunds.status = 'COMPLETED' AND refunds.amount IS NULL))
+         AND orders.trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
        UNION ALL
        SELECT 'REFUND_JOB', jobs.id::text,
               'REFUND_JOB_FAILED', NULL::text, orders.display_number, orders.provider::text,

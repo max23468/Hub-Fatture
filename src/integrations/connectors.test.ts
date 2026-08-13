@@ -188,6 +188,38 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(refundedMapped.refunds[1]?.externalRefundId, "refund-reference-3");
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
+
+  const duplicatedLineRefund = structuredClone(refundedOrder) as {
+    lineItems: Array<{ refunds: unknown[] }>;
+  };
+  duplicatedLineRefund.lineItems[0].refunds = [{ refundStatus: "REFUNDED" }];
+  assert.equal(mapEbayOrder(duplicatedLineRefund, "botCF").refunds.length, 2);
+
+  const lineRefundFallback = structuredClone(refundedOrder) as {
+    paymentSummary: { refunds: unknown[] };
+    lineItems: Array<{ refunds: unknown[] }>;
+  };
+  lineRefundFallback.paymentSummary.refunds = [];
+  lineRefundFallback.lineItems[0].refunds = [
+    { refundId: "line-refund-fallback", refundStatus: "REFUNDED" },
+  ];
+  assert.equal(
+    mapEbayOrder(lineRefundFallback, "botCF").refunds[0]?.externalRefundId,
+    "line-refund-fallback",
+  );
+
+  const distinctLineRefund = structuredClone(refundedOrder) as {
+    lineItems: Array<{ refunds: unknown[] }>;
+  };
+  distinctLineRefund.lineItems[0].refunds = [
+    { refundId: "line-refund-distinct", refundStatus: "REFUNDED" },
+  ];
+  assert.deepEqual(
+    mapEbayOrder(distinctLineRefund, "botCF").refunds.map(
+      ({ externalRefundId }) => externalRefundId,
+    ),
+    ["refund-2", "refund-reference-3", "line-refund-distinct"],
+  );
   const summary = {
     lineItems: [
       { listingMarketplaceId: "EBAY_IT", purchaseMarketplaceId: "EBAY_IE" },
