@@ -1371,6 +1371,31 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     );
 
     await database.getPool().query(
+      `INSERT INTO aruba_sync_sessions
+        (id, environment, account_reference, device_id, token_hash, status, started_at,
+         absolute_expires_at, failed_at, error_code, requested_by)
+       VALUES ('60000000-0000-4000-8000-000000000009', 'MOCK', 'synthetic-aruba-account',
+         'failed-after-preflight', repeat('9', 64), 'FAILED', now(), now() + interval '1 hour',
+         now(), 'SYNTHETIC_AFTER_PREFLIGHT', $1)`,
+      [actor.id],
+    );
+    await assert.rejects(
+      database.withTransaction((client) =>
+        inbound.consumeArubaPreflight(client, manualReceiptId, {
+          billingCaseId: currentDraft.rows[0]!.billing_case_id,
+          documentId: currentDraft.rows[0]!.id,
+          draftVersion: currentDraft.rows[0]!.draft_version,
+          projectionSha256: currentDraft.rows[0]!.projection_sha256,
+        }),
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_PREFLIGHT_REQUIRED",
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_sync_sessions WHERE id = '60000000-0000-4000-8000-000000000009'");
+
+    await database.getPool().query(
       `UPDATE aruba_sync_sessions SET inventory_watermark = 999999
        WHERE id = (SELECT id FROM aruba_sync_sessions ORDER BY started_at DESC LIMIT 1)`,
     );
@@ -1907,6 +1932,37 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       ),
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "ARUBA_INVENTORY_INCOMPLETE",
+    );
+    for (const [index, stream] of ["invoices:2026", "credit-notes:2026"].entries()) {
+      await inbound.ingestArubaInventoryPage(resumedSession.token, {
+        stream,
+        scanOrdinal: 30,
+        pageOrdinal: 1,
+        cursor: `missing-readback-${index + 1}`,
+        terminal: true,
+        fullScan: true,
+        documents: [],
+      });
+    }
+    await inbound.completeArubaInventory(
+      resumedSession.token,
+      ["invoices:2026", "credit-notes:2026"],
+      30,
+      true,
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT matches.status, observations.error_code
+           FROM aruba_remote_documents AS remote
+           JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
+           JOIN aruba_remote_observations AS observations
+             ON observations.remote_document_id = remote.id
+           WHERE remote.remote_id = 'REMOTE-001'
+           ORDER BY observations.id DESC LIMIT 1`,
+        )
+      ).rows[0],
+      { status: "UNKNOWN_REMOTE_STATE", error_code: "NOT_FOUND" },
     );
   } finally {
     const database = await import("./client.server.ts");

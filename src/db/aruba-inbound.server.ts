@@ -2213,6 +2213,70 @@ export async function completeArubaInventory(
       );
       throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
     }
+    if (fullScan.data) {
+      const missing = await client.query<{ id: string }>(
+        `SELECT DISTINCT remote.id
+         FROM aruba_remote_observations AS previous
+         JOIN aruba_remote_documents AS remote ON remote.id = previous.remote_document_id
+         JOIN aruba_sync_pages AS previous_page
+           ON previous_page.sync_session_id = previous.sync_session_id
+          AND previous_page.stream = previous.stream
+          AND previous_page.scan_ordinal = previous.scan_ordinal
+          AND previous_page.page_ordinal = previous.page_ordinal
+         JOIN aruba_sync_sessions AS previous_session
+           ON previous_session.id = previous.sync_session_id
+         WHERE remote.environment = $1 AND remote.account_reference = $2
+           AND previous.stream = ANY($3::text[])
+           AND previous_page.full_scan
+           AND previous_session.full_scan_completed_at IS NOT NULL
+           AND previous_page.committed_at <= previous_session.full_scan_completed_at
+           AND NOT EXISTS (
+             SELECT 1 FROM aruba_remote_observations AS current
+             WHERE current.remote_document_id = previous.remote_document_id
+               AND current.sync_session_id = $4 AND current.scan_ordinal = $5
+               AND current.stream = previous.stream
+           )`,
+        [
+          session.environment,
+          session.account_reference,
+          streams.data,
+          session.id,
+          scanOrdinal.data,
+        ],
+      );
+      if (missing.rows.length > 0) {
+        const missingIds = missing.rows.map((row) => row.id);
+        await client.query(
+          `INSERT INTO aruba_remote_observations
+            (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal,
+             page_ordinal, cursor, payload_digest, error_code)
+           SELECT remote.id, $1, remote.remote_status, previous.stream, $2,
+                  terminal.page_ordinal, terminal.cursor, remote.metadata_digest, 'NOT_FOUND'
+           FROM aruba_remote_documents AS remote
+           JOIN LATERAL (
+             SELECT observations.stream FROM aruba_remote_observations AS observations
+             WHERE observations.remote_document_id = remote.id
+               AND observations.stream = ANY($3::text[])
+             ORDER BY observations.observed_at DESC LIMIT 1
+           ) AS previous ON true
+           JOIN LATERAL (
+             SELECT pages.page_ordinal, pages.cursor FROM aruba_sync_pages AS pages
+             WHERE pages.sync_session_id = $1 AND pages.scan_ordinal = $2
+               AND pages.stream = previous.stream AND pages.terminal
+             LIMIT 1
+           ) AS terminal ON true
+           WHERE remote.id = ANY($4::bigint[])
+           ON CONFLICT DO NOTHING`,
+          [session.id, scanOrdinal.data, streams.data, missingIds],
+        );
+        await client.query(
+          `UPDATE aruba_document_matches SET status = 'UNKNOWN_REMOTE_STATE', method = 'NONE',
+             matcher_version = $2, updated_at = now()
+           WHERE remote_document_id = ANY($1::bigint[])`,
+          [missingIds, MATCHER_VERSION],
+        );
+      }
+    }
     await client.query(
       `UPDATE aruba_sync_sessions SET status = 'ACTIVE', completed_at = now(),
          full_scan_completed_at = CASE WHEN $2 THEN now() ELSE full_scan_completed_at END,
@@ -2638,8 +2702,9 @@ export async function consumeArubaPreflight(
     inventory_watermark: string;
     environment: string;
     account_reference: string;
+    completed_at: Date;
   }>(
-    `SELECT id, inventory_watermark::text, environment, account_reference
+    `SELECT id, inventory_watermark::text, environment, account_reference, completed_at
      FROM aruba_preflight_receipts
      WHERE id = $1 AND status = 'PASSED' AND expires_at > now()
        AND billing_case_id IS NOT DISTINCT FROM $2
@@ -2665,6 +2730,14 @@ export async function consumeArubaPreflight(
   if (watermark !== Number(current.inventory_watermark)) {
     throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
   }
+  const subsequentFailure = await client.query(
+    `SELECT 1 FROM aruba_sync_sessions
+     WHERE environment = $1 AND account_reference = $2 AND status IN ('FAILED', 'INCOMPLETE')
+       AND coalesce(failed_at, started_at) > $3
+     LIMIT 1`,
+    [current.environment, current.account_reference, current.completed_at],
+  );
+  if (subsequentFailure.rows[0]) throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
   const blocker = await client.query(
     `SELECT 1 FROM aruba_document_matches matches
      JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
