@@ -10,6 +10,7 @@ import {
   waitForUploadedDocument,
 } from "../../scripts/aruba-helper.ts";
 import {
+  advanceProductionPage,
   readVisiblePage,
   runArubaReadCycle,
   selectStream,
@@ -490,6 +491,49 @@ test("il lettore Production rifiuta una richiesta dati interrotta", async ({ pag
   `);
 
   await expect(selectStream(page, `invoices:${year}`)).rejects.toThrow("DOM_UNRECOGNIZED");
+});
+
+test("il lettore Production attende la stabilizzazione completa della pagina successiva", async ({
+  page,
+}) => {
+  const row = (recordIndex: number, remoteId: string) => `
+    <div class="x-gridrow" data-recordindex="${recordIndex}">
+      ${Array.from({ length: 23 }, (_, index) => `<div class="x-gridcell">${index === 17 ? remoteId : ""}</div>`).join("")}
+    </div>`;
+  await page.route("https://aruba-synthetic.invalid/**", async (route) => {
+    if (route.request().url().endsWith("/next")) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await route.fulfill({ contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.fulfill({ contentType: "text/html", body: "<html></html>" });
+  });
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="aruba-grid-fatture-inviate">
+      <section class="x-grid">${row(0, "10000000001")}</section>
+      <button aria-label="{app.buttons.labels.nextPage}"></button>
+    </div>
+  `);
+  await page.locator('button[aria-label*="nextPage"]').evaluate(
+    (button, rows) => {
+      button.addEventListener("click", () => {
+        fetch("/next").then(() => {
+          const grid = document.querySelector(".aruba-grid-fatture-inviate")!;
+          grid.querySelector(".x-grid")!.innerHTML = rows[0]!;
+          setTimeout(() => {
+            grid.querySelector(".x-grid")!.insertAdjacentHTML("beforeend", rows[1]!);
+            button.setAttribute("disabled", "");
+          }, 300);
+        });
+      });
+    },
+    [row(0, "20000000001"), row(1, "20000000002")],
+  );
+
+  await advanceProductionPage(page);
+  await expect(page.locator(".x-gridrow")).toHaveCount(2);
+  await expect(page.locator(".x-gridrow").nth(1)).toContainText("20000000002");
 });
 
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {

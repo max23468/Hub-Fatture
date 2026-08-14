@@ -436,25 +436,24 @@ async function productionPageFingerprint(page: Page) {
   return values.join("|");
 }
 
-async function advanceProductionPage(page: Page) {
+export async function advanceProductionPage(page: Page) {
   const before = await productionPageFingerprint(page);
   const next = await productionNextButton(page);
   if (!(await productionHasNext(page))) throw new Error("DOM_UNRECOGNIZED");
-  await next.click();
-  await page.waitForFunction(
-    ({ selector, fingerprint }) => {
-      const values = [...document.querySelectorAll(selector)]
-        .map((element) => element.textContent?.trim() ?? "")
-        .filter(Boolean)
-        .join("|");
-      return Boolean(values) && values !== fingerprint;
-    },
-    {
-      selector:
-        ".aruba-grid-fatture-inviate .x-gridrow[data-recordindex] .x-gridcell:nth-child(18)",
-      fingerprint: before,
-    },
-  );
+  await armProductionGridReload(page);
+  await armProductionRequestCapture(page);
+  const dataRequests = observeProductionDataRequests(page);
+  try {
+    await clickWithProductionRequestCapture(next);
+    const captured = await finishProductionRequestCapture(page);
+    await dataRequests.waitFor(captured);
+    await waitForProductionGridReload(page);
+  } finally {
+    await finishProductionRequestCapture(page);
+    dataRequests.dispose();
+    await clearProductionGridReload(page);
+  }
+  if ((await productionPageFingerprint(page)) === before) throw new Error("DOM_UNRECOGNIZED");
 }
 
 export function parseProductionFiscalNumber(value: string, fiscalYear: number) {
@@ -700,14 +699,18 @@ async function waitForProductionGridReload(page: Page) {
       return next.length === 1;
     }, PRODUCTION_NEXT_SELECTOR);
   } finally {
-    await page.evaluate(() => {
-      const runtime = window as typeof window & {
-        __arubaReadGridReload?: { observer: MutationObserver };
-      };
-      runtime.__arubaReadGridReload?.observer.disconnect();
-      delete runtime.__arubaReadGridReload;
-    });
+    await clearProductionGridReload(page);
   }
+}
+
+async function clearProductionGridReload(page: Page) {
+  await page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __arubaReadGridReload?: { observer: MutationObserver };
+    };
+    runtime.__arubaReadGridReload?.observer.disconnect();
+    delete runtime.__arubaReadGridReload;
+  });
 }
 
 interface ProductionRequestKey {
@@ -903,6 +906,7 @@ export async function selectStream(page: Page, stream: string, overlapFrom?: str
     } finally {
       await finishProductionRequestCapture(page);
       dataRequests.dispose();
+      await clearProductionGridReload(page);
     }
     await productionNextButton(page);
     return;
