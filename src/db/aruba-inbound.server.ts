@@ -33,6 +33,7 @@ import {
   acceptedCreditNoteFromXml,
   acceptedDocumentFiscalIdentity,
   acceptedInvoiceFromXml,
+  acceptedRecipientFromXml,
   documentInputSchema,
   fiscalProfileSchema,
   projectFatturaXml,
@@ -1035,10 +1036,23 @@ function officialEvidence(remote: RemoteInventoryDocument, xml: string): RemoteI
   ) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
+  const recipient = acceptedRecipientFromXml(xml);
+  const authoritativeRecipient = {
+    recipientName: acceptedRecipientName(recipient),
+    recipientTaxId: recipient.taxIdentifiers[0]?.value ?? null,
+    recipientCountryCode: recipient.address.countryCode,
+    recipientAddress: [
+      recipient.address.line1,
+      recipient.address.postalCode,
+      recipient.address.city,
+      recipient.address.countryCode,
+    ].join(" "),
+  };
   if (identity.type === "TD04") {
     const imported = acceptedCreditNoteFromXml(xml);
     return {
       ...remote,
+      ...authoritativeRecipient,
       xmlSha256: createHash("sha256").update(xml).digest("hex"),
       orderReferences: [
         ...imported.references,
@@ -1049,15 +1063,7 @@ function officialEvidence(remote: RemoteInventoryDocument, xml: string): RemoteI
   const imported = acceptedInvoiceFromXml(xml, new Date().toISOString());
   return {
     ...remote,
-    recipientName: acceptedRecipientName(imported.input.recipient),
-    recipientTaxId: imported.input.recipient.taxIdentifiers[0]?.value ?? null,
-    recipientCountryCode: imported.input.recipient.address.countryCode,
-    recipientAddress: [
-      imported.input.recipient.address.line1,
-      imported.input.recipient.address.postalCode,
-      imported.input.recipient.address.city,
-      imported.input.recipient.address.countryCode,
-    ].join(" "),
+    ...authoritativeRecipient,
     xmlSha256: createHash("sha256").update(xml).digest("hex"),
     orderReferences: imported.references,
   };

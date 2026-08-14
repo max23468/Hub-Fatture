@@ -9,6 +9,7 @@ import {
   acceptedDocumentFiscalIdentity,
   documentInputSchema,
   acceptedInvoiceFromXml,
+  acceptedRecipientFromXml,
   generateFatturaXml,
   projectFatturaXml,
   type DocumentInput,
@@ -180,6 +181,13 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     "",
   );
   assert.equal(acceptedCreditNoteFromXml(creditWithoutTotalOrPayment).totalAmount, 2345);
+  const acceptedCreditRecipient = acceptedRecipientFromXml(creditWithoutTotalOrPayment);
+  assert.equal(acceptedCreditRecipient.businessName, "Cliente Esempio Srl");
+  assert.equal(acceptedCreditRecipient.address.line1, "Via Cliente 2");
+  assert.deepEqual(acceptedCreditRecipient.taxIdentifiers, [
+    { type: "PARTITA_IVA", value: "10987654321", countryCode: "IT" },
+    { type: "CODICE_FISCALE", value: "10987654321" },
+  ]);
   assert.deepEqual(acceptedDocumentFiscalIdentity(creditWithoutTotalOrPayment).payment, {
     condition: "TP02",
     method: "MP05",
