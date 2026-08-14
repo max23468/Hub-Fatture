@@ -33,7 +33,7 @@
     "test:provider": "node --test src/integrations/*.test.ts",
     "test:unit": "node --test app/*.test.ts src/*.test.ts scripts/*.node-test.mjs scripts/*.test.mjs",
     "test:aruba:platform": "node scripts/aruba-helper-platform-check.ts",
-    "test:e2e": "playwright test --project=chromium",
+    "test:e2e": "playwright test --project=chromium && playwright test --project=webkit",
     "test:e2e:release-candidate": "playwright test --project=chromium && playwright test --project=webkit",
     "toolchain:check": "node scripts/toolchain-policy.mjs",
     "typecheck": "react-router typegen && tsc --noEmit"

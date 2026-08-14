@@ -115,6 +115,7 @@ test("conserva il target di ogni superficie CI indipendente", () => {
   assert.equal(targets["Audit dipendenze"], database);
   assert.equal(targets["Contract test provider"], provider);
   assert.equal(targets["E2E Chromium"], runtime);
+  assert.equal(targets["E2E WebKit"], runtime);
 });
 
 test("i commit con CI monolitica non richiedono job storici inesistenti", () => {
@@ -139,6 +140,7 @@ test("i commit con CI monolitica non richiedono job storici inesistenti", () => 
   assert.equal("PostgreSQL e migrazioni" in targets, false);
   assert.equal("Contract test provider" in targets, false);
   assert.equal("E2E Chromium" in targets, false);
+  assert.equal("E2E WebKit" in targets, false);
 });
 
 test("richiede entrambe le piattaforme Aruba sull'ultimo commit applicabile", () => {
@@ -197,7 +199,7 @@ test("la baseline vuota conserva i gate runtime di un commit precedente", async 
   await writeFile(path.join(repository, "app", "runtime.ts"), "export const runtime = true;\n");
   await writeFile(
     path.join(repository, ".github", "workflows", "ci.yml"),
-    "name: CI\njobs:\n  e2e:\n    name: E2E Chromium\n",
+    "name: CI\njobs:\n  e2e:\n    name: E2E ${{ matrix.label }}\n    label: Chromium\n    label: WebKit\n",
   );
   git("add", "app/runtime.ts", ".github/workflows/ci.yml");
   git("commit", "--quiet", "-m", "test: runtime");
@@ -213,4 +215,5 @@ test("la baseline vuota conserva i gate runtime di un commit precedente", async 
   assert.equal(targets.CI, runtime);
   assert.equal(targets.Foundation, runtime);
   assert.equal(targets["E2E Chromium"], runtime);
+  assert.equal(targets["E2E WebKit"], runtime);
 });

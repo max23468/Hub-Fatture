@@ -333,7 +333,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("Modalità e-mail aggiornata");
   await expect(page.getByLabel("Modalità invio copia")).toHaveValue("DISABLED");
   await page.getByLabel("Modalità invio copia").selectOption("AUTOMATIC");
-  await page.getByRole("button", { name: "Salva modalità e-mail" }).click();
+  const saveCustomerEmailMode = page.getByRole("button", { name: "Salva modalità e-mail" });
+  await expect(saveCustomerEmailMode).toBeEnabled();
+  await saveCustomerEmailMode.click();
+  await expect(saveCustomerEmailMode).toBeDisabled();
   await expect(page.getByLabel("Modalità invio copia")).toHaveValue("AUTOMATIC");
   await page.getByLabel("Apri il menu di Massimo").click();
   await page.locator(".profile-menu").getByRole("button", { name: "Esci" }).click();

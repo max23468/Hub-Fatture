@@ -75,6 +75,10 @@ test("nessun riferimento a nomi storici del Master Plan", () => {
 test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
   const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   assert.equal(
+    manifest.scripts["test:e2e"],
+    "playwright test --project=chromium && playwright test --project=webkit",
+  );
+  assert.equal(
     manifest.scripts["test:e2e:release-candidate"],
     "playwright test --project=chromium && playwright test --project=webkit",
   );
@@ -345,9 +349,13 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
     );
   assert.match(ci, /\n  gate:\n    name: CI\n    if: always\(\)/);
   assert.match(ci, /name: PostgreSQL e migrazioni\n    if: needs\.impact\.outputs\.database/);
-  assert.match(ci, /name: E2E Chromium\n    if: needs\.impact\.outputs\.e2e/);
+  assert.match(ci, /name: E2E \$\{\{ matrix\.label \}\}\n    if: needs\.impact\.outputs\.e2e/);
   const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
-  assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npm run test:e2e"));
+  assert.match(e2e, /browser: chromium[\s\S]*label: Chromium/);
+  assert.match(e2e, /browser: webkit[\s\S]*label: WebKit/);
+  assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npx playwright test"));
+  assert.match(e2e, /playwright install --with-deps \$\{\{ matrix\.browser \}\}/);
+  assert.match(e2e, /playwright test --project=\$\{\{ matrix\.browser \}\}/);
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
   assert.doesNotMatch(ci, /workflow_dispatch:/);
   assert.match(

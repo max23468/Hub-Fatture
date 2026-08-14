@@ -156,11 +156,19 @@ jobs:
       - run: npm run test:provider
 
   e2e:
-    name: E2E Chromium
+    name: E2E ${{ matrix.label }}
     if: needs.impact.outputs.e2e == 'true'
     needs: impact
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            label: Chromium
+          - browser: webkit
+            label: WebKit
     services:
       postgres:
         image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
@@ -192,8 +200,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npx playwright test --project=${{ matrix.browser }}
 
   aruba-helper-platform:
     name: Helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
