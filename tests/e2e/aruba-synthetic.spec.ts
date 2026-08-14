@@ -345,12 +345,69 @@ test("il lettore Production accetta un anno vuoto e ripercorre l’anno nel cicl
     <div class="aruba-grid-fatture-inviate">
       <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>
     </div>
+    <script>
+      document.querySelector('[role="menuitem"]').addEventListener('click', () => {
+        const grid = document.querySelector('.aruba-grid-fatture-inviate');
+        grid.setAttribute('data-reloaded', 'true');
+      });
+    </script>
   `);
 
   await selectStream(page, `invoices:${year}`, `${year}-01-01T00:00:00.000Z`);
   const result = await readVisiblePage(page, `invoices:${year}`, 2, 1, "PRODUCTION");
   expect(result.inventory.documents).toEqual([]);
   expect(result.inventory.terminal).toBe(true);
+});
+
+test("il lettore Production attende il reload ExtJS prima di leggere il nuovo stream", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  const row = (remoteId: string) => `
+    <section class="x-grid">
+      <div class="x-gridrow" data-recordindex="0">
+        ${Array.from({ length: 23 }, (_, index) => {
+          const value =
+            index === 4
+              ? `10/08/${year}`
+              : index === 5
+                ? `FPR 1/${String(year).slice(-2)}`
+                : index === 7
+                  ? "Cliente sintetico"
+                  : index === 8
+                    ? "TD01"
+                    : index === 10
+                      ? "123,45 €"
+                      : index === 17
+                        ? remoteId
+                        : "";
+          return `<div class="x-gridcell">${value}</div>`;
+        }).join("")}
+      </div>
+    </section>
+    <section class="x-grid locked-grid-border-left">
+      <div class="x-gridrow" data-recordindex="0">
+        <div class="x-gridcell">Emessa e consegnata</div><div class="x-gridcell"></div>
+      </div>
+    </section>
+    <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>`;
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">${row("99999999999")}</div>
+  `);
+  await page.getByRole("menuitem", { name: "Fatture inviate" }).evaluate((element, replacement) => {
+    element.addEventListener("click", () => {
+      window.setTimeout(() => {
+        document.querySelector(".aruba-grid-fatture-inviate")!.innerHTML = replacement;
+      }, 100);
+    });
+  }, row("11111111111"));
+
+  await selectStream(page, `invoices:${year}`);
+  const result = await readVisiblePage(page, `invoices:${year}`, 1, 1, "PRODUCTION");
+  expect(result.inventory.documents.map((document) => document.remoteId)).toEqual(["11111111111"]);
 });
 
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {

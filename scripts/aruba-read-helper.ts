@@ -636,6 +636,79 @@ async function applyDateFilter(page: Page, overlapFrom?: string | null) {
   if (await apply.count()) await apply.click();
 }
 
+async function armProductionGridReload(page: Page) {
+  await page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __arubaReadGridReload?: {
+        observer: MutationObserver;
+        observed: boolean;
+        lastMutationAt: number;
+      };
+    };
+    runtime.__arubaReadGridReload?.observer.disconnect();
+    const state = {
+      observer: null as unknown as MutationObserver,
+      observed: false,
+      lastMutationAt: 0,
+    };
+    const touchesGrid = (node: Node) => {
+      const element = node instanceof Element ? node : node.parentElement;
+      return Boolean(
+        element?.closest(".aruba-grid-fatture-inviate") ||
+        element?.matches(".aruba-grid-fatture-inviate") ||
+        element?.querySelector(".aruba-grid-fatture-inviate"),
+      );
+    };
+    state.observer = new MutationObserver((mutations) => {
+      if (
+        mutations.some(
+          (mutation) =>
+            touchesGrid(mutation.target) ||
+            [...mutation.addedNodes, ...mutation.removedNodes].some(touchesGrid),
+        )
+      ) {
+        state.observed = true;
+        state.lastMutationAt = performance.now();
+      }
+    });
+    state.observer.observe(document.body, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    runtime.__arubaReadGridReload = state;
+  });
+}
+
+async function waitForProductionGridReload(page: Page) {
+  await page.waitForFunction(() => {
+    const runtime = window as typeof window & {
+      __arubaReadGridReload?: {
+        observed: boolean;
+        lastMutationAt: number;
+      };
+    };
+    const state = runtime.__arubaReadGridReload;
+    if (!state?.observed || performance.now() - state.lastMutationAt < 500) return false;
+    const grid = document.querySelector(".aruba-grid-fatture-inviate");
+    if (!grid) return false;
+    const next = [...grid.querySelectorAll<HTMLElement>("button, [title] button")].filter(
+      (element) =>
+        (element.getAttribute("aria-label") ?? element.getAttribute("title") ?? "").includes(
+          "nextPage",
+        ) && element.getClientRects().length > 0,
+    );
+    return next.length === 1;
+  });
+  await page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __arubaReadGridReload?: { observer: MutationObserver };
+    };
+    runtime.__arubaReadGridReload?.observer.disconnect();
+    delete runtime.__arubaReadGridReload;
+  });
+}
+
 export async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
   const selector = page.locator(`[data-aruba-stream="${stream}"]`).first();
   if (await selector.count()) {
@@ -668,8 +741,9 @@ export async function selectStream(page: Page, stream: string, overlapFrom?: str
       if (await sent.nth(index).isVisible()) visibleSent.push(sent.nth(index));
     }
     if (visibleSent.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+    await armProductionGridReload(page);
     await visibleSent[0]!.click();
-    await page.locator(".aruba-grid-fatture-inviate").first().waitFor();
+    await waitForProductionGridReload(page);
     await productionNextButton(page);
     return;
   }
