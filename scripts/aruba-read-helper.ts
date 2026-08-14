@@ -419,6 +419,17 @@ async function productionNextButton(page: Page) {
   return visible[0]!;
 }
 
+async function productionFirstButton(page: Page) {
+  const candidates = page.locator(".aruba-grid-fatture-inviate .pagingtoolbar-first button");
+  const visible: Locator[] = [];
+  for (let index = 0; index < (await candidates.count()); index += 1) {
+    const candidate = candidates.nth(index);
+    if (await candidate.isVisible()) visible.push(candidate);
+  }
+  if (visible.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+  return visible[0]!;
+}
+
 async function productionHasNext(page: Page) {
   const next = await productionNextButton(page);
   return next.evaluate((element) => {
@@ -600,6 +611,7 @@ async function downloadOfficialFile(page: Page, file: OfficialFileSource, target
   if ((await tool.count()) !== 1 || !(await tool.isVisible())) {
     throw new Error("DOM_UNRECOGNIZED");
   }
+  await dismissArubaCookieBanner(page);
   const [download] = await Promise.all([page.waitForEvent("download"), tool.click()]);
   const stream = await download.createReadStream();
   if (!stream) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
@@ -783,6 +795,12 @@ async function clickWithProductionRequestCapture(control: Locator) {
   });
   try {
     await control.click();
+    await page.waitForFunction(() => {
+      const runtime = window as typeof window & {
+        __arubaReadRequestCapture?: { requests: unknown[] };
+      };
+      return Boolean(runtime.__arubaReadRequestCapture?.requests.length);
+    });
   } finally {
     await page.evaluate(() => {
       const runtime = window as typeof window & {
@@ -793,6 +811,17 @@ async function clickWithProductionRequestCapture(control: Locator) {
       }
     });
   }
+}
+
+async function dismissArubaCookieBanner(page: Page) {
+  const dialog = page.locator("#CybotCookiebotDialog");
+  if (!(await dialog.count()) || !(await dialog.isVisible())) return;
+  const decline = dialog.locator("#CybotCookiebotDialogBodyButtonDecline");
+  if ((await decline.count()) !== 1 || !(await decline.isVisible())) {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  await decline.click();
+  await dialog.waitFor({ state: "hidden" });
 }
 
 async function finishProductionRequestCapture(page: Page): Promise<ProductionRequestKey[]> {
@@ -867,6 +896,7 @@ function observeProductionDataRequests(page: Page) {
 }
 
 async function clickAndWaitForProductionGridReload(page: Page, control: Locator) {
+  await dismissArubaCookieBanner(page);
   await armProductionGridReload(page);
   await armProductionRequestCapture(page);
   const dataRequests = observeProductionDataRequests(page);
@@ -893,6 +923,7 @@ export async function selectStream(page: Page, stream: string, overlapFrom?: str
       throw new Error("DOM_UNRECOGNIZED");
     }
     if (!(await yearControl.innerText()).includes(String(year))) {
+      await dismissArubaCookieBanner(page);
       await yearControl.locator("button").click();
       const yearOptions = page.locator(".x-menuitem-sub-menu-mainToolbar");
       const exactYears: Locator[] = [];
@@ -916,6 +947,19 @@ export async function selectStream(page: Page, stream: string, overlapFrom?: str
       if (await sent.nth(index).isVisible()) visibleSent.push(sent.nth(index));
     }
     if (visibleSent.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+    const alreadySelected = await visibleSent[0]!.evaluate((element) =>
+      element.classList.contains("x-treelist-item-selected"),
+    );
+    if (alreadySelected) {
+      const first = await productionFirstButton(page);
+      const firstEnabled = await first.evaluate((element) => {
+        const wrapper = element.closest(".x-disabled, [aria-disabled='true']");
+        return !(element as HTMLButtonElement).disabled && !wrapper;
+      });
+      if (firstEnabled) await clickAndWaitForProductionGridReload(page, first);
+      await productionNextButton(page);
+      return;
+    }
     await clickAndWaitForProductionGridReload(page, visibleSent[0]!);
     await productionNextButton(page);
     return;
@@ -941,7 +985,9 @@ export async function runArubaReadCycle(
   browser: "chrome" | "msedge" = "chrome",
 ) {
   const target = assertAllowedArubaTarget(manifest.panelUrl, manifest.environment);
-  if (!page.url() || page.url() === "about:blank") await page.goto(target.toString());
+  if (manifest.environment === "PRODUCTION" || !page.url() || page.url() === "about:blank") {
+    await page.goto(target.toString());
+  }
   assertAllowedArubaAuthenticationNavigation(page.url(), target);
   const heartbeat = async () => {
     await hubJson(hub, token, "/api/aruba/sync/heartbeat", {

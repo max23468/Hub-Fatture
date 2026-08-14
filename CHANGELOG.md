@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.47
+
+- L’helper rifiuta esplicitamente i cookie Aruba opzionali quando il banner tardivo intercetta i controlli della griglia, quindi prosegue soltanto dopo la sua chiusura verificata.
+- Ogni ciclo Production riparte dalla Home, mantiene aperta la correlazione fino alla prima richiesta ExtJS asincrona e riporta alla prima pagina uno stream già selezionato prima di riprenderne il cursore.
+
 ## 0.3.46
 
 - La scansione conserva gli XML FPR12 validi che includono riepiloghi fiscali estranei al profilo N5 e li segnala come conflitti di profilo, senza interrompere l’intero inventario né materializzare documenti incompatibili.
