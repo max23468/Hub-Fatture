@@ -40,12 +40,13 @@ Questa identità descrive il candidato distribuito e non autorizza il Canary. La
 
 ### Evidenza backup e restore corrente
 
-Il backup Production `m8-readiness` è terminato il `2026-08-14T23:39:17Z` sull’oggetto cifrato `hub-fatture/archive/2026/08/14/20260814T233929Z-09da01a36e45e1df0c302b235f49c5bd0f3af89a.tar.age`: dimensione `4640040` byte e SHA-256 `cfbf36791a2a3c33c80e03e81b011f016d421b17f37c7ccdd260c5c008e4ca84` coincidono fra ricevuta OCI e copia Mac. In `backups/` resta soltanto `hub-fatture-current-20260814T233917Z-09da01a.tar.age`, con directory `700` e archivio `600`; la copia precedente è stata spostata nel Cestino soltanto dopo il confronto.
+Il manifest del backup Production `m8-readiness` fotografa il candidato alle `2026-08-14T23:39:17Z`; l’archivio cifrato verificato è `hub-fatture/archive/2026/08/14/20260814T233929Z-09da01a36e45e1df0c302b235f49c5bd0f3af89a.tar.age`. Dimensione `4640040` byte e SHA-256 `cfbf36791a2a3c33c80e03e81b011f016d421b17f37c7ccdd260c5c008e4ca84` coincidono fra readback OCI e copia Mac; questa prova non usa il timestamp del manifest come misura RPO. In `backups/` resta soltanto `hub-fatture-current-20260814T233917Z-09da01a.tar.age`, con directory `700` e archivio `600`; la copia precedente è stata spostata nel Cestino soltanto dopo il confronto.
 
 `scripts/restore.sh` ha ripristinato l’archivio in PostgreSQL e filesystem nuovi e isolati. Manifest, ultima migrazione `030_aruba_inbound_reconciliation.sql`, account canonici e privilegi risultano coerenti; tutti gli oggetti storage indicizzati sono stati riletti con dimensione e hash attesi. L’immagine Production esatta `sha256:7d726b391d7647c391c78416052f432ccba2e320b1540f549a75022fe9fd0ccb` ha inoltre:
 
 - riletto via route autenticata un documento sintetico collegato al relativo file e hash;
 - decifrato una credenziale sintetica priva di testo in chiaro usando esclusivamente la chiave AEAD del recovery kit;
+- sostituito due volte una connessione sintetica tramite `saveConnection`, rileggendo ogni nuova configurazione tramite `loadConnection`, mantenendo il valore cifrato nel database e due eventi di audit, senza contattare provider;
 - completato i login case-insensitive di `Massimo` e `Codex`, conservando nomi canonici e `can_approve` soltanto sul titolare;
 - restituito `{"status":"ok"}` da `/health` con `ARUBA_SUBMISSION_ENABLED=false`.
 
