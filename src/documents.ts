@@ -140,7 +140,7 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   const supplierAddress = xmlRecord(supplier.Sede);
   const contacts = supplier.Contatti ? xmlRecord(supplier.Contatti) : {};
   const goods = xmlRecord(body.DatiBeniServizi);
-  const summary = xmlRecord(goods.DatiRiepilogo);
+  const summary = acceptedTaxSummary(goods);
   const payment = acceptedPayment(body, "TD01");
   return fiscalProfileSchema.parse({
     transmitter: {
@@ -165,8 +165,8 @@ export function fiscalProfileFromAcceptedInvoiceXml(
       phone: xmlOptional(contacts.Telefono),
       email: xmlOptional(contacts.Email),
     },
-    taxNature: xmlValue(summary.Natura),
-    legalReference: xmlValue(summary.RiferimentoNormativo),
+    taxNature: summary.taxNature,
+    legalReference: summary.legalReference,
     series: "FPR",
     numbering: {
       cadence: "ANNUAL",
@@ -258,6 +258,18 @@ function acceptedLineTotal(body: Record<string, unknown>): number {
     (sum, line) => sum + decimalToCents(xmlValue(line.PrezzoTotale)),
     0,
   );
+}
+
+function acceptedTaxSummary(goods: Record<string, unknown>) {
+  const summaries = xmlArray(goods.DatiRiepilogo);
+  const taxNatures = [...new Set(summaries.map((summary) => xmlValue(summary.Natura)))];
+  const legalReferences = [
+    ...new Set(summaries.map((summary) => xmlValue(summary.RiferimentoNormativo))),
+  ];
+  if (taxNatures.length !== 1 || legalReferences.length !== 1) {
+    throw new Error("I riepiloghi fiscali non coincidono con un profilo univoco");
+  }
+  return { taxNature: taxNatures[0]!, legalReference: legalReferences[0]! };
 }
 
 function acceptedRecipient(source: ReturnType<typeof acceptedFiscalDocument>) {
@@ -401,7 +413,7 @@ export function acceptedDocumentFiscalIdentity(xml: string) {
   const supplierData = xmlRecord(supplier.DatiAnagrafici);
   const supplierVat = xmlRecord(supplierData.IdFiscaleIVA);
   const goods = xmlRecord(source.body.DatiBeniServizi);
-  const summary = xmlRecord(goods.DatiRiepilogo);
+  const summary = acceptedTaxSummary(goods);
   const payment = acceptedPayment(source.body, source.type as "TD01" | "TD04");
   return {
     type: source.type as "TD01" | "TD04",
@@ -420,8 +432,8 @@ export function acceptedDocumentFiscalIdentity(xml: string) {
       taxCode: xmlOptional(supplierData.CodiceFiscale),
       taxRegime: xmlValue(supplierData.RegimeFiscale),
     },
-    taxNature: xmlValue(summary.Natura),
-    legalReference: xmlValue(summary.RiferimentoNormativo),
+    taxNature: summary.taxNature,
+    legalReference: summary.legalReference,
     payment,
   };
 }

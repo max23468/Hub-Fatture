@@ -335,9 +335,7 @@ test("il lettore di produzione correla le due griglie ExtJS e filtra il flusso f
   expect(result.files).toEqual([{ remoteId: "12345678901", kind: "ARUBA_XML", recordIndex: "0" }]);
 });
 
-test("il lettore Production accetta un anno vuoto e ripercorre l’anno nel ciclo incrementale", async ({
-  page,
-}) => {
+test("il lettore Production usa un click nativo e accetta un anno vuoto", async ({ page }) => {
   const year = new Date().getUTCFullYear();
   await page.route("https://aruba-synthetic.invalid/**", (route) =>
     route.fulfill({
@@ -354,7 +352,7 @@ test("il lettore Production accetta un anno vuoto e ripercorre l’anno nel cicl
       <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>
     </div>
     <script>
-      document.querySelector('[role="menuitem"]').addEventListener('click', () => {
+      document.querySelector('[role="menuitem"]').addEventListener('pointerdown', () => {
         const grid = document.querySelector('.aruba-grid-fatture-inviate');
         fetch('/reload').then(() => grid.setAttribute('data-reloaded', 'true'));
       });

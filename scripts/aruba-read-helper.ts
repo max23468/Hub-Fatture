@@ -772,19 +772,27 @@ async function armProductionRequestCapture(page: Page) {
 }
 
 async function clickWithProductionRequestCapture(control: Locator) {
-  await control.evaluate((element) => {
+  const page = control.page();
+  await page.evaluate(() => {
     const runtime = window as typeof window & {
       __arubaReadRequestCapture?: { active: boolean };
     };
     const state = runtime.__arubaReadRequestCapture;
     if (!state) throw new Error("DOM_UNRECOGNIZED");
     state.active = true;
-    try {
-      (element as HTMLElement).click();
-    } finally {
-      state.active = false;
-    }
   });
+  try {
+    await control.click();
+  } finally {
+    await page.evaluate(() => {
+      const runtime = window as typeof window & {
+        __arubaReadRequestCapture?: { active: boolean };
+      };
+      if (runtime.__arubaReadRequestCapture) {
+        runtime.__arubaReadRequestCapture.active = false;
+      }
+    });
+  }
 }
 
 async function finishProductionRequestCapture(page: Page): Promise<ProductionRequestKey[]> {

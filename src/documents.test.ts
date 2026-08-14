@@ -75,6 +75,24 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     12345,
   );
   assert.equal(acceptedDocumentFiscalIdentity(withoutTotal).totalAmount, 12345);
+  const summaryBlock = invoiceXml.match(/\s*<DatiRiepilogo>[\s\S]*?<\/DatiRiepilogo>/)?.[0];
+  assert.ok(summaryBlock);
+  const repeatedSummary = invoiceXml.replace(summaryBlock, `${summaryBlock}${summaryBlock}`);
+  await validateFatturaXml(repeatedSummary);
+  assert.equal(acceptedDocumentFiscalIdentity(repeatedSummary).taxNature, "N5");
+  assert.equal(
+    acceptedInvoiceFromXml(repeatedSummary, syntheticFiscalProfile.numbering.approvedAt).profile
+      .legalReference,
+    syntheticFiscalProfile.legalReference,
+  );
+  const conflictingSummary = invoiceXml.replace(
+    summaryBlock,
+    `${summaryBlock}${summaryBlock.replace("<Natura>N5</Natura>", "<Natura>N2.2</Natura>")}`,
+  );
+  assert.throws(
+    () => acceptedDocumentFiscalIdentity(conflictingSummary),
+    /riepiloghi fiscali non coincidono/,
+  );
   const withoutPayment = invoiceXml.replace(
     /\s*<DatiPagamento xmlns="">[\s\S]*?<\/DatiPagamento>/,
     "",
