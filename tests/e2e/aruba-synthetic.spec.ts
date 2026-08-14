@@ -335,7 +335,9 @@ test("il lettore di produzione correla le due griglie ExtJS e filtra il flusso f
   expect(result.files).toEqual([{ remoteId: "12345678901", kind: "ARUBA_XML", recordIndex: "0" }]);
 });
 
-test("il lettore Production usa un click nativo e accetta un anno vuoto", async ({ page }) => {
+test("il lettore Production recupera Cookiebot quando compare durante il click nativo", async ({
+  page,
+}) => {
   const year = new Date().getUTCFullYear();
   await page.route("https://aruba-synthetic.invalid/**", (route) =>
     route.fulfill({
@@ -345,6 +347,9 @@ test("il lettore Production usa un click nativo e accetta un anno vuoto", async 
   );
   await page.goto("https://aruba-synthetic.invalid/base");
   await page.setContent(`
+    <div id="CybotCookiebotDialog" style="display:none;position:fixed;inset:0;z-index:10;background:white">
+      <button id="CybotCookiebotDialogBodyButtonDecline">Rifiuta tutti</button>
+    </div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
     <li role="menuitem">Fatture inviate</li>
@@ -352,17 +357,75 @@ test("il lettore Production usa un click nativo e accetta un anno vuoto", async 
       <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>
     </div>
     <script>
+      document.querySelector('#CybotCookiebotDialogBodyButtonDecline').addEventListener('click', () => {
+        document.querySelector('#CybotCookiebotDialog').remove();
+      });
+      document.querySelector('[role="menuitem"]').addEventListener('pointerover', () => {
+        const dialog = document.querySelector('#CybotCookiebotDialog');
+        if (dialog) dialog.style.display = 'block';
+      }, { once: true });
       document.querySelector('[role="menuitem"]').addEventListener('pointerdown', () => {
         const grid = document.querySelector('.aruba-grid-fatture-inviate');
-        fetch('/reload').then(() => grid.setAttribute('data-reloaded', 'true'));
+        setTimeout(() => {
+          fetch('/reload').then(() => grid.setAttribute('data-reloaded', 'true'));
+        }, 100);
       });
     </script>
   `);
 
   await selectStream(page, `invoices:${year}`, `${year}-01-01T00:00:00.000Z`);
+  await expect(page.locator("#CybotCookiebotDialog")).toHaveCount(0);
   const result = await readVisiblePage(page, `invoices:${year}`, 2, 1, "PRODUCTION");
   expect(result.inventory.documents).toEqual([]);
   expect(result.inventory.terminal).toBe(true);
+});
+
+test("il lettore Production fallisce entro un limite se il click non genera richieste", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<html></html>" }),
+  );
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>
+    </div>
+  `);
+
+  const startedAt = Date.now();
+  await expect(selectStream(page, `invoices:${year}`)).rejects.toThrow("DOM_UNRECOGNIZED");
+  expect(Date.now() - startedAt).toBeLessThan(7_000);
+});
+
+test("il lettore Production riporta alla prima pagina uno stream già selezionato", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", (route) =>
+    route.fulfill({ contentType: "application/json", body: "{}" }),
+  );
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <li role="menuitem" class="x-treelist-item-selected">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <div class="pagingtoolbar-first"><button>Prima pagina</button></div>
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" disabled></button></span>
+    </div>
+    <script>
+      document.querySelector('.pagingtoolbar-first button').addEventListener('pointerdown', () => {
+        const grid = document.querySelector('.aruba-grid-fatture-inviate');
+        setTimeout(() => fetch('/first').then(() => grid.setAttribute('data-page', '1')), 100);
+      });
+    </script>
+  `);
+
+  await selectStream(page, `invoices:${year}`);
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute("data-page", "1");
 });
 
 test("il lettore Production attende il reload ExtJS prima di leggere il nuovo stream", async ({
