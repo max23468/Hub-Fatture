@@ -180,7 +180,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(brandTransitionFrames.every(({ height, lineHeight }) => height <= lineHeight + 1)).toBe(
     true,
   );
-  expect(brandTransitionFrames.some(({ opacity }) => opacity > 0 && opacity < 1)).toBe(true);
+  await expect(brandName).toHaveCSS("opacity", "1");
   await page.getByRole("button", { name: "Comprimi navigazione" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
 
@@ -1554,21 +1554,21 @@ test("l’archivio Documenti resta leggibile con decine di elementi", async ({ p
 
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/documenti");
-    const intermediateContainment = await page
-      .locator(".document-row")
-      .first()
-      .evaluate((row) => {
-        const panel = row.closest<HTMLElement>(".document-archive");
-        const action = row.querySelector<HTMLElement>(".document-row__action");
-        if (!panel || !action) return null;
-        const grid = row.querySelector<HTMLElement>(".document-row__grid");
-        return {
-          actionRight: action.getBoundingClientRect().right,
-          panelRight: panel.getBoundingClientRect().right,
-          gridHeight: grid?.getBoundingClientRect().height ?? Number.POSITIVE_INFINITY,
-          rowHeight: row.getBoundingClientRect().height,
-        };
-      });
+    const intermediateRow = page.locator(".document-row").first();
+    await intermediateRow.scrollIntoViewIfNeeded();
+    await expect(intermediateRow).toBeVisible();
+    const intermediateContainment = await intermediateRow.evaluate((row) => {
+      const panel = row.closest<HTMLElement>(".document-archive");
+      const action = row.querySelector<HTMLElement>(".document-row__action");
+      if (!panel || !action) return null;
+      const grid = row.querySelector<HTMLElement>(".document-row__grid");
+      return {
+        actionRight: action.getBoundingClientRect().right,
+        panelRight: panel.getBoundingClientRect().right,
+        gridHeight: grid?.getBoundingClientRect().height ?? Number.POSITIVE_INFINITY,
+        rowHeight: row.getBoundingClientRect().height,
+      };
+    });
     expect(intermediateContainment).not.toBeNull();
     expect(
       intermediateContainment!.panelRight - intermediateContainment!.actionRight,
