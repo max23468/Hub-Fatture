@@ -155,16 +155,19 @@ function headerIndex(headers: string[], pattern: RegExp): number {
   return headers.findIndex((header) => pattern.test(header));
 }
 
-function visibleOrderReferences(value: string): string[] {
+export function parseProductionOrderReferences(value: string): string[] {
+  if (!value.trim()) return [];
+  const label = /^(?:ordine|ordini|riferimento|riferimenti|causale)$/i;
   const hashReferences = [...value.matchAll(/#\s*[A-Z0-9][A-Z0-9._/-]*/gi)].map((match) =>
     match[0].replace(/\s+/g, ""),
   );
   const labelledReferences = value
     .split(/[,;\n]+/)
-    .map((item) => item.replace(/^(?:ordini?|riferimenti?|causale)\s*:?\s*/i, "").trim())
-    .filter(
-      (item) => item && item.length <= 100 && !/^(?:ordini?|riferimenti?|causale)$/i.test(item),
-    );
+    .map((item) => {
+      const [prefix, ...remainder] = item.split(":");
+      return label.test(prefix?.trim() ?? "") ? remainder.join(":").trim() : item.trim();
+    })
+    .filter((item) => item && item.length <= 100 && !label.test(item));
   const references = [...new Set([...hashReferences, ...labelledReferences])];
   if (!references.length || references.length > 20) throw new Error("DOM_UNRECOGNIZED");
   return references;
@@ -254,7 +257,7 @@ async function readProductionRows(page: Page) {
       status: visibleRemoteStatus(cells[indices.status]!),
       providerObservedAt: null,
       xmlSha256: null,
-      orderReferences: visibleOrderReferences(cells[indices.orderReferences]!),
+      orderReferences: parseProductionOrderReferences(cells[indices.orderReferences]!),
     });
     for (const [kind, label] of [
       ["ARUBA_XML", /Scarica XML/i],
