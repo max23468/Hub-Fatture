@@ -10,6 +10,7 @@ import {
   documentInputSchema,
   acceptedInvoiceFromXml,
   acceptedRecipientFromXml,
+  fiscalDocumentEnvelopeFromXml,
   generateFatturaXml,
   projectFatturaXml,
   type DocumentInput,
@@ -93,6 +94,23 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     () => acceptedDocumentFiscalIdentity(conflictingSummary),
     /riepiloghi fiscali non coincidono/,
   );
+  const mixedTaxSummary = invoiceXml.replace(
+    summaryBlock,
+    `${summaryBlock}${summaryBlock
+      .replace("<AliquotaIVA>0.00</AliquotaIVA>", "<AliquotaIVA>22.00</AliquotaIVA>")
+      .replace(/\s*<Natura>N5<\/Natura>/, "")
+      .replace(/\s*<RiferimentoNormativo>[^<]+<\/RiferimentoNormativo>/, "")}`,
+  );
+  await validateFatturaXml(mixedTaxSummary);
+  assert.deepEqual(fiscalDocumentEnvelopeFromXml(mixedTaxSummary), {
+    type: "TD01",
+    year: 2026,
+    number: 1,
+    documentNumber: "FPR 0001/26",
+    documentDate: "2026-08-10",
+    totalAmount: 12345,
+  });
+  assert.throws(() => acceptedDocumentFiscalIdentity(mixedTaxSummary), /Campo XML obbligatorio/);
   const withoutPayment = invoiceXml.replace(
     /\s*<DatiPagamento xmlns="">[\s\S]*?<\/DatiPagamento>/,
     "",

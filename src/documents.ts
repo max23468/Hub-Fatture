@@ -326,6 +326,39 @@ export function acceptedRecipientFromXml(xml: string) {
   return acceptedRecipient(acceptedFiscalDocument(xml));
 }
 
+/** Identità strutturale di un FPR12 valido, indipendente dal profilo fiscale applicato. */
+export function fiscalDocumentEnvelopeFromXml(xml: string) {
+  const source = acceptedFiscalDocument(xml);
+  return {
+    type: source.type as "TD01" | "TD04",
+    year: source.year,
+    number: source.number,
+    documentNumber: source.documentNumber,
+    documentDate: source.documentDate,
+    totalAmount: source.totalAmount ?? acceptedLineTotal(source.body),
+  };
+}
+
+/** Riferimenti di riconciliazione leggibili anche per documenti fuori dal profilo attivo. */
+export function fiscalDocumentReferencesFromXml(xml: string) {
+  const source = acceptedFiscalDocument(xml);
+  const generalBlock = xmlRecord(source.body.DatiGenerali);
+  const general = xmlRecord(generalBlock.DatiGeneraliDocumento);
+  const goods = xmlRecord(source.body.DatiBeniServizi);
+  const references = [
+    ...(general.Causale === undefined
+      ? []
+      : (Array.isArray(general.Causale) ? general.Causale : [general.Causale]).map(xmlValue)),
+    ...xmlArray(goods.DettaglioLinee).map((line) => xmlValue(line.Descrizione)),
+  ];
+  if (source.type === "TD04" && generalBlock.DatiFattureCollegate) {
+    references.push(
+      ...xmlArray(generalBlock.DatiFattureCollegate).map((item) => xmlValue(item.IdDocumento)),
+    );
+  }
+  return references;
+}
+
 /** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
 export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
   const source = acceptedFiscalDocument(xml);

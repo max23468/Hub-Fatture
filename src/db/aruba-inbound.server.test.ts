@@ -244,6 +244,77 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       Buffer.from(historicalInvoiceXml),
     );
     assert.ok(importedInvoice.documentId);
+    const summaryBlock = historicalInvoiceXml.match(
+      /\s*<DatiRiepilogo>[\s\S]*?<\/DatiRiepilogo>/,
+    )?.[0];
+    assert.ok(summaryBlock);
+    const mixedTaxXml = historicalInvoiceXml
+      .replace("<Numero>FPR 0001/26</Numero>", "<Numero>FPR 0099/26</Numero>")
+      .replace(
+        summaryBlock,
+        `${summaryBlock}${summaryBlock
+          .replace("<AliquotaIVA>0.00</AliquotaIVA>", "<AliquotaIVA>22.00</AliquotaIVA>")
+          .replace(/\s*<Natura>N5<\/Natura>/, "")
+          .replace(/\s*<RiferimentoNormativo>[^<]+<\/RiferimentoNormativo>/, "")}`,
+      );
+    const coherentForeignProfileXml = historicalInvoiceXml
+      .replace("<Numero>FPR 0001/26</Numero>", "<Numero>FPR 0098/26</Numero>")
+      .replaceAll("<Natura>N5</Natura>", "<Natura>N2.2</Natura>");
+    await inbound.ingestArubaInventoryPage(session.token, {
+      ...invoicePage,
+      scanOrdinal: 9,
+      pageOrdinal: 2,
+      cursor: "mixed-tax-summary",
+      documents: [
+        { ...invoicePage.documents[0], remoteId: "REMOTE-MIXED-TAX", fiscalNumber: "99" },
+        {
+          ...invoicePage.documents[0],
+          remoteId: "REMOTE-FOREIGN-PROFILE",
+          fiscalNumber: "98",
+        },
+      ],
+    });
+    const mixedTaxImport = await inbound.importArubaRemoteOfficialFile(
+      session.token,
+      "REMOTE-MIXED-TAX",
+      "ARUBA_XML",
+      Buffer.from(mixedTaxXml),
+    );
+    assert.equal(mixedTaxImport.documentId, null);
+    const coherentForeignProfileImport = await inbound.importArubaRemoteOfficialFile(
+      session.token,
+      "REMOTE-FOREIGN-PROFILE",
+      "ARUBA_XML",
+      Buffer.from(coherentForeignProfileXml),
+    );
+    assert.equal(coherentForeignProfileImport.documentId, null);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT matches.status, count(files.id)::integer AS files
+           FROM aruba_remote_documents remote
+           JOIN aruba_document_matches matches ON matches.remote_document_id = remote.id
+           LEFT JOIN aruba_files files ON files.remote_document_id = remote.id
+           WHERE remote.remote_id IN ('REMOTE-MIXED-TAX', 'REMOTE-FOREIGN-PROFILE')
+           GROUP BY remote.remote_id, matches.status
+           ORDER BY remote.remote_id`,
+        )
+      ).rows,
+      [
+        { status: "PROFILE_CONFLICT", files: 1 },
+        { status: "PROFILE_CONFLICT", files: 1 },
+      ],
+    );
+    await database.getPool().query(
+      `DELETE FROM aruba_files WHERE remote_document_id =
+         ANY(SELECT id FROM aruba_remote_documents
+             WHERE remote_id IN ('REMOTE-MIXED-TAX', 'REMOTE-FOREIGN-PROFILE'));
+       DELETE FROM aruba_document_matches WHERE remote_document_id =
+         ANY(SELECT id FROM aruba_remote_documents
+             WHERE remote_id IN ('REMOTE-MIXED-TAX', 'REMOTE-FOREIGN-PROFILE'));
+       DELETE FROM aruba_remote_documents
+         WHERE remote_id IN ('REMOTE-MIXED-TAX', 'REMOTE-FOREIGN-PROFILE')`,
+    );
     assert.deepEqual(
       (
         await database.getPool().query(

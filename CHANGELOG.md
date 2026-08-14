@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.46
+
+- La scansione conserva gli XML FPR12 validi che includono riepiloghi fiscali estranei al profilo N5 e li segnala come conflitti di profilo, senza interrompere l’intero inventario né materializzare documenti incompatibili.
+- Identità strutturale, destinatario e riferimenti di riconciliazione vengono estratti indipendentemente dall’ammissibilità al profilo fiscale attivo; l’import resta fail-closed prima di qualsiasi collegamento fiscale.
+
 ## 0.3.45
 
 - La selezione ExtJS usa la sequenza di puntatore nativa richiesta dal pannello Aruba reale, mantenendo la correlazione fra click, richiesta dati e stabilizzazione della griglia.
