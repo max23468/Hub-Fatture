@@ -1306,6 +1306,12 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         documents: [],
       });
     }
+    await inbound.completeArubaInventory(
+      resumedSession.token,
+      ["invoices:2026", "credit-notes:2026"],
+      4,
+      false,
+    );
     assert.deepEqual(
       await inbound.completeArubaPreflight(resumedSession.token, {
         receiptId: rejectedReceiptId,
@@ -1370,6 +1376,12 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       fullScan: false,
       documents: [],
     });
+    await inbound.completeArubaInventory(
+      resumedSession.token,
+      ["invoices:2026", "credit-notes:2026"],
+      5,
+      false,
+    );
     assert.deepEqual(
       await inbound.completeArubaPreflight(resumedSession.token, {
         receiptId: creditReceiptId,
@@ -1422,6 +1434,12 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         documents: [],
       });
     }
+    await inbound.completeArubaInventory(
+      resumedSession.token,
+      ["invoices:2026", "credit-notes:2026"],
+      6,
+      false,
+    );
     assert.deepEqual(
       await inbound.completeArubaPreflight(resumedSession.token, {
         receiptId: groupedReceiptId,
@@ -1433,6 +1451,52 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     await database
       .getPool()
       .query("DELETE FROM aruba_remote_documents WHERE remote_id = 'REMOTE-TYPED-TD01'");
+
+    const incompletePreflightId = "40000000-0000-4000-8000-000000000007";
+    await database.getPool().query(
+      `INSERT INTO aruba_preflight_receipts
+        (id, environment, account_reference, billing_case_id, document_id, draft_version,
+         projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
+         status, claimed_at)
+       VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('b', 64), 0,
+         $6, jsonb_build_object('documentType', 'TD01', 'orderIds', '[]'::jsonb),
+         'RUNNING', now())`,
+      [
+        incompletePreflightId,
+        currentDraft.rows[0]!.billing_case_id,
+        currentDraft.rows[0]!.id,
+        currentDraft.rows[0]!.draft_version,
+        currentDraft.rows[0]!.projection_sha256,
+        actor.id,
+      ],
+    );
+    for (const [index, stream] of ["invoices:2026", "credit-notes:2026"].entries()) {
+      await inbound.ingestArubaInventoryPage(resumedSession.token, {
+        stream,
+        scanOrdinal: 7,
+        pageOrdinal: 1,
+        cursor: `incomplete-preflight-${index + 1}`,
+        terminal: false,
+        fullScan: false,
+        documents: [],
+      });
+    }
+    assert.deepEqual(
+      await inbound.completeArubaPreflight(resumedSession.token, {
+        receiptId: incompletePreflightId,
+        candidateRemoteIds: [],
+        searchesCompleted: true,
+      }),
+      { passed: false },
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_preflight_receipts WHERE id = $1", [incompletePreflightId]);
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_sync_pages WHERE sync_session_id = $1 AND scan_ordinal = 7", [
+        resumedSession.sessionId,
+      ]);
 
     await inbound.ingestArubaInventoryPage(resumedSession.token, {
       ...invoicePage,

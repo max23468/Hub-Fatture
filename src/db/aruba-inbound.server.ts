@@ -2581,6 +2581,13 @@ export async function completeArubaPreflight(
        WHERE sync_session_id = $1 AND committed_at >= $2`,
       [session.id, receipt.rows[0].requested_at],
     );
+    const scanCompletion = await client.query<{ completed_after_request: boolean }>(
+      `SELECT sessions.completed_at >= receipts.requested_at AS completed_after_request
+       FROM aruba_sync_sessions AS sessions
+       JOIN aruba_preflight_receipts AS receipts ON receipts.id = $2
+       WHERE sessions.id = $1`,
+      [session.id, receiptId.data],
+    );
     const authoritativeCandidates = await client.query(
       `SELECT 1 FROM aruba_document_matches matches
          JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
@@ -2612,6 +2619,7 @@ export async function completeArubaPreflight(
     const coveredStreams = new Set(covered.rows.map((row) => row.stream));
     const passed =
       searchesCompleted.data &&
+      scanCompletion.rows[0]?.completed_after_request === true &&
       required.streams.every((stream) => coveredStreams.has(stream)) &&
       declaredCandidates.rowCount === 0 &&
       authoritativeCandidates.rowCount === 0;
