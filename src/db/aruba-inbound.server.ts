@@ -886,6 +886,7 @@ interface LockedRemoteMatch {
   remote_status: ArubaRemoteStatus;
   xml_sha256: string | null;
   match_status: string;
+  match_method: string;
   order_id: string | null;
   document_id: string | null;
   related_invoice_document_id: string | null;
@@ -897,7 +898,8 @@ async function lockedRemoteMatch(client: pg.PoolClient, remoteDocumentId: string
     `SELECT remote.id, remote.remote_id, remote.document_type, remote.fiscal_year,
             remote.series, remote.fiscal_number, remote.document_date::text,
             remote.total_amount, remote.remote_status, remote.xml_sha256,
-            matches.status AS match_status, matches.order_id, matches.document_id,
+            matches.status AS match_status, matches.method AS match_method,
+            matches.order_id, matches.document_id,
             matches.related_invoice_document_id, matches.refund_ids::text[]
      FROM aruba_remote_documents AS remote
      JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
@@ -1057,9 +1059,13 @@ async function materializeExternalInvoice(
     ...groupedCandidates,
   ]);
   const selectedEvaluation =
-    verified.status === "MATCHED"
-      ? verified.evaluations.find((candidate) => candidate.compatible)
-      : null;
+    remote.match_method === "MANUAL"
+      ? verified.evaluations.find(
+          (candidate) => candidate.compatible && candidate.candidateId === remote.order_id,
+        )
+      : verified.status === "MATCHED"
+        ? verified.evaluations.find((candidate) => candidate.compatible)
+        : null;
   if (selectedEvaluation?.candidateId !== remote.order_id) {
     throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   }
@@ -1333,24 +1339,25 @@ async function materializeExternalCreditNote(
   const assignedDraftIds = [
     ...new Set(refunds.rows.flatMap((refund) => refund.credit_document_id ?? [])),
   ];
-  let assignedDraftId: string | null = null;
+  let assignedDocumentId: string | null = null;
   if (assignedDraftIds.length === 1) {
-    const assignedDraft = await client.query<{ id: string }>(
+    const assignedDocument = await client.query<{ id: string }>(
       `SELECT documents.id FROM documents
        JOIN document_links ON document_links.document_id = documents.id
-       WHERE documents.id = $1 AND documents.kind = 'CREDIT_NOTE' AND documents.status = 'DRAFT'
+       WHERE documents.id = $1 AND documents.kind = 'CREDIT_NOTE'
+         AND documents.status IN ('DRAFT', 'APPROVED')
          AND document_links.related_document_id = $2
          AND document_links.relation_type = 'CREDIT_NOTE_FOR_INVOICE'
        FOR UPDATE OF documents`,
       [assignedDraftIds[0], sourceInvoice.id],
     );
-    assignedDraftId = assignedDraft.rows[0]?.id ?? null;
+    assignedDocumentId = assignedDocument.rows[0]?.id ?? null;
   }
   if (
     refunds.rowCount !== remote.refund_ids.length ||
     refundTotal !== imported.totalAmount ||
     assignedDraftIds.length > 1 ||
-    (assignedDraftIds.length === 1 && !assignedDraftId)
+    (assignedDraftIds.length === 1 && !assignedDocumentId)
   ) {
     throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   }
@@ -1360,8 +1367,11 @@ async function materializeExternalCreditNote(
      WHERE series = $1 AND fiscal_year = $2 AND fiscal_number = $3 FOR UPDATE`,
     [profile.profile.series, imported.year, imported.number],
   );
-  let documentId = existing.rows[0]?.id ?? assignedDraftId;
+  let documentId = existing.rows[0]?.id ?? assignedDocumentId;
   if (existing.rows[0] && existing.rows[0].xml_sha256 !== digest) {
+    throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+  }
+  if (existing.rows[0] && assignedDocumentId && existing.rows[0].id !== assignedDocumentId) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
   if (documentId && existing.rows[0]?.origin === "HUB") {
@@ -1495,6 +1505,61 @@ async function materializeMatchedExternalDocument(
   return remote.document_type === "TD01"
     ? materializeExternalInvoice(client, remote, storageObjectId, xml)
     : materializeExternalCreditNote(client, remote, storageObjectId, xml);
+}
+
+async function materializeLatestOfficialXml(
+  client: pg.PoolClient,
+  remoteDocumentId: string,
+  required = false,
+) {
+  const official = await client.query<{
+    id: string;
+    storage_object_id: string;
+    relative_path: string;
+    sha256: string;
+    size_bytes: number;
+  }>(
+    `SELECT files.id, files.storage_object_id, storage.relative_path, storage.sha256,
+            storage.size_bytes
+     FROM aruba_files AS files
+     JOIN storage_objects AS storage ON storage.id = files.storage_object_id
+     WHERE files.remote_document_id = $1 AND files.kind = 'ARUBA_XML'
+     ORDER BY files.imported_at DESC LIMIT 1`,
+    [remoteDocumentId],
+  );
+  const file = official.rows[0];
+  if (!file) {
+    if (required) throw new AppError("ARUBA_IMPORT_INVALID", 409);
+    return null;
+  }
+  if (file.size_bytes > ARUBA_IMPORT_MAX_BYTES) {
+    throw new AppError("ARUBA_IMPORT_INVALID", 409);
+  }
+  const root = path.resolve(getConfig().DOCUMENT_STORAGE_ROOT);
+  const absolutePath = path.resolve(root, file.relative_path);
+  if (!absolutePath.startsWith(`${root}${path.sep}`)) {
+    throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+  }
+  const bytes = await readFile(absolutePath);
+  if (
+    bytes.byteLength !== file.size_bytes ||
+    createHash("sha256").update(bytes).digest("hex") !== file.sha256
+  ) {
+    throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+  }
+  const documentId = await materializeMatchedExternalDocument(
+    client,
+    remoteDocumentId,
+    file.storage_object_id,
+    validateUntrustedXml(bytes),
+  );
+  if (documentId) {
+    await client.query(`UPDATE aruba_files SET document_id = $2 WHERE id = $1`, [
+      file.id,
+      documentId,
+    ]);
+  }
+  return documentId;
 }
 
 async function importArubaRemoteOfficialFileAuthorized(
@@ -1700,30 +1765,7 @@ async function importArubaRemoteOfficialFileAuthorized(
             [remoteDocumentId, status],
           );
           if (isEmissionConfirmed(status)) {
-            const officialXml = await client.query<{
-              storage_object_id: string;
-              relative_path: string;
-            }>(
-              `SELECT files.storage_object_id, storage.relative_path
-               FROM aruba_files files
-               JOIN storage_objects storage ON storage.id = files.storage_object_id
-               WHERE files.remote_document_id = $1 AND files.kind = 'ARUBA_XML'
-               ORDER BY files.imported_at DESC LIMIT 1`,
-              [remoteDocumentId],
-            );
-            if (officialXml.rows[0]) {
-              const root = path.resolve(getConfig().DOCUMENT_STORAGE_ROOT);
-              const absolutePath = path.resolve(root, officialXml.rows[0].relative_path);
-              if (!absolutePath.startsWith(`${root}${path.sep}`)) {
-                throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
-              }
-              await materializeMatchedExternalDocument(
-                client,
-                remoteDocumentId,
-                officialXml.rows[0].storage_object_id,
-                validateUntrustedXml(await readFile(absolutePath)),
-              );
-            }
+            await materializeLatestOfficialXml(client, remoteDocumentId);
           }
         }
         await client.query(
@@ -2017,7 +2059,12 @@ async function ingestParsedArubaPage(
         remoteMetadataDigest(remote),
       ],
     );
-    if (!conflicted) await reconcileRemoteDocument(client, storedId!, remote);
+    if (!conflicted) {
+      await reconcileRemoteDocument(client, storedId!, remote);
+      if (isEmissionConfirmed(remote.status)) {
+        await materializeLatestOfficialXml(client, storedId!);
+      }
+    }
     const files = await client.query<{ kind: string }>(
       `SELECT kind FROM aruba_files WHERE remote_document_id = $1`,
       [storedId],
@@ -3302,41 +3349,7 @@ export async function resolveArubaDocumentMatch(
     );
     let documentId: string | null = null;
     if (isEmissionConfirmed(current.remote_status)) {
-      const official = await client.query<{
-        storage_object_id: string;
-        relative_path: string;
-        sha256: string;
-        size_bytes: number;
-      }>(
-        `SELECT files.storage_object_id, storage.relative_path, storage.sha256, storage.size_bytes
-         FROM aruba_files AS files
-         JOIN storage_objects AS storage ON storage.id = files.storage_object_id
-         WHERE files.remote_document_id = $1 AND files.kind = 'ARUBA_XML'
-         ORDER BY files.imported_at DESC LIMIT 1`,
-        [remoteDocumentId],
-      );
-      const file = official.rows[0];
-      if (!file || file.size_bytes > ARUBA_IMPORT_MAX_BYTES) {
-        throw new AppError("ARUBA_IMPORT_INVALID", 409);
-      }
-      const root = path.resolve(getConfig().DOCUMENT_STORAGE_ROOT);
-      const absolutePath = path.resolve(root, file.relative_path);
-      if (!absolutePath.startsWith(`${root}${path.sep}`)) {
-        throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
-      }
-      const bytes = await readFile(absolutePath);
-      if (
-        bytes.byteLength !== file.size_bytes ||
-        createHash("sha256").update(bytes).digest("hex") !== file.sha256
-      ) {
-        throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
-      }
-      documentId = await materializeMatchedExternalDocument(
-        client,
-        remoteDocumentId,
-        file.storage_object_id,
-        validateUntrustedXml(bytes),
-      );
+      documentId = await materializeLatestOfficialXml(client, remoteDocumentId, true);
     }
     await writeAudit(client, {
       actorType: "ADMIN",

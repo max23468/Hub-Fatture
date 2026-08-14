@@ -1711,6 +1711,164 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         resumedSession.sessionId,
       ]);
 
+    const createReadbackOrder = async (
+      externalId: string,
+      displayNumber: string,
+      amount: number,
+    ) => {
+      const regressionCase = await database.getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json)
+         VALUES ($1, '2026-08-13', 'EUR', 'CLOSED', '{}') RETURNING id`,
+        [customer.rows[0]!.id],
+      );
+      const regressionOrder = await database.getPool().query<{ id: string }>(
+        `INSERT INTO orders
+          (provider, external_account_id, external_order_id, display_number, created_at_source,
+           updated_at_source, local_order_date, currency, gross_amount, payment_status,
+           fulfillment_status, trigger_status, customer_id, billing_case_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('SHOPIFY', 'shop', $1, $2, now(), now(), '2026-08-13', 'EUR', $3,
+           'PAID', 'FULFILLED', 'GROUPED', $4, $5, '{}',
+           '{"customerSnapshot":{"billingAddress":{"line1":"Via Cliente 1","postalCode":"00100","city":"Roma","countryCode":"IT"}}}')
+         RETURNING id`,
+        [externalId, displayNumber, amount, customer.rows[0]!.id, regressionCase.rows[0]!.id],
+      );
+      await database.getPool().query(
+        `INSERT INTO order_tax_identifiers
+          (order_id, type, raw_value, normalized_value, source_field, country_code)
+         VALUES ($1, 'CODICE_FISCALE', 'RSSMRA80A01H501U', 'RSSMRA80A01H501U', 'fixture', 'IT')`,
+        [regressionOrder.rows[0]!.id],
+      );
+      return regressionOrder.rows[0]!.id;
+    };
+
+    const archivedOrderId = await createReadbackOrder("archived-terminal-order", "#ARCHIVED", 6100);
+    const archivedXml = generateFatturaXml(
+      profile,
+      {
+        ...accepted.input,
+        documentDate: "2026-08-13",
+        lines: [
+          {
+            orderId: archivedOrderId,
+            description: "Ordine Shopify #ARCHIVED",
+            quantity: 1,
+            unitAmount: 6100,
+          },
+        ],
+      },
+      { year: 2026, number: 301 },
+    );
+    const archivedRemote = {
+      ...invoicePage.documents[0],
+      remoteId: "REMOTE-ARCHIVED-TERMINAL",
+      fiscalNumber: "301",
+      documentDate: "2026-08-13",
+      totalAmount: 6100,
+      status: "SUBMITTED" as const,
+      orderReferences: ["#ARCHIVED"],
+    };
+    await inbound.ingestArubaInventoryPage(resumedSession.token, {
+      ...invoicePage,
+      scanOrdinal: 20,
+      cursor: "archived-before-terminal",
+      fullScan: false,
+      documents: [archivedRemote],
+    });
+    assert.equal(
+      (
+        await inbound.importArubaRemoteOfficialFile(
+          resumedSession.token,
+          archivedRemote.remoteId,
+          "ARUBA_XML",
+          Buffer.from(archivedXml),
+        )
+      ).documentId,
+      null,
+    );
+    await inbound.ingestArubaInventoryPage(resumedSession.token, {
+      ...invoicePage,
+      scanOrdinal: 21,
+      cursor: "archived-terminal",
+      fullScan: false,
+      documents: [{ ...archivedRemote, status: "DELIVERED" }],
+    });
+    assert.ok(
+      (
+        await database.getPool().query(
+          `SELECT files.document_id FROM aruba_files AS files
+           JOIN aruba_remote_documents AS remote ON remote.id = files.remote_document_id
+           WHERE remote.remote_id = 'REMOTE-ARCHIVED-TERMINAL' AND files.kind = 'ARUBA_XML'`,
+        )
+      ).rows[0].document_id,
+    );
+
+    const manualOrderIds = await Promise.all([
+      createReadbackOrder("manual-ambiguous-a", "#MANUAL", 6200),
+      createReadbackOrder("manual-ambiguous-b", "#MANUAL", 6200),
+    ]);
+    const manualXml = generateFatturaXml(
+      profile,
+      {
+        ...accepted.input,
+        documentDate: "2026-08-13",
+        lines: [
+          {
+            orderId: manualOrderIds[0],
+            description: "Ordine Shopify #MANUAL",
+            quantity: 1,
+            unitAmount: 6200,
+          },
+        ],
+      },
+      { year: 2026, number: 302 },
+    );
+    await inbound.ingestArubaInventoryPage(resumedSession.token, {
+      ...invoicePage,
+      scanOrdinal: 22,
+      cursor: "manual-ambiguous",
+      fullScan: false,
+      documents: [
+        {
+          ...invoicePage.documents[0],
+          remoteId: "REMOTE-MANUAL-AMBIGUOUS",
+          fiscalNumber: "302",
+          documentDate: "2026-08-13",
+          totalAmount: 6200,
+          status: "DELIVERED",
+          orderReferences: ["#MANUAL"],
+        },
+      ],
+    });
+    const manualRemote = await database.getPool().query<{ id: string; status: string }>(
+      `SELECT remote.id, matches.status FROM aruba_remote_documents AS remote
+       JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
+       WHERE remote.remote_id = 'REMOTE-MANUAL-AMBIGUOUS'`,
+    );
+    assert.equal(manualRemote.rows[0]!.status, "AMBIGUOUS");
+    assert.equal(
+      (
+        await inbound.importArubaRemoteOfficialFile(
+          resumedSession.token,
+          "REMOTE-MANUAL-AMBIGUOUS",
+          "ARUBA_XML",
+          Buffer.from(manualXml),
+        )
+      ).documentId,
+      null,
+    );
+    assert.ok(
+      (
+        await inbound.resolveArubaDocumentMatch(
+          manualRemote.rows[0]!.id,
+          manualOrderIds[0]!,
+          "Candidato verificato manualmente sull’XML ufficiale",
+          actor,
+        )
+      ).documentId,
+    );
+
     await inbound.ingestArubaInventoryPage(resumedSession.token, {
       ...invoicePage,
       scanOrdinal: 2,
