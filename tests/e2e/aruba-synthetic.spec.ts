@@ -12,6 +12,7 @@ import {
 import {
   readVisiblePage,
   runArubaReadCycle,
+  selectStream,
   type ArubaReadManifest,
 } from "../../scripts/aruba-read-helper.ts";
 
@@ -331,6 +332,25 @@ test("il lettore di produzione correla le due griglie ExtJS e filtra il flusso f
     }),
   ]);
   expect(result.files).toEqual([{ remoteId: "12345678901", kind: "ARUBA_XML", recordIndex: "0" }]);
+});
+
+test("il lettore Production accetta un anno vuoto e ripercorre l’anno nel ciclo incrementale", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>
+    </div>
+  `);
+
+  await selectStream(page, `invoices:${year}`, `${year}-01-01T00:00:00.000Z`);
+  const result = await readVisiblePage(page, `invoices:${year}`, 2, 1, "PRODUCTION");
+  expect(result.inventory.documents).toEqual([]);
+  expect(result.inventory.terminal).toBe(true);
 });
 
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {

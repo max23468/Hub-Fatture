@@ -337,7 +337,8 @@ async function readProductionExtGrid(grid: Locator) {
   const primary = new Map<string, Locator>();
   const statuses = new Map<string, Locator>();
   const count = await rows.count();
-  if (!count || count > 600) throw new Error("DOM_UNRECOGNIZED");
+  if (count > 600) throw new Error("DOM_UNRECOGNIZED");
+  if (!count) return { documents: [], files: [] };
   for (let index = 0; index < count; index += 1) {
     const row = rows.nth(index);
     const recordIndex = await row.getAttribute("data-recordindex");
@@ -635,13 +636,12 @@ async function applyDateFilter(page: Page, overlapFrom?: string | null) {
   if (await apply.count()) await apply.click();
 }
 
-async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
+export async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
   const selector = page.locator(`[data-aruba-stream="${stream}"]`).first();
   if (await selector.count()) {
     await selector.click();
   } else {
     const { year } = parseStream(stream);
-    if (overlapFrom) throw new Error("DOM_UNRECOGNIZED");
     const yearControl = page.locator(".main-toolbar-info-fiscalyear").first();
     if (!(await yearControl.count()) || !(await yearControl.isVisible())) {
       throw new Error("DOM_UNRECOGNIZED");
@@ -669,10 +669,8 @@ async function selectStream(page: Page, stream: string, overlapFrom?: string | n
     }
     if (visibleSent.length !== 1) throw new Error("DOM_UNRECOGNIZED");
     await visibleSent[0]!.click();
-    await page
-      .locator(".aruba-grid-fatture-inviate .x-gridrow[data-recordindex]")
-      .first()
-      .waitFor();
+    await page.locator(".aruba-grid-fatture-inviate").first().waitFor();
+    await productionNextButton(page);
     return;
   }
   await applyDateFilter(page, overlapFrom);
