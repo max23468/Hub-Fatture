@@ -34,6 +34,10 @@ test("gli stati remoti non regrediscono e i terminali incompatibili aprono confl
   assert.equal(remoteStatusTransition("DELIVERED", "SDI_PROCESSING"), "IGNORE_STALE");
   assert.equal(remoteStatusTransition("DELIVERED", "REJECTED"), "CONFLICT");
   assert.equal(remoteStatusTransition("DELIVERED", "UNKNOWN"), "CONFLICT");
+  assert.equal(remoteStatusTransition("UNKNOWN", "SUBMITTED"), "APPLY");
+  assert.equal(remoteStatusTransition("UNKNOWN", "DELIVERED"), "APPLY");
+  assert.equal(remoteStatusTransition("UNKNOWN", "NOT_DELIVERED"), "APPLY");
+  assert.equal(remoteStatusTransition("UNKNOWN", "REJECTED"), "APPLY");
 });
 
 test("il totale da solo non produce mai un collegamento", () => {

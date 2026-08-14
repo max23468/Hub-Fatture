@@ -71,7 +71,8 @@ export function remoteStatusTransition(
   observed: ArubaRemoteStatus,
 ): "APPLY" | "IGNORE_STALE" | "CONFLICT" {
   if (!current || current === observed) return "APPLY";
-  if (current === "UNKNOWN" || observed === "UNKNOWN") return "CONFLICT";
+  if (current === "UNKNOWN") return "APPLY";
+  if (observed === "UNKNOWN") return "CONFLICT";
   if (terminal.has(current)) return terminal.has(observed) ? "CONFLICT" : "IGNORE_STALE";
   if (terminal.has(observed)) return "APPLY";
   return (progressing.get(observed) ?? 0) >= (progressing.get(current) ?? 0)

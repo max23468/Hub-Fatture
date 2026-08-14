@@ -683,6 +683,28 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     const health = await inbound.getArubaInventoryHealth();
     assert.equal(health.status, "HEALTHY");
     assert.equal(health.remoteDocuments, 4);
+    const assignedCreditPreflight = await inbound.requestArubaPreflight(
+      {
+        documentId: assignedCreditDraftId,
+        draftVersion: 1,
+        projectionSha256: "d".repeat(64),
+      },
+      actor,
+    );
+    assert.deepEqual(
+      (
+        await database
+          .getPool()
+          .query<{ request_json: { refundIds: string[] } }>(
+            "SELECT request_json FROM aruba_preflight_receipts WHERE id = $1",
+            [assignedCreditPreflight.id],
+          )
+      ).rows[0]!.request_json.refundIds,
+      [refund.rows[0]!.id],
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_preflight_receipts WHERE id = $1", [assignedCreditPreflight.id]);
     const remotes = await inbound.listRemoteDocuments();
     const remoteCredit = remotes.find((remote) => remote.remote_id === "REMOTE-TD04-001");
     assert.equal(remoteCredit!.match_status, "MATCHED");

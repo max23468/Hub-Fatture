@@ -290,7 +290,8 @@ export async function createArubaBatch(
       `INSERT INTO aruba_send_permits
         (id, batch_id, manifest_sha256, document_count, mode, scope, authorized_by,
          expires_at, revoked_at)
-       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6, $7,
+       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6,
+         CASE WHEN $5 = 'CANARY' THEN now() ELSE $7 END,
          CASE WHEN $5 = 'CANARY' THEN now() ELSE NULL END)`,
       [
         permitId,
@@ -299,7 +300,7 @@ export async function createArubaBatch(
         documents.length,
         permitScope,
         actor.id,
-        permitScope === "CANARY" ? new Date() : new Date(Date.now() + SEND_PERMIT_TTL_MS),
+        new Date(Date.now() + SEND_PERMIT_TTL_MS),
       ],
     );
     await writeAudit(client, {

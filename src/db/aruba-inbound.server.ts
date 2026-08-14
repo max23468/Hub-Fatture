@@ -2326,7 +2326,7 @@ export async function requestArubaPreflight(
           orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'),
         'refundIds', coalesce((SELECT jsonb_agg(refunds.id::text ORDER BY refunds.id)
           FROM refunds WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
-            AND refunds.credit_document_id IS NULL), '[]')
+            AND refunds.credit_document_id = documents.id), '[]')
       )) FILTER (WHERE orders.id IS NOT NULL), '[]') AS searches
      FROM documents
      LEFT JOIN document_orders ON document_orders.document_id = documents.id
