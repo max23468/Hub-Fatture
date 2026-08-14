@@ -429,6 +429,64 @@ test("il lettore Production attende il reload ExtJS prima di leggere il nuovo st
   expect(result.inventory.documents.map((document) => document.remoteId)).toEqual(["11111111111"]);
 });
 
+test("il lettore Production rifiuta una risposta dati HTTP fallita anche con traffico estraneo", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", (route) =>
+    route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+  );
+  await page.route("https://traffic.invalid/**", (route) =>
+    route.fulfill({ contentType: "application/json", body: "{}" }),
+  );
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" disabled></button></span>
+    </div>
+    <script>
+      document.querySelector('[role="menuitem"]').addEventListener('click', () => {
+        fetch('https://traffic.invalid/pulse', { mode: 'no-cors' });
+        fetch('/reload').then(() => {
+          document.querySelector('.aruba-grid-fatture-inviate').setAttribute('data-reloaded', 'true');
+        });
+      });
+    </script>
+  `);
+
+  await expect(selectStream(page, `invoices:${year}`)).rejects.toThrow("DOM_UNRECOGNIZED");
+});
+
+test("il lettore Production rifiuta una richiesta dati interrotta", async ({ page }) => {
+  const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", (route) =>
+    route.request().url().endsWith("/reload")
+      ? route.abort()
+      : route.fulfill({ contentType: "text/html", body: "<html></html>" }),
+  );
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" disabled></button></span>
+    </div>
+    <script>
+      document.querySelector('[role="menuitem"]').addEventListener('click', () => {
+        fetch('/reload').catch(() => {
+          document.querySelector('.aruba-grid-fatture-inviate').setAttribute('data-reloaded', 'true');
+        });
+      });
+    </script>
+  `);
+
+  await expect(selectStream(page, `invoices:${year}`)).rejects.toThrow("DOM_UNRECOGNIZED");
+});
+
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/aruba-sintetica?scenario=unexpected");

@@ -712,40 +712,64 @@ async function waitForProductionGridReload(page: Page) {
 
 function observeProductionDataRequest(page: Page) {
   const pending = new Set<Request>();
-  let observed = false;
+  const pageOrigin = new URL(page.url()).origin;
+  let successful = false;
+  let settled = false;
   let settleTimer: ReturnType<typeof setTimeout> | undefined;
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
   let complete = () => {};
+  let fail = () => {};
   const completed = new Promise<void>((resolve, reject) => {
-    complete = resolve;
-    timeoutTimer = setTimeout(() => reject(new Error("DOM_UNRECOGNIZED")), 30_000);
+    complete = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    fail = () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("DOM_UNRECOGNIZED"));
+    };
+    timeoutTimer = setTimeout(fail, 30_000);
   });
-  const relevant = (request: Request) => ["xhr", "fetch"].includes(request.resourceType());
+  const relevant = (request: Request) =>
+    ["xhr", "fetch"].includes(request.resourceType()) &&
+    new URL(request.url()).origin === pageOrigin;
   const scheduleCompletion = () => {
-    if (!observed || pending.size) return;
+    if (!successful || pending.size || settled) return;
     if (settleTimer) clearTimeout(settleTimer);
     settleTimer = setTimeout(complete, 500);
   };
   const onRequest = (request: Request) => {
     if (!relevant(request)) return;
-    observed = true;
     pending.add(request);
     if (settleTimer) clearTimeout(settleTimer);
   };
-  const onRequestDone = (request: Request) => {
+  const onRequestFinished = async (request: Request) => {
     if (!relevant(request)) return;
     pending.delete(request);
+    const response = await request.response().catch(() => null);
+    if (!response?.ok()) {
+      fail();
+      return;
+    }
+    successful = true;
     scheduleCompletion();
   };
+  const onRequestFailed = (request: Request) => {
+    if (!relevant(request)) return;
+    pending.delete(request);
+    fail();
+  };
   page.on("request", onRequest);
-  page.on("requestfinished", onRequestDone);
-  page.on("requestfailed", onRequestDone);
+  page.on("requestfinished", onRequestFinished);
+  page.on("requestfailed", onRequestFailed);
   return {
     completed,
     dispose() {
       page.off("request", onRequest);
-      page.off("requestfinished", onRequestDone);
-      page.off("requestfailed", onRequestDone);
+      page.off("requestfinished", onRequestFinished);
+      page.off("requestfailed", onRequestFailed);
       if (settleTimer) clearTimeout(settleTimer);
       if (timeoutTimer) clearTimeout(timeoutTimer);
       complete();
