@@ -10,6 +10,7 @@ import {
   inventoryPageSchema,
   isEmissionConfirmed,
   normalizedMatchText,
+  remoteInventoryDocumentSchema,
   remoteMetadataDigest,
   remoteStatusTransition,
   selectOrderMatch,
@@ -888,6 +889,54 @@ async function reconcileRemoteDocument(
        WHERE id = $1 AND status IN ('DRAFT', 'READY')`,
       [selected.billing_case_id],
     );
+  }
+}
+
+async function reconcileCachedPreflightDocuments(
+  client: pg.PoolClient,
+  session: { environment: string; account_reference: string },
+  documentType: "TD01" | "TD04",
+  orderIds: string[],
+  refundIds: string[],
+) {
+  const cached = await client.query<{ id: string; payload: unknown }>(
+    `SELECT remote.id::text, latest.payload
+     FROM aruba_remote_documents remote
+     JOIN aruba_document_matches matches ON matches.remote_document_id = remote.id
+     LEFT JOIN LATERAL (
+       SELECT document.value AS payload
+       FROM aruba_remote_observations observations
+       JOIN aruba_sync_pages pages
+         ON pages.sync_session_id = observations.sync_session_id
+        AND pages.stream = observations.stream
+        AND pages.scan_ordinal = observations.scan_ordinal
+        AND pages.page_ordinal = observations.page_ordinal
+       CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) document(value)
+       WHERE observations.remote_document_id = remote.id
+         AND document.value ->> 'remoteId' = remote.remote_id
+       ORDER BY observations.observed_at DESC, observations.id DESC
+       LIMIT 1
+     ) latest ON true
+     WHERE remote.environment = $1 AND remote.account_reference = $2
+       AND remote.document_type = $3 AND remote.remote_status <> 'REJECTED'
+       AND matches.status IN ('UNMATCHED', 'AMBIGUOUS')
+       AND (($3 = 'TD01' AND EXISTS (
+         SELECT 1 FROM orders
+         WHERE orders.id::text = ANY($4::text[])
+           AND remote.document_date BETWEEN orders.local_order_date AND orders.local_order_date + 31
+       )) OR ($3 = 'TD04' AND EXISTS (
+         SELECT 1 FROM refunds
+         WHERE refunds.id::text = ANY($5::text[])
+           AND remote.document_date BETWEEN refunds.completed_at::date
+             AND refunds.completed_at::date + 31
+       )))
+     ORDER BY remote.id`,
+    [session.environment, session.account_reference, documentType, orderIds, refundIds],
+  );
+  for (const row of cached.rows) {
+    const remote = remoteInventoryDocumentSchema.safeParse(row.payload);
+    if (!remote.success) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+    await reconcileRemoteDocument(client, row.id, remote.data);
   }
 }
 
@@ -2836,6 +2885,14 @@ export async function completeArubaPreflight(
     if (requestJson.documentType !== "TD01" && requestJson.documentType !== "TD04") {
       throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
     }
+    await lockArubaInventory(client, session.environment, session.account_reference);
+    await reconcileCachedPreflightDocuments(
+      client,
+      session,
+      requestJson.documentType,
+      requestJson.orderIds ?? [],
+      requestJson.refundIds ?? [],
+    );
     const declaredCandidates = candidateIds.data.length
       ? await client.query(
           `SELECT remote_id FROM aruba_remote_documents

@@ -1629,6 +1629,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           ...invoicePage.documents[0],
           remoteId: "REMOTE-TYPED-TD01",
           fiscalNumber: "200",
+          documentDate: "2026-08-12",
           totalAmount: 5000,
           status: "SUBMITTED",
           orderReferences: ["#1002"],
@@ -1665,11 +1666,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     await database.getPool().query(
       `UPDATE aruba_document_matches SET status = 'UNMATCHED', method = 'NONE',
          order_id = NULL, document_id = NULL,
-         candidates_json = jsonb_build_array(jsonb_build_object(
-           'candidateId', 'anchor-order', 'orderIds', jsonb_build_array('999999'),
-           'compatible', false,
-           'signals', jsonb_build_object('explicitReference', true)
-         ))
+         candidates_json = '[]'
        WHERE remote_document_id = (
          SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-TYPED-TD01'
        )`,
@@ -1681,7 +1678,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
          status, claimed_at)
        VALUES ($1, 'MOCK', 'synthetic-aruba-account', $2, $3, $4, $5, repeat('a', 64), 0,
-         $6, jsonb_build_object('documentType', 'TD01', 'orderIds', jsonb_build_array('999999')),
+         $6, jsonb_build_object('documentType', 'TD01', 'orderIds', jsonb_build_array($7::text)),
          'RUNNING', now())`,
       [
         groupedReceiptId,
@@ -1690,6 +1687,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         currentDraft.rows[0]!.draft_version,
         currentDraft.rows[0]!.projection_sha256,
         actor.id,
+        residualOrder.rows[0]!.id,
       ],
     );
     for (const [index, stream] of ["invoices:2026", "credit-notes:2026"].entries()) {
