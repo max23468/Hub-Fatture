@@ -668,17 +668,6 @@ test(
       const assistedManifest = await aruba.helperManifest(assistedToken.token);
       assert.equal(assistedManifest.mode, "ASSISTED");
       assert.equal(assistedManifest.accountReference, "synthetic-aruba-account");
-      assert.equal(assistedManifest.accountIdentity, "synthetic-aruba-account");
-      assert.deepEqual(
-        (
-          await database
-            .getPool()
-            .query("SELECT account_identity, manifest_version FROM aruba_batches WHERE id = $1", [
-              assistedBatchId,
-            ])
-        ).rows[0],
-        { account_identity: "synthetic-aruba-account", manifest_version: 2 },
-      );
       assert.deepEqual(
         (
           await database

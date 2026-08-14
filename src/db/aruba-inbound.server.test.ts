@@ -552,9 +552,9 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     }>("SELECT draft_version, xml_sha256 FROM documents WHERE id = $1", [importedCredit.documentId]);
     await database.getPool().query(
       `INSERT INTO aruba_batches
-        (id, environment, mode, account_reference, manifest_version, manifest_sha256, document_count,
+        (id, environment, mode, account_reference, manifest_sha256, document_count,
          attempt_number, status, created_by)
-       VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic-aruba-account', 1, repeat('7', 64), 1, 1,
+       VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic-aruba-account', repeat('7', 64), 1, 1,
          'SUBMITTED', $2)`,
       [submittedBatchId, actor.id],
     );

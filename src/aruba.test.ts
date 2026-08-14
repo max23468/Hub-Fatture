@@ -4,7 +4,6 @@ import test from "node:test";
 
 import {
   ARUBA_UPLOAD_MAX_BATCH_BYTES,
-  arubaBatchAccountIdentity,
   arubaManifestSchema,
   assertAllowedArubaAuthenticationNavigation,
   assertAllowedArubaDownload,
@@ -20,29 +19,6 @@ import {
 } from "./aruba.ts";
 
 test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
-  assert.equal(
-    arubaBatchAccountIdentity({
-      accountReference: "historical-account",
-      accountIdentity: null,
-      manifestVersion: 1,
-    }),
-    "historical-account",
-  );
-  assert.equal(
-    arubaBatchAccountIdentity({
-      accountReference: "partition-key",
-      accountIdentity: "Visible account",
-      manifestVersion: 2,
-    }),
-    "Visible account",
-  );
-  assert.throws(() =>
-    arubaBatchAccountIdentity({
-      accountReference: "partition-key",
-      accountIdentity: null,
-      manifestVersion: 2,
-    }),
-  );
   assert.equal(
     assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/", "PRODUCTION").origin,
     "https://fatturazioneelettronica.aruba.it",
@@ -109,7 +85,6 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
     environment: "MOCK" as const,
     mode: "ASSISTED" as const,
     accountReference: "synthetic-aruba-account",
-    accountIdentity: "synthetic-aruba-account",
     attemptNumber: 1,
     documents: [
       {
@@ -126,10 +101,6 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   };
   assert.equal(manifestSha256(batch), manifestSha256(structuredClone(batch)));
   assert.notEqual(manifestSha256(batch), manifestSha256({ ...batch, attemptNumber: 2 }));
-  assert.notEqual(
-    manifestSha256(batch),
-    manifestSha256({ ...batch, accountIdentity: "different-synthetic-account" }),
-  );
   assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", false), "ASSISTED");
   assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", true), "AUTOMATIC");
   assert.equal(effectiveArubaMode("AUTOMATIC", "MOCK", false), "AUTOMATIC");

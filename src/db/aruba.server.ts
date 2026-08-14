@@ -9,7 +9,6 @@ import {
   ARUBA_PANEL_ORIGIN,
   ARUBA_UPLOAD_MAX_BATCH_BYTES,
   ARUBA_UPLOAD_MAX_BYTES,
-  arubaBatchAccountIdentity,
   arubaFileKindSchema,
   arubaModeSchema,
   effectiveArubaMode,
@@ -52,8 +51,6 @@ interface BatchIdentity {
   environment: "MOCK" | "PRODUCTION";
   mode: ArubaMode;
   account_reference: string;
-  account_identity: string | null;
-  manifest_version: 1 | 2;
   manifest_sha256: string;
   document_count: number;
   attempt_number: number;
@@ -77,41 +74,10 @@ function manifestPayload(
   environment: "MOCK" | "PRODUCTION",
   mode: ArubaMode,
   accountReference: string,
-  accountIdentity: string,
   attemptNumber: number,
   documents: ArubaManifestDocument[],
 ) {
-  return {
-    batchId,
-    environment,
-    mode,
-    accountReference,
-    accountIdentity,
-    attemptNumber,
-    documents,
-  };
-}
-
-function legacyManifestSha256(
-  batchId: string,
-  environment: "MOCK" | "PRODUCTION",
-  mode: ArubaMode,
-  accountReference: string,
-  attemptNumber: number,
-  documents: ArubaManifestDocument[],
-) {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        batchId,
-        environment,
-        mode,
-        accountReference,
-        attemptNumber,
-        documents,
-      }),
-    )
-    .digest("hex");
+  return { batchId, environment, mode, accountReference, attemptNumber, documents };
 }
 
 function integer(value: unknown): number {
@@ -270,30 +236,20 @@ export async function createArubaBatch(
   }
   const mode = preservedMode ?? effectiveMode;
   const accountReference = await currentArubaAccount(client);
-  const accountIdentity = getConfig().ARUBA_ACCOUNT_IDENTITY;
   const batchId = randomUUID();
   const digest = manifestSha256(
-    manifestPayload(
-      batchId,
-      environment,
-      mode,
-      accountReference,
-      accountIdentity,
-      attemptNumber,
-      documents,
-    ),
+    manifestPayload(batchId, environment, mode, accountReference, attemptNumber, documents),
   );
   await client.query(
     `INSERT INTO aruba_batches
-      (id, environment, mode, account_reference, account_identity, manifest_version,
-       manifest_sha256, document_count, attempt_number, created_by)
-     VALUES ($1, $2, $3, $4, $5, 2, $6, $7, $8, $9)`,
+      (id, environment, mode, account_reference, manifest_sha256, document_count,
+       attempt_number, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       batchId,
       environment,
       mode,
       accountReference,
-      accountIdentity,
       digest,
       documents.length,
       attemptNumber,
@@ -679,31 +635,16 @@ async function batchDocuments(
 }
 
 function verifyManifest(batch: BatchIdentity, documents: ArubaManifestDocument[]): void {
-  const digest =
-    batch.manifest_version === 1
-      ? legacyManifestSha256(
-          batch.id,
-          batch.environment,
-          batch.mode,
-          batch.account_reference,
-          batch.attempt_number,
-          documents,
-        )
-      : manifestSha256(
-          manifestPayload(
-            batch.id,
-            batch.environment,
-            batch.mode,
-            batch.account_reference,
-            arubaBatchAccountIdentity({
-              accountReference: batch.account_reference,
-              accountIdentity: batch.account_identity,
-              manifestVersion: batch.manifest_version,
-            }),
-            batch.attempt_number,
-            documents,
-          ),
-        );
+  const digest = manifestSha256(
+    manifestPayload(
+      batch.id,
+      batch.environment,
+      batch.mode,
+      batch.account_reference,
+      batch.attempt_number,
+      documents,
+    ),
+  );
   if (documents.length !== batch.document_count || digest !== batch.manifest_sha256) {
     throw new AppError("ARUBA_BATCH_INVALID", 409);
   }
@@ -724,11 +665,6 @@ export async function helperManifest(token: string): Promise<ArubaManifest> {
       context.environment,
       context.mode,
       context.account_reference,
-      arubaBatchAccountIdentity({
-        accountReference: context.account_reference,
-        accountIdentity: context.account_identity,
-        manifestVersion: context.manifest_version,
-      }),
       context.attempt_number,
       documents,
     ),

@@ -30,7 +30,6 @@ export const arubaManifestSchema = z
     mode: arubaModeSchema,
     operation: z.enum(["UPLOAD", "READBACK"]),
     accountReference: z.string().trim().min(1).max(200),
-    accountIdentity: z.string().trim().min(1).max(200),
     manifestSha256: z.string().regex(/^[0-9a-f]{64}$/),
     attemptNumber: z.number().int().positive(),
     panelUrl: z.url(),
@@ -63,26 +62,10 @@ export function effectiveArubaMode(
   return environment === "PRODUCTION" && !submissionEnabled ? "ASSISTED" : configured;
 }
 
-export function arubaBatchAccountIdentity(value: {
-  accountReference: string;
-  accountIdentity: string | null;
-  manifestVersion: 1 | 2;
-}): string {
-  if (value.manifestVersion === 1) return value.accountReference;
-  if (value.accountIdentity) return value.accountIdentity;
-  throw new Error("manifest");
-}
-
 export function manifestSha256(
   value: Pick<
     ArubaManifest,
-    | "batchId"
-    | "environment"
-    | "mode"
-    | "accountReference"
-    | "accountIdentity"
-    | "attemptNumber"
-    | "documents"
+    "batchId" | "environment" | "mode" | "accountReference" | "attemptNumber" | "documents"
   >,
 ): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");

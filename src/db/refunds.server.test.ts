@@ -126,9 +126,9 @@ test(
       const batchId = randomUUID();
       await client.query(
         `INSERT INTO aruba_batches
-        (id, environment, mode, account_reference, manifest_version, manifest_sha256, document_count,
+        (id, environment, mode, account_reference, manifest_sha256, document_count,
          status, created_by)
-       VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic', 1, $2, 1, 'RECONCILED', $3)`,
+       VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic', $2, 1, 'RECONCILED', $3)`,
         [batchId, "c".repeat(64), user.rows[0]!.id],
       );
       await client.query(
@@ -1142,9 +1142,9 @@ test(
       const overrideBatchId = randomUUID();
       await client.query(
         `INSERT INTO aruba_batches
-          (id, environment, mode, account_reference, manifest_version, manifest_sha256, document_count,
+          (id, environment, mode, account_reference, manifest_sha256, document_count,
            status, created_by)
-         VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic', 1, $2, 1, 'RECONCILED', $3)`,
+         VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic', $2, 1, 'RECONCILED', $3)`,
         [overrideBatchId, "2".repeat(64), user.rows[0]!.id],
       );
       await client.query(

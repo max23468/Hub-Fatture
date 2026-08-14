@@ -15,7 +15,7 @@ Questo contratto governa la pagina sintetica e l’helper locale unico per macOS
 
 ## Manifest
 
-Il manifest immutabile comprende ambiente, modalità, riferimento applicativo opaco e identità visibile dell’account atteso, tentativo e, per ogni documento, ID, revisione, hash XML, nome file, dimensione, numero fiscale, data e totale. L’identità è distinta dal riferimento usato per partizionare i dati HF e deve coincidere con l’unica descrizione mostrata dal controllo account nella barra superiore Aruba. L’hash del manifest vincola entrambe. Gli XML scaricati dall’helper vengono accettati soltanto se dimensione e SHA-256 coincidono.
+Il manifest immutabile di upload comprende ambiente, modalità, riferimento non segreto dell’account atteso, tentativo e, per ogni documento, ID, revisione, hash XML, nome file, dimensione, numero fiscale, data e totale. L’hash del manifest vincola il permesso monouso. Il manifest separato della scansione in sola lettura comprende inoltre l’identità visibile attesa, distinta dal riferimento usato per partizionare i dati, e deve coincidere con l’unica descrizione mostrata dal controllo account nella barra superiore Aruba. Gli XML scaricati dall’helper vengono accettati soltanto se dimensione e SHA-256 coincidono.
 
 La preparazione dell’invio pilota avviene in **Documenti** con una conferma esplicita riferita al singolo documento e al singolo tentativo. Non abilita l’uso automatico ordinario, non invia il documento e non sostituisce l’autorizzazione separata richiesta immediatamente prima del Canary Production.
 
@@ -39,7 +39,7 @@ Il pannello sintetico espone lo scenario `?scenario=inventory`. Safari resta sup
 
 | Funzione            | Etichette verificate                                                                     | Esito fail-closed                                           |
 | ------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| account             | controllo account nella barra superiore, confrontato con l’identità visibile attesa      | mismatch o più corrispondenze arrestano l’helper            |
+| account             | controllo nella barra superiore; la scansione usa l’identità visibile attesa             | mismatch o più corrispondenze arrestano l’helper            |
 | upload              | `SELEZIONA DOCUMENTI`, `Carica fattura`, riga col nome file                              | arresto se il controllo o il documento caricato non compare |
 | challenge eventuale | `Vuoi disattivare la protezione OTP`, `Inserisci il codice ricevuto per SMS`, `Verifica` | pausa finché il titolare completa personalmente la verifica |
 | validazione         | contatore, riga col nome file, `DETTAGLI ERRORI`, codice e descrizione                   | batch non inviabile                                         |

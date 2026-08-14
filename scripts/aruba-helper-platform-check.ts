@@ -240,7 +240,6 @@ const payload = {
   environment: "MOCK" as const,
   mode: "AUTOMATIC" as const,
   accountReference: "synthetic-aruba-account",
-  accountIdentity: "synthetic-aruba-account",
   attemptNumber: 1,
   documents: [
     {
