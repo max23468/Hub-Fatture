@@ -321,8 +321,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("030_aruba_inbound_reconciliation.sql", { exact: true });
-  await expect(inboundMigration).toBeVisible();
+  const latestMigration = page.getByText("031_aruba_batch_account_identity.sql", { exact: true });
+  await expect(latestMigration).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -651,10 +651,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   await connectionClient.query(
     `INSERT INTO aruba_batches
-       (id, environment, mode, account_reference, manifest_sha256, document_count, status,
+       (id, environment, mode, account_reference, manifest_version, manifest_sha256, document_count, status,
         requires_reconciliation, created_by, last_readback_at)
      VALUES
-       ('00000000-0000-4000-8000-000000000073', 'MOCK', 'ASSISTED', 'synthetic', $1, 1,
+       ('00000000-0000-4000-8000-000000000073', 'MOCK', 'ASSISTED', 'synthetic', 1, $1, 1,
         'RECONCILIATION_REQUIRED', true, (SELECT id FROM users ORDER BY id LIMIT 1), now())`,
     ["7".repeat(64)],
   );

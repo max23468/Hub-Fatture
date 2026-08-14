@@ -129,10 +129,10 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
 
     await database.getPool().query(
       `INSERT INTO aruba_batches
-         (id, environment, mode, account_reference, manifest_sha256, document_count,
+         (id, environment, mode, account_reference, manifest_version, manifest_sha256, document_count,
           status, requires_reconciliation, created_by)
        VALUES
-         ('00000000-0000-4000-8000-000000000001', 'MOCK', 'ASSISTED', 'synthetic',
+         ('00000000-0000-4000-8000-000000000001', 'MOCK', 'ASSISTED', 'synthetic', 1,
           repeat('f', 64), 1, 'RECONCILIATION_REQUIRED', true, 1)`,
     );
     await database.getPool().query(

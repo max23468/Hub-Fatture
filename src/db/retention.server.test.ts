@@ -164,9 +164,9 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
     const batchId = randomUUID();
     await client.query(
       `INSERT INTO aruba_batches
-         (id, environment, mode, account_reference, manifest_sha256, document_count,
+         (id, environment, mode, account_reference, manifest_version, manifest_sha256, document_count,
           status, created_by)
-       VALUES ($1, 'MOCK', 'AUTOMATIC', 'synthetic', $2, 1, 'CANCELLED', $3)`,
+       VALUES ($1, 'MOCK', 'AUTOMATIC', 'synthetic', 1, $2, 1, 'CANCELLED', $3)`,
       [batchId, "e".repeat(64), userId],
     );
     await client.query(
@@ -187,9 +187,9 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
     const outstandingCanaryBatchId = randomUUID();
     await client.query(
       `INSERT INTO aruba_batches
-         (id, environment, mode, account_reference, manifest_sha256, document_count,
+         (id, environment, mode, account_reference, manifest_version, manifest_sha256, document_count,
           status, created_by)
-       VALUES ($1, 'PRODUCTION', 'AUTOMATIC', 'synthetic', $2, 1, 'HELPER_ACTIVE', $3)`,
+       VALUES ($1, 'PRODUCTION', 'AUTOMATIC', 'synthetic', 1, $2, 1, 'HELPER_ACTIVE', $3)`,
       [outstandingCanaryBatchId, "2".repeat(64), userId],
     );
     await client.query(
