@@ -338,6 +338,13 @@ test("il lettore Production accetta un anno vuoto e ripercorre l’anno nel cicl
   page,
 }) => {
   const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", (route) =>
+    route.fulfill({
+      contentType: route.request().url().endsWith("/reload") ? "application/json" : "text/html",
+      body: route.request().url().endsWith("/reload") ? "{}" : "<html></html>",
+    }),
+  );
+  await page.goto("https://aruba-synthetic.invalid/base");
   await page.setContent(`
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
@@ -348,7 +355,7 @@ test("il lettore Production accetta un anno vuoto e ripercorre l’anno nel cicl
     <script>
       document.querySelector('[role="menuitem"]').addEventListener('click', () => {
         const grid = document.querySelector('.aruba-grid-fatture-inviate');
-        grid.setAttribute('data-reloaded', 'true');
+        fetch('/reload').then(() => grid.setAttribute('data-reloaded', 'true'));
       });
     </script>
   `);
@@ -363,6 +370,15 @@ test("il lettore Production attende il reload ExtJS prima di leggere il nuovo st
   page,
 }) => {
   const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", async (route) => {
+    if (route.request().url().endsWith("/reload")) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await route.fulfill({ contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.fulfill({ contentType: "text/html", body: "<html></html>" });
+  });
+  await page.goto("https://aruba-synthetic.invalid/base");
   const row = (remoteId: string) => `
     <section class="x-grid">
       <div class="x-gridrow" data-recordindex="0">
@@ -399,9 +415,12 @@ test("il lettore Production attende il reload ExtJS prima di leggere il nuovo st
   `);
   await page.getByRole("menuitem", { name: "Fatture inviate" }).evaluate((element, replacement) => {
     element.addEventListener("click", () => {
-      window.setTimeout(() => {
-        document.querySelector(".aruba-grid-fatture-inviate")!.innerHTML = replacement;
-      }, 100);
+      const grid = document.querySelector(".aruba-grid-fatture-inviate")!;
+      grid.innerHTML =
+        '<span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>';
+      fetch("/reload").then(() => {
+        grid.innerHTML = replacement;
+      });
     });
   }, row("11111111111"));
 

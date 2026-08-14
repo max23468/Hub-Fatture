@@ -19,6 +19,7 @@ const remote: RemoteInventoryDocument = {
   documentDate: "2026-08-12",
   recipientName: "Mario Rossi",
   recipientTaxId: "RSSMRA80A01H501U",
+  recipientTaxIds: [],
   recipientCountryCode: "IT",
   recipientAddress: "Via Roma 1 Milano",
   totalAmount: 12_300,
@@ -113,6 +114,29 @@ test("un candidato univoco richiede data, importo e identità coerenti", () => {
       recipientAddress: "Via Roma 1 Milano",
     },
   ]);
+  assert.equal(result.status, "MATCHED");
+});
+
+test("l’evidenza XML confronta tutti gli identificativi fiscali del destinatario", () => {
+  const result = selectOrderMatch(
+    {
+      ...remote,
+      recipientTaxId: "10987654321",
+      recipientTaxIds: ["10987654321", "RSSMRA80A01H501U"],
+    },
+    [
+      {
+        id: "1",
+        provider: "SHOPIFY",
+        displayNumber: "1001",
+        localOrderDate: "2026-08-12",
+        billableAmount: 12_300,
+        recipientName: "Mario Rossi",
+        recipientTaxIds: ["RSSMRA80A01H501U"],
+        recipientAddress: "Via Roma 1 Milano",
+      },
+    ],
+  );
   assert.equal(result.status, "MATCHED");
 });
 

@@ -177,6 +177,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           documentDate: "2026-08-10",
           recipientName: "Mario Rossi",
           recipientTaxId: null,
+          recipientTaxIds: [],
           recipientCountryCode: null,
           recipientAddress: null,
           totalAmount: 12345,
@@ -779,6 +780,9 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         relatedInvoice: { number: "FPR 0010/26", date: "2026-08-10" },
       },
       { year: 2026, number: 11 },
+    ).replace(
+      '<CessionarioCommittente xmlns="">\n      <DatiAnagrafici>\n        <CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>',
+      '<CessionarioCommittente xmlns="">\n      <DatiAnagrafici>\n        <IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>10987654321</IdCodice></IdFiscaleIVA>\n        <CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>',
     );
     await inbound.ingestArubaInventoryPage(session.token, {
       stream: "credit-notes:2026",

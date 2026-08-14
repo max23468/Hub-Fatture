@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
-import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+import { chromium, type BrowserContext, type Locator, type Page, type Request } from "playwright";
 
 import { assertAccount } from "./aruba-helper.ts";
 
@@ -295,6 +295,7 @@ async function readProductionRows(page: Page) {
       documentDate,
       recipientName: indices.recipient >= 0 ? cells[indices.recipient] || null : null,
       recipientTaxId: indices.recipientTaxId >= 0 ? cells[indices.recipientTaxId] || null : null,
+      recipientTaxIds: [],
       recipientCountryCode: null,
       recipientAddress:
         indices.recipientAddress >= 0 ? cells[indices.recipientAddress] || null : null,
@@ -379,6 +380,7 @@ async function readProductionExtGrid(grid: Locator) {
       documentDate,
       recipientName: cells[7] || null,
       recipientTaxId: null,
+      recipientTaxIds: [],
       recipientCountryCode: null,
       recipientAddress: null,
       totalAmount: italianAmount(cells[10]!),
@@ -681,32 +683,78 @@ async function armProductionGridReload(page: Page) {
 }
 
 async function waitForProductionGridReload(page: Page) {
-  await page.waitForFunction(() => {
-    const runtime = window as typeof window & {
-      __arubaReadGridReload?: {
-        observed: boolean;
-        lastMutationAt: number;
+  try {
+    await page.waitForFunction(() => {
+      const runtime = window as typeof window & {
+        __arubaReadGridReload?: {
+          observed: boolean;
+          lastMutationAt: number;
+        };
       };
-    };
-    const state = runtime.__arubaReadGridReload;
-    if (!state?.observed || performance.now() - state.lastMutationAt < 500) return false;
-    const grid = document.querySelector(".aruba-grid-fatture-inviate");
-    if (!grid) return false;
-    const next = [...grid.querySelectorAll<HTMLElement>("button, [title] button")].filter(
-      (element) =>
-        (element.getAttribute("aria-label") ?? element.getAttribute("title") ?? "").includes(
-          "nextPage",
-        ) && element.getClientRects().length > 0,
-    );
-    return next.length === 1;
+      const state = runtime.__arubaReadGridReload;
+      if (!state?.observed || performance.now() - state.lastMutationAt < 500) return false;
+      const grid = document.querySelector(".aruba-grid-fatture-inviate");
+      if (!grid) return false;
+      const next = [...grid.querySelectorAll<HTMLElement>("button, [title] button")].filter(
+        (element) =>
+          (element.getAttribute("aria-label") ?? element.getAttribute("title") ?? "").includes(
+            "nextPage",
+          ) && element.getClientRects().length > 0,
+      );
+      return next.length === 1;
+    });
+  } finally {
+    await page.evaluate(() => {
+      const runtime = window as typeof window & {
+        __arubaReadGridReload?: { observer: MutationObserver };
+      };
+      runtime.__arubaReadGridReload?.observer.disconnect();
+      delete runtime.__arubaReadGridReload;
+    });
+  }
+}
+
+function observeProductionDataRequest(page: Page) {
+  const pending = new Set<Request>();
+  let observed = false;
+  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  let complete = () => {};
+  const completed = new Promise<void>((resolve, reject) => {
+    complete = resolve;
+    timeoutTimer = setTimeout(() => reject(new Error("DOM_UNRECOGNIZED")), 30_000);
   });
-  await page.evaluate(() => {
-    const runtime = window as typeof window & {
-      __arubaReadGridReload?: { observer: MutationObserver };
-    };
-    runtime.__arubaReadGridReload?.observer.disconnect();
-    delete runtime.__arubaReadGridReload;
-  });
+  const relevant = (request: Request) => ["xhr", "fetch"].includes(request.resourceType());
+  const scheduleCompletion = () => {
+    if (!observed || pending.size) return;
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(complete, 500);
+  };
+  const onRequest = (request: Request) => {
+    if (!relevant(request)) return;
+    observed = true;
+    pending.add(request);
+    if (settleTimer) clearTimeout(settleTimer);
+  };
+  const onRequestDone = (request: Request) => {
+    if (!relevant(request)) return;
+    pending.delete(request);
+    scheduleCompletion();
+  };
+  page.on("request", onRequest);
+  page.on("requestfinished", onRequestDone);
+  page.on("requestfailed", onRequestDone);
+  return {
+    completed,
+    dispose() {
+      page.off("request", onRequest);
+      page.off("requestfinished", onRequestDone);
+      page.off("requestfailed", onRequestDone);
+      if (settleTimer) clearTimeout(settleTimer);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      complete();
+    },
+  };
 }
 
 export async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
@@ -742,8 +790,14 @@ export async function selectStream(page: Page, stream: string, overlapFrom?: str
     }
     if (visibleSent.length !== 1) throw new Error("DOM_UNRECOGNIZED");
     await armProductionGridReload(page);
-    await visibleSent[0]!.click();
-    await waitForProductionGridReload(page);
+    const dataRequest = observeProductionDataRequest(page);
+    try {
+      await visibleSent[0]!.click();
+      await dataRequest.completed;
+      await waitForProductionGridReload(page);
+    } finally {
+      dataRequest.dispose();
+    }
     await productionNextButton(page);
     return;
   }

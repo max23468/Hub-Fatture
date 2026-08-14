@@ -29,6 +29,7 @@ export const remoteInventoryDocumentSchema = z.object({
   documentDate: z.iso.date(),
   recipientName: z.string().trim().max(300).nullable().default(null),
   recipientTaxId: z.string().trim().max(64).nullable().default(null),
+  recipientTaxIds: z.array(z.string().trim().min(1).max(64)).max(10).default([]),
   recipientCountryCode: z
     .string()
     .regex(/^[A-Z]{2}$/)
@@ -113,10 +114,11 @@ export function normalizedMatchText(value: string | null | undefined): string | 
 }
 
 export function remoteMetadataDigest(document: RemoteInventoryDocument): string {
+  const { recipientTaxIds: _officialRecipientTaxIds, ...inventoryEvidence } = document;
   return createHash("sha256")
     .update(
       JSON.stringify({
-        ...document,
+        ...inventoryEvidence,
         recipientName: normalizedMatchText(document.recipientName),
         recipientTaxId: normalizedMatchText(document.recipientTaxId),
         recipientAddress: normalizedMatchText(document.recipientAddress),
@@ -186,9 +188,13 @@ export function evaluateOrderCandidate(
   const recipient = Boolean(
     remoteName && remoteName === normalizedMatchText(candidate.recipientName),
   );
-  const remoteTaxId = normalizedMatchText(remote.recipientTaxId);
+  const remoteTaxIds = [remote.recipientTaxId, ...remote.recipientTaxIds]
+    .map(normalizedMatchText)
+    .filter((value): value is string => Boolean(value));
   const taxId = Boolean(
-    remoteTaxId && candidate.recipientTaxIds.map(normalizedMatchText).includes(remoteTaxId),
+    remoteTaxIds.some((remoteTaxId) =>
+      candidate.recipientTaxIds.map(normalizedMatchText).includes(remoteTaxId),
+    ),
   );
   const remoteAddress = normalizedMatchText(remote.recipientAddress);
   const candidateAddress = normalizedMatchText(candidate.recipientAddress);
@@ -200,11 +206,13 @@ export function evaluateOrderCandidate(
       candidateAddress.includes(remoteAddress)),
   );
   const identitySignals = [recipient, taxId, address].filter(Boolean).length;
-  const declaredIdentitySignals = [remoteName, remoteTaxId, remoteAddress].filter(Boolean).length;
-  const referencedRecipientIsCompatible = remoteTaxId
+  const declaredIdentitySignals = [remoteName, remoteTaxIds.length > 0, remoteAddress].filter(
+    Boolean,
+  ).length;
+  const referencedRecipientIsCompatible = remoteTaxIds.length
     ? taxId
     : declaredIdentitySignals === 0 || identitySignals >= 1;
-  const inferredRecipientIsCompatible = remoteTaxId
+  const inferredRecipientIsCompatible = remoteTaxIds.length
     ? taxId && identitySignals >= 2
     : identitySignals >= 2;
   return {

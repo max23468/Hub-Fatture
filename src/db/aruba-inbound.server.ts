@@ -1040,6 +1040,7 @@ function officialEvidence(remote: RemoteInventoryDocument, xml: string): RemoteI
   const authoritativeRecipient = {
     recipientName: acceptedRecipientName(recipient),
     recipientTaxId: recipient.taxIdentifiers[0]?.value ?? null,
+    recipientTaxIds: recipient.taxIdentifiers.map((identifier) => identifier.value),
     recipientCountryCode: recipient.address.countryCode,
     recipientAddress: [
       recipient.address.line1,
@@ -1164,6 +1165,7 @@ async function materializeExternalInvoice(
     documentDate: remote.document_date,
     recipientName: acceptedRecipientName(imported.input.recipient),
     recipientTaxId: imported.input.recipient.taxIdentifiers[0]?.value ?? null,
+    recipientTaxIds: imported.input.recipient.taxIdentifiers.map((identifier) => identifier.value),
     recipientCountryCode: imported.input.recipient.address.countryCode,
     recipientAddress: [
       imported.input.recipient.address.line1,
