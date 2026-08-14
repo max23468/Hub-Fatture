@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.43
+
+- La verifica dell’identità Aruba considera soltanto l’elemento visibile che dichiara esattamente l’account atteso, ignorando i controlli annidati con lo stesso nome accessibile ma privi dell’identità testuale.
+- La regressione riproduce la struttura osservata nel pannello reale e mantiene il blocco fail-closed in caso di identità assente o realmente ambigua.
+
 ## 0.3.42
 
 - L’helper distingue la chiave applicativa dell’account Aruba dalla descrizione visibile usata per verificarne l’identità, evitando il falso mismatch emerso nella prima scansione reale.
