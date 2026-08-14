@@ -9,7 +9,11 @@ import {
   validateVisibleDocuments,
   waitForUploadedDocument,
 } from "../../scripts/aruba-helper.ts";
-import { runArubaReadCycle, type ArubaReadManifest } from "../../scripts/aruba-read-helper.ts";
+import {
+  readVisiblePage,
+  runArubaReadCycle,
+  type ArubaReadManifest,
+} from "../../scripts/aruba-read-helper.ts";
 
 const xml = "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml";
 
@@ -232,6 +236,21 @@ test("la pagina sintetica espone stream completi per l’inventario in sola lett
   const invoice = page.locator('tr[data-aruba-remote-id="SYNTH-INV-001"]');
   await expect(invoice).toHaveAttribute("data-document-type", "TD01");
   await expect(invoice).toHaveAttribute("data-remote-status", "DELIVERED");
+  const productionInvoicePage = await readVisiblePage(page, `invoices:${year}`, 1, 1, "PRODUCTION");
+  expect(productionInvoicePage.inventory.documents).toEqual([
+    expect.objectContaining({
+      remoteId: "SYNTH-INV-001",
+      documentType: "TD01",
+      fiscalNumber: "1",
+      series: "FPR",
+      documentDate: `${year}-08-10`,
+      totalAmount: 12345,
+      status: "DELIVERED",
+    }),
+  ]);
+  expect(productionInvoicePage.files).toEqual([
+    { remoteId: "SYNTH-INV-001", kind: "ARUBA_XML", url: "/aruba-sintetica/file/invoice" },
+  ]);
   await page.locator(`[data-aruba-stream="credit-notes:${year}"]`).click();
   const credit = page.locator('tr[data-aruba-remote-id="SYNTH-TD04-001"]');
   await expect(credit).toHaveAttribute("data-document-type", "TD04");

@@ -402,6 +402,12 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         related_invoice_document_id: importedInvoice.documentId,
       },
     );
+    assert.deepEqual(
+      (await inbound.listRemoteDocuments({ attentionOnly: true }))
+        .filter((remote) => remote.remote_id === "REMOTE-TD04-001")
+        .map((remote) => ({ match: remote.match_status, hasXml: remote.has_xml })),
+      [{ match: "MATCHED", hasXml: false }],
+    );
     const [importedCredit, repeatedCredit] = await Promise.all([
       inbound.importArubaRemoteOfficialFile(
         session.token,

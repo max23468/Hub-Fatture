@@ -2258,7 +2258,13 @@ export async function listRemoteDocuments(options: { attentionOnly?: boolean } =
      FROM aruba_remote_documents AS remote
      LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
      WHERE remote.environment = $1 AND remote.account_reference = $2
-       AND (NOT $3::boolean OR coalesce(matches.status, 'UNMATCHED') <> 'MATCHED')
+       AND (NOT $3::boolean
+         OR coalesce(matches.status, 'UNMATCHED') <> 'MATCHED'
+         OR (matches.status = 'MATCHED'
+           AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
+           AND NOT EXISTS (SELECT 1 FROM aruba_files
+             WHERE aruba_files.remote_document_id = remote.id
+               AND aruba_files.kind = 'ARUBA_XML')))
      ORDER BY remote.last_observed_at DESC, remote.id DESC
      LIMIT 200`,
     [environment(), accountReference(), Boolean(options.attentionOnly)],

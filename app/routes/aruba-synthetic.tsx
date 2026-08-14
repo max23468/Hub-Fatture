@@ -119,11 +119,14 @@ function ArubaInventorySynthetic({
         <table className="data-table">
           <thead>
             <tr>
-              <th>Documento</th>
+              <th>ID remoto</th>
+              <th>Tipo documento</th>
+              <th>Numero</th>
               <th>Data</th>
               <th>Destinatario</th>
               <th>Totale</th>
               <th>Stato</th>
+              <th>File ufficiali</th>
             </tr>
           </thead>
           <tbody>
@@ -147,13 +150,18 @@ function ArubaInventorySynthetic({
                 data-order-references={isInvoice ? "SYNTH-ORDER-001" : ""}
                 data-aruba-xml-url={isInvoice ? invoiceXmlUrl : creditXmlUrl}
               >
-                <td>{isInvoice ? "TD01 FPR 1" : "TD04 FPR 2"}</td>
+                <td>{isInvoice ? "SYNTH-INV-001" : "SYNTH-TD04-001"}</td>
+                <td>{isInvoice ? "Fattura - TD01" : "Nota di credito - TD04"}</td>
+                <td>{isInvoice ? "FPR 1" : "FPR 2"}</td>
                 <td>
                   {isInvoice ? "10" : "11"}/08/{year}
                 </td>
                 <td>{isInvoice ? "Mario Rossi" : "Cliente Esempio Srl"}</td>
                 <td>{isInvoice ? "123,45 €" : "23,45 €"}</td>
                 <td>{isInvoice ? "Consegnato" : "In elaborazione SdI"}</td>
+                <td>
+                  <a href={isInvoice ? invoiceXmlUrl : creditXmlUrl}>Scarica XML</a>
+                </td>
               </tr>
             ) : null}
           </tbody>

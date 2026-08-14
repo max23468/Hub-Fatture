@@ -51,6 +51,8 @@ Il pannello sintetico espone lo scenario `?scenario=inventory`. Safari resta sup
 
 Il pannello mostra le date come `GG/MM/AAAA` e gli importi con virgola e simbolo euro; gli attributi sintetici restano ammessi nei test. I limiti riletti sono 4,9 MB per documento, 300 documenti e 30 MB per caricamento. L’helper applica tutti e tre i limiti prima dell’upload.
 
+La lettura Production non usa gli attributi della fixture: individua un’unica tabella visibile tramite le intestazioni semantiche `ID remoto`, `Tipo documento`, `Numero`, `Data`, `Destinatario`, `Totale`, `Stato` e legge i file ufficiali dai collegamenti visibili `Scarica XML`, `Scarica P7M`, `Scarica PDF` e `Scarica notifica/ricevuta`. Intestazioni mancanti, tabelle multiple compatibili, righe con un numero di celle diverso o più collegamenti dello stesso tipo arrestano la sessione.
+
 Con più documenti l’helper deve usare esclusivamente `INVIA TUTTE`: scegliere il primo `INVIA` di riga invierebbe soltanto una parte del manifest ed è quindi un DOM non riconosciuto. La modalità assistita si arresta prima di qualunque controllo di invio.
 
 L’assenza di una conferma visibile o dell’identificativo remoto dopo il clic non viene interpretata come successo: apre la riconciliazione. Gli stati conclusivi non possono regredire e un invio già osservato non può diventare `REMOVED` e ritentabile.

@@ -3,7 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
-import { chromium, type BrowserContext, type Page } from "playwright";
+import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+
+import { assertAccount } from "./aruba-helper.ts";
 
 import {
   assertAllowedArubaDownload,
@@ -120,25 +122,160 @@ async function waitForLogin(page: Page, heartbeat: () => Promise<void>) {
   }
 }
 
-async function assertAccount(page: Page, expected: string) {
-  const account = page.locator("[data-aruba-account]").first();
-  if (!(await account.count()) || !(await account.isVisible())) throw new Error("DOM_UNRECOGNIZED");
-  const declared = await account.getAttribute("data-aruba-account");
-  if (declared !== expected) throw new Error("ACCOUNT_MISMATCH");
-}
-
 function integer(value: string | null): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) throw new Error("DOM_UNRECOGNIZED");
   return parsed;
 }
 
-async function readVisiblePage(
+function italianDate(value: string): string {
+  const match = value.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
+  if (!match) throw new Error("DOM_UNRECOGNIZED");
+  return `${match[3]}-${match[2]}-${match[1]}`;
+}
+
+function italianAmount(value: string): number {
+  const match = value.match(/(?:€\s*)?(-?\d{1,3}(?:\.\d{3})*|\d+),(\d{2})(?:\s*€)?/);
+  if (!match) throw new Error("DOM_UNRECOGNIZED");
+  const cents = Number(`${match[1]!.replaceAll(".", "")}${match[2]}`);
+  if (!Number.isSafeInteger(cents) || cents < 0) throw new Error("DOM_UNRECOGNIZED");
+  return cents;
+}
+
+function visibleRemoteStatus(value: string): RemoteInventoryDocument["status"] {
+  if (/non consegnat|mancata consegna/i.test(value)) return "NOT_DELIVERED";
+  if (/consegnat/i.test(value)) return "DELIVERED";
+  if (/scartat|rifiutat/i.test(value)) return "REJECTED";
+  if (/elaborazione|in lavorazione|inoltrat[oa] a sdi/i.test(value)) return "SDI_PROCESSING";
+  if (/inviat|trasmess/i.test(value)) return "SUBMITTED";
+  return "UNKNOWN";
+}
+
+function headerIndex(headers: string[], pattern: RegExp): number {
+  return headers.findIndex((header) => pattern.test(header));
+}
+
+async function uniqueInventoryTable(page: Page): Promise<Locator> {
+  const tables = page.locator("table");
+  const candidates: Locator[] = [];
+  for (let index = 0; index < (await tables.count()); index += 1) {
+    const table = tables.nth(index);
+    if (!(await table.isVisible())) continue;
+    const headers = (await table.locator("thead th").allInnerTexts()).map((value) => value.trim());
+    if (
+      headers.some((value) => /data/i.test(value)) &&
+      headers.some((value) => /stato/i.test(value)) &&
+      headers.some((value) => /totale|importo/i.test(value))
+    ) {
+      candidates.push(table);
+    }
+  }
+  if (candidates.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+  return candidates[0]!;
+}
+
+async function readProductionRows(page: Page) {
+  const table = await uniqueInventoryTable(page);
+  const headers = (await table.locator("thead th").allInnerTexts()).map((value) => value.trim());
+  const indices = {
+    remoteId: headerIndex(headers, /^(?:id|identificativo)(?:\s+(?:aruba|remoto))?$/i),
+    type: headerIndex(headers, /tipo|documento/i),
+    number: headerIndex(headers, /numero/i),
+    date: headerIndex(headers, /data/i),
+    recipient: headerIndex(headers, /destinatario|cliente/i),
+    total: headerIndex(headers, /totale|importo/i),
+    status: headerIndex(headers, /stato/i),
+  };
+  if ([indices.remoteId, indices.date, indices.total, indices.status].some((value) => value < 0)) {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  const rows = table.locator("tbody tr");
+  if ((await rows.count()) > 300) throw new Error("DOM_UNRECOGNIZED");
+  const documents: RemoteInventoryDocument[] = [];
+  const files: Array<{
+    remoteId: string;
+    kind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
+    url: string;
+  }> = [];
+  for (let index = 0; index < (await rows.count()); index += 1) {
+    const row = rows.nth(index);
+    if (!(await row.isVisible())) continue;
+    const cells = (await row.locator("td").allInnerTexts()).map((value) => value.trim());
+    if (cells.length !== headers.length) throw new Error("DOM_UNRECOGNIZED");
+    const text = cells.join(" ");
+    const typeText = indices.type >= 0 ? cells[indices.type]! : text;
+    const documentType = /\bTD0?4\b/i.test(typeText)
+      ? "TD04"
+      : /\bTD0?1\b/i.test(typeText)
+        ? "TD01"
+        : null;
+    const remoteId = cells[indices.remoteId]!.trim();
+    if (!documentType || !remoteId || remoteId.length > 200) throw new Error("DOM_UNRECOGNIZED");
+    const documentDate = italianDate(cells[indices.date]!);
+    const number = indices.number >= 0 ? cells[indices.number]!.trim() : "";
+    const numberParts = number.match(/^(?:(\S+)\s+)?(.+)$/);
+    documents.push({
+      remoteId,
+      documentType,
+      fiscalYear: Number(documentDate.slice(0, 4)),
+      series: numberParts?.[1] ?? null,
+      fiscalNumber: numberParts?.[2] ?? null,
+      documentDate,
+      recipientName: indices.recipient >= 0 ? cells[indices.recipient] || null : null,
+      recipientTaxId: null,
+      recipientCountryCode: null,
+      recipientAddress: null,
+      totalAmount: italianAmount(cells[indices.total]!),
+      currency: "EUR",
+      status: visibleRemoteStatus(cells[indices.status]!),
+      providerObservedAt: null,
+      xmlSha256: null,
+      orderReferences: [],
+    });
+    for (const [kind, label] of [
+      ["ARUBA_XML", /Scarica XML/i],
+      ["ARUBA_P7M", /Scarica P7M/i],
+      ["ARUBA_PDF", /Scarica PDF/i],
+      ["SDI_NOTIFICATION", /Scarica (?:notifica|ricevuta)/i],
+    ] as const) {
+      const links = row.getByRole("link", { name: label });
+      if ((await links.count()) > 1) throw new Error("DOM_UNRECOGNIZED");
+      if ((await links.count()) === 1 && (await links.first().isVisible())) {
+        const url = await links.first().getAttribute("href");
+        if (!url) throw new Error("DOM_UNRECOGNIZED");
+        files.push({ remoteId, kind, url });
+      }
+    }
+  }
+  return { documents, files };
+}
+
+export async function readVisiblePage(
   page: Page,
   stream: string,
   scanOrdinal: number,
   pageOrdinal: number,
+  environment: ArubaReadManifest["environment"] = "MOCK",
 ) {
+  if (environment === "PRODUCTION") {
+    const { documents, files } = await readProductionRows(page);
+    const next = page.getByRole("button", { name: /Pagina successiva|Successiva/i }).first();
+    const hasNext = Boolean(
+      (await next.count()) && (await next.isVisible()) && (await next.isEnabled()),
+    );
+    return {
+      inventory: inventoryPageSchema.parse({
+        stream,
+        scanOrdinal,
+        pageOrdinal,
+        cursor: `${stream}:${pageOrdinal}`,
+        terminal: !hasNext,
+        fullScan: true,
+        documents,
+      }),
+      files,
+    };
+  }
   const rows = page.locator("tr[data-aruba-remote-id][data-document-type]");
   const count = await rows.count();
   if (count > 300) throw new Error("DOM_UNRECOGNIZED");
@@ -291,7 +428,13 @@ export async function runArubaReadCycle(
     while (true) {
       await heartbeat();
       assertAllowedArubaNavigation(page.url(), target);
-      const { inventory, files } = await readVisiblePage(page, stream, scanOrdinal, pageOrdinal);
+      const { inventory, files } = await readVisiblePage(
+        page,
+        stream,
+        scanOrdinal,
+        pageOrdinal,
+        manifest.environment,
+      );
       const ingest = await hubJson<{ requestedFiles?: Array<{ remoteId: string; kind: string }> }>(
         hub,
         token,
