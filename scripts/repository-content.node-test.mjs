@@ -352,9 +352,9 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(ci, /name: E2E \$\{\{ matrix\.label \}\}\n    if: needs\.impact\.outputs\.e2e/);
   const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
   assert.match(e2e, /browser: chromium[\s\S]*label: Chromium/);
-  assert.match(e2e, /browser: webkit[\s\S]*label: WebKit/);
+  assert.match(e2e, /browser: webkit[\s\S]*label: WebKit[\s\S]*install: webkit chromium/);
   assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npx playwright test"));
-  assert.match(e2e, /playwright install --with-deps \$\{\{ matrix\.browser \}\}/);
+  assert.match(e2e, /playwright install --with-deps \$\{\{ matrix\.install \}\}/);
   assert.match(e2e, /playwright test --project=\$\{\{ matrix\.browser \}\}/);
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
   assert.doesNotMatch(ci, /workflow_dispatch:/);

@@ -167,8 +167,10 @@ jobs:
         include:
           - browser: chromium
             label: Chromium
+            install: chromium
           - browser: webkit
             label: WebKit
+            install: webkit chromium
     services:
       postgres:
         image: postgres:18.4-bookworm@sha256:882236b897e39051d2368c5ccc6cda944904723506b2dfc97f2a8f5bc9afa382
@@ -200,7 +202,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
       - run: npm ci
       - run: npm run build
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npx playwright install --with-deps ${{ matrix.install }}
       - run: npx playwright test --project=${{ matrix.browser }}
 
   aruba-helper-platform:
