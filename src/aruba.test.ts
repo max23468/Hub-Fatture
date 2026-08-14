@@ -162,12 +162,17 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
       "base64",
     ),
   );
-  validateOfficialFile(
-    "ARUBA_P7M",
-    Buffer.from(
-      await readFile("tests/fixtures/aruba/official-p7m.synthetic.der.base64", "utf8"),
-      "base64",
-    ),
+  const signedDataDer = Buffer.from(
+    await readFile("tests/fixtures/aruba/official-p7m.synthetic.der.base64", "utf8"),
+    "base64",
   );
+  validateOfficialFile("ARUBA_P7M", signedDataDer);
+  const rootLengthBytes = signedDataDer[1]! & 0x80 ? signedDataDer[1]! & 0x7f : 0;
+  const signedDataBer = Buffer.concat([
+    Buffer.from([0x30, 0x80]),
+    signedDataDer.subarray(2 + rootLengthBytes),
+    Buffer.from([0x00, 0x00]),
+  ]);
+  validateOfficialFile("ARUBA_P7M", signedDataBer);
   assert.throws(() => validateOfficialFile("ARUBA_P7M", Buffer.from([0x30, 0x00])));
 });

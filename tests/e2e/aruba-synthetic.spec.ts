@@ -267,6 +267,72 @@ test("la pagina sintetica espone stream completi per l’inventario in sola lett
   await expect(page.getByRole("button", { name: "Pagina successiva" })).toBeDisabled();
 });
 
+test("il lettore di produzione correla le due griglie ExtJS e filtra il flusso fiscale", async ({
+  page,
+}) => {
+  const cells = (values: Record<number, string>, count: number) =>
+    Array.from(
+      { length: count },
+      (_, index) => `<div class="x-gridcell">${values[index] ?? ""}</div>`,
+    ).join("");
+  const year = new Date().getUTCFullYear();
+  await page.setContent(`
+    <div class="aruba-grid-fatture-inviate">
+      <section class="x-grid">
+        <div class="x-gridrow" data-recordindex="0">${cells(
+          {
+            4: `10/08/${year}`,
+            5: `FPR 1/${String(year).slice(-2)}`,
+            7: "Cliente sintetico",
+            8: "TD01",
+            10: "123,45 €",
+            17: "12345678901",
+          },
+          23,
+        )}</div>
+        <div class="x-gridrow" data-recordindex="1">${cells(
+          {
+            4: `11/08/${year}`,
+            5: `FPR 2/${String(year).slice(-2)}`,
+            7: "Cliente sintetico due",
+            8: "TD04",
+            10: "10,00 €",
+            17: "12345678902",
+          },
+          23,
+        )}</div>
+      </section>
+      <section class="x-grid locked-grid-border-left">
+        <div class="x-gridrow" data-recordindex="0">${cells(
+          {
+            0: "Emessa e consegnata",
+            1: '<div class="x-tool"><div class="aru-xml"></div></div>',
+          },
+          3,
+        )}</div>
+        <div class="x-gridrow" data-recordindex="1">${cells({ 0: "Inviata a SdI" }, 3)}</div>
+      </section>
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>
+    </div>
+  `);
+
+  const result = await readVisiblePage(page, `invoices:${year}`, 1, 1, "PRODUCTION");
+  expect(result.inventory.terminal).toBe(true);
+  expect(result.inventory.documents).toEqual([
+    expect.objectContaining({
+      remoteId: "12345678901",
+      documentType: "TD01",
+      fiscalYear: year,
+      series: "FPR",
+      fiscalNumber: "1",
+      totalAmount: 12345,
+      status: "DELIVERED",
+      orderReferences: [],
+    }),
+  ]);
+  expect(result.files).toEqual([{ remoteId: "12345678901", kind: "ARUBA_XML", recordIndex: "0" }]);
+});
+
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/aruba-sintetica?scenario=unexpected");

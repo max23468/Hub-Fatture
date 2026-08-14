@@ -216,15 +216,31 @@ const SIGNED_DATA_OID = Buffer.from([
 ]);
 const DATA_OID = Buffer.from([0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01]);
 
-function derElement(bytes: Buffer, offset: number, limit: number) {
+function derElement(bytes: Buffer, offset: number, limit: number, depth = 0) {
+  if (depth > 64) throw new Error("p7m");
   if (offset + 2 > limit) throw new Error("p7m");
   const tag = bytes[offset]!;
   const firstLength = bytes[offset + 1]!;
+  if ((tag & 0x1f) === 0x1f) throw new Error("p7m");
+  if (firstLength === 0x80) {
+    if (!(tag & 0x20)) throw new Error("p7m");
+    const contentStart = offset + 2;
+    let cursor = contentStart;
+    let elements = 0;
+    while (cursor + 2 <= limit && (bytes[cursor] !== 0 || bytes[cursor + 1] !== 0)) {
+      const child = derElement(bytes, cursor, limit, depth + 1);
+      cursor = child.end;
+      elements += 1;
+      if (elements > 20_000) throw new Error("p7m");
+    }
+    if (cursor + 2 > limit) throw new Error("p7m");
+    return { tag, contentStart, contentEnd: cursor, end: cursor + 2 };
+  }
   let headerBytes = 2;
   let length = firstLength;
   if (firstLength & 0x80) {
     const lengthBytes = firstLength & 0x7f;
-    if (!lengthBytes || lengthBytes > 4 || offset + 2 + lengthBytes > limit) throw new Error("p7m");
+    if (lengthBytes > 4 || offset + 2 + lengthBytes > limit) throw new Error("p7m");
     length = 0;
     for (let index = 0; index < lengthBytes; index += 1) {
       length = length * 256 + bytes[offset + 2 + index]!;
@@ -235,7 +251,7 @@ function derElement(bytes: Buffer, offset: number, limit: number) {
   const contentStart = offset + headerBytes;
   const end = contentStart + length;
   if (end > limit) throw new Error("p7m");
-  return { tag, contentStart, end };
+  return { tag, contentStart, contentEnd: end, end };
 }
 
 function validateSignedDataDer(bytes: Buffer): void {
@@ -252,7 +268,7 @@ function validateSignedDataDer(bytes: Buffer): void {
     if (offset !== end) throw new Error("p7m");
     return result;
   };
-  const contentInfo = children(root.contentStart, root.end);
+  const contentInfo = children(root.contentStart, root.contentEnd);
   if (
     contentInfo.length !== 2 ||
     !bytes.subarray(contentInfo[0]!.start, contentInfo[0]!.end).equals(SIGNED_DATA_OID) ||
@@ -260,9 +276,12 @@ function validateSignedDataDer(bytes: Buffer): void {
   ) {
     throw new Error("p7m");
   }
-  const explicitContent = children(contentInfo[1]!.contentStart, contentInfo[1]!.end);
+  const explicitContent = children(contentInfo[1]!.contentStart, contentInfo[1]!.contentEnd);
   if (explicitContent.length !== 1 || explicitContent[0]!.tag !== 0x30) throw new Error("p7m");
-  const signedDataFields = children(explicitContent[0]!.contentStart, explicitContent[0]!.end);
+  const signedDataFields = children(
+    explicitContent[0]!.contentStart,
+    explicitContent[0]!.contentEnd,
+  );
   if (
     signedDataFields.length < 4 ||
     signedDataFields[0]!.tag !== 0x02 ||
@@ -272,7 +291,10 @@ function validateSignedDataDer(bytes: Buffer): void {
   ) {
     throw new Error("p7m");
   }
-  const encapsulatedContent = children(signedDataFields[2]!.contentStart, signedDataFields[2]!.end);
+  const encapsulatedContent = children(
+    signedDataFields[2]!.contentStart,
+    signedDataFields[2]!.contentEnd,
+  );
   if (
     !encapsulatedContent.length ||
     !bytes.subarray(encapsulatedContent[0]!.start, encapsulatedContent[0]!.end).equals(DATA_OID)
@@ -287,12 +309,12 @@ function validateSignedDataDer(bytes: Buffer): void {
       const element = derElement(bytes, offset, end);
       elements += 1;
       if (elements > 20_000) throw new Error("p7m");
-      if (element.tag & 0x20) visit(element.contentStart, element.end, depth + 1);
+      if (element.tag & 0x20) visit(element.contentStart, element.contentEnd, depth + 1);
       offset = element.end;
     }
     if (offset !== end) throw new Error("p7m");
   };
-  visit(root.contentStart, root.end, 1);
+  visit(root.contentStart, root.contentEnd, 1);
 }
 
 export function validateUntrustedXml(bytes: Buffer): string {

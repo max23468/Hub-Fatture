@@ -6,22 +6,22 @@ Questo è il record del candidato Production osservato. Un gate è chiuso soltan
 
 | Campo                    | Stato osservato                                                                                                         |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Versione applicativa     | `0.3.41`, candidata localmente alla pubblicazione                                                                       |
+| Versione applicativa     | `0.3.44`, candidata localmente alla pubblicazione                                                                       |
 | Commit runtime candidato | Da associare all’HEAD esatto dopo merge                                                                                 |
 | Digest immagine          | Da produrre e attestare dopo merge                                                                                      |
-| Schema candidato         | `030_aruba_inbound_reconciliation.sql`; Production resta su `029_aruba_canary_permit.sql` fino al deploy                |
-| Release tecnica          | `v0.3.41`, da pubblicare soltanto dopo deploy e readback                                                                |
+| Schema candidato         | `030_aruba_inbound_reconciliation.sql`; nessuna nuova migrazione nel candidato                                          |
+| Release tecnica          | `v0.3.44`, da pubblicare soltanto dopo deploy, readback e scansione Aruba exact-commit                                  |
 | Workflow Production      | Da eseguire sull’HEAD esatto dopo merge                                                                                 |
 | Artefatto e attestazione | Da produrre sull’HEAD esatto dopo merge                                                                                 |
 | Rollback tecnico         | digest `sha256:c5861fde54a9083529ce9f8c0e98e735ff32cb1534625d4ac82d6abfe1a3e131`, registrato nel manifest della release |
 | Kill switch              | `ARUBA_SUBMISSION_ENABLED=false` nel readback Production                                                                |
 | Health pubblico          | `GET https://fatture.opik.net/health` ha restituito `{"status":"ok"}` nel readback corrente                             |
 
-Questa identità descrive un candidato non ancora distribuito e non autorizza il Canary. Le prove legate a commit, digest o ambiente Production precedenti restano evidenza storica della capacità, ma non chiudono il gate exact-commit di `0.3.41`.
+Questa identità descrive un candidato non ancora distribuito e non autorizza il Canary. Le prove legate a commit, digest o ambiente Production precedenti restano evidenza storica della capacità, ma non chiudono il gate exact-commit di `0.3.44`.
 
 ## Gate del candidato
 
-| Gate exact-commit                         | Stato `0.3.41`                                      | Condizione di chiusura                                                                                                                                                         |
+| Gate exact-commit                         | Stato `0.3.44`                                      | Condizione di chiusura                                                                                                                                                         |
 | ----------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Audit dipendenze                          | Chiuso localmente                                   | `nanoid` è `3.3.18` e `npm audit --audit-level=high` non rileva vulnerabilità; serve la ricevuta CI sull’HEAD finale                                                           |
 | Audit runtime trasversale                 | In corso                                            | l’[audit incrementale](../audits/release-candidate-review.md) copre i commit successivi al vecchio candidato e la PR corrente; review exact-HEAD senza P0/P1 ancora necessaria |
@@ -34,7 +34,7 @@ Questa identità descrive un candidato non ancora distribuito e non autorizza il
 | Readback, health, allarmi e monitor       | Aperto sul candidato finale                         | dopo il deploy vanno riletti schema `030`, versione, commit, kill switch, code operative, health e monitor                                                                     |
 | Qualifica OCI Email Delivery              | Chiusa come capacità precedente; nessun nuovo invio | il candidato non modifica il trasporto; qualunque altra e-mail reale richiede una richiesta separata                                                                           |
 | Esercizio incidente e rollback            | Aperto                                              | la corsia è cambiata dopo l’ultima prova reale; un esercizio fresco richiede autorizzazione esplicita                                                                          |
-| Inventario Aruba provider-first           | Implementato sinteticamente; qualifica reale aperta | la prima scansione completa dell’account reale non è autorizzata da questa pubblicazione                                                                                       |
+| Inventario Aruba provider-first           | Inventario reale qualificato; file da ripetere      | la scansione completa senza invio ha qualificato DOM e paginazione; dopo il deploy va ripetuta sull’HEAD esatto includendo i file ufficiali BER                                |
 | Audit e readiness finali                  | Aperti                                              | si chiudono soltanto collegando HEAD, CI, review, digest, deploy e readback del medesimo candidato                                                                             |
 | Autorizzazione del titolare per il Canary | Non richiedibile                                    | richiede prima la chiusura dei gate precedenti; questo record non autorizza il Canary                                                                                          |
 

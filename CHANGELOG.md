@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.44
+
+- La sincronizzazione in sola lettura usa la doppia griglia ExtJS osservata nel pannello Aruba reale, seleziona anno e pagine in modo fail-closed e importa soltanto TD01 e TD04 nel relativo stream.
+- I file ufficiali richiesti vengono scaricati dai controlli visibili della riga, mantenuti entro il limite in memoria e trasferiti immediatamente al server senza copie locali persistenti.
+- Il validatore dei P7M ufficiali accetta CMS SignedData sia DER sia BER costruito a lunghezza indefinita, conservando i limiti strutturali e dimensionali.
+
 ## 0.3.43
 
 - La verifica dell’identità Aruba considera soltanto l’elemento visibile che dichiara esattamente l’account atteso, ignorando i controlli annidati con lo stesso nome accessibile ma privi dell’identità testuale.

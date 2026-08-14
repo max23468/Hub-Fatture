@@ -61,6 +61,12 @@ interface PreflightWork {
   };
 }
 
+type OfficialFileKind = "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
+
+type OfficialFileSource =
+  | { remoteId: string; kind: OfficialFileKind; url: string; recordIndex?: never }
+  | { remoteId: string; kind: OfficialFileKind; recordIndex: string; url?: never };
+
 async function hubJson<T>(
   hub: URL,
   token: string,
@@ -98,7 +104,11 @@ async function hubFile(
       body: Uint8Array.from(bytes),
     },
   );
-  if (!response.ok) throw new Error(`HUB_${response.status}`);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { code?: unknown } | null;
+    const code = typeof payload?.code === "string" ? payload.code : "UNKNOWN";
+    throw new Error(`HUB_FILE_${kind}_${response.status}_${code}`);
+  }
 }
 
 function launchOptions(options: ReadHelperOptions, environment: ArubaReadManifest["environment"]) {
@@ -225,6 +235,10 @@ async function uniqueInventoryTable(page: Page): Promise<Locator> {
 }
 
 async function readProductionRows(page: Page) {
+  const extGrid = page.locator(".aruba-grid-fatture-inviate").first();
+  if ((await extGrid.count()) && (await extGrid.isVisible())) {
+    return readProductionExtGrid(extGrid);
+  }
   const table = await uniqueInventoryTable(page);
   const headers = (await table.locator("thead th").allInnerTexts()).map((value) => value.trim());
   const indices = {
@@ -309,6 +323,136 @@ async function readProductionRows(page: Page) {
   return { documents, files };
 }
 
+function parseStream(stream: string) {
+  const match = /^(invoices|credit-notes):(\d{4})$/.exec(stream);
+  if (!match) throw new Error("DOM_UNRECOGNIZED");
+  return {
+    documentType: match[1] === "invoices" ? ("TD01" as const) : ("TD04" as const),
+    year: Number(match[2]),
+  };
+}
+
+async function readProductionExtGrid(grid: Locator) {
+  const rows = grid.locator(".x-gridrow[data-recordindex]");
+  const primary = new Map<string, Locator>();
+  const statuses = new Map<string, Locator>();
+  const count = await rows.count();
+  if (!count || count > 600) throw new Error("DOM_UNRECOGNIZED");
+  for (let index = 0; index < count; index += 1) {
+    const row = rows.nth(index);
+    const recordIndex = await row.getAttribute("data-recordindex");
+    if (!recordIndex || !/^\d+$/.test(recordIndex)) throw new Error("DOM_UNRECOGNIZED");
+    const cellCount = await row.locator(".x-gridcell").count();
+    const target = cellCount >= 18 ? primary : statuses;
+    if (target.has(recordIndex)) throw new Error("DOM_UNRECOGNIZED");
+    target.set(recordIndex, row);
+  }
+  if (!primary.size || primary.size > 300 || primary.size !== statuses.size) {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  const documents: RemoteInventoryDocument[] = [];
+  const files: OfficialFileSource[] = [];
+  for (const [recordIndex, primaryRow] of primary) {
+    const statusRow = statuses.get(recordIndex);
+    if (!statusRow) throw new Error("DOM_UNRECOGNIZED");
+    const cells = (await primaryRow.locator(".x-gridcell").allInnerTexts()).map((value) =>
+      value.trim(),
+    );
+    const statusCells = (await statusRow.locator(".x-gridcell").allInnerTexts()).map((value) =>
+      value.trim(),
+    );
+    if (cells.length < 18 || !statusCells.length) throw new Error("DOM_UNRECOGNIZED");
+    const type = cells[8]!.match(/\b(TD01|TD04)\b/i)?.[1]?.toUpperCase();
+    if (type !== "TD01" && type !== "TD04") continue;
+    const documentDate = italianDate(cells[4]!);
+    const fiscalYear = Number(documentDate.slice(0, 4));
+    const fiscalIdentity = parseProductionFiscalNumber(cells[5]!, fiscalYear);
+    const remoteId = cells[17]!.trim();
+    if (!/^\d{6,30}$/.test(remoteId)) throw new Error("DOM_UNRECOGNIZED");
+    documents.push({
+      remoteId,
+      documentType: type,
+      fiscalYear,
+      series: fiscalIdentity.series,
+      fiscalNumber: fiscalIdentity.fiscalNumber,
+      documentDate,
+      recipientName: cells[7] || null,
+      recipientTaxId: null,
+      recipientCountryCode: null,
+      recipientAddress: null,
+      totalAmount: italianAmount(cells[10]!),
+      currency: "EUR",
+      status: visibleRemoteStatus(statusCells[0]!),
+      providerObservedAt: null,
+      xmlSha256: null,
+      orderReferences: [],
+    });
+    const downloads = statusRow.locator(".x-gridcell").nth(1);
+    for (const [kind, iconClass] of [
+      ["ARUBA_XML", "aru-xml"],
+      ["ARUBA_P7M", "aru-p7m"],
+      ["ARUBA_PDF", "aru-pdf"],
+      ["SDI_NOTIFICATION", "aru-sdi"],
+    ] as const) {
+      const icons = downloads.locator(`.${iconClass}`);
+      if ((await icons.count()) > 1) throw new Error("DOM_UNRECOGNIZED");
+      if ((await icons.count()) === 1) files.push({ remoteId, kind, recordIndex });
+    }
+  }
+  return { documents, files };
+}
+
+async function productionNextButton(page: Page) {
+  const candidates = page.locator(
+    '.aruba-grid-fatture-inviate button[aria-label*="nextPage"], .aruba-grid-fatture-inviate button[title*="nextPage"], .aruba-grid-fatture-inviate [title*="nextPage"] button',
+  );
+  const visible: Locator[] = [];
+  for (let index = 0; index < (await candidates.count()); index += 1) {
+    const candidate = candidates.nth(index);
+    if (await candidate.isVisible()) visible.push(candidate);
+  }
+  if (visible.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+  return visible[0]!;
+}
+
+async function productionHasNext(page: Page) {
+  const next = await productionNextButton(page);
+  return next.evaluate((element) => {
+    const wrapper = element.closest(".x-disabled, [aria-disabled='true']");
+    return !(element as HTMLButtonElement).disabled && !wrapper;
+  });
+}
+
+async function productionPageFingerprint(page: Page) {
+  const rows = page.locator(
+    ".aruba-grid-fatture-inviate .x-gridrow[data-recordindex] .x-gridcell:nth-child(18)",
+  );
+  const values = (await rows.allInnerTexts()).map((value) => value.trim()).filter(Boolean);
+  if (!values.length) throw new Error("DOM_UNRECOGNIZED");
+  return values.join("|");
+}
+
+async function advanceProductionPage(page: Page) {
+  const before = await productionPageFingerprint(page);
+  const next = await productionNextButton(page);
+  if (!(await productionHasNext(page))) throw new Error("DOM_UNRECOGNIZED");
+  await next.click();
+  await page.waitForFunction(
+    ({ selector, fingerprint }) => {
+      const values = [...document.querySelectorAll(selector)]
+        .map((element) => element.textContent?.trim() ?? "")
+        .filter(Boolean)
+        .join("|");
+      return Boolean(values) && values !== fingerprint;
+    },
+    {
+      selector:
+        ".aruba-grid-fatture-inviate .x-gridrow[data-recordindex] .x-gridcell:nth-child(18)",
+      fingerprint: before,
+    },
+  );
+}
+
 export function parseProductionFiscalNumber(value: string, fiscalYear: number) {
   const match = /^(\S+)\s+(\d+)\/(\d{2}|\d{4})$/.exec(value.trim());
   if (!match) throw new Error("DOM_UNRECOGNIZED");
@@ -333,10 +477,26 @@ export async function readVisiblePage(
 ) {
   if (environment === "PRODUCTION") {
     const { documents, files } = await readProductionRows(page);
-    const next = page.getByRole("button", { name: /Pagina successiva|Successiva/i }).first();
-    const hasNext = Boolean(
-      (await next.count()) && (await next.isVisible()) && (await next.isEnabled()),
+    const expected = parseStream(stream);
+    const filtered = documents.filter(
+      (document) =>
+        document.documentType === expected.documentType && document.fiscalYear === expected.year,
     );
+    const usesExtGrid = await page
+      .locator(".aruba-grid-fatture-inviate")
+      .first()
+      .isVisible()
+      .catch(() => false);
+    const semanticNext = page
+      .getByRole("button", { name: /Pagina successiva|Successiva/i })
+      .first();
+    const hasNext = usesExtGrid
+      ? await productionHasNext(page)
+      : Boolean(
+          (await semanticNext.count()) &&
+          (await semanticNext.isVisible()) &&
+          (await semanticNext.isEnabled()),
+        );
     return {
       inventory: inventoryPageSchema.parse({
         stream,
@@ -345,7 +505,7 @@ export async function readVisiblePage(
         cursor: `${stream}:${pageOrdinal}`,
         terminal: !hasNext,
         fullScan: true,
-        documents,
+        documents: filtered,
       }),
       files,
     };
@@ -354,11 +514,7 @@ export async function readVisiblePage(
   const count = await rows.count();
   if (count > 300) throw new Error("DOM_UNRECOGNIZED");
   const documents = [];
-  const files: Array<{
-    remoteId: string;
-    kind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
-    url: string;
-  }> = [];
+  const files: OfficialFileSource[] = [];
   for (let index = 0; index < count; index += 1) {
     const row = rows.nth(index);
     if (!(await row.isVisible())) continue;
@@ -424,15 +580,51 @@ export async function readVisiblePage(
   };
 }
 
-async function downloadOfficialFile(page: Page, url: string, target: URL) {
-  const allowed = assertAllowedArubaDownload(new URL(url, page.url()).toString(), target);
-  const response = await page.request.get(allowed.toString());
-  if (!response.ok()) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
-  const bytes = await response.body();
-  if (!bytes.byteLength || bytes.byteLength > 4_900_000) {
-    throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+async function downloadOfficialFile(page: Page, file: OfficialFileSource, target: URL) {
+  if (file.url) {
+    const allowed = assertAllowedArubaDownload(new URL(file.url, page.url()).toString(), target);
+    const response = await page.request.get(allowed.toString());
+    if (!response.ok()) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+    const bytes = await response.body();
+    if (!bytes.byteLength || bytes.byteLength > 4_900_000) {
+      throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+    }
+    return bytes;
   }
-  return bytes;
+  const recordIndex = file.recordIndex;
+  if (!recordIndex || !/^\d+$/.test(recordIndex)) throw new Error("DOM_UNRECOGNIZED");
+  const iconClass = {
+    ARUBA_XML: "aru-xml",
+    ARUBA_P7M: "aru-p7m",
+    ARUBA_PDF: "aru-pdf",
+    SDI_NOTIFICATION: "aru-sdi",
+  }[file.kind];
+  const tool = page
+    .locator(
+      `.aruba-grid-fatture-inviate .locked-grid-border-left .x-gridrow[data-recordindex="${recordIndex}"] .x-gridcell:nth-child(2) .${iconClass}`,
+    )
+    .locator(
+      "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' x-tool ')][1]",
+    );
+  if ((await tool.count()) !== 1 || !(await tool.isVisible())) {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  const [download] = await Promise.all([page.waitForEvent("download"), tool.click()]);
+  const stream = await download.createReadStream();
+  if (!stream) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of stream) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.byteLength;
+    if (size > 4_900_000) {
+      stream.destroy();
+      throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+    }
+    chunks.push(bytes);
+  }
+  if (!size || (await download.failure())) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+  return Buffer.concat(chunks, size);
 }
 
 async function applyDateFilter(page: Page, overlapFrom?: string | null) {
@@ -448,14 +640,50 @@ async function selectStream(page: Page, stream: string, overlapFrom?: string | n
   if (await selector.count()) {
     await selector.click();
   } else {
-    const [kind, year] = stream.split(":");
-    const link = page.getByRole("link", {
-      name: new RegExp(`${kind === "invoices" ? "Fatture" : "Note di credito"}.*${year}`, "i"),
-    });
-    if (!(await link.count())) throw new Error("DOM_UNRECOGNIZED");
-    await link.first().click();
+    const { year } = parseStream(stream);
+    if (overlapFrom) throw new Error("DOM_UNRECOGNIZED");
+    const yearControl = page.locator(".main-toolbar-info-fiscalyear").first();
+    if (!(await yearControl.count()) || !(await yearControl.isVisible())) {
+      throw new Error("DOM_UNRECOGNIZED");
+    }
+    await yearControl.locator("button").click();
+    const yearOptions = page.locator(".x-menuitem-sub-menu-mainToolbar");
+    const exactYears: Locator[] = [];
+    for (let index = 0; index < (await yearOptions.count()); index += 1) {
+      const option = yearOptions.nth(index);
+      if ((await option.isVisible()) && (await option.innerText()).trim() === String(year)) {
+        exactYears.push(option);
+      }
+    }
+    if (exactYears.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+    await exactYears[0]!.click();
+    await page.waitForFunction(
+      ({ selector, value }) =>
+        document.querySelector(selector)?.textContent?.includes(value) === true,
+      { selector: ".main-toolbar-info-fiscalyear", value: String(year) },
+    );
+    const sent = page.getByRole("menuitem").filter({ hasText: /^\s*Fatture inviate\s*$/i });
+    const visibleSent: Locator[] = [];
+    for (let index = 0; index < (await sent.count()); index += 1) {
+      if (await sent.nth(index).isVisible()) visibleSent.push(sent.nth(index));
+    }
+    if (visibleSent.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+    await visibleSent[0]!.click();
+    await page
+      .locator(".aruba-grid-fatture-inviate .x-gridrow[data-recordindex]")
+      .first()
+      .waitFor();
+    return;
   }
   await applyDateFilter(page, overlapFrom);
+}
+
+async function advancePage(page: Page, environment: ArubaReadManifest["environment"]) {
+  if (environment === "PRODUCTION") return advanceProductionPage(page);
+  await page
+    .getByRole("button", { name: /Pagina successiva|Successiva/i })
+    .first()
+    .click();
 }
 
 export async function runArubaReadCycle(
@@ -489,10 +717,7 @@ export async function runArubaReadCycle(
     let pageOrdinal = 1;
     const resumeAt = fullScan ? (streamManifest.resumePageOrdinal ?? 1) : 1;
     while (pageOrdinal < resumeAt) {
-      await page
-        .getByRole("button", { name: /Pagina successiva|Successiva/i })
-        .first()
-        .click();
+      await advancePage(page, manifest.environment);
       pageOrdinal += 1;
     }
     while (true) {
@@ -524,14 +749,11 @@ export async function runArubaReadCycle(
           token,
           file.remoteId,
           file.kind,
-          await downloadOfficialFile(page, file.url, target),
+          await downloadOfficialFile(page, file, target),
         );
       }
       if (inventory.terminal) break;
-      await page
-        .getByRole("button", { name: /Pagina successiva|Successiva/i })
-        .first()
-        .click();
+      await advancePage(page, manifest.environment);
       pageOrdinal += 1;
     }
   }
