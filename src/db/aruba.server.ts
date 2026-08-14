@@ -14,6 +14,7 @@ import {
   effectiveArubaMode,
   helperEventSchema,
   manifestSha256,
+  notificationBelongsToDocument,
   notificationStatus,
   validateOfficialFile,
   type ArubaFileKind,
@@ -1423,21 +1424,11 @@ async function importOfficialFile(
   }
   if (kind.data === "SDI_NOTIFICATION") {
     const xml = bytes.toString("utf8");
-    const filenames = [...xml.matchAll(/<(?:\w+:)?NomeFile>([^<]{1,255})<\//gi)].map((match) =>
-      path.posix
-        .basename(match[1]!.trim())
-        .replace(/\.p7m$/i, "")
-        .toLowerCase(),
-    );
-    const remoteIds = [
-      ...xml.matchAll(/<(?:\w+:)?(?:IdentificativoSdI|IdSdI)>([^<]{1,200})<\//gi),
-    ].map((match) => match[1]!.trim());
-    const filenameMatches = filenames.includes(current.filename.toLowerCase());
-    const remoteIdMatches = Boolean(current.remote_id && remoteIds.includes(current.remote_id));
     if (
-      (!filenameMatches && !remoteIdMatches) ||
-      (filenames.length > 0 && !filenameMatches) ||
-      (current.remote_id && remoteIds.length > 0 && !remoteIdMatches)
+      !notificationBelongsToDocument(xml, {
+        filename: current.filename,
+        remoteId: current.remote_id,
+      })
     ) {
       throw new AppError("ARUBA_IMPORT_INVALID", 409);
     }

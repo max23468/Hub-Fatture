@@ -21,6 +21,7 @@ import {
   ARUBA_IMPORT_MAX_BYTES,
   ARUBA_PANEL_ORIGIN,
   arubaFileKindSchema,
+  notificationBelongsToDocument,
   notificationStatus,
   validateOfficialFile,
   validateUntrustedXml,
@@ -438,6 +439,7 @@ interface InboundOrderCandidateRow {
   invoice_document_id: string | null;
   refund_ids: string[];
   refund_amounts: number[];
+  refund_dates: string[];
 }
 
 export function uniqueRefundSubset(
@@ -471,6 +473,7 @@ async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDoc
     `SELECT orders.id, orders.provider, orders.display_number, orders.local_order_date::text,
             orders.billing_case_id, invoice.document_id::text AS invoice_document_id,
             '{}'::text[] AS refund_ids, '{}'::integer[] AS refund_amounts,
+            '{}'::text[] AS refund_dates,
             (orders.gross_amount - orders.deducted_shopify_payments_fee_amount - coalesce((
               SELECT sum(refunds.amount) FROM refunds
               WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
@@ -508,7 +511,7 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
             coalesce(refundable.refund_date, invoice.document_date)::text AS local_order_date,
             orders.billing_case_id, invoice.document_id::text AS invoice_document_id,
             refundable.amount::integer AS billable_amount, refundable.refund_ids,
-            refundable.refund_amounts,
+            refundable.refund_amounts, refundable.refund_dates,
             customers.display_name AS recipient_name,
             coalesce((SELECT array_agg(order_tax_identifiers.normalized_value)
                       FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '{}')
@@ -532,10 +535,12 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
        SELECT sum(refunds.amount)::integer AS amount,
               max(refunds.completed_at)::date AS refund_date,
               array_agg(refunds.id::text ORDER BY refunds.id) AS refund_ids,
-              array_agg(refunds.amount::integer ORDER BY refunds.id) AS refund_amounts
+              array_agg(refunds.amount::integer ORDER BY refunds.id) AS refund_amounts,
+              array_agg(refunds.completed_at::date::text ORDER BY refunds.id) AS refund_dates
        FROM refunds
        WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
-         AND NOT refunds.applied_before_issue AND refunds.amount > 0 AND (
+         AND NOT refunds.applied_before_issue AND refunds.amount > 0
+         AND refunds.completed_at::date BETWEEN $1::date - 31 AND $1::date AND (
            refunds.credit_document_id IS NULL OR EXISTS (
              SELECT 1 FROM documents credit
              WHERE credit.id = refunds.credit_document_id
@@ -551,15 +556,95 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
   return result.rows;
 }
 
+async function submittedCreditNoteCandidates(client: pg.PoolClient, documentId: string) {
+  const result = await client.query<InboundOrderCandidateRow>(
+    `SELECT orders.id, orders.provider, orders.display_number,
+            max(refunds.completed_at)::date::text AS local_order_date,
+            orders.billing_case_id, links.related_document_id::text AS invoice_document_id,
+            sum(refunds.amount)::integer AS billable_amount,
+            array_agg(refunds.id::text ORDER BY refunds.id) AS refund_ids,
+            array_agg(refunds.amount::integer ORDER BY refunds.id) AS refund_amounts,
+            array_agg(refunds.completed_at::date::text ORDER BY refunds.id) AS refund_dates,
+            customers.display_name AS recipient_name,
+            coalesce((SELECT array_agg(order_tax_identifiers.normalized_value)
+                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '{}')
+              AS recipient_tax_ids,
+            concat_ws(' ',
+              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
+              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',
+              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}',
+              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'
+            ) AS recipient_address
+     FROM document_orders
+     JOIN orders ON orders.id = document_orders.order_id
+     JOIN customers ON customers.id = orders.customer_id
+     JOIN refunds ON refunds.order_id = orders.id AND refunds.credit_document_id = $1
+       AND refunds.status = 'COMPLETED' AND NOT refunds.applied_before_issue
+     JOIN document_links AS links ON links.document_id = $1
+       AND links.relation_type = 'CREDIT_NOTE_FOR_INVOICE'
+     WHERE document_orders.document_id = $1 AND document_orders.document_kind = 'CREDIT_NOTE'
+     GROUP BY orders.id, orders.provider, orders.display_number, orders.billing_case_id,
+              links.related_document_id, customers.display_name, orders.normalized_snapshot_json
+     ORDER BY orders.id`,
+    [documentId],
+  );
+  return result.rows;
+}
+
+interface SubmittedDocument {
+  id: string;
+  document_type: "TD01" | "TD04";
+  fiscal_year: number;
+  series: string;
+  fiscal_number: number;
+  document_date: string;
+  total_amount: number;
+}
+
+async function submittedDocumentForRemote(client: pg.PoolClient, remote: RemoteInventoryDocument) {
+  const result = await client.query<SubmittedDocument>(
+    `SELECT documents.id, documents.document_type, documents.fiscal_year, documents.series,
+            documents.fiscal_number, documents.document_date::text, documents.total_amount
+     FROM aruba_submissions
+     JOIN documents ON documents.id = aruba_submissions.document_id
+     JOIN aruba_batches ON aruba_batches.id = aruba_submissions.batch_id
+     WHERE aruba_submissions.remote_id = $1 AND aruba_submissions.environment = $2
+       AND aruba_batches.account_reference = $3 AND aruba_submissions.status <> 'REMOVED'
+       AND documents.status = 'APPROVED'
+     ORDER BY aruba_submissions.id DESC LIMIT 1`,
+    [remote.remoteId, environment(), accountReference()],
+  );
+  return result.rows[0] ?? null;
+}
+
+function submittedDocumentMatchesRemote(
+  submitted: SubmittedDocument,
+  remote: RemoteInventoryDocument,
+) {
+  return (
+    submitted.document_type === remote.documentType &&
+    submitted.fiscal_year === remote.fiscalYear &&
+    normalizedMatchText(submitted.series) === normalizedMatchText(remote.series) &&
+    submitted.fiscal_number === Number(remote.fiscalNumber) &&
+    submitted.document_date === remote.documentDate &&
+    submitted.total_amount === remote.totalAmount
+  );
+}
+
 async function reconcileRemoteDocument(
   client: pg.PoolClient,
   remoteId: string,
   remote: RemoteInventoryDocument,
 ) {
+  const submitted = await submittedDocumentForRemote(client, remote);
+  const submittedMatches = Boolean(submitted && submittedDocumentMatchesRemote(submitted, remote));
   const candidates =
     remote.documentType === "TD04"
       ? await creditNoteCandidates(client, remote)
       : await orderCandidates(client, remote);
+  if (remote.documentType === "TD04" && submitted?.document_type === "TD04" && submittedMatches) {
+    candidates.push(...(await submittedCreditNoteCandidates(client, submitted.id)));
+  }
   const individualCandidates = candidates.map((candidate) => {
     const refundSubset =
       remote.documentType === "TD04"
@@ -574,6 +659,13 @@ async function reconcileRemoteDocument(
     return {
       ...candidate,
       selected_refund_ids: refundSubset.status === "UNIQUE" ? refundSubset.ids : null,
+      selected_refund_date:
+        refundSubset.status === "UNIQUE"
+          ? candidate.refund_dates
+              .filter((_, index) => refundSubset.ids.includes(candidate.refund_ids[index]!))
+              .toSorted()
+              .at(-1)
+          : null,
       refund_subset_ambiguous: refundSubset.status === "AMBIGUOUS",
       match_amount:
         remote.documentType === "TD04" && refundSubset.status !== "NONE"
@@ -586,6 +678,7 @@ async function reconcileRemoteDocument(
   const evaluatedCandidates: Array<{
     source: InboundOrderCandidateRow & {
       selected_refund_ids?: string[] | null;
+      selected_refund_date?: string | null;
       refund_subset_ambiguous?: boolean;
       match_amount?: number;
     };
@@ -604,6 +697,11 @@ async function reconcileRemoteDocument(
       recipientAddress: candidate.recipient_address,
     },
   }));
+  for (const candidate of evaluatedCandidates) {
+    if (candidate.source.selected_refund_date) {
+      candidate.matchCandidate.localOrderDate = candidate.source.selected_refund_date;
+    }
+  }
   const matchCandidates = evaluatedCandidates.map((candidate) => candidate.matchCandidate);
   const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const groupedOrderCandidates = groupOrderCandidates(matchCandidates).filter(
@@ -654,7 +752,11 @@ async function reconcileRemoteDocument(
           billingCaseId: candidate.invoice_document_id,
           provider: candidate.provider,
           displayNumber: candidate.display_number,
-          localOrderDate: candidate.local_order_date,
+          localOrderDate:
+            candidate.refund_dates
+              .filter((_, index) => selectedRefundIds.includes(candidate.refund_ids[index]!))
+              .toSorted()
+              .at(-1) ?? candidate.local_order_date,
           billableAmount: selectedAmount,
           recipientName: candidate.recipient_name,
           recipientTaxIds: candidate.recipient_tax_ids,
@@ -687,20 +789,13 @@ async function reconcileRemoteDocument(
       : compatibleSubsetAmbiguous
         ? "AMBIGUOUS"
         : match.status;
+  if (submitted && !submittedMatches) status = "PROFILE_CONFLICT";
   const compatibleIndex =
     status === "MATCHED" ? match.evaluations.findIndex((evaluation) => evaluation.compatible) : -1;
   const selected = compatibleIndex >= 0 ? evaluatedCandidates[compatibleIndex]!.source : null;
   let documentId: string | null = null;
   if (selected) {
-    const local = await client.query<{ document_id: string }>(
-      `SELECT aruba_submissions.document_id
-       FROM aruba_submissions
-       JOIN documents ON documents.id = aruba_submissions.document_id
-       WHERE aruba_submissions.remote_id = $1 AND aruba_submissions.environment = $2
-       ORDER BY aruba_submissions.id DESC LIMIT 1`,
-      [remote.remoteId, environment()],
-    );
-    documentId = local.rows[0]?.document_id ?? null;
+    documentId = submitted?.id ?? null;
     if (remote.documentType === "TD01" && selected.invoice_document_id) {
       const linked = await client.query<{
         id: string;
@@ -1446,6 +1541,35 @@ async function importArubaRemoteOfficialFileAuthorized(
   );
   const remoteDocumentId = resolved.rows[0]?.id;
   if (!remoteDocumentId) throw new AppError("ARUBA_INVENTORY_INVALID", 404);
+  if (kind.data === "SDI_NOTIFICATION") {
+    const expected = await getPool().query<{ remote_id: string; filename: string | null }>(
+      `SELECT remote.remote_id, submitted.filename
+       FROM aruba_remote_documents AS remote
+       LEFT JOIN LATERAL (
+         SELECT batch_documents.filename
+         FROM aruba_submissions
+         JOIN aruba_batches ON aruba_batches.id = aruba_submissions.batch_id
+         JOIN aruba_batch_documents AS batch_documents
+           ON batch_documents.batch_id = aruba_submissions.batch_id
+          AND batch_documents.document_id = aruba_submissions.document_id
+         WHERE aruba_submissions.remote_id = remote.remote_id
+           AND aruba_submissions.environment = remote.environment
+           AND aruba_batches.account_reference = remote.account_reference
+         ORDER BY aruba_submissions.id DESC LIMIT 1
+       ) AS submitted ON true
+       WHERE remote.id = $1`,
+      [remoteDocumentId],
+    );
+    if (
+      !expected.rows[0] ||
+      !notificationBelongsToDocument(bytes.toString("utf8"), {
+        filename: expected.rows[0].filename,
+        remoteId: expected.rows[0].remote_id,
+      })
+    ) {
+      throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    }
+  }
   const duplicate = await getPool().query<{
     id: string;
     document_id: string | null;

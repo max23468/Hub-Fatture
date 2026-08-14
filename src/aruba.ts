@@ -322,6 +322,32 @@ export function notificationStatus(
   return "SDI_PROCESSING";
 }
 
+export function notificationBelongsToDocument(
+  xml: string,
+  expected: { filename?: string | null; remoteId?: string | null },
+): boolean {
+  const filenames = [...xml.matchAll(/<(?:\w+:)?NomeFile>([^<]{1,255})<\//gi)].map((match) =>
+    match[1]!
+      .trim()
+      .replace(/\\/g, "/")
+      .split("/")
+      .at(-1)!
+      .replace(/\.p7m$/i, "")
+      .toLowerCase(),
+  );
+  const remoteIds = [
+    ...xml.matchAll(/<(?:\w+:)?(?:IdentificativoSdI|IdSdI)>([^<]{1,200})<\//gi),
+  ].map((match) => match[1]!.trim());
+  const expectedFilename = expected.filename?.toLowerCase() ?? null;
+  const filenameMatches = Boolean(expectedFilename && filenames.includes(expectedFilename));
+  const remoteIdMatches = Boolean(expected.remoteId && remoteIds.includes(expected.remoteId));
+  return (
+    (filenameMatches || remoteIdMatches) &&
+    (!expectedFilename || filenames.length === 0 || filenameMatches) &&
+    (!expected.remoteId || remoteIds.length === 0 || remoteIdMatches)
+  );
+}
+
 export const verifiedArubaPanelContract = {
   limits: {
     fileBytes: ARUBA_UPLOAD_MAX_BYTES,

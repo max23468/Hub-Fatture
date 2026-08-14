@@ -191,6 +191,18 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     assert.equal(repeatedInvoicePage.repeated, true);
     assert.equal(repeatedInvoicePage.documents, 1);
     assert.ok(repeatedInvoicePage.requestedFiles.some((file) => file.kind === "ARUBA_XML"));
+    await assert.rejects(
+      inbound.importArubaRemoteOfficialFile(
+        session.token,
+        "REMOTE-001",
+        "SDI_NOTIFICATION",
+        Buffer.from(
+          "<RicevutaConsegna><NomeFile>altro.xml</NomeFile><IdentificativoSdI>REMOTE-OTHER</IdentificativoSdI></RicevutaConsegna>",
+        ),
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_INVENTORY_CONFLICT",
+    );
     await database.getPool().query(
       `UPDATE aruba_remote_documents SET remote_id = 'historical-document-synthetic',
          metadata_digest = repeat('a', 64)
@@ -297,6 +309,14 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          status, amount, completed_at, raw_json)
        VALUES ('SHOPIFY', 'shop', 'remote-order', 'refund-002', $1,
          'COMPLETED', 1000, '2026-08-11T09:00:00Z', '{}') RETURNING id`,
+      [order.rows[0]!.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO refunds
+        (provider, external_account_id, external_order_id, external_refund_id, order_id,
+         status, amount, completed_at, raw_json)
+       VALUES ('SHOPIFY', 'shop', 'remote-order', 'refund-future-unrelated', $1,
+         'COMPLETED', 500, '2026-10-01T09:00:00Z', '{}')`,
       [order.rows[0]!.id],
     );
     const assignedCreditDraftId = await database.withTransaction(async (client) => {
@@ -498,6 +518,89 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           .query("SELECT credit_document_id FROM refunds WHERE id = $1", [refund.rows[0]!.id])
       ).rows[0].credit_document_id,
       importedCredit.documentId,
+    );
+    const submittedBatchId = "50000000-0000-4000-8000-000000000001";
+    const submittedCredit = await database.getPool().query<{
+      draft_version: number;
+      xml_sha256: string;
+    }>("SELECT draft_version, xml_sha256 FROM documents WHERE id = $1", [importedCredit.documentId]);
+    await database.getPool().query(
+      `INSERT INTO aruba_batches
+        (id, environment, mode, account_reference, manifest_sha256, document_count,
+         attempt_number, status, created_by)
+       VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic-aruba-account', repeat('7', 64), 1, 1,
+         'SUBMITTED', $2)`,
+      [submittedBatchId, actor.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_batch_documents
+        (batch_id, document_id, position, document_revision, xml_sha256, filename)
+       VALUES ($1, $2, 1, $3, $4, 'FPR-0002-26.xml')`,
+      [
+        submittedBatchId,
+        importedCredit.documentId,
+        submittedCredit.rows[0]!.draft_version,
+        submittedCredit.rows[0]!.xml_sha256,
+      ],
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_submissions
+        (batch_id, document_id, attempt_number, environment, mode, manifest_sha256,
+         xml_sha256, remote_id, status)
+       VALUES ($1, $2, 1, 'MOCK', 'ASSISTED', repeat('7', 64), $3,
+         'REMOTE-TD04-001', 'DELIVERED')`,
+      [submittedBatchId, importedCredit.documentId, submittedCredit.rows[0]!.xml_sha256],
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches SET status = 'UNMATCHED', method = 'NONE',
+         document_id = NULL, order_id = NULL, related_invoice_document_id = NULL,
+         refund_ids = '{}'
+       WHERE remote_document_id = (
+         SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-TD04-001'
+       )`,
+    );
+    await inbound.ingestArubaInventoryPage(session.token, {
+      stream: "credit-notes:2026",
+      scanOrdinal: 11,
+      pageOrdinal: 1,
+      cursor: "submitted-credit-readback",
+      terminal: true,
+      fullScan: false,
+      documents: [
+        {
+          remoteId: "REMOTE-TD04-001",
+          documentType: "TD04",
+          fiscalYear: 2026,
+          series: "FPR",
+          fiscalNumber: "2",
+          documentDate: "2026-08-11",
+          recipientName: "Mario Rossi",
+          recipientTaxId: "RSSMRA80A01H501U",
+          recipientCountryCode: "IT",
+          recipientAddress: "Via Cliente 1 00100 Roma IT",
+          totalAmount: 2345,
+          currency: "EUR",
+          status: "DELIVERED",
+          providerObservedAt: "2026-08-12T13:00:00+02:00",
+          xmlSha256: null,
+          orderReferences: ["#1001"],
+        },
+      ],
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT matches.status, matches.document_id, matches.refund_ids::text[]
+           FROM aruba_document_matches AS matches
+           JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
+           WHERE remote.remote_id = 'REMOTE-TD04-001'`,
+        )
+      ).rows[0],
+      {
+        status: "MATCHED",
+        document_id: importedCredit.documentId,
+        refund_ids: [refund.rows[0]!.id],
+      },
     );
     assert.equal(
       (
