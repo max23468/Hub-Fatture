@@ -369,17 +369,9 @@ export async function arubaReadManifest(token: string) {
   }>(
     `SELECT DISTINCT ON (stream) stream, scan_ordinal, page_ordinal
      FROM aruba_sync_pages
-     WHERE sync_session_id IN (
-       SELECT id FROM aruba_sync_sessions
-       WHERE environment = $1 AND account_reference = $2 AND status IN ('FAILED', 'EXPIRED')
-         AND started_at > coalesce((
-           SELECT max(full_scan_completed_at) FROM aruba_sync_sessions
-           WHERE environment = $1 AND account_reference = $2
-             AND full_scan_completed_at IS NOT NULL
-         ), '-infinity')
-     ) AND NOT terminal
+     WHERE sync_session_id = $1 AND NOT terminal
      ORDER BY stream, committed_at DESC`,
-    [session.environment, session.account_reference],
+    [session.id],
   );
   const resume = new Map(interrupted.rows.map((row) => [row.stream, row]));
   return {
@@ -1312,7 +1304,6 @@ async function materializeExternalCreditNote(
   if (!sourceInvoice) throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   const invoiceLabel = `${sourceInvoice.series} ${String(sourceInvoice.fiscal_number).padStart(4, "0")}/${String(sourceInvoice.fiscal_year).slice(-2)}`;
   if (
-    imported.linkedInvoices.length > 0 &&
     !imported.linkedInvoices.some(
       (linked) =>
         linked.number === invoiceLabel &&

@@ -494,6 +494,21 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         .map((remote) => ({ match: remote.match_status, hasXml: remote.has_xml })),
       [{ match: "MATCHED", hasXml: false }],
     );
+    const creditXmlWithoutInvoiceReference = creditXml.replace(
+      /<DatiFattureCollegate>[\s\S]*?<\/DatiFattureCollegate>/,
+      "",
+    );
+    assert.notEqual(creditXmlWithoutInvoiceReference, creditXml);
+    await assert.rejects(
+      inbound.importArubaRemoteOfficialFile(
+        session.token,
+        "REMOTE-TD04-001",
+        "ARUBA_XML",
+        Buffer.from(creditXmlWithoutInvoiceReference),
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_PROFILE_CONFLICT",
+    );
     const [importedCredit, repeatedCredit] = await Promise.all([
       inbound.importArubaRemoteOfficialFile(
         session.token,
@@ -1375,6 +1390,22 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       .getPool()
       .query("DELETE FROM aruba_preflight_receipts WHERE id = $1", [manualReceiptId]);
 
+    await database.getPool().query(
+      `INSERT INTO aruba_sync_sessions
+        (id, environment, account_reference, device_id, token_hash, status, is_full_scan,
+         started_at, absolute_expires_at, lease_expires_at, requested_by)
+       VALUES ('50000000-0000-4000-8000-000000000000', 'MOCK', 'synthetic-aruba-account',
+         'expired-device-0000', repeat('0', 64), 'FAILED', true, now() - interval '1 hour',
+         now() - interval '30 minutes', NULL, $1)`,
+      [actor.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_sync_pages
+        (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal,
+         full_scan, row_count, documents_json, payload_digest, committed_at)
+       VALUES ('50000000-0000-4000-8000-000000000000', 'invoices:2026', 1, 7,
+         'older-resume-page-7', false, true, 0, '[]', repeat('0', 64), now() + interval '1 hour')`,
+    );
     await database.getPool().query(
       `INSERT INTO aruba_sync_sessions
         (id, environment, account_reference, device_id, token_hash, status,
