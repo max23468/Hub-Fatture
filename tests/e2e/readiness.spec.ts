@@ -1044,9 +1044,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const approvedDocument = page.locator(".document-row").filter({ hasText: "Approvato" }).first();
   await expect(approvedDocument).toBeVisible();
   await approvedDocument.locator(".document-row__tools > summary").click();
-  const download = page.waitForEvent("download");
-  await approvedDocument.getByRole("link", { name: "Scarica XML" }).click();
-  expect((await download).suggestedFilename()).toMatch(/\.xml$/);
+  const xmlLink = approvedDocument.getByRole("link", { name: "Scarica XML" });
+  const xmlHref = await xmlLink.getAttribute("href");
+  expect(xmlHref).toMatch(/^\/documenti\/\d+\/xml$/);
+  const xmlDownload = await page.request.get(xmlHref!);
+  expect(xmlDownload.ok()).toBe(true);
+  expect(xmlDownload.headers()["content-disposition"]).toMatch(
+    /^attachment; filename="fattura-\d+\.xml"$/,
+  );
+  expect(xmlDownload.headers()["content-type"]).toContain("application/xml");
+  expect((await xmlDownload.body()).subarray(0, 5).toString()).toBe("<?xml");
 
   await page.getByRole("button", { name: "Genera codice di avvio" }).click();
   const assistedToken = (await page.locator(".code-block").textContent())?.trim();
