@@ -7,6 +7,7 @@ export const ARUBA_UPLOAD_MAX_BYTES = 4_900_000;
 export const ARUBA_UPLOAD_MAX_BATCH_BYTES = 30_000_000;
 export const ARUBA_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
 export const ARUBA_PANEL_ORIGIN = "https://fatturazioneelettronica.aruba.it";
+export const ARUBA_LOGIN_ORIGIN = "https://loginfatturazione.aruba.it";
 
 export const arubaModeSchema = z.enum(["ASSISTED", "AUTOMATIC"]);
 export const arubaEnvironmentSchema = z.enum(["MOCK", "PRODUCTION"]);
@@ -29,6 +30,7 @@ export const arubaManifestSchema = z
     mode: arubaModeSchema,
     operation: z.enum(["UPLOAD", "READBACK"]),
     accountReference: z.string().trim().min(1).max(200),
+    accountIdentity: z.string().trim().min(1).max(200),
     manifestSha256: z.string().regex(/^[0-9a-f]{64}$/),
     attemptNumber: z.number().int().positive(),
     panelUrl: z.url(),
@@ -64,7 +66,13 @@ export function effectiveArubaMode(
 export function manifestSha256(
   value: Pick<
     ArubaManifest,
-    "batchId" | "environment" | "mode" | "accountReference" | "attemptNumber" | "documents"
+    | "batchId"
+    | "environment"
+    | "mode"
+    | "accountReference"
+    | "accountIdentity"
+    | "attemptNumber"
+    | "documents"
   >,
 ): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -100,6 +108,16 @@ export function assertAllowedArubaNavigation(url: string, target: URL): URL {
     throw new Error("target");
   }
   return candidate;
+}
+
+export function assertAllowedArubaAuthenticationNavigation(url: string, target: URL): URL {
+  const candidate = new URL(url);
+  if (candidate.username || candidate.password) throw new Error("target");
+  if (candidate.origin === target.origin) return candidate;
+  if (target.origin === ARUBA_PANEL_ORIGIN && candidate.origin === ARUBA_LOGIN_ORIGIN) {
+    return candidate;
+  }
+  throw new Error("target");
 }
 
 export function assertAllowedArubaDownload(url: string, target: URL): URL {

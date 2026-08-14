@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.42
+
+- L’helper distingue la chiave applicativa dell’account Aruba dalla descrizione visibile usata per verificarne l’identità, evitando il falso mismatch emerso nella prima scansione reale.
+- L’autenticazione resta vincolata alle sole origini ufficiali osservate e attende il reindirizzamento tardivo al login senza scambiare una pagina transitoria per il pannello operativo.
+- Il profilo Production richiede esplicitamente l’identità Aruba qualificata e il preflight ne impedisce la sostituzione con il valore sintetico.
+
 ## 0.3.41
 
 - Hub Fatture mantiene un inventario provider-first di fatture e TD04 presenti in Aruba, inclusi i documenti creati senza passare dall’app, e ne aggiorna gli stati senza regressioni.

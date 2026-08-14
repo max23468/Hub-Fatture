@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   ARUBA_UPLOAD_MAX_BATCH_BYTES,
   arubaManifestSchema,
+  assertAllowedArubaAuthenticationNavigation,
   assertAllowedArubaDownload,
   assertAllowedArubaNavigation,
   assertAllowedArubaTarget,
@@ -51,6 +52,25 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
     assertAllowedArubaNavigation("https://download.attacker.invalid/fattura.xml", aruba),
   );
   assert.equal(
+    assertAllowedArubaAuthenticationNavigation(
+      "https://loginfatturazione.aruba.it/?returnUrl=%2F%23dashboard",
+      aruba,
+    ).origin,
+    "https://loginfatturazione.aruba.it",
+  );
+  assert.throws(() =>
+    assertAllowedArubaAuthenticationNavigation(
+      "https://loginfatturazione.aruba.it.attacker.invalid/",
+      aruba,
+    ),
+  );
+  assert.throws(() =>
+    assertAllowedArubaAuthenticationNavigation(
+      "https://loginfatturazione.aruba.it/",
+      new URL("http://127.0.0.1:4173/aruba-sintetica"),
+    ),
+  );
+  assert.equal(
     assertAllowedArubaDownload("data:application/xml,%3Cxml%2F%3E", aruba).protocol,
     "data:",
   );
@@ -65,6 +85,7 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
     environment: "MOCK" as const,
     mode: "ASSISTED" as const,
     accountReference: "synthetic-aruba-account",
+    accountIdentity: "synthetic-aruba-account",
     attemptNumber: 1,
     documents: [
       {
@@ -81,6 +102,10 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   };
   assert.equal(manifestSha256(batch), manifestSha256(structuredClone(batch)));
   assert.notEqual(manifestSha256(batch), manifestSha256({ ...batch, attemptNumber: 2 }));
+  assert.notEqual(
+    manifestSha256(batch),
+    manifestSha256({ ...batch, accountIdentity: "different-synthetic-account" }),
+  );
   assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", false), "ASSISTED");
   assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", true), "AUTOMATIC");
   assert.equal(effectiveArubaMode("AUTOMATIC", "MOCK", false), "AUTOMATIC");

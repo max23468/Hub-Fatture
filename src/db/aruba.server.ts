@@ -74,10 +74,19 @@ function manifestPayload(
   environment: "MOCK" | "PRODUCTION",
   mode: ArubaMode,
   accountReference: string,
+  accountIdentity: string,
   attemptNumber: number,
   documents: ArubaManifestDocument[],
 ) {
-  return { batchId, environment, mode, accountReference, attemptNumber, documents };
+  return {
+    batchId,
+    environment,
+    mode,
+    accountReference,
+    accountIdentity,
+    attemptNumber,
+    documents,
+  };
 }
 
 function integer(value: unknown): number {
@@ -236,9 +245,18 @@ export async function createArubaBatch(
   }
   const mode = preservedMode ?? effectiveMode;
   const accountReference = await currentArubaAccount(client);
+  const accountIdentity = getConfig().ARUBA_ACCOUNT_IDENTITY;
   const batchId = randomUUID();
   const digest = manifestSha256(
-    manifestPayload(batchId, environment, mode, accountReference, attemptNumber, documents),
+    manifestPayload(
+      batchId,
+      environment,
+      mode,
+      accountReference,
+      accountIdentity,
+      attemptNumber,
+      documents,
+    ),
   );
   await client.query(
     `INSERT INTO aruba_batches
@@ -641,6 +659,7 @@ function verifyManifest(batch: BatchIdentity, documents: ArubaManifestDocument[]
       batch.environment,
       batch.mode,
       batch.account_reference,
+      getConfig().ARUBA_ACCOUNT_IDENTITY,
       batch.attempt_number,
       documents,
     ),
@@ -665,6 +684,7 @@ export async function helperManifest(token: string): Promise<ArubaManifest> {
       context.environment,
       context.mode,
       context.account_reference,
+      getConfig().ARUBA_ACCOUNT_IDENTITY,
       context.attempt_number,
       documents,
     ),

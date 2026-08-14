@@ -8,7 +8,9 @@ import { chromium, type BrowserContext, type Locator, type Page } from "playwrig
 import { assertAccount } from "./aruba-helper.ts";
 
 import {
+  ARUBA_PANEL_ORIGIN,
   assertAllowedArubaDownload,
+  assertAllowedArubaAuthenticationNavigation,
   assertAllowedArubaNavigation,
   assertAllowedArubaTarget,
   assertAllowedHubUrl,
@@ -24,6 +26,7 @@ export interface ArubaReadManifest {
   sessionId: string;
   environment: "MOCK" | "PRODUCTION";
   accountReference: string;
+  accountIdentity: string;
   panelUrl: string;
   oldestReconciliationDate: string;
   streams: Array<{
@@ -106,20 +109,49 @@ function launchOptions(options: ReadHelperOptions, environment: ArubaReadManifes
   return { channel: options.browser, headless: options.headless ?? false };
 }
 
-async function waitForLogin(page: Page, heartbeat: () => Promise<void>) {
-  const login = page.locator('[data-aruba-state="login-required"], input[type="password"]');
-  if (await login.count()) {
+async function waitForAuthenticationNavigationToSettle(page: Page, target: URL) {
+  if (target.origin !== ARUBA_PANEL_ORIGIN) return;
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const current = assertAllowedArubaAuthenticationNavigation(page.url(), target);
+    const loginVisible = await page
+      .locator(
+        '[data-aruba-state="login-required"], input[type="password"], input[autocomplete="current-password"]',
+      )
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (current.origin !== target.origin || loginVisible) return;
+    await page.waitForTimeout(250);
+  }
+}
+
+async function waitForLogin(page: Page, target: URL, heartbeat: () => Promise<void>) {
+  const login = page.locator(
+    '[data-aruba-state="login-required"], input[type="password"], input[autocomplete="current-password"]',
+  );
+  const authenticationPending = async () => {
+    if (page.url() === "about:blank") return true;
+    const current = assertAllowedArubaAuthenticationNavigation(page.url(), target);
+    if (current.origin !== target.origin) return true;
+    return (await login.count()) > 0 && (await login.first().isVisible());
+  };
+  if (await authenticationPending()) {
     process.stdout.write("Completa personalmente l’accesso Aruba nel browser.\n");
     const deadline = Date.now() + 15 * 60_000;
-    while ((await login.first().isVisible()) && Date.now() < deadline) {
-      await heartbeat();
-      await login
-        .first()
-        .waitFor({ state: "hidden", timeout: 60_000 })
-        .catch(() => undefined);
+    let nextHeartbeatAt = 0;
+    while ((await authenticationPending()) && Date.now() < deadline) {
+      if (Date.now() >= nextHeartbeatAt) {
+        await heartbeat();
+        nextHeartbeatAt = Date.now() + 60_000;
+      }
+      await page.waitForTimeout(1_000);
     }
-    if (await login.first().isVisible()) throw new Error("ARUBA_AUTHENTICATION_REQUIRED");
+    if (await authenticationPending()) {
+      throw new Error("ARUBA_AUTHENTICATION_REQUIRED");
+    }
   }
+  assertAllowedArubaNavigation(page.url(), target);
 }
 
 function integer(value: string | null): number {
@@ -437,7 +469,7 @@ export async function runArubaReadCycle(
 ) {
   const target = assertAllowedArubaTarget(manifest.panelUrl, manifest.environment);
   if (!page.url() || page.url() === "about:blank") await page.goto(target.toString());
-  assertAllowedArubaNavigation(page.url(), target);
+  assertAllowedArubaAuthenticationNavigation(page.url(), target);
   const heartbeat = async () => {
     await hubJson(hub, token, "/api/aruba/sync/heartbeat", {
       method: "POST",
@@ -445,8 +477,9 @@ export async function runArubaReadCycle(
     });
   };
   await heartbeat();
-  await waitForLogin(page, heartbeat);
-  await assertAccount(page, manifest.accountReference);
+  await waitForAuthenticationNavigationToSettle(page, target);
+  await waitForLogin(page, target, heartbeat);
+  await assertAccount(page, manifest.accountIdentity);
   await heartbeat();
   const observed = [];
   for (const streamManifest of manifest.streams) {

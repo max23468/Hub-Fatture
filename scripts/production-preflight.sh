@@ -32,7 +32,7 @@ metadata=$(curl --fail --silent --show-error --max-time 3 \
   || fail "regione OCI inattesa"
 
 for name in ADMIN_BOOTSTRAP_TOKEN AGE_RECIPIENT CADDY_ACME_EMAIL CREDENTIALS_ENCRYPTION_KEY \
-  EXPECTED_PUBLIC_IP OCI_BACKUP_BUCKET OCI_NAMESPACE OCI_NOTIFICATIONS_TOPIC_OCID \
+  ARUBA_ACCOUNT_IDENTITY EXPECTED_PUBLIC_IP OCI_BACKUP_BUCKET OCI_NAMESPACE OCI_NOTIFICATIONS_TOPIC_OCID \
   POSTGRES_PASSWORD SMTP_FROM SMTP_PASSWORD SMTP_USERNAME; do
   value=$(env_value "$root/.env" "$name")
   [ -n "$value" ] || fail "variabile $name assente"
@@ -48,6 +48,8 @@ printf '%s' "$notifications_topic" | grep -Eq '^ocid1\.onstopic\.oc1\.' \
   || fail "Notifications Topic OCI non valido"
 [ "$(env_value "$root/.env" ARUBA_SUBMISSION_ENABLED)" = "false" ] \
   || fail "kill switch Aruba non disabilitato"
+[ "$(env_value "$root/.env" ARUBA_ACCOUNT_IDENTITY)" != "synthetic-aruba-account" ] \
+  || fail "identità Aruba non qualificata"
 case "$(printf '%s' "$smtp_from" | tr '[:upper:]' '[:lower:]')" in
   *@numisleo.it) ;;
   *) fail "mittente SMTP inatteso" ;;

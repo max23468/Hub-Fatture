@@ -4,7 +4,7 @@ Questo contratto governa la pagina sintetica e l’helper locale unico per macOS
 
 ## Confini di sicurezza
 
-- Il solo host operativo ammesso è `https://fatturazioneelettronica.aruba.it`; in prova sono ammessi esclusivamente i loopback e `/aruba-sintetica`.
+- Il pannello operativo ammesso è `https://fatturazioneelettronica.aruba.it`; durante l’autenticazione umana è ammessa esclusivamente l’origine `https://loginfatturazione.aruba.it`, mentre file e letture restano vincolati al pannello. In prova sono ammessi esclusivamente i loopback e `/aruba-sintetica`.
 - L’helper usa Chrome o Edge installato localmente e un profilo browser dedicato. Non legge, esporta o trasmette cookie e local storage.
 - L’account corrente non usa la 2FA e non richiede un SMS per ogni upload. Login, password e qualunque challenge OTP/SMS/CAPTCHA inattesa sono sempre umani: se richiesti, l’helper si mette in pausa.
 - Il codice di avvio scade, vale per un batch, viene revocato quando termina la propria fase e non autorizza `Invia`. Durante una pausa umana l’helper ne rinnova la scadenza breve con heartbeat, entro un limite assoluto di 45 minuti dalla creazione; prima del limite il server revoca il token e forza il readback se l’operazione non è conclusa.
@@ -15,7 +15,7 @@ Questo contratto governa la pagina sintetica e l’helper locale unico per macOS
 
 ## Manifest
 
-Il manifest immutabile comprende ambiente, modalità, riferimento non segreto dell’account atteso, tentativo e, per ogni documento, ID, revisione, hash XML, nome file, dimensione, numero fiscale, data e totale. L’hash del manifest vincola il permesso monouso. Gli XML scaricati dall’helper vengono accettati soltanto se dimensione e SHA-256 coincidono.
+Il manifest immutabile comprende ambiente, modalità, riferimento applicativo opaco e identità visibile dell’account atteso, tentativo e, per ogni documento, ID, revisione, hash XML, nome file, dimensione, numero fiscale, data e totale. L’identità è distinta dal riferimento usato per partizionare i dati HF e deve coincidere con l’unica descrizione mostrata dal controllo account nella barra superiore Aruba. L’hash del manifest vincola entrambe. Gli XML scaricati dall’helper vengono accettati soltanto se dimensione e SHA-256 coincidono.
 
 La preparazione dell’invio pilota avviene in **Documenti** con una conferma esplicita riferita al singolo documento e al singolo tentativo. Non abilita l’uso automatico ordinario, non invia il documento e non sostituisce l’autorizzazione separata richiesta immediatamente prima del Canary Production.
 
@@ -39,7 +39,7 @@ Il pannello sintetico espone lo scenario `?scenario=inventory`. Safari resta sup
 
 | Funzione            | Etichette verificate                                                                     | Esito fail-closed                                           |
 | ------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| account             | pulsante account nella barra superiore, confrontato col riferimento atteso               | mismatch o più corrispondenze arrestano l’helper            |
+| account             | controllo account nella barra superiore, confrontato con l’identità visibile attesa      | mismatch o più corrispondenze arrestano l’helper            |
 | upload              | `SELEZIONA DOCUMENTI`, `Carica fattura`, riga col nome file                              | arresto se il controllo o il documento caricato non compare |
 | challenge eventuale | `Vuoi disattivare la protezione OTP`, `Inserisci il codice ricevuto per SMS`, `Verifica` | pausa finché il titolare completa personalmente la verifica |
 | validazione         | contatore, riga col nome file, `DETTAGLI ERRORI`, codice e descrizione                   | batch non inviabile                                         |

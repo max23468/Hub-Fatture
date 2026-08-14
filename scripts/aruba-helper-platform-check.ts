@@ -44,6 +44,7 @@ const server = createServer(async (request, response) => {
       sessionId: "00000000-0000-4000-8000-000000000002",
       environment: "MOCK",
       accountReference: "synthetic-aruba-account",
+      accountIdentity: "synthetic-aruba-account",
       panelUrl: `${baseUrl}/aruba-sintetica?scenario=inventory`,
       oldestReconciliationDate: "2026-01-01",
       streams: [
@@ -239,6 +240,7 @@ const payload = {
   environment: "MOCK" as const,
   mode: "AUTOMATIC" as const,
   accountReference: "synthetic-aruba-account",
+  accountIdentity: "synthetic-aruba-account",
   attemptNumber: 1,
   documents: [
     {

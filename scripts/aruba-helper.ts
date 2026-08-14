@@ -205,7 +205,7 @@ export async function assertAccount(page: Page, accountReference: string) {
   const expectedAccount = accountReference.replace(/\s+/g, " ").trim();
   const candidates = page
     .locator(
-      '[data-aruba-account], [aria-current="true"], [aria-selected="true"], [data-active="true"]',
+      '[data-aruba-account], .main-toolbar-info-user, [aria-current="true"], [aria-selected="true"], [data-active="true"]',
       { hasText: expectedAccount },
     )
     .or(page.getByRole("button", { name: expectedAccount, exact: true }));
@@ -408,7 +408,7 @@ async function readback(
     await destination.click();
     await page.waitForLoadState("domcontentloaded");
     assertPageOrigin(page, target);
-    await assertAccount(page, value.accountReference);
+    await assertAccount(page, value.accountIdentity);
   }
   const search = page.getByRole("textbox", { name: /Cerca|Ricerca/i }).first();
   const results: ReadbackDocument[] = [];
@@ -568,7 +568,7 @@ export async function runHelper(
     const heartbeat = () => event(hub, options.token, { type: "HELPER_HEARTBEAT" });
     await waitForAuthentication(page, heartbeat);
     assertPageOrigin(page, target);
-    await assertAccount(page, value.accountReference);
+    await assertAccount(page, value.accountIdentity);
     if (await page.locator('[data-aruba-state="unexpected"]').count())
       throw new Error("DOM_UNRECOGNIZED");
     if (value.operation === "READBACK") {
@@ -606,7 +606,7 @@ export async function runHelper(
       return "ASSISTED_STOP";
     }
     assertPageOrigin(page, target);
-    await assertAccount(page, value.accountReference);
+    await assertAccount(page, value.accountIdentity);
     if ((await validateVisibleDocuments(page, value)).some((result) => result.status !== "VALID")) {
       throw new Error("VALIDATION_FAILED");
     }
