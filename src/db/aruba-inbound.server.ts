@@ -36,6 +36,8 @@ import {
   acceptedInvoiceFromXml,
   acceptedRecipientFromXml,
   documentInputSchema,
+  fiscalDocumentEnvelopeFromXml,
+  fiscalDocumentReferencesFromXml,
   fiscalProfileSchema,
   projectFatturaXml,
   type FiscalProfile,
@@ -1038,7 +1040,7 @@ function acceptedRecipientName(
 }
 
 function officialEvidence(remote: RemoteInventoryDocument, xml: string): RemoteInventoryDocument {
-  const identity = acceptedDocumentFiscalIdentity(xml);
+  const identity = fiscalDocumentEnvelopeFromXml(xml);
   if (
     remote.documentType !== identity.type ||
     remote.fiscalYear !== identity.year ||
@@ -1067,23 +1069,18 @@ function officialEvidence(remote: RemoteInventoryDocument, xml: string): RemoteI
     ].join(" "),
   };
   if (identity.type === "TD04") {
-    const imported = acceptedCreditNoteFromXml(xml);
     return {
       ...remote,
       ...authoritativeRecipient,
       xmlSha256: createHash("sha256").update(xml).digest("hex"),
-      orderReferences: [
-        ...imported.references,
-        ...imported.linkedInvoices.map((linked) => linked.number),
-      ],
+      orderReferences: fiscalDocumentReferencesFromXml(xml),
     };
   }
-  const imported = acceptedInvoiceFromXml(xml, new Date().toISOString());
   return {
     ...remote,
     ...authoritativeRecipient,
     xmlSha256: createHash("sha256").update(xml).digest("hex"),
-    orderReferences: imported.references,
+    orderReferences: fiscalDocumentReferencesFromXml(xml),
   };
 }
 
@@ -1664,6 +1661,16 @@ async function materializeMatchedExternalDocument(
 ) {
   const remote = await lockedRemoteMatch(client, remoteDocumentId);
   if (!remote || !isEmissionConfirmed(remote.remote_status)) return null;
+  try {
+    acceptedDocumentFiscalIdentity(xml);
+  } catch {
+    await client.query(
+      `UPDATE aruba_document_matches SET status = 'PROFILE_CONFLICT', method = 'NONE',
+         document_id = NULL, updated_at = now() WHERE remote_document_id = $1`,
+      [remoteDocumentId],
+    );
+    return null;
+  }
   return remote.document_type === "TD01"
     ? materializeExternalInvoice(client, remote, storageObjectId, xml)
     : materializeExternalCreditNote(client, remote, storageObjectId, xml);
@@ -1847,7 +1854,7 @@ async function importArubaRemoteOfficialFileAuthorized(
     try {
       xml = validateUntrustedXml(bytes);
       await validateFatturaXml(xml);
-      acceptedDocumentFiscalIdentity(xml);
+      fiscalDocumentEnvelopeFromXml(xml);
     } catch {
       throw new AppError("ARUBA_INVENTORY_INVALID", 422);
     }
