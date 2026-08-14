@@ -440,19 +440,7 @@ export async function advanceProductionPage(page: Page) {
   const before = await productionPageFingerprint(page);
   const next = await productionNextButton(page);
   if (!(await productionHasNext(page))) throw new Error("DOM_UNRECOGNIZED");
-  await armProductionGridReload(page);
-  await armProductionRequestCapture(page);
-  const dataRequests = observeProductionDataRequests(page);
-  try {
-    await clickWithProductionRequestCapture(next);
-    const captured = await finishProductionRequestCapture(page);
-    await dataRequests.waitFor(captured);
-    await waitForProductionGridReload(page);
-  } finally {
-    await finishProductionRequestCapture(page);
-    dataRequests.dispose();
-    await clearProductionGridReload(page);
-  }
+  await clickAndWaitForProductionGridReload(page, next);
   if ((await productionPageFingerprint(page)) === before) throw new Error("DOM_UNRECOGNIZED");
 }
 
@@ -828,15 +816,22 @@ function observeProductionDataRequests(page: Page) {
   page.on("request", onRequest);
   return {
     async waitFor(captured: ProductionRequestKey[]) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      const remaining = [...observed];
-      const requests = captured.map((key) => {
-        const index = remaining.findIndex(
-          (request) => request.method() === key.method && request.url() === key.url,
-        );
-        if (index < 0) throw new Error("DOM_UNRECOGNIZED");
-        return remaining.splice(index, 1)[0]!;
-      });
+      let requests: Request[] | null = null;
+      const matchDeadline = Date.now() + 1_000;
+      while (!requests && Date.now() < matchDeadline) {
+        const remaining = [...observed];
+        const matched: Request[] = [];
+        for (const key of captured) {
+          const index = remaining.findIndex(
+            (request) => request.method() === key.method && request.url() === key.url,
+          );
+          if (index < 0) break;
+          matched.push(remaining.splice(index, 1)[0]!);
+        }
+        if (matched.length === captured.length) requests = matched;
+        else await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (!requests) throw new Error("DOM_UNRECOGNIZED");
       if (!requests.length) throw new Error("DOM_UNRECOGNIZED");
       let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -863,6 +858,22 @@ function observeProductionDataRequests(page: Page) {
   };
 }
 
+async function clickAndWaitForProductionGridReload(page: Page, control: Locator) {
+  await armProductionGridReload(page);
+  await armProductionRequestCapture(page);
+  const dataRequests = observeProductionDataRequests(page);
+  try {
+    await clickWithProductionRequestCapture(control);
+    const captured = await finishProductionRequestCapture(page);
+    await dataRequests.waitFor(captured);
+    await waitForProductionGridReload(page);
+  } finally {
+    await finishProductionRequestCapture(page);
+    dataRequests.dispose();
+    await clearProductionGridReload(page);
+  }
+}
+
 export async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
   const selector = page.locator(`[data-aruba-stream="${stream}"]`).first();
   if (await selector.count()) {
@@ -873,41 +884,31 @@ export async function selectStream(page: Page, stream: string, overlapFrom?: str
     if (!(await yearControl.count()) || !(await yearControl.isVisible())) {
       throw new Error("DOM_UNRECOGNIZED");
     }
-    await yearControl.locator("button").click();
-    const yearOptions = page.locator(".x-menuitem-sub-menu-mainToolbar");
-    const exactYears: Locator[] = [];
-    for (let index = 0; index < (await yearOptions.count()); index += 1) {
-      const option = yearOptions.nth(index);
-      if ((await option.isVisible()) && (await option.innerText()).trim() === String(year)) {
-        exactYears.push(option);
+    if (!(await yearControl.innerText()).includes(String(year))) {
+      await yearControl.locator("button").click();
+      const yearOptions = page.locator(".x-menuitem-sub-menu-mainToolbar");
+      const exactYears: Locator[] = [];
+      for (let index = 0; index < (await yearOptions.count()); index += 1) {
+        const option = yearOptions.nth(index);
+        if ((await option.isVisible()) && (await option.innerText()).trim() === String(year)) {
+          exactYears.push(option);
+        }
       }
+      if (exactYears.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+      await clickAndWaitForProductionGridReload(page, exactYears[0]!);
+      await page.waitForFunction(
+        ({ selector, value }) =>
+          document.querySelector(selector)?.textContent?.includes(value) === true,
+        { selector: ".main-toolbar-info-fiscalyear", value: String(year) },
+      );
     }
-    if (exactYears.length !== 1) throw new Error("DOM_UNRECOGNIZED");
-    await exactYears[0]!.click();
-    await page.waitForFunction(
-      ({ selector, value }) =>
-        document.querySelector(selector)?.textContent?.includes(value) === true,
-      { selector: ".main-toolbar-info-fiscalyear", value: String(year) },
-    );
     const sent = page.getByRole("menuitem").filter({ hasText: /^\s*Fatture inviate\s*$/i });
     const visibleSent: Locator[] = [];
     for (let index = 0; index < (await sent.count()); index += 1) {
       if (await sent.nth(index).isVisible()) visibleSent.push(sent.nth(index));
     }
     if (visibleSent.length !== 1) throw new Error("DOM_UNRECOGNIZED");
-    await armProductionGridReload(page);
-    await armProductionRequestCapture(page);
-    const dataRequests = observeProductionDataRequests(page);
-    try {
-      await clickWithProductionRequestCapture(visibleSent[0]!);
-      const captured = await finishProductionRequestCapture(page);
-      await dataRequests.waitFor(captured);
-      await waitForProductionGridReload(page);
-    } finally {
-      await finishProductionRequestCapture(page);
-      dataRequests.dispose();
-      await clearProductionGridReload(page);
-    }
+    await clickAndWaitForProductionGridReload(page, visibleSent[0]!);
     await productionNextButton(page);
     return;
   }

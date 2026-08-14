@@ -536,6 +536,48 @@ test("il lettore Production attende la stabilizzazione completa della pagina suc
   await expect(page.locator(".x-gridrow").nth(1)).toContainText("20000000002");
 });
 
+test("il lettore Production completa il reload dell’anno prima di aprire lo stream", async ({
+  page,
+}) => {
+  const targetYear = new Date().getUTCFullYear() - 1;
+  await page.route("https://aruba-synthetic.invalid/**", async (route) => {
+    if (route.request().url().endsWith("/year")) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+    await route.fulfill({
+      contentType: route.request().url().endsWith("/base") ? "text/html" : "application/json",
+      body: route.request().url().endsWith("/base") ? "<html></html>" : "{}",
+    });
+  });
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${targetYear + 1}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${targetYear}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" disabled></button></span>
+    </div>
+    <script>
+      document.querySelector('.x-menuitem-sub-menu-mainToolbar').addEventListener('click', () => {
+        fetch('/year').then(() => {
+          document.querySelector('.main-toolbar-info-fiscalyear').firstChild.textContent = 'Anno: ${targetYear}';
+          document.querySelector('.aruba-grid-fatture-inviate').setAttribute('data-year', '${targetYear}');
+        });
+      });
+      document.querySelector('[role="menuitem"]').addEventListener('click', () => {
+        const grid = document.querySelector('.aruba-grid-fatture-inviate');
+        fetch('/reload').then(() => grid.setAttribute('data-stream-year', grid.getAttribute('data-year') || 'stale'));
+      });
+    </script>
+  `);
+
+  await selectStream(page, `invoices:${targetYear}`);
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute(
+    "data-stream-year",
+    String(targetYear),
+  );
+});
+
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/aruba-sintetica?scenario=unexpected");
