@@ -1178,7 +1178,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       .getPool()
       .query(
         "UPDATE aruba_preflight_receipts SET expires_at = now() - interval '1 second' WHERE id = $1",
-        [firstSyntheticReceipt],
+        [firstSyntheticReceipt.id],
       );
     const renewedSyntheticReceipt = await inbound.ensureArubaPreflight(
       {
@@ -1189,14 +1189,14 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       },
       actor,
     );
-    assert.notEqual(renewedSyntheticReceipt, firstSyntheticReceipt);
+    assert.notEqual(renewedSyntheticReceipt.id, firstSyntheticReceipt.id);
     assert.deepEqual(
       (
         await database
           .getPool()
           .query(
             "SELECT status FROM aruba_preflight_receipts WHERE id = ANY($1::uuid[]) ORDER BY requested_at",
-            [[firstSyntheticReceipt, renewedSyntheticReceipt]],
+            [[firstSyntheticReceipt.id, renewedSyntheticReceipt.id]],
           )
       ).rows.map((row) => row.status),
       ["EXPIRED", "PASSED"],
@@ -1204,7 +1204,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     await database
       .getPool()
       .query("DELETE FROM aruba_preflight_receipts WHERE id = ANY($1::uuid[])", [
-        [firstSyntheticReceipt, renewedSyntheticReceipt],
+        [firstSyntheticReceipt.id, renewedSyntheticReceipt.id],
       ]);
     const manualReceiptId = "40000000-0000-4000-8000-000000000001";
     await database.getPool().query(
@@ -1459,6 +1459,14 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         createHash("sha256").update(JSON.stringify(interruptedPage)).digest("hex"),
       ],
     );
+    await database.getPool().query(
+      `INSERT INTO aruba_remote_observations
+        (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal,
+         page_ordinal, cursor, payload_digest)
+       SELECT id, '50000000-0000-4000-8000-000000000001', remote_status,
+         'invoices:2026', 1, 1, 'resume-page-1', metadata_digest
+       FROM aruba_remote_documents WHERE remote_id = 'REMOTE-001'`,
+    );
     const resumedSession = await inbound.issueArubaReadSession("synthetic-device-0003", actor);
     assert.equal(
       (
@@ -1474,6 +1482,17 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       (await inbound.arubaReadManifest(resumedSession.token)).streams.find(
         (stream) => stream.name === "invoices:2026",
       )?.resumePageOrdinal,
+      1,
+    );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT count(*)::integer AS count FROM aruba_remote_observations
+           WHERE sync_session_id = $1 AND stream = 'invoices:2026'
+             AND scan_ordinal = 1 AND page_ordinal = 1`,
+          [resumedSession.sessionId],
+        )
+      ).rows[0].count,
       1,
     );
     const resumedPage = await inbound.ingestArubaInventoryPage(

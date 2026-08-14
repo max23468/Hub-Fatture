@@ -541,13 +541,18 @@ export async function approveCreditNote(
   }
   const expectedVersion = Number(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
-  const preflightId = await ensureArubaPreflight(
+  const preflight = await ensureArubaPreflight(
     { documentId, draftVersion: expectedVersion, projectionSha256: expectedProjection },
     actor,
   );
   const committed = await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
     await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
+    await consumeArubaPreflight(client, preflight.id, {
+      documentId,
+      draftVersion: expectedVersion,
+      projectionSha256: expectedProjection,
+    });
     const row = await loadCredit(client, documentId, true);
     if (!row || row.status !== "DRAFT" || row.draft_version !== expectedVersion) {
       throw new AppError("CONFLICT_REVISION", 409);
@@ -558,11 +563,6 @@ export async function approveCreditNote(
     if (projected.sha256 !== expectedProjection || row.projection_sha256 !== expectedProjection) {
       throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
     }
-    await consumeArubaPreflight(client, preflightId, {
-      documentId,
-      draftVersion: expectedVersion,
-      projectionSha256: expectedProjection,
-    });
     const year = Number(input.documentDate.slice(0, 4));
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
       `fiscal-number:${row.series}:${year}`,

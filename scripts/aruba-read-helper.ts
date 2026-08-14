@@ -235,13 +235,14 @@ async function readProductionRows(page: Page) {
     if (!documentType || !remoteId || remoteId.length > 200) throw new Error("DOM_UNRECOGNIZED");
     const documentDate = italianDate(cells[indices.date]!);
     const number = indices.number >= 0 ? cells[indices.number]!.trim() : "";
-    const numberParts = number.match(/^(?:(\S+)\s+)?(.+)$/);
+    const fiscalYear = Number(documentDate.slice(0, 4));
+    const fiscalIdentity = parseProductionFiscalNumber(number, fiscalYear);
     documents.push({
       remoteId,
       documentType,
-      fiscalYear: Number(documentDate.slice(0, 4)),
-      series: numberParts?.[1] ?? null,
-      fiscalNumber: numberParts?.[2] ?? null,
+      fiscalYear,
+      series: fiscalIdentity.series,
+      fiscalNumber: fiscalIdentity.fiscalNumber,
       documentDate,
       recipientName: indices.recipient >= 0 ? cells[indices.recipient] || null : null,
       recipientTaxId: indices.recipientTaxId >= 0 ? cells[indices.recipientTaxId] || null : null,
@@ -271,6 +272,21 @@ async function readProductionRows(page: Page) {
     }
   }
   return { documents, files };
+}
+
+export function parseProductionFiscalNumber(value: string, fiscalYear: number) {
+  const match = /^(\S+)\s+(\d+)\/(\d{2}|\d{4})$/.exec(value.trim());
+  if (!match) throw new Error("DOM_UNRECOGNIZED");
+  const progressive = Number(match[2]);
+  const expectedYear = String(fiscalYear);
+  if (
+    !Number.isSafeInteger(progressive) ||
+    progressive <= 0 ||
+    (match[3] !== expectedYear && match[3] !== expectedYear.slice(-2))
+  ) {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  return { series: match[1]!, fiscalNumber: String(progressive) };
 }
 
 export async function readVisiblePage(

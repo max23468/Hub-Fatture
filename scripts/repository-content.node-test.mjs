@@ -703,3 +703,25 @@ test("l'applicazione accede a PostgreSQL soltanto tramite il livello dati", asyn
     .map(({ file }) => file);
   assert.deepEqual(offenders, []);
 });
+
+test("le approvazioni acquisiscono l'inventario Aruba prima dei lock sugli ordini", async () => {
+  const [documents, refunds] = await Promise.all(
+    ["src/db/documents.server.ts", "src/db/refunds.server.ts"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
+  const invoiceStart = documents.indexOf("export async function approveInvoice");
+  const invoiceEnd = documents.indexOf("export async function", invoiceStart + 1);
+  const invoiceApproval = documents.slice(invoiceStart, invoiceEnd);
+  assert.ok(invoiceApproval.indexOf("consumeArubaPreflight") >= 0);
+  assert.ok(
+    invoiceApproval.indexOf("consumeArubaPreflight") <
+      invoiceApproval.indexOf("serializeOrderMutations"),
+  );
+
+  const creditStart = refunds.indexOf("export async function approveCreditNote");
+  const creditEnd = refunds.indexOf("export async function", creditStart + 1);
+  const creditApproval = refunds.slice(creditStart, creditEnd);
+  assert.ok(creditApproval.indexOf("consumeArubaPreflight") >= 0);
+  assert.ok(creditApproval.indexOf("consumeArubaPreflight") < creditApproval.indexOf("loadCredit"));
+});

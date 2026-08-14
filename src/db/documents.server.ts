@@ -827,7 +827,7 @@ export async function approveInvoice(
   const caseRevision = integer(raw.caseRevision);
   const draftVersion = integer(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
-  const preflightId = await ensureArubaPreflight(
+  const preflight = await ensureArubaPreflight(
     {
       billingCaseId: caseId,
       draftVersion,
@@ -848,6 +848,12 @@ export async function approveInvoice(
       await client.query(
         "SELECT pg_advisory_xact_lock_shared(hashtext('setting:shopify_payment_fee_mode'))",
       );
+      await consumeArubaPreflight(client, preflight.id, {
+        billingCaseId: caseId,
+        documentId: preflight.documentId,
+        draftVersion,
+        projectionSha256: expectedProjection,
+      });
       await serializeOrderMutations(client);
       await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
       const caseRow = await loadCase(client, caseId, true);
@@ -878,12 +884,6 @@ export async function approveInvoice(
       ) {
         throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
       }
-      await consumeArubaPreflight(client, preflightId, {
-        billingCaseId: caseId,
-        documentId: draft.id,
-        draftVersion,
-        projectionSha256: expectedProjection,
-      });
       const paymentPending = input.paymentStatus === "PENDING";
       const amountDifferent = draft.difference_amount !== 0;
       if (paymentPending && !raw.confirmPending) {
