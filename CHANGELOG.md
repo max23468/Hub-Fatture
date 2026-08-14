@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.45
+
+- La selezione ExtJS usa la sequenza di puntatore nativa richiesta dal pannello Aruba reale, mantenendo la correlazione fra click, richiesta dati e stabilizzazione della griglia.
+- L’import degli XML ufficiali accetta più riepiloghi fiscali soltanto quando Natura e riferimento normativo convergono sullo stesso profilo; valori discordanti restano bloccati.
+
 ## 0.3.44
 
 - La sincronizzazione in sola lettura usa la doppia griglia ExtJS osservata nel pannello Aruba reale, seleziona anno e pagine in modo fail-closed e importa soltanto TD01 e TD04 nel relativo stream.
