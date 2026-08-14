@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   ARUBA_UPLOAD_MAX_BATCH_BYTES,
+  arubaBatchAccountIdentity,
   arubaManifestSchema,
   assertAllowedArubaAuthenticationNavigation,
   assertAllowedArubaDownload,
@@ -19,6 +20,29 @@ import {
 } from "./aruba.ts";
 
 test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
+  assert.equal(
+    arubaBatchAccountIdentity({
+      accountReference: "historical-account",
+      accountIdentity: null,
+      manifestVersion: 1,
+    }),
+    "historical-account",
+  );
+  assert.equal(
+    arubaBatchAccountIdentity({
+      accountReference: "partition-key",
+      accountIdentity: "Visible account",
+      manifestVersion: 2,
+    }),
+    "Visible account",
+  );
+  assert.throws(() =>
+    arubaBatchAccountIdentity({
+      accountReference: "partition-key",
+      accountIdentity: null,
+      manifestVersion: 2,
+    }),
+  );
   assert.equal(
     assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/", "PRODUCTION").origin,
     "https://fatturazioneelettronica.aruba.it",

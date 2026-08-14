@@ -3,7 +3,6 @@ ALTER TABLE aruba_batches
   ADD COLUMN manifest_version smallint NOT NULL DEFAULT 1;
 
 ALTER TABLE aruba_batches
-  ALTER COLUMN manifest_version DROP DEFAULT,
   ADD CONSTRAINT aruba_batches_manifest_version_check
     CHECK (manifest_version IN (1, 2)),
   ADD CONSTRAINT aruba_batches_account_identity_check

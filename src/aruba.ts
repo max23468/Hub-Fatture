@@ -63,6 +63,16 @@ export function effectiveArubaMode(
   return environment === "PRODUCTION" && !submissionEnabled ? "ASSISTED" : configured;
 }
 
+export function arubaBatchAccountIdentity(value: {
+  accountReference: string;
+  accountIdentity: string | null;
+  manifestVersion: 1 | 2;
+}): string {
+  if (value.manifestVersion === 1) return value.accountReference;
+  if (value.accountIdentity) return value.accountIdentity;
+  throw new Error("manifest");
+}
+
 export function manifestSha256(
   value: Pick<
     ArubaManifest,

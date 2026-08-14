@@ -80,6 +80,23 @@ test("la migrazione conserva i manifest storici e obbliga lo snapshot per i nuov
         ).rows[0],
         { account_identity: null, manifest_version: 1 },
       );
+      await client.query(
+        `INSERT INTO aruba_batches
+          (id, environment, mode, account_reference, manifest_sha256,
+           document_count, attempt_number, created_by)
+         VALUES ('10000000-0000-4000-8000-000000000033', 'PRODUCTION', 'ASSISTED',
+                 'rollback-compatible-account', repeat('5', 64), 1, 1,
+                 (SELECT id FROM users ORDER BY id LIMIT 1))`,
+      );
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT account_identity, manifest_version
+             FROM aruba_batches WHERE id = '10000000-0000-4000-8000-000000000033'`,
+          )
+        ).rows[0],
+        { account_identity: null, manifest_version: 1 },
+      );
       await assert.rejects(
         client.query(
           `INSERT INTO aruba_batches
