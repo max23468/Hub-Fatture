@@ -4,6 +4,7 @@
 
 - L’helper rifiuta esplicitamente i cookie Aruba opzionali quando il banner tardivo intercetta i controlli della griglia, quindi prosegue soltanto dopo la sua chiusura verificata.
 - Ogni ciclo Production riparte dalla Home, mantiene aperta la correlazione fino alla prima richiesta ExtJS asincrona e riporta alla prima pagina uno stream già selezionato prima di riprenderne il cursore.
+- Le interazioni restano limitate nel tempo e riprovano una sola volta quando Cookiebot compare durante il click; in assenza della richiesta correlata terminano in fail-closed.
 
 ## 0.3.46
 

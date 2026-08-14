@@ -335,7 +335,9 @@ test("il lettore di produzione correla le due griglie ExtJS e filtra il flusso f
   expect(result.files).toEqual([{ remoteId: "12345678901", kind: "ARUBA_XML", recordIndex: "0" }]);
 });
 
-test("il lettore Production usa un click nativo e accetta un anno vuoto", async ({ page }) => {
+test("il lettore Production recupera Cookiebot quando compare durante il click nativo", async ({
+  page,
+}) => {
   const year = new Date().getUTCFullYear();
   await page.route("https://aruba-synthetic.invalid/**", (route) =>
     route.fulfill({
@@ -345,7 +347,7 @@ test("il lettore Production usa un click nativo e accetta un anno vuoto", async 
   );
   await page.goto("https://aruba-synthetic.invalid/base");
   await page.setContent(`
-    <div id="CybotCookiebotDialog" style="position:fixed;inset:0;z-index:10;background:white">
+    <div id="CybotCookiebotDialog" style="display:none;position:fixed;inset:0;z-index:10;background:white">
       <button id="CybotCookiebotDialogBodyButtonDecline">Rifiuta tutti</button>
     </div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
@@ -358,6 +360,10 @@ test("il lettore Production usa un click nativo e accetta un anno vuoto", async 
       document.querySelector('#CybotCookiebotDialogBodyButtonDecline').addEventListener('click', () => {
         document.querySelector('#CybotCookiebotDialog').remove();
       });
+      document.querySelector('[role="menuitem"]').addEventListener('pointerover', () => {
+        const dialog = document.querySelector('#CybotCookiebotDialog');
+        if (dialog) dialog.style.display = 'block';
+      }, { once: true });
       document.querySelector('[role="menuitem"]').addEventListener('pointerdown', () => {
         const grid = document.querySelector('.aruba-grid-fatture-inviate');
         setTimeout(() => {
@@ -372,6 +378,27 @@ test("il lettore Production usa un click nativo e accetta un anno vuoto", async 
   const result = await readVisiblePage(page, `invoices:${year}`, 2, 1, "PRODUCTION");
   expect(result.inventory.documents).toEqual([]);
   expect(result.inventory.terminal).toBe(true);
+});
+
+test("il lettore Production fallisce entro un limite se il click non genera richieste", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<html></html>" }),
+  );
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>
+    </div>
+  `);
+
+  const startedAt = Date.now();
+  await expect(selectStream(page, `invoices:${year}`)).rejects.toThrow("DOM_UNRECOGNIZED");
+  expect(Date.now() - startedAt).toBeLessThan(7_000);
 });
 
 test("il lettore Production riporta alla prima pagina uno stream già selezionato", async ({

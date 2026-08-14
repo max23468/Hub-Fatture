@@ -3,7 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
-import { chromium, type BrowserContext, type Locator, type Page, type Request } from "playwright";
+import {
+  chromium,
+  type BrowserContext,
+  type Download,
+  type Locator,
+  type Page,
+  type Request,
+} from "playwright";
 
 import { assertAccount } from "./aruba-helper.ts";
 
@@ -611,8 +618,22 @@ async function downloadOfficialFile(page: Page, file: OfficialFileSource, target
   if ((await tool.count()) !== 1 || !(await tool.isVisible())) {
     throw new Error("DOM_UNRECOGNIZED");
   }
-  await dismissArubaCookieBanner(page);
-  const [download] = await Promise.all([page.waitForEvent("download"), tool.click()]);
+  let download: Download | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await dismissArubaCookieBanner(page);
+    const pendingDownload = page.waitForEvent("download", { timeout: 6_000 }).catch(() => null);
+    try {
+      await tool.click({ timeout: 5_000 });
+      download = await pendingDownload;
+      if (download) break;
+    } catch (error) {
+      await pendingDownload;
+      if (attempt === 0 && (await dismissArubaCookieBanner(page))) continue;
+      throw error;
+    }
+    throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+  }
+  if (!download) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
   const stream = await download.createReadStream();
   if (!stream) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
   const chunks: Buffer[] = [];
@@ -794,13 +815,21 @@ async function clickWithProductionRequestCapture(control: Locator) {
     state.active = true;
   });
   try {
-    await control.click();
-    await page.waitForFunction(() => {
-      const runtime = window as typeof window & {
-        __arubaReadRequestCapture?: { requests: unknown[] };
-      };
-      return Boolean(runtime.__arubaReadRequestCapture?.requests.length);
-    });
+    await control.click({ timeout: 5_000 });
+    await page
+      .waitForFunction(
+        () => {
+          const runtime = window as typeof window & {
+            __arubaReadRequestCapture?: { requests: unknown[] };
+          };
+          return Boolean(runtime.__arubaReadRequestCapture?.requests.length);
+        },
+        undefined,
+        { timeout: 5_000 },
+      )
+      .catch(() => {
+        throw new Error("DOM_UNRECOGNIZED");
+      });
   } finally {
     await page.evaluate(() => {
       const runtime = window as typeof window & {
@@ -815,13 +844,28 @@ async function clickWithProductionRequestCapture(control: Locator) {
 
 async function dismissArubaCookieBanner(page: Page) {
   const dialog = page.locator("#CybotCookiebotDialog");
-  if (!(await dialog.count()) || !(await dialog.isVisible())) return;
+  if (!(await dialog.count()) || !(await dialog.isVisible())) return false;
   const decline = dialog.locator("#CybotCookiebotDialogBodyButtonDecline");
   if ((await decline.count()) !== 1 || !(await decline.isVisible())) {
     throw new Error("DOM_UNRECOGNIZED");
   }
-  await decline.click();
-  await dialog.waitFor({ state: "hidden" });
+  await decline.click({ timeout: 5_000 });
+  await dialog.waitFor({ state: "hidden", timeout: 5_000 });
+  return true;
+}
+
+async function clickWithArubaCookieRetry(page: Page, control: Locator) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await dismissArubaCookieBanner(page);
+    try {
+      await control.click({ timeout: 5_000 });
+      return;
+    } catch (error) {
+      if (attempt === 0 && (await dismissArubaCookieBanner(page))) continue;
+      throw error;
+    }
+  }
+  throw new Error("DOM_UNRECOGNIZED");
 }
 
 async function finishProductionRequestCapture(page: Page): Promise<ProductionRequestKey[]> {
@@ -896,20 +940,27 @@ function observeProductionDataRequests(page: Page) {
 }
 
 async function clickAndWaitForProductionGridReload(page: Page, control: Locator) {
-  await dismissArubaCookieBanner(page);
-  await armProductionGridReload(page);
-  await armProductionRequestCapture(page);
-  const dataRequests = observeProductionDataRequests(page);
-  try {
-    await clickWithProductionRequestCapture(control);
-    const captured = await finishProductionRequestCapture(page);
-    await dataRequests.waitFor(captured);
-    await waitForProductionGridReload(page);
-  } finally {
-    await finishProductionRequestCapture(page);
-    dataRequests.dispose();
-    await clearProductionGridReload(page);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await dismissArubaCookieBanner(page);
+    await armProductionGridReload(page);
+    await armProductionRequestCapture(page);
+    const dataRequests = observeProductionDataRequests(page);
+    try {
+      await clickWithProductionRequestCapture(control);
+      const captured = await finishProductionRequestCapture(page);
+      await dataRequests.waitFor(captured);
+      await waitForProductionGridReload(page);
+      return;
+    } catch (error) {
+      if (attempt === 0 && (await dismissArubaCookieBanner(page))) continue;
+      throw error;
+    } finally {
+      await finishProductionRequestCapture(page);
+      dataRequests.dispose();
+      await clearProductionGridReload(page);
+    }
   }
+  throw new Error("DOM_UNRECOGNIZED");
 }
 
 export async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
@@ -923,8 +974,7 @@ export async function selectStream(page: Page, stream: string, overlapFrom?: str
       throw new Error("DOM_UNRECOGNIZED");
     }
     if (!(await yearControl.innerText()).includes(String(year))) {
-      await dismissArubaCookieBanner(page);
-      await yearControl.locator("button").click();
+      await clickWithArubaCookieRetry(page, yearControl.locator("button"));
       const yearOptions = page.locator(".x-menuitem-sub-menu-mainToolbar");
       const exactYears: Locator[] = [];
       for (let index = 0; index < (await yearOptions.count()); index += 1) {
