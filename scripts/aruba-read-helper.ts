@@ -710,69 +710,152 @@ async function waitForProductionGridReload(page: Page) {
   }
 }
 
-function observeProductionDataRequest(page: Page) {
-  const pending = new Set<Request>();
-  const pageOrigin = new URL(page.url()).origin;
-  let successful = false;
-  let settled = false;
-  let settleTimer: ReturnType<typeof setTimeout> | undefined;
-  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
-  let complete = () => {};
-  let fail = () => {};
-  const completed = new Promise<void>((resolve, reject) => {
-    complete = () => {
-      if (settled) return;
-      settled = true;
-      resolve();
+interface ProductionRequestKey {
+  method: string;
+  url: string;
+}
+
+async function armProductionRequestCapture(page: Page) {
+  await page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __arubaReadRequestCapture?: {
+        active: boolean;
+        requests: Array<{ method: string; url: string }>;
+        restore: () => void;
+      };
     };
-    fail = () => {
-      if (settled) return;
-      settled = true;
-      reject(new Error("DOM_UNRECOGNIZED"));
+    runtime.__arubaReadRequestCapture?.restore();
+    const originalFetch = window.fetch;
+    const originalOpen = XMLHttpRequest.prototype.open;
+    const originalSend = XMLHttpRequest.prototype.send;
+    const xhrRequests = new WeakMap<XMLHttpRequest, { method: string; url: string }>();
+    const state = {
+      active: false,
+      requests: [] as Array<{ method: string; url: string }>,
+      restore: () => {
+        window.fetch = originalFetch;
+        XMLHttpRequest.prototype.open = originalOpen;
+        XMLHttpRequest.prototype.send = originalSend;
+      },
     };
-    timeoutTimer = setTimeout(fail, 30_000);
+    window.fetch = function (input, init) {
+      if (state.active) {
+        const request = input instanceof Request ? input : null;
+        const url = new URL(request?.url ?? String(input), location.href);
+        if (url.origin === location.origin) {
+          state.requests.push({
+            method: (init?.method ?? request?.method ?? "GET").toUpperCase(),
+            url: url.href,
+          });
+        }
+      }
+      return Reflect.apply(originalFetch, this, [input, init]);
+    };
+    XMLHttpRequest.prototype.open = function (
+      this: XMLHttpRequest,
+      method: string,
+      url: string | URL,
+      async?: boolean,
+      username?: string | null,
+      password?: string | null,
+    ) {
+      xhrRequests.set(this, {
+        method: method.toUpperCase(),
+        url: new URL(String(url), location.href).href,
+      });
+      return Reflect.apply(
+        originalOpen,
+        this,
+        async === undefined ? [method, url] : [method, url, async, username, password],
+      );
+    } as typeof XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.send = function (...args) {
+      const request = xhrRequests.get(this);
+      if (state.active && request && new URL(request.url).origin === location.origin) {
+        state.requests.push(request);
+      }
+      return Reflect.apply(originalSend, this, args);
+    };
+    runtime.__arubaReadRequestCapture = state;
   });
+}
+
+async function clickWithProductionRequestCapture(control: Locator) {
+  await control.evaluate((element) => {
+    const runtime = window as typeof window & {
+      __arubaReadRequestCapture?: { active: boolean };
+    };
+    const state = runtime.__arubaReadRequestCapture;
+    if (!state) throw new Error("DOM_UNRECOGNIZED");
+    state.active = true;
+    try {
+      (element as HTMLElement).click();
+    } finally {
+      state.active = false;
+    }
+  });
+}
+
+async function finishProductionRequestCapture(page: Page): Promise<ProductionRequestKey[]> {
+  return page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __arubaReadRequestCapture?: {
+        active: boolean;
+        requests: Array<{ method: string; url: string }>;
+        restore: () => void;
+      };
+    };
+    const state = runtime.__arubaReadRequestCapture;
+    if (!state) return [];
+    state.restore();
+    delete runtime.__arubaReadRequestCapture;
+    return state.requests;
+  });
+}
+
+function observeProductionDataRequests(page: Page) {
+  const observed: Request[] = [];
+  const pageOrigin = new URL(page.url()).origin;
   const relevant = (request: Request) =>
     ["xhr", "fetch"].includes(request.resourceType()) &&
     new URL(request.url()).origin === pageOrigin;
-  const scheduleCompletion = () => {
-    if (!successful || pending.size || settled) return;
-    if (settleTimer) clearTimeout(settleTimer);
-    settleTimer = setTimeout(complete, 500);
-  };
   const onRequest = (request: Request) => {
-    if (!relevant(request)) return;
-    pending.add(request);
-    if (settleTimer) clearTimeout(settleTimer);
-  };
-  const onRequestFinished = async (request: Request) => {
-    if (!relevant(request)) return;
-    pending.delete(request);
-    const response = await request.response().catch(() => null);
-    if (!response?.ok()) {
-      fail();
-      return;
-    }
-    successful = true;
-    scheduleCompletion();
-  };
-  const onRequestFailed = (request: Request) => {
-    if (!relevant(request)) return;
-    pending.delete(request);
-    fail();
+    if (relevant(request)) observed.push(request);
   };
   page.on("request", onRequest);
-  page.on("requestfinished", onRequestFinished);
-  page.on("requestfailed", onRequestFailed);
   return {
-    completed,
+    async waitFor(captured: ProductionRequestKey[]) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const remaining = [...observed];
+      const requests = captured.map((key) => {
+        const index = remaining.findIndex(
+          (request) => request.method() === key.method && request.url() === key.url,
+        );
+        if (index < 0) throw new Error("DOM_UNRECOGNIZED");
+        return remaining.splice(index, 1)[0]!;
+      });
+      if (!requests.length) throw new Error("DOM_UNRECOGNIZED");
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          Promise.all(
+            requests.map(async (request) => {
+              const response = await request.response().catch(() => null);
+              if (!response?.ok() || (await response.finished())) {
+                throw new Error("DOM_UNRECOGNIZED");
+              }
+            }),
+          ),
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error("DOM_UNRECOGNIZED")), 30_000);
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    },
     dispose() {
       page.off("request", onRequest);
-      page.off("requestfinished", onRequestFinished);
-      page.off("requestfailed", onRequestFailed);
-      if (settleTimer) clearTimeout(settleTimer);
-      if (timeoutTimer) clearTimeout(timeoutTimer);
-      complete();
     },
   };
 }
@@ -810,13 +893,16 @@ export async function selectStream(page: Page, stream: string, overlapFrom?: str
     }
     if (visibleSent.length !== 1) throw new Error("DOM_UNRECOGNIZED");
     await armProductionGridReload(page);
-    const dataRequest = observeProductionDataRequest(page);
+    await armProductionRequestCapture(page);
+    const dataRequests = observeProductionDataRequests(page);
     try {
-      await visibleSent[0]!.click();
-      await dataRequest.completed;
+      await clickWithProductionRequestCapture(visibleSent[0]!);
+      const captured = await finishProductionRequestCapture(page);
+      await dataRequests.waitFor(captured);
       await waitForProductionGridReload(page);
     } finally {
-      dataRequest.dispose();
+      await finishProductionRequestCapture(page);
+      dataRequests.dispose();
     }
     await productionNextButton(page);
     return;

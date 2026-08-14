@@ -371,6 +371,10 @@ test("il lettore Production attende il reload ExtJS prima di leggere il nuovo st
 }) => {
   const year = new Date().getUTCFullYear();
   await page.route("https://aruba-synthetic.invalid/**", async (route) => {
+    if (route.request().url().endsWith("/poll")) {
+      await route.fulfill({ contentType: "application/json", body: "{}" });
+      return;
+    }
     if (route.request().url().endsWith("/reload")) {
       await new Promise((resolve) => setTimeout(resolve, 700));
       await route.fulfill({ contentType: "application/json", body: "{}" });
@@ -418,6 +422,7 @@ test("il lettore Production attende il reload ExtJS prima di leggere il nuovo st
       const grid = document.querySelector(".aruba-grid-fatture-inviate")!;
       grid.innerHTML =
         '<span class="x-disabled" title="{app.buttons.labels.nextPage}"><button aria-disabled="true" disabled></button></span>';
+      fetch("/poll");
       fetch("/reload").then(() => {
         grid.innerHTML = replacement;
       });
