@@ -19,7 +19,9 @@ const remote: RemoteInventoryDocument = {
   documentDate: "2026-08-12",
   recipientName: "Mario Rossi",
   recipientTaxId: "RSSMRA80A01H501U",
-  recipientTaxIds: [],
+  recipientTaxIdentifiers: [
+    { type: "CODICE_FISCALE", countryCode: null, value: "RSSMRA80A01H501U" },
+  ],
   recipientCountryCode: "IT",
   recipientAddress: "Via Roma 1 Milano",
   totalAmount: 12_300,
@@ -94,7 +96,7 @@ test("il totale da solo non produce mai un collegamento", () => {
       localOrderDate: "2026-08-12",
       billableAmount: 12_300,
       recipientName: "Altra Persona",
-      recipientTaxIds: [],
+      recipientTaxIdentifiers: [],
       recipientAddress: "Altrove",
     },
   ]);
@@ -110,7 +112,9 @@ test("un candidato univoco richiede data, importo e identità coerenti", () => {
       localOrderDate: "2026-08-12",
       billableAmount: 12_300,
       recipientName: "Mario Rossi",
-      recipientTaxIds: ["RSSMRA80A01H501U"],
+      recipientTaxIdentifiers: [
+        { type: "CODICE_FISCALE", countryCode: null, value: "RSSMRA80A01H501U" },
+      ],
       recipientAddress: "Via Roma 1 Milano",
     },
   ]);
@@ -122,7 +126,10 @@ test("l’evidenza XML confronta tutti gli identificativi fiscali del destinatar
     {
       ...remote,
       recipientTaxId: "10987654321",
-      recipientTaxIds: ["10987654321", "RSSMRA80A01H501U"],
+      recipientTaxIdentifiers: [
+        { type: "PARTITA_IVA", countryCode: "IT", value: "10987654321" },
+        { type: "CODICE_FISCALE", countryCode: null, value: "RSSMRA80A01H501U" },
+      ],
     },
     [
       {
@@ -132,12 +139,54 @@ test("l’evidenza XML confronta tutti gli identificativi fiscali del destinatar
         localOrderDate: "2026-08-12",
         billableAmount: 12_300,
         recipientName: "Mario Rossi",
-        recipientTaxIds: ["RSSMRA80A01H501U"],
+        recipientTaxIdentifiers: [
+          { type: "CODICE_FISCALE", countryCode: null, value: "RSSMRA80A01H501U" },
+        ],
         recipientAddress: "Via Roma 1 Milano",
       },
     ],
   );
   assert.equal(result.status, "MATCHED");
+});
+
+test("l’identità fiscale richiede stesso tipo, paese e valore", () => {
+  const fiscalReference = {
+    ...remote,
+    recipientTaxId: "10987654321",
+    recipientTaxIdentifiers: [
+      { type: "PARTITA_IVA" as const, countryCode: "IT", value: "10987654321" },
+    ],
+    orderReferences: ["1001"],
+  };
+  const candidate = {
+    id: "1",
+    provider: "SHOPIFY" as const,
+    displayNumber: "1001",
+    localOrderDate: "2026-08-12",
+    billableAmount: 12_300,
+    recipientName: "Mario Rossi",
+    recipientAddress: "Via Roma 1 Milano",
+  };
+  assert.equal(
+    selectOrderMatch(fiscalReference, [
+      {
+        ...candidate,
+        recipientTaxIdentifiers: [
+          { type: "CODICE_FISCALE", countryCode: null, value: "10987654321" },
+        ],
+      },
+    ]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(fiscalReference, [
+      {
+        ...candidate,
+        recipientTaxIdentifiers: [{ type: "PARTITA_IVA", countryCode: "FR", value: "10987654321" }],
+      },
+    ]).status,
+    "UNMATCHED",
+  );
 });
 
 test("un riferimento esplicito non ignora un destinatario dichiarato incompatibile", () => {
@@ -149,7 +198,9 @@ test("un riferimento esplicito non ignora un destinatario dichiarato incompatibi
       localOrderDate: "2026-08-12",
       billableAmount: 12_300,
       recipientName: "Altra Persona",
-      recipientTaxIds: ["VRDLGI80A01H501U"],
+      recipientTaxIdentifiers: [
+        { type: "CODICE_FISCALE", countryCode: null, value: "VRDLGI80A01H501U" },
+      ],
       recipientAddress: "Via Altrove 9 Torino",
     },
   ]);
@@ -163,7 +214,9 @@ test("un riferimento esplicito non ignora un destinatario dichiarato incompatibi
       localOrderDate: "2026-08-12",
       billableAmount: 12_300,
       recipientName: "Mario Rossi",
-      recipientTaxIds: ["VRDLGI80A01H501U"],
+      recipientTaxIdentifiers: [
+        { type: "CODICE_FISCALE", countryCode: null, value: "VRDLGI80A01H501U" },
+      ],
       recipientAddress: "Via Roma 1 Milano",
     },
   ]);
@@ -179,7 +232,9 @@ test("una TD01 anteriore all’ordine non viene collegata", () => {
       localOrderDate: "2026-08-13",
       billableAmount: 12_300,
       recipientName: "Mario Rossi",
-      recipientTaxIds: ["RSSMRA80A01H501U"],
+      recipientTaxIdentifiers: [
+        { type: "CODICE_FISCALE", countryCode: null, value: "RSSMRA80A01H501U" },
+      ],
       recipientAddress: "Via Roma 1 Milano",
     },
   ]);
@@ -193,7 +248,9 @@ test("due candidati compatibili restano ambigui", () => {
     localOrderDate: "2026-08-12",
     billableAmount: 12_300,
     recipientName: "Mario Rossi",
-    recipientTaxIds: ["RSSMRA80A01H501U"],
+    recipientTaxIdentifiers: [
+      { type: "CODICE_FISCALE" as const, countryCode: null, value: "RSSMRA80A01H501U" },
+    ],
     recipientAddress: "Via Roma 1 Milano",
   };
   assert.equal(
@@ -215,7 +272,9 @@ test("una preparazione multi-ordine usa insieme riferimenti e totale del gruppo"
       localOrderDate: "2026-08-12",
       billableAmount: 8_000,
       recipientName: "Mario Rossi",
-      recipientTaxIds: ["RSSMRA80A01H501U"],
+      recipientTaxIdentifiers: [
+        { type: "CODICE_FISCALE", countryCode: null, value: "RSSMRA80A01H501U" },
+      ],
       recipientAddress: "Via Roma 1 Milano",
     },
     {
@@ -226,7 +285,9 @@ test("una preparazione multi-ordine usa insieme riferimenti e totale del gruppo"
       localOrderDate: "2026-08-13",
       billableAmount: 4_300,
       recipientName: "Mario Rossi",
-      recipientTaxIds: ["RSSMRA80A01H501U"],
+      recipientTaxIdentifiers: [
+        { type: "CODICE_FISCALE", countryCode: null, value: "RSSMRA80A01H501U" },
+      ],
       recipientAddress: "Via Roma 1 Milano",
     },
   ]);

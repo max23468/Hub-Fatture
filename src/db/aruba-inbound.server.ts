@@ -15,6 +15,7 @@ import {
   remoteStatusTransition,
   selectOrderMatch,
   type ArubaOrderCandidate,
+  type FiscalIdentity,
   type ArubaRemoteStatus,
   type RemoteInventoryDocument,
 } from "../aruba-inbound.ts";
@@ -444,7 +445,7 @@ interface InboundOrderCandidateRow {
   local_order_date: string;
   billable_amount: number;
   recipient_name: string | null;
-  recipient_tax_ids: string[];
+  recipient_tax_identifiers: FiscalIdentity[];
   recipient_address: string | null;
   billing_case_id: string | null;
   invoice_document_id: string | null;
@@ -490,9 +491,13 @@ async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDoc
               WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
             ), 0))::integer AS billable_amount,
             customers.display_name AS recipient_name,
-            coalesce((SELECT array_agg(order_tax_identifiers.normalized_value)
-                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '{}')
-              AS recipient_tax_ids,
+            coalesce((SELECT jsonb_agg(jsonb_build_object(
+                        'type', order_tax_identifiers.type,
+                        'countryCode', coalesce(order_tax_identifiers.country_code,
+                          orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'),
+                        'value', order_tax_identifiers.normalized_value))
+                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '[]')
+              AS recipient_tax_identifiers,
             concat_ws(' ',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',
@@ -524,9 +529,13 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
             refundable.amount::integer AS billable_amount, refundable.refund_ids,
             refundable.refund_amounts, refundable.refund_dates,
             customers.display_name AS recipient_name,
-            coalesce((SELECT array_agg(order_tax_identifiers.normalized_value)
-                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '{}')
-              AS recipient_tax_ids,
+            coalesce((SELECT jsonb_agg(jsonb_build_object(
+                        'type', order_tax_identifiers.type,
+                        'countryCode', coalesce(order_tax_identifiers.country_code,
+                          orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'),
+                        'value', order_tax_identifiers.normalized_value))
+                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '[]')
+              AS recipient_tax_identifiers,
             concat_ws(' ',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',
@@ -577,9 +586,13 @@ async function submittedCreditNoteCandidates(client: pg.PoolClient, documentId: 
             array_agg(refunds.amount::integer ORDER BY refunds.id) AS refund_amounts,
             array_agg(refunds.completed_at::date::text ORDER BY refunds.id) AS refund_dates,
             customers.display_name AS recipient_name,
-            coalesce((SELECT array_agg(order_tax_identifiers.normalized_value)
-                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '{}')
-              AS recipient_tax_ids,
+            coalesce((SELECT jsonb_agg(jsonb_build_object(
+                        'type', order_tax_identifiers.type,
+                        'countryCode', coalesce(order_tax_identifiers.country_code,
+                          orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'),
+                        'value', order_tax_identifiers.normalized_value))
+                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '[]')
+              AS recipient_tax_identifiers,
             concat_ws(' ',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',
@@ -705,7 +718,7 @@ async function reconcileRemoteDocument(
       localOrderDate: candidate.local_order_date,
       billableAmount: candidate.match_amount,
       recipientName: candidate.recipient_name,
-      recipientTaxIds: candidate.recipient_tax_ids,
+      recipientTaxIdentifiers: candidate.recipient_tax_identifiers,
       recipientAddress: candidate.recipient_address,
     },
   }));
@@ -772,7 +785,7 @@ async function reconcileRemoteDocument(
               .at(-1) ?? candidate.local_order_date,
           billableAmount: selectedAmount,
           recipientName: candidate.recipient_name,
-          recipientTaxIds: candidate.recipient_tax_ids,
+          recipientTaxIdentifiers: candidate.recipient_tax_identifiers,
           recipientAddress: candidate.recipient_address,
         });
       }
@@ -1040,7 +1053,11 @@ function officialEvidence(remote: RemoteInventoryDocument, xml: string): RemoteI
   const authoritativeRecipient = {
     recipientName: acceptedRecipientName(recipient),
     recipientTaxId: recipient.taxIdentifiers[0]?.value ?? null,
-    recipientTaxIds: recipient.taxIdentifiers.map((identifier) => identifier.value),
+    recipientTaxIdentifiers: recipient.taxIdentifiers.map((identifier) => ({
+      type: identifier.type,
+      countryCode: identifier.countryCode ?? null,
+      value: identifier.value,
+    })),
     recipientCountryCode: recipient.address.countryCode,
     recipientAddress: [
       recipient.address.line1,
@@ -1165,7 +1182,11 @@ async function materializeExternalInvoice(
     documentDate: remote.document_date,
     recipientName: acceptedRecipientName(imported.input.recipient),
     recipientTaxId: imported.input.recipient.taxIdentifiers[0]?.value ?? null,
-    recipientTaxIds: imported.input.recipient.taxIdentifiers.map((identifier) => identifier.value),
+    recipientTaxIdentifiers: imported.input.recipient.taxIdentifiers.map((identifier) => ({
+      type: identifier.type,
+      countryCode: identifier.countryCode ?? null,
+      value: identifier.value,
+    })),
     recipientCountryCode: imported.input.recipient.address.countryCode,
     recipientAddress: [
       imported.input.recipient.address.line1,
@@ -1189,7 +1210,7 @@ async function materializeExternalInvoice(
     localOrderDate: candidate.local_order_date,
     billableAmount: candidate.billable_amount,
     recipientName: candidate.recipient_name,
-    recipientTaxIds: candidate.recipient_tax_ids,
+    recipientTaxIdentifiers: candidate.recipient_tax_identifiers,
     recipientAddress: candidate.recipient_address,
   }));
   const groupedCandidates = groupOrderCandidates(individualCandidates).filter(
@@ -2721,7 +2742,7 @@ export async function requestArubaPreflight(
       orderId: string;
       orderDate: string;
       recipientName: string | null;
-      recipientTaxIds: string[];
+      recipientTaxIdentifiers: FiscalIdentity[];
       recipientAddress: string | null;
       refundIds: string[];
     }>;
@@ -2733,7 +2754,10 @@ export async function requestArubaPreflight(
         'amount', document_orders.amount, 'documentType', documents.document_type,
         'orderId', orders.id::text, 'orderDate', orders.local_order_date::text,
         'recipientName', customers.display_name,
-        'recipientTaxIds', coalesce((SELECT jsonb_agg(tax.normalized_value)
+        'recipientTaxIdentifiers', coalesce((SELECT jsonb_agg(jsonb_build_object(
+          'type', tax.type, 'countryCode', coalesce(tax.country_code,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'),
+          'value', tax.normalized_value))
           FROM order_tax_identifiers tax WHERE tax.order_id = orders.id), '[]'),
         'recipientAddress', concat_ws(' ',
           orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',

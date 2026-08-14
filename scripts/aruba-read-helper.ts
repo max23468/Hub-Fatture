@@ -295,7 +295,7 @@ async function readProductionRows(page: Page) {
       documentDate,
       recipientName: indices.recipient >= 0 ? cells[indices.recipient] || null : null,
       recipientTaxId: indices.recipientTaxId >= 0 ? cells[indices.recipientTaxId] || null : null,
-      recipientTaxIds: [],
+      recipientTaxIdentifiers: [],
       recipientCountryCode: null,
       recipientAddress:
         indices.recipientAddress >= 0 ? cells[indices.recipientAddress] || null : null,
@@ -380,7 +380,7 @@ async function readProductionExtGrid(grid: Locator) {
       documentDate,
       recipientName: cells[7] || null,
       recipientTaxId: null,
-      recipientTaxIds: [],
+      recipientTaxIdentifiers: [],
       recipientCountryCode: null,
       recipientAddress: null,
       totalAmount: italianAmount(cells[10]!),

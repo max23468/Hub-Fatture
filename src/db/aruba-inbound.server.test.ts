@@ -177,7 +177,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           documentDate: "2026-08-10",
           recipientName: "Mario Rossi",
           recipientTaxId: null,
-          recipientTaxIds: [],
+          recipientTaxIdentifiers: [],
           recipientCountryCode: null,
           recipientAddress: null,
           totalAmount: 12345,
