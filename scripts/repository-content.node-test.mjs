@@ -76,11 +76,11 @@ test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
   const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   assert.equal(
     manifest.scripts["test:e2e"],
-    "playwright test --project=chromium && playwright test --project=webkit",
+    "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
   );
   assert.equal(
     manifest.scripts["test:e2e:release-candidate"],
-    "playwright test --project=chromium && playwright test --project=webkit",
+    "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
   );
 });
 
@@ -355,7 +355,7 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(e2e, /browser: webkit[\s\S]*label: WebKit[\s\S]*install: webkit chromium/);
   assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npx playwright test"));
   assert.match(e2e, /playwright install --with-deps \$\{\{ matrix\.install \}\}/);
-  assert.match(e2e, /playwright test --project=\$\{\{ matrix\.browser \}\}/);
+  assert.match(e2e, /playwright test --project=\$\{\{ matrix\.browser \}\} --workers=1/);
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
   assert.doesNotMatch(ci, /workflow_dispatch:/);
   assert.match(

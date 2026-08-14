@@ -203,7 +203,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps ${{ matrix.install }}
-      - run: npx playwright test --project=${{ matrix.browser }}
+      - run: npx playwright test --project=${{ matrix.browser }} --workers=1
 
   aruba-helper-platform:
     name: Helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
