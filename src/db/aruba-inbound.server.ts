@@ -1661,9 +1661,19 @@ async function materializeMatchedExternalDocument(
 ) {
   const remote = await lockedRemoteMatch(client, remoteDocumentId);
   if (!remote || !isEmissionConfirmed(remote.remote_status)) return null;
+  let identity: ReturnType<typeof acceptedDocumentFiscalIdentity>;
   try {
-    acceptedDocumentFiscalIdentity(xml);
+    identity = acceptedDocumentFiscalIdentity(xml);
   } catch {
+    await client.query(
+      `UPDATE aruba_document_matches SET status = 'PROFILE_CONFLICT', method = 'NONE',
+         document_id = NULL, updated_at = now() WHERE remote_document_id = $1`,
+      [remoteDocumentId],
+    );
+    return null;
+  }
+  const profile = await activeFiscalProfile(client);
+  if (!profile || !acceptedProfileMatches(profile.profile, identity)) {
     await client.query(
       `UPDATE aruba_document_matches SET status = 'PROFILE_CONFLICT', method = 'NONE',
          document_id = NULL, updated_at = now() WHERE remote_document_id = $1`,
