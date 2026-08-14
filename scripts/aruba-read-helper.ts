@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
-import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+import { chromium, type BrowserContext, type Locator, type Page, type Request } from "playwright";
 
 import { assertAccount } from "./aruba-helper.ts";
 
@@ -61,6 +61,12 @@ interface PreflightWork {
   };
 }
 
+type OfficialFileKind = "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
+
+type OfficialFileSource =
+  | { remoteId: string; kind: OfficialFileKind; url: string; recordIndex?: never }
+  | { remoteId: string; kind: OfficialFileKind; recordIndex: string; url?: never };
+
 async function hubJson<T>(
   hub: URL,
   token: string,
@@ -98,7 +104,11 @@ async function hubFile(
       body: Uint8Array.from(bytes),
     },
   );
-  if (!response.ok) throw new Error(`HUB_${response.status}`);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { code?: unknown } | null;
+    const code = typeof payload?.code === "string" ? payload.code : "UNKNOWN";
+    throw new Error(`HUB_FILE_${kind}_${response.status}_${code}`);
+  }
 }
 
 function launchOptions(options: ReadHelperOptions, environment: ArubaReadManifest["environment"]) {
@@ -225,6 +235,10 @@ async function uniqueInventoryTable(page: Page): Promise<Locator> {
 }
 
 async function readProductionRows(page: Page) {
+  const extGrid = page.locator(".aruba-grid-fatture-inviate").first();
+  if ((await extGrid.count()) && (await extGrid.isVisible())) {
+    return readProductionExtGrid(extGrid);
+  }
   const table = await uniqueInventoryTable(page);
   const headers = (await table.locator("thead th").allInnerTexts()).map((value) => value.trim());
   const indices = {
@@ -281,6 +295,7 @@ async function readProductionRows(page: Page) {
       documentDate,
       recipientName: indices.recipient >= 0 ? cells[indices.recipient] || null : null,
       recipientTaxId: indices.recipientTaxId >= 0 ? cells[indices.recipientTaxId] || null : null,
+      recipientTaxIdentifiers: [],
       recipientCountryCode: null,
       recipientAddress:
         indices.recipientAddress >= 0 ? cells[indices.recipientAddress] || null : null,
@@ -309,6 +324,126 @@ async function readProductionRows(page: Page) {
   return { documents, files };
 }
 
+function parseStream(stream: string) {
+  const match = /^(invoices|credit-notes):(\d{4})$/.exec(stream);
+  if (!match) throw new Error("DOM_UNRECOGNIZED");
+  return {
+    documentType: match[1] === "invoices" ? ("TD01" as const) : ("TD04" as const),
+    year: Number(match[2]),
+  };
+}
+
+async function readProductionExtGrid(grid: Locator) {
+  const rows = grid.locator(".x-gridrow[data-recordindex]");
+  const primary = new Map<string, Locator>();
+  const statuses = new Map<string, Locator>();
+  const count = await rows.count();
+  if (count > 600) throw new Error("DOM_UNRECOGNIZED");
+  if (!count) return { documents: [], files: [] };
+  for (let index = 0; index < count; index += 1) {
+    const row = rows.nth(index);
+    const recordIndex = await row.getAttribute("data-recordindex");
+    if (!recordIndex || !/^\d+$/.test(recordIndex)) throw new Error("DOM_UNRECOGNIZED");
+    const cellCount = await row.locator(".x-gridcell").count();
+    const target = cellCount >= 18 ? primary : statuses;
+    if (target.has(recordIndex)) throw new Error("DOM_UNRECOGNIZED");
+    target.set(recordIndex, row);
+  }
+  if (!primary.size || primary.size > 300 || primary.size !== statuses.size) {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  const documents: RemoteInventoryDocument[] = [];
+  const files: OfficialFileSource[] = [];
+  for (const [recordIndex, primaryRow] of primary) {
+    const statusRow = statuses.get(recordIndex);
+    if (!statusRow) throw new Error("DOM_UNRECOGNIZED");
+    const cells = (await primaryRow.locator(".x-gridcell").allInnerTexts()).map((value) =>
+      value.trim(),
+    );
+    const statusCells = (await statusRow.locator(".x-gridcell").allInnerTexts()).map((value) =>
+      value.trim(),
+    );
+    if (cells.length < 18 || !statusCells.length) throw new Error("DOM_UNRECOGNIZED");
+    const type = cells[8]!.match(/\b(TD01|TD04)\b/i)?.[1]?.toUpperCase();
+    if (type !== "TD01" && type !== "TD04") continue;
+    const documentDate = italianDate(cells[4]!);
+    const fiscalYear = Number(documentDate.slice(0, 4));
+    const fiscalIdentity = parseProductionFiscalNumber(cells[5]!, fiscalYear);
+    const remoteId = cells[17]!.trim();
+    if (!/^\d{6,30}$/.test(remoteId)) throw new Error("DOM_UNRECOGNIZED");
+    documents.push({
+      remoteId,
+      documentType: type,
+      fiscalYear,
+      series: fiscalIdentity.series,
+      fiscalNumber: fiscalIdentity.fiscalNumber,
+      documentDate,
+      recipientName: cells[7] || null,
+      recipientTaxId: null,
+      recipientTaxIdentifiers: [],
+      recipientCountryCode: null,
+      recipientAddress: null,
+      totalAmount: italianAmount(cells[10]!),
+      currency: "EUR",
+      status: visibleRemoteStatus(statusCells[0]!),
+      providerObservedAt: null,
+      xmlSha256: null,
+      orderReferences: [],
+    });
+    const downloads = statusRow.locator(".x-gridcell").nth(1);
+    for (const [kind, iconClass] of [
+      ["ARUBA_XML", "aru-xml"],
+      ["ARUBA_P7M", "aru-p7m"],
+      ["ARUBA_PDF", "aru-pdf"],
+      ["SDI_NOTIFICATION", "aru-sdi"],
+    ] as const) {
+      const icons = downloads.locator(`.${iconClass}`);
+      if ((await icons.count()) > 1) throw new Error("DOM_UNRECOGNIZED");
+      if ((await icons.count()) === 1) files.push({ remoteId, kind, recordIndex });
+    }
+  }
+  return { documents, files };
+}
+
+const PRODUCTION_NEXT_SELECTOR =
+  '.aruba-grid-fatture-inviate button[aria-label*="nextPage"], .aruba-grid-fatture-inviate button[title*="nextPage"], .aruba-grid-fatture-inviate [title*="nextPage"] button';
+
+async function productionNextButton(page: Page) {
+  const candidates = page.locator(PRODUCTION_NEXT_SELECTOR);
+  const visible: Locator[] = [];
+  for (let index = 0; index < (await candidates.count()); index += 1) {
+    const candidate = candidates.nth(index);
+    if (await candidate.isVisible()) visible.push(candidate);
+  }
+  if (visible.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+  return visible[0]!;
+}
+
+async function productionHasNext(page: Page) {
+  const next = await productionNextButton(page);
+  return next.evaluate((element) => {
+    const wrapper = element.closest(".x-disabled, [aria-disabled='true']");
+    return !(element as HTMLButtonElement).disabled && !wrapper;
+  });
+}
+
+async function productionPageFingerprint(page: Page) {
+  const rows = page.locator(
+    ".aruba-grid-fatture-inviate .x-gridrow[data-recordindex] .x-gridcell:nth-child(18)",
+  );
+  const values = (await rows.allInnerTexts()).map((value) => value.trim()).filter(Boolean);
+  if (!values.length) throw new Error("DOM_UNRECOGNIZED");
+  return values.join("|");
+}
+
+export async function advanceProductionPage(page: Page) {
+  const before = await productionPageFingerprint(page);
+  const next = await productionNextButton(page);
+  if (!(await productionHasNext(page))) throw new Error("DOM_UNRECOGNIZED");
+  await clickAndWaitForProductionGridReload(page, next);
+  if ((await productionPageFingerprint(page)) === before) throw new Error("DOM_UNRECOGNIZED");
+}
+
 export function parseProductionFiscalNumber(value: string, fiscalYear: number) {
   const match = /^(\S+)\s+(\d+)\/(\d{2}|\d{4})$/.exec(value.trim());
   if (!match) throw new Error("DOM_UNRECOGNIZED");
@@ -333,10 +468,26 @@ export async function readVisiblePage(
 ) {
   if (environment === "PRODUCTION") {
     const { documents, files } = await readProductionRows(page);
-    const next = page.getByRole("button", { name: /Pagina successiva|Successiva/i }).first();
-    const hasNext = Boolean(
-      (await next.count()) && (await next.isVisible()) && (await next.isEnabled()),
+    const expected = parseStream(stream);
+    const filtered = documents.filter(
+      (document) =>
+        document.documentType === expected.documentType && document.fiscalYear === expected.year,
     );
+    const usesExtGrid = await page
+      .locator(".aruba-grid-fatture-inviate")
+      .first()
+      .isVisible()
+      .catch(() => false);
+    const semanticNext = page
+      .getByRole("button", { name: /Pagina successiva|Successiva/i })
+      .first();
+    const hasNext = usesExtGrid
+      ? await productionHasNext(page)
+      : Boolean(
+          (await semanticNext.count()) &&
+          (await semanticNext.isVisible()) &&
+          (await semanticNext.isEnabled()),
+        );
     return {
       inventory: inventoryPageSchema.parse({
         stream,
@@ -345,7 +496,7 @@ export async function readVisiblePage(
         cursor: `${stream}:${pageOrdinal}`,
         terminal: !hasNext,
         fullScan: true,
-        documents,
+        documents: filtered,
       }),
       files,
     };
@@ -354,11 +505,7 @@ export async function readVisiblePage(
   const count = await rows.count();
   if (count > 300) throw new Error("DOM_UNRECOGNIZED");
   const documents = [];
-  const files: Array<{
-    remoteId: string;
-    kind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
-    url: string;
-  }> = [];
+  const files: OfficialFileSource[] = [];
   for (let index = 0; index < count; index += 1) {
     const row = rows.nth(index);
     if (!(await row.isVisible())) continue;
@@ -424,15 +571,51 @@ export async function readVisiblePage(
   };
 }
 
-async function downloadOfficialFile(page: Page, url: string, target: URL) {
-  const allowed = assertAllowedArubaDownload(new URL(url, page.url()).toString(), target);
-  const response = await page.request.get(allowed.toString());
-  if (!response.ok()) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
-  const bytes = await response.body();
-  if (!bytes.byteLength || bytes.byteLength > 4_900_000) {
-    throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+async function downloadOfficialFile(page: Page, file: OfficialFileSource, target: URL) {
+  if (file.url) {
+    const allowed = assertAllowedArubaDownload(new URL(file.url, page.url()).toString(), target);
+    const response = await page.request.get(allowed.toString());
+    if (!response.ok()) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+    const bytes = await response.body();
+    if (!bytes.byteLength || bytes.byteLength > 4_900_000) {
+      throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+    }
+    return bytes;
   }
-  return bytes;
+  const recordIndex = file.recordIndex;
+  if (!recordIndex || !/^\d+$/.test(recordIndex)) throw new Error("DOM_UNRECOGNIZED");
+  const iconClass = {
+    ARUBA_XML: "aru-xml",
+    ARUBA_P7M: "aru-p7m",
+    ARUBA_PDF: "aru-pdf",
+    SDI_NOTIFICATION: "aru-sdi",
+  }[file.kind];
+  const tool = page
+    .locator(
+      `.aruba-grid-fatture-inviate .locked-grid-border-left .x-gridrow[data-recordindex="${recordIndex}"] .x-gridcell:nth-child(2) .${iconClass}`,
+    )
+    .locator(
+      "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' x-tool ')][1]",
+    );
+  if ((await tool.count()) !== 1 || !(await tool.isVisible())) {
+    throw new Error("DOM_UNRECOGNIZED");
+  }
+  const [download] = await Promise.all([page.waitForEvent("download"), tool.click()]);
+  const stream = await download.createReadStream();
+  if (!stream) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of stream) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.byteLength;
+    if (size > 4_900_000) {
+      stream.destroy();
+      throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+    }
+    chunks.push(bytes);
+  }
+  if (!size || (await download.failure())) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+  return Buffer.concat(chunks, size);
 }
 
 async function applyDateFilter(page: Page, overlapFrom?: string | null) {
@@ -443,19 +626,301 @@ async function applyDateFilter(page: Page, overlapFrom?: string | null) {
   if (await apply.count()) await apply.click();
 }
 
-async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
+async function armProductionGridReload(page: Page) {
+  await page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __arubaReadGridReload?: {
+        observer: MutationObserver;
+        observed: boolean;
+        lastMutationAt: number;
+      };
+    };
+    runtime.__arubaReadGridReload?.observer.disconnect();
+    const state = {
+      observer: null as unknown as MutationObserver,
+      observed: false,
+      lastMutationAt: 0,
+    };
+    const touchesGrid = (node: Node) => {
+      const element = node instanceof Element ? node : node.parentElement;
+      return Boolean(
+        element?.closest(".aruba-grid-fatture-inviate") ||
+        element?.matches(".aruba-grid-fatture-inviate") ||
+        element?.querySelector(".aruba-grid-fatture-inviate"),
+      );
+    };
+    state.observer = new MutationObserver((mutations) => {
+      if (
+        mutations.some(
+          (mutation) =>
+            touchesGrid(mutation.target) ||
+            [...mutation.addedNodes, ...mutation.removedNodes].some(touchesGrid),
+        )
+      ) {
+        state.observed = true;
+        state.lastMutationAt = performance.now();
+      }
+    });
+    state.observer.observe(document.body, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    runtime.__arubaReadGridReload = state;
+  });
+}
+
+async function waitForProductionGridReload(page: Page) {
+  try {
+    await page.waitForFunction((nextSelector) => {
+      const runtime = window as typeof window & {
+        __arubaReadGridReload?: {
+          observed: boolean;
+          lastMutationAt: number;
+        };
+      };
+      const state = runtime.__arubaReadGridReload;
+      if (!state?.observed || performance.now() - state.lastMutationAt < 500) return false;
+      const next = [...document.querySelectorAll<HTMLElement>(nextSelector)].filter(
+        (element) => element.getClientRects().length > 0,
+      );
+      return next.length === 1;
+    }, PRODUCTION_NEXT_SELECTOR);
+  } finally {
+    await clearProductionGridReload(page);
+  }
+}
+
+async function clearProductionGridReload(page: Page) {
+  await page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __arubaReadGridReload?: { observer: MutationObserver };
+    };
+    runtime.__arubaReadGridReload?.observer.disconnect();
+    delete runtime.__arubaReadGridReload;
+  });
+}
+
+interface ProductionRequestKey {
+  method: string;
+  url: string;
+}
+
+async function armProductionRequestCapture(page: Page) {
+  await page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __arubaReadRequestCapture?: {
+        active: boolean;
+        requests: Array<{ method: string; url: string }>;
+        restore: () => void;
+      };
+    };
+    runtime.__arubaReadRequestCapture?.restore();
+    const originalFetch = window.fetch;
+    const originalOpen = XMLHttpRequest.prototype.open;
+    const originalSend = XMLHttpRequest.prototype.send;
+    const xhrRequests = new WeakMap<XMLHttpRequest, { method: string; url: string }>();
+    const state = {
+      active: false,
+      requests: [] as Array<{ method: string; url: string }>,
+      restore: () => {
+        window.fetch = originalFetch;
+        XMLHttpRequest.prototype.open = originalOpen;
+        XMLHttpRequest.prototype.send = originalSend;
+      },
+    };
+    window.fetch = function (input, init) {
+      if (state.active) {
+        const request = input instanceof Request ? input : null;
+        const url = new URL(request?.url ?? String(input), location.href);
+        if (url.origin === location.origin) {
+          state.requests.push({
+            method: (init?.method ?? request?.method ?? "GET").toUpperCase(),
+            url: url.href,
+          });
+        }
+      }
+      return Reflect.apply(originalFetch, this, [input, init]);
+    };
+    XMLHttpRequest.prototype.open = function (
+      this: XMLHttpRequest,
+      method: string,
+      url: string | URL,
+      async?: boolean,
+      username?: string | null,
+      password?: string | null,
+    ) {
+      xhrRequests.set(this, {
+        method: method.toUpperCase(),
+        url: new URL(String(url), location.href).href,
+      });
+      return Reflect.apply(
+        originalOpen,
+        this,
+        async === undefined ? [method, url] : [method, url, async, username, password],
+      );
+    } as typeof XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.send = function (...args) {
+      const request = xhrRequests.get(this);
+      if (state.active && request && new URL(request.url).origin === location.origin) {
+        state.requests.push(request);
+      }
+      return Reflect.apply(originalSend, this, args);
+    };
+    runtime.__arubaReadRequestCapture = state;
+  });
+}
+
+async function clickWithProductionRequestCapture(control: Locator) {
+  await control.evaluate((element) => {
+    const runtime = window as typeof window & {
+      __arubaReadRequestCapture?: { active: boolean };
+    };
+    const state = runtime.__arubaReadRequestCapture;
+    if (!state) throw new Error("DOM_UNRECOGNIZED");
+    state.active = true;
+    try {
+      (element as HTMLElement).click();
+    } finally {
+      state.active = false;
+    }
+  });
+}
+
+async function finishProductionRequestCapture(page: Page): Promise<ProductionRequestKey[]> {
+  return page.evaluate(() => {
+    const runtime = window as typeof window & {
+      __arubaReadRequestCapture?: {
+        active: boolean;
+        requests: Array<{ method: string; url: string }>;
+        restore: () => void;
+      };
+    };
+    const state = runtime.__arubaReadRequestCapture;
+    if (!state) return [];
+    state.restore();
+    delete runtime.__arubaReadRequestCapture;
+    return state.requests;
+  });
+}
+
+function observeProductionDataRequests(page: Page) {
+  const observed: Request[] = [];
+  const pageOrigin = new URL(page.url()).origin;
+  const relevant = (request: Request) =>
+    ["xhr", "fetch"].includes(request.resourceType()) &&
+    new URL(request.url()).origin === pageOrigin;
+  const onRequest = (request: Request) => {
+    if (relevant(request)) observed.push(request);
+  };
+  page.on("request", onRequest);
+  return {
+    async waitFor(captured: ProductionRequestKey[]) {
+      let requests: Request[] | null = null;
+      const matchDeadline = Date.now() + 1_000;
+      while (!requests && Date.now() < matchDeadline) {
+        const remaining = [...observed];
+        const matched: Request[] = [];
+        for (const key of captured) {
+          const index = remaining.findIndex(
+            (request) => request.method() === key.method && request.url() === key.url,
+          );
+          if (index < 0) break;
+          matched.push(remaining.splice(index, 1)[0]!);
+        }
+        if (matched.length === captured.length) requests = matched;
+        else await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (!requests) throw new Error("DOM_UNRECOGNIZED");
+      if (!requests.length) throw new Error("DOM_UNRECOGNIZED");
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          Promise.all(
+            requests.map(async (request) => {
+              const response = await request.response().catch(() => null);
+              if (!response?.ok() || (await response.finished())) {
+                throw new Error("DOM_UNRECOGNIZED");
+              }
+            }),
+          ),
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error("DOM_UNRECOGNIZED")), 30_000);
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    },
+    dispose() {
+      page.off("request", onRequest);
+    },
+  };
+}
+
+async function clickAndWaitForProductionGridReload(page: Page, control: Locator) {
+  await armProductionGridReload(page);
+  await armProductionRequestCapture(page);
+  const dataRequests = observeProductionDataRequests(page);
+  try {
+    await clickWithProductionRequestCapture(control);
+    const captured = await finishProductionRequestCapture(page);
+    await dataRequests.waitFor(captured);
+    await waitForProductionGridReload(page);
+  } finally {
+    await finishProductionRequestCapture(page);
+    dataRequests.dispose();
+    await clearProductionGridReload(page);
+  }
+}
+
+export async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
   const selector = page.locator(`[data-aruba-stream="${stream}"]`).first();
   if (await selector.count()) {
     await selector.click();
   } else {
-    const [kind, year] = stream.split(":");
-    const link = page.getByRole("link", {
-      name: new RegExp(`${kind === "invoices" ? "Fatture" : "Note di credito"}.*${year}`, "i"),
-    });
-    if (!(await link.count())) throw new Error("DOM_UNRECOGNIZED");
-    await link.first().click();
+    const { year } = parseStream(stream);
+    const yearControl = page.locator(".main-toolbar-info-fiscalyear").first();
+    if (!(await yearControl.count()) || !(await yearControl.isVisible())) {
+      throw new Error("DOM_UNRECOGNIZED");
+    }
+    if (!(await yearControl.innerText()).includes(String(year))) {
+      await yearControl.locator("button").click();
+      const yearOptions = page.locator(".x-menuitem-sub-menu-mainToolbar");
+      const exactYears: Locator[] = [];
+      for (let index = 0; index < (await yearOptions.count()); index += 1) {
+        const option = yearOptions.nth(index);
+        if ((await option.isVisible()) && (await option.innerText()).trim() === String(year)) {
+          exactYears.push(option);
+        }
+      }
+      if (exactYears.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+      await clickAndWaitForProductionGridReload(page, exactYears[0]!);
+      await page.waitForFunction(
+        ({ selector, value }) =>
+          document.querySelector(selector)?.textContent?.includes(value) === true,
+        { selector: ".main-toolbar-info-fiscalyear", value: String(year) },
+      );
+    }
+    const sent = page.getByRole("menuitem").filter({ hasText: /^\s*Fatture inviate\s*$/i });
+    const visibleSent: Locator[] = [];
+    for (let index = 0; index < (await sent.count()); index += 1) {
+      if (await sent.nth(index).isVisible()) visibleSent.push(sent.nth(index));
+    }
+    if (visibleSent.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+    await clickAndWaitForProductionGridReload(page, visibleSent[0]!);
+    await productionNextButton(page);
+    return;
   }
   await applyDateFilter(page, overlapFrom);
+}
+
+async function advancePage(page: Page, environment: ArubaReadManifest["environment"]) {
+  if (environment === "PRODUCTION") return advanceProductionPage(page);
+  await page
+    .getByRole("button", { name: /Pagina successiva|Successiva/i })
+    .first()
+    .click();
 }
 
 export async function runArubaReadCycle(
@@ -489,10 +954,7 @@ export async function runArubaReadCycle(
     let pageOrdinal = 1;
     const resumeAt = fullScan ? (streamManifest.resumePageOrdinal ?? 1) : 1;
     while (pageOrdinal < resumeAt) {
-      await page
-        .getByRole("button", { name: /Pagina successiva|Successiva/i })
-        .first()
-        .click();
+      await advancePage(page, manifest.environment);
       pageOrdinal += 1;
     }
     while (true) {
@@ -524,14 +986,11 @@ export async function runArubaReadCycle(
           token,
           file.remoteId,
           file.kind,
-          await downloadOfficialFile(page, file.url, target),
+          await downloadOfficialFile(page, file, target),
         );
       }
       if (inventory.terminal) break;
-      await page
-        .getByRole("button", { name: /Pagina successiva|Successiva/i })
-        .first()
-        .click();
+      await advancePage(page, manifest.environment);
       pageOrdinal += 1;
     }
   }

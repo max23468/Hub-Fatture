@@ -20,6 +20,19 @@ export const arubaMatchStatusSchema = z.enum([
   "UNKNOWN_REMOTE_STATE",
 ]);
 
+export const fiscalIdentitySchema = z.object({
+  type: z.enum(["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"]),
+  countryCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/)
+    .nullable(),
+  value: z.string().trim().min(1).max(64),
+});
+
+export type FiscalIdentity = z.infer<typeof fiscalIdentitySchema>;
+
 export const remoteInventoryDocumentSchema = z.object({
   remoteId: z.string().trim().min(1).max(200),
   documentType: z.enum(["TD01", "TD04"]),
@@ -29,6 +42,7 @@ export const remoteInventoryDocumentSchema = z.object({
   documentDate: z.iso.date(),
   recipientName: z.string().trim().max(300).nullable().default(null),
   recipientTaxId: z.string().trim().max(64).nullable().default(null),
+  recipientTaxIdentifiers: z.array(fiscalIdentitySchema).max(10).default([]),
   recipientCountryCode: z
     .string()
     .regex(/^[A-Z]{2}$/)
@@ -112,11 +126,18 @@ export function normalizedMatchText(value: string | null | undefined): string | 
   return normalized || null;
 }
 
+function canonicalFiscalIdentity(identifier: FiscalIdentity): string {
+  const countryCode = identifier.countryCode ?? (identifier.type === "CODICE_FISCALE" ? "IT" : "");
+  return `${identifier.type}:${countryCode}:${normalizedMatchText(identifier.value) ?? ""}`;
+}
+
 export function remoteMetadataDigest(document: RemoteInventoryDocument): string {
+  const { recipientTaxIdentifiers: _officialRecipientTaxIdentifiers, ...inventoryEvidence } =
+    document;
   return createHash("sha256")
     .update(
       JSON.stringify({
-        ...document,
+        ...inventoryEvidence,
         recipientName: normalizedMatchText(document.recipientName),
         recipientTaxId: normalizedMatchText(document.recipientTaxId),
         recipientAddress: normalizedMatchText(document.recipientAddress),
@@ -136,7 +157,7 @@ export interface ArubaOrderCandidate {
   localOrderDate: string;
   billableAmount: number;
   recipientName: string | null;
-  recipientTaxIds: string[];
+  recipientTaxIdentifiers: FiscalIdentity[];
   recipientAddress: string | null;
 }
 
@@ -186,10 +207,9 @@ export function evaluateOrderCandidate(
   const recipient = Boolean(
     remoteName && remoteName === normalizedMatchText(candidate.recipientName),
   );
-  const remoteTaxId = normalizedMatchText(remote.recipientTaxId);
-  const taxId = Boolean(
-    remoteTaxId && candidate.recipientTaxIds.map(normalizedMatchText).includes(remoteTaxId),
-  );
+  const remoteTaxIds = remote.recipientTaxIdentifiers.map(canonicalFiscalIdentity);
+  const candidateTaxIds = new Set(candidate.recipientTaxIdentifiers.map(canonicalFiscalIdentity));
+  const taxId = Boolean(remoteTaxIds.some((remoteTaxId) => candidateTaxIds.has(remoteTaxId)));
   const remoteAddress = normalizedMatchText(remote.recipientAddress);
   const candidateAddress = normalizedMatchText(candidate.recipientAddress);
   const address = Boolean(
@@ -200,11 +220,13 @@ export function evaluateOrderCandidate(
       candidateAddress.includes(remoteAddress)),
   );
   const identitySignals = [recipient, taxId, address].filter(Boolean).length;
-  const declaredIdentitySignals = [remoteName, remoteTaxId, remoteAddress].filter(Boolean).length;
-  const referencedRecipientIsCompatible = remoteTaxId
+  const declaredIdentitySignals = [remoteName, remoteTaxIds.length > 0, remoteAddress].filter(
+    Boolean,
+  ).length;
+  const referencedRecipientIsCompatible = remoteTaxIds.length
     ? taxId
     : declaredIdentitySignals === 0 || identitySignals >= 1;
-  const inferredRecipientIsCompatible = remoteTaxId
+  const inferredRecipientIsCompatible = remoteTaxIds.length
     ? taxId && identitySignals >= 2
     : identitySignals >= 2;
   return {
@@ -236,7 +258,13 @@ export function groupOrderCandidates<
     orderIds: items.map((item) => item.id),
     billableAmount: items.reduce((sum, item) => sum + item.billableAmount, 0),
     localOrderDate: items.map((item) => item.localOrderDate).toSorted()[0]!,
-    recipientTaxIds: [...new Set(items.flatMap((item) => item.recipientTaxIds))],
+    recipientTaxIdentifiers: [
+      ...new Map(
+        items
+          .flatMap((item) => item.recipientTaxIdentifiers)
+          .map((identifier) => [canonicalFiscalIdentity(identifier), identifier]),
+      ).values(),
+    ],
   }));
 }
 

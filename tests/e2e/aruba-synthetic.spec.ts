@@ -10,8 +10,10 @@ import {
   waitForUploadedDocument,
 } from "../../scripts/aruba-helper.ts";
 import {
+  advanceProductionPage,
   readVisiblePage,
   runArubaReadCycle,
+  selectStream,
   type ArubaReadManifest,
 } from "../../scripts/aruba-read-helper.ts";
 
@@ -265,6 +267,315 @@ test("la pagina sintetica espone stream completi per l’inventario in sola lett
   await expect(credit).toHaveAttribute("data-document-type", "TD04");
   await expect(credit).toHaveAttribute("data-remote-status", "SDI_PROCESSING");
   await expect(page.getByRole("button", { name: "Pagina successiva" })).toBeDisabled();
+});
+
+test("il lettore di produzione correla le due griglie ExtJS e filtra il flusso fiscale", async ({
+  page,
+}) => {
+  const cells = (values: Record<number, string>, count: number) =>
+    Array.from(
+      { length: count },
+      (_, index) => `<div class="x-gridcell">${values[index] ?? ""}</div>`,
+    ).join("");
+  const year = new Date().getUTCFullYear();
+  await page.setContent(`
+    <div class="aruba-grid-fatture-inviate">
+      <section class="x-grid">
+        <div class="x-gridrow" data-recordindex="0">${cells(
+          {
+            4: `10/08/${year}`,
+            5: `FPR 1/${String(year).slice(-2)}`,
+            7: "Cliente sintetico",
+            8: "TD01",
+            10: "123,45 €",
+            17: "12345678901",
+          },
+          23,
+        )}</div>
+        <div class="x-gridrow" data-recordindex="1">${cells(
+          {
+            4: `11/08/${year}`,
+            5: `FPR 2/${String(year).slice(-2)}`,
+            7: "Cliente sintetico due",
+            8: "TD04",
+            10: "10,00 €",
+            17: "12345678902",
+          },
+          23,
+        )}</div>
+      </section>
+      <section class="x-grid locked-grid-border-left">
+        <div class="x-gridrow" data-recordindex="0">${cells(
+          {
+            0: "Emessa e consegnata",
+            1: '<div class="x-tool"><div class="aru-xml"></div></div>',
+          },
+          3,
+        )}</div>
+        <div class="x-gridrow" data-recordindex="1">${cells({ 0: "Inviata a SdI" }, 3)}</div>
+      </section>
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>
+    </div>
+  `);
+
+  const result = await readVisiblePage(page, `invoices:${year}`, 1, 1, "PRODUCTION");
+  expect(result.inventory.terminal).toBe(true);
+  expect(result.inventory.documents).toEqual([
+    expect.objectContaining({
+      remoteId: "12345678901",
+      documentType: "TD01",
+      fiscalYear: year,
+      series: "FPR",
+      fiscalNumber: "1",
+      totalAmount: 12345,
+      status: "DELIVERED",
+      orderReferences: [],
+    }),
+  ]);
+  expect(result.files).toEqual([{ remoteId: "12345678901", kind: "ARUBA_XML", recordIndex: "0" }]);
+});
+
+test("il lettore Production accetta un anno vuoto e ripercorre l’anno nel ciclo incrementale", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", (route) =>
+    route.fulfill({
+      contentType: route.request().url().endsWith("/reload") ? "application/json" : "text/html",
+      body: route.request().url().endsWith("/reload") ? "{}" : "<html></html>",
+    }),
+  );
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>
+    </div>
+    <script>
+      document.querySelector('[role="menuitem"]').addEventListener('click', () => {
+        const grid = document.querySelector('.aruba-grid-fatture-inviate');
+        fetch('/reload').then(() => grid.setAttribute('data-reloaded', 'true'));
+      });
+    </script>
+  `);
+
+  await selectStream(page, `invoices:${year}`, `${year}-01-01T00:00:00.000Z`);
+  const result = await readVisiblePage(page, `invoices:${year}`, 2, 1, "PRODUCTION");
+  expect(result.inventory.documents).toEqual([]);
+  expect(result.inventory.terminal).toBe(true);
+});
+
+test("il lettore Production attende il reload ExtJS prima di leggere il nuovo stream", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", async (route) => {
+    if (route.request().url().endsWith("/poll")) {
+      await route.fulfill({ contentType: "application/json", body: "{}" });
+      return;
+    }
+    if (route.request().url().endsWith("/reload")) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await route.fulfill({ contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.fulfill({ contentType: "text/html", body: "<html></html>" });
+  });
+  await page.goto("https://aruba-synthetic.invalid/base");
+  const row = (remoteId: string) => `
+    <section class="x-grid">
+      <div class="x-gridrow" data-recordindex="0">
+        ${Array.from({ length: 23 }, (_, index) => {
+          const value =
+            index === 4
+              ? `10/08/${year}`
+              : index === 5
+                ? `FPR 1/${String(year).slice(-2)}`
+                : index === 7
+                  ? "Cliente sintetico"
+                  : index === 8
+                    ? "TD01"
+                    : index === 10
+                      ? "123,45 €"
+                      : index === 17
+                        ? remoteId
+                        : "";
+          return `<div class="x-gridcell">${value}</div>`;
+        }).join("")}
+      </div>
+    </section>
+    <section class="x-grid locked-grid-border-left">
+      <div class="x-gridrow" data-recordindex="0">
+        <div class="x-gridcell">Emessa e consegnata</div><div class="x-gridcell"></div>
+      </div>
+    </section>
+    <span class="x-disabled" title="{app.buttons.labels.nextPage}"><button aria-disabled="true" disabled></button></span>`;
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">${row("99999999999")}</div>
+  `);
+  await page.getByRole("menuitem", { name: "Fatture inviate" }).evaluate((element, replacement) => {
+    element.addEventListener("click", () => {
+      const grid = document.querySelector(".aruba-grid-fatture-inviate")!;
+      grid.innerHTML =
+        '<span class="x-disabled" title="{app.buttons.labels.nextPage}"><button aria-disabled="true" disabled></button></span>';
+      fetch("/poll");
+      fetch("/reload").then(() => {
+        grid.innerHTML = replacement;
+      });
+    });
+  }, row("11111111111"));
+
+  await selectStream(page, `invoices:${year}`);
+  const result = await readVisiblePage(page, `invoices:${year}`, 1, 1, "PRODUCTION");
+  expect(result.inventory.documents.map((document) => document.remoteId)).toEqual(["11111111111"]);
+});
+
+test("il lettore Production rifiuta una risposta dati HTTP fallita anche con traffico estraneo", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", (route) =>
+    route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+  );
+  await page.route("https://traffic.invalid/**", (route) =>
+    route.fulfill({ contentType: "application/json", body: "{}" }),
+  );
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" disabled></button></span>
+    </div>
+    <script>
+      document.querySelector('[role="menuitem"]').addEventListener('click', () => {
+        fetch('https://traffic.invalid/pulse', { mode: 'no-cors' });
+        fetch('/reload').then(() => {
+          document.querySelector('.aruba-grid-fatture-inviate').setAttribute('data-reloaded', 'true');
+        });
+      });
+    </script>
+  `);
+
+  await expect(selectStream(page, `invoices:${year}`)).rejects.toThrow("DOM_UNRECOGNIZED");
+});
+
+test("il lettore Production rifiuta una richiesta dati interrotta", async ({ page }) => {
+  const year = new Date().getUTCFullYear();
+  await page.route("https://aruba-synthetic.invalid/**", (route) =>
+    route.request().url().endsWith("/reload")
+      ? route.abort()
+      : route.fulfill({ contentType: "text/html", body: "<html></html>" }),
+  );
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" disabled></button></span>
+    </div>
+    <script>
+      document.querySelector('[role="menuitem"]').addEventListener('click', () => {
+        fetch('/reload').catch(() => {
+          document.querySelector('.aruba-grid-fatture-inviate').setAttribute('data-reloaded', 'true');
+        });
+      });
+    </script>
+  `);
+
+  await expect(selectStream(page, `invoices:${year}`)).rejects.toThrow("DOM_UNRECOGNIZED");
+});
+
+test("il lettore Production attende la stabilizzazione completa della pagina successiva", async ({
+  page,
+}) => {
+  const row = (recordIndex: number, remoteId: string) => `
+    <div class="x-gridrow" data-recordindex="${recordIndex}">
+      ${Array.from({ length: 23 }, (_, index) => `<div class="x-gridcell">${index === 17 ? remoteId : ""}</div>`).join("")}
+    </div>`;
+  await page.route("https://aruba-synthetic.invalid/**", async (route) => {
+    if (route.request().url().endsWith("/next")) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await route.fulfill({ contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.fulfill({ contentType: "text/html", body: "<html></html>" });
+  });
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="aruba-grid-fatture-inviate">
+      <section class="x-grid">${row(0, "10000000001")}</section>
+      <button aria-label="{app.buttons.labels.nextPage}"></button>
+    </div>
+  `);
+  await page.locator('button[aria-label*="nextPage"]').evaluate(
+    (button, rows) => {
+      button.addEventListener("click", () => {
+        fetch("/next").then(() => {
+          const grid = document.querySelector(".aruba-grid-fatture-inviate")!;
+          grid.querySelector(".x-grid")!.innerHTML = rows[0]!;
+          setTimeout(() => {
+            grid.querySelector(".x-grid")!.insertAdjacentHTML("beforeend", rows[1]!);
+            button.setAttribute("disabled", "");
+          }, 300);
+        });
+      });
+    },
+    [row(0, "20000000001"), row(1, "20000000002")],
+  );
+
+  await advanceProductionPage(page);
+  await expect(page.locator(".x-gridrow")).toHaveCount(2);
+  await expect(page.locator(".x-gridrow").nth(1)).toContainText("20000000002");
+});
+
+test("il lettore Production completa il reload dell’anno prima di aprire lo stream", async ({
+  page,
+}) => {
+  const targetYear = new Date().getUTCFullYear() - 1;
+  await page.route("https://aruba-synthetic.invalid/**", async (route) => {
+    if (route.request().url().endsWith("/year")) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+    await route.fulfill({
+      contentType: route.request().url().endsWith("/base") ? "text/html" : "application/json",
+      body: route.request().url().endsWith("/base") ? "<html></html>" : "{}",
+    });
+  });
+  await page.goto("https://aruba-synthetic.invalid/base");
+  await page.setContent(`
+    <div class="main-toolbar-info-fiscalyear">Anno: ${targetYear + 1}<button>Anno</button></div>
+    <button class="x-menuitem-sub-menu-mainToolbar">${targetYear}</button>
+    <li role="menuitem">Fatture inviate</li>
+    <div class="aruba-grid-fatture-inviate">
+      <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" disabled></button></span>
+    </div>
+    <script>
+      document.querySelector('.x-menuitem-sub-menu-mainToolbar').addEventListener('click', () => {
+        fetch('/year').then(() => {
+          document.querySelector('.main-toolbar-info-fiscalyear').firstChild.textContent = 'Anno: ${targetYear}';
+          document.querySelector('.aruba-grid-fatture-inviate').setAttribute('data-year', '${targetYear}');
+        });
+      });
+      document.querySelector('[role="menuitem"]').addEventListener('click', () => {
+        const grid = document.querySelector('.aruba-grid-fatture-inviate');
+        fetch('/reload').then(() => grid.setAttribute('data-stream-year', grid.getAttribute('data-year') || 'stale'));
+      });
+    </script>
+  `);
+
+  await selectStream(page, `invoices:${targetYear}`);
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute(
+    "data-stream-year",
+    String(targetYear),
+  );
 });
 
 test("la pagina sintetica espone gli stati inattesi e incerti", async ({ page }) => {

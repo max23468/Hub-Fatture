@@ -260,12 +260,7 @@ function acceptedLineTotal(body: Record<string, unknown>): number {
   );
 }
 
-/** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
-export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
-  const source = acceptedFiscalDocument(xml);
-  if (source.type !== "TD01") throw new Error("Il documento storico non è una fattura TD01");
-  const generalBlock = xmlRecord(source.body.DatiGenerali);
-  const general = xmlRecord(generalBlock.DatiGeneraliDocumento);
+function acceptedRecipient(source: ReturnType<typeof acceptedFiscalDocument>) {
   const transmission = xmlRecord(source.header.DatiTrasmissione);
   const customer = xmlRecord(source.header.CessionarioCommittente);
   const customerData = xmlRecord(customer.DatiAnagrafici);
@@ -274,7 +269,7 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
   const vat = customerData.IdFiscaleIVA ? xmlRecord(customerData.IdFiscaleIVA) : null;
   const countryCode = xmlValue(customerAddress.Nazione);
   const businessName = xmlOptional(name.Denominazione);
-  const recipient = {
+  return {
     kind:
       countryCode !== "IT"
         ? ("EU" as const)
@@ -312,6 +307,20 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
       countryCode,
     },
   };
+}
+
+/** Destinatario autorevole condiviso da fatture e note di credito accettate. */
+export function acceptedRecipientFromXml(xml: string) {
+  return acceptedRecipient(acceptedFiscalDocument(xml));
+}
+
+/** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
+export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
+  const source = acceptedFiscalDocument(xml);
+  if (source.type !== "TD01") throw new Error("Il documento storico non è una fattura TD01");
+  const generalBlock = xmlRecord(source.body.DatiGenerali);
+  const general = xmlRecord(generalBlock.DatiGeneraliDocumento);
+  const recipient = acceptedRecipient(source);
   const goods = xmlRecord(source.body.DatiBeniServizi);
   const lines = xmlArray(goods.DettaglioLinee).map((line) => ({
     description: xmlValue(line.Descrizione),

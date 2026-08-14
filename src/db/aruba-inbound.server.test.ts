@@ -176,15 +176,16 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           fiscalNumber: "1",
           documentDate: "2026-08-10",
           recipientName: "Mario Rossi",
-          recipientTaxId: "RSSMRA80A01H501U",
-          recipientCountryCode: "IT",
-          recipientAddress: "Via Cliente 1 00100 Roma IT",
+          recipientTaxId: null,
+          recipientTaxIdentifiers: [],
+          recipientCountryCode: null,
+          recipientAddress: null,
           totalAmount: 12345,
           currency: "EUR",
           status: "DELIVERED",
           providerObservedAt: "2026-08-12T12:00:00+02:00",
           xmlSha256: null,
-          orderReferences: ["#1001"],
+          orderReferences: [],
         },
       ],
     };
@@ -234,7 +235,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           [remoteMetadataDigest(remoteInventoryDocumentSchema.parse(invoicePage.documents[0]))],
         )
       ).rows[0],
-      { remote_id: "REMOTE-001", status: "MATCHED", digest_matches: true },
+      { remote_id: "REMOTE-001", status: "UNMATCHED", digest_matches: true },
     );
     const importedInvoice = await inbound.importArubaRemoteOfficialFile(
       session.token,
@@ -289,6 +290,10 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           ...invoicePage.documents[0],
           remoteId: "REMOTE-SECOND-INVOICE",
           fiscalNumber: "2",
+          recipientTaxId: "RSSMRA80A01H501U",
+          recipientCountryCode: "IT",
+          recipientAddress: "Via Cliente 1 00100 Roma IT",
+          orderReferences: ["#1001"],
         },
       ],
     });
@@ -537,6 +542,21 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     assert.ok(importedCredit.documentId);
     assert.equal(importedCredit.documentId, assignedCreditDraftId);
     assert.equal(repeatedCredit.documentId, importedCredit.documentId);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT matches.status, matches.order_id, matches.related_invoice_document_id
+           FROM aruba_document_matches AS matches
+           JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
+           WHERE remote.remote_id = 'REMOTE-TD04-001'`,
+        )
+      ).rows[0],
+      {
+        status: "MATCHED",
+        order_id: order.rows[0]!.id,
+        related_invoice_document_id: importedInvoice.documentId,
+      },
+    );
     assert.equal(
       (
         await database
@@ -760,6 +780,9 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         relatedInvoice: { number: "FPR 0010/26", date: "2026-08-10" },
       },
       { year: 2026, number: 11 },
+    ).replace(
+      '<CessionarioCommittente xmlns="">\n      <DatiAnagrafici>\n        <CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>',
+      '<CessionarioCommittente xmlns="">\n      <DatiAnagrafici>\n        <IdFiscaleIVA><IdPaese>IT</IdPaese><IdCodice>10987654321</IdCodice></IdFiscaleIVA>\n        <CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>',
     );
     await inbound.ingestArubaInventoryPage(session.token, {
       stream: "credit-notes:2026",
@@ -776,10 +799,10 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           series: "FPR",
           fiscalNumber: "11",
           documentDate: "2026-08-11",
-          recipientName: "Mario Rossi",
-          recipientTaxId: "RSSMRA80A01H501U",
-          recipientCountryCode: "IT",
-          recipientAddress: "Via Cliente 1 00100 Roma IT",
+          recipientName: "M. R.",
+          recipientTaxId: null,
+          recipientCountryCode: null,
+          recipientAddress: null,
           totalAmount: 1500,
           currency: "EUR",
           status: "DELIVERED",
@@ -800,10 +823,10 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         )
       ).rows[0],
       {
-        status: "MATCHED",
-        order_id: cumulativeOrders.rows[0]!.id,
-        related_invoice_document_id: cumulativeInvoice.rows[0]!.id,
-        refund_ids: cumulativeRefunds.rows.map((refund) => refund.id),
+        status: "UNMATCHED",
+        order_id: null,
+        related_invoice_document_id: null,
+        refund_ids: [],
       },
     );
     const cumulativeCredit = await inbound.importArubaRemoteOfficialFile(
@@ -813,6 +836,23 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       Buffer.from(cumulativeCreditXml),
     );
     assert.equal(cumulativeCredit.documentId, cumulativeDraftId);
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT matches.status, matches.order_id, matches.related_invoice_document_id,
+                  matches.refund_ids::text[]
+           FROM aruba_document_matches AS matches
+           JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
+           WHERE remote.remote_id = 'REMOTE-TD04-CUMULATIVE'`,
+        )
+      ).rows[0],
+      {
+        status: "MATCHED",
+        order_id: cumulativeOrders.rows[0]!.id,
+        related_invoice_document_id: cumulativeInvoice.rows[0]!.id,
+        refund_ids: cumulativeRefunds.rows.map((refund) => refund.id),
+      },
+    );
     assert.deepEqual(
       (
         await database.getPool().query(
