@@ -30,6 +30,11 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
       "utf8",
     );
+    const historicalInvoiceXml = invoiceXml.replace(
+      "<ModalitaPagamento>MP08</ModalitaPagamento>",
+      "<ModalitaPagamento>MP01</ModalitaPagamento>",
+    );
+    assert.notEqual(historicalInvoiceXml, invoiceXml);
     const profile = fiscalProfileFromAcceptedInvoiceXml(invoiceXml, "2026-08-12T10:00:00Z");
     const accepted = acceptedInvoiceFromXml(invoiceXml, "2026-08-12T10:00:00Z");
     await database.getPool().query(
@@ -235,20 +240,26 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       session.token,
       "REMOTE-001",
       "ARUBA_XML",
-      Buffer.from(invoiceXml),
+      Buffer.from(historicalInvoiceXml),
     );
     assert.ok(importedInvoice.documentId);
     assert.deepEqual(
       (
         await database.getPool().query(
-          `SELECT documents.origin, orders.trigger_status, orders.billing_case_id
+          `SELECT documents.origin, documents.payment_method, orders.trigger_status,
+                  orders.billing_case_id
            FROM documents JOIN document_orders ON document_orders.document_id = documents.id
            JOIN orders ON orders.id = document_orders.order_id
            WHERE documents.id = $1`,
           [importedInvoice.documentId],
         )
       ).rows[0],
-      { origin: "ARUBA_HISTORY", trigger_status: "INVOICED", billing_case_id: null },
+      {
+        origin: "ARUBA_HISTORY",
+        payment_method: "MP01",
+        trigger_status: "INVOICED",
+        billing_case_id: null,
+      },
     );
     assert.deepEqual(
       (

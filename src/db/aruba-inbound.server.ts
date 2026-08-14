@@ -190,9 +190,7 @@ function acceptedProfileMatches(
     profile.taxNature === identity.taxNature &&
     profile.legalReference === identity.legalReference &&
     profile.payment.condition === identity.payment.condition &&
-    (identity.type === "TD01"
-      ? profile.payment.invoiceMethod === identity.payment.method
-      : profile.payment.creditNoteMethod === identity.payment.method)
+    (identity.type === "TD01" || profile.payment.creditNoteMethod === identity.payment.method)
   );
 }
 
