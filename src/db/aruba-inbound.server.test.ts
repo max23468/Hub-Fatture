@@ -176,15 +176,15 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           fiscalNumber: "1",
           documentDate: "2026-08-10",
           recipientName: "Mario Rossi",
-          recipientTaxId: "RSSMRA80A01H501U",
-          recipientCountryCode: "IT",
-          recipientAddress: "Via Cliente 1 00100 Roma IT",
+          recipientTaxId: null,
+          recipientCountryCode: null,
+          recipientAddress: null,
           totalAmount: 12345,
           currency: "EUR",
           status: "DELIVERED",
           providerObservedAt: "2026-08-12T12:00:00+02:00",
           xmlSha256: null,
-          orderReferences: ["#1001"],
+          orderReferences: [],
         },
       ],
     };
@@ -234,7 +234,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           [remoteMetadataDigest(remoteInventoryDocumentSchema.parse(invoicePage.documents[0]))],
         )
       ).rows[0],
-      { remote_id: "REMOTE-001", status: "MATCHED", digest_matches: true },
+      { remote_id: "REMOTE-001", status: "UNMATCHED", digest_matches: true },
     );
     const importedInvoice = await inbound.importArubaRemoteOfficialFile(
       session.token,
@@ -289,6 +289,10 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           ...invoicePage.documents[0],
           remoteId: "REMOTE-SECOND-INVOICE",
           fiscalNumber: "2",
+          recipientTaxId: "RSSMRA80A01H501U",
+          recipientCountryCode: "IT",
+          recipientAddress: "Via Cliente 1 00100 Roma IT",
+          orderReferences: ["#1001"],
         },
       ],
     });
