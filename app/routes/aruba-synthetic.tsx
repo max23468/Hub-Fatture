@@ -155,7 +155,9 @@ function ArubaInventorySynthetic({
               >
                 <td>{isInvoice ? "SYNTH-INV-001" : "SYNTH-TD04-001"}</td>
                 <td>{isInvoice ? "Fattura - TD01" : "Nota di credito - TD04"}</td>
-                <td>{isInvoice ? "FPR 1" : "FPR 2"}</td>
+                <td>
+                  FPR {isInvoice ? "0001" : "0002"}/{String(year).slice(-2)}
+                </td>
                 <td>
                   {isInvoice ? "10" : "11"}/08/{year}
                 </td>
