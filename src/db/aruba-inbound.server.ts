@@ -2872,7 +2872,10 @@ export async function completeArubaPreflight(
              matches.order_id::text = ANY($3::text[])
              OR EXISTS (
              SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-             WHERE coalesce((candidate ->> 'compatible')::boolean, false) AND (
+             WHERE (
+               coalesce((candidate ->> 'compatible')::boolean, false)
+               OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+             ) AND (
                candidate ->> 'candidateId' = ANY($3::text[])
                OR EXISTS (
                  SELECT 1 FROM jsonb_array_elements_text(

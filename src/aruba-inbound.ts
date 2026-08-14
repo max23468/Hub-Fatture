@@ -256,11 +256,7 @@ export function remoteMatchesPreflightSearches(
     const normalized = normalizedMatchText(search.displayNumber);
     return Boolean(normalized && references.has(normalized));
   });
-  return (
-    hasReference &&
-    (searches.some((search) => search.amount === remote.totalAmount) ||
-      searches.reduce((sum, search) => sum + search.amount, 0) === remote.totalAmount)
-  );
+  return hasReference;
 }
 
 export function selectOrderMatch(

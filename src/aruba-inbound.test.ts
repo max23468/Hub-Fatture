@@ -219,6 +219,20 @@ test("una preparazione multi-ordine usa insieme riferimenti e totale del gruppo"
   );
 });
 
+test("un documento che riferisce un sottoinsieme della preparazione blocca il preflight", () => {
+  assert.equal(
+    remoteMatchesPreflightSearches(
+      { ...remote, totalAmount: 8_000, orderReferences: ["1001", "1002"] },
+      [
+        { documentType: "TD01", amount: 5_000, displayNumber: "1001" },
+        { documentType: "TD01", amount: 3_000, displayNumber: "1002" },
+        { documentType: "TD01", amount: 4_300, displayNumber: "1003" },
+      ],
+    ),
+    true,
+  );
+});
+
 test("un documento scartato non blocca il preflight di una nuova revisione", () => {
   assert.equal(
     remoteMatchesPreflightSearches({ ...remote, status: "REJECTED", orderReferences: ["1001"] }, [

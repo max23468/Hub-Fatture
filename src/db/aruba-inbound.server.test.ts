@@ -1667,7 +1667,8 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          order_id = NULL, document_id = NULL,
          candidates_json = jsonb_build_array(jsonb_build_object(
            'candidateId', 'anchor-order', 'orderIds', jsonb_build_array('999999'),
-           'compatible', true
+           'compatible', false,
+           'signals', jsonb_build_object('explicitReference', true)
          ))
        WHERE remote_document_id = (
          SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-TYPED-TD01'

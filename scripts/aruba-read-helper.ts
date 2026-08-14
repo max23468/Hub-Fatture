@@ -403,32 +403,27 @@ async function downloadOfficialFile(page: Page, url: string, target: URL) {
   return bytes;
 }
 
+async function applyDateFilter(page: Page, overlapFrom?: string | null) {
+  const from = page.locator('[data-aruba-filter-from], input[name="dataDa"]').first();
+  if (!(await from.count())) throw new Error("DOM_UNRECOGNIZED");
+  await from.fill(overlapFrom?.slice(0, 10) ?? "");
+  const apply = page.getByRole("button", { name: /Applica|Cerca|Filtra/i }).first();
+  if (await apply.count()) await apply.click();
+}
+
 async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
   const selector = page.locator(`[data-aruba-stream="${stream}"]`).first();
   if (await selector.count()) {
     await selector.click();
-    if (overlapFrom) {
-      const from = page.locator('[data-aruba-filter-from], input[name="dataDa"]').first();
-      if (!(await from.count())) throw new Error("DOM_UNRECOGNIZED");
-      await from.fill(overlapFrom.slice(0, 10));
-      const apply = page.getByRole("button", { name: /Applica|Cerca|Filtra/i }).first();
-      if (await apply.count()) await apply.click();
-    }
-    return;
+  } else {
+    const [kind, year] = stream.split(":");
+    const link = page.getByRole("link", {
+      name: new RegExp(`${kind === "invoices" ? "Fatture" : "Note di credito"}.*${year}`, "i"),
+    });
+    if (!(await link.count())) throw new Error("DOM_UNRECOGNIZED");
+    await link.first().click();
   }
-  const [kind, year] = stream.split(":");
-  const link = page.getByRole("link", {
-    name: new RegExp(`${kind === "invoices" ? "Fatture" : "Note di credito"}.*${year}`, "i"),
-  });
-  if (!(await link.count())) throw new Error("DOM_UNRECOGNIZED");
-  await link.first().click();
-  if (overlapFrom) {
-    const from = page.locator('[data-aruba-filter-from], input[name="dataDa"]').first();
-    if (!(await from.count())) throw new Error("DOM_UNRECOGNIZED");
-    await from.fill(overlapFrom.slice(0, 10));
-    const apply = page.getByRole("button", { name: /Applica|Cerca|Filtra/i }).first();
-    if (await apply.count()) await apply.click();
-  }
+  await applyDateFilter(page, overlapFrom);
 }
 
 export async function runArubaReadCycle(

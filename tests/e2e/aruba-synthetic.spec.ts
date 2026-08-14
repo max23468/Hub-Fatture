@@ -185,7 +185,10 @@ test("l’helper di lettura esegue full scan, incremento con overlap e download 
       absoluteExpiresAt: new Date(Date.now() + 60_000).toISOString(),
     };
     const hub = new URL(`http://127.0.0.1:${address.port}`);
+    await page.goto(manifest.panelUrl);
+    await page.locator("[data-aruba-filter-from]").fill(`${year - 1}-12-01`);
     await runArubaReadCycle(page, hub, token, manifest, 1, true);
+    await expect(page.locator("[data-aruba-filter-from]")).toHaveValue("");
     await runArubaReadCycle(page, hub, token, manifest, 2, false);
     expect(pages).toEqual([
       { fullScan: true, stream: `invoices:${year}` },
