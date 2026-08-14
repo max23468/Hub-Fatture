@@ -1554,10 +1554,13 @@ test("l’archivio Documenti resta leggibile con decine di elementi", async ({ p
 
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/documenti");
-    const intermediateRow = page.locator(".document-row").first();
-    await intermediateRow.scrollIntoViewIfNeeded();
-    await expect(intermediateRow).toBeVisible();
-    const intermediateContainment = await intermediateRow.evaluate((row) => {
+    await expect(page.locator(".document-row")).toHaveCount(50);
+    const intermediateContainment = await page.evaluate(async () => {
+      document.querySelector<HTMLElement>(".document-row")?.scrollIntoView({ block: "center" });
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const row = document.querySelector<HTMLElement>(".document-row");
+      if (!row) return null;
       const panel = row.closest<HTMLElement>(".document-archive");
       const action = row.querySelector<HTMLElement>(".document-row__action");
       if (!panel || !action) return null;
