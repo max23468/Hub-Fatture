@@ -656,13 +656,14 @@ async function reconcileRemoteDocument(
             remote.totalAmount,
           )
         : { status: "UNIQUE" as const, ids: [] };
+    const selectedRefundIds = new Set(refundSubset.status === "UNIQUE" ? refundSubset.ids : []);
     return {
       ...candidate,
       selected_refund_ids: refundSubset.status === "UNIQUE" ? refundSubset.ids : null,
       selected_refund_date:
         refundSubset.status === "UNIQUE"
           ? candidate.refund_dates
-              .filter((_, index) => refundSubset.ids.includes(candidate.refund_ids[index]!))
+              .filter((_, index) => selectedRefundIds.has(candidate.refund_ids[index]!))
               .toSorted()
               .at(-1)
           : null,
@@ -733,6 +734,7 @@ async function reconcileRemoteDocument(
       const refundSubset = uniqueRefundSubset(refunds, remote.totalAmount);
       if (refundSubset.status !== "UNIQUE") continue;
       const selectedRefundIds = refundSubset.ids;
+      const selectedRefundIdSet = new Set(selectedRefundIds);
       const selectedByOrder = new Map<string, number>();
       for (const refundId of selectedRefundIds) {
         const owner = refundOwners.get(refundId)!;
@@ -754,7 +756,7 @@ async function reconcileRemoteDocument(
           displayNumber: candidate.display_number,
           localOrderDate:
             candidate.refund_dates
-              .filter((_, index) => selectedRefundIds.includes(candidate.refund_ids[index]!))
+              .filter((_, index) => selectedRefundIdSet.has(candidate.refund_ids[index]!))
               .toSorted()
               .at(-1) ?? candidate.local_order_date,
           billableAmount: selectedAmount,
