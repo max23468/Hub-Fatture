@@ -211,20 +211,19 @@ export async function assertAccount(page: Page, accountReference: string) {
     .or(page.getByRole("button", { name: expectedAccount, exact: true }));
   const count = await candidates.count();
   if (!count || count > 20) throw new Error("DOM_UNRECOGNIZED");
-  const visible = [];
+  const visibleExact = [];
   for (let index = 0; index < count; index += 1) {
     const candidate = candidates.nth(index);
-    if (await candidate.isVisible()) visible.push(candidate);
+    if (!(await candidate.isVisible())) continue;
+    const declaredAccount = await candidate.getAttribute("data-aruba-account");
+    const observedAccount = (
+      declaredAccount === null ? await candidate.innerText() : declaredAccount
+    )
+      .replace(/\s+/g, " ")
+      .trim();
+    if (observedAccount === expectedAccount) visibleExact.push(candidate);
   }
-  if (visible.length !== 1) throw new Error("DOM_UNRECOGNIZED");
-  const declaredAccount = await visible[0]!.getAttribute("data-aruba-account");
-  const observedAccount =
-    declaredAccount === null
-      ? (await visible[0]!.innerText()).replace(/\s+/g, " ").trim()
-      : declaredAccount.replace(/\s+/g, " ").trim();
-  if (observedAccount !== expectedAccount) {
-    throw new Error("DOM_UNRECOGNIZED");
-  }
+  if (visibleExact.length !== 1) throw new Error("DOM_UNRECOGNIZED");
 }
 
 async function uploadInput(page: Page) {

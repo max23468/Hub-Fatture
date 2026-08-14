@@ -39,6 +39,11 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/aruba-sintetica?scenario=valid");
+  await page.locator("[data-aruba-account]").evaluate((element) => {
+    const nestedButton = document.createElement("button");
+    nestedButton.setAttribute("aria-label", "synthetic-aruba-account");
+    element.append(nestedButton);
+  });
   await expect(assertAccount(page, "synthetic-aruba-account")).resolves.toBeUndefined();
   await page.locator("[data-aruba-account]").evaluate((element) => {
     element.setAttribute("hidden", "");
