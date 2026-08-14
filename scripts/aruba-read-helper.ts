@@ -405,10 +405,11 @@ async function readProductionExtGrid(grid: Locator) {
   return { documents, files };
 }
 
+const PRODUCTION_NEXT_SELECTOR =
+  '.aruba-grid-fatture-inviate button[aria-label*="nextPage"], .aruba-grid-fatture-inviate button[title*="nextPage"], .aruba-grid-fatture-inviate [title*="nextPage"] button';
+
 async function productionNextButton(page: Page) {
-  const candidates = page.locator(
-    '.aruba-grid-fatture-inviate button[aria-label*="nextPage"], .aruba-grid-fatture-inviate button[title*="nextPage"], .aruba-grid-fatture-inviate [title*="nextPage"] button',
-  );
+  const candidates = page.locator(PRODUCTION_NEXT_SELECTOR);
   const visible: Locator[] = [];
   for (let index = 0; index < (await candidates.count()); index += 1) {
     const candidate = candidates.nth(index);
@@ -684,7 +685,7 @@ async function armProductionGridReload(page: Page) {
 
 async function waitForProductionGridReload(page: Page) {
   try {
-    await page.waitForFunction(() => {
+    await page.waitForFunction((nextSelector) => {
       const runtime = window as typeof window & {
         __arubaReadGridReload?: {
           observed: boolean;
@@ -693,16 +694,11 @@ async function waitForProductionGridReload(page: Page) {
       };
       const state = runtime.__arubaReadGridReload;
       if (!state?.observed || performance.now() - state.lastMutationAt < 500) return false;
-      const grid = document.querySelector(".aruba-grid-fatture-inviate");
-      if (!grid) return false;
-      const next = [...grid.querySelectorAll<HTMLElement>("button, [title] button")].filter(
-        (element) =>
-          (element.getAttribute("aria-label") ?? element.getAttribute("title") ?? "").includes(
-            "nextPage",
-          ) && element.getClientRects().length > 0,
+      const next = [...document.querySelectorAll<HTMLElement>(nextSelector)].filter(
+        (element) => element.getClientRects().length > 0,
       );
       return next.length === 1;
-    });
+    }, PRODUCTION_NEXT_SELECTOR);
   } finally {
     await page.evaluate(() => {
       const runtime = window as typeof window & {

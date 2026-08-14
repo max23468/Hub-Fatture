@@ -406,7 +406,7 @@ test("il lettore Production attende il reload ExtJS prima di leggere il nuovo st
         <div class="x-gridcell">Emessa e consegnata</div><div class="x-gridcell"></div>
       </div>
     </section>
-    <span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>`;
+    <span class="x-disabled" title="{app.buttons.labels.nextPage}"><button aria-disabled="true" disabled></button></span>`;
   await page.setContent(`
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
@@ -417,7 +417,7 @@ test("il lettore Production attende il reload ExtJS prima di leggere il nuovo st
     element.addEventListener("click", () => {
       const grid = document.querySelector(".aruba-grid-fatture-inviate")!;
       grid.innerHTML =
-        '<span class="x-disabled"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="true" disabled></button></span>';
+        '<span class="x-disabled" title="{app.buttons.labels.nextPage}"><button aria-disabled="true" disabled></button></span>';
       fetch("/reload").then(() => {
         grid.innerHTML = replacement;
       });
