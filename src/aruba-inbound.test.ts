@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   groupOrderCandidates,
+  inventoryPageSchema,
   remoteMatchesPreflightSearches,
   remoteStatusTransition,
   selectOrderMatch,
@@ -27,6 +28,49 @@ const remote: RemoteInventoryDocument = {
   xmlSha256: null,
   orderReferences: [],
 };
+
+test("le pagine inventario rispettano tipo e anno dichiarati dallo stream", () => {
+  const page = {
+    stream: "invoices:2026",
+    scanOrdinal: 1,
+    pageOrdinal: 1,
+    cursor: null,
+    terminal: true,
+    fullScan: true,
+    documents: [remote],
+  };
+  assert.equal(inventoryPageSchema.safeParse(page).success, true);
+  assert.equal(
+    inventoryPageSchema.safeParse({
+      ...page,
+      documents: [{ ...remote, documentType: "TD04" }],
+    }).success,
+    false,
+  );
+  assert.equal(
+    inventoryPageSchema.safeParse({
+      ...page,
+      documents: [{ ...remote, fiscalYear: 2025 }],
+    }).success,
+    false,
+  );
+  assert.equal(
+    inventoryPageSchema.safeParse({
+      ...page,
+      stream: "credit-notes:2026",
+      documents: [{ ...remote, documentType: "TD04" }],
+    }).success,
+    true,
+  );
+  assert.equal(
+    inventoryPageSchema.safeParse({
+      ...page,
+      stream: "specific:1",
+      documents: [{ ...remote, documentType: "TD04", fiscalYear: 2025 }],
+    }).success,
+    true,
+  );
+});
 
 test("gli stati remoti non regrediscono e i terminali incompatibili aprono conflitto", () => {
   assert.equal(remoteStatusTransition("SDI_PROCESSING", "SUBMITTED"), "IGNORE_STALE");

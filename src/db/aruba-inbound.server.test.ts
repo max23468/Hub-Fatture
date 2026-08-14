@@ -1102,7 +1102,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         actor,
       ),
       (error: unknown) =>
-        error instanceof Error && "code" in error && error.code === "ARUBA_INVENTORY_CONFLICT",
+        error instanceof Error && "code" in error && error.code === "ARUBA_INVENTORY_INVALID",
     );
 
     assert.equal(await inbound.revokeArubaReadSessions(actor), 1);

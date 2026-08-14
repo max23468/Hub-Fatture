@@ -47,15 +47,38 @@ export const remoteInventoryDocumentSchema = z.object({
   orderReferences: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
 });
 
-export const inventoryPageSchema = z.object({
-  stream: z.string().regex(/^[a-z0-9:_-]{1,100}$/),
-  scanOrdinal: z.number().int().positive().max(100_000),
-  pageOrdinal: z.number().int().positive().max(100_000),
-  cursor: z.string().max(2_000).nullable(),
-  terminal: z.boolean(),
-  fullScan: z.boolean(),
-  documents: z.array(remoteInventoryDocumentSchema).max(300),
-});
+export const inventoryPageSchema = z
+  .object({
+    stream: z.string().regex(/^[a-z0-9:_-]{1,100}$/),
+    scanOrdinal: z.number().int().positive().max(100_000),
+    pageOrdinal: z.number().int().positive().max(100_000),
+    cursor: z.string().max(2_000).nullable(),
+    terminal: z.boolean(),
+    fullScan: z.boolean(),
+    documents: z.array(remoteInventoryDocumentSchema).max(300),
+  })
+  .superRefine((page, context) => {
+    const inventoryStream = /^(invoices|credit-notes):(\d{4})$/.exec(page.stream);
+    if (!inventoryStream) return;
+    const expectedDocumentType = inventoryStream[1] === "invoices" ? "TD01" : "TD04";
+    const expectedFiscalYear = Number(inventoryStream[2]);
+    for (const [index, document] of page.documents.entries()) {
+      if (document.documentType !== expectedDocumentType) {
+        context.addIssue({
+          code: "custom",
+          path: ["documents", index, "documentType"],
+          message: "Il tipo documento non appartiene allo stream dichiarato",
+        });
+      }
+      if (document.fiscalYear !== expectedFiscalYear) {
+        context.addIssue({
+          code: "custom",
+          path: ["documents", index, "fiscalYear"],
+          message: "L’anno fiscale non appartiene allo stream dichiarato",
+        });
+      }
+    }
+  });
 
 export type ArubaRemoteStatus = z.infer<typeof arubaRemoteStatusSchema>;
 export type RemoteInventoryDocument = z.infer<typeof remoteInventoryDocumentSchema>;
