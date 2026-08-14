@@ -72,9 +72,13 @@ export function manifestSha256(
 
 export function assertAllowedArubaTarget(url: string, environment: ArubaEnvironment): URL {
   const target = new URL(url);
-  if (target.username || target.password || target.searchParams.size) throw new Error("target");
+  if (target.username || target.password) throw new Error("target");
   if (environment === "PRODUCTION") {
-    if (target.origin !== ARUBA_PANEL_ORIGIN || target.protocol !== "https:") {
+    if (
+      target.origin !== ARUBA_PANEL_ORIGIN ||
+      target.protocol !== "https:" ||
+      target.searchParams.size
+    ) {
       throw new Error("target");
     }
     return target;
@@ -82,7 +86,8 @@ export function assertAllowedArubaTarget(url: string, environment: ArubaEnvironm
   if (
     target.protocol !== "http:" ||
     !["localhost", "127.0.0.1", "::1"].includes(target.hostname) ||
-    target.pathname !== "/aruba-sintetica"
+    target.pathname !== "/aruba-sintetica" ||
+    (target.search !== "" && target.search !== "?scenario=inventory")
   ) {
     throw new Error("target");
   }
@@ -315,6 +320,32 @@ export function notificationStatus(
     return "DELIVERED";
   }
   return "SDI_PROCESSING";
+}
+
+export function notificationBelongsToDocument(
+  xml: string,
+  expected: { filename?: string | null; remoteId?: string | null },
+): boolean {
+  const filenames = [...xml.matchAll(/<(?:\w+:)?NomeFile>([^<]{1,255})<\//gi)].map((match) =>
+    match[1]!
+      .trim()
+      .replace(/\\/g, "/")
+      .split("/")
+      .at(-1)!
+      .replace(/\.p7m$/i, "")
+      .toLowerCase(),
+  );
+  const remoteIds = [
+    ...xml.matchAll(/<(?:\w+:)?(?:IdentificativoSdI|IdSdI)>([^<]{1,200})<\//gi),
+  ].map((match) => match[1]!.trim());
+  const expectedFilename = expected.filename?.toLowerCase() ?? null;
+  const filenameMatches = Boolean(expectedFilename && filenames.includes(expectedFilename));
+  const remoteIdMatches = Boolean(expected.remoteId && remoteIds.includes(expected.remoteId));
+  return (
+    (filenameMatches || remoteIdMatches) &&
+    (!expectedFilename || filenames.length === 0 || filenameMatches) &&
+    (!expected.remoteId || remoteIds.length === 0 || remoteIdMatches)
+  );
 }
 
 export const verifiedArubaPanelContract = {

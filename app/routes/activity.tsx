@@ -14,6 +14,8 @@ import { listAuditHistory, listOpenActivities } from "../../src/db/orders.server
 import type { AuditHistorySortKey, OpenActivitySortKey } from "../../src/db/orders.server.ts";
 import { pageNumber } from "../../src/orders.ts";
 import { publicError } from "../../src/errors.ts";
+import { listRemoteDocuments } from "../../src/db/aruba-inbound.server.ts";
+import { dateTime } from "../format";
 import { parseSort } from "../table-sort";
 
 const emptyPage = { rows: [], hasNext: false, total: 0 };
@@ -42,7 +44,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     ["attivita", "elemento", "autore", "quando"] as const,
     { key: "quando" as AuditHistorySortKey, direction: "desc" },
   );
-  const [open, history, failedJobs] = await Promise.all([
+  const [open, history, failedJobs, arubaAttention] = await Promise.all([
     view === "gestire"
       ? listOpenActivities(page, activityKind, openSort)
       : Promise.resolve(emptyPage),
@@ -55,6 +57,9 @@ export async function loader({ request }: Route.LoaderArgs) {
         })
       : Promise.resolve(emptyPage),
     view === "gestire" && !activityKind ? failedConnectorJobs() : Promise.resolve([]),
+    view === "gestire" && !activityKind
+      ? listRemoteDocuments({ attentionOnly: true })
+      : Promise.resolve([]),
   ]);
   return {
     username: user.username,
@@ -70,6 +75,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     open,
     history,
     failedJobs,
+    arubaAttention,
     jobRetried: url.searchParams.get("job") === "riavviato",
   };
 }
@@ -110,6 +116,7 @@ export default function Activity() {
     open,
     history,
     failedJobs,
+    arubaAttention,
     jobRetried,
   } = useLoaderData<typeof loader>();
   const actionError = useActionData() as { message: string } | undefined;
@@ -159,6 +166,32 @@ export default function Activity() {
             open={open}
             sort={openSort}
           />
+          {arubaAttention.length ? (
+            <section
+              className="dashboard-panel section-gap"
+              aria-labelledby="aruba-attention-title"
+            >
+              <h2 id="aruba-attention-title">{copy.activity.arubaAttentionTitle}</h2>
+              <p>{copy.activity.arubaAttentionHelp}</p>
+              <ul className="plain-list">
+                {arubaAttention.map((remote) => (
+                  <li key={remote.id}>
+                    <span>
+                      {remote.document_type} {remote.series ?? ""}{" "}
+                      {remote.fiscal_number ?? remote.remote_id}
+                    </span>
+                    <span>
+                      {copy.documents.matchStatusLabels[remote.match_status] ?? remote.match_status}{" "}
+                      · {dateTime(remote.last_observed_at)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <Link className="dashboard-row-link" to="/documenti?vista=da-collegare">
+                {copy.activity.openArubaDocuments}
+              </Link>
+            </section>
+          ) : null}
         </>
       ) : (
         <ActivityHistoryView

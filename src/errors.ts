@@ -49,6 +49,18 @@ export const errorCatalog = {
   ARUBA_RECONCILIATION_REQUIRED:
     "Lo stato remoto è incerto: completa il readback prima di un nuovo tentativo.",
   ARUBA_IMPORT_INVALID: "Il file Aruba non è riconosciuto o non coincide con il documento.",
+  ARUBA_READ_SESSION_INVALID: "La sessione di sola lettura Aruba non è valida o è scaduta.",
+  ARUBA_READ_SESSION_ACTIVE: "Una sincronizzazione Aruba è già attiva per questo account.",
+  ARUBA_READ_SESSION_FORBIDDEN: "Solo il titolare può revocare le sessioni Aruba.",
+  ARUBA_INVENTORY_INVALID: "L’inventario Aruba contiene dati non validi.",
+  ARUBA_INVENTORY_INCOMPLETE: "La scansione Aruba non copre tutti gli stream richiesti.",
+  ARUBA_INVENTORY_CONFLICT: "Aruba ha restituito dati incompatibili per lo stesso documento.",
+  ARUBA_PROFILE_CONFLICT:
+    "Il documento Aruba non coincide con il profilo fiscale o con il caso locale.",
+  ARUBA_INVENTORY_BLOCKED:
+    "L’inventario Aruba non è abbastanza recente o contiene verifiche irrisolte.",
+  ARUBA_PREFLIGHT_REQUIRED:
+    "È stato richiesto un controllo Aruba aggiornato. Attendi l’helper e riprova entro cinque minuti.",
   INVALID_CONTENT_TYPE: "Formato della richiesta non supportato.",
   REQUEST_BODY_TOO_LARGE: "La richiesta supera il limite consentito.",
   REQUEST_ORIGIN_INVALID: "Origine della richiesta non valida.",

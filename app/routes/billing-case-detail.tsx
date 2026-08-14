@@ -426,11 +426,13 @@ function InvoiceLinesTable({ lines }: { lines: InvoiceLine[] }) {
 function InvoiceDocument({
   canApprove,
   csrfToken,
+  pendingArubaPreflight,
   publicNumber,
   projection,
 }: {
   canApprove: boolean;
   csrfToken: string;
+  pendingArubaPreflight: { id: string; status: string } | null;
   publicNumber: string;
   projection: InvoiceProjection;
 }) {
@@ -545,6 +547,18 @@ function InvoiceDocument({
           <p className="notice section-gap">{copy.document.ownerOnly}</p>
         ) : !projection.approved ? (
           <Form method="post" className="section-gap">
+            <div className={projection.arubaInventory.blocking ? "warning" : "notice"}>
+              <strong>{copy.document.arubaPreflightTitle}</strong>
+              <p>
+                {copy.document.arubaPreflightStatus(
+                  copy.settings.arubaInventoryLabels[projection.arubaInventory.status],
+                  projection.arubaInventory.lastCompletedAt
+                    ? dateTime(projection.arubaInventory.lastCompletedAt)
+                    : copy.settings.never,
+                )}
+              </p>
+              <p>{copy.document.arubaPreflightHelp}</p>
+            </div>
             <input type="hidden" name="csrf" value={csrfToken} />
             <input type="hidden" name="intent" value="approve-document" />
             <input type="hidden" name="revision" value={projection.caseRevision} />
@@ -679,14 +693,47 @@ function InvoiceDocument({
             </button>
           </Form>
         ) : null}
+        {!projection.approved &&
+        canApprove &&
+        pendingArubaPreflight &&
+        !projection.arubaInventory.activeSession ? (
+          <Form method="post" className="card section-gap">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="complete-manual-aruba-preflight" />
+            <input type="hidden" name="receiptId" value={pendingArubaPreflight.id} />
+            <h3>Override dopo readback manuale specifico</h3>
+            <p>
+              Acquisisci tutte le pagine restituite dalle ricerche indicate. La ricevuta passa
+              soltanto se la ricerca è completa e non contiene alcun possibile documento Aruba.
+            </p>
+            <label>
+              Pagine acquisite in JSON
+              <textarea name="pagesJson" required rows={8} spellCheck={false} />
+            </label>
+            <label>
+              Motivazione specifica
+              <textarea name="overrideReason" required minLength={20} maxLength={500} rows={3} />
+            </label>
+            <button className="button button--secondary" type="submit">
+              Completa verifica manuale
+            </button>
+          </Form>
+        ) : null}
       </section>
     </>
   );
 }
 
 export default function BillingCaseDetail() {
-  const { username, canApprove, csrfToken, billingCase, projection, storagePending } =
-    useLoaderData<typeof loader>();
+  const {
+    username,
+    canApprove,
+    csrfToken,
+    billingCase,
+    projection,
+    storagePending,
+    pendingArubaPreflight,
+  } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const total = billingCase.orders.reduce((sum, order) => sum + order.billable_amount, 0);
   const editable = ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status);
@@ -873,6 +920,7 @@ export default function BillingCaseDetail() {
         <InvoiceDocument
           canApprove={canApprove}
           csrfToken={csrfToken}
+          pendingArubaPreflight={pendingArubaPreflight}
           projection={projection}
           publicNumber={billingCase.public_number}
         />

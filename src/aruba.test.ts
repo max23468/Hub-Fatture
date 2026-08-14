@@ -11,6 +11,7 @@ import {
   assertAllowedHubUrl,
   effectiveArubaMode,
   manifestSha256,
+  notificationBelongsToDocument,
   notificationStatus,
   validateOfficialFile,
   validateUntrustedXml,
@@ -29,6 +30,14 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   );
   assert.throws(() =>
     assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/?token=x", "PRODUCTION"),
+  );
+  assert.equal(
+    assertAllowedArubaTarget("http://127.0.0.1:4173/aruba-sintetica?scenario=inventory", "MOCK")
+      .search,
+    "?scenario=inventory",
+  );
+  assert.throws(() =>
+    assertAllowedArubaTarget("http://127.0.0.1:4173/aruba-sintetica?token=x", "MOCK"),
   );
   const aruba = new URL("https://fatturazioneelettronica.aruba.it/");
   assert.equal(
@@ -104,6 +113,22 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   );
   assert.equal(notificationStatus(validateUntrustedXml(delivered)), "DELIVERED");
   validateOfficialFile("SDI_NOTIFICATION", delivered);
+  const identifiedNotification =
+    "<RicevutaConsegna><NomeFile>FPR-0001-26.xml.p7m</NomeFile><IdentificativoSdI>REMOTE-1</IdentificativoSdI></RicevutaConsegna>";
+  assert.equal(
+    notificationBelongsToDocument(identifiedNotification, {
+      filename: "FPR-0001-26.xml",
+      remoteId: "REMOTE-1",
+    }),
+    true,
+  );
+  assert.equal(
+    notificationBelongsToDocument(identifiedNotification, {
+      filename: "FPR-0002-26.xml",
+      remoteId: "REMOTE-2",
+    }),
+    false,
+  );
   assert.throws(() =>
     validateUntrustedXml(
       Buffer.from("<!DOCTYPE x [<!ENTITY e SYSTEM 'file:///etc/passwd'>]><x>&e;</x>"),

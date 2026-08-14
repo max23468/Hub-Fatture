@@ -81,7 +81,7 @@ test("i connettori attivano contract test e corsia provider", () => {
 });
 
 test("l'helper Aruba limita la matrice multipiattaforma ai cambi pertinenti", () => {
-  const impact = classifyFiles(["scripts/aruba-helper.ts"]);
+  const impact = classifyFiles(["scripts/aruba-helper.ts", "scripts/aruba-read-helper.ts"]);
   assert.equal(impact.arubaPlatform, true);
   assert.equal(impact.provider, true);
 });

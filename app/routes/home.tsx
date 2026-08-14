@@ -18,6 +18,7 @@ import { copy } from "../copy.it";
 import { dateTime } from "../format";
 import { privateRouteMeta } from "../metadata";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
+import { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import { dashboardSummary } from "../../src/db/orders.server.ts";
 
 const chartDateFormatter = new Intl.DateTimeFormat("it-IT", {
@@ -33,13 +34,17 @@ function chartDate(value: string) {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
-  const summary = await dashboardSummary();
+  const [summary, arubaInventory] = await Promise.all([
+    dashboardSummary(),
+    getArubaInventoryHealth(),
+  ]);
   return {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     currentTime: new Date().toISOString(),
     summary,
+    arubaInventory,
   };
 }
 
@@ -48,7 +53,8 @@ export function meta({ error }: Route.MetaArgs) {
 }
 
 export default function Home() {
-  const { username, canApprove, csrfToken, currentTime, summary } = useLoaderData<typeof loader>();
+  const { username, canApprove, csrfToken, currentTime, summary, arubaInventory } =
+    useLoaderData<typeof loader>();
   const workItems = [
     {
       value: Number(summary.ready_cases),
@@ -111,6 +117,12 @@ export default function Home() {
       countLabel: copy.dashboard.syncErrorsCount,
       to: "/attivita",
     },
+    {
+      value: arubaInventory.ambiguous + arubaInventory.conflicts,
+      emptyLabel: copy.dashboard.noArubaConflicts,
+      countLabel: copy.dashboard.arubaConflictsCount,
+      to: "/attivita",
+    },
   ];
 
   const connections = [
@@ -135,9 +147,9 @@ export default function Home() {
     },
     {
       label: "Aruba",
-      value: summary.last_aruba_readback,
+      value: arubaInventory.lastCompletedAt,
       connected: true,
-      requiresUpdate: Number(summary.open_aruba_batches) > 0,
+      requiresUpdate: arubaInventory.blocking || Number(summary.open_aruba_batches) > 0,
       never: copy.dashboard.neverRead,
       to: "/impostazioni#aruba-helper",
       icon: Cloud,
@@ -153,7 +165,9 @@ export default function Home() {
   });
 
   const incidentCount = incidents.reduce((total, incident) => total + incident.value, 0);
-  const hasMissingUpdates = connections.some((connection) => connection.requiresUpdate);
+  const hasMissingUpdates = connections.some(
+    (connection) => connection.requiresUpdate || connection.stale,
+  );
   const status = incidentCount
     ? {
         label: copy.dashboard.attentionNeeded,

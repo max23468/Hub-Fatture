@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.41
+
+- Hub Fatture mantiene un inventario provider-first di fatture e TD04 presenti in Aruba, inclusi i documenti creati senza passare dall’app, e ne aggiorna gli stati senza regressioni.
+- Dashboard, preparazioni, ordini, Attività e Documenti rendono visibili freschezza, progressi remoti, conflitti e documenti da collegare; Aruba mai letto o non affidabile non può più apparire come situazione sotto controllo.
+- L’helper locale read-only esegue una scansione completa a ogni avvio, aggiornamenti incrementali ogni 15 minuti e preflight on-demand; sessione, lease, cursori, ripresa e fallback manuale restano confinati per account e ambiente.
+- Matching, materializzazione dei documenti storici e collegamento delle TD04 sono fail-closed: totale mai sufficiente, file ufficiali obbligatori, decisioni manuali del titolare motivate e auditabili, rimborsi collegati atomicamente una sola volta.
+- Approvazione e numerazione richiedono inventario globale affidabile e preflight fresco vincolato alla revisione esatta; il kill switch di invio Aruba e il confine del Canary restano invariati.
+
 ## 0.3.40
 
 - Il manifest tecnico della release passa sempre dallo script canonico, che lo rinomina `release-manifest.json`, ne verifica identità e contenuto prima della pubblicazione e rilegge asset, tag e immutabilità dopo la creazione.

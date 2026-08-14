@@ -1140,11 +1140,14 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         `SELECT id FROM connections
          WHERE provider = 'EBAY' AND environment = 'SANDBOX' FOR UPDATE`,
       );
-      const importing = connectors.lockHistoryImportConnection(
-        importClient,
-        "EBAY",
-        "sandbox-deadlock-old",
-        deadlockJob!,
+      const importing = assert.rejects(
+        connectors.lockHistoryImportConnection(
+          importClient,
+          "EBAY",
+          "sandbox-deadlock-old",
+          deadlockJob!,
+        ),
+        (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
       );
       await new Promise((resolve) => setTimeout(resolve, 50));
       await saveClient.query(
@@ -1162,10 +1165,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         ),
       ]);
       await saveClient.query("COMMIT");
-      await assert.rejects(
-        importing,
-        (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
-      );
+      await importing;
       await importClient.query("ROLLBACK");
     } finally {
       saveClient.release();

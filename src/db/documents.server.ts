@@ -22,6 +22,12 @@ import { getConfig } from "../config.server.ts";
 import { escapeLike, PAGE_SIZE, pageOffset, paginate } from "../orders.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { writeAudit } from "./audit.server.ts";
+import {
+  consumeArubaPreflight,
+  ensureArubaPreflight,
+  getArubaInventoryHealth,
+  requestArubaPreflight,
+} from "./aruba-inbound.server.ts";
 import { createArubaBatch, getArubaSettings } from "./aruba.server.ts";
 import {
   customerEmailChoiceSchema,
@@ -588,6 +594,7 @@ export async function getInvoiceProjection(caseId: string) {
     comparison: invoiceComparison(caseRow, input, profile.profile_json),
     approved: draft?.status === "APPROVED",
     arubaMode: (await getArubaSettings()).effectiveMode,
+    arubaInventory: await getArubaInventoryHealth(),
     customerEmail: await customerEmailPreview(caseId),
   };
 }
@@ -820,6 +827,14 @@ export async function approveInvoice(
   const caseRevision = integer(raw.caseRevision);
   const draftVersion = integer(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
+  const preflight = await ensureArubaPreflight(
+    {
+      billingCaseId: caseId,
+      draftVersion,
+      projectionSha256: expectedProjection,
+    },
+    actor,
+  );
   let committed: {
     id: string;
     fiscalNumber: string;
@@ -833,6 +848,12 @@ export async function approveInvoice(
       await client.query(
         "SELECT pg_advisory_xact_lock_shared(hashtext('setting:shopify_payment_fee_mode'))",
       );
+      await consumeArubaPreflight(client, preflight.id, {
+        billingCaseId: caseId,
+        documentId: preflight.documentId,
+        draftVersion,
+        projectionSha256: expectedProjection,
+      });
       await serializeOrderMutations(client);
       await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
       const caseRow = await loadCase(client, caseId, true);
@@ -1372,6 +1393,63 @@ export async function approveInvoices(
     if (!emailChoice.success) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
     return { ...candidate, emailChoice: emailChoice.data };
   });
+  const currentCandidates = await getPool().query<{
+    billing_case_id: string;
+    draft_version: number;
+    projection_sha256: string;
+  }>(
+    `SELECT billing_cases.id AS billing_case_id, documents.draft_version,
+            documents.projection_sha256
+     FROM billing_cases
+     JOIN documents ON documents.billing_case_id = billing_cases.id
+       AND documents.kind = 'INVOICE' AND documents.status = 'DRAFT'
+     WHERE billing_cases.id = ANY($1::bigint[]) AND billing_cases.status = 'READY'`,
+    [candidates.map((candidate) => candidate.caseId)],
+  );
+  const currentByCase = new Map(
+    currentCandidates.rows.map((candidate) => [candidate.billing_case_id, candidate]),
+  );
+  if (
+    candidates.some((candidate) => {
+      const current = currentByCase.get(candidate.caseId);
+      return (
+        !current ||
+        current.draft_version !== candidate.draftVersion ||
+        current.projection_sha256 !== candidate.projectionSha256
+      );
+    })
+  ) {
+    return { approved: 0, failed: candidates.length, storagePending: 0 };
+  }
+  const sharedManifestSha256 = createHash("sha256")
+    .update(
+      JSON.stringify(
+        candidates
+          .map(({ caseId, draftVersion, projectionSha256 }) => ({
+            caseId,
+            draftVersion,
+            projectionSha256,
+          }))
+          .sort((left, right) => left.caseId.localeCompare(right.caseId)),
+      ),
+    )
+    .digest("hex");
+  const preflights = await Promise.all(
+    candidates.map((candidate) =>
+      requestArubaPreflight(
+        {
+          billingCaseId: candidate.caseId,
+          draftVersion: candidate.draftVersion,
+          projectionSha256: candidate.projectionSha256,
+        },
+        actor,
+        sharedManifestSha256,
+      ),
+    ),
+  );
+  if (preflights.some((preflight) => preflight.status !== "PASSED")) {
+    throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
+  }
   const outcomes = await Promise.all(
     candidates.map(async (candidate) => {
       try {

@@ -17,6 +17,7 @@ import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { creditableRemainder } from "../refunds.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { writeAudit } from "./audit.server.ts";
+import { consumeArubaPreflight, ensureArubaPreflight } from "./aruba-inbound.server.ts";
 import { createArubaBatch, getArubaSettings } from "./aruba.server.ts";
 import { assertJobLease, renewLockedJobLease, type ClaimedJob } from "./connectors.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
@@ -540,9 +541,18 @@ export async function approveCreditNote(
   }
   const expectedVersion = Number(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
+  const preflight = await ensureArubaPreflight(
+    { documentId, draftVersion: expectedVersion, projectionSha256: expectedProjection },
+    actor,
+  );
   const committed = await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
     await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
+    await consumeArubaPreflight(client, preflight.id, {
+      documentId,
+      draftVersion: expectedVersion,
+      projectionSha256: expectedProjection,
+    });
     const row = await loadCredit(client, documentId, true);
     if (!row || row.status !== "DRAFT" || row.draft_version !== expectedVersion) {
       throw new AppError("CONFLICT_REVISION", 409);

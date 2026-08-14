@@ -141,7 +141,7 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   const contacts = supplier.Contatti ? xmlRecord(supplier.Contatti) : {};
   const goods = xmlRecord(body.DatiBeniServizi);
   const summary = xmlRecord(goods.DatiRiepilogo);
-  const payment = acceptedPayment(body);
+  const payment = acceptedPayment(body, "TD01");
   return fiscalProfileSchema.parse({
     transmitter: {
       countryCode: xmlValue(transmitter.IdPaese),
@@ -230,9 +230,12 @@ function xmlArray(input: unknown): Record<string, unknown>[] {
   return (Array.isArray(input) ? input : [input]).map(xmlRecord);
 }
 
-function acceptedPayment(body: Record<string, unknown>) {
+function acceptedPayment(body: Record<string, unknown>, type: "TD01" | "TD04") {
   if (body.DatiPagamento === undefined) {
-    return { condition: "TP02" as const, method: "MP08" as const };
+    return {
+      condition: "TP02" as const,
+      method: type === "TD01" ? ("MP08" as const) : ("MP05" as const),
+    };
   }
   const blocks = xmlArray(body.DatiPagamento);
   const methods = blocks.flatMap((block) =>
@@ -249,11 +252,20 @@ function acceptedPayment(body: Record<string, unknown>) {
   return { condition: "TP02" as const, method: method.data };
 }
 
+function acceptedLineTotal(body: Record<string, unknown>): number {
+  const goods = xmlRecord(body.DatiBeniServizi);
+  return xmlArray(goods.DettaglioLinee).reduce(
+    (sum, line) => sum + decimalToCents(xmlValue(line.PrezzoTotale)),
+    0,
+  );
+}
+
 /** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
 export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
   const source = acceptedFiscalDocument(xml);
   if (source.type !== "TD01") throw new Error("Il documento storico non è una fattura TD01");
-  const general = xmlRecord(xmlRecord(source.body.DatiGenerali).DatiGeneraliDocumento);
+  const generalBlock = xmlRecord(source.body.DatiGenerali);
+  const general = xmlRecord(generalBlock.DatiGeneraliDocumento);
   const transmission = xmlRecord(source.header.DatiTrasmissione);
   const customer = xmlRecord(source.header.CessionarioCommittente);
   const customerData = xmlRecord(customer.DatiAnagrafici);
@@ -306,8 +318,9 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
     quantity: 1,
     unitAmount: decimalToCents(xmlValue(line.PrezzoTotale)),
   }));
-  const payment = acceptedPayment(source.body);
-  const totalAmount = source.totalAmount ?? lines.reduce((sum, line) => sum + line.unitAmount, 0);
+  const payment = acceptedPayment(source.body, "TD01");
+  const linesTotal = acceptedLineTotal(source.body);
+  const totalAmount = source.totalAmount ?? linesTotal;
   const input = documentInputSchema.parse({
     kind: "INVOICE",
     documentDate: source.documentDate,
@@ -316,7 +329,7 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
     paymentStatus: "PAID",
     paymentMethod: payment.method,
   });
-  if (lines.reduce((sum, line) => sum + line.unitAmount, 0) !== totalAmount) {
+  if (linesTotal !== totalAmount) {
     throw new Error("Il totale della fattura storica non coincide con le righe");
   }
   return {
@@ -330,6 +343,77 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
         : (Array.isArray(general.Causale) ? general.Causale : [general.Causale]).map(xmlValue)),
       ...lines.map((line) => line.description),
     ],
+  };
+}
+
+/** Dati autorevoli necessari per collegare una TD04 esterna a fattura e rimborsi locali. */
+export function acceptedCreditNoteFromXml(xml: string) {
+  const source = acceptedFiscalDocument(xml);
+  if (source.type !== "TD04") throw new Error("Il documento storico non è una nota TD04");
+  const generalBlock = xmlRecord(source.body.DatiGenerali);
+  const general = xmlRecord(generalBlock.DatiGeneraliDocumento);
+  const goods = xmlRecord(source.body.DatiBeniServizi);
+  const lines = xmlArray(goods.DettaglioLinee).map((line) => ({
+    description: xmlValue(line.Descrizione),
+    quantity: 1,
+    unitAmount: decimalToCents(xmlValue(line.PrezzoTotale)),
+  }));
+  const linesTotal = acceptedLineTotal(source.body);
+  const totalAmount = source.totalAmount ?? linesTotal;
+  if (linesTotal !== totalAmount) {
+    throw new Error("Il totale della nota storica non coincide con le righe");
+  }
+  const linked = generalBlock.DatiFattureCollegate
+    ? xmlArray(generalBlock.DatiFattureCollegate).map((item) => ({
+        number: xmlValue(item.IdDocumento),
+        date: xmlOptional(item.Data),
+      }))
+    : [];
+  return {
+    ...source,
+    totalAmount,
+    lines,
+    linkedInvoices: linked,
+    references: [
+      ...(general.Causale === undefined
+        ? []
+        : (Array.isArray(general.Causale) ? general.Causale : [general.Causale]).map(xmlValue)),
+      ...lines.map((line) => line.description),
+    ],
+  };
+}
+
+/** Identità fiscale del documento, usata per impedire import da un profilo diverso. */
+export function acceptedDocumentFiscalIdentity(xml: string) {
+  const source = acceptedFiscalDocument(xml);
+  const transmission = xmlRecord(source.header.DatiTrasmissione);
+  const transmitter = xmlRecord(transmission.IdTrasmittente);
+  const supplier = xmlRecord(source.header.CedentePrestatore);
+  const supplierData = xmlRecord(supplier.DatiAnagrafici);
+  const supplierVat = xmlRecord(supplierData.IdFiscaleIVA);
+  const goods = xmlRecord(source.body.DatiBeniServizi);
+  const summary = xmlRecord(goods.DatiRiepilogo);
+  const payment = acceptedPayment(source.body, source.type as "TD01" | "TD04");
+  return {
+    type: source.type as "TD01" | "TD04",
+    year: source.year,
+    number: source.number,
+    documentNumber: source.documentNumber,
+    documentDate: source.documentDate,
+    totalAmount: source.totalAmount ?? acceptedLineTotal(source.body),
+    transmitter: {
+      countryCode: xmlValue(transmitter.IdPaese),
+      taxCode: xmlValue(transmitter.IdCodice),
+    },
+    seller: {
+      vatCountryCode: xmlValue(supplierVat.IdPaese),
+      vatCode: xmlValue(supplierVat.IdCodice),
+      taxCode: xmlOptional(supplierData.CodiceFiscale),
+      taxRegime: xmlValue(supplierData.RegimeFiscale),
+    },
+    taxNature: xmlValue(summary.Natura),
+    legalReference: xmlValue(summary.RiferimentoNormativo),
+    payment,
   };
 }
 

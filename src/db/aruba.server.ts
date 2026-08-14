@@ -14,6 +14,7 @@ import {
   effectiveArubaMode,
   helperEventSchema,
   manifestSha256,
+  notificationBelongsToDocument,
   notificationStatus,
   validateOfficialFile,
   type ArubaFileKind,
@@ -290,7 +291,8 @@ export async function createArubaBatch(
       `INSERT INTO aruba_send_permits
         (id, batch_id, manifest_sha256, document_count, mode, scope, authorized_by,
          expires_at, revoked_at)
-       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6, $7,
+       VALUES ($1, $2, $3, $4, 'AUTOMATIC', $5, $6,
+         CASE WHEN $5 = 'CANARY' THEN now() ELSE $7 END,
          CASE WHEN $5 = 'CANARY' THEN now() ELSE NULL END)`,
       [
         permitId,
@@ -299,7 +301,7 @@ export async function createArubaBatch(
         documents.length,
         permitScope,
         actor.id,
-        permitScope === "CANARY" ? new Date() : new Date(Date.now() + SEND_PERMIT_TTL_MS),
+        new Date(Date.now() + SEND_PERMIT_TTL_MS),
       ],
     );
     await writeAudit(client, {
@@ -1254,11 +1256,13 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor, confir
       [batchId],
     );
     if (unsafe.rowCount) throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
-    const documents = await batchDocuments(client, batchId);
-    const permit = await client.query<{ scope: ArubaPermitScope; consumed_at: string | null }>(
-      "SELECT scope, consumed_at FROM aruba_send_permits WHERE batch_id = $1 FOR UPDATE",
-      [batchId],
-    );
+    const [documents, permit] = await Promise.all([
+      batchDocuments(client, batchId),
+      client.query<{ scope: ArubaPermitScope; consumed_at: string | null }>(
+        "SELECT scope, consumed_at FROM aruba_send_permits WHERE batch_id = $1 FOR UPDATE",
+        [batchId],
+      ),
+    ]);
     const permitScope = permit.rows[0]?.scope ?? "ORDINARY";
     if (permitScope === "CANARY") {
       if (!confirmCanary) throw new AppError("ARUBA_PERMIT_INVALID", 409);
@@ -1322,7 +1326,7 @@ export async function listUnbatchedApprovedDocuments() {
   return result.rows;
 }
 
-async function storeImportedFile(documentId: string, kind: ArubaFileKind, bytes: Buffer) {
+export async function storeImportedFile(documentId: string, kind: ArubaFileKind, bytes: Buffer) {
   const extension = {
     ARUBA_XML: "xml",
     ARUBA_P7M: "p7m",
@@ -1420,21 +1424,11 @@ async function importOfficialFile(
   }
   if (kind.data === "SDI_NOTIFICATION") {
     const xml = bytes.toString("utf8");
-    const filenames = [...xml.matchAll(/<(?:\w+:)?NomeFile>([^<]{1,255})<\//gi)].map((match) =>
-      path.posix
-        .basename(match[1]!.trim())
-        .replace(/\.p7m$/i, "")
-        .toLowerCase(),
-    );
-    const remoteIds = [
-      ...xml.matchAll(/<(?:\w+:)?(?:IdentificativoSdI|IdSdI)>([^<]{1,200})<\//gi),
-    ].map((match) => match[1]!.trim());
-    const filenameMatches = filenames.includes(current.filename.toLowerCase());
-    const remoteIdMatches = Boolean(current.remote_id && remoteIds.includes(current.remote_id));
     if (
-      (!filenameMatches && !remoteIdMatches) ||
-      (filenames.length > 0 && !filenameMatches) ||
-      (current.remote_id && remoteIds.length > 0 && !remoteIdMatches)
+      !notificationBelongsToDocument(xml, {
+        filename: current.filename,
+        remoteId: current.remote_id,
+      })
     ) {
       throw new AppError("ARUBA_IMPORT_INVALID", 409);
     }

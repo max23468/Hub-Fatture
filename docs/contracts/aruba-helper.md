@@ -23,6 +23,18 @@ Il consumo pilota resta inoltre bloccato finché l’inventario Aruba provider-f
 
 Gli endpoint interni espongono manifest, singolo XML, import dei file ufficiali, eventi sanitizzati e consumo del permesso. Accettano soltanto il bearer breve; non ricevono mai dati di autenticazione Aruba.
 
+## Sessione di sincronizzazione in entrata
+
+La sincronizzazione provider-first usa `npm run aruba:sync -- --hub <origine> --browser chrome|msedge` e un codice distinto da quello di batch. Il codice incorpora l’identificativo casuale del dispositivo registrato nella sessione, ha scope esclusivo `ARUBA_READ_SYNC`, è revocabile e non supera otto ore: gli endpoint consentiti espongono soltanto manifest di lettura, heartbeat, pagine inventario, completamento/fallimento e preflight. Il codice non può leggere XML da caricare, manifest di upload o permessi di invio.
+
+A ogni avvio l’helper percorre integralmente gli stream fatture e TD04 richiesti dal manifest strutturato del server, con pagina terminale esplicita. I giri successivi, ogni quindici minuti o su comando immediato, sono incrementali dal cursore con sovrapposizione temporale; ogni ciclo ha un ordinale separato e il server committa il cursore pagina per pagina. Dopo un’interruzione il manifest indica la prima pagina da riprendere soltanto se il tentativo fallito è successivo all’ultimo completamento. Heartbeat durante scansione, attesa e login mantengono la lease breve senza estendere la scadenza assoluta. Account inatteso, stream assente, paginazione incompleta, riga non riconosciuta o stato incompatibile interrompono il giro e lasciano l’inventario bloccante.
+
+Ogni riga può dichiarare collegamenti visibili ai file ufficiali. La risposta di ingest restituisce l’allowlist esatta dei file necessari: l’helper scarica soltanto quei collegamenti e invia i byte a `POST /api/aruba/sync/documenti/:remoteDocumentId/file` con bearer di lettura, `Content-Type: application/octet-stream` e tipo file nell’header dedicato. L’endpoint assegna il remote document come proprietario originario del file: non crea una `aruba_submission` fittizia. XML, P7M, PDF e notifiche sono limitati, validati, hashati e archiviati in modo immutabile; import concorrenti dello stesso file sono idempotenti. Una notifica SdI deve identificare il documento corrente tramite `NomeFile` o identificativo remoto e ogni identificativo dichiarato deve essere coerente; in caso contrario l’import viene rifiutato. Un XML ufficiale può materializzare `ARUBA_HISTORY` soltanto per un match consentito con esito `DELIVERED` o `NOT_DELIVERED`; `REJECTED` conserva file e inventario senza creare un documento fiscale locale.
+
+L’helper interroga il lavoro preflight ogni cinque secondi, oltre al giro ordinario. Una nuova richiesta anticipa la scansione successiva; la ricevuta viene completata solo dopo aver rieseguito tutte le ricerche dichiarate e inviato il nuovo readback, mai riusando la sola cache precedente. Nell’approvazione massiva tutte le ricevute condividono lo stesso hash-manifest dell’insieme e vengono aperte soltanto dopo aver verificato che ogni revisione e proiezione sia ancora corrente.
+
+Il pannello sintetico espone lo scenario `?scenario=inventory`. Safari resta supportato per usare l’app e per il percorso manuale; l’automazione del pannello richiede Chrome o Edge perché l’helper usa un profilo Chromium persistente multipiattaforma.
+
 ## Contratto visibile verificato
 
 | Funzione            | Etichette verificate                                                                     | Esito fail-closed                                           |
@@ -38,6 +50,8 @@ Gli endpoint interni espongono manifest, singolo XML, import dei file ufficiali,
 | file ufficiali      | link visibili `Scarica XML/P7M/PDF/notifica`                                             | file assente ignorato; file malformato blocca la sessione   |
 
 Il pannello mostra le date come `GG/MM/AAAA` e gli importi con virgola e simbolo euro; gli attributi sintetici restano ammessi nei test. I limiti riletti sono 4,9 MB per documento, 300 documenti e 30 MB per caricamento. L’helper applica tutti e tre i limiti prima dell’upload.
+
+La lettura Production non usa gli attributi della fixture: individua un’unica tabella visibile tramite le intestazioni semantiche `ID remoto`, `Tipo documento`, `Numero`, `Data`, `Destinatario`, `Identificativo fiscale`, `Indirizzo`, `Riferimenti ordine`, `Totale`, `Stato` e legge i file ufficiali dai collegamenti visibili `Scarica XML`, `Scarica P7M`, `Scarica PDF` e `Scarica notifica/ricevuta`. `Riferimenti ordine` è obbligatorio perché il preflight non può basarsi sul solo totale; identificativo fiscale e indirizzo vengono acquisiti quando presenti. Intestazioni mancanti, tabelle multiple compatibili, righe con un numero di celle diverso o più collegamenti dello stesso tipo arrestano la sessione.
 
 Con più documenti l’helper deve usare esclusivamente `INVIA TUTTE`: scegliere il primo `INVIA` di riga invierebbe soltanto una parte del manifest ed è quindi un DOM non riconosciuto. La modalità assistita si arresta prima di qualunque controllo di invio.
 

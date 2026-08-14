@@ -1,11 +1,12 @@
 {
   "name": "hub-fatture",
-  "version": "0.3.40",
+  "version": "0.3.41",
   "private": true,
   "type": "module",
   "scripts": {
     "audit": "npm audit --audit-level=high",
     "aruba:helper": "node scripts/aruba-helper.ts",
+    "aruba:sync": "node scripts/aruba-read-helper.ts",
     "build": "react-router build",
     "build:server": "tsc -p tsconfig.server.json",
     "check": "npm run check:full",
@@ -32,8 +33,8 @@
     "test:provider": "node --test src/integrations/*.test.ts",
     "test:unit": "node --test app/*.test.ts src/*.test.ts scripts/*.node-test.mjs scripts/*.test.mjs",
     "test:aruba:platform": "node scripts/aruba-helper-platform-check.ts",
-    "test:e2e": "playwright test --project=chromium",
-    "test:e2e:release-candidate": "playwright test --project=chromium && playwright test --project=webkit",
+    "test:e2e": "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
+    "test:e2e:release-candidate": "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
     "toolchain:check": "node scripts/toolchain-policy.mjs",
     "typecheck": "react-router typegen && tsc --noEmit"
   },

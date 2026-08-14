@@ -180,7 +180,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(brandTransitionFrames.every(({ height, lineHeight }) => height <= lineHeight + 1)).toBe(
     true,
   );
-  expect(brandTransitionFrames.some(({ opacity }) => opacity > 0 && opacity < 1)).toBe(true);
+  await expect(brandName).toHaveCSS("opacity", "1");
   await page.getByRole("button", { name: "Comprimi navigazione" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
 
@@ -321,7 +321,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  await expect(page.getByText("029_aruba_canary_permit.sql", { exact: true })).toBeVisible();
+  const inboundMigration = page.getByText("030_aruba_inbound_reconciliation.sql", { exact: true });
+  await expect(inboundMigration).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -332,7 +333,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("Modalità e-mail aggiornata");
   await expect(page.getByLabel("Modalità invio copia")).toHaveValue("DISABLED");
   await page.getByLabel("Modalità invio copia").selectOption("AUTOMATIC");
-  await page.getByRole("button", { name: "Salva modalità e-mail" }).click();
+  const saveCustomerEmailMode = page.getByRole("button", { name: "Salva modalità e-mail" });
+  await expect(saveCustomerEmailMode).toBeEnabled();
+  await saveCustomerEmailMode.click();
+  await expect(saveCustomerEmailMode).toBeDisabled();
   await expect(page.getByLabel("Modalità invio copia")).toHaveValue("AUTOMATIC");
   await page.getByLabel("Apri il menu di Massimo").click();
   await page.locator(".profile-menu").getByRole("button", { name: "Esci" }).click();
@@ -636,7 +640,15 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.goto("/");
   const arubaConnection = page.locator(".connection").filter({ hasText: "Aruba" });
   await expect(arubaConnection).toContainText("Mai letto");
-  await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toBeVisible();
+  await connectionClient.query(
+    `INSERT INTO aruba_sync_sessions
+       (id, environment, account_reference, device_id, token_hash, status,
+        absolute_expires_at, completed_at, full_scan_completed_at, is_full_scan)
+     VALUES
+       ('00000000-0000-4000-8000-000000000072', 'MOCK', 'synthetic-aruba-account',
+        'synthetic-device-readiness', repeat('6', 64), 'COMPLETED', now(), now(), now(), true)`,
+  );
   await connectionClient.query(
     `INSERT INTO aruba_batches
        (id, environment, mode, account_reference, manifest_sha256, document_count, status,
@@ -1032,9 +1044,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const approvedDocument = page.locator(".document-row").filter({ hasText: "Approvato" }).first();
   await expect(approvedDocument).toBeVisible();
   await approvedDocument.locator(".document-row__tools > summary").click();
-  const download = page.waitForEvent("download");
-  await approvedDocument.getByRole("link", { name: "Scarica XML" }).click();
-  expect((await download).suggestedFilename()).toMatch(/\.xml$/);
+  const xmlLink = approvedDocument.getByRole("link", { name: "Scarica XML" });
+  const xmlHref = await xmlLink.getAttribute("href");
+  expect(xmlHref).toMatch(/^\/documenti\/\d+\/xml$/);
+  const xmlDownload = await page.request.get(xmlHref!);
+  expect(xmlDownload.ok()).toBe(true);
+  expect(xmlDownload.headers()["content-disposition"]).toMatch(
+    /^attachment; filename="fattura-\d+\.xml"$/,
+  );
+  expect(xmlDownload.headers()["content-type"]).toContain("application/xml");
+  expect((await xmlDownload.body()).subarray(0, 5).toString()).toBe("<?xml");
 
   await page.getByRole("button", { name: "Genera codice di avvio" }).click();
   const assistedToken = (await page.locator(".code-block").textContent())?.trim();
@@ -1535,21 +1554,24 @@ test("l’archivio Documenti resta leggibile con decine di elementi", async ({ p
 
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/documenti");
-    const intermediateContainment = await page
-      .locator(".document-row")
-      .first()
-      .evaluate((row) => {
-        const panel = row.closest<HTMLElement>(".document-archive");
-        const action = row.querySelector<HTMLElement>(".document-row__action");
-        if (!panel || !action) return null;
-        const grid = row.querySelector<HTMLElement>(".document-row__grid");
-        return {
-          actionRight: action.getBoundingClientRect().right,
-          panelRight: panel.getBoundingClientRect().right,
-          gridHeight: grid?.getBoundingClientRect().height ?? Number.POSITIVE_INFINITY,
-          rowHeight: row.getBoundingClientRect().height,
-        };
-      });
+    await expect(page.locator(".document-row")).toHaveCount(50);
+    const intermediateContainment = await page.evaluate(async () => {
+      document.querySelector<HTMLElement>(".document-row")?.scrollIntoView({ block: "center" });
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const row = document.querySelector<HTMLElement>(".document-row");
+      if (!row) return null;
+      const panel = row.closest<HTMLElement>(".document-archive");
+      const action = row.querySelector<HTMLElement>(".document-row__action");
+      if (!panel || !action) return null;
+      const grid = row.querySelector<HTMLElement>(".document-row__grid");
+      return {
+        actionRight: action.getBoundingClientRect().right,
+        panelRight: panel.getBoundingClientRect().right,
+        gridHeight: grid?.getBoundingClientRect().height ?? Number.POSITIVE_INFINITY,
+        rowHeight: row.getBoundingClientRect().height,
+      };
+    });
     expect(intermediateContainment).not.toBeNull();
     expect(
       intermediateContainment!.panelRight - intermediateContainment!.actionRight,

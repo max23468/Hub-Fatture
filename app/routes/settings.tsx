@@ -24,6 +24,7 @@ import { dateTime } from "../format";
 import { privateRouteMeta } from "../metadata";
 import type { getAccountProfile } from "../../src/db/auth.server.ts";
 import type { getArubaSettings } from "../../src/db/aruba.server.ts";
+import type { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
 import { defaultHistoricalStartDate } from "../../src/orders.ts";
 import type { getSystemStatus } from "../../src/db/system.server.ts";
@@ -77,7 +78,6 @@ function ProfileSettingsSection({
           {copy.settings.sessionsRevoked}
         </p>
       ) : null}
-
       <div className="settings-profile-grid">
         <div className="profile-overview settings-inset-card">
           <span className="profile-overview__avatar" aria-hidden="true">
@@ -97,7 +97,6 @@ function ProfileSettingsSection({
           <ThemePicker />
         </div>
       </div>
-
       <div className="settings-profile-details">
         <div className="settings-inset-card settings-detail-card">
           <header className="settings-detail-card__header">
@@ -401,12 +400,29 @@ function ConnectionsSettingsSection({
 function ArubaSettingsSection({
   aruba,
   arubaSaved,
+  inventory,
+  readSession,
+  syncRequested,
+  sessionsRevoked,
+  manualReadback,
+  manualReadbackCompleted,
   canApprove,
   csrfToken,
   errorFor,
 }: {
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
   arubaSaved: boolean;
+  inventory: Awaited<ReturnType<typeof getArubaInventoryHealth>>;
+  readSession?: { token: string; absoluteExpiresAt: string } | null;
+  syncRequested: boolean;
+  sessionsRevoked: boolean;
+  manualReadback?: {
+    id: string;
+    coverage?: { streams: string[]; oldestReconciliationDate: string | null };
+    pagesAdded?: number;
+    documentsAdded?: number;
+  } | null;
+  manualReadbackCompleted: boolean;
   canApprove: boolean;
   csrfToken: string;
   errorFor: ErrorFor;
@@ -424,10 +440,44 @@ function ArubaSettingsSection({
           {copy.settings.arubaSaved}
         </p>
       ) : null}
+      {syncRequested ? (
+        <p className="notice" role="status">
+          {copy.settings.arubaSyncRequested}
+        </p>
+      ) : null}
+      {sessionsRevoked ? (
+        <p className="notice" role="status">
+          {copy.settings.arubaSessionsRevoked}
+        </p>
+      ) : null}
+      {manualReadbackCompleted ? (
+        <p className="notice" role="status">
+          Readback manuale completo acquisito e inventario Aruba aggiornato.
+        </p>
+      ) : null}
+      {readSession ? (
+        <section className="notice" role="status" aria-labelledby="aruba-read-code">
+          <h3 id="aruba-read-code">{copy.settings.arubaReadCodeTitle}</h3>
+          <p>{copy.settings.arubaReadCodeHelp(dateTime(readSession.absoluteExpiresAt))}</p>
+          <code className="code-block">{readSession.token}</code>
+        </section>
+      ) : null}
       {aruba.automaticForcedAssisted ? (
         <p className="warning">{copy.settings.arubaKillSwitch}</p>
       ) : null}
       <dl className="settings-facts-grid settings-facts-grid--three">
+        <div>
+          <dt>{copy.settings.arubaInventoryStatus}</dt>
+          <dd>{copy.settings.arubaInventoryLabels[inventory.status]}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaRemoteDocuments}</dt>
+          <dd>{inventory.remoteDocuments}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaUnresolved}</dt>
+          <dd>{inventory.unmatched + inventory.ambiguous + inventory.conflicts}</dd>
+        </div>
         <div>
           <dt>{copy.settings.arubaConfiguredMode}</dt>
           <dd>{copy.settings.arubaModeLabel(aruba.mode.value)}</dd>
@@ -458,7 +508,118 @@ function ArubaSettingsSection({
               : copy.settings.never}
           </dd>
         </div>
+        <div>
+          <dt>Sessione di lettura</dt>
+          <dd>
+            {inventory.activeSession
+              ? `Dispositivo …${inventory.activeDeviceSuffix ?? ""}`
+              : "Nessuna sessione attiva"}
+          </dd>
+        </div>
+        <div>
+          <dt>Prossima sincronizzazione</dt>
+          <dd>
+            {inventory.nextScheduledAt
+              ? dateTime(inventory.nextScheduledAt)
+              : copy.common.unavailable}
+          </dd>
+        </div>
+        <div>
+          <dt>Ultimo errore inventario</dt>
+          <dd>{inventory.lastErrorCode ?? "Nessuno"}</dd>
+        </div>
       </dl>
+      <div className="settings-card-action">
+        <Form method="post">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="issue-aruba-read-session" />
+          <button className="button" type="submit">
+            {copy.settings.arubaIssueReadCode}
+          </button>
+        </Form>
+        <Form method="post">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="request-aruba-sync" />
+          <button className="button button--secondary" type="submit">
+            {copy.settings.arubaSyncNow}
+          </button>
+        </Form>
+        {canApprove ? (
+          <Form method="post">
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="revoke-aruba-read-sessions" />
+            <button className="button button--secondary" type="submit">
+              {copy.settings.arubaRevokeSessions}
+            </button>
+          </Form>
+        ) : null}
+      </div>
+      {canApprove && inventory.blocking ? (
+        <section className="settings-inset-card settings-detail-card">
+          <header className="settings-detail-card__header">
+            <h3>Readback manuale completo</h3>
+            <p>
+              Usa questo fallback soltanto dopo aver percorso tutti gli stream nel pannello Aruba.
+              Ogni pagina deve includere tutte le righe, l’ordinale e la conferma della pagina
+              terminale.
+            </p>
+          </header>
+          {!manualReadback ? (
+            <Form method="post">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="create-aruba-manual-readback" />
+              <button className="button button--secondary" type="submit">
+                Apri readback manuale
+              </button>
+            </Form>
+          ) : manualReadback.pagesAdded === undefined ? (
+            <Form method="post" className="security-form">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="add-aruba-manual-readback-pages" />
+              <input type="hidden" name="readbackId" value={manualReadback.id} />
+              {manualReadback.coverage ? (
+                <p className="field-help">
+                  Stream obbligatori: {manualReadback.coverage.streams.join(", ")}. Estremo:{" "}
+                  {manualReadback.coverage.oldestReconciliationDate ?? "oggi"}.
+                </p>
+              ) : null}
+              <label>
+                Pagine acquisite in JSON
+                <textarea name="pagesJson" required rows={10} spellCheck={false} />
+              </label>
+              <button className="button" type="submit">
+                Valida pagine
+              </button>
+            </Form>
+          ) : (
+            <Form method="post">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="finalize-aruba-manual-readback" />
+              <input type="hidden" name="readbackId" value={manualReadback.id} />
+              <p className="field-help">
+                {manualReadback.pagesAdded} pagine e {manualReadback.documentsAdded} documenti
+                validati. La finalizzazione è atomica e non supera conflitti o stati incerti.
+              </p>
+              <button className="button" type="submit">
+                Finalizza inventario manuale
+              </button>
+            </Form>
+          )}
+          {errorFor(
+            "create-aruba-manual-readback",
+            "add-aruba-manual-readback-pages",
+            "finalize-aruba-manual-readback",
+          ) ? (
+            <p className="error" role="alert">
+              {errorFor(
+                "create-aruba-manual-readback",
+                "add-aruba-manual-readback-pages",
+                "finalize-aruba-manual-readback",
+              )}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
       {canApprove ? (
         <SettingsForm
           accessibleSubmitLabel={copy.settings.arubaSave}
@@ -589,6 +750,99 @@ function SystemSettingsSection({
   );
 }
 
+function BillingSettingsSection({
+  csrfToken,
+  errorFor,
+  saved,
+  shopifyPaymentFeeMode,
+  shopifyPaymentFeeModeSaved,
+  trigger,
+}: {
+  csrfToken: string;
+  errorFor: ErrorFor;
+  saved: boolean;
+  shopifyPaymentFeeMode: { value: "DEDUCT" | "INCLUDE"; version: number };
+  shopifyPaymentFeeModeSaved: boolean;
+  trigger: { value: "PAID" | "FULFILLED"; version: number };
+}) {
+  return (
+    <section className="settings-section" id="fatturazione" aria-labelledby="fatturazione-title">
+      <SettingsSectionHeader
+        id="fatturazione"
+        icon={Settings2}
+        title={copy.settings.billingTitle}
+        intro={copy.settings.billingHelp}
+      />
+      {saved ? (
+        <p className="notice" role="status">
+          {copy.settings.saved}
+        </p>
+      ) : null}
+      <SettingsForm
+        accessibleSubmitLabel={copy.settings.preparationSave}
+        className="settings-choice-card"
+        key={`trigger:${trigger.version}`}
+        submitLabel={copy.settings.save}
+      >
+        <input type="hidden" name="csrf" value={csrfToken} />
+        <input type="hidden" name="intent" value="save-trigger" />
+        <input type="hidden" name="version" value={trigger.version} />
+        <label className="settings-choice-card__field">
+          <span className="settings-choice-card__title">{copy.settings.preparationLabel}</span>
+          <span className="field-help">{copy.settings.preparationHelp}</span>
+          <SettingsSelect data-initial={trigger.value} defaultValue={trigger.value} name="trigger">
+            <option value="PAID">{copy.settings.onPaid}</option>
+            <option value="FULFILLED">{copy.settings.onFulfilled}</option>
+          </SettingsSelect>
+        </label>
+      </SettingsForm>
+      {errorFor("save-trigger") ? (
+        <p className="error" role="alert">
+          {errorFor("save-trigger")}
+        </p>
+      ) : null}
+      {shopifyPaymentFeeModeSaved ? (
+        <p className="notice" role="status">
+          {copy.settings.shopifyPaymentFeeModeSaved}
+        </p>
+      ) : null}
+      <SettingsForm
+        accessibleSubmitLabel={copy.settings.shopifyPaymentFeeModeSave}
+        className="settings-choice-card"
+        key={`shopify-payment-fees:${shopifyPaymentFeeMode.version}`}
+        submitLabel={copy.settings.save}
+      >
+        <input type="hidden" name="csrf" value={csrfToken} />
+        <input type="hidden" name="intent" value="save-shopify-payment-fee-mode" />
+        <input
+          type="hidden"
+          name="shopifyPaymentFeeModeVersion"
+          value={shopifyPaymentFeeMode.version}
+        />
+        <label className="settings-choice-card__field">
+          <span className="settings-choice-card__title">
+            {copy.settings.shopifyPaymentFeeModeLabel}
+          </span>
+          <span className="field-help">{copy.settings.shopifyPaymentFeeModeHelp}</span>
+          <SettingsSelect
+            data-initial={shopifyPaymentFeeMode.value}
+            defaultValue={shopifyPaymentFeeMode.value}
+            name="shopifyPaymentFeeMode"
+          >
+            <option value="DEDUCT">{copy.settings.shopifyPaymentFeeDeduct}</option>
+            <option value="INCLUDE">{copy.settings.shopifyPaymentFeeInclude}</option>
+          </SettingsSelect>
+        </label>
+      </SettingsForm>
+      {errorFor("save-shopify-payment-fee-mode") ? (
+        <p className="error" role="alert">
+          {errorFor("save-shopify-payment-fee-mode")}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 export default function Settings() {
   const {
     username,
@@ -608,6 +862,10 @@ export default function Settings() {
     preview,
     aruba,
     arubaSaved,
+    arubaInventory,
+    arubaSyncRequested,
+    arubaSessionsRevoked,
+    arubaManualReadbackCompleted,
     customerEmail,
     customerEmailSaved,
     fiscalProfile,
@@ -617,8 +875,21 @@ export default function Settings() {
     sessionsRevoked,
   } = useLoaderData<typeof loader>();
   const actionError = useActionData<typeof action>();
+  const readSession = actionError && "session" in actionError ? actionError.session : null;
+  const manualReadback =
+    actionError && "manualReadback" in actionError
+      ? actionError.manualReadback
+      : actionError && "manualReadbackId" in actionError
+        ? {
+            id: actionError.manualReadbackId,
+            pagesAdded: actionError.added.pages,
+            documentsAdded: actionError.added.documents,
+          }
+        : null;
   const errorFor = (...intents: string[]) =>
-    actionError && intents.includes(actionError.intent) ? actionError.message : null;
+    actionError && "message" in actionError && intents.includes(actionError.intent)
+      ? actionError.message
+      : null;
 
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
@@ -642,90 +913,14 @@ export default function Settings() {
             errorFor={errorFor}
           />
 
-          <section
-            className="settings-section"
-            id="fatturazione"
-            aria-labelledby="fatturazione-title"
-          >
-            <SettingsSectionHeader
-              id="fatturazione"
-              icon={Settings2}
-              title={copy.settings.billingTitle}
-              intro={copy.settings.billingHelp}
-            />
-            {saved ? (
-              <p className="notice" role="status">
-                {copy.settings.saved}
-              </p>
-            ) : null}
-            <SettingsForm
-              accessibleSubmitLabel={copy.settings.preparationSave}
-              className="settings-choice-card"
-              key={`trigger:${trigger.version}`}
-              submitLabel={copy.settings.save}
-            >
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="save-trigger" />
-              <input type="hidden" name="version" value={trigger.version} />
-              <label className="settings-choice-card__field">
-                <span className="settings-choice-card__title">
-                  {copy.settings.preparationLabel}
-                </span>
-                <span className="field-help">{copy.settings.preparationHelp}</span>
-                <SettingsSelect
-                  data-initial={trigger.value}
-                  defaultValue={trigger.value}
-                  name="trigger"
-                >
-                  <option value="PAID">{copy.settings.onPaid}</option>
-                  <option value="FULFILLED">{copy.settings.onFulfilled}</option>
-                </SettingsSelect>
-              </label>
-            </SettingsForm>
-            {errorFor("save-trigger") ? (
-              <p className="error" role="alert">
-                {errorFor("save-trigger")}
-              </p>
-            ) : null}
-            {shopifyPaymentFeeModeSaved ? (
-              <p className="notice" role="status">
-                {copy.settings.shopifyPaymentFeeModeSaved}
-              </p>
-            ) : null}
-            <SettingsForm
-              accessibleSubmitLabel={copy.settings.shopifyPaymentFeeModeSave}
-              className="settings-choice-card"
-              key={`shopify-payment-fees:${shopifyPaymentFeeMode.version}`}
-              submitLabel={copy.settings.save}
-            >
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="save-shopify-payment-fee-mode" />
-              <input
-                type="hidden"
-                name="shopifyPaymentFeeModeVersion"
-                value={shopifyPaymentFeeMode.version}
-              />
-              <label className="settings-choice-card__field">
-                <span className="settings-choice-card__title">
-                  {copy.settings.shopifyPaymentFeeModeLabel}
-                </span>
-                <span className="field-help">{copy.settings.shopifyPaymentFeeModeHelp}</span>
-                <SettingsSelect
-                  data-initial={shopifyPaymentFeeMode.value}
-                  defaultValue={shopifyPaymentFeeMode.value}
-                  name="shopifyPaymentFeeMode"
-                >
-                  <option value="DEDUCT">{copy.settings.shopifyPaymentFeeDeduct}</option>
-                  <option value="INCLUDE">{copy.settings.shopifyPaymentFeeInclude}</option>
-                </SettingsSelect>
-              </label>
-            </SettingsForm>
-            {errorFor("save-shopify-payment-fee-mode") ? (
-              <p className="error" role="alert">
-                {errorFor("save-shopify-payment-fee-mode")}
-              </p>
-            ) : null}
-          </section>
+          <BillingSettingsSection
+            csrfToken={csrfToken}
+            errorFor={errorFor}
+            saved={saved}
+            shopifyPaymentFeeMode={shopifyPaymentFeeMode}
+            shopifyPaymentFeeModeSaved={shopifyPaymentFeeModeSaved}
+            trigger={trigger}
+          />
 
           <section
             className="settings-section"
@@ -801,6 +996,12 @@ export default function Settings() {
           <ArubaSettingsSection
             aruba={aruba}
             arubaSaved={arubaSaved}
+            inventory={arubaInventory}
+            readSession={readSession}
+            syncRequested={arubaSyncRequested}
+            sessionsRevoked={arubaSessionsRevoked}
+            manualReadback={manualReadback}
+            manualReadbackCompleted={arubaManualReadbackCompleted}
             canApprove={canApprove}
             csrfToken={csrfToken}
             errorFor={errorFor}

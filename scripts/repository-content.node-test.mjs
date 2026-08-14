@@ -75,8 +75,12 @@ test("nessun riferimento a nomi storici del Master Plan", () => {
 test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
   const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   assert.equal(
+    manifest.scripts["test:e2e"],
+    "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
+  );
+  assert.equal(
     manifest.scripts["test:e2e:release-candidate"],
-    "playwright test --project=chromium && playwright test --project=webkit",
+    "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
   );
 });
 
@@ -331,21 +335,27 @@ test("la qualifica e-mail Production è presidiata e non espone dati sensibili",
 });
 
 test("i contesti required restano stabili mentre i gate costosi sono proporzionati", async () => {
-  const [ci, arubaPlatform, codeql, dependencies, foundation, react] = await Promise.all(
-    [
-      ".github/workflows/ci.yml",
-      ".github/workflows/aruba-platform.yml",
-      ".github/workflows/codeql.yml",
-      ".github/workflows/dependency-review.yml",
-      ".github/workflows/foundation.yml",
-      ".github/workflows/react-doctor.yml",
-    ].map((file) => readFile(path.join(root, file), "utf8")),
-  );
+  const [ci, arubaPlatform, platformCheck, codeql, dependencies, foundation, react] =
+    await Promise.all(
+      [
+        ".github/workflows/ci.yml",
+        ".github/workflows/aruba-platform.yml",
+        "scripts/aruba-helper-platform-check.ts",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/dependency-review.yml",
+        ".github/workflows/foundation.yml",
+        ".github/workflows/react-doctor.yml",
+      ].map((file) => readFile(path.join(root, file), "utf8")),
+    );
   assert.match(ci, /\n  gate:\n    name: CI\n    if: always\(\)/);
   assert.match(ci, /name: PostgreSQL e migrazioni\n    if: needs\.impact\.outputs\.database/);
-  assert.match(ci, /name: E2E Chromium\n    if: needs\.impact\.outputs\.e2e/);
+  assert.match(ci, /name: E2E \$\{\{ matrix\.label \}\}\n    if: needs\.impact\.outputs\.e2e/);
   const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
-  assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npm run test:e2e"));
+  assert.match(e2e, /browser: chromium[\s\S]*label: Chromium/);
+  assert.match(e2e, /browser: webkit[\s\S]*label: WebKit[\s\S]*install: webkit chromium/);
+  assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npx playwright test"));
+  assert.match(e2e, /playwright install --with-deps \$\{\{ matrix\.install \}\}/);
+  assert.match(e2e, /playwright test --project=\$\{\{ matrix\.browser \}\} --workers=1/);
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
   assert.doesNotMatch(ci, /workflow_dispatch:/);
   assert.match(
@@ -360,6 +370,8 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
     /name: Esegui helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
   );
   assert.match(arubaPlatform, /npm run test:aruba:platform -- \$\{\{ matrix\.browser \}\}/);
+  assert.match(platformCheck, /runArubaReadHelper/);
+  assert.match(platformCheck, /requestedFiles/);
   assert.doesNotMatch(arubaPlatform, /inputs\.commit/);
   assert.match(arubaPlatform, /\[\[ "\$CANDIDATE" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
   assert.match(arubaPlatform, /test "\$\(git rev-parse HEAD\)" = "\$CANDIDATE"/);
@@ -383,6 +395,13 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
   assert.match(foundation, /if: steps\.impact\.outputs\.image == 'true'/);
   assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
+});
+
+test("la riconciliazione Aruba non tronca i candidati fiscali", async () => {
+  const inbound = await readFile(path.join(root, "src/db/aruba-inbound.server.ts"), "utf8");
+  assert.doesNotMatch(inbound, /LIMIT 500/);
+  assert.match(inbound, /jsonb_array_elements_text\([\s\S]*candidate -> 'orderIds'/);
+  assert.match(inbound, /remote\.remote_status <> 'REJECTED'/);
 });
 
 test("il job PostgreSQL installa il validatore XML usato dalle suite DB", async () => {
@@ -691,4 +710,26 @@ test("l'applicazione accede a PostgreSQL soltanto tramite il livello dati", asyn
     )
     .map(({ file }) => file);
   assert.deepEqual(offenders, []);
+});
+
+test("le approvazioni acquisiscono l'inventario Aruba prima dei lock sugli ordini", async () => {
+  const [documents, refunds] = await Promise.all(
+    ["src/db/documents.server.ts", "src/db/refunds.server.ts"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
+  const invoiceStart = documents.indexOf("export async function approveInvoice");
+  const invoiceEnd = documents.indexOf("export async function", invoiceStart + 1);
+  const invoiceApproval = documents.slice(invoiceStart, invoiceEnd);
+  assert.ok(invoiceApproval.indexOf("consumeArubaPreflight") >= 0);
+  assert.ok(
+    invoiceApproval.indexOf("consumeArubaPreflight") <
+      invoiceApproval.indexOf("serializeOrderMutations"),
+  );
+
+  const creditStart = refunds.indexOf("export async function approveCreditNote");
+  const creditEnd = refunds.indexOf("export async function", creditStart + 1);
+  const creditApproval = refunds.slice(creditStart, creditEnd);
+  assert.ok(creditApproval.indexOf("consumeArubaPreflight") >= 0);
+  assert.ok(creditApproval.indexOf("consumeArubaPreflight") < creditApproval.indexOf("loadCredit"));
 });

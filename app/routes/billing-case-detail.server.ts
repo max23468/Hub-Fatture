@@ -4,6 +4,10 @@ import type { Route } from "./+types/billing-case-detail";
 import { actionResult } from "../action";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import {
+  completeManualArubaPreflight,
+  getPendingArubaPreflightForCase,
+} from "../../src/db/aruba-inbound.server.ts";
+import {
   approveInvoice,
   getInvoiceProjection,
   saveInvoiceDraft,
@@ -17,7 +21,7 @@ import {
   updateBillingCaseTransmission,
 } from "../../src/db/orders.server.ts";
 import { AppError } from "../../src/errors.ts";
-import { readForm } from "../../src/http.server.ts";
+import { readArubaInventoryForm } from "../../src/http.server.ts";
 import { invoiceLinesFromForm } from "../invoice-lines.ts";
 
 interface Actor {
@@ -92,6 +96,20 @@ function runIntent(
       actor,
     );
   }
+  if (intent === "complete-manual-aruba-preflight") {
+    let pages;
+    try {
+      pages = JSON.parse(String(form.get("pagesJson") ?? "null")) as unknown;
+    } catch {
+      throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+    }
+    return completeManualArubaPreflight(
+      form.get("receiptId") ?? "",
+      pages,
+      form.get("overrideReason"),
+      actor,
+    );
+  }
   if (intent !== "correct-customer") return Promise.resolve("unknown" as const);
   const types = form.getAll("taxType");
   const countries = form.getAll("taxCountryCode");
@@ -136,19 +154,25 @@ function runIntent(
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const user = await requireSessionUser(request);
-  const billingCase = await getBillingCase(params.caseId);
+  const [user, billingCase] = await Promise.all([
+    requireSessionUser(request),
+    getBillingCase(params.caseId),
+  ]);
   if (!billingCase) throw new Response("Preparazione non trovata", { status: 404 });
-  const projection = await getInvoiceProjection(params.caseId).catch((error: unknown) => {
-    if (error instanceof AppError) return { error: error.message } as const;
-    throw error;
-  });
+  const [projection, pendingArubaPreflight] = await Promise.all([
+    getInvoiceProjection(params.caseId).catch((error: unknown) => {
+      if (error instanceof AppError) return { error: error.message } as const;
+      throw error;
+    }),
+    getPendingArubaPreflightForCase(params.caseId),
+  ]);
   return {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     billingCase,
     projection,
+    pendingArubaPreflight,
     storagePending: new URL(request.url).searchParams.get("archiviazione") === "pendente",
   };
 }
@@ -156,7 +180,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export async function action({ request, params }: Route.ActionArgs) {
   return actionResult(async () => {
     const user = await requireSessionUser(request);
-    const form = await readForm(request);
+    const form = await readArubaInventoryForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
     const outcome = await runIntent(form.get("intent"), params.caseId, form, form.get("revision"), {
       id: user.id,
