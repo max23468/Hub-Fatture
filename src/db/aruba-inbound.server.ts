@@ -443,7 +443,7 @@ interface InboundOrderCandidateRow {
 export function uniqueRefundSubset(
   refunds: Array<{ id: string; amount: number }>,
   target: number,
-): string[] | null {
+): { status: "UNIQUE"; ids: string[] } | { status: "AMBIGUOUS" } | { status: "NONE" } {
   const sums = new Map<number, string[] | null>([[0, []]]);
   for (const refund of refunds.slice(0, 100)) {
     for (const [sum, selected] of [...sums.entries()].toReversed()) {
@@ -458,7 +458,12 @@ export function uniqueRefundSubset(
       else if (JSON.stringify(sums.get(next)) !== JSON.stringify(candidate)) sums.set(next, null);
     }
   }
-  return sums.get(target) ?? null;
+  const selected = sums.get(target);
+  return selected === undefined
+    ? { status: "NONE" }
+    : selected === null
+      ? { status: "AMBIGUOUS" }
+      : { status: "UNIQUE", ids: selected };
 }
 
 async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDocument) {
@@ -556,7 +561,7 @@ async function reconcileRemoteDocument(
       ? await creditNoteCandidates(client, remote)
       : await orderCandidates(client, remote);
   const individualCandidates = candidates.map((candidate) => {
-    const refundIds =
+    const refundSubset =
       remote.documentType === "TD04"
         ? uniqueRefundSubset(
             candidate.refund_ids.map((id, index) => ({
@@ -565,12 +570,13 @@ async function reconcileRemoteDocument(
             })),
             remote.totalAmount,
           )
-        : [];
+        : { status: "UNIQUE" as const, ids: [] };
     return {
       ...candidate,
-      selected_refund_ids: refundIds,
+      selected_refund_ids: refundSubset.status === "UNIQUE" ? refundSubset.ids : null,
+      refund_subset_ambiguous: refundSubset.status === "AMBIGUOUS",
       match_amount:
-        remote.documentType === "TD04" && refundIds
+        remote.documentType === "TD04" && refundSubset.status !== "NONE"
           ? remote.totalAmount
           : remote.documentType === "TD04"
             ? remote.totalAmount + 1
@@ -580,6 +586,7 @@ async function reconcileRemoteDocument(
   const evaluatedCandidates: Array<{
     source: InboundOrderCandidateRow & {
       selected_refund_ids?: string[] | null;
+      refund_subset_ambiguous?: boolean;
       match_amount?: number;
     };
     matchCandidate: ArubaOrderCandidate & { billingCaseId?: string | null };
@@ -625,8 +632,9 @@ async function reconcileRemoteDocument(
           return { id, amount: candidate.refund_amounts[index] ?? 0 };
         }),
       );
-      const selectedRefundIds = uniqueRefundSubset(refunds, remote.totalAmount);
-      if (!selectedRefundIds) continue;
+      const refundSubset = uniqueRefundSubset(refunds, remote.totalAmount);
+      if (refundSubset.status !== "UNIQUE") continue;
+      const selectedRefundIds = refundSubset.ids;
       const selectedByOrder = new Map<string, number>();
       for (const refundId of selectedRefundIds) {
         const owner = refundOwners.get(refundId)!;
@@ -669,11 +677,18 @@ async function reconcileRemoteDocument(
     remote,
     evaluatedCandidates.map((candidate) => candidate.matchCandidate),
   );
-  let status: string = remote.status === "UNKNOWN" ? "UNKNOWN_REMOTE_STATE" : match.status;
+  const compatibleSubsetAmbiguous = match.evaluations.some(
+    (evaluation, index) =>
+      evaluation.compatible && evaluatedCandidates[index]!.source.refund_subset_ambiguous,
+  );
+  let status: string =
+    remote.status === "UNKNOWN"
+      ? "UNKNOWN_REMOTE_STATE"
+      : compatibleSubsetAmbiguous
+        ? "AMBIGUOUS"
+        : match.status;
   const compatibleIndex =
-    match.status === "MATCHED"
-      ? match.evaluations.findIndex((evaluation) => evaluation.compatible)
-      : -1;
+    status === "MATCHED" ? match.evaluations.findIndex((evaluation) => evaluation.compatible) : -1;
   const selected = compatibleIndex >= 0 ? evaluatedCandidates[compatibleIndex]!.source : null;
   let documentId: string | null = null;
   if (selected) {
@@ -725,7 +740,7 @@ async function reconcileRemoteDocument(
   if (
     (previous.rows[0]?.method === "MANUAL" && previous.rows[0].status === "MATCHED") ||
     previous.rows[0]?.status === "ERROR" ||
-    previous.rows[0]?.status === "UNKNOWN_REMOTE_STATE"
+    (previous.rows[0]?.status === "UNKNOWN_REMOTE_STATE" && remote.status === "UNKNOWN")
   ) {
     return;
   }

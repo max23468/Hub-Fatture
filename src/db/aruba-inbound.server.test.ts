@@ -328,7 +328,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       ]);
       return assignedCreditDraft.rows[0]!.id;
     });
-    assert.equal(
+    assert.deepEqual(
       inbound.uniqueRefundSubset(
         [
           { id: "a", amount: 100 },
@@ -338,8 +338,75 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         ],
         300,
       ),
-      null,
+      { status: "AMBIGUOUS" },
     );
+    assert.deepEqual(
+      inbound.uniqueRefundSubset(
+        [
+          { id: "a", amount: 100 },
+          { id: "b", amount: 200 },
+        ],
+        300,
+      ),
+      { status: "UNIQUE", ids: ["a", "b"] },
+    );
+    assert.deepEqual(inbound.uniqueRefundSubset([{ id: "a", amount: 100 }], 300), {
+      status: "NONE",
+    });
+    const ambiguousRefund = await database.getPool().query<{ id: string }>(
+      `INSERT INTO refunds
+        (provider, external_account_id, external_order_id, external_refund_id, order_id,
+         status, amount, completed_at, raw_json)
+       VALUES ('SHOPIFY', 'shop', 'remote-order', 'refund-ambiguous-subset', $1,
+         'COMPLETED', 1345, now(), '{}') RETURNING id`,
+      [order.rows[0]!.id],
+    );
+    await inbound.ingestArubaInventoryPage(session.token, {
+      stream: "credit-notes:2026",
+      scanOrdinal: 10,
+      pageOrdinal: 1,
+      cursor: "ambiguous-refund-subset",
+      terminal: true,
+      fullScan: false,
+      documents: [
+        {
+          remoteId: "REMOTE-TD04-AMBIGUOUS-SUBSET",
+          documentType: "TD04",
+          fiscalYear: 2026,
+          series: "FPR",
+          fiscalNumber: "98",
+          documentDate: "2026-08-11",
+          recipientName: "Mario Rossi",
+          recipientTaxId: "RSSMRA80A01H501U",
+          recipientCountryCode: "IT",
+          recipientAddress: "Via Cliente 1 00100 Roma IT",
+          totalAmount: 2345,
+          currency: "EUR",
+          status: "DELIVERED",
+          providerObservedAt: "2026-08-12T12:30:00+02:00",
+          xmlSha256: null,
+          orderReferences: ["#1001"],
+        },
+      ],
+    });
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT matches.status FROM aruba_document_matches AS matches
+           JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
+           WHERE remote.remote_id = 'REMOTE-TD04-AMBIGUOUS-SUBSET'`,
+        )
+      ).rows[0].status,
+      "AMBIGUOUS",
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_remote_documents WHERE remote_id = $1", [
+        "REMOTE-TD04-AMBIGUOUS-SUBSET",
+      ]);
+    await database
+      .getPool()
+      .query("DELETE FROM refunds WHERE id = $1", [ambiguousRefund.rows[0]!.id]);
     const creditXml = generateFatturaXml(
       profile,
       {
@@ -1517,7 +1584,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
            WHERE remote.remote_id = 'REMOTE-001'`,
         )
       ).rows[0].status,
-      "UNKNOWN_REMOTE_STATE",
+      "MATCHED",
     );
     await inbound.ingestArubaInventoryPage(resumedSession.token, {
       ...invoicePage,

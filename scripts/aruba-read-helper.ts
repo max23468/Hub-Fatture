@@ -155,6 +155,21 @@ function headerIndex(headers: string[], pattern: RegExp): number {
   return headers.findIndex((header) => pattern.test(header));
 }
 
+function visibleOrderReferences(value: string): string[] {
+  const hashReferences = [...value.matchAll(/#\s*[A-Z0-9][A-Z0-9._/-]*/gi)].map((match) =>
+    match[0].replace(/\s+/g, ""),
+  );
+  const labelledReferences = value
+    .split(/[,;\n]+/)
+    .map((item) => item.replace(/^(?:ordini?|riferimenti?|causale)\s*:?\s*/i, "").trim())
+    .filter(
+      (item) => item && item.length <= 100 && !/^(?:ordini?|riferimenti?|causale)$/i.test(item),
+    );
+  const references = [...new Set([...hashReferences, ...labelledReferences])];
+  if (!references.length || references.length > 20) throw new Error("DOM_UNRECOGNIZED");
+  return references;
+}
+
 async function uniqueInventoryTable(page: Page): Promise<Locator> {
   const tables = page.locator("table");
   const candidates: Locator[] = [];
@@ -183,10 +198,17 @@ async function readProductionRows(page: Page) {
     number: headerIndex(headers, /numero/i),
     date: headerIndex(headers, /data/i),
     recipient: headerIndex(headers, /destinatario|cliente/i),
+    recipientTaxId: headerIndex(headers, /codice fiscale|partita iva|identificativo fiscale/i),
+    recipientAddress: headerIndex(headers, /indirizzo/i),
+    orderReferences: headerIndex(headers, /riferiment|ordine|causale/i),
     total: headerIndex(headers, /totale|importo/i),
     status: headerIndex(headers, /stato/i),
   };
-  if ([indices.remoteId, indices.date, indices.total, indices.status].some((value) => value < 0)) {
+  if (
+    [indices.remoteId, indices.date, indices.total, indices.status, indices.orderReferences].some(
+      (value) => value < 0,
+    )
+  ) {
     throw new Error("DOM_UNRECOGNIZED");
   }
   const rows = table.locator("tbody tr");
@@ -222,15 +244,16 @@ async function readProductionRows(page: Page) {
       fiscalNumber: numberParts?.[2] ?? null,
       documentDate,
       recipientName: indices.recipient >= 0 ? cells[indices.recipient] || null : null,
-      recipientTaxId: null,
+      recipientTaxId: indices.recipientTaxId >= 0 ? cells[indices.recipientTaxId] || null : null,
       recipientCountryCode: null,
-      recipientAddress: null,
+      recipientAddress:
+        indices.recipientAddress >= 0 ? cells[indices.recipientAddress] || null : null,
       totalAmount: italianAmount(cells[indices.total]!),
       currency: "EUR",
       status: visibleRemoteStatus(cells[indices.status]!),
       providerObservedAt: null,
       xmlSha256: null,
-      orderReferences: [],
+      orderReferences: visibleOrderReferences(cells[indices.orderReferences]!),
     });
     for (const [kind, label] of [
       ["ARUBA_XML", /Scarica XML/i],

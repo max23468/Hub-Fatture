@@ -124,6 +124,9 @@ function ArubaInventorySynthetic({
               <th>Numero</th>
               <th>Data</th>
               <th>Destinatario</th>
+              <th>Identificativo fiscale</th>
+              <th>Indirizzo</th>
+              <th>Riferimenti ordine</th>
               <th>Totale</th>
               <th>Stato</th>
               <th>File ufficiali</th>
@@ -157,6 +160,9 @@ function ArubaInventorySynthetic({
                   {isInvoice ? "10" : "11"}/08/{year}
                 </td>
                 <td>{isInvoice ? "Mario Rossi" : "Cliente Esempio Srl"}</td>
+                <td>RSSMRA80A01H501U</td>
+                <td>{isInvoice ? "Via Cliente 1 00100 Roma IT" : "Via Cliente 2 00100 Roma IT"}</td>
+                <td>{isInvoice ? "#1001" : "#1002"}</td>
                 <td>{isInvoice ? "123,45 €" : "23,45 €"}</td>
                 <td>{isInvoice ? "Consegnato" : "In elaborazione SdI"}</td>
                 <td>
