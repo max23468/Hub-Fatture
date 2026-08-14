@@ -72,6 +72,52 @@ test("un candidato univoco richiede data, importo e identità coerenti", () => {
   assert.equal(result.status, "MATCHED");
 });
 
+test("un riferimento esplicito non ignora un destinatario dichiarato incompatibile", () => {
+  const result = selectOrderMatch({ ...remote, orderReferences: ["1001"] }, [
+    {
+      id: "1",
+      provider: "SHOPIFY",
+      displayNumber: "1001",
+      localOrderDate: "2026-08-12",
+      billableAmount: 12_300,
+      recipientName: "Altra Persona",
+      recipientTaxIds: ["VRDLGI80A01H501U"],
+      recipientAddress: "Via Altrove 9 Torino",
+    },
+  ]);
+  assert.equal(result.status, "UNMATCHED");
+
+  const wrongTaxId = selectOrderMatch({ ...remote, orderReferences: ["1001"] }, [
+    {
+      id: "1",
+      provider: "SHOPIFY",
+      displayNumber: "1001",
+      localOrderDate: "2026-08-12",
+      billableAmount: 12_300,
+      recipientName: "Mario Rossi",
+      recipientTaxIds: ["VRDLGI80A01H501U"],
+      recipientAddress: "Via Roma 1 Milano",
+    },
+  ]);
+  assert.equal(wrongTaxId.status, "UNMATCHED");
+});
+
+test("una TD01 anteriore all’ordine non viene collegata", () => {
+  const result = selectOrderMatch(remote, [
+    {
+      id: "1",
+      provider: "SHOPIFY",
+      displayNumber: "1001",
+      localOrderDate: "2026-08-13",
+      billableAmount: 12_300,
+      recipientName: "Mario Rossi",
+      recipientTaxIds: ["RSSMRA80A01H501U"],
+      recipientAddress: "Via Roma 1 Milano",
+    },
+  ]);
+  assert.equal(result.status, "UNMATCHED");
+});
+
 test("due candidati compatibili restano ambigui", () => {
   const candidate = {
     provider: "EBAY" as const,

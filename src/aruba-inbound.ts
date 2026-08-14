@@ -132,8 +132,10 @@ export interface CandidateEvaluation {
   };
 }
 
-function daysBetween(left: string, right: string): number {
-  return Math.abs(Date.parse(`${left}T00:00:00Z`) - Date.parse(`${right}T00:00:00Z`)) / 86_400_000;
+function daysAfter(documentDate: string, sourceDate: string): number {
+  return (
+    (Date.parse(`${documentDate}T00:00:00Z`) - Date.parse(`${sourceDate}T00:00:00Z`)) / 86_400_000
+  );
 }
 
 export function evaluateOrderCandidate(
@@ -154,7 +156,8 @@ export function evaluateOrderCandidate(
     const normalized = normalizedMatchText(item);
     return Boolean(normalized && references.has(normalized));
   });
-  const date = daysBetween(remote.documentDate, candidate.localOrderDate) <= 31;
+  const elapsedDays = daysAfter(remote.documentDate, candidate.localOrderDate);
+  const date = elapsedDays >= 0 && elapsedDays <= 31;
   const total = remote.totalAmount === candidate.billableAmount;
   const remoteName = normalizedMatchText(remote.recipientName);
   const recipient = Boolean(
@@ -174,10 +177,21 @@ export function evaluateOrderCandidate(
       candidateAddress.includes(remoteAddress)),
   );
   const identitySignals = [recipient, taxId, address].filter(Boolean).length;
+  const declaredIdentitySignals = [remoteName, remoteTaxId, remoteAddress].filter(Boolean).length;
+  const referencedRecipientIsCompatible = remoteTaxId
+    ? taxId
+    : declaredIdentitySignals === 0 || identitySignals >= 1;
+  const inferredRecipientIsCompatible = remoteTaxId
+    ? taxId && identitySignals >= 2
+    : identitySignals >= 2;
   return {
     candidateId: candidate.id,
     orderIds: candidate.orderIds ?? [candidate.id],
-    compatible: provider && date && total && (explicitReference || identitySignals >= 2),
+    compatible:
+      provider &&
+      date &&
+      total &&
+      ((explicitReference && referencedRecipientIsCompatible) || inferredRecipientIsCompatible),
     signals: { provider, explicitReference, date, total, recipient, taxId, address },
   };
 }

@@ -141,7 +141,7 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   const contacts = supplier.Contatti ? xmlRecord(supplier.Contatti) : {};
   const goods = xmlRecord(body.DatiBeniServizi);
   const summary = xmlRecord(goods.DatiRiepilogo);
-  const payment = acceptedPayment(body);
+  const payment = acceptedPayment(body, "TD01");
   return fiscalProfileSchema.parse({
     transmitter: {
       countryCode: xmlValue(transmitter.IdPaese),
@@ -230,9 +230,12 @@ function xmlArray(input: unknown): Record<string, unknown>[] {
   return (Array.isArray(input) ? input : [input]).map(xmlRecord);
 }
 
-function acceptedPayment(body: Record<string, unknown>) {
+function acceptedPayment(body: Record<string, unknown>, type: "TD01" | "TD04") {
   if (body.DatiPagamento === undefined) {
-    return { condition: "TP02" as const, method: "MP08" as const };
+    return {
+      condition: "TP02" as const,
+      method: type === "TD01" ? ("MP08" as const) : ("MP05" as const),
+    };
   }
   const blocks = xmlArray(body.DatiPagamento);
   const methods = blocks.flatMap((block) =>
@@ -247,6 +250,14 @@ function acceptedPayment(body: Record<string, unknown>) {
     throw new Error("Il pagamento della fattura non coincide con il profilo fiscale");
   }
   return { condition: "TP02" as const, method: method.data };
+}
+
+function acceptedLineTotal(body: Record<string, unknown>): number {
+  const goods = xmlRecord(body.DatiBeniServizi);
+  return xmlArray(goods.DettaglioLinee).reduce(
+    (sum, line) => sum + decimalToCents(xmlValue(line.PrezzoTotale)),
+    0,
+  );
 }
 
 /** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
@@ -307,8 +318,9 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
     quantity: 1,
     unitAmount: decimalToCents(xmlValue(line.PrezzoTotale)),
   }));
-  const payment = acceptedPayment(source.body);
-  const totalAmount = source.totalAmount ?? lines.reduce((sum, line) => sum + line.unitAmount, 0);
+  const payment = acceptedPayment(source.body, "TD01");
+  const linesTotal = acceptedLineTotal(source.body);
+  const totalAmount = source.totalAmount ?? linesTotal;
   const input = documentInputSchema.parse({
     kind: "INVOICE",
     documentDate: source.documentDate,
@@ -317,7 +329,7 @@ export function acceptedInvoiceFromXml(xml: string, importedAt: string) {
     paymentStatus: "PAID",
     paymentMethod: payment.method,
   });
-  if (lines.reduce((sum, line) => sum + line.unitAmount, 0) !== totalAmount) {
+  if (linesTotal !== totalAmount) {
     throw new Error("Il totale della fattura storica non coincide con le righe");
   }
   return {
@@ -346,8 +358,9 @@ export function acceptedCreditNoteFromXml(xml: string) {
     quantity: 1,
     unitAmount: decimalToCents(xmlValue(line.PrezzoTotale)),
   }));
-  const totalAmount = source.totalAmount ?? lines.reduce((sum, line) => sum + line.unitAmount, 0);
-  if (lines.reduce((sum, line) => sum + line.unitAmount, 0) !== totalAmount) {
+  const linesTotal = acceptedLineTotal(source.body);
+  const totalAmount = source.totalAmount ?? linesTotal;
+  if (linesTotal !== totalAmount) {
     throw new Error("Il totale della nota storica non coincide con le righe");
   }
   const linked = generalBlock.DatiFattureCollegate
@@ -380,14 +393,14 @@ export function acceptedDocumentFiscalIdentity(xml: string) {
   const supplierVat = xmlRecord(supplierData.IdFiscaleIVA);
   const goods = xmlRecord(source.body.DatiBeniServizi);
   const summary = xmlRecord(goods.DatiRiepilogo);
-  const payment = acceptedPayment(source.body);
+  const payment = acceptedPayment(source.body, source.type as "TD01" | "TD04");
   return {
     type: source.type as "TD01" | "TD04",
     year: source.year,
     number: source.number,
     documentNumber: source.documentNumber,
     documentDate: source.documentDate,
-    totalAmount: source.totalAmount,
+    totalAmount: source.totalAmount ?? acceptedLineTotal(source.body),
     transmitter: {
       countryCode: xmlValue(transmitter.IdPaese),
       taxCode: xmlValue(transmitter.IdCodice),

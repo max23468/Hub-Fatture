@@ -535,7 +535,7 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
               array_agg(refunds.amount::integer ORDER BY refunds.id) AS refund_amounts
        FROM refunds
        WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
-         AND refunds.amount > 0 AND (
+         AND NOT refunds.applied_before_issue AND refunds.amount > 0 AND (
            refunds.credit_document_id IS NULL OR EXISTS (
              SELECT 1 FROM documents credit
              WHERE credit.id = refunds.credit_document_id

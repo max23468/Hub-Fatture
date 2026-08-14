@@ -5,6 +5,8 @@ import test from "node:test";
 import profileFixture from "../tests/fixtures/fatturapa/profile.mock.json" with { type: "json" };
 
 import {
+  acceptedCreditNoteFromXml,
+  acceptedDocumentFiscalIdentity,
   documentInputSchema,
   acceptedInvoiceFromXml,
   generateFatturaXml,
@@ -71,6 +73,7 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     acceptedInvoiceFromXml(withoutTotal, syntheticFiscalProfile.numbering.approvedAt).totalAmount,
     12345,
   );
+  assert.equal(acceptedDocumentFiscalIdentity(withoutTotal).totalAmount, 12345);
   const withoutPayment = invoiceXml.replace(
     /\s*<DatiPagamento xmlns="">[\s\S]*?<\/DatiPagamento>/,
     "",
@@ -168,6 +171,20 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   assert.match(creditXml, /<TipoDocumento>TD04<\/TipoDocumento>/);
   assert.match(creditXml, /<ModalitaPagamento>MP05<\/ModalitaPagamento>/);
   assert.match(creditXml, /<PECDestinatario>cliente@example\.invalid<\/PECDestinatario>/);
+  const creditWithoutPayment = creditXml.replace(
+    /\s*<DatiPagamento xmlns="">[\s\S]*?<\/DatiPagamento>/,
+    "",
+  );
+  const creditWithoutTotalOrPayment = creditWithoutPayment.replace(
+    /\s*<ImportoTotaleDocumento>23\.45<\/ImportoTotaleDocumento>/,
+    "",
+  );
+  assert.equal(acceptedCreditNoteFromXml(creditWithoutTotalOrPayment).totalAmount, 2345);
+  assert.deepEqual(acceptedDocumentFiscalIdentity(creditWithoutTotalOrPayment).payment, {
+    condition: "TP02",
+    method: "MP05",
+  });
+  assert.equal(acceptedDocumentFiscalIdentity(creditWithoutTotalOrPayment).totalAmount, 2345);
   const linkedCreditXml = generateFatturaXml(
     syntheticFiscalProfile,
     {

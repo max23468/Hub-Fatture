@@ -60,7 +60,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          updated_at_source, local_order_date, currency, gross_amount, payment_status,
          fulfillment_status, trigger_status, customer_id, billing_case_id,
          raw_snapshot_json, normalized_snapshot_json)
-       VALUES ('SHOPIFY', 'shop', 'remote-order', '#1001', now(), now(), '2026-08-12',
+       VALUES ('SHOPIFY', 'shop', 'remote-order', '#1001', now(), now(), '2026-08-10',
          'EUR', 13000, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}',
          '{"customerSnapshot":{"billingAddress":{"line1":"Via Cliente 1","postalCode":"00100","city":"Roma","countryCode":"IT"}}}')
        RETURNING id`,
@@ -288,7 +288,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         (provider, external_account_id, external_order_id, external_refund_id, order_id,
          status, amount, completed_at, raw_json)
        VALUES ('SHOPIFY', 'shop', 'remote-order', 'refund-001', $1,
-         'COMPLETED', 2345, now(), '{}') RETURNING id`,
+         'COMPLETED', 2345, '2026-08-11T09:00:00Z', '{}') RETURNING id`,
       [order.rows[0]!.id],
     );
     const unrelatedRefund = await database.getPool().query<{ id: string }>(
@@ -296,7 +296,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         (provider, external_account_id, external_order_id, external_refund_id, order_id,
          status, amount, completed_at, raw_json)
        VALUES ('SHOPIFY', 'shop', 'remote-order', 'refund-002', $1,
-         'COMPLETED', 1000, now(), '{}') RETURNING id`,
+         'COMPLETED', 1000, '2026-08-11T09:00:00Z', '{}') RETURNING id`,
       [order.rows[0]!.id],
     );
     const assignedCreditDraftId = await database.withTransaction(async (client) => {
@@ -358,7 +358,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         (provider, external_account_id, external_order_id, external_refund_id, order_id,
          status, amount, completed_at, raw_json)
        VALUES ('SHOPIFY', 'shop', 'remote-order', 'refund-ambiguous-subset', $1,
-         'COMPLETED', 1345, now(), '{}') RETURNING id`,
+         'COMPLETED', 1345, '2026-08-11T09:00:00Z', '{}') RETURNING id`,
       [order.rows[0]!.id],
     );
     await inbound.ingestArubaInventoryPage(session.token, {
@@ -389,16 +389,15 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         },
       ],
     });
-    assert.equal(
-      (
-        await database.getPool().query(
-          `SELECT matches.status FROM aruba_document_matches AS matches
+    const ambiguousMatch = (
+      await database.getPool().query(
+        `SELECT matches.status, matches.signals_json, matches.candidates_json
+           FROM aruba_document_matches AS matches
            JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
            WHERE remote.remote_id = 'REMOTE-TD04-AMBIGUOUS-SUBSET'`,
-        )
-      ).rows[0].status,
-      "AMBIGUOUS",
-    );
+      )
+    ).rows[0];
+    assert.equal(ambiguousMatch.status, "AMBIGUOUS", JSON.stringify(ambiguousMatch));
     await database
       .getPool()
       .query("DELETE FROM aruba_remote_documents WHERE remote_id = $1", [
@@ -526,6 +525,13 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
        RETURNING id`,
       [customer.rows[0]!.id],
     );
+    await database.getPool().query(
+      `INSERT INTO order_tax_identifiers
+        (order_id, type, raw_value, normalized_value, source_field, country_code)
+       SELECT unnest($1::bigint[]), 'CODICE_FISCALE', 'RSSMRA80A01H501U',
+              'RSSMRA80A01H501U', 'fixture', 'IT'`,
+      [cumulativeOrders.rows.map((item) => item.id)],
+    );
     const cumulativeCase = await database.getPool().query<{ id: string }>(
       `INSERT INTO billing_cases
         (customer_id, local_order_date, currency, status, customer_snapshot_json,
@@ -565,9 +571,9 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          status, amount, completed_at, raw_json)
        VALUES
          ('SHOPIFY', 'shop', 'cumulative-a', 'cumulative-refund-a', $1,
-          'COMPLETED', 700, now(), '{}'),
+          'COMPLETED', 700, '2026-08-11T09:00:00Z', '{}'),
          ('EBAY', 'ebay', 'cumulative-b', 'cumulative-refund-b', $2,
-          'COMPLETED', 800, now(), '{}')
+          'COMPLETED', 800, '2026-08-11T09:00:00Z', '{}')
        RETURNING id`,
       [cumulativeOrders.rows[0]!.id, cumulativeOrders.rows[1]!.id],
     );
