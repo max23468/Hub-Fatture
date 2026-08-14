@@ -10,6 +10,7 @@ const schema = z
     APP_ENV: z.enum(["development", "production", "test"]).default("development"),
     APP_IMAGE_DIGEST: z.string().default("local"),
     APP_VERSION: z.string().default("0.0.0"),
+    ARUBA_ACCOUNT_IDENTITY: z.string().trim().min(1).max(200).default("synthetic-aruba-account"),
     ARUBA_ACCOUNT_REFERENCE: z.string().trim().min(1).max(200).default("synthetic-aruba-account"),
     ARUBA_SUBMISSION_ENABLED: z
       .enum(["true", "false"])
@@ -72,6 +73,14 @@ const schema = z
     {
       message: "SMTP_FROM deve usare il dominio numisleo.it in Production",
       path: ["SMTP_FROM"],
+    },
+  )
+  .refine(
+    ({ APP_ENV, ARUBA_ACCOUNT_IDENTITY }) =>
+      APP_ENV !== "production" || ARUBA_ACCOUNT_IDENTITY !== "synthetic-aruba-account",
+    {
+      message: "ARUBA_ACCOUNT_IDENTITY deve identificare l’account visibile in Production",
+      path: ["ARUBA_ACCOUNT_IDENTITY"],
     },
   )
   .refine(

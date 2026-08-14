@@ -8,6 +8,7 @@ test("la configurazione applica i vincoli operativi", () => {
     ADMIN_BOOTSTRAP_TOKEN: "x".repeat(32),
     APP_BASE_URL: "http://localhost:8080",
     APP_ENV: "test",
+    ARUBA_ACCOUNT_IDENTITY: "Synthetic Company Account",
     DATABASE_URL: "postgres://example.invalid/test",
   };
   assert.equal(SESSION_TTL_SECONDS, 31_536_000);
@@ -31,6 +32,14 @@ test("la configurazione applica i vincoli operativi", () => {
     parseConfig({ ...base, APP_ENV: "production", APP_BASE_URL: "http://example.invalid" }),
   );
   assert.throws(() => parseConfig({ ...base, EBAY_ENVIRONMENT: "production" }));
+  assert.throws(() =>
+    parseConfig({
+      ...base,
+      APP_ENV: "production",
+      APP_BASE_URL: "https://example.invalid",
+      ARUBA_ACCOUNT_IDENTITY: "synthetic-aruba-account",
+    }),
+  );
   assert.throws(() =>
     parseConfig({ ...base, APP_ENV: "production", APP_BASE_URL: "https://example.invalid" }),
   );

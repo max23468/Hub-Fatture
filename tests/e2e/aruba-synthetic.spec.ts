@@ -178,6 +178,7 @@ test("l’helper di lettura esegue full scan, incremento con overlap e download 
       sessionId: "00000000-0000-4000-8000-000000000001",
       environment: "MOCK",
       accountReference: "synthetic-aruba-account",
+      accountIdentity: "synthetic-aruba-account",
       panelUrl: new URL("/aruba-sintetica?scenario=inventory", baseURL).toString(),
       oldestReconciliationDate: `${year}-01-01`,
       streams,
@@ -230,10 +231,7 @@ test("la pagina sintetica espone stream completi per l’inventario in sola lett
 }) => {
   await page.goto("/aruba-sintetica?scenario=inventory");
   await expect(page.locator('[data-aruba-state="inventory-ready"]')).toBeVisible();
-  await expect(page.locator("[data-aruba-account]")).toHaveAttribute(
-    "data-aruba-account",
-    "synthetic-aruba-account",
-  );
+  await expect(page.locator(".main-toolbar-info-user")).toHaveText("synthetic-aruba-account");
   const year = new Date().getUTCFullYear();
   await page.locator(`[data-aruba-stream="invoices:${year}"]`).click();
   const invoice = page.locator('tr[data-aruba-remote-id="SYNTH-INV-001"]');

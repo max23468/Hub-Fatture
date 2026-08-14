@@ -25,7 +25,7 @@ export function loader({ request }: Route.LoaderArgs) {
   if (getConfig().APP_ENV === "production") throw new Response("Non disponibile", { status: 404 });
   return {
     scenario: new URL(request.url).searchParams.get("scenario") ?? "valid",
-    accountReference: getConfig().ARUBA_ACCOUNT_REFERENCE,
+    accountIdentity: getConfig().ARUBA_ACCOUNT_IDENTITY,
     invoiceXmlUrl: "/aruba-sintetica/file/invoice",
     creditXmlUrl: "/aruba-sintetica/file/credit-note",
   };
@@ -66,14 +66,14 @@ async function uploadedFile(file: File, valid: boolean): Promise<UploadedFile> {
 }
 
 function ArubaInventorySynthetic({
-  accountReference,
+  accountIdentity,
   creditXmlUrl,
   currentYear,
   inventoryStream,
   invoiceXmlUrl,
   setInventoryStream,
 }: {
-  accountReference: string;
+  accountIdentity: string;
   creditXmlUrl: string;
   currentYear: number;
   inventoryStream: string;
@@ -90,9 +90,9 @@ function ArubaInventorySynthetic({
           <h1>Inventario documenti Aruba</h1>
           <p>Elenco paginato per i test della sincronizzazione in sola lettura.</p>
         </div>
-        <p className="synthetic-account" data-aruba-account={accountReference}>
+        <p className="synthetic-account main-toolbar-info-user">
           <ShieldCheck aria-hidden="true" size={18} />
-          <span>{copy.arubaSynthetic.account(accountReference)}</span>
+          <span>{accountIdentity}</span>
         </p>
       </header>
       <nav aria-label="Stream inventario">
@@ -184,7 +184,7 @@ function ArubaInventorySynthetic({
 
 export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
   const scenario = loaderData.scenario;
-  const accountReference = loaderData.accountReference;
+  const accountIdentity = loaderData.accountIdentity;
   const [authenticated, setAuthenticated] = useState(!["login", "login-auto"].includes(scenario));
   const [files, setFiles] = useState<UploadedFile[]>(
     scenario === "foreign" ? [{ name: "documento-estraneo.xml", valid: true }] : [],
@@ -244,7 +244,7 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
   if (scenario === "inventory") {
     return (
       <ArubaInventorySynthetic
-        accountReference={accountReference}
+        accountIdentity={accountIdentity}
         creditXmlUrl={loaderData.creditXmlUrl}
         currentYear={currentYear}
         inventoryStream={inventoryStream}
@@ -268,9 +268,9 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
           <h1>{copy.arubaSynthetic.title}</h1>
           <p>{copy.arubaSynthetic.intro}</p>
         </div>
-        <p className="synthetic-account" data-aruba-account={accountReference}>
+        <p className="synthetic-account" data-aruba-account={accountIdentity}>
           <ShieldCheck aria-hidden="true" size={18} strokeWidth={1.8} />
-          <span>{copy.arubaSynthetic.account(accountReference)}</span>
+          <span>{copy.arubaSynthetic.account(accountIdentity)}</span>
         </p>
       </header>
       <section className="dashboard-panel synthetic-upload-panel">

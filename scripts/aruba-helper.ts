@@ -205,7 +205,7 @@ export async function assertAccount(page: Page, accountReference: string) {
   const expectedAccount = accountReference.replace(/\s+/g, " ").trim();
   const candidates = page
     .locator(
-      '[data-aruba-account], [aria-current="true"], [aria-selected="true"], [data-active="true"]',
+      '[data-aruba-account], .main-toolbar-info-user, [aria-current="true"], [aria-selected="true"], [data-active="true"]',
       { hasText: expectedAccount },
     )
     .or(page.getByRole("button", { name: expectedAccount, exact: true }));

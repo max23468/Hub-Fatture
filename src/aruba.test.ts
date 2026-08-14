@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   ARUBA_UPLOAD_MAX_BATCH_BYTES,
   arubaManifestSchema,
+  assertAllowedArubaAuthenticationNavigation,
   assertAllowedArubaDownload,
   assertAllowedArubaNavigation,
   assertAllowedArubaTarget,
@@ -49,6 +50,25 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   );
   assert.throws(() =>
     assertAllowedArubaNavigation("https://download.attacker.invalid/fattura.xml", aruba),
+  );
+  assert.equal(
+    assertAllowedArubaAuthenticationNavigation(
+      "https://loginfatturazione.aruba.it/?returnUrl=%2F%23dashboard",
+      aruba,
+    ).origin,
+    "https://loginfatturazione.aruba.it",
+  );
+  assert.throws(() =>
+    assertAllowedArubaAuthenticationNavigation(
+      "https://loginfatturazione.aruba.it.attacker.invalid/",
+      aruba,
+    ),
+  );
+  assert.throws(() =>
+    assertAllowedArubaAuthenticationNavigation(
+      "https://loginfatturazione.aruba.it/",
+      new URL("http://127.0.0.1:4173/aruba-sintetica"),
+    ),
   );
   assert.equal(
     assertAllowedArubaDownload("data:application/xml,%3Cxml%2F%3E", aruba).protocol,
