@@ -3696,13 +3696,22 @@ export async function confirmArubaDocumentOutOfScope(
       remote_status: ArubaRemoteStatus;
       origin: string;
       has_xml: boolean;
+      has_hub_submission: boolean;
     }>(
       `SELECT matches.status, matches.method, matches.order_id, matches.billing_case_id,
               matches.document_id, matches.related_invoice_document_id, matches.candidates_json,
               remote.remote_status, remote.origin,
               EXISTS (SELECT 1 FROM aruba_files
                 WHERE aruba_files.remote_document_id = remote.id
-                  AND aruba_files.kind = 'ARUBA_XML') AS has_xml
+                  AND aruba_files.kind = 'ARUBA_XML') AS has_xml,
+              EXISTS (
+                SELECT 1 FROM aruba_submissions AS submissions
+                JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
+                WHERE submissions.remote_id = remote.remote_id
+                  AND submissions.environment = remote.environment
+                  AND batches.account_reference = remote.account_reference
+                  AND submissions.status <> 'REMOVED'
+              ) AS has_hub_submission
        FROM aruba_document_matches AS matches
        JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
        WHERE matches.remote_document_id = $1
@@ -3719,6 +3728,7 @@ export async function confirmArubaDocumentOutOfScope(
       current.status !== "PROFILE_CONFLICT" ||
       !isEmissionConfirmed(current.remote_status) ||
       !current.has_xml ||
+      current.has_hub_submission ||
       hasCompatibleCandidate ||
       current.order_id ||
       current.billing_case_id ||

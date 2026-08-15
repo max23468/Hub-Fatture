@@ -325,6 +325,37 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "ARUBA_READ_SESSION_FORBIDDEN",
     );
+    const hubSubmissionBatchId = "50000000-0000-4000-8000-000000000099";
+    await database.getPool().query(
+      `INSERT INTO aruba_batches
+        (id, environment, mode, account_reference, manifest_sha256, document_count,
+         attempt_number, status, created_by)
+       VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic-aruba-account', repeat('9', 64), 1, 1,
+         'SUBMITTED', $2)`,
+      [hubSubmissionBatchId, actor.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_submissions
+        (batch_id, document_id, attempt_number, environment, mode, manifest_sha256,
+         xml_sha256, remote_id, status)
+       VALUES ($1, $2, 1, 'MOCK', 'ASSISTED', repeat('9', 64), repeat('8', 64),
+         'REMOTE-FOREIGN-PROFILE', 'DELIVERED')`,
+      [hubSubmissionBatchId, draft.rows[0]!.id],
+    );
+    await assert.rejects(
+      inbound.confirmArubaDocumentOutOfScope(
+        foreignProfileRemote.rows[0]!.id,
+        "Fattura verificata fuori dal perimetro di Hub Fatture",
+        actor,
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_PROFILE_CONFLICT",
+    );
+    await database.getPool().query(
+      `UPDATE aruba_submissions SET status = 'REMOVED'
+       WHERE batch_id = $1 AND remote_id = 'REMOTE-FOREIGN-PROFILE'`,
+      [hubSubmissionBatchId],
+    );
     await inbound.confirmArubaDocumentOutOfScope(
       foreignProfileRemote.rows[0]!.id,
       "Fattura verificata fuori dal perimetro di Hub Fatture",
