@@ -484,6 +484,9 @@ export function uniqueRefundSubset(
 }
 
 async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDocument) {
+  const normalizedOrderReferences = remote.orderReferences
+    .map(normalizedMatchText)
+    .filter((reference): reference is string => Boolean(reference));
   const result = await client.query<InboundOrderCandidateRow>(
     `SELECT orders.id, orders.provider, orders.display_number, orders.local_order_date::text,
             orders.billing_case_id, invoice.document_id::text AS invoice_document_id,
@@ -516,10 +519,14 @@ async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDoc
          AND documents.status = 'APPROVED'
        ORDER BY documents.id DESC LIMIT 1
      ) AS invoice ON true
-     WHERE orders.local_order_date BETWEEN $1::date - 31 AND $1::date + 31
+     WHERE (
+         orders.local_order_date BETWEEN $1::date - 31 AND $1::date + 31
+         OR regexp_replace(upper(orders.display_number), '[^A-Z0-9]', '', 'g')
+           = ANY($2::text[])
+       )
        AND orders.trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
      ORDER BY orders.id`,
-    [remote.documentDate],
+    [remote.documentDate, normalizedOrderReferences],
   );
   return result.rows;
 }

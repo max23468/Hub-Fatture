@@ -3468,7 +3468,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Dashboard, approvazione e numerazione rispettano `Mai letto`, avviso a un'ora e blocco a 24 ore/stato incerto; l'override singolo motivato del solo titolare supera esclusivamente la freschezza dopo verifica manuale e non match, conflitti o stati incerti.
 - [ ] Ogni approvazione, anche massiva, richiede un preflight on-demand successivo alla richiesta e vincolato a revisione/hash; documento esterno creato fra due giri periodici, ricevuta scaduta e bozza modificata bloccano la mutazione.
 - [ ] Deduplicazione confinata per account/ambiente, ownership esclusiva submission/remote document dei file/notifiche e mapping monotono degli stati verificati.
-- [ ] Documenti Aruba non collegati, match ambigui e conflitti di profilo compaiono in `Documenti → Da collegare`, `Da verificare` e `Attività` senza creare ordini.
+- [ ] I documenti Aruba senza ordine Shopify/eBay restano visibili in `Documenti → Da collegare` senza creare ordini; soltanto riferimenti espliciti incompatibili, match potenziali, ambiguità, conflitti ed errori compaiono anche in `Da verificare` e `Attività`.
 - [ ] Match emesso su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.
 - [ ] TD04 esterna `DELIVERED`/`NOT_DELIVERED` collega atomicamente tutti e soli i rimborsi coperti e una corsa concorrente non può creare una seconda nota per gli stessi rimborsi.
 - [ ] Documento esterno `REJECTED` conserva XML, match e audit ma non chiude l'ordine come fatturato, non consuma il residuo e consente la revisione/riedizione prevista.

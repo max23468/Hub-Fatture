@@ -1140,6 +1140,61 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       Number((await database.getPool().query("SELECT count(*) FROM documents")).rows[0].count),
       documentCountBeforeRejectedImport,
     );
+    await inbound.ingestArubaInventoryPage(session.token, {
+      stream: "invoices:2026",
+      scanOrdinal: 2,
+      pageOrdinal: 2,
+      cursor: "explicit-reference-outside-window-end",
+      terminal: true,
+      fullScan: true,
+      documents: [
+        {
+          remoteId: "REMOTE-EXPLICIT-OUTSIDE-WINDOW",
+          documentType: "TD01",
+          fiscalYear: 2026,
+          series: "FPR",
+          fiscalNumber: "9000",
+          documentDate: "2026-10-20",
+          recipientName: "Cliente esterno",
+          recipientTaxId: null,
+          recipientCountryCode: null,
+          recipientAddress: null,
+          totalAmount: 9900,
+          currency: "EUR",
+          status: "DELIVERED",
+          providerObservedAt: "2026-10-20T12:00:00+02:00",
+          xmlSha256: null,
+          orderReferences: ["#1001"],
+        },
+      ],
+    });
+    const outsideWindowMatch = (
+      await database.getPool().query<{ status: string; candidates_json: unknown[] }>(
+        `SELECT matches.status, matches.candidates_json
+         FROM aruba_document_matches AS matches
+         JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
+           WHERE remote.remote_id = 'REMOTE-EXPLICIT-OUTSIDE-WINDOW'`,
+      )
+    ).rows[0]!;
+    assert.equal(outsideWindowMatch.status, "UNMATCHED");
+    assert.equal(
+      outsideWindowMatch.candidates_json.some(
+        (candidate) =>
+          typeof candidate === "object" &&
+          candidate !== null &&
+          "signals" in candidate &&
+          typeof candidate.signals === "object" &&
+          candidate.signals !== null &&
+          "explicitReference" in candidate.signals &&
+          candidate.signals.explicitReference === true,
+      ),
+      true,
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_remote_documents WHERE remote_id = $1", [
+        "REMOTE-EXPLICIT-OUTSIDE-WINDOW",
+      ]);
     await inbound.completeArubaInventory(
       session.token,
       ["invoices:2026", "credit-notes:2026"],
