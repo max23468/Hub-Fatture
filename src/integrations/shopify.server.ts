@@ -327,6 +327,7 @@ function mapTaxIdentifiers(
   order: Record<string, unknown>,
   customer: Record<string, unknown>,
   billingAddress: Record<string, unknown>,
+  shippingAddress: Record<string, unknown>,
 ) {
   const identifiers: {
     type: "CODICE_FISCALE" | "PARTITA_IVA" | "ALTRO";
@@ -369,6 +370,7 @@ function mapTaxIdentifiers(
     }
   }
   let billingAddressLine2 = text(billingAddress.address2);
+  let shippingAddressLine2 = text(shippingAddress.address2);
   if (!identifiers.length) {
     const countryCode = text(billingAddress.countryCodeV2);
     const fallback = fiscalIdentifierFromAddressLine(billingAddress.address2, countryCode);
@@ -382,7 +384,80 @@ function mapTaxIdentifiers(
       billingAddressLine2 = remainingAddressLine;
     }
   }
-  return { identifiers, billingAddressLine2 };
+  if (!identifiers.length && shippingMatchesBillingIdentity(billingAddress, shippingAddress)) {
+    const countryCode = text(shippingAddress.countryCodeV2);
+    const fallback = fiscalIdentifierFromAddressLine(shippingAddress.address2, countryCode);
+    if (fallback) {
+      const { remainingAddressLine, ...identifier } = fallback;
+      identifiers.push({
+        ...identifier,
+        countryCode,
+        sourceField: "shippingAddress.address2",
+      });
+      shippingAddressLine2 = remainingAddressLine;
+    }
+  }
+  return { identifiers, billingAddressLine2, shippingAddressLine2 };
+}
+
+function normalizedAddressPart(value: unknown) {
+  return text(value)?.normalize("NFKC").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function shippingMatchesBillingIdentity(
+  billingAddress: Record<string, unknown>,
+  shippingAddress: Record<string, unknown>,
+) {
+  const comparableFields = ["name", "countryCodeV2", "zip", "city", "provinceCode"] as const;
+  return (
+    normalizedAddressPart(billingAddress.company) ===
+      normalizedAddressPart(shippingAddress.company) &&
+    comparableFields.every(
+      (field) =>
+        Boolean(normalizedAddressPart(billingAddress[field])) &&
+        normalizedAddressPart(billingAddress[field]) ===
+          normalizedAddressPart(shippingAddress[field]),
+    )
+  );
+}
+
+/**
+ * Shopify può ricevere il civico soltanto nell'indirizzo di spedizione. Lo riusa per la
+ * fatturazione esclusivamente quando Paese, CAP, città e provincia coincidono e la via di
+ * spedizione aggiunge al testo di fatturazione soltanto un civico non ambiguo.
+ */
+function billingAddressLine1(
+  billingAddress: Record<string, unknown>,
+  shippingAddress: Record<string, unknown>,
+) {
+  const billingLine = text(billingAddress.address1);
+  const shippingLine = text(shippingAddress.address1);
+  if (
+    !billingLine ||
+    !shippingLine ||
+    /\d/u.test(billingLine) ||
+    !shippingMatchesBillingIdentity(billingAddress, shippingAddress)
+  ) {
+    return billingLine;
+  }
+  const comparableFields = ["countryCodeV2", "zip", "city", "provinceCode"] as const;
+  if (
+    normalizedAddressPart(billingAddress.countryCodeV2) !== "IT" ||
+    comparableFields.some(
+      (field) =>
+        !normalizedAddressPart(billingAddress[field]) ||
+        normalizedAddressPart(billingAddress[field]) !==
+          normalizedAddressPart(shippingAddress[field]),
+    )
+  ) {
+    return billingLine;
+  }
+  const normalizedBilling = normalizedAddressPart(billingLine)!;
+  const normalizedShipping = normalizedAddressPart(shippingLine)!;
+  const suffix = normalizedShipping.startsWith(`${normalizedBilling} `)
+    ? normalizedShipping.slice(normalizedBilling.length + 1)
+    : "";
+  return /^(?:N\.?\s*)?\d+[A-Z]?(?:[/-]\d+[A-Z]?)?$/u.test(suffix) ? shippingLine : billingLine;
 }
 
 function mapAddress(value: unknown) {
@@ -434,7 +509,7 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
   const transactions = records(order.transactions).filter((transaction) =>
     ["SALE", "CAPTURE"].includes(text(transaction.kind) ?? ""),
   );
-  const taxData = mapTaxIdentifiers(order, customer, address);
+  const taxData = mapTaxIdentifiers(order, customer, address, shippingAddress);
   const refunds = records(order.refunds);
   const financialStatus = text(order.displayFinancialStatus) ?? "PENDING";
   return providerOrder({
@@ -480,8 +555,15 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
       certifiedEmail: localizedFields.find((field) => field.key.toUpperCase() === "TAX_EMAIL_IT")
         ?.value,
       phone: text(record(customer.defaultPhoneNumber).phoneNumber) ?? text(address.phone),
-      billingAddress: { ...mapAddress(address), line2: taxData.billingAddressLine2 },
-      shippingAddress: mapAddress(shippingAddress),
+      billingAddress: {
+        ...mapAddress(address),
+        line1: billingAddressLine1(address, shippingAddress),
+        line2: taxData.billingAddressLine2,
+      },
+      shippingAddress: {
+        ...mapAddress(shippingAddress),
+        line2: taxData.shippingAddressLine2,
+      },
       taxIdentifiers: taxData.identifiers,
     },
     lines: lineItems.map((line) => {

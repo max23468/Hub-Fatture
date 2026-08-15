@@ -12,6 +12,7 @@ import {
   foreignCustomerFallbackTaxCode,
   generateFatturaXml,
   projectFatturaXml,
+  recipientFromCustomerSnapshot,
   type DocumentInput,
   type FiscalProfile,
 } from "../documents.ts";
@@ -36,6 +37,7 @@ import {
   snapshotDocumentEmail,
 } from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
+import { pendingPaymentSql } from "./billing-case-sql.server.ts";
 import {
   ensureDocumentStoragePath,
   loadStoredDocuments,
@@ -124,46 +126,8 @@ function sourceLine(order: CaseOrder) {
   };
 }
 
-function recipient(
-  snapshot: Record<string, unknown>,
-  serializableOnly = true,
-): DocumentInput["recipient"] {
-  const address = (snapshot.billingAddress ?? {}) as Record<string, unknown>;
-  const taxIdentifiers = Array.isArray(snapshot.taxIdentifiers) ? snapshot.taxIdentifiers : [];
-  return {
-    kind: snapshot.kind as DocumentInput["recipient"]["kind"],
-    displayName: stringValue(snapshot.displayName),
-    firstName: stringValue(snapshot.firstName),
-    lastName: stringValue(snapshot.lastName),
-    businessName: stringValue(snapshot.companyName),
-    certifiedEmail: stringValue(snapshot.certifiedEmail),
-    recipientCode: stringValue(snapshot.recipientCode),
-    taxIdentifiers: taxIdentifiers.flatMap((value) => {
-      const item = value as Record<string, unknown>;
-      const identifier = {
-        type: item.type as "CODICE_FISCALE" | "PARTITA_IVA" | "ALTRO",
-        value: String(item.value ?? item.normalizedValue ?? "")
-          .trim()
-          .toUpperCase(),
-        countryCode: stringValue(item.countryCode)?.toUpperCase(),
-      };
-      const serializable =
-        identifier.type === "CODICE_FISCALE"
-          ? /^[A-Z0-9]{11,16}$/.test(identifier.value)
-          : identifier.type === "PARTITA_IVA" && (identifier.countryCode ?? "IT") === "IT"
-            ? /^\d{11}$/.test(identifier.value)
-            : identifier.type === "PARTITA_IVA" || identifier.type === "ALTRO";
-      return !serializableOnly || serializable ? [identifier] : [];
-    }),
-    address: {
-      line1: String(address.line1 ?? ""),
-      line2: stringValue(address.line2),
-      postalCode: String(address.postalCode ?? ""),
-      city: String(address.city ?? ""),
-      province: stringValue(address.province),
-      countryCode: String(address.countryCode ?? ""),
-    },
-  };
+function casePaymentStatus(caseRow: CaseRow): "PAID" | "PENDING" {
+  return caseRow.orders.some((order) => order.payment_status === "PENDING") ? "PENDING" : "PAID";
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -171,6 +135,8 @@ function stringValue(value: unknown): string | undefined {
 }
 
 async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = false) {
+  // Il frammento interpolato è una costante interna che riceve soltanto l'alias SQL fisso.
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await client.query<CaseRow>(
     `SELECT billing_cases.id, billing_cases.revision, billing_cases.status,
             billing_cases.currency, billing_cases.customer_snapshot_json,
@@ -191,7 +157,11 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
            ), 0)
            ELSE 0
          END,
-         'payment_status', orders.payment_status,
+         'payment_status', CASE
+           WHEN ${pendingPaymentSql("orders")} THEN 'PENDING'
+           WHEN orders.payment_status = 'REFUNDED' THEN 'REFUNDED'
+           ELSE 'PAID'
+         END,
          'payment_method', (
            SELECT payments.method FROM payments
            WHERE payments.order_id = orders.id
@@ -280,11 +250,11 @@ function documentInput(
   draft: DraftRow | null,
   profile: FiscalProfile,
 ): DocumentInput {
-  const paymentPending = caseRow.orders.some((order) => order.payment_status === "PENDING");
+  const sourcePaymentStatus = casePaymentStatus(caseRow);
   const parsed = documentInputSchema.safeParse({
     kind: "INVOICE",
     documentDate: draft?.status === "APPROVED" ? draft.document_date : today(),
-    recipient: recipient(caseRow.customer_snapshot_json),
+    recipient: recipientFromCustomerSnapshot(caseRow.customer_snapshot_json),
     lines:
       draft?.lines.map((line) => ({
         orderId: line.order_id,
@@ -292,7 +262,7 @@ function documentInput(
         quantity: line.quantity,
         unitAmount: line.unit_amount,
       })) ?? caseRow.orders.map(sourceLine),
-    paymentStatus: draft?.payment_status ?? (paymentPending ? "PENDING" : "PAID"),
+    paymentStatus: draft?.payment_status ?? sourcePaymentStatus,
     paymentMethod: draft?.payment_method ?? profile.payment.invoiceMethod,
     causale: draft?.causale ?? undefined,
     notes: draft?.notes ?? undefined,
@@ -418,7 +388,11 @@ function sourceRecipients(
   pick: (value: DocumentInput["recipient"]) => string,
 ) {
   return joined([
-    ...new Set(orders.map((order) => pick(recipient(order.customer_snapshot_json, false)))),
+    ...new Set(
+      orders.map((order) =>
+        pick(recipientFromCustomerSnapshot(order.customer_snapshot_json, false)),
+      ),
+    ),
   ]);
 }
 
@@ -630,12 +604,10 @@ function sourceAuditSnapshot(caseRow: CaseRow, profile: FiscalProfile): Record<s
   return {
     recipients: caseRow.orders.map((order) => ({
       orderId: order.id,
-      recipient: recipient(order.customer_snapshot_json, false),
+      recipient: recipientFromCustomerSnapshot(order.customer_snapshot_json, false),
     })),
     lines: caseRow.orders.map(sourceLine),
-    paymentStatus: caseRow.orders.some((order) => order.payment_status === "PENDING")
-      ? "PENDING"
-      : "PAID",
+    paymentStatus: casePaymentStatus(caseRow),
     paymentMethod: profile.payment.invoiceMethod,
     causale: null,
     notes: null,
@@ -680,7 +652,7 @@ export async function saveInvoiceDraft(
     const parsed = documentInputSchema.safeParse({
       kind: "INVOICE",
       documentDate,
-      recipient: recipient(caseRow.customer_snapshot_json),
+      recipient: recipientFromCustomerSnapshot(caseRow.customer_snapshot_json),
       lines: raw.lines,
       paymentStatus: raw.paymentStatus,
       paymentMethod: raw.paymentMethod,

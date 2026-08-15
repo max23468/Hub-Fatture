@@ -19,6 +19,19 @@ export const orderBillableSql = (alias = "orders") =>
 export const orderNotBillableSql = (alias = "orders") =>
   `(${alias}.cancelled_at IS NOT NULL OR ${alias}.payment_status = 'REFUNDED' OR ${alias}.trigger_status IN ('LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') OR (coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) AND ${alias}.historical_reconciliation_outcome IS DISTINCT FROM 'NOT_INVOICED'))`;
 
+/**
+ * Un tentativo pendente non rappresenta più un saldo aperto quando gli incassi riusciti
+ * coprono già l'intero totale dell'ordine. Le righe restano nello storico del provider.
+ */
+export const pendingPaymentSql = (alias = "orders") =>
+  `((${alias}.payment_status = 'PENDING' OR EXISTS (
+      SELECT 1 FROM payments AS pending_payment
+      WHERE pending_payment.order_id = ${alias}.id AND pending_payment.status = 'PENDING'
+    )) AND coalesce((
+      SELECT sum(paid_payment.amount) FROM payments AS paid_payment
+      WHERE paid_payment.order_id = ${alias}.id AND paid_payment.status = 'PAID'
+    ), 0) < ${alias}.gross_amount)`;
+
 export const hasCaseOrdersSql = `EXISTS (
   SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
 )`;

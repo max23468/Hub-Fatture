@@ -613,19 +613,44 @@ export function customerIdentity(input: CustomerContext): {
 export function orderReviewRequired(
   order: Pick<OrderInput, "paymentStatus" | "payments" | "refunds" | "sourceReviewRequired">,
   totalsReconciled: boolean,
+  grossAmount: number,
   trigger: DraftTrigger = "PAID",
 ): boolean {
-  const confirmablePending = trigger === "FULFILLED" && order.paymentStatus === "PENDING";
+  const paymentPending = effectiveOrderPaymentStatus(order, grossAmount) === "PENDING";
+  const confirmablePending = trigger === "FULFILLED" && paymentPending;
   return (
     order.sourceReviewRequired ||
-    (order.paymentStatus !== "PAID" && !confirmablePending) ||
-    order.payments.some(
-      (payment) =>
-        payment.status !== "PAID" && !(confirmablePending && payment.status === "PENDING"),
-    ) ||
+    order.paymentStatus === "REFUNDED" ||
+    (paymentPending && !confirmablePending) ||
+    order.payments.some((payment) => payment.status === "REFUNDED") ||
     order.refunds.some(refundNeedsReview) ||
     !totalsReconciled
   );
+}
+
+export function effectivePaymentStatus(input: {
+  paymentStatus: string;
+  hasPendingAttempt: boolean;
+  paidAmount: number;
+  grossAmount: number;
+}): "PAID" | "PENDING" | "REFUNDED" {
+  if (input.paymentStatus === "REFUNDED") return "REFUNDED";
+  const hasPendingSignal = input.paymentStatus === "PENDING" || input.hasPendingAttempt;
+  return hasPendingSignal && input.paidAmount < input.grossAmount ? "PENDING" : "PAID";
+}
+
+export function effectiveOrderPaymentStatus(
+  order: Pick<OrderInput, "paymentStatus" | "payments">,
+  grossAmount: number,
+) {
+  return effectivePaymentStatus({
+    paymentStatus: order.paymentStatus,
+    hasPendingAttempt: order.payments.some((payment) => payment.status === "PENDING"),
+    paidAmount: order.payments
+      .filter((payment) => payment.status === "PAID")
+      .reduce((sum, payment) => sum + decimalToCents(payment.amount), 0),
+    grossAmount,
+  });
 }
 
 export function refundNeedsReview(refund: { status: string; amount: unknown }): boolean {

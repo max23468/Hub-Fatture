@@ -1017,31 +1017,34 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     pendingPayment.externalOrderId = "shop-order-pending-payment";
     pendingPayment.externalCustomerId = "shop-customer-pending-payment";
     pendingPayment.customer.taxIdentifiers[0].value = "RSSMRA80A01H501W";
-    pendingPayment.paymentStatus = "PAID";
+    // Anche lo stato aggregato può essere in ritardo: l'incasso completo è autorevole.
+    pendingPayment.paymentStatus = "PENDING";
     pendingPayment.payments[0].status = "PENDING";
     pendingPayment.payments[0].paidAt = null;
+    pendingPayment.payments.push({
+      ...pendingPayment.payments[0],
+      externalPaymentId: "shop-payment-settled-after-pending",
+      status: "PAID",
+      paidAt: "2026-08-11T08:45:00Z",
+    });
     pendingPayment.createdAt = "2026-08-11T08:15:00Z";
     pendingPayment.updatedAt = "2026-08-11T09:00:00Z";
     await orders.importOrders([pendingPayment], {
       id: 1,
       requestId: "test-pending-payment",
     });
-    assert.equal(
-      (
-        await database.getPool().query(
-          `SELECT billing_cases.status
+    const settledPaymentCase = (
+      await database.getPool().query(
+        `SELECT billing_cases.id::text AS case_id, billing_cases.status
                FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
                WHERE orders.external_order_id = 'shop-order-pending-payment'`,
-        )
-      ).rows[0].status,
-      "NEEDS_REVIEW",
-    );
-    assert.equal(
-      Number((await orders.dashboardSummary()).pending_payments),
-      pendingPaymentsBefore + 1,
-    );
+      )
+    ).rows[0];
+    assert.equal(settledPaymentCase.status, "READY");
+    const invoiceDocuments = await import("./documents.server.ts");
+    assert.equal(Number((await orders.dashboardSummary()).pending_payments), pendingPaymentsBefore);
     assert.ok(
-      (await orders.listOrders({ status: "ACTIVE", paymentStatus: "PENDING" })).rows.some(
+      !(await orders.listOrders({ status: "ACTIVE", paymentStatus: "PENDING" })).rows.some(
         (order) => order.display_number === pendingPayment.displayNumber,
       ),
     );
@@ -1580,6 +1583,131 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         )
       ).rows[0].previous_updated_at,
       "2026-08-18T12:00:00Z",
+    );
+
+    const mapperCorrection = structuredClone(fixture[0]);
+    mapperCorrection.externalOrderId = "shop-order-mapper-customer-correction";
+    mapperCorrection.externalCustomerId = "shop-customer-mapper-customer-correction";
+    mapperCorrection.createdAt = "2026-08-20T08:00:00Z";
+    mapperCorrection.updatedAt = "2026-08-20T09:00:00Z";
+    mapperCorrection.sourceSnapshot = { immutableProviderPayload: "same" };
+    mapperCorrection.customer.taxIdentifiers = [];
+    mapperCorrection.customer.billingAddress.line1 = "Via Esempio";
+    mapperCorrection.customer.billingAddress.postalCode = "00100";
+    mapperCorrection.customer.billingAddress.city = "Roma";
+    mapperCorrection.customer.billingAddress.province = "RM";
+    mapperCorrection.customer.shippingAddress = {
+      line1: "Via Esempio 112",
+      line2: "RSSMRA80A01H501U",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    await orders.importOrders([mapperCorrection], {
+      id: 1,
+      requestId: "test-mapper-customer-before",
+    });
+    const correctedMapperOrder = structuredClone(mapperCorrection);
+    correctedMapperOrder.customer.taxIdentifiers = [
+      {
+        type: "CODICE_FISCALE",
+        value: "RSSMRA80A01H501U",
+        countryCode: "IT",
+        sourceField: "shippingAddress.address2",
+      },
+    ];
+    correctedMapperOrder.customer.billingAddress.line1 = "Via Esempio 112";
+    delete correctedMapperOrder.customer.shippingAddress.line2;
+    await orders.importOrders([correctedMapperOrder], {
+      id: 1,
+      requestId: "test-mapper-customer-after",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_cases.status,
+                  billing_cases.customer_id = orders.customer_id AS customer_aligned,
+                  billing_cases.customer_snapshot_json ->> 'reviewRequired' AS review_required,
+                  customers.tax_id_normalized,
+                  (SELECT count(*) FROM order_source_revisions
+                   WHERE order_id = orders.id)::int AS revision_count,
+                  (SELECT count(*) FROM audit_events
+                   WHERE entity_type = 'BILLING_CASE'
+                     AND entity_id = billing_cases.id::text
+                     AND action = 'CUSTOMER_CORRECTED'
+                     AND actor_type = 'SYSTEM')::int AS correction_count
+             FROM orders
+             JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+             JOIN customers ON customers.id = orders.customer_id
+             WHERE orders.external_order_id = $1`,
+          [mapperCorrection.externalOrderId],
+        )
+      ).rows[0],
+      {
+        status: "READY",
+        customer_aligned: true,
+        review_required: "false",
+        tax_id_normalized: "RSSMRA80A01H501U",
+        revision_count: 0,
+        correction_count: 1,
+      },
+    );
+
+    const manualMapperReplay = structuredClone(mapperCorrection);
+    manualMapperReplay.externalOrderId = "shop-order-manual-mapper-correction";
+    manualMapperReplay.externalCustomerId = "shop-customer-manual-mapper-correction";
+    manualMapperReplay.customer.email = "manual-mapper@example.invalid";
+    await orders.importOrders([manualMapperReplay], {
+      id: 1,
+      requestId: "test-manual-mapper-before",
+    });
+    const manualMapperCaseId = (
+      await database
+        .getPool()
+        .query("SELECT billing_case_id::text AS id FROM orders WHERE external_order_id = $1", [
+          manualMapperReplay.externalOrderId,
+        ])
+    ).rows[0].id;
+    await database.getPool().query(
+      `UPDATE billing_cases
+       SET customer_corrected_at = now(),
+           customer_snapshot_json = jsonb_set(
+             customer_snapshot_json, '{displayName}', '"Destinatario confermato manualmente"')
+       WHERE id = $1`,
+      [manualMapperCaseId],
+    );
+    const mapperAfterManualCorrection = structuredClone(manualMapperReplay);
+    mapperAfterManualCorrection.customer.taxIdentifiers = [
+      {
+        type: "CODICE_FISCALE",
+        value: "RSSMRA80A01H501U",
+        countryCode: "IT",
+        sourceField: "shippingAddress.address2",
+      },
+    ];
+    mapperAfterManualCorrection.customer.billingAddress.line1 = "Via Esempio 112";
+    delete mapperAfterManualCorrection.customer.shippingAddress.line2;
+    await orders.importOrders([mapperAfterManualCorrection], {
+      id: 1,
+      requestId: "test-manual-mapper-after",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_cases.customer_snapshot_json ->> 'displayName' AS display_name,
+                  billing_cases.customer_corrected_at IS NOT NULL AS manually_corrected,
+                  (SELECT count(*) FROM order_source_revisions
+                   WHERE billing_case_id = billing_cases.id)::int AS revision_count
+           FROM billing_cases WHERE id = $1`,
+          [manualMapperCaseId],
+        )
+      ).rows[0],
+      {
+        display_name: "Destinatario confermato manualmente",
+        manually_corrected: true,
+        revision_count: 1,
+      },
     );
 
     const profileA = structuredClone(fixture[0]);
@@ -2153,6 +2281,118 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       `INSERT INTO fiscal_profiles (version, status, profile_json)
        VALUES (1, 'MOCK', $1)`,
       [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
+    );
+    await database
+      .getPool()
+      .query(`UPDATE settings SET value_json = '"FULFILLED"' WHERE key = 'draft_trigger'`);
+    const groupedPendingPayment = structuredClone(pendingPayment);
+    groupedPendingPayment.externalOrderId = "shop-order-grouped-pending-payment";
+    groupedPendingPayment.displayNumber = "#GROUPED-PENDING";
+    groupedPendingPayment.payments = [structuredClone(pendingPayment.payments[0])];
+    groupedPendingPayment.payments[0].externalPaymentId = "shop-payment-grouped-pending";
+    groupedPendingPayment.sourceSnapshot = { immutableProviderPayload: "grouped-pending" };
+    await orders.importOrders([groupedPendingPayment], {
+      id: 1,
+      requestId: "test-grouped-pending-payment",
+    });
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query(
+            "SELECT billing_case_id::text AS case_id FROM orders WHERE external_order_id = $1",
+            [groupedPendingPayment.externalOrderId],
+          )
+      ).rows[0].case_id,
+      settledPaymentCase.case_id,
+    );
+    await database
+      .getPool()
+      .query(`UPDATE settings SET value_json = '"PAID"' WHERE key = 'draft_trigger'`);
+    const settledInitialProjection = await invoiceDocuments.getInvoiceProjection(
+      settledPaymentCase.case_id,
+    );
+    assert.ok(
+      settledInitialProjection &&
+        !settledInitialProjection.profileMissing &&
+        "lines" in settledInitialProjection,
+    );
+    await invoiceDocuments.saveInvoiceDraft(
+      settledPaymentCase.case_id,
+      {
+        caseRevision: settledInitialProjection.caseRevision,
+        draftVersion: settledInitialProjection.draftVersion,
+        lines: settledInitialProjection.lines,
+        differenceReason: "",
+        paymentStatus: "PENDING",
+        paymentMethod: settledInitialProjection.paymentMethod,
+        causale: "",
+        notes: "",
+      },
+      { id: 1, canApprove: true, requestId: "test-pending-payment-old-draft" },
+    );
+    await database.getPool().query(
+      `UPDATE orders
+       SET normalized_snapshot_json = jsonb_set(
+             jsonb_set(normalized_snapshot_json, '{reviewFingerprint}', '"legacy-pending"'),
+             '{orderReviewRequired}', 'true')
+       WHERE external_order_id = $1`,
+      [pendingPayment.externalOrderId],
+    );
+    await database
+      .getPool()
+      .query("UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1", [
+        settledPaymentCase.case_id,
+      ]);
+    await orders.importOrders([pendingPayment], {
+      id: 1,
+      requestId: "test-pending-payment-replay",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_cases.status, documents.payment_status,
+                  (SELECT count(*) FROM order_source_revisions
+                   WHERE order_id = orders.id)::int AS revision_count
+           FROM orders
+           JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+           JOIN documents ON documents.billing_case_id = billing_cases.id
+           WHERE orders.external_order_id = $1`,
+          [pendingPayment.externalOrderId],
+        )
+      ).rows[0],
+      { status: "READY", payment_status: "PENDING", revision_count: 0 },
+    );
+    await database.getPool().query(
+      `UPDATE orders SET billing_case_id = NULL, trigger_status = 'WAITING_FOR_TRIGGER'
+       WHERE external_order_id = $1`,
+      [groupedPendingPayment.externalOrderId],
+    );
+    await database.getPool().query(
+      `UPDATE orders
+       SET normalized_snapshot_json = jsonb_set(
+             jsonb_set(normalized_snapshot_json, '{reviewFingerprint}', '"legacy-pending-single"'),
+             '{orderReviewRequired}', 'true')
+       WHERE external_order_id = $1`,
+      [pendingPayment.externalOrderId],
+    );
+    await database
+      .getPool()
+      .query("UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1", [
+        settledPaymentCase.case_id,
+      ]);
+    await database
+      .getPool()
+      .query("UPDATE documents SET payment_status = 'PENDING' WHERE billing_case_id = $1", [
+        settledPaymentCase.case_id,
+      ]);
+    await orders.importOrders([pendingPayment], {
+      id: 1,
+      requestId: "test-pending-payment-single-replay",
+    });
+    assert.equal(
+      (await invoiceDocuments.getInvoiceProjection(settledPaymentCase.case_id))!.paymentStatus,
+      "PAID",
     );
     const shopifyWithoutReference = structuredClone(historical);
     shopifyWithoutReference.externalOrderId = "shop-order-historical-without-reference";
@@ -6095,8 +6335,13 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ),
     );
     const history = await orders.listAuditHistory({ action: "CUSTOMER_CORRECTED" });
-    assert.equal(history.rows.length, 2);
-    assert.equal(history.rows[1]!.reason, "Dati fiscali confermati dal cliente");
+    assert.equal(history.rows.length, 3);
+    assert.ok(history.rows.some((event) => event.reason === "Dati fiscali confermati dal cliente"));
+    assert.ok(
+      history.rows.some(
+        (event) => event.reason === "Rilettura dello stesso payload con il mapper Shopify corretto",
+      ),
+    );
     assert.match(history.rows[0]!.case_number ?? "", /^\d{6}$/);
     // Un'azione fuori allowlist non deve valere "tutte".
     assert.deepEqual((await orders.listAuditHistory({ action: "NON_ESISTE" })).rows, []);

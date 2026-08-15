@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import type pg from "pg";
 
@@ -7,6 +8,7 @@ import {
   customerProfileMismatchSql,
   openBillingCaseSql,
   orderBillableSql,
+  pendingPaymentSql,
 } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
 import {
@@ -23,6 +25,7 @@ import {
   documentInputSchema,
   fiscalProfileSchema,
   projectFatturaXml,
+  recipientFromCustomerSnapshot,
   type DocumentInput,
   type FiscalProfile,
 } from "../documents.ts";
@@ -34,6 +37,7 @@ import {
   customerDisplayName,
   decimalToCents,
   draftTriggerSchema,
+  effectiveOrderPaymentStatus,
   localOrderDate,
   orderInputSchema,
   orderReviewRequired,
@@ -346,6 +350,88 @@ function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof cu
   };
 }
 
+function sameProviderSnapshot(previous: Record<string, unknown>, input: OrderInput) {
+  return isDeepStrictEqual(previous.sourceSnapshot, input.sourceSnapshot);
+}
+
+/**
+ * Un replay dello stesso payload può migliorare soltanto la sua interpretazione. Per una
+ * preparazione singola ancora da verificare, riallinea cliente, destinatario e stato senza
+ * trasformare la correzione del mapper in un falso conflitto della sorgente.
+ */
+async function reconcileMapperCustomerCorrection(
+  client: pg.PoolClient,
+  input: {
+    caseId: string;
+    orderId: string;
+    oldCustomerId: string;
+    newCustomerId: string;
+    previousSnapshot: Record<string, unknown>;
+    customerSnapshot: Record<string, unknown>;
+    requestId: string;
+  },
+) {
+  const previousCustomer = input.previousSnapshot.customerSnapshot as
+    | Record<string, unknown>
+    | undefined;
+  if (
+    previousCustomer?.reviewRequired !== true ||
+    input.customerSnapshot.reviewRequired !== false
+  ) {
+    return false;
+  }
+  const updated = await client.query(
+    `UPDATE billing_cases
+     SET customer_id = $2, customer_snapshot_json = $3, customer_corrected_at = now(),
+         revision = revision + 1, updated_at = now()
+     WHERE id = $1 AND status = 'NEEDS_REVIEW' AND customer_corrected_at IS NULL
+       AND (SELECT count(*) FROM orders WHERE billing_case_id = billing_cases.id) = 1
+       AND NOT EXISTS (
+         SELECT 1 FROM billing_cases AS other
+         WHERE other.id <> billing_cases.id AND other.customer_id = $2
+           AND other.local_order_date = billing_cases.local_order_date
+           AND other.currency = billing_cases.currency
+           AND ${openBillingCaseSql("other")}
+       )`,
+    [input.caseId, input.newCustomerId, JSON.stringify(input.customerSnapshot)],
+  );
+  if (!updated.rowCount) return false;
+  await client.query("UPDATE orders SET customer_id = $2 WHERE id = $1", [
+    input.orderId,
+    input.newCustomerId,
+  ]);
+  await client.query(
+    `UPDATE documents
+     SET recipient_snapshot_json = $2, draft_version = draft_version + 1,
+         projection_sha256 = repeat('0', 64), updated_at = now()
+     WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'`,
+    [input.caseId, JSON.stringify(recipientFromCustomerSnapshot(input.customerSnapshot))],
+  );
+  await writeAudit(client, {
+    actorType: "SYSTEM",
+    action: "CUSTOMER_CORRECTED",
+    eventClass: "CRITICAL",
+    entityType: "BILLING_CASE",
+    entityId: input.caseId,
+    metadata: { billingCaseId: input.caseId, provider: "SHOPIFY" },
+    before: previousCustomer,
+    after: input.customerSnapshot,
+    reason: "Rilettura dello stesso payload con il mapper Shopify corretto",
+    requestId: input.requestId,
+  });
+  await client.query(
+    `DELETE FROM customers
+     WHERE id = $1
+       AND NOT EXISTS (SELECT 1 FROM orders WHERE customer_id = customers.id)
+       AND NOT EXISTS (SELECT 1 FROM billing_cases WHERE customer_id = customers.id)
+       AND NOT EXISTS (SELECT 1 FROM customer_source_records WHERE customer_id = customers.id)`,
+    [input.oldCustomerId],
+  );
+  await recomputeBillingCaseStatus(client, input.caseId);
+  await refreshInvoiceDraftProjection(client, input.caseId);
+  return true;
+}
+
 function cents(value: string): number {
   try {
     return decimalToCents(value);
@@ -412,7 +498,7 @@ function reviewFingerprint(
     displayNumber: input.displayNumber,
     totalAmount,
     localDate,
-    paymentStatus: input.paymentStatus,
+    paymentStatus: effectiveOrderPaymentStatus(input, totalAmount),
     fulfillmentStatus: input.fulfillmentStatus,
     cancelledAt: canonicalTimestamp(input.cancelledAt),
     sourceReviewRequired: input.sourceReviewRequired,
@@ -641,9 +727,21 @@ function orderAmounts(input: OrderInput) {
   // Nel Fulfillment API eBay gli importi del riepilogo pagamenti possono essere il
   // netto venditore. Lo stato PAID resta autorevole, ma quel netto non va confrontato
   // con il totale cliente; righe e spedizione continuano invece a doverlo ricostruire.
+  const paidPaymentAmount = input.payments.reduce(
+    (sum, payment, index) =>
+      payment.status === "PAID" ? sum + BigInt(paymentAmounts[index]!) : sum,
+    0n,
+  );
+  const observablePaymentAmount =
+    paidPaymentAmount >= BigInt(grossAmount)
+      ? paidPaymentAmount
+      : input.payments.reduce(
+          (sum, payment, index) =>
+            payment.status === "REFUNDED" ? sum : sum + BigInt(paymentAmounts[index]!),
+          0n,
+        );
   const paymentsReconciled =
-    input.provider === "EBAY" ||
-    paymentAmounts.reduce((sum, amount) => sum + BigInt(amount), 0n) === BigInt(grossAmount);
+    input.provider === "EBAY" || observablePaymentAmount === BigInt(grossAmount);
   const totalsReconciled = linesReconciled && paymentsReconciled;
   const shopifyPaymentsFeeAmount = shopifyPaymentsFeeAmounts.reduce(
     (sum, amount) => sum + amount,
@@ -839,7 +937,8 @@ async function importOne(
     billableAmount,
   );
   const orderReview =
-    orderReviewRequired(input, totalsReconciled, trigger) || refundEffect.state === "NEEDS_REVIEW";
+    orderReviewRequired(input, totalsReconciled, grossAmount, trigger) ||
+    refundEffect.state === "NEEDS_REVIEW";
   const previous = await loadPreviousOrder(client, input);
   if (previous.rows[0]?.is_stale) return "ignored";
 
@@ -851,6 +950,7 @@ async function importOne(
       : triggerStatus(
           {
             ...input,
+            paymentStatus: effectiveOrderPaymentStatus(input, grossAmount),
             historical:
               historical && oldOrder?.historical_reconciliation_outcome !== "NOT_INVOICED",
           },
@@ -884,25 +984,22 @@ async function importOne(
   const becameHistorical = Boolean(
     input.historical && oldOrder?.billing_case_id && !oldOrder.historical && !invoiced,
   );
-  const sourceConflict = Boolean(
-    becameHistorical ||
-    (oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint),
+  const fingerprintChanged = Boolean(
+    oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint,
   );
-  const revision = sourceConflict
-    ? await client.query<{ id: string }>(
-        `INSERT INTO order_source_revisions
-          (order_id, billing_case_id, previous_normalized_snapshot_json,
-           current_normalized_snapshot_json)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id`,
-        [
-          oldOrder!.id,
-          oldOrder!.billing_case_id,
-          JSON.stringify(oldOrder!.last_observed_snapshot_json),
-          JSON.stringify(normalizedSnapshot),
-        ],
-      )
-    : null;
+  const mapperCorrectionCandidate = Boolean(
+    input.provider === "SHOPIFY" &&
+    fingerprintChanged &&
+    oldOrder &&
+    sameProviderSnapshot(oldOrder.last_observed_snapshot_json, input),
+  );
+  const mapperPaymentCorrectionCandidate = Boolean(
+    mapperCorrectionCandidate &&
+    !invoiced &&
+    oldOrder?.order_review_required &&
+    !orderReview &&
+    effectiveOrderPaymentStatus(input, grossAmount) === "PAID",
+  );
   const order = await client.query<{
     id: string;
     billing_case_id: string | null;
@@ -963,6 +1060,37 @@ async function importOne(
     ],
   );
   const orderId = order.rows[0]!.id;
+  const mapperCorrectionApplied =
+    mapperCorrectionCandidate && oldOrder?.billing_case_id
+      ? await reconcileMapperCustomerCorrection(client, {
+          caseId: oldOrder.billing_case_id,
+          orderId,
+          oldCustomerId: oldOrder.customer_id,
+          newCustomerId: customerId,
+          previousSnapshot: oldOrder.last_observed_snapshot_json,
+          customerSnapshot: normalizedSnapshot.customerSnapshot,
+          requestId: actor.requestId,
+        })
+      : false;
+  const mapperDerivedCorrectionApplied =
+    mapperCorrectionApplied || mapperPaymentCorrectionCandidate;
+  const sourceConflict =
+    becameHistorical || (fingerprintChanged && !mapperDerivedCorrectionApplied);
+  const revision = sourceConflict
+    ? await client.query<{ id: string }>(
+        `INSERT INTO order_source_revisions
+          (order_id, billing_case_id, previous_normalized_snapshot_json,
+           current_normalized_snapshot_json)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [
+          oldOrder!.id,
+          oldOrder!.billing_case_id,
+          JSON.stringify(oldOrder!.last_observed_snapshot_json),
+          JSON.stringify(normalizedSnapshot),
+        ],
+      )
+    : null;
   const historicalReconciliationPending =
     historical && oldOrder?.historical_reconciliation_outcome == null;
   const currentBillingCaseId = sourceConflict
@@ -987,6 +1115,25 @@ async function importOne(
     documentIssued,
     actor,
   );
+  if (mapperPaymentCorrectionCandidate && oldOrder?.billing_case_id) {
+    // Il frammento interpolato è una costante interna che riceve soltanto l'alias SQL fisso.
+    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
+    await client.query(
+      `UPDATE documents
+       SET payment_status = 'PAID', draft_version = draft_version + 1,
+           projection_sha256 = repeat('0', 64), updated_at = now()
+       WHERE billing_case_id = $1 AND kind = 'INVOICE'
+         AND status = 'DRAFT' AND payment_status = 'PENDING'
+         AND NOT EXISTS (
+           SELECT 1 FROM orders AS case_order
+           WHERE case_order.billing_case_id = $1
+             AND ${pendingPaymentSql("case_order")}
+         )`,
+      [oldOrder.billing_case_id],
+    );
+    await recomputeBillingCaseStatus(client, oldOrder.billing_case_id);
+    await refreshInvoiceDraftProjection(client, oldOrder.billing_case_id);
+  }
   let effectiveBillingCaseId = currentBillingCaseId;
   if (
     !historicalReconciliationPending &&

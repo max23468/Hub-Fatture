@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { AppError } from "../errors.ts";
-import { orderReviewRequired } from "../orders.ts";
+import { decimalToCents, orderReviewRequired } from "../orders.ts";
 import {
   EBAY_SCOPE,
   ebayAccountReference,
@@ -83,7 +83,10 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
     completedAt: "2026-08-02T10:00:00Z",
     raw: (businessOrder as { refunds: unknown[] }).refunds[0],
   });
-  assert.equal(orderReviewRequired(businessMapped, true), false);
+  assert.equal(
+    orderReviewRequired(businessMapped, true, decimalToCents(businessMapped.total)),
+    false,
+  );
 });
 
 test("Shopify non interpreta il segnaposto privato come ragione sociale", async () => {
@@ -113,7 +116,16 @@ test("Shopify usa Interno come ultimo fallback soltanto per un identificativo it
   type ShopifyTaxPayload = Record<string, unknown> & {
     localizedFields: { nodes: unknown[] };
     customer: { taxSettings: { taxId: string | null } };
-    billingAddress: { address2: string | null; countryCodeV2: string };
+    billingAddress: { address2: string | null; countryCodeV2: string; company?: string | null };
+    shippingAddress: {
+      address1: string;
+      address2: string | null;
+      company?: string | null;
+      zip: string;
+      city: string;
+      provinceCode: string;
+      countryCodeV2: string;
+    };
   };
   const fallback = structuredClone(payload) as ShopifyTaxPayload;
   fallback.localizedFields.nodes = [];
@@ -169,6 +181,55 @@ test("Shopify usa Interno come ultimo fallback soltanto per un identificativo it
     mapShopifyOrder(fallback, "shop.example.invalid").customer.taxIdentifiers[0]?.sourceField,
     "localizedFields:TAX_CREDENTIAL_IT:TAX",
   );
+
+  fallback.localizedFields.nodes = [];
+  fallback.billingAddress.address2 = null;
+  fallback.shippingAddress.address2 = "RSSMRA80A01H501U";
+  fallback.billingAddress = {
+    ...fallback.billingAddress,
+    address1: "Via Esempio",
+    zip: "00100",
+    city: "Roma",
+    provinceCode: "RM",
+  } as ShopifyTaxPayload["billingAddress"];
+  fallback.shippingAddress = {
+    ...fallback.shippingAddress,
+    address1: "Via Esempio 112",
+    zip: "00100",
+    city: "Roma",
+    provinceCode: "RM",
+    countryCodeV2: "IT",
+  };
+  const shippingFallback = mapShopifyOrder(fallback, "shop.example.invalid");
+  assert.deepEqual(shippingFallback.customer.taxIdentifiers, [
+    {
+      type: "CODICE_FISCALE",
+      value: "RSSMRA80A01H501U",
+      countryCode: "IT",
+      sourceField: "shippingAddress.address2",
+    },
+  ]);
+  assert.equal(shippingFallback.customer.billingAddress.line1, "Via Esempio 112");
+  assert.equal(shippingFallback.customer.shippingAddress.line2, undefined);
+
+  fallback.shippingAddress.city = "Milano";
+  assert.equal(
+    mapShopifyOrder(fallback, "shop.example.invalid").customer.billingAddress.line1,
+    "Via Esempio",
+  );
+  assert.equal(mapShopifyOrder(fallback, "shop.example.invalid").customer.taxIdentifiers.length, 0);
+  assert.equal(
+    mapShopifyOrder(fallback, "shop.example.invalid").customer.shippingAddress.line2,
+    "RSSMRA80A01H501U",
+  );
+
+  fallback.shippingAddress.city = "Roma";
+  fallback.billingAddress.company = "Azienda Fatturazione SRL";
+  fallback.shippingAddress.company = "Azienda Consegna SRL";
+  const differentCompany = mapShopifyOrder(fallback, "shop.example.invalid");
+  assert.equal(differentCompany.customer.billingAddress.line1, "Via Esempio");
+  assert.equal(differentCompany.customer.taxIdentifiers.length, 0);
+  assert.equal(differentCompany.customer.shippingAddress.line2, "RSSMRA80A01H501U");
 });
 
 test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del rimborso", async () => {
@@ -276,7 +337,7 @@ test("eBay distingue l'annullamento concluso dalla richiesta in corso", async ()
   inProgress.cancelStatus = { cancelState: "IN_PROGRESS" };
   const pendingMapped = mapEbayOrder(inProgress, "botCF");
   assert.equal(pendingMapped.cancelledAt, null);
-  assert.equal(orderReviewRequired(pendingMapped, true), true);
+  assert.equal(orderReviewRequired(pendingMapped, true, decimalToCents(pendingMapped.total)), true);
 
   inProgress.cancelStatus = { cancelState: "CANCELED" };
   assert.equal(mapEbayOrder(inProgress, "botCF").cancelledAt, pendingMapped.updatedAt);
