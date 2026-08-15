@@ -861,8 +861,12 @@ async function reconcileRemoteDocument(
     `SELECT method, status FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
     [remoteId],
   );
+  const compatibleCandidateObserved = match.evaluations.some((evaluation) => evaluation.compatible);
   if (
     (previous.rows[0]?.method === "MANUAL" && previous.rows[0].status === "MATCHED") ||
+    (previous.rows[0]?.method === "MANUAL" &&
+      previous.rows[0].status === "UNMATCHED" &&
+      !compatibleCandidateObserved) ||
     previous.rows[0]?.status === "ERROR" ||
     (previous.rows[0]?.status === "UNKNOWN_REMOTE_STATE" && remote.status === "UNKNOWN")
   ) {
@@ -1663,6 +1667,7 @@ async function materializeMatchedExternalDocument(
 ) {
   const remote = await lockedRemoteMatch(client, remoteDocumentId);
   if (!remote || !isEmissionConfirmed(remote.remote_status)) return null;
+  if (remote.match_method === "MANUAL" && remote.match_status === "UNMATCHED") return null;
   let identity: ReturnType<typeof acceptedDocumentFiscalIdentity>;
   try {
     identity = acceptedDocumentFiscalIdentity(xml);
@@ -2615,7 +2620,7 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
-          AND matches.status = 'UNMATCHED') AS unmatched,
+          AND matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL') AS unmatched,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
@@ -2709,7 +2714,8 @@ export async function listRemoteDocuments(options: { attentionOnly?: boolean } =
      LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
      WHERE remote.environment = $1 AND remote.account_reference = $2
        AND (NOT $3::boolean
-         OR coalesce(matches.status, 'UNMATCHED') <> 'MATCHED'
+         OR (coalesce(matches.status, 'UNMATCHED') <> 'MATCHED'
+           AND NOT (matches.status = 'UNMATCHED' AND matches.method = 'MANUAL'))
          OR (matches.status = 'MATCHED'
            AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
            AND NOT EXISTS (SELECT 1 FROM aruba_files
@@ -3665,5 +3671,96 @@ export async function resolveArubaDocumentMatch(
       requestId: actor.requestId,
     });
     return { matched: true, documentId };
+  });
+}
+
+export async function confirmArubaDocumentOutOfScope(
+  remoteDocumentId: string,
+  rawReason: unknown,
+  actor: ArubaReadActor,
+) {
+  const reason = z.string().trim().min(20).max(500).safeParse(rawReason);
+  if (!actor.canApprove) throw new AppError("ARUBA_READ_SESSION_FORBIDDEN", 403);
+  if (!isDatabaseId(remoteDocumentId) || !reason.success) {
+    throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+  }
+  return withTransaction(async (client) => {
+    const match = await client.query<{
+      status: string;
+      method: string | null;
+      order_id: string | null;
+      billing_case_id: string | null;
+      document_id: string | null;
+      related_invoice_document_id: string | null;
+      candidates_json: Array<{ compatible?: boolean }>;
+      remote_status: ArubaRemoteStatus;
+      origin: string;
+      has_xml: boolean;
+      has_hub_submission: boolean;
+    }>(
+      `SELECT matches.status, matches.method, matches.order_id, matches.billing_case_id,
+              matches.document_id, matches.related_invoice_document_id, matches.candidates_json,
+              remote.remote_status, remote.origin,
+              EXISTS (SELECT 1 FROM aruba_files
+                WHERE aruba_files.remote_document_id = remote.id
+                  AND aruba_files.kind = 'ARUBA_XML') AS has_xml,
+              EXISTS (
+                SELECT 1 FROM aruba_submissions AS submissions
+                JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
+                WHERE submissions.remote_id = remote.remote_id
+                  AND submissions.environment = remote.environment
+                  AND batches.account_reference = remote.account_reference
+                  AND submissions.status <> 'REMOVED'
+              ) AS has_hub_submission
+       FROM aruba_document_matches AS matches
+       JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
+       WHERE matches.remote_document_id = $1
+         AND remote.environment = $2 AND remote.account_reference = $3
+       FOR UPDATE OF matches, remote`,
+      [remoteDocumentId, environment(), accountReference()],
+    );
+    const current = match.rows[0];
+    const hasCompatibleCandidate = current?.candidates_json.some(
+      (candidate) => candidate.compatible,
+    );
+    if (
+      !current ||
+      current.status !== "PROFILE_CONFLICT" ||
+      !isEmissionConfirmed(current.remote_status) ||
+      !current.has_xml ||
+      current.has_hub_submission ||
+      hasCompatibleCandidate ||
+      current.order_id ||
+      current.billing_case_id ||
+      current.document_id ||
+      current.related_invoice_document_id
+    ) {
+      throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
+    }
+    await client.query(
+      `UPDATE aruba_document_matches SET status = 'UNMATCHED', method = 'MANUAL',
+         order_id = NULL, billing_case_id = NULL, document_id = NULL,
+         related_invoice_document_id = NULL, refund_ids = '{}', decided_by = $2,
+         decision_reason = $3, decided_at = now(), updated_at = now()
+       WHERE remote_document_id = $1`,
+      [remoteDocumentId, actor.id, reason.data],
+    );
+    await client.query(
+      `UPDATE aruba_remote_documents SET origin = 'ARUBA_EXTERNAL' WHERE id = $1`,
+      [remoteDocumentId],
+    );
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE",
+      eventClass: "CRITICAL",
+      entityType: "ARUBA_REMOTE_DOCUMENT",
+      entityId: remoteDocumentId,
+      before: { status: current.status, method: current.method, origin: current.origin },
+      after: { status: "UNMATCHED", method: "MANUAL", origin: "ARUBA_EXTERNAL" },
+      reason: reason.data,
+      requestId: actor.requestId,
+    });
+    return { outOfScope: true };
   });
 }

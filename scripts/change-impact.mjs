@@ -86,7 +86,7 @@ export function classifyFiles(inputFiles) {
   const arubaPlatform =
     failClosed ||
     files.some((file) =>
-      /^(?:\.github\/workflows\/aruba-platform\.yml$|scripts\/(?:aruba-helper|aruba-read-helper)|tests\/e2e\/aruba-synthetic|app\/routes\/aruba-(?:helper|sync))/.test(
+      /^(?:\.github\/workflows\/aruba-platform\.yml$|scripts\/(?:aruba-helper|aruba-read-helper)|src\/aruba(?:-inbound)?\.ts$|tests\/e2e\/aruba-synthetic|app\/routes\/aruba-(?:helper|sync))/.test(
         file,
       ),
     );

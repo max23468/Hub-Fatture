@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.49
+
+- I documenti Aruba terminali con XML ufficiale, senza candidati eBay o Shopify compatibili né collegamenti locali, possono essere confermati dal solo titolare come fuori perimetro con motivazione e audit critico.
+- La classificazione resta stabile alle scansioni successive, conserva la sola evidenza remota e non crea clienti, ordini, preparazioni, documenti o movimenti locali.
+- Il classificatore CI include i moduli condivisi dall’helper Aruba, così ogni loro modifica richiede nuovamente le prove Chrome/macOS ed Edge/Windows.
+
 ## 0.3.48
 
 - Il connettore Shopify recupera Codice Fiscale e civico dall’indirizzo di spedizione soltanto quando identità e località coincidono con la fatturazione e il dato è univoco; gli ordini già importati vengono riletti e le preparazioni singole ancora in revisione si riallineano senza perdere audit o proiezione.

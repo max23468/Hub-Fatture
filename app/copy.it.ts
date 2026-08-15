@@ -1213,6 +1213,7 @@ export const auditActionLabels = {
   ARUBA_READ_SESSION_ISSUED: "Sessione Aruba di sola lettura creata",
   ARUBA_INVENTORY_COMPLETED: "Inventario Aruba completato",
   ARUBA_DOCUMENT_MATCH_RESOLVED: "Documento Aruba collegato manualmente",
+  ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE: "Documento Aruba confermato fuori perimetro",
   ARUBA_PREFLIGHT_OVERRIDDEN: "Controllo Aruba sostituito dopo verifica manuale",
   ARUBA_HELPER_TOKEN_CREATED: "Codice helper generato",
   ARUBA_READBACK_RECONCILED: "Readback Aruba riconciliato",

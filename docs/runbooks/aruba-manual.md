@@ -36,8 +36,10 @@ In **Impostazioni → Helper Aruba**, aprire il readback completo, copiare tutte
 
 Per una preparazione usare invece **Readback manuale specifico**: riportare tutte le pagine delle ricerche indicate. Una pagina vuota e completa produce una ricevuta monouso valida cinque minuti; qualunque candidato produce un blocco e deve prima essere importato e riconciliato.
 
-## Collegamento manuale di un documento esterno
+## Documento Aruba fuori perimetro
 
 In **Documenti → Da collegare**, importare prima l’XML ufficiale sul documento Aruba corretto. Se il matcher propone più candidati già compatibili, Massimo può selezionare l’ordine e confermare con una motivazione di almeno dieci caratteri. La decisione è auditata e non può rendere compatibile un candidato scartato dal matcher, modificare importi o aggirare il profilo fiscale. Per `DELIVERED` e `NOT_DELIVERED` la conferma materializza il documento storico e aggiorna atomicamente ordine, preparazione o rimborsi; per stati intermedi o `REJECTED` resta soltanto il collegamento operativo senza una nuova riga fiscale.
+
+Se un documento terminale con XML ufficiale è in conflitto con il profilo e non presenta alcun candidato locale compatibile né collegamenti preesistenti, il solo titolare può confermarlo come fattura fuori perimetro con una motivazione di almeno venti caratteri. La decisione è critica e auditata, classifica l’origine come esterna a Hub Fatture, resta stabile alle scansioni successive e rimuove quel documento dai blocchi dell’inventario senza creare clienti, ordini, preparazioni, documenti o movimenti locali. Questa classificazione comprende ordini e fatture che non passano da eBay o Shopify e che non fanno parte dello scope di Hub Fatture. Non usare l’azione quando esiste anche un solo candidato compatibile, manca l’XML ufficiale oppure il documento appartiene al perimetro dei due canali gestiti.
 
 Se una fattura esterna copre un solo ordine di una preparazione multipla, verificare che l’ordine coperto risulti fatturato e che la bozza residua contenga ancora tutti e soli gli altri ordini con importi e revisione rigenerati. Per una TD04 verificare che tutti e soli i rimborsi coperti siano collegati alla stessa nota di credito. Qualunque esito parziale o incoerente richiede di lasciare il caso in verifica: non correggere direttamente XML, documenti approvati o collegamenti DB.
