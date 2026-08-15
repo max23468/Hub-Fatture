@@ -9,10 +9,15 @@ export const BACKUP_RECEIPT_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 
 const backupReceiptSchema = z.object({
   completedAt: z.iso.datetime(),
+  commit: z.string().regex(/^[0-9a-f]{40}$/),
+  imageDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   objectName: z.string().min(1),
+  reason: z.string().min(1),
+  schema: z.string().min(1),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   sizeBytes: z.number().int().positive(),
   status: z.literal("ok"),
+  version: z.string().min(1),
 });
 
 export type BackupReceipt = z.infer<typeof backupReceiptSchema>;

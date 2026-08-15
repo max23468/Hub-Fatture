@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.52
+
+- La ricevuta di ogni backup include commit, versione applicativa, digest immagine, schema DB e motivo, oltre a checksum e dimensione già verificati su OCI.
+- La corsia Production può creare un backup del solo candidato live senza ridistribuirlo e rifiuta ricevute che non coincidono con commit, versione o schema attesi.
+- La readiness registra separatamente la ripresa del profilo Chrome Aruba persistente, senza nuovo login né azioni sul provider.
+
 ## 0.3.51
 
 - Le Impostazioni separano i documenti Aruba senza un ordine Shopify/eBay dalle ambiguità e dai conflitti che richiedono una verifica.

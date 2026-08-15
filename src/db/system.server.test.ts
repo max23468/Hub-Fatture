@@ -8,9 +8,14 @@ import { assertRetentionBackupVerified } from "./retention.server.ts";
 const receiptAt = (completedAt: string): BackupReceipt => ({
   status: "ok",
   completedAt,
+  commit: "b".repeat(40),
+  imageDigest: `sha256:${"c".repeat(64)}`,
   objectName: "hub-fatture/synthetic-backup.age",
+  reason: "synthetic",
+  schema: "999_synthetic.sql",
   sha256: "a".repeat(64),
   sizeBytes: 1024,
+  version: "0.0.0-test",
 });
 
 test("la retention Production richiede una ricevuta backup corrente", () => {

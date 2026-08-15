@@ -7,6 +7,11 @@ on:
         description: Commit di main da distribuire
         required: true
         type: string
+      backup_only:
+        description: Crea e verifica un backup del candidato live senza ridistribuirlo
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -50,6 +55,8 @@ jobs:
           install -d -m 700 "$RUNNER_TEMP/hub-fatture-production-tooling"
           install -m 600 scripts/change-impact.mjs scripts/commit-checks.mjs \
             "$RUNNER_TEMP/hub-fatture-production-tooling/"
+          install -m 700 scripts/backup.sh \
+            "$RUNNER_TEMP/hub-fatture-production-tooling/backup.sh"
       - name: Verifica candidato già presente in main
         id: candidate
         env:
@@ -130,6 +137,34 @@ jobs:
             echo "rollback=$rollback"
             node "$RUNNER_TEMP/hub-fatture-production-tooling/change-impact.mjs" "$impact_base" "$impact_head"
           } >> "$GITHUB_OUTPUT"
+      - name: Crea il backup richiesto del candidato live
+        if: inputs.backup_only
+        env:
+          CANDIDATE: ${{ steps.candidate.outputs.commit }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
+        run: |
+          schema=$(find migrations -maxdepth 1 -type f -name '*.sql' -print | sed 's#^.*/##' | sort | tail -n 1)
+          remote_script="/tmp/hub-fatture-backup-$CANDIDATE.sh"
+          scp "$RUNNER_TEMP/hub-fatture-production-tooling/backup.sh" \
+            "$SSH_USER@$SSH_HOST:$remote_script"
+          # La corsia non può usare il backup per un commit diverso dal runtime effettivamente distribuito.
+          # shellcheck disable=SC2029
+          receipt=$(ssh "$SSH_USER@$SSH_HOST" "set -e; trap 'rm -f \"$remote_script\"' EXIT; chmod 700 '$remote_script'; test \"\$(sudo jq -er .commit /opt/hub-fatture/data/operations/deploy-receipt.json)\" = '$CANDIDATE'; sudo env HUB_FATTURE_ROOT=/opt/hub-fatture '$remote_script' readiness >/dev/null; sudo jq -cs '.[1] + {deployedImageDigest:.[0].imageDigest}' /opt/hub-fatture/data/operations/deploy-receipt.json /opt/hub-fatture/data/operations/backup-receipt.json")
+          backup=$(printf '%s\n' "$receipt" | tail -n 1)
+          printf '%s' "$backup" | jq -e --arg commit "$CANDIDATE" --arg version "$VERSION" --arg schema "$schema" '
+            .status == "ok"
+            and .commit == $commit
+            and .version == $version
+            and .schema == $schema
+            and (.objectName | contains($commit))
+            and (.imageDigest | test("^sha256:[0-9a-f]{64}$"))
+            and .imageDigest == .deployedImageDigest
+            and (.sha256 | test("^[0-9a-f]{64}$"))
+            and (.sizeBytes > 0)
+          ' >/dev/null
+          printf 'Ricevuta backup verificata: %s\n' "$backup"
       - name: Riepiloga il perimetro Production
         env:
           LANE: ${{ steps.impact.outputs.lane }}
