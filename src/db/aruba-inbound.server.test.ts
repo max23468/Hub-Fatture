@@ -378,16 +378,27 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         },
       ],
     });
-    assert.deepEqual(
-      (
-        await database
-          .getPool()
-          .query(
-            `SELECT status, method FROM aruba_document_matches WHERE remote_document_id = $1`,
-            [foreignProfileRemote.rows[0]!.id],
-          )
-      ).rows[0],
-      { status: "UNMATCHED", method: "MANUAL" },
+    const reopenedOutOfScopeMatch = (
+      await database.getPool().query<{
+        status: string;
+        method: string;
+        compatible_candidates: number;
+      }>(
+        `SELECT status, method,
+                (SELECT count(*)::integer FROM jsonb_array_elements(candidates_json) candidate
+                 WHERE coalesce((candidate ->> 'compatible')::boolean, false))
+                  AS compatible_candidates
+         FROM aruba_document_matches WHERE remote_document_id = $1`,
+        [foreignProfileRemote.rows[0]!.id],
+      )
+    ).rows[0]!;
+    assert.notEqual(reopenedOutOfScopeMatch.method, "MANUAL");
+    assert.ok(reopenedOutOfScopeMatch.compatible_candidates > 0);
+    assert.equal(
+      (await inbound.listRemoteDocuments({ attentionOnly: true })).some(
+        (remote) => remote.remote_id === "REMOTE-FOREIGN-PROFILE",
+      ),
+      true,
     );
     const mixedTaxRemote = await database
       .getPool()

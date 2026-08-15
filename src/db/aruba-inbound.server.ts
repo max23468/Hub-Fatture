@@ -861,8 +861,12 @@ async function reconcileRemoteDocument(
     `SELECT method, status FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
     [remoteId],
   );
+  const compatibleCandidateObserved = match.evaluations.some((evaluation) => evaluation.compatible);
   if (
-    previous.rows[0]?.method === "MANUAL" ||
+    (previous.rows[0]?.method === "MANUAL" && previous.rows[0].status === "MATCHED") ||
+    (previous.rows[0]?.method === "MANUAL" &&
+      previous.rows[0].status === "UNMATCHED" &&
+      !compatibleCandidateObserved) ||
     previous.rows[0]?.status === "ERROR" ||
     (previous.rows[0]?.status === "UNKNOWN_REMOTE_STATE" && remote.status === "UNKNOWN")
   ) {
