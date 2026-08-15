@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.51
+
+- Le Impostazioni separano i documenti Aruba senza un ordine Shopify/eBay dalle ambiguità e dai conflitti che richiedono una verifica.
+- I documenti nati fuori dai due canali restano visibili nell’inventario per prevenire duplicati, ma non entrano nel flusso operativo né bloccano il canary tecnico quando non hanno candidati locali compatibili.
+
 ## 0.3.50
 
 - Il canary M9 diventa una verifica tecnica Production senza selezionare, approvare, numerare, caricare o inviare fatture reali e senza generare e-mail.

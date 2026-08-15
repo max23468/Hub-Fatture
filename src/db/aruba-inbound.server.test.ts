@@ -1147,6 +1147,8 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     );
     const health = await inbound.getArubaInventoryHealth();
     assert.equal(health.status, "HEALTHY");
+    assert.ok(health.unmatched > 0);
+    assert.equal(health.ambiguous + health.conflicts, 0);
     assert.equal(health.remoteDocuments, 4);
     const assignedCreditPreflight = await inbound.requestArubaPreflight(
       {
