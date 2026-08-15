@@ -2569,6 +2569,26 @@ export interface ArubaInventoryHealth {
   blockingReason: "NEVER" | "STALE" | "FAILURE" | "CONFLICT" | null;
 }
 
+const arubaPotentialMatchPredicate = `(matches.status = 'UNMATCHED'
+  AND matches.method <> 'MANUAL'
+  AND EXISTS (
+    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
+    WHERE coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+  ))`;
+
+const arubaExternalDocumentPredicate = `(matches.status = 'UNMATCHED' AND (
+  (matches.method = 'MANUAL' AND remote.origin = 'ARUBA_EXTERNAL')
+  OR (matches.method <> 'MANUAL' AND NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
+    WHERE coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+  ))
+))`;
+
+const arubaBlockingMatchPredicate = `(remote.remote_status <> 'REJECTED' AND (
+  ${arubaPotentialMatchPredicate}
+  OR matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')
+))`;
+
 export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
   const result = await getPool().query<{
     last_completed_at: Date | null;
@@ -2622,14 +2642,12 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
-          AND matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
-          AND jsonb_array_length(matches.candidates_json) = 0) AS external_documents,
+          AND ${arubaExternalDocumentPredicate}) AS external_documents,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
           AND remote.remote_status <> 'REJECTED'
-          AND matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
-          AND jsonb_array_length(matches.candidates_json) > 0) AS potential_matches,
+          AND ${arubaPotentialMatchPredicate}) AS potential_matches,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
@@ -2726,11 +2744,7 @@ export async function listRemoteDocuments(
      LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
      WHERE remote.environment = $1 AND remote.account_reference = $2
        AND (NOT $3::boolean OR ($4::boolean AND (
-           (matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
-             AND remote.remote_status <> 'REJECTED'
-             AND jsonb_array_length(matches.candidates_json) > 0)
-           OR matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR',
-             'UNKNOWN_REMOTE_STATE')
+           ${arubaBlockingMatchPredicate}
            OR (matches.status = 'MATCHED'
              AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
              AND NOT EXISTS (SELECT 1 FROM aruba_files

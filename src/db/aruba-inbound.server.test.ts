@@ -390,6 +390,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       ).rows[0]!.action,
       "ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE",
     );
+    assert.ok((await inbound.getArubaInventoryHealth()).externalDocuments > 0);
     assert.equal(
       (await inbound.listRemoteDocuments({ attentionOnly: true })).some(
         (remote) => remote.remote_id === "REMOTE-FOREIGN-PROFILE",
@@ -1145,6 +1146,8 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       1,
       true,
     );
+    const baselineHealth = await inbound.getArubaInventoryHealth();
+    assert.equal(baselineHealth.status, "HEALTHY");
     const externalRemote = await database.getPool().query<{ id: string }>(
       `INSERT INTO aruba_remote_documents
         (environment, account_reference, remote_id, document_type, fiscal_year, series,
@@ -1162,9 +1165,9 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     );
     const health = await inbound.getArubaInventoryHealth();
     assert.equal(health.status, "HEALTHY");
-    assert.equal(health.externalDocuments, 1);
-    assert.equal(health.potentialMatches + health.ambiguous + health.conflicts, 0);
-    assert.equal(health.remoteDocuments, 5);
+    assert.equal(health.externalDocuments, baselineHealth.externalDocuments + 1);
+    assert.equal(health.potentialMatches, baselineHealth.potentialMatches);
+    assert.equal(health.remoteDocuments, baselineHealth.remoteDocuments + 1);
     assert.equal(
       (await inbound.listRemoteDocuments({ blockingOnly: true })).some(
         (remote) => remote.remote_id === "REMOTE-EXTERNAL-001",
@@ -1176,18 +1179,48 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
        SET candidates_json = $2 WHERE remote_document_id = $1`,
       [
         externalRemote.rows[0]!.id,
-        JSON.stringify([{ candidateId: order.rows[0]!.id, compatible: false }]),
+        JSON.stringify([
+          {
+            candidateId: order.rows[0]!.id,
+            compatible: false,
+            signals: {
+              provider: true,
+              explicitReference: false,
+              date: true,
+              total: false,
+              recipient: false,
+              taxId: false,
+              address: false,
+            },
+          },
+        ]),
       ],
+    );
+    const temporalOnlyHealth = await inbound.getArubaInventoryHealth();
+    assert.equal(temporalOnlyHealth.status, "HEALTHY");
+    assert.equal(temporalOnlyHealth.externalDocuments, baselineHealth.externalDocuments + 1);
+    assert.equal(temporalOnlyHealth.potentialMatches, baselineHealth.potentialMatches);
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_set(candidates_json, '{0,signals,explicitReference}', 'true')
+       WHERE remote_document_id = $1`,
+      [externalRemote.rows[0]!.id],
     );
     const mismatchedHealth = await inbound.getArubaInventoryHealth();
     assert.equal(mismatchedHealth.status, "BLOCKED");
-    assert.equal(mismatchedHealth.externalDocuments, 0);
-    assert.equal(mismatchedHealth.potentialMatches, 1);
+    assert.equal(mismatchedHealth.externalDocuments, baselineHealth.externalDocuments);
+    assert.equal(mismatchedHealth.potentialMatches, baselineHealth.potentialMatches + 1);
     assert.equal(
       (await inbound.listRemoteDocuments({ blockingOnly: true })).some(
         (remote) => remote.remote_id === "REMOTE-EXTERNAL-001",
       ),
       true,
+    );
+    assert.equal(
+      (await inbound.listRemoteDocuments({ blockingOnly: true })).some(
+        (remote) => remote.remote_id === "REMOTE-REJECTED-001",
+      ),
+      false,
     );
     await database
       .getPool()

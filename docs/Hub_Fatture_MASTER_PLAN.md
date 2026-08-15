@@ -229,7 +229,7 @@ e quando un rimborso di prova produce correttamente:
 - Comparatore fiscale visuale prima dell'approvazione di fatture e note di credito.
 - Sincronizzazione di notifiche ed esiti.
 - Inventario in sola lettura di fatture e TD04 presenti in Aruba, inclusi i documenti nati fuori da HF, con riconciliazione continuativa e coda `Documenti → Da collegare`.
-- I documenti nati fuori da Shopify ed eBay restano soltanto nell’inventario Aruba per prevenire doppie emissioni: se non hanno candidati locali compatibili non diventano ordini, fatture da gestire o verifiche bloccanti.
+- I documenti nati fuori da Shopify ed eBay restano soltanto nell’inventario Aruba per prevenire doppie emissioni: se non presentano né un riferimento ordine esplicito né un match locale compatibile non diventano ordini, fatture da gestire o verifiche bloccanti.
 - Helper Aruba locale multipiattaforma per Chrome o Edge, avviato dall'utente sul proprio computer.
 - Modalità Aruba `Assistita` e `Automatica dopo conferma`, selezionabili in Impostazioni.
 - Export XML e import dei file Aruba come fallback manuale sempre disponibile.
@@ -1317,7 +1317,7 @@ Il server blocca approvazione e numerazione se l'inventario Aruba dell'anno corr
 
 La sezione riunisce fatture, note di credito e documenti nei diversi stati di trasmissione. Le viste interne evitano tre archivi separati e mantengono filtri coerenti per tipo, stato, cliente e data.
 
-La vista interna `Da collegare` raccoglie i documenti osservati in Aruba senza un ordine o documento HF collegabile in modo univoco. Mostra origine, stato remoto, ultimo aggiornamento e anomalie senza creare ordini locali. Un documento senza alcun candidato Shopify/eBay compatibile resta visibile per l’anti-duplicazione ma non è una verifica bloccante; soltanto match potenziali, ambiguità, conflitti ed errori alimentano anche `Da verificare` e `Attività`.
+La vista interna `Da collegare` raccoglie i documenti osservati in Aruba senza un ordine o documento HF collegabile in modo univoco. Mostra origine, stato remoto, ultimo aggiornamento e anomalie senza creare ordini locali. Un documento senza riferimenti ordine espliciti né match Shopify/eBay compatibili resta visibile per l’anti-duplicazione ma non è una verifica bloccante; soltanto riferimenti espliciti incompatibili, match potenziali, ambiguità, conflitti ed errori alimentano anche `Da verificare` e `Attività`.
 
 Per le note di credito mostrare:
 
@@ -3165,7 +3165,7 @@ Output:
 
 - candidato Production identificato da commit, versione, digest immagine e schema esatti;
 - backup fresco verificato prima della prova e ripristinabilità già qualificata;
-- inventario Aruba completo in sola lettura, senza match potenziali o verifiche irrisolte per ordini Shopify/eBay; i documenti esterni privi di candidati compatibili restano visibili e non bloccanti;
+- inventario Aruba completo in sola lettura, senza match potenziali o verifiche irrisolte per ordini Shopify/eBay; i documenti esterni privi di riferimenti espliciti e match compatibili restano visibili e non bloccanti;
 - Dashboard e Impostazioni coerenti con l’attività reale dell’helper e dell’inventario;
 - `ARUBA_SUBMISSION_ENABLED=false`, nessun documento approvato o numerato per la prova, nessun batch o upload Aruba aperto;
 - gate locali, CI, helper multipiattaforma, deploy, health, rollback e readback Production verdi;
@@ -3503,7 +3503,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Nessun documento approvato, batch di scrittura o upload Aruba pendente.
 - [ ] Backup immediatamente precedente verificato.
 - [ ] `ARUBA_SUBMISSION_ENABLED=false` verificato prima e dopo la prova, senza eccezioni pilota.
-- [ ] Inventario Aruba in sola lettura completo e senza match potenziali, ambiguità, conflitti, errori o stati incerti relativi a ordini Shopify/eBay; i documenti esterni senza candidati locali restano osservabili e non bloccanti.
+- [ ] Inventario Aruba in sola lettura completo e senza riferimenti espliciti incompatibili, match potenziali, ambiguità, conflitti, errori o stati incerti relativi a ordini Shopify/eBay; i documenti esterni senza riferimenti espliciti né match compatibili restano osservabili e non bloccanti.
 - [ ] Backup, schema, servizi, health, code, rollback e readback Production verificati sul candidato esatto.
 - [ ] Ricevuta del canary tecnico collegata al record di readiness.
 - [ ] Nessun P0/P1 o stato remoto incerto irrisolto.
