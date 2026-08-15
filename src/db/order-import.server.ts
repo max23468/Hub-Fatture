@@ -384,7 +384,7 @@ async function reconcileMapperCustomerCorrection(
     `UPDATE billing_cases
      SET customer_id = $2, customer_snapshot_json = $3, customer_corrected_at = now(),
          revision = revision + 1, updated_at = now()
-     WHERE id = $1 AND status = 'NEEDS_REVIEW'
+     WHERE id = $1 AND status = 'NEEDS_REVIEW' AND customer_corrected_at IS NULL
        AND (SELECT count(*) FROM orders WHERE billing_case_id = billing_cases.id) = 1
        AND NOT EXISTS (
          SELECT 1 FROM billing_cases AS other

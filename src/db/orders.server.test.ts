@@ -1654,6 +1654,62 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       },
     );
 
+    const manualMapperReplay = structuredClone(mapperCorrection);
+    manualMapperReplay.externalOrderId = "shop-order-manual-mapper-correction";
+    manualMapperReplay.externalCustomerId = "shop-customer-manual-mapper-correction";
+    manualMapperReplay.customer.email = "manual-mapper@example.invalid";
+    await orders.importOrders([manualMapperReplay], {
+      id: 1,
+      requestId: "test-manual-mapper-before",
+    });
+    const manualMapperCaseId = (
+      await database
+        .getPool()
+        .query("SELECT billing_case_id::text AS id FROM orders WHERE external_order_id = $1", [
+          manualMapperReplay.externalOrderId,
+        ])
+    ).rows[0].id;
+    await database.getPool().query(
+      `UPDATE billing_cases
+       SET customer_corrected_at = now(),
+           customer_snapshot_json = jsonb_set(
+             customer_snapshot_json, '{displayName}', '"Destinatario confermato manualmente"')
+       WHERE id = $1`,
+      [manualMapperCaseId],
+    );
+    const mapperAfterManualCorrection = structuredClone(manualMapperReplay);
+    mapperAfterManualCorrection.customer.taxIdentifiers = [
+      {
+        type: "CODICE_FISCALE",
+        value: "RSSMRA80A01H501U",
+        countryCode: "IT",
+        sourceField: "shippingAddress.address2",
+      },
+    ];
+    mapperAfterManualCorrection.customer.billingAddress.line1 = "Via Esempio 112";
+    delete mapperAfterManualCorrection.customer.shippingAddress.line2;
+    await orders.importOrders([mapperAfterManualCorrection], {
+      id: 1,
+      requestId: "test-manual-mapper-after",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_cases.customer_snapshot_json ->> 'displayName' AS display_name,
+                  billing_cases.customer_corrected_at IS NOT NULL AS manually_corrected,
+                  (SELECT count(*) FROM order_source_revisions
+                   WHERE billing_case_id = billing_cases.id)::int AS revision_count
+           FROM billing_cases WHERE id = $1`,
+          [manualMapperCaseId],
+        )
+      ).rows[0],
+      {
+        display_name: "Destinatario confermato manualmente",
+        manually_corrected: true,
+        revision_count: 1,
+      },
+    );
+
     const profileA = structuredClone(fixture[0]);
     profileA.externalOrderId = "shop-order-profile-a";
     profileA.externalCustomerId = "shop-customer-profile-a";
