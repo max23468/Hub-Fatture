@@ -118,7 +118,7 @@ export default function Home() {
       to: "/attivita",
     },
     {
-      value: arubaInventory.ambiguous + arubaInventory.conflicts,
+      value: arubaInventory.potentialMatches + arubaInventory.ambiguous + arubaInventory.conflicts,
       emptyLabel: copy.dashboard.noArubaConflicts,
       countLabel: copy.dashboard.arubaConflictsCount,
       to: "/attivita",

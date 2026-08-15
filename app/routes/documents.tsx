@@ -391,7 +391,7 @@ export default function Documents() {
                               </Form>
                             ) : null}
                             {remote.has_xml &&
-                            remote.match_status === "PROFILE_CONFLICT" &&
+                            ["PROFILE_CONFLICT", "UNMATCHED"].includes(remote.match_status) &&
                             !remote.candidates.length &&
                             ["DELIVERED", "NOT_DELIVERED"].includes(remote.remote_status) ? (
                               <Form method="post">

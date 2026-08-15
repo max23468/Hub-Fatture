@@ -390,6 +390,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       ).rows[0]!.action,
       "ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE",
     );
+    assert.ok((await inbound.getArubaInventoryHealth()).externalDocuments > 0);
     assert.equal(
       (await inbound.listRemoteDocuments({ attentionOnly: true })).some(
         (remote) => remote.remote_id === "REMOTE-FOREIGN-PROFILE",
@@ -1139,15 +1140,180 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       Number((await database.getPool().query("SELECT count(*) FROM documents")).rows[0].count),
       documentCountBeforeRejectedImport,
     );
+    await inbound.ingestArubaInventoryPage(session.token, {
+      stream: "invoices:2026",
+      scanOrdinal: 2,
+      pageOrdinal: 2,
+      cursor: "explicit-reference-outside-window-end",
+      terminal: true,
+      fullScan: true,
+      documents: [
+        {
+          remoteId: "REMOTE-EXPLICIT-OUTSIDE-WINDOW",
+          documentType: "TD01",
+          fiscalYear: 2026,
+          series: "FPR",
+          fiscalNumber: "9000",
+          documentDate: "2026-10-20",
+          recipientName: "Cliente esterno",
+          recipientTaxId: null,
+          recipientCountryCode: null,
+          recipientAddress: null,
+          totalAmount: 9900,
+          currency: "EUR",
+          status: "DELIVERED",
+          providerObservedAt: "2026-10-20T12:00:00+02:00",
+          xmlSha256: null,
+          orderReferences: ["#1001"],
+        },
+      ],
+    });
+    const outsideWindowMatch = (
+      await database.getPool().query<{ status: string; candidates_json: unknown[] }>(
+        `SELECT matches.status, matches.candidates_json
+         FROM aruba_document_matches AS matches
+         JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
+           WHERE remote.remote_id = 'REMOTE-EXPLICIT-OUTSIDE-WINDOW'`,
+      )
+    ).rows[0]!;
+    assert.equal(outsideWindowMatch.status, "UNMATCHED");
+    assert.equal(
+      outsideWindowMatch.candidates_json.some(
+        (candidate) =>
+          typeof candidate === "object" &&
+          candidate !== null &&
+          "signals" in candidate &&
+          typeof candidate.signals === "object" &&
+          candidate.signals !== null &&
+          "explicitReference" in candidate.signals &&
+          candidate.signals.explicitReference === true,
+      ),
+      true,
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_remote_documents WHERE remote_id = $1", [
+        "REMOTE-EXPLICIT-OUTSIDE-WINDOW",
+      ]);
     await inbound.completeArubaInventory(
       session.token,
       ["invoices:2026", "credit-notes:2026"],
       1,
       true,
     );
+    const baselineHealth = await inbound.getArubaInventoryHealth();
+    assert.equal(baselineHealth.status, "HEALTHY");
+    const externalRemote = await database.getPool().query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series,
+         fiscal_number, document_date, total_amount, remote_status,
+         remote_status_observed_at, origin, metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'REMOTE-EXTERNAL-001', 'TD01', 2026,
+         'FPR', '9001', '2026-08-12', 9900, 'DELIVERED', now(), 'ARUBA_EXTERNAL',
+         repeat('e', 64)) RETURNING id`,
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       VALUES ($1, 'UNMATCHED', 'NONE', 1, '[]')`,
+      [externalRemote.rows[0]!.id],
+    );
     const health = await inbound.getArubaInventoryHealth();
     assert.equal(health.status, "HEALTHY");
-    assert.equal(health.remoteDocuments, 4);
+    assert.equal(health.externalDocuments, baselineHealth.externalDocuments + 1);
+    assert.equal(health.potentialMatches, baselineHealth.potentialMatches);
+    assert.equal(health.remoteDocuments, baselineHealth.remoteDocuments + 1);
+    assert.equal(
+      (await inbound.listRemoteDocuments({ blockingOnly: true })).some(
+        (remote) => remote.remote_id === "REMOTE-EXTERNAL-001",
+      ),
+      false,
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = $2 WHERE remote_document_id = $1`,
+      [
+        externalRemote.rows[0]!.id,
+        JSON.stringify([
+          {
+            candidateId: order.rows[0]!.id,
+            compatible: false,
+            signals: {
+              provider: true,
+              explicitReference: false,
+              date: true,
+              total: false,
+              recipient: false,
+              taxId: false,
+              address: false,
+            },
+          },
+        ]),
+      ],
+    );
+    const temporalOnlyHealth = await inbound.getArubaInventoryHealth();
+    assert.equal(temporalOnlyHealth.status, "HEALTHY");
+    assert.equal(temporalOnlyHealth.externalDocuments, baselineHealth.externalDocuments + 1);
+    assert.equal(temporalOnlyHealth.potentialMatches, baselineHealth.potentialMatches);
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_set(candidates_json, '{0,signals,explicitReference}', 'true')
+       WHERE remote_document_id = $1`,
+      [externalRemote.rows[0]!.id],
+    );
+    const mismatchedHealth = await inbound.getArubaInventoryHealth();
+    assert.equal(mismatchedHealth.status, "BLOCKED");
+    assert.equal(mismatchedHealth.externalDocuments, baselineHealth.externalDocuments);
+    assert.equal(mismatchedHealth.potentialMatches, baselineHealth.potentialMatches + 1);
+    assert.equal(
+      (await inbound.listRemoteDocuments({ blockingOnly: true })).some(
+        (remote) => remote.remote_id === "REMOTE-EXTERNAL-001",
+      ),
+      true,
+    );
+    assert.equal(
+      (await inbound.listRemoteDocuments({ blockingOnly: true })).some(
+        (remote) => remote.remote_id === "REMOTE-REJECTED-001",
+      ),
+      false,
+    );
+    const externalXmlStorage = await database.getPool().query<{ id: string }>(
+      `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('ARUBA_XML', 'aruba/external-explicit-reference.xml', repeat('f', 64), 100,
+         'application/xml') RETURNING id`,
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       VALUES ($1, $2, 'ARUBA_XML')`,
+      [externalRemote.rows[0]!.id, externalXmlStorage.rows[0]!.id],
+    );
+    await inbound.confirmArubaDocumentOutOfScope(
+      externalRemote.rows[0]!.id,
+      "Riferimento esplicito verificato come vendita esterna ai canali gestiti",
+      actor,
+    );
+    await assert.rejects(
+      inbound.confirmArubaDocumentOutOfScope(
+        externalRemote.rows[0]!.id,
+        "Seconda conferma che non deve sovrascrivere la decisione già auditata",
+        actor,
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_PROFILE_CONFLICT",
+    );
+    const resolvedExternalHealth = await inbound.getArubaInventoryHealth();
+    assert.equal(resolvedExternalHealth.status, "HEALTHY");
+    assert.equal(resolvedExternalHealth.externalDocuments, baselineHealth.externalDocuments + 1);
+    assert.equal(resolvedExternalHealth.potentialMatches, baselineHealth.potentialMatches);
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_files WHERE remote_document_id = $1", [externalRemote.rows[0]!.id]);
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_remote_documents WHERE id = $1", [externalRemote.rows[0]!.id]);
+    await database
+      .getPool()
+      .query("DELETE FROM storage_objects WHERE id = $1", [externalXmlStorage.rows[0]!.id]);
     const assignedCreditPreflight = await inbound.requestArubaPreflight(
       {
         documentId: assignedCreditDraftId,
@@ -1609,6 +1775,40 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          (SELECT coalesce(max(inventory_watermark), 0) FROM aruba_sync_sessions)
        WHERE id = $1`,
       [manualReceiptId],
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET status = 'UNMATCHED', method = 'NONE', candidates_json = $1
+       WHERE remote_document_id = (
+         SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-SPECIFIC-001'
+       )`,
+      [
+        JSON.stringify([
+          {
+            candidateId: residualOrder.rows[0]!.id,
+            compatible: false,
+            signals: { explicitReference: true },
+          },
+        ]),
+      ],
+    );
+    await assert.rejects(
+      database.withTransaction((client) =>
+        inbound.consumeArubaPreflight(client, manualReceiptId, {
+          billingCaseId: currentDraft.rows[0]!.billing_case_id,
+          documentId: currentDraft.rows[0]!.id,
+          draftVersion: currentDraft.rows[0]!.draft_version,
+          projectionSha256: currentDraft.rows[0]!.projection_sha256,
+        }),
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_INVENTORY_BLOCKED",
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches SET candidates_json = '[]'
+       WHERE remote_document_id = (
+         SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-SPECIFIC-001'
+       )`,
     );
     await inventoryLock.query("BEGIN");
     await inventoryLock.query("SELECT pg_advisory_xact_lock(hashtext($1))", [

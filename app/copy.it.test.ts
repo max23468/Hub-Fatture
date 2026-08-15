@@ -11,3 +11,8 @@ test("le attività dei canali non espongono codici interni", () => {
   );
   assert.equal(errorCodeLabel("CODICE_SCONOSCIUTO"), "Errore non disponibile");
 });
+
+test("le Impostazioni distinguono i documenti esterni dalle verifiche Aruba", () => {
+  assert.equal(copy.settings.arubaUnmatched, "Senza ordine Shopify/eBay");
+  assert.equal(copy.settings.arubaUnresolved, "Da verificare");
+});

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.51
+
+- Le Impostazioni separano i documenti Aruba senza un ordine Shopify/eBay dalle ambiguità e dai conflitti che richiedono una verifica.
+- Un documento non collegato ma con un riferimento ordine esplicito incompatibile resta bloccante e compare nelle attività; la sola vicinanza temporale a ordini locali non basta.
+- Il titolare può chiudere anche questo conflitto come esterno soltanto dopo XML ufficiale, stato terminale, assenza di candidati compatibili e motivazione auditata.
+- I documenti nati fuori dai due canali restano visibili nell’inventario per prevenire duplicati, ma non entrano nel flusso operativo né bloccano il canary tecnico quando non presentano riferimenti espliciti o match compatibili.
+
 ## 0.3.50
 
 - Il canary M9 diventa una verifica tecnica Production senza selezionare, approvare, numerare, caricare o inviare fatture reali e senza generare e-mail.

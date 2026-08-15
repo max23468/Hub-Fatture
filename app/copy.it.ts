@@ -995,7 +995,8 @@ export const copy = {
       BLOCKED: "Bloccato · verifica richiesta",
     } as Record<string, string>,
     arubaRemoteDocuments: "Documenti rilevati",
-    arubaUnresolved: "Da collegare o verificare",
+    arubaUnmatched: "Senza ordine Shopify/eBay",
+    arubaUnresolved: "Da verificare",
     arubaIssueReadCode: "Genera codice di sola lettura",
     arubaReadCodeTitle: "Codice helper per la sincronizzazione",
     arubaReadCodeHelp: (expiresAt: string) =>

@@ -475,8 +475,12 @@ function ArubaSettingsSection({
           <dd>{inventory.remoteDocuments}</dd>
         </div>
         <div>
+          <dt>{copy.settings.arubaUnmatched}</dt>
+          <dd>{inventory.externalDocuments}</dd>
+        </div>
+        <div>
           <dt>{copy.settings.arubaUnresolved}</dt>
-          <dd>{inventory.unmatched + inventory.ambiguous + inventory.conflicts}</dd>
+          <dd>{inventory.potentialMatches + inventory.ambiguous + inventory.conflicts}</dd>
         </div>
         <div>
           <dt>{copy.settings.arubaConfiguredMode}</dt>
