@@ -7,6 +7,7 @@ import {
   customerIdentity,
   decimalToCents,
   defaultHistoricalStartDate,
+  effectiveOrderPaymentStatus,
   historicalOrderWindow,
   localOrderDate,
   markHistoricalOrders,
@@ -231,7 +232,7 @@ test("il pagamento pendente resta confermabile con il trigger di evasione", () =
 test("un tentativo pendente superato da un incasso completo non richiede verifica", () => {
   const settled = {
     ...base,
-    paymentStatus: "PAID" as const,
+    paymentStatus: "PENDING" as const,
     payments: [
       {
         externalPaymentId: "pending",
@@ -251,7 +252,10 @@ test("un tentativo pendente superato da un incasso completo non richiede verific
       },
     ],
   };
+  const effectiveStatus = effectiveOrderPaymentStatus(settled, decimalToCents(base.total));
+  assert.equal(effectiveStatus, "PAID");
   assert.equal(orderReviewRequired(settled, true, decimalToCents(base.total)), false);
+  assert.equal(triggerStatus({ ...settled, paymentStatus: effectiveStatus }, "PAID"), "ELIGIBLE");
 });
 
 test("un rimborso pendente non blocca l’importo completato e certo", () => {

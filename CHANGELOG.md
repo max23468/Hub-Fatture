@@ -3,7 +3,7 @@
 ## 0.3.48
 
 - Il connettore Shopify recupera Codice Fiscale e civico dall’indirizzo di spedizione soltanto quando identità e località coincidono con la fatturazione e il dato è univoco; gli ordini già importati vengono riletti e le preparazioni singole ancora in revisione si riallineano senza perdere audit o proiezione.
-- Un tentativo di pagamento pendente non resta più azionabile dopo che pagamenti successivi coprono l’intero lordo dell’ordine; dashboard, filtri, anomalie e riconciliazione condividono la stessa regola.
+- Un tentativo di pagamento pendente non resta più azionabile dopo che pagamenti successivi coprono l’intero lordo dell’ordine; dashboard, filtri, anomalie, trigger, bozza e riconciliazione condividono la stessa regola.
 - Le preparazioni storiche riconciliate e realmente non fatturate restano pronte: il correttivo non le sopprime né le trasforma in falsi positivi.
 - I vincoli di sequenzialità delle letture Aruba sotto lock e transazione sono ora espliciti nel gate statico, senza modificare l’inventario né autorizzare invii.
 

@@ -26,6 +26,7 @@ import {
   type Actor,
 } from "./order-import.server.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
+import { pendingPaymentSql } from "./billing-case-sql.server.ts";
 
 const historicalReconciliationSchema = z.object({
   outcome: z.enum(["ALREADY_INVOICED", "NOT_INVOICED"]),
@@ -1122,6 +1123,8 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       metadata: { value: trigger.data },
       requestId: actor.requestId,
     });
+    // Il frammento interpolato è una costante interna che riceve soltanto l'alias SQL fisso.
+    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
     const ungrouped = await client.query<{
       id: string;
       customer_id: string;
@@ -1136,7 +1139,11 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
     }>(
       `SELECT orders.id, orders.customer_id,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
-              orders.local_order_date::text, orders.currency, orders.payment_status,
+              orders.local_order_date::text, orders.currency, CASE
+                WHEN ${pendingPaymentSql("orders")} THEN 'PENDING'
+                WHEN orders.payment_status = 'REFUNDED' THEN 'REFUNDED'
+                ELSE 'PAID'
+              END AS payment_status,
               orders.fulfillment_status, orders.cancelled_at,
               orders.historical_reconciliation_outcome,
               coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
@@ -1232,6 +1239,8 @@ export async function reconcileHistoricalOrder(
         "SELECT pg_advisory_xact_lock_shared(hashtext('setting:shopify_payment_fee_mode'))",
       );
       await serializeOrderMutations(client);
+      // Il frammento interpolato è una costante interna che riceve soltanto l'alias SQL fisso.
+      // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
       const order = await client.query<{
         id: string;
         customer_id: string;
@@ -1264,7 +1273,11 @@ export async function reconcileHistoricalOrder(
       }>(
         `SELECT orders.id, orders.customer_id, orders.provider, orders.display_number,
               orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot,
-              orders.local_order_date::text, orders.currency, orders.payment_status,
+              orders.local_order_date::text, orders.currency, CASE
+                WHEN ${pendingPaymentSql("orders")} THEN 'PENDING'
+                WHEN orders.payment_status = 'REFUNDED' THEN 'REFUNDED'
+                ELSE 'PAID'
+              END AS payment_status,
               orders.fulfillment_status, orders.cancelled_at, orders.trigger_status,
               coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
                 AS historical,

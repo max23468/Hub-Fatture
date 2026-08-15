@@ -36,6 +36,7 @@ import {
   customerDisplayName,
   decimalToCents,
   draftTriggerSchema,
+  effectiveOrderPaymentStatus,
   localOrderDate,
   orderInputSchema,
   orderReviewRequired,
@@ -496,7 +497,7 @@ function reviewFingerprint(
     displayNumber: input.displayNumber,
     totalAmount,
     localDate,
-    paymentStatus: input.paymentStatus,
+    paymentStatus: effectiveOrderPaymentStatus(input, totalAmount),
     fulfillmentStatus: input.fulfillmentStatus,
     cancelledAt: canonicalTimestamp(input.cancelledAt),
     sourceReviewRequired: input.sourceReviewRequired,
@@ -948,6 +949,7 @@ async function importOne(
       : triggerStatus(
           {
             ...input,
+            paymentStatus: effectiveOrderPaymentStatus(input, grossAmount),
             historical:
               historical && oldOrder?.historical_reconciliation_outcome !== "NOT_INVOICED",
           },

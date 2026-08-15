@@ -37,6 +37,7 @@ import {
   snapshotDocumentEmail,
 } from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
+import { pendingPaymentSql } from "./billing-case-sql.server.ts";
 import {
   ensureDocumentStoragePath,
   loadStoredDocuments,
@@ -125,11 +126,17 @@ function sourceLine(order: CaseOrder) {
   };
 }
 
+function casePaymentStatus(caseRow: CaseRow): "PAID" | "PENDING" {
+  return caseRow.orders.some((order) => order.payment_status === "PENDING") ? "PENDING" : "PAID";
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = false) {
+  // Il frammento interpolato è una costante interna che riceve soltanto l'alias SQL fisso.
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await client.query<CaseRow>(
     `SELECT billing_cases.id, billing_cases.revision, billing_cases.status,
             billing_cases.currency, billing_cases.customer_snapshot_json,
@@ -150,7 +157,11 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
            ), 0)
            ELSE 0
          END,
-         'payment_status', orders.payment_status,
+         'payment_status', CASE
+           WHEN ${pendingPaymentSql("orders")} THEN 'PENDING'
+           WHEN orders.payment_status = 'REFUNDED' THEN 'REFUNDED'
+           ELSE 'PAID'
+         END,
          'payment_method', (
            SELECT payments.method FROM payments
            WHERE payments.order_id = orders.id
@@ -239,7 +250,7 @@ function documentInput(
   draft: DraftRow | null,
   profile: FiscalProfile,
 ): DocumentInput {
-  const paymentPending = caseRow.orders.some((order) => order.payment_status === "PENDING");
+  const sourcePaymentStatus = casePaymentStatus(caseRow);
   const parsed = documentInputSchema.safeParse({
     kind: "INVOICE",
     documentDate: draft?.status === "APPROVED" ? draft.document_date : today(),
@@ -251,7 +262,7 @@ function documentInput(
         quantity: line.quantity,
         unitAmount: line.unit_amount,
       })) ?? caseRow.orders.map(sourceLine),
-    paymentStatus: draft?.payment_status ?? (paymentPending ? "PENDING" : "PAID"),
+    paymentStatus: draft?.payment_status ?? sourcePaymentStatus,
     paymentMethod: draft?.payment_method ?? profile.payment.invoiceMethod,
     causale: draft?.causale ?? undefined,
     notes: draft?.notes ?? undefined,
@@ -596,9 +607,7 @@ function sourceAuditSnapshot(caseRow: CaseRow, profile: FiscalProfile): Record<s
       recipient: recipientFromCustomerSnapshot(order.customer_snapshot_json, false),
     })),
     lines: caseRow.orders.map(sourceLine),
-    paymentStatus: caseRow.orders.some((order) => order.payment_status === "PENDING")
-      ? "PENDING"
-      : "PAID",
+    paymentStatus: casePaymentStatus(caseRow),
     paymentMethod: profile.payment.invoiceMethod,
     causale: null,
     notes: null,

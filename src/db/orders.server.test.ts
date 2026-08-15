@@ -1033,16 +1033,15 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       id: 1,
       requestId: "test-pending-payment",
     });
-    assert.equal(
-      (
-        await database.getPool().query(
-          `SELECT billing_cases.status
+    const settledPaymentCase = (
+      await database.getPool().query(
+        `SELECT billing_cases.id::text AS case_id, billing_cases.status
                FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
                WHERE orders.external_order_id = 'shop-order-pending-payment'`,
-        )
-      ).rows[0].status,
-      "READY",
-    );
+      )
+    ).rows[0];
+    assert.equal(settledPaymentCase.status, "READY");
+    const invoiceDocuments = await import("./documents.server.ts");
     assert.equal(Number((await orders.dashboardSummary()).pending_payments), pendingPaymentsBefore);
     assert.ok(
       !(await orders.listOrders({ status: "ACTIVE", paymentStatus: "PENDING" })).rows.some(
@@ -2226,6 +2225,10 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       `INSERT INTO fiscal_profiles (version, status, profile_json)
        VALUES (1, 'MOCK', $1)`,
       [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
+    );
+    assert.equal(
+      (await invoiceDocuments.getInvoiceProjection(settledPaymentCase.case_id))!.paymentStatus,
+      "PAID",
     );
     const shopifyWithoutReference = structuredClone(historical);
     shopifyWithoutReference.externalOrderId = "shop-order-historical-without-reference";
