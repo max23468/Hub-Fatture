@@ -321,7 +321,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("031_shopify_shipping_identity_replay.sql", {
+  const inboundMigration = page.getByText("032_remove_aruba_send_permits.sql", {
     exact: true,
   });
   await expect(inboundMigration).toBeVisible();

@@ -135,7 +135,7 @@ const server = createServer(async (request, response) => {
     response.end(xml);
     return;
   }
-  if (url.pathname === "/api/aruba/helper/consuma-permesso") {
+  if (url.pathname === "/api/aruba/helper/verifica-invio") {
     json(200, { ok: true });
     return;
   }

@@ -609,7 +609,7 @@ export async function runHelper(
     if ((await validateVisibleDocuments(page, value)).some((result) => result.status !== "VALID")) {
       throw new Error("VALIDATION_FAILED");
     }
-    await hubFetch(hub, options.token, "/api/aruba/helper/consuma-permesso", {
+    await hubFetch(hub, options.token, "/api/aruba/helper/verifica-invio", {
       method: "POST",
       body: JSON.stringify({ manifestSha256: value.manifestSha256 }),
     });

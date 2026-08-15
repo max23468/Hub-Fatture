@@ -546,7 +546,6 @@ export async function approveCreditNote(
     actor,
   );
   const committed = await withTransaction(async (client) => {
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba:canary-permit'))");
     await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
     await consumeArubaPreflight(client, preflight.id, {
       documentId,

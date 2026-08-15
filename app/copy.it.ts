@@ -589,7 +589,7 @@ export const copy = {
     emailSkip: "Non inviare per questo documento.",
     assistedHelperMode: "Assistita; l’helper si arresta prima di Invia",
     automaticHelperMode:
-      "Automatica dopo conferma; il permesso monouso autorizza soltanto questo batch",
+      "Automatica dopo approvazione; disponibile soltanto quando l’uso Production è abilitato",
     irreversibleNumbering:
       "Con l’approvazione viene assegnato un numero fiscale definitivo che non potrà essere riutilizzato per un altro documento.",
     confirmApproval:
@@ -688,7 +688,7 @@ export const copy = {
       HELPER_ACTIVE: "Helper attivo",
       VALIDATION_FAILED: "Validazione non riuscita",
       READY_ASSISTED: "Pronto per l’invio manuale",
-      PERMIT_CONSUMED: "Permesso consumato",
+      READY_AUTOMATIC: "Validato; invio automatico abilitato",
       SUBMITTED: "Inviato, esito da verificare",
       RECONCILIATION_REQUIRED: "Readback necessario",
       RECONCILED: "Riconciliato",
@@ -741,24 +741,17 @@ export const copy = {
     batchLastReadback: "Ultimo readback",
     batchNeverRead: "Non ancora eseguito",
     batchActions: "Azioni batch",
-    batchSummary: (count: number, mode: string, permitScope: string | null) =>
-      `${count} ${count === 1 ? "documento" : "documenti"} · ${permitScope === "CANARY" ? "Invio pilota" : mode === "AUTOMATIC" ? "Automatica dopo conferma" : "Assistita"}`,
+    batchSummary: (count: number, mode: string) =>
+      `${count} ${count === 1 ? "documento" : "documenti"} · ${mode === "AUTOMATIC" ? "Automatica" : "Assistita"}`,
     lastReadback: (value: string) => `ultimo readback ${value}`,
     issueHelperCode: "Genera codice di avvio",
-    authorizePermit: "Autorizza nuovo permesso monouso",
-    authorizeCanaryPermit: "Rinnova permesso pilota",
-    confirmCanaryPermit:
-      "Confermo l’autorizzazione limitata a questo singolo documento e a questo tentativo.",
-    confirmCanaryRetry:
-      "Confermo una nuova autorizzazione limitata a questo singolo documento e al nuovo tentativo.",
-    prepareCanaryBatch: "Prepara invio pilota",
     retryBatch: "Prepara nuovo tentativo",
     arubaBatchStatus: {
       PREPARED: "Preparato",
       HELPER_ACTIVE: "Helper attivo",
       VALIDATION_FAILED: "Validazione non riuscita",
       READY_ASSISTED: "Validato; arrestato prima dell’invio",
-      PERMIT_CONSUMED: "Permesso consumato",
+      READY_AUTOMATIC: "Validato; invio automatico abilitato",
       SUBMITTED: "Inviato",
       RECONCILIATION_REQUIRED: "Readback necessario",
       RECONCILED: "Riconciliato",
@@ -1208,7 +1201,6 @@ export const auditActionLabels = {
   ADMIN_ACCOUNT_CREATED: "Account amministrativo creato",
   ARUBA_ASSISTED_STOPPED: "Helper arrestato prima dell’invio",
   ARUBA_BATCH_CREATED: "Batch Aruba creato",
-  ARUBA_CANARY_BATCH_PREPARED: "Invio pilota Aruba preparato",
   ARUBA_FILE_IMPORTED: "File Aruba importato",
   ARUBA_READ_SESSION_ISSUED: "Sessione Aruba di sola lettura creata",
   ARUBA_INVENTORY_COMPLETED: "Inventario Aruba completato",
@@ -1218,8 +1210,7 @@ export const auditActionLabels = {
   ARUBA_HELPER_TOKEN_CREATED: "Codice helper generato",
   ARUBA_READBACK_RECONCILED: "Readback Aruba riconciliato",
   ARUBA_RECONCILIATION_REQUIRED: "Riconciliazione Aruba richiesta",
-  ARUBA_SEND_PERMIT_CONSUMED: "Permesso Aruba consumato",
-  ARUBA_SEND_PERMIT_CREATED: "Permesso Aruba creato",
+  ARUBA_SEND_AUTHORIZATION_VERIFIED: "Autorizzazione invio Aruba verificata",
   ARUBA_SETTINGS_CHANGED: "Impostazioni Aruba modificate",
   ARUBA_UPLOAD_VALIDATED: "Caricamento Aruba validato",
   ARUBA_VALIDATION_FAILED: "Validazione Aruba non riuscita",

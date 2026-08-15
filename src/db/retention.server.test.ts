@@ -177,30 +177,6 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
       ["f".repeat(64), batchId],
     );
     await client.query(
-      `INSERT INTO aruba_send_permits
-         (id, batch_id, manifest_sha256, document_count, mode, authorized_by,
-          authorized_at, expires_at, consumed_at)
-       VALUES ($1, $2, $3, 1, 'AUTOMATIC', $4, now() - interval '40 days',
-               now() - interval '31 days', now() - interval '31 days')`,
-      [randomUUID(), batchId, "e".repeat(64), userId],
-    );
-    const outstandingCanaryBatchId = randomUUID();
-    await client.query(
-      `INSERT INTO aruba_batches
-         (id, environment, mode, account_reference, manifest_sha256, document_count,
-          status, created_by)
-       VALUES ($1, 'PRODUCTION', 'AUTOMATIC', 'synthetic', $2, 1, 'HELPER_ACTIVE', $3)`,
-      [outstandingCanaryBatchId, "2".repeat(64), userId],
-    );
-    await client.query(
-      `INSERT INTO aruba_send_permits
-         (id, batch_id, manifest_sha256, document_count, mode, scope, authorized_by,
-          authorized_at, expires_at, revoked_at)
-       VALUES ($1, $2, $3, 1, 'AUTOMATIC', 'CANARY', $4, now() - interval '40 days',
-               now() - interval '31 days', now() - interval '31 days')`,
-      [randomUUID(), outstandingCanaryBatchId, "2".repeat(64), userId],
-    );
-    await client.query(
       `INSERT INTO retention_holds (data_class, reason, approved_by, review_at)
        VALUES ('SOURCE_PAYLOADS', 'Verifica sintetica in corso', $1, now() + interval '1 day')`,
       [userId],
@@ -212,17 +188,8 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
       OPERATIONAL_JOBS: 1,
       OPERATIONAL_AUDIT: 1,
       CUSTOMER_EMAIL: 1,
-      ARUBA_CREDENTIALS: 2,
+      ARUBA_CREDENTIALS: 1,
     });
-    assert.equal(
-      (
-        await client.query(
-          "SELECT count(*)::int AS count FROM aruba_send_permits WHERE batch_id = $1",
-          [outstandingCanaryBatchId],
-        )
-      ).rows[0]!.count,
-      1,
-    );
     assert.deepEqual(
       (
         await client.query(

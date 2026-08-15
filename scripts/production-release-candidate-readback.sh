@@ -35,11 +35,9 @@ state=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ex
              WHERE sync_cursors.provider = connections.provider
                AND sync_cursors.stream = 'history_import'))),
       (SELECT count(*) FROM aruba_batches
-       WHERE status NOT IN ('RECONCILED', 'CANCELLED')),
-      (SELECT count(*) FROM aruba_send_permits
-       WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now())")
+       WHERE status NOT IN ('RECONCILED', 'CANCELLED'))")
 
-IFS='|' read -r approved_documents unreconciled_history pending_history_imports open_aruba_batches active_permits <<EOF
+IFS='|' read -r approved_documents unreconciled_history pending_history_imports open_aruba_batches <<EOF
 $state
 EOF
 
@@ -47,7 +45,6 @@ EOF
 [ "$unreconciled_history" = "0" ] || { echo "Ordini storici non riconciliati presenti" >&2; exit 1; }
 [ "$pending_history_imports" = "0" ] || { echo "Import iniziali non completati" >&2; exit 1; }
 [ "$open_aruba_batches" = "0" ] || { echo "Batch Aruba aperti presenti" >&2; exit 1; }
-[ "$active_permits" = "0" ] || { echo "Permessi Aruba attivi presenti" >&2; exit 1; }
 
 jq -n \
   --argjson deploy "$receipt" \
@@ -55,8 +52,6 @@ jq -n \
   --argjson unreconciledHistory "$unreconciled_history" \
   --argjson pendingHistoryImports "$pending_history_imports" \
   --argjson openArubaBatches "$open_aruba_batches" \
-  --argjson activeArubaPermits "$active_permits" \
   '{status:"ok",deploy:$deploy,approvedDocuments:$approvedDocuments,
     unreconciledHistory:$unreconciledHistory,pendingHistoryImports:$pendingHistoryImports,
-    openArubaBatches:$openArubaBatches,
-    activeArubaPermits:$activeArubaPermits}'
+    openArubaBatches:$openArubaBatches}'

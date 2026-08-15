@@ -17,7 +17,7 @@
 | [Contratto helper Aruba](contracts/aruba-helper.md)                    | Manifest, sicurezza e locatori candidati                  | Candidato   | Sì             |
 | [Piano Aruba in entrata][aruba-inbound-plan]                           | Inventario, matching, gate, UI e rollout                  | Approvato   | No             |
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                    | Export, upload manuale, readback e import                 | Corrente    | Sì             |
-| [Integrazione Aruba locale](evidence/aruba-helper.md)                  | Capacità locali e gate reale pre-Canary                   | Corrente    | No             |
+| [Integrazione Aruba locale](evidence/aruba-helper.md)                  | Capacità locali e gate reale pre-canary tecnico           | Corrente    | No             |
 | [Note di credito ed e-mail](contracts/credit-notes-email.md)           | Contratto TD04, trigger e trasporto cliente               | Candidato   | Sì             |
 | [Conservazione e cancellazione](contracts/retention-deletion.md)       | Durate, eccezioni e procedura di cancellazione            | Approvato   | Sì             |
 | [PoC OCI Email Delivery](runbooks/oci-email-delivery-poc.md)           | Preflight e prova Development con stop gate               | Completato  | Sì             |
@@ -27,7 +27,7 @@
 | [Incidenti Production](runbooks/incidents.md)                          | Triage P0-P2 e kill switch                                | Corrente    | Sì             |
 | [Evidenza Production OCI](evidence/production-oci.md)                  | Gate locali e ricevute remote della Production OCI        | Verificato  | No             |
 | [Audit del release candidate](audits/release-candidate-review.md)      | Audit trasversale e finding del candidato corrente        | Corrente    | No             |
-| [Readiness della release](runbooks/release-readiness.md)               | Gate chiusi, prove collegate e blocchi prima del canary   | Corrente    | No             |
+| [Readiness della release](runbooks/release-readiness.md)               | Gate chiusi, prove collegate e canary tecnico Production  | Corrente    | No             |
 
 [aruba-inbound-plan]: plans/aruba-inbound-reconciliation.md
 

@@ -25,7 +25,7 @@ export default [
   route("api/aruba/helper/documenti/:documentId/xml", "routes/aruba-helper-document.ts"),
   route("api/aruba/helper/documenti/:documentId/file", "routes/aruba-helper-file.ts"),
   route("api/aruba/helper/eventi", "routes/aruba-helper-events.ts"),
-  route("api/aruba/helper/consuma-permesso", "routes/aruba-helper-permit.ts"),
+  route("api/aruba/helper/verifica-invio", "routes/aruba-helper-send-authorization.ts"),
   route("api/aruba/sync/manifest", "routes/aruba-sync-manifest.ts"),
   route("api/aruba/sync/heartbeat", "routes/aruba-sync-heartbeat.ts"),
   route("api/aruba/sync/pagine", "routes/aruba-sync-page.ts"),

@@ -10,14 +10,12 @@ import { privateRouteMeta } from "../metadata";
 import { ARUBA_IMPORT_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import {
-  authorizeArubaPermit,
   createBatchForDocuments,
   importOfficialArubaFile,
   issueHelperToken,
   listArubaBatches,
   listOfficialArubaFiles,
   listUnbatchedApprovedDocuments,
-  prepareCanaryArubaBatch,
   retryArubaBatch,
 } from "../../src/db/aruba.server.ts";
 import {
@@ -30,7 +28,7 @@ import {
   listEmailDeliveries,
   retryCustomerEmail,
 } from "../../src/db/email.server.ts";
-import { AppError, publicError } from "../../src/errors.ts";
+import { publicError } from "../../src/errors.ts";
 import {
   confirmArubaDocumentOutOfScope,
   importArubaRemoteOfficialFileAsActor,
@@ -183,23 +181,8 @@ export async function action({ request }: Route.ActionArgs) {
     if (form.get("intent") === "issue-helper-token") {
       return data({ helper: await issueHelperToken(form.get("batchId") ?? "", actor) });
     }
-    if (form.get("intent") === "authorize-aruba-permit") {
-      await authorizeArubaPermit(
-        form.get("batchId") ?? "",
-        actor,
-        form.get("confirmCanary") === "yes",
-      );
-      return redirect("/documenti?permesso=creato");
-    }
-    if (form.get("intent") === "prepare-canary-aruba-batch") {
-      if (form.get("confirmCanary") !== "yes") {
-        throw new AppError("ARUBA_PERMIT_INVALID", 422);
-      }
-      await prepareCanaryArubaBatch(form.get("batchId") ?? "", actor);
-      return redirect("/documenti?batch=creato");
-    }
     if (form.get("intent") === "retry-aruba-batch") {
-      await retryArubaBatch(form.get("batchId") ?? "", actor, form.get("confirmCanary") === "yes");
+      await retryArubaBatch(form.get("batchId") ?? "", actor);
       return redirect("/documenti?batch=creato");
     }
     if (form.get("intent") === "retry-customer-email") {

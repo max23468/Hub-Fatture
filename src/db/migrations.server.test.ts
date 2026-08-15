@@ -42,79 +42,54 @@ const CUSTOMER_REVIEW_CLEANUP = "028_customer_review_cleanup.sql";
 const ARUBA_CANARY_PERMIT = "029_aruba_canary_permit.sql";
 const ARUBA_INBOUND_RECONCILIATION = "030_aruba_inbound_reconciliation.sql";
 const SHOPIFY_SHIPPING_IDENTITY_REPLAY = "031_shopify_shipping_identity_replay.sql";
+const REMOVE_ARUBA_SEND_PERMITS = "032_remove_aruba_send_permits.sql";
 
-test("la migrazione revoca i permessi pilota precedenti e ne rende uno solo attivabile", async () => {
-  const database = await temporaryDatabase("aruba_canary_permit_upgrade");
-  const beforeCanaryPermit = await mkdtemp(
-    path.join(os.tmpdir(), "hub-fatture-before-aruba-canary-permit-"),
+test("la migrazione rimuove i permessi Aruba e conserva lo stato pronto", async () => {
+  const database = await temporaryDatabase("remove_aruba_send_permits_upgrade");
+  const beforeRemoval = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-remove-aruba-send-permits-"),
   );
   try {
-    await cp("migrations", beforeCanaryPermit, { recursive: true });
-    await rm(path.join(beforeCanaryPermit, ARUBA_CANARY_PERMIT));
-    await rm(path.join(beforeCanaryPermit, ARUBA_INBOUND_RECONCILIATION));
-    await rm(path.join(beforeCanaryPermit, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
-    await runMigrations({
-      connectionString: database.connectionString,
-      directory: beforeCanaryPermit,
-    });
+    await cp("migrations", beforeRemoval, { recursive: true });
+    await rm(path.join(beforeRemoval, REMOVE_ARUBA_SEND_PERMITS));
+    await runMigrations({ connectionString: database.connectionString, directory: beforeRemoval });
     await withClient(database.connectionString, async (client) => {
       const user = await client.query<{ id: number }>(
         `INSERT INTO users (username, password_hash, can_approve)
          VALUES ('Massimo', 'synthetic', true) RETURNING id`,
       );
-      const ids = ["10000000-0000-4000-8000-000000000001", "10000000-0000-4000-8000-000000000002"];
-      for (const [index, id] of ids.entries()) {
-        await client.query(
-          `INSERT INTO aruba_batches
-            (id, environment, mode, account_reference, manifest_sha256,
-             document_count, attempt_number, created_by)
-           VALUES ($1, 'PRODUCTION', 'AUTOMATIC', 'qualified-account', $2, 1, 1, $3)`,
-          [id, String(index + 1).repeat(64), user.rows[0]!.id],
-        );
-        await client.query(
-          `INSERT INTO aruba_send_permits
-            (id, batch_id, manifest_sha256, document_count, mode, scope,
-             authorized_by, expires_at)
-           VALUES ($1, $2, $3, 1, 'AUTOMATIC', 'CANARY', $4, now() + interval '10 minutes')`,
-          [
-            `20000000-0000-4000-8000-00000000000${index + 1}`,
-            id,
-            String(index + 1).repeat(64),
-            user.rows[0]!.id,
-          ],
-        );
-      }
-    });
-
-    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
-      ARUBA_CANARY_PERMIT,
-      ARUBA_INBOUND_RECONCILIATION,
-      SHOPIFY_SHIPPING_IDENTITY_REPLAY,
-    ]);
-    await withClient(database.connectionString, async (client) => {
-      assert.equal(
-        (
-          await client.query(
-            `SELECT count(*) FROM aruba_send_permits
-             WHERE scope = 'CANARY' AND revoked_at IS NOT NULL AND expires_at <= now()`,
-          )
-        ).rows[0].count,
-        "2",
+      const batchId = "10000000-0000-4000-8000-000000000001";
+      await client.query(
+        `INSERT INTO aruba_batches
+          (id, environment, mode, account_reference, manifest_sha256, document_count,
+           attempt_number, status, created_by)
+         VALUES ($1, 'MOCK', 'AUTOMATIC', 'qualified-account', $2, 1, 1,
+                 'PERMIT_CONSUMED', $3)`,
+        [batchId, "1".repeat(64), user.rows[0]!.id],
       );
       await client.query(
-        `UPDATE aruba_send_permits SET revoked_at = NULL
-         WHERE batch_id = '10000000-0000-4000-8000-000000000001'`,
+        `INSERT INTO aruba_send_permits
+          (id, batch_id, manifest_sha256, document_count, mode, authorized_by, expires_at)
+         VALUES ($1, $2, $3, 1, 'AUTOMATIC', $4, now() + interval '10 minutes')`,
+        ["20000000-0000-4000-8000-000000000001", batchId, "1".repeat(64), user.rows[0]!.id],
       );
-      await assert.rejects(
-        client.query(
-          `UPDATE aruba_send_permits SET revoked_at = NULL
-           WHERE batch_id = '10000000-0000-4000-8000-000000000002'`,
-        ),
-        /aruba_single_active_canary_permit_idx/,
+    });
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      REMOVE_ARUBA_SEND_PERMITS,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT status, to_regclass('aruba_send_permits') AS permits_table
+           FROM aruba_batches WHERE id = '10000000-0000-4000-8000-000000000001'`,
+          )
+        ).rows[0],
+        { status: "READY_AUTOMATIC", permits_table: null },
       );
     });
   } finally {
-    await rm(beforeCanaryPermit, { recursive: true, force: true });
+    await rm(beforeRemoval, { recursive: true, force: true });
     await database.drop();
   }
 });
@@ -129,6 +104,7 @@ test("la migrazione clienti elimina soltanto i profili privi di collegamenti", a
     await rm(path.join(beforeCleanup, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeCleanup, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeCleanup, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeCleanup, REMOVE_ARUBA_SEND_PERMITS));
     await runMigrations({ connectionString: database.connectionString, directory: beforeCleanup });
     await withClient(database.connectionString, async (client) => {
       const inserted = await client.query<{ id: string; match_key: string }>(
@@ -154,6 +130,7 @@ test("la migrazione clienti elimina soltanto i profili privi di collegamenti", a
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -202,6 +179,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
     await rm(path.join(firstTwo, ARUBA_CANARY_PERMIT));
     await rm(path.join(firstTwo, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(firstTwo, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(firstTwo, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(firstTwo, REMOVE_ARUBA_UPLOAD_PROTECTION));
     assert.deepEqual(
       await runMigrations({ connectionString: database.connectionString, directory: firstTwo }),
@@ -237,6 +215,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -266,6 +245,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
     await rm(path.join(beforeHistoricalImport, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeHistoricalImport, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeHistoricalImport, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeHistoricalImport, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeHistoricalImport, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -299,6 +279,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       const jobs = await client.query(
@@ -353,6 +334,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
     await rm(path.join(beforeClassification, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeClassification, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeClassification, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeClassification, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeClassification, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -389,6 +371,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -428,6 +411,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
     await rm(path.join(beforeBackfill, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeBackfill, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeBackfill, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeBackfill, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeBackfill, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({ connectionString: database.connectionString, directory: beforeBackfill });
     await withClient(database.connectionString, async (client) => {
@@ -486,6 +470,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -544,6 +529,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
     await rm(path.join(beforeReclassification, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeReclassification, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeReclassification, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeReclassification, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeReclassification, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -605,6 +591,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -646,6 +633,7 @@ test("l'upgrade rilegge il mapper Shopify senza riavvolgere eBay", async () => {
   try {
     await cp("migrations", beforeReplay, { recursive: true });
     await rm(path.join(beforeReplay, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeReplay, REMOVE_ARUBA_SEND_PERMITS));
     await runMigrations({ connectionString: database.connectionString, directory: beforeReplay });
     await withClient(database.connectionString, async (client) => {
       await client.query(
@@ -694,6 +682,7 @@ test("l'upgrade rilegge il mapper Shopify senza riavvolgere eBay", async () => {
 
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -742,6 +731,7 @@ test("l'upgrade rilegge soltanto gli ordini eBay già importati", async () => {
     await rm(path.join(beforeReconciliation, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeReconciliation, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeReconciliation, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeReconciliation, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeReconciliation, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -799,6 +789,7 @@ test("l'upgrade rilegge soltanto gli ordini eBay già importati", async () => {
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -855,6 +846,7 @@ test("l'upgrade non crea un cursore eBay senza ordini eBay", async () => {
     await rm(path.join(beforeReconciliation, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeReconciliation, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeReconciliation, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeReconciliation, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeReconciliation, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -884,6 +876,7 @@ test("l'upgrade non crea un cursore eBay senza ordini eBay", async () => {
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -920,6 +913,7 @@ test("l'upgrade elimina soltanto i duplicati sintetici dei rimborsi eBay", async
     await rm(path.join(beforeDeduplication, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeDeduplication, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeDeduplication, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeDeduplication, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeDeduplication, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -966,6 +960,7 @@ test("l'upgrade elimina soltanto i duplicati sintetici dei rimborsi eBay", async
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -993,6 +988,7 @@ test("l'upgrade elimina la configurazione obsoleta della protezione per upload A
     await rm(path.join(beforeRemoval, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeRemoval, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeRemoval, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeRemoval, REMOVE_ARUBA_SEND_PERMITS));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeRemoval,
@@ -1015,6 +1011,7 @@ test("l'upgrade elimina la configurazione obsoleta della protezione per upload A
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1064,12 +1061,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "31",
+      "32",
     );
     assert.match(
       (
@@ -1187,6 +1185,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
     await rm(path.join(beforeCanonicalNames, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeCanonicalNames, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeCanonicalNames, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeCanonicalNames, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeCanonicalNames, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -1217,6 +1216,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -1270,6 +1270,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
     await rm(path.join(beforeRefundAccounting, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeRefundAccounting, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeRefundAccounting, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeRefundAccounting, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeRefundAccounting, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({
       connectionString: database.connectionString,
@@ -1325,6 +1326,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1370,6 +1372,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
     await rm(path.join(beforeM4, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeM4, ARUBA_INBOUND_RECONCILIATION));
     await rm(path.join(beforeM4, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
+    await rm(path.join(beforeM4, REMOVE_ARUBA_SEND_PERMITS));
     await rm(path.join(beforeM4, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await runMigrations({ connectionString: database.connectionString, directory: beforeM4 });
 
@@ -1516,6 +1519,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       ARUBA_CANARY_PERMIT,
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
+      REMOVE_ARUBA_SEND_PERMITS,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {
