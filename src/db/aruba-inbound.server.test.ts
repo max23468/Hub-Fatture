@@ -305,6 +305,106 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         { status: "PROFILE_CONFLICT", files: 1 },
       ],
     );
+    const foreignProfileRemote = await database
+      .getPool()
+      .query<{ id: string }>(
+        `SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-FOREIGN-PROFILE'`,
+      );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches SET candidates_json = '[]', order_id = NULL,
+         billing_case_id = NULL, document_id = NULL, related_invoice_document_id = NULL
+       WHERE remote_document_id = $1`,
+      [foreignProfileRemote.rows[0]!.id],
+    );
+    await assert.rejects(
+      inbound.confirmArubaDocumentUnrelated(
+        foreignProfileRemote.rows[0]!.id,
+        "Documento verificato come esterno alla gestione corrente",
+        { ...actor, canApprove: false },
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_READ_SESSION_FORBIDDEN",
+    );
+    await inbound.confirmArubaDocumentUnrelated(
+      foreignProfileRemote.rows[0]!.id,
+      "Documento verificato come esterno alla gestione corrente",
+      actor,
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT status, method, decided_by, decision_reason
+           FROM aruba_document_matches WHERE remote_document_id = $1`,
+          [foreignProfileRemote.rows[0]!.id],
+        )
+      ).rows[0],
+      {
+        status: "UNMATCHED",
+        method: "MANUAL",
+        decided_by: actor.id,
+        decision_reason: "Documento verificato come esterno alla gestione corrente",
+      },
+    );
+    assert.equal(
+      (
+        await database.getPool().query<{ action: string }>(
+          `SELECT action FROM audit_events
+           WHERE entity_id = $1 ORDER BY id DESC LIMIT 1`,
+          [foreignProfileRemote.rows[0]!.id],
+        )
+      ).rows[0]!.action,
+      "ARUBA_DOCUMENT_MARKED_UNRELATED",
+    );
+    assert.equal(
+      (await inbound.listRemoteDocuments({ attentionOnly: true })).some(
+        (remote) => remote.remote_id === "REMOTE-FOREIGN-PROFILE",
+      ),
+      false,
+    );
+    await inbound.ingestArubaInventoryPage(session.token, {
+      ...invoicePage,
+      scanOrdinal: 99,
+      pageOrdinal: 1,
+      cursor: "manual-unrelated-preserved",
+      documents: [
+        {
+          ...invoicePage.documents[0],
+          remoteId: "REMOTE-FOREIGN-PROFILE",
+          fiscalNumber: "98",
+        },
+      ],
+    });
+    assert.deepEqual(
+      (
+        await database
+          .getPool()
+          .query(
+            `SELECT status, method FROM aruba_document_matches WHERE remote_document_id = $1`,
+            [foreignProfileRemote.rows[0]!.id],
+          )
+      ).rows[0],
+      { status: "UNMATCHED", method: "MANUAL" },
+    );
+    const mixedTaxRemote = await database
+      .getPool()
+      .query<{ id: string }>(
+        `SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-MIXED-TAX'`,
+      );
+    await database
+      .getPool()
+      .query(
+        `UPDATE aruba_document_matches SET candidates_json = $2 WHERE remote_document_id = $1`,
+        [mixedTaxRemote.rows[0]!.id, JSON.stringify([{ compatible: true }])],
+      );
+    await assert.rejects(
+      inbound.confirmArubaDocumentUnrelated(
+        mixedTaxRemote.rows[0]!.id,
+        "Documento con candidato compatibile da non escludere",
+        actor,
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_PROFILE_CONFLICT",
+    );
     await database.getPool().query(
       `DELETE FROM aruba_files WHERE remote_document_id =
          ANY(SELECT id FROM aruba_remote_documents

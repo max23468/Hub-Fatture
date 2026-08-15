@@ -81,9 +81,16 @@ test("i connettori attivano contract test e corsia provider", () => {
 });
 
 test("l'helper Aruba limita la matrice multipiattaforma ai cambi pertinenti", () => {
-  const impact = classifyFiles(["scripts/aruba-helper.ts", "scripts/aruba-read-helper.ts"]);
-  assert.equal(impact.arubaPlatform, true);
-  assert.equal(impact.provider, true);
+  for (const file of [
+    "scripts/aruba-helper.ts",
+    "scripts/aruba-read-helper.ts",
+    "src/aruba.ts",
+    "src/aruba-inbound.ts",
+  ]) {
+    const impact = classifyFiles([file]);
+    assert.equal(impact.arubaPlatform, true, file);
+    assert.equal(impact.provider, true, file);
+  }
 });
 
 test("l'orchestrazione Aruba richiede sempre le ricevute multipiattaforma", () => {

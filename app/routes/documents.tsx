@@ -32,6 +32,7 @@ import {
 } from "../../src/db/email.server.ts";
 import { AppError, publicError } from "../../src/errors.ts";
 import {
+  confirmArubaDocumentUnrelated,
   importArubaRemoteOfficialFileAsActor,
   listRemoteDocuments,
   resolveArubaDocumentMatch,
@@ -218,6 +219,14 @@ export async function action({ request }: Route.ActionArgs) {
       );
       return redirect("/documenti?vista=da-collegare&match=collegato");
     }
+    if (form.get("intent") === "confirm-aruba-unrelated") {
+      await confirmArubaDocumentUnrelated(
+        form.get("remoteDocumentId") ?? "",
+        form.get("reason"),
+        actor,
+      );
+      return redirect("/documenti?vista=da-collegare&match=esterno");
+    }
     throw new Response("Azione non riconosciuta", { status: 400 });
   } catch (error) {
     if (error instanceof Response) throw error;
@@ -395,6 +404,27 @@ export default function Documents() {
                                 </label>
                                 <button className="button" type="submit">
                                   Conferma collegamento
+                                </button>
+                              </Form>
+                            ) : null}
+                            {remote.has_xml &&
+                            remote.match_status === "PROFILE_CONFLICT" &&
+                            !remote.candidates.length &&
+                            ["DELIVERED", "NOT_DELIVERED"].includes(remote.remote_status) ? (
+                              <Form method="post">
+                                <input type="hidden" name="csrf" value={csrfToken} />
+                                <input
+                                  type="hidden"
+                                  name="intent"
+                                  value="confirm-aruba-unrelated"
+                                />
+                                <input type="hidden" name="remoteDocumentId" value={remote.id} />
+                                <label>
+                                  Motivazione della verifica
+                                  <input minLength={20} maxLength={500} name="reason" required />
+                                </label>
+                                <button className="button button--secondary" type="submit">
+                                  Conferma come documento esterno
                                 </button>
                               </Form>
                             ) : null}
