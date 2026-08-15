@@ -8,6 +8,7 @@ import {
   customerProfileMismatchSql,
   openBillingCaseSql,
   orderBillableSql,
+  pendingPaymentSql,
 } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
 import {
@@ -1115,12 +1116,19 @@ async function importOne(
     actor,
   );
   if (mapperPaymentCorrectionCandidate && oldOrder?.billing_case_id) {
+    // Il frammento interpolato è una costante interna che riceve soltanto l'alias SQL fisso.
+    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
     await client.query(
       `UPDATE documents
        SET payment_status = 'PAID', draft_version = draft_version + 1,
            projection_sha256 = repeat('0', 64), updated_at = now()
        WHERE billing_case_id = $1 AND kind = 'INVOICE'
-         AND status = 'DRAFT' AND payment_status = 'PENDING'`,
+         AND status = 'DRAFT' AND payment_status = 'PENDING'
+         AND NOT EXISTS (
+           SELECT 1 FROM orders AS case_order
+           WHERE case_order.billing_case_id = $1
+             AND ${pendingPaymentSql("case_order")}
+         )`,
       [oldOrder.billing_case_id],
     );
     await recomputeBillingCaseStatus(client, oldOrder.billing_case_id);

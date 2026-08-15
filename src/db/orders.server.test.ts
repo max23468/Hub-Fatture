@@ -2226,6 +2226,33 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
        VALUES (1, 'MOCK', $1)`,
       [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
     );
+    await database
+      .getPool()
+      .query(`UPDATE settings SET value_json = '"FULFILLED"' WHERE key = 'draft_trigger'`);
+    const groupedPendingPayment = structuredClone(pendingPayment);
+    groupedPendingPayment.externalOrderId = "shop-order-grouped-pending-payment";
+    groupedPendingPayment.displayNumber = "#GROUPED-PENDING";
+    groupedPendingPayment.payments = [structuredClone(pendingPayment.payments[0])];
+    groupedPendingPayment.payments[0].externalPaymentId = "shop-payment-grouped-pending";
+    groupedPendingPayment.sourceSnapshot = { immutableProviderPayload: "grouped-pending" };
+    await orders.importOrders([groupedPendingPayment], {
+      id: 1,
+      requestId: "test-grouped-pending-payment",
+    });
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query(
+            "SELECT billing_case_id::text AS case_id FROM orders WHERE external_order_id = $1",
+            [groupedPendingPayment.externalOrderId],
+          )
+      ).rows[0].case_id,
+      settledPaymentCase.case_id,
+    );
+    await database
+      .getPool()
+      .query(`UPDATE settings SET value_json = '"PAID"' WHERE key = 'draft_trigger'`);
     const settledInitialProjection = await invoiceDocuments.getInvoiceProjection(
       settledPaymentCase.case_id,
     );
@@ -2278,8 +2305,35 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
           [pendingPayment.externalOrderId],
         )
       ).rows[0],
-      { status: "READY", payment_status: "PAID", revision_count: 0 },
+      { status: "READY", payment_status: "PENDING", revision_count: 0 },
     );
+    await database.getPool().query(
+      `UPDATE orders SET billing_case_id = NULL, trigger_status = 'WAITING_FOR_TRIGGER'
+       WHERE external_order_id = $1`,
+      [groupedPendingPayment.externalOrderId],
+    );
+    await database.getPool().query(
+      `UPDATE orders
+       SET normalized_snapshot_json = jsonb_set(
+             jsonb_set(normalized_snapshot_json, '{reviewFingerprint}', '"legacy-pending-single"'),
+             '{orderReviewRequired}', 'true')
+       WHERE external_order_id = $1`,
+      [pendingPayment.externalOrderId],
+    );
+    await database
+      .getPool()
+      .query("UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1", [
+        settledPaymentCase.case_id,
+      ]);
+    await database
+      .getPool()
+      .query("UPDATE documents SET payment_status = 'PENDING' WHERE billing_case_id = $1", [
+        settledPaymentCase.case_id,
+      ]);
+    await orders.importOrders([pendingPayment], {
+      id: 1,
+      requestId: "test-pending-payment-single-replay",
+    });
     assert.equal(
       (await invoiceDocuments.getInvoiceProjection(settledPaymentCase.case_id))!.paymentStatus,
       "PAID",
