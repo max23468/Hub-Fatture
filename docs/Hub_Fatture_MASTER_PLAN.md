@@ -107,7 +107,7 @@ I log grezzi restano fuori dal repository quando contengono identificativi, conf
 
 ## 1. Sintesi esecutiva
 
-Hub Fatture 1.x è un'applicazione web privata e single-tenant per l'attività del titolare. Importa ordini da un solo negozio Shopify e da un solo account venditore eBay, genera bozze di fatture elettroniche semplificate nel regime del margine e richiede sempre un'approvazione esplicita. Un helper locale multipiattaforma carica quindi l'XML nel pannello web di Aruba Fatturazione Elettronica usando Chrome o Edge, legge la validazione e, in base all'impostazione scelta, si ferma prima dell'ultimo clic oppure completa l'invio usando un'autorizzazione monouso vincolata ai documenti esatti. L'account Aruba corrente non usa la 2FA e non richiede autorizzazione SMS per ogni upload; login, password ed eventuali challenge di sicurezza inattese restano sempre passaggi umani. Stati, notifiche Aruba e risultati SdI vengono riconciliati dal pannello e dai file ufficiali scaricati.
+Hub Fatture 1.x è un'applicazione web privata e single-tenant per l'attività del titolare. Importa ordini da un solo negozio Shopify e da un solo account venditore eBay, genera bozze di fatture elettroniche semplificate nel regime del margine e richiede sempre un'approvazione esplicita. Un helper locale multipiattaforma carica quindi l'XML nel pannello web di Aruba Fatturazione Elettronica usando Chrome o Edge, legge la validazione e, in base all'impostazione scelta, si ferma prima dell'ultimo clic oppure completa l'invio quando l'uso Production ordinario è abilitato e il manifest coincide con i documenti esatti. L'account Aruba corrente non usa la 2FA e non richiede autorizzazione SMS per ogni upload; login, password ed eventuali challenge di sicurezza inattese restano sempre passaggi umani. Stati, notifiche Aruba e risultati SdI vengono riconciliati dal pannello e dai file ufficiali scaricati.
 
 L'app non è un gestionale fiscale completo e non deve sostituire la contabilità Aruba. Il suo compito è automatizzare la raccolta degli ordini, applicare un profilo fiscale preconfigurato e verificato, preparare il documento, consentire correzioni controllate, raccogliere l'approvazione e orchestrare la trasmissione.
 
@@ -189,7 +189,7 @@ e quando un rimborso di prova produce correttamente:
 | HF-F23 | Mostrare nel pannello errori, scarti e code; nessuna notifica operativa e-mail al titolare | Confermato |
 | HF-F24 | Offrire export XML e import del readback come fallback manuale completo quando l'helper non è disponibile | Confermato |
 | HF-F26 | Mantenere l'interfaccia solo in italiano, centralizzando il testo visibile in un catalogo italiano semplice | Confermato |
-| HF-F27 | Bloccare centralmente i permessi ordinari di invio automatico Aruba tramite kill switch Production senza impedire consultazione, export, upload manuale, import, diagnosi o il primo invio pilota autorizzato separatamente | Default tecnico di sicurezza |
+| HF-F27 | Bloccare centralmente l'invio automatico Aruba tramite kill switch Production senza impedire consultazione, export, upload manuale, import o diagnosi | Default tecnico di sicurezza |
 | HF-F28 | Mostrare un comparatore fiscale strutturato fra snapshot sorgente, bozza corrente e proiezione XML prima di ogni approvazione | Confermato |
 | HF-F29 | Definire una Brand Foundation leggera e versionata per nome, icona, favicon, palette minima, tipografia di sistema e tono UI | Confermato |
 | HF-F30 | Valutare OCI Email Delivery in Development e selezionare un solo trasporto SMTP canonico prima dell'uso Production | Confermato come PoC; adozione OCI condizionata |
@@ -288,7 +288,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Area | Decisione | Motivazione |
 |---|---|---|
 | Modello operativo | Pannello web autonomo | Shopify, eBay e Aruba hanno pari importanza; l'app non deve dipendere dall'Admin Shopify |
-| Utenza | Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive; approvazione, numerazione e permessi di invio riservati a `Massimo` | È un'app privata e non servono ruoli, registrazione o onboarding; l'unico privilegio distinto è quello che rende irreversibile un documento fiscale |
+| Utenza | Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive; approvazione e numerazione riservate a `Massimo` | È un'app privata e non servono ruoli, registrazione o onboarding; l'unico privilegio distinto è quello che rende irreversibile un documento fiscale |
 | Hosting | VPS OCI Ampere A1 | È già disponibile, gratuita entro i limiti e compatibile con Node/PostgreSQL |
 | Hostname | Dynu | Hostname gratuito stabile senza acquisto di dominio |
 | HTTPS | Caddy | Configurazione e rinnovo certificati semplici |
@@ -322,7 +322,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Dominio funzionale | `billing_case` interno, esposto come "Preparazione fattura" | Il contenitore tecnico non è una destinazione di navigazione |
 | Generazione | Impostazione globale: pagamento o evasione completa | Un solo comportamento coerente per Shopify ed eBay |
 | Approvazione | Sempre esplicita | Nessun invio fiscale senza una conferma riferita ai documenti esatti |
-| Primo invio Aruba | Permesso monouso atomico legato al batch, ai documenti, alle revisioni e agli hash XML, con kill switch globale ancora disabilitato | Il canary tecnico M9 non invia documenti; quando verrà autorizzato il primo invio reale, un crash non potrà lasciare aperti gli invii Production né autorizzare documenti diversi dal candidato |
+| Primo invio Aruba | Nessuna corsia o autorizzazione monouso distinta: avviene soltanto dopo l'abilitazione separata dell'uso Production ordinario | Il canary tecnico non invia documenti e il kill switch resta l'unica abilitazione persistente; manifest e validazione confinano ogni batch |
 | Fattura | Una riga semplificata per ordine | Non serve replicare il dettaglio commerciale delle piattaforme |
 | Sconti/spedizione | Assorbiti nell'importo netto della riga ordine | Il documento deve restare semplice; il dettaglio resta interno |
 | Commissioni Shopify Payments | Regola globale modificabile: per default sottrarre dal totale fatturabile esclusivamente le commissioni effettive restituite da `OrderTransaction.fees` per transazioni `shopify_payments` riuscite | Allinea il documento al comportamento Aruba osservato senza ricostruire percentuali o applicare costi di altri gateway; PayPal, bonifico, PostePay, metodi manuali ed eBay restano sempre al totale pieno |
@@ -985,7 +985,7 @@ Prima del caricamento salvare:
 - revisione e hash SHA-256 di ogni XML finale;
 - numero e data;
 - modalità autorizzata;
-- scadenza e stato del permesso, quando presente;
+- stato dell'abilitazione Production per l'invio automatico;
 - numero del tentativo.
 
 Una caduta del browser, una navigazione inattesa o un esito ambiguo disabilitano il retry automatico. Cercare prima il documento nel pannello e confrontare metadati e, quando disponibile, XML scaricato. L'utente autorizza un nuovo tentativo soltanto dopo una riconciliazione certa.
@@ -1384,7 +1384,7 @@ La fondazione UI applicativa deve inoltre:
 - errori associati al campo o all'azione, con istruzione concreta per correggere;
 - caricamento e stato pendente specifici per l'azione; un successo precedente viene nascosto appena parte un nuovo tentativo.
 
-Le azioni ad alto impatto richiedono una conferma che descriva la conseguenza specifica, non un generico «Sei sicuro?». Per `Approva, numera e prepara per Aruba` la conferma riepiloga almeno documento, destinatario, totale, profilo fiscale, stato del pagamento, modalità helper e irreversibilità della numerazione. In modalità automatica dichiara esplicitamente che il permesso consentirà all'helper di eseguire l'ultimo clic per il batch indicato. La protezione è sempre server-side: nascondere o disabilitare un pulsante non autorizza né impedisce una transizione.
+Le azioni ad alto impatto richiedono una conferma che descriva la conseguenza specifica, non un generico «Sei sicuro?». Per `Approva, numera e prepara per Aruba` la conferma riepiloga almeno documento, destinatario, totale, profilo fiscale, stato del pagamento, modalità helper e irreversibilità della numerazione. In modalità automatica dichiara esplicitamente che l'helper potrà eseguire l'ultimo clic soltanto mentre l'uso Production ordinario è abilitato. La protezione è sempre server-side: nascondere o disabilitare un pulsante non autorizza né impedisce una transizione.
 
 Le bozze modificabili usano una revisione ottimistica. Se due schede browser partono dalla stessa versione, la seconda scrittura riceve un conflitto e deve rileggere prima di salvare; non sovrascrive silenziosamente la prima.
 
@@ -3553,7 +3553,7 @@ Vincoli che non puoi rilassare da solo:
   cifrata in `ops/secrets/`;
 - helper Aruba soltanto da M5, soltanto locale e presidiato; login e
   challenge OTP/SMS/CAPTCHA inattese restano umani e il percorso manuale resta disponibile;
-- approvazione, numerazione e permessi di invio richiedono `can_approve`
+- approvazione e numerazione richiedono `can_approve`
   e restano fuori dalla portata dell'account agente;
 - fuori da una richiesta affermativa di pubblicazione, fermati e chiedi prima di
   deploy o release; fermati sempre prima di invii Aruba reali,
