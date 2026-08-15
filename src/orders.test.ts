@@ -224,8 +224,34 @@ test("la finestra storica usa il giorno di Roma e marca solo gli ordini richiest
 
 test("il pagamento pendente resta confermabile con il trigger di evasione", () => {
   const pending = { ...base, paymentStatus: "PENDING" as const };
-  assert.equal(orderReviewRequired(pending, true), true);
-  assert.equal(orderReviewRequired(pending, true, "FULFILLED"), false);
+  assert.equal(orderReviewRequired(pending, true, 10_000), true);
+  assert.equal(orderReviewRequired(pending, true, 10_000, "FULFILLED"), false);
+});
+
+test("un tentativo pendente superato da un incasso completo non richiede verifica", () => {
+  const settled = {
+    ...base,
+    paymentStatus: "PAID" as const,
+    payments: [
+      {
+        externalPaymentId: "pending",
+        method: "Ricarica PostePay",
+        status: "PENDING" as const,
+        amount: base.total,
+        shopifyPaymentsFeeAmount: "0.00",
+        paidAt: null,
+      },
+      {
+        externalPaymentId: "paid",
+        method: "Ricarica PostePay",
+        status: "PAID" as const,
+        amount: base.total,
+        shopifyPaymentsFeeAmount: "0.00",
+        paidAt: base.updatedAt,
+      },
+    ],
+  };
+  assert.equal(orderReviewRequired(settled, true, decimalToCents(base.total)), false);
 });
 
 test("un rimborso pendente non blocca l’importo completato e certo", () => {
@@ -244,6 +270,7 @@ test("un rimborso pendente non blocca l’importo completato e certo", () => {
         ],
       },
       true,
+      10_000,
     ),
     false,
   );
@@ -262,6 +289,7 @@ test("un rimborso pendente non blocca l’importo completato e certo", () => {
         ],
       },
       true,
+      10_000,
     ),
     false,
   );

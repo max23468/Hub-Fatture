@@ -321,7 +321,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("030_aruba_inbound_reconciliation.sql", { exact: true });
+  const inboundMigration = page.getByText("031_shopify_shipping_identity_replay.sql", {
+    exact: true,
+  });
   await expect(inboundMigration).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(

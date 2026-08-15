@@ -1017,9 +1017,16 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
     pendingPayment.externalOrderId = "shop-order-pending-payment";
     pendingPayment.externalCustomerId = "shop-customer-pending-payment";
     pendingPayment.customer.taxIdentifiers[0].value = "RSSMRA80A01H501W";
-    pendingPayment.paymentStatus = "PAID";
+    // Anche lo stato aggregato può essere in ritardo: l'incasso completo è autorevole.
+    pendingPayment.paymentStatus = "PENDING";
     pendingPayment.payments[0].status = "PENDING";
     pendingPayment.payments[0].paidAt = null;
+    pendingPayment.payments.push({
+      ...pendingPayment.payments[0],
+      externalPaymentId: "shop-payment-settled-after-pending",
+      status: "PAID",
+      paidAt: "2026-08-11T08:45:00Z",
+    });
     pendingPayment.createdAt = "2026-08-11T08:15:00Z";
     pendingPayment.updatedAt = "2026-08-11T09:00:00Z";
     await orders.importOrders([pendingPayment], {
@@ -1034,14 +1041,11 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
                WHERE orders.external_order_id = 'shop-order-pending-payment'`,
         )
       ).rows[0].status,
-      "NEEDS_REVIEW",
+      "READY",
     );
-    assert.equal(
-      Number((await orders.dashboardSummary()).pending_payments),
-      pendingPaymentsBefore + 1,
-    );
+    assert.equal(Number((await orders.dashboardSummary()).pending_payments), pendingPaymentsBefore);
     assert.ok(
-      (await orders.listOrders({ status: "ACTIVE", paymentStatus: "PENDING" })).rows.some(
+      !(await orders.listOrders({ status: "ACTIVE", paymentStatus: "PENDING" })).rows.some(
         (order) => order.display_number === pendingPayment.displayNumber,
       ),
     );
@@ -1580,6 +1584,75 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
         )
       ).rows[0].previous_updated_at,
       "2026-08-18T12:00:00Z",
+    );
+
+    const mapperCorrection = structuredClone(fixture[0]);
+    mapperCorrection.externalOrderId = "shop-order-mapper-customer-correction";
+    mapperCorrection.externalCustomerId = "shop-customer-mapper-customer-correction";
+    mapperCorrection.createdAt = "2026-08-20T08:00:00Z";
+    mapperCorrection.updatedAt = "2026-08-20T09:00:00Z";
+    mapperCorrection.sourceSnapshot = { immutableProviderPayload: "same" };
+    mapperCorrection.customer.taxIdentifiers = [];
+    mapperCorrection.customer.billingAddress.line1 = "Via Esempio";
+    mapperCorrection.customer.billingAddress.postalCode = "00100";
+    mapperCorrection.customer.billingAddress.city = "Roma";
+    mapperCorrection.customer.billingAddress.province = "RM";
+    mapperCorrection.customer.shippingAddress = {
+      line1: "Via Esempio 112",
+      line2: "RSSMRA80A01H501U",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    };
+    await orders.importOrders([mapperCorrection], {
+      id: 1,
+      requestId: "test-mapper-customer-before",
+    });
+    const correctedMapperOrder = structuredClone(mapperCorrection);
+    correctedMapperOrder.customer.taxIdentifiers = [
+      {
+        type: "CODICE_FISCALE",
+        value: "RSSMRA80A01H501U",
+        countryCode: "IT",
+        sourceField: "shippingAddress.address2",
+      },
+    ];
+    correctedMapperOrder.customer.billingAddress.line1 = "Via Esempio 112";
+    delete correctedMapperOrder.customer.shippingAddress.line2;
+    await orders.importOrders([correctedMapperOrder], {
+      id: 1,
+      requestId: "test-mapper-customer-after",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_cases.status,
+                  billing_cases.customer_id = orders.customer_id AS customer_aligned,
+                  billing_cases.customer_snapshot_json ->> 'reviewRequired' AS review_required,
+                  customers.tax_id_normalized,
+                  (SELECT count(*) FROM order_source_revisions
+                   WHERE order_id = orders.id)::int AS revision_count,
+                  (SELECT count(*) FROM audit_events
+                   WHERE entity_type = 'BILLING_CASE'
+                     AND entity_id = billing_cases.id::text
+                     AND action = 'CUSTOMER_CORRECTED'
+                     AND actor_type = 'SYSTEM')::int AS correction_count
+             FROM orders
+             JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+             JOIN customers ON customers.id = orders.customer_id
+             WHERE orders.external_order_id = $1`,
+          [mapperCorrection.externalOrderId],
+        )
+      ).rows[0],
+      {
+        status: "READY",
+        customer_aligned: true,
+        review_required: "false",
+        tax_id_normalized: "RSSMRA80A01H501U",
+        revision_count: 0,
+        correction_count: 1,
+      },
     );
 
     const profileA = structuredClone(fixture[0]);
@@ -6095,8 +6168,13 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
       ),
     );
     const history = await orders.listAuditHistory({ action: "CUSTOMER_CORRECTED" });
-    assert.equal(history.rows.length, 2);
-    assert.equal(history.rows[1]!.reason, "Dati fiscali confermati dal cliente");
+    assert.equal(history.rows.length, 3);
+    assert.ok(history.rows.some((event) => event.reason === "Dati fiscali confermati dal cliente"));
+    assert.ok(
+      history.rows.some(
+        (event) => event.reason === "Rilettura dello stesso payload con il mapper Shopify corretto",
+      ),
+    );
     assert.match(history.rows[0]!.case_number ?? "", /^\d{6}$/);
     // Un'azione fuori allowlist non deve valere "tutte".
     assert.deepEqual((await orders.listAuditHistory({ action: "NON_ESISTE" })).rows, []);

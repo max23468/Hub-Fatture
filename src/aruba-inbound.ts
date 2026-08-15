@@ -251,21 +251,23 @@ export function groupOrderCandidates<
       : `order:${candidate.id}`;
     groups.set(key, [...(groups.get(key) ?? []), candidate]);
   }
-  return [...groups.values()].map((items) => ({
-    ...items[0]!,
-    providers: [...new Set(items.map((item) => item.provider))],
-    displayNumbers: items.map((item) => item.displayNumber),
-    orderIds: items.map((item) => item.id),
-    billableAmount: items.reduce((sum, item) => sum + item.billableAmount, 0),
-    localOrderDate: items.map((item) => item.localOrderDate).toSorted()[0]!,
-    recipientTaxIdentifiers: [
-      ...new Map(
-        items
-          .flatMap((item) => item.recipientTaxIdentifiers)
-          .map((identifier) => [canonicalFiscalIdentity(identifier), identifier]),
-      ).values(),
-    ],
-  }));
+  return [...groups.values()].map((items) => {
+    const recipientTaxIdentifiers = new Map<string, FiscalIdentity>();
+    for (const item of items) {
+      for (const identifier of item.recipientTaxIdentifiers) {
+        recipientTaxIdentifiers.set(canonicalFiscalIdentity(identifier), identifier);
+      }
+    }
+    return {
+      ...items[0]!,
+      providers: [...new Set(items.map((item) => item.provider))],
+      displayNumbers: items.map((item) => item.displayNumber),
+      orderIds: items.map((item) => item.id),
+      billableAmount: items.reduce((sum, item) => sum + item.billableAmount, 0),
+      localOrderDate: items.map((item) => item.localOrderDate).toSorted()[0]!,
+      recipientTaxIdentifiers: [...recipientTaxIdentifiers.values()],
+    };
+  });
 }
 
 export function remoteMatchesPreflightSearches(

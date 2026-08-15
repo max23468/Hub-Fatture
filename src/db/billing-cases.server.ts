@@ -22,6 +22,7 @@ import {
   hasOtherOpenCaseSql,
   OPEN_BILLING_CASE_STATUSES,
   orderBillableSql,
+  pendingPaymentSql,
   reactivationBlockerSql,
 } from "./billing-case-sql.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
@@ -84,7 +85,7 @@ function billingCaseAnomalies(
   const anomalies = new Set<BillingCaseAnomaly>();
   if (customerReviewRequired) anomalies.add("CUSTOMER_INCOMPLETE");
   for (const order of orders) {
-    if (order.payment_status === "PENDING" || order.has_unsettled_payment) {
+    if (order.has_unsettled_payment) {
       anomalies.add("PENDING_PAYMENT");
     }
     if (!order.totals_reconciled) anomalies.add("TOTALS_MISMATCH");
@@ -618,10 +619,7 @@ export async function getBillingCase(id: string) {
                        coalesce(
                          (orders.normalized_snapshot_json ->> 'totalsReconciled')::boolean,
                          false) AS totals_reconciled,
-                       EXISTS (
-                         SELECT 1 FROM payments
-                         WHERE payments.order_id = orders.id AND payments.status <> 'PAID'
-                       ) AS has_unsettled_payment,
+                       ${pendingPaymentSql()} AS has_unsettled_payment,
                        ${customerProfileMismatchSql} AS customer_profile_mismatch
                 FROM orders WHERE orders.billing_case_id = billing_cases.id
               ) AS case_orders

@@ -613,16 +613,22 @@ export function customerIdentity(input: CustomerContext): {
 export function orderReviewRequired(
   order: Pick<OrderInput, "paymentStatus" | "payments" | "refunds" | "sourceReviewRequired">,
   totalsReconciled: boolean,
+  grossAmount: number,
   trigger: DraftTrigger = "PAID",
 ): boolean {
-  const confirmablePending = trigger === "FULFILLED" && order.paymentStatus === "PENDING";
+  const paidAmount = order.payments
+    .filter((payment) => payment.status === "PAID")
+    .reduce((sum, payment) => sum + decimalToCents(payment.amount), 0);
+  const paymentPending =
+    (order.paymentStatus === "PENDING" ||
+      order.payments.some((payment) => payment.status === "PENDING")) &&
+    paidAmount < grossAmount;
+  const confirmablePending = trigger === "FULFILLED" && paymentPending;
   return (
     order.sourceReviewRequired ||
-    (order.paymentStatus !== "PAID" && !confirmablePending) ||
-    order.payments.some(
-      (payment) =>
-        payment.status !== "PAID" && !(confirmablePending && payment.status === "PENDING"),
-    ) ||
+    order.paymentStatus === "REFUNDED" ||
+    (paymentPending && !confirmablePending) ||
+    order.payments.some((payment) => payment.status === "REFUNDED") ||
     order.refunds.some(refundNeedsReview) ||
     !totalsReconciled
   );

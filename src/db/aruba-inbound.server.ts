@@ -99,6 +99,7 @@ async function requiredInventoryCoverage(client: pg.Pool | pg.PoolClient) {
        FROM orders
        WHERE trigger_status NOT IN ('INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')`,
   );
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- Le query usano lo stesso client PostgreSQL e devono restare ordinate anche dentro una transazione chiamante.
   const nonTerminalYears = await client.query<{ fiscal_year: number }>(
     `SELECT DISTINCT fiscal_year FROM aruba_remote_documents
        WHERE environment = $1 AND account_reference = $2
@@ -953,6 +954,7 @@ async function reconcileCachedPreflightDocuments(
   for (const row of cached.rows) {
     const remote = remoteInventoryDocumentSchema.safeParse(row.payload);
     if (!remote.success) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Ogni riconciliazione deve osservare gli aggiornamenti della precedente sulla stessa transazione.
     const official = await loadLatestOfficialXml(client, row.id);
     if (!official) {
       officialEvidenceComplete = false;
@@ -2823,7 +2825,9 @@ export async function requestArubaPreflight(
          AND expires_at <= now()`,
       [input.billingCaseId ?? null, document.id, input.draftVersion, input.projectionSha256],
     );
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- Il watermark va letto dopo l'espirazione sotto lo stesso lock transazionale.
     const watermark = await currentInventoryWatermark(client);
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- La ricerca del receipt deve osservare l'espirazione già applicata nello stesso snapshot transazionale.
     const existing = await client.query<{ id: string; status: string }>(
       `SELECT id, status FROM aruba_preflight_receipts
        WHERE billing_case_id IS NOT DISTINCT FROM $1 AND document_id = $2
@@ -2981,6 +2985,7 @@ export async function listArubaPreflightWork(token: string) {
      ) RETURNING id, request_json, requested_at`,
       [session.environment, session.account_reference],
     );
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- La richiesta si consuma soltanto dopo aver reclamato il lavoro nella stessa transazione.
     const requested = await client.query<{ value_json: { requestedAt?: string } }>(
       `DELETE FROM settings WHERE key = 'aruba_sync_requested' RETURNING value_json`,
     );
@@ -3050,11 +3055,13 @@ export async function completeArubaPreflight(
         )
       : { rowCount: 0 };
     const required = await requiredInventoryCoverage(client);
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- Le letture condividono il client della transazione di completamento e restano ordinate rispetto alle scritture precedenti.
     const covered = await client.query<{ stream: string }>(
       `SELECT DISTINCT stream FROM aruba_sync_pages
        WHERE sync_session_id = $1 AND committed_at >= $2`,
       [session.id, receipt.rows[0].requested_at],
     );
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- Le letture condividono il client della transazione di completamento e non vanno lanciate fuori sequenza.
     const scanCompletion = await client.query<{ completed_after_request: boolean }>(
       `SELECT sessions.completed_at >= receipts.requested_at AS completed_after_request
        FROM aruba_sync_sessions AS sessions
@@ -3062,6 +3069,7 @@ export async function completeArubaPreflight(
        WHERE sessions.id = $1`,
       [session.id, receiptId.data],
     );
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- La verifica autorevole usa lo stesso snapshot transazionale delle verifiche di copertura precedenti.
     const authoritativeCandidates = await client.query(
       `SELECT 1 FROM aruba_document_matches matches
          JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id

@@ -575,6 +575,53 @@ export const documentInputSchema = z
 
 export type DocumentInput = z.infer<typeof documentInputSchema>;
 
+function snapshotString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/** Unica conversione dallo snapshot cliente al destinatario fiscale della bozza. */
+export function recipientFromCustomerSnapshot(
+  snapshot: Record<string, unknown>,
+  serializableOnly = true,
+): DocumentInput["recipient"] {
+  const address = (snapshot.billingAddress ?? {}) as Record<string, unknown>;
+  const taxIdentifiers = Array.isArray(snapshot.taxIdentifiers) ? snapshot.taxIdentifiers : [];
+  return {
+    kind: snapshot.kind as DocumentInput["recipient"]["kind"],
+    displayName: snapshotString(snapshot.displayName),
+    firstName: snapshotString(snapshot.firstName),
+    lastName: snapshotString(snapshot.lastName),
+    businessName: snapshotString(snapshot.companyName),
+    certifiedEmail: snapshotString(snapshot.certifiedEmail),
+    recipientCode: snapshotString(snapshot.recipientCode),
+    taxIdentifiers: taxIdentifiers.flatMap((value) => {
+      const item = value as Record<string, unknown>;
+      const identifier = {
+        type: item.type as "CODICE_FISCALE" | "PARTITA_IVA" | "ALTRO",
+        value: String(item.value ?? item.normalizedValue ?? "")
+          .trim()
+          .toUpperCase(),
+        countryCode: snapshotString(item.countryCode)?.toUpperCase(),
+      };
+      const serializable =
+        identifier.type === "CODICE_FISCALE"
+          ? /^[A-Z0-9]{11,16}$/.test(identifier.value)
+          : identifier.type === "PARTITA_IVA" && (identifier.countryCode ?? "IT") === "IT"
+            ? /^\d{11}$/.test(identifier.value)
+            : identifier.type === "PARTITA_IVA" || identifier.type === "ALTRO";
+      return !serializableOnly || serializable ? [identifier] : [];
+    }),
+    address: {
+      line1: String(address.line1 ?? ""),
+      line2: snapshotString(address.line2),
+      postalCode: String(address.postalCode ?? ""),
+      city: String(address.city ?? ""),
+      province: snapshotString(address.province),
+      countryCode: String(address.countryCode ?? ""),
+    },
+  };
+}
+
 export function fatturaPaText(value: string, max: number): string {
   return value.replace(/[^\u0020-\u007e\u00a0-\u00ff]/gu, "?").slice(0, max);
 }

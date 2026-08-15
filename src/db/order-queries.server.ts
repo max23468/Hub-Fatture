@@ -9,6 +9,7 @@ import {
 import { getConfig } from "../config.server.ts";
 import { auditActions } from "./audit.server.ts";
 import { getPool } from "./client.server.ts";
+import { pendingPaymentSql } from "./billing-case-sql.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
 type SortDirection = "asc" | "desc";
@@ -210,14 +211,7 @@ export async function listOrders(filters: {
             OR orders.trigger_status = $3)
        AND ($4::date IS NULL OR orders.local_order_date = $4)
        AND ($5::text IS NULL
-            OR ($5 = 'PENDING' AND (
-              orders.payment_status = 'PENDING'
-              OR EXISTS (
-                SELECT 1 FROM payments
-                WHERE payments.order_id = orders.id
-                  AND payments.status = 'PENDING'
-              )
-            ))
+            OR ($5 = 'PENDING' AND ${pendingPaymentSql()})
             OR ($5 <> 'PENDING' AND orders.payment_status = $5))
      ORDER BY ${orderBy} ${direction} NULLS LAST,
               orders.local_order_date DESC, orders.id DESC
@@ -341,9 +335,7 @@ export async function dashboardSummary() {
        (SELECT count(*) FROM orders WHERE trigger_status = 'WAITING_FOR_TRIGGER')::text AS waiting_orders,
        (SELECT count(*) FROM orders
         WHERE trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
-          AND (payment_status = 'PENDING'
-            OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id = orders.id
-                        AND payments.status = 'PENDING')))::text AS pending_payments,
+          AND ${pendingPaymentSql()})::text AS pending_payments,
        (SELECT count(*) FROM documents
         WHERE kind = 'CREDIT_NOTE' AND status = 'DRAFT')::text AS credit_notes_to_approve,
        (SELECT count(*) FROM aruba_batches
