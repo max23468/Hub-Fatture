@@ -91,7 +91,8 @@ set +a
 created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 jq -n --arg createdAt "$created_at" --arg commit "$APP_COMMIT_SHA" \
   --arg imageDigest "$APP_IMAGE_DIGEST" --arg reason "$reason" --arg schema "$schema" \
-  '{createdAt:$createdAt,commit:$commit,imageDigest:$imageDigest,schema:$schema,reason:$reason}' \
+  --arg version "$APP_VERSION" \
+  '{createdAt:$createdAt,commit:$commit,version:$version,imageDigest:$imageDigest,schema:$schema,reason:$reason}' \
   >"$tmp/manifest.json"
 
 archive="$tmp/hub-fatture.tar.age"
@@ -122,8 +123,10 @@ current_head=$(oci os object head --auth instance_principal --namespace "$oci_na
   || { echo "Copia protetta corrente non verificata" >&2; exit 1; }
 
 jq -n --arg completedAt "$created_at" --arg objectName "$object" --arg sha256 "$sha" \
+  --arg commit "$APP_COMMIT_SHA" --arg version "$APP_VERSION" \
+  --arg imageDigest "$APP_IMAGE_DIGEST" --arg schema "$schema" --arg reason "$reason" \
   --argjson sizeBytes "$size" \
-  '{status:"ok",completedAt:$completedAt,objectName:$objectName,sha256:$sha256,sizeBytes:$sizeBytes}' \
+  '{status:"ok",completedAt:$completedAt,objectName:$objectName,sha256:$sha256,sizeBytes:$sizeBytes,commit:$commit,version:$version,imageDigest:$imageDigest,schema:$schema,reason:$reason}' \
   >data/operations/backup-receipt.json.next
 chmod 640 data/operations/backup-receipt.json.next
 chown 10001:10001 data/operations/backup-receipt.json.next

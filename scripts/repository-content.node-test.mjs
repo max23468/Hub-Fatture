@@ -317,6 +317,16 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /if \[ '\$BACKUP_REQUIRED' = true \]/);
   assert.match(workflow, /backup\.sh deploy/);
   assert.match(workflow, /backup-receipt\.json/);
+  assert.match(workflow, /backup_only:/);
+  assert.match(workflow, /if: inputs\.backup_only/);
+  assert.match(workflow, /hub-fatture-production-tooling\/backup\.sh/);
+  assert.match(workflow, /HUB_FATTURE_ROOT=\/opt\/hub-fatture '\$remote_script' readiness/);
+  assert.match(workflow, /trap 'rm -f \\"\$remote_script\\"' EXIT/);
+  assert.match(workflow, /deploy-receipt\.json.*= '\$CANDIDATE'.*'\$remote_script' readiness/s);
+  assert.match(workflow, /\.objectName \| contains\(\$commit\)/);
+  assert.match(workflow, /\.version == \$version/);
+  assert.match(workflow, /\.schema == \$schema/);
+  assert.match(workflow, /\.imageDigest == \.deployedImageDigest/);
 });
 
 test("la qualifica e-mail Production è presidiata e non espone dati sensibili", async () => {
@@ -475,6 +485,9 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(backup, /exec 9>\.\/backup\.lock/);
   assert.match(backup, /flock -n 9/);
   assert.match(backup, /^#!\/bin\/bash\nset -euo pipefail/m);
+  assert.match(backup, /version:\$version/);
+  assert.match(backup, /imageDigest:\$imageDigest/);
+  assert.match(backup, /schema:\$schema/);
   assert.match(
     candidateReadback,
     /historical_reconciliation_outcome IS NULL\s+AND \(trigger_status <> 'LEGACY_BILLING_REVIEW'\s+OR historical_reconciled_at IS NOT NULL\s+OR billing_case_id IS NOT NULL\s+OR EXISTS \(\s+SELECT 1 FROM document_orders\s+WHERE document_orders\.order_id = orders\.id\)\)/,
