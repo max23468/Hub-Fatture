@@ -992,6 +992,13 @@ async function importOne(
     oldOrder &&
     sameProviderSnapshot(oldOrder.last_observed_snapshot_json, input),
   );
+  const mapperPaymentCorrectionCandidate = Boolean(
+    mapperCorrectionCandidate &&
+    !invoiced &&
+    oldOrder?.order_review_required &&
+    !orderReview &&
+    effectiveOrderPaymentStatus(input, grossAmount) === "PAID",
+  );
   const order = await client.query<{
     id: string;
     billing_case_id: string | null;
@@ -1064,7 +1071,10 @@ async function importOne(
           requestId: actor.requestId,
         })
       : false;
-  const sourceConflict = becameHistorical || (fingerprintChanged && !mapperCorrectionApplied);
+  const mapperDerivedCorrectionApplied =
+    mapperCorrectionApplied || mapperPaymentCorrectionCandidate;
+  const sourceConflict =
+    becameHistorical || (fingerprintChanged && !mapperDerivedCorrectionApplied);
   const revision = sourceConflict
     ? await client.query<{ id: string }>(
         `INSERT INTO order_source_revisions
@@ -1104,6 +1114,18 @@ async function importOne(
     documentIssued,
     actor,
   );
+  if (mapperPaymentCorrectionCandidate && oldOrder?.billing_case_id) {
+    await client.query(
+      `UPDATE documents
+       SET payment_status = 'PAID', draft_version = draft_version + 1,
+           projection_sha256 = repeat('0', 64), updated_at = now()
+       WHERE billing_case_id = $1 AND kind = 'INVOICE'
+         AND status = 'DRAFT' AND payment_status = 'PENDING'`,
+      [oldOrder.billing_case_id],
+    );
+    await recomputeBillingCaseStatus(client, oldOrder.billing_case_id);
+    await refreshInvoiceDraftProjection(client, oldOrder.billing_case_id);
+  }
   let effectiveBillingCaseId = currentBillingCaseId;
   if (
     !historicalReconciliationPending &&

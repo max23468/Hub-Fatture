@@ -116,10 +116,11 @@ test("Shopify usa Interno come ultimo fallback soltanto per un identificativo it
   type ShopifyTaxPayload = Record<string, unknown> & {
     localizedFields: { nodes: unknown[] };
     customer: { taxSettings: { taxId: string | null } };
-    billingAddress: { address2: string | null; countryCodeV2: string };
+    billingAddress: { address2: string | null; countryCodeV2: string; company?: string | null };
     shippingAddress: {
       address1: string;
       address2: string | null;
+      company?: string | null;
       zip: string;
       city: string;
       provinceCode: string;
@@ -221,6 +222,14 @@ test("Shopify usa Interno come ultimo fallback soltanto per un identificativo it
     mapShopifyOrder(fallback, "shop.example.invalid").customer.shippingAddress.line2,
     "RSSMRA80A01H501U",
   );
+
+  fallback.shippingAddress.city = "Roma";
+  fallback.billingAddress.company = "Azienda Fatturazione SRL";
+  fallback.shippingAddress.company = "Azienda Consegna SRL";
+  const differentCompany = mapShopifyOrder(fallback, "shop.example.invalid");
+  assert.equal(differentCompany.customer.billingAddress.line1, "Via Esempio");
+  assert.equal(differentCompany.customer.taxIdentifiers.length, 0);
+  assert.equal(differentCompany.customer.shippingAddress.line2, "RSSMRA80A01H501U");
 });
 
 test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del rimborso", async () => {

@@ -2226,6 +2226,60 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }
        VALUES (1, 'MOCK', $1)`,
       [JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"))],
     );
+    const settledInitialProjection = await invoiceDocuments.getInvoiceProjection(
+      settledPaymentCase.case_id,
+    );
+    assert.ok(
+      settledInitialProjection &&
+        !settledInitialProjection.profileMissing &&
+        "lines" in settledInitialProjection,
+    );
+    await invoiceDocuments.saveInvoiceDraft(
+      settledPaymentCase.case_id,
+      {
+        caseRevision: settledInitialProjection.caseRevision,
+        draftVersion: settledInitialProjection.draftVersion,
+        lines: settledInitialProjection.lines,
+        differenceReason: "",
+        paymentStatus: "PENDING",
+        paymentMethod: settledInitialProjection.paymentMethod,
+        causale: "",
+        notes: "",
+      },
+      { id: 1, canApprove: true, requestId: "test-pending-payment-old-draft" },
+    );
+    await database.getPool().query(
+      `UPDATE orders
+       SET normalized_snapshot_json = jsonb_set(
+             jsonb_set(normalized_snapshot_json, '{reviewFingerprint}', '"legacy-pending"'),
+             '{orderReviewRequired}', 'true')
+       WHERE external_order_id = $1`,
+      [pendingPayment.externalOrderId],
+    );
+    await database
+      .getPool()
+      .query("UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1", [
+        settledPaymentCase.case_id,
+      ]);
+    await orders.importOrders([pendingPayment], {
+      id: 1,
+      requestId: "test-pending-payment-replay",
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_cases.status, documents.payment_status,
+                  (SELECT count(*) FROM order_source_revisions
+                   WHERE order_id = orders.id)::int AS revision_count
+           FROM orders
+           JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+           JOIN documents ON documents.billing_case_id = billing_cases.id
+           WHERE orders.external_order_id = $1`,
+          [pendingPayment.externalOrderId],
+        )
+      ).rows[0],
+      { status: "READY", payment_status: "PAID", revision_count: 0 },
+    );
     assert.equal(
       (await invoiceDocuments.getInvoiceProjection(settledPaymentCase.case_id))!.paymentStatus,
       "PAID",

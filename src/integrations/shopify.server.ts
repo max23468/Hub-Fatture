@@ -409,11 +409,15 @@ function shippingMatchesBillingIdentity(
   shippingAddress: Record<string, unknown>,
 ) {
   const comparableFields = ["name", "countryCodeV2", "zip", "city", "provinceCode"] as const;
-  return comparableFields.every(
-    (field) =>
-      Boolean(normalizedAddressPart(billingAddress[field])) &&
-      normalizedAddressPart(billingAddress[field]) ===
-        normalizedAddressPart(shippingAddress[field]),
+  return (
+    normalizedAddressPart(billingAddress.company) ===
+      normalizedAddressPart(shippingAddress.company) &&
+    comparableFields.every(
+      (field) =>
+        Boolean(normalizedAddressPart(billingAddress[field])) &&
+        normalizedAddressPart(billingAddress[field]) ===
+          normalizedAddressPart(shippingAddress[field]),
+    )
   );
 }
 
