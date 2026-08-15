@@ -32,7 +32,7 @@ import {
 } from "../../src/db/email.server.ts";
 import { AppError, publicError } from "../../src/errors.ts";
 import {
-  confirmArubaDocumentUnrelated,
+  confirmArubaDocumentOutOfScope,
   importArubaRemoteOfficialFileAsActor,
   listRemoteDocuments,
   resolveArubaDocumentMatch,
@@ -219,8 +219,8 @@ export async function action({ request }: Route.ActionArgs) {
       );
       return redirect("/documenti?vista=da-collegare&match=collegato");
     }
-    if (form.get("intent") === "confirm-aruba-unrelated") {
-      await confirmArubaDocumentUnrelated(
+    if (form.get("intent") === "confirm-aruba-out-of-scope") {
+      await confirmArubaDocumentOutOfScope(
         form.get("remoteDocumentId") ?? "",
         form.get("reason"),
         actor,
@@ -416,7 +416,7 @@ export default function Documents() {
                                 <input
                                   type="hidden"
                                   name="intent"
-                                  value="confirm-aruba-unrelated"
+                                  value="confirm-aruba-out-of-scope"
                                 />
                                 <input type="hidden" name="remoteDocumentId" value={remote.id} />
                                 <label>
@@ -424,7 +424,7 @@ export default function Documents() {
                                   <input minLength={20} maxLength={500} name="reason" required />
                                 </label>
                                 <button className="button button--secondary" type="submit">
-                                  Conferma come documento esterno
+                                  Conferma fuori perimetro
                                 </button>
                               </Form>
                             ) : null}

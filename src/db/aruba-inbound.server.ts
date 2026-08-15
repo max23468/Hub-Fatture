@@ -3670,7 +3670,7 @@ export async function resolveArubaDocumentMatch(
   });
 }
 
-export async function confirmArubaDocumentUnrelated(
+export async function confirmArubaDocumentOutOfScope(
   remoteDocumentId: string,
   rawReason: unknown,
   actor: ArubaReadActor,
@@ -3690,11 +3690,12 @@ export async function confirmArubaDocumentUnrelated(
       related_invoice_document_id: string | null;
       candidates_json: Array<{ compatible?: boolean }>;
       remote_status: ArubaRemoteStatus;
+      origin: string;
       has_xml: boolean;
     }>(
       `SELECT matches.status, matches.method, matches.order_id, matches.billing_case_id,
               matches.document_id, matches.related_invoice_document_id, matches.candidates_json,
-              remote.remote_status,
+              remote.remote_status, remote.origin,
               EXISTS (SELECT 1 FROM aruba_files
                 WHERE aruba_files.remote_document_id = remote.id
                   AND aruba_files.kind = 'ARUBA_XML') AS has_xml
@@ -3730,18 +3731,22 @@ export async function confirmArubaDocumentUnrelated(
        WHERE remote_document_id = $1`,
       [remoteDocumentId, actor.id, reason.data],
     );
+    await client.query(
+      `UPDATE aruba_remote_documents SET origin = 'ARUBA_EXTERNAL' WHERE id = $1`,
+      [remoteDocumentId],
+    );
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),
-      action: "ARUBA_DOCUMENT_MARKED_UNRELATED",
+      action: "ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE",
       eventClass: "CRITICAL",
       entityType: "ARUBA_REMOTE_DOCUMENT",
       entityId: remoteDocumentId,
-      before: { status: current.status, method: current.method },
-      after: { status: "UNMATCHED", method: "MANUAL" },
+      before: { status: current.status, method: current.method, origin: current.origin },
+      after: { status: "UNMATCHED", method: "MANUAL", origin: "ARUBA_EXTERNAL" },
       reason: reason.data,
       requestId: actor.requestId,
     });
-    return { unrelated: true };
+    return { outOfScope: true };
   });
 }

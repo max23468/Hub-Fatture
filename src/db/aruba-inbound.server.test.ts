@@ -317,24 +317,27 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       [foreignProfileRemote.rows[0]!.id],
     );
     await assert.rejects(
-      inbound.confirmArubaDocumentUnrelated(
+      inbound.confirmArubaDocumentOutOfScope(
         foreignProfileRemote.rows[0]!.id,
-        "Documento verificato come esterno alla gestione corrente",
+        "Fattura verificata fuori dal perimetro di Hub Fatture",
         { ...actor, canApprove: false },
       ),
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "ARUBA_READ_SESSION_FORBIDDEN",
     );
-    await inbound.confirmArubaDocumentUnrelated(
+    await inbound.confirmArubaDocumentOutOfScope(
       foreignProfileRemote.rows[0]!.id,
-      "Documento verificato come esterno alla gestione corrente",
+      "Fattura verificata fuori dal perimetro di Hub Fatture",
       actor,
     );
     assert.deepEqual(
       (
         await database.getPool().query(
-          `SELECT status, method, decided_by, decision_reason
-           FROM aruba_document_matches WHERE remote_document_id = $1`,
+          `SELECT matches.status, matches.method, matches.decided_by, matches.decision_reason,
+                  remote.origin
+           FROM aruba_document_matches matches
+           JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
+           WHERE matches.remote_document_id = $1`,
           [foreignProfileRemote.rows[0]!.id],
         )
       ).rows[0],
@@ -342,7 +345,8 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         status: "UNMATCHED",
         method: "MANUAL",
         decided_by: actor.id,
-        decision_reason: "Documento verificato come esterno alla gestione corrente",
+        decision_reason: "Fattura verificata fuori dal perimetro di Hub Fatture",
+        origin: "ARUBA_EXTERNAL",
       },
     );
     assert.equal(
@@ -353,7 +357,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           [foreignProfileRemote.rows[0]!.id],
         )
       ).rows[0]!.action,
-      "ARUBA_DOCUMENT_MARKED_UNRELATED",
+      "ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE",
     );
     assert.equal(
       (await inbound.listRemoteDocuments({ attentionOnly: true })).some(
@@ -397,7 +401,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         [mixedTaxRemote.rows[0]!.id, JSON.stringify([{ compatible: true }])],
       );
     await assert.rejects(
-      inbound.confirmArubaDocumentUnrelated(
+      inbound.confirmArubaDocumentOutOfScope(
         mixedTaxRemote.rows[0]!.id,
         "Documento con candidato compatibile da non escludere",
         actor,
