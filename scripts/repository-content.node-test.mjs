@@ -563,10 +563,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(candidateReadback, /connections\.status = 'CONNECTED'/);
   assert.match(candidateReadback, /sync_cursors\.stream = 'history_import'/);
   assert.match(candidateReadback, /status NOT IN \('RECONCILED', 'CANCELLED'\)/);
-  assert.match(
-    candidateReadback,
-    /consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now\(\)/,
-  );
+  assert.doesNotMatch(candidateReadback, /aruba_send_permits/);
   assert.match(workflow, /compose\.yaml\.next/);
   assert.match(workflow, /Caddyfile\.next/);
   assert.match(

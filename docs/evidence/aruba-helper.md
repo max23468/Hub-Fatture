@@ -4,14 +4,14 @@
 
 - pagina Aruba sintetica con upload ordinario senza challenge, autenticazione e challenge di sicurezza post-upload inattesa in pausa, validazione valida/non valida, DOM inatteso ed esito incerto;
 - helper TypeScript unico per Chrome o Edge su macOS e Windows, con allowlist stretta;
-- manifest immutabile, codice di avvio breve e permesso monouso distinto e atomico;
+- manifest immutabile, codice di avvio breve e verifica server-side del kill switch;
 - arresto assistito prima di `Invia` e kill switch che forza i nuovi batch Production all’assistito;
 - blocco dopo stato incerto, sessione successiva in solo readback e nuovo tentativo soltanto dopo rimozione riconciliata;
 - esito automatico accettato soltanto con identità, stato e identificativo remoto osservati;
 - export XML, import helper/manuale, consultazione e download verificato di XML, P7M, PDF e notifiche SdI;
-- fixture sanificate in `tests/fixtures/aruba`, migrazione, batch misto, audit atomico, permessi scaduti/riusati/mismatched, eventi fuori ordine, parser ostile e scenari browser sintetici.
+- fixture sanificate in `tests/fixtures/aruba`, migrazione, batch misto, audit atomico, flag disattivato, manifest mismatched, eventi fuori ordine, parser ostile e scenari browser sintetici.
 
-## Qualifica reale prima del Canary Production
+## Qualifica reale prima del canary tecnico Production
 
 Il 13 agosto 2026 una sessione autenticata e presidiata, autorizzata per i due hash esatti, ha caricato sul pannello Aruba Base reale un TD01 e un TD04 dedicati. Cliente, riferimenti e importi erano sintetici; soltanto l’identità obbligatoria di cedente e trasmittente proveniva dai campioni accettati ed è rimasta fuori da repository, prompt e log.
 
@@ -26,4 +26,4 @@ La prima variante completamente anonimizzata aveva ricevuto soltanto il codice `
 
 Le divergenze osservate sono state riportate nel contratto, nell’helper e nella pagina sintetica: formato data italiano, account nella barra superiore, cleanup globale, selezione batch `INVIA TUTTE` e limite complessivo di 30 MB. HF-O06 è chiusa sul candidato che supera i test locali e multipiattaforma collegati dal readiness record.
 
-Questa qualifica non autorizza invii Aruba, creazione di bozze, e-mail reali o Canary Production.
+Questa qualifica non autorizza invii Aruba, creazione di bozze o e-mail reali. Costituisce la prova reale read-only e di upload senza invio riutilizzata dal canary tecnico Production.

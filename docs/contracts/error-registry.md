@@ -42,8 +42,8 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `ARUBA_AUTHENTICATION_REQUIRED`  | AUTH presidiato       | no               | completare manualmente nel browser    |
 | `ARUBA_DOM_UNRECOGNIZED`         | PROVIDER permanente   | no               | usare il percorso manuale             |
 | `ARUBA_VALIDATION_FAILED`        | VALIDATION permanente | no               | rimuovere gli upload e correggere     |
-| `ARUBA_PERMIT_FORBIDDEN`         | AUTH permanente       | no               | usare l’account titolare              |
-| `ARUBA_PERMIT_INVALID`           | CONFLICT permanente   | no               | autorizzare il manifest esatto        |
+| `ARUBA_OPERATION_FORBIDDEN`      | AUTH permanente       | no               | usare l’account titolare              |
+| `ARUBA_SEND_NOT_AUTHORIZED`      | CONFLICT permanente   | no               | verificare kill switch e manifest     |
 | `ARUBA_RECONCILIATION_REQUIRED`  | UNKNOWN               | no               | completare il readback                |
 | `ARUBA_IMPORT_INVALID`           | VALIDATION permanente | no               | scegliere il file ufficiale corretto  |
 | `UNKNOWN`                        | UNKNOWN               | no               | diagnosticare con request ID          |

@@ -435,9 +435,7 @@ function BatchPanel({
         {batches.map((batch) => (
           <li key={batch.id}>
             <span className="document-batch-list__main">
-              <strong>
-                {copy.documents.batchSummary(batch.document_count, batch.mode, batch.permit_scope)}
-              </strong>
+              <strong>{copy.documents.batchSummary(batch.document_count, batch.mode)}</strong>
               <span>
                 {copy.documents.arubaBatchStatus[batch.status] ?? copy.common.unavailable}
               </span>
@@ -467,56 +465,11 @@ function BatchPanel({
                   </button>
                 </Form>
               ) : null}
-              {canApprove &&
-              batch.environment === "PRODUCTION" &&
-              batch.mode === "ASSISTED" &&
-              batch.document_count === 1 &&
-              batch.status === "PREPARED" ? (
-                <Form method="post">
-                  <input name="csrf" type="hidden" value={csrfToken} />
-                  <input name="intent" type="hidden" value="prepare-canary-aruba-batch" />
-                  <input name="batchId" type="hidden" value={batch.id} />
-                  <label>
-                    <input name="confirmCanary" type="checkbox" value="yes" />
-                    {copy.documents.confirmCanaryPermit}
-                  </label>
-                  <button className="button button--secondary" type="submit">
-                    {copy.documents.prepareCanaryBatch}
-                  </button>
-                </Form>
-              ) : null}
-              {canApprove &&
-              batch.mode === "AUTOMATIC" &&
-              !batch.permit_consumed_at &&
-              ["PREPARED", "HELPER_ACTIVE", "VALIDATION_FAILED"].includes(batch.status) ? (
-                <Form method="post">
-                  <input name="csrf" type="hidden" value={csrfToken} />
-                  <input name="intent" type="hidden" value="authorize-aruba-permit" />
-                  <input name="batchId" type="hidden" value={batch.id} />
-                  {batch.permit_scope === "CANARY" ? (
-                    <label>
-                      <input name="confirmCanary" type="checkbox" value="yes" />
-                      {copy.documents.confirmCanaryPermit}
-                    </label>
-                  ) : null}
-                  <button className="button button--secondary" type="submit">
-                    {batch.permit_scope === "CANARY"
-                      ? copy.documents.authorizeCanaryPermit
-                      : copy.documents.authorizePermit}
-                  </button>
-                </Form>
-              ) : null}
               {canApprove && batch.can_retry ? (
                 <Form method="post">
                   <input name="csrf" type="hidden" value={csrfToken} />
                   <input name="intent" type="hidden" value="retry-aruba-batch" />
                   <input name="batchId" type="hidden" value={batch.id} />
-                  {batch.permit_scope === "CANARY" ? (
-                    <label>
-                      <input name="confirmCanary" type="checkbox" value="yes" />
-                      {copy.documents.confirmCanaryRetry}
-                    </label>
-                  ) : null}
                   <button className="button button--secondary" type="submit">
                     {copy.documents.retryBatch}
                   </button>

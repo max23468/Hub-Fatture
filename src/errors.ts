@@ -44,8 +44,9 @@ export const errorCatalog = {
   ARUBA_AUTHENTICATION_REQUIRED: "Completa l’autenticazione nel browser e riprendi dall’helper.",
   ARUBA_DOM_UNRECOGNIZED: "La pagina Aruba non corrisponde al contratto verificato.",
   ARUBA_VALIDATION_FAILED: "Aruba ha rifiutato almeno un documento del batch.",
-  ARUBA_PERMIT_FORBIDDEN: "Solo il titolare può autorizzare l’invio automatico.",
-  ARUBA_PERMIT_INVALID: "Il permesso monouso non è valido per questo manifest.",
+  ARUBA_OPERATION_FORBIDDEN: "Solo il titolare può eseguire questa operazione Aruba.",
+  ARUBA_SEND_NOT_AUTHORIZED:
+    "L’invio automatico non è abilitato o il manifest non coincide con il batch validato.",
   ARUBA_RECONCILIATION_REQUIRED:
     "Lo stato remoto è incerto: completa il readback prima di un nuovo tentativo.",
   ARUBA_IMPORT_INVALID: "Il file Aruba non è riconosciuto o non coincide con il documento.",

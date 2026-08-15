@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.50
+
+- Il canary M9 diventa una verifica tecnica Production senza selezionare, approvare, numerare, caricare o inviare fatture reali e senza generare e-mail.
+- I permessi Aruba monouso e il percorso pilota vengono rimossi: l’eventuale invio automatico ordinario richiede il kill switch abilitato, il manifest esatto e documenti già validati.
+- Le Impostazioni mostrano ora l’ultima attività e il readback dell’helper Aruba leggendo anche le sessioni di inventario del profilo persistente, confinati per ambiente e account.
+
 ## 0.3.49
 
 - I documenti Aruba terminali con XML ufficiale, senza candidati eBay o Shopify compatibili né collegamenti locali, possono essere confermati dal solo titolare come fuori perimetro con motivazione e audit critico.
