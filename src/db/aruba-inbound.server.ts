@@ -3003,8 +3003,7 @@ export async function consumeArubaPreflight(
     `SELECT 1 FROM aruba_document_matches matches
      JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
      WHERE remote.environment = $1 AND remote.account_reference = $2
-       AND remote.remote_status <> 'REJECTED'
-       AND matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')
+       AND ${arubaBlockingMatchPredicate}
      LIMIT 1`,
     [current.environment, current.account_reference],
   );
@@ -3426,8 +3425,7 @@ export async function finalizeArubaManualReadback(readbackId: string, actor: Aru
       `SELECT count(*) FROM aruba_document_matches matches
        JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
        WHERE remote.environment = $1 AND remote.account_reference = $2
-         AND remote.remote_status <> 'REJECTED'
-         AND matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')`,
+         AND ${arubaBlockingMatchPredicate}`,
       [environment(), accountReference()],
     );
     if (Number(blockers.rows[0]!.count) > 0) {
@@ -3769,6 +3767,7 @@ export async function confirmArubaDocumentOutOfScope(
     if (
       !current ||
       !["PROFILE_CONFLICT", "UNMATCHED"].includes(current.status) ||
+      (current.status === "UNMATCHED" && current.method === "MANUAL") ||
       !isEmissionConfirmed(current.remote_status) ||
       !current.has_xml ||
       current.has_hub_submission ||

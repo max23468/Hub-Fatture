@@ -1237,6 +1237,15 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       "Riferimento esplicito verificato come vendita esterna ai canali gestiti",
       actor,
     );
+    await assert.rejects(
+      inbound.confirmArubaDocumentOutOfScope(
+        externalRemote.rows[0]!.id,
+        "Seconda conferma che non deve sovrascrivere la decisione già auditata",
+        actor,
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_PROFILE_CONFLICT",
+    );
     const resolvedExternalHealth = await inbound.getArubaInventoryHealth();
     assert.equal(resolvedExternalHealth.status, "HEALTHY");
     assert.equal(resolvedExternalHealth.externalDocuments, baselineHealth.externalDocuments + 1);
@@ -1711,6 +1720,40 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
          (SELECT coalesce(max(inventory_watermark), 0) FROM aruba_sync_sessions)
        WHERE id = $1`,
       [manualReceiptId],
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET status = 'UNMATCHED', method = 'NONE', candidates_json = $1
+       WHERE remote_document_id = (
+         SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-SPECIFIC-001'
+       )`,
+      [
+        JSON.stringify([
+          {
+            candidateId: residualOrder.rows[0]!.id,
+            compatible: false,
+            signals: { explicitReference: true },
+          },
+        ]),
+      ],
+    );
+    await assert.rejects(
+      database.withTransaction((client) =>
+        inbound.consumeArubaPreflight(client, manualReceiptId, {
+          billingCaseId: currentDraft.rows[0]!.billing_case_id,
+          documentId: currentDraft.rows[0]!.id,
+          draftVersion: currentDraft.rows[0]!.draft_version,
+          projectionSha256: currentDraft.rows[0]!.projection_sha256,
+        }),
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "ARUBA_INVENTORY_BLOCKED",
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches SET candidates_json = '[]'
+       WHERE remote_document_id = (
+         SELECT id FROM aruba_remote_documents WHERE remote_id = 'REMOTE-SPECIFIC-001'
+       )`,
     );
     await inventoryLock.query("BEGIN");
     await inventoryLock.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
