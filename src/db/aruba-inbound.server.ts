@@ -3768,7 +3768,7 @@ export async function confirmArubaDocumentOutOfScope(
     );
     if (
       !current ||
-      current.status !== "PROFILE_CONFLICT" ||
+      !["PROFILE_CONFLICT", "UNMATCHED"].includes(current.status) ||
       !isEmissionConfirmed(current.remote_status) ||
       !current.has_xml ||
       current.has_hub_submission ||

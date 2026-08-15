@@ -1222,9 +1222,34 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       ),
       false,
     );
+    const externalXmlStorage = await database.getPool().query<{ id: string }>(
+      `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('ARUBA_XML', 'aruba/external-explicit-reference.xml', repeat('f', 64), 100,
+         'application/xml') RETURNING id`,
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       VALUES ($1, $2, 'ARUBA_XML')`,
+      [externalRemote.rows[0]!.id, externalXmlStorage.rows[0]!.id],
+    );
+    await inbound.confirmArubaDocumentOutOfScope(
+      externalRemote.rows[0]!.id,
+      "Riferimento esplicito verificato come vendita esterna ai canali gestiti",
+      actor,
+    );
+    const resolvedExternalHealth = await inbound.getArubaInventoryHealth();
+    assert.equal(resolvedExternalHealth.status, "HEALTHY");
+    assert.equal(resolvedExternalHealth.externalDocuments, baselineHealth.externalDocuments + 1);
+    assert.equal(resolvedExternalHealth.potentialMatches, baselineHealth.potentialMatches);
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_files WHERE remote_document_id = $1", [externalRemote.rows[0]!.id]);
     await database
       .getPool()
       .query("DELETE FROM aruba_remote_documents WHERE id = $1", [externalRemote.rows[0]!.id]);
+    await database
+      .getPool()
+      .query("DELETE FROM storage_objects WHERE id = $1", [externalXmlStorage.rows[0]!.id]);
     const assignedCreditPreflight = await inbound.requestArubaPreflight(
       {
         documentId: assignedCreditDraftId,
