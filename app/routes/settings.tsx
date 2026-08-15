@@ -476,11 +476,11 @@ function ArubaSettingsSection({
         </div>
         <div>
           <dt>{copy.settings.arubaUnmatched}</dt>
-          <dd>{inventory.unmatched}</dd>
+          <dd>{inventory.externalDocuments}</dd>
         </div>
         <div>
           <dt>{copy.settings.arubaUnresolved}</dt>
-          <dd>{inventory.ambiguous + inventory.conflicts}</dd>
+          <dd>{inventory.potentialMatches + inventory.ambiguous + inventory.conflicts}</dd>
         </div>
         <div>
           <dt>{copy.settings.arubaConfiguredMode}</dt>

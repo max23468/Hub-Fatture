@@ -1145,11 +1145,53 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       1,
       true,
     );
+    const externalRemote = await database.getPool().query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series,
+         fiscal_number, document_date, total_amount, remote_status,
+         remote_status_observed_at, origin, metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'REMOTE-EXTERNAL-001', 'TD01', 2026,
+         'FPR', '9001', '2026-08-12', 9900, 'DELIVERED', now(), 'ARUBA_EXTERNAL',
+         repeat('e', 64)) RETURNING id`,
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       VALUES ($1, 'UNMATCHED', 'NONE', 1, '[]')`,
+      [externalRemote.rows[0]!.id],
+    );
     const health = await inbound.getArubaInventoryHealth();
     assert.equal(health.status, "HEALTHY");
-    assert.ok(health.unmatched > 0);
-    assert.equal(health.ambiguous + health.conflicts, 0);
-    assert.equal(health.remoteDocuments, 4);
+    assert.equal(health.externalDocuments, 1);
+    assert.equal(health.potentialMatches + health.ambiguous + health.conflicts, 0);
+    assert.equal(health.remoteDocuments, 5);
+    assert.equal(
+      (await inbound.listRemoteDocuments({ blockingOnly: true })).some(
+        (remote) => remote.remote_id === "REMOTE-EXTERNAL-001",
+      ),
+      false,
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = $2 WHERE remote_document_id = $1`,
+      [
+        externalRemote.rows[0]!.id,
+        JSON.stringify([{ candidateId: order.rows[0]!.id, compatible: false }]),
+      ],
+    );
+    const mismatchedHealth = await inbound.getArubaInventoryHealth();
+    assert.equal(mismatchedHealth.status, "BLOCKED");
+    assert.equal(mismatchedHealth.externalDocuments, 0);
+    assert.equal(mismatchedHealth.potentialMatches, 1);
+    assert.equal(
+      (await inbound.listRemoteDocuments({ blockingOnly: true })).some(
+        (remote) => remote.remote_id === "REMOTE-EXTERNAL-001",
+      ),
+      true,
+    );
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_remote_documents WHERE id = $1", [externalRemote.rows[0]!.id]);
     const assignedCreditPreflight = await inbound.requestArubaPreflight(
       {
         documentId: assignedCreditDraftId,

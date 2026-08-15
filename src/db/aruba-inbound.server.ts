@@ -2561,7 +2561,8 @@ export interface ArubaInventoryHealth {
   activeSessionExpiresAt: string | null;
   nextScheduledAt: string | null;
   lastErrorCode: string | null;
-  unmatched: number;
+  externalDocuments: number;
+  potentialMatches: number;
   ambiguous: number;
   conflicts: number;
   remoteDocuments: number;
@@ -2578,7 +2579,8 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
     next_scheduled_at: Date | null;
     last_error_code: string | null;
     unresolved_failure: boolean;
-    unmatched: string;
+    external_documents: string;
+    potential_matches: string;
     ambiguous: string;
     conflicts: string;
     remote_documents: string;
@@ -2620,7 +2622,14 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
-          AND matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL') AS unmatched,
+          AND matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
+          AND jsonb_array_length(matches.candidates_json) = 0) AS external_documents,
+       (SELECT count(*) FROM aruba_document_matches matches
+        JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
+        WHERE remote.environment = $1 AND remote.account_reference = $2
+          AND remote.remote_status <> 'REJECTED'
+          AND matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
+          AND jsonb_array_length(matches.candidates_json) > 0) AS potential_matches,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
@@ -2637,7 +2646,7 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
   const row = result.rows[0]!;
   const completed = row.last_full_scan_completed_at ? row.last_completed_at : null;
   const ageMinutes = completed ? Math.max(0, (Date.now() - completed.getTime()) / 60_000) : null;
-  const unresolved = Number(row.ambiguous) + Number(row.conflicts);
+  const unresolved = Number(row.potential_matches) + Number(row.ambiguous) + Number(row.conflicts);
   const blockingReason = !completed
     ? "NEVER"
     : row.unresolved_failure
@@ -2664,7 +2673,8 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
     activeSessionExpiresAt: row.active_session_expires_at?.toISOString() ?? null,
     nextScheduledAt: row.next_scheduled_at?.toISOString() ?? null,
     lastErrorCode: row.last_error_code,
-    unmatched: Number(row.unmatched),
+    externalDocuments: Number(row.external_documents),
+    potentialMatches: Number(row.potential_matches),
     ambiguous: Number(row.ambiguous),
     conflicts: Number(row.conflicts),
     remoteDocuments: Number(row.remote_documents),
@@ -2672,7 +2682,9 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
   };
 }
 
-export async function listRemoteDocuments(options: { attentionOnly?: boolean } = {}) {
+export async function listRemoteDocuments(
+  options: { attentionOnly?: boolean; blockingOnly?: boolean } = {},
+) {
   const result = await getPool().query<{
     id: string;
     remote_id: string;
@@ -2713,17 +2725,34 @@ export async function listRemoteDocuments(options: { attentionOnly?: boolean } =
      FROM aruba_remote_documents AS remote
      LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
      WHERE remote.environment = $1 AND remote.account_reference = $2
-       AND (NOT $3::boolean
-         OR (coalesce(matches.status, 'UNMATCHED') <> 'MATCHED'
-           AND NOT (matches.status = 'UNMATCHED' AND matches.method = 'MANUAL'))
-         OR (matches.status = 'MATCHED'
-           AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
-           AND NOT EXISTS (SELECT 1 FROM aruba_files
-             WHERE aruba_files.remote_document_id = remote.id
-               AND aruba_files.kind = 'ARUBA_XML')))
+       AND (NOT $3::boolean OR ($4::boolean AND (
+           (matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
+             AND remote.remote_status <> 'REJECTED'
+             AND jsonb_array_length(matches.candidates_json) > 0)
+           OR matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR',
+             'UNKNOWN_REMOTE_STATE')
+           OR (matches.status = 'MATCHED'
+             AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
+             AND NOT EXISTS (SELECT 1 FROM aruba_files
+               WHERE aruba_files.remote_document_id = remote.id
+                 AND aruba_files.kind = 'ARUBA_XML'))
+         )) OR (NOT $4::boolean AND (
+           (coalesce(matches.status, 'UNMATCHED') <> 'MATCHED'
+             AND NOT (matches.status = 'UNMATCHED' AND matches.method = 'MANUAL'))
+           OR (matches.status = 'MATCHED'
+             AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
+             AND NOT EXISTS (SELECT 1 FROM aruba_files
+               WHERE aruba_files.remote_document_id = remote.id
+                 AND aruba_files.kind = 'ARUBA_XML'))
+         )))
      ORDER BY remote.last_observed_at DESC, remote.id DESC
      LIMIT 200`,
-    [environment(), accountReference(), Boolean(options.attentionOnly)],
+    [
+      environment(),
+      accountReference(),
+      Boolean(options.attentionOnly || options.blockingOnly),
+      Boolean(options.blockingOnly),
+    ],
   );
   return result.rows;
 }

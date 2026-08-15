@@ -58,7 +58,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       : Promise.resolve(emptyPage),
     view === "gestire" && !activityKind ? failedConnectorJobs() : Promise.resolve([]),
     view === "gestire" && !activityKind
-      ? listRemoteDocuments({ attentionOnly: true })
+      ? listRemoteDocuments({ blockingOnly: true })
       : Promise.resolve([]),
   ]);
   return {
