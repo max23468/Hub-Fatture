@@ -8,9 +8,7 @@ test("il JSON manuale Aruba non valido conserva il codice applicativo", () => {
   assert.throws(
     () => parseArubaManualPagesJson("{non-json"),
     (error: unknown) =>
-      error instanceof AppError &&
-      error.code === "ARUBA_INVENTORY_INVALID" &&
-      error.status === 422,
+      error instanceof AppError && error.code === "ARUBA_INVENTORY_INVALID" && error.status === 422,
   );
 });
 
