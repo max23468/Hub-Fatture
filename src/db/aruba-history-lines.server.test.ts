@@ -28,7 +28,7 @@ test("i documenti Aruba storici materializzano righe immutabili", async () => {
     );
     await database.getPool().query(
       `INSERT INTO fiscal_profiles (version, status, profile_json)
-       VALUES (1, 'MOCK', '{}')`,
+       VALUES (1, 'MOCK', '{"payment":{"invoiceMethod":"MP08","creditNoteMethod":"MP05"}}')`,
     );
     const storage = await database.getPool().query<{ id: string }>(
       `INSERT INTO storage_objects
