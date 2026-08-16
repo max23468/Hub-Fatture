@@ -68,6 +68,32 @@ test("l'intercettore bounded sostituisce davvero APIRequestContext.get di Playwr
   }
 });
 
+test("l'intercettore bounded protegge anche i data URL ammessi dal contratto Aruba", async () => {
+  const api = await request.newContext();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const dataUrl = "data:application/octet-stream;base64,AQID";
+  globalThis.fetch = async (input) => {
+    calls.push(String(input));
+    return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+  };
+  try {
+    installBoundedArubaRequestGet({
+      request: api,
+      cookies: async () => {
+        throw new Error("i data URL non devono richiedere cookie browser");
+      },
+      pages: () => [],
+    });
+    const response = await api.get(dataUrl);
+    assert.deepEqual(await response.body(), Buffer.from([1, 2, 3]));
+    assert.deepEqual(calls, [dataUrl]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await api.dispose();
+  }
+});
+
 test("l'intercettore Playwright blocca il body Aruba prima di materializzarlo oltre 4,9 MB", async () => {
   const api = await request.newContext();
   const originalFetch = globalThis.fetch;
