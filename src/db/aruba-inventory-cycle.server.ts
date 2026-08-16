@@ -15,10 +15,19 @@ interface InventorySessionRow {
   environment: "MOCK" | "PRODUCTION";
   account_reference: string;
   device_id: string;
+  started_at: Date;
   absolute_expires_at: Date;
-  expected_streams: string[];
-  expected_oldest_reconciliation_date: string;
 }
+
+const inventorySnapshotSchema = z.object({
+  oldestReconciliationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  streams: z
+    .array(z.string().regex(/^(?:invoices|credit-notes):\d{4}$/))
+    .min(2)
+    .max(50),
+});
+
+type InventorySnapshot = z.infer<typeof inventorySnapshotSchema>;
 
 function panelUrl(environment: InventorySessionRow["environment"]): string {
   return environment === "PRODUCTION"
@@ -35,6 +44,18 @@ function bearerParts(token: string) {
   return match ? { deviceId: match[1]! } : null;
 }
 
+function romeDate(value: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Rome",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 async function readSession(
   client: pg.Pool | pg.PoolClient,
   token: string,
@@ -43,8 +64,7 @@ async function readSession(
   const parts = bearerParts(token);
   if (!parts) return null;
   const result = await client.query<InventorySessionRow>(
-    `SELECT id, environment, account_reference, device_id, absolute_expires_at,
-            expected_streams, expected_oldest_reconciliation_date::text
+    `SELECT id, environment, account_reference, device_id, started_at, absolute_expires_at
      FROM aruba_sync_sessions
      WHERE token_hash = $1 AND device_id = $2 AND status IN ('ACTIVE', 'SCANNING')
        AND absolute_expires_at > now() AND lease_expires_at > now()
@@ -54,68 +74,134 @@ async function readSession(
   return result.rows[0] ?? null;
 }
 
-function assertExpectedStreams(session: InventorySessionRow) {
-  const parsed = z
-    .array(z.string().regex(/^(?:invoices|credit-notes):\d{4}$/))
-    .min(2)
-    .max(50)
-    .safeParse(session.expected_streams);
-  if (!parsed.success || new Set(parsed.data).size !== parsed.data.length) {
+async function computeInventorySnapshot(
+  client: pg.PoolClient,
+  session: InventorySessionRow,
+): Promise<InventorySnapshot> {
+  const [oldest, nonTerminalYears] = await Promise.all([
+    client.query<{ oldest: string | null }>(
+      `SELECT min(local_order_date)::text AS oldest
+       FROM orders
+       WHERE trigger_status NOT IN ('INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')`,
+    ),
+    client.query<{ fiscal_year: number }>(
+      `SELECT DISTINCT fiscal_year FROM aruba_remote_documents
+       WHERE environment = $1 AND account_reference = $2
+         AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')`,
+      [session.environment, session.account_reference],
+    ),
+  ]);
+  const startedDate = romeDate(session.started_at);
+  const latestYear = Math.max(
+    Number(startedDate.slice(0, 4)),
+    Number(romeDate(session.absolute_expires_at).slice(0, 4)),
+  );
+  const oldestReconciliationDate = oldest.rows[0]?.oldest ?? startedDate;
+  const oldestYear = Number(oldestReconciliationDate.slice(0, 4));
+  const lowerYear = Math.max(latestYear - 19, Math.min(oldestYear, latestYear));
+  const years = new Set<number>(
+    Array.from({ length: latestYear - lowerYear + 1 }, (_, index) => latestYear - index),
+  );
+  for (const row of nonTerminalYears.rows) years.add(row.fiscal_year);
+  const snapshot = inventorySnapshotSchema.safeParse({
+    oldestReconciliationDate,
+    streams: [...years]
+      .toSorted((left, right) => right - left)
+      .flatMap((year) => [`invoices:${year}`, `credit-notes:${year}`]),
+  });
+  if (!snapshot.success || new Set(snapshot.data.streams).size !== snapshot.data.streams.length) {
     throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
   }
-  return parsed.data;
+  return snapshot.data;
+}
+
+async function inventorySnapshot(
+  client: pg.PoolClient,
+  session: InventorySessionRow,
+): Promise<InventorySnapshot> {
+  const existing = await client.query<{ documents_json: unknown }>(
+    `SELECT documents_json FROM aruba_sync_pages
+     WHERE sync_session_id = $1 AND stream = '__manifest__'
+       AND scan_ordinal = 1 AND page_ordinal = 1`,
+    [session.id],
+  );
+  if (existing.rows[0]) {
+    const parsed = inventorySnapshotSchema.safeParse(existing.rows[0].documents_json);
+    if (!parsed.success || new Set(parsed.data.streams).size !== parsed.data.streams.length) {
+      throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
+    }
+    return parsed.data;
+  }
+
+  const snapshot = await computeInventorySnapshot(client, session);
+  const payload = JSON.stringify(snapshot);
+  const digest = createHash("sha256").update(payload).digest("hex");
+  await client.query(
+    `INSERT INTO aruba_sync_pages
+       (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,
+        row_count, documents_json, payload_digest)
+     VALUES ($1, '__manifest__', 1, 1, NULL, true, false, 0, $2, $3)
+     ON CONFLICT (sync_session_id, stream, scan_ordinal, page_ordinal) DO NOTHING`,
+    [session.id, payload, digest],
+  );
+  return snapshot;
 }
 
 export async function arubaInventoryManifest(token: string) {
-  const session = await readSession(getPool(), token);
-  if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
-  const streams = assertExpectedStreams(session);
-  const scopedStreams = streams.map((stream) =>
-    cursorStream(session.environment, session.account_reference, stream),
-  );
-  const [cursors, interrupted] = await Promise.all([
-    getPool().query<{
-      stream: string;
-      cursor: string | null;
-      overlap_from: Date | null;
-      last_page_ordinal: number | null;
-      full_scan_completed_at: Date | null;
-    }>(
-      `SELECT stream, cursor, overlap_from, last_page_ordinal, full_scan_completed_at
-       FROM sync_cursors WHERE provider = 'ARUBA' AND stream = ANY($1::text[])`,
-      [scopedStreams],
-    ),
-    getPool().query<{ stream: string; page_ordinal: number }>(
-      `SELECT DISTINCT ON (stream) stream, page_ordinal
-       FROM aruba_sync_pages
-       WHERE sync_session_id = $1 AND NOT terminal
-       ORDER BY stream, committed_at DESC`,
-      [session.id],
-    ),
-  ]);
-  const byStream = new Map(cursors.rows.map((row) => [row.stream, row]));
-  const resume = new Map(interrupted.rows.map((row) => [row.stream, row.page_ordinal]));
-  return {
-    operation: "READ_SYNC" as const,
-    sessionId: session.id,
-    environment: session.environment,
-    accountReference: session.account_reference,
-    panelUrl: panelUrl(session.environment),
-    oldestReconciliationDate: session.expected_oldest_reconciliation_date,
-    streams: streams.map((stream) => {
-      const scoped = cursorStream(session.environment, session.account_reference, stream);
-      const cursor = byStream.get(scoped);
-      return {
-        name: stream,
-        cursor: cursor?.cursor ?? null,
-        overlapFrom: cursor?.overlap_from?.toISOString() ?? null,
-        lastFullScanCompletedAt: cursor?.full_scan_completed_at?.toISOString() ?? null,
-        resumePageOrdinal: resume.get(stream) ?? null,
-      };
-    }),
-    intervalSeconds: 900,
-    absoluteExpiresAt: session.absolute_expires_at.toISOString(),
-  };
+  return withTransaction(async (client) => {
+    const session = await readSession(client, token, true);
+    if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `aruba-read:${session.environment}:${session.account_reference}`,
+    ]);
+    const snapshot = await inventorySnapshot(client, session);
+    const scopedStreams = snapshot.streams.map((stream) =>
+      cursorStream(session.environment, session.account_reference, stream),
+    );
+    const [cursors, interrupted] = await Promise.all([
+      client.query<{
+        stream: string;
+        cursor: string | null;
+        overlap_from: Date | null;
+        last_page_ordinal: number | null;
+        full_scan_completed_at: Date | null;
+      }>(
+        `SELECT stream, cursor, overlap_from, last_page_ordinal, full_scan_completed_at
+         FROM sync_cursors WHERE provider = 'ARUBA' AND stream = ANY($1::text[])`,
+        [scopedStreams],
+      ),
+      client.query<{ stream: string; page_ordinal: number }>(
+        `SELECT DISTINCT ON (stream) stream, page_ordinal
+         FROM aruba_sync_pages
+         WHERE sync_session_id = $1 AND NOT terminal AND stream <> '__manifest__'
+         ORDER BY stream, committed_at DESC`,
+        [session.id],
+      ),
+    ]);
+    const byStream = new Map(cursors.rows.map((row) => [row.stream, row]));
+    const resume = new Map(interrupted.rows.map((row) => [row.stream, row.page_ordinal]));
+    return {
+      operation: "READ_SYNC" as const,
+      sessionId: session.id,
+      environment: session.environment,
+      accountReference: session.account_reference,
+      panelUrl: panelUrl(session.environment),
+      oldestReconciliationDate: snapshot.oldestReconciliationDate,
+      streams: snapshot.streams.map((stream) => {
+        const scoped = cursorStream(session.environment, session.account_reference, stream);
+        const cursor = byStream.get(scoped);
+        return {
+          name: stream,
+          cursor: cursor?.cursor ?? null,
+          overlapFrom: cursor?.overlap_from?.toISOString() ?? null,
+          lastFullScanCompletedAt: cursor?.full_scan_completed_at?.toISOString() ?? null,
+          resumePageOrdinal: resume.get(stream) ?? null,
+        };
+      }),
+      intervalSeconds: 900,
+      absoluteExpiresAt: session.absolute_expires_at.toISOString(),
+    };
+  });
 }
 
 interface CompletionResult {
@@ -151,7 +237,8 @@ export async function completeStableArubaInventory(
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `aruba-read:${session.environment}:${session.account_reference}`,
     ]);
-    const expectedStreams = assertExpectedStreams(session);
+    const snapshot = await inventorySnapshot(client, session);
+    const expectedStreams = snapshot.streams;
     if (
       streams.data.length !== expectedStreams.length ||
       streams.data.some((stream, index) => stream !== expectedStreams[index])
@@ -179,7 +266,7 @@ export async function completeStableArubaInventory(
               max(page_ordinal) FILTER (WHERE terminal)::integer AS terminal_ordinal,
               count(*) FILTER (WHERE full_scan = $3)::integer AS mode_count
        FROM aruba_sync_pages
-       WHERE sync_session_id = $1 AND scan_ordinal = $2
+       WHERE sync_session_id = $1 AND scan_ordinal = $2 AND stream <> '__manifest__'
        GROUP BY stream`,
       [session.id, scanOrdinal.data, fullScan.data],
     );
