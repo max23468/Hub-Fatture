@@ -12,6 +12,7 @@ import {
   getInvoiceProjection,
   saveInvoiceDraft,
 } from "../../src/db/documents.server.ts";
+import { getHistoricalInvoiceProjection } from "../../src/db/historical-invoice-projection.server.ts";
 import {
   addOrderToBillingCase,
   correctBillingCaseCustomer,
@@ -133,7 +134,6 @@ function runIntent(
         province: form.get("province"),
         countryCode: form.get("countryCode"),
       },
-      // Un valore vuoto rimuove la riga; tutte le altre sopravvivono alla correzione.
       taxIdentifiers: form.getAll("taxValue").flatMap((value, index) =>
         value.trim()
           ? [
@@ -153,6 +153,20 @@ function runIntent(
   );
 }
 
+async function invoiceProjection(caseId: string) {
+  try {
+    return await getInvoiceProjection(caseId);
+  } catch (error) {
+    if (error instanceof AppError && error.code === "DOCUMENT_INVALID") {
+      const historical = await getHistoricalInvoiceProjection(caseId);
+      if (historical) return historical;
+      return { error: error.message } as const;
+    }
+    if (error instanceof AppError) return { error: error.message } as const;
+    throw error;
+  }
+}
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const [user, billingCase] = await Promise.all([
     requireSessionUser(request),
@@ -160,10 +174,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   ]);
   if (!billingCase) throw new Response("Preparazione non trovata", { status: 404 });
   const [projection, pendingArubaPreflight] = await Promise.all([
-    getInvoiceProjection(params.caseId).catch((error: unknown) => {
-      if (error instanceof AppError) return { error: error.message } as const;
-      throw error;
-    }),
+    invoiceProjection(params.caseId),
     getPendingArubaPreflightForCase(params.caseId),
   ]);
   return {
