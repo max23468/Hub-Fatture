@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { documentInputSchema, fiscalProfileSchema } from "../documents.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
+import { AppError } from "../errors.ts";
 import { getArubaInventoryHealth } from "./aruba-inbound.server.ts";
 import { getArubaSettings } from "./aruba.server.ts";
 import { getPool } from "./client.server.ts";
@@ -24,14 +25,16 @@ interface HistoricalInvoiceRow {
   immutable_snapshot_json: unknown;
   draft_version: number;
   source_total_amount: number;
-  total_amount: number;
   difference_amount: number;
   difference_reason: string | null;
-  projection_sha256: string;
 }
 
 function joined(values: Array<string | undefined | null>) {
   return values.filter((value): value is string => Boolean(value)).join(" · ") || "—";
+}
+
+export function historicalInvoiceInput(snapshot: unknown) {
+  return documentInputSchema.parse(snapshot);
 }
 
 export async function getHistoricalInvoiceProjection(
@@ -42,8 +45,8 @@ export async function getHistoricalInvoiceProjection(
     `SELECT documents.id, billing_cases.revision, documents.fiscal_profile_version,
             fiscal_profiles.status AS profile_status,
             documents.fiscal_profile_snapshot_json, documents.immutable_snapshot_json,
-            documents.draft_version, documents.source_total_amount, documents.total_amount,
-            documents.difference_amount, documents.difference_reason, documents.projection_sha256
+            documents.draft_version, documents.source_total_amount,
+            documents.difference_amount, documents.difference_reason
      FROM billing_cases
      JOIN documents ON documents.billing_case_id = billing_cases.id
      JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
@@ -55,9 +58,11 @@ export async function getHistoricalInvoiceProjection(
   );
   const row = result.rows[0];
   if (!row) return null;
-  const input = documentInputSchema.parse(row.immutable_snapshot_json);
+  const input = historicalInvoiceInput(row.immutable_snapshot_json);
   const profile = fiscalProfileSchema.parse(row.fiscal_profile_snapshot_json);
-  const xml = (await readDocumentXml(row.id)).toString("utf8");
+  const storedXml = await readDocumentXml(row.id);
+  if (!storedXml) throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
+  const xml = storedXml.toString("utf8");
   await validateFatturaXml(xml);
   const digest = createHash("sha256").update(xml).digest("hex");
   const recipientName =
@@ -162,7 +167,7 @@ export async function getHistoricalInvoiceProjection(
     notes: input.notes ?? "",
     paymentPending: input.paymentStatus === "PENDING",
     requiresResave: false,
-    projectionSha256: digest || row.projection_sha256,
+    projectionSha256: digest,
     xml,
     comparison,
     approved: true,
