@@ -4,10 +4,7 @@ import test from "node:test";
 import { request } from "playwright";
 
 import { ARUBA_PANEL_ORIGIN } from "../src/aruba.ts";
-import {
-  installBoundedArubaRequestGet,
-  readBoundedResponse,
-} from "./aruba-download-limit.ts";
+import { installBoundedArubaRequestGet, readBoundedResponse } from "./aruba-download-limit.ts";
 
 test("il download streaming Aruba conserva un body entro limite", async () => {
   const response = new Response(new Uint8Array([1, 2, 3]), {
@@ -59,9 +56,7 @@ test("l'intercettore bounded sostituisce davvero APIRequestContext.get di Playwr
     const response = await api.get(`${ARUBA_PANEL_ORIGIN}/bounded.xml`);
     assert.equal(response.ok(), true);
     assert.deepEqual(await response.body(), Buffer.from([1, 2, 3]));
-    assert.deepEqual(calls, [
-      { url: `${ARUBA_PANEL_ORIGIN}/bounded.xml`, redirect: "manual" },
-    ]);
+    assert.deepEqual(calls, [{ url: `${ARUBA_PANEL_ORIGIN}/bounded.xml`, redirect: "manual" }]);
   } finally {
     globalThis.fetch = originalFetch;
     await api.dispose();
