@@ -8,7 +8,7 @@ import { getConfig } from "../config.server.ts";
 import { hashToken } from "../crypto.server.ts";
 import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
-import { getPool, withTransaction } from "./client.server.ts";
+import { withTransaction } from "./client.server.ts";
 
 interface InventorySessionRow {
   id: string;
