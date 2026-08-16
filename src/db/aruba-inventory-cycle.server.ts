@@ -26,6 +26,12 @@ const inventorySnapshotSchema = z.object({
     .min(2)
     .max(50),
 });
+const romeDateFormat = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Rome",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 type InventorySnapshot = z.infer<typeof inventorySnapshotSchema>;
 
@@ -45,12 +51,7 @@ function bearerParts(token: string) {
 }
 
 function romeDate(value: Date): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Rome",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(value);
+  const parts = romeDateFormat.formatToParts(value);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((candidate) => candidate.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
