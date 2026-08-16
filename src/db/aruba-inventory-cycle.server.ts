@@ -240,9 +240,10 @@ export async function completeStableArubaInventory(
     ]);
     const snapshot = await inventorySnapshot(client, session);
     const expectedStreams = snapshot.streams;
+    const expectedStreamSet = new Set(expectedStreams);
     if (
       streams.data.length !== expectedStreams.length ||
-      streams.data.some((stream, index) => stream !== expectedStreams[index])
+      streams.data.some((stream) => !expectedStreamSet.has(stream))
     ) {
       await client.query(
         `UPDATE aruba_sync_sessions SET status = 'INCOMPLETE', lease_expires_at = NULL,
