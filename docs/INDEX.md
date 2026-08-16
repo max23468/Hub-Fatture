@@ -26,7 +26,8 @@
 | [Backup e ripristino](runbooks/backup-restore.md)                      | Backup cifrato, copia Mac e restore drill                 | Corrente    | Sì             |
 | [Incidenti Production](runbooks/incidents.md)                          | Triage P0-P2 e kill switch                                | Corrente    | Sì             |
 | [Evidenza Production OCI](evidence/production-oci.md)                  | Gate locali e ricevute remote della Production OCI        | Verificato  | No             |
-| [Audit del release candidate](audits/release-candidate-review.md)      | Audit trasversale e finding del candidato corrente        | Corrente    | No             |
+| [Finding tecnici attivi](audits/active-findings.md)                    | Vista breve del debito tecnico ancora azionabile          | Corrente    | No             |
+| [Audit del release candidate](audits/release-candidate-review.md)      | Registro storico delle verifiche e relative risoluzioni   | Storico     | No             |
 | [Readiness della release](runbooks/release-readiness.md)               | Gate chiusi, prove collegate e canary tecnico Production  | Corrente    | No             |
 
 [aruba-inbound-plan]: plans/aruba-inbound-reconciliation.md
