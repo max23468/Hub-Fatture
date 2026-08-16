@@ -101,7 +101,10 @@ export async function getHistoricalInvoiceProjection(
     lines: input.lines.map((line, index) => ({
       field: String(index + 1),
       source: "—",
-      draft: joined([line.description, `${line.quantity} × ${(line.unitAmount / 100).toFixed(2)} €`]),
+      draft: joined([
+        line.description,
+        `${line.quantity} × ${(line.unitAmount / 100).toFixed(2)} €`,
+      ]),
       projected: joined([
         line.description,
         `${line.quantity} × ${(line.unitAmount / 100).toFixed(2)} €`,
