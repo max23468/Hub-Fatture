@@ -17,6 +17,7 @@ interface InventorySessionRow {
   device_id: string;
   absolute_expires_at: Date;
   expected_streams: string[];
+  expected_oldest_reconciliation_date: string;
 }
 
 function panelUrl(environment: InventorySessionRow["environment"]): string {
@@ -43,7 +44,7 @@ async function readSession(
   if (!parts) return null;
   const result = await client.query<InventorySessionRow>(
     `SELECT id, environment, account_reference, device_id, absolute_expires_at,
-            expected_streams
+            expected_streams, expected_oldest_reconciliation_date::text
      FROM aruba_sync_sessions
      WHERE token_hash = $1 AND device_id = $2 AND status IN ('ACTIVE', 'SCANNING')
        AND absolute_expires_at > now() AND lease_expires_at > now()
@@ -100,13 +101,7 @@ export async function arubaInventoryManifest(token: string) {
     environment: session.environment,
     accountReference: session.account_reference,
     panelUrl: panelUrl(session.environment),
-    oldestReconciliationDate: streams
-      .map((stream) => Number(stream.slice(stream.indexOf(":") + 1)))
-      .filter(Number.isFinite)
-      .toSorted((left, right) => left - right)
-      .at(0)
-      ?.toString()
-      .concat("-01-01") ?? new Date().toISOString().slice(0, 10),
+    oldestReconciliationDate: session.expected_oldest_reconciliation_date,
     streams: streams.map((stream) => {
       const scoped = cursorStream(session.environment, session.account_reference, stream);
       const cursor = byStream.get(scoped);
