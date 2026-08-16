@@ -149,7 +149,7 @@ END;
 $$;
 
 CREATE TRIGGER documents_materialize_aruba_history_lines
-  AFTER INSERT OR UPDATE OF status, origin ON documents
+  AFTER INSERT OR UPDATE ON documents
   FOR EACH ROW EXECUTE FUNCTION materialize_aruba_history_document_lines();
 
 ALTER TABLE document_lines DISABLE TRIGGER document_lines_approved_immutable;
