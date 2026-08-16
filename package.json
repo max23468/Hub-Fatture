@@ -6,7 +6,7 @@
   "scripts": {
     "audit": "npm audit --audit-level=high",
     "aruba:helper": "node scripts/aruba-helper.ts",
-    "aruba:sync": "node scripts/aruba-read-helper.ts",
+    "aruba:sync": "node scripts/aruba-read-runner.ts",
     "build": "react-router build",
     "build:server": "tsc -p tsconfig.server.json",
     "check": "npm run check:full",
