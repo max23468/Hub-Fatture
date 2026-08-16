@@ -4,14 +4,12 @@ Questo documento è la vista breve dello stato tecnico corrente. Il registro com
 
 ## Correzioni in verifica
 
-| Finding | Stato | Correzione |
-| ------- | ----- | ---------- |
-| RC-65 | In verifica | Il completamento incompleto committa lo stato `INCOMPLETE` prima di restituire l'errore, evitando che il rollback cancelli la diagnosi. |
-| RC-66 | In verifica | Stream e finestra minima vengono fotografati nella sessione Aruba e non sono più ricalcolati al completamento. |
-| RC-68 | In verifica | Il fallback manuale traduce JSON non valido in `ARUBA_INVENTORY_INVALID`. |
-| RC-71 | In verifica | Lo snapshot della sessione include anche l'anno fiscale che può iniziare prima della sua scadenza. |
-| RC-74 | In verifica | I documenti storici Aruba materializzano `document_lines` dallo snapshot immutabile e restano protetti dalle mutazioni successive. |
-| RC-76 | In verifica | I download ufficiali Production vengono letti in streaming con limite anticipato e interruzione del body oltre soglia. |
+- **RC-65 — In verifica.** Il completamento incompleto committa lo stato `INCOMPLETE` prima di restituire l'errore, evitando che il rollback cancelli la diagnosi.
+- **RC-66 — In verifica.** Stream e finestra minima vengono fotografati nella sessione Aruba e non sono più ricalcolati al completamento.
+- **RC-68 — In verifica.** Il fallback manuale traduce JSON non valido in `ARUBA_INVENTORY_INVALID`.
+- **RC-71 — In verifica.** Lo snapshot della sessione include anche l'anno fiscale che può iniziare prima della sua scadenza.
+- **RC-74 — In verifica.** I documenti storici Aruba materializzano `document_lines` dallo snapshot immutabile e restano protetti dalle mutazioni successive.
+- **RC-76 — In verifica.** I download ufficiali Production vengono letti in streaming con limite anticipato e interruzione del body oltre soglia.
 
 ## Debito strutturale
 
