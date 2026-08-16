@@ -8,7 +8,9 @@ import { installBoundedArubaRequestGet } from "./aruba-download-limit.ts";
 import { runArubaReadHelper } from "./aruba-read-helper.ts";
 
 const originalLaunchPersistentContext = chromium.launchPersistentContext.bind(chromium);
-chromium.launchPersistentContext = (async (...args: Parameters<typeof chromium.launchPersistentContext>) => {
+chromium.launchPersistentContext = (async (
+  ...args: Parameters<typeof chromium.launchPersistentContext>
+) => {
   const context = await originalLaunchPersistentContext(...args);
   installBoundedArubaRequestGet(context);
   return context;
