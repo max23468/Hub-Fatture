@@ -533,7 +533,7 @@ function ArubaSettingsSection({
           <dd>{inventory.lastErrorCode ?? "Nessuno"}</dd>
         </div>
       </dl>
-      <div className="settings-card-action">
+      <div className="settings-card-action connection-panel__actions">
         <Form method="post">
           <input type="hidden" name="csrf" value={csrfToken} />
           <input type="hidden" name="intent" value="issue-aruba-read-session" />
