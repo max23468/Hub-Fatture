@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.53
+
+- Le Impostazioni Aruba separano correttamente i tre comandi operativi, mantenendo spaziatura coerente anche quando vanno a capo.
+
 ## 0.3.52
 
 - La ricevuta di ogni backup include commit, versione applicativa, digest immagine, schema DB e motivo, oltre a checksum e dimensione già verificati su OCI.
