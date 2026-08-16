@@ -91,17 +91,17 @@ test("una fattura Aruba storica senza document_lines resta apribile dallo snapsh
     );
     assert.equal(
       (
-        await database.getPool().query<{ count: string }>(
-          "SELECT count(*) FROM document_lines WHERE document_id = $1",
-          [document.rows[0]!.id],
-        )
+        await database
+          .getPool()
+          .query<{ count: string }>("SELECT count(*) FROM document_lines WHERE document_id = $1", [
+            document.rows[0]!.id,
+          ])
       ).rows[0]!.count,
       "0",
     );
 
-    const { getHistoricalInvoiceProjection } = await import(
-      "./historical-invoice-projection.server.ts"
-    );
+    const { getHistoricalInvoiceProjection } =
+      await import("./historical-invoice-projection.server.ts");
     const projection = await getHistoricalInvoiceProjection(billingCase.rows[0]!.id);
     assert.ok(projection);
     assert.equal(projection.approved, true);
