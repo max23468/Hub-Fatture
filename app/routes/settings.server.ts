@@ -18,10 +18,10 @@ import {
   createArubaManualReadback,
   finalizeArubaManualReadback,
   getArubaInventoryHealth,
-  issueArubaReadSession,
   requestImmediateArubaSync,
   revokeArubaReadSessions,
 } from "../../src/db/aruba-inbound.server.ts";
+import { issueStableArubaReadSession } from "../../src/db/aruba-read-session.server.ts";
 import {
   connectionSummaries,
   enqueueEbayHistory,
@@ -171,7 +171,7 @@ export async function action({ request }: Route.ActionArgs) {
       return redirect("/impostazioni?aruba=salvata#aruba-helper");
     }
     if (intent === "issue-aruba-read-session") {
-      const session = await issueArubaReadSession(`browser-${randomUUID()}`, {
+      const session = await issueStableArubaReadSession(`browser-${randomUUID()}`, {
         id: user.id,
         canApprove: user.canApprove,
         requestId: requestId(request),
