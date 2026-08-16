@@ -11,9 +11,7 @@ test("la proiezione storica usa le righe dello snapshot immutabile", () => {
       kind: "PRIVATE_IT",
       firstName: "Mario",
       lastName: "Rossi",
-      taxIdentifiers: [
-        { type: "CODICE_FISCALE", value: "RSSMRA80A01H501U", countryCode: "IT" },
-      ],
+      taxIdentifiers: [{ type: "CODICE_FISCALE", value: "RSSMRA80A01H501U", countryCode: "IT" }],
       address: {
         line1: "Via Cliente 2",
         postalCode: "00100",
