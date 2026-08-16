@@ -1,5 +1,18 @@
 ALTER TABLE aruba_sync_sessions
-  ADD COLUMN expected_streams text[] NOT NULL DEFAULT '{}';
+  ADD COLUMN expected_streams text[] NOT NULL DEFAULT '{}',
+  ADD COLUMN expected_oldest_reconciliation_date date;
+
+CREATE FUNCTION aruba_expected_inventory_oldest_date(started_at_value timestamptz) RETURNS date
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT coalesce(
+    (SELECT min(local_order_date)
+     FROM orders
+     WHERE trigger_status NOT IN ('INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')),
+    (started_at_value AT TIME ZONE 'Europe/Rome')::date
+  );
+$$;
 
 CREATE FUNCTION aruba_expected_inventory_streams(
   target_environment text,
@@ -14,11 +27,7 @@ AS $$
     SELECT
       extract(year FROM started_at_value AT TIME ZONE 'Europe/Rome')::integer AS started_year,
       extract(year FROM absolute_expires_at_value AT TIME ZONE 'Europe/Rome')::integer AS expires_year,
-      coalesce((
-        SELECT extract(year FROM min(local_order_date))::integer
-        FROM orders
-        WHERE trigger_status NOT IN ('INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
-      ), extract(year FROM started_at_value AT TIME ZONE 'Europe/Rome')::integer) AS oldest_year
+      extract(year FROM aruba_expected_inventory_oldest_date(started_at_value))::integer AS oldest_year
   ), baseline_years AS (
     SELECT generate_series(
       greatest(started_year, expires_year),
@@ -52,6 +61,7 @@ CREATE FUNCTION snapshot_aruba_inventory_streams() RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  NEW.expected_oldest_reconciliation_date := aruba_expected_inventory_oldest_date(NEW.started_at);
   NEW.expected_streams := aruba_expected_inventory_streams(
     NEW.environment,
     NEW.account_reference,
@@ -70,14 +80,16 @@ CREATE TRIGGER aruba_sync_sessions_snapshot_streams
   FOR EACH ROW EXECUTE FUNCTION snapshot_aruba_inventory_streams();
 
 UPDATE aruba_sync_sessions
-SET expected_streams = aruba_expected_inventory_streams(
-  environment,
-  account_reference,
-  started_at,
-  absolute_expires_at
-);
+SET expected_oldest_reconciliation_date = aruba_expected_inventory_oldest_date(started_at),
+    expected_streams = aruba_expected_inventory_streams(
+      environment,
+      account_reference,
+      started_at,
+      absolute_expires_at
+    );
 
 ALTER TABLE aruba_sync_sessions
+  ALTER COLUMN expected_oldest_reconciliation_date SET NOT NULL,
   ADD CONSTRAINT aruba_sync_sessions_expected_streams_check CHECK (
     cardinality(expected_streams) BETWEEN 2 AND 50
   );
