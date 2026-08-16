@@ -24,15 +24,18 @@ test("i file legacy sovradimensionati non crescono ulteriormente", async () => {
   assert.deepEqual(offenders, []);
 });
 
-test("manifest e completamento inventario usano il modulo Aruba estratto", async () => {
-  const [manifestRoute, completeRoute, manifest] = await Promise.all([
+test("manifest, completamento e runner Aruba usano i moduli estratti", async () => {
+  const [manifestRoute, completeRoute, manifest, runner] = await Promise.all([
     readFile(path.join(root, "app/routes/aruba-sync-manifest.ts"), "utf8"),
     readFile(path.join(root, "app/routes/aruba-sync-complete.ts"), "utf8"),
     readFile(path.join(root, "package.json"), "utf8"),
+    readFile(path.join(root, "scripts/aruba-read-runner.ts"), "utf8"),
   ]);
   assert.match(manifestRoute, /arubaInventoryManifest/);
   assert.doesNotMatch(manifestRoute, /\barubaReadManifest\b/);
   assert.match(completeRoute, /completeStableArubaInventory/);
   assert.doesNotMatch(completeRoute, /\bcompleteArubaInventory\b/);
   assert.equal(JSON.parse(manifest).scripts["aruba:sync"], "node scripts/aruba-read-runner.ts");
+  assert.match(runner, /installBoundedArubaRequestGet/);
+  assert.match(runner, /chromium\.launchPersistentContext/);
 });
