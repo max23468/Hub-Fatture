@@ -21,7 +21,7 @@
     "email:qualification": "node build-server/operations/email-delivery-qualification.js",
     "fiscal-profile:activate": "node scripts/activate-fiscal-profile.ts",
     "format": "oxfmt --write .",
-    "format:check": "oxfmt --write src/db/aruba-history-lines.server.test.ts src/db/historical-invoice-projection.server.ts && git diff -- src/db/aruba-history-lines.server.test.ts src/db/historical-invoice-projection.server.ts && exit 1",
+    "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings .",
     "preflight:provider": "node scripts/provider-preflight.mjs",
     "smoke:imports": "node scripts/dependency-smoke.mjs",
