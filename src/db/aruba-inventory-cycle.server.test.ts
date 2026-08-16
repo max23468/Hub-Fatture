@@ -61,9 +61,10 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
        FROM unnest($1::text[]) AS stream`,
       [firstStreams],
     );
-    assert.deepEqual(await cycle.completeStableArubaInventory(firstToken, firstStreams, 1, true), {
-      completed: true,
-    });
+    assert.deepEqual(
+      await cycle.completeStableArubaInventory(firstToken, firstStreams.toReversed(), 1, true),
+      { completed: true },
+    );
 
     await database.getPool().query(
       `UPDATE aruba_sync_sessions SET status = 'COMPLETED', lease_expires_at = NULL
