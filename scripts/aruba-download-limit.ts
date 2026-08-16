@@ -7,6 +7,7 @@ import {
 } from "../src/aruba.ts";
 
 async function browserHeaders(context: BrowserContext, url: URL) {
+  if (url.protocol === "data:") return { Accept: "*/*" };
   const cookies = await context.cookies(url.toString());
   const page = context.pages()[0];
   const userAgent = page
@@ -26,7 +27,10 @@ export async function readBoundedResponse(
   response: Response,
   maxBytes = ARUBA_UPLOAD_MAX_BYTES,
 ): Promise<Buffer> {
-  if (!response.ok || !response.body) throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+  if (!response.ok || !response.body) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("OFFICIAL_FILE_DOWNLOAD_FAILED");
+  }
   const advertised = Number(response.headers.get("content-length"));
   if (Number.isFinite(advertised) && advertised > maxBytes) {
     await response.body.cancel().catch(() => undefined);
@@ -80,7 +84,9 @@ export function installBoundedArubaRequestGet(context: BrowserContext) {
   const originalGet = request.get.bind(request);
   request.get = (async (url: string, options?: Parameters<typeof request.get>[1]) => {
     const candidate = new URL(url);
-    if (candidate.origin !== ARUBA_PANEL_ORIGIN) return originalGet(url, options);
+    if (candidate.origin !== ARUBA_PANEL_ORIGIN && candidate.protocol !== "data:") {
+      return originalGet(url, options);
+    }
     const response = await downloadArubaResponse(context, candidate.toString());
     return {
       ok: () => response.status >= 200 && response.status < 300,
