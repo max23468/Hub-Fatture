@@ -2,6 +2,7 @@ import { data, redirect } from "react-router";
 import { randomUUID } from "node:crypto";
 import type { Route } from "./+types/settings";
 
+import { parseArubaManualPagesJson } from "../aruba-manual-input.ts";
 import { getConfig } from "../../src/config.server.ts";
 import {
   assertCsrf,
@@ -203,7 +204,7 @@ export async function action({ request }: Route.ActionArgs) {
     }
     if (intent === "add-aruba-manual-readback-pages") {
       const readbackId = String(form.get("readbackId") ?? "");
-      const pages = JSON.parse(String(form.get("pagesJson") ?? "null")) as unknown;
+      const pages = parseArubaManualPagesJson(form.get("pagesJson"));
       const added = await addArubaManualReadbackPages(readbackId, pages, {
         id: user.id,
         canApprove: user.canApprove,
