@@ -79,7 +79,7 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL,HIGH
       - name: Attesta il digest pubblicato
-        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3.0.0
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
           subject-name: ghcr.io/max23468/hub-fatture
           subject-digest: ${{ steps.build.outputs.digest }}
