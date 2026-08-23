@@ -193,12 +193,12 @@ e quando un rimborso di prova produce correttamente:
 | HF-F28 | Mostrare un comparatore fiscale strutturato fra snapshot sorgente, bozza corrente e proiezione XML prima di ogni approvazione | Confermato |
 | HF-F29 | Definire una Brand Foundation leggera e versionata per nome, icona, favicon, palette minima, tipografia di sistema e tono UI | Confermato |
 | HF-F30 | Valutare OCI Email Delivery in Development e selezionare un solo trasporto SMTP canonico prima dell'uso Production | Confermato come PoC; adozione OCI condizionata |
-| HF-F31 | Eseguire il flusso Aruba ordinario tramite un helper locale unico per Windows e macOS, usando Chrome o Edge; Safari resta supportato solo per il fallback manuale | Confermato |
+| HF-F31 | Eseguire la sincronizzazione dell’inventario Aruba tramite un preferito del browser in Safari, Chrome o Edge su computer, senza installer, runtime o credenziali persistenti | Confermato |
 | HF-F32 | Offrire in Impostazioni le modalità `Assistita` e `Automatica dopo conferma`, con `Assistita` come default | Confermato |
 | HF-F33 | Inventariare dall'account Aruba fatture e TD04 anche quando non sono stati generati da HF, con prima scansione dell'anno fiscale corrente estesa agli ordini ancora riconciliabili e ai documenti precedenti non terminali, poi aggiornamenti incrementali | Confermato |
 | HF-F34 | Collegare automaticamente un documento Aruba a ordini e documenti locali soltanto con corrispondenza univoca e XML ufficiale coerente; lasciare ambiguità, conflitti e documenti privi di ordine nelle code di verifica | Confermato |
 | HF-F35 | Richiedere un preflight Aruba on-demand vincolato alla revisione subito prima di ogni approvazione; mantenere inoltre il blocco globale quando Aruba non è mai stato letto, il readback ha più di 24 ore o esiste uno stato remoto incerto, con avviso dopo un'ora e fallback manuale del solo titolare | Confermato |
-| HF-F36 | Eseguire a ogni avvio dell'helper una scansione completa della finestra Aruba rilevante, inclusi ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, poi sincronizzazioni incrementali ogni 15 minuti mentre resta aperto e su comando, con sessione distinta dai batch, revocabile, legata al dispositivo e limitata a 8 ore | Confermato |
+| HF-F36 | Eseguire a ogni avvio esplicito del preferito una scansione completa della finestra Aruba rilevante, inclusi ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, usando una sessione temporanea di sola lettura distinta dai batch | Confermato |
 | HF-F37 | Aggiornare gli stati Aruba/SdI in modo monotono e conservare osservazioni append-only senza creare submission fittizie per documenti nati fuori da HF | Confermato |
 
 `HF-F25`, propagazione delle correzioni cliente verso Shopify, è stata riclassificata come evoluzione futura in 3.3: era disattivata di default, non serve a emettere un documento e obbligherebbe a chiedere scope di scrittura Shopify. L'identificativo resta libero e non viene riusato.
@@ -230,7 +230,7 @@ e quando un rimborso di prova produce correttamente:
 - Sincronizzazione di notifiche ed esiti.
 - Inventario in sola lettura di fatture e TD04 presenti in Aruba, inclusi i documenti nati fuori da HF, con riconciliazione continuativa e coda `Documenti → Da collegare`.
 - I documenti nati fuori da Shopify ed eBay restano soltanto nell’inventario Aruba per prevenire doppie emissioni: se non presentano né un riferimento ordine esplicito né un match locale compatibile non diventano ordini, fatture da gestire o verifiche bloccanti.
-- Helper Aruba locale multipiattaforma per Chrome o Edge, avviato dall'utente sul proprio computer.
+- Preferito `Sincronizza Aruba` per Safari, Chrome o Edge su computer, configurato una volta e avviato esplicitamente dall'utente nella pagina Aruba.
 - Modalità Aruba `Assistita` e `Automatica dopo conferma`, selezionabili in Impostazioni.
 - Export XML e import dei file Aruba come fallback manuale sempre disponibile.
 - Pannello operativo e registro attività.
@@ -264,7 +264,7 @@ e quando un rimborso di prova produce correttamente:
 - Web Services Aruba Premium o API Aruba non documentate.
 - Automazione Aruba headless o non presidiata sulla VPS.
 - Automazione di login, password, OTP 2FA o CAPTCHA.
-- Automazione Safari del pannello Aruba; su Safari resta disponibile il flusso manuale.
+- Helper di caricamento e trasmissione su Safari; questo componente usa Chrome o Edge, mentre il preferito di sola lettura supporta anche Safari.
 - Alta disponibilità, cluster, microservizi, Redis e Kubernetes.
 - Retrocompatibilità o implementazioni legacy non necessarie.
 
@@ -305,7 +305,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Lint e formato | Oxlint e Oxfmt con pin esatto; niente ESLint/Prettier iniziali | Riusa una toolchain veloce già adottata in CF Ready senza duplicare strumenti equivalenti |
 | Test browser dell'app | Playwright con Chromium sulle PR e Chromium+WebKit in M8 | Rende riproducibili i flussi HF e fornisce trace diagnostiche senza estendere indiscriminatamente la matrice browser |
 | Integrazione Aruba | Account Base e pannello web ufficiale; nessuna API Premium | Elimina un costo ricorrente sproporzionato per un'app single-user |
-| Helper Aruba | Un solo helper locale TypeScript/Playwright per Windows e macOS, con Chrome o Edge installato | La sessione autenticata resta sul computer dell'utente e la stessa implementazione copre entrambi i sistemi operativi |
+| Sincronizzazione Aruba | Preferito JavaScript per Safari, Chrome o Edge e ponte autenticato temporaneo in HF | La sessione Aruba resta nel browser dell'utente e l'uso ordinario non richiede installer, runtime, Terminale, estensioni o codici da copiare |
 | Inventario Aruba | Cache provider-first dei documenti presenti nell'account, indipendente dai batch HF; prima scansione dell'anno fiscale corrente e sincronizzazione incrementale locale | Rileva fatture create direttamente in Aruba, impedisce doppie emissioni e rende osservabile la freschezza reale del readback |
 | Modalità helper | `Assistita` di default e `Automatica dopo conferma` opzionale | Consente di scegliere il livello di automazione senza rimuovere l'approvazione esplicita |
 | Comparatore fiscale | Diff strutturato server-side fra sorgente, bozza e proiezione XML | Rende visibili trasformazioni, correzioni e arrotondamenti senza affidarsi a un fragile confronto testuale dell'XML |
@@ -940,7 +940,7 @@ Questi dettagli restano ipotesi fino all'audit M4 registrato in un'evidenza sani
 
 ### 10.2 Helper locale multipiattaforma
 
-L'helper è un comando TypeScript/Playwright della stessa repository, avviato dal titolare sul proprio computer. Usa un'installazione locale stabile di Chrome o Edge e un profilo browser dedicato. La stessa implementazione deve funzionare su Windows e macOS; non introdurre due automazioni native. Safari resta utilizzabile soltanto per il percorso manuale.
+L'helper di trasmissione è un comando TypeScript/Playwright della stessa repository, avviato dal titolare sul proprio computer. Usa un'installazione locale stabile di Chrome o Edge e un profilo browser dedicato. La stessa implementazione deve funzionare su Windows e macOS; non introdurre due automazioni native. Per questo flusso di caricamento e trasmissione Safari resta utilizzabile soltanto per il percorso manuale; il preferito distinto di sola lettura supporta invece anche Safari.
 
 Il server HF non ospita un browser Aruba e non riceve la sessione. L'helper riceve da HF un token casuale, revocabile, a scadenza breve e vincolato al solo batch; durante le pause umane ne rinnova la scadenza breve tramite heartbeat, entro un limite assoluto di 45 minuti dalla creazione. Se l'operazione non termina prima del limite, il server revoca il token e forza la riconciliazione mentre il token è ancora valido. Recupera il manifest via HTTPS e invia a HF soltanto stato, identificativi tecnici e readback sanitizzato. Questa comunicazione usa esclusivamente endpoint interni di Hub Fatture, non API Aruba. Il token non autorizza da solo il clic finale: in modalità automatica il server ricontrolla manifest, stato validato e abilitazione Production immediatamente prima dell'invio. L'helper non legge né esporta cookie o local storage e non deve tentare di aggirare CAPTCHA o controlli anti-automazione.
 
@@ -948,13 +948,13 @@ Usare soltanto la UI visibile e gli URL ufficiali Aruba, con allowlist stretta d
 
 ### 10.2.1 Sincronizzazione in entrata
 
-Lo stesso helper mantiene un inventario provider-first delle fatture e TD04 presenti nell'account, anche quando sono nati fuori da HF. Esegue a ogni avvio, anche quando esiste già un cursore, una scansione completa dell'anno fiscale corrente estesa all'indietro fino al più remoto ordine ancora riconciliabile e a tutti i documenti non terminali già osservati negli stream precedenti; poi esegue sincronizzazioni incrementali ogni 15 minuti mentre resta aperto e su richiesta con `Sincronizza Aruba ora`. Paginazione, cursore con sovrapposizione e ingest idempotente devono consentire la ripresa senza duplicazioni; una sola scansione può essere attiva per account e ambiente anche da dispositivi diversi. La completezza riguarda l'elenco: i file ufficiali vengono scaricati soltanto per documenti nuovi, cambiati, candidati al collegamento o privi dell'evidenza necessaria.
+L'inventario provider-first delle fatture e TD04 presenti nell'account, anche quando sono nati fuori da HF, usa il preferito `Sincronizza Aruba`. La prima configurazione consiste nel trascinare il pulsante nella barra dei preferiti di Safari, Chrome o Edge su computer; non richiede installer, estensioni, firma, Node.js, npm o Terminale. Per ogni aggiornamento il titolare sceglie **Apri Aruba** in HF, completa personalmente login ed eventuali challenge, poi usa il preferito nella pagina Aruba. Il comando esegue una scansione completa dell'anno fiscale corrente estesa all'indietro fino al più remoto ordine ancora riconciliabile e a tutti i documenti non terminali già osservati negli stream precedenti. Paginazione, cursore e ingest idempotente consentono la ripresa senza duplicazioni; una sola scansione può essere attiva per account e ambiente.
 
-La sincronizzazione usa una sessione distinta dal token di batch, limitata alla sola lettura/importazione, vincolata all'installazione locale, revocabile, ruotata e con durata assoluta massima di 8 ore. Non può leggere manifest di upload, caricare XML o inviare documenti. Login e challenge restano umani; nessuna sessione Aruba entra in HF. Il profilo browser locale dedicato è persistente e viene riusato fra gli avvii per ridurre i login; l'helper viene comunque avviato volontariamente e la prima versione non si installa come elemento di login o servizio automatico del sistema operativo.
+Il preferito non contiene token, credenziali o identità persistenti e resta riutilizzabile senza rigenerazione. Apre un ponte HF autenticato in una finestra separata; il ponte verifica l'origine Aruba esatta, crea automaticamente a ogni avvio una nuova sessione casuale temporanea di sola lettura e conserva il bearer nella propria memoria senza inviarlo alla pagina Aruba. Il ponte inoltra soltanto manifest, heartbeat, pagine inventario, completamento/fallimento e preflight tramite allowlist esatta. La sessione non può leggere manifest di upload, caricare XML o inviare documenti. Il server non riceve cookie, local storage o sessione Aruba. La finestra Aruba invia a HF soltanto righe visibili e sanitizzate. I file ufficiali che richiedono download separati non vengono acquisiti dal preferito: HF li segnala come evidenza mancante e non allenta i gate fiscali che li richiedono.
 
 I documenti esterni non generano `aruba_submissions` fittizie. HF conserva inventario, osservazioni append-only e collegamenti separati, riusa gli stati comuni `SUBMITTED`, `SDI_PROCESSING`, `DELIVERED`, `NOT_DELIVERED` e `REJECTED`, aggiorna gli esiti senza regressioni e materializza un documento storico `ARUBA_HISTORY` soltanto dopo XML ufficiale valido, match univoco e stato `DELIVERED` o `NOT_DELIVERED`. Negli stati intermedi, scartati o incerti XML e notifiche restano di proprietà del remote document senza creare una riga `documents`, perché `ARUBA_HISTORY` rappresenta documenti approvati e partecipa all'unicità fiscale. Soltanto `DELIVERED` e `NOT_DELIVERED` confermano l'emissione e consumano l'unicità della fattura o il residuo dei rimborsi coperti da una TD04: gli stati intermedi sospendono il caso senza chiuderlo, mentre `REJECTED` conserva il tentativo ma lascia possibile la revisione/riedizione e non genera note di credito. Una TD04 esterna emessa collega atomicamente tutti e soli i rimborsi completati che copre, impostando il loro `credit_document_id` sotto lo stesso lock usato dal processo di generazione, così nessun rimborso può essere riaccreditato. Gli stati di preparazione/upload restano esclusivi dei tentativi partiti da HF; etichette remote non riconosciute o terminali incompatibili aprono uno stato incerto. Gli altri casi restano in `Documenti → Da collegare` o `Da verificare`. Il piano esecutivo è in [docs/plans/aruba-inbound-reconciliation.md](plans/aruba-inbound-reconciliation.md).
 
-La freschezza periodica non basta ad autorizzare una mutazione fiscale. Ogni approvazione richiede un preflight Aruba on-demand completato dopo la richiesta e vincolato ad account, ambiente, preparazione, revisione/hash e ordini/rimborsi; l'helper acquisisce subito ogni possibile match e la ricevuta viene consumata entro cinque minuti. Modifiche, scadenza, errori, stati incerti o nuovi candidati bloccano e richiedono un altro preflight. L'approvazione massiva usa una sola scansione ma un manifest che vincola ogni preparazione. Se l'helper non è disponibile, soltanto `Massimo` può completare il readback manuale specifico di §10.8; una scansione globale fallita richiede invece il fallback manuale completo.
+La freschezza periodica non basta ad autorizzare una mutazione fiscale. Ogni approvazione richiede un preflight Aruba on-demand completato dopo la richiesta e vincolato ad account, ambiente, preparazione, revisione/hash e ordini/rimborsi; HF invita il titolare ad avviare il preferito, che acquisisce ogni possibile match, completa le ricevute pendenti e le rende consumabili entro cinque minuti. Modifiche, scadenza, errori, stati incerti o nuovi candidati bloccano e richiedono un altro preflight. L'approvazione massiva usa una sola scansione ma un manifest che vincola ogni preparazione. Se il preferito non completa la lettura, soltanto `Massimo` può usare il readback manuale specifico di §10.8; una scansione globale fallita richiede invece il fallback manuale completo.
 
 ### 10.3 Modalità selezionabili in Impostazioni
 
@@ -1342,7 +1342,7 @@ La vista `Da gestire` riunisce errori, verifiche richieste, scarti, documenti Ar
 - Profilo fiscale: sola lettura dopo audit, con versione.
 - Numerazione/sezionale: protetta e configurata dopo audit.
 - Modalità Aruba: `Assistita` come default oppure `Automatica dopo conferma`.
-- Stato helper, sessioni di sola sincronizzazione revocabili, ultimo inventario completo, prossimo giro previsto, comando `Sincronizza Aruba ora` e istruzioni minime per avviarlo su Windows o macOS con Chrome/Edge.
+- Stato sintetico della sincronizzazione Aruba, ultimo inventario completo, tre conteggi operativi, azione **Apri Aruba** e istruzioni per configurare una volta il preferito. Sessione in corso e codice diagnostico restano nei dettagli.
 - Trasporto SMTP scelto e stato, senza mostrare credenziali.
 - Sistema: ambiente e fuso orario; versione applicativa, backup e ripristino compaiono soltanto quando M7 fornisce dati e azioni reali.
 
@@ -1356,7 +1356,9 @@ La vista interna `Connessioni` mostra, per Shopify, eBay e il trasporto SMTP can
 - verifica credenziali;
 - dettagli errore sanificati.
 
-Per Aruba non mostrare `riconnetti` o `verifica credenziali`: HF non possiede credenziali Aruba. Mostrare soltanto stato e ultima versione dell'helper, browser rilevato, ultimo inventario/readback completo, modalità configurata, sessioni di sincronizzazione ed eventuale errore sanitizzato. `Connesso` significa soltanto che l'helper ha contattato HF di recente: non implica che la sessione Aruba sia autenticata, informazione che resta nel browser locale.
+Per Aruba non mostrare `riconnetti` o `verifica credenziali`: HF non possiede credenziali Aruba. La vista ordinaria mostra un solo stato osservato, l'ultimo inventario completo, i conteggi `documenti`, `senza ordine Shopify/eBay` e `da verificare`, l'azione **Apri Aruba** e le due istruzioni del preferito. Sessione temporanea e codice diagnostico sono dettagli avanzati. `Sincronizzazione in corso` significa soltanto che il ponte HF ha ricevuto un heartbeat recente: non implica che la sessione Aruba sia autenticata, informazione che resta nella pagina Aruba.
+
+`Modalità Assistita` e `Automatica dopo conferma` appartengono alla trasmissione dei documenti, non alla sincronizzazione dell'inventario, e vivono in un blocco separato. Il readback manuale completo non compare nella vista ordinaria: resta sempre raggiungibile dal recupero avanzato soltanto quando esiste un errore bloccante e solo per il titolare.
 
 Non mostrare mai segreti.
 
@@ -1413,7 +1415,7 @@ Nessun Redis. Nessun microservizio. Il worker usa PostgreSQL per lock, schedulin
 
 Fuori da Compose esiste un solo componente operativo locale:
 
-- `aruba-helper`: comando TypeScript/Playwright avviato dal titolare su Windows o macOS e collegato a Chrome/Edge tramite un profilo dedicato. Usa via HTTPS token di batch brevi per upload/invio e sessioni distinte di sola sincronizzazione per l'inventario in entrata. Non è un servizio remoto, non gira sulla VPS, non conserva credenziali Aruba e non chiama API Aruba.
+- `aruba-helper`: comando TypeScript/Playwright avviato dal titolare su Windows o macOS e collegato a Chrome/Edge tramite un profilo dedicato. Usa via HTTPS token di batch brevi per upload/invio. Non è un servizio remoto, non gira sulla VPS, non conserva credenziali Aruba e non chiama API Aruba. La sincronizzazione dell'inventario non usa questo componente: il preferito opera nella pagina Aruba già autenticata e comunica con il ponte temporaneo di HF.
 
 Gli ambienti sono separati logicamente:
 
@@ -2041,10 +2043,10 @@ Valori di routine da calibrare:
 
 - Shopify recovery sync: ogni 10-15 minuti.
 - eBay sync: ogni 10-15 minuti.
-- Aruba inventory: scansione completa della finestra rilevante a ogni avvio dell'helper, inclusi ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, poi incrementale ogni 15 minuti mentre resta aperto e su comando esplicito.
+- Aruba inventory: scansione completa della finestra rilevante a ogni avvio esplicito del preferito, inclusi ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali.
 - Pulizia sessioni: giornaliera.
 
-Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify, eBay e inventario Aruba. Per Aruba non simulare un polling headless sulla VPS: la schedulazione esiste soltanto nell'helper locale aperto, con un lease server-side unico per account e ambiente. Mostrare l'età dell'ultimo inventario completo e proporre l'avvio dell'helper quando è obsoleto o esistono documenti non conclusi.
+Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify, eBay e inventario Aruba. Per Aruba non simulare un polling headless sulla VPS e non promettere aggiornamenti automatici: la scansione parte soltanto dal preferito, con una sessione server-side unica per account e ambiente. Mostrare l'età dell'ultimo inventario completo e l'azione concreta per aprire Aruba quando è obsoleto o esistono documenti non conclusi.
 
 Quando una correzione del mapper richiede di rileggere ordini già importati, una migrazione
 append-only riporta il cursore `orders` a poco prima dell'ordine più remoto interessato e
@@ -2114,7 +2116,7 @@ Mantenere `docs/runbooks/secret-inventory.md` con soli nomi logici, ambiente, de
 - Timeout espliciti e limiti di byte anche sulle risposte dei provider; `fetch` non resta mai privo di deadline e una risposta eccessiva viene trattata come errore stabile, non caricata integralmente in memoria.
 - Aggiornamenti di sicurezza del sistema operativo.
 - Token helper casuali, revocabili, a scadenza breve e vincolati al batch, mai in query string o log; hostname HF e Aruba verificati contro allowlist esatte. L'ultimo clic automatico richiede una verifica server-side fresca dell'abilitazione e del manifest.
-- Sessioni helper di inventario separate dai batch, limitate allo scope di sola lettura/importazione, legate all'installazione locale, revocabili e ruotate, con scadenza assoluta massima di 8 ore e tecnicamente incapaci di upload o invio.
+- Sessioni temporanee del preferito separate dai batch, emesse soltanto dal ponte HF autenticato, limitate alla sola lettura/importazione e tecnicamente incapaci di upload o invio; il bearer resta nella memoria del ponte e non viene inviato alla pagina Aruba.
 
 ### 17.4 Dati personali
 
@@ -2742,7 +2744,7 @@ Stop point per rivalutare capacità o architettura, non trigger di migrazione au
 - Usare un solo dominio APM Always Free e un solo monitor HTTP; non abilitare funzioni APM aggiuntive senza un bisogno osservato.
 - Usare un solo bucket Object Storage privato per i backup cifrati, con lifecycle e soglia prudenziale; il preflight blocca configurazioni che escono dalla quota senza costo.
 - Il PoC OCI Email Delivery resta entro la quota senza costo verificata, usa soltanto messaggi sintetici e non abilita costi; quota e condizioni vanno riverificate prima di M6.
-- Shopify Partner/Dev, Codex/Claude Code, account Aruba Base e Chrome o Edge sul computer operativo sono prerequisiti posseduti o gestiti separatamente dal titolare; HF non richiede un add-on Aruba a pagamento.
+- Shopify Partner/Dev, Codex/Claude Code, account Aruba Base e un browser supportato sul computer operativo sono prerequisiti posseduti o gestiti separatamente dal titolare; Safari, Chrome o Edge bastano per l'inventario, mentre l'helper di trasmissione richiede Chrome o Edge. HF non richiede un add-on Aruba a pagamento.
 - Se un limite gratuito o una condizione contrattuale cambia, fermarsi e proporre l'alternativa prima di attivare costi.
 
 ### 21.7 Politica delle dipendenze
@@ -2849,7 +2851,7 @@ Il percorso critico verifica anche refresh durante un'azione, doppio click/submi
 Playwright è il runner E2E canonico:
 
 - sulle PR esegue Chromium soltanto su quattro flussi sintetici: login con entrambi gli account, import fixture, creazione della preparazione fattura e approvazione contro Aruba mock;
-- in M8 esegue gli stessi flussi HF con Chromium e WebKit sul candidato; contro la pagina Aruba sintetica verifica inoltre l'helper con Chrome o Edge su runner macOS e Windows e aggiunge i percorsi completi di stato SdI, e-mail e nota di credito;
+- in M8 esegue gli stessi flussi HF e il preferito di sincronizzazione su Chromium e WebKit nel candidato; contro la pagina Aruba sintetica verifica inoltre l'helper di trasmissione con Chrome o Edge su runner macOS e Windows e aggiunge i percorsi completi di stato SdI, e-mail e nota di credito;
 - usa locator accessibili e dati sintetici deterministici; nessuna credenziale o informazione reale entra in test, report o trace;
 - registra la trace soltanto al primo retry fallito, con retention CI breve di 7 giorni; niente video continui o snapshot visuali finché non esiste una regressione visiva concreta;
 - non traccia né automatizza il Canary Production e non aggiunge Firefox finché non emerge un bisogno reale.

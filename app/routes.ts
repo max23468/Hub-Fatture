@@ -33,6 +33,8 @@ export default [
   route("api/aruba/sync/completa", "routes/aruba-sync-complete.ts"),
   route("api/aruba/sync/fallita", "routes/aruba-sync-failed.ts"),
   route("api/aruba/sync/preflight", "routes/aruba-sync-preflight.ts"),
+  route("api/aruba/sync/sessione-browser", "routes/aruba-browser-session.ts"),
+  route("aruba-ponte", "routes/aruba-bridge.tsx"),
   route("aruba-sintetica/file/:kind", "routes/aruba-synthetic-file.ts"),
   route("aruba-sintetica", "routes/aruba-synthetic.tsx"),
   route("attivita", "routes/activity.tsx"),

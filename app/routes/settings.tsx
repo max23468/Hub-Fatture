@@ -1,4 +1,6 @@
 import {
+  AlertTriangle,
+  CircleCheck,
   CircleUserRound,
   FileCheck2,
   Landmark,
@@ -8,6 +10,7 @@ import {
   Settings2,
   ShieldCheck,
 } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { Form, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/settings";
 
@@ -37,6 +40,22 @@ export function meta({ error }: Route.MetaArgs) {
 }
 
 type ErrorFor = (...intents: string[]) => string | null;
+
+function BookmarkletLink({ value }: { value: string }) {
+  const linkRef = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    linkRef.current?.setAttribute("href", value);
+  }, [value]);
+  return (
+    <a
+      className="button button--secondary aruba-bookmarklet__button"
+      href="#aruba-bookmarklet-title"
+      ref={linkRef}
+    >
+      {copy.settings.arubaBookmarkletLabel}
+    </a>
+  );
+}
 
 function ProfileSettingsSection({
   username,
@@ -397,13 +416,153 @@ function ConnectionsSettingsSection({
   );
 }
 
+type ManualReadbackData = {
+  id: string;
+  coverage?: { streams: string[]; oldestReconciliationDate: string | null };
+  pagesAdded?: number;
+  documentsAdded?: number;
+};
+
+function ArubaInventoryCard({
+  inventory,
+}: {
+  inventory: Awaited<ReturnType<typeof getArubaInventoryHealth>>;
+}) {
+  const unresolvedCount = inventory.potentialMatches + inventory.ambiguous + inventory.conflicts;
+  return (
+    <section className="aruba-inventory-card" aria-labelledby="aruba-inventory-title">
+      <header>
+        <h3 id="aruba-inventory-title">{copy.settings.arubaInventoryTitle}</h3>
+        <span
+          className={`settings-status settings-status--${inventory.status === "HEALTHY" ? "success" : "neutral"}`}
+        >
+          {copy.settings.arubaInventoryLabels[inventory.status]}
+        </span>
+      </header>
+      <dl>
+        <div>
+          <dt>{copy.settings.arubaRemoteDocuments}</dt>
+          <dd>{inventory.remoteDocuments}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaExternalDocuments}</dt>
+          <dd>{inventory.externalDocuments}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaUnresolved}</dt>
+          <dd>{unresolvedCount}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function ArubaConnectionDetails({
+  inventory,
+}: {
+  inventory: Awaited<ReturnType<typeof getArubaInventoryHealth>>;
+}) {
+  return (
+    <details className="settings-disclosure aruba-connection-details">
+      <summary>{copy.settings.arubaConnectionDetails}</summary>
+      <dl className="settings-facts-grid settings-facts-grid--three">
+        <div>
+          <dt>{copy.settings.arubaLastReadback}</dt>
+          <dd>
+            {inventory.lastCompletedAt ? dateTime(inventory.lastCompletedAt) : copy.settings.never}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaSession}</dt>
+          <dd>
+            {inventory.activeSession
+              ? copy.settings.arubaSessionActive
+              : copy.settings.arubaSessionInactive}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaDiagnostic}</dt>
+          <dd>{inventory.lastErrorCode ?? copy.settings.arubaNoError}</dd>
+        </div>
+      </dl>
+    </details>
+  );
+}
+
+function ArubaManualRecovery({
+  manualReadback,
+  csrfToken,
+  errorFor,
+}: {
+  manualReadback?: ManualReadbackData | null;
+  csrfToken: string;
+  errorFor: ErrorFor;
+}) {
+  const manualError = errorFor(
+    "create-aruba-manual-readback",
+    "add-aruba-manual-readback-pages",
+    "finalize-aruba-manual-readback",
+  );
+  return (
+    <details className="settings-disclosure settings-manual-readback">
+      <summary>{copy.settings.arubaAdvancedRecovery}</summary>
+      <p className="field-help">{copy.settings.arubaAdvancedRecoveryHelp}</p>
+      {!manualReadback ? (
+        <Form method="post">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="create-aruba-manual-readback" />
+          <button className="button button--secondary" type="submit">
+            {copy.settings.arubaOpenManualRecovery}
+          </button>
+        </Form>
+      ) : manualReadback.pagesAdded === undefined ? (
+        <Form method="post" className="security-form">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="add-aruba-manual-readback-pages" />
+          <input type="hidden" name="readbackId" value={manualReadback.id} />
+          {manualReadback.coverage ? (
+            <p className="field-help">
+              Stream obbligatori: {manualReadback.coverage.streams.join(", ")}. Estremo:{" "}
+              {manualReadback.coverage.oldestReconciliationDate ?? "oggi"}.
+            </p>
+          ) : null}
+          <label>
+            Pagine acquisite in JSON
+            <textarea name="pagesJson" required rows={10} spellCheck={false} />
+          </label>
+          <button className="button" type="submit">
+            Valida pagine
+          </button>
+        </Form>
+      ) : (
+        <Form method="post">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="finalize-aruba-manual-readback" />
+          <input type="hidden" name="readbackId" value={manualReadback.id} />
+          <p className="field-help">
+            {manualReadback.pagesAdded} pagine e {manualReadback.documentsAdded} documenti validati.
+            La finalizzazione è atomica e non supera conflitti o stati incerti.
+          </p>
+          <button className="button" type="submit">
+            Finalizza inventario manuale
+          </button>
+        </Form>
+      )}
+      {manualError ? (
+        <p className="error" role="alert">
+          {manualError}
+        </p>
+      ) : null}
+    </details>
+  );
+}
+
 function ArubaSettingsSection({
   aruba,
   arubaSaved,
   inventory,
-  readSession,
-  syncRequested,
-  sessionsRevoked,
+  arubaPanelUrl,
+  arubaBookmarkletUrl,
   manualReadback,
   manualReadbackCompleted,
   canApprove,
@@ -413,20 +572,34 @@ function ArubaSettingsSection({
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
   arubaSaved: boolean;
   inventory: Awaited<ReturnType<typeof getArubaInventoryHealth>>;
-  readSession?: { token: string; absoluteExpiresAt: string } | null;
-  syncRequested: boolean;
-  sessionsRevoked: boolean;
-  manualReadback?: {
-    id: string;
-    coverage?: { streams: string[]; oldestReconciliationDate: string | null };
-    pagesAdded?: number;
-    documentsAdded?: number;
-  } | null;
+  arubaPanelUrl: string;
+  arubaBookmarkletUrl: string;
+  manualReadback?: ManualReadbackData | null;
   manualReadbackCompleted: boolean;
   canApprove: boolean;
   csrfToken: string;
   errorFor: ErrorFor;
 }) {
+  const connectionState = inventory.activeSession
+    ? "ACTIVE"
+    : inventory.blocking
+      ? "ATTENTION"
+      : "READY";
+  const connectionCopy = {
+    ACTIVE: {
+      title: copy.settings.arubaConnectionActive,
+      description: copy.settings.arubaConnectionActiveHelp,
+    },
+    READY: {
+      title: copy.settings.arubaConnectionReady,
+      description: copy.settings.arubaConnectionReadyHelp,
+    },
+    ATTENTION: {
+      title: copy.settings.arubaConnectionAttention,
+      description: copy.settings.arubaConnectionAttentionHelp,
+    },
+  }[connectionState];
+  const ConnectionIcon = connectionState === "ATTENTION" ? AlertTriangle : CircleCheck;
   return (
     <section className="settings-section" id="aruba-helper" aria-labelledby="aruba-helper-title">
       <SettingsSectionHeader
@@ -440,230 +613,112 @@ function ArubaSettingsSection({
           {copy.settings.arubaSaved}
         </p>
       ) : null}
-      {syncRequested ? (
-        <p className="notice" role="status">
-          {copy.settings.arubaSyncRequested}
-        </p>
-      ) : null}
-      {sessionsRevoked ? (
-        <p className="notice" role="status">
-          {copy.settings.arubaSessionsRevoked}
-        </p>
-      ) : null}
       {manualReadbackCompleted ? (
         <p className="notice" role="status">
           Readback manuale completo acquisito e inventario Aruba aggiornato.
         </p>
       ) : null}
-      {readSession ? (
-        <section className="notice" role="status" aria-labelledby="aruba-read-code">
-          <h3 id="aruba-read-code">{copy.settings.arubaReadCodeTitle}</h3>
-          <p>{copy.settings.arubaReadCodeHelp(dateTime(readSession.absoluteExpiresAt))}</p>
-          <code className="code-block">{readSession.token}</code>
-        </section>
-      ) : null}
       {aruba.automaticForcedAssisted ? (
         <p className="warning">{copy.settings.arubaKillSwitch}</p>
       ) : null}
-      <dl className="settings-facts-grid settings-facts-grid--three">
-        <div>
-          <dt>{copy.settings.arubaInventoryStatus}</dt>
-          <dd>{copy.settings.arubaInventoryLabels[inventory.status]}</dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaRemoteDocuments}</dt>
-          <dd>{inventory.remoteDocuments}</dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaUnmatched}</dt>
-          <dd>{inventory.externalDocuments}</dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaUnresolved}</dt>
-          <dd>{inventory.potentialMatches + inventory.ambiguous + inventory.conflicts}</dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaConfiguredMode}</dt>
-          <dd>{copy.settings.arubaModeLabel(aruba.mode.value)}</dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaEffectiveMode}</dt>
-          <dd>{copy.settings.arubaModeLabel(aruba.effectiveMode)}</dd>
-        </div>
-        <div>
-          <dt>{copy.settings.helperLastSeen}</dt>
-          <dd>
-            {aruba.helper.lastSeenAt ? dateTime(aruba.helper.lastSeenAt) : copy.settings.never}
-          </dd>
-        </div>
-        <div>
-          <dt>{copy.settings.helperVersion}</dt>
-          <dd>{aruba.helper.version ?? copy.common.unavailable}</dd>
-        </div>
-        <div>
-          <dt>{copy.settings.helperBrowser}</dt>
-          <dd>{aruba.helper.browser ?? copy.common.unavailable}</dd>
-        </div>
-        <div>
-          <dt>{copy.settings.helperLastReadback}</dt>
-          <dd>
-            {aruba.helper.lastReadbackAt
-              ? dateTime(aruba.helper.lastReadbackAt)
-              : copy.settings.never}
-          </dd>
-        </div>
-        <div>
-          <dt>Sessione di lettura</dt>
-          <dd>
-            {inventory.activeSession
-              ? `Dispositivo …${inventory.activeDeviceSuffix ?? ""}`
-              : "Nessuna sessione attiva"}
-          </dd>
-        </div>
-        <div>
-          <dt>Prossima sincronizzazione</dt>
-          <dd>
-            {inventory.nextScheduledAt
-              ? dateTime(inventory.nextScheduledAt)
-              : copy.common.unavailable}
-          </dd>
-        </div>
-        <div>
-          <dt>Ultimo errore inventario</dt>
-          <dd>{inventory.lastErrorCode ?? "Nessuno"}</dd>
-        </div>
-      </dl>
-      <section className="settings-command-section" aria-labelledby="aruba-commands-title">
-        <header className="settings-command-section__header">
-          <h3 id="aruba-commands-title">{copy.settings.arubaCommandsTitle}</h3>
-          <p>{copy.settings.arubaCommandsHelp}</p>
-        </header>
-        <div className="settings-command-grid">
-          <article className="settings-command-card">
-            <h4>{copy.settings.arubaIssueReadCodeTitle}</h4>
-            <p>{copy.settings.arubaIssueReadCodeHelp}</p>
-            <Form method="post">
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="issue-aruba-read-session" />
-              <button className="button button--secondary" type="submit">
-                {copy.settings.arubaIssueReadCode}
-              </button>
-            </Form>
-          </article>
-          <article className="settings-command-card">
-            <h4>{copy.settings.arubaSyncNowTitle}</h4>
-            <p>{copy.settings.arubaSyncNowHelp}</p>
-            <Form method="post">
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="request-aruba-sync" />
-              <button className="button" type="submit">
-                {copy.settings.arubaSyncNow}
-              </button>
-            </Form>
-          </article>
-          {canApprove ? (
-            <article className="settings-command-card">
-              <h4>{copy.settings.arubaRevokeSessionsTitle}</h4>
-              <p>{copy.settings.arubaRevokeSessionsHelp}</p>
-              <Form method="post">
-                <input type="hidden" name="csrf" value={csrfToken} />
-                <input type="hidden" name="intent" value="revoke-aruba-read-sessions" />
-                <button className="button button--secondary" type="submit">
-                  {copy.settings.arubaRevokeSessions}
-                </button>
-              </Form>
-            </article>
-          ) : null}
-        </div>
-      </section>
-      {canApprove && inventory.blocking ? (
-        <section className="settings-inset-card settings-detail-card settings-manual-readback">
-          <header className="settings-detail-card__header">
-            <h3>Readback manuale completo</h3>
-            <p>
-              Usa questo fallback soltanto dopo aver percorso tutti gli stream nel pannello Aruba.
-              Ogni pagina deve includere tutte le righe, l’ordinale e la conferma della pagina
-              terminale.
-            </p>
-          </header>
-          {!manualReadback ? (
-            <Form method="post">
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="create-aruba-manual-readback" />
-              <button className="button button--secondary" type="submit">
-                Apri readback manuale
-              </button>
-            </Form>
-          ) : manualReadback.pagesAdded === undefined ? (
-            <Form method="post" className="security-form">
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="add-aruba-manual-readback-pages" />
-              <input type="hidden" name="readbackId" value={manualReadback.id} />
-              {manualReadback.coverage ? (
-                <p className="field-help">
-                  Stream obbligatori: {manualReadback.coverage.streams.join(", ")}. Estremo:{" "}
-                  {manualReadback.coverage.oldestReconciliationDate ?? "oggi"}.
-                </p>
-              ) : null}
-              <label>
-                Pagine acquisite in JSON
-                <textarea name="pagesJson" required rows={10} spellCheck={false} />
-              </label>
-              <button className="button" type="submit">
-                Valida pagine
-              </button>
-            </Form>
-          ) : (
-            <Form method="post">
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="finalize-aruba-manual-readback" />
-              <input type="hidden" name="readbackId" value={manualReadback.id} />
-              <p className="field-help">
-                {manualReadback.pagesAdded} pagine e {manualReadback.documentsAdded} documenti
-                validati. La finalizzazione è atomica e non supera conflitti o stati incerti.
-              </p>
-              <button className="button" type="submit">
-                Finalizza inventario manuale
-              </button>
-            </Form>
-          )}
-          {errorFor(
-            "create-aruba-manual-readback",
-            "add-aruba-manual-readback-pages",
-            "finalize-aruba-manual-readback",
-          ) ? (
-            <p className="error" role="alert">
-              {errorFor(
-                "create-aruba-manual-readback",
-                "add-aruba-manual-readback-pages",
-                "finalize-aruba-manual-readback",
+      <section className="aruba-sync-card" aria-labelledby="aruba-sync-status-title">
+        <div className="aruba-sync-card__status">
+          <span
+            className={`aruba-sync-card__icon aruba-sync-card__icon--${connectionState.toLowerCase()}`}
+          >
+            <ConnectionIcon aria-hidden="true" size={22} strokeWidth={1.8} />
+          </span>
+          <div>
+            <p className="aruba-sync-card__eyebrow">{copy.settings.arubaSyncTitle}</p>
+            <h3 id="aruba-sync-status-title">{connectionCopy.title}</h3>
+            <p>{connectionCopy.description}</p>
+            <p className="aruba-sync-card__updated">
+              {copy.settings.arubaLastUpdate(
+                aruba.helper.lastReadbackAt
+                  ? dateTime(aruba.helper.lastReadbackAt)
+                  : copy.settings.never,
               )}
             </p>
-          ) : null}
+          </div>
+        </div>
+        {canApprove ? (
+          <div className="aruba-sync-card__actions">
+            <a className="button" href={arubaPanelUrl} rel="noreferrer" target="_blank">
+              {copy.settings.arubaOpenPanel}
+            </a>
+          </div>
+        ) : (
+          <p className="field-help">{copy.settings.arubaSyncOwnerOnly}</p>
+        )}
+      </section>
+      {canApprove ? (
+        <section
+          className="settings-inset-card aruba-bookmarklet"
+          aria-labelledby="aruba-bookmarklet-title"
+        >
+          <header>
+            <h3 id="aruba-bookmarklet-title">{copy.settings.arubaBookmarkletTitle}</h3>
+            <p>{copy.settings.arubaBookmarkletHelp}</p>
+          </header>
+          <ol>
+            <li>
+              <div className="aruba-bookmarklet__step">
+                <div className="aruba-bookmarklet__copy">
+                  <strong>{copy.settings.arubaBookmarkletSaveTitle}</strong>
+                  <span>{copy.settings.arubaBookmarkletSaveHelp}</span>
+                </div>
+                <BookmarkletLink value={arubaBookmarkletUrl} />
+              </div>
+            </li>
+            <li>
+              <div className="aruba-bookmarklet__copy">
+                <strong>{copy.settings.arubaBookmarkletRunTitle}</strong>
+                <span>{copy.settings.arubaBookmarkletRunHelp}</span>
+              </div>
+            </li>
+          </ol>
         </section>
       ) : null}
+      <ArubaInventoryCard inventory={inventory} />
+      <ArubaConnectionDetails inventory={inventory} />
+      {canApprove && inventory.blocking ? (
+        <ArubaManualRecovery
+          csrfToken={csrfToken}
+          errorFor={errorFor}
+          manualReadback={manualReadback}
+        />
+      ) : null}
       {canApprove ? (
-        <SettingsForm
-          accessibleSubmitLabel={copy.settings.arubaSave}
-          className="settings-choice-card"
-          key={aruba.mode.version}
-          submitLabel={copy.settings.saveShort}
+        <section
+          className="settings-transmission-section"
+          aria-labelledby="aruba-transmission-title"
         >
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="save-aruba" />
-          <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
-          <label className="settings-choice-card__field">
-            <span>{copy.settings.arubaMode}</span>
-            <SettingsSelect
-              data-initial={aruba.mode.value}
-              defaultValue={aruba.mode.value}
-              name="arubaMode"
-            >
-              <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
-              <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
-            </SettingsSelect>
-          </label>
-        </SettingsForm>
+          <header>
+            <h3 id="aruba-transmission-title">{copy.settings.arubaTransmissionTitle}</h3>
+            <p>{copy.settings.arubaTransmissionHelp}</p>
+          </header>
+          <SettingsForm
+            accessibleSubmitLabel={copy.settings.arubaSave}
+            className="settings-choice-card settings-choice-card--compact"
+            key={aruba.mode.version}
+            submitLabel={copy.settings.saveShort}
+          >
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="save-aruba" />
+            <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
+            <label className="settings-choice-card__field">
+              <span>{copy.settings.arubaMode}</span>
+              <SettingsSelect
+                data-initial={aruba.mode.value}
+                defaultValue={aruba.mode.value}
+                name="arubaMode"
+              >
+                <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
+                <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
+              </SettingsSelect>
+            </label>
+          </SettingsForm>
+        </section>
       ) : (
         <p>{copy.settings.arubaOwnerOnly}</p>
       )}
@@ -885,8 +940,8 @@ export default function Settings() {
     aruba,
     arubaSaved,
     arubaInventory,
-    arubaSyncRequested,
-    arubaSessionsRevoked,
+    arubaPanelUrl,
+    arubaBookmarkletUrl,
     arubaManualReadbackCompleted,
     customerEmail,
     customerEmailSaved,
@@ -897,7 +952,6 @@ export default function Settings() {
     sessionsRevoked,
   } = useLoaderData<typeof loader>();
   const actionError = useActionData<typeof action>();
-  const readSession = actionError && "session" in actionError ? actionError.session : null;
   const manualReadback =
     actionError && "manualReadback" in actionError
       ? actionError.manualReadback
@@ -1019,9 +1073,8 @@ export default function Settings() {
             aruba={aruba}
             arubaSaved={arubaSaved}
             inventory={arubaInventory}
-            readSession={readSession}
-            syncRequested={arubaSyncRequested}
-            sessionsRevoked={arubaSessionsRevoked}
+            arubaPanelUrl={arubaPanelUrl}
+            arubaBookmarkletUrl={arubaBookmarkletUrl}
             manualReadback={manualReadback}
             manualReadbackCompleted={arubaManualReadbackCompleted}
             canApprove={canApprove}

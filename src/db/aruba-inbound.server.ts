@@ -342,7 +342,7 @@ export async function heartbeatArubaReadSession(
   token: string,
   details: { helperVersion?: unknown; browser?: unknown } = {},
 ) {
-  const browser = z.enum(["chrome", "msedge"]).optional().safeParse(details.browser);
+  const browser = z.enum(["chrome", "msedge", "safari"]).optional().safeParse(details.browser);
   const helperVersion = z.string().trim().max(100).optional().safeParse(details.helperVersion);
   if (!browser.success || !helperVersion.success)
     throw new AppError("ARUBA_READ_SESSION_INVALID", 422);
@@ -2358,19 +2358,23 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
        EXISTS (SELECT 1 FROM aruba_sync_sessions
         WHERE environment = $1 AND account_reference = $2
           AND status IN ('ACTIVE', 'SCANNING') AND absolute_expires_at > now()
-          AND lease_expires_at > now()) AS active_session,
+          AND lease_expires_at > now() AND last_heartbeat_at > now() - interval '2 minutes')
+         AS active_session,
        (SELECT right(device_id, 6) FROM aruba_sync_sessions
         WHERE environment = $1 AND account_reference = $2 AND status IN ('ACTIVE', 'SCANNING')
           AND absolute_expires_at > now() AND lease_expires_at > now()
+          AND last_heartbeat_at > now() - interval '2 minutes'
         ORDER BY started_at DESC LIMIT 1) AS active_device_suffix,
        (SELECT absolute_expires_at FROM aruba_sync_sessions
         WHERE environment = $1 AND account_reference = $2 AND status IN ('ACTIVE', 'SCANNING')
           AND absolute_expires_at > now() AND lease_expires_at > now()
+          AND last_heartbeat_at > now() - interval '2 minutes'
         ORDER BY started_at DESC LIMIT 1) AS active_session_expires_at,
        (SELECT coalesce(completed_at, last_heartbeat_at, started_at) + interval '15 minutes'
         FROM aruba_sync_sessions
         WHERE environment = $1 AND account_reference = $2 AND status IN ('ACTIVE', 'SCANNING')
           AND absolute_expires_at > now() AND lease_expires_at > now()
+          AND last_heartbeat_at > now() - interval '2 minutes'
         ORDER BY started_at DESC LIMIT 1) AS next_scheduled_at,
        (SELECT error_code FROM aruba_sync_sessions
         WHERE environment = $1 AND account_reference = $2 AND error_code IS NOT NULL
