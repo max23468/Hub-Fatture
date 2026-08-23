@@ -997,13 +997,26 @@ export const copy = {
     arubaRemoteDocuments: "Documenti rilevati",
     arubaUnmatched: "Senza ordine Shopify/eBay",
     arubaUnresolved: "Da verificare",
-    arubaIssueReadCode: "Genera codice di sola lettura",
+    arubaCommandsTitle: "Azioni di sincronizzazione",
+    arubaCommandsHelp:
+      "Questi comandi consentono soltanto di leggere e importare dati da Aruba: non caricano né inviano documenti.",
+    arubaIssueReadCodeTitle: "Collega un helper",
+    arubaIssueReadCodeHelp:
+      "Genera un codice temporaneo per autorizzare l’helper su Chrome o Edge alla sola lettura.",
+    arubaIssueReadCode: "Genera codice per l’helper",
     arubaReadCodeTitle: "Codice helper per la sincronizzazione",
     arubaReadCodeHelp: (expiresAt: string) =>
       `Valido fino a ${expiresAt}. Consente soltanto lettura e import, mai upload o invio.`,
-    arubaSyncNow: "Sincronizza Aruba ora",
-    arubaSyncRequested: "La sincronizzazione immediata è stata richiesta.",
-    arubaRevokeSessions: "Revoca sessioni di lettura",
+    arubaSyncNowTitle: "Aggiorna l’inventario",
+    arubaSyncNowHelp:
+      "Registra una richiesta: l’helper già collegato aggiorna documenti e stati quando è attivo.",
+    arubaSyncNow: "Richiedi sincronizzazione",
+    arubaSyncRequested:
+      "Richiesta registrata. La sincronizzazione partirà quando l’helper collegato è attivo.",
+    arubaRevokeSessionsTitle: "Disconnetti gli helper",
+    arubaRevokeSessionsHelp:
+      "Revoca tutti gli accessi di sola lettura attivi. Per ricollegare un helper servirà un nuovo codice.",
+    arubaRevokeSessions: "Revoca accessi di lettura",
     arubaSessionsRevoked: "Le sessioni Aruba attive sono state revocate.",
     arubaKillSwitch:
       "Gli invii automatici operativi sono disabilitati: i nuovi batch useranno la modalità assistita.",

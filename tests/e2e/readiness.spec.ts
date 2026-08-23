@@ -643,6 +643,49 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const arubaConnection = page.locator(".connection").filter({ hasText: "Aruba" });
   await expect(arubaConnection).toContainText("Mai letto");
   await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Impostazioni" }).click();
+  const arubaCommands = page.locator(".settings-command-section");
+  await expect(
+    arubaCommands.getByText(
+      "Questi comandi consentono soltanto di leggere e importare dati da Aruba: non caricano né inviano documenti.",
+    ),
+  ).toBeVisible();
+  await expect(
+    arubaCommands.getByRole("button", { name: "Genera codice per l’helper" }),
+  ).toBeVisible();
+  await expect(
+    arubaCommands.getByRole("button", { name: "Richiedi sincronizzazione" }),
+  ).toBeVisible();
+  await expect(
+    arubaCommands.getByRole("button", { name: "Revoca accessi di lettura" }),
+  ).toBeVisible();
+  expect(
+    await page
+      .locator(".settings-command-section, .settings-manual-readback")
+      .evaluateAll(
+        ([commands, panel]) =>
+          panel!.getBoundingClientRect().top - commands!.getBoundingClientRect().bottom,
+      ),
+  ).toBeGreaterThanOrEqual(24);
+  await page.setViewportSize({ width: 320, height: 780 });
+  await expectViewportFits(page);
+  expect(
+    await page
+      .locator(".settings-command-grid")
+      .evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length),
+  ).toBe(1);
+  expect(
+    await page.locator(".settings-command-card .button").evaluateAll((buttons) =>
+      buttons.every((button) => {
+        const style = getComputedStyle(button);
+        return (
+          Number.parseFloat(style.paddingTop) >= 12 && Number.parseFloat(style.paddingBottom) >= 12
+        );
+      }),
+    ),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
   await connectionClient.query(
     `INSERT INTO aruba_sync_sessions
        (id, environment, account_reference, device_id, token_hash, status,
