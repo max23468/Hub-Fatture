@@ -42,7 +42,7 @@ La fotografia operativa osservata sulla Dashboard costituisce uno scenario di re
 - creazione di ordini locali per documenti presenti soltanto in Aruba;
 - uso di Web Services Premium, API private o endpoint scoperti tramite DevTools;
 - browser Aruba sulla VPS o polling remoto non presidiato;
-- automazione del pannello Aruba con Safari;
+- helper di caricamento e trasmissione del pannello Aruba con Safari; il preferito di sola lettura supporta anche Safari;
 - avvio automatico dell’helper al login nella prima versione;
 - modifica retroattiva degli XML fiscali o degli snapshot immutabili;
 - upload, clic su `Invia`, trasmissioni Aruba, e-mail reali, deploy e release.
@@ -56,23 +56,23 @@ Questo piano non autorizza la prima scansione Aruba reale. Tale scansione è una
 3. Il solo totale non collega mai un documento a un ordine.
 4. Un aggiornamento remoto non può far regredire uno stato conclusivo già osservato.
 5. Incertezza, ambiguità, account inatteso, DOM non riconosciuto o file non valido arrestano la sessione in modo fail-closed.
-6. Credenziali, cookie, password, OTP e sessione Aruba restano nel profilo Chrome/Edge locale e non transitano in Hub Fatture.
+6. Credenziali, cookie, password, OTP e sessione Aruba restano nel browser locale supportato e non transitano in Hub Fatture.
 7. L’autorizzazione è verificata sul server; disabilitare un pulsante non sostituisce il blocco della mutazione.
 
 ## 4. Flusso operativo
 
 ### 4.1 Avvio e sessione
 
-L’helper unico TypeScript/Playwright continua a funzionare su macOS e Windows con un profilo persistente dedicato di Chrome o Edge. Safari resta il browser preferito per usare Hub Fatture e per il fallback manuale, ma non viene automatizzato sul pannello Aruba.
+La sincronizzazione in entrata usa il preferito JavaScript `Sincronizza Aruba` in Safari, Chrome o Edge su computer. Il preferito resta salvato senza contenere credenziali o token; a ogni uso apre un ponte Hub Fatture autenticato che crea una nuova sessione temporanea di sola lettura. L'helper TypeScript/Playwright con profilo persistente Chrome o Edge resta un componente distinto, riservato al caricamento e alla trasmissione.
 
-All’avvio l’helper:
+All’avvio esplicito del preferito:
 
-1. richiede a Hub Fatture una sessione di sola sincronizzazione;
-2. verifica hostname, ambiente, dispositivo e riferimento dell’account atteso;
-3. apre il profilo browser locale e attende l’eventuale login umano;
+1. apre il ponte autenticato e richiede a Hub Fatture una sessione temporanea di sola sincronizzazione;
+2. verifica origine, ambiente e riferimento dell’account atteso;
+3. usa la sessione Aruba già aperta nel browser, lasciando login e challenge all’utente;
 4. esegue sempre una scansione completa della finestra Aruba rilevante: anno fiscale corrente, intervallo fino al più remoto ordine ancora riconciliabile e documenti non terminali degli stream precedenti; cursori, paginazione e upsert evitano di riscaricare file invariati senza trasformarla in una scansione parziale;
-5. invia osservazioni e file ufficiali ammessi agli endpoint interni di Hub Fatture;
-6. ripete la sincronizzazione ogni 15 minuti finché resta aperto;
+5. invia soltanto righe visibili sanitizzate agli endpoint interni in allowlist;
+6. completa la sessione e chiude il ponte, senza sincronizzazione in background.
 7. consente `Sincronizza Aruba ora` senza creare una seconda scansione concorrente.
 
 La sessione di sincronizzazione è distinta dal token di batch:
@@ -258,7 +258,7 @@ Quando l’inventario globale è sano ma l’helper non è disponibile per il pr
 
 Quando invece una scansione si arresta o l’inventario globale è incompleto, il fallback non usa l’override per ignorare l’errore e il readback specifico non basta. Hub Fatture apre una sessione guidata di readback manuale completo per la stessa finestra che avrebbe coperto la scansione automatica e mostra al titolare gli stream obbligatori per anno/tipo, il limite temporale, i documenti non terminali già noti e gli errori da risolvere.
 
-Usando Safari o un altro browser, il titolare percorre nel pannello Aruba ogni stream fino alla pagina terminale. Per ogni pagina acquisisce in Hub Fatture tutte le righe visibili con gli stessi metadati canonici usati dall’inventario automatico — inclusi ID remoto quando presente, tipo, numero/serie/anno, data, stato, destinatario/identificativi normalizzati e totale — oppure importa un export ufficiale completo che contenga l’intero stream. Registra inoltre filtri applicati, ordinale, conteggio mostrato quando disponibile, estremi tecnici primo/ultimo e assenza della pagina successiva; importa XML/P7M/notifiche ufficiali per ogni documento nuovo, cambiato, candidato o privo di evidenza.
+Se il preferito non è disponibile, il titolare percorre nel pannello Aruba ogni stream fino alla pagina terminale usando il proprio browser. Per ogni pagina acquisisce in Hub Fatture tutte le righe visibili con gli stessi metadati canonici usati dall’inventario automatico — inclusi ID remoto quando presente, tipo, numero/serie/anno, data, stato, destinatario/identificativi normalizzati e totale — oppure importa un export ufficiale completo che contenga l’intero stream. Registra inoltre filtri applicati, ordinale, conteggio mostrato quando disponibile, estremi tecnici primo/ultimo e assenza della pagina successiva; importa XML/P7M/notifiche ufficiali per ogni documento nuovo, cambiato, candidato o privo di evidenza.
 
 Il server verifica che il numero di righe acquisite coincida con quello della pagina/export, che ogni riga sia presente una sola volta, che sequenza, conteggi ed estremi siano coerenti e che tutti gli stream terminino senza errori irrisolti. Se Aruba non espone un conteggio, la ricevuta richiede comunque tutte le righe, la pagina terminale e gli estremi di ogni pagina. Una ricevuta con sole quantità, estremi o attestazioni, priva del contenuto integrale delle righe o di un export ufficiale completo, non può marcare l’inventario come completo e mantiene il gate bloccato.
 
@@ -403,7 +403,7 @@ I test DB usano un database dedicato al worktree. Le suite E2E che possono reset
 - blocchi a 0/24 ore, avviso a un’ora, override di freschezza del solo titolare e impossibilità di ignorare match/conflitti/stati incerti;
 - aggiornamento SdI visibile sulle superfici interessate.
 
-Gli E2E di Hub Fatture girano su Chromium e WebKit. L’helper gira contro la pagina Aruba sintetica su macOS e Windows con Chrome o Edge. WebKit è il motore open source usato da Playwright: verifica la compatibilità dell’app, ma non è Safari reale, non controlla l’app Safari installata e non può usare il suo normale profilo autenticato.
+Gli E2E di Hub Fatture e del preferito girano su Chromium e WebKit. L’helper distinto di trasmissione gira contro la pagina Aruba sintetica su macOS e Windows con Chrome o Edge. WebKit è il motore open source usato da Playwright: verifica il motore usato da Safari, ma non sostituisce la qualifica manuale di Safari reale sul pannello Aruba e non usa il suo normale profilo autenticato.
 
 ## 13. Tranche di implementazione e ownership
 
@@ -502,7 +502,7 @@ Rollback applicativo: disabilitare l’emissione delle sessioni di sync e tornar
 
 ## 17. Decisioni già chiuse
 
-Non servono altre decisioni di prodotto prima di iniziare il codice. Naming puntuale, forma degli endpoint, durata del lease interno entro la sessione di 8 ore e ampiezza tecnica dell’overlap sono scelte di routine da calibrare con fixture e pannello osservato. Qualunque scoperta che richieda API Premium, automazione Safari, una nuova voce primaria di navigazione o una scansione reale non autorizzata riapre invece il perimetro e richiede il titolare.
+Non servono altre decisioni di prodotto prima di iniziare il codice. Naming puntuale, forma degli endpoint, durata del lease interno entro la sessione di 8 ore e ampiezza tecnica dell’overlap sono scelte di routine da calibrare con fixture e pannello osservato. Qualunque scoperta che richieda API Premium, un browser ulteriore, una nuova voce primaria di navigazione o una scansione reale non autorizzata riapre invece il perimetro e richiede il titolare.
 
 ## 18. Tracciabilità delle decisioni approvate
 
@@ -535,7 +535,7 @@ Questa matrice è la checklist di completezza rispetto alle decisioni che hanno 
 | Modificare le pagine esistenti senza aggiungere una voce Aruba primaria | Dashboard, Documenti, Ordini, Preparazione, Attività e Impostazioni (§9)                                                              |
 | Correggere il caso Dashboard osservato                                  | Regressione con 6 preparazioni, 1 pagamento, `Mai letto` e divieto di `Tutto sotto controllo` (§§1, 12)                               |
 | Usare un solo helper su macOS e Windows                                 | TypeScript/Playwright con Chrome o Edge e profilo dedicato (§4.1)                                                                     |
-| Continuare a usare Safari per Hub Fatture e fallback manuale            | Safari non viene automatizzato; WebKit Playwright non è Safari reale e non usa il suo profilo (§§2, 4.1, 12)                          |
+| Usare Safari anche per l'inventario senza installazioni aggiuntive      | Preferito senza token persistente, E2E WebKit e qualifica manuale separata su Safari reale (§§2, 4.1, 12)                             |
 | Non ospitare un browser Aruba sulla VPS                                 | Helper esclusivamente locale e polling remoto escluso (§2)                                                                            |
 | Conservare credenziali e sessione Aruba sul dispositivo                 | Nessun cookie, password, OTP o sessione transita in Hub Fatture (§3)                                                                  |
 | Fermarsi davanti a CAPTCHA, challenge o account inatteso                | Arresto/sospensione fail-closed (§§3, 4.1)                                                                                            |

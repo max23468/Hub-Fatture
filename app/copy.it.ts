@@ -1,5 +1,7 @@
-import type { AuditAction } from "../src/db/audit.server.ts";
 import { errorCatalog, type ErrorCode } from "../src/errors.ts";
+import { arubaSettingsCopy } from "./copy-aruba.it.ts";
+
+export { auditActionLabel, auditActionLabels } from "./copy-audit.it.ts";
 
 const euroFormatter = new Intl.NumberFormat("it-IT", {
   style: "currency",
@@ -978,9 +980,6 @@ export const copy = {
       EXISTING_SMTP: "SMTP esistente",
       OCI_EMAIL_DELIVERY: "OCI Email Delivery",
     } as Record<string, string>,
-    arubaTitle: "Integrazione Aruba",
-    arubaHelp:
-      "L’helper usa Chrome o Edge sul tuo computer. Hub Fatture non conserva credenziali, cookie o codici Aruba.",
     arubaMode: "Modalità Aruba",
     arubaAssisted: "Assistita",
     arubaAutomatic: "Automatica dopo conferma",
@@ -995,39 +994,10 @@ export const copy = {
       BLOCKED: "Bloccato · verifica richiesta",
     } as Record<string, string>,
     arubaRemoteDocuments: "Documenti rilevati",
-    arubaUnmatched: "Senza ordine Shopify/eBay",
     arubaUnresolved: "Da verificare",
-    arubaCommandsTitle: "Azioni di sincronizzazione",
-    arubaCommandsHelp:
-      "Questi comandi consentono soltanto di leggere e importare dati da Aruba: non caricano né inviano documenti.",
-    arubaIssueReadCodeTitle: "Collega un helper",
-    arubaIssueReadCodeHelp:
-      "Genera un codice temporaneo per autorizzare l’helper su Chrome o Edge alla sola lettura.",
-    arubaIssueReadCode: "Genera codice per l’helper",
-    arubaReadCodeTitle: "Codice helper per la sincronizzazione",
-    arubaReadCodeHelp: (expiresAt: string) =>
-      `Valido fino a ${expiresAt}. Consente soltanto lettura e import, mai upload o invio.`,
-    arubaSyncNowTitle: "Aggiorna l’inventario",
-    arubaSyncNowHelp:
-      "Registra una richiesta: l’helper già collegato aggiorna documenti e stati quando è attivo.",
-    arubaSyncNow: "Richiedi sincronizzazione",
-    arubaSyncRequested:
-      "Richiesta registrata. La sincronizzazione partirà quando l’helper collegato è attivo.",
-    arubaRevokeSessionsTitle: "Disconnetti gli helper",
-    arubaRevokeSessionsHelp:
-      "Revoca tutti gli accessi di sola lettura attivi. Per ricollegare un helper servirà un nuovo codice.",
-    arubaRevokeSessions: "Revoca accessi di lettura",
-    arubaSessionsRevoked: "Le sessioni Aruba attive sono state revocate.",
     arubaKillSwitch:
       "Gli invii automatici operativi sono disabilitati: i nuovi batch useranno la modalità assistita.",
-    arubaConfiguredMode: "Modalità configurata",
-    arubaEffectiveMode: "Modalità effettiva",
-    arubaModeLabel: (value: string) =>
-      value === "AUTOMATIC" ? "Automatica dopo conferma" : "Assistita",
-    helperLastSeen: "Ultimo contatto helper",
-    helperVersion: "Versione helper",
-    helperBrowser: "Browser helper",
-    helperLastReadback: "Ultimo readback",
+    ...arubaSettingsCopy,
     systemTitle: "Sistema",
     systemHelp: "Controlla i parametri generali che influenzano tutta l’applicazione.",
     systemOperations: "Operatività",
@@ -1208,71 +1178,6 @@ export const taxIdentifierLabels: Record<string, string> = {
   PARTITA_IVA: "Partita IVA",
   ALTRO: "Altro dato fiscale",
 };
-
-export const auditActionLabels = {
-  ACCOUNT_PASSWORD_CHANGED: "Password dell’account aggiornata",
-  ACCOUNT_SESSIONS_REVOKED: "Altre sessioni disconnesse",
-  ADMIN_ACCOUNT_CREATED: "Account amministrativo creato",
-  ARUBA_ASSISTED_STOPPED: "Helper arrestato prima dell’invio",
-  ARUBA_BATCH_CREATED: "Batch Aruba creato",
-  ARUBA_FILE_IMPORTED: "File Aruba importato",
-  ARUBA_READ_SESSION_ISSUED: "Sessione Aruba di sola lettura creata",
-  ARUBA_INVENTORY_COMPLETED: "Inventario Aruba completato",
-  ARUBA_DOCUMENT_MATCH_RESOLVED: "Documento Aruba collegato manualmente",
-  ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE: "Documento Aruba confermato fuori perimetro",
-  ARUBA_PREFLIGHT_OVERRIDDEN: "Controllo Aruba sostituito dopo verifica manuale",
-  ARUBA_HELPER_TOKEN_CREATED: "Codice helper generato",
-  ARUBA_READBACK_RECONCILED: "Readback Aruba riconciliato",
-  ARUBA_RECONCILIATION_REQUIRED: "Riconciliazione Aruba richiesta",
-  ARUBA_SEND_AUTHORIZATION_VERIFIED: "Autorizzazione invio Aruba verificata",
-  ARUBA_SETTINGS_CHANGED: "Impostazioni Aruba modificate",
-  ARUBA_UPLOAD_VALIDATED: "Caricamento Aruba validato",
-  ARUBA_VALIDATION_FAILED: "Validazione Aruba non riuscita",
-  BILLING_CASE_CREATED: "Preparazione fattura creata",
-  BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
-  BILLING_CASE_REACTIVATED: "Preparazione riattivata",
-  CUSTOMER_CORRECTED: "Anagrafica cliente corretta",
-  CUSTOMER_EMAIL_FAILED: "Invio e-mail non riuscito",
-  CUSTOMER_EMAIL_QUEUED: "Invio e-mail preparato",
-  CUSTOMER_EMAIL_REQUEUED: "Reinvio e-mail preparato",
-  CUSTOMER_EMAIL_SENT: "E-mail inviata",
-  CUSTOMER_EMAIL_SETTINGS_CHANGED: "Modalità e-mail aggiornata",
-  CUSTOMER_EMAIL_SUPPRESSED: "Invio e-mail soppresso",
-  DRAFT_TRIGGER_CHANGED: "Regola di preparazione modificata",
-  SHOPIFY_PAYMENT_FEE_MODE_CHANGED: "Regola commissioni Shopify Payments modificata",
-  DOCUMENT_APPROVED: "Documento approvato",
-  DOCUMENT_AMOUNT_DIFFERENCE_CONFIRMED: "Differenza d’importo confermata",
-  DOCUMENT_DRAFT_SAVED: "Bozza fiscale salvata",
-  DOCUMENT_NUMBERED: "Numero fiscale assegnato",
-  DOCUMENT_PENDING_PAYMENT_CONFIRMED: "Pagamento pendente confermato",
-  FISCAL_PROFILE_ACTIVATED: "Profilo fiscale approvato",
-  LOGIN_FAILED: "Accesso rifiutato",
-  LOGIN_RATE_LIMITED: "Accessi temporaneamente bloccati",
-  LOGIN_SUCCEEDED: "Accesso riuscito",
-  LOGOUT_SUCCEEDED: "Uscita registrata",
-  ORDER_GROUPED: "Ordine aggiunto alla preparazione",
-  ORDER_GROUPING_FORCED: "Preparazione anticipata richiesta",
-  ORDER_HISTORY_RECONCILED: "Storico confrontato con Aruba",
-  ORDER_IMPORTED: "Ordine importato",
-  ORDER_SEPARATED: "Ordine separato dalla preparazione",
-  ORDER_SOURCE_CONFLICT: "Aggiornamento dell’ordine da verificare",
-  ORDER_SOURCE_REVIEWED: "Aggiornamento dell’ordine verificato",
-  ORDER_SOURCE_UPDATED: "Ordine aggiornato dal canale di vendita",
-  PROVIDER_CONNECTED: "Canale di vendita collegato",
-  PROVIDER_REVOKED: "Canale di vendita scollegato",
-  REFUND_APPLIED_BEFORE_ISSUE: "Rimborso applicato prima dell’emissione",
-  REFUND_REVERSED_BEFORE_ISSUE: "Rimborso ripristinato prima dell’emissione",
-  RETENTION_APPLIED: "Conservazione tecnica applicata",
-  REFUND_CREDIT_NOTE_LINKED: "Rimborso collegato alla nota di credito",
-  REFUND_CREDIT_NOTE_UPDATED: "Nota di credito aggiornata dal rimborso",
-  REFUND_NEEDS_REVIEW: "Rimborso da verificare",
-  CONNECTOR_JOB_RETRIED: "Operazione del canale riavviata",
-  SHOPIFY_DATA_REQUEST_COMPLETED: "Richiesta dati Shopify gestita",
-} satisfies Record<AuditAction, string>;
-
-export function auditActionLabel(action: string) {
-  return (auditActionLabels as Record<string, string>)[action];
-}
 
 export const billingCaseStatusLabels: Record<string, string> = {
   DRAFT: "In lavorazione",

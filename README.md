@@ -53,6 +53,13 @@ Il comando non riceve né stampa credenziali.
 
 ## Helper Aruba locale
 
+La sincronizzazione dell’inventario non richiede l’helper, un installer o un runtime locale. In
+**Impostazioni → Aruba** il titolare trascina una volta **Sincronizza Aruba** nella barra dei
+preferiti di Safari, Chrome o Edge. Per aggiornare sceglie **Apri Aruba**, completa personalmente login ed
+eventuali challenge e usa il preferito nella pagina Aruba. Il preferito non conserva credenziali o
+token: apre un ponte autenticato che crea a ogni uso una nuova sessione temporanea di sola lettura.
+La scansione parte soltanto su questa azione esplicita e non promette aggiornamenti in background.
+
 Dopo aver creato un batch in **Documenti**, genera il codice di avvio e passalo al prompt nascosto dell’unico helper per macOS e Windows:
 
 ```sh

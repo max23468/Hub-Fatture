@@ -83,6 +83,8 @@ test("i connettori attivano contract test e corsia provider", () => {
 test("l'helper Aruba limita la matrice multipiattaforma ai cambi pertinenti", () => {
   for (const file of [
     "scripts/aruba-helper.ts",
+    "src/aruba-bookmarklet.ts",
+    "app/routes/aruba-browser-session.ts",
     "scripts/aruba-read-helper.ts",
     "scripts/aruba-read-runner.ts",
     "scripts/aruba-download-limit.ts",

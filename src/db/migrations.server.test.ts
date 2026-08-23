@@ -43,6 +43,12 @@ const ARUBA_CANARY_PERMIT = "029_aruba_canary_permit.sql";
 const ARUBA_INBOUND_RECONCILIATION = "030_aruba_inbound_reconciliation.sql";
 const SHOPIFY_SHIPPING_IDENTITY_REPLAY = "031_shopify_shipping_identity_replay.sql";
 const REMOVE_ARUBA_SEND_PERMITS = "032_remove_aruba_send_permits.sql";
+const SUPPORT_SAFARI_ARUBA_READ_SYNC = "033_support_safari_aruba_read_sync.sql";
+
+async function copyMigrationSnapshot(directory: string) {
+  await cp("migrations", directory, { recursive: true });
+  await rm(path.join(directory, SUPPORT_SAFARI_ARUBA_READ_SYNC));
+}
 
 test("la migrazione rimuove i permessi Aruba e conserva lo stato pronto", async () => {
   const database = await temporaryDatabase("remove_aruba_send_permits_upgrade");
@@ -50,7 +56,7 @@ test("la migrazione rimuove i permessi Aruba e conserva lo stato pronto", async 
     path.join(os.tmpdir(), "hub-fatture-before-remove-aruba-send-permits-"),
   );
   try {
-    await cp("migrations", beforeRemoval, { recursive: true });
+    await copyMigrationSnapshot(beforeRemoval);
     await rm(path.join(beforeRemoval, REMOVE_ARUBA_SEND_PERMITS));
     await runMigrations({ connectionString: database.connectionString, directory: beforeRemoval });
     await withClient(database.connectionString, async (client) => {
@@ -76,6 +82,7 @@ test("la migrazione rimuove i permessi Aruba e conserva lo stato pronto", async 
     });
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -99,7 +106,7 @@ test("la migrazione clienti elimina soltanto i profili privi di collegamenti", a
     path.join(os.tmpdir(), "hub-fatture-before-customer-review-cleanup-"),
   );
   try {
-    await cp("migrations", beforeCleanup, { recursive: true });
+    await copyMigrationSnapshot(beforeCleanup);
     await rm(path.join(beforeCleanup, CUSTOMER_REVIEW_CLEANUP));
     await rm(path.join(beforeCleanup, ARUBA_CANARY_PERMIT));
     await rm(path.join(beforeCleanup, ARUBA_INBOUND_RECONCILIATION));
@@ -131,6 +138,7 @@ test("la migrazione clienti elimina soltanto i profili privi di collegamenti", a
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -150,7 +158,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
   const database = await temporaryDatabase("connector_upgrade");
   const firstTwo = await mkdtemp(path.join(os.tmpdir(), "hub-fatture-first-two-"));
   try {
-    await cp("migrations", firstTwo, { recursive: true });
+    await copyMigrationSnapshot(firstTwo);
     await rm(path.join(firstTwo, CONNECTOR_PRIVACY));
     await rm(path.join(firstTwo, CONNECTOR_OPERATIONS));
     await rm(path.join(firstTwo, DOCUMENTS));
@@ -216,6 +224,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -229,7 +238,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
     path.join(os.tmpdir(), "hub-fatture-before-historical-import-"),
   );
   try {
-    await cp("migrations", beforeHistoricalImport, { recursive: true });
+    await copyMigrationSnapshot(beforeHistoricalImport);
     await rm(path.join(beforeHistoricalImport, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeHistoricalImport, HISTORICAL_INVOICE_LINKS));
     await rm(path.join(beforeHistoricalImport, LEGACY_WEBHOOK_HISTORY));
@@ -280,6 +289,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       const jobs = await client.query(
@@ -320,7 +330,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
     path.join(os.tmpdir(), "hub-fatture-before-webhook-history-"),
   );
   try {
-    await cp("migrations", beforeClassification, { recursive: true });
+    await copyMigrationSnapshot(beforeClassification);
     await rm(path.join(beforeClassification, LEGACY_WEBHOOK_HISTORY));
     await rm(path.join(beforeClassification, SHOPIFY_PAYMENT_FEES));
     await rm(path.join(beforeClassification, CREDIT_NOTE_ORDER_AMOUNTS));
@@ -372,6 +382,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -400,7 +411,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
     path.join(os.tmpdir(), "hub-fatture-before-fiscal-identifier-backfill-"),
   );
   try {
-    await cp("migrations", beforeBackfill, { recursive: true });
+    await copyMigrationSnapshot(beforeBackfill);
     await rm(path.join(beforeBackfill, FISCAL_IDENTIFIER_BACKFILL));
     await rm(path.join(beforeBackfill, SHOPIFY_RECIPIENT_RECLASSIFICATION));
     await rm(path.join(beforeBackfill, EBAY_PAYMENT_RECONCILIATION));
@@ -471,6 +482,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -519,7 +531,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
     path.join(os.tmpdir(), "hub-fatture-before-shopify-recipient-reclassification-"),
   );
   try {
-    await cp("migrations", beforeReclassification, { recursive: true });
+    await copyMigrationSnapshot(beforeReclassification);
     await rm(path.join(beforeReclassification, SHOPIFY_RECIPIENT_RECLASSIFICATION));
     await rm(path.join(beforeReclassification, EBAY_PAYMENT_RECONCILIATION));
     await rm(path.join(beforeReclassification, EBAY_REFUND_DEDUPLICATION));
@@ -592,6 +604,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -631,7 +644,7 @@ test("l'upgrade rilegge il mapper Shopify senza riavvolgere eBay", async () => {
     path.join(os.tmpdir(), "hub-fatture-before-shopify-shipping-identity-replay-"),
   );
   try {
-    await cp("migrations", beforeReplay, { recursive: true });
+    await copyMigrationSnapshot(beforeReplay);
     await rm(path.join(beforeReplay, SHOPIFY_SHIPPING_IDENTITY_REPLAY));
     await rm(path.join(beforeReplay, REMOVE_ARUBA_SEND_PERMITS));
     await runMigrations({ connectionString: database.connectionString, directory: beforeReplay });
@@ -683,6 +696,7 @@ test("l'upgrade rilegge il mapper Shopify senza riavvolgere eBay", async () => {
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -722,7 +736,7 @@ test("l'upgrade rilegge soltanto gli ordini eBay già importati", async () => {
     path.join(os.tmpdir(), "hub-fatture-before-ebay-payment-reconciliation-"),
   );
   try {
-    await cp("migrations", beforeReconciliation, { recursive: true });
+    await copyMigrationSnapshot(beforeReconciliation);
     await rm(path.join(beforeReconciliation, EBAY_PAYMENT_RECONCILIATION));
     await rm(path.join(beforeReconciliation, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeReconciliation, RETENTION_POLICY));
@@ -790,6 +804,7 @@ test("l'upgrade rilegge soltanto gli ordini eBay già importati", async () => {
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -837,7 +852,7 @@ test("l'upgrade non crea un cursore eBay senza ordini eBay", async () => {
     path.join(os.tmpdir(), "hub-fatture-before-ebay-payment-reconciliation-empty-"),
   );
   try {
-    await cp("migrations", beforeReconciliation, { recursive: true });
+    await copyMigrationSnapshot(beforeReconciliation);
     await rm(path.join(beforeReconciliation, EBAY_PAYMENT_RECONCILIATION));
     await rm(path.join(beforeReconciliation, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeReconciliation, RETENTION_POLICY));
@@ -877,6 +892,7 @@ test("l'upgrade non crea un cursore eBay senza ordini eBay", async () => {
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -905,7 +921,7 @@ test("l'upgrade elimina soltanto i duplicati sintetici dei rimborsi eBay", async
     path.join(os.tmpdir(), "hub-fatture-before-ebay-refund-deduplication-"),
   );
   try {
-    await cp("migrations", beforeDeduplication, { recursive: true });
+    await copyMigrationSnapshot(beforeDeduplication);
     await rm(path.join(beforeDeduplication, EBAY_REFUND_DEDUPLICATION));
     await rm(path.join(beforeDeduplication, RETENTION_POLICY));
     await rm(path.join(beforeDeduplication, CUSTOMER_EMAIL_DISABLED));
@@ -961,6 +977,7 @@ test("l'upgrade elimina soltanto i duplicati sintetici dei rimborsi eBay", async
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -981,7 +998,7 @@ test("l'upgrade elimina la configurazione obsoleta della protezione per upload A
     path.join(os.tmpdir(), "hub-fatture-before-remove-aruba-upload-protection-"),
   );
   try {
-    await cp("migrations", beforeRemoval, { recursive: true });
+    await copyMigrationSnapshot(beforeRemoval);
     await rm(path.join(beforeRemoval, REMOVE_ARUBA_UPLOAD_PROTECTION));
     await rm(path.join(beforeRemoval, CUSTOMER_EMAIL_DISABLED));
     await rm(path.join(beforeRemoval, CUSTOMER_REVIEW_CLEANUP));
@@ -1012,6 +1029,7 @@ test("l'upgrade elimina la configurazione obsoleta della protezione per upload A
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1062,12 +1080,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "32",
+      "33",
     );
     assert.match(
       (
@@ -1168,7 +1187,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
     path.join(os.tmpdir(), "hub-fatture-before-canonical-accounts-"),
   );
   try {
-    await cp("migrations", beforeCanonicalNames, { recursive: true });
+    await copyMigrationSnapshot(beforeCanonicalNames);
     await rm(path.join(beforeCanonicalNames, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(beforeCanonicalNames, HISTORICAL_ORDER_RECONCILIATION));
     await rm(path.join(beforeCanonicalNames, HISTORICAL_INVOICE_LINKS));
@@ -1217,6 +1236,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -1252,7 +1272,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
     path.join(os.tmpdir(), "hub-fatture-before-refund-accounting-"),
   );
   try {
-    await cp("migrations", beforeRefundAccounting, { recursive: true });
+    await copyMigrationSnapshot(beforeRefundAccounting);
     await rm(path.join(beforeRefundAccounting, PRE_ISSUE_REFUNDS));
     await rm(path.join(beforeRefundAccounting, CANONICAL_ACCOUNT_NAMES));
     await rm(path.join(beforeRefundAccounting, HISTORICAL_ORDER_RECONCILIATION));
@@ -1327,6 +1347,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1346,7 +1367,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
   const beforeM4 = await mkdtemp(path.join(os.tmpdir(), "hub-fatture-before-m4-"));
   let deployCaseId: string | undefined;
   try {
-    await cp("migrations", beforeM4, { recursive: true });
+    await copyMigrationSnapshot(beforeM4);
     await rm(path.join(beforeM4, M4_COMPLETION));
     await rm(path.join(beforeM4, M4_LEGACY_DOCUMENTS));
     await rm(path.join(beforeM4, DOCUMENT_DEPLOY_COMPATIBILITY));
@@ -1520,6 +1541,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       ARUBA_INBOUND_RECONCILIATION,
       SHOPIFY_SHIPPING_IDENTITY_REPLAY,
       REMOVE_ARUBA_SEND_PERMITS,
+      SUPPORT_SAFARI_ARUBA_READ_SYNC,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

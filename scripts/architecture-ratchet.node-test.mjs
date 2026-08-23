@@ -39,7 +39,8 @@ test("le route e l'emissione della sessione Aruba usano i moduli estratti", asyn
   assert.doesNotMatch(manifestRoute, /\barubaReadManifest\b/);
   assert.match(completeRoute, /completeStableArubaInventory/);
   assert.doesNotMatch(completeRoute, /\bcompleteArubaInventory\b/);
-  assert.match(settings, /issueArubaReadSession/);
+  assert.match(settings, /buildArubaBookmarklet/);
+  assert.doesNotMatch(settings, /approveArubaConnectorPairing/);
   assert.doesNotMatch(settings, /issueStableArubaReadSession/);
   assert.match(inbound, /freezeArubaInventorySnapshot/);
   assert.doesNotMatch(inbound, /export async function arubaReadManifest/);

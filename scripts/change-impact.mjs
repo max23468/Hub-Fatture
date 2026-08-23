@@ -86,7 +86,7 @@ export function classifyFiles(inputFiles) {
   const arubaPlatform =
     failClosed ||
     files.some((file) =>
-      /^(?:\.github\/workflows\/aruba-platform\.yml$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit)|src\/aruba(?:-inbound)?\.ts$|tests\/e2e\/aruba-synthetic|app\/routes\/aruba-(?:helper|sync))/.test(
+      /^(?:\.github\/workflows\/aruba-platform\.yml$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit)|src\/aruba(?:-inbound|-bookmarklet)?\.ts$|tests\/e2e\/aruba-synthetic|app\/routes\/aruba-(?:bridge|browser|helper|sync))/.test(
         file,
       ),
     );
@@ -95,7 +95,7 @@ export function classifyFiles(inputFiles) {
     failClosed ||
     runtime ||
     files.some((file) =>
-      /^(?:tests\/e2e\/|playwright\.config\.ts$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit))/.test(
+      /^(?:tests\/e2e\/|playwright\.config\.ts$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit)|src\/aruba-bookmarklet)/.test(
         file,
       ),
     );

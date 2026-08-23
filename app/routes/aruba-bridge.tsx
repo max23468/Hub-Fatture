@@ -1,0 +1,160 @@
+import { useEffect, useRef, useState } from "react";
+import { data } from "react-router";
+import type { Route } from "./+types/aruba-bridge";
+
+import { copy } from "../copy.it";
+import { privateRouteMeta } from "../metadata";
+import { ARUBA_PANEL_ORIGIN } from "../../src/aruba.ts";
+import { getConfig } from "../../src/config.server.ts";
+import { requireSessionUser } from "../../src/db/auth.server.ts";
+
+const bridgeType = "HF_ARUBA";
+
+export function meta({ error }: Route.MetaArgs) {
+  return privateRouteMeta("settings", {
+    error,
+    title: copy.settings.arubaBridgeTitle,
+    description: copy.settings.arubaBridgeHelp,
+  });
+}
+
+function panelOrigin() {
+  const config = getConfig();
+  return config.APP_ENV === "production" ? ARUBA_PANEL_ORIGIN : new URL(config.APP_BASE_URL).origin;
+}
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const user = await requireSessionUser(request);
+  return data(
+    { csrfToken: user.csrfToken, panelOrigin: panelOrigin() },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+const allowedRequests = new Map([
+  ["GET /api/aruba/sync/manifest", true],
+  ["POST /api/aruba/sync/heartbeat", true],
+  ["POST /api/aruba/sync/pagine", true],
+  ["POST /api/aruba/sync/completa", true],
+  ["POST /api/aruba/sync/fallita", true],
+  ["GET /api/aruba/sync/preflight", true],
+  ["POST /api/aruba/sync/preflight", true],
+]);
+
+export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
+  const { csrfToken, panelOrigin: allowedPanelOrigin } = loaderData;
+  const [status, setStatus] = useState<string>(copy.settings.arubaBridgeWaiting);
+  const tokenRef = useRef<string | null>(null);
+  const issuingRef = useRef<Promise<string> | null>(null);
+
+  // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- Il fetch non carica dati di rendering: risponde a un messaggio autenticato del pannello esterno durante la vita del ponte.
+  useEffect(() => {
+    const panel = window.opener;
+    if (!panel) {
+      setStatus(copy.settings.arubaBridgeMissingPanel);
+      return;
+    }
+
+    const send = (message: Record<string, unknown>) =>
+      panel.postMessage(message, allowedPanelOrigin);
+    const issueToken = () => {
+      if (tokenRef.current) return Promise.resolve(tokenRef.current);
+      if (issuingRef.current) return issuingRef.current;
+      const form = new FormData();
+      form.set("csrf", csrfToken);
+      issuingRef.current = fetch("/api/aruba/sync/sessione-browser", {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            const failure = (await response.json().catch(() => ({}))) as { code?: unknown };
+            throw new Error(typeof failure.code === "string" ? failure.code : "HUB_ERROR");
+          }
+          const payload = (await response.json()) as { token?: unknown };
+          if (typeof payload.token !== "string") throw new Error("HUB_ERROR");
+          tokenRef.current = payload.token;
+          setStatus(copy.settings.arubaBridgeActive);
+          return payload.token;
+        })
+        .finally(() => {
+          issuingRef.current = null;
+        });
+      return issuingRef.current;
+    };
+
+    const receive = async (event: MessageEvent) => {
+      if (event.origin !== allowedPanelOrigin || event.source !== panel || !event.data) return;
+      if (event.data.type === `${bridgeType}_HELLO`) {
+        try {
+          await issueToken();
+          send({ type: `${bridgeType}_START` });
+        } catch {
+          setStatus(copy.settings.arubaBridgeFailed);
+        }
+        return;
+      }
+      if (event.data.type !== `${bridgeType}_REQUEST`) return;
+      const id = String(event.data.id ?? "");
+      const method = String(event.data.method ?? "GET").toUpperCase();
+      const path = String(event.data.path ?? "");
+      if (!/^\d{1,20}$/.test(id) || !allowedRequests.has(`${method} ${path}`)) return;
+      try {
+        const token = await issueToken();
+        const body = method === "POST" ? JSON.stringify(event.data.body ?? {}) : undefined;
+        if (body && body.length > 1_000_000) throw new Error("PAYLOAD_TOO_LARGE");
+        const response = await fetch(path, {
+          method,
+          body,
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            ...(body ? { "Content-Type": "application/json" } : {}),
+          },
+        });
+        if (!response.ok) {
+          const failure = (await response.json().catch(() => ({}))) as { code?: unknown };
+          send({
+            type: `${bridgeType}_RESPONSE`,
+            id,
+            ok: false,
+            code: typeof failure.code === "string" ? failure.code : `HUB_${response.status}`,
+          });
+          return;
+        }
+        const payload = (await response.json()) as unknown;
+        send({
+          type: `${bridgeType}_RESPONSE`,
+          id,
+          ok: true,
+          payload,
+        });
+      } catch (error) {
+        send({
+          type: `${bridgeType}_RESPONSE`,
+          id,
+          ok: false,
+          code: error instanceof Error ? error.message : "HUB_ERROR",
+        });
+      }
+    };
+
+    window.addEventListener("message", receive);
+    return () => window.removeEventListener("message", receive);
+  }, [allowedPanelOrigin, csrfToken]);
+
+  return (
+    <main className="public-page public-page--compact">
+      <section className="card public-card public-state" aria-labelledby="aruba-bridge-title">
+        <p className="eyebrow">{copy.appName}</p>
+        <h1 id="aruba-bridge-title">{copy.settings.arubaBridgeTitle}</h1>
+        <p>{copy.settings.arubaBridgeHelp}</p>
+        <p className="notice" role="status">
+          {status}
+        </p>
+      </section>
+    </main>
+  );
+}

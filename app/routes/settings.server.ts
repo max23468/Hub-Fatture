@@ -1,8 +1,9 @@
 import { data, redirect } from "react-router";
-import { randomUUID } from "node:crypto";
 import type { Route } from "./+types/settings";
 
 import { parseArubaManualPagesJson } from "../aruba-manual-input.ts";
+import { buildArubaBookmarklet } from "../../src/aruba-bookmarklet.ts";
+import { ARUBA_PANEL_ORIGIN } from "../../src/aruba.ts";
 import { getConfig } from "../../src/config.server.ts";
 import {
   assertCsrf,
@@ -18,9 +19,6 @@ import {
   createArubaManualReadback,
   finalizeArubaManualReadback,
   getArubaInventoryHealth,
-  issueArubaReadSession,
-  requestImmediateArubaSync,
-  revokeArubaReadSessions,
 } from "../../src/db/aruba-inbound.server.ts";
 import {
   connectionSummaries,
@@ -48,6 +46,11 @@ export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
   const requestedHistoryProvider = url.searchParams.get("historyProvider");
+  const config = getConfig();
+  const arubaPanelUrl =
+    config.APP_ENV === "production"
+      ? `${ARUBA_PANEL_ORIGIN}/`
+      : new URL("/aruba-sintetica?scenario=inventory", config.APP_BASE_URL).toString();
   const [
     profile,
     trigger,
@@ -87,11 +90,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     customerEmail,
     customerEmailSaved: url.searchParams.get("email") === "salvata",
     fiscalProfile,
-    environment: getConfig().APP_ENV,
+    environment: config.APP_ENV,
     system,
     arubaInventory,
-    arubaSyncRequested: url.searchParams.get("aruba-sync") === "richiesta",
-    arubaSessionsRevoked: url.searchParams.get("aruba-sessioni") === "revocate",
+    arubaPanelUrl,
+    arubaBookmarkletUrl: buildArubaBookmarklet({
+      hubOrigin: new URL(config.APP_BASE_URL).origin,
+      panelOrigin: new URL(arubaPanelUrl).origin,
+    }),
     arubaManualReadbackCompleted: url.searchParams.get("aruba-readback") === "completato",
     passwordChanged: url.searchParams.get("profilo") === "password",
     sessionsRevoked: url.searchParams.get("profilo") === "sessioni",
@@ -169,30 +175,6 @@ export async function action({ request }: Route.ActionArgs) {
         { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
       );
       return redirect("/impostazioni?aruba=salvata#aruba-helper");
-    }
-    if (intent === "issue-aruba-read-session") {
-      const session = await issueArubaReadSession(`browser-${randomUUID()}`, {
-        id: user.id,
-        canApprove: user.canApprove,
-        requestId: requestId(request),
-      });
-      return data({ intent, session });
-    }
-    if (intent === "request-aruba-sync") {
-      await requestImmediateArubaSync({
-        id: user.id,
-        canApprove: user.canApprove,
-        requestId: requestId(request),
-      });
-      return redirect("/impostazioni?aruba-sync=richiesta#aruba-helper");
-    }
-    if (intent === "revoke-aruba-read-sessions") {
-      await revokeArubaReadSessions({
-        id: user.id,
-        canApprove: user.canApprove,
-        requestId: requestId(request),
-      });
-      return redirect("/impostazioni?aruba-sessioni=revocate#aruba-helper");
     }
     if (intent === "create-aruba-manual-readback") {
       const manualReadback = await createArubaManualReadback({

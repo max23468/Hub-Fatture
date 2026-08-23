@@ -61,7 +61,7 @@ test.afterAll(async () => {
 // I test condividono gli account creati dal primo: in serie un retry li ripete tutti dall'inizio.
 test.describe.configure({ mode: "serial" });
 
-test("configura i due account e accede con entrambi", async ({ page }) => {
+test("configura i due account e accede con entrambi", async ({ page, browserName }) => {
   test.setTimeout(240_000);
   await page.goto("/setup");
   await page.setViewportSize({ width: 320, height: 780 });
@@ -321,7 +321,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("032_remove_aruba_send_permits.sql", {
+  const inboundMigration = page.getByText("033_support_safari_aruba_read_sync.sql", {
     exact: true,
   });
   await expect(inboundMigration).toBeVisible();
@@ -644,21 +644,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(arubaConnection).toContainText("Mai letto");
   await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Impostazioni" }).click();
-  const arubaCommands = page.locator(".settings-command-section");
+  const arubaSync = page.locator(".aruba-sync-card");
+  await expect(arubaSync.getByRole("heading", { name: "Aggiornamento necessario" })).toBeVisible();
   await expect(
-    arubaCommands.getByText(
-      "Questi comandi consentono soltanto di leggere e importare dati da Aruba: non caricano né inviano documenti.",
+    arubaSync.getByText(
+      "L’inventario è vecchio o l’ultima lettura non è riuscita. Avvia una nuova sincronizzazione.",
     ),
   ).toBeVisible();
-  await expect(
-    arubaCommands.getByRole("button", { name: "Genera codice per l’helper" }),
-  ).toBeVisible();
-  await expect(
-    arubaCommands.getByRole("button", { name: "Richiedi sincronizzazione" }),
-  ).toBeVisible();
-  await expect(
-    arubaCommands.getByRole("button", { name: "Revoca accessi di lettura" }),
-  ).toHaveCount(0);
+  await expect(arubaSync.getByRole("link", { name: "Apri Aruba" })).toHaveCount(0);
+  await expect(arubaSync).toContainText("Solo il titolare può avviare la sincronizzazione Aruba.");
+  await expect(page.getByText("Configura una volta il preferito")).toHaveCount(0);
   expect(
     await page.evaluate(() => {
       const probe = document.createElement("div");
@@ -668,24 +663,23 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       probe.remove();
       return marginTop;
     }),
-  ).toBeGreaterThanOrEqual(24);
+  ).toBeGreaterThanOrEqual(16);
   await page.setViewportSize({ width: 320, height: 780 });
   await expectViewportFits(page);
   expect(
     await page
-      .locator(".settings-command-grid")
+      .locator(".aruba-inventory-card dl")
       .evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length),
   ).toBe(1);
   expect(
-    await page.locator(".settings-command-card .button").evaluateAll((buttons) =>
-      buttons.every((button) => {
-        const style = getComputedStyle(button);
-        return (
-          Number.parseFloat(style.paddingTop) >= 12 && Number.parseFloat(style.paddingBottom) >= 12
-        );
-      }),
-    ),
-  ).toBe(true);
+    await page
+      .locator(".aruba-inventory-card")
+      .evaluate((card) => Number.parseFloat(getComputedStyle(card).paddingTop)),
+  ).toBeGreaterThanOrEqual(16);
+  const inventoryStatus = page.locator(".aruba-inventory-card .settings-status");
+  expect(
+    await inventoryStatus.evaluate((status) => status.getBoundingClientRect().right),
+  ).toBeLessThanOrEqual(320);
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
   await connectionClient.query(
@@ -1163,6 +1157,77 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(cleanupResponse.ok).toBe(true);
 
   await page.getByRole("link", { name: "Impostazioni" }).click();
+  const ownerArubaSync = page.locator(".aruba-sync-card");
+  const openAruba = ownerArubaSync.getByRole("link", { name: "Apri Aruba" });
+  await expect(openAruba).toBeVisible();
+  await expect(openAruba).toHaveAttribute("href", /\/aruba-sintetica\?scenario=inventory$/);
+  const transmissionBox = page.locator(".settings-choice-card--compact");
+  const desktopTransmissionSize = await transmissionBox.boundingBox();
+  expect(desktopTransmissionSize?.width ?? 0).toBeLessThanOrEqual(736);
+  expect(desktopTransmissionSize?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(96);
+  const bookmarklet = page.locator(".aruba-bookmarklet");
+  await expect(
+    page.getByRole("heading", { name: "Configura una volta il preferito" }),
+  ).toBeVisible();
+  const bookmarkletButton = bookmarklet.getByRole("link", { name: "Sincronizza Aruba" });
+  await expect(bookmarkletButton).toHaveAttribute("href", /^javascript:/);
+  const bookmarkletHref = await bookmarkletButton.getAttribute("href");
+  expect(bookmarkletHref).toBeTruthy();
+  await expect(bookmarklet).not.toContainText(/Node|npm|mise|Terminale|installer/i);
+  expect(await bookmarklet.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+    true,
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectViewportFits(page);
+  expect(await bookmarklet.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+    true,
+  );
+  for (const action of await bookmarklet.getByRole("link").all()) {
+    const box = await action.boundingBox();
+    const panel = await bookmarklet.boundingBox();
+    expect(box && panel && box.x >= panel.x && box.x + box.width <= panel.x + panel.width).toBe(
+      true,
+    );
+  }
+  const mobileTransmissionSize = await transmissionBox.boundingBox();
+  expect(mobileTransmissionSize?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(358);
+  expect(mobileTransmissionSize?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(140);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const arubaPage = await page.context().newPage();
+  const arubaPanelHref = await openAruba.getAttribute("href");
+  expect(arubaPanelHref).toBeTruthy();
+  await arubaPage.goto(arubaPanelHref!);
+  await arubaPage.locator("body").evaluate((body, href) => {
+    const link = document.createElement("a");
+    link.id = "e2e-aruba-bookmarklet";
+    link.href = href;
+    link.textContent = "Esegui sincronizzazione";
+    body.append(link);
+  }, bookmarkletHref!);
+  const bridgePagePromise = page.context().waitForEvent("page", {
+    predicate: (candidate) => candidate.url().includes("/aruba-ponte"),
+  });
+  await arubaPage.locator("#e2e-aruba-bookmarklet").click();
+  const bridgePage = await bridgePagePromise;
+  await expect(bridgePage.getByRole("status")).toContainText("Collegamento attivo");
+  await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
+    "Sincronizzazione completata",
+    { timeout: 30_000 },
+  );
+  await arubaPage.close();
+  await page.reload();
+  await expect(page.locator(".aruba-inventory-card dd").first()).not.toHaveText("0");
+  const browserReadback = new pg.Client({ connectionString: databaseUrl });
+  await browserReadback.connect();
+  const detectedBrowser = await browserReadback.query<{ browser_name: string }>(
+    `SELECT browser_name FROM aruba_sync_sessions
+     WHERE helper_version = 'preferito-1'
+     ORDER BY started_at DESC LIMIT 1`,
+  );
+  await browserReadback.end();
+  expect(detectedBrowser.rows[0]?.browser_name).toBe(
+    browserName === "webkit" ? "safari" : "chrome",
+  );
   await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC");
   const settingsResponse = page.waitForResponse(
     (response) =>

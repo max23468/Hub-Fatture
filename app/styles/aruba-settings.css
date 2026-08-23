@@ -1,0 +1,351 @@
+.settings-manual-readback {
+  margin-top: var(--space-4);
+}
+
+.aruba-bookmarklet {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.aruba-bookmarklet header,
+.aruba-bookmarklet h3,
+.aruba-bookmarklet p {
+  margin: 0;
+}
+
+.aruba-bookmarklet header {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.aruba-bookmarklet header p,
+.aruba-bookmarklet li span {
+  color: var(--color-text-muted);
+}
+
+.aruba-bookmarklet ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.aruba-bookmarklet li {
+  min-width: 0;
+  padding: var(--space-4) 0 var(--space-4) var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.aruba-bookmarklet__step {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.aruba-bookmarklet li:last-child {
+  padding-bottom: 0;
+}
+
+.aruba-bookmarklet__copy {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.aruba-bookmarklet__button {
+  flex: 0 0 auto;
+}
+
+.aruba-sync-card,
+.aruba-inventory-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: var(--space-6);
+}
+
+.aruba-sync-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+}
+
+.aruba-sync-card__status {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.aruba-sync-card__icon {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.aruba-sync-card__icon--active,
+.aruba-sync-card__icon--ready {
+  background: var(--color-success-surface);
+  color: var(--color-success);
+}
+
+.aruba-sync-card__eyebrow,
+.aruba-sync-card__updated,
+.aruba-sync-card__status p,
+.settings-transmission-section > header p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.aruba-sync-card__eyebrow {
+  margin-bottom: var(--space-1);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.aruba-sync-card h3,
+.aruba-inventory-card h3,
+.settings-transmission-section h3 {
+  margin-bottom: var(--space-1);
+}
+
+.aruba-sync-card__updated {
+  margin-top: var(--space-2) !important;
+  font-size: 0.875rem;
+}
+
+.aruba-sync-card form {
+  flex: 0 0 auto;
+}
+
+.aruba-sync-card__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.aruba-inventory-card {
+  margin-top: var(--space-4);
+}
+
+.aruba-inventory-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.aruba-inventory-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.aruba-inventory-card dl > div {
+  padding-inline: var(--space-4);
+  border-right: 1px solid var(--color-border);
+}
+
+.aruba-inventory-card dl > div:first-child {
+  padding-left: 0;
+}
+
+.aruba-inventory-card dl > div:last-child {
+  border-right: 0;
+}
+
+.aruba-inventory-card dt {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.aruba-inventory-card dd {
+  margin: var(--space-1) 0 0;
+  font-size: 1.5rem;
+  font-weight: 750;
+}
+
+.settings-disclosure {
+  margin-top: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface-muted) 45%, var(--color-surface));
+  padding: var(--space-4);
+}
+
+.settings-disclosure summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.settings-disclosure[open] summary {
+  margin-bottom: var(--space-4);
+}
+
+.settings-disclosure__action {
+  margin-top: var(--space-4);
+}
+
+.settings-transmission-section {
+  margin-top: var(--space-6);
+  max-width: 46rem;
+}
+
+.settings-transmission-section > header {
+  margin-bottom: var(--space-3);
+}
+
+.settings-transmission-section .settings-choice-card--compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: 0;
+  padding: var(--space-3);
+}
+
+.settings-transmission-section .settings-choice-card--compact .settings-choice-card__field {
+  grid-template-columns: max-content minmax(14rem, 1fr);
+  grid-column: 1;
+  gap: var(--space-3);
+}
+
+.settings-transmission-section
+  .settings-choice-card--compact
+  .settings-choice-card__field
+  > .settings-select {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.settings-transmission-section .settings-choice-card--compact .button {
+  grid-column: 2;
+}
+
+@media (max-width: 48rem) {
+  .aruba-bookmarklet {
+    padding: var(--space-4);
+  }
+
+  .aruba-bookmarklet__step {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .aruba-bookmarklet__button {
+    width: 100%;
+    min-height: 3rem;
+    padding: var(--space-3) var(--space-4);
+    line-height: 1.3;
+  }
+
+  .aruba-sync-card {
+    align-items: stretch;
+    flex-direction: column;
+    padding: var(--space-4);
+  }
+
+  .aruba-sync-card form,
+  .aruba-sync-card__actions,
+  .aruba-sync-card .button {
+    width: 100%;
+  }
+
+  .aruba-sync-card__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aruba-sync-card .button {
+    min-height: 3rem;
+    padding: var(--space-3) var(--space-4);
+    line-height: 1.3;
+  }
+
+  .aruba-inventory-card {
+    padding: var(--space-4);
+  }
+
+  .aruba-inventory-card > header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .aruba-inventory-card dl {
+    grid-template-columns: 1fr;
+  }
+
+  .aruba-inventory-card dl > div,
+  .aruba-inventory-card dl > div:first-child {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+    padding: var(--space-3) 0;
+  }
+
+  .aruba-inventory-card dl > div:first-child {
+    padding-top: 0;
+  }
+
+  .aruba-inventory-card dl > div:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .aruba-inventory-card dd {
+    margin: 0;
+  }
+
+  .settings-disclosure__action .button {
+    width: 100%;
+  }
+
+  .settings-transmission-section {
+    max-width: none;
+  }
+
+  .settings-transmission-section .settings-choice-card--compact {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-transmission-section .settings-choice-card--compact .settings-choice-card__field {
+    grid-template-columns: max-content minmax(0, 1fr);
+  }
+
+  .settings-transmission-section .settings-choice-card--compact .button {
+    grid-column: 1;
+    width: 100%;
+  }
+}
+
+@media (max-width: 23rem) {
+  .settings-transmission-section .settings-choice-card--compact .settings-choice-card__field {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-transmission-section
+    .settings-choice-card--compact
+    .settings-choice-card__field
+    > .settings-select {
+    grid-column: 1;
+    grid-row: 2;
+  }
+}
