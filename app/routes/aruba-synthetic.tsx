@@ -82,7 +82,14 @@ function ArubaInventoryHomeSynthetic({
         <p className="synthetic-account main-toolbar-info-user">{accountIdentity}</p>
       </header>
       <nav aria-label="Documenti">
-        <button onClick={onOpenInventory} role="menuitem" type="button">
+        <button
+          onClick={(event) => {
+            if (event.detail === 0) onOpenInventory();
+          }}
+          onPointerDown={onOpenInventory}
+          role="menuitem"
+          type="button"
+        >
           Fatture inviate
         </button>
       </nav>
@@ -236,7 +243,10 @@ function ArubaInventoryScenario({
     return (
       <ArubaInventoryHomeSynthetic
         accountIdentity={accountIdentity}
-        onOpenInventory={() => setHomeDismissed(true)}
+        onOpenInventory={async () => {
+          await fetch("/health");
+          window.setTimeout(() => setHomeDismissed(true), 800);
+        }}
       />
     );
   }

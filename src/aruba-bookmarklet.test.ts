@@ -16,7 +16,10 @@ test("il preferito Aruba è autosufficiente e non contiene credenziali persisten
   assert.match(bookmarklet, /BROWSER_UNSUPPORTED/);
   assert.match(bookmarklet, /Seleziona Fatture inviate/);
   assert.match(bookmarklet, /MutationObserver/);
+  assert.match(bookmarklet, /pointerdown/);
+  assert.match(bookmarklet, /event\.isTrusted/);
   assert.match(bookmarklet, /state\.requested>0&&monitor\.state\.pending===0/);
+  assert.match(bookmarklet, /search\.orderDate/);
   assert.match(bookmarklet, /sync\/heartbeat/);
   assert.match(bookmarklet, /lastFullScanCompletedAt/);
   assert.match(bookmarklet, /overlapFrom/);

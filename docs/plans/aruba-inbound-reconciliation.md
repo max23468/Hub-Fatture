@@ -70,7 +70,7 @@ All’avvio esplicito del preferito:
 1. apre il ponte autenticato e richiede a Hub Fatture una sessione temporanea di sola sincronizzazione;
 2. verifica origine, ambiente e riferimento dell’account atteso;
 3. usa la sessione Aruba già aperta nel browser, lasciando login e challenge all’utente; dalla Home chiede di selezionare personalmente `Fatture inviate`, quindi attende richiesta e griglia stabili;
-4. esegue una scansione completa della finestra Aruba rilevante al primo avvio, quindi usa cursori e sovrapposizione temporale agli avvii successivi; un nuovo stream, un cursore assente o un'incongruenza forzano di nuovo il giro completo;
+4. esegue una scansione completa della finestra Aruba rilevante al primo avvio, quindi usa cursori e sovrapposizione temporale agli avvii successivi, ampliandola alla data ordine più remota dei preflight pendenti; un nuovo stream, un cursore assente o un'incongruenza forzano di nuovo il giro completo;
 5. invia soltanto righe visibili sanitizzate agli endpoint interni in allowlist;
 6. completa la sessione e chiude il ponte, senza sincronizzazione in background.
 7. consente `Sincronizza Aruba ora` senza creare una seconda scansione concorrente.
