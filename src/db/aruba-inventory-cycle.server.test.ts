@@ -20,6 +20,25 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
 
     const database = await import("./client.server.ts");
     const cycle = await import("./aruba-inventory-cycle.server.ts");
+    const inbound = await import("./aruba-inbound.server.ts");
+    const user = await database.getPool().query<{ id: number }>(
+      `INSERT INTO users (username, password_hash, can_approve)
+       VALUES ('Massimo', 'synthetic', true) RETURNING id`,
+    );
+    const issued = await inbound.issueArubaReadSession("synthetic-device-atomic", {
+      id: user.rows[0]!.id,
+      canApprove: true,
+      requestId: "aruba-inventory-atomic-test",
+    });
+    const frozenManifest = await database.getPool().query<{ terminal: boolean }>(
+      `SELECT terminal FROM aruba_sync_pages
+       WHERE sync_session_id = $1 AND stream = '__manifest__'`,
+      [issued.sessionId],
+    );
+    assert.deepEqual(frozenManifest.rows, [{ terminal: true }]);
+    await database
+      .getPool()
+      .query("DELETE FROM aruba_sync_sessions WHERE id = $1", [issued.sessionId]);
     await database.getPool().query(
       `INSERT INTO aruba_sync_sessions
         (id, environment, account_reference, device_id, token_hash, status,

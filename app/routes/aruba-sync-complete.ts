@@ -1,8 +1,8 @@
 import type { Route } from "./+types/aruba-sync-complete";
 import { arubaSyncResponse } from "../aruba-sync-response";
 
-import { arubaReadBearer } from "../../src/db/aruba-inbound.server.ts";
 import { completeStableArubaInventory } from "../../src/db/aruba-inventory-cycle.server.ts";
+import { arubaReadBearer } from "../../src/db/aruba-read-session.server.ts";
 import { readJson } from "../../src/http.server.ts";
 
 export async function action({ request }: Route.ActionArgs) {

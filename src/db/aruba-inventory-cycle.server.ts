@@ -5,19 +5,15 @@ import { z } from "zod";
 
 import { ARUBA_PANEL_ORIGIN } from "../aruba.ts";
 import { getConfig } from "../config.server.ts";
-import { hashToken } from "../crypto.server.ts";
 import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
 import { withTransaction } from "./client.server.ts";
+import { loadArubaReadSession, type ArubaReadSessionRow } from "./aruba-read-session.server.ts";
 
-interface InventorySessionRow {
-  id: string;
-  environment: "MOCK" | "PRODUCTION";
-  account_reference: string;
-  device_id: string;
-  started_at: Date;
-  absolute_expires_at: Date;
-}
+export type ArubaInventorySession = Pick<
+  ArubaReadSessionRow,
+  "id" | "environment" | "account_reference" | "device_id" | "started_at" | "absolute_expires_at"
+>;
 
 const inventorySnapshotSchema = z.object({
   oldestReconciliationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -35,7 +31,7 @@ const romeDateFormat = new Intl.DateTimeFormat("en-CA", {
 
 type InventorySnapshot = z.infer<typeof inventorySnapshotSchema>;
 
-function panelUrl(environment: InventorySessionRow["environment"]): string {
+function panelUrl(environment: ArubaInventorySession["environment"]): string {
   return environment === "PRODUCTION"
     ? `${ARUBA_PANEL_ORIGIN}/`
     : new URL("/aruba-sintetica?scenario=inventory", getConfig().APP_BASE_URL).toString();
@@ -45,11 +41,6 @@ function cursorStream(environment: string, account: string, stream: string) {
   return `${environment}:${createHash("sha256").update(account).digest("hex").slice(0, 16)}:${stream}`;
 }
 
-function bearerParts(token: string) {
-  const match = /^([A-Za-z0-9_-]{16,100})\.([A-Za-z0-9_-]{43})$/.exec(token);
-  return match ? { deviceId: match[1]! } : null;
-}
-
 function romeDate(value: Date): string {
   const parts = romeDateFormat.formatToParts(value);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
@@ -57,27 +48,9 @@ function romeDate(value: Date): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-async function readSession(
-  client: pg.Pool | pg.PoolClient,
-  token: string,
-  lock = false,
-): Promise<InventorySessionRow | null> {
-  const parts = bearerParts(token);
-  if (!parts) return null;
-  const result = await client.query<InventorySessionRow>(
-    `SELECT id, environment, account_reference, device_id, started_at, absolute_expires_at
-     FROM aruba_sync_sessions
-     WHERE token_hash = $1 AND device_id = $2 AND status IN ('ACTIVE', 'SCANNING')
-       AND absolute_expires_at > now() AND lease_expires_at > now()
-     ${lock ? "FOR UPDATE" : ""}`,
-    [hashToken(token), parts.deviceId],
-  );
-  return result.rows[0] ?? null;
-}
-
 async function computeInventorySnapshot(
   client: pg.PoolClient,
-  session: InventorySessionRow,
+  session: ArubaInventorySession,
 ): Promise<InventorySnapshot> {
   const [oldest, nonTerminalYears] = await Promise.all([
     client.query<{ oldest: string | null }>(
@@ -118,7 +91,7 @@ async function computeInventorySnapshot(
 
 async function inventorySnapshot(
   client: pg.PoolClient,
-  session: InventorySessionRow,
+  session: ArubaInventorySession,
 ): Promise<InventorySnapshot> {
   const existing = await client.query<{ documents_json: unknown }>(
     `SELECT documents_json FROM aruba_sync_pages
@@ -148,14 +121,21 @@ async function inventorySnapshot(
   return snapshot;
 }
 
+export async function freezeArubaInventorySnapshot(
+  client: pg.PoolClient,
+  session: ArubaInventorySession,
+) {
+  return inventorySnapshot(client, session);
+}
+
 export async function arubaInventoryManifest(token: string) {
   return withTransaction(async (client) => {
-    const session = await readSession(client, token, true);
+    const session = await loadArubaReadSession(client, token, true);
     if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `aruba-read:${session.environment}:${session.account_reference}`,
     ]);
-    const snapshot = await inventorySnapshot(client, session);
+    const snapshot = await freezeArubaInventorySnapshot(client, session);
     const scopedStreams = snapshot.streams.map((stream) =>
       cursorStream(session.environment, session.account_reference, stream),
     );
@@ -233,7 +213,7 @@ export async function completeStableArubaInventory(
   }
 
   const outcome = await withTransaction<CompletionResult>(async (client) => {
-    const session = await readSession(client, token, true);
+    const session = await loadArubaReadSession(client, token, true);
     if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `aruba-read:${session.environment}:${session.account_reference}`,

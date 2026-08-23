@@ -84,12 +84,15 @@ test("l'helper Aruba limita la matrice multipiattaforma ai cambi pertinenti", ()
   for (const file of [
     "scripts/aruba-helper.ts",
     "scripts/aruba-read-helper.ts",
+    "scripts/aruba-read-runner.ts",
+    "scripts/aruba-download-limit.ts",
     "src/aruba.ts",
     "src/aruba-inbound.ts",
   ]) {
     const impact = classifyFiles([file]);
     assert.equal(impact.arubaPlatform, true, file);
     assert.equal(impact.provider, true, file);
+    if (file.startsWith("scripts/")) assert.equal(impact.e2e, true, file);
   }
 });
 

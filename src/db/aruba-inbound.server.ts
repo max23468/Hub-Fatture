@@ -21,7 +21,6 @@ import {
 } from "../aruba-inbound.ts";
 import {
   ARUBA_IMPORT_MAX_BYTES,
-  ARUBA_PANEL_ORIGIN,
   arubaFileKindSchema,
   notificationBelongsToDocument,
   notificationStatus,
@@ -46,8 +45,13 @@ import { AppError } from "../errors.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { localOrderDate } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
+import {
+  freezeArubaInventorySnapshot,
+  type ArubaInventorySession,
+} from "./aruba-inventory-cycle.server.ts";
 import { storeImportedFile } from "./aruba.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
+import { loadArubaReadSession, type ArubaReadSessionRow } from "./aruba-read-session.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 
@@ -63,12 +67,6 @@ export interface ArubaReadActor {
 
 function environment(): "MOCK" | "PRODUCTION" {
   return getConfig().APP_ENV === "production" ? "PRODUCTION" : "MOCK";
-}
-
-function panelUrl(): string {
-  return environment() === "PRODUCTION"
-    ? `${ARUBA_PANEL_ORIGIN}/`
-    : new URL("/aruba-sintetica?scenario=inventory", getConfig().APP_BASE_URL).toString();
 }
 
 function accountReference(): string {
@@ -234,11 +232,14 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
   const id = randomUUID();
   const parsedDeviceId = assertDeviceId(deviceId);
   const token = `${parsedDeviceId}.${randomBytes(32).toString("base64url")}`;
+  const tokenHash = hashToken(token);
   const startedAt = new Date();
   const absoluteExpiresAt = new Date(startedAt.getTime() + READ_SESSION_TTL_MS);
+  const sessionEnvironment = environment();
+  const sessionAccountReference = accountReference();
   await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      `aruba-read:${environment()}:${accountReference()}`,
+      `aruba-read:${sessionEnvironment}:${sessionAccountReference}`,
     ]);
     await backfillHistoricalArubaDocuments(client);
     await client.query(
@@ -247,14 +248,14 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
        WHERE environment = $1 AND account_reference = $2
          AND status IN ('ACTIVE', 'SCANNING')
          AND (absolute_expires_at <= now() OR coalesce(lease_expires_at, '-infinity') <= now())`,
-      [environment(), accountReference()],
+      [sessionEnvironment, sessionAccountReference],
     );
     const active = await client.query<{ id: string; absolute_expires_at: Date }>(
       `SELECT id, absolute_expires_at FROM aruba_sync_sessions
        WHERE environment = $1 AND account_reference = $2
          AND status IN ('ACTIVE', 'SCANNING')
        ORDER BY started_at DESC LIMIT 1`,
-      [environment(), accountReference()],
+      [sessionEnvironment, sessionAccountReference],
     );
     if (active.rows[0]) throw new AppError("ARUBA_READ_SESSION_ACTIVE", 409);
     const resumable = await client.query<{ id: string }>(
@@ -267,7 +268,7 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
              AND completed.full_scan_completed_at IS NOT NULL
          ), '-infinity')
        ORDER BY previous.started_at DESC LIMIT 1`,
-      [environment(), accountReference()],
+      [sessionEnvironment, sessionAccountReference],
     );
     const resumableSessionId = resumable.rows[0]?.id ?? null;
     await client.query(
@@ -277,10 +278,10 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         id,
-        environment(),
-        accountReference(),
+        sessionEnvironment,
+        sessionAccountReference,
         parsedDeviceId,
-        hashToken(token),
+        tokenHash,
         startedAt,
         absoluteExpiresAt,
         new Date(startedAt.getTime() + READ_LEASE_MS),
@@ -315,6 +316,14 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
        ON CONFLICT DO NOTHING`,
       [id, resumableSessionId],
     );
+    await freezeArubaInventorySnapshot(client, {
+      id,
+      environment: sessionEnvironment,
+      account_reference: sessionAccountReference,
+      device_id: parsedDeviceId,
+      started_at: startedAt,
+      absolute_expires_at: absoluteExpiresAt,
+    } satisfies ArubaInventorySession);
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),
@@ -322,103 +331,11 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
       eventClass: "OPERATIONAL",
       entityType: "ARUBA_SYNC_SESSION",
       entityId: id,
-      metadata: { environment: environment(), deviceIdSuffix: parsedDeviceId.slice(-6) },
+      metadata: { environment: sessionEnvironment, deviceIdSuffix: parsedDeviceId.slice(-6) },
       requestId: actor.requestId,
     });
   });
   return { token, sessionId: id, absoluteExpiresAt: absoluteExpiresAt.toISOString() };
-}
-
-interface ReadSessionRow {
-  id: string;
-  environment: "MOCK" | "PRODUCTION";
-  account_reference: string;
-  device_id: string;
-  token_hash: string;
-  status: string;
-  absolute_expires_at: Date;
-  inventory_watermark: string;
-}
-
-async function loadReadSession(
-  client: pg.Pool | pg.PoolClient,
-  token: string,
-  lock = false,
-): Promise<ReadSessionRow | null> {
-  const deviceId = token.split(".", 1)[0];
-  if (!/^[A-Za-z0-9_-]{16,100}\.[A-Za-z0-9_-]{43}$/.test(token)) return null;
-  const result = await client.query<ReadSessionRow>(
-    `SELECT * FROM aruba_sync_sessions
-     WHERE token_hash = $1 AND device_id = $2 AND status IN ('ACTIVE', 'SCANNING')
-       AND absolute_expires_at > now() AND lease_expires_at > now()
-     ${lock ? "FOR UPDATE" : ""}`,
-    [hashToken(token), deviceId],
-  );
-  return result.rows[0] ?? null;
-}
-
-export function arubaReadBearer(request: Request): string {
-  const match = /^Bearer ([A-Za-z0-9_-]{16,100}\.[A-Za-z0-9_-]{43})$/.exec(
-    request.headers.get("authorization") ?? "",
-  );
-  if (!match) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
-  return match[1]!;
-}
-
-export async function arubaReadManifest(token: string) {
-  const session = await loadReadSession(getPool(), token);
-  if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
-  const coverage = await requiredInventoryCoverage(getPool());
-  const cursors = await getPool().query<{
-    stream: string;
-    cursor: string | null;
-    overlap_from: Date | null;
-    last_page_ordinal: number | null;
-    full_scan_completed_at: Date | null;
-  }>(
-    `SELECT stream, cursor, overlap_from, last_page_ordinal, full_scan_completed_at
-     FROM sync_cursors WHERE provider = 'ARUBA' AND stream = ANY($1::text[])`,
-    [
-      coverage.streams.map((stream) =>
-        cursorStream(session.environment, session.account_reference, stream),
-      ),
-    ],
-  );
-  const byStream = new Map(cursors.rows.map((row) => [row.stream, row]));
-  const interrupted = await getPool().query<{
-    stream: string;
-    scan_ordinal: number;
-    page_ordinal: number;
-  }>(
-    `SELECT DISTINCT ON (stream) stream, scan_ordinal, page_ordinal
-     FROM aruba_sync_pages
-     WHERE sync_session_id = $1 AND NOT terminal
-     ORDER BY stream, committed_at DESC`,
-    [session.id],
-  );
-  const resume = new Map(interrupted.rows.map((row) => [row.stream, row]));
-  return {
-    operation: "READ_SYNC" as const,
-    sessionId: session.id,
-    environment: session.environment,
-    accountReference: session.account_reference,
-    panelUrl: panelUrl(),
-    oldestReconciliationDate: coverage.oldestReconciliationDate,
-    streams: coverage.streams.map((stream) => {
-      const scoped = cursorStream(session.environment, session.account_reference, stream);
-      const cursor = byStream.get(scoped);
-      const interruptedPage = resume.get(stream);
-      return {
-        name: stream,
-        cursor: cursor?.cursor ?? null,
-        overlapFrom: cursor?.overlap_from?.toISOString() ?? null,
-        lastFullScanCompletedAt: cursor?.full_scan_completed_at?.toISOString() ?? null,
-        resumePageOrdinal: interruptedPage ? interruptedPage.page_ordinal : null,
-      };
-    }),
-    intervalSeconds: 900,
-    absoluteExpiresAt: session.absolute_expires_at.toISOString(),
-  };
 }
 
 export async function heartbeatArubaReadSession(
@@ -1783,7 +1700,7 @@ async function importArubaRemoteOfficialFileAuthorized(
   }
   const session =
     typeof authorization === "string"
-      ? await loadReadSession(getPool(), authorization)
+      ? await loadArubaReadSession(getPool(), authorization)
       : {
           id: `manual:${authorization.id}`,
           environment: environment(),
@@ -1888,7 +1805,7 @@ async function importArubaRemoteOfficialFileAuthorized(
     const outcome = await withTransaction(async (client) => {
       const lockedSession =
         typeof authorization === "string"
-          ? await loadReadSession(client, authorization, true)
+          ? await loadArubaReadSession(client, authorization, true)
           : session;
       if (!lockedSession) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
       const remote = await client.query<{ id: string; xml_sha256: string | null }>(
@@ -2032,7 +1949,7 @@ export async function importArubaRemoteOfficialFileAsActor(
 
 async function ingestParsedArubaPage(
   client: pg.PoolClient,
-  session: ReadSessionRow,
+  session: ArubaReadSessionRow,
   page: z.infer<typeof inventoryPageSchema>,
   updateCursor = true,
 ) {
@@ -2354,191 +2271,10 @@ export async function ingestArubaInventoryPage(token: string, rawPage: unknown) 
   const parsed = inventoryPageSchema.safeParse(rawPage);
   if (!parsed.success) throw new AppError("ARUBA_INVENTORY_INVALID", 422);
   return withTransaction(async (client) => {
-    const session = await loadReadSession(client, token, true);
+    const session = await loadArubaReadSession(client, token, true);
     if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
     await lockArubaInventory(client, session.environment, session.account_reference);
     return ingestParsedArubaPage(client, session, parsed.data);
-  });
-}
-
-export async function completeArubaInventory(
-  token: string,
-  rawStreams: unknown,
-  rawScanOrdinal: unknown,
-  rawFullScan: unknown,
-) {
-  const streams = z
-    .array(z.string().regex(/^[a-z0-9:_-]{1,100}$/))
-    .min(2)
-    .max(50)
-    .safeParse(rawStreams);
-  const scanOrdinal = z.number().int().positive().max(100_000).safeParse(rawScanOrdinal);
-  const fullScan = z.boolean().safeParse(rawFullScan);
-  if (
-    !streams.success ||
-    !scanOrdinal.success ||
-    !fullScan.success ||
-    new Set(streams.data).size !== streams.data.length
-  ) {
-    throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 422);
-  }
-  return withTransaction(async (client) => {
-    const session = await loadReadSession(client, token, true);
-    if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
-    const coverage = await requiredInventoryCoverage(client);
-    const requiredStreams = new Set(coverage.streams);
-    if (
-      streams.data.length !== coverage.streams.length ||
-      streams.data.some((stream) => !requiredStreams.has(stream))
-    ) {
-      throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
-    }
-    const pageCoverage = await client.query<{
-      stream: string;
-      page_count: number;
-      max_ordinal: number;
-      terminal_count: number;
-      terminal_ordinal: number | null;
-      mode_count: number;
-    }>(
-      `SELECT stream, count(*)::integer AS page_count, max(page_ordinal)::integer AS max_ordinal,
-              count(*) FILTER (WHERE terminal)::integer AS terminal_count,
-              max(page_ordinal) FILTER (WHERE terminal)::integer AS terminal_ordinal,
-              count(*) FILTER (WHERE full_scan = $3)::integer AS mode_count
-       FROM aruba_sync_pages
-       WHERE sync_session_id = $1 AND scan_ordinal = $2
-       GROUP BY stream`,
-      [session.id, scanOrdinal.data, fullScan.data],
-    );
-    const byStream = new Map(pageCoverage.rows.map((row) => [row.stream, row]));
-    if (
-      streams.data.some((stream) => {
-        const row = byStream.get(stream);
-        return (
-          !row ||
-          row.page_count !== row.max_ordinal ||
-          row.terminal_count !== 1 ||
-          row.terminal_ordinal !== row.max_ordinal ||
-          row.mode_count !== row.page_count
-        );
-      })
-    ) {
-      await client.query(
-        `UPDATE aruba_sync_sessions SET status = 'INCOMPLETE', lease_expires_at = NULL,
-           failed_at = now(),
-           error_code = 'ARUBA_INVENTORY_INCOMPLETE', error_message_sanitized = 'Stream incompleti'
-         WHERE id = $1`,
-        [session.id],
-      );
-      throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
-    }
-    if (fullScan.data) {
-      const missing = await client.query<{ id: string }>(
-        `SELECT DISTINCT remote.id
-         FROM aruba_remote_observations AS previous
-         JOIN aruba_remote_documents AS remote ON remote.id = previous.remote_document_id
-         JOIN aruba_sync_pages AS previous_page
-           ON previous_page.sync_session_id = previous.sync_session_id
-          AND previous_page.stream = previous.stream
-          AND previous_page.scan_ordinal = previous.scan_ordinal
-          AND previous_page.page_ordinal = previous.page_ordinal
-         JOIN aruba_sync_sessions AS previous_session
-           ON previous_session.id = previous.sync_session_id
-         WHERE remote.environment = $1 AND remote.account_reference = $2
-           AND previous.stream = ANY($3::text[])
-           AND previous_page.full_scan
-           AND previous_session.full_scan_completed_at IS NOT NULL
-           AND previous_page.committed_at <= previous_session.full_scan_completed_at
-           AND NOT EXISTS (
-             SELECT 1 FROM aruba_remote_observations AS current
-             WHERE current.remote_document_id = previous.remote_document_id
-               AND current.sync_session_id = $4 AND current.scan_ordinal = $5
-               AND current.stream = previous.stream
-           )`,
-        [
-          session.environment,
-          session.account_reference,
-          streams.data,
-          session.id,
-          scanOrdinal.data,
-        ],
-      );
-      if (missing.rows.length > 0) {
-        const missingIds = missing.rows.map((row) => row.id);
-        await client.query(
-          `INSERT INTO aruba_remote_observations
-            (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal,
-             page_ordinal, cursor, payload_digest, error_code)
-           SELECT remote.id, $1, remote.remote_status, previous.stream, $2,
-                  terminal.page_ordinal, terminal.cursor, remote.metadata_digest, 'NOT_FOUND'
-           FROM aruba_remote_documents AS remote
-           JOIN LATERAL (
-             SELECT observations.stream FROM aruba_remote_observations AS observations
-             WHERE observations.remote_document_id = remote.id
-               AND observations.stream = ANY($3::text[])
-             ORDER BY observations.observed_at DESC LIMIT 1
-           ) AS previous ON true
-           JOIN LATERAL (
-             SELECT pages.page_ordinal, pages.cursor FROM aruba_sync_pages AS pages
-             WHERE pages.sync_session_id = $1 AND pages.scan_ordinal = $2
-               AND pages.stream = previous.stream AND pages.terminal
-             LIMIT 1
-           ) AS terminal ON true
-           WHERE remote.id = ANY($4::bigint[])
-           ON CONFLICT DO NOTHING`,
-          [session.id, scanOrdinal.data, streams.data, missingIds],
-        );
-        await client.query(
-          `UPDATE aruba_document_matches SET status = 'UNKNOWN_REMOTE_STATE', method = 'NONE',
-             matcher_version = $2, updated_at = now()
-           WHERE remote_document_id = ANY($1::bigint[])`,
-          [missingIds, MATCHER_VERSION],
-        );
-      }
-    }
-    await client.query(
-      `UPDATE aruba_sync_sessions SET status = 'ACTIVE', completed_at = now(),
-         full_scan_completed_at = CASE WHEN $2 THEN now() ELSE full_scan_completed_at END,
-         lease_expires_at = least(absolute_expires_at, now() + interval '2 minutes'),
-         error_code = NULL, error_message_sanitized = NULL
-       WHERE id = $1`,
-      [session.id, fullScan.data],
-    );
-    if (fullScan.data) {
-      await client.query(
-        `UPDATE sync_cursors SET full_scan_completed_at = now(), updated_at = now()
-         WHERE provider = 'ARUBA' AND stream = ANY($1::text[])`,
-        [
-          streams.data.map((stream) =>
-            cursorStream(session.environment, session.account_reference, stream),
-          ),
-        ],
-      );
-    }
-    await client.query(
-      `INSERT INTO connections
-        (provider, environment, account_reference, encrypted_credentials, status,
-         last_checked_at, last_synced_at)
-       VALUES ('ARUBA', $1, $2, NULL, 'CONNECTED', now(), now())
-       ON CONFLICT (provider, environment) DO UPDATE SET
-         account_reference = EXCLUDED.account_reference, status = 'CONNECTED',
-         last_checked_at = now(), last_synced_at = now(), updated_at = now(),
-         last_error_code = NULL, last_error_message_sanitized = NULL`,
-      [
-        session.environment === "PRODUCTION" ? "PRODUCTION" : "DEVELOPMENT",
-        session.account_reference,
-      ],
-    );
-    await writeAudit(client, {
-      actorType: "SYSTEM",
-      action: "ARUBA_INVENTORY_COMPLETED",
-      eventClass: "OPERATIONAL",
-      entityType: "ARUBA_SYNC_SESSION",
-      entityId: session.id,
-      metadata: { streamCount: streams.data.length, fullScan: fullScan.data },
-      requestId: `aruba-read:${session.id}`,
-    });
-    return { completed: true };
   });
 }
 
@@ -3023,7 +2759,7 @@ export async function consumeArubaPreflight(
 }
 
 export async function listArubaPreflightWork(token: string) {
-  const session = await loadReadSession(getPool(), token);
+  const session = await loadArubaReadSession(getPool(), token);
   if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
   const result = await withTransaction(async (client) => {
     await client.query(
@@ -3064,7 +2800,7 @@ export async function completeArubaPreflight(
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
   }
   return withTransaction(async (client) => {
-    const session = await loadReadSession(client, token, true);
+    const session = await loadArubaReadSession(client, token, true);
     if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
     const receipt = await client.query<{
       request_json: {
@@ -3415,13 +3151,14 @@ export async function finalizeArubaManualReadback(readbackId: string, actor: Aru
         actor.id,
       ],
     );
-    const session: ReadSessionRow = {
+    const session: ArubaReadSessionRow = {
       id: sessionId,
       environment: environment(),
       account_reference: accountReference(),
       device_id: `manual-${readbackId.replaceAll("-", "")}`,
       token_hash: "",
       status: "SCANNING",
+      started_at: new Date(),
       absolute_expires_at: new Date(Date.now() + 5 * 60_000),
       inventory_watermark: "0",
     };
@@ -3542,13 +3279,14 @@ export async function completeManualArubaPreflight(
           actor.id,
         ],
       );
-      const evidenceSession: ReadSessionRow = {
+      const evidenceSession: ArubaReadSessionRow = {
         id: evidenceSessionId,
         environment: environment(),
         account_reference: accountReference(),
         device_id: `specific-${readbackId.replaceAll("-", "")}`,
         token_hash: "",
         status: "SCANNING",
+        started_at: new Date(),
         absolute_expires_at: new Date(Date.now() + 5 * 60_000),
         inventory_watermark: "0",
       };
