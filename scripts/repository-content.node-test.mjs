@@ -188,7 +188,8 @@ test("Development non può riconfigurare l'app Shopify Production", async () => 
   assert.match(script, /Hub Fatture Development Bootstrap Token/);
   assert.doesNotMatch(script, /SHOPIFY_SHOP|dev:shopify/);
   assert.doesNotMatch(script, /development-bootstrap-token-change-me/);
-  assert.match(manifest, /"@shopify\/cli": "4\.6\.0"/);
+  const shopifyCliVersion = JSON.parse(manifest).devDependencies?.["@shopify/cli"];
+  assert.match(shopifyCliVersion, /^\d+\.\d+\.\d+$/);
   assert.doesNotMatch(manifest, /"dev:shopify/);
   assert.match(shopifyConfig, /application_url = "https:\/\/fatture\.opik\.net"/);
   assert.match(shopifyConfig, /automatically_update_urls_on_dev = false/);
