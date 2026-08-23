@@ -2360,8 +2360,8 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
   }>(
     `SELECT
        (SELECT max(completed_at) FROM aruba_sync_sessions
-        WHERE environment = $1 AND account_reference = $2 AND completed_at IS NOT NULL
-          AND is_full_scan) AS last_completed_at,
+        WHERE environment = $1 AND account_reference = $2 AND completed_at IS NOT NULL)
+         AS last_completed_at,
        (SELECT max(full_scan_completed_at) FROM aruba_sync_sessions
         WHERE environment = $1 AND account_reference = $2
           AND full_scan_completed_at IS NOT NULL) AS last_full_scan_completed_at,
@@ -2392,9 +2392,9 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
        EXISTS (SELECT 1 FROM aruba_sync_sessions AS failed
         WHERE failed.environment = $1 AND failed.account_reference = $2
           AND failed.status IN ('FAILED', 'INCOMPLETE')
-          AND coalesce(failed.failed_at, failed.started_at) > coalesce((SELECT max(full_scan_completed_at) FROM aruba_sync_sessions
+          AND coalesce(failed.failed_at, failed.started_at) > coalesce((SELECT max(completed_at) FROM aruba_sync_sessions
             WHERE environment = $1 AND account_reference = $2
-              AND full_scan_completed_at IS NOT NULL), '-infinity'))
+              AND completed_at IS NOT NULL), '-infinity'))
          AS unresolved_failure,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id

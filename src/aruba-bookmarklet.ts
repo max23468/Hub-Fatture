@@ -132,7 +132,7 @@ try{
   for(const streamInfo of manifest.streams){
     const stream=streamInfo.name;
     setStatus("Lettura "+stream+"…");
-    const incrementalFrom=[streamInfo.overlapFrom,preflightFrom].filter(Boolean).toSorted()[0]??null;
+    const incrementalFrom=[streamInfo.overlapFrom,streamInfo.nonTerminalFrom,preflightFrom].filter(Boolean).toSorted()[0]??null;
     const available=await selectStream(stream,fullScan?null:incrementalFrom);
     let pageOrdinal=1;
     while(true){

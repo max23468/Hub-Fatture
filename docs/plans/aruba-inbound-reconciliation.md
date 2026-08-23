@@ -70,7 +70,7 @@ All’avvio esplicito del preferito:
 1. apre il ponte autenticato e richiede a Hub Fatture una sessione temporanea di sola sincronizzazione;
 2. verifica origine, ambiente e riferimento dell’account atteso;
 3. usa la sessione Aruba già aperta nel browser, lasciando login e challenge all’utente; dalla Home chiede di selezionare personalmente `Fatture inviate`, quindi attende richiesta e griglia stabili;
-4. esegue una scansione completa della finestra Aruba rilevante al primo avvio, quindi usa cursori e sovrapposizione temporale agli avvii successivi, ampliandola alla data ordine più remota dei preflight pendenti; un nuovo stream, un cursore assente o un'incongruenza forzano di nuovo il giro completo;
+4. esegue una scansione completa della finestra Aruba rilevante al primo avvio, quindi usa cursori e sovrapposizione temporale agli avvii successivi, ampliandola per stream al documento non terminale più remoto e alla data ordine più remota dei preflight pendenti; un nuovo stream, un cursore assente o un'incongruenza forzano di nuovo il giro completo;
 5. invia soltanto righe visibili sanitizzate agli endpoint interni in allowlist;
 6. completa la sessione e chiude il ponte, senza sincronizzazione in background.
 7. consente `Sincronizza Aruba ora` senza creare una seconda scansione concorrente.
@@ -90,7 +90,7 @@ CAPTCHA, challenge, login scaduto o account inatteso sospendono il ciclo; la sca
 
 La prima scansione enumera tutte le fatture e TD04 dell’anno fiscale corrente, con paginazione esplicita. Estende inoltre il limite temporale all’indietro fino alla data del più remoto ordine che Hub Fatture può ancora riconciliare e rilegge qualunque remote document non terminale già noto, anche se appartiene a un anno precedente. Ogni pagina viene acquisita in ordine stabile e porta un cursore opaco composto dai riferimenti osservabili necessari a riprendere il lavoro. Il cursore diventa definitivo soltanto dopo il commit dell’intera pagina.
 
-Ogni avvio successivo è incrementale e riparte dal cursore con una finestra di sovrapposizione temporale. L’overlap intercetta ritardi e cambi di stato; gli upsert idempotenti assorbono le ripetizioni. Un cambio d’anno apre un nuovo stream senza cancellare quello precedente e forza un giro completo perché il nuovo stream non possiede ancora un cursore qualificato. Lo stream precedente resta nel manifest finché contiene documenti non terminali o copre ordini ancora riconciliabili. Una copertura incoerente o un cursore mancante forza allo stesso modo una nuova scansione completa.
+Ogni avvio successivo è incrementale e riparte dal cursore con una finestra di sovrapposizione temporale. L’overlap intercetta ritardi e cambi di stato; per ciascuno stream il limite viene esteso fino alla data del documento non terminale più remoto, mentre gli upsert idempotenti assorbono le ripetizioni. Un ciclo incrementale completo supera un precedente fallimento transitorio nello stato operativo, senza riscrivere il timestamp dell'ultima scansione completa. Un cambio d’anno apre un nuovo stream senza cancellare quello precedente e forza un giro completo perché il nuovo stream non possiede ancora un cursore qualificato. Lo stream precedente resta nel manifest finché contiene documenti non terminali o copre ordini ancora riconciliabili. Una copertura incoerente o un cursore mancante forza allo stesso modo una nuova scansione completa.
 
 Per limitare traffico e dati:
 

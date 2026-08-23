@@ -17,6 +17,10 @@ export type ArubaInventorySession = Pick<
 
 const inventorySnapshotSchema = z.object({
   oldestReconciliationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  nonTerminalFromByStream: z.record(
+    z.string().regex(/^(?:invoices|credit-notes):\d{4}$/),
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  ),
   streams: z
     .array(z.string().regex(/^(?:invoices|credit-notes):\d{4}$/))
     .min(2)
@@ -52,16 +56,22 @@ async function computeInventorySnapshot(
   client: pg.PoolClient,
   session: ArubaInventorySession,
 ): Promise<InventorySnapshot> {
-  const [oldest, nonTerminalYears] = await Promise.all([
+  const [oldest, nonTerminalDocuments] = await Promise.all([
     client.query<{ oldest: string | null }>(
       `SELECT min(local_order_date)::text AS oldest
        FROM orders
        WHERE trigger_status NOT IN ('INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')`,
     ),
-    client.query<{ fiscal_year: number }>(
-      `SELECT DISTINCT fiscal_year FROM aruba_remote_documents
+    client.query<{
+      document_type: "TD01" | "TD04";
+      fiscal_year: number;
+      oldest_document_date: string;
+    }>(
+      `SELECT document_type, fiscal_year, min(document_date)::text AS oldest_document_date
+       FROM aruba_remote_documents
        WHERE environment = $1 AND account_reference = $2
-         AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')`,
+         AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+       GROUP BY document_type, fiscal_year`,
       [session.environment, session.account_reference],
     ),
   ]);
@@ -76,9 +86,16 @@ async function computeInventorySnapshot(
   const years = new Set<number>(
     Array.from({ length: latestYear - lowerYear + 1 }, (_, index) => latestYear - index),
   );
-  for (const row of nonTerminalYears.rows) years.add(row.fiscal_year);
+  const nonTerminalFromByStream = Object.fromEntries(
+    nonTerminalDocuments.rows.map((row) => [
+      `${row.document_type === "TD04" ? "credit-notes" : "invoices"}:${row.fiscal_year}`,
+      row.oldest_document_date,
+    ]),
+  );
+  for (const row of nonTerminalDocuments.rows) years.add(row.fiscal_year);
   const snapshot = inventorySnapshotSchema.safeParse({
     oldestReconciliationDate,
+    nonTerminalFromByStream,
     streams: [...years]
       .toSorted((left, right) => right - left)
       .flatMap((year) => [`invoices:${year}`, `credit-notes:${year}`]),
@@ -175,6 +192,7 @@ export async function arubaInventoryManifest(token: string) {
           name: stream,
           cursor: cursor?.cursor ?? null,
           overlapFrom: cursor?.overlap_from?.toISOString() ?? null,
+          nonTerminalFrom: snapshot.nonTerminalFromByStream[stream] ?? null,
           lastFullScanCompletedAt: cursor?.full_scan_completed_at?.toISOString() ?? null,
           resumePageOrdinal: resume.get(stream) ?? null,
         };

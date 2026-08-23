@@ -177,6 +177,7 @@ test("l’helper di lettura esegue full scan, incremento con overlap e download 
       name,
       cursor: `${name}:0`,
       overlapFrom: `${year}-08-01T00:00:00.000Z`,
+      nonTerminalFrom: null,
       lastFullScanCompletedAt: null,
       resumePageOrdinal: null,
     }));

@@ -40,6 +40,7 @@ export interface ArubaReadManifest {
     name: string;
     cursor: string | null;
     overlapFrom: string | null;
+    nonTerminalFrom: string | null;
     lastFullScanCompletedAt: string | null;
     resumePageOrdinal: number | null;
   }>;
@@ -1054,7 +1055,10 @@ export async function runArubaReadCycle(
   for (const streamManifest of manifest.streams) {
     await heartbeat();
     const stream = streamManifest.name;
-    await selectStream(page, stream, fullScan ? null : streamManifest.overlapFrom);
+    const incrementalFrom = [streamManifest.overlapFrom, streamManifest.nonTerminalFrom]
+      .filter((value): value is string => Boolean(value))
+      .toSorted()[0];
+    await selectStream(page, stream, fullScan ? null : incrementalFrom);
     let pageOrdinal = 1;
     const resumeAt = fullScan ? (streamManifest.resumePageOrdinal ?? 1) : 1;
     while (pageOrdinal < resumeAt) {
