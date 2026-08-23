@@ -2,10 +2,8 @@ import { data } from "react-router";
 import type { Route } from "./+types/aruba-sync-document-file";
 
 import { ARUBA_IMPORT_MAX_BYTES } from "../../src/aruba.ts";
-import {
-  arubaReadBearer,
-  importArubaRemoteOfficialFile,
-} from "../../src/db/aruba-inbound.server.ts";
+import { importArubaRemoteOfficialFile } from "../../src/db/aruba-inbound.server.ts";
+import { arubaReadBearer } from "../../src/db/aruba-read-session.server.ts";
 import { publicError } from "../../src/errors.ts";
 import { readRawBody } from "../../src/http.server.ts";
 

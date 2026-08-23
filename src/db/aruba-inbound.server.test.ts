@@ -26,6 +26,8 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     process.env.DOCUMENT_STORAGE_ROOT = storage;
     const database = await import("./client.server.ts");
     const inbound = await import("./aruba-inbound.server.ts");
+    const { arubaInventoryManifest: read, completeStableArubaInventory: complete } =
+      await import("./aruba-inventory-cycle.server.ts");
     const invoiceXml = await readFile(
       "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
       "utf8",
@@ -157,7 +159,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       "1",
     );
     const session = await inbound.issueArubaReadSession("synthetic-device-0001", actor);
-    const manifest = await inbound.arubaReadManifest(session.token);
+    const manifest = await read(session.token);
     assert.equal(manifest.operation, "READ_SYNC");
     assert.ok(manifest.streams.some((stream) => stream.name === "invoices:2026"));
     const invoicePage = {
@@ -1195,12 +1197,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       .query("DELETE FROM aruba_remote_documents WHERE remote_id = $1", [
         "REMOTE-EXPLICIT-OUTSIDE-WINDOW",
       ]);
-    await inbound.completeArubaInventory(
-      session.token,
-      ["invoices:2026", "credit-notes:2026"],
-      1,
-      true,
-    );
+    await complete(session.token, ["invoices:2026", "credit-notes:2026"], 1, true);
     const baselineHealth = await inbound.getArubaInventoryHealth();
     assert.equal(baselineHealth.status, "HEALTHY");
     const externalRemote = await database.getPool().query<{ id: string }>(
@@ -1370,12 +1367,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         documents: [],
       });
     }
-    await inbound.completeArubaInventory(
-      session.token,
-      ["invoices:2026", "credit-notes:2026"],
-      3,
-      false,
-    );
+    await complete(session.token, ["invoices:2026", "credit-notes:2026"], 3, false);
     assert.equal(
       (
         await database
@@ -1469,7 +1461,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         `SELECT DISTINCT ON (document ->> 'remoteId') document
        FROM aruba_sync_pages pages
        CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) document
-       WHERE EXISTS (
+       WHERE pages.stream != '__manifest__' AND EXISTS (
          SELECT 1 FROM aruba_remote_documents remote
          WHERE remote.remote_id = document ->> 'remoteId'
        )
@@ -1947,9 +1939,8 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       "EXPIRED",
     );
     assert.equal(
-      (await inbound.arubaReadManifest(resumedSession.token)).streams.find(
-        (stream) => stream.name === "invoices:2026",
-      )?.resumePageOrdinal,
+      (await read(resumedSession.token)).streams.find((stream) => stream.name === "invoices:2026")
+        ?.resumePageOrdinal,
       1,
     );
     assert.equal(
@@ -2031,12 +2022,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         documents: [],
       });
     }
-    await inbound.completeArubaInventory(
-      resumedSession.token,
-      ["invoices:2026", "credit-notes:2026"],
-      4,
-      false,
-    );
+    await complete(resumedSession.token, ["invoices:2026", "credit-notes:2026"], 4, false);
     assert.deepEqual(
       await inbound.completeArubaPreflight(resumedSession.token, {
         receiptId: rejectedReceiptId,
@@ -2102,12 +2088,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       fullScan: false,
       documents: [],
     });
-    await inbound.completeArubaInventory(
-      resumedSession.token,
-      ["invoices:2026", "credit-notes:2026"],
-      5,
-      false,
-    );
+    await complete(resumedSession.token, ["invoices:2026", "credit-notes:2026"], 5, false);
     assert.deepEqual(
       await inbound.completeArubaPreflight(resumedSession.token, {
         receiptId: creditReceiptId,
@@ -2158,12 +2139,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         documents: [],
       });
     }
-    await inbound.completeArubaInventory(
-      resumedSession.token,
-      ["invoices:2026", "credit-notes:2026"],
-      6,
-      false,
-    );
+    await complete(resumedSession.token, ["invoices:2026", "credit-notes:2026"], 6, false);
     assert.deepEqual(
       await inbound.completeArubaPreflight(resumedSession.token, {
         receiptId: groupedReceiptId,
@@ -2410,17 +2386,13 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       "UNKNOWN_REMOTE_STATE",
     );
     await assert.rejects(
-      inbound.completeArubaInventory(
-        resumedSession.token,
-        ["invoices:2026", "credit-notes:2026"],
-        2,
-        true,
-      ),
+      complete(resumedSession.token, ["invoices:2026", "credit-notes:2026"], 2, true),
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "ARUBA_INVENTORY_INCOMPLETE",
     );
+    const recoverySession = await inbound.issueArubaReadSession("synthetic-device-0003", actor);
     for (const [index, stream] of ["invoices:2026", "credit-notes:2026"].entries()) {
-      await inbound.ingestArubaInventoryPage(resumedSession.token, {
+      await inbound.ingestArubaInventoryPage(recoverySession.token, {
         stream,
         scanOrdinal: 30,
         pageOrdinal: 1,
@@ -2430,12 +2402,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         documents: [],
       });
     }
-    await inbound.completeArubaInventory(
-      resumedSession.token,
-      ["invoices:2026", "credit-notes:2026"],
-      30,
-      true,
-    );
+    await complete(recoverySession.token, ["invoices:2026", "credit-notes:2026"], 30, true);
     assert.deepEqual(
       (
         await database.getPool().query(

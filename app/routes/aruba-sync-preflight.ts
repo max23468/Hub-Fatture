@@ -2,10 +2,10 @@ import type { Route } from "./+types/aruba-sync-preflight";
 import { arubaSyncResponse } from "../aruba-sync-response";
 
 import {
-  arubaReadBearer,
   completeArubaPreflight,
   listArubaPreflightWork,
 } from "../../src/db/aruba-inbound.server.ts";
+import { arubaReadBearer } from "../../src/db/aruba-read-session.server.ts";
 import { readJson } from "../../src/http.server.ts";
 
 export async function loader({ request }: Route.LoaderArgs) {

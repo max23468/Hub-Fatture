@@ -86,7 +86,7 @@ export function classifyFiles(inputFiles) {
   const arubaPlatform =
     failClosed ||
     files.some((file) =>
-      /^(?:\.github\/workflows\/aruba-platform\.yml$|scripts\/(?:aruba-helper|aruba-read-helper)|src\/aruba(?:-inbound)?\.ts$|tests\/e2e\/aruba-synthetic|app\/routes\/aruba-(?:helper|sync))/.test(
+      /^(?:\.github\/workflows\/aruba-platform\.yml$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit)|src\/aruba(?:-inbound)?\.ts$|tests\/e2e\/aruba-synthetic|app\/routes\/aruba-(?:helper|sync))/.test(
         file,
       ),
     );
@@ -94,7 +94,11 @@ export function classifyFiles(inputFiles) {
   const e2e =
     failClosed ||
     runtime ||
-    files.some((file) => /^(?:tests\/e2e\/|playwright\.config\.ts$)/.test(file));
+    files.some((file) =>
+      /^(?:tests\/e2e\/|playwright\.config\.ts$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit))/.test(
+        file,
+      ),
+    );
   const image = runtime;
   const migrationStorage =
     failClosed ||
