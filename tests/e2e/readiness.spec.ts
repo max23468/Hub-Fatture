@@ -1215,8 +1215,16 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const bridgePage = await bridgePagePromise;
   await expect(bridgePage.getByRole("status")).toContainText("Collegamento attivo");
   await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
+    "Seleziona Fatture inviate",
+  );
+  await arubaPage.getByRole("menuitem", { name: "Fatture inviate" }).click();
+  await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
     "Sincronizzazione completata",
     { timeout: 30_000 },
+  );
+  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).not.toHaveAttribute(
+    "data-aruba-filter-revision",
+    "0",
   );
   await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).toBeVisible();
   await bridgePage.waitForEvent("close", { timeout: 10_000 });

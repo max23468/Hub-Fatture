@@ -33,7 +33,7 @@ export const arubaSettingsCopy = {
   arubaBookmarkletAccessibleLabel: "Sincronizza Aruba",
   arubaBookmarkletRunTitle: "Apri Aruba, accedi e usa il preferito",
   arubaBookmarkletRunHelp:
-    "La lettura mostra l’avanzamento nella pagina Aruba e termina senza inviare documenti.",
+    "Puoi avviarlo anche dalla Home: quando richiesto seleziona Fatture inviate nel menu Aruba. La lettura mostra l’avanzamento e non invia documenti.",
   arubaAdvancedRecovery: "Recupero avanzato",
   arubaAdvancedRecoveryHelp:
     "Usa l’inserimento manuale soltanto se il preferito non riesce a completare la lettura.",

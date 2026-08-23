@@ -107,8 +107,17 @@ function ArubaInventorySynthetic({
 }) {
   const isInvoice = inventoryStream.startsWith("invoices:");
   const year = Number(inventoryStream.split(":")[1] ?? currentYear);
+  const [filterRevision, setFilterRevision] = useState(0);
+  const applyFilter = async () => {
+    await fetch("/health");
+    window.setTimeout(() => setFilterRevision((revision) => revision + 1), 800);
+  };
   return (
-    <main className="synthetic-page" data-aruba-state="inventory-ready">
+    <main
+      className="synthetic-page"
+      data-aruba-filter-revision={filterRevision}
+      data-aruba-state="inventory-ready"
+    >
       <header className="synthetic-header">
         <div className="title-block">
           <p className="eyebrow">Ambiente sintetico</p>
@@ -139,7 +148,9 @@ function ArubaInventorySynthetic({
         Dal
         <input data-aruba-filter-from name="dataDa" type="date" />
       </label>
-      <button type="button">Applica filtri</button>
+      <button onClick={applyFilter} type="button">
+        Applica filtri
+      </button>
       <section className="dashboard-panel section-gap">
         <table className="data-table">
           <thead>
