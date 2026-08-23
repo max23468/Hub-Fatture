@@ -28,11 +28,12 @@ export const arubaSettingsCopy = {
     "Non devi installare nulla. Funziona con Safari, Chrome o Edge su computer.",
   arubaBookmarkletSaveTitle: "Trascina il pulsante nella barra dei preferiti",
   arubaBookmarkletSaveHelp:
-    "Il preferito resta valido e non salva credenziali Aruba né token. Il collegamento sicuro viene creato automaticamente a ogni uso.",
-  arubaBookmarkletLabel: "Sincronizza Aruba",
+    "Lo riconosci dal simbolo ↻. Il preferito resta valido e non salva credenziali Aruba né token.",
+  arubaBookmarkletLabel: "↻ Sincronizza Aruba",
+  arubaBookmarkletAccessibleLabel: "Sincronizza Aruba",
   arubaBookmarkletRunTitle: "Apri Aruba, accedi e usa il preferito",
   arubaBookmarkletRunHelp:
-    "La lettura mostra l’avanzamento nella pagina Aruba e termina senza inviare documenti.",
+    "Puoi avviarlo anche dalla Home: quando richiesto seleziona Fatture inviate nel menu Aruba. La lettura mostra l’avanzamento e non invia documenti.",
   arubaAdvancedRecovery: "Recupero avanzato",
   arubaAdvancedRecoveryHelp:
     "Usa l’inserimento manuale soltanto se il preferito non riesce a completare la lettura.",

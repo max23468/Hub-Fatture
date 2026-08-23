@@ -31,6 +31,7 @@ export default [
   route("api/aruba/sync/pagine", "routes/aruba-sync-page.ts"),
   route("api/aruba/sync/documenti/:remoteDocumentId/file", "routes/aruba-sync-document-file.ts"),
   route("api/aruba/sync/completa", "routes/aruba-sync-complete.ts"),
+  route("api/aruba/sync/termina", "routes/aruba-sync-finish.ts"),
   route("api/aruba/sync/fallita", "routes/aruba-sync-failed.ts"),
   route("api/aruba/sync/preflight", "routes/aruba-sync-preflight.ts"),
   route("api/aruba/sync/sessione-browser", "routes/aruba-browser-session.ts"),

@@ -40,8 +40,8 @@ export interface ArubaReadManifest {
     name: string;
     cursor: string | null;
     overlapFrom: string | null;
+    nonTerminalFrom: string | null;
     lastFullScanCompletedAt: string | null;
-    resumePageOrdinal: number | null;
   }>;
   intervalSeconds: number;
   absoluteExpiresAt: string;
@@ -1031,7 +1031,6 @@ export async function runArubaReadCycle(
   token: string,
   manifest: ArubaReadManifest,
   scanOrdinal = 1,
-  fullScan = true,
   browser: "chrome" | "msedge" = "chrome",
 ) {
   const target = assertAllowedArubaTarget(manifest.panelUrl, manifest.environment);
@@ -1054,13 +1053,8 @@ export async function runArubaReadCycle(
   for (const streamManifest of manifest.streams) {
     await heartbeat();
     const stream = streamManifest.name;
-    await selectStream(page, stream, fullScan ? null : streamManifest.overlapFrom);
+    await selectStream(page, stream, null);
     let pageOrdinal = 1;
-    const resumeAt = fullScan ? (streamManifest.resumePageOrdinal ?? 1) : 1;
-    while (pageOrdinal < resumeAt) {
-      await advancePage(page, manifest.environment);
-      pageOrdinal += 1;
-    }
     while (true) {
       await heartbeat();
       assertAllowedArubaNavigation(page.url(), target);
@@ -1077,7 +1071,7 @@ export async function runArubaReadCycle(
         "/api/aruba/sync/pagine",
         {
           method: "POST",
-          body: JSON.stringify({ ...inventory, fullScan }),
+          body: JSON.stringify({ ...inventory, fullScan: true }),
         },
       );
       observed.push(...inventory.documents);
@@ -1103,7 +1097,7 @@ export async function runArubaReadCycle(
     body: JSON.stringify({
       streams: manifest.streams.map((stream) => stream.name),
       scanOrdinal,
-      fullScan,
+      fullScan: true,
     }),
   });
   return observed;
@@ -1164,7 +1158,6 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
           options.token,
           manifest,
           scanOrdinal,
-          scanOrdinal === 1,
           options.browser === "msedge" ? "msedge" : "chrome",
         );
         await completePreflights(hub, options.token, pendingBeforeScan.work, observed);
@@ -1204,7 +1197,6 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
             options.token,
             manifest,
             scanOrdinal,
-            false,
             options.browser === "msedge" ? "msedge" : "chrome",
           );
           await completePreflights(hub, options.token, pending.work, observed);

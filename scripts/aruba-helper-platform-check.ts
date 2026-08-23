@@ -53,7 +53,6 @@ const server = createServer(async (request, response) => {
           cursor: null,
           overlapFrom: null,
           lastFullScanCompletedAt: null,
-          resumePageOrdinal: null,
         },
       ],
       intervalSeconds: 900,

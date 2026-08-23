@@ -84,10 +84,19 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
       await cycle.completeStableArubaInventory(firstToken, firstStreams.toReversed(), 1, true),
       { completed: true },
     );
-
-    await database.getPool().query(
-      `UPDATE aruba_sync_sessions SET status = 'COMPLETED', lease_expires_at = NULL
-       WHERE id = '00000000-0000-4000-8000-000000000021'`,
+    assert.deepEqual(await inbound.failArubaInventory(firstToken, "READ_SYNC_FAILED"), {
+      failed: false,
+      ignored: true,
+    });
+    assert.deepEqual(await cycle.finishStableArubaInventory(firstToken), { completed: true });
+    assert.deepEqual(
+      (
+        await database.getPool().query<{ status: string; error_code: string | null }>(
+          `SELECT status, error_code FROM aruba_sync_sessions
+           WHERE id = '00000000-0000-4000-8000-000000000021'`,
+        )
+      ).rows[0],
+      { status: "COMPLETED", error_code: null },
     );
     await database.getPool().query(
       `INSERT INTO aruba_sync_sessions
@@ -101,17 +110,67 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
     const second = await cycle.arubaInventoryManifest(secondToken);
     const secondStreams = second.streams.map((stream) => stream.name);
     assert.ok(secondStreams.includes("invoices:2025"));
+    assert.equal(
+      second.streams.find((stream) => stream.name === "invoices:2025")?.nonTerminalFrom,
+      "2025-12-31",
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_sync_sessions
+        (id, environment, account_reference, device_id, token_hash, status, started_at,
+         absolute_expires_at, lease_expires_at, failed_at, error_code)
+       VALUES ('00000000-0000-4000-8000-000000000023', 'MOCK',
+               'synthetic-aruba-account', 'synthetic-failed-incremental',
+               repeat('f', 64), 'FAILED', now(), now() + interval '1 hour', NULL,
+               now(), 'READ_SYNC_FAILED')`,
+    );
+    for (const stream of secondStreams) {
+      await inbound.ingestArubaInventoryPage(secondToken, {
+        stream,
+        scanOrdinal: 1,
+        pageOrdinal: 1,
+        cursor: `${stream}:1`,
+        terminal: true,
+        fullScan: false,
+        documents: [],
+      });
+    }
+    assert.equal(
+      (
+        await database.getPool().query<{ is_full_scan: boolean }>(
+          `SELECT is_full_scan FROM aruba_sync_sessions
+           WHERE id = '00000000-0000-4000-8000-000000000022'`,
+        )
+      ).rows[0]!.is_full_scan,
+      false,
+    );
+    await assert.rejects(
+      inbound.ingestArubaInventoryPage(secondToken, {
+        stream: secondStreams[0],
+        scanOrdinal: 1,
+        pageOrdinal: 2,
+        cursor: `${secondStreams[0]}:mixed-mode`,
+        terminal: true,
+        fullScan: true,
+        documents: [],
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "ARUBA_INVENTORY_CONFLICT",
+    );
+    assert.deepEqual(
+      await cycle.completeStableArubaInventory(secondToken, secondStreams, 1, false),
+      { completed: true },
+    );
+    assert.notEqual((await inbound.getArubaInventoryHealth()).blockingReason, "FAILURE");
     await database.getPool().query(
       `INSERT INTO aruba_sync_pages
         (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,
          row_count, documents_json, payload_digest)
-       SELECT '00000000-0000-4000-8000-000000000022', stream, 1, 1, stream || ':1',
+       SELECT '00000000-0000-4000-8000-000000000022', stream, 2, 1, stream || ':2',
               true, true, 0, '[]'::jsonb, md5(stream) || md5(stream)
        FROM unnest($1::text[]) AS stream`,
       [secondStreams.slice(0, -1)],
     );
     await assert.rejects(
-      () => cycle.completeStableArubaInventory(secondToken, secondStreams, 1, true),
+      () => cycle.completeStableArubaInventory(secondToken, secondStreams, 2, true),
       (error: unknown) =>
         error instanceof AppError &&
         error.code === "ARUBA_INVENTORY_INCOMPLETE" &&

@@ -1171,6 +1171,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   ).toBeVisible();
   const bookmarkletButton = bookmarklet.getByRole("link", { name: "Sincronizza Aruba" });
   await expect(bookmarkletButton).toHaveAttribute("href", /^javascript:/);
+  await expect(bookmarkletButton).toContainText("↻ Sincronizza Aruba");
   const bookmarkletHref = await bookmarkletButton.getAttribute("href");
   expect(bookmarkletHref).toBeTruthy();
   await expect(bookmarklet).not.toContainText(/Node|npm|mise|Terminale|installer/i);
@@ -1196,7 +1197,10 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const arubaPage = await page.context().newPage();
   const arubaPanelHref = await openAruba.getAttribute("href");
   expect(arubaPanelHref).toBeTruthy();
-  await arubaPage.goto(arubaPanelHref!);
+  const arubaHomeHref = new URL(arubaPanelHref!);
+  arubaHomeHref.searchParams.set("scenario", "inventory-home");
+  await arubaPage.goto(arubaHomeHref.toString());
+  await expect(arubaPage.getByRole("heading", { name: "Home Aruba" })).toBeVisible();
   await arubaPage.locator("body").evaluate((body, href) => {
     const link = document.createElement("a");
     link.id = "e2e-aruba-bookmarklet";
@@ -1211,9 +1215,72 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const bridgePage = await bridgePagePromise;
   await expect(bridgePage.getByRole("status")).toContainText("Collegamento attivo");
   await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
+    "Seleziona Fatture inviate",
+  );
+  await arubaPage.evaluate(() => {
+    const runtime = window as typeof window & { __arubaConcurrentPolling?: number };
+    runtime.__arubaConcurrentPolling = window.setInterval(() => void fetch("/health"), 50);
+  });
+  await arubaPage.waitForTimeout(200);
+  await arubaPage.getByRole("menuitem", { name: "Fatture inviate" }).click();
+  await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
     "Sincronizzazione completata",
     { timeout: 30_000 },
   );
+  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).not.toHaveAttribute(
+    "data-aruba-filter-revision",
+    "0",
+  );
+  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).toBeVisible();
+  await arubaPage.evaluate(() => {
+    const runtime = window as typeof window & { __arubaConcurrentPolling?: number };
+    window.clearInterval(runtime.__arubaConcurrentPolling);
+    delete runtime.__arubaConcurrentPolling;
+  });
+  await bridgePage.waitForEvent("close", { timeout: 10_000 });
+  const preflightDate = `${new Date().getUTCFullYear()}-01-03`;
+  const preflightClient = new pg.Client({ connectionString: databaseUrl });
+  await preflightClient.connect();
+  await preflightClient.query(
+    `INSERT INTO aruba_preflight_receipts
+       (id, environment, account_reference, draft_version, projection_sha256,
+        manifest_sha256, inventory_watermark, status, requested_by, request_json)
+     SELECT gen_random_uuid(), sessions.environment, sessions.account_reference, 1,
+            repeat('a', 64), repeat('b', 64), 0, 'REQUESTED', users.id, $1::jsonb
+     FROM aruba_sync_sessions AS sessions
+     CROSS JOIN LATERAL (SELECT id FROM users ORDER BY id LIMIT 1) AS users
+     WHERE sessions.helper_version = 'preferito-1'
+     ORDER BY sessions.started_at DESC LIMIT 1`,
+    [
+      JSON.stringify({
+        documentType: "TD01",
+        orderIds: [],
+        refundIds: [],
+        searches: [
+          {
+            displayNumber: "#PREFLIGHT-OLDER",
+            documentType: "TD01",
+            orderDate: preflightDate,
+          },
+        ],
+      }),
+    ],
+  );
+  await preflightClient.end();
+  const secondBridgePagePromise = page.context().waitForEvent("page", {
+    predicate: (candidate) => candidate.url().includes("/aruba-ponte"),
+  });
+  await arubaPage.locator("#e2e-aruba-bookmarklet").click();
+  const secondBridgePage = await secondBridgePagePromise;
+  await expect(secondBridgePage.getByRole("status")).toContainText("Collegamento attivo");
+  await expect(arubaPage.locator("[data-aruba-filter-from]")).toHaveValue("", {
+    timeout: 30_000,
+  });
+  await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
+    "Sincronizzazione completata",
+    { timeout: 30_000 },
+  );
+  await secondBridgePage.waitForEvent("close", { timeout: 10_000 });
   await arubaPage.close();
   await page.reload();
   await expect(page.locator(".aruba-inventory-card dd").first()).not.toHaveText("0");
@@ -1224,10 +1291,25 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
      WHERE helper_version = 'preferito-1'
      ORDER BY started_at DESC LIMIT 1`,
   );
+  const bookmarkletSessions = await browserReadback.query<{
+    status: string;
+    full_scan: boolean;
+  }>(
+    `SELECT sessions.status, bool_and(pages.full_scan) AS full_scan
+     FROM aruba_sync_sessions AS sessions
+     JOIN aruba_sync_pages AS pages ON pages.sync_session_id = sessions.id
+     WHERE sessions.helper_version = 'preferito-1' AND pages.stream <> '__manifest__'
+     GROUP BY sessions.id, sessions.status, sessions.started_at
+     ORDER BY sessions.started_at DESC LIMIT 2`,
+  );
   await browserReadback.end();
   expect(detectedBrowser.rows[0]?.browser_name).toBe(
     browserName === "webkit" ? "safari" : "chrome",
   );
+  expect(bookmarkletSessions.rows).toEqual([
+    { status: "COMPLETED", full_scan: true },
+    { status: "COMPLETED", full_scan: true },
+  ]);
   await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC");
   const settingsResponse = page.waitForResponse(
     (response) =>

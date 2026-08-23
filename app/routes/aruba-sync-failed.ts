@@ -8,7 +8,6 @@ import { readJson } from "../../src/http.server.ts";
 export async function action({ request }: Route.ActionArgs) {
   return arubaSyncResponse(async () => {
     const body = (await readJson(request)) as { code?: unknown };
-    await failArubaInventory(arubaReadBearer(request), body.code);
-    return { ok: true };
+    return failArubaInventory(arubaReadBearer(request), body.code);
   });
 }
