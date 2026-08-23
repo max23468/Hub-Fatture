@@ -388,3 +388,18 @@ export async function completeStableArubaInventory(
   if (outcome.incomplete) throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
   return { completed: outcome.completed };
 }
+
+export async function finishStableArubaInventory(token: string) {
+  return withTransaction(async (client) => {
+    const session = await loadArubaReadSession(client, token, true);
+    if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+    const result = await client.query(
+      `UPDATE aruba_sync_sessions SET status = 'COMPLETED', lease_expires_at = NULL
+       WHERE id = $1 AND completed_at IS NOT NULL AND status IN ('ACTIVE', 'SCANNING')
+       RETURNING id`,
+      [session.id],
+    );
+    if (!result.rows[0]) throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
+    return { completed: true };
+  });
+}

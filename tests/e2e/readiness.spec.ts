@@ -1171,6 +1171,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   ).toBeVisible();
   const bookmarkletButton = bookmarklet.getByRole("link", { name: "Sincronizza Aruba" });
   await expect(bookmarkletButton).toHaveAttribute("href", /^javascript:/);
+  await expect(bookmarkletButton).toContainText("↻ Sincronizza Aruba");
   const bookmarkletHref = await bookmarkletButton.getAttribute("href");
   expect(bookmarkletHref).toBeTruthy();
   await expect(bookmarklet).not.toContainText(/Node|npm|mise|Terminale|installer/i);
@@ -1196,7 +1197,10 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const arubaPage = await page.context().newPage();
   const arubaPanelHref = await openAruba.getAttribute("href");
   expect(arubaPanelHref).toBeTruthy();
-  await arubaPage.goto(arubaPanelHref!);
+  const arubaHomeHref = new URL(arubaPanelHref!);
+  arubaHomeHref.searchParams.set("scenario", "inventory-home");
+  await arubaPage.goto(arubaHomeHref.toString());
+  await expect(arubaPage.getByRole("heading", { name: "Home Aruba" })).toBeVisible();
   await arubaPage.locator("body").evaluate((body, href) => {
     const link = document.createElement("a");
     link.id = "e2e-aruba-bookmarklet";
@@ -1214,6 +1218,22 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     "Sincronizzazione completata",
     { timeout: 30_000 },
   );
+  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).toBeVisible();
+  await bridgePage.waitForEvent("close", { timeout: 10_000 });
+  const secondBridgePagePromise = page.context().waitForEvent("page", {
+    predicate: (candidate) => candidate.url().includes("/aruba-ponte"),
+  });
+  await arubaPage.locator("#e2e-aruba-bookmarklet").click();
+  const secondBridgePage = await secondBridgePagePromise;
+  await expect(secondBridgePage.getByRole("status")).toContainText("Collegamento attivo");
+  await expect(arubaPage.locator("[data-aruba-filter-from]")).not.toHaveValue("", {
+    timeout: 30_000,
+  });
+  await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
+    "Sincronizzazione completata",
+    { timeout: 30_000 },
+  );
+  await secondBridgePage.waitForEvent("close", { timeout: 10_000 });
   await arubaPage.close();
   await page.reload();
   await expect(page.locator(".aruba-inventory-card dd").first()).not.toHaveText("0");
@@ -1224,10 +1244,25 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
      WHERE helper_version = 'preferito-1'
      ORDER BY started_at DESC LIMIT 1`,
   );
+  const bookmarkletSessions = await browserReadback.query<{
+    status: string;
+    full_scan: boolean;
+  }>(
+    `SELECT sessions.status, bool_and(pages.full_scan) AS full_scan
+     FROM aruba_sync_sessions AS sessions
+     JOIN aruba_sync_pages AS pages ON pages.sync_session_id = sessions.id
+     WHERE sessions.helper_version = 'preferito-1' AND pages.stream <> '__manifest__'
+     GROUP BY sessions.id, sessions.status, sessions.started_at
+     ORDER BY sessions.started_at DESC LIMIT 2`,
+  );
   await browserReadback.end();
   expect(detectedBrowser.rows[0]?.browser_name).toBe(
     browserName === "webkit" ? "safari" : "chrome",
   );
+  expect(bookmarkletSessions.rows).toEqual([
+    { status: "COMPLETED", full_scan: false },
+    { status: "COMPLETED", full_scan: true },
+  ]);
   await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC");
   const settingsResponse = page.waitForResponse(
     (response) =>

@@ -48,9 +48,11 @@ function BookmarkletLink({ value }: { value: string }) {
   }, [value]);
   return (
     <a
+      aria-label={copy.settings.arubaBookmarkletAccessibleLabel}
       className="button button--secondary aruba-bookmarklet__button"
       href="#aruba-bookmarklet-title"
       ref={linkRef}
+      title={copy.settings.arubaBookmarkletLabel}
     >
       {copy.settings.arubaBookmarkletLabel}
     </a>

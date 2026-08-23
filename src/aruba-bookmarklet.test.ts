@@ -14,6 +14,11 @@ test("il preferito Aruba è autosufficiente e non contiene credenziali persisten
   assert.match(bookmarklet, /https:\/\/fatturazioneelettronica\.aruba\.it/);
   assert.match(bookmarklet, /return"safari"/);
   assert.match(bookmarklet, /BROWSER_UNSUPPORTED/);
+  assert.match(bookmarklet, /Apertura di Fatture inviate/);
+  assert.match(bookmarklet, /lastFullScanCompletedAt/);
+  assert.match(bookmarklet, /overlapFrom/);
+  assert.match(bookmarklet, /\/api\/aruba\/sync\/termina/);
+  assert.doesNotMatch(bookmarklet, /fullScan:true/);
   assert.doesNotMatch(bookmarklet, /Bearer |Authorization|hub-fatture-helper:\/\//);
   assert.doesNotThrow(() => new Function(bookmarklet.slice("javascript:".length)));
 });

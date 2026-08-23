@@ -65,6 +65,31 @@ async function uploadedFile(file: File, valid: boolean): Promise<UploadedFile> {
   };
 }
 
+function ArubaInventoryHomeSynthetic({
+  accountIdentity,
+  onOpenInventory,
+}: {
+  accountIdentity: string;
+  onOpenInventory: () => void;
+}) {
+  return (
+    <main className="synthetic-page" data-aruba-state="inventory-home">
+      <header className="synthetic-header">
+        <div className="title-block">
+          <p className="eyebrow">Ambiente sintetico</p>
+          <h1>Home Aruba</h1>
+        </div>
+        <p className="synthetic-account main-toolbar-info-user">{accountIdentity}</p>
+      </header>
+      <nav aria-label="Documenti">
+        <button onClick={onOpenInventory} role="menuitem" type="button">
+          Fatture inviate
+        </button>
+      </nav>
+    </main>
+  );
+}
+
 function ArubaInventorySynthetic({
   accountIdentity,
   creditXmlUrl,
@@ -182,6 +207,40 @@ function ArubaInventorySynthetic({
   );
 }
 
+function ArubaInventoryScenario({
+  accountIdentity,
+  creditXmlUrl,
+  invoiceXmlUrl,
+  startsFromHome,
+}: {
+  accountIdentity: string;
+  creditXmlUrl: string;
+  invoiceXmlUrl: string;
+  startsFromHome: boolean;
+}) {
+  const currentYear = new Date().getUTCFullYear();
+  const [homeDismissed, setHomeDismissed] = useState(false);
+  const [inventoryStream, setInventoryStream] = useState(`invoices:${currentYear}`);
+  if (startsFromHome && !homeDismissed) {
+    return (
+      <ArubaInventoryHomeSynthetic
+        accountIdentity={accountIdentity}
+        onOpenInventory={() => setHomeDismissed(true)}
+      />
+    );
+  }
+  return (
+    <ArubaInventorySynthetic
+      accountIdentity={accountIdentity}
+      creditXmlUrl={creditXmlUrl}
+      currentYear={currentYear}
+      inventoryStream={inventoryStream}
+      invoiceXmlUrl={invoiceXmlUrl}
+      setInventoryStream={setInventoryStream}
+    />
+  );
+}
+
 export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
   const scenario = loaderData.scenario;
   const accountIdentity = loaderData.accountIdentity;
@@ -193,8 +252,6 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
   const [challengeStep, setChallengeStep] = useState<"CONFIRM" | "CODE" | null>(null);
   const [challengeCode, setChallengeCode] = useState("");
   const [sent, setSent] = useState(false);
-  const currentYear = new Date().getUTCFullYear();
-  const [inventoryStream, setInventoryStream] = useState(`invoices:${currentYear}`);
   useEffect(() => {
     if (scenario !== "login-auto") return;
     const timer = window.setTimeout(() => {
@@ -241,15 +298,13 @@ export default function ArubaSynthetic({ loaderData }: Route.ComponentProps) {
       </main>
     );
   }
-  if (scenario === "inventory") {
+  if (scenario === "inventory" || scenario === "inventory-home") {
     return (
-      <ArubaInventorySynthetic
+      <ArubaInventoryScenario
         accountIdentity={accountIdentity}
         creditXmlUrl={loaderData.creditXmlUrl}
-        currentYear={currentYear}
-        inventoryStream={inventoryStream}
         invoiceXmlUrl={loaderData.invoiceXmlUrl}
-        setInventoryStream={setInventoryStream}
+        startsFromHome={scenario === "inventory-home"}
       />
     );
   }

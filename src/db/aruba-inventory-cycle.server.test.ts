@@ -84,10 +84,19 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
       await cycle.completeStableArubaInventory(firstToken, firstStreams.toReversed(), 1, true),
       { completed: true },
     );
-
-    await database.getPool().query(
-      `UPDATE aruba_sync_sessions SET status = 'COMPLETED', lease_expires_at = NULL
-       WHERE id = '00000000-0000-4000-8000-000000000021'`,
+    assert.deepEqual(await inbound.failArubaInventory(firstToken, "READ_SYNC_FAILED"), {
+      failed: false,
+      ignored: true,
+    });
+    assert.deepEqual(await cycle.finishStableArubaInventory(firstToken), { completed: true });
+    assert.deepEqual(
+      (
+        await database.getPool().query<{ status: string; error_code: string | null }>(
+          `SELECT status, error_code FROM aruba_sync_sessions
+           WHERE id = '00000000-0000-4000-8000-000000000021'`,
+        )
+      ).rows[0],
+      { status: "COMPLETED", error_code: null },
     );
     await database.getPool().query(
       `INSERT INTO aruba_sync_sessions

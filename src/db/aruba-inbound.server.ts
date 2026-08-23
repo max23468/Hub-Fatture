@@ -2288,10 +2288,20 @@ export async function failArubaInventory(token: string, rawCode: unknown) {
     `UPDATE aruba_sync_sessions SET status = 'FAILED', lease_expires_at = NULL, failed_at = now(),
        error_code = $2, error_message_sanitized = 'Sincronizzazione Aruba interrotta'
      WHERE token_hash = $1 AND status IN ('ACTIVE', 'SCANNING')
+       AND (completed_at IS NULL OR last_heartbeat_at > completed_at)
      RETURNING id`,
     [hashToken(token), code.data],
   );
-  if (!result.rows[0]) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+  if (result.rows[0]) return { failed: true, ignored: false };
+  const completed = await getPool().query(
+    `SELECT 1 FROM aruba_sync_sessions
+     WHERE token_hash = $1 AND status IN ('ACTIVE', 'SCANNING', 'COMPLETED')
+       AND completed_at IS NOT NULL
+       AND (last_heartbeat_at IS NULL OR last_heartbeat_at <= completed_at)`,
+    [hashToken(token)],
+  );
+  if (completed.rows[0]) return { failed: false, ignored: true };
+  throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
 }
 
 export interface ArubaInventoryHealth {

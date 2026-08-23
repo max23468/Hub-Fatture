@@ -36,6 +36,7 @@ const allowedRequests = new Map([
   ["POST /api/aruba/sync/heartbeat", true],
   ["POST /api/aruba/sync/pagine", true],
   ["POST /api/aruba/sync/completa", true],
+  ["POST /api/aruba/sync/termina", true],
   ["POST /api/aruba/sync/fallita", true],
   ["GET /api/aruba/sync/preflight", true],
   ["POST /api/aruba/sync/preflight", true],

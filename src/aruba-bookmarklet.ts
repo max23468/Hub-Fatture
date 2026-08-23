@@ -66,9 +66,14 @@ const enabled=(element)=>Boolean(element&&!element.disabled&&!element.closest(".
 const fingerprint=()=>{const values=[...document.querySelectorAll(".aruba-grid-fatture-inviate .x-gridrow[data-recordindex] .x-gridcell:nth-child(18)")].map(element=>normalized(element.textContent)).filter(Boolean);if(!values.length)fail("DOM_UNRECOGNIZED");return values.join("|")};
 const waitForChange=async(before)=>{for(let attempt=0;attempt<120;attempt+=1){await sleep(250);try{if(fingerprint()!==before){await sleep(600);return}}catch{} }fail("DOM_UNRECOGNIZED")};
 const clickProduction=async(control)=>{let before=null;if(document.querySelector(".aruba-grid-fatture-inviate")){try{before=fingerprint()}catch{}}control.click();if(before)await waitForChange(before);else await sleep(1200)};
-const selectStream=async(stream)=>{
+const sentDestination=()=>{const matches=(selector)=>[...document.querySelectorAll(selector)].filter(visible).filter(item=>/^(?:Fatture inviate|Documenti inviati|Inviate)$/i.test(normalized(item.textContent)));const semantic=matches('[role="menuitem"]');if(semantic.length===1)return semantic[0];if(semantic.length>1)fail("DOM_UNRECOGNIZED");const fallback=matches("a,button");if(fallback.length!==1)fail("DOM_UNRECOGNIZED");return fallback[0]};
+const waitForInventory=async(stream)=>{for(let attempt=0;attempt<120;attempt+=1){if(visible(document.querySelector('[data-aruba-stream="'+CSS.escape(stream)+'"]'))||visible(document.querySelector('[data-aruba-state="inventory-ready"]'))||(visible(document.querySelector(".main-toolbar-info-fiscalyear"))&&visible(document.querySelector(".aruba-grid-fatture-inviate"))))return;await sleep(250)}fail("DOM_UNRECOGNIZED")};
+const openInventory=async(stream)=>{if(visible(document.querySelector('[data-aruba-stream="'+CSS.escape(stream)+'"]'))||visible(document.querySelector('[data-aruba-state="inventory-ready"]'))||visible(document.querySelector(".aruba-grid-fatture-inviate")))return;setStatus("Apertura di Fatture inviate…");sentDestination().click();await waitForInventory(stream)};
+const applyDateFilter=async(value)=>{const candidates=[...document.querySelectorAll('[data-aruba-filter-from],input[name="dataDa"]')].filter(visible);if(candidates.length!==1)fail("DOM_UNRECOGNIZED");const from=candidates[0];const next=value?String(value).slice(0,10):"";const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;if(!(from instanceof HTMLInputElement)||!setter)fail("DOM_UNRECOGNIZED");setter.call(from,next);from.dispatchEvent(new Event("input",{bubbles:true}));from.dispatchEvent(new Event("change",{bubbles:true}));const apply=[...document.querySelectorAll("button")].filter(visible).find(button=>/^(?:Applica(?: filtri)?|Cerca|Filtra)$/i.test(normalized(button.textContent)));if(apply)apply.click();await sleep(document.querySelector(".aruba-grid-fatture-inviate")?1200:100)};
+const selectStream=async(stream,overlapFrom)=>{
+  await openInventory(stream);
   const synthetic=document.querySelector('[data-aruba-stream="'+CSS.escape(stream)+'"]');
-  if(synthetic){synthetic.click();await sleep(100);const from=document.querySelector('[data-aruba-filter-from],input[name="dataDa"]');if(!from)fail("DOM_UNRECOGNIZED");from.value="";from.dispatchEvent(new Event("input",{bubbles:true}));return true}
+  if(synthetic){synthetic.click();await sleep(100);await applyDateFilter(overlapFrom);return true}
   if(document.querySelector('[data-aruba-state="inventory-ready"]'))return false;
   const parts=streamParts(stream);
   const yearControl=document.querySelector(".main-toolbar-info-fiscalyear");
@@ -77,10 +82,11 @@ const selectStream=async(stream)=>{
     const button=yearControl.querySelector("button");if(!button)fail("DOM_UNRECOGNIZED");button.click();await sleep(250);
     const years=[...document.querySelectorAll(".x-menuitem-sub-menu-mainToolbar")].filter(visible).filter(item=>normalized(item.textContent)===String(parts.year));if(years.length!==1)fail("DOM_UNRECOGNIZED");await clickProduction(years[0]);
   }
-  const sent=[...document.querySelectorAll('[role="menuitem"]')].filter(visible).filter(item=>/^Fatture inviate$/i.test(normalized(item.textContent)));if(sent.length!==1)fail("DOM_UNRECOGNIZED");
-  if(sent[0].classList.contains("x-treelist-item-selected")){
+  const sent=sentDestination();
+  if(sent.classList.contains("x-treelist-item-selected")){
     const first=[...document.querySelectorAll(".aruba-grid-fatture-inviate .pagingtoolbar-first button")].filter(visible);if(first.length!==1)fail("DOM_UNRECOGNIZED");if(enabled(first[0]))await clickProduction(first[0]);
-  }else await clickProduction(sent[0]);
+  }else await clickProduction(sent);
+  await applyDateFilter(overlapFrom);
   productionNext();
   return true;
 };
@@ -91,6 +97,7 @@ const readSemantic=(stream)=>{const expected=streamParts(stream);const tables=[.
 const readPage=(stream)=>document.querySelector("tr[data-aruba-remote-id]")?readSynthetic(stream):document.querySelector(".aruba-grid-fatture-inviate")?readExtGrid(stream):readSemantic(stream);
 const hasNext=()=>{const button=document.querySelector(".aruba-grid-fatture-inviate")?productionNext():semanticNext();return enabled(button)};
 const advance=async()=>{if(document.querySelector(".aruba-grid-fatture-inviate")){const before=fingerprint();productionNext().click();await waitForChange(before)}else{const next=semanticNext();if(!enabled(next))fail("DOM_UNRECOGNIZED");next.click();await sleep(300)}};
+let inventoryCompleted=false;
 try{
   if(location.origin!==PANEL)fail("ARUBA_ORIGIN_MISMATCH");
   setStatus("Collegamento sicuro a Hub Fatture…");
@@ -102,36 +109,37 @@ try{
   const browser=browserName();
   await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
   assertAccount(manifest.accountIdentity);
-  let completed=0;
+  const fullScan=manifest.streams.some(item=>!item.lastFullScanCompletedAt||!item.overlapFrom);
   const observed=[];
   for(const streamInfo of manifest.streams){
     const stream=streamInfo.name;
     setStatus("Lettura "+stream+"…");
-    const available=await selectStream(stream);
+    const available=await selectStream(stream,fullScan?null:streamInfo.overlapFrom);
     let pageOrdinal=1;
     while(true){
       await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
       const documents=available?readPage(stream):[];
       observed.push(...documents);
       const terminal=!available||!hasNext();
-      await rpc("/api/aruba/sync/pagine","POST",{stream,scanOrdinal:1,pageOrdinal,cursor:stream+":"+pageOrdinal,terminal,fullScan:true,documents});
+      await rpc("/api/aruba/sync/pagine","POST",{stream,scanOrdinal:1,pageOrdinal,cursor:stream+":"+pageOrdinal,terminal,fullScan,documents});
       if(terminal)break;
       await advance();pageOrdinal+=1;
     }
-    completed+=1;
   }
-  await rpc("/api/aruba/sync/completa","POST",{streams:manifest.streams.map(item=>item.name),scanOrdinal:1,fullScan:true});
+  await rpc("/api/aruba/sync/completa","POST",{streams:manifest.streams.map(item=>item.name),scanOrdinal:1,fullScan});
+  inventoryCompleted=true;
+  let preflightFailed=false;
   for(const work of preflight.work??[]){
     const searches=work.request_json?.searches??[];
     const candidates=observed.filter(document=>document.status!=="REJECTED"&&searches.length&&searches.every(search=>search.documentType===document.documentType)&&searches.some(search=>document.orderReferences.map(matchText).includes(matchText(search.displayNumber)))).map(document=>document.remoteId);
-    await rpc("/api/aruba/sync/preflight","POST",{receiptId:work.id,candidateRemoteIds:[...new Set(candidates)],searchesCompleted:true});
+    try{await rpc("/api/aruba/sync/preflight","POST",{receiptId:work.id,candidateRemoteIds:[...new Set(candidates)],searchesCompleted:true})}catch{preflightFailed=true}
   }
-  setStatus("Sincronizzazione completata. Puoi tornare a Hub Fatture.");
+  await rpc("/api/aruba/sync/termina","POST",{});
+  setStatus(preflightFailed?"Inventario aggiornato. Una verifica collegata richiede un nuovo tentativo.":"Sincronizzazione completata. Puoi tornare a Hub Fatture.",preflightFailed);
   setTimeout(()=>{bridge?.close();removeEventListener("message",onMessage)},2500);
 }catch(error){
   const code=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:"READ_SYNC_FAILED";
-  try{await rpc("/api/aruba/sync/fallita","POST",{code})}catch{}
-  setStatus(code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":"Sincronizzazione non completata. Torna a Hub Fatture per i dettagli.",true);
+  if(inventoryCompleted){try{await rpc("/api/aruba/sync/termina","POST",{})}catch{}setStatus("Inventario aggiornato. Una verifica collegata richiede un nuovo tentativo.",true)}else{try{await rpc("/api/aruba/sync/fallita","POST",{code})}catch{}setStatus(code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":"Sincronizzazione non completata. Torna a Hub Fatture per i dettagli.",true)}
   removeEventListener("message",onMessage);
 }
 })()`;
