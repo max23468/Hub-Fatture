@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.54
+
+- Le commissioni Shopify Payments espresse nella valuta di presentazione vengono convertite nella valuta dell’ordine usando esclusivamente il tasso di regolamento della stessa transazione, con controlli fail-closed e un solo arrotondamento finale.
+
 ## 0.3.53
 
 - Le Impostazioni Aruba separano correttamente i tre comandi operativi, mantenendo spaziatura coerente anche quando vanno a capo.

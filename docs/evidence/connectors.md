@@ -10,6 +10,16 @@
 
 Le fixture versionate sono sintetiche e anonimizzate. Il readback storico eseguito prima della rimozione dell'app da SyncBay Dev ha confermato la forma reale dei campi italiani: `TAX_CREDENTIAL_IT` e `TAX_EMAIL_IT`, entrambi con `purpose: TAX` e `countryCode: IT`. Il mapper usa il primo come codice fiscale, conserva il secondo come PEC e mantiene chiave, Paese, finalità, titolo e valore nello snapshot dell'ordine. Se i campi localizzati e il tax ID cliente sono entrambi assenti, il mapper esamina la seconda riga dell'indirizzo di fatturazione usata storicamente dal negozio: accetta soltanto un singolo CF o una singola P.IVA italiana con formato valido e conserva `billingAddress.address2` come sorgente. Il payload originale resta immutato; dall'indirizzo normalizzato viene rimosso soltanto il token fiscale consumato, preservando l'eventuale contenuto reale residuo. Nessun valore personale è stato copiato; la fixture conserva soltanto la forma osservata con dati sintetici.
 
+Per le transazioni Shopify Payments riuscite, `OrderTransaction.fees.amount` può usare la
+valuta di presentazione invece della valuta negozio. Quando le valute coincidono, HF conserva
+la somma osservata senza conversioni. Quando differiscono, converte la somma esatta delle fee
+con `settlementCurrencyRate` soltanto se tutte le fee e `amountSet.presentmentMoney` usano la
+stessa valuta e `settlementCurrency` coincide con la valuta dell'ordine; arrotonda una sola
+volta ai centesimi della valuta negozio. Tasso assente o nullo, valute miste o un regolamento
+in una valuta diversa restano errori provider fail-closed: HF non ricostruisce cambi esterni.
+Un readback Production in sola lettura ha confermato questa forma multivaluta; la regressione
+usa esclusivamente importi sintetici e copre più valute, incluse valute senza centesimi.
+
 ## eBay
 
 - API: Sell Fulfillment `v1`; schema documentato `1.20.7`.

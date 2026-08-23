@@ -94,29 +94,82 @@ function money(value: unknown) {
   return amount && currency ? { amount, currency } : null;
 }
 
+function unsignedDecimal(value: unknown) {
+  const decimal = text(value);
+  const match = decimal ? /^(\d{1,20})(?:\.(\d{1,20}))?$/.exec(decimal) : null;
+  if (!match) return null;
+  const fraction = match[2] ?? "";
+  return {
+    units: BigInt(`${match[1]}${fraction}`),
+    scale: fraction.length,
+  };
+}
+
+function convertedFeeCents(amounts: string[], rateValue: unknown) {
+  const parsedAmounts = amounts.map(unsignedDecimal);
+  const rate = unsignedDecimal(rateValue);
+  if (!rate || parsedAmounts.some((amount) => !amount) || rate.units === 0n) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  const amountsWithScale = parsedAmounts as { units: bigint; scale: number }[];
+  const amountScale = Math.max(...amountsWithScale.map((amount) => amount.scale));
+  const amountUnits = amountsWithScale.reduce(
+    (sum, amount) => sum + amount.units * 10n ** BigInt(amountScale - amount.scale),
+    0n,
+  );
+  const denominator = 10n ** BigInt(amountScale + rate.scale);
+  const numerator = amountUnits * rate.units * 100n;
+  const cents = (numerator + denominator / 2n) / denominator;
+  const formatted = `${cents / 100n}.${(cents % 100n).toString().padStart(2, "0")}`;
+  decimalToCents(formatted);
+  return formatted;
+}
+
 function shopifyPaymentsFee(transaction: Record<string, unknown>, orderCurrency: string) {
   const gateway = text(transaction.gateway)?.toLowerCase();
   if (gateway !== "shopify_payments" || transaction.status !== "SUCCESS") return "0.00";
   const fees = records(transaction.fees);
   if (!fees.length) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-  let total = 0;
-  for (const fee of fees) {
-    const feeMoney = money(fee.amount);
-    if (!feeMoney || feeMoney.currency !== orderCurrency) {
-      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-    }
-    let amount: number;
-    try {
-      amount = decimalToCents(feeMoney.amount);
-    } catch {
-      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-    }
-    if (amount < 0 || !Number.isSafeInteger(total + amount)) {
-      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-    }
-    total += amount;
+  const feeAmounts = fees.map((fee) => money(fee.amount));
+  if (feeAmounts.some((amount) => !amount)) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
-  return (total / 100).toFixed(2);
+  const parsedFeeAmounts = feeAmounts as { amount: string; currency: string }[];
+  const feeCurrencies = new Set(parsedFeeAmounts.map((amount) => amount.currency));
+  if (feeCurrencies.size !== 1) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  const feeCurrency = parsedFeeAmounts[0]!.currency;
+  if (feeCurrency === orderCurrency) {
+    let total = 0;
+    for (const fee of parsedFeeAmounts) {
+      let amount: number;
+      try {
+        amount = decimalToCents(fee.amount);
+      } catch {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      }
+      if (amount < 0 || !Number.isSafeInteger(total + amount)) {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      }
+      total += amount;
+    }
+    return (total / 100).toFixed(2);
+  }
+  const presentmentAmount = money(record(transaction.amountSet).presentmentMoney);
+  if (
+    text(transaction.settlementCurrency) !== orderCurrency ||
+    presentmentAmount?.currency !== feeCurrency
+  ) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  try {
+    return convertedFeeCents(
+      parsedFeeAmounts.map((fee) => fee.amount),
+      transaction.settlementCurrencyRate,
+    );
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
 }
 
 function configValues() {
@@ -634,8 +687,11 @@ function orderFields() {
         discountedTotalSet { shopMoney { amount currencyCode } } }
     }
     transactions {
-      id kind status gateway processedAt
-      amountSet { shopMoney { amount currencyCode } }
+      id kind status gateway processedAt settlementCurrency settlementCurrencyRate
+      amountSet {
+        shopMoney { amount currencyCode }
+        presentmentMoney { amount currencyCode }
+      }
       fees { amount { amount currencyCode } flatFee { amount currencyCode } rate type }
     }
     refunds {
