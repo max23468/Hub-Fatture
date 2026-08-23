@@ -41,7 +41,7 @@ interface FailedJob {
   type: string;
   attempts: number;
   errorCode: string | null;
-  createdAt: string;
+  failedAt: string;
 }
 
 interface HistoryEvent {
@@ -289,7 +289,7 @@ function FailedJobsPanel({ csrfToken, jobs }: { csrfToken: string; jobs: FailedJ
               </span>
               <span>
                 <small>{copy.activity.failedAt}</small>
-                <time dateTime={isoDateTime(job.createdAt)}>{dateTime(job.createdAt)}</time>
+                <time dateTime={isoDateTime(job.failedAt)}>{dateTime(job.failedAt)}</time>
               </span>
             </span>
             <Form method="post">

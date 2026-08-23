@@ -2065,6 +2065,12 @@ Definire un registro chiuso di codici stabili, raggruppato almeno per `AUTH`, `V
 
 Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` devono essere catturati e tradotti in codici stabili: non propagare stack trace o messaggi del provider all'utente. L'errore originale può essere conservato solo in forma sanitizzata e con retention breve.
 
+Dashboard e `Attività → Da gestire` mostrano soltanto dead-letter ancora azionabili. Un job
+fallito resta conservato secondo retention e audit, ma passa allo storico operativo quando una
+sincronizzazione completa successiva dello stesso provider ne supera il tentativo; il webhook e
+il job derivato rappresentano una sola criticità e non vengono sommati due volte. Un retry manuale
+fallito dopo l'ultimo readback riuscito torna invece immediatamente azionabile.
+
 ---
 
 ## 17. Sicurezza e privacy

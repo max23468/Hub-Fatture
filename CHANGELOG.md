@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.56
+
+- Dashboard e Attività mostrano soltanto gli errori di sincronizzazione ancora azionabili: un readback completo riuscito supera i tentativi precedenti e webhook e job derivato non vengono più contati due volte, mentre lo storico resta conservato per audit e retention.
+
 ## 0.3.55
 
 - I comandi di sola lettura Aruba spiegano ora effetto e limiti prima dell’azione; il readback manuale resta visivamente separato e i pulsanti su mobile mantengono spazio verticale anche quando il testo va a capo.
