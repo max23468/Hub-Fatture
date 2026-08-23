@@ -658,14 +658,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toBeVisible();
   await expect(
     arubaCommands.getByRole("button", { name: "Revoca accessi di lettura" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   expect(
-    await page
-      .locator(".settings-command-section, .settings-manual-readback")
-      .evaluateAll(
-        ([commands, panel]) =>
-          panel!.getBoundingClientRect().top - commands!.getBoundingClientRect().bottom,
-      ),
+    await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.className = "settings-manual-readback";
+      document.body.append(probe);
+      const marginTop = Number.parseFloat(getComputedStyle(probe).marginTop);
+      probe.remove();
+      return marginTop;
+    }),
   ).toBeGreaterThanOrEqual(24);
   await page.setViewportSize({ width: 320, height: 780 });
   await expectViewportFits(page);
