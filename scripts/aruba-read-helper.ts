@@ -1060,8 +1060,8 @@ export async function runArubaReadCycle(
       .toSorted()[0];
     await selectStream(page, stream, fullScan ? null : incrementalFrom);
     let pageOrdinal = 1;
-    const resumeAt = fullScan ? (streamManifest.resumePageOrdinal ?? 1) : 1;
-    while (pageOrdinal < resumeAt) {
+    const resumeAfter = fullScan ? (streamManifest.resumePageOrdinal ?? 0) : 0;
+    while (pageOrdinal <= resumeAfter) {
       await advancePage(page, manifest.environment);
       pageOrdinal += 1;
     }

@@ -214,6 +214,82 @@ test("l’helper di lettura esegue full scan, incremento con overlap e download 
   }
 });
 
+test("la ripresa salta le pagine già committate senza rileggerle", async ({ page, baseURL }) => {
+  const token = "synthetic-device-resume." + "r".repeat(43);
+  const received: Array<{ pageOrdinal: number; remoteIds: string[] }> = [];
+  const server = createServer(async (request, response) => {
+    const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
+    const json = (status: number, value: unknown) => {
+      response.writeHead(status, { "Content-Type": "application/json" });
+      response.end(JSON.stringify(value));
+    };
+    if (request.headers.authorization !== `Bearer ${token}`) return json(401, {});
+    if (url.pathname === "/api/aruba/sync/heartbeat") return json(200, { ok: true });
+    if (url.pathname === "/api/aruba/sync/pagine") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      received.push({
+        pageOrdinal: body.pageOrdinal,
+        remoteIds: body.documents.map((document: { remoteId: string }) => document.remoteId),
+      });
+      return json(200, { requestedFiles: [] });
+    }
+    if (url.pathname === "/api/aruba/sync/completa") return json(200, { completed: true });
+    return json(404, {});
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("server sintetico assente");
+    const year = new Date().getUTCFullYear();
+    const panelUrl = new URL("/aruba-sintetica?scenario=inventory", baseURL).toString();
+    await page.route(panelUrl, (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<div data-aruba-account="synthetic-aruba-account">synthetic-aruba-account</div>
+          <button data-aruba-stream="invoices:${year}">Fatture</button>
+          <input data-aruba-filter-from>
+          <table><tbody><tr data-aruba-remote-id="COPIED-PAGE-1" data-document-type="TD01"
+            data-fiscal-year="${year}" data-document-date="${year}-08-01"
+            data-total-cents="100" data-remote-status="DELIVERED"><td>Documento</td></tr></tbody></table>
+          <button aria-label="Pagina successiva" onclick="
+            document.querySelector('tr').dataset.arubaRemoteId='RESUMED-PAGE-2';
+            this.disabled=true;
+          ">Successiva</button>`,
+      }),
+    );
+    await page.goto(panelUrl);
+    const manifest: ArubaReadManifest = {
+      operation: "READ_SYNC",
+      sessionId: "00000000-0000-4000-8000-000000000002",
+      environment: "MOCK",
+      accountReference: "synthetic-aruba-account",
+      accountIdentity: "synthetic-aruba-account",
+      panelUrl,
+      oldestReconciliationDate: `${year}-01-01`,
+      streams: [
+        {
+          name: `invoices:${year}`,
+          cursor: null,
+          overlapFrom: null,
+          nonTerminalFrom: null,
+          lastFullScanCompletedAt: null,
+          resumePageOrdinal: 1,
+        },
+      ],
+      intervalSeconds: 900,
+      absoluteExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    await runArubaReadCycle(page, new URL(`http://127.0.0.1:${address.port}`), token, manifest);
+    expect(received).toEqual([{ pageOrdinal: 2, remoteIds: ["RESUMED-PAGE-2"] }]);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+});
+
 test("l'helper gestisce in sicurezza una challenge post-upload inattesa", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/aruba-sintetica?scenario=security-challenge");
