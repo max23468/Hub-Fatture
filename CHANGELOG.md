@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.59
+
+- Il preferito Aruba può avviare la sincronizzazione anche dalla Home: accompagna l’utente a Fatture inviate e acquisisce soltanto la richiesta prodotta dal clic esplicito.
+- Ogni sincronizzazione di produzione riparte dalla prima pagina e legge l’intero inventario, evitando omissioni quando una scansione precedente viene interrotta o quando cambiano i confini delle pagine.
+- La sessione resta viva durante caricamenti e controlli preliminari, registra in modo coerente completamenti ed errori e mantiene separati gli account e i dispositivi collegati.
+
 ## 0.3.58
 
 - La sincronizzazione in sola lettura Aruba si avvia da un preferito del browser su Safari, Chrome o Edge, senza installare Node, npm o un’app locale e senza conservare token permanenti.
