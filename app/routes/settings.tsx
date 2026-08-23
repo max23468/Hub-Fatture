@@ -533,33 +533,51 @@ function ArubaSettingsSection({
           <dd>{inventory.lastErrorCode ?? "Nessuno"}</dd>
         </div>
       </dl>
-      <div className="settings-card-action connection-panel__actions">
-        <Form method="post">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="issue-aruba-read-session" />
-          <button className="button" type="submit">
-            {copy.settings.arubaIssueReadCode}
-          </button>
-        </Form>
-        <Form method="post">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="request-aruba-sync" />
-          <button className="button button--secondary" type="submit">
-            {copy.settings.arubaSyncNow}
-          </button>
-        </Form>
-        {canApprove ? (
-          <Form method="post">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="revoke-aruba-read-sessions" />
-            <button className="button button--secondary" type="submit">
-              {copy.settings.arubaRevokeSessions}
-            </button>
-          </Form>
-        ) : null}
-      </div>
+      <section className="settings-command-section" aria-labelledby="aruba-commands-title">
+        <header className="settings-command-section__header">
+          <h3 id="aruba-commands-title">{copy.settings.arubaCommandsTitle}</h3>
+          <p>{copy.settings.arubaCommandsHelp}</p>
+        </header>
+        <div className="settings-command-grid">
+          <article className="settings-command-card">
+            <h4>{copy.settings.arubaIssueReadCodeTitle}</h4>
+            <p>{copy.settings.arubaIssueReadCodeHelp}</p>
+            <Form method="post">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="issue-aruba-read-session" />
+              <button className="button button--secondary" type="submit">
+                {copy.settings.arubaIssueReadCode}
+              </button>
+            </Form>
+          </article>
+          <article className="settings-command-card">
+            <h4>{copy.settings.arubaSyncNowTitle}</h4>
+            <p>{copy.settings.arubaSyncNowHelp}</p>
+            <Form method="post">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="request-aruba-sync" />
+              <button className="button" type="submit">
+                {copy.settings.arubaSyncNow}
+              </button>
+            </Form>
+          </article>
+          {canApprove ? (
+            <article className="settings-command-card">
+              <h4>{copy.settings.arubaRevokeSessionsTitle}</h4>
+              <p>{copy.settings.arubaRevokeSessionsHelp}</p>
+              <Form method="post">
+                <input type="hidden" name="csrf" value={csrfToken} />
+                <input type="hidden" name="intent" value="revoke-aruba-read-sessions" />
+                <button className="button button--secondary" type="submit">
+                  {copy.settings.arubaRevokeSessions}
+                </button>
+              </Form>
+            </article>
+          ) : null}
+        </div>
+      </section>
       {canApprove && inventory.blocking ? (
-        <section className="settings-inset-card settings-detail-card">
+        <section className="settings-inset-card settings-detail-card settings-manual-readback">
           <header className="settings-detail-card__header">
             <h3>Readback manuale completo</h3>
             <p>
