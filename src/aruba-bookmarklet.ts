@@ -126,14 +126,12 @@ try{
   const browser=browserName();
   await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
   assertAccount(manifest.accountIdentity);
-  const fullScan=manifest.streams.some(item=>!item.cursor||!item.lastFullScanCompletedAt||!item.overlapFrom);
-  const preflightFrom=(preflight.work??[]).flatMap(work=>work.request_json?.searches??[]).map(search=>search.orderDate).filter(value=>/^\d{4}-\d{2}-\d{2}$/.test(String(value))).toSorted()[0]??null;
+  const fullScan=true;
   const observed=[];
   for(const streamInfo of manifest.streams){
     const stream=streamInfo.name;
     setStatus("Lettura "+stream+"…");
-    const incrementalFrom=[streamInfo.overlapFrom,streamInfo.nonTerminalFrom,preflightFrom].filter(Boolean).toSorted()[0]??null;
-    const available=await selectStream(stream,fullScan?null:incrementalFrom);
+    const available=await selectStream(stream,null);
     let pageOrdinal=1;
     while(true){
       await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});

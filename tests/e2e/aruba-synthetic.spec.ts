@@ -133,7 +133,7 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(page.getByRole("row")).toHaveCount(0);
 });
 
-test("l’helper di lettura esegue full scan, incremento con overlap e download selettivo", async ({
+test("l’helper di lettura ripete la scansione completa e limita i download", async ({
   page,
   baseURL,
 }) => {
@@ -195,17 +195,17 @@ test("l’helper di lettura esegue full scan, incremento con overlap e download 
     const hub = new URL(`http://127.0.0.1:${address.port}`);
     await page.goto(manifest.panelUrl);
     await page.locator("[data-aruba-filter-from]").fill(`${year - 1}-12-01`);
-    await runArubaReadCycle(page, hub, token, manifest, 1, true);
+    await runArubaReadCycle(page, hub, token, manifest, 1);
     await expect(page.locator("[data-aruba-filter-from]")).toHaveValue("");
-    await runArubaReadCycle(page, hub, token, manifest, 2, false);
+    await runArubaReadCycle(page, hub, token, manifest, 2);
     expect(pages).toEqual([
       { fullScan: true, stream: `invoices:${year}` },
       { fullScan: true, stream: `credit-notes:${year}` },
-      { fullScan: false, stream: `invoices:${year}` },
-      { fullScan: false, stream: `credit-notes:${year}` },
+      { fullScan: true, stream: `invoices:${year}` },
+      { fullScan: true, stream: `credit-notes:${year}` },
     ]);
     expect(files).toEqual(["ARUBA_XML"]);
-    await expect(page.locator("[data-aruba-filter-from]")).toHaveValue(`${year}-08-01`);
+    await expect(page.locator("[data-aruba-filter-from]")).toHaveValue("");
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),

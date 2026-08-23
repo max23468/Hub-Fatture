@@ -1273,7 +1273,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   await arubaPage.locator("#e2e-aruba-bookmarklet").click();
   const secondBridgePage = await secondBridgePagePromise;
   await expect(secondBridgePage.getByRole("status")).toContainText("Collegamento attivo");
-  await expect(arubaPage.locator("[data-aruba-filter-from]")).toHaveValue(preflightDate, {
+  await expect(arubaPage.locator("[data-aruba-filter-from]")).toHaveValue("", {
     timeout: 30_000,
   });
   await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
@@ -1307,7 +1307,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     browserName === "webkit" ? "safari" : "chrome",
   );
   expect(bookmarkletSessions.rows).toEqual([
-    { status: "COMPLETED", full_scan: false },
+    { status: "COMPLETED", full_scan: true },
     { status: "COMPLETED", full_scan: true },
   ]);
   await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC");

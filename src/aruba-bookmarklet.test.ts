@@ -19,14 +19,11 @@ test("il preferito Aruba è autosufficiente e non contiene credenziali persisten
   assert.match(bookmarklet, /pointerdown/);
   assert.match(bookmarklet, /event\.isTrusted/);
   assert.match(bookmarklet, /state\.requested>0&&monitor\.state\.pending===0/);
-  assert.match(bookmarklet, /search\.orderDate/);
   assert.match(bookmarklet, /sync\/heartbeat/);
-  assert.match(bookmarklet, /lastFullScanCompletedAt/);
-  assert.match(bookmarklet, /overlapFrom/);
-  assert.match(bookmarklet, /!item\.cursor\|\|!item\.lastFullScanCompletedAt/);
-  assert.match(bookmarklet, /nonTerminalFrom/);
+  assert.match(bookmarklet, /const fullScan=true/);
+  assert.match(bookmarklet, /selectStream\(stream,null\)/);
   assert.match(bookmarklet, /\/api\/aruba\/sync\/termina/);
-  assert.doesNotMatch(bookmarklet, /fullScan:true/);
+  assert.doesNotMatch(bookmarklet, /incrementalFrom|preflightFrom/);
   assert.doesNotMatch(bookmarklet, /Bearer |Authorization|hub-fatture-helper:\/\//);
   assert.doesNotThrow(() => new Function(bookmarklet.slice("javascript:".length)));
 });
