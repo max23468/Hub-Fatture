@@ -8,7 +8,7 @@ import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
 import { privateRouteMeta } from "../metadata";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
-import { failedConnectorJobs, retryFailedJob } from "../../src/db/connectors.server.ts";
+import { actionableConnectorFailures, retryFailedJob } from "../../src/db/connectors.server.ts";
 import { readForm } from "../../src/http.server.ts";
 import { listAuditHistory, listOpenActivities } from "../../src/db/orders.server.ts";
 import type { AuditHistorySortKey, OpenActivitySortKey } from "../../src/db/orders.server.ts";
@@ -56,7 +56,7 @@ export async function loader({ request }: Route.LoaderArgs) {
           sort: historySort,
         })
       : Promise.resolve(emptyPage),
-    view === "gestire" && !activityKind ? failedConnectorJobs() : Promise.resolve([]),
+    view === "gestire" && !activityKind ? actionableConnectorFailures() : Promise.resolve([]),
     view === "gestire" && !activityKind
       ? listRemoteDocuments({ blockingOnly: true })
       : Promise.resolve([]),
