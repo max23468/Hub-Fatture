@@ -720,7 +720,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       "ERROR",
     );
     assert.equal((await connectors.loadConnection("EBAY")).accountReference, "sandbox-risultante");
-    assert.equal((await connectors.failedConnectorJobs())[0]?.id, terminalJob.id);
+    assert.equal((await connectors.actionableConnectorFailures())[0]?.id, terminalJob.id);
     await getPool().query(
       `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
        VALUES ('EBAY', 'history_import', 'ready', now())`,

@@ -659,26 +659,46 @@ export async function failJob(job: ClaimedJob, code: ErrorCode) {
   });
 }
 
-export async function failedConnectorJobs() {
+/**
+ * Le dead-letter restano nel DB per audit e retention, ma non sono più una criticità
+ * corrente quando un readback completo dello stesso provider le ha superate.
+ * `locked_at` identifica il tentativo effettivo e impedisce di nascondere un retry
+ * manuale recente di un job creato in precedenza.
+ */
+export async function actionableConnectorFailures() {
   const result = await getPool().query<{
     id: string;
     type: JobType;
     attempts: number;
     last_error_code: string | null;
-    created_at: Date;
+    failed_at: Date;
   }>(
-    `SELECT id, type, attempts, last_error_code, created_at FROM jobs
-     WHERE status = 'FAILED'
-       AND type = ANY($1::text[])
-     ORDER BY created_at DESC, id DESC LIMIT 20`,
-    [manuallyRetryableJobTypes],
+    `SELECT jobs.id, jobs.type, jobs.attempts, jobs.last_error_code,
+            coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) AS failed_at
+     FROM jobs
+     JOIN connections
+       ON connections.provider = CASE
+            WHEN jobs.type LIKE 'shopify_%' THEN 'SHOPIFY'
+            WHEN jobs.type LIKE 'ebay_%' THEN 'EBAY'
+          END
+      AND connections.environment = CASE
+            WHEN jobs.type LIKE 'shopify_%' THEN $2
+            WHEN jobs.type LIKE 'ebay_%' THEN $3
+          END
+      AND connections.status IN ('CONNECTED', 'ERROR')
+     WHERE jobs.status = 'FAILED'
+       AND jobs.type = ANY($1::text[])
+       AND (connections.last_synced_at IS NULL
+         OR coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) > connections.last_synced_at)
+     ORDER BY failed_at DESC, jobs.id DESC`,
+    [manuallyRetryableJobTypes, activeEnvironment("SHOPIFY"), activeEnvironment("EBAY")],
   );
   return result.rows.map((row) => ({
     id: row.id,
     type: row.type,
     attempts: row.attempts,
     errorCode: row.last_error_code,
-    createdAt: row.created_at.toISOString(),
+    failedAt: row.failed_at.toISOString(),
   }));
 }
 

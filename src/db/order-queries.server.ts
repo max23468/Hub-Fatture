@@ -9,6 +9,7 @@ import {
 import { getConfig } from "../config.server.ts";
 import { auditActions } from "./audit.server.ts";
 import { getPool } from "./client.server.ts";
+import { actionableConnectorFailures } from "./connectors.server.ts";
 import { pendingPaymentSql } from "./billing-case-sql.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
@@ -298,27 +299,27 @@ export async function dashboardSummary() {
   const config = getConfig();
   const shopifyEnvironment = config.APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT";
   const ebayEnvironment = config.EBAY_ENVIRONMENT === "production" ? "PRODUCTION" : "SANDBOX";
-  const result = await getPool().query<{
-    orders: string;
-    ready_cases: string;
-    review_cases: string;
-    waiting_orders: string;
-    pending_payments: string;
-    credit_notes_to_approve: string;
-    failed_uploads: string;
-    rejected_by_sdi: string;
-    sync_errors: string;
-    last_shopify_sync: string | null;
-    last_ebay_sync: string | null;
-    shopify_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
-    ebay_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
-    last_aruba_readback: string | null;
-    open_aruba_batches: string;
-    documents_today: string;
-    documents_this_month: string;
-    documents_last_seven_days: Array<{ date: string; count: number }>;
-  }>(
-    `SELECT
+  const [result, syncFailures] = await Promise.all([
+    getPool().query<{
+      orders: string;
+      ready_cases: string;
+      review_cases: string;
+      waiting_orders: string;
+      pending_payments: string;
+      credit_notes_to_approve: string;
+      failed_uploads: string;
+      rejected_by_sdi: string;
+      last_shopify_sync: string | null;
+      last_ebay_sync: string | null;
+      shopify_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
+      ebay_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
+      last_aruba_readback: string | null;
+      open_aruba_batches: string;
+      documents_today: string;
+      documents_this_month: string;
+      documents_last_seven_days: Array<{ date: string; count: number }>;
+    }>(
+      `SELECT
        (SELECT count(*) FROM orders)::text AS orders,
        (SELECT count(*) FROM billing_cases WHERE status = 'READY')::text AS ready_cases,
        ((SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW') +
@@ -342,8 +343,6 @@ export async function dashboardSummary() {
         WHERE status = 'VALIDATION_FAILED')::text AS failed_uploads,
        (SELECT count(*) FROM aruba_submissions
         WHERE status = 'REJECTED')::text AS rejected_by_sdi,
-       ((SELECT count(*) FROM jobs WHERE status = 'FAILED') +
-        (SELECT count(*) FROM webhook_events WHERE status = 'FAILED'))::text AS sync_errors,
        (SELECT last_synced_at::text FROM connections
         WHERE provider = 'SHOPIFY' AND environment = $1) AS last_shopify_sync,
        (SELECT last_synced_at::text FROM connections
@@ -380,9 +379,11 @@ export async function dashboardSummary() {
            AND date_trunc('day', documents.approved_at AT TIME ZONE 'Europe/Rome') = days.day
           GROUP BY days.day
         ) AS daily) AS documents_last_seven_days`,
-    [shopifyEnvironment, ebayEnvironment],
-  );
-  return result.rows[0]!;
+      [shopifyEnvironment, ebayEnvironment],
+    ),
+    actionableConnectorFailures(),
+  ]);
+  return { ...result.rows[0]!, sync_errors: String(syncFailures.length) };
 }
 
 /** Vista `Da gestire` di 13.8: cosa richiede un intervento e dove si interviene. */

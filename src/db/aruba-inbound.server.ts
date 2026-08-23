@@ -3006,6 +3006,7 @@ export async function consumeArubaPreflight(
     [current.environment, current.account_reference, current.completed_at],
   );
   if (subsequentFailure.rows[0]) throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna composta soltanto da frammenti statici; i valori esterni restano parametrizzati.
   const blocker = await client.query(
     `SELECT 1 FROM aruba_document_matches matches
      JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id

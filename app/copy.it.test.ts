@@ -16,3 +16,10 @@ test("le Impostazioni distinguono i documenti esterni dalle verifiche Aruba", ()
   assert.equal(copy.settings.arubaUnmatched, "Senza ordine Shopify/eBay");
   assert.equal(copy.settings.arubaUnresolved, "Da verificare");
 });
+
+test("i comandi Aruba spiegano lettura, sincronizzazione e revoca", () => {
+  assert.match(copy.settings.arubaCommandsHelp, /non caricano né inviano documenti/);
+  assert.match(copy.settings.arubaIssueReadCodeHelp, /codice temporaneo/);
+  assert.match(copy.settings.arubaSyncNowHelp, /quando è attivo/);
+  assert.match(copy.settings.arubaRevokeSessionsHelp, /servirà un nuovo codice/);
+});

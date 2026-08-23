@@ -326,7 +326,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Primo invio Aruba | Nessuna corsia o autorizzazione monouso distinta: avviene soltanto dopo l'abilitazione separata dell'uso Production ordinario | Il canary tecnico non invia documenti e il kill switch resta l'unica abilitazione persistente; manifest e validazione confinano ogni batch |
 | Fattura | Una riga semplificata per ordine | Non serve replicare il dettaglio commerciale delle piattaforme |
 | Sconti/spedizione | Assorbiti nell'importo netto della riga ordine | Il documento deve restare semplice; il dettaglio resta interno |
-| Commissioni Shopify Payments | Regola globale modificabile: per default sottrarre dal totale fatturabile esclusivamente le commissioni effettive restituite da `OrderTransaction.fees` per transazioni `shopify_payments` riuscite | Allinea il documento al comportamento Aruba osservato senza ricostruire percentuali o applicare costi di altri gateway; PayPal, bonifico, PostePay, metodi manuali ed eBay restano sempre al totale pieno |
+| Commissioni Shopify Payments | Regola globale modificabile: per default sottrarre dal totale fatturabile esclusivamente le commissioni effettive restituite da `OrderTransaction.fees` per transazioni `shopify_payments` riuscite, convertite nella valuta negozio soltanto tramite il tasso di regolamento tipizzato della stessa transazione | Allinea il documento al comportamento Aruba osservato senza ricostruire percentuali o cambi esterni e senza applicare costi di altri gateway; PayPal, bonifico, PostePay, metodi manuali ed eBay restano sempre al totale pieno |
 | Raggruppamento | Automatico per cliente e data ordine Europe/Rome | Riduce documenti mantenendo un criterio chiaro e riproducibile |
 | Pagamenti pendenti | Consentiti con seconda conferma | L'utente può emettere, ma il rischio deve essere evidente e registrato |
 | Differenze importo | Consentite con seconda conferma e motivazione obbligatoria | Sono ammesse correzioni operative senza perdere la tracciabilità |
@@ -2065,6 +2065,12 @@ Definire un registro chiuso di codici stabili, raggruppato almeno per `AUTH`, `V
 
 Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` devono essere catturati e tradotti in codici stabili: non propagare stack trace o messaggi del provider all'utente. L'errore originale può essere conservato solo in forma sanitizzata e con retention breve.
 
+Dashboard e `Attività → Da gestire` mostrano soltanto dead-letter ancora azionabili. Un job
+fallito resta conservato secondo retention e audit, ma passa allo storico operativo quando una
+sincronizzazione completa successiva dello stesso provider ne supera il tentativo; il webhook e
+il job derivato rappresentano una sola criticità e non vengono sommati due volte. Un retry manuale
+fallito dopo l'ultimo readback riuscito torna invece immediatamente azionabile.
+
 ---
 
 ## 17. Sicurezza e privacy
@@ -3291,7 +3297,7 @@ Per registrare l'esito “già fatturato”, acquisire anche l'XML ufficiale del
 
 La modalità di pagamento presente nell'XML è documentale: validarla fra i valori supportati e conservarla sul documento storico, senza confonderla con il metodo predefinito del profilo fiscale né con la regola separata sulle commissioni del marketplace.
 
-Il confronto dell'importo usa il totale fatturabile canonico: per Shopify Payments, con modalità `Sottrai`, equivale al totale ordine meno la somma delle sole `OrderTransaction.fees.amount` riuscite e validate; per ogni altro metodo equivale al totale ordine. Eventuali rimborsi completati prima della fattura vengono sottratti successivamente. Un importo Aruba diverso resta non riconciliato e quindi non approvabile.
+Il confronto dell'importo usa il totale fatturabile canonico: per Shopify Payments, con modalità `Sottrai`, equivale al totale ordine meno la somma delle sole `OrderTransaction.fees.amount` riuscite e validate. Se le fee sono nella valuta di presentazione, la somma viene convertita e arrotondata una sola volta nella valuta negozio esclusivamente con `settlementCurrencyRate`, dopo aver verificato coerenza fra valuta delle fee, `amountSet.presentmentMoney`, `settlementCurrency` e valuta ordine; non si interrogano cambi esterni. Per ogni altro metodo il totale fatturabile equivale al totale ordine. Eventuali rimborsi completati prima della fattura vengono sottratti successivamente. Un importo Aruba diverso resta non riconciliato e quindi non approvabile.
 
 ---
 
