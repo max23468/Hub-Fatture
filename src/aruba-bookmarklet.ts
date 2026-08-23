@@ -135,8 +135,6 @@ try{
     const incrementalFrom=[streamInfo.overlapFrom,streamInfo.nonTerminalFrom,preflightFrom].filter(Boolean).toSorted()[0]??null;
     const available=await selectStream(stream,fullScan?null:incrementalFrom);
     let pageOrdinal=1;
-    const resumeAfter=fullScan?(streamInfo.resumePageOrdinal??0):0;
-    while(pageOrdinal<=resumeAfter){if(!available||!hasNext())fail("DOM_UNRECOGNIZED");await advance();pageOrdinal+=1}
     while(true){
       await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
       const documents=available?readPage(stream):[];

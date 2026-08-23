@@ -156,28 +156,18 @@ export async function arubaInventoryManifest(token: string) {
     const scopedStreams = snapshot.streams.map((stream) =>
       cursorStream(session.environment, session.account_reference, stream),
     );
-    const [cursors, interrupted] = await Promise.all([
-      client.query<{
-        stream: string;
-        cursor: string | null;
-        overlap_from: Date | null;
-        last_page_ordinal: number | null;
-        full_scan_completed_at: Date | null;
-      }>(
-        `SELECT stream, cursor, overlap_from, last_page_ordinal, full_scan_completed_at
-         FROM sync_cursors WHERE provider = 'ARUBA' AND stream = ANY($1::text[])`,
-        [scopedStreams],
-      ),
-      client.query<{ stream: string; page_ordinal: number }>(
-        `SELECT DISTINCT ON (stream) stream, page_ordinal
-         FROM aruba_sync_pages
-         WHERE sync_session_id = $1 AND NOT terminal AND stream <> '__manifest__'
-         ORDER BY stream, committed_at DESC`,
-        [session.id],
-      ),
-    ]);
+    const cursors = await client.query<{
+      stream: string;
+      cursor: string | null;
+      overlap_from: Date | null;
+      last_page_ordinal: number | null;
+      full_scan_completed_at: Date | null;
+    }>(
+      `SELECT stream, cursor, overlap_from, last_page_ordinal, full_scan_completed_at
+       FROM sync_cursors WHERE provider = 'ARUBA' AND stream = ANY($1::text[])`,
+      [scopedStreams],
+    );
     const byStream = new Map(cursors.rows.map((row) => [row.stream, row]));
-    const resume = new Map(interrupted.rows.map((row) => [row.stream, row.page_ordinal]));
     return {
       operation: "READ_SYNC" as const,
       sessionId: session.id,
@@ -194,7 +184,6 @@ export async function arubaInventoryManifest(token: string) {
           overlapFrom: cursor?.overlap_from?.toISOString() ?? null,
           nonTerminalFrom: snapshot.nonTerminalFromByStream[stream] ?? null,
           lastFullScanCompletedAt: cursor?.full_scan_completed_at?.toISOString() ?? null,
-          resumePageOrdinal: resume.get(stream) ?? null,
         };
       }),
       intervalSeconds: 900,

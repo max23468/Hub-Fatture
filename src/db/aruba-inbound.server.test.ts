@@ -1877,22 +1877,6 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
 
     await database.getPool().query(
       `INSERT INTO aruba_sync_sessions
-        (id, environment, account_reference, device_id, token_hash, status, is_full_scan,
-         started_at, absolute_expires_at, lease_expires_at, requested_by)
-       VALUES ('50000000-0000-4000-8000-000000000000', 'MOCK', 'synthetic-aruba-account',
-         'expired-device-0000', repeat('0', 64), 'FAILED', true, now() - interval '1 hour',
-         now() - interval '30 minutes', NULL, $1)`,
-      [actor.id],
-    );
-    await database.getPool().query(
-      `INSERT INTO aruba_sync_pages
-        (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal,
-         full_scan, row_count, documents_json, payload_digest, committed_at)
-       VALUES ('50000000-0000-4000-8000-000000000000', 'invoices:2026', 1, 7,
-         'older-resume-page-7', false, true, 0, '[]', repeat('0', 64), now() + interval '1 hour')`,
-    );
-    await database.getPool().query(
-      `INSERT INTO aruba_sync_sessions
         (id, environment, account_reference, device_id, token_hash, status,
          absolute_expires_at, lease_expires_at, requested_by)
        VALUES ('50000000-0000-4000-8000-000000000001', 'MOCK', 'synthetic-aruba-account',
@@ -1938,10 +1922,20 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       ).rows[0].status,
       "EXPIRED",
     );
+    const restartedStream = (await read(resumedSession.token)).streams.find(
+      (stream) => stream.name === "invoices:2026",
+    );
+    assert.ok(restartedStream);
+    assert.equal(Object.hasOwn(restartedStream, "resumePageOrdinal"), false);
     assert.equal(
-      (await read(resumedSession.token)).streams.find((stream) => stream.name === "invoices:2026")
-        ?.resumePageOrdinal,
-      1,
+      (
+        await database.getPool().query(
+          `SELECT count(*)::integer AS count FROM aruba_sync_pages
+           WHERE sync_session_id = $1 AND stream = 'invoices:2026'`,
+          [resumedSession.sessionId],
+        )
+      ).rows[0].count,
+      0,
     );
     assert.equal(
       (
@@ -1952,13 +1946,13 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
           [resumedSession.sessionId],
         )
       ).rows[0].count,
-      1,
+      0,
     );
     const resumedPage = await inbound.ingestArubaInventoryPage(
       resumedSession.token,
       interruptedPage,
     );
-    assert.equal(resumedPage.repeated, true);
+    assert.equal(resumedPage.repeated, false);
     assert.ok(resumedPage.requestedFiles.some((file) => file.kind === "ARUBA_P7M"));
     await inbound.requestImmediateArubaSync(actor);
     const immediate = await inbound.listArubaPreflightWork(resumedSession.token);

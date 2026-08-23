@@ -25,8 +25,6 @@ test("il preferito Aruba è autosufficiente e non contiene credenziali persisten
   assert.match(bookmarklet, /overlapFrom/);
   assert.match(bookmarklet, /!item\.cursor\|\|!item\.lastFullScanCompletedAt/);
   assert.match(bookmarklet, /nonTerminalFrom/);
-  assert.match(bookmarklet, /resumeAfter=fullScan\?\(streamInfo\.resumePageOrdinal\?\?0\):0/);
-  assert.match(bookmarklet, /while\(pageOrdinal<=resumeAfter\)/);
   assert.match(bookmarklet, /\/api\/aruba\/sync\/termina/);
   assert.doesNotMatch(bookmarklet, /fullScan:true/);
   assert.doesNotMatch(bookmarklet, /Bearer |Authorization|hub-fatture-helper:\/\//);

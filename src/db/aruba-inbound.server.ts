@@ -258,19 +258,6 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
       [sessionEnvironment, sessionAccountReference],
     );
     if (active.rows[0]) throw new AppError("ARUBA_READ_SESSION_ACTIVE", 409);
-    const resumable = await client.query<{ id: string }>(
-      `SELECT previous.id FROM aruba_sync_sessions previous
-       WHERE previous.environment = $1 AND previous.account_reference = $2
-         AND previous.status IN ('FAILED', 'EXPIRED') AND previous.is_full_scan
-         AND previous.started_at > coalesce((
-           SELECT max(completed.full_scan_completed_at) FROM aruba_sync_sessions completed
-           WHERE completed.environment = $1 AND completed.account_reference = $2
-             AND completed.full_scan_completed_at IS NOT NULL
-         ), '-infinity')
-       ORDER BY previous.started_at DESC LIMIT 1`,
-      [sessionEnvironment, sessionAccountReference],
-    );
-    const resumableSessionId = resumable.rows[0]?.id ?? null;
     await client.query(
       `INSERT INTO aruba_sync_sessions
         (id, environment, account_reference, device_id, token_hash, started_at,
@@ -287,34 +274,6 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
         new Date(startedAt.getTime() + READ_LEASE_MS),
         actor.id,
       ],
-    );
-    await client.query(
-      `INSERT INTO aruba_sync_pages
-         (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal,
-          full_scan, row_count, documents_json, payload_digest, committed_at)
-       SELECT $1, pages.stream, 1, pages.page_ordinal, pages.cursor, pages.terminal,
-              pages.full_scan, pages.row_count, pages.documents_json,
-              pages.payload_digest, pages.committed_at
-       FROM aruba_sync_pages pages
-       WHERE pages.sync_session_id = $2 AND pages.scan_ordinal = 1 AND NOT pages.terminal
-       ON CONFLICT DO NOTHING`,
-      [id, resumableSessionId],
-    );
-    await client.query(
-      `INSERT INTO aruba_remote_observations
-        (remote_document_id, sync_session_id, remote_status, provider_observed_at, observed_at,
-         stream, scan_ordinal, page_ordinal, cursor, payload_digest, error_code)
-       SELECT observations.remote_document_id, $1, observations.remote_status,
-              observations.provider_observed_at, observations.observed_at, observations.stream,
-              1, observations.page_ordinal, observations.cursor, observations.payload_digest,
-              observations.error_code
-       FROM aruba_remote_observations AS observations
-       JOIN aruba_sync_pages AS copied
-         ON copied.sync_session_id = $1 AND copied.stream = observations.stream
-        AND copied.scan_ordinal = 1 AND copied.page_ordinal = observations.page_ordinal
-       WHERE observations.sync_session_id = $2 AND observations.scan_ordinal = 1
-       ON CONFLICT DO NOTHING`,
-      [id, resumableSessionId],
     );
     await freezeArubaInventorySnapshot(client, {
       id,
