@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.58
+
+- La sincronizzazione in sola lettura Aruba si avvia da un preferito del browser su Safari, Chrome o Edge, senza installare Node, npm o un’app locale e senza conservare token permanenti.
+- Le Impostazioni guidano il collegamento e l’aggiornamento dell’inventario con meno box, stato compatto e una modalità Aruba proporzionata, mantenendo testi e comandi leggibili su desktop e mobile.
+- Ogni avvio crea automaticamente una sessione temporanea confinata all’account autenticato; l’helper di invio resta separato, limitato a Chrome/Edge e non viene attivato dalla sola lettura.
+
 ## 0.3.57
 
 - Le sessioni di lettura Aruba congelano atomicamente stream e finestra di riconciliazione prima di restituire il token, includono il possibile passaggio d’anno e conservano lo stato `INCOMPLETE` quando la copertura non è dimostrabile.
