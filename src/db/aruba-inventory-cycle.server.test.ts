@@ -123,14 +123,37 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
                repeat('f', 64), 'FAILED', now(), now() + interval '1 hour', NULL,
                now(), 'READ_SYNC_FAILED')`,
     );
-    await database.getPool().query(
-      `INSERT INTO aruba_sync_pages
-        (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,
-         row_count, documents_json, payload_digest)
-       SELECT '00000000-0000-4000-8000-000000000022', stream, 1, 1, stream || ':1',
-              true, false, 0, '[]'::jsonb, md5(stream) || md5(stream)
-       FROM unnest($1::text[]) AS stream`,
-      [secondStreams],
+    for (const stream of secondStreams) {
+      await inbound.ingestArubaInventoryPage(secondToken, {
+        stream,
+        scanOrdinal: 1,
+        pageOrdinal: 1,
+        cursor: `${stream}:1`,
+        terminal: true,
+        fullScan: false,
+        documents: [],
+      });
+    }
+    assert.equal(
+      (
+        await database.getPool().query<{ is_full_scan: boolean }>(
+          `SELECT is_full_scan FROM aruba_sync_sessions
+           WHERE id = '00000000-0000-4000-8000-000000000022'`,
+        )
+      ).rows[0]!.is_full_scan,
+      false,
+    );
+    await assert.rejects(
+      inbound.ingestArubaInventoryPage(secondToken, {
+        stream: secondStreams[0],
+        scanOrdinal: 1,
+        pageOrdinal: 2,
+        cursor: `${secondStreams[0]}:mixed-mode`,
+        terminal: true,
+        fullScan: true,
+        documents: [],
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "ARUBA_INVENTORY_CONFLICT",
     );
     assert.deepEqual(
       await cycle.completeStableArubaInventory(secondToken, secondStreams, 1, false),

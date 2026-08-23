@@ -1957,6 +1957,33 @@ async function ingestParsedArubaPage(
     remoteId: string;
     kind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
   }> = [];
+  const sessionMode = await client.query<{
+    is_full_scan: boolean;
+    has_pages: boolean;
+    source: "HELPER" | "MANUAL";
+  }>(
+    `SELECT sessions.is_full_scan, sessions.source,
+       EXISTS (SELECT 1 FROM aruba_sync_pages pages
+         WHERE pages.sync_session_id = sessions.id AND pages.stream <> '__manifest__') AS has_pages
+     FROM aruba_sync_sessions sessions WHERE sessions.id = $1`,
+    [session.id],
+  );
+  const currentMode = sessionMode.rows[0];
+  if (!currentMode) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+  if (
+    currentMode.source === "HELPER" &&
+    page.scanOrdinal === 1 &&
+    currentMode.has_pages &&
+    currentMode.is_full_scan !== page.fullScan
+  ) {
+    throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+  }
+  if (currentMode.source === "HELPER" && page.scanOrdinal === 1 && !currentMode.has_pages) {
+    await client.query("UPDATE aruba_sync_sessions SET is_full_scan = $2 WHERE id = $1", [
+      session.id,
+      page.fullScan,
+    ]);
+  }
   const digest = payloadDigest(page);
   const existingPage = await client.query<{ payload_digest: string }>(
     `SELECT payload_digest FROM aruba_sync_pages
