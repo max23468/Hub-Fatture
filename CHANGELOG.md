@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.57
+
+- Le sessioni di lettura Aruba congelano atomicamente stream e finestra di riconciliazione prima di restituire il token, includono il possibile passaggio d’anno e conservano lo stato `INCOMPLETE` quando la copertura non è dimostrabile.
+- I download dei file ufficiali interrompono lo streaming oltre il limite prima della materializzazione completa; runner, route e test usano un unico percorso bounded senza implementazioni legacy parallele.
+- Le fatture storiche Aruba restano riapribili dalle righe dello snapshot immutabile e dall’XML archiviato, mentre gli input manuali non validi mantengono un errore di dominio esplicito.
+
 ## 0.3.56
 
 - Dashboard e Attività mostrano soltanto gli errori di sincronizzazione ancora azionabili: un readback completo riuscito supera i tentativi precedenti e webhook e job derivato non vengono più contati due volte, mentre lo storico resta conservato per audit e retention.
