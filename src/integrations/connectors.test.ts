@@ -364,18 +364,110 @@ test("uno schema provider inatteso non diventa un errore generico", async () => 
   );
 });
 
-test("Shopify Payments importa solo la fee effettiva e fallisce chiuso sui dati incoerenti", async () => {
+test("Shopify Payments converte ogni valuta di presentazione con il tasso di regolamento", async () => {
   const [payload] = await fixture("shopify-orders.json");
   type ShopifyFeePayload = Record<string, unknown> & {
     transactions: Array<{
       gateway: string;
-      fees: Array<{ amount: { currencyCode: string } }>;
+      settlementCurrency?: string;
+      settlementCurrencyRate?: string;
+      amountSet: {
+        presentmentMoney?: { amount: string; currencyCode: string };
+      };
+      fees: Array<{ amount: { amount: string; currencyCode: string } }>;
+    }>;
+  };
+  const cases = [
+    {
+      currency: "SEK",
+      presentmentAmount: "1668.00",
+      rate: "0.0905557",
+      fees: ["34.45", "32.71"],
+      expected: "6.08",
+    },
+    {
+      currency: "PLN",
+      presentmentAmount: "525.25",
+      rate: "0.228464",
+      fees: ["10.50", "4.25"],
+      expected: "3.37",
+    },
+    {
+      currency: "USD",
+      presentmentAmount: "132.72",
+      rate: "0.90416",
+      fees: ["3.02", "2.65"],
+      expected: "5.13",
+    },
+    {
+      currency: "JPY",
+      presentmentAmount: "19840",
+      rate: "0.0060499",
+      fees: ["397", "248"],
+      expected: "3.90",
+    },
+  ];
+  for (const conversion of cases) {
+    const multicurrency = structuredClone(payload) as ShopifyFeePayload;
+    const transaction = multicurrency.transactions[0];
+    transaction.settlementCurrency = "EUR";
+    transaction.settlementCurrencyRate = conversion.rate;
+    transaction.amountSet.presentmentMoney = {
+      amount: conversion.presentmentAmount,
+      currencyCode: conversion.currency,
+    };
+    transaction.fees = conversion.fees.map((amount) => ({
+      amount: { amount, currencyCode: conversion.currency },
+    }));
+    assert.equal(
+      mapShopifyOrder(multicurrency, "shop.example.invalid").payments[0]?.shopifyPaymentsFeeAmount,
+      conversion.expected,
+      conversion.currency,
+    );
+  }
+});
+
+test("Shopify Payments fallisce chiuso se la conversione non è verificabile", async () => {
+  const [payload] = await fixture("shopify-orders.json");
+  type ShopifyFeePayload = Record<string, unknown> & {
+    transactions: Array<{
+      gateway: string;
+      settlementCurrency?: string;
+      settlementCurrencyRate?: string;
+      amountSet: {
+        presentmentMoney?: { amount: string; currencyCode: string };
+      };
+      fees: Array<{ amount: { amount: string; currencyCode: string } }>;
     }>;
   };
   const wrongCurrency = structuredClone(payload) as ShopifyFeePayload;
   wrongCurrency.transactions[0].fees[0].amount.currencyCode = "USD";
   assert.throws(
     () => mapShopifyOrder(wrongCurrency, "shop.example.invalid"),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+
+  const wrongSettlement = structuredClone(payload) as ShopifyFeePayload;
+  wrongSettlement.transactions[0].settlementCurrency = "GBP";
+  wrongSettlement.transactions[0].settlementCurrencyRate = "0.75";
+  wrongSettlement.transactions[0].amountSet.presentmentMoney = {
+    amount: "132.72",
+    currencyCode: "USD",
+  };
+  wrongSettlement.transactions[0].fees[0].amount = {
+    amount: "3.00",
+    currencyCode: "USD",
+  };
+  assert.throws(
+    () => mapShopifyOrder(wrongSettlement, "shop.example.invalid"),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+
+  const invalidRate = structuredClone(wrongSettlement);
+  invalidRate.transactions[0].settlementCurrency = "EUR";
+  invalidRate.transactions[0].settlementCurrencyRate = "0";
+  assert.throws(
+    () => mapShopifyOrder(invalidRate, "shop.example.invalid"),
     (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
   );
 
