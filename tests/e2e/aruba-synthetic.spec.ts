@@ -722,7 +722,21 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
   await page.evaluate((source) => {
     (0, eval)(source);
   }, bookmarklet.slice("javascript:".length));
-  const bridge = await popupPromise;
+  const filteredBridge = await popupPromise;
+  await expect(page.locator("#hub-fatture-aruba-status")).toHaveText(
+    "Azzera il filtro Dal nella pagina Aruba e riprova.",
+  );
+  expect(
+    await filteredBridge.evaluate(() => (window as typeof window & { __pages: unknown[] }).__pages),
+  ).toEqual([]);
+  await filteredBridge.close();
+  await page.locator('input[name="dataDa"]').fill("");
+
+  const retryPopupPromise = page.waitForEvent("popup");
+  await page.evaluate((source) => {
+    (0, eval)(source);
+  }, bookmarklet.slice("javascript:".length));
+  const bridge = await retryPopupPromise;
   await expect(page.locator("#hub-fatture-aruba-status")).toHaveText(
     "Sincronizzazione completata. Puoi tornare a Hub Fatture.",
   );
