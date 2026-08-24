@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.68
+
+- La finestra di collegamento risponde una sola volta ai segnali ravvicinati del preferito, impedendo che più copie del lettore si contendano le stesse risposte e restino in attesa.
+- Dopo un errore il lettore chiude automaticamente il ponte, così il tentativo successivo carica sempre il codice corrente; le regressioni verificano sia l’avvio unico sia la chiusura sui due motori browser.
+
 ## 0.3.67
 
 - Il lettore Aruba riusa direttamente il collegamento già autorizzato dal preferito, senza avviare un secondo handshake che sul ponte reale restava in attesa fino alla scadenza.

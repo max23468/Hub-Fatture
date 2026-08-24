@@ -28,6 +28,7 @@ document.body.append(statusBox);
 const setStatus=(message,error=false)=>{statusBox.textContent=message;statusBox.style.borderColor=error?"#ff7b72":"#3bc9db"};
 const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="ARUBA_ACCOUNT_MISMATCH"?"L’account Aruba aperto non coincide con quello già collegato a Hub Fatture.":code==="ARUBA_FILTER_ACTIVE"?"Rimuovi il filtro data nella pagina Aruba e riprova.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
 const post=(message)=>bridge&&bridge.postMessage(message,HUB);
+const closeBridge=()=>{try{bridge?.close()}catch{}};
 const rpc=(path,method="GET",body)=>new Promise((resolve,reject)=>{
   const id=String(++sequence);
   const timeout=setTimeout(()=>{pending.delete(id);reject(new Error("HUB_TIMEOUT"))},30000);
@@ -155,11 +156,12 @@ try{
   await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
   await rpc("/api/aruba/sync/termina","POST",{});
   setStatus(preflightFailed?"Inventario aggiornato. Una verifica collegata richiede un nuovo tentativo.":"Sincronizzazione completata. Puoi tornare a Hub Fatture.",preflightFailed);
-  setTimeout(()=>{bridge?.close();removeEventListener("message",onMessage)},2500);
+  setTimeout(()=>{closeBridge();removeEventListener("message",onMessage)},2500);
 }catch(error){
   const code=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:"READ_SYNC_FAILED";
   if(inventoryCompleted){try{await rpc("/api/aruba/sync/termina","POST",{})}catch{}setStatus("Inventario aggiornato. Una verifica collegata richiede un nuovo tentativo.",true)}else{try{await rpc("/api/aruba/sync/fallita","POST",{code})}catch{}setStatus(failureMessage(code),true)}
   removeEventListener("message",onMessage);
+  closeBridge();
 }
 })()`;
   return source

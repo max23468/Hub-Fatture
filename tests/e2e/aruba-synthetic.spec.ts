@@ -656,6 +656,55 @@ test("il lettore Production attende la stabilizzazione completa della pagina suc
   await expect(page.locator(".x-gridrow").nth(1)).toContainText("20000000002");
 });
 
+test("il preferito chiude il ponte dopo un errore per non riutilizzarlo", async ({ page }) => {
+  const hubOrigin = "https://hub-synthetic.invalid";
+  const panelOrigin = "https://fatturazioneelettronica.aruba.it";
+  const runtimeSource = buildArubaBookmarkletRuntime({ hubOrigin, panelOrigin });
+  await page.context().route(`${hubOrigin}/**`, (route) =>
+    route.fulfill({
+      contentType: "text/html; charset=utf-8",
+      body: `<!doctype html><script>
+        addEventListener("message", (event) => {
+          if (event.origin !== ${JSON.stringify(panelOrigin)} || !event.data) return;
+          if (event.data.type === "HF_ARUBA_HELLO") {
+            event.source.postMessage({
+              type: "HF_ARUBA_START",
+              runtimeSource: ${JSON.stringify(runtimeSource)}
+            }, ${JSON.stringify(panelOrigin)});
+            return;
+          }
+          if (event.data.type !== "HF_ARUBA_REQUEST") return;
+          event.source.postMessage({
+            type: "HF_ARUBA_RESPONSE",
+            id: event.data.id,
+            ok: event.data.path === "/api/aruba/sync/fallita",
+            code: "HUB_ERROR",
+            payload: {}
+          }, ${JSON.stringify(panelOrigin)});
+        });
+      </script>`,
+    }),
+  );
+  await page.route(`${panelOrigin}/**`, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      headers: { "Content-Security-Policy": "script-src 'unsafe-inline'" },
+      body: "<html></html>",
+    }),
+  );
+  await page.goto(`${panelOrigin}/base`);
+
+  const popupPromise = page.waitForEvent("popup");
+  const bookmarklet = buildArubaBookmarklet({ hubOrigin, panelOrigin });
+  await page.evaluate((source) => {
+    (0, eval)(source);
+  }, bookmarklet.slice("javascript:".length));
+  const bridge = await popupPromise;
+
+  await expect(page.locator("#hub-fatture-aruba-status")).toContainText("La lettura si");
+  await expect.poll(() => bridge.isClosed()).toBe(true);
+});
+
 test("il preferito attende la rete osservabile e usa il DOM come fallback di paginazione", async ({
   page,
 }) => {

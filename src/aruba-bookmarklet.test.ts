@@ -30,6 +30,8 @@ test("il lettore Aruba corrente conserva le guardie della sincronizzazione", () 
 
   assert.match(runtime, /return"safari"/);
   assert.match(runtime, /bridge=bridge\|\|open/);
+  assert.match(runtime, /const closeBridge=.*bridge\?\.close/);
+  assert.match(runtime, /removeEventListener\("message",onMessage\);\s*closeBridge\(\)/);
   assert.doesNotMatch(runtime, /HF_ARUBA_HELLO|HF_ARUBA_START|waitForStart/);
   assert.match(runtime, /BROWSER_UNSUPPORTED/);
   assert.match(runtime, /Seleziona Fatture inviate/);
