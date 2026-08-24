@@ -29,6 +29,9 @@ test("il preferito Aruba è autosufficiente e non contiene credenziali persisten
   assert.match(bookmarklet, /selectStream\(stream\)/);
   assert.match(bookmarklet, /arubacombobox-filterDate/);
   assert.match(bookmarklet, /ARUBA_FILTER_ACTIVE/);
+  assert.match(bookmarklet, /sync\/verifica-account/);
+  assert.match(bookmarklet, /if\(!accountVerified\)fail\("ARUBA_ACCOUNT_MISMATCH"\)/);
+  assert.doesNotMatch(bookmarklet, /main-toolbar-info-user|data-aruba-account/);
   assert.doesNotMatch(bookmarklet, /applyDateFilter|input\[name=\\"dataDa\\"\]/);
   assert.match(bookmarklet, /\/api\/aruba\/sync\/termina/);
   assert.doesNotMatch(bookmarklet, /incrementalFrom|preflightFrom/);

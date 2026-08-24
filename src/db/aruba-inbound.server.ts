@@ -317,6 +317,75 @@ export async function heartbeatArubaReadSession(
   if (!result.rowCount) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
 }
 
+const arubaAccountProofSchema = z.object({
+  documents: z.array(remoteInventoryDocumentSchema).max(300),
+});
+
+export async function verifyArubaInventoryAccount(token: string, rawProof: unknown) {
+  const proof = arubaAccountProofSchema.safeParse(rawProof);
+  if (!proof.success) throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+
+  return withTransaction(async (client) => {
+    const session = await loadArubaReadSession(client, token, true);
+    if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+    await lockArubaInventory(client, session.environment, session.account_reference);
+
+    const knownAccount = await client.query<{ has_documents: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM aruba_remote_documents
+         WHERE environment = $1 AND account_reference = $2
+           AND remote_id NOT LIKE 'historical-document-%'
+       ) AS has_documents`,
+      [session.environment, session.account_reference],
+    );
+    if (!knownAccount.rows[0]?.has_documents) {
+      return { verified: true, initialPairing: true };
+    }
+    if (!proof.data.documents.length) return { verified: false, initialPairing: false };
+
+    const known = await client.query<{
+      remote_id: string;
+      document_type: "TD01" | "TD04";
+      fiscal_year: number;
+      series: string | null;
+      fiscal_number: string | null;
+      document_date: string;
+      total_amount: number;
+      currency: "EUR";
+    }>(
+      `SELECT remote_id, document_type, fiscal_year, series, fiscal_number,
+              document_date::text, total_amount, currency
+       FROM aruba_remote_documents
+       WHERE environment = $1 AND account_reference = $2
+         AND remote_id = ANY($3::text[])
+         AND remote_id NOT LIKE 'historical-document-%'`,
+      [
+        session.environment,
+        session.account_reference,
+        proof.data.documents.map((document) => document.remoteId),
+      ],
+    );
+
+    const observedById = new Map(
+      proof.data.documents.map((document) => [document.remoteId, document]),
+    );
+    const verified = known.rows.some((document) => {
+      const observed = observedById.get(document.remote_id);
+      return (
+        observed?.documentType === document.document_type &&
+        observed.fiscalYear === document.fiscal_year &&
+        normalizedMatchText(observed.series) === normalizedMatchText(document.series) &&
+        normalizedMatchText(observed.fiscalNumber) ===
+          normalizedMatchText(document.fiscal_number) &&
+        observed.documentDate === document.document_date &&
+        observed.totalAmount === document.total_amount &&
+        observed.currency === document.currency
+      );
+    });
+    return { verified, initialPairing: false };
+  });
+}
+
 interface InboundOrderCandidateRow {
   id: string;
   provider: "SHOPIFY" | "EBAY";

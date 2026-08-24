@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.64
+
+- La sincronizzazione non dipende più da un nome account che Aruba non mostra nel pannello: prima di importare, verifica l’account confrontando i documenti letti con l’identità fiscale immutabile già acquisita.
+- Le pagine restano fuori dall’inventario finché il controllo dell’account non riesce; un account diverso viene respinto senza scrivere documenti e la diagnosi indica ora la causa reale.
+
 ## 0.3.63
 
 - La preparazione fattura porta subito ai controlli essenziali e all’approvazione: il numero viene assegnato automaticamente soltanto con “Approva fattura”, mentre il salvataggio compare quando i dati vengono modificati.

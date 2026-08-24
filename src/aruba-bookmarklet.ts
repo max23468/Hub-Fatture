@@ -25,7 +25,7 @@ statusBox.setAttribute("role","status");
 statusBox.style.cssText="position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:min(360px,calc(100vw - 32px));padding:14px 16px;border:1px solid #3bc9db;border-radius:10px;background:#071f2b;color:#f7fbfc;font:600 14px/1.4 system-ui,-apple-system,sans-serif;box-shadow:0 12px 30px #0008;overflow-wrap:anywhere";
 document.body.append(statusBox);
 const setStatus=(message,error=false)=>{statusBox.textContent=message;statusBox.style.borderColor=error?"#ff7b72":"#3bc9db"};
-const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="ARUBA_FILTER_ACTIVE"?"Rimuovi il filtro data nella pagina Aruba e riprova.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"||code==="HUB_BRIDGE_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
+const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="ARUBA_ACCOUNT_MISMATCH"?"L’account Aruba aperto non coincide con quello già collegato a Hub Fatture.":code==="ARUBA_FILTER_ACTIVE"?"Rimuovi il filtro data nella pagina Aruba e riprova.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"||code==="HUB_BRIDGE_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
 const post=(message)=>bridge&&bridge.postMessage(message,HUB);
 const rpc=(path,method="GET",body)=>new Promise((resolve,reject)=>{
   const id=String(++sequence);
@@ -60,7 +60,6 @@ const remoteStatus=(value)=>/non consegnat|mancata consegna/i.test(value)?"NOT_D
 const fiscalNumber=(value,year)=>{const match=/^(\S+)\s+(\d+)\/(\d{2}|\d{4})$/.exec(normalized(value));if(!match)fail("DOM_UNRECOGNIZED");const number=Number(match[2]);const expected=String(year);if(!Number.isSafeInteger(number)||number<=0||(match[3]!==expected&&match[3]!==expected.slice(-2)))fail("DOM_UNRECOGNIZED");return{series:match[1],fiscalNumber:String(number)}};
 const orderReferences=(value)=>{if(!normalized(value))return[];const hash=[...String(value).matchAll(/#\s*[A-Z0-9][A-Z0-9._/-]*/gi)].map(match=>match[0].replace(/\s+/g,""));const labelled=String(value).split(/[,;\n]+/).map(item=>{const parts=item.split(":");return /^(?:ordine|ordini|riferimento|riferimenti|causale)$/i.test(normalized(parts[0]))?normalized(parts.slice(1).join(":")):normalized(item)}).filter(item=>item&&item.length<=100);const result=[...new Set([...hash,...labelled])];if(result.length>20)fail("DOM_UNRECOGNIZED");return result};
 const streamParts=(stream)=>{const match=/^(invoices|credit-notes):(\d{4})$/.exec(stream);if(!match)fail("DOM_UNRECOGNIZED");return{type:match[1]==="invoices"?"TD01":"TD04",year:Number(match[2])}};
-const assertAccount=(identity)=>{const expected=normalized(identity);const selectors='[data-aruba-account],.main-toolbar-info-user,[aria-current="true"],[aria-selected="true"],[data-active="true"]';const candidates=[...document.querySelectorAll(selectors)].filter(visible).filter(element=>normalized(element.getAttribute("data-aruba-account")??element.textContent)===expected);if(candidates.length!==1)fail("ARUBA_ACCOUNT_MISMATCH")};
 const semanticNext=()=>{const candidates=[...document.querySelectorAll("button")].filter(visible).filter(button=>/Pagina successiva|Successiva/i.test(normalized(button.getAttribute("aria-label")||button.textContent)));if(candidates.length>1)fail("DOM_UNRECOGNIZED");return candidates[0]};
 const productionNext=()=>{const selector='.aruba-grid-fatture-inviate button[aria-label*="nextPage"],.aruba-grid-fatture-inviate button[title*="nextPage"],.aruba-grid-fatture-inviate [title*="nextPage"] button';const candidates=[...document.querySelectorAll(selector)].filter(visible);if(candidates.length!==1)fail("DOM_UNRECOGNIZED");return candidates[0]};
 const enabled=(element)=>{if(!element||element.disabled||element.getAttribute("aria-disabled")==="true")return false;const control=element.closest(".x-button");return !control||(!control.classList.contains("x-disabled")&&control.getAttribute("aria-disabled")!=="true")};
@@ -127,9 +126,10 @@ try{
   const preflight=await rpc("/api/aruba/sync/preflight");
   const browser=browserName();
   await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
-  assertAccount(manifest.accountIdentity);
   const fullScan=true;
   const observed=[];
+  const pendingPages=[];
+  let accountVerified=false;
   for(const streamInfo of manifest.streams){
     const stream=streamInfo.name;
     setStatus("Lettura "+stream+"…");
@@ -140,11 +140,19 @@ try{
       const documents=available?readPage(stream):[];
       observed.push(...documents);
       const terminal=!available||!hasNext();
-      await rpc("/api/aruba/sync/pagine","POST",{stream,scanOrdinal:1,pageOrdinal,cursor:stream+":"+pageOrdinal,terminal,fullScan,documents});
+      const page={stream,scanOrdinal:1,pageOrdinal,cursor:stream+":"+pageOrdinal,terminal,fullScan,documents};
+      if(!accountVerified){
+        setStatus("Verifica dell’account Aruba…");
+        pendingPages.push(page);
+        const proof=await rpc("/api/aruba/sync/verifica-account","POST",{documents});
+        accountVerified=proof?.verified===true;
+        if(accountVerified){for(const pendingPage of pendingPages)await rpc("/api/aruba/sync/pagine","POST",pendingPage);pendingPages.length=0}
+      }else{await rpc("/api/aruba/sync/pagine","POST",page)}
       if(terminal)break;
       await advance();pageOrdinal+=1;
     }
   }
+  if(!accountVerified)fail("ARUBA_ACCOUNT_MISMATCH");
   await rpc("/api/aruba/sync/completa","POST",{streams:manifest.streams.map(item=>item.name),scanOrdinal:1,fullScan});
   inventoryCompleted=true;
   let preflightFailed=false;

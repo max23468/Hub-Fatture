@@ -56,25 +56,30 @@ async function computeInventorySnapshot(
   client: pg.PoolClient,
   session: ArubaInventorySession,
 ): Promise<InventorySnapshot> {
-  const [oldest, nonTerminalDocuments] = await Promise.all([
-    client.query<{ oldest: string | null }>(
-      `SELECT min(local_order_date)::text AS oldest
+  const oldest = await client.query<{ oldest: string | null }>(
+    `SELECT min(local_order_date)::text AS oldest
        FROM orders
        WHERE trigger_status NOT IN ('INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')`,
-    ),
-    client.query<{
-      document_type: "TD01" | "TD04";
-      fiscal_year: number;
-      oldest_document_date: string;
-    }>(
-      `SELECT document_type, fiscal_year, min(document_date)::text AS oldest_document_date
+  );
+  const nonTerminalDocuments = await client.query<{
+    document_type: "TD01" | "TD04";
+    fiscal_year: number;
+    oldest_document_date: string;
+  }>(
+    `SELECT document_type, fiscal_year, min(document_date)::text AS oldest_document_date
        FROM aruba_remote_documents
        WHERE environment = $1 AND account_reference = $2
          AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
-       GROUP BY document_type, fiscal_year`,
-      [session.environment, session.account_reference],
-    ),
-  ]);
+      GROUP BY document_type, fiscal_year`,
+    [session.environment, session.account_reference],
+  );
+  const latestKnownDocument = await client.query<{ fiscal_year: number | null }>(
+    `SELECT max(fiscal_year)::integer AS fiscal_year
+       FROM aruba_remote_documents
+       WHERE environment = $1 AND account_reference = $2
+         AND remote_id NOT LIKE 'historical-document-%'`,
+    [session.environment, session.account_reference],
+  );
   const startedDate = romeDate(session.started_at);
   const latestYear = Math.max(
     Number(startedDate.slice(0, 4)),
@@ -93,6 +98,8 @@ async function computeInventorySnapshot(
     ]),
   );
   for (const row of nonTerminalDocuments.rows) years.add(row.fiscal_year);
+  const latestKnownYear = latestKnownDocument.rows[0]?.fiscal_year;
+  if (latestKnownYear) years.add(latestKnownYear);
   const snapshot = inventorySnapshotSchema.safeParse({
     oldestReconciliationDate,
     nonTerminalFromByStream,

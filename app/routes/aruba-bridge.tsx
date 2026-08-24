@@ -34,6 +34,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 const allowedRequests = new Map([
   ["GET /api/aruba/sync/manifest", true],
   ["POST /api/aruba/sync/heartbeat", true],
+  ["POST /api/aruba/sync/verifica-account", true],
   ["POST /api/aruba/sync/pagine", true],
   ["POST /api/aruba/sync/completa", true],
   ["POST /api/aruba/sync/termina", true],

@@ -36,4 +36,8 @@ test("la prima configurazione Aruba non richiede installazioni tecniche", () => 
     copy.settings.arubaDiagnosticValue("DOM_UNRECOGNIZED"),
     "La pagina Aruba non ha completato il caricamento previsto",
   );
+  assert.equal(
+    copy.settings.arubaDiagnosticValue("ARUBA_ACCOUNT_MISMATCH"),
+    "L’account Aruba aperto non coincide con quello già collegato",
+  );
 });
