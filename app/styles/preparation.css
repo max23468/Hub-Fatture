@@ -1,3 +1,10 @@
+.orders-table__action .dashboard-row-link {
+  width: fit-content;
+  max-width: 100%;
+  justify-content: center;
+  margin-left: auto;
+}
+
 .preparation-disclosure > summary {
   display: flex;
   min-height: var(--control-height);
@@ -52,6 +59,97 @@
 .preparation-edit-form__submit {
   width: fit-content;
   margin-top: var(--space-2);
+}
+
+.preparation-overview {
+  align-items: start;
+}
+
+.preparation-edit-form__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.preparation-edit-form__wide-field {
+  grid-column: 1 / -1;
+}
+
+.preparation-workflow-grid {
+  display: grid;
+  align-items: start;
+  gap: var(--space-6);
+}
+
+.preparation-workflow-grid--with-inventory {
+  grid-template-columns: minmax(17rem, 0.8fr) minmax(0, 2fr);
+  grid-template-areas:
+    "inventory approval"
+    "activity activity";
+}
+
+.preparation-workflow-grid--compact-approval {
+  align-items: stretch;
+}
+
+.preparation-workflow-grid--expanded-approval,
+.preparation-workflow-grid--without-inventory {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "inventory"
+    "approval"
+    "activity";
+}
+
+.preparation-workflow-grid--activity-only {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "activity";
+}
+
+.preparation-inventory {
+  grid-area: inventory;
+}
+
+.preparation-approval {
+  grid-area: approval;
+}
+
+.preparation-activity {
+  grid-area: activity;
+  min-width: 0;
+}
+
+.preparation-workflow-grid .preparation-activity .timeline {
+  grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+}
+
+.preparation-workflow-grid .preparation-activity .timeline > li {
+  align-content: start;
+  align-items: flex-start;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.preparation-approval--compact {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.preparation-workflow-grid--expanded-approval .preparation-inventory {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-8);
+}
+
+.preparation-workflow-grid--expanded-approval .preparation-inventory > :not(.button) {
+  grid-column: 1;
+}
+
+.preparation-workflow-grid--expanded-approval .preparation-inventory .button {
+  grid-column: 2;
+  grid-row: 1 / span 3;
 }
 
 .preparation-check .detail-section-header,
@@ -181,7 +279,42 @@
   min-width: 12rem;
 }
 
+@media (max-width: 64rem) {
+  .preparation-workflow-grid,
+  .preparation-workflow-grid--with-inventory,
+  .preparation-workflow-grid--without-inventory,
+  .preparation-workflow-grid--expanded-approval,
+  .preparation-workflow-grid--activity-only {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "inventory"
+      "approval"
+      "activity";
+  }
+
+  .preparation-workflow-grid .preparation-activity .timeline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .preparation-workflow-grid--expanded-approval .preparation-inventory {
+    display: block;
+  }
+}
+
 @media (max-width: 48rem) {
+  .orders-table__action .dashboard-row-link {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .preparation-edit-form__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .preparation-edit-form__wide-field {
+    grid-column: auto;
+  }
+
   .preparation-check__facts,
   .preparation-approval .facts--columns {
     grid-template-columns: 1fr;

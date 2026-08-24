@@ -1,5 +1,5 @@
 import { CircleCheck, FileCode2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Form, Link, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/billing-case-detail";
 
@@ -438,7 +438,7 @@ function InvoiceDraftEditor({
   projection: InvoiceProjection;
 }) {
   return (
-    <details className="card section-gap preparation-disclosure">
+    <details className="card section-gap preparation-disclosure" open>
       <summary>
         <span>
           <strong>{copy.document.draftTitle}</strong>
@@ -469,22 +469,24 @@ function InvoiceDraftEditor({
             </select>
           </label>
         </div>
-        <label className="section-gap">
-          {copy.document.causale}
-          <input defaultValue={projection.causale} maxLength={200} name="causale" />
-        </label>
-        <label className="section-gap">
-          {copy.document.notes}
-          <input defaultValue={projection.notes} maxLength={200} name="notes" />
-        </label>
-        <label className="section-gap">
-          {copy.document.differenceReason}
-          <input
-            defaultValue={projection.differenceReason}
-            maxLength={500}
-            name="differenceReason"
-          />
-        </label>
+        <div className="preparation-edit-form__fields section-gap">
+          <label>
+            {copy.document.causale}
+            <input defaultValue={projection.causale} maxLength={200} name="causale" />
+          </label>
+          <label>
+            {copy.document.notes}
+            <input defaultValue={projection.notes} maxLength={200} name="notes" />
+          </label>
+          <label className="preparation-edit-form__wide-field">
+            {copy.document.differenceReason}
+            <input
+              defaultValue={projection.differenceReason}
+              maxLength={500}
+              name="differenceReason"
+            />
+          </label>
+        </div>
         <button className="button preparation-edit-form__submit" disabled={!dirty} type="submit">
           {copy.document.saveDraft}
         </button>
@@ -493,11 +495,280 @@ function InvoiceDraftEditor({
   );
 }
 
+function InvoiceComparisonCard({ projection }: { projection: InvoiceProjection }) {
+  return (
+    <section className="card preparation-check section-gap" aria-labelledby="comparatore-fiscale">
+      <DetailSectionHeader
+        description={copy.document.comparisonHelp}
+        icon={<CircleCheck size={22} strokeWidth={1.8} />}
+        title={copy.document.comparisonTitle}
+      />
+      <p className="preparation-check__status">
+        <CircleCheck aria-hidden="true" size={20} strokeWidth={2} />
+        <span>
+          <strong>{copy.document.checksPassed}</strong>
+          <small>{copy.document.xsdValid}</small>
+        </span>
+      </p>
+      <dl className="facts facts--columns preparation-check__facts">
+        <div>
+          <dt>{copy.document.grossTotal}</dt>
+          <dd>{euros(projection.grossTotal)}</dd>
+        </div>
+        <div>
+          <dt>{copy.document.shopifyPaymentsFeeTotal}</dt>
+          <dd>{euros(projection.shopifyPaymentsFeeTotal)}</dd>
+        </div>
+        <div>
+          <dt>{copy.document.sourceTotal}</dt>
+          <dd>{euros(projection.sourceTotal)}</dd>
+        </div>
+        <div>
+          <dt>{copy.document.documentTotal}</dt>
+          <dd>{euros(projection.total)}</dd>
+        </div>
+        <div>
+          <dt>{copy.document.difference}</dt>
+          <dd>{euros(projection.difference)}</dd>
+        </div>
+        <div>
+          <dt>{copy.document.profile}</dt>
+          <dd>RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}</dd>
+        </div>
+      </dl>
+      <details className="preparation-comparison-details">
+        <summary>{copy.document.comparisonDetails}</summary>
+        <div className="comparison-grid">
+          <ComparisonTable
+            title={copy.document.comparisonRecipient}
+            rows={projection.comparison.recipient}
+          />
+          <ComparisonTable
+            lineLabels
+            title={copy.document.comparisonLines}
+            rows={projection.comparison.lines}
+          />
+          <ComparisonTable
+            title={copy.document.comparisonPayment}
+            rows={projection.comparison.payment}
+          />
+          <ComparisonTable
+            title={copy.document.comparisonNotes}
+            rows={projection.comparison.notes}
+          />
+          <ComparisonTable
+            title={copy.document.comparisonTechnical}
+            rows={projection.comparison.technical}
+          />
+          <details className="technical-details">
+            <summary>
+              <FileCode2 aria-hidden="true" size={18} strokeWidth={1.8} />
+              {copy.document.technicalXml}
+            </summary>
+            <pre className="code-block">{projection.xml}</pre>
+          </details>
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function ArubaInventoryCard({ projection }: { projection: InvoiceProjection }) {
+  return (
+    <section
+      className={`card preparation-inventory preparation-inventory--${projection.arubaInventory.blocking ? "blocking" : "warning"}`}
+      aria-labelledby="inventario-aruba"
+    >
+      <h2 id="inventario-aruba">{copy.document.arubaInventoryTitle}</h2>
+      <p>
+        <strong>{copy.settings.arubaInventoryLabels[projection.arubaInventory.status]}</strong>
+        {" · "}
+        {projection.arubaInventory.lastCompletedAt
+          ? copy.document.arubaInventoryUpdated(dateTime(projection.arubaInventory.lastCompletedAt))
+          : copy.document.arubaInventoryNever}
+      </p>
+      <p>
+        {projection.arubaInventory.blocking
+          ? copy.document.arubaInventoryBlockingHelp
+          : copy.document.arubaInventoryWarningHelp}
+      </p>
+      <Link className="button button--secondary" to="/">
+        {copy.document.openDashboard}
+      </Link>
+    </section>
+  );
+}
+
+function ApprovalCard({
+  canApprove,
+  canShowApproval,
+  caseReady,
+  csrfToken,
+  hasUnsavedChanges,
+  publicNumber,
+  projection,
+}: {
+  canApprove: boolean;
+  canShowApproval: boolean;
+  caseReady: boolean;
+  csrfToken: string;
+  hasUnsavedChanges: boolean;
+  publicNumber: string;
+  projection: InvoiceProjection;
+}) {
+  return (
+    <section
+      className={`card preparation-approval${canShowApproval ? "" : " preparation-approval--compact"}`}
+      aria-labelledby="approvazione-fattura"
+    >
+      <DetailSectionHeader
+        description={copy.document.approvalHelp}
+        icon={<CircleCheck size={22} strokeWidth={1.8} />}
+        title={copy.document.approvalTitle}
+      />
+      {hasUnsavedChanges ? (
+        <p className="notice">{copy.document.saveChangesBeforeApproval}</p>
+      ) : !caseReady ? (
+        <p className="warning">{copy.document.resolveChecksBeforeApproval}</p>
+      ) : projection.requiresResave ? (
+        <p className="notice">{copy.document.resaveAfterDateChange}</p>
+      ) : !canApprove ? (
+        <p className="notice">{copy.document.ownerOnly}</p>
+      ) : projection.arubaInventory.blocking ? (
+        <p className="warning">{copy.document.arubaInventoryApprovalBlocked}</p>
+      ) : null}
+      {canShowApproval ? (
+        <Form method="post" className="preparation-approval__form">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="approve-document" />
+          <input type="hidden" name="revision" value={projection.caseRevision} />
+          <input type="hidden" name="draftVersion" value={projection.draftVersion} />
+          <input type="hidden" name="projectionSha256" value={projection.projectionSha256} />
+          <input type="hidden" name="arubaMode" value={projection.arubaMode} />
+          <input type="hidden" name="emailModeVersion" value={projection.customerEmail.version} />
+          <fieldset>
+            <legend>{copy.document.customerEmailTitle}</legend>
+            <dl className="facts facts--columns">
+              <div>
+                <dt>{copy.document.emailMode}</dt>
+                <dd>
+                  {projection.customerEmail.mode === "AUTOMATIC"
+                    ? copy.document.emailAutomatic
+                    : projection.customerEmail.mode === "DISABLED"
+                      ? copy.document.emailDisabled
+                      : copy.document.emailManual}
+                </dd>
+              </div>
+              <div>
+                <dt>{copy.document.emailSender}</dt>
+                <dd>{projection.customerEmail.sender}</dd>
+              </div>
+              <div>
+                <dt>{copy.document.emailRecipient}</dt>
+                <dd>{projection.customerEmail.recipient ?? copy.common.unavailable}</dd>
+              </div>
+              <div>
+                <dt>{copy.document.emailSubject}</dt>
+                <dd>{projection.customerEmail.subject}</dd>
+              </div>
+              <div>
+                <dt>{copy.document.emailBody}</dt>
+                <dd>{projection.customerEmail.body}</dd>
+              </div>
+              <div>
+                <dt>{copy.document.emailAttachment}</dt>
+                <dd>{projection.customerEmail.attachment}</dd>
+              </div>
+            </dl>
+            {projection.customerEmail.mode === "DISABLED" ? (
+              <>
+                <input name="emailChoice" type="hidden" value="SKIP" />
+                <p className="notice">{copy.document.emailDisabledHelp}</p>
+              </>
+            ) : (
+              <>
+                <label className="checkbox-row">
+                  <input
+                    defaultChecked={
+                      projection.customerEmail.mode === "AUTOMATIC" &&
+                      Boolean(projection.customerEmail.recipient)
+                    }
+                    name="emailChoice"
+                    type="radio"
+                    value="SEND"
+                  />
+                  {copy.document.emailSend}
+                </label>
+                <label className="checkbox-row">
+                  <input
+                    defaultChecked={
+                      projection.customerEmail.mode !== "AUTOMATIC" ||
+                      !projection.customerEmail.recipient
+                    }
+                    name="emailChoice"
+                    type="radio"
+                    value="SKIP"
+                  />
+                  {copy.document.emailSkip}
+                </label>
+              </>
+            )}
+          </fieldset>
+          {projection.paymentPending ? (
+            <label className="checkbox-row">
+              <input name="confirmPending" required type="checkbox" value="yes" />
+              {copy.document.confirmPending}
+            </label>
+          ) : null}
+          {projection.difference !== 0 ? (
+            <label className="checkbox-row">
+              <input name="confirmDifference" required type="checkbox" value="yes" />
+              {copy.document.confirmDifference}
+            </label>
+          ) : null}
+          <fieldset className="preparation-approval__confirmation">
+            <legend>{copy.document.finalConfirmation}</legend>
+            <dl className="facts facts--columns">
+              <div>
+                <dt>{copy.document.confirmDocument}</dt>
+                <dd>{copy.preparation.title(publicNumber)}</dd>
+              </div>
+              <div>
+                <dt>{copy.document.confirmRecipient}</dt>
+                <dd>{projection.comparison.recipient[0]?.draft}</dd>
+              </div>
+              <div>
+                <dt>{copy.document.confirmTotal}</dt>
+                <dd>{euros(projection.total)}</dd>
+              </div>
+              <div>
+                <dt>{copy.document.confirmProfile}</dt>
+                <dd>RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}</dd>
+              </div>
+              <div>
+                <dt>{copy.document.confirmPayment}</dt>
+                <dd>
+                  {paymentStatusLabels[projection.paymentStatus]} · {projection.paymentMethod}
+                </dd>
+              </div>
+            </dl>
+            <p className="warning">{copy.document.irreversibleNumbering}</p>
+          </fieldset>
+          <button className="button preparation-approval__submit" type="submit">
+            {copy.document.approve}
+          </button>
+        </Form>
+      ) : null}
+    </section>
+  );
+}
+
 function InvoiceDocument({
   canApprove,
   caseReady,
   customerDirty,
   csrfToken,
+  activity,
   publicNumber,
   projection,
 }: {
@@ -505,6 +776,7 @@ function InvoiceDocument({
   caseReady: boolean;
   customerDirty: boolean;
   csrfToken: string;
+  activity: ReactNode;
   publicNumber: string;
   projection: InvoiceProjection;
 }) {
@@ -518,6 +790,15 @@ function InvoiceDocument({
     !hasUnsavedChanges &&
     !projection.requiresResave &&
     !projection.arubaInventory.blocking;
+  const showInventory = !projection.approved && inventoryNeedsAttention;
+  const showApproval = !projection.approved;
+  const workflowLayout = projection.approved
+    ? "preparation-workflow-grid--activity-only"
+    : showInventory
+      ? canShowApproval
+        ? "preparation-workflow-grid--with-inventory preparation-workflow-grid--expanded-approval"
+        : "preparation-workflow-grid--with-inventory preparation-workflow-grid--compact-approval"
+      : "preparation-workflow-grid--without-inventory";
   return (
     <>
       {!projection.approved ? (
@@ -528,256 +809,48 @@ function InvoiceDocument({
           projection={projection}
         />
       ) : null}
-      <section className="card preparation-check section-gap" aria-labelledby="comparatore-fiscale">
-        <DetailSectionHeader
-          description={copy.document.comparisonHelp}
-          icon={<CircleCheck size={22} strokeWidth={1.8} />}
-          title={copy.document.comparisonTitle}
-        />
-        <p className="preparation-check__status">
-          <CircleCheck aria-hidden="true" size={20} strokeWidth={2} />
-          <span>
-            <strong>{copy.document.checksPassed}</strong>
-            <small>{copy.document.xsdValid}</small>
-          </span>
-        </p>
-        <dl className="facts facts--columns preparation-check__facts">
-          <div>
-            <dt>{copy.document.grossTotal}</dt>
-            <dd>{euros(projection.grossTotal)}</dd>
-          </div>
-          <div>
-            <dt>{copy.document.shopifyPaymentsFeeTotal}</dt>
-            <dd>{euros(projection.shopifyPaymentsFeeTotal)}</dd>
-          </div>
-          <div>
-            <dt>{copy.document.sourceTotal}</dt>
-            <dd>{euros(projection.sourceTotal)}</dd>
-          </div>
-          <div>
-            <dt>{copy.document.documentTotal}</dt>
-            <dd>{euros(projection.total)}</dd>
-          </div>
-          <div>
-            <dt>{copy.document.difference}</dt>
-            <dd>{euros(projection.difference)}</dd>
-          </div>
-          <div>
-            <dt>{copy.document.profile}</dt>
-            <dd>RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}</dd>
-          </div>
-        </dl>
-        <details className="preparation-comparison-details">
-          <summary>{copy.document.comparisonDetails}</summary>
-          <div className="comparison-grid">
-            <ComparisonTable
-              title={copy.document.comparisonRecipient}
-              rows={projection.comparison.recipient}
-            />
-            <ComparisonTable
-              lineLabels
-              title={copy.document.comparisonLines}
-              rows={projection.comparison.lines}
-            />
-            <ComparisonTable
-              title={copy.document.comparisonPayment}
-              rows={projection.comparison.payment}
-            />
-            <ComparisonTable
-              title={copy.document.comparisonNotes}
-              rows={projection.comparison.notes}
-            />
-            <ComparisonTable
-              title={copy.document.comparisonTechnical}
-              rows={projection.comparison.technical}
-            />
-            <details className="technical-details">
-              <summary>
-                <FileCode2 aria-hidden="true" size={18} strokeWidth={1.8} />
-                {copy.document.technicalXml}
-              </summary>
-              <pre className="code-block">{projection.xml}</pre>
-            </details>
-          </div>
-        </details>
-      </section>
-      {!projection.approved && inventoryNeedsAttention ? (
-        <section
-          className={`card section-gap preparation-inventory preparation-inventory--${projection.arubaInventory.blocking ? "blocking" : "warning"}`}
-          aria-labelledby="inventario-aruba"
-        >
-          <h2 id="inventario-aruba">{copy.document.arubaInventoryTitle}</h2>
-          <p>
-            <strong>{copy.settings.arubaInventoryLabels[projection.arubaInventory.status]}</strong>
-            {" · "}
-            {projection.arubaInventory.lastCompletedAt
-              ? copy.document.arubaInventoryUpdated(
-                  dateTime(projection.arubaInventory.lastCompletedAt),
-                )
-              : copy.document.arubaInventoryNever}
-          </p>
-          <p>
-            {projection.arubaInventory.blocking
-              ? copy.document.arubaInventoryBlockingHelp
-              : copy.document.arubaInventoryWarningHelp}
-          </p>
-          <Link className="button button--secondary" to="/">
-            {copy.document.openDashboard}
-          </Link>
-        </section>
-      ) : null}
-      {!projection.approved ? (
-        <section
-          className="card section-gap preparation-approval"
-          aria-labelledby="approvazione-fattura"
-        >
-          <DetailSectionHeader
-            description={copy.document.approvalHelp}
-            icon={<CircleCheck size={22} strokeWidth={1.8} />}
-            title={copy.document.approvalTitle}
+      <InvoiceComparisonCard projection={projection} />
+      <div className={`preparation-workflow-grid section-gap ${workflowLayout}`}>
+        {showInventory ? <ArubaInventoryCard projection={projection} /> : null}
+        {showApproval ? (
+          <ApprovalCard
+            canApprove={canApprove}
+            canShowApproval={canShowApproval}
+            caseReady={caseReady}
+            csrfToken={csrfToken}
+            hasUnsavedChanges={hasUnsavedChanges}
+            projection={projection}
+            publicNumber={publicNumber}
           />
-          {hasUnsavedChanges ? (
-            <p className="notice">{copy.document.saveChangesBeforeApproval}</p>
-          ) : !caseReady ? (
-            <p className="warning">{copy.document.resolveChecksBeforeApproval}</p>
-          ) : projection.requiresResave ? (
-            <p className="notice">{copy.document.resaveAfterDateChange}</p>
-          ) : !canApprove ? (
-            <p className="notice">{copy.document.ownerOnly}</p>
-          ) : projection.arubaInventory.blocking ? (
-            <p className="warning">{copy.document.arubaInventoryApprovalBlocked}</p>
-          ) : null}
-          {canShowApproval ? (
-            <Form method="post" className="preparation-approval__form">
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="approve-document" />
-              <input type="hidden" name="revision" value={projection.caseRevision} />
-              <input type="hidden" name="draftVersion" value={projection.draftVersion} />
-              <input type="hidden" name="projectionSha256" value={projection.projectionSha256} />
-              <input type="hidden" name="arubaMode" value={projection.arubaMode} />
-              <input
-                type="hidden"
-                name="emailModeVersion"
-                value={projection.customerEmail.version}
-              />
-              <fieldset>
-                <legend>{copy.document.customerEmailTitle}</legend>
-                <dl className="facts facts--columns">
-                  <div>
-                    <dt>{copy.document.emailMode}</dt>
-                    <dd>
-                      {projection.customerEmail.mode === "AUTOMATIC"
-                        ? copy.document.emailAutomatic
-                        : projection.customerEmail.mode === "DISABLED"
-                          ? copy.document.emailDisabled
-                          : copy.document.emailManual}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{copy.document.emailSender}</dt>
-                    <dd>{projection.customerEmail.sender}</dd>
-                  </div>
-                  <div>
-                    <dt>{copy.document.emailRecipient}</dt>
-                    <dd>{projection.customerEmail.recipient ?? copy.common.unavailable}</dd>
-                  </div>
-                  <div>
-                    <dt>{copy.document.emailSubject}</dt>
-                    <dd>{projection.customerEmail.subject}</dd>
-                  </div>
-                  <div>
-                    <dt>{copy.document.emailBody}</dt>
-                    <dd>{projection.customerEmail.body}</dd>
-                  </div>
-                  <div>
-                    <dt>{copy.document.emailAttachment}</dt>
-                    <dd>{projection.customerEmail.attachment}</dd>
-                  </div>
-                </dl>
-                {projection.customerEmail.mode === "DISABLED" ? (
-                  <>
-                    <input name="emailChoice" type="hidden" value="SKIP" />
-                    <p className="notice">{copy.document.emailDisabledHelp}</p>
-                  </>
-                ) : (
-                  <>
-                    <label className="checkbox-row">
-                      <input
-                        defaultChecked={
-                          projection.customerEmail.mode === "AUTOMATIC" &&
-                          Boolean(projection.customerEmail.recipient)
-                        }
-                        name="emailChoice"
-                        type="radio"
-                        value="SEND"
-                      />
-                      {copy.document.emailSend}
-                    </label>
-                    <label className="checkbox-row">
-                      <input
-                        defaultChecked={
-                          projection.customerEmail.mode !== "AUTOMATIC" ||
-                          !projection.customerEmail.recipient
-                        }
-                        name="emailChoice"
-                        type="radio"
-                        value="SKIP"
-                      />
-                      {copy.document.emailSkip}
-                    </label>
-                  </>
-                )}
-              </fieldset>
-              {projection.paymentPending ? (
-                <label className="checkbox-row">
-                  <input name="confirmPending" required type="checkbox" value="yes" />
-                  {copy.document.confirmPending}
-                </label>
-              ) : null}
-              {projection.difference !== 0 ? (
-                <label className="checkbox-row">
-                  <input name="confirmDifference" required type="checkbox" value="yes" />
-                  {copy.document.confirmDifference}
-                </label>
-              ) : null}
-              <fieldset className="preparation-approval__confirmation">
-                <legend>{copy.document.finalConfirmation}</legend>
-                <dl className="facts facts--columns">
-                  <div>
-                    <dt>{copy.document.confirmDocument}</dt>
-                    <dd>{copy.preparation.title(publicNumber)}</dd>
-                  </div>
-                  <div>
-                    <dt>{copy.document.confirmRecipient}</dt>
-                    <dd>{projection.comparison.recipient[0]?.draft}</dd>
-                  </div>
-                  <div>
-                    <dt>{copy.document.confirmTotal}</dt>
-                    <dd>{euros(projection.total)}</dd>
-                  </div>
-                  <div>
-                    <dt>{copy.document.confirmProfile}</dt>
-                    <dd>
-                      RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{copy.document.confirmPayment}</dt>
-                    <dd>
-                      {paymentStatusLabels[projection.paymentStatus]} · {projection.paymentMethod}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="warning">{copy.document.irreversibleNumbering}</p>
-              </fieldset>
-              <button className="button preparation-approval__submit" type="submit">
-                {copy.document.approve}
-              </button>
-            </Form>
-          ) : null}
-        </section>
-      ) : null}
+        ) : null}
+        {activity}
+      </div>
     </>
+  );
+}
+
+function ActivityCard({
+  audit,
+}: {
+  audit: Array<{ id: string; action: string; created_at: string; reason: string | null }>;
+}) {
+  return (
+    <section className="card preparation-activity">
+      <h2>{copy.preparation.activity}</h2>
+      {audit.length ? (
+        <ol className="timeline">
+          {audit.map((event) => (
+            <li key={event.id}>
+              <strong>{auditActionLabel(event.action) ?? copy.activity.recorded}</strong>
+              <span>{dateTime(event.created_at)}</span>
+              {event.reason ? <span>{event.reason}</span> : null}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p>{copy.preparation.noActivity}</p>
+      )}
+    </section>
   );
 }
 
@@ -833,7 +906,9 @@ export default function BillingCaseDetail() {
         </section>
       ) : null}
 
-      <div className={`detail-grid${billingCase.anomalies.length ? " section-gap" : ""}`}>
+      <div
+        className={`detail-grid preparation-overview${billingCase.anomalies.length ? " section-gap" : ""}`}
+      >
         <section className="card">
           <h2>{copy.preparation.includedOrders}</h2>
           <ul className="plain-list">
@@ -970,6 +1045,7 @@ export default function BillingCaseDetail() {
         <p className="warning section-gap">{projection.error}</p>
       ) : projection && "lines" in projection ? (
         <InvoiceDocument
+          activity={<ActivityCard audit={billingCase.audit} />}
           canApprove={canApprove}
           caseReady={billingCase.status === "READY"}
           customerDirty={customerDirty}
@@ -984,22 +1060,11 @@ export default function BillingCaseDetail() {
         revisions={billingCase.revisions}
         showConfirmation={billingCase.anomalies.includes("SOURCE_CONFLICT")}
       />
-      <section className="card section-gap">
-        <h2>{copy.preparation.activity}</h2>
-        {billingCase.audit.length ? (
-          <ol className="timeline">
-            {billingCase.audit.map((event) => (
-              <li key={event.id}>
-                <strong>{auditActionLabel(event.action) ?? copy.activity.recorded}</strong>
-                <span>{dateTime(event.created_at)}</span>
-                {event.reason ? <span>{event.reason}</span> : null}
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p>{copy.preparation.noActivity}</p>
-        )}
-      </section>
+      {projection && "lines" in projection ? null : (
+        <div className="section-gap">
+          <ActivityCard audit={billingCase.audit} />
+        </div>
+      )}
     </AppShell>
   );
 }
