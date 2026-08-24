@@ -69,7 +69,7 @@ const armReload=()=>{
   const state={active:true,requested:0,pending:0,failed:false,observed:false,lastMutationAt:0};
   const touchesGrid=(node)=>{const element=node instanceof Element?node:node?.parentElement;return Boolean(element?.closest?.(".aruba-grid-fatture-inviate,[data-aruba-state=\"inventory-ready\"]")||element?.matches?.(".aruba-grid-fatture-inviate,[data-aruba-state=\"inventory-ready\"]")||element?.querySelector?.(".aruba-grid-fatture-inviate,[data-aruba-state=\"inventory-ready\"]"))};
   const observer=new MutationObserver(mutations=>{if(mutations.some(mutation=>touchesGrid(mutation.target)||[...mutation.addedNodes,...mutation.removedNodes].some(touchesGrid))){state.observed=true;state.lastMutationAt=performance.now()}});
-  observer.observe(document.body,{attributes:true,childList:true,subtree:true});
+  observer.observe(document.body,{attributes:true,characterData:true,childList:true,subtree:true});
   const originalFetch=window.fetch;
   const originalOpen=XMLHttpRequest.prototype.open;
   const originalSend=XMLHttpRequest.prototype.send;
@@ -81,7 +81,7 @@ const armReload=()=>{
   return{state,stop:()=>{observer.disconnect();window.fetch=originalFetch;XMLHttpRequest.prototype.open=originalOpen;XMLHttpRequest.prototype.send=originalSend}};
 };
 const reloadReady=()=>{if(document.querySelector(".aruba-grid-fatture-inviate")){try{productionNext();return true}catch{return false}}return visible(document.querySelector('[data-aruba-state="inventory-ready"]'))};
-const waitForReload=async(monitor,before=null)=>{for(let attempt=0;attempt<120;attempt+=1){await sleep(250);if(monitor.state.failed)fail("DOM_UNRECOGNIZED");let changed=!before;if(before){try{changed=fingerprint()!==before}catch{changed=false}}const networkReady=monitor.state.requested===0||monitor.state.pending===0;if(networkReady&&changed&&monitor.state.observed&&performance.now()-monitor.state.lastMutationAt>=500&&reloadReady())return}fail("DOM_UNRECOGNIZED")};
+const waitForReload=async(monitor,before=null)=>{let current=before;let lastChangeAt=performance.now();for(let attempt=0;attempt<120;attempt+=1){await sleep(250);if(monitor.state.failed)fail("DOM_UNRECOGNIZED");const now=performance.now();let changed=!before;let stable=monitor.state.observed&&now-monitor.state.lastMutationAt>=500;if(before){try{const next=fingerprint();if(next!==current){current=next;lastChangeAt=now}changed=next!==before;stable=changed&&now-lastChangeAt>=500}catch{changed=false;stable=false}}const networkReady=monitor.state.requested===0||monitor.state.pending===0;if(networkReady&&changed&&stable&&reloadReady())return}fail("DOM_UNRECOGNIZED")};
 const clickProduction=async(control,requireChange=false)=>{let before=null;if(requireChange){try{before=fingerprint()}catch{}}const monitor=armReload();try{control.click();await waitForReload(monitor,before)}finally{monitor.stop()}};
 const waitForNativeReload=async(control)=>{const monitor=await new Promise((resolve,reject)=>{const cleanup=()=>{clearTimeout(timeout);document.removeEventListener("pointerdown",start,true);document.removeEventListener("click",start,true)};const start=(event)=>{if(!event.isTrusted||!(event.target instanceof Node)||!control.contains(event.target))return;cleanup();resolve(armReload())};const timeout=setTimeout(()=>{cleanup();reject(new Error("DOM_UNRECOGNIZED"))},60000);document.addEventListener("pointerdown",start,true);document.addEventListener("click",start,true)});try{await waitForReload(monitor)}finally{monitor.stop()}};
 const sentDestination=()=>{const matches=(selector)=>[...document.querySelectorAll(selector)].filter(visible).filter(item=>/^(?:Fatture inviate|Documenti inviati|Inviate)$/i.test(normalized(item.textContent)));const semantic=matches('[role="menuitem"]');if(semantic.length===1)return semantic[0];if(semantic.length>1)fail("DOM_UNRECOGNIZED");const fallback=matches("a,button");if(fallback.length!==1)fail("DOM_UNRECOGNIZED");return fallback[0]};
@@ -91,7 +91,7 @@ const applyDateFilter=async(value)=>{const candidates=[...document.querySelector
 const selectStream=async(stream,overlapFrom)=>{
   await openInventory(stream);
   const synthetic=document.querySelector('[data-aruba-stream="'+CSS.escape(stream)+'"]');
-  if(synthetic){synthetic.click();await sleep(100);await applyDateFilter(overlapFrom);return true}
+  if(synthetic){synthetic.click();await sleep(100);if(overlapFrom)await applyDateFilter(overlapFrom);return true}
   if(document.querySelector('[data-aruba-state="inventory-ready"]'))return false;
   const parts=streamParts(stream);
   const yearControl=document.querySelector(".main-toolbar-info-fiscalyear");
@@ -104,7 +104,7 @@ const selectStream=async(stream,overlapFrom)=>{
   if(sent.classList.contains("x-treelist-item-selected")){
     const first=[...document.querySelectorAll(".aruba-grid-fatture-inviate .pagingtoolbar-first button")].filter(visible);if(first.length!==1)fail("DOM_UNRECOGNIZED");if(enabled(first[0]))await clickProduction(first[0],true);
   }else{setStatus("Seleziona Fatture inviate nel menu Aruba per continuare.");await waitForNativeReload(sent)}
-  await applyDateFilter(overlapFrom);
+  if(overlapFrom)await applyDateFilter(overlapFrom);
   productionNext();
   return true;
 };

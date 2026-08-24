@@ -688,21 +688,25 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
     <script>
       const requestKnownOnlyToAruba = window.fetch.bind(window);
       const grid = document.querySelector(".aruba-grid-fatture-inviate");
+      let currentPage = 1;
       document.querySelector("#apply-filter").addEventListener("click", () => {
         fetch("/filter").then(() => grid.setAttribute("data-filtered", "true"));
       });
       const next = grid.querySelector('button[aria-label*="nextPage"]');
       next.addEventListener("click", () => {
-        if (grid.getAttribute("data-page") === "1") {
+        if (currentPage === 1) {
+          currentPage = 2;
           const pending = fetch("/next-observable");
-          grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("15000000001", 15))};
+          const cells = grid.querySelector(".x-grid").querySelectorAll(".x-gridcell");
+          cells[5].firstChild.data = "FPR 15/${String(year).slice(-2)}";
+          cells[17].firstChild.data = "15000000001";
           pending.then(() => {
-            grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("20000000002", 2))};
-            grid.querySelector(".locked-grid-border-left").innerHTML = ${JSON.stringify(statusRow)};
-            grid.setAttribute("data-page", "2");
+            cells[5].firstChild.data = "FPR 2/${String(year).slice(-2)}";
+            cells[17].firstChild.data = "20000000002";
           });
           return;
         }
+        currentPage = 3;
         requestKnownOnlyToAruba("/next-hidden").then(() => {
           grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("30000000003", 3))};
           grid.querySelector(".locked-grid-border-left").innerHTML = ${JSON.stringify(statusRow)};

@@ -1227,7 +1227,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     "Sincronizzazione completata",
     { timeout: 30_000 },
   );
-  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).not.toHaveAttribute(
+  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).toHaveAttribute(
     "data-aruba-filter-revision",
     "0",
   );
