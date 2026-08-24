@@ -16,6 +16,7 @@ test("il preferito Aruba carica il lettore corrente senza contenere credenziali 
   assert.match(bookmarklet, /__HUB_FATTURE_ARUBA_BRIDGE__/);
   assert.match(bookmarklet, /document\.createElement\("script"\)/);
   assert.match(bookmarklet, /RUNTIME_BLOCKED/);
+  assert.doesNotMatch(bookmarklet, /HF_ARUBA_CHANNEL/);
   assert.doesNotMatch(bookmarklet, /\beval\s*\(|new Function/);
   assert.doesNotMatch(bookmarklet, /MutationObserver|sync\/pagine|ARUBA_ACCOUNT_MISMATCH/);
   assert.doesNotMatch(bookmarklet, /Bearer |Authorization|hub-fatture-helper:\/\//);
@@ -33,11 +34,11 @@ test("il lettore Aruba corrente conserva le guardie della sincronizzazione", () 
   assert.match(runtime, /if\(globalThis\[ACTIVE\]\)return/);
   assert.match(runtime, /globalThis\[ACTIVE\]=true/);
   assert.match(runtime, /const releaseRuntime=\(\)=>\{delete globalThis\[ACTIVE\]\}/);
+  assert.match(runtime, /TYPE\+"_CHANNEL"/);
+  assert.match(runtime, /bridgePort\?\.postMessage\(message\)/);
+  assert.match(runtime, /await channelReady/);
   assert.match(runtime, /const closeBridge=.*bridge\?\.close/);
-  assert.match(
-    runtime,
-    /removeEventListener\("message",onMessage\);\s*releaseRuntime\(\);\s*closeBridge\(\)/,
-  );
+  assert.doesNotMatch(runtime, /bridge\.postMessage\(message,HUB\)/);
   assert.doesNotMatch(runtime, /HF_ARUBA_HELLO|HF_ARUBA_START|waitForStart/);
   assert.match(runtime, /BROWSER_UNSUPPORTED/);
   assert.match(runtime, /Seleziona Fatture inviate/);

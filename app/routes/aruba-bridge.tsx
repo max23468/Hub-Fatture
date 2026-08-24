@@ -3,7 +3,7 @@ import { data } from "react-router";
 import type { Route } from "./+types/aruba-bridge";
 
 import { copy } from "../copy.it";
-import { claimArubaBridgeStart } from "../aruba-bridge-state.ts";
+import { claimArubaBridgeStart, openArubaBridgeChannel } from "../aruba-bridge-state.ts";
 import { privateRouteMeta } from "../metadata";
 import { ARUBA_PANEL_ORIGIN } from "../../src/aruba.ts";
 import { buildArubaBookmarkletRuntime } from "../../src/aruba-bookmarklet.ts";
@@ -68,8 +68,6 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
       return;
     }
 
-    const send = (message: Record<string, unknown>) =>
-      panel.postMessage(message, allowedPanelOrigin);
     const issueToken = () => {
       if (tokenRef.current) return Promise.resolve(tokenRef.current);
       if (issuingRef.current) return issuingRef.current;
@@ -98,20 +96,9 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
       return issuingRef.current;
     };
 
-    const receive = async (event: MessageEvent) => {
-      if (event.origin !== allowedPanelOrigin || event.source !== panel || !event.data) return;
-      if (event.data.type === `${bridgeType}_HELLO`) {
-        if (!claimArubaBridgeStart(startedRef)) return;
-        try {
-          await issueToken();
-          send({ type: `${bridgeType}_START`, runtimeSource });
-        } catch {
-          startedRef.current = false;
-          setStatus(copy.settings.arubaBridgeFailed);
-        }
-        return;
-      }
-      if (event.data.type !== `${bridgeType}_REQUEST`) return;
+    let requestPort: MessagePort | null = null;
+    const receiveRequest = async (event: MessageEvent) => {
+      if (!event.data || event.data.type !== `${bridgeType}_REQUEST`) return;
       const id = String(event.data.id ?? "");
       const method = String(event.data.method ?? "GET").toUpperCase();
       const path = String(event.data.path ?? "");
@@ -131,7 +118,7 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
         });
         if (!response.ok) {
           const failure = (await response.json().catch(() => ({}))) as { code?: unknown };
-          send({
+          requestPort?.postMessage({
             type: `${bridgeType}_RESPONSE`,
             id,
             ok: false,
@@ -140,14 +127,14 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
           return;
         }
         const payload = (await response.json()) as unknown;
-        send({
+        requestPort?.postMessage({
           type: `${bridgeType}_RESPONSE`,
           id,
           ok: true,
           payload,
         });
       } catch (error) {
-        send({
+        requestPort?.postMessage({
           type: `${bridgeType}_RESPONSE`,
           id,
           ok: false,
@@ -156,8 +143,35 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
       }
     };
 
+    const receive = async (event: MessageEvent) => {
+      if (
+        event.origin !== allowedPanelOrigin ||
+        event.source !== panel ||
+        event.data?.type !== `${bridgeType}_HELLO`
+      )
+        return;
+      if (!claimArubaBridgeStart(startedRef)) return;
+      try {
+        await issueToken();
+        requestPort = openArubaBridgeChannel({
+          onRequest: receiveRequest,
+          panel,
+          runtimeSource,
+          targetOrigin: allowedPanelOrigin,
+        });
+      } catch {
+        requestPort?.close();
+        requestPort = null;
+        startedRef.current = false;
+        setStatus(copy.settings.arubaBridgeFailed);
+      }
+    };
+
     window.addEventListener("message", receive);
-    return () => window.removeEventListener("message", receive);
+    return () => {
+      window.removeEventListener("message", receive);
+      requestPort?.close();
+    };
   }, [allowedPanelOrigin, csrfToken, runtimeSource]);
 
   return (
