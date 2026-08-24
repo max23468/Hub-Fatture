@@ -26,6 +26,7 @@ test("la prima configurazione Aruba non richiede installazioni tecniche", () => 
   assert.equal(copy.settings.arubaBookmarkletLabel, "Sincronizza Aruba");
   assert.doesNotMatch(copy.settings.arubaBookmarkletLabel, /↻/);
   assert.equal(copy.settings.arubaBookmarkletAccessibleLabel, "Sincronizza Aruba");
+  assert.match(copy.settings.arubaBookmarkletSaveHelp, /si aggiorna automaticamente/);
   assert.match(copy.settings.arubaBookmarkletSaveHelp, /non salva credenziali Aruba/);
   assert.match(copy.settings.arubaBookmarkletRunHelp, /Home.*seleziona Fatture inviate/);
   assert.equal(

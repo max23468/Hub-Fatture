@@ -16,7 +16,10 @@ import {
   selectStream,
   type ArubaReadManifest,
 } from "../../scripts/aruba-read-helper.ts";
-import { buildArubaBookmarklet } from "../../src/aruba-bookmarklet.ts";
+import {
+  buildArubaBookmarklet,
+  buildArubaBookmarkletRuntime,
+} from "../../src/aruba-bookmarklet.ts";
 
 const xml = "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml";
 
@@ -659,6 +662,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
   const year = new Date().getUTCFullYear();
   const hubOrigin = "https://hub-synthetic.invalid";
   const panelOrigin = "https://fatturazioneelettronica.aruba.it";
+  const runtimeSource = buildArubaBookmarkletRuntime({ hubOrigin, panelOrigin });
   await page.context().route(`${hubOrigin}/**`, (route) =>
     route.fulfill({
       contentType: "text/html",
@@ -667,7 +671,10 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
         addEventListener("message", (event) => {
           if (event.origin !== ${JSON.stringify(panelOrigin)} || !event.data) return;
           if (event.data.type === "HF_ARUBA_HELLO") {
-            event.source.postMessage({ type: "HF_ARUBA_START" }, ${JSON.stringify(panelOrigin)});
+            event.source.postMessage({
+              type: "HF_ARUBA_START",
+              runtimeSource: ${JSON.stringify(runtimeSource)}
+            }, ${JSON.stringify(panelOrigin)});
             return;
           }
           if (event.data.type !== "HF_ARUBA_REQUEST") return;
@@ -700,6 +707,9 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
     }
     await route.fulfill({
       contentType: route.request().url().endsWith("/base") ? "text/html" : "application/json",
+      headers: route.request().url().endsWith("/base")
+        ? { "Content-Security-Policy": "script-src 'unsafe-inline'" }
+        : undefined,
       body: route.request().url().endsWith("/base") ? "<html></html>" : "{}",
     });
   });
@@ -731,6 +741,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
       <div class="x-gridcell"></div>
     </div>`;
   await page.setContent(`
+    <meta http-equiv="Content-Security-Policy" content="script-src 'unsafe-inline'">
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <li role="menuitem" class="x-treelist-item-selected">Fatture inviate</li>
     <div data-reference="arubacombobox-filterDate" class="x-empty">
@@ -746,6 +757,12 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
       <section class="x-grid locked-grid-border-left">${statusRow}</section>
     </div>
     <script>
+      try {
+        new Function("return true")();
+        window.__unsafeEvalBlocked = false;
+      } catch {
+        window.__unsafeEvalBlocked = true;
+      }
       const requestKnownOnlyToAruba = window.fetch.bind(window);
       const grid = document.querySelector(".aruba-grid-fatture-inviate");
       let currentPage = 1;
@@ -775,6 +792,12 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
       });
     </script>
   `);
+
+  expect(
+    await page.evaluate(
+      () => (window as typeof window & { __unsafeEvalBlocked?: boolean }).__unsafeEvalBlocked,
+    ),
+  ).toBe(true);
 
   const popupPromise = page.waitForEvent("popup");
   const bookmarklet = buildArubaBookmarklet({ hubOrigin, panelOrigin });
