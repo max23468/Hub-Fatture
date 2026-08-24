@@ -28,6 +28,7 @@ export default [
   route("api/aruba/helper/verifica-invio", "routes/aruba-helper-send-authorization.ts"),
   route("api/aruba/sync/manifest", "routes/aruba-sync-manifest.ts"),
   route("api/aruba/sync/heartbeat", "routes/aruba-sync-heartbeat.ts"),
+  route("api/aruba/sync/verifica-account", "routes/aruba-sync-account-proof.ts"),
   route("api/aruba/sync/pagine", "routes/aruba-sync-page.ts"),
   route("api/aruba/sync/documenti/:remoteDocumentId/file", "routes/aruba-sync-document-file.ts"),
   route("api/aruba/sync/completa", "routes/aruba-sync-complete.ts"),

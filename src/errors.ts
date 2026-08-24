@@ -53,6 +53,7 @@ export const errorCatalog = {
   ARUBA_READ_SESSION_INVALID: "La sessione di sola lettura Aruba non è valida o è scaduta.",
   ARUBA_READ_SESSION_ACTIVE: "Una sincronizzazione Aruba è già attiva per questo account.",
   ARUBA_READ_SESSION_FORBIDDEN: "Solo il titolare può revocare le sessioni Aruba.",
+  ARUBA_ACCOUNT_MISMATCH: "L’account Aruba aperto non coincide con quello già collegato.",
   ARUBA_INVENTORY_INVALID: "L’inventario Aruba contiene dati non validi.",
   ARUBA_INVENTORY_INCOMPLETE: "La scansione Aruba non copre tutti gli stream richiesti.",
   ARUBA_INVENTORY_CONFLICT: "Aruba ha restituito dati incompatibili per lo stesso documento.",

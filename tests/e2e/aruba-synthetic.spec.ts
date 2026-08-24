@@ -679,6 +679,8 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
             };
           } else if (event.data.path === "/api/aruba/sync/preflight") {
             payload = { work: [] };
+          } else if (event.data.path === "/api/aruba/sync/verifica-account") {
+            payload = { verified: true, initialPairing: false };
           } else if (event.data.path === "/api/aruba/sync/pagine") {
             window.__pages.push(event.data.body);
           }
@@ -729,7 +731,6 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
       <div class="x-gridcell"></div>
     </div>`;
   await page.setContent(`
-    <div class="main-toolbar-info-user">synthetic-aruba-account</div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <li role="menuitem" class="x-treelist-item-selected">Fatture inviate</li>
     <div data-reference="arubacombobox-filterDate" class="x-empty">
