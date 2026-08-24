@@ -195,7 +195,6 @@ test("l’helper di lettura ripete la scansione completa e limita i download", a
     };
     const hub = new URL(`http://127.0.0.1:${address.port}`);
     await page.goto(manifest.panelUrl);
-    await page.locator("[data-aruba-filter-from]").fill(`${year - 1}-12-01`);
     await runArubaReadCycle(page, hub, token, manifest, 1);
     await expect(page.locator("[data-aruba-filter-from]")).toHaveValue("");
     await runArubaReadCycle(page, hub, token, manifest, 2);
@@ -212,6 +211,19 @@ test("l’helper di lettura ripete la scansione completa e limita i download", a
       server.close((error) => (error ? reject(error) : resolve())),
     );
   }
+});
+
+test("la lettura non altera un filtro data attivo", async ({ page }) => {
+  const year = new Date().getUTCFullYear();
+  await page.goto("/aruba-sintetica?scenario=inventory");
+  await page.locator("[data-aruba-filter-from]").fill(`${year}-08-01`);
+
+  await expect(selectStream(page, `invoices:${year}`)).rejects.toThrow("ARUBA_FILTER_ACTIVE");
+  await expect(page.locator("[data-aruba-filter-from]")).toHaveValue(`${year}-08-01`);
+  await expect(page.locator('[data-aruba-state="inventory-ready"]')).toHaveAttribute(
+    "data-aruba-filter-revision",
+    "0",
+  );
 });
 
 test("l'helper gestisce in sicurezza una challenge post-upload inattesa", async ({ page }) => {
@@ -336,6 +348,43 @@ test("il lettore di produzione correla le due griglie ExtJS e filtra il flusso f
   expect(result.files).toEqual([{ remoteId: "12345678901", kind: "ARUBA_XML", recordIndex: "0" }]);
 });
 
+test("il lettore usa lo stato del pulsante anche se la toolbar ExtJS risulta disabilitata", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  const primary = Array.from({ length: 23 }, (_, index) => {
+    const value =
+      index === 4
+        ? `10/08/${year}`
+        : index === 5
+          ? `FPR 1/${String(year).slice(-2)}`
+          : index === 7
+            ? "Cliente sintetico"
+            : index === 8
+              ? "TD01"
+              : index === 10
+                ? "123,45 €"
+                : index === 17
+                  ? "12345678901"
+                  : "";
+    return `<div class="x-gridcell">${value}</div>`;
+  }).join("");
+  await page.setContent(`
+    <div class="aruba-grid-fatture-inviate">
+      <section class="x-grid"><div class="x-gridrow" data-recordindex="0">${primary}</div></section>
+      <section class="x-grid locked-grid-border-left">
+        <div class="x-gridrow" data-recordindex="0"><div class="x-gridcell">Emessa e consegnata</div></div>
+      </section>
+      <div class="x-pagingtoolbar x-disabled" aria-disabled="true">
+        <div class="x-button"><button aria-label="{app.buttons.labels.nextPage}" aria-disabled="false"></button></div>
+      </div>
+    </div>
+  `);
+
+  const result = await readVisiblePage(page, `invoices:${year}`, 1, 1, "PRODUCTION");
+  expect(result.inventory.terminal).toBe(false);
+});
+
 test("il lettore Production recupera Cookiebot quando compare durante il click nativo", async ({
   page,
 }) => {
@@ -351,6 +400,7 @@ test("il lettore Production recupera Cookiebot quando compare durante il click n
     <div id="CybotCookiebotDialog" style="display:none;position:fixed;inset:0;z-index:10;background:white">
       <button id="CybotCookiebotDialogBodyButtonDecline">Rifiuta tutti</button>
     </div>
+    <div data-reference="arubacombobox-filterDate" class="x-empty"><input value=""></div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
     <li role="menuitem">Fatture inviate</li>
@@ -374,7 +424,7 @@ test("il lettore Production recupera Cookiebot quando compare durante il click n
     </script>
   `);
 
-  await selectStream(page, `invoices:${year}`, `${year}-01-01T00:00:00.000Z`);
+  await selectStream(page, `invoices:${year}`);
   await expect(page.locator("#CybotCookiebotDialog")).toHaveCount(0);
   const result = await readVisiblePage(page, `invoices:${year}`, 2, 1, "PRODUCTION");
   expect(result.inventory.documents).toEqual([]);
@@ -390,6 +440,7 @@ test("il lettore Production fallisce entro un limite se il click non genera rich
   );
   await page.goto("https://aruba-synthetic.invalid/base");
   await page.setContent(`
+    <div data-reference="arubacombobox-filterDate" class="x-empty"><input value=""></div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <li role="menuitem">Fatture inviate</li>
     <div class="aruba-grid-fatture-inviate">
@@ -411,6 +462,7 @@ test("il lettore Production riporta alla prima pagina uno stream già selezionat
   );
   await page.goto("https://aruba-synthetic.invalid/base");
   await page.setContent(`
+    <div data-reference="arubacombobox-filterDate" class="x-empty"><input value=""></div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <li role="menuitem" class="x-treelist-item-selected">Fatture inviate</li>
     <div class="aruba-grid-fatture-inviate">
@@ -475,6 +527,7 @@ test("il lettore Production attende il reload ExtJS prima di leggere il nuovo st
     </section>
     <span class="x-disabled" title="{app.buttons.labels.nextPage}"><button aria-disabled="true" disabled></button></span>`;
   await page.setContent(`
+    <div data-reference="arubacombobox-filterDate" class="x-empty"><input value=""></div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
     <li role="menuitem">Fatture inviate</li>
@@ -509,6 +562,7 @@ test("il lettore Production rifiuta una risposta dati HTTP fallita anche con tra
   );
   await page.goto("https://aruba-synthetic.invalid/base");
   await page.setContent(`
+    <div data-reference="arubacombobox-filterDate" class="x-empty"><input value=""></div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
     <li role="menuitem">Fatture inviate</li>
@@ -537,6 +591,7 @@ test("il lettore Production rifiuta una richiesta dati interrotta", async ({ pag
   );
   await page.goto("https://aruba-synthetic.invalid/base");
   await page.setContent(`
+    <div data-reference="arubacombobox-filterDate" class="x-empty"><input value=""></div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <button class="x-menuitem-sub-menu-mainToolbar">${year}</button>
     <li role="menuitem">Fatture inviate</li>
@@ -677,21 +732,22 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
     <div class="main-toolbar-info-user">synthetic-aruba-account</div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
     <li role="menuitem" class="x-treelist-item-selected">Fatture inviate</li>
-    <input name="dataDa" value="2020-01-01">
-    <button id="apply-filter">Applica</button>
+    <div data-reference="arubacombobox-filterDate" class="x-empty">
+      <input aria-label="Seleziona" readonly value="">
+    </div>
+    <button aria-label="RICERCA"></button>
     <div class="aruba-grid-fatture-inviate" data-page="1">
-      <div class="pagingtoolbar-first"><button disabled>Prima pagina</button></div>
+      <div class="x-pagingtoolbar x-disabled" aria-disabled="true">
+        <div class="pagingtoolbar-first"><button disabled>Prima pagina</button></div>
+        <button aria-label="{app.buttons.labels.nextPage}">Successiva</button>
+      </div>
       <section class="x-grid">${row("10000000001", 1)}</section>
       <section class="x-grid locked-grid-border-left">${statusRow}</section>
-      <button aria-label="{app.buttons.labels.nextPage}">Successiva</button>
     </div>
     <script>
       const requestKnownOnlyToAruba = window.fetch.bind(window);
       const grid = document.querySelector(".aruba-grid-fatture-inviate");
       let currentPage = 1;
-      document.querySelector("#apply-filter").addEventListener("click", () => {
-        fetch("/filter").then(() => grid.setAttribute("data-filtered", "true"));
-      });
       const next = grid.querySelector('button[aria-label*="nextPage"]');
       next.addEventListener("click", () => {
         if (currentPage === 1) {
@@ -728,10 +784,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
   await expect(page.locator("#hub-fatture-aruba-status")).toHaveText(
     "Sincronizzazione completata. Puoi tornare a Hub Fatture.",
   );
-  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute(
-    "data-filtered",
-    "true",
-  );
+  await expect(page.locator('[data-reference="arubacombobox-filterDate"] input')).toHaveValue("");
   await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute("data-page", "3");
   expect(
     await bridge.evaluate(() =>
@@ -772,6 +825,7 @@ test("il lettore Production completa il reload dell’anno prima di aprire lo st
   });
   await page.goto("https://aruba-synthetic.invalid/base");
   await page.setContent(`
+    <div data-reference="arubacombobox-filterDate" class="x-empty"><input value=""></div>
     <div class="main-toolbar-info-fiscalyear">Anno: ${targetYear + 1}<button>Anno</button></div>
     <button class="x-menuitem-sub-menu-mainToolbar">${targetYear}</button>
     <li role="menuitem">Fatture inviate</li>

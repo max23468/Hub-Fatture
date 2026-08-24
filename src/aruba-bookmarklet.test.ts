@@ -26,8 +26,10 @@ test("il preferito Aruba è autosufficiente e non contiene credenziali persisten
   assert.match(bookmarklet, /La pagina Aruba non ha completato il caricamento previsto/);
   assert.match(bookmarklet, /sync\/heartbeat/);
   assert.match(bookmarklet, /const fullScan=true/);
-  assert.match(bookmarklet, /selectStream\(stream,null\)/);
-  assert.match(bookmarklet, /await applyDateFilter\(overlapFrom\)/);
+  assert.match(bookmarklet, /selectStream\(stream\)/);
+  assert.match(bookmarklet, /arubacombobox-filterDate/);
+  assert.match(bookmarklet, /ARUBA_FILTER_ACTIVE/);
+  assert.doesNotMatch(bookmarklet, /applyDateFilter|input\[name=\\"dataDa\\"\]/);
   assert.match(bookmarklet, /\/api\/aruba\/sync\/termina/);
   assert.doesNotMatch(bookmarklet, /incrementalFrom|preflightFrom/);
   assert.doesNotMatch(bookmarklet, /Bearer |Authorization|hub-fatture-helper:\/\//);

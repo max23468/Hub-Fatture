@@ -1171,7 +1171,8 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   ).toBeVisible();
   const bookmarkletButton = bookmarklet.getByRole("link", { name: "Sincronizza Aruba" });
   await expect(bookmarkletButton).toHaveAttribute("href", /^javascript:/);
-  await expect(bookmarkletButton).toContainText("↻ Sincronizza Aruba");
+  await expect(bookmarkletButton).toHaveText("Sincronizza Aruba");
+  await expect(bookmarkletButton).not.toContainText("↻");
   const bookmarkletHref = await bookmarkletButton.getAttribute("href");
   expect(bookmarkletHref).toBeTruthy();
   await expect(bookmarklet).not.toContainText(/Node|npm|mise|Terminale|installer/i);
@@ -1227,7 +1228,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     "Sincronizzazione completata",
     { timeout: 30_000 },
   );
-  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).not.toHaveAttribute(
+  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).toHaveAttribute(
     "data-aruba-filter-revision",
     "0",
   );
