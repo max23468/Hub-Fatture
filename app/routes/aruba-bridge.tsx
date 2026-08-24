@@ -3,7 +3,11 @@ import { data } from "react-router";
 import type { Route } from "./+types/aruba-bridge";
 
 import { copy } from "../copy.it";
-import { claimArubaBridgeStart, openArubaBridgeChannel } from "../aruba-bridge-state.ts";
+import {
+  claimArubaBridgeStart,
+  openArubaBridgeChannel,
+  sendArubaBridgeRuntime,
+} from "../aruba-bridge-state.ts";
 import { privateRouteMeta } from "../metadata";
 import { ARUBA_PANEL_ORIGIN } from "../../src/aruba.ts";
 import { buildArubaBookmarkletRuntime } from "../../src/aruba-bookmarklet.ts";
@@ -143,20 +147,28 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
       }
     };
 
-    const receive = async (event: MessageEvent) => {
-      if (
-        event.origin !== allowedPanelOrigin ||
-        event.source !== panel ||
-        event.data?.type !== `${bridgeType}_HELLO`
-      )
+    const receive = (event: MessageEvent) => {
+      if (event.origin !== allowedPanelOrigin || event.source !== panel) return;
+      if (event.data?.type === `${bridgeType}_HELLO`) {
+        if (!claimArubaBridgeStart(startedRef)) return;
+        try {
+          sendArubaBridgeRuntime({
+            panel,
+            runtimeSource,
+            targetOrigin: allowedPanelOrigin,
+          });
+        } catch {
+          startedRef.current = false;
+          setStatus(copy.settings.arubaBridgeFailed);
+        }
         return;
-      if (!claimArubaBridgeStart(startedRef)) return;
+      }
+      if (event.data?.type !== `${bridgeType}_RUNTIME_READY` || !startedRef.current || requestPort)
+        return;
       try {
-        await issueToken();
         requestPort = openArubaBridgeChannel({
           onRequest: receiveRequest,
           panel,
-          runtimeSource,
           targetOrigin: allowedPanelOrigin,
         });
       } catch {

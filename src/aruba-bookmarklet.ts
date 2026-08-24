@@ -30,24 +30,25 @@ statusBox.setAttribute("role","status");
 statusBox.style.cssText="position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:min(360px,calc(100vw - 32px));padding:14px 16px;border:1px solid #3bc9db;border-radius:10px;background:#071f2b;color:#f7fbfc;font:600 14px/1.4 system-ui,-apple-system,sans-serif;box-shadow:0 12px 30px #0008;overflow-wrap:anywhere";
 document.body.append(statusBox);
 const setStatus=(message,error=false)=>{statusBox.textContent=message;statusBox.style.borderColor=error?"#ff7b72":"#3bc9db"};
-const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="ARUBA_ACCOUNT_MISMATCH"?"L’account Aruba aperto non coincide con quello già collegato a Hub Fatture.":code==="ARUBA_FILTER_ACTIVE"?"Rimuovi il filtro data nella pagina Aruba e riprova.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
+const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="ARUBA_ACCOUNT_MISMATCH"?"L’account Aruba aperto non coincide con quello già collegato a Hub Fatture.":code==="ARUBA_FILTER_ACTIVE"?"Rimuovi il filtro data nella pagina Aruba e riprova.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_CHANNEL_TIMEOUT"?"La finestra Hub Fatture non ha completato il collegamento. Chiudila e riprova.":code==="HUB_RESPONSE_TIMEOUT"?"Hub Fatture non ha risposto alla richiesta. Torna alle impostazioni e controlla lo stato della sincronizzazione.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
+let confirmBridgeChannel;
 const onPortMessage=(event)=>{
+  if(event.data?.type===TYPE+"_CHANNEL_READY"){confirmBridgeChannel();return}
   if(event.data?.type!==TYPE+"_RESPONSE")return;
   const item=pending.get(String(event.data.id));
   if(!item)return;
   clearTimeout(item.timeout);pending.delete(String(event.data.id));
   event.data.ok?item.resolve(event.data.payload):item.reject(new Error(event.data.code||"HUB_ERROR"));
 };
-let acceptBridgePort;
 let channelTimeout;
 const channelReady=new Promise((resolve,reject)=>{
-  acceptBridgePort=(port)=>{clearTimeout(channelTimeout);bridgePort=port;bridgePort.addEventListener("message",onPortMessage);bridgePort.start();resolve()};
-  channelTimeout=setTimeout(()=>reject(new Error("HUB_TIMEOUT")),10000);
+  confirmBridgeChannel=()=>{clearTimeout(channelTimeout);resolve()};
+  channelTimeout=setTimeout(()=>reject(new Error("HUB_CHANNEL_TIMEOUT")),20000);
 });
 const onChannel=(event)=>{
-  if(event.origin!==HUB||event.data?.type!==TYPE+"_CHANNEL"||!(event.data.port instanceof MessagePort))return;
+  if(event.origin!==HUB||event.data?.type!==TYPE+"_CHANNEL"||!(event.data.port instanceof MessagePort)||bridgePort)return;
   removeEventListener("message",onChannel);
-  acceptBridgePort(event.data.port);
+  bridgePort=event.data.port;bridgePort.addEventListener("message",onPortMessage);bridgePort.start();
 };
 addEventListener("message",onChannel);
 const post=(message)=>bridgePort?.postMessage(message);
@@ -55,7 +56,7 @@ const closeBridge=()=>{clearTimeout(channelTimeout);removeEventListener("message
 const releaseRuntime=()=>{delete globalThis[ACTIVE]};
 const rpc=(path,method="GET",body)=>new Promise((resolve,reject)=>{
   const id=String(++sequence);
-  const timeout=setTimeout(()=>{pending.delete(id);reject(new Error("HUB_TIMEOUT"))},30000);
+  const timeout=setTimeout(()=>{pending.delete(id);reject(new Error("HUB_RESPONSE_TIMEOUT"))},30000);
   pending.set(id,{resolve,reject,timeout});
   post({type:TYPE+"_REQUEST",id,path,method,body});
 });
@@ -127,6 +128,7 @@ try{
   setStatus("Collegamento sicuro a Hub Fatture…");
   bridge=bridge||open(HUB+"/aruba-ponte","hub_fatture_aruba_bridge","popup,width=520,height=620");
   if(!bridge)fail("POPUP_BLOCKED");
+  bridge.postMessage({type:TYPE+"_RUNTIME_READY"},HUB);
   await channelReady;
   const manifest=await rpc("/api/aruba/sync/manifest");
   const preflight=await rpc("/api/aruba/sync/preflight");

@@ -656,7 +656,7 @@ test("il lettore Production attende la stabilizzazione completa della pagina suc
   await expect(page.locator(".x-gridrow").nth(1)).toContainText("20000000002");
 });
 
-test("il preferito usa un solo canale dedicato e chiude il ponte dopo un errore", async ({
+test("il preferito conferma l’avvio prima del canale e chiude il ponte dopo un errore", async ({
   page,
 }) => {
   const hubOrigin = "https://hub-synthetic.invalid";
@@ -676,7 +676,16 @@ test("il preferito usa un solo canale dedicato e chiude il ponte dopo un errore"
           if (event.data.type === "HF_ARUBA_HELLO") {
             if (window.__startScheduled) return;
             window.__startScheduled = true;
-            const panel = event.source;
+            window.__panel = event.source;
+            event.source.postMessage({
+              type: "HF_ARUBA_START",
+              runtimeSource: ${JSON.stringify(runtimeSource)}
+            }, ${JSON.stringify(panelOrigin)});
+            return;
+          }
+          if (event.data.type === "HF_ARUBA_RUNTIME_READY") {
+            if (window.__channelSent) return;
+            window.__channelSent = true;
             setTimeout(() => {
               const channel = new MessageChannel();
               channel.port1.addEventListener("message", (requestEvent) => {
@@ -696,14 +705,11 @@ test("il preferito usa un solo canale dedicato e chiude il ponte dopo un errore"
                 respond();
               });
               channel.port1.start();
-              panel.postMessage({
-                type: "HF_ARUBA_START",
-                runtimeSource: ${JSON.stringify(runtimeSource)}
-              }, ${JSON.stringify(panelOrigin)});
-              panel.postMessage({
+              window.__panel.postMessage({
                 type: "HF_ARUBA_CHANNEL",
                 port: channel.port2
               }, ${JSON.stringify(panelOrigin)}, [channel.port2]);
+              channel.port1.postMessage({ type: "HF_ARUBA_CHANNEL_READY" });
             }, 100);
             return;
           }
@@ -752,7 +758,16 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           if (event.data.type === "HF_ARUBA_HELLO") {
             if (window.__startSent) return;
             window.__startSent = true;
-            const panel = event.source;
+            window.__panel = event.source;
+            event.source.postMessage({
+              type: "HF_ARUBA_START",
+              runtimeSource: ${JSON.stringify(runtimeSource)}
+            }, ${JSON.stringify(panelOrigin)});
+            return;
+          }
+          if (event.data.type === "HF_ARUBA_RUNTIME_READY") {
+            if (window.__channelSent) return;
+            window.__channelSent = true;
             const channel = new MessageChannel();
             channel.port1.addEventListener("message", (requestEvent) => {
               const request = requestEvent.data;
@@ -778,14 +793,11 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
               });
             });
             channel.port1.start();
-            panel.postMessage({
-              type: "HF_ARUBA_START",
-              runtimeSource: ${JSON.stringify(runtimeSource)}
-            }, ${JSON.stringify(panelOrigin)});
-            panel.postMessage({
+            window.__panel.postMessage({
               type: "HF_ARUBA_CHANNEL",
               port: channel.port2
             }, ${JSON.stringify(panelOrigin)}, [channel.port2]);
+            channel.port1.postMessage({ type: "HF_ARUBA_CHANNEL_READY" });
             return;
           }
         });

@@ -30,9 +30,13 @@ export const arubaSettingsCopy = {
         ? "La pagina Aruba non ha completato il caricamento previsto"
         : code === "READ_SYNC_FAILED"
           ? "La lettura si è interrotta prima del completamento"
-          : code === "HUB_TIMEOUT" || code === "HUB_BRIDGE_TIMEOUT"
-            ? "Il collegamento con Hub Fatture è scaduto"
-            : "Errore di sincronizzazione non disponibile",
+          : code === "HUB_CHANNEL_TIMEOUT"
+            ? "La finestra Hub Fatture non ha completato il collegamento"
+            : code === "HUB_RESPONSE_TIMEOUT"
+              ? "Hub Fatture non ha risposto alla richiesta"
+              : code === "HUB_TIMEOUT" || code === "HUB_BRIDGE_TIMEOUT"
+                ? "Il collegamento con Hub Fatture è scaduto"
+                : "Errore di sincronizzazione non disponibile",
   arubaBookmarkletTitle: "Configura una volta il preferito",
   arubaBookmarkletHelp:
     "Non devi installare nulla. Funziona con Safari, Chrome o Edge su computer.",
