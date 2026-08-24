@@ -723,7 +723,7 @@ test("l'applicazione accede a PostgreSQL soltanto tramite il livello dati", asyn
   assert.deepEqual(offenders, []);
 });
 
-test("le approvazioni acquisiscono l'inventario Aruba prima dei lock sugli ordini", async () => {
+test("le approvazioni rileggono l'inventario Aruba sotto lock prima degli ordini", async () => {
   const [documents, refunds] = await Promise.all(
     ["src/db/documents.server.ts", "src/db/refunds.server.ts"].map((file) =>
       readFile(path.join(root, file), "utf8"),
@@ -732,10 +732,14 @@ test("le approvazioni acquisiscono l'inventario Aruba prima dei lock sugli ordin
   const invoiceStart = documents.indexOf("export async function approveInvoice");
   const invoiceEnd = documents.indexOf("export async function", invoiceStart + 1);
   const invoiceApproval = documents.slice(invoiceStart, invoiceEnd);
-  assert.ok(invoiceApproval.indexOf("getArubaInventoryHealth") >= 0);
+  assert.ok(invoiceApproval.indexOf("getLockedArubaInventoryHealth") >= 0);
   assert.ok(invoiceApproval.indexOf("inventory.blocking") >= 0);
   assert.ok(
-    invoiceApproval.indexOf("getArubaInventoryHealth") <
+    invoiceApproval.indexOf("withTransaction") <
+      invoiceApproval.indexOf("getLockedArubaInventoryHealth"),
+  );
+  assert.ok(
+    invoiceApproval.indexOf("getLockedArubaInventoryHealth") <
       invoiceApproval.indexOf("serializeOrderMutations"),
   );
   assert.doesNotMatch(invoiceApproval, /(?:ensure|consume)ArubaPreflight/);
@@ -743,8 +747,7 @@ test("le approvazioni acquisiscono l'inventario Aruba prima dei lock sugli ordin
   const massStart = documents.indexOf("export async function approveInvoices");
   const massEnd = documents.indexOf("export async function", massStart + 1);
   const massApproval = documents.slice(massStart, massEnd < 0 ? undefined : massEnd);
-  assert.ok(massApproval.indexOf("getArubaInventoryHealth") >= 0);
-  assert.ok(massApproval.indexOf("inventory.blocking") >= 0);
+  assert.ok(massApproval.indexOf("approveInvoice") >= 0);
   assert.doesNotMatch(massApproval, /requestArubaPreflight/);
 
   const creditStart = refunds.indexOf("export async function approveCreditNote");

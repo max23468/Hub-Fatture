@@ -1461,13 +1461,14 @@ test(
       assert.ok(
         blockedProjection && !blockedProjection.profileMissing && "lines" in blockedProjection,
       );
-      await database.getPool().query(
-        `UPDATE aruba_sync_sessions
-         SET completed_at = now() - interval '25 hours',
-             full_scan_completed_at = now() - interval '25 hours'`,
-      );
-      await assert.rejects(
-        documents.approveInvoice(
+      const inventoryLock = await database.getPool().connect();
+      await inventoryLock.query("BEGIN");
+      await inventoryLock.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        "aruba-read:MOCK:synthetic-aruba-account",
+      ]);
+      let approvalSettled = false;
+      const blockedApproval = documents
+        .approveInvoice(
           blockedCase.id,
           {
             caseRevision: blockedProjection.caseRevision,
@@ -1479,9 +1480,29 @@ test(
             emailModeVersion: blockedProjection.customerEmail.version,
           },
           { id: 1, canApprove: true, requestId: "documents-blocked-inventory" },
-        ),
-        (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
+        )
+        .then(
+          (value) => ({ value, error: null }),
+          (error: unknown) => ({ value: null, error }),
+        )
+        .finally(() => {
+          approvalSettled = true;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      assert.equal(approvalSettled, false);
+      await inventoryLock.query(
+        `UPDATE aruba_sync_sessions
+         SET completed_at = now() - interval '25 hours',
+             full_scan_completed_at = now() - interval '25 hours'`,
       );
+      await inventoryLock.query("COMMIT");
+      inventoryLock.release();
+      const blockedOutcome = await blockedApproval;
+      assert.ok(
+        blockedOutcome.error instanceof AppError &&
+          blockedOutcome.error.code === "ARUBA_INVENTORY_BLOCKED",
+      );
+      assert.equal(blockedOutcome.value, null);
       assert.equal(
         (
           await database

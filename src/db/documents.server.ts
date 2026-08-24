@@ -23,7 +23,7 @@ import { getConfig } from "../config.server.ts";
 import { escapeLike, PAGE_SIZE, pageOffset, paginate } from "../orders.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { writeAudit } from "./audit.server.ts";
-import { getArubaInventoryHealth } from "./aruba-inbound.server.ts";
+import { getArubaInventoryHealth, getLockedArubaInventoryHealth } from "./aruba-inbound.server.ts";
 import { createArubaBatch, getArubaSettings } from "./aruba.server.ts";
 import {
   customerEmailChoiceSchema,
@@ -880,8 +880,6 @@ export async function approveInvoice(
   const caseRevision = integer(raw.caseRevision);
   const draftVersion = integer(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
-  const inventory = await getArubaInventoryHealth();
-  if (inventory.blocking) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   let committed: {
     id: string;
     fiscalNumber: string;
@@ -894,6 +892,8 @@ export async function approveInvoice(
       await client.query(
         "SELECT pg_advisory_xact_lock_shared(hashtext('setting:shopify_payment_fee_mode'))",
       );
+      const inventory = await getLockedArubaInventoryHealth(client);
+      if (inventory.blocking) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
       await serializeOrderMutations(client);
       await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
       const caseRow = await loadCase(client, caseId, true);
@@ -1434,8 +1434,6 @@ export async function approveInvoices(
   if (!rawCandidates.length || rawCandidates.length > 100) {
     throw new AppError("DOCUMENT_INVALID", 422);
   }
-  const inventory = await getArubaInventoryHealth();
-  if (inventory.blocking) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   const arubaMode = arubaModeSchema.safeParse(rawArubaMode);
   if (!arubaMode.success) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
   const candidates = [
