@@ -671,6 +671,8 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
         addEventListener("message", (event) => {
           if (event.origin !== ${JSON.stringify(panelOrigin)} || !event.data) return;
           if (event.data.type === "HF_ARUBA_HELLO") {
+            if (window.__startSent) return;
+            window.__startSent = true;
             event.source.postMessage({
               type: "HF_ARUBA_START",
               runtimeSource: ${JSON.stringify(runtimeSource)}

@@ -26,7 +26,7 @@ statusBox.setAttribute("role","status");
 statusBox.style.cssText="position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:min(360px,calc(100vw - 32px));padding:14px 16px;border:1px solid #3bc9db;border-radius:10px;background:#071f2b;color:#f7fbfc;font:600 14px/1.4 system-ui,-apple-system,sans-serif;box-shadow:0 12px 30px #0008;overflow-wrap:anywhere";
 document.body.append(statusBox);
 const setStatus=(message,error=false)=>{statusBox.textContent=message;statusBox.style.borderColor=error?"#ff7b72":"#3bc9db"};
-const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="ARUBA_ACCOUNT_MISMATCH"?"L’account Aruba aperto non coincide con quello già collegato a Hub Fatture.":code==="ARUBA_FILTER_ACTIVE"?"Rimuovi il filtro data nella pagina Aruba e riprova.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"||code==="HUB_BRIDGE_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
+const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="ARUBA_ACCOUNT_MISMATCH"?"L’account Aruba aperto non coincide con quello già collegato a Hub Fatture.":code==="ARUBA_FILTER_ACTIVE"?"Rimuovi il filtro data nella pagina Aruba e riprova.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
 const post=(message)=>bridge&&bridge.postMessage(message,HUB);
 const rpc=(path,method="GET",body)=>new Promise((resolve,reject)=>{
   const id=String(++sequence);
@@ -44,16 +44,6 @@ const onMessage=(event)=>{
   }
 };
 addEventListener("message",onMessage);
-const waitForStart=()=>new Promise((resolve,reject)=>{
-  let hello;
-  const timeout=setTimeout(()=>{clearInterval(hello);reject(new Error("HUB_BRIDGE_TIMEOUT"))},60000);
-  const receive=(event)=>{
-    if(event.origin!==HUB||event.source!==bridge||event.data?.type!==TYPE+"_START")return;
-    clearTimeout(timeout);clearInterval(hello);removeEventListener("message",receive);resolve(event.data);
-  };
-  addEventListener("message",receive);
-  hello=setInterval(()=>post({type:TYPE+"_HELLO"}),400);
-});
 const integer=(value)=>{const parsed=Number(value);if(!Number.isInteger(parsed)||parsed<0)fail("DOM_UNRECOGNIZED");return parsed};
 const italianDate=(value)=>{const match=String(value).match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);if(!match)fail("DOM_UNRECOGNIZED");return match[3]+"-"+match[2]+"-"+match[1]};
 const italianAmount=(value)=>{const match=String(value).match(/(?:€\s*)?(-?\d{1,3}(?:\.\d{3})*|\d+),(\d{2})(?:\s*€)?/);if(!match)fail("DOM_UNRECOGNIZED");const cents=Number(match[1].replaceAll(".","")+match[2]);if(!Number.isSafeInteger(cents)||cents<0)fail("DOM_UNRECOGNIZED");return cents};
@@ -122,7 +112,6 @@ try{
   setStatus("Collegamento sicuro a Hub Fatture…");
   bridge=bridge||open(HUB+"/aruba-ponte","hub_fatture_aruba_bridge","popup,width=520,height=620");
   if(!bridge)fail("POPUP_BLOCKED");
-  await waitForStart();
   const manifest=await rpc("/api/aruba/sync/manifest");
   const preflight=await rpc("/api/aruba/sync/preflight");
   const browser=browserName();
