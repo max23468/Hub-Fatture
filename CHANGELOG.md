@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.60
+
+- La sincronizzazione Aruba completa tutte le pagine anche quando il pannello aggiorna la griglia tramite richieste create prima dell’avvio del preferito: attende le richieste osservabili e usa come fallback il cambio stabile dei documenti mostrati.
+- Gli errori di lettura più comuni indicano ora come riprovare, senza esporre codici tecnici al posto di un’azione correttiva.
+
 ## 0.3.59
 
 - Il preferito Aruba può avviare la sincronizzazione anche dalla Home: accompagna l’utente a Fatture inviate e acquisisce soltanto la richiesta prodotta dal clic esplicito.
