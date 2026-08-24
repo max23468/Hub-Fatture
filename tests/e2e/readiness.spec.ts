@@ -627,6 +627,45 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   await expectPlainLanguage(page);
   await expect(page.getByText("Preparazione fattura creata")).toBeVisible();
   await expect(page.getByText("BILLING_CASE_CREATED")).toHaveCount(0);
+  const preparationOverview = page.locator(".preparation-overview__card");
+  await expect(preparationOverview).toHaveCount(1);
+  const overviewGeometry = await preparationOverview.evaluate((overview) => {
+    const orders = overview.querySelector<HTMLElement>(".preparation-overview__orders");
+    const ordersHeading = orders?.querySelector<HTMLElement>("h3");
+    const facts = overview.querySelector<HTMLElement>(".preparation-overview__facts");
+    const action = overview.querySelector<HTMLElement>(".preparation-overview__action");
+    const input = overview.querySelector<HTMLInputElement>("input[name='reason']");
+    const button = overview.querySelector<HTMLButtonElement>("button.button--warning");
+    if (!orders || !ordersHeading || !facts || !action || !input || !button) return null;
+    const overviewBox = overview.getBoundingClientRect();
+    const ordersBox = orders.getBoundingClientRect();
+    const factsBox = facts.getBoundingClientRect();
+    const actionBox = action.getBoundingClientRect();
+    const inputBox = input.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    return {
+      actionSpansContent: actionBox.left <= ordersBox.left && actionBox.right >= ordersBox.right,
+      buttonAlignment: Math.abs(inputBox.bottom - buttonBox.bottom),
+      bottomGap: overviewBox.bottom - actionBox.bottom,
+      factsAboveOrders: factsBox.bottom <= ordersBox.top,
+      headingCount: overview.querySelectorAll(":scope > h2").length,
+      ordersHeadingGap: ordersHeading.getBoundingClientRect().top - ordersBox.top,
+    };
+  });
+  expect(overviewGeometry).not.toBeNull();
+  expect(overviewGeometry?.actionSpansContent).toBe(true);
+  expect(overviewGeometry?.buttonAlignment ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(1);
+  expect(overviewGeometry?.bottomGap ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(36);
+  expect(overviewGeometry?.factsAboveOrders).toBe(true);
+  expect(overviewGeometry?.headingCount).toBe(1);
+  expect(overviewGeometry?.ordersHeadingGap ?? 0).toBeGreaterThanOrEqual(24);
+  const initialActivityDates = await page
+    .locator(".preparation-activity__timeline time")
+    .evaluateAll((dates) => dates.map((item) => item.getBoundingClientRect().right));
+  expect(initialActivityDates.length).toBeGreaterThan(1);
+  expect(Math.max(...initialActivityDates) - Math.min(...initialActivityDates)).toBeLessThanOrEqual(
+    1,
+  );
   await page.getByLabel(/^Motivo della scelta/).fill("Ordine di test");
   await page.getByRole("button", { name: "Non trasmettere" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Ordine di test" })).toBeVisible();
@@ -1187,6 +1226,11 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(activityBox!.y).toBeGreaterThanOrEqual(
     Math.max(inventoryBox!.y + inventoryBox!.height, approvalBox!.y + approvalBox!.height),
   );
+  const activityDates = await page
+    .locator(".preparation-activity__timeline time")
+    .evaluateAll((dates) => dates.map((item) => item.getBoundingClientRect().right));
+  expect(activityDates.length).toBeGreaterThan(1);
+  expect(Math.max(...activityDates) - Math.min(...activityDates)).toBeLessThanOrEqual(1);
   await compactLayoutClient.query(`UPDATE billing_cases SET status = 'READY' WHERE id = $1`, [
     preparationId,
   ]);
