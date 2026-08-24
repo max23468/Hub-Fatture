@@ -598,7 +598,7 @@ test("il lettore Production attende la stabilizzazione completa della pagina suc
   await expect(page.locator(".x-gridrow").nth(1)).toContainText("20000000002");
 });
 
-test("il preferito completa la paginazione quando Aruba usa una richiesta non intercettabile", async ({
+test("il preferito attende la rete osservabile e usa il DOM come fallback di paginazione", async ({
   page,
 }) => {
   const year = new Date().getUTCFullYear();
@@ -637,12 +637,15 @@ test("il preferito completa la paginazione quando Aruba usa una richiesta non in
       </script>`,
     }),
   );
-  await page.route(`${panelOrigin}/**`, (route) =>
-    route.fulfill({
+  await page.route(`${panelOrigin}/**`, async (route) => {
+    if (route.request().url().endsWith("/next-observable")) {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    }
+    await route.fulfill({
       contentType: route.request().url().endsWith("/base") ? "text/html" : "application/json",
       body: route.request().url().endsWith("/base") ? "<html></html>" : "{}",
-    }),
-  );
+    });
+  });
   await page.goto(`${panelOrigin}/base`);
   const row = (remoteId: string, fiscalNumber: number) => `
     <div class="x-gridrow" data-recordindex="0">
@@ -690,10 +693,20 @@ test("il preferito completa la paginazione quando Aruba usa una richiesta non in
       });
       const next = grid.querySelector('button[aria-label*="nextPage"]');
       next.addEventListener("click", () => {
-        requestKnownOnlyToAruba("/next").then(() => {
-          grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("20000000002", 2))};
+        if (grid.getAttribute("data-page") === "1") {
+          const pending = fetch("/next-observable");
+          grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("15000000001", 15))};
+          pending.then(() => {
+            grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("20000000002", 2))};
+            grid.querySelector(".locked-grid-border-left").innerHTML = ${JSON.stringify(statusRow)};
+            grid.setAttribute("data-page", "2");
+          });
+          return;
+        }
+        requestKnownOnlyToAruba("/next-hidden").then(() => {
+          grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("30000000003", 3))};
           grid.querySelector(".locked-grid-border-left").innerHTML = ${JSON.stringify(statusRow)};
-          grid.setAttribute("data-page", "2");
+          grid.setAttribute("data-page", "3");
           next.disabled = true;
         });
       });
@@ -709,7 +722,7 @@ test("il preferito completa la paginazione quando Aruba usa una richiesta non in
   await expect(page.locator("#hub-fatture-aruba-status")).toHaveText(
     "Sincronizzazione completata. Puoi tornare a Hub Fatture.",
   );
-  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute("data-page", "2");
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute("data-page", "3");
   expect(
     await bridge.evaluate(() =>
       (
@@ -728,7 +741,8 @@ test("il preferito completa la paginazione quando Aruba usa una richiesta non in
     ),
   ).toEqual([
     { pageOrdinal: 1, terminal: false, remoteIds: ["10000000001"] },
-    { pageOrdinal: 2, terminal: true, remoteIds: ["20000000002"] },
+    { pageOrdinal: 2, terminal: false, remoteIds: ["20000000002"] },
+    { pageOrdinal: 3, terminal: true, remoteIds: ["30000000003"] },
   ]);
 });
 
