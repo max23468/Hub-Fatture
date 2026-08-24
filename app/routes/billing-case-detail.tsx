@@ -838,12 +838,14 @@ function ActivityCard({
     <section className="card preparation-activity">
       <h2>{copy.preparation.activity}</h2>
       {audit.length ? (
-        <ol className="timeline">
+        <ol className="timeline preparation-activity__timeline">
           {audit.map((event) => (
             <li key={event.id}>
-              <strong>{auditActionLabel(event.action) ?? copy.activity.recorded}</strong>
-              <span>{dateTime(event.created_at)}</span>
-              {event.reason ? <span>{event.reason}</span> : null}
+              <div className="preparation-activity__event">
+                <strong>{auditActionLabel(event.action) ?? copy.activity.recorded}</strong>
+                {event.reason ? <span>{event.reason}</span> : null}
+              </div>
+              <time dateTime={event.created_at}>{dateTime(event.created_at)}</time>
             </li>
           ))}
         </ol>
@@ -909,60 +911,9 @@ export default function BillingCaseDetail() {
       <div
         className={`detail-grid preparation-overview${billingCase.anomalies.length ? " section-gap" : ""}`}
       >
-        <section className="card">
-          <h2>{copy.preparation.includedOrders}</h2>
-          <ul className="plain-list">
-            {billingCase.orders.map((order) => (
-              <li key={order.id}>
-                <Link to={`/ordini/${order.id}`}>
-                  {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
-                </Link>
-                <span>
-                  {paymentStatusLabels[order.payment_status] ?? "Pagamento da verificare"} ·{" "}
-                  {euros(order.billable_amount)}
-                  {order.deducted_shopify_payments_fee_amount > 0
-                    ? ` · commissione Shopify Payments −${euros(order.deducted_shopify_payments_fee_amount)}`
-                    : ""}
-                </span>
-                {editable && billingCase.orders.length > 1 ? (
-                  <Form method="post">
-                    {csrfField}
-                    {revisionField}
-                    <input type="hidden" name="intent" value="separate-order" />
-                    <input type="hidden" name="orderId" value={order.id} />
-                    <button className="button button--secondary" type="submit">
-                      Separa dalla preparazione
-                    </button>
-                  </Form>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {editable && billingCase.addableOrders.length ? (
-            <Form method="post" className="inline-form section-gap">
-              {csrfField}
-              {revisionField}
-              <input type="hidden" name="intent" value="add-order" />
-              <label>
-                Aggiungi un ordine compatibile
-                <select name="orderId">
-                  {billingCase.addableOrders.map((order) => (
-                    <option key={order.id} value={order.id}>
-                      {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number} ·{" "}
-                      {euros(order.billable_amount)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button className="button button--secondary" type="submit">
-                Aggiungi
-              </button>
-            </Form>
-          ) : null}
-        </section>
-        <section className="card">
+        <section className="card preparation-overview__card">
           <h2>{copy.preparation.summary}</h2>
-          <dl className="facts">
+          <dl className="facts preparation-overview__facts">
             <div>
               <dt>{copy.preparation.currentStatus}</dt>
               <dd>{billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus}</dd>
@@ -984,8 +935,59 @@ export default function BillingCaseDetail() {
               </dd>
             </div>
           </dl>
+          <div className="preparation-overview__orders">
+            <h3>{copy.preparation.includedOrders}</h3>
+            <ul className="plain-list">
+              {billingCase.orders.map((order) => (
+                <li key={order.id}>
+                  <Link to={`/ordini/${order.id}`}>
+                    {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
+                  </Link>
+                  <span>
+                    {paymentStatusLabels[order.payment_status] ?? "Pagamento da verificare"} ·{" "}
+                    {euros(order.billable_amount)}
+                    {order.deducted_shopify_payments_fee_amount > 0
+                      ? ` · commissione Shopify Payments −${euros(order.deducted_shopify_payments_fee_amount)}`
+                      : ""}
+                  </span>
+                  {editable && billingCase.orders.length > 1 ? (
+                    <Form method="post">
+                      {csrfField}
+                      {revisionField}
+                      <input type="hidden" name="intent" value="separate-order" />
+                      <input type="hidden" name="orderId" value={order.id} />
+                      <button className="button button--secondary" type="submit">
+                        Separa dalla preparazione
+                      </button>
+                    </Form>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {editable && billingCase.addableOrders.length ? (
+              <Form method="post" className="inline-form section-gap">
+                {csrfField}
+                {revisionField}
+                <input type="hidden" name="intent" value="add-order" />
+                <label>
+                  Aggiungi un ordine compatibile
+                  <select name="orderId">
+                    {billingCase.addableOrders.map((order) => (
+                      <option key={order.id} value={order.id}>
+                        {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number} ·{" "}
+                        {euros(order.billable_amount)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="button button--secondary" type="submit">
+                  Aggiungi
+                </button>
+              </Form>
+            ) : null}
+          </div>
           {billingCase.status === "DO_NOT_TRANSMIT" && !billingCase.reactivation_blocker ? (
-            <Form method="post" className="section-gap">
+            <Form method="post" className="preparation-overview__action">
               {csrfField}
               {revisionField}
               <input type="hidden" name="intent" value="reactivate" />
@@ -994,32 +996,33 @@ export default function BillingCaseDetail() {
               </button>
             </Form>
           ) : billingCase.status === "DO_NOT_TRANSMIT" ? (
-            <p className="notice section-gap">
+            <p className="notice preparation-overview__action">
               {reactivationBlockerMessages[billingCase.reactivation_blocker ?? ""] ??
                 copy.preparation.archivedOnly}
             </p>
           ) : editable ? (
-            <Form method="post" className="section-gap">
+            <Form
+              method="post"
+              className="preparation-overview__action preparation-overview__archive-form"
+            >
               {csrfField}
               {revisionField}
               <input type="hidden" name="intent" value="do-not-transmit" />
-              <div className="field-with-help">
-                <label>
-                  {copy.preparation.reason}
-                  <input
-                    aria-describedby={error ? "case-error reason-help" : "reason-help"}
-                    aria-invalid={error ? true : undefined}
-                    maxLength={500}
-                    name="reason"
-                    required
-                  />
-                </label>
-                <small className="field-help" id="reason-help">
-                  {copy.preparation.reasonHelp}
-                </small>
-              </div>
+              <label className="preparation-overview__archive-field">
+                {copy.preparation.reason}
+                <input
+                  aria-describedby={error ? "case-error reason-help" : "reason-help"}
+                  aria-invalid={error ? true : undefined}
+                  maxLength={500}
+                  name="reason"
+                  required
+                />
+              </label>
+              <small className="field-help preparation-overview__archive-help" id="reason-help">
+                {copy.preparation.reasonHelp}
+              </small>
               {error ? (
-                <p className="error" id="case-error">
+                <p className="error preparation-overview__archive-error" id="case-error">
                   {error.message}
                 </p>
               ) : null}

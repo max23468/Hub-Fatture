@@ -1870,9 +1870,9 @@ tbody tr:last-child td {
 }
 
 .source-revisions__confirmation {
-  margin-top: var(--space-5);
+  margin-top: var(--space-6);
   border-top: 1px solid var(--color-border);
-  padding-top: var(--space-5);
+  padding-top: var(--space-6);
 }
 
 .source-revisions__confirmation p {

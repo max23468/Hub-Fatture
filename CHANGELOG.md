@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.69
+
+- Il riepilogo della preparazione usa una sola gerarchia visiva: dati sintetici, ordini e azione occupano tutta la larghezza utile senza colonne sbilanciate, mentre campo e pulsante restano allineati su desktop e si impilano senza overflow su mobile.
+- Il registro mantiene evento, nota e data in colonne coerenti. I separatori recuperano inoltre la spaziatura prevista sostituendo il token inesistente che annullava il distacco sopra “Ordini inclusi” e nelle conferme delle revisioni.
+
 ## 0.3.68
 
 - La finestra di collegamento risponde una sola volta ai segnali ravvicinati e la pagina Aruba consente una sola copia attiva del lettore, impedendo che più clic si contendano le stesse risposte e restino in attesa.
