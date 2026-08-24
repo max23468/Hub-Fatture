@@ -16,6 +16,7 @@ import {
   selectStream,
   type ArubaReadManifest,
 } from "../../scripts/aruba-read-helper.ts";
+import { buildArubaBookmarklet } from "../../src/aruba-bookmarklet.ts";
 
 const xml = "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml";
 
@@ -595,6 +596,140 @@ test("il lettore Production attende la stabilizzazione completa della pagina suc
   await advanceProductionPage(page);
   await expect(page.locator(".x-gridrow")).toHaveCount(2);
   await expect(page.locator(".x-gridrow").nth(1)).toContainText("20000000002");
+});
+
+test("il preferito completa la paginazione quando Aruba usa una richiesta non intercettabile", async ({
+  page,
+}) => {
+  const year = new Date().getUTCFullYear();
+  const hubOrigin = "https://hub-synthetic.invalid";
+  const panelOrigin = "https://fatturazioneelettronica.aruba.it";
+  await page.context().route(`${hubOrigin}/**`, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><script>
+        window.__pages = [];
+        addEventListener("message", (event) => {
+          if (event.origin !== ${JSON.stringify(panelOrigin)} || !event.data) return;
+          if (event.data.type === "HF_ARUBA_HELLO") {
+            event.source.postMessage({ type: "HF_ARUBA_START" }, ${JSON.stringify(panelOrigin)});
+            return;
+          }
+          if (event.data.type !== "HF_ARUBA_REQUEST") return;
+          let payload = {};
+          if (event.data.path === "/api/aruba/sync/manifest") {
+            payload = {
+              accountIdentity: "synthetic-aruba-account",
+              streams: [{ name: "invoices:${year}" }]
+            };
+          } else if (event.data.path === "/api/aruba/sync/preflight") {
+            payload = { work: [] };
+          } else if (event.data.path === "/api/aruba/sync/pagine") {
+            window.__pages.push(event.data.body);
+          }
+          event.source.postMessage({
+            type: "HF_ARUBA_RESPONSE",
+            id: event.data.id,
+            ok: true,
+            payload
+          }, ${JSON.stringify(panelOrigin)});
+        });
+      </script>`,
+    }),
+  );
+  await page.route(`${panelOrigin}/**`, (route) =>
+    route.fulfill({
+      contentType: route.request().url().endsWith("/base") ? "text/html" : "application/json",
+      body: route.request().url().endsWith("/base") ? "<html></html>" : "{}",
+    }),
+  );
+  await page.goto(`${panelOrigin}/base`);
+  const row = (remoteId: string, fiscalNumber: number) => `
+    <div class="x-gridrow" data-recordindex="0">
+      ${Array.from({ length: 23 }, (_, index) => {
+        const value =
+          index === 4
+            ? `10/08/${year}`
+            : index === 5
+              ? `FPR ${fiscalNumber}/${String(year).slice(-2)}`
+              : index === 7
+                ? "Cliente sintetico"
+                : index === 8
+                  ? "TD01"
+                  : index === 10
+                    ? "123,45 €"
+                    : index === 17
+                      ? remoteId
+                      : "";
+        return `<div class="x-gridcell">${value}</div>`;
+      }).join("")}
+    </div>`;
+  const statusRow = `
+    <div class="x-gridrow" data-recordindex="0">
+      <div class="x-gridcell">Emessa e consegnata</div>
+      <div class="x-gridcell"></div>
+      <div class="x-gridcell"></div>
+    </div>`;
+  await page.setContent(`
+    <div class="main-toolbar-info-user">synthetic-aruba-account</div>
+    <div class="main-toolbar-info-fiscalyear">Anno: ${year}<button>Anno</button></div>
+    <li role="menuitem" class="x-treelist-item-selected">Fatture inviate</li>
+    <input name="dataDa" value="2020-01-01">
+    <button id="apply-filter">Applica</button>
+    <div class="aruba-grid-fatture-inviate" data-page="1">
+      <div class="pagingtoolbar-first"><button disabled>Prima pagina</button></div>
+      <section class="x-grid">${row("10000000001", 1)}</section>
+      <section class="x-grid locked-grid-border-left">${statusRow}</section>
+      <button aria-label="{app.buttons.labels.nextPage}">Successiva</button>
+    </div>
+    <script>
+      const requestKnownOnlyToAruba = window.fetch.bind(window);
+      const grid = document.querySelector(".aruba-grid-fatture-inviate");
+      document.querySelector("#apply-filter").addEventListener("click", () => {
+        fetch("/filter").then(() => grid.setAttribute("data-filtered", "true"));
+      });
+      const next = grid.querySelector('button[aria-label*="nextPage"]');
+      next.addEventListener("click", () => {
+        requestKnownOnlyToAruba("/next").then(() => {
+          grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("20000000002", 2))};
+          grid.querySelector(".locked-grid-border-left").innerHTML = ${JSON.stringify(statusRow)};
+          grid.setAttribute("data-page", "2");
+          next.disabled = true;
+        });
+      });
+    </script>
+  `);
+
+  const popupPromise = page.waitForEvent("popup");
+  const bookmarklet = buildArubaBookmarklet({ hubOrigin, panelOrigin });
+  await page.evaluate((source) => {
+    (0, eval)(source);
+  }, bookmarklet.slice("javascript:".length));
+  const bridge = await popupPromise;
+  await expect(page.locator("#hub-fatture-aruba-status")).toHaveText(
+    "Sincronizzazione completata. Puoi tornare a Hub Fatture.",
+  );
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute("data-page", "2");
+  expect(
+    await bridge.evaluate(() =>
+      (
+        window as typeof window & {
+          __pages: Array<{
+            pageOrdinal: number;
+            terminal: boolean;
+            documents: Array<{ remoteId: string }>;
+          }>;
+        }
+      ).__pages.map((item) => ({
+        pageOrdinal: item.pageOrdinal,
+        terminal: item.terminal,
+        remoteIds: item.documents.map((document) => document.remoteId),
+      })),
+    ),
+  ).toEqual([
+    { pageOrdinal: 1, terminal: false, remoteIds: ["10000000001"] },
+    { pageOrdinal: 2, terminal: true, remoteIds: ["20000000002"] },
+  ]);
 });
 
 test("il lettore Production completa il reload dell’anno prima di aprire lo stream", async ({

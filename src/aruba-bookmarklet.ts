@@ -25,6 +25,7 @@ statusBox.setAttribute("role","status");
 statusBox.style.cssText="position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:min(360px,calc(100vw - 32px));padding:14px 16px;border:1px solid #3bc9db;border-radius:10px;background:#071f2b;color:#f7fbfc;font:600 14px/1.4 system-ui,-apple-system,sans-serif;box-shadow:0 12px 30px #0008;overflow-wrap:anywhere";
 document.body.append(statusBox);
 const setStatus=(message,error=false)=>{statusBox.textContent=message;statusBox.style.borderColor=error?"#ff7b72":"#3bc9db"};
+const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"||code==="HUB_BRIDGE_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
 const post=(message)=>bridge&&bridge.postMessage(message,HUB);
 const rpc=(path,method="GET",body)=>new Promise((resolve,reject)=>{
   const id=String(++sequence);
@@ -64,11 +65,12 @@ const semanticNext=()=>{const candidates=[...document.querySelectorAll("button")
 const productionNext=()=>{const selector='.aruba-grid-fatture-inviate button[aria-label*="nextPage"],.aruba-grid-fatture-inviate button[title*="nextPage"],.aruba-grid-fatture-inviate [title*="nextPage"] button';const candidates=[...document.querySelectorAll(selector)].filter(visible);if(candidates.length!==1)fail("DOM_UNRECOGNIZED");return candidates[0]};
 const enabled=(element)=>Boolean(element&&!element.disabled&&!element.closest(".x-disabled,[aria-disabled='true']"));
 const fingerprint=()=>{const values=[...document.querySelectorAll(".aruba-grid-fatture-inviate .x-gridrow[data-recordindex] .x-gridcell:nth-child(18)")].map(element=>normalized(element.textContent)).filter(Boolean);if(!values.length)fail("DOM_UNRECOGNIZED");return values.join("|")};
-const armReload=()=>{
-  const state={active:true,requested:0,pending:0,failed:false,observed:false,lastMutationAt:0};
+const armReload=(networkRequired=true)=>{
+  const state={active:true,networkRequired,requested:0,pending:0,failed:false,observed:false,lastMutationAt:0};
   const touchesGrid=(node)=>{const element=node instanceof Element?node:node?.parentElement;return Boolean(element?.closest?.(".aruba-grid-fatture-inviate,[data-aruba-state=\"inventory-ready\"]")||element?.matches?.(".aruba-grid-fatture-inviate,[data-aruba-state=\"inventory-ready\"]")||element?.querySelector?.(".aruba-grid-fatture-inviate,[data-aruba-state=\"inventory-ready\"]"))};
   const observer=new MutationObserver(mutations=>{if(mutations.some(mutation=>touchesGrid(mutation.target)||[...mutation.addedNodes,...mutation.removedNodes].some(touchesGrid))){state.observed=true;state.lastMutationAt=performance.now()}});
   observer.observe(document.body,{attributes:true,childList:true,subtree:true});
+  if(!networkRequired)return{state,stop:()=>observer.disconnect()};
   const originalFetch=window.fetch;
   const originalOpen=XMLHttpRequest.prototype.open;
   const originalSend=XMLHttpRequest.prototype.send;
@@ -80,8 +82,8 @@ const armReload=()=>{
   return{state,stop:()=>{observer.disconnect();window.fetch=originalFetch;XMLHttpRequest.prototype.open=originalOpen;XMLHttpRequest.prototype.send=originalSend}};
 };
 const reloadReady=()=>{if(document.querySelector(".aruba-grid-fatture-inviate")){try{productionNext();return true}catch{return false}}return visible(document.querySelector('[data-aruba-state="inventory-ready"]'))};
-const waitForReload=async(monitor)=>{for(let attempt=0;attempt<120;attempt+=1){await sleep(250);if(monitor.state.failed)fail("DOM_UNRECOGNIZED");if(monitor.state.requested>0&&monitor.state.pending===0&&monitor.state.observed&&performance.now()-monitor.state.lastMutationAt>=500&&reloadReady())return}fail("DOM_UNRECOGNIZED")};
-const clickProduction=async(control,requireChange=false)=>{let before=null;if(requireChange){try{before=fingerprint()}catch{}}const monitor=armReload();try{control.click();await waitForReload(monitor);if(before&&fingerprint()===before)fail("DOM_UNRECOGNIZED")}finally{monitor.stop()}};
+const waitForReload=async(monitor,before=null)=>{for(let attempt=0;attempt<120;attempt+=1){await sleep(250);if(monitor.state.failed)fail("DOM_UNRECOGNIZED");let changed=!before;if(before){try{changed=fingerprint()!==before}catch{changed=false}}const networkReady=!monitor.state.networkRequired||(monitor.state.requested>0&&monitor.state.pending===0);if(networkReady&&changed&&monitor.state.observed&&performance.now()-monitor.state.lastMutationAt>=500&&reloadReady())return}fail("DOM_UNRECOGNIZED")};
+const clickProduction=async(control,requireChange=false)=>{let before=null;if(requireChange){try{before=fingerprint()}catch{}}const monitor=armReload(!before);try{control.click();await waitForReload(monitor,before)}finally{monitor.stop()}};
 const waitForNativeReload=async(control)=>{const monitor=await new Promise((resolve,reject)=>{const cleanup=()=>{clearTimeout(timeout);document.removeEventListener("pointerdown",start,true);document.removeEventListener("click",start,true)};const start=(event)=>{if(!event.isTrusted||!(event.target instanceof Node)||!control.contains(event.target))return;cleanup();resolve(armReload())};const timeout=setTimeout(()=>{cleanup();reject(new Error("DOM_UNRECOGNIZED"))},60000);document.addEventListener("pointerdown",start,true);document.addEventListener("click",start,true)});try{await waitForReload(monitor)}finally{monitor.stop()}};
 const sentDestination=()=>{const matches=(selector)=>[...document.querySelectorAll(selector)].filter(visible).filter(item=>/^(?:Fatture inviate|Documenti inviati|Inviate)$/i.test(normalized(item.textContent)));const semantic=matches('[role="menuitem"]');if(semantic.length===1)return semantic[0];if(semantic.length>1)fail("DOM_UNRECOGNIZED");const fallback=matches("a,button");if(fallback.length!==1)fail("DOM_UNRECOGNIZED");return fallback[0]};
 const waitForInventory=async(stream)=>{for(let attempt=0;attempt<120;attempt+=1){if(visible(document.querySelector('[data-aruba-stream="'+CSS.escape(stream)+'"]'))||visible(document.querySelector('[data-aruba-state="inventory-ready"]'))||(visible(document.querySelector(".main-toolbar-info-fiscalyear"))&&visible(document.querySelector(".aruba-grid-fatture-inviate"))))return;await sleep(250)}fail("DOM_UNRECOGNIZED")};
@@ -158,7 +160,7 @@ try{
   setTimeout(()=>{bridge?.close();removeEventListener("message",onMessage)},2500);
 }catch(error){
   const code=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:"READ_SYNC_FAILED";
-  if(inventoryCompleted){try{await rpc("/api/aruba/sync/termina","POST",{})}catch{}setStatus("Inventario aggiornato. Una verifica collegata richiede un nuovo tentativo.",true)}else{try{await rpc("/api/aruba/sync/fallita","POST",{code})}catch{}setStatus(code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":"Sincronizzazione non completata. Torna a Hub Fatture per i dettagli.",true)}
+  if(inventoryCompleted){try{await rpc("/api/aruba/sync/termina","POST",{})}catch{}setStatus("Inventario aggiornato. Una verifica collegata richiede un nuovo tentativo.",true)}else{try{await rpc("/api/aruba/sync/fallita","POST",{code})}catch{}setStatus(failureMessage(code),true)}
   removeEventListener("message",onMessage);
 }
 })()`;

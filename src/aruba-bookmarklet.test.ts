@@ -18,7 +18,10 @@ test("il preferito Aruba è autosufficiente e non contiene credenziali persisten
   assert.match(bookmarklet, /MutationObserver/);
   assert.match(bookmarklet, /pointerdown/);
   assert.match(bookmarklet, /event\.isTrusted/);
-  assert.match(bookmarklet, /state\.requested>0&&monitor\.state\.pending===0/);
+  assert.match(bookmarklet, /armReload\(!before\)/);
+  assert.match(bookmarklet, /!monitor\.state\.networkRequired\|\|/);
+  assert.match(bookmarklet, /fingerprint\(\)!==before/);
+  assert.match(bookmarklet, /La pagina Aruba non ha completato il caricamento previsto/);
   assert.match(bookmarklet, /sync\/heartbeat/);
   assert.match(bookmarklet, /const fullScan=true/);
   assert.match(bookmarklet, /selectStream\(stream,null\)/);

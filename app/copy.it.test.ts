@@ -27,4 +27,12 @@ test("la prima configurazione Aruba non richiede installazioni tecniche", () => 
   assert.equal(copy.settings.arubaBookmarkletAccessibleLabel, "Sincronizza Aruba");
   assert.match(copy.settings.arubaBookmarkletSaveHelp, /non salva credenziali Aruba/);
   assert.match(copy.settings.arubaBookmarkletRunHelp, /Home.*seleziona Fatture inviate/);
+  assert.equal(
+    copy.settings.arubaDiagnosticValue("READ_SYNC_FAILED"),
+    "La lettura si è interrotta prima del completamento",
+  );
+  assert.equal(
+    copy.settings.arubaDiagnosticValue("DOM_UNRECOGNIZED"),
+    "La pagina Aruba non ha completato il caricamento previsto",
+  );
 });
