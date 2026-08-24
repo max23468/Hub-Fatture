@@ -19,6 +19,7 @@ const matchText=(value)=>normalized(value).normalize("NFKD").replace(/\p{Diacrit
 const browserName=()=>{const ua=navigator.userAgent;if(/Mobile\//.test(ua))fail("BROWSER_UNSUPPORTED");if(/Edg\//.test(ua))return"msedge";if(/(?:Chrome|Chromium|CriOS)\//.test(ua))return"chrome";if(/Version\/\d+(?:\.\d+)*.*Safari\//.test(ua))return"safari";fail("BROWSER_UNSUPPORTED")};
 let bridge=globalThis.__HUB_FATTURE_ARUBA_BRIDGE__??null;
 delete globalThis.__HUB_FATTURE_ARUBA_BRIDGE__;
+let bridgePort=null;
 let sequence=0;
 const pending=new Map();
 let statusBox=document.getElementById("hub-fatture-aruba-status");
@@ -30,8 +31,27 @@ statusBox.style.cssText="position:fixed;right:16px;bottom:16px;z-index:214748364
 document.body.append(statusBox);
 const setStatus=(message,error=false)=>{statusBox.textContent=message;statusBox.style.borderColor=error?"#ff7b72":"#3bc9db"};
 const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="ARUBA_ACCOUNT_MISMATCH"?"L’account Aruba aperto non coincide con quello già collegato a Hub Fatture.":code==="ARUBA_FILTER_ACTIVE"?"Rimuovi il filtro data nella pagina Aruba e riprova.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
-const post=(message)=>bridge&&bridge.postMessage(message,HUB);
-const closeBridge=()=>{try{bridge?.close()}catch{}};
+const onPortMessage=(event)=>{
+  if(event.data?.type!==TYPE+"_RESPONSE")return;
+  const item=pending.get(String(event.data.id));
+  if(!item)return;
+  clearTimeout(item.timeout);pending.delete(String(event.data.id));
+  event.data.ok?item.resolve(event.data.payload):item.reject(new Error(event.data.code||"HUB_ERROR"));
+};
+let acceptBridgePort;
+let channelTimeout;
+const channelReady=new Promise((resolve,reject)=>{
+  acceptBridgePort=(port)=>{clearTimeout(channelTimeout);bridgePort=port;bridgePort.addEventListener("message",onPortMessage);bridgePort.start();resolve()};
+  channelTimeout=setTimeout(()=>reject(new Error("HUB_TIMEOUT")),10000);
+});
+const onChannel=(event)=>{
+  if(event.origin!==HUB||event.data?.type!==TYPE+"_CHANNEL"||!(event.data.port instanceof MessagePort))return;
+  removeEventListener("message",onChannel);
+  acceptBridgePort(event.data.port);
+};
+addEventListener("message",onChannel);
+const post=(message)=>bridgePort?.postMessage(message);
+const closeBridge=()=>{clearTimeout(channelTimeout);removeEventListener("message",onChannel);try{bridgePort?.removeEventListener("message",onPortMessage);bridgePort?.close();bridge?.close()}catch{}};
 const releaseRuntime=()=>{delete globalThis[ACTIVE]};
 const rpc=(path,method="GET",body)=>new Promise((resolve,reject)=>{
   const id=String(++sequence);
@@ -39,16 +59,6 @@ const rpc=(path,method="GET",body)=>new Promise((resolve,reject)=>{
   pending.set(id,{resolve,reject,timeout});
   post({type:TYPE+"_REQUEST",id,path,method,body});
 });
-const onMessage=(event)=>{
-  if(event.origin!==HUB||event.source!==bridge||!event.data)return;
-  if(event.data.type===TYPE+"_RESPONSE"){
-    const item=pending.get(String(event.data.id));
-    if(!item)return;
-    clearTimeout(item.timeout);pending.delete(String(event.data.id));
-    event.data.ok?item.resolve(event.data.payload):item.reject(new Error(event.data.code||"HUB_ERROR"));
-  }
-};
-addEventListener("message",onMessage);
 const integer=(value)=>{const parsed=Number(value);if(!Number.isInteger(parsed)||parsed<0)fail("DOM_UNRECOGNIZED");return parsed};
 const italianDate=(value)=>{const match=String(value).match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);if(!match)fail("DOM_UNRECOGNIZED");return match[3]+"-"+match[2]+"-"+match[1]};
 const italianAmount=(value)=>{const match=String(value).match(/(?:€\s*)?(-?\d{1,3}(?:\.\d{3})*|\d+),(\d{2})(?:\s*€)?/);if(!match)fail("DOM_UNRECOGNIZED");const cents=Number(match[1].replaceAll(".","")+match[2]);if(!Number.isSafeInteger(cents)||cents<0)fail("DOM_UNRECOGNIZED");return cents};
@@ -117,6 +127,7 @@ try{
   setStatus("Collegamento sicuro a Hub Fatture…");
   bridge=bridge||open(HUB+"/aruba-ponte","hub_fatture_aruba_bridge","popup,width=520,height=620");
   if(!bridge)fail("POPUP_BLOCKED");
+  await channelReady;
   const manifest=await rpc("/api/aruba/sync/manifest");
   const preflight=await rpc("/api/aruba/sync/preflight");
   const browser=browserName();
@@ -160,11 +171,10 @@ try{
   await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
   await rpc("/api/aruba/sync/termina","POST",{});
   setStatus(preflightFailed?"Inventario aggiornato. Una verifica collegata richiede un nuovo tentativo.":"Sincronizzazione completata. Puoi tornare a Hub Fatture.",preflightFailed);
-  setTimeout(()=>{releaseRuntime();closeBridge();removeEventListener("message",onMessage)},2500);
+  setTimeout(()=>{releaseRuntime();closeBridge()},2500);
 }catch(error){
   const code=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:"READ_SYNC_FAILED";
-  if(inventoryCompleted){try{await rpc("/api/aruba/sync/termina","POST",{})}catch{}setStatus("Inventario aggiornato. Una verifica collegata richiede un nuovo tentativo.",true)}else{try{await rpc("/api/aruba/sync/fallita","POST",{code})}catch{}setStatus(failureMessage(code),true)}
-  removeEventListener("message",onMessage);
+  if(inventoryCompleted){if(bridgePort)try{await rpc("/api/aruba/sync/termina","POST",{})}catch{}setStatus("Inventario aggiornato. Una verifica collegata richiede un nuovo tentativo.",true)}else{if(bridgePort)try{await rpc("/api/aruba/sync/fallita","POST",{code})}catch{}setStatus(failureMessage(code),true)}
   releaseRuntime();
   closeBridge();
 }

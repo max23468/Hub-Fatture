@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.70
+
+- Dopo l’avvio, il lettore e il ponte Aruba comunicano tramite un canale dedicato del browser: le richieste non dipendono più dall’identità della finestra cross-origin che lasciava il messaggio fermo su “Collegamento sicuro a Hub Fatture…”.
+- Il preferito già installato continua a caricare automaticamente il lettore corrente. La regressione rifiuta il vecchio trasporto tra finestre e verifica il canale dedicato con due avvii su Chromium e WebKit.
+
 ## 0.3.69
 
 - Il riepilogo della preparazione usa una sola gerarchia visiva: dati sintetici, ordini e azione occupano tutta la larghezza utile senza colonne sbilanciate, mentre campo e pulsante restano allineati su desktop e si impilano senza overflow su mobile.
