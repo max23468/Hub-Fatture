@@ -13,7 +13,11 @@ test("il preferito Aruba carica il lettore corrente senza contenere credenziali 
   assert.match(bookmarklet, /https:\/\/hub\.example/);
   assert.match(bookmarklet, /https:\/\/fatturazioneelettronica\.aruba\.it/);
   assert.match(bookmarklet, /runtimeSource/);
-  assert.match(bookmarklet, /__HUB_FATTURE_ARUBA_BRIDGE__/);
+  assert.match(bookmarklet, /__HUB_FATTURE_ARUBA_TRANSPORT__/);
+  assert.match(bookmarklet, /Object\.freeze/);
+  assert.match(bookmarklet, /event\.origin!==HUB\|\|event\.source!==bridge/);
+  assert.match(bookmarklet, /bridge\.postMessage\(message,HUB\)/);
+  assert.doesNotMatch(bookmarklet, /__HUB_FATTURE_ARUBA_BRIDGE__/);
   assert.match(bookmarklet, /document\.createElement\("script"\)/);
   assert.match(bookmarklet, /RUNTIME_BLOCKED/);
   assert.doesNotMatch(bookmarklet, /HF_ARUBA_CHANNEL/);
@@ -30,19 +34,20 @@ test("il lettore Aruba corrente conserva le guardie della sincronizzazione", () 
   });
 
   assert.match(runtime, /return"safari"/);
-  assert.match(runtime, /bridge=bridge\|\|open/);
+  assert.match(runtime, /__HUB_FATTURE_ARUBA_TRANSPORT__/);
+  assert.match(runtime, /transport\.subscribe\(onBridgeMessage\)/);
   assert.match(runtime, /if\(globalThis\[ACTIVE\]\)return/);
   assert.match(runtime, /globalThis\[ACTIVE\]=true/);
   assert.match(runtime, /const releaseRuntime=\(\)=>\{delete globalThis\[ACTIVE\]\}/);
   assert.match(runtime, /TYPE\+"_RUNTIME_READY"/);
   assert.match(runtime, /TYPE\+"_BRIDGE_READY"/);
-  assert.match(runtime, /event\.origin!==HUB\|\|event\.source!==bridge/);
-  assert.match(runtime, /bridge\?\.postMessage\(message,HUB\)/);
+  assert.doesNotMatch(runtime, /event\.origin!==HUB\|\|event\.source!==bridge/);
+  assert.doesNotMatch(runtime, /__HUB_FATTURE_ARUBA_BRIDGE__/);
   assert.match(runtime, /await bridgeReady/);
   assert.match(runtime, /HUB_BRIDGE_TIMEOUT/);
   assert.match(runtime, /HUB_RESPONSE_TIMEOUT/);
   assert.doesNotMatch(runtime, /new Error\("HUB_TIMEOUT"\)/);
-  assert.match(runtime, /const closeBridge=.*bridge\?\.close/);
+  assert.match(runtime, /const closeBridge=.*transport\?\.close/);
   assert.doesNotMatch(runtime, /MessageChannel|MessagePort|transfer/);
   assert.doesNotMatch(runtime, /HUB_CHANNEL_TIMEOUT/);
   assert.doesNotMatch(runtime, /HF_ARUBA_HELLO|HF_ARUBA_START|waitForStart/);

@@ -656,7 +656,7 @@ test("il lettore Production attende la stabilizzazione completa della pagina suc
   await expect(page.locator(".x-gridrow").nth(1)).toContainText("20000000002");
 });
 
-test("il preferito collega le finestre senza canali trasferibili e chiude il ponte dopo un errore", async ({
+test("il relay locale collega le finestre senza trasferire il WindowProxy al runtime", async ({
   page,
 }) => {
   const hubOrigin = "https://hub-synthetic.invalid";
@@ -716,6 +716,18 @@ test("il preferito collega le finestre senza canali trasferibili e chiude il pon
     }),
   );
   await page.goto(`${panelOrigin}/base`);
+  await page.evaluate(() => {
+    Object.defineProperty(window, "__HUB_FATTURE_ARUBA_BRIDGE__", {
+      configurable: false,
+      value: Object.freeze({
+        close() {},
+        postMessage() {
+          throw new Error("STALE_WINDOW_PROXY");
+        },
+      }),
+      writable: false,
+    });
+  });
 
   const popupPromise = page.waitForEvent("popup");
   const bookmarklet = buildArubaBookmarklet({ hubOrigin, panelOrigin });
