@@ -484,7 +484,11 @@ function ArubaConnectionDetails({
         </div>
         <div>
           <dt>{copy.settings.arubaDiagnostic}</dt>
-          <dd>{inventory.lastErrorCode ?? copy.settings.arubaNoError}</dd>
+          <dd>
+            {inventory.lastErrorCode
+              ? copy.settings.arubaDiagnosticValue(inventory.lastErrorCode)
+              : copy.settings.arubaNoError}
+          </dd>
         </div>
       </dl>
     </details>
