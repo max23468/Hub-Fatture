@@ -235,6 +235,8 @@ Osservazioni fuori ordine restano nella cronologia ma non fanno regredire la pro
 
 ## 8. Blocco approvazione e override
 
+Aggiornamento di prodotto: per le fatture TD01 la sincronizzazione dell'inventario è ora un processo parallelo gestito da Dashboard e Impostazioni. I passaggi di questa sezione relativi a preflight on-demand, readback specifico e override restano applicabili soltanto ai flussi che li mantengono, come TD04; una preparazione TD01 consuma esclusivamente lo stato globale e non avvia Aruba.
+
 Prima di approvare, numerare o preparare una fattura/TD04 il server rilegge lo stato Aruba:
 
 - blocco immediato se Aruba non è mai stato inventariato per l’anno fiscale corrente;
@@ -471,7 +473,7 @@ Rollback applicativo: disabilitare l’emissione delle sessioni di sync e tornar
 - documenti locali preesistenti deduplicati senza perdita o duplicazione;
 - deduplicazione confinata per account e ambiente e ownership esclusiva di file/notifiche verificati;
 - nessuna preparazione approvabile con Aruba mai letto, oltre 24 ore o stato incerto;
-- nessuna preparazione approvabile sulla sola freschezza periodica: preflight Aruba on-demand completato dopo la richiesta, vincolato alla revisione/hash e consumato entro cinque minuti;
+- nessuna preparazione TD01 approvabile quando lo stato globale è assente, oltre 24 ore, fallito o incerto; il preflight on-demand resta un gate separato dei flussi che lo mantengono, come TD04;
 - Dashboard priva della contraddizione fra `Mai letto` e `Tutto sotto controllo`;
 - collegamenti automatici limitati a casi univoci con XML ufficiale coerente;
 - match parziale di preparazioni multi-ordine verificato atomico, senza duplicare l’ordine coperto né perdere i residui;

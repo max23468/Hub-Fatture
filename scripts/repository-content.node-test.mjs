@@ -732,11 +732,20 @@ test("le approvazioni acquisiscono l'inventario Aruba prima dei lock sugli ordin
   const invoiceStart = documents.indexOf("export async function approveInvoice");
   const invoiceEnd = documents.indexOf("export async function", invoiceStart + 1);
   const invoiceApproval = documents.slice(invoiceStart, invoiceEnd);
-  assert.ok(invoiceApproval.indexOf("consumeArubaPreflight") >= 0);
+  assert.ok(invoiceApproval.indexOf("getArubaInventoryHealth") >= 0);
+  assert.ok(invoiceApproval.indexOf("inventory.blocking") >= 0);
   assert.ok(
-    invoiceApproval.indexOf("consumeArubaPreflight") <
+    invoiceApproval.indexOf("getArubaInventoryHealth") <
       invoiceApproval.indexOf("serializeOrderMutations"),
   );
+  assert.doesNotMatch(invoiceApproval, /(?:ensure|consume)ArubaPreflight/);
+
+  const massStart = documents.indexOf("export async function approveInvoices");
+  const massEnd = documents.indexOf("export async function", massStart + 1);
+  const massApproval = documents.slice(massStart, massEnd < 0 ? undefined : massEnd);
+  assert.ok(massApproval.indexOf("getArubaInventoryHealth") >= 0);
+  assert.ok(massApproval.indexOf("inventory.blocking") >= 0);
+  assert.doesNotMatch(massApproval, /requestArubaPreflight/);
 
   const creditStart = refunds.indexOf("export async function approveCreditNote");
   const creditEnd = refunds.indexOf("export async function", creditStart + 1);

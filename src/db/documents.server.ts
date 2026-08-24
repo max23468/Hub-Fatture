@@ -23,12 +23,7 @@ import { getConfig } from "../config.server.ts";
 import { escapeLike, PAGE_SIZE, pageOffset, paginate } from "../orders.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { writeAudit } from "./audit.server.ts";
-import {
-  consumeArubaPreflight,
-  ensureArubaPreflight,
-  getArubaInventoryHealth,
-  requestArubaPreflight,
-} from "./aruba-inbound.server.ts";
+import { getArubaInventoryHealth } from "./aruba-inbound.server.ts";
 import { createArubaBatch, getArubaSettings } from "./aruba.server.ts";
 import {
   customerEmailChoiceSchema,
@@ -779,13 +774,99 @@ function integer(value: unknown): number {
   return parsed;
 }
 
+async function materializeDefaultInvoiceDraft(
+  client: pg.PoolClient,
+  caseRow: CaseRow,
+  profile: Awaited<ReturnType<typeof loadProfile>> & {},
+  expectedProjection: string,
+  actor: FiscalActor,
+): Promise<DraftRow> {
+  const input = documentInput(caseRow, null, profile.profile_json);
+  const projection = projectFatturaXml(profile.profile_json, input);
+  await validateFatturaXml(projection.xml);
+  if (projection.sha256 !== expectedProjection) {
+    throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
+  }
+  const sourceTotal = caseRow.orders.reduce((sum, order) => sum + order.billable_amount, 0);
+  const total = input.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
+  const inserted = await client.query<{ id: string }>(
+    `INSERT INTO documents
+       (billing_case_id, kind, status, document_type, series, document_date,
+        fiscal_profile_version, currency, total_amount, source_total_amount,
+        difference_amount, difference_reason, draft_version, projection_sha256,
+        payment_status, payment_method, causale, notes, recipient_snapshot_json)
+     VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', $2, $3, $4, 'EUR', $5, $6, $7,
+       NULL, 1, $8, $9, $10, $11, $12, $13)
+     RETURNING id`,
+    [
+      caseRow.id,
+      profile.profile_json.series,
+      input.documentDate,
+      profile.version,
+      total,
+      sourceTotal,
+      total - sourceTotal,
+      projection.sha256,
+      input.paymentStatus,
+      input.paymentMethod,
+      input.causale ?? null,
+      input.notes ?? null,
+      JSON.stringify(input.recipient),
+    ],
+  );
+  const documentId = inserted.rows[0]!.id;
+  const ordersById = new Map(caseRow.orders.map((order) => [order.id, order]));
+  for (const [index, line] of input.lines.entries()) {
+    const order = ordersById.get(line.orderId!);
+    if (!order) throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
+    await client.query(
+      `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+       VALUES ($1, 'INVOICE', $2, $3)`,
+      [documentId, line.orderId, order.billable_amount],
+    );
+    await client.query(
+      `INSERT INTO document_lines
+        (document_id, order_id, line_number, description, quantity, unit_amount,
+         total_amount, tax_nature)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'N5')`,
+      [
+        documentId,
+        line.orderId,
+        index + 1,
+        line.description,
+        line.quantity,
+        line.unitAmount,
+        line.quantity * line.unitAmount,
+      ],
+    );
+  }
+  await writeAudit(client, {
+    actorType: "ADMIN",
+    actorId: String(actor.id),
+    action: "DOCUMENT_DRAFT_SAVED",
+    eventClass: "CRITICAL",
+    entityType: "DOCUMENT",
+    entityId: documentId,
+    metadata: {
+      billingCaseId: caseRow.id,
+      documentKind: "INVOICE",
+      fiscalProfileVersion: profile.version,
+    },
+    before: { imported: sourceAuditSnapshot(caseRow, profile.profile_json) },
+    after: { current: documentAuditSnapshot(input) },
+    requestId: actor.requestId,
+  });
+  const draft = await loadDraft(client, caseRow.id, true);
+  if (!draft) throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
+  return draft;
+}
+
 export async function approveInvoice(
   caseId: string,
   raw: {
     caseRevision: unknown;
     draftVersion: unknown;
     projectionSha256: unknown;
-    confirmApproval: boolean;
     confirmPending: boolean;
     confirmDifference: boolean;
     arubaMode?: unknown;
@@ -799,14 +880,8 @@ export async function approveInvoice(
   const caseRevision = integer(raw.caseRevision);
   const draftVersion = integer(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
-  const preflight = await ensureArubaPreflight(
-    {
-      billingCaseId: caseId,
-      draftVersion,
-      projectionSha256: expectedProjection,
-    },
-    actor,
-  );
+  const inventory = await getArubaInventoryHealth();
+  if (inventory.blocking) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   let committed: {
     id: string;
     fiscalNumber: string;
@@ -819,30 +894,31 @@ export async function approveInvoice(
       await client.query(
         "SELECT pg_advisory_xact_lock_shared(hashtext('setting:shopify_payment_fee_mode'))",
       );
-      await consumeArubaPreflight(client, preflight.id, {
-        billingCaseId: caseId,
-        documentId: preflight.documentId,
-        draftVersion,
-        projectionSha256: expectedProjection,
-      });
       await serializeOrderMutations(client);
       await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
       const caseRow = await loadCase(client, caseId, true);
       if (!caseRow) return null;
       if (caseRow.status !== "READY") throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
       if (caseRow.revision !== caseRevision) throw new AppError("CONFLICT_REVISION", 409);
-      const draft = await loadDraft(client, caseId, true);
-      if (!draft || draft.status !== "DRAFT" || draft.draft_version !== draftVersion) {
+      let draft = await loadDraft(client, caseId, true);
+      if (draft && (draft.status !== "DRAFT" || draft.draft_version !== draftVersion)) {
         throw new AppError("CONFLICT_REVISION", 409);
       }
-      const profile = await loadProfile(client, draft.fiscal_profile_version);
+      if (!draft && draftVersion !== 0) throw new AppError("CONFLICT_REVISION", 409);
+      const profile = await loadProfile(client, draft?.fiscal_profile_version);
       if (!profile || profile.status === "RETIRED") {
         throw new AppError("DOCUMENT_FISCAL_PROFILE_MISSING", 409);
       }
       if (getConfig().APP_ENV === "production" && profile.status !== "AUDITED") {
         throw new AppError("DOCUMENT_FISCAL_PROFILE_MISSING", 409);
       }
-      if (!raw.confirmApproval) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
+      draft ??= await materializeDefaultInvoiceDraft(
+        client,
+        caseRow,
+        profile,
+        expectedProjection,
+        actor,
+      );
       const input = documentInput(caseRow, draft, profile.profile_json);
       if (!sameOrders(input.lines, caseRow.orders)) {
         throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
@@ -986,7 +1062,11 @@ export async function approveInvoice(
           eventClass: "CRITICAL",
           entityType: "DOCUMENT",
           entityId: draft.id,
-          metadata: { billingCaseId: caseId, documentKind: "INVOICE", fiscalNumber: label },
+          metadata: {
+            billingCaseId: caseId,
+            documentKind: "INVOICE",
+            fiscalNumber: label,
+          },
           requestId: actor.requestId,
         });
       }
@@ -998,7 +1078,11 @@ export async function approveInvoice(
           eventClass: "CRITICAL",
           entityType: "DOCUMENT",
           entityId: draft.id,
-          metadata: { billingCaseId: caseId, documentKind: "INVOICE", fiscalNumber: label },
+          metadata: {
+            billingCaseId: caseId,
+            documentKind: "INVOICE",
+            fiscalNumber: label,
+          },
           reason: draft.difference_reason,
           requestId: actor.requestId,
         });
@@ -1350,6 +1434,8 @@ export async function approveInvoices(
   if (!rawCandidates.length || rawCandidates.length > 100) {
     throw new AppError("DOCUMENT_INVALID", 422);
   }
+  const inventory = await getArubaInventoryHealth();
+  if (inventory.blocking) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   const arubaMode = arubaModeSchema.safeParse(rawArubaMode);
   if (!arubaMode.success) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
   const candidates = [
@@ -1392,35 +1478,6 @@ export async function approveInvoices(
   ) {
     return { approved: 0, failed: candidates.length, storagePending: 0 };
   }
-  const sharedManifestSha256 = createHash("sha256")
-    .update(
-      JSON.stringify(
-        candidates
-          .map(({ caseId, draftVersion, projectionSha256 }) => ({
-            caseId,
-            draftVersion,
-            projectionSha256,
-          }))
-          .sort((left, right) => left.caseId.localeCompare(right.caseId)),
-      ),
-    )
-    .digest("hex");
-  const preflights = await Promise.all(
-    candidates.map((candidate) =>
-      requestArubaPreflight(
-        {
-          billingCaseId: candidate.caseId,
-          draftVersion: candidate.draftVersion,
-          projectionSha256: candidate.projectionSha256,
-        },
-        actor,
-        sharedManifestSha256,
-      ),
-    ),
-  );
-  if (preflights.some((preflight) => preflight.status !== "PASSED")) {
-    throw new AppError("ARUBA_PREFLIGHT_REQUIRED", 409);
-  }
   const outcomes = await Promise.all(
     candidates.map(async (candidate) => {
       try {
@@ -1430,7 +1487,6 @@ export async function approveInvoices(
             caseRevision: candidate.caseRevision,
             draftVersion: candidate.draftVersion,
             projectionSha256: candidate.projectionSha256,
-            confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
             arubaMode: arubaMode.data,
@@ -1439,7 +1495,10 @@ export async function approveInvoices(
           },
           actor,
         );
-        return { approved: true, storagePending: result?.storagePending ?? false };
+        return {
+          approved: true,
+          storagePending: result?.storagePending ?? false,
+        };
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
         return { approved: false, storagePending: false };

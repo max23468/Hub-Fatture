@@ -491,7 +491,6 @@ test(
             caseRevision: correctedSecondProjection.caseRevision,
             draftVersion: correctedSecondProjection.draftVersion,
             projectionSha256: exceptionalSecondProjection.projectionSha256,
-            confirmApproval: true,
             confirmPending: true,
             confirmDifference: true,
             emailChoice: "SKIP",
@@ -553,7 +552,6 @@ test(
             caseRevision: regeneratedFirstProjection.caseRevision,
             draftVersion: regeneratedFirstProjection.draftVersion,
             projectionSha256: regeneratedFirstProjection.projectionSha256,
-            confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
             emailChoice: "SKIP",
@@ -563,48 +561,6 @@ test(
         ),
         (error) => error instanceof AppError && error.code === "DOCUMENT_APPROVAL_FORBIDDEN",
       );
-      const settingLockClient = await database.getPool().connect();
-      await settingLockClient.query("BEGIN");
-      await settingLockClient.query(
-        "SELECT pg_advisory_xact_lock(hashtext('setting:shopify_payment_fee_mode'))",
-      );
-      let missingConfirmationCompleted = false;
-      const missingConfirmation = documents.approveInvoice(
-        cases[0]!.id,
-        {
-          caseRevision: regeneratedFirstProjection.caseRevision,
-          draftVersion: regeneratedFirstProjection.draftVersion,
-          projectionSha256: regeneratedFirstProjection.projectionSha256,
-          confirmApproval: false,
-          confirmPending: false,
-          confirmDifference: false,
-          emailChoice: "SKIP",
-          emailModeVersion: regeneratedFirstProjection.customerEmail.version,
-        },
-        { id: 1, canApprove: true, requestId: "missing-final-confirmation" },
-      );
-      const observedMissingConfirmation = missingConfirmation.then(
-        () => {
-          missingConfirmationCompleted = true;
-          return null;
-        },
-        (error: unknown) => {
-          missingConfirmationCompleted = true;
-          return error;
-        },
-      );
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 75));
-        assert.equal(missingConfirmationCompleted, false);
-      } finally {
-        await settingLockClient.query("COMMIT");
-        settingLockClient.release();
-      }
-      const missingConfirmationError = await observedMissingConfirmation;
-      assert.ok(
-        missingConfirmationError instanceof AppError &&
-          missingConfirmationError.code === "DOCUMENT_NOT_APPROVABLE",
-      );
       await assert.rejects(
         documents.approveInvoice(
           cases[0]!.id,
@@ -612,7 +568,6 @@ test(
             caseRevision: regeneratedFirstProjection.caseRevision,
             draftVersion: regeneratedFirstProjection.draftVersion,
             projectionSha256: "0".repeat(64),
-            confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
             emailChoice: "SKIP",
@@ -630,7 +585,6 @@ test(
               caseRevision: projection.caseRevision,
               draftVersion: projection.draftVersion,
               projectionSha256: projection.projectionSha256,
-              confirmApproval: true,
               confirmPending: index === 1,
               confirmDifference: index === 1,
               emailChoice: "SKIP",
@@ -1073,7 +1027,6 @@ test(
             caseRevision: freshThirdProjection.caseRevision,
             draftVersion: freshThirdProjection.draftVersion,
             projectionSha256: freshThirdProjection.projectionSha256,
-            confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
             emailChoice: "SKIP",
@@ -1428,13 +1381,122 @@ test(
           ),
         /users_approval_identity_check/,
       );
+      const directOrder = structuredClone(fixture[0]);
+      directOrder.externalOrderId = "shop-order-documents-direct-approval";
+      directOrder.displayNumber = "#DOC-DIRECT";
+      directOrder.createdAt = "2026-08-13T08:00:00Z";
+      directOrder.updatedAt = "2026-08-13T09:00:00Z";
+      await orders.importOrders([directOrder], {
+        id: 1,
+        requestId: "documents-direct-approval-import",
+      });
+      const directCase = (
+        await database.getPool().query<{ id: string }>(
+          `SELECT billing_cases.id
+           FROM billing_cases
+           JOIN orders ON orders.billing_case_id = billing_cases.id
+           WHERE orders.external_order_id = $1`,
+          [directOrder.externalOrderId],
+        )
+      ).rows[0]!;
+      const directProjection = await documents.getInvoiceProjection(directCase.id);
+      assert.ok(
+        directProjection && !directProjection.profileMissing && "lines" in directProjection,
+      );
+      assert.equal(directProjection.draftVersion, 0);
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM documents WHERE billing_case_id = $1", [directCase.id])
+        ).rows[0].count,
+        "0",
+      );
+      const directApproval = await documents.approveInvoice(
+        directCase.id,
+        {
+          caseRevision: directProjection.caseRevision,
+          draftVersion: directProjection.draftVersion,
+          projectionSha256: directProjection.projectionSha256,
+          confirmPending: false,
+          confirmDifference: false,
+          emailChoice: "SKIP",
+          emailModeVersion: directProjection.customerEmail.version,
+        },
+        { id: 1, canApprove: true, requestId: "documents-direct-approval" },
+      );
+      assert.match(directApproval!.fiscalNumber, /^FPR \d{4}\/\d{2}$/);
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT documents.status, documents.draft_version, billing_cases.status AS case_status
+             FROM documents
+             JOIN billing_cases ON billing_cases.id = documents.billing_case_id
+             WHERE documents.billing_case_id = $1`,
+            [directCase.id],
+          )
+        ).rows[0],
+        { status: "APPROVED", draft_version: 1, case_status: "APPROVED" },
+      );
+
+      const blockedOrder = structuredClone(fixture[0]);
+      blockedOrder.externalOrderId = "shop-order-documents-blocked-inventory";
+      blockedOrder.displayNumber = "#DOC-BLOCKED";
+      blockedOrder.createdAt = "2026-08-14T08:00:00Z";
+      blockedOrder.updatedAt = "2026-08-14T09:00:00Z";
+      await orders.importOrders([blockedOrder], {
+        id: 1,
+        requestId: "documents-blocked-inventory-import",
+      });
+      const blockedCase = (
+        await database.getPool().query<{ id: string }>(
+          `SELECT billing_cases.id
+           FROM billing_cases
+           JOIN orders ON orders.billing_case_id = billing_cases.id
+           WHERE orders.external_order_id = $1`,
+          [blockedOrder.externalOrderId],
+        )
+      ).rows[0]!;
+      const blockedProjection = await documents.getInvoiceProjection(blockedCase.id);
+      assert.ok(
+        blockedProjection && !blockedProjection.profileMissing && "lines" in blockedProjection,
+      );
+      await database.getPool().query(
+        `UPDATE aruba_sync_sessions
+         SET completed_at = now() - interval '25 hours',
+             full_scan_completed_at = now() - interval '25 hours'`,
+      );
+      await assert.rejects(
+        documents.approveInvoice(
+          blockedCase.id,
+          {
+            caseRevision: blockedProjection.caseRevision,
+            draftVersion: blockedProjection.draftVersion,
+            projectionSha256: blockedProjection.projectionSha256,
+            confirmPending: false,
+            confirmDifference: false,
+            emailChoice: "SKIP",
+            emailModeVersion: blockedProjection.customerEmail.version,
+          },
+          { id: 1, canApprove: true, requestId: "documents-blocked-inventory" },
+        ),
+        (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
+      );
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT count(*) FROM documents WHERE billing_case_id = $1", [blockedCase.id])
+        ).rows[0].count,
+        "0",
+      );
       assert.equal(
         (
           await database
             .getPool()
             .query("SELECT count(*) FROM audit_events WHERE action = 'DOCUMENT_APPROVED'")
         ).rows[0].count,
-        "3",
+        "4",
       );
       const draftAudit = (
         await database.getPool().query<{

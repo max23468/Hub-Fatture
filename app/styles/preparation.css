@@ -1,0 +1,215 @@
+.preparation-disclosure > summary {
+  display: flex;
+  min-height: var(--control-height);
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+
+.preparation-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.preparation-disclosure > summary::after {
+  content: "+";
+  margin-left: auto;
+  color: var(--color-link);
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.preparation-disclosure[open] > summary::after {
+  content: "−";
+}
+
+.preparation-disclosure > summary > span {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+  padding-right: var(--space-4);
+}
+
+.preparation-disclosure > summary strong {
+  font-size: 1.1rem;
+}
+
+.preparation-disclosure > summary small {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 450;
+}
+
+.preparation-edit-form,
+.preparation-disclosure .customer-form {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  margin-top: var(--space-6);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-6);
+}
+
+.preparation-edit-form__submit {
+  width: fit-content;
+  margin-top: var(--space-2);
+}
+
+.preparation-check .detail-section-header,
+.preparation-approval .detail-section-header {
+  margin-bottom: var(--space-4);
+}
+
+.preparation-check__status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  border: 1px solid color-mix(in srgb, var(--color-success) 32%, var(--color-border));
+  border-radius: var(--radius-md);
+  background: var(--color-success-surface);
+  color: var(--color-success);
+  padding: var(--space-3) var(--space-4);
+}
+
+.preparation-check__status > span {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.preparation-check__status small {
+  color: var(--color-text-muted);
+}
+
+.preparation-check__facts {
+  margin-bottom: var(--space-6);
+}
+
+.preparation-comparison-details {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+}
+
+.preparation-comparison-details > summary {
+  display: inline-flex;
+  min-height: var(--control-height);
+  align-items: center;
+  color: var(--color-link);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.preparation-comparison-details[open] > summary {
+  margin-bottom: var(--space-6);
+}
+
+.preparation-inventory {
+  border-color: var(--color-warning);
+}
+
+.preparation-inventory h2 {
+  font-size: 1.2rem;
+}
+
+.preparation-inventory p {
+  max-width: 68ch;
+}
+
+.preparation-inventory .button {
+  width: fit-content;
+}
+
+.preparation-approval__form {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: var(--space-6);
+}
+
+.preparation-approval__form fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+
+.preparation-disclosure .form-section > legend,
+.preparation-disclosure .tax-identifier > legend,
+.preparation-approval__form fieldset > legend {
+  float: left;
+  width: 100%;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  font-weight: 750;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.preparation-disclosure .form-section > legend + *,
+.preparation-disclosure .tax-identifier > legend + *,
+.preparation-approval__form fieldset > legend + * {
+  clear: both;
+}
+
+.preparation-disclosure .tax-identifier {
+  display: block;
+}
+
+.preparation-disclosure .tax-identifier__fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.preparation-approval__confirmation {
+  background: var(--color-surface-muted);
+}
+
+.preparation-approval__confirmation .warning {
+  margin-top: var(--space-6);
+}
+
+.preparation-approval .facts dt {
+  flex: 0 0 auto;
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.preparation-approval__submit {
+  width: fit-content;
+  min-width: 12rem;
+}
+
+@media (max-width: 48rem) {
+  .preparation-check__facts,
+  .preparation-approval .facts--columns {
+    grid-template-columns: 1fr;
+  }
+
+  .preparation-edit-form__submit,
+  .preparation-inventory .button,
+  .preparation-approval__submit {
+    width: 100%;
+  }
+
+  .preparation-approval__form fieldset {
+    padding: var(--space-4);
+  }
+
+  .preparation-disclosure .tax-identifier__fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 30rem) {
+  .preparation-approval .facts > div {
+    display: grid;
+    justify-content: stretch;
+    gap: var(--space-1);
+  }
+
+  .preparation-approval .facts dd {
+    text-align: left;
+  }
+}

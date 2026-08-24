@@ -28,6 +28,57 @@ async function expectViewportFits(page: Page) {
   ).toBe(true);
 }
 
+async function expectVisibleFieldsetTitlesInside(page: Page) {
+  const positions = await page
+    .locator(
+      ".preparation-disclosure fieldset:visible, .preparation-approval__form fieldset:visible",
+    )
+    .evaluateAll((fieldsets) =>
+      fieldsets.map((fieldset) => {
+        const legend = fieldset.querySelector(":scope > legend");
+        if (!(legend instanceof HTMLElement)) return null;
+        const box = fieldset.getBoundingClientRect();
+        const title = legend.getBoundingClientRect();
+        return {
+          label: legend.textContent?.trim() ?? "",
+          inside:
+            title.top >= box.top + 12 &&
+            title.left >= box.left + 12 &&
+            title.right <= box.right - 12 &&
+            title.bottom < box.bottom,
+          wrapped: legend.scrollWidth <= legend.clientWidth,
+        };
+      }),
+    );
+  expect(positions.length).toBeGreaterThan(0);
+  for (const position of positions) {
+    expect(position, "Ogni riquadro deve avere un titolo diretto").not.toBeNull();
+    expect(position!.inside, `Il titolo “${position!.label}” deve restare dentro il box`).toBe(
+      true,
+    );
+    expect(position!.wrapped, `Il titolo “${position!.label}” non deve fuoriuscire`).toBe(true);
+  }
+}
+
+async function expectApprovalLabelsReadable(page: Page) {
+  const labels = await page
+    .locator(".preparation-approval__form .facts dt:visible")
+    .evaluateAll((terms) =>
+      terms.map((term) => {
+        const range = document.createRange();
+        range.selectNodeContents(term);
+        return {
+          label: term.textContent?.trim() ?? "",
+          lines: range.getClientRects().length,
+        };
+      }),
+    );
+  expect(labels.length).toBeGreaterThan(0);
+  for (const label of labels) {
+    expect(label.lines, `L’etichetta “${label.label}” deve restare su una riga`).toBe(1);
+  }
+}
+
 // Lo schema viene azzerato all'avvio del server, i dati a ogni worker: un retry riparte
 // da database vuoto invece di trovare gli account già creati e saltare il flusso di setup.
 test.beforeAll(async () => {
@@ -791,12 +842,16 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   await expect(page.getByRole("status")).toContainText(
     "controlla i dati indicati come incompleti o modificati",
   );
+  await expect(page.getByRole("button", { name: "Approva fattura" })).toHaveCount(0);
 
   // La correzione dei dati cliente si chiude direttamente dall'applicazione.
+  await expect(page.getByLabel("Cognome")).not.toBeVisible();
+  await page.getByText("Dati del destinatario", { exact: true }).click();
   await page.getByLabel("Cognome").fill("Rossi Verificato");
   await expect(page.getByRole("group", { name: "Cliente" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Indirizzo di fatturazione" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Dati fiscali" })).toBeVisible();
+  await expectVisibleFieldsetTitlesInside(page);
   await page.getByLabel("Motivo della correzione").fill("Dati confermati dal cliente");
   await page.getByRole("button", { name: "Salva dati cliente" }).click();
   await expect(page.getByText("Anagrafica cliente corretta")).toBeVisible();
@@ -1056,31 +1111,44 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     .getByRole("link", { name: `Apri ${archivedPreparation}` })
     .first()
     .click();
-  await expect(page.getByRole("heading", { name: "Confronto fiscale" })).toBeVisible();
-  await expect(page.getByText("RF14 · N5 · FPR · versione 1")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Controllo fattura" })).toBeVisible();
+  await expect(page.getByText("Nessun problema rilevato")).toBeVisible();
+  await expect(page.getByText("RF14 · N5 · FPR · versione 1").first()).toBeVisible();
+  await expect(page.getByRole("table", { name: "Destinatario" })).toHaveCount(0);
+  await page.getByText("Mostra confronto fiscale completo").click();
   await expect(page.getByRole("table", { name: "Destinatario" })).toContainText("Origine");
   await expect(page.getByRole("table", { name: "Righe" })).toContainText("Proiezione XML");
   await expect(page.getByRole("table", { name: "Pagamento" })).toContainText("TP02 · MP08");
   await expect(page.getByRole("table", { name: "Dati tecnici e fiscali" })).toContainText(
     "TD01 · FPR12 · FPR",
   );
-  await page.getByRole("button", { name: "Salva e valida bozza" }).click();
+  await expect(page.getByText("Modifica dati fattura")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Salva modifiche" })).toHaveCount(0);
+  await page.getByText("Dati del destinatario", { exact: true }).click();
+  await page.getByText("Modifica dati fattura", { exact: true }).click();
+  await page.getByText("Mostra XML tecnico", { exact: true }).click();
+  for (const width of [1280, 900, 320]) {
+    await page.setViewportSize({ width, height: width === 320 ? 780 : 800 });
+    await expectViewportFits(page);
+    await expectVisibleFieldsetTitlesInside(page);
+    await expectApprovalLabelsReadable(page);
+    await expect(page.getByRole("button", { name: "Approva fattura" })).toBeVisible();
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   await expect(page.getByRole("group", { name: "Conferma finale" })).toContainText(
-    "numero fiscale definitivo",
+    "prossimo numero fiscale disponibile",
   );
-  await page.getByLabel(/Confermo i dati riepilogati e autorizzo l’approvazione/).check();
+  await expect(page.locator('input[name="confirmApproval"]')).toHaveCount(0);
   const approvalResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" && response.url().includes("/ordini/preparazione/"),
   );
-  await page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }).click();
+  await page.getByRole("button", { name: "Approva fattura" }).click();
   if ((await approvalResponse).status() >= 400) {
     await page.getByRole("alert").waitFor();
     throw new Error((await page.getByRole("alert").textContent()) ?? "Approvazione non riuscita");
   }
-  await expect(
-    page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Approva fattura" })).toHaveCount(0);
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
   const approvedDocument = page.locator(".document-row").filter({ hasText: "Approvato" }).first();
   await expect(approvedDocument).toBeVisible();
