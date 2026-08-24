@@ -51,6 +51,14 @@ non richiedono immagine, deploy o release; più modifiche runtime correlate già
 assorbite in `main` vengono distribuite insieme una sola volta sul candidato
 finale.
 
+Quando una modifica runtime deve essere pubblicata, il bump di versione e la
+voce di changelog appartengono alla stessa PR dell'implementazione e devono
+essere completati prima del merge. Non fondere la modifica runtime per aprire
+poi una seconda PR dedicata soltanto a versione, changelog o release. Se questi
+elementi non sono pronti, la PR di implementazione non è pronta al merge. Una
+deroga richiede una richiesta esplicita del proprietario riferita al caso
+specifico.
+
 I finding P2/P3 della review restano advisory e non autorizzano modifiche:
 l'agente li implementa soltanto su richiesta esplicita del proprietario. Quando
 la review è conclusa e l'evidenza si riferisce all'HEAD esatto, li riepiloga e

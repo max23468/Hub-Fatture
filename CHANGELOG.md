@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.63
+
+- La preparazione fattura porta subito ai controlli essenziali e all’approvazione: il numero viene assegnato automaticamente soltanto con “Approva fattura”, mentre il salvataggio compare quando i dati vengono modificati.
+- Dati cliente, modifica fattura, confronto e XML restano disponibili in sezioni espandibili; titoli, riepilogo finale e comandi rimangono dentro i rispettivi box anche su schermi stretti.
+- La sincronizzazione Aruba resta un’attività separata in Dashboard e Impostazioni; durante la preparazione viene mostrato soltanto l’eventuale avviso che impedisce l’approvazione.
+- La conferma esplicita del pulsante sostituisce il checkbox ridondante e il controllo Aruba viene riletto atomicamente prima della numerazione.
+
 ## 0.3.62
 
 - Il preferito riconosce il vero controllo data di Aruba e prosegue quando è vuoto, senza cercare o modificare campi che nel pannello reale non esistono; un filtro attivo produce invece un’indicazione specifica.
