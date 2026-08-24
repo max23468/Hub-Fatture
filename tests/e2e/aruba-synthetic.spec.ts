@@ -701,8 +701,10 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           cells[5].firstChild.data = "FPR 15/${String(year).slice(-2)}";
           cells[17].firstChild.data = "15000000001";
           pending.then(() => {
-            cells[5].firstChild.data = "FPR 2/${String(year).slice(-2)}";
             cells[17].firstChild.data = "20000000002";
+            setTimeout(() => {
+              cells[5].firstChild.data = "FPR 2/${String(year).slice(-2)}";
+            }, 300);
           });
           return;
         }
@@ -722,23 +724,13 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
   await page.evaluate((source) => {
     (0, eval)(source);
   }, bookmarklet.slice("javascript:".length));
-  const filteredBridge = await popupPromise;
-  await expect(page.locator("#hub-fatture-aruba-status")).toHaveText(
-    "Azzera il filtro Dal nella pagina Aruba e riprova.",
-  );
-  expect(
-    await filteredBridge.evaluate(() => (window as typeof window & { __pages: unknown[] }).__pages),
-  ).toEqual([]);
-  await filteredBridge.close();
-  await page.locator('input[name="dataDa"]').fill("");
-
-  const retryPopupPromise = page.waitForEvent("popup");
-  await page.evaluate((source) => {
-    (0, eval)(source);
-  }, bookmarklet.slice("javascript:".length));
-  const bridge = await retryPopupPromise;
+  const bridge = await popupPromise;
   await expect(page.locator("#hub-fatture-aruba-status")).toHaveText(
     "Sincronizzazione completata. Puoi tornare a Hub Fatture.",
+  );
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute(
+    "data-filtered",
+    "true",
   );
   await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute("data-page", "3");
   expect(
@@ -748,19 +740,20 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           __pages: Array<{
             pageOrdinal: number;
             terminal: boolean;
-            documents: Array<{ remoteId: string }>;
+            documents: Array<{ fiscalNumber: string; remoteId: string }>;
           }>;
         }
       ).__pages.map((item) => ({
         pageOrdinal: item.pageOrdinal,
         terminal: item.terminal,
+        fiscalNumbers: item.documents.map((document) => document.fiscalNumber),
         remoteIds: item.documents.map((document) => document.remoteId),
       })),
     ),
   ).toEqual([
-    { pageOrdinal: 1, terminal: false, remoteIds: ["10000000001"] },
-    { pageOrdinal: 2, terminal: false, remoteIds: ["20000000002"] },
-    { pageOrdinal: 3, terminal: true, remoteIds: ["30000000003"] },
+    { pageOrdinal: 1, terminal: false, fiscalNumbers: ["1"], remoteIds: ["10000000001"] },
+    { pageOrdinal: 2, terminal: false, fiscalNumbers: ["2"], remoteIds: ["20000000002"] },
+    { pageOrdinal: 3, terminal: true, fiscalNumbers: ["3"], remoteIds: ["30000000003"] },
   ]);
 });
 
