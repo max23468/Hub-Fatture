@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.73
+
+- Il preferito Aruba mantiene il riferimento alla finestra Hub Fatture nel contesto che l’ha aperta e offre al lettore un relay locale filtrato. Il runtime non trasferisce più il `WindowProxy` tra script, eliminando il timeout osservato su Chrome dopo il caricamento corretto del lettore.
+- La regressione rende intenzionalmente inutilizzabile il vecchio riferimento globale e completa comunque il collegamento cross-origin. Poiché cambia il codice statico del preferito, dopo il deploy quello salvato va sostituito una volta con il nuovo pulsante “Sincronizza Aruba”.
+
 ## 0.3.72
 
 - Il preferito Aruba non usa più canali trasferibili tra finestre, che sul pannello reale potevano non arrivare e lasciare il messaggio fermo su “Collegamento sicuro a Hub Fatture…”. Lettore e ponte comunicano direttamente verificando a ogni messaggio origine, finestra mittente e operazione consentita.
