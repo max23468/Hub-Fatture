@@ -3,7 +3,8 @@ import test from "node:test";
 
 import {
   claimArubaBridgeStart,
-  openArubaBridgeChannel,
+  sendArubaBridgeReady,
+  sendArubaBridgeResponse,
   sendArubaBridgeRuntime,
 } from "./aruba-bridge-state.ts";
 
@@ -17,18 +18,16 @@ test("il ponte Aruba avvia una sola copia del lettore per finestra", () => {
   assert.equal(claimArubaBridgeStart(state), true);
 });
 
-test("il ponte consegna il canale soltanto dopo che il lettore corrente è pronto", async () => {
+test("il ponte risponde direttamente alla finestra Aruba senza canali trasferibili", () => {
   const sent: Array<{
-    message: { port?: MessagePort; runtimeSource?: string; type?: string };
+    message: { id?: string; runtimeSource?: string; type?: string };
     targetOrigin: string;
-    transfer?: Transferable[];
   }> = [];
   const panel = {
-    postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]) {
+    postMessage(message: unknown, targetOrigin: string) {
       sent.push({
-        message: message as { port?: MessagePort; runtimeSource?: string; type?: string },
+        message: message as { id?: string; runtimeSource?: string; type?: string },
         targetOrigin,
-        transfer,
       });
     },
   };
@@ -42,34 +41,26 @@ test("il ponte consegna il canale soltanto dopo che il lettore corrente è pront
   assert.deepEqual(sent[0], {
     message: { type: "HF_ARUBA_START", runtimeSource: "runtime-corrente" },
     targetOrigin: "https://fatturazioneelettronica.aruba.it",
-    transfer: undefined,
   });
 
-  let received: unknown;
-  const request = new Promise<void>((resolve) => {
-    const port = openArubaBridgeChannel({
-      onRequest: (event) => {
-        received = event.data;
-        port.close();
-        resolve();
-      },
-      panel,
+  sendArubaBridgeReady({
+    panel,
+    targetOrigin: "https://fatturazioneelettronica.aruba.it",
+  });
+  sendArubaBridgeResponse({
+    panel,
+    response: { type: "HF_ARUBA_RESPONSE", id: "1" },
+    targetOrigin: "https://fatturazioneelettronica.aruba.it",
+  });
+
+  assert.deepEqual(sent.slice(1), [
+    {
+      message: { type: "HF_ARUBA_BRIDGE_READY" },
       targetOrigin: "https://fatturazioneelettronica.aruba.it",
-    });
-  });
-
-  assert.equal(sent[1]?.message.type, "HF_ARUBA_CHANNEL");
-  assert.equal(sent[1]?.targetOrigin, "https://fatturazioneelettronica.aruba.it");
-  assert.deepEqual(sent[1]?.transfer, [sent[1]?.message.port]);
-
-  const readerPort = sent[1]?.message.port;
-  assert.ok(readerPort);
-  const ready = new Promise<unknown>((resolve) => {
-    readerPort.addEventListener("message", (event) => resolve(event.data), { once: true });
-    readerPort.start();
-  });
-  assert.deepEqual(await ready, { type: "HF_ARUBA_CHANNEL_READY" });
-  readerPort.postMessage({ id: "1", path: "/manifest" });
-  await request;
-  assert.deepEqual(received, { id: "1", path: "/manifest" });
+    },
+    {
+      message: { type: "HF_ARUBA_RESPONSE", id: "1" },
+      targetOrigin: "https://fatturazioneelettronica.aruba.it",
+    },
+  ]);
 });

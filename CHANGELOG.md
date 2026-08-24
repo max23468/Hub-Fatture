@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.72
+
+- Il preferito Aruba non usa più canali trasferibili tra finestre, che sul pannello reale potevano non arrivare e lasciare il messaggio fermo su “Collegamento sicuro a Hub Fatture…”. Lettore e ponte comunicano direttamente verificando a ogni messaggio origine, finestra mittente e operazione consentita.
+- La regressione disabilita esplicitamente `MessageChannel` e completa il collegamento sia in Chromium sia in WebKit, anche con il vero ponte applicativo. Il preferito già installato carica automaticamente il lettore corretto e non deve essere sostituito.
+
 ## 0.3.71
 
 - Il ponte Aruba consegna il lettore, attende la sua conferma esplicita e verifica il canale in entrambe le direzioni prima di creare la sessione server. Un collegamento incompleto non lascia più una sessione orfana che blocca i tentativi successivi.
