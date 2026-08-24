@@ -162,6 +162,10 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     const manifest = await read(session.token);
     assert.equal(manifest.operation, "READ_SYNC");
     assert.ok(manifest.streams.some((stream) => stream.name === "invoices:2026"));
+    assert.deepEqual(await inbound.verifyArubaInventoryAccount(session.token, { documents: [] }), {
+      verified: true,
+      initialPairing: true,
+    });
     const invoicePage = {
       stream: "invoices:2026",
       scanOrdinal: 1,
@@ -1461,7 +1465,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         `SELECT DISTINCT ON (document ->> 'remoteId') document
        FROM aruba_sync_pages pages
        CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) document
-       WHERE pages.stream != '__manifest__' AND EXISTS (
+       WHERE pages.stream ~ '^(invoices|credit-notes):' AND EXISTS (
          SELECT 1 FROM aruba_remote_documents remote
          WHERE remote.remote_id = document ->> 'remoteId'
        )
@@ -1948,6 +1952,12 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       ).rows[0].count,
       0,
     );
+    assert.deepEqual(
+      await inbound.verifyArubaInventoryAccount(resumedSession.token, {
+        documents: interruptedPage.documents,
+      }),
+      { verified: true, initialPairing: false },
+    );
     const resumedPage = await inbound.ingestArubaInventoryPage(
       resumedSession.token,
       interruptedPage,
@@ -2385,6 +2395,12 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
         error instanceof Error && "code" in error && error.code === "ARUBA_INVENTORY_INCOMPLETE",
     );
     const recoverySession = await inbound.issueArubaReadSession("synthetic-device-0003", actor);
+    assert.deepEqual(
+      await inbound.verifyArubaInventoryAccount(recoverySession.token, {
+        documents: invoicePage.documents,
+      }),
+      { verified: true, initialPairing: false },
+    );
     for (const [index, stream] of ["invoices:2026", "credit-notes:2026"].entries()) {
       await inbound.ingestArubaInventoryPage(recoverySession.token, {
         stream,

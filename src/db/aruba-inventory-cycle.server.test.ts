@@ -30,6 +30,28 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
       canApprove: true,
       requestId: "aruba-inventory-atomic-test",
     });
+    await assert.rejects(
+      inbound.ingestArubaInventoryPage(issued.token, {
+        stream: "invoices:2026",
+        scanOrdinal: 1,
+        pageOrdinal: 1,
+        cursor: "bypass-account-proof",
+        terminal: true,
+        fullScan: true,
+        documents: [],
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "ARUBA_ACCOUNT_MISMATCH",
+    );
+    assert.equal(
+      (
+        await database.getPool().query<{ count: number }>(
+          `SELECT count(*)::integer AS count FROM aruba_sync_pages
+           WHERE sync_session_id = $1 AND stream ~ '^(invoices|credit-notes):'`,
+          [issued.sessionId],
+        )
+      ).rows[0]!.count,
+      0,
+    );
     assert.deepEqual(await inbound.verifyArubaInventoryAccount(issued.token, { documents: [] }), {
       verified: true,
       initialPairing: true,

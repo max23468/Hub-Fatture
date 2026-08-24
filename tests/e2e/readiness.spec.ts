@@ -1367,7 +1367,8 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     `SELECT sessions.status, bool_and(pages.full_scan) AS full_scan
      FROM aruba_sync_sessions AS sessions
      JOIN aruba_sync_pages AS pages ON pages.sync_session_id = sessions.id
-     WHERE sessions.helper_version = 'preferito-1' AND pages.stream <> '__manifest__'
+     WHERE sessions.helper_version = 'preferito-1'
+       AND pages.stream ~ '^(invoices|credit-notes):'
      GROUP BY sessions.id, sessions.status, sessions.started_at
      ORDER BY sessions.started_at DESC LIMIT 2`,
   );

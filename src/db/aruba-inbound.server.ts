@@ -330,6 +330,31 @@ export async function verifyArubaInventoryAccount(token: string, rawProof: unkno
     if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
     await lockArubaInventory(client, session.environment, session.account_reference);
 
+    const recorded = await client.query<{ documents_json: { initialPairing?: unknown } }>(
+      `SELECT documents_json FROM aruba_sync_pages
+       WHERE sync_session_id = $1 AND stream = '__account_proof__'
+         AND scan_ordinal = 1 AND page_ordinal = 1`,
+      [session.id],
+    );
+    if (recorded.rows[0]) {
+      return {
+        verified: true,
+        initialPairing: recorded.rows[0].documents_json.initialPairing === true,
+      };
+    }
+
+    const recordProof = async (initialPairing: boolean) => {
+      const payload = { initialPairing };
+      await client.query(
+        `INSERT INTO aruba_sync_pages
+           (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal,
+            full_scan, row_count, documents_json, payload_digest)
+         VALUES ($1, '__account_proof__', 1, 1, NULL, true, false, 0, $2, $3)`,
+        [session.id, JSON.stringify(payload), payloadDigest(payload)],
+      );
+      return { verified: true, initialPairing };
+    };
+
     const knownAccount = await client.query<{ has_documents: boolean }>(
       `SELECT EXISTS (
          SELECT 1 FROM aruba_remote_documents
@@ -339,7 +364,7 @@ export async function verifyArubaInventoryAccount(token: string, rawProof: unkno
       [session.environment, session.account_reference],
     );
     if (!knownAccount.rows[0]?.has_documents) {
-      return { verified: true, initialPairing: true };
+      return recordProof(true);
     }
     if (!proof.data.documents.length) return { verified: false, initialPairing: false };
 
@@ -382,7 +407,7 @@ export async function verifyArubaInventoryAccount(token: string, rawProof: unkno
         observed.currency === document.currency
       );
     });
-    return { verified, initialPairing: false };
+    return verified ? recordProof(false) : { verified: false, initialPairing: false };
   });
 }
 
@@ -1990,16 +2015,24 @@ async function ingestParsedArubaPage(
   const sessionMode = await client.query<{
     is_full_scan: boolean;
     has_pages: boolean;
+    account_verified: boolean;
     source: "HELPER" | "MANUAL";
   }>(
     `SELECT sessions.is_full_scan, sessions.source,
        EXISTS (SELECT 1 FROM aruba_sync_pages pages
-         WHERE pages.sync_session_id = sessions.id AND pages.stream <> '__manifest__') AS has_pages
+         WHERE pages.sync_session_id = sessions.id
+           AND pages.stream ~ '^(invoices|credit-notes):') AS has_pages,
+       EXISTS (SELECT 1 FROM aruba_sync_pages pages
+         WHERE pages.sync_session_id = sessions.id
+           AND pages.stream = '__account_proof__') AS account_verified
      FROM aruba_sync_sessions sessions WHERE sessions.id = $1`,
     [session.id],
   );
   const currentMode = sessionMode.rows[0];
   if (!currentMode) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+  if (currentMode.source === "HELPER" && !currentMode.account_verified) {
+    throw new AppError("ARUBA_ACCOUNT_MISMATCH", 409);
+  }
   if (
     currentMode.source === "HELPER" &&
     page.scanOrdinal === 1 &&

@@ -260,11 +260,11 @@ export async function completeStableArubaInventory(
       `SELECT stream, count(*)::integer AS page_count, max(page_ordinal)::integer AS max_ordinal,
               count(*) FILTER (WHERE terminal)::integer AS terminal_count,
               max(page_ordinal) FILTER (WHERE terminal)::integer AS terminal_ordinal,
-              count(*) FILTER (WHERE full_scan = $3)::integer AS mode_count
+              count(*) FILTER (WHERE full_scan = $4)::integer AS mode_count
        FROM aruba_sync_pages
-       WHERE sync_session_id = $1 AND scan_ordinal = $2 AND stream <> '__manifest__'
+       WHERE sync_session_id = $1 AND scan_ordinal = $2 AND stream = ANY($3::text[])
        GROUP BY stream`,
-      [session.id, scanOrdinal.data, fullScan.data],
+      [session.id, scanOrdinal.data, expectedStreams, fullScan.data],
     );
     const byStream = new Map(pageCoverage.rows.map((row) => [row.stream, row]));
     if (
