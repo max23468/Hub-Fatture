@@ -5,7 +5,8 @@ import type { Route } from "./+types/aruba-bridge";
 import { copy } from "../copy.it";
 import {
   claimArubaBridgeStart,
-  openArubaBridgeChannel,
+  sendArubaBridgeReady,
+  sendArubaBridgeResponse,
   sendArubaBridgeRuntime,
 } from "../aruba-bridge-state.ts";
 import { privateRouteMeta } from "../metadata";
@@ -63,6 +64,7 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
   const tokenRef = useRef<string | null>(null);
   const issuingRef = useRef<Promise<string> | null>(null);
   const startedRef = useRef(false);
+  const readyRef = useRef(false);
 
   // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- Il fetch non carica dati di rendering: risponde a un messaggio autenticato del pannello esterno durante la vita del ponte.
   useEffect(() => {
@@ -100,16 +102,21 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
       return issuingRef.current;
     };
 
-    let requestPort: MessagePort | null = null;
-    const receiveRequest = async (event: MessageEvent) => {
-      if (!event.data || event.data.type !== `${bridgeType}_REQUEST`) return;
-      const id = String(event.data.id ?? "");
-      const method = String(event.data.method ?? "GET").toUpperCase();
-      const path = String(event.data.path ?? "");
+    const respond = (response: unknown) =>
+      sendArubaBridgeResponse({
+        panel,
+        response,
+        targetOrigin: allowedPanelOrigin,
+      });
+
+    const receiveRequest = async (request: Record<string, unknown>) => {
+      const id = String(request.id ?? "");
+      const method = String(request.method ?? "GET").toUpperCase();
+      const path = String(request.path ?? "");
       if (!/^\d{1,20}$/.test(id) || !allowedRequests.has(`${method} ${path}`)) return;
       try {
         const token = await issueToken();
-        const body = method === "POST" ? JSON.stringify(event.data.body ?? {}) : undefined;
+        const body = method === "POST" ? JSON.stringify(request.body ?? {}) : undefined;
         if (body && body.length > 1_000_000) throw new Error("PAYLOAD_TOO_LARGE");
         const response = await fetch(path, {
           method,
@@ -122,7 +129,7 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
         });
         if (!response.ok) {
           const failure = (await response.json().catch(() => ({}))) as { code?: unknown };
-          requestPort?.postMessage({
+          respond({
             type: `${bridgeType}_RESPONSE`,
             id,
             ok: false,
@@ -131,14 +138,14 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
           return;
         }
         const payload = (await response.json()) as unknown;
-        requestPort?.postMessage({
+        respond({
           type: `${bridgeType}_RESPONSE`,
           id,
           ok: true,
           payload,
         });
       } catch (error) {
-        requestPort?.postMessage({
+        respond({
           type: `${bridgeType}_RESPONSE`,
           id,
           ok: false,
@@ -163,26 +170,34 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
         }
         return;
       }
-      if (event.data?.type !== `${bridgeType}_RUNTIME_READY` || !startedRef.current || requestPort)
+      if (event.data?.type === `${bridgeType}_RUNTIME_READY` && startedRef.current) {
+        try {
+          sendArubaBridgeReady({
+            panel,
+            targetOrigin: allowedPanelOrigin,
+          });
+          readyRef.current = true;
+        } catch {
+          readyRef.current = false;
+          startedRef.current = false;
+          setStatus(copy.settings.arubaBridgeFailed);
+        }
         return;
-      try {
-        requestPort = openArubaBridgeChannel({
-          onRequest: receiveRequest,
-          panel,
-          targetOrigin: allowedPanelOrigin,
-        });
-      } catch {
-        requestPort?.close();
-        requestPort = null;
-        startedRef.current = false;
-        setStatus(copy.settings.arubaBridgeFailed);
       }
+      if (
+        event.data?.type !== `${bridgeType}_REQUEST` ||
+        !readyRef.current ||
+        !event.data ||
+        typeof event.data !== "object"
+      )
+        return;
+      void receiveRequest(event.data as Record<string, unknown>);
     };
 
     window.addEventListener("message", receive);
     return () => {
+      readyRef.current = false;
       window.removeEventListener("message", receive);
-      requestPort?.close();
     };
   }, [allowedPanelOrigin, csrfToken, runtimeSource]);
 

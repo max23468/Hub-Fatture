@@ -656,7 +656,7 @@ test("il lettore Production attende la stabilizzazione completa della pagina suc
   await expect(page.locator(".x-gridrow").nth(1)).toContainText("20000000002");
 });
 
-test("il preferito conferma l’avvio prima del canale e chiude il ponte dopo un errore", async ({
+test("il preferito collega le finestre senza canali trasferibili e chiude il ponte dopo un errore", async ({
   page,
 }) => {
   const hubOrigin = "https://hub-synthetic.invalid";
@@ -671,6 +671,7 @@ test("il preferito conferma l’avvio prima del canale e chiude il ponte dopo un
     return route.fulfill({
       contentType: "text/html; charset=utf-8",
       body: `<!doctype html><script>
+        Object.defineProperty(window, "MessageChannel", { value: undefined });
         addEventListener("message", (event) => {
           if (event.origin !== ${JSON.stringify(panelOrigin)} || !event.data) return;
           if (event.data.type === "HF_ARUBA_HELLO") {
@@ -684,35 +685,25 @@ test("il preferito conferma l’avvio prima del canale e chiude il ponte dopo un
             return;
           }
           if (event.data.type === "HF_ARUBA_RUNTIME_READY") {
-            if (window.__channelSent) return;
-            window.__channelSent = true;
-            setTimeout(() => {
-              const channel = new MessageChannel();
-              channel.port1.addEventListener("message", (requestEvent) => {
-                const request = requestEvent.data;
-                if (request?.type !== "HF_ARUBA_REQUEST") return;
-                const respond = () => channel.port1.postMessage({
-                  type: "HF_ARUBA_RESPONSE",
-                  id: request.id,
-                  ok: request.path === "/api/aruba/sync/fallita",
-                  code: "HUB_ERROR",
-                  payload: {}
-                });
-                if (request.path === "/api/aruba/sync/manifest") {
-                  fetch("/manifest-observed", { method: "POST" }).finally(respond);
-                  return;
-                }
-                respond();
-              });
-              channel.port1.start();
-              window.__panel.postMessage({
-                type: "HF_ARUBA_CHANNEL",
-                port: channel.port2
-              }, ${JSON.stringify(panelOrigin)}, [channel.port2]);
-              channel.port1.postMessage({ type: "HF_ARUBA_CHANNEL_READY" });
-            }, 100);
+            window.__ready = true;
+            event.source.postMessage({ type: "HF_ARUBA_BRIDGE_READY" }, ${JSON.stringify(panelOrigin)});
             return;
           }
+          if (event.data.type !== "HF_ARUBA_REQUEST" || !window.__ready) return;
+          const request = event.data;
+          const panel = event.source;
+          const respond = () => panel.postMessage({
+            type: "HF_ARUBA_RESPONSE",
+            id: request.id,
+            ok: request.path === "/api/aruba/sync/fallita",
+            code: "HUB_ERROR",
+            payload: {}
+          }, ${JSON.stringify(panelOrigin)});
+          if (request.path === "/api/aruba/sync/manifest") {
+            fetch("/manifest-observed", { method: "POST" }).finally(respond);
+            return;
+          }
+          respond();
         });
       </script>`,
     });
@@ -728,9 +719,6 @@ test("il preferito conferma l’avvio prima del canale e chiude il ponte dopo un
 
   const popupPromise = page.waitForEvent("popup");
   const bookmarklet = buildArubaBookmarklet({ hubOrigin, panelOrigin });
-  await page.evaluate((source) => {
-    (0, eval)(source);
-  }, bookmarklet.slice("javascript:".length));
   await page.evaluate((source) => {
     (0, eval)(source);
   }, bookmarklet.slice("javascript:".length));
@@ -752,6 +740,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
     route.fulfill({
       contentType: "text/html",
       body: `<!doctype html><script>
+        Object.defineProperty(window, "MessageChannel", { value: undefined });
         window.__pages = [];
         addEventListener("message", (event) => {
           if (event.origin !== ${JSON.stringify(panelOrigin)} || !event.data) return;
@@ -766,40 +755,31 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
             return;
           }
           if (event.data.type === "HF_ARUBA_RUNTIME_READY") {
-            if (window.__channelSent) return;
-            window.__channelSent = true;
-            const channel = new MessageChannel();
-            channel.port1.addEventListener("message", (requestEvent) => {
-              const request = requestEvent.data;
-              if (request?.type !== "HF_ARUBA_REQUEST") return;
-              let payload = {};
-              if (request.path === "/api/aruba/sync/manifest") {
-                payload = {
-                  accountIdentity: "synthetic-aruba-account",
-                  streams: [{ name: "invoices:${year}" }]
-                };
-              } else if (request.path === "/api/aruba/sync/preflight") {
-                payload = { work: [] };
-              } else if (request.path === "/api/aruba/sync/verifica-account") {
-                payload = { verified: true, initialPairing: false };
-              } else if (request.path === "/api/aruba/sync/pagine") {
-                window.__pages.push(request.body);
-              }
-              channel.port1.postMessage({
-                type: "HF_ARUBA_RESPONSE",
-                id: request.id,
-                ok: true,
-                payload
-              });
-            });
-            channel.port1.start();
-            window.__panel.postMessage({
-              type: "HF_ARUBA_CHANNEL",
-              port: channel.port2
-            }, ${JSON.stringify(panelOrigin)}, [channel.port2]);
-            channel.port1.postMessage({ type: "HF_ARUBA_CHANNEL_READY" });
+            window.__ready = true;
+            event.source.postMessage({ type: "HF_ARUBA_BRIDGE_READY" }, ${JSON.stringify(panelOrigin)});
             return;
           }
+          if (event.data.type !== "HF_ARUBA_REQUEST" || !window.__ready) return;
+          const request = event.data;
+          let payload = {};
+          if (request.path === "/api/aruba/sync/manifest") {
+            payload = {
+              accountIdentity: "synthetic-aruba-account",
+              streams: [{ name: "invoices:${year}" }]
+            };
+          } else if (request.path === "/api/aruba/sync/preflight") {
+            payload = { work: [] };
+          } else if (request.path === "/api/aruba/sync/verifica-account") {
+            payload = { verified: true, initialPairing: false };
+          } else if (request.path === "/api/aruba/sync/pagine") {
+            window.__pages.push(request.body);
+          }
+          event.source.postMessage({
+            type: "HF_ARUBA_RESPONSE",
+            id: request.id,
+            ok: true,
+            payload
+          }, ${JSON.stringify(panelOrigin)});
         });
       </script>`,
     }),

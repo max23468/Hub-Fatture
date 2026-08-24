@@ -5,7 +5,7 @@ export function claimArubaBridgeStart(state: { current: boolean }) {
 }
 
 interface ArubaBridgePanel {
-  postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]): void;
+  postMessage(message: unknown, targetOrigin: string): void;
 }
 
 export function sendArubaBridgeRuntime({
@@ -20,21 +20,24 @@ export function sendArubaBridgeRuntime({
   panel.postMessage({ type: "HF_ARUBA_START", runtimeSource }, targetOrigin);
 }
 
-export function openArubaBridgeChannel({
-  onRequest,
+export function sendArubaBridgeReady({
   panel,
   targetOrigin,
 }: {
-  onRequest: (event: MessageEvent) => void;
   panel: ArubaBridgePanel;
   targetOrigin: string;
 }) {
-  const channel = new MessageChannel();
-  channel.port1.addEventListener("message", onRequest);
-  channel.port1.start();
-  panel.postMessage({ type: "HF_ARUBA_CHANNEL", port: channel.port2 }, targetOrigin, [
-    channel.port2,
-  ]);
-  channel.port1.postMessage({ type: "HF_ARUBA_CHANNEL_READY" });
-  return channel.port1;
+  panel.postMessage({ type: "HF_ARUBA_BRIDGE_READY" }, targetOrigin);
+}
+
+export function sendArubaBridgeResponse({
+  panel,
+  response,
+  targetOrigin,
+}: {
+  panel: ArubaBridgePanel;
+  response: unknown;
+  targetOrigin: string;
+}) {
+  panel.postMessage(response, targetOrigin);
 }
