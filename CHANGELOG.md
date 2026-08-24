@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.66
+
+- Le preparazioni aprono subito i dati del destinatario e della fattura, dispongono i campi su più colonne quando lo spazio lo consente e mantengono centrato il comando “Apri preparazione” senza vuoti laterali sbilanciati.
+- I pannelli Aruba e approvazione hanno altezze coerenti negli stati compatti; quando l’approvazione contiene il riepilogo completo, ogni pannello usa invece tutta la larghezza utile. Il registro attività distribuisce gli eventi orizzontalmente su desktop e torna a una colonna su mobile, eliminando sia grandi interruzioni vuote sia testi eccessivamente compressi.
+
 ## 0.3.65
 
 - Il preferito Aruba carica il lettore corrente da Hub Fatture a ogni avvio: dopo la sostituzione una tantum, le correzioni future non richiedono più di cancellarlo e aggiungerlo di nuovo.

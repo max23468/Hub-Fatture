@@ -40,7 +40,7 @@ export function CustomerEditor({
     ["province", copy.customerEditor.province, address.province ?? ""],
   ];
   return (
-    <details className="card section-gap preparation-disclosure">
+    <details className="card section-gap preparation-disclosure" open>
       <summary>
         <span>
           <strong>{copy.customerEditor.title}</strong>

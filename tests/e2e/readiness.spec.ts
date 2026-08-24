@@ -605,6 +605,23 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   await page.getByRole("link", { name: "Da fatturare" }).click();
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByRole("cell", { name: "2", exact: true })).toBeVisible();
+  const preparationActionSpacing = await page
+    .locator(".orders-table--preparations .orders-table__action .dashboard-row-link")
+    .first()
+    .evaluate((action) => {
+      const label = action.querySelector<HTMLElement>("span");
+      const icon = action.querySelector<SVGElement>("svg");
+      if (!label || !icon) return null;
+      const actionBox = action.getBoundingClientRect();
+      return {
+        left: label.getBoundingClientRect().left - actionBox.left,
+        right: actionBox.right - icon.getBoundingClientRect().right,
+      };
+    });
+  expect(preparationActionSpacing).not.toBeNull();
+  expect(
+    Math.abs((preparationActionSpacing?.left ?? 0) - (preparationActionSpacing?.right ?? 0)),
+  ).toBeLessThanOrEqual(2);
   await page.getByRole("link", { name: /^Apri preparazione fattura \d{6}$/ }).click();
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expectPlainLanguage(page);
@@ -845,8 +862,11 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   await expect(page.getByRole("button", { name: "Approva fattura" })).toHaveCount(0);
 
   // La correzione dei dati cliente si chiude direttamente dall'applicazione.
-  await expect(page.getByLabel("Cognome")).not.toBeVisible();
-  await page.getByText("Dati del destinatario", { exact: true }).click();
+  const recipientDisclosure = page
+    .locator("details.preparation-disclosure")
+    .filter({ hasText: "Dati del destinatario" });
+  await expect(recipientDisclosure).toHaveAttribute("open", "");
+  await expect(page.getByLabel("Cognome")).toBeVisible();
   await page.getByLabel("Cognome").fill("Rossi Verificato");
   await expect(page.getByRole("group", { name: "Cliente" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Indirizzo di fatturazione" })).toBeVisible();
@@ -1105,6 +1125,17 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   await page.getByLabel("Nome utente").fill("MASSIMO");
   await page.getByLabel("Password").fill("password-massimo");
   await page.getByRole("button", { name: "Accedi" }).click();
+  const preparationLayoutClient = new pg.Client({ connectionString: databaseUrl });
+  await preparationLayoutClient.connect();
+  await preparationLayoutClient.query(
+    `UPDATE aruba_sync_sessions
+     SET completed_at = now() - interval '2 hours',
+         full_scan_completed_at = now() - interval '2 hours'
+     WHERE environment = 'MOCK'
+       AND account_reference = 'synthetic-aruba-account'
+       AND completed_at IS NOT NULL`,
+  );
+  await preparationLayoutClient.end();
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "Da fatturare" }).click();
   await page
@@ -1123,10 +1154,56 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     "TD01 · FPR12 · FPR",
   );
   await expect(page.getByText("Modifica dati fattura")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Salva modifiche" })).toHaveCount(0);
-  await page.getByText("Dati del destinatario", { exact: true }).click();
-  await page.getByText("Modifica dati fattura", { exact: true }).click();
+  const openPreparationDisclosures = page.locator("details.preparation-disclosure[open]");
+  await expect(openPreparationDisclosures).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Salva modifiche" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Salva modifiche" })).toBeDisabled();
   await page.getByText("Mostra XML tecnico", { exact: true }).click();
+  const preparationId = new URL(page.url()).pathname.split("/").at(-1)!;
+  const compactLayoutClient = new pg.Client({ connectionString: databaseUrl });
+  await compactLayoutClient.connect();
+  await compactLayoutClient.query(
+    `UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1`,
+    [preparationId],
+  );
+  await page.reload();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const workflowGrid = page.locator(".preparation-workflow-grid");
+  const compactWorkflowColumns = await workflowGrid.evaluate((element) =>
+    getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean),
+  );
+  expect(compactWorkflowColumns).toHaveLength(2);
+  const workflowBox = await workflowGrid.boundingBox();
+  const inventoryBox = await page.locator(".preparation-inventory").boundingBox();
+  const activityBox = await page.locator(".preparation-activity").boundingBox();
+  const approvalBox = await page.locator(".preparation-approval").boundingBox();
+  expect(workflowBox).not.toBeNull();
+  expect(inventoryBox).not.toBeNull();
+  expect(activityBox).not.toBeNull();
+  expect(approvalBox).not.toBeNull();
+  expect(Math.abs(inventoryBox!.y - approvalBox!.y)).toBeLessThanOrEqual(2);
+  expect(Math.abs(inventoryBox!.height - approvalBox!.height)).toBeLessThanOrEqual(2);
+  expect(Math.abs(activityBox!.width - workflowBox!.width)).toBeLessThanOrEqual(2);
+  expect(activityBox!.y).toBeGreaterThanOrEqual(
+    Math.max(inventoryBox!.y + inventoryBox!.height, approvalBox!.y + approvalBox!.height),
+  );
+  await compactLayoutClient.query(`UPDATE billing_cases SET status = 'READY' WHERE id = $1`, [
+    preparationId,
+  ]);
+  await compactLayoutClient.end();
+  await page.reload();
+  const expandedWorkflowColumns = await workflowGrid.evaluate((element) =>
+    getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean),
+  );
+  expect(expandedWorkflowColumns).toHaveLength(1);
+  const expandedWorkflowBox = await workflowGrid.boundingBox();
+  const expandedInventoryBox = await page.locator(".preparation-inventory").boundingBox();
+  const expandedApprovalBox = await page.locator(".preparation-approval").boundingBox();
+  expect(expandedWorkflowBox).not.toBeNull();
+  expect(expandedInventoryBox).not.toBeNull();
+  expect(expandedApprovalBox).not.toBeNull();
+  expect(Math.abs(expandedInventoryBox!.width - expandedWorkflowBox!.width)).toBeLessThanOrEqual(2);
+  expect(Math.abs(expandedApprovalBox!.width - expandedWorkflowBox!.width)).toBeLessThanOrEqual(2);
   for (const width of [1280, 900, 320]) {
     await page.setViewportSize({ width, height: width === 320 ? 780 : 800 });
     await expectViewportFits(page);
@@ -1134,6 +1211,10 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     await expectApprovalLabelsReadable(page);
     await expect(page.getByRole("button", { name: "Approva fattura" })).toBeVisible();
   }
+  const mobileWorkflowColumns = await workflowGrid.evaluate((element) =>
+    getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean),
+  );
+  expect(mobileWorkflowColumns).toHaveLength(1);
   await page.setViewportSize({ width: 1280, height: 720 });
   await expect(page.getByRole("group", { name: "Conferma finale" })).toContainText(
     "prossimo numero fiscale disponibile",
