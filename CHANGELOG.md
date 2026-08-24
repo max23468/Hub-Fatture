@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.62
+
+- Il preferito riconosce il vero controllo data di Aruba e prosegue quando è vuoto, senza cercare o modificare campi che nel pannello reale non esistono; un filtro attivo produce invece un’indicazione specifica.
+- La paginazione usa lo stato del singolo pulsante, così percorre tutte le pagine anche quando ExtJS marca impropriamente come disabilitato il contenitore della barra.
+- Il pulsante da trascinare nei preferiti usa il solo nome “Sincronizza Aruba”, senza l’icona a freccia.
+
 ## 0.3.61
 
 - Il preferito riconosce la paginazione con cui Aruba riusa le stesse righe e aggiorna soltanto il testo, attendendo che tutte le celle della griglia siano stabili prima di importarle.

@@ -25,7 +25,7 @@ statusBox.setAttribute("role","status");
 statusBox.style.cssText="position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:min(360px,calc(100vw - 32px));padding:14px 16px;border:1px solid #3bc9db;border-radius:10px;background:#071f2b;color:#f7fbfc;font:600 14px/1.4 system-ui,-apple-system,sans-serif;box-shadow:0 12px 30px #0008;overflow-wrap:anywhere";
 document.body.append(statusBox);
 const setStatus=(message,error=false)=>{statusBox.textContent=message;statusBox.style.borderColor=error?"#ff7b72":"#3bc9db"};
-const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"||code==="HUB_BRIDGE_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
+const failureMessage=(code)=>code==="POPUP_BLOCKED"?"Consenti l’apertura della finestra e riprova.":code==="ARUBA_ORIGIN_MISMATCH"?"Apri il pannello Aruba e usa lì questo preferito.":code==="ARUBA_FILTER_ACTIVE"?"Rimuovi il filtro data nella pagina Aruba e riprova.":code==="DOM_UNRECOGNIZED"?"La pagina Aruba non ha completato il caricamento previsto. Ricaricala e riprova.":code==="HUB_TIMEOUT"||code==="HUB_BRIDGE_TIMEOUT"?"Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.":"La lettura si è interrotta prima del completamento. Torna a Hub Fatture e riprova.";
 const post=(message)=>bridge&&bridge.postMessage(message,HUB);
 const rpc=(path,method="GET",body)=>new Promise((resolve,reject)=>{
   const id=String(++sequence);
@@ -63,7 +63,7 @@ const streamParts=(stream)=>{const match=/^(invoices|credit-notes):(\d{4})$/.exe
 const assertAccount=(identity)=>{const expected=normalized(identity);const selectors='[data-aruba-account],.main-toolbar-info-user,[aria-current="true"],[aria-selected="true"],[data-active="true"]';const candidates=[...document.querySelectorAll(selectors)].filter(visible).filter(element=>normalized(element.getAttribute("data-aruba-account")??element.textContent)===expected);if(candidates.length!==1)fail("ARUBA_ACCOUNT_MISMATCH")};
 const semanticNext=()=>{const candidates=[...document.querySelectorAll("button")].filter(visible).filter(button=>/Pagina successiva|Successiva/i.test(normalized(button.getAttribute("aria-label")||button.textContent)));if(candidates.length>1)fail("DOM_UNRECOGNIZED");return candidates[0]};
 const productionNext=()=>{const selector='.aruba-grid-fatture-inviate button[aria-label*="nextPage"],.aruba-grid-fatture-inviate button[title*="nextPage"],.aruba-grid-fatture-inviate [title*="nextPage"] button';const candidates=[...document.querySelectorAll(selector)].filter(visible);if(candidates.length!==1)fail("DOM_UNRECOGNIZED");return candidates[0]};
-const enabled=(element)=>Boolean(element&&!element.disabled&&!element.closest(".x-disabled,[aria-disabled='true']"));
+const enabled=(element)=>{if(!element||element.disabled||element.getAttribute("aria-disabled")==="true")return false;const control=element.closest(".x-button");return !control||(!control.classList.contains("x-disabled")&&control.getAttribute("aria-disabled")!=="true")};
 const pageIdentity=()=>{const values=[...document.querySelectorAll(".aruba-grid-fatture-inviate .x-gridrow[data-recordindex] .x-gridcell:nth-child(18)")].map(element=>normalized(element.textContent)).filter(Boolean);if(!values.length)fail("DOM_UNRECOGNIZED");return values.join("|")};
 const fingerprint=()=>{const rows=[...document.querySelectorAll(".aruba-grid-fatture-inviate .x-gridrow[data-recordindex]")];if(!rows.length)fail("DOM_UNRECOGNIZED");return rows.map(row=>row.getAttribute("data-recordindex")+":"+[...row.querySelectorAll(".x-gridcell")].map(cell=>normalized(cell.textContent)).join("\u001f")).join("\u001e")};
 const armReload=()=>{
@@ -88,11 +88,11 @@ const waitForNativeReload=async(control)=>{const monitor=await new Promise((reso
 const sentDestination=()=>{const matches=(selector)=>[...document.querySelectorAll(selector)].filter(visible).filter(item=>/^(?:Fatture inviate|Documenti inviati|Inviate)$/i.test(normalized(item.textContent)));const semantic=matches('[role="menuitem"]');if(semantic.length===1)return semantic[0];if(semantic.length>1)fail("DOM_UNRECOGNIZED");const fallback=matches("a,button");if(fallback.length!==1)fail("DOM_UNRECOGNIZED");return fallback[0]};
 const waitForInventory=async(stream)=>{for(let attempt=0;attempt<120;attempt+=1){if(visible(document.querySelector('[data-aruba-stream="'+CSS.escape(stream)+'"]'))||visible(document.querySelector('[data-aruba-state="inventory-ready"]'))||(visible(document.querySelector(".main-toolbar-info-fiscalyear"))&&visible(document.querySelector(".aruba-grid-fatture-inviate"))))return;await sleep(250)}fail("DOM_UNRECOGNIZED")};
 const openInventory=async(stream)=>{if(visible(document.querySelector('[data-aruba-stream="'+CSS.escape(stream)+'"]'))||visible(document.querySelector('[data-aruba-state="inventory-ready"]'))||visible(document.querySelector(".aruba-grid-fatture-inviate")))return;const sent=sentDestination();setStatus("Seleziona Fatture inviate nel menu Aruba per continuare.");await waitForNativeReload(sent);await waitForInventory(stream)};
-const applyDateFilter=async(value)=>{const candidates=[...document.querySelectorAll('[data-aruba-filter-from],input[name="dataDa"]')].filter(visible);if(candidates.length!==1)fail("DOM_UNRECOGNIZED");const from=candidates[0];const next=value?String(value).slice(0,10):"";const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")?.set;if(!(from instanceof HTMLInputElement)||!setter)fail("DOM_UNRECOGNIZED");const apply=[...document.querySelectorAll("button")].filter(visible).find(button=>/^(?:Applica(?: filtri)?|Cerca|Filtra)$/i.test(normalized(button.textContent)));if(!apply)fail("DOM_UNRECOGNIZED");const monitor=armReload();try{setter.call(from,next);from.dispatchEvent(new Event("input",{bubbles:true}));from.dispatchEvent(new Event("change",{bubbles:true}));apply.click();await waitForReload(monitor)}finally{monitor.stop()}};
-const selectStream=async(stream,overlapFrom)=>{
+const assertDateFilterInactive=()=>{const synthetic=[...document.querySelectorAll('[data-aruba-filter-from]')].filter(visible);const production=[...document.querySelectorAll('[data-reference="arubacombobox-filterDate"]')].filter(visible);const candidates=synthetic.length?synthetic:production;if(candidates.length!==1)fail("DOM_UNRECOGNIZED");const input=candidates[0] instanceof HTMLInputElement?candidates[0]:candidates[0].querySelector("input");if(!(input instanceof HTMLInputElement))fail("DOM_UNRECOGNIZED");if(normalized(input.value))fail("ARUBA_FILTER_ACTIVE")};
+const selectStream=async(stream)=>{
   await openInventory(stream);
   const synthetic=document.querySelector('[data-aruba-stream="'+CSS.escape(stream)+'"]');
-  if(synthetic){synthetic.click();await sleep(100);await applyDateFilter(overlapFrom);return true}
+  if(synthetic){synthetic.click();await sleep(100);assertDateFilterInactive();return true}
   if(document.querySelector('[data-aruba-state="inventory-ready"]'))return false;
   const parts=streamParts(stream);
   const yearControl=document.querySelector(".main-toolbar-info-fiscalyear");
@@ -105,7 +105,7 @@ const selectStream=async(stream,overlapFrom)=>{
   if(sent.classList.contains("x-treelist-item-selected")){
     const first=[...document.querySelectorAll(".aruba-grid-fatture-inviate .pagingtoolbar-first button")].filter(visible);if(first.length!==1)fail("DOM_UNRECOGNIZED");if(enabled(first[0]))await clickProduction(first[0],true);
   }else{setStatus("Seleziona Fatture inviate nel menu Aruba per continuare.");await waitForNativeReload(sent)}
-  await applyDateFilter(overlapFrom);
+  assertDateFilterInactive();
   productionNext();
   return true;
 };
@@ -133,7 +133,7 @@ try{
   for(const streamInfo of manifest.streams){
     const stream=streamInfo.name;
     setStatus("Lettura "+stream+"…");
-    const available=await selectStream(stream,null);
+    const available=await selectStream(stream);
     let pageOrdinal=1;
     while(true){
       await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});

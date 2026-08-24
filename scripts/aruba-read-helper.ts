@@ -440,8 +440,14 @@ async function productionFirstButton(page: Page) {
 async function productionHasNext(page: Page) {
   const next = await productionNextButton(page);
   return next.evaluate((element) => {
-    const wrapper = element.closest(".x-disabled, [aria-disabled='true']");
-    return !(element as HTMLButtonElement).disabled && !wrapper;
+    const control = element.closest(".x-button");
+    return (
+      !(element as HTMLButtonElement).disabled &&
+      element.getAttribute("aria-disabled") !== "true" &&
+      (!control ||
+        (!control.classList.contains("x-disabled") &&
+          control.getAttribute("aria-disabled") !== "true"))
+    );
   });
 }
 
@@ -651,12 +657,12 @@ async function downloadOfficialFile(page: Page, file: OfficialFileSource, target
   return Buffer.concat(chunks, size);
 }
 
-async function applyDateFilter(page: Page, overlapFrom?: string | null) {
-  const from = page.locator('[data-aruba-filter-from], input[name="dataDa"]').first();
-  if (!(await from.count())) throw new Error("DOM_UNRECOGNIZED");
-  await from.fill(overlapFrom?.slice(0, 10) ?? "");
-  const apply = page.getByRole("button", { name: /Applica|Cerca|Filtra/i }).first();
-  if (await apply.count()) await apply.click();
+async function assertDateFilterInactive(page: Page) {
+  const synthetic = page.locator("[data-aruba-filter-from]:visible");
+  const production = page.locator('[data-reference="arubacombobox-filterDate"]:visible input');
+  const candidates = (await synthetic.count()) ? synthetic : production;
+  if ((await candidates.count()) !== 1) throw new Error("DOM_UNRECOGNIZED");
+  if ((await candidates.first().inputValue()).trim()) throw new Error("ARUBA_FILTER_ACTIVE");
 }
 
 async function armProductionGridReload(page: Page) {
@@ -963,7 +969,7 @@ async function clickAndWaitForProductionGridReload(page: Page, control: Locator)
   throw new Error("DOM_UNRECOGNIZED");
 }
 
-export async function selectStream(page: Page, stream: string, overlapFrom?: string | null) {
+export async function selectStream(page: Page, stream: string) {
   const selector = page.locator(`[data-aruba-stream="${stream}"]`).first();
   if (await selector.count()) {
     await selector.click();
@@ -1003,18 +1009,23 @@ export async function selectStream(page: Page, stream: string, overlapFrom?: str
     if (alreadySelected) {
       const first = await productionFirstButton(page);
       const firstEnabled = await first.evaluate((element) => {
-        const wrapper = element.closest(".x-disabled, [aria-disabled='true']");
-        return !(element as HTMLButtonElement).disabled && !wrapper;
+        const control = element.closest(".x-button");
+        return (
+          !(element as HTMLButtonElement).disabled &&
+          element.getAttribute("aria-disabled") !== "true" &&
+          (!control ||
+            (!control.classList.contains("x-disabled") &&
+              control.getAttribute("aria-disabled") !== "true"))
+        );
       });
       if (firstEnabled) await clickAndWaitForProductionGridReload(page, first);
       await productionNextButton(page);
-      return;
+    } else {
+      await clickAndWaitForProductionGridReload(page, visibleSent[0]!);
+      await productionNextButton(page);
     }
-    await clickAndWaitForProductionGridReload(page, visibleSent[0]!);
-    await productionNextButton(page);
-    return;
   }
-  await applyDateFilter(page, overlapFrom);
+  await assertDateFilterInactive(page);
 }
 
 async function advancePage(page: Page, environment: ArubaReadManifest["environment"]) {
@@ -1053,7 +1064,7 @@ export async function runArubaReadCycle(
   for (const streamManifest of manifest.streams) {
     await heartbeat();
     const stream = streamManifest.name;
-    await selectStream(page, stream, null);
+    await selectStream(page, stream);
     let pageOrdinal = 1;
     while (true) {
       await heartbeat();
