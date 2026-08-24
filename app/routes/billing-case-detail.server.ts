@@ -4,10 +4,6 @@ import type { Route } from "./+types/billing-case-detail";
 import { actionResult } from "../action";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import {
-  completeManualArubaPreflight,
-  getPendingArubaPreflightForCase,
-} from "../../src/db/aruba-inbound.server.ts";
-import {
   approveInvoice,
   getInvoiceProjection,
   saveInvoiceDraft,
@@ -67,7 +63,6 @@ function runIntent(
         caseRevision: revision,
         draftVersion: form.get("draftVersion"),
         projectionSha256: form.get("projectionSha256"),
-        confirmApproval: form.get("confirmApproval") === "yes",
         confirmPending: form.get("confirmPending") === "yes",
         confirmDifference: form.get("confirmDifference") === "yes",
         arubaMode: form.get("arubaMode"),
@@ -94,20 +89,6 @@ function runIntent(
       caseId,
       revision,
       form.get("confirmSourceReview") === "yes",
-      actor,
-    );
-  }
-  if (intent === "complete-manual-aruba-preflight") {
-    let pages;
-    try {
-      pages = JSON.parse(String(form.get("pagesJson") ?? "null")) as unknown;
-    } catch {
-      throw new AppError("ARUBA_INVENTORY_INVALID", 422);
-    }
-    return completeManualArubaPreflight(
-      form.get("receiptId") ?? "",
-      pages,
-      form.get("overrideReason"),
       actor,
     );
   }
@@ -173,17 +154,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     getBillingCase(params.caseId),
   ]);
   if (!billingCase) throw new Response("Preparazione non trovata", { status: 404 });
-  const [projection, pendingArubaPreflight] = await Promise.all([
-    invoiceProjection(params.caseId),
-    getPendingArubaPreflightForCase(params.caseId),
-  ]);
+  const projection = await invoiceProjection(params.caseId);
   return {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     billingCase,
     projection,
-    pendingArubaPreflight,
     storagePending: new URL(request.url).searchParams.get("archiviazione") === "pendente",
   };
 }

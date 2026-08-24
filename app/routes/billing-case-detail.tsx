@@ -1,9 +1,12 @@
+import { CircleCheck, FileCode2 } from "lucide-react";
+import { useState } from "react";
 import { Form, Link, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/billing-case-detail";
 
 import { AppShell } from "../components/app-shell";
 import { ComparisonTable } from "../components/comparison-table";
 import { CustomerEditor } from "../components/customer-editor";
+import { DetailSectionHeader } from "../components/detail-section-header";
 import { SortableHeader, useSortableRows } from "../components/sortable-table";
 import {
   anomalyLabels,
@@ -423,75 +426,122 @@ function InvoiceLinesTable({ lines }: { lines: InvoiceLine[] }) {
   );
 }
 
+function InvoiceDraftEditor({
+  csrfToken,
+  dirty,
+  onDirty,
+  projection,
+}: {
+  csrfToken: string;
+  dirty: boolean;
+  onDirty: () => void;
+  projection: InvoiceProjection;
+}) {
+  return (
+    <details className="card section-gap preparation-disclosure">
+      <summary>
+        <span>
+          <strong>{copy.document.draftTitle}</strong>
+          <small>{copy.document.draftIntro}</small>
+        </span>
+      </summary>
+      <Form method="post" className="preparation-edit-form" onChange={onDirty}>
+        <input type="hidden" name="csrf" value={csrfToken} />
+        <input type="hidden" name="intent" value="save-document" />
+        <input type="hidden" name="revision" value={projection.caseRevision} />
+        <input type="hidden" name="draftVersion" value={projection.draftVersion} />
+        <p>{copy.document.approvalDate(date(projection.documentDate))}</p>
+        <InvoiceLinesTable lines={projection.lines} />
+        <div className="detail-grid section-gap">
+          <label>
+            {copy.document.paymentStatus}
+            <select defaultValue={projection.paymentStatus} name="paymentStatus">
+              <option value="PAID">{copy.document.paymentPaid}</option>
+              <option value="PENDING">{copy.document.paymentPending}</option>
+            </select>
+          </label>
+          <label>
+            {copy.document.paymentMethod}
+            <select defaultValue={projection.paymentMethod} name="paymentMethod">
+              <option value="MP01">{copy.document.paymentCash}</option>
+              <option value="MP05">{copy.document.paymentTransfer}</option>
+              <option value="MP08">{copy.document.paymentCard}</option>
+            </select>
+          </label>
+        </div>
+        <label className="section-gap">
+          {copy.document.causale}
+          <input defaultValue={projection.causale} maxLength={200} name="causale" />
+        </label>
+        <label className="section-gap">
+          {copy.document.notes}
+          <input defaultValue={projection.notes} maxLength={200} name="notes" />
+        </label>
+        <label className="section-gap">
+          {copy.document.differenceReason}
+          <input
+            defaultValue={projection.differenceReason}
+            maxLength={500}
+            name="differenceReason"
+          />
+        </label>
+        <button className="button preparation-edit-form__submit" disabled={!dirty} type="submit">
+          {copy.document.saveDraft}
+        </button>
+      </Form>
+    </details>
+  );
+}
+
 function InvoiceDocument({
   canApprove,
+  caseReady,
+  customerDirty,
   csrfToken,
-  pendingArubaPreflight,
   publicNumber,
   projection,
 }: {
   canApprove: boolean;
+  caseReady: boolean;
+  customerDirty: boolean;
   csrfToken: string;
-  pendingArubaPreflight: { id: string; status: string } | null;
   publicNumber: string;
   projection: InvoiceProjection;
 }) {
+  const [draftDirty, setDraftDirty] = useState(false);
+  const inventoryNeedsAttention = projection.arubaInventory.status !== "HEALTHY";
+  const hasUnsavedChanges = draftDirty || customerDirty;
+  const canShowApproval =
+    !projection.approved &&
+    canApprove &&
+    caseReady &&
+    !hasUnsavedChanges &&
+    !projection.requiresResave &&
+    !projection.arubaInventory.blocking;
   return (
     <>
       {!projection.approved ? (
-        <section className="card section-gap" aria-labelledby="bozza-fiscale">
-          <h2 id="bozza-fiscale">{copy.document.draftTitle}</h2>
-          <p>{copy.document.draftIntro}</p>
-          <Form method="post">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="save-document" />
-            <input type="hidden" name="revision" value={projection.caseRevision} />
-            <input type="hidden" name="draftVersion" value={projection.draftVersion} />
-            <p>{copy.document.approvalDate(date(projection.documentDate))}</p>
-            <InvoiceLinesTable lines={projection.lines} />
-            <div className="detail-grid section-gap">
-              <label>
-                {copy.document.paymentStatus}
-                <select defaultValue={projection.paymentStatus} name="paymentStatus">
-                  <option value="PAID">{copy.document.paymentPaid}</option>
-                  <option value="PENDING">{copy.document.paymentPending}</option>
-                </select>
-              </label>
-              <label>
-                {copy.document.paymentMethod}
-                <select defaultValue={projection.paymentMethod} name="paymentMethod">
-                  <option value="MP01">{copy.document.paymentCash}</option>
-                  <option value="MP05">{copy.document.paymentTransfer}</option>
-                  <option value="MP08">{copy.document.paymentCard}</option>
-                </select>
-              </label>
-            </div>
-            <label className="section-gap">
-              {copy.document.causale}
-              <input defaultValue={projection.causale} maxLength={200} name="causale" />
-            </label>
-            <label className="section-gap">
-              {copy.document.notes}
-              <input defaultValue={projection.notes} maxLength={200} name="notes" />
-            </label>
-            <label className="section-gap">
-              {copy.document.differenceReason}
-              <input
-                defaultValue={projection.differenceReason}
-                maxLength={500}
-                name="differenceReason"
-              />
-            </label>
-            <button className="button section-gap" type="submit">
-              {copy.document.saveDraft}
-            </button>
-          </Form>
-        </section>
+        <InvoiceDraftEditor
+          csrfToken={csrfToken}
+          dirty={draftDirty}
+          onDirty={() => setDraftDirty(true)}
+          projection={projection}
+        />
       ) : null}
-      <section className="card comparison-grid section-gap" aria-labelledby="comparatore-fiscale">
-        <h2 id="comparatore-fiscale">{copy.document.comparisonTitle}</h2>
-        <p>{copy.document.xsdValid}</p>
-        <dl className="facts facts--columns">
+      <section className="card preparation-check section-gap" aria-labelledby="comparatore-fiscale">
+        <DetailSectionHeader
+          description={copy.document.comparisonHelp}
+          icon={<CircleCheck size={22} strokeWidth={1.8} />}
+          title={copy.document.comparisonTitle}
+        />
+        <p className="preparation-check__status">
+          <CircleCheck aria-hidden="true" size={20} strokeWidth={2} />
+          <span>
+            <strong>{copy.document.checksPassed}</strong>
+            <small>{copy.document.xsdValid}</small>
+          </span>
+        </p>
+        <dl className="facts facts--columns preparation-check__facts">
           <div>
             <dt>{copy.document.grossTotal}</dt>
             <dd>{euros(projection.grossTotal)}</dd>
@@ -517,224 +567,225 @@ function InvoiceDocument({
             <dd>RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}</dd>
           </div>
         </dl>
-        <ComparisonTable
-          title={copy.document.comparisonRecipient}
-          rows={projection.comparison.recipient}
-        />
-        <ComparisonTable
-          lineLabels
-          title={copy.document.comparisonLines}
-          rows={projection.comparison.lines}
-        />
-        <ComparisonTable
-          title={copy.document.comparisonPayment}
-          rows={projection.comparison.payment}
-        />
-        <ComparisonTable title={copy.document.comparisonNotes} rows={projection.comparison.notes} />
-        <ComparisonTable
-          title={copy.document.comparisonTechnical}
-          rows={projection.comparison.technical}
-        />
-        <details className="section-gap">
-          <summary>{copy.document.technicalXml}</summary>
-          <pre className="code-block">{projection.xml}</pre>
+        <details className="preparation-comparison-details">
+          <summary>{copy.document.comparisonDetails}</summary>
+          <div className="comparison-grid">
+            <ComparisonTable
+              title={copy.document.comparisonRecipient}
+              rows={projection.comparison.recipient}
+            />
+            <ComparisonTable
+              lineLabels
+              title={copy.document.comparisonLines}
+              rows={projection.comparison.lines}
+            />
+            <ComparisonTable
+              title={copy.document.comparisonPayment}
+              rows={projection.comparison.payment}
+            />
+            <ComparisonTable
+              title={copy.document.comparisonNotes}
+              rows={projection.comparison.notes}
+            />
+            <ComparisonTable
+              title={copy.document.comparisonTechnical}
+              rows={projection.comparison.technical}
+            />
+            <details className="technical-details">
+              <summary>
+                <FileCode2 aria-hidden="true" size={18} strokeWidth={1.8} />
+                {copy.document.technicalXml}
+              </summary>
+              <pre className="code-block">{projection.xml}</pre>
+            </details>
+          </div>
         </details>
-        {!projection.approved && projection.draftVersion === 0 ? (
-          <p className="notice section-gap">{copy.document.saveBeforeApproval}</p>
-        ) : !projection.approved && projection.requiresResave ? (
-          <p className="notice section-gap">{copy.document.resaveAfterDateChange}</p>
-        ) : !projection.approved && !canApprove ? (
-          <p className="notice section-gap">{copy.document.ownerOnly}</p>
-        ) : !projection.approved ? (
-          <Form method="post" className="section-gap">
-            <div className={projection.arubaInventory.blocking ? "warning" : "notice"}>
-              <strong>{copy.document.arubaPreflightTitle}</strong>
-              <p>
-                {copy.document.arubaPreflightStatus(
-                  copy.settings.arubaInventoryLabels[projection.arubaInventory.status],
-                  projection.arubaInventory.lastCompletedAt
-                    ? dateTime(projection.arubaInventory.lastCompletedAt)
-                    : copy.settings.never,
-                )}
-              </p>
-              <p>{copy.document.arubaPreflightHelp}</p>
-            </div>
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="approve-document" />
-            <input type="hidden" name="revision" value={projection.caseRevision} />
-            <input type="hidden" name="draftVersion" value={projection.draftVersion} />
-            <input type="hidden" name="projectionSha256" value={projection.projectionSha256} />
-            <input type="hidden" name="arubaMode" value={projection.arubaMode} />
-            <input type="hidden" name="emailModeVersion" value={projection.customerEmail.version} />
-            <fieldset className="section-gap">
-              <legend>{copy.document.customerEmailTitle}</legend>
-              <dl className="facts facts--columns">
-                <div>
-                  <dt>{copy.document.emailMode}</dt>
-                  <dd>
-                    {projection.customerEmail.mode === "AUTOMATIC"
-                      ? copy.document.emailAutomatic
-                      : projection.customerEmail.mode === "DISABLED"
-                        ? copy.document.emailDisabled
-                        : copy.document.emailManual}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailSender}</dt>
-                  <dd>{projection.customerEmail.sender}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailRecipient}</dt>
-                  <dd>{projection.customerEmail.recipient ?? copy.common.unavailable}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailSubject}</dt>
-                  <dd>{projection.customerEmail.subject}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailBody}</dt>
-                  <dd>{projection.customerEmail.body}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailAttachment}</dt>
-                  <dd>{projection.customerEmail.attachment}</dd>
-                </div>
-              </dl>
-              {projection.customerEmail.mode === "DISABLED" ? (
-                <>
-                  <input name="emailChoice" type="hidden" value="SKIP" />
-                  <p className="notice">{copy.document.emailDisabledHelp}</p>
-                </>
-              ) : (
-                <>
-                  <label className="checkbox-row">
-                    <input
-                      defaultChecked={
-                        projection.customerEmail.mode === "AUTOMATIC" &&
-                        Boolean(projection.customerEmail.recipient)
-                      }
-                      name="emailChoice"
-                      type="radio"
-                      value="SEND"
-                    />
-                    {copy.document.emailSend}
-                  </label>
-                  <label className="checkbox-row">
-                    <input
-                      defaultChecked={
-                        projection.customerEmail.mode !== "AUTOMATIC" ||
-                        !projection.customerEmail.recipient
-                      }
-                      name="emailChoice"
-                      type="radio"
-                      value="SKIP"
-                    />
-                    {copy.document.emailSkip}
-                  </label>
-                </>
-              )}
-            </fieldset>
-            {projection.paymentPending ? (
-              <label className="checkbox-row">
-                <input name="confirmPending" required type="checkbox" value="yes" />
-                {copy.document.confirmPending}
-              </label>
-            ) : null}
-            {projection.difference !== 0 ? (
-              <label className="checkbox-row">
-                <input name="confirmDifference" required type="checkbox" value="yes" />
-                {copy.document.confirmDifference}
-              </label>
-            ) : null}
-            <fieldset className="section-gap">
-              <legend>{copy.document.finalConfirmation}</legend>
-              <dl className="facts facts--columns">
-                <div>
-                  <dt>{copy.document.confirmDocument}</dt>
-                  <dd>{copy.preparation.title(publicNumber)}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.confirmRecipient}</dt>
-                  <dd>{projection.comparison.recipient[0]?.draft}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.confirmTotal}</dt>
-                  <dd>{euros(projection.total)}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.confirmProfile}</dt>
-                  <dd>
-                    RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{copy.document.confirmPayment}</dt>
-                  <dd>
-                    {paymentStatusLabels[projection.paymentStatus]} · {projection.paymentMethod}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{copy.document.confirmHelper}</dt>
-                  <dd>
-                    {projection.arubaMode === "AUTOMATIC"
-                      ? copy.document.automaticHelperMode
-                      : copy.document.assistedHelperMode}
-                  </dd>
-                </div>
-              </dl>
-              <p className="warning">{copy.document.irreversibleNumbering}</p>
-              <label className="checkbox-row">
-                <input name="confirmApproval" required type="checkbox" value="yes" />
-                {copy.document.confirmApproval}
-              </label>
-            </fieldset>
-            <button className="button" type="submit">
-              {copy.document.approve}
-            </button>
-          </Form>
-        ) : null}
-        {!projection.approved &&
-        canApprove &&
-        pendingArubaPreflight &&
-        !projection.arubaInventory.activeSession ? (
-          <Form method="post" className="card section-gap">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="complete-manual-aruba-preflight" />
-            <input type="hidden" name="receiptId" value={pendingArubaPreflight.id} />
-            <h3>Override dopo readback manuale specifico</h3>
-            <p>
-              Acquisisci tutte le pagine restituite dalle ricerche indicate. La ricevuta passa
-              soltanto se la ricerca è completa e non contiene alcun possibile documento Aruba.
-            </p>
-            <label>
-              Pagine acquisite in JSON
-              <textarea name="pagesJson" required rows={8} spellCheck={false} />
-            </label>
-            <label>
-              Motivazione specifica
-              <textarea name="overrideReason" required minLength={20} maxLength={500} rows={3} />
-            </label>
-            <button className="button button--secondary" type="submit">
-              Completa verifica manuale
-            </button>
-          </Form>
-        ) : null}
       </section>
+      {!projection.approved && inventoryNeedsAttention ? (
+        <section
+          className={`card section-gap preparation-inventory preparation-inventory--${projection.arubaInventory.blocking ? "blocking" : "warning"}`}
+          aria-labelledby="inventario-aruba"
+        >
+          <h2 id="inventario-aruba">{copy.document.arubaInventoryTitle}</h2>
+          <p>
+            <strong>{copy.settings.arubaInventoryLabels[projection.arubaInventory.status]}</strong>
+            {" · "}
+            {projection.arubaInventory.lastCompletedAt
+              ? copy.document.arubaInventoryUpdated(
+                  dateTime(projection.arubaInventory.lastCompletedAt),
+                )
+              : copy.document.arubaInventoryNever}
+          </p>
+          <p>
+            {projection.arubaInventory.blocking
+              ? copy.document.arubaInventoryBlockingHelp
+              : copy.document.arubaInventoryWarningHelp}
+          </p>
+          <Link className="button button--secondary" to="/">
+            {copy.document.openDashboard}
+          </Link>
+        </section>
+      ) : null}
+      {!projection.approved ? (
+        <section
+          className="card section-gap preparation-approval"
+          aria-labelledby="approvazione-fattura"
+        >
+          <DetailSectionHeader
+            description={copy.document.approvalHelp}
+            icon={<CircleCheck size={22} strokeWidth={1.8} />}
+            title={copy.document.approvalTitle}
+          />
+          {hasUnsavedChanges ? (
+            <p className="notice">{copy.document.saveChangesBeforeApproval}</p>
+          ) : !caseReady ? (
+            <p className="warning">{copy.document.resolveChecksBeforeApproval}</p>
+          ) : projection.requiresResave ? (
+            <p className="notice">{copy.document.resaveAfterDateChange}</p>
+          ) : !canApprove ? (
+            <p className="notice">{copy.document.ownerOnly}</p>
+          ) : projection.arubaInventory.blocking ? (
+            <p className="warning">{copy.document.arubaInventoryApprovalBlocked}</p>
+          ) : null}
+          {canShowApproval ? (
+            <Form method="post" className="preparation-approval__form">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="approve-document" />
+              <input type="hidden" name="revision" value={projection.caseRevision} />
+              <input type="hidden" name="draftVersion" value={projection.draftVersion} />
+              <input type="hidden" name="projectionSha256" value={projection.projectionSha256} />
+              <input type="hidden" name="arubaMode" value={projection.arubaMode} />
+              <input
+                type="hidden"
+                name="emailModeVersion"
+                value={projection.customerEmail.version}
+              />
+              <fieldset>
+                <legend>{copy.document.customerEmailTitle}</legend>
+                <dl className="facts facts--columns">
+                  <div>
+                    <dt>{copy.document.emailMode}</dt>
+                    <dd>
+                      {projection.customerEmail.mode === "AUTOMATIC"
+                        ? copy.document.emailAutomatic
+                        : projection.customerEmail.mode === "DISABLED"
+                          ? copy.document.emailDisabled
+                          : copy.document.emailManual}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{copy.document.emailSender}</dt>
+                    <dd>{projection.customerEmail.sender}</dd>
+                  </div>
+                  <div>
+                    <dt>{copy.document.emailRecipient}</dt>
+                    <dd>{projection.customerEmail.recipient ?? copy.common.unavailable}</dd>
+                  </div>
+                  <div>
+                    <dt>{copy.document.emailSubject}</dt>
+                    <dd>{projection.customerEmail.subject}</dd>
+                  </div>
+                  <div>
+                    <dt>{copy.document.emailBody}</dt>
+                    <dd>{projection.customerEmail.body}</dd>
+                  </div>
+                  <div>
+                    <dt>{copy.document.emailAttachment}</dt>
+                    <dd>{projection.customerEmail.attachment}</dd>
+                  </div>
+                </dl>
+                {projection.customerEmail.mode === "DISABLED" ? (
+                  <>
+                    <input name="emailChoice" type="hidden" value="SKIP" />
+                    <p className="notice">{copy.document.emailDisabledHelp}</p>
+                  </>
+                ) : (
+                  <>
+                    <label className="checkbox-row">
+                      <input
+                        defaultChecked={
+                          projection.customerEmail.mode === "AUTOMATIC" &&
+                          Boolean(projection.customerEmail.recipient)
+                        }
+                        name="emailChoice"
+                        type="radio"
+                        value="SEND"
+                      />
+                      {copy.document.emailSend}
+                    </label>
+                    <label className="checkbox-row">
+                      <input
+                        defaultChecked={
+                          projection.customerEmail.mode !== "AUTOMATIC" ||
+                          !projection.customerEmail.recipient
+                        }
+                        name="emailChoice"
+                        type="radio"
+                        value="SKIP"
+                      />
+                      {copy.document.emailSkip}
+                    </label>
+                  </>
+                )}
+              </fieldset>
+              {projection.paymentPending ? (
+                <label className="checkbox-row">
+                  <input name="confirmPending" required type="checkbox" value="yes" />
+                  {copy.document.confirmPending}
+                </label>
+              ) : null}
+              {projection.difference !== 0 ? (
+                <label className="checkbox-row">
+                  <input name="confirmDifference" required type="checkbox" value="yes" />
+                  {copy.document.confirmDifference}
+                </label>
+              ) : null}
+              <fieldset className="preparation-approval__confirmation">
+                <legend>{copy.document.finalConfirmation}</legend>
+                <dl className="facts facts--columns">
+                  <div>
+                    <dt>{copy.document.confirmDocument}</dt>
+                    <dd>{copy.preparation.title(publicNumber)}</dd>
+                  </div>
+                  <div>
+                    <dt>{copy.document.confirmRecipient}</dt>
+                    <dd>{projection.comparison.recipient[0]?.draft}</dd>
+                  </div>
+                  <div>
+                    <dt>{copy.document.confirmTotal}</dt>
+                    <dd>{euros(projection.total)}</dd>
+                  </div>
+                  <div>
+                    <dt>{copy.document.confirmProfile}</dt>
+                    <dd>
+                      RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{copy.document.confirmPayment}</dt>
+                    <dd>
+                      {paymentStatusLabels[projection.paymentStatus]} · {projection.paymentMethod}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="warning">{copy.document.irreversibleNumbering}</p>
+              </fieldset>
+              <button className="button preparation-approval__submit" type="submit">
+                {copy.document.approve}
+              </button>
+            </Form>
+          ) : null}
+        </section>
+      ) : null}
     </>
   );
 }
 
 export default function BillingCaseDetail() {
-  const {
-    username,
-    canApprove,
-    csrfToken,
-    billingCase,
-    projection,
-    storagePending,
-    pendingArubaPreflight,
-  } = useLoaderData<typeof loader>();
+  const { username, canApprove, csrfToken, billingCase, projection, storagePending } =
+    useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
+  const [customerDirty, setCustomerDirty] = useState(false);
   const total = billingCase.orders.reduce((sum, order) => sum + order.billable_amount, 0);
   const editable = ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status);
   const revisionField = <input type="hidden" name="revision" value={billingCase.revision} />;
@@ -909,6 +960,7 @@ export default function BillingCaseDetail() {
         <CustomerEditor
           csrfToken={csrfToken}
           customer={billingCase.customer_snapshot_json}
+          onDirty={() => setCustomerDirty(true)}
           revision={billingCase.revision}
         />
       ) : null}
@@ -919,8 +971,9 @@ export default function BillingCaseDetail() {
       ) : projection && "lines" in projection ? (
         <InvoiceDocument
           canApprove={canApprove}
+          caseReady={billingCase.status === "READY"}
+          customerDirty={customerDirty}
           csrfToken={csrfToken}
-          pendingArubaPreflight={pendingArubaPreflight}
           projection={projection}
           publicNumber={billingCase.public_number}
         />

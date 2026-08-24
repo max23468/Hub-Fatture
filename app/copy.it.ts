@@ -513,9 +513,8 @@ export const copy = {
     profileMissing: "Il profilo fiscale approvato non è ancora configurato.",
     storagePending:
       "Il documento è approvato e numerato. L’archiviazione XML verrà riconciliata automaticamente prima del download.",
-    draftTitle: "Bozza fiscale",
-    draftIntro:
-      "Una riga semplificata per ordine. Salva prima di approvare per fissare data, importi e descrizioni.",
+    draftTitle: "Modifica dati fattura",
+    draftIntro: "Apri soltanto se devi cambiare righe, pagamento, causale o note.",
     approvalDate: (value: string) => `Data documento prevista all’approvazione: ${value}`,
     description: "Descrizione",
     quantity: "Quantità",
@@ -530,9 +529,12 @@ export const copy = {
     causale: "Causale",
     notes: "Note",
     differenceReason: "Motivo della differenza (obbligatorio se il totale cambia)",
-    saveDraft: "Salva e valida bozza",
-    comparisonTitle: "Confronto fiscale",
-    xsdValid: "La proiezione corrente è conforme allo schema FatturaPA 1.2.2.",
+    saveDraft: "Salva modifiche",
+    comparisonTitle: "Controllo fattura",
+    comparisonHelp:
+      "Importi, destinatario e XML sono già stati controllati sulla proposta corrente.",
+    checksPassed: "Nessun problema rilevato",
+    xsdValid: "XML conforme allo schema FatturaPA 1.2.2.",
     grossTotal: "Totale ordini",
     shopifyPaymentsFeeTotal: "Commissioni Shopify Payments sottratte",
     sourceTotal: "Totale fatturabile",
@@ -545,6 +547,7 @@ export const copy = {
     comparisonPayment: "Pagamento",
     comparisonNotes: "Causale e note",
     comparisonTechnical: "Dati tecnici e fiscali",
+    comparisonDetails: "Mostra confronto fiscale completo",
     comparisonField: "Dato",
     comparisonSource: "Origine",
     comparisonDraft: "Bozza",
@@ -563,10 +566,15 @@ export const copy = {
       relatedInvoice: "Fattura originaria",
     },
     technicalXml: "Mostra XML tecnico",
-    saveBeforeApproval: "Salva la bozza per rendere approvabile questa proiezione.",
+    saveChangesBeforeApproval: "Hai modifiche non salvate. Salvale prima di approvare.",
     resaveAfterDateChange:
-      "La data prevista è cambiata: salva e valida di nuovo la bozza prima dell’approvazione.",
+      "La data prevista è cambiata: apri Modifica dati fattura e salva le modifiche prima dell’approvazione.",
     ownerOnly: "Solo Massimo può approvare e assegnare il numero fiscale.",
+    resolveChecksBeforeApproval:
+      "Questa preparazione è Da verificare. Risolvi prima i controlli indicati nella pagina.",
+    approvalTitle: "Approva fattura",
+    approvalHelp:
+      "Controlla il riepilogo finale. Il numero fiscale verrà assegnato automaticamente.",
     confirmPending: "Confermo che il pagamento è ancora pendente e voglio proseguire.",
     confirmDifference: "Confermo la differenza d’importo motivata nella bozza.",
     finalConfirmation: "Conferma finale",
@@ -593,15 +601,18 @@ export const copy = {
     automaticHelperMode:
       "Automatica dopo approvazione; disponibile soltanto quando l’uso Production è abilitato",
     irreversibleNumbering:
-      "Con l’approvazione viene assegnato un numero fiscale definitivo che non potrà essere riutilizzato per un altro documento.",
-    confirmApproval:
-      "Confermo i dati riepilogati e autorizzo l’approvazione e la numerazione irreversibile.",
-    approve: "Approva, numera e prepara per Aruba",
-    arubaPreflightTitle: "Controllo Aruba prima della numerazione",
-    arubaPreflightStatus: (status: string, updatedAt: string) =>
-      `${status} · ultima lettura ${updatedAt}`,
-    arubaPreflightHelp:
-      "Approva avvia un readback dedicato alla revisione corrente. Dopo l’esito positivo, conferma di nuovo entro cinque minuti.",
+      "Con l’approvazione viene assegnato automaticamente il prossimo numero fiscale disponibile. Il numero sarà definitivo e non potrà essere riutilizzato per un altro documento.",
+    approve: "Approva fattura",
+    arubaInventoryTitle: "Stato inventario Aruba",
+    arubaInventoryUpdated: (updatedAt: string) => `ultima sincronizzazione ${updatedAt}`,
+    arubaInventoryNever: "nessuna sincronizzazione completata",
+    arubaInventoryWarningHelp:
+      "Puoi approvare questa fattura. Aggiorna l’inventario separatamente dalla Dashboard appena possibile.",
+    arubaInventoryBlockingHelp:
+      "La preparazione è completa, ma per sicurezza l’approvazione resta bloccata finché non aggiorni o risolvi l’inventario dalla Dashboard.",
+    arubaInventoryApprovalBlocked:
+      "L’approvazione è sospesa dallo stato dell’inventario Aruba. Gestisci la sincronizzazione dalla Dashboard, poi torna qui.",
+    openDashboard: "Controlla dalla Dashboard",
   },
   documents: {
     eyebrow: "Archivio fiscale",

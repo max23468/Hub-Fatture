@@ -12,10 +12,12 @@ import type { EditableCustomer } from "../../src/db/orders.server.ts";
 export function CustomerEditor({
   csrfToken,
   customer,
+  onDirty,
   revision,
 }: {
   csrfToken: string;
   customer: EditableCustomer;
+  onDirty: () => void;
   revision: number;
 }) {
   const address = customer.billingAddress ?? {};
@@ -38,10 +40,14 @@ export function CustomerEditor({
     ["province", copy.customerEditor.province, address.province ?? ""],
   ];
   return (
-    <section className="card section-gap">
-      <h2>{copy.customerEditor.title}</h2>
-      <p>{copy.customerEditor.intro}</p>
-      <Form method="post" className="customer-form">
+    <details className="card section-gap preparation-disclosure">
+      <summary>
+        <span>
+          <strong>{copy.customerEditor.title}</strong>
+          <small>{copy.customerEditor.intro}</small>
+        </span>
+      </summary>
+      <Form method="post" className="customer-form" onChange={onDirty}>
         <input type="hidden" name="csrf" value={csrfToken} />
         <input type="hidden" name="revision" value={revision} />
         <input type="hidden" name="intent" value="correct-customer" />
@@ -105,38 +111,40 @@ export function CustomerEditor({
                     ? copy.customerEditor.identifier(index + 1)
                     : copy.customerEditor.newIdentifier}
                 </legend>
-                <label>
-                  {copy.customerEditor.type}
-                  <select name="taxType" defaultValue={identifier.type ?? "CODICE_FISCALE"}>
-                    {Object.entries(taxIdentifierLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="field-with-help">
+                <div className="tax-identifier__fields">
                   <label>
-                    {copy.customerEditor.value}
+                    {copy.customerEditor.type}
+                    <select name="taxType" defaultValue={identifier.type ?? "CODICE_FISCALE"}>
+                      {Object.entries(taxIdentifierLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="field-with-help">
+                    <label>
+                      {copy.customerEditor.value}
+                      <input
+                        aria-describedby={`tax-value-help-${index}`}
+                        defaultValue={identifier.value ?? ""}
+                        name="taxValue"
+                      />
+                    </label>
+                    <small className="field-help" id={`tax-value-help-${index}`}>
+                      {copy.customerEditor.emptyRemoves}
+                    </small>
+                  </div>
+                  <label>
+                    {copy.customerEditor.country}
                     <input
-                      aria-describedby={`tax-value-help-${index}`}
-                      defaultValue={identifier.value ?? ""}
-                      name="taxValue"
+                      defaultValue={identifier.countryCode ?? ""}
+                      maxLength={2}
+                      name="taxCountryCode"
+                      placeholder="IT"
                     />
                   </label>
-                  <small className="field-help" id={`tax-value-help-${index}`}>
-                    {copy.customerEditor.emptyRemoves}
-                  </small>
                 </div>
-                <label>
-                  {copy.customerEditor.country}
-                  <input
-                    defaultValue={identifier.countryCode ?? ""}
-                    maxLength={2}
-                    name="taxCountryCode"
-                    placeholder="IT"
-                  />
-                </label>
               </fieldset>
             ))}
           </div>
@@ -151,6 +159,6 @@ export function CustomerEditor({
           </button>
         </div>
       </Form>
-    </section>
+    </details>
   );
 }

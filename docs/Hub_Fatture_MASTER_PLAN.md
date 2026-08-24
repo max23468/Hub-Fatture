@@ -197,7 +197,7 @@ e quando un rimborso di prova produce correttamente:
 | HF-F32 | Offrire in Impostazioni le modalità `Assistita` e `Automatica dopo conferma`, con `Assistita` come default | Confermato |
 | HF-F33 | Inventariare dall'account Aruba fatture e TD04 anche quando non sono stati generati da HF, con prima scansione dell'anno fiscale corrente estesa agli ordini ancora riconciliabili e ai documenti precedenti non terminali, poi aggiornamenti incrementali | Confermato |
 | HF-F34 | Collegare automaticamente un documento Aruba a ordini e documenti locali soltanto con corrispondenza univoca e XML ufficiale coerente; lasciare ambiguità, conflitti e documenti privi di ordine nelle code di verifica | Confermato |
-| HF-F35 | Richiedere un preflight Aruba on-demand vincolato alla revisione subito prima di ogni approvazione; mantenere inoltre il blocco globale quando Aruba non è mai stato letto, il readback ha più di 24 ore o esiste uno stato remoto incerto, con avviso dopo un'ora e fallback manuale del solo titolare | Confermato |
+| HF-F35 | Per le fatture TD01, trattare la sincronizzazione dell'inventario Aruba come processo parallelo gestito da Dashboard e Impostazioni: la preparazione mostra soltanto lo stato globale, avvisa dopo un'ora e blocca approvazione e numerazione quando Aruba non è mai stato letto, il readback ha più di 24 ore o esiste uno stato remoto incerto | Confermato |
 | HF-F36 | Eseguire al primo avvio del preferito una scansione completa della finestra Aruba rilevante e usare agli avvii successivi un intervallo incrementale con sovrapposizione; un nuovo stream, un cursore assente o un'incongruenza rendono nuovamente obbligatoria la scansione completa | Confermato |
 | HF-F37 | Aggiornare gli stati Aruba/SdI in modo monotono e conservare osservazioni append-only senza creare submission fittizie per documenti nati fuori da HF | Confermato |
 
@@ -679,7 +679,7 @@ Flusso normale:
 1. Controlli bloccanti locali.
 2. Anteprima del documento.
 3. Proiezione XML e validazione XSD locale.
-4. Conferma esplicita: **"Approva, numera e prepara per Aruba"**. In modalità automatica il riepilogo specifica anche che l'helper potrà eseguire l'ultimo clic per quel batch.
+4. Conferma esplicita: **"Approva fattura"**. Il riepilogo chiarisce che l'approvazione assegna automaticamente il prossimo numero disponibile e genera l'XML definitivo.
 5. Assegnazione atomica di numero e data secondo configurazione verificata.
 6. Generazione e archiviazione immutabile dell'XML finale.
 7. Creazione del manifest del batch con documenti, revisioni e hash SHA-256 esatti. In modalità automatica il batch resta utilizzabile soltanto mentre l'abilitazione Production ordinaria è attiva.
@@ -954,7 +954,7 @@ Il preferito non contiene token, credenziali o identità persistenti e resta riu
 
 I documenti esterni non generano `aruba_submissions` fittizie. HF conserva inventario, osservazioni append-only e collegamenti separati, riusa gli stati comuni `SUBMITTED`, `SDI_PROCESSING`, `DELIVERED`, `NOT_DELIVERED` e `REJECTED`, aggiorna gli esiti senza regressioni e materializza un documento storico `ARUBA_HISTORY` soltanto dopo XML ufficiale valido, match univoco e stato `DELIVERED` o `NOT_DELIVERED`. Negli stati intermedi, scartati o incerti XML e notifiche restano di proprietà del remote document senza creare una riga `documents`, perché `ARUBA_HISTORY` rappresenta documenti approvati e partecipa all'unicità fiscale. Soltanto `DELIVERED` e `NOT_DELIVERED` confermano l'emissione e consumano l'unicità della fattura o il residuo dei rimborsi coperti da una TD04: gli stati intermedi sospendono il caso senza chiuderlo, mentre `REJECTED` conserva il tentativo ma lascia possibile la revisione/riedizione e non genera note di credito. Una TD04 esterna emessa collega atomicamente tutti e soli i rimborsi completati che copre, impostando il loro `credit_document_id` sotto lo stesso lock usato dal processo di generazione, così nessun rimborso può essere riaccreditato. Gli stati di preparazione/upload restano esclusivi dei tentativi partiti da HF; etichette remote non riconosciute o terminali incompatibili aprono uno stato incerto. Gli altri casi restano in `Documenti → Da collegare` o `Da verificare`. Il piano esecutivo è in [docs/plans/aruba-inbound-reconciliation.md](plans/aruba-inbound-reconciliation.md).
 
-La freschezza periodica non basta ad autorizzare una mutazione fiscale. Ogni approvazione richiede un preflight Aruba on-demand completato dopo la richiesta e vincolato ad account, ambiente, preparazione, revisione/hash e ordini/rimborsi; HF invita il titolare ad avviare il preferito, che acquisisce ogni possibile match, completa le ricevute pendenti e le rende consumabili entro cinque minuti. Modifiche, scadenza, errori, stati incerti o nuovi candidati bloccano e richiedono un altro preflight. L'approvazione massiva usa una sola scansione ma un manifest che vincola ogni preparazione. Se il preferito non completa la lettura, soltanto `Massimo` può usare il readback manuale specifico di §10.8; una scansione globale fallita richiede invece il fallback manuale completo.
+Per le fatture TD01 la sincronizzazione dell'inventario è indipendente dalla preparazione. Dashboard e Impostazioni mostrano freschezza, avanzamento ed eventuale azione correttiva; la preparazione consuma lo stesso stato globale senza avviare scansioni, chiedere l'apertura di Aruba o raccogliere readback specifici. Una lettura completata da non più di un'ora non aggiunge rumore; fra un'ora e 24 ore compare un avviso non bloccante. Inventario mai letto, lettura oltre 24 ore, fallimento non risolto, match ambiguo, conflitto o stato remoto incerto bloccano server-side approvazione e numerazione. La correzione avviene sempre da Dashboard o Impostazioni e poi si torna alla preparazione aggiornata. Il preflight on-demand delle TD04 resta invariato finché quel flusso non viene riprogettato separatamente.
 
 ### 10.3 Modalità selezionabili in Impostazioni
 
@@ -1018,7 +1018,7 @@ Non creare un design personalizzato. L'audit deve verificare fatture italiane, e
 
 Il download XML da HF, il caricamento manuale nel pannello e l'import successivo di XML/PDF/notifiche costituiscono un percorso completo e sempre disponibile. È il fallback ufficiale in caso di modifica del pannello, browser non supportato, CAPTCHA persistente o helper indisponibile.
 
-Quando l'inventario globale è sano ma manca soltanto il preflight di una preparazione, `Massimo` può completare un readback manuale specifico: HF genera tutte le ricerche compatibili con riferimenti, tipo, data, destinatario, identificativi e importo; il titolare acquisisce ogni riga di tutte le pagine e i file ufficiali di ogni possibile candidato. La ricevuta resta vincolata alla revisione/hash, scade dopo cinque minuti e non aggiorna la freschezza globale. Una ricerca incompleta o un possibile match mantiene l'approvazione bloccata.
+La preparazione TD01 non offre fallback o override Aruba specifici. Se lo stato globale blocca l'approvazione, il titolare completa o sostituisce la sincronizzazione dalla Dashboard o dalle Impostazioni. Il readback manuale specifico resta disponibile soltanto per i flussi che richiedono ancora un preflight on-demand, come le TD04, finché non saranno riprogettati separatamente.
 
 Per la sincronizzazione in entrata, “completo” comprende anche la sostituzione verificabile di una scansione fallita. HF apre una sessione guidata sulla stessa finestra e presenta gli stream obbligatori per anno/tipo, il limite temporale, i precedenti non terminali e gli errori da risolvere. Il titolare percorre manualmente in Aruba tutte le pagine di ogni stream e acquisisce in HF ogni riga con i metadati canonici dell’inventario, oppure importa un export ufficiale completo dell’intero stream; registra inoltre filtri, ordinali, conteggi, estremi tecnici e pagina terminale e importa i file ufficiali necessari per documenti nuovi, cambiati, candidati o incompleti. Il server verifica che tutte le righe attese siano presenti una sola volta e rifiuta buchi, duplicati, stream mancanti, conteggi/estremi incoerenti ed errori documentali o stati incerti ancora aperti. Quantità, estremi o attestazioni senza il contenuto integrale delle righe non completano il readback.
 
@@ -1277,7 +1277,7 @@ Una stessa identità fiscale riconciliata fra Shopify ed eBay compare una sola v
 - Aggiunta/rimozione di ordini compatibili prima dell'approvazione.
 - Separazione di un ordine.
 - `Non trasmettere` con motivo.
-- Anteprima fattura.
+- Anteprima fattura già valida e approvabile quando lo stato è `READY`; nessun salvataggio è richiesto se i dati proposti non vengono modificati.
 
 ### 13.6 Approvazione
 
@@ -1289,8 +1289,8 @@ Mostrare in una sola pagina:
 - totale importato, totale documento e differenza;
 - pagamento;
 - esito controlli;
-- risultato della validazione XSD e, dopo l'esecuzione dell'helper, della validazione Aruba;
-- modalità Aruba attiva e conseguenza dell'ultima conferma;
+- risultato della validazione XSD;
+- solo quando non sano, stato globale dell'inventario Aruba e collegamento alla sede in cui aggiornarlo;
 - scelta invio e-mail;
 - conferme eccezionali.
 
@@ -1302,16 +1302,19 @@ Il comparatore fiscale visuale occupa la stessa pagina e presenta tre livelli de
 
 Raggruppare le differenze per anagrafica fiscale, ordini/righe, importi, pagamento, causale e dati tecnici. Per ogni valore cambiato mostrare origine, valore precedente, valore finale e motivo disponibile; gli elementi invariati restano comprimibili. Colore e posizione non sono mai gli unici indicatori. Il raw XML è soltanto una vista tecnica espandibile o scaricabile, mai un editor e mai la base di un diff testuale.
 
-Il comparatore usa lo stesso generatore e la stessa versione della bozza impiegati dall'endpoint di approvazione. Dopo qualunque modifica diventa stale e viene ricalcolato; al submit il server rigenera la proiezione e rifiuta l'approvazione se revisione o hash non coincidono. Un errore di generazione o una differenza non classificabile blocca l'approvazione e indica l'azione correttiva. Lo stesso contratto vale per TD04.
+Nelle fatture TD01 il riepilogo mostra subito l'esito sintetico dei controlli; il confronto fiscale completo e il raw XML restano espandibili. Se l'utente modifica anagrafica, righe o pagamento, l'interfaccia mostra `Salva modifiche` e ricalcola automaticamente validazione e proiezione; se non modifica nulla, può approvare direttamente la proposta server-side.
+
+Il comparatore usa lo stesso generatore e la stessa versione della bozza impiegati dall'endpoint di approvazione. Dopo qualunque modifica diventa stale e viene ricalcolato; al submit il server rigenera la proiezione e rifiuta l'approvazione se revisione o hash non coincidono. Un errore di generazione o una differenza non classificabile blocca l'approvazione e indica l'azione correttiva. Lo stesso contratto vale per TD04, senza estendere automaticamente a quel flusso la nuova organizzazione visuale TD01.
 
 Azioni:
 
-- salva bozza;
-- valida;
-- approva, numera e prepara per Aruba;
+- salva le modifiche, soltanto dopo che l'utente ha cambiato i dati proposti;
+- approva la fattura, assegnando automaticamente il numero e generando l'XML definitivo;
 - non trasmettere.
 
-Il server blocca approvazione e numerazione se l'inventario Aruba dell'anno corrente non è mai stato completato, ha più di 24 ore o presenta uno stato incerto rilevante; dopo un'ora mostra un avviso. Soltanto il titolare può superare per quella singola transizione il gate di freschezza — mai letto oppure oltre 24 ore — dopo aver verificato manualmente sul pannello l'assenza del documento corrispondente, con motivazione obbligatoria e audit. L'override non è ammesso per scansioni incomplete, match possibili o ambigui, conflitti, collisioni, file/errori di parsing o stati remoti incerti; non aggiorna il readback, non chiude conflitti e non autorizza invii.
+Il pulsante `Approva fattura` è la conferma esplicita dell'azione descritta nel riepilogo finale: non aggiungere una checkbox generica che ripeta lo stesso consenso. Restano obbligatorie e distinte le sole conferme eccezionali, per pagamento pendente o differenza d'importo motivata.
+
+Il server blocca approvazione e numerazione se l'inventario Aruba dell'anno corrente non è mai stato completato, ha più di 24 ore o presenta uno stato incerto rilevante; dopo un'ora mostra un avviso. La preparazione TD01 non offre override o sincronizzazioni specifiche: la correzione avviene dalla Dashboard o dalle Impostazioni e poi si torna alla pagina aggiornata.
 
 ### 13.7 Documenti
 
@@ -1387,7 +1390,7 @@ La fondazione UI applicativa deve inoltre:
 - errori associati al campo o all'azione, con istruzione concreta per correggere;
 - caricamento e stato pendente specifici per l'azione; un successo precedente viene nascosto appena parte un nuovo tentativo.
 
-Le azioni ad alto impatto richiedono una conferma che descriva la conseguenza specifica, non un generico «Sei sicuro?». Per `Approva, numera e prepara per Aruba` la conferma riepiloga almeno documento, destinatario, totale, profilo fiscale, stato del pagamento, modalità helper e irreversibilità della numerazione. In modalità automatica dichiara esplicitamente che l'helper potrà eseguire l'ultimo clic soltanto mentre l'uso Production ordinario è abilitato. La protezione è sempre server-side: nascondere o disabilitare un pulsante non autorizza né impedisce una transizione.
+Le azioni ad alto impatto richiedono una conferma che descriva la conseguenza specifica, non un generico «Sei sicuro?». Per `Approva fattura` il riepilogo mostra almeno documento, destinatario, totale, profilo fiscale, stato del pagamento e irreversibilità della numerazione automatica; il pulsante esplicito completa la conferma senza una checkbox generica ridondante. Le sole eccezioni fiscali previste mantengono conferme aggiuntive dedicate. La trasmissione è un passaggio successivo e separato. La protezione è sempre server-side: nascondere o disabilitare un pulsante non autorizza né impedisce una transizione.
 
 Le bozze modificabili usano una revisione ottimistica. Se due schede browser partono dalla stessa versione, la seconda scrittura riceve un conflitto e deve rileggere prima di salvare; non sovrascrive silenziosamente la prima.
 
@@ -3131,9 +3134,9 @@ Output:
 - readback operativo che conferma l'assenza di documenti approvati o trasmissibili e di upload Aruba pendenti;
 - import reale degli ultimi 7 giorni e riconciliazione con Aruba senza numerare o trasmettere;
 - inventario provider-first di tutte le fatture e TD04 dell'anno fiscale corrente, esteso fino al più remoto ordine riconciliabile e ai documenti precedenti non terminali, acquisito completamente al primo avvio e poi aggiornato con sovrapposizione incrementale, deduplicato rispetto ai documenti HF, con documenti esterni non collegati e match ambigui nelle code previste;
-- preflight Aruba on-demand obbligatorio per ogni approvazione, completato dopo la richiesta e vincolato a revisione/hash e candidati, con ricevuta monouso di cinque minuti e manifest per le operazioni massive;
+- sincronizzazione dell'inventario Aruba indipendente dalle preparazioni TD01, con stato globale consumato dalle approvazioni singole e massive senza avviare preflight per fattura; preflight on-demand TD04 mantenuto nel suo flusso separato;
 - readback manuale guidato capace di sostituire una scansione fallita soltanto dopo acquisizione di ogni riga di tutti gli stream o di un export ufficiale completo, import delle evidenze richieste e ricevuta finalizzata dal titolare;
-- gate server-side che avvisa dopo un'ora e blocca approvazione/numerazione se Aruba non è mai stato letto, ha più di 24 ore o presenta uno stato remoto incerto, incluso override singolo del solo titolare motivato e auditato;
+- gate server-side TD01 che avvisa dopo un'ora e blocca approvazione/numerazione se Aruba non è mai stato letto, ha più di 24 ore o presenta uno stato remoto incerto, senza override nella preparazione;
 - prova manuale controllata sul pannello Aruba reale con XML sintetico o anonimizzato dedicato: autenticazione umana, caricamento, validazione e riepilogo osservati, arresto prima di `Invia`, readback e rimozione sicura dell'upload pendente;
 - contratto definitivo dei locatori, limiti, pause di autenticazione, download e stati aggiornato insieme a helper e test se il pannello reale diverge;
 - test end-to-end HF completi su Chromium e WebKit e test helper contro la pagina Aruba sintetica su Windows/macOS con Chrome o Edge, oltre a recovery, sicurezza e migrazioni;
@@ -3155,7 +3158,7 @@ Gate:
 - ogni finding dell'audit ha prova, severità e stato corrente; P2/P3 residui hanno accettazione e condizione di riapertura;
 - nessun ordine storico approvabile senza riconciliazione;
 - nessuna preparazione approvabile quando l'inventario Aruba è assente, bloccante o incerto; la Dashboard non combina `Mai letto` con `Tutto sotto controllo`;
-- nessuna approvazione basata sulla sola scansione periodica: preflight on-demand completato dopo la richiesta, vincolato alla revisione/hash, consumato entro cinque minuti e ripetuto dopo modifica, scadenza o nuovo candidato;
+- nessuna approvazione TD01 quando lo stato globale dell'inventario è assente, scaduto oltre 24 ore, fallito o contiene match, conflitti o stati incerti bloccanti; l'avviso fra una e 24 ore resta non bloccante;
 - prima scansione completa della finestra rilevante, successivi aggiornamenti incrementali con sovrapposizione e ritorno automatico al completo per nuovi stream, cursori assenti o incongruenze; lease concorrente, matching prudenziale, riconciliazione parziale multi-ordine, ownership file/notifiche e sessione read-only verificati senza capacità di upload o invio;
 - TD04 esterne emesse collegate atomicamente ai rimborsi coperti, con concorrenza incapace di generare un secondo accredito;
 - documento esterno scartato conservato come tentativo senza chiudere l'ordine, consumare l'unicità di emissione o impedire una nuova revisione;
@@ -3473,8 +3476,8 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Nuovo avvio dell'helper verificato su inventario già popolato: la finestra completa comprende ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, mentre i file invariati non vengono riscaricati.
 - [ ] Sessione helper di sola sincronizzazione, legata al dispositivo, revocabile e limitata a 8 ore verificata incapace di upload o invio; una sola scansione concorrente anche da due dispositivi.
 - [ ] Readback manuale completo verificato dopo helper indisponibile o scansione fallita: ogni riga di tutti gli stream/pagine o export ufficiale completo acquisiti, evidenze richieste importate, ricevuta `MANUAL` finalizzata dal solo titolare e sessione fallita conservata.
-- [ ] Dashboard, approvazione e numerazione rispettano `Mai letto`, avviso a un'ora e blocco a 24 ore/stato incerto; l'override singolo motivato del solo titolare supera esclusivamente la freschezza dopo verifica manuale e non match, conflitti o stati incerti.
-- [ ] Ogni approvazione, anche massiva, richiede un preflight on-demand successivo alla richiesta e vincolato a revisione/hash; documento esterno creato fra due giri periodici, ricevuta scaduta e bozza modificata bloccano la mutazione.
+- [ ] Dashboard, approvazione e numerazione TD01 rispettano `Mai letto`, avviso a un'ora e blocco a 24 ore/stato incerto; la preparazione non offre override e rimanda la correzione dello stato globale a Dashboard o Impostazioni.
+- [ ] Ogni approvazione TD01, anche massiva, rilegge lo stato globale dell'inventario; inventario assente, oltre 24 ore, fallito o con match, conflitti o stati incerti blocca la mutazione senza introdurre un passaggio Aruba nella preparazione. Il preflight on-demand TD04 resta verificato separatamente.
 - [ ] Deduplicazione confinata per account/ambiente, ownership esclusiva submission/remote document dei file/notifiche e mapping monotono degli stati verificati.
 - [ ] I documenti Aruba senza ordine Shopify/eBay restano visibili in `Documenti → Da collegare` senza creare ordini; soltanto riferimenti espliciti incompatibili, match potenziali, ambiguità, conflitti ed errori compaiono anche in `Da verificare` e `Attività`.
 - [ ] Match emesso su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.

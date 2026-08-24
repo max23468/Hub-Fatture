@@ -1724,6 +1724,7 @@ async function importArubaRemoteOfficialFileAuthorized(
     if (kind.data === "ARUBA_XML" && !documentId) {
       const xml = validateUntrustedXml(bytes);
       documentId = await withTransaction(async (client) => {
+        await lockArubaInventory(client, session.environment, session.account_reference);
         const evidence = officialEvidence(
           await latestObservedRemote(client, remoteDocumentId),
           xml,
@@ -1767,6 +1768,7 @@ async function importArubaRemoteOfficialFileAuthorized(
           ? await loadArubaReadSession(client, authorization, true)
           : session;
       if (!lockedSession) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+      await lockArubaInventory(client, lockedSession.environment, lockedSession.account_reference);
       const remote = await client.query<{ id: string; xml_sha256: string | null }>(
         `SELECT id, xml_sha256 FROM aruba_remote_documents
          WHERE id = $1 AND environment = $2 AND account_reference = $3 FOR UPDATE`,
@@ -2270,24 +2272,27 @@ export async function failArubaInventory(token: string, rawCode: unknown) {
     .regex(/^[A-Z0-9_]{3,100}$/)
     .safeParse(rawCode);
   if (!code.success) throw new AppError("ARUBA_INVENTORY_INVALID", 422);
-  const result = await getPool().query(
-    `UPDATE aruba_sync_sessions SET status = 'FAILED', lease_expires_at = NULL, failed_at = now(),
-       error_code = $2, error_message_sanitized = 'Sincronizzazione Aruba interrotta'
-     WHERE token_hash = $1 AND status IN ('ACTIVE', 'SCANNING')
-       AND (completed_at IS NULL OR last_heartbeat_at > completed_at)
-     RETURNING id`,
-    [hashToken(token), code.data],
-  );
-  if (result.rows[0]) return { failed: true, ignored: false };
-  const completed = await getPool().query(
-    `SELECT 1 FROM aruba_sync_sessions
-     WHERE token_hash = $1 AND status IN ('ACTIVE', 'SCANNING', 'COMPLETED')
-       AND completed_at IS NOT NULL
-       AND (last_heartbeat_at IS NULL OR last_heartbeat_at <= completed_at)`,
-    [hashToken(token)],
-  );
-  if (completed.rows[0]) return { failed: false, ignored: true };
-  throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+  return withTransaction(async (client) => {
+    await lockArubaInventory(client);
+    const result = await client.query(
+      `UPDATE aruba_sync_sessions SET status = 'FAILED', lease_expires_at = NULL, failed_at = now(),
+         error_code = $2, error_message_sanitized = 'Sincronizzazione Aruba interrotta'
+       WHERE token_hash = $1 AND status IN ('ACTIVE', 'SCANNING')
+         AND (completed_at IS NULL OR last_heartbeat_at > completed_at)
+       RETURNING id`,
+      [hashToken(token), code.data],
+    );
+    if (result.rows[0]) return { failed: true, ignored: false };
+    const completed = await client.query(
+      `SELECT 1 FROM aruba_sync_sessions
+       WHERE token_hash = $1 AND status IN ('ACTIVE', 'SCANNING', 'COMPLETED')
+         AND completed_at IS NOT NULL
+         AND (last_heartbeat_at IS NULL OR last_heartbeat_at <= completed_at)`,
+      [hashToken(token)],
+    );
+    if (completed.rows[0]) return { failed: false, ignored: true };
+    throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+  });
 }
 
 export interface ArubaInventoryHealth {
@@ -2328,8 +2333,10 @@ const arubaBlockingMatchPredicate = `(remote.remote_status <> 'REJECTED' AND (
   OR matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')
 ))`;
 
-export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
-  const result = await getPool().query<{
+export async function getArubaInventoryHealth(
+  client: pg.Pool | pg.PoolClient = getPool(),
+): Promise<ArubaInventoryHealth> {
+  const result = await client.query<{
     last_completed_at: Date | null;
     last_full_scan_completed_at: Date | null;
     active_session: boolean;
@@ -2441,6 +2448,11 @@ export async function getArubaInventoryHealth(): Promise<ArubaInventoryHealth> {
     remoteDocuments: Number(row.remote_documents),
     blockingReason,
   };
+}
+
+export async function getLockedArubaInventoryHealth(client: pg.PoolClient) {
+  await lockArubaInventory(client);
+  return getArubaInventoryHealth(client);
 }
 
 export async function listRemoteDocuments(
@@ -3384,6 +3396,7 @@ export async function resolveArubaDocumentMatch(
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
   }
   return withTransaction(async (client) => {
+    await lockArubaInventory(client);
     const match = await client.query<{
       status: string;
       method: string | null;
@@ -3472,6 +3485,7 @@ export async function confirmArubaDocumentOutOfScope(
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
   }
   return withTransaction(async (client) => {
+    await lockArubaInventory(client);
     const match = await client.query<{
       status: string;
       method: string | null;
