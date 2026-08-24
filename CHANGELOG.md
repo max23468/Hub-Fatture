@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.61
+
+- Il preferito riconosce la paginazione con cui Aruba riusa le stesse righe e aggiorna soltanto il testo, attendendo che tutte le celle della griglia siano stabili prima di importarle.
+- Ogni stream azzera e applica il filtro data prima della scansione completa, evitando che un filtro precedente escluda documenti dall’inventario.
+
 ## 0.3.60
 
 - La sincronizzazione Aruba completa tutte le pagine anche quando il pannello aggiorna la griglia tramite richieste create prima dell’avvio del preferito: attende le richieste osservabili e usa come fallback il cambio stabile dei documenti mostrati.
