@@ -5,6 +5,7 @@ import type { Route } from "./+types/aruba-bridge";
 import { copy } from "../copy.it";
 import { privateRouteMeta } from "../metadata";
 import { ARUBA_PANEL_ORIGIN } from "../../src/aruba.ts";
+import { buildArubaBookmarkletRuntime } from "../../src/aruba-bookmarklet.ts";
 import { getConfig } from "../../src/config.server.ts";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 
@@ -25,8 +26,16 @@ function panelOrigin() {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
+  const allowedPanelOrigin = panelOrigin();
   return data(
-    { csrfToken: user.csrfToken, panelOrigin: panelOrigin() },
+    {
+      csrfToken: user.csrfToken,
+      panelOrigin: allowedPanelOrigin,
+      runtimeSource: buildArubaBookmarkletRuntime({
+        hubOrigin: new URL(request.url).origin,
+        panelOrigin: allowedPanelOrigin,
+      }),
+    },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -44,7 +53,7 @@ const allowedRequests = new Map([
 ]);
 
 export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
-  const { csrfToken, panelOrigin: allowedPanelOrigin } = loaderData;
+  const { csrfToken, panelOrigin: allowedPanelOrigin, runtimeSource } = loaderData;
   const [status, setStatus] = useState<string>(copy.settings.arubaBridgeWaiting);
   const tokenRef = useRef<string | null>(null);
   const issuingRef = useRef<Promise<string> | null>(null);
@@ -92,7 +101,7 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
       if (event.data.type === `${bridgeType}_HELLO`) {
         try {
           await issueToken();
-          send({ type: `${bridgeType}_START` });
+          send({ type: `${bridgeType}_START`, runtimeSource });
         } catch {
           setStatus(copy.settings.arubaBridgeFailed);
         }
@@ -145,7 +154,7 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
 
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [allowedPanelOrigin, csrfToken]);
+  }, [allowedPanelOrigin, csrfToken, runtimeSource]);
 
   return (
     <main className="public-page public-page--compact">

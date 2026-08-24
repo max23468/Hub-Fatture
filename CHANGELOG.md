@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.65
+
+- Il preferito Aruba carica il lettore corrente da Hub Fatture a ogni avvio: dopo la sostituzione una tantum, le correzioni future non richiedono più di cancellarlo e aggiungerlo di nuovo.
+- Il ponte autenticato consegna il lettore soltanto alla pagina Aruba attesa e continua a non salvare credenziali Aruba o token nel preferito.
+
 ## 0.3.64
 
 - La sincronizzazione non dipende più da un nome account che Aruba non mostra nel pannello: prima di importare, verifica l’account confrontando i documenti letti con l’identità fiscale immutabile già acquisita.

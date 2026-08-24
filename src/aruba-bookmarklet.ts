@@ -3,7 +3,7 @@ export interface ArubaBookmarkletOptions {
   panelOrigin: string;
 }
 
-function runtime(options: ArubaBookmarkletOptions) {
+export function buildArubaBookmarkletRuntime(options: ArubaBookmarkletOptions): string {
   const source = String.raw`(async()=>{
 const HUB=__HUB__;
 const PANEL=__PANEL__;
@@ -14,7 +14,8 @@ const visible=(element)=>Boolean(element&&element.getClientRects().length);
 const normalized=(value)=>String(value??"").replace(/\s+/g," ").trim();
 const matchText=(value)=>normalized(value).normalize("NFKD").replace(/\p{Diacritic}/gu,"").replace(/[^A-Za-z0-9]/g,"").toUpperCase();
 const browserName=()=>{const ua=navigator.userAgent;if(/Mobile\//.test(ua))fail("BROWSER_UNSUPPORTED");if(/Edg\//.test(ua))return"msedge";if(/(?:Chrome|Chromium|CriOS)\//.test(ua))return"chrome";if(/Version\/\d+(?:\.\d+)*.*Safari\//.test(ua))return"safari";fail("BROWSER_UNSUPPORTED")};
-let bridge=null;
+let bridge=globalThis.__HUB_FATTURE_ARUBA_BRIDGE__??null;
+delete globalThis.__HUB_FATTURE_ARUBA_BRIDGE__;
 let sequence=0;
 const pending=new Map();
 let statusBox=document.getElementById("hub-fatture-aruba-status");
@@ -119,7 +120,7 @@ let inventoryCompleted=false;
 try{
   if(location.origin!==PANEL)fail("ARUBA_ORIGIN_MISMATCH");
   setStatus("Collegamento sicuro a Hub Fatture…");
-  bridge=open(HUB+"/aruba-ponte","hub_fatture_aruba_bridge","popup,width=520,height=620");
+  bridge=bridge||open(HUB+"/aruba-ponte","hub_fatture_aruba_bridge","popup,width=520,height=620");
   if(!bridge)fail("POPUP_BLOCKED");
   await waitForStart();
   const manifest=await rpc("/api/aruba/sync/manifest");
@@ -180,5 +181,39 @@ try{
 export function buildArubaBookmarklet(options: ArubaBookmarkletOptions): string {
   const hubOrigin = new URL(options.hubOrigin).origin;
   const panelOrigin = new URL(options.panelOrigin).origin;
-  return `javascript:${runtime({ hubOrigin, panelOrigin })}`;
+  const source = String.raw`(()=>{
+const HUB=__HUB__;
+const PANEL=__PANEL__;
+const TYPE="HF_ARUBA";
+if(location.origin!==PANEL){alert("Apri il pannello Aruba e usa lì questo preferito.");return}
+const bridge=open(HUB+"/aruba-ponte","hub_fatture_aruba_bridge","popup,width=520,height=620");
+if(!bridge){alert("Consenti l’apertura della finestra e riprova.");return}
+let hello;
+let timeout;
+const cleanup=()=>{clearInterval(hello);clearTimeout(timeout);removeEventListener("message",receive)};
+const receive=(event)=>{
+  if(event.origin!==HUB||event.source!==bridge||event.data?.type!==TYPE+"_START")return;
+  const runtime=event.data.runtimeSource;
+  if(typeof runtime!=="string"||runtime.length<1000||runtime.length>100000){cleanup();alert("Hub Fatture non ha restituito un lettore valido. Riprova.");return}
+  const marker="__HUB_FATTURE_ARUBA_RUNTIME_STARTED__";
+  delete globalThis[marker];
+  globalThis.__HUB_FATTURE_ARUBA_BRIDGE__=bridge;
+  try{
+    const script=document.createElement("script");
+    script.textContent="globalThis."+marker+"=true;"+runtime;
+    document.documentElement.append(script);script.remove();
+    if(globalThis[marker]!==true)throw new Error("RUNTIME_BLOCKED");
+    cleanup();
+  }catch{
+    delete globalThis.__HUB_FATTURE_ARUBA_BRIDGE__;
+    alert("Il browser ha bloccato il lettore di Hub Fatture. Aggiorna la pagina Aruba e riprova.");
+  }finally{delete globalThis[marker]}
+};
+addEventListener("message",receive);
+hello=setInterval(()=>bridge.postMessage({type:TYPE+"_HELLO"},HUB),400);
+timeout=setTimeout(()=>{cleanup();alert("Il collegamento con Hub Fatture è scaduto. Torna a Hub Fatture e riprova.")},60000);
+})()`;
+  return `javascript:${source
+    .replace("__HUB__", JSON.stringify(hubOrigin))
+    .replace("__PANEL__", JSON.stringify(panelOrigin))}`;
 }

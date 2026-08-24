@@ -37,7 +37,8 @@ export const arubaSettingsCopy = {
   arubaBookmarkletHelp:
     "Non devi installare nulla. Funziona con Safari, Chrome o Edge su computer.",
   arubaBookmarkletSaveTitle: "Trascina il pulsante nella barra dei preferiti",
-  arubaBookmarkletSaveHelp: "Il preferito resta valido e non salva credenziali Aruba né token.",
+  arubaBookmarkletSaveHelp:
+    "Il preferito si aggiorna automaticamente e non salva credenziali Aruba né token.",
   arubaBookmarkletLabel: "Sincronizza Aruba",
   arubaBookmarkletAccessibleLabel: "Sincronizza Aruba",
   arubaBookmarkletRunTitle: "Apri Aruba, accedi e usa il preferito",
