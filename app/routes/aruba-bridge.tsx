@@ -3,6 +3,7 @@ import { data } from "react-router";
 import type { Route } from "./+types/aruba-bridge";
 
 import { copy } from "../copy.it";
+import { claimArubaBridgeStart } from "../aruba-bridge-state.ts";
 import { privateRouteMeta } from "../metadata";
 import { ARUBA_PANEL_ORIGIN } from "../../src/aruba.ts";
 import { buildArubaBookmarkletRuntime } from "../../src/aruba-bookmarklet.ts";
@@ -57,6 +58,7 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
   const [status, setStatus] = useState<string>(copy.settings.arubaBridgeWaiting);
   const tokenRef = useRef<string | null>(null);
   const issuingRef = useRef<Promise<string> | null>(null);
+  const startedRef = useRef(false);
 
   // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- Il fetch non carica dati di rendering: risponde a un messaggio autenticato del pannello esterno durante la vita del ponte.
   useEffect(() => {
@@ -99,10 +101,12 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
     const receive = async (event: MessageEvent) => {
       if (event.origin !== allowedPanelOrigin || event.source !== panel || !event.data) return;
       if (event.data.type === `${bridgeType}_HELLO`) {
+        if (!claimArubaBridgeStart(startedRef)) return;
         try {
           await issueToken();
           send({ type: `${bridgeType}_START`, runtimeSource });
         } catch {
+          startedRef.current = false;
           setStatus(copy.settings.arubaBridgeFailed);
         }
         return;
