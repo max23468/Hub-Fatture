@@ -660,31 +660,43 @@ test("il preferito chiude il ponte dopo un errore per non riutilizzarlo", async 
   const hubOrigin = "https://hub-synthetic.invalid";
   const panelOrigin = "https://fatturazioneelettronica.aruba.it";
   const runtimeSource = buildArubaBookmarkletRuntime({ hubOrigin, panelOrigin });
-  await page.context().route(`${hubOrigin}/**`, (route) =>
-    route.fulfill({
+  let observedManifestRequests = 0;
+  await page.context().route(`${hubOrigin}/**`, (route) => {
+    if (new URL(route.request().url()).pathname === "/manifest-observed") {
+      observedManifestRequests += 1;
+      return route.fulfill({ contentType: "application/json", body: "{}" });
+    }
+    return route.fulfill({
       contentType: "text/html; charset=utf-8",
       body: `<!doctype html><script>
         addEventListener("message", (event) => {
           if (event.origin !== ${JSON.stringify(panelOrigin)} || !event.data) return;
           if (event.data.type === "HF_ARUBA_HELLO") {
-            event.source.postMessage({
-              type: "HF_ARUBA_START",
-              runtimeSource: ${JSON.stringify(runtimeSource)}
-            }, ${JSON.stringify(panelOrigin)});
+            if (window.__startScheduled) return;
+            window.__startScheduled = true;
+            setTimeout(() => event.source.postMessage({
+                type: "HF_ARUBA_START",
+                runtimeSource: ${JSON.stringify(runtimeSource)}
+              }, ${JSON.stringify(panelOrigin)}), 100);
             return;
           }
           if (event.data.type !== "HF_ARUBA_REQUEST") return;
-          event.source.postMessage({
+          const respond = () => event.source.postMessage({
             type: "HF_ARUBA_RESPONSE",
             id: event.data.id,
             ok: event.data.path === "/api/aruba/sync/fallita",
             code: "HUB_ERROR",
             payload: {}
           }, ${JSON.stringify(panelOrigin)});
+          if (event.data.path === "/api/aruba/sync/manifest") {
+            fetch("/manifest-observed", { method: "POST" }).finally(respond);
+            return;
+          }
+          respond();
         });
       </script>`,
-    }),
-  );
+    });
+  });
   await page.route(`${panelOrigin}/**`, (route) =>
     route.fulfill({
       contentType: "text/html",
@@ -699,9 +711,13 @@ test("il preferito chiude il ponte dopo un errore per non riutilizzarlo", async 
   await page.evaluate((source) => {
     (0, eval)(source);
   }, bookmarklet.slice("javascript:".length));
+  await page.evaluate((source) => {
+    (0, eval)(source);
+  }, bookmarklet.slice("javascript:".length));
   const bridge = await popupPromise;
 
   await expect(page.locator("#hub-fatture-aruba-status")).toContainText("La lettura si");
+  await expect.poll(() => observedManifestRequests).toBe(1);
   await expect.poll(() => bridge.isClosed()).toBe(true);
 });
 
