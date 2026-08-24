@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.67
+
+- Il lettore Aruba riusa direttamente il collegamento già autorizzato dal preferito, senza avviare un secondo handshake che sul ponte reale restava in attesa fino alla scadenza.
+- La regressione usa un ponte che consegna il lettore una sola volta, così i test non possono più mascherare duplicazioni del collegamento.
+
 ## 0.3.66
 
 - Le preparazioni aprono subito i dati del destinatario e della fattura, dispongono i campi su più colonne quando lo spazio lo consente e mantengono centrato il comando “Apri preparazione” senza vuoti laterali sbilanciati.
