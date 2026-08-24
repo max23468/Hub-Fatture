@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.71
+
+- Il ponte Aruba consegna il lettore, attende la sua conferma esplicita e verifica il canale in entrambe le direzioni prima di creare la sessione server. Un collegamento incompleto non lascia più una sessione orfana che blocca i tentativi successivi.
+- I timeout del canale e della risposta server hanno ora codici e messaggi distinti. Il preferito già installato continua a caricare automaticamente il lettore corrente e non deve essere sostituito.
+
 ## 0.3.70
 
 - Dopo l’avvio, il lettore e il ponte Aruba comunicano tramite un canale dedicato del browser: le richieste non dipendono più dall’identità della finestra cross-origin che lasciava il messaggio fermo su “Collegamento sicuro a Hub Fatture…”.

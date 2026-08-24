@@ -35,8 +35,13 @@ test("il lettore Aruba corrente conserva le guardie della sincronizzazione", () 
   assert.match(runtime, /globalThis\[ACTIVE\]=true/);
   assert.match(runtime, /const releaseRuntime=\(\)=>\{delete globalThis\[ACTIVE\]\}/);
   assert.match(runtime, /TYPE\+"_CHANNEL"/);
+  assert.match(runtime, /TYPE\+"_RUNTIME_READY"/);
+  assert.match(runtime, /TYPE\+"_CHANNEL_READY"/);
   assert.match(runtime, /bridgePort\?\.postMessage\(message\)/);
   assert.match(runtime, /await channelReady/);
+  assert.match(runtime, /HUB_CHANNEL_TIMEOUT/);
+  assert.match(runtime, /HUB_RESPONSE_TIMEOUT/);
+  assert.doesNotMatch(runtime, /new Error\("HUB_TIMEOUT"\)/);
   assert.match(runtime, /const closeBridge=.*bridge\?\.close/);
   assert.doesNotMatch(runtime, /bridge\.postMessage\(message,HUB\)/);
   assert.doesNotMatch(runtime, /HF_ARUBA_HELLO|HF_ARUBA_START|waitForStart/);
