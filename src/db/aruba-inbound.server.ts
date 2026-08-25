@@ -873,6 +873,7 @@ async function reconcileRemoteDocument(
       candidateId?: string;
       orderIds?: string[];
       potential?: boolean;
+      compatible?: boolean;
     }>;
   }>(
     `SELECT method, status, billing_case_id::text, candidates_json
@@ -931,7 +932,7 @@ async function reconcileRemoteDocument(
   ];
   const previousOrderIdSet = new Set<string>();
   for (const candidate of previous.rows[0]?.candidates_json ?? []) {
-    if (!candidate.potential) continue;
+    if (!candidate.potential && !candidate.compatible) continue;
     if (candidate.candidateId) previousOrderIdSet.add(candidate.candidateId);
     for (const orderId of candidate.orderIds ?? []) previousOrderIdSet.add(orderId);
   }
@@ -3053,9 +3054,10 @@ export async function completeArubaPreflight(
     // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- La verifica autorevole usa lo stesso snapshot transazionale delle verifiche di copertura precedenti.
     const authoritativeCandidates = await client.query(
       `SELECT 1 FROM aruba_document_matches matches
-         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
+       JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
          WHERE remote.environment = $1 AND remote.account_reference = $2
-           AND remote.remote_status <> 'REJECTED' AND remote.document_type = $4 AND (
+           AND remote.remote_status <> 'REJECTED' AND remote.document_type = $4
+           AND NOT (matches.method = 'MANUAL' AND matches.status = 'UNMATCHED') AND (
            ($4 = 'TD01' AND (
              matches.order_id::text = ANY($3::text[])
              OR EXISTS (

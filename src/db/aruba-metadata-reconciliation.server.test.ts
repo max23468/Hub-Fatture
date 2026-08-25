@@ -335,6 +335,11 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
        WHERE remote_document_id = $1`,
       [remoteRow.rows[0]!.id],
     );
+    await database
+      .getPool()
+      .query("UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1", [
+        secondBillingCase.rows[0]!.id,
+      ]);
     await database.getPool().query(
       `UPDATE orders SET local_order_date = '2026-01-01'
        WHERE id = $1`,
