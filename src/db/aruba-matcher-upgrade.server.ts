@@ -37,7 +37,7 @@ export async function reconcileCachedArubaMatcherUpgrade(
        AND remote.remote_status <> 'REJECTED'
        AND matches.method <> 'MANUAL'
        AND matches.status NOT IN ('ERROR', 'UNKNOWN_REMOTE_STATE')
-       AND ((remote.document_type = 'TD01' AND EXISTS (
+       AND (((remote.document_type = 'TD01' AND EXISTS (
          SELECT 1 FROM orders
          WHERE orders.trigger_status NOT IN (
            'INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'
@@ -55,7 +55,11 @@ export async function reconcileCachedArubaMatcherUpgrade(
              WHERE documents.id = refunds.credit_document_id
                AND documents.status = 'DRAFT'
            ))
-       )))
+       ))) OR EXISTS (
+         SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
+         WHERE coalesce((candidate ->> 'potential')::boolean, false)
+            OR coalesce((candidate ->> 'compatible')::boolean, false)
+       ))
      ORDER BY remote.id`,
     [environment, account],
   );

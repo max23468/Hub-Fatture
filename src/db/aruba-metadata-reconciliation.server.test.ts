@@ -218,7 +218,6 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       2,
       "la cache senza candidati resta rivalutabile anche dopo la classificazione corrente",
     );
-
     const secondCustomer = await database.getPool().query<{ id: string }>(
       `INSERT INTO customers
         (kind, match_key, display_name, billing_address_json, source_confidence, review_required)
@@ -367,6 +366,29 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       "READY",
       "la preparazione rimossa dai candidati perde il blocco Aruba",
     );
+    await database
+      .getPool()
+      .query(`UPDATE orders SET trigger_status = 'CANCELLED_NO_DOCUMENT' WHERE id = $1`, [
+        order.rows[0]!.id,
+      ]);
+    assert.equal(await inbound.revokeArubaReadSessions(actor), 1);
+    issued = await inbound.issueArubaReadSession("cached-matcher-device-no-candidates", actor);
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT candidates_json = '[]'::jsonb AS empty
+           FROM aruba_document_matches WHERE remote_document_id = $1`,
+          [remoteRow.rows[0]!.id],
+        )
+      ).rows[0].empty,
+      true,
+      "la cache rimuove anche l’ultimo candidato diventato non fatturabile",
+    );
+    await database
+      .getPool()
+      .query(`UPDATE orders SET trigger_status = 'GROUPED' WHERE id = $1`, [order.rows[0]!.id]);
+    assert.equal(await inbound.revokeArubaReadSessions(actor), 1);
+    issued = await inbound.issueArubaReadSession("cached-matcher-device-restored", actor);
 
     assert.deepEqual(
       await inbound.verifyArubaInventoryAccount(issued.token, { documents: [remote] }),
