@@ -276,12 +276,7 @@ function daysAfter(documentDate: string, sourceDate: string): number {
 }
 
 function hasSpecificRecipientName(value: string | null | undefined): boolean {
-  const tokens = value
-    ?.normalize("NFKD")
-    .replace(/\p{Diacritic}/gu, "")
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean);
-  return Boolean(tokens && tokens.length >= 2 && tokens.join("").length >= 6);
+  return (normalizedMatchText(value)?.length ?? 0) >= 2;
 }
 
 export function evaluateOrderCandidate(

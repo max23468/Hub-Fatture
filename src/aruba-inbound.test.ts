@@ -288,8 +288,8 @@ test("due ordini con stesso nome, data e importo diventano ambigui", () => {
   );
 });
 
-test("i nomi del destinatario conservano le lettere Unicode", () => {
-  for (const recipientName of ["Γιάννης Παπαδόπουλος", "Анна Иванова"]) {
+test("i nomi del destinatario conservano lettere Unicode, forme brevi e mononimi", () => {
+  for (const recipientName of ["Γιάννης Παπαδόπουλος", "Анна Иванова", "Li Na", "Numisleo"]) {
     const inventoryOnly = {
       ...remote,
       recipientName,
