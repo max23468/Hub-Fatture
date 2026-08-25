@@ -372,7 +372,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("033_support_safari_aruba_read_sync.sql", {
+  const inboundMigration = page.getByText("034_aruba_status_mapper_version.sql", {
     exact: true,
   });
   await expect(inboundMigration).toBeVisible();
@@ -473,6 +473,23 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
       }),
     ),
   ).toBe(true);
+  const customerActionSpacing = await customerRows
+    .first()
+    .locator(".customer-table__action .dashboard-row-link")
+    .evaluate((action) => {
+      const label = action.querySelector<HTMLElement>("span");
+      const icon = action.querySelector<SVGElement>("svg");
+      if (!label || !icon) return null;
+      const actionBox = action.getBoundingClientRect();
+      return {
+        left: label.getBoundingClientRect().left - actionBox.left,
+        right: actionBox.right - icon.getBoundingClientRect().right,
+      };
+    });
+  expect(customerActionSpacing).not.toBeNull();
+  expect(Math.abs(customerActionSpacing!.left - customerActionSpacing!.right)).toBeLessThanOrEqual(
+    2,
+  );
   const marioCustomer = customerRows.filter({ hasText: "Mario Rossi" });
   await expect(marioCustomer).toContainText("mario.rossi@example.invalid");
   await expect(marioCustomer).toContainText("RSSMRA80A01H501U");
@@ -585,6 +602,20 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
       return action ? action.scrollWidth <= action.clientWidth : false;
     }),
   ).toBe(true);
+  const orderActionSpacing = await firstOrderRow
+    .locator(".orders-table__action .dashboard-row-link")
+    .evaluate((action) => {
+      const label = action.querySelector<HTMLElement>("span");
+      const icon = action.querySelector<SVGElement>("svg");
+      if (!label || !icon) return null;
+      const actionBox = action.getBoundingClientRect();
+      return {
+        left: label.getBoundingClientRect().left - actionBox.left,
+        right: actionBox.right - icon.getBoundingClientRect().right,
+      };
+    });
+  expect(orderActionSpacing).not.toBeNull();
+  expect(Math.abs(orderActionSpacing!.left - orderActionSpacing!.right)).toBeLessThanOrEqual(2);
   expect(
     await firstOrderRow.evaluate((row) => {
       const detail = row.querySelector<HTMLAnchorElement>("td:first-child a");
@@ -1082,6 +1113,22 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
         return cell.getBoundingClientRect().right - button.getBoundingClientRect().right;
       }),
   ).toBeGreaterThanOrEqual(12);
+  const activityActionSpacing = await firstActivityRow
+    .locator(".activity-table__action .dashboard-row-link")
+    .evaluate((action) => {
+      const label = action.querySelector<HTMLElement>("span");
+      const icon = action.querySelector<SVGElement>("svg");
+      if (!label || !icon) return null;
+      const actionBox = action.getBoundingClientRect();
+      return {
+        left: label.getBoundingClientRect().left - actionBox.left,
+        right: actionBox.right - icon.getBoundingClientRect().right,
+      };
+    });
+  expect(activityActionSpacing).not.toBeNull();
+  expect(Math.abs(activityActionSpacing!.left - activityActionSpacing!.right)).toBeLessThanOrEqual(
+    2,
+  );
   await page.getByRole("link", { name: "Cronologia" }).click();
   await page.getByLabel("Tipo di attività").selectOption("CUSTOMER_CORRECTED");
   await page.getByRole("button", { name: "Filtra" }).click();
@@ -1432,6 +1479,13 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     delete runtime.__arubaConcurrentPolling;
   });
   await bridgePage.waitForEvent("close", { timeout: 10_000 });
+  expect(
+    await arubaPage.evaluate(
+      () =>
+        (window as typeof window & { __HUB_FATTURE_ARUBA_RUNTIME_ACTIVE__?: boolean })
+          .__HUB_FATTURE_ARUBA_RUNTIME_ACTIVE__,
+    ),
+  ).toBeUndefined();
   const preflightDate = `${new Date().getUTCFullYear()}-01-03`;
   const preflightClient = new pg.Client({ connectionString: databaseUrl });
   await preflightClient.connect();
@@ -1502,7 +1556,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     browserName === "webkit" ? "safari" : "chrome",
   );
   expect(bookmarkletSessions.rows).toEqual([
-    { status: "COMPLETED", full_scan: true },
+    { status: "COMPLETED", full_scan: false },
     { status: "COMPLETED", full_scan: true },
   ]);
   await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC");

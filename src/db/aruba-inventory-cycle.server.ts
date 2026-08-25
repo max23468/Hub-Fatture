@@ -35,6 +35,10 @@ const romeDateFormat = new Intl.DateTimeFormat("en-CA", {
 
 type InventorySnapshot = z.infer<typeof inventorySnapshotSchema>;
 
+const ARUBA_INCREMENTAL_OVERLAP_DAYS = 7;
+const ARUBA_FULL_SCAN_INTERVAL_DAYS = 30;
+const ARUBA_STATUS_MAPPER_VERSION = 2;
+
 function panelUrl(environment: ArubaInventorySession["environment"]): string {
   return environment === "PRODUCTION"
     ? `${ARUBA_PANEL_ORIGIN}/`
@@ -169,12 +173,49 @@ export async function arubaInventoryManifest(token: string) {
       overlap_from: Date | null;
       last_page_ordinal: number | null;
       full_scan_completed_at: Date | null;
+      aruba_status_mapper_version: number | null;
     }>(
-      `SELECT stream, cursor, overlap_from, last_page_ordinal, full_scan_completed_at
+      `SELECT stream, cursor, overlap_from, last_page_ordinal, full_scan_completed_at,
+              aruba_status_mapper_version
        FROM sync_cursors WHERE provider = 'ARUBA' AND stream = ANY($1::text[])`,
       [scopedStreams],
     );
     const byStream = new Map(cursors.rows.map((row) => [row.stream, row]));
+    const overlapFloor = new Date(Date.now() - ARUBA_INCREMENTAL_OVERLAP_DAYS * 86_400_000);
+    const fullScanFloor = new Date(Date.now() - ARUBA_FULL_SCAN_INTERVAL_DAYS * 86_400_000);
+    const streams = snapshot.streams.map((stream) => {
+      const scoped = cursorStream(session.environment, session.account_reference, stream);
+      const cursor = byStream.get(scoped);
+      const overlapFrom = cursor?.overlap_from
+        ? new Date(Math.min(cursor.overlap_from.getTime(), overlapFloor.getTime())).toISOString()
+        : null;
+      const nonTerminalFrom = snapshot.nonTerminalFromByStream[stream] ?? null;
+      const incrementalFrom =
+        [overlapFrom?.slice(0, 10), nonTerminalFrom]
+          .filter((value): value is string => Boolean(value))
+          .toSorted()[0] ?? null;
+      return {
+        name: stream,
+        cursor: cursor?.cursor ?? null,
+        overlapFrom,
+        nonTerminalFrom,
+        incrementalFrom,
+        lastFullScanCompletedAt: cursor?.full_scan_completed_at?.toISOString() ?? null,
+        statusMapperVersion: cursor?.aruba_status_mapper_version ?? null,
+      };
+    });
+    const fullScanRequired = streams.some((stream) => {
+      const lastFullScan = stream.lastFullScanCompletedAt
+        ? new Date(stream.lastFullScanCompletedAt)
+        : null;
+      return (
+        !stream.cursor ||
+        !stream.incrementalFrom ||
+        !lastFullScan ||
+        lastFullScan.getTime() <= fullScanFloor.getTime() ||
+        stream.statusMapperVersion !== ARUBA_STATUS_MAPPER_VERSION
+      );
+    });
     return {
       operation: "READ_SYNC" as const,
       sessionId: session.id,
@@ -182,17 +223,9 @@ export async function arubaInventoryManifest(token: string) {
       accountReference: session.account_reference,
       panelUrl: panelUrl(session.environment),
       oldestReconciliationDate: snapshot.oldestReconciliationDate,
-      streams: snapshot.streams.map((stream) => {
-        const scoped = cursorStream(session.environment, session.account_reference, stream);
-        const cursor = byStream.get(scoped);
-        return {
-          name: stream,
-          cursor: cursor?.cursor ?? null,
-          overlapFrom: cursor?.overlap_from?.toISOString() ?? null,
-          nonTerminalFrom: snapshot.nonTerminalFromByStream[stream] ?? null,
-          lastFullScanCompletedAt: cursor?.full_scan_completed_at?.toISOString() ?? null,
-        };
-      }),
+      fullScanRequired,
+      incrementalOverlapDays: ARUBA_INCREMENTAL_OVERLAP_DAYS,
+      streams,
       intervalSeconds: 900,
       absoluteExpiresAt: session.absolute_expires_at.toISOString(),
     };
@@ -364,12 +397,14 @@ export async function completeStableArubaInventory(
     );
     if (fullScan.data) {
       await client.query(
-        `UPDATE sync_cursors SET full_scan_completed_at = now(), updated_at = now()
+        `UPDATE sync_cursors SET full_scan_completed_at = now(),
+           aruba_status_mapper_version = $2, updated_at = now()
          WHERE provider = 'ARUBA' AND stream = ANY($1::text[])`,
         [
           expectedStreams.map((stream) =>
             cursorStream(session.environment, session.account_reference, stream),
           ),
+          ARUBA_STATUS_MAPPER_VERSION,
         ],
       );
     }

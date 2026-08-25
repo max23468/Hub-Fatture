@@ -137,7 +137,7 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(page.getByRole("row")).toHaveCount(0);
 });
 
-test("l’helper di lettura ripete la scansione completa e limita i download", async ({
+test("l’helper passa dalla prima scansione completa alle successive incrementali", async ({
   page,
   baseURL,
 }) => {
@@ -182,6 +182,7 @@ test("l’helper di lettura ripete la scansione completa e limita i download", a
       cursor: `${name}:0`,
       overlapFrom: `${year}-08-01T00:00:00.000Z`,
       nonTerminalFrom: null,
+      incrementalFrom: `${year}-08-01`,
       lastFullScanCompletedAt: null,
     }));
     const manifest: ArubaReadManifest = {
@@ -192,6 +193,8 @@ test("l’helper di lettura ripete la scansione completa e limita i download", a
       accountIdentity: "synthetic-aruba-account",
       panelUrl: new URL("/aruba-sintetica?scenario=inventory", baseURL).toString(),
       oldestReconciliationDate: `${year}-01-01`,
+      fullScanRequired: true,
+      incrementalOverlapDays: 7,
       streams,
       intervalSeconds: 900,
       absoluteExpiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -200,12 +203,25 @@ test("l’helper di lettura ripete la scansione completa e limita i download", a
     await page.goto(manifest.panelUrl);
     await runArubaReadCycle(page, hub, token, manifest, 1);
     await expect(page.locator("[data-aruba-filter-from]")).toHaveValue("");
-    await runArubaReadCycle(page, hub, token, manifest, 2);
+    await runArubaReadCycle(
+      page,
+      hub,
+      token,
+      {
+        ...manifest,
+        fullScanRequired: false,
+        streams: manifest.streams.map((stream) => ({
+          ...stream,
+          lastFullScanCompletedAt: new Date().toISOString(),
+        })),
+      },
+      2,
+    );
     expect(pages).toEqual([
       { fullScan: true, stream: `invoices:${year}` },
       { fullScan: true, stream: `credit-notes:${year}` },
-      { fullScan: true, stream: `invoices:${year}` },
-      { fullScan: true, stream: `credit-notes:${year}` },
+      { fullScan: false, stream: `invoices:${year}` },
+      { fullScan: false, stream: `credit-notes:${year}` },
     ]);
     expect(files).toEqual(["ARUBA_XML"]);
     await expect(page.locator("[data-aruba-filter-from]")).toHaveValue("");
@@ -741,7 +757,7 @@ test("il relay locale collega le finestre senza trasferire il WindowProxy al run
   await expect.poll(() => bridge.isClosed()).toBe(true);
 });
 
-test("il preferito attende la rete osservabile e usa il DOM come fallback di paginazione", async ({
+test("il preferito estende la lettura incrementale al preflight e attende la rete osservabile", async ({
   page,
 }) => {
   const year = new Date().getUTCFullYear();
@@ -777,10 +793,23 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           if (request.path === "/api/aruba/sync/manifest") {
             payload = {
               accountIdentity: "synthetic-aruba-account",
-              streams: [{ name: "invoices:${year}" }]
+              oldestReconciliationDate: "${year}-01-01",
+              fullScanRequired: false,
+              incrementalOverlapDays: 7,
+              streams: [{ name: "invoices:${year}", incrementalFrom: "${year}-08-09" }]
             };
+          } else if (request.path === "/api/aruba/sync/preflight" && request.method === "GET") {
+            payload = { work: [{
+              id: "00000000-0000-4000-8000-000000000004",
+              request_json: { searches: [{
+                displayNumber: "#PREFLIGHT-OLDER",
+                documentType: "TD01",
+                orderDate: "${year}-08-01"
+              }] }
+            }] };
           } else if (request.path === "/api/aruba/sync/preflight") {
-            payload = { work: [] };
+            window.__preflightCompletion = request.body;
+            payload = { passed: true };
           } else if (request.path === "/api/aruba/sync/verifica-account") {
             payload = { verified: true, initialPairing: false };
           } else if (request.path === "/api/aruba/sync/pagine") {
@@ -809,12 +838,12 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
     });
   });
   await page.goto(`${panelOrigin}/base`);
-  const row = (remoteId: string, fiscalNumber: number) => `
+  const row = (remoteId: string, fiscalNumber: number, day = "12", month = "08") => `
     <div class="x-gridrow" data-recordindex="0">
       ${Array.from({ length: 23 }, (_, index) => {
         const value =
           index === 4
-            ? `10/08/${year}`
+            ? `${day}/${month}/${year}`
             : index === 5
               ? `FPR ${fiscalNumber}/${String(year).slice(-2)}`
               : index === 7
@@ -831,7 +860,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
     </div>`;
   const statusRow = `
     <div class="x-gridrow" data-recordindex="0">
-      <div class="x-gridcell">Emessa e consegnata</div>
+      <div class="x-gridcell">Emessa e non cons.</div>
       <div class="x-gridcell"></div>
       <div class="x-gridcell"></div>
     </div>`;
@@ -843,7 +872,8 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
       <input aria-label="Seleziona" readonly value="">
     </div>
     <button aria-label="RICERCA"></button>
-    <div class="aruba-grid-fatture-inviate" data-page="1">
+    <div class="aruba-grid-fatture-inviate" data-page="1"
+         data-aruba-sort-property="dataCreazione" data-aruba-sort-direction="ASC">
       <div class="x-pagingtoolbar x-disabled" aria-disabled="true">
         <div class="pagingtoolbar-first"><button disabled>Prima pagina</button></div>
         <button aria-label="{app.buttons.labels.nextPage}">Successiva</button>
@@ -860,6 +890,38 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
       }
       const requestKnownOnlyToAruba = window.fetch.bind(window);
       const grid = document.querySelector(".aruba-grid-fatture-inviate");
+      let activeSorter = {
+        getProperty: () => "dataCreazione",
+        getDirection: () => "ASC"
+      };
+      const sorterCollection = {
+        getAt: () => activeSorter,
+        removeAll: () => { activeSorter = null; },
+        add: (sorter) => { activeSorter = sorter; }
+      };
+      const productionStore = {
+        currentPage: 3,
+        getModel: () => ({ $className: "FepaApp.model.fatturaInviataSingolo.FatturaInviataSingoloList" }),
+        getSorters: () => sorterCollection,
+        loadPage: (pageNumber) => {
+          productionStore.currentPage = pageNumber;
+          fetch("/sort-observable").then(() => {
+            grid.dataset.arubaSortProperty = activeSorter.getProperty();
+            grid.dataset.arubaSortDirection = activeSorter.getDirection();
+          });
+        }
+      };
+      window.Ext = {
+        ComponentQuery: {
+          query: () => [{ element: { dom: grid }, getStore: () => productionStore }]
+        },
+        util: {
+          Sorter: function(config) {
+            this.getProperty = () => config.property;
+            this.getDirection = () => config.direction;
+          }
+        }
+      };
       let currentPage = 1;
       const next = grid.querySelector('button[aria-label*="nextPage"]');
       next.addEventListener("click", () => {
@@ -867,6 +929,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           currentPage = 2;
           const pending = fetch("/next-observable");
           const cells = grid.querySelector(".x-grid").querySelectorAll(".x-gridcell");
+          cells[4].firstChild.data = "05/08/${year}";
           cells[5].firstChild.data = "FPR 15/${String(year).slice(-2)}";
           cells[17].firstChild.data = "15000000001";
           pending.then(() => {
@@ -879,7 +942,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
         }
         currentPage = 3;
         requestKnownOnlyToAruba("/next-hidden").then(() => {
-          grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("30000000003", 3))};
+          grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("30000000003", 3, "31", "07"))};
           grid.querySelector(".locked-grid-border-left").innerHTML = ${JSON.stringify(statusRow)};
           grid.setAttribute("data-page", "3");
           next.disabled = true;
@@ -905,6 +968,14 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
   );
   await expect(page.locator('[data-reference="arubacombobox-filterDate"] input')).toHaveValue("");
   await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute("data-page", "3");
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute(
+    "data-aruba-sort-property",
+    "data",
+  );
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute(
+    "data-aruba-sort-direction",
+    "DESC",
+  );
   expect(
     await bridge.evaluate(() =>
       (
@@ -912,7 +983,12 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           __pages: Array<{
             pageOrdinal: number;
             terminal: boolean;
-            documents: Array<{ fiscalNumber: string; remoteId: string }>;
+            documents: Array<{
+              fiscalNumber: string;
+              providerStatusLabel: string | null;
+              remoteId: string;
+              status: string;
+            }>;
           }>;
         }
       ).__pages.map((item) => ({
@@ -920,13 +996,43 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
         terminal: item.terminal,
         fiscalNumbers: item.documents.map((document) => document.fiscalNumber),
         remoteIds: item.documents.map((document) => document.remoteId),
+        statuses: item.documents.map((document) => document.status),
+        providerStatusLabels: item.documents.map((document) => document.providerStatusLabel),
       })),
     ),
   ).toEqual([
-    { pageOrdinal: 1, terminal: false, fiscalNumbers: ["1"], remoteIds: ["10000000001"] },
-    { pageOrdinal: 2, terminal: false, fiscalNumbers: ["2"], remoteIds: ["20000000002"] },
-    { pageOrdinal: 3, terminal: true, fiscalNumbers: ["3"], remoteIds: ["30000000003"] },
+    {
+      pageOrdinal: 1,
+      terminal: false,
+      fiscalNumbers: ["1"],
+      remoteIds: ["10000000001"],
+      statuses: ["NOT_DELIVERED"],
+      providerStatusLabels: ["Emessa e non cons."],
+    },
+    {
+      pageOrdinal: 2,
+      terminal: false,
+      fiscalNumbers: ["2"],
+      remoteIds: ["20000000002"],
+      statuses: ["NOT_DELIVERED"],
+      providerStatusLabels: ["Emessa e non cons."],
+    },
+    {
+      pageOrdinal: 3,
+      terminal: true,
+      fiscalNumbers: ["3"],
+      remoteIds: ["30000000003"],
+      statuses: ["NOT_DELIVERED"],
+      providerStatusLabels: ["Emessa e non cons."],
+    },
   ]);
+  expect(
+    await bridge.evaluate(
+      () =>
+        (window as typeof window & { __preflightCompletion?: { searchesCompleted: boolean } })
+          .__preflightCompletion?.searchesCompleted,
+    ),
+  ).toBe(true);
 });
 
 test("il lettore Production completa il reload dell’anno prima di aprire lo stream", async ({

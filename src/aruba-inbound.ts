@@ -52,6 +52,7 @@ export const remoteInventoryDocumentSchema = z.object({
   totalAmount: z.number().int().nonnegative(),
   currency: z.literal("EUR").default("EUR"),
   status: arubaRemoteStatusSchema,
+  providerStatusLabel: z.string().trim().min(1).max(300).nullable().optional(),
   providerObservedAt: z.iso.datetime({ offset: true }).nullable().default(null),
   xmlSha256: z
     .string()
@@ -97,6 +98,91 @@ export const inventoryPageSchema = z
 export type ArubaRemoteStatus = z.infer<typeof arubaRemoteStatusSchema>;
 export type RemoteInventoryDocument = z.infer<typeof remoteInventoryDocumentSchema>;
 
+export const ARUBA_UNKNOWN_STATUS_PAGE_MIN_DOCUMENTS = 10;
+export const ARUBA_UNKNOWN_STATUS_PAGE_MAX_RATIO = 0.5;
+
+export function arubaIncrementalScanFrom(input: {
+  documentType: "TD01" | "TD04";
+  incrementalFrom: string;
+  oldestReconciliationDate: string;
+  searches: Array<{ documentType?: unknown; orderDate?: unknown }>;
+}): string {
+  const relevant = input.searches.filter((search) => search.documentType === input.documentType);
+  if (!relevant.length) return input.incrementalFrom;
+  const dates = relevant.map((search) =>
+    typeof search.orderDate === "string"
+      ? search.orderDate.slice(0, 10)
+      : input.oldestReconciliationDate.slice(0, 10),
+  );
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(input.incrementalFrom) ||
+    dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date))
+  ) {
+    throw new Error("READ_SYNC_FAILED");
+  }
+  return [input.incrementalFrom, ...dates].sort()[0]!;
+}
+
+export function normalizeArubaRemoteStatusLabel(value: unknown): ArubaRemoteStatus {
+  const label = normalizedMatchText(String(value ?? "")) ?? "";
+  if (
+    label.includes("EMESSAENONCONS") ||
+    label.includes("NONCONSEGNAT") ||
+    label.includes("MANCATACONSEGNA") ||
+    label.includes("RECAPITOIMPOSSIBILE")
+  ) {
+    return "NOT_DELIVERED";
+  }
+  if (
+    label.includes("EMESSAECONSEGNAT") ||
+    label.includes("CONSEGNAT") ||
+    label === "ACCETTATA" ||
+    label.includes("DECORRENZATERMINI")
+  ) {
+    return "DELIVERED";
+  }
+  if (
+    label.includes("SCARTAT") ||
+    label.includes("RIFIUTAT") ||
+    label.includes("ERROREELABORAZIONE")
+  ) {
+    return "REJECTED";
+  }
+  if (
+    label.includes("PRESAINCARICO") ||
+    label.includes("INLAVORAZIONE") ||
+    label.includes("INOLTRATOASDI") ||
+    label.includes("INOLTRATAASDI")
+  ) {
+    return "SDI_PROCESSING";
+  }
+  if (label === "EMESSA" || label === "EMESSAEDINVIATA" || label === "ANNULLATA") {
+    return "UNKNOWN";
+  }
+  if (label.includes("INVIAT") || label.includes("TRASMESS")) return "SUBMITTED";
+  return "UNKNOWN";
+}
+
+export function isKnownUncertainArubaStatusLabel(value: unknown): boolean {
+  const label = normalizedMatchText(String(value ?? "")) ?? "";
+  return label === "EMESSA" || label === "EMESSAEDINVIATA" || label === "ANNULLATA";
+}
+
+export function hasAnomalousUnknownArubaStatuses(
+  documents: Array<
+    Pick<RemoteInventoryDocument, "status"> &
+      Partial<Pick<RemoteInventoryDocument, "providerStatusLabel">>
+  >,
+): boolean {
+  if (documents.length < ARUBA_UNKNOWN_STATUS_PAGE_MIN_DOCUMENTS) return false;
+  const unknown = documents.filter(
+    (document) =>
+      document.status === "UNKNOWN" &&
+      !isKnownUncertainArubaStatusLabel(document.providerStatusLabel),
+  ).length;
+  return unknown / documents.length >= ARUBA_UNKNOWN_STATUS_PAGE_MAX_RATIO;
+}
+
 const progressing = new Map<ArubaRemoteStatus, number>([
   ["SUBMITTED", 1],
   ["SDI_PROCESSING", 2],
@@ -132,8 +218,11 @@ function canonicalFiscalIdentity(identifier: FiscalIdentity): string {
 }
 
 export function remoteMetadataDigest(document: RemoteInventoryDocument): string {
-  const { recipientTaxIdentifiers: _officialRecipientTaxIdentifiers, ...inventoryEvidence } =
-    document;
+  const {
+    recipientTaxIdentifiers: _officialRecipientTaxIdentifiers,
+    providerStatusLabel: _providerStatusLabel,
+    ...inventoryEvidence
+  } = document;
   return createHash("sha256")
     .update(
       JSON.stringify({

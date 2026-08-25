@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import {
   groupOrderCandidates,
+  hasAnomalousUnknownArubaStatuses,
   inventoryPageSchema,
   isEmissionConfirmed,
   normalizedMatchText,
@@ -2030,6 +2031,9 @@ async function ingestParsedArubaPage(
   );
   const currentMode = sessionMode.rows[0];
   if (!currentMode) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+  if (currentMode.source === "HELPER" && hasAnomalousUnknownArubaStatuses(page.documents)) {
+    throw new AppError("ARUBA_REMOTE_STATUS_UNRECOGNIZED", 422);
+  }
   if (currentMode.source === "HELPER" && !currentMode.account_verified) {
     throw new AppError("ARUBA_ACCOUNT_MISMATCH", 409);
   }
@@ -2343,7 +2347,7 @@ async function ingestParsedArubaPage(
     await client.query(
       `INSERT INTO sync_cursors
        (provider, stream, cursor, overlap_from, last_page_ordinal, updated_at)
-     VALUES ('ARUBA', $1, $2, now() - interval '2 days', $3, now())
+     VALUES ('ARUBA', $1, $2, now() - interval '7 days', $3, now())
      ON CONFLICT (provider, stream) DO UPDATE SET
        cursor = EXCLUDED.cursor, overlap_from = EXCLUDED.overlap_from,
        last_page_ordinal = EXCLUDED.last_page_ordinal, updated_at = now()`,
@@ -2482,7 +2486,11 @@ export async function getArubaInventoryHealth(
           AND last_heartbeat_at > now() - interval '2 minutes'
         ORDER BY started_at DESC LIMIT 1) AS next_scheduled_at,
        (SELECT error_code FROM aruba_sync_sessions
-        WHERE environment = $1 AND account_reference = $2 AND error_code IS NOT NULL
+        WHERE environment = $1 AND account_reference = $2
+          AND status IN ('FAILED', 'INCOMPLETE') AND error_code IS NOT NULL
+          AND coalesce(failed_at, started_at) > coalesce((SELECT max(completed_at)
+            FROM aruba_sync_sessions WHERE environment = $1 AND account_reference = $2
+              AND completed_at IS NOT NULL), '-infinity')
         ORDER BY started_at DESC LIMIT 1) AS last_error_code,
        EXISTS (SELECT 1 FROM aruba_sync_sessions AS failed
         WHERE failed.environment = $1 AND failed.account_reference = $2

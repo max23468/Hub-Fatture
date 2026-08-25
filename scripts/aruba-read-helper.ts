@@ -23,7 +23,10 @@ import {
   assertAllowedHubUrl,
 } from "../src/aruba.ts";
 import {
+  arubaIncrementalScanFrom,
+  hasAnomalousUnknownArubaStatuses,
   inventoryPageSchema,
+  normalizeArubaRemoteStatusLabel,
   remoteMatchesPreflightSearches,
   type RemoteInventoryDocument,
 } from "../src/aruba-inbound.ts";
@@ -36,11 +39,14 @@ export interface ArubaReadManifest {
   accountIdentity: string;
   panelUrl: string;
   oldestReconciliationDate: string;
+  fullScanRequired: boolean;
+  incrementalOverlapDays: number;
   streams: Array<{
     name: string;
     cursor: string | null;
     overlapFrom: string | null;
     nonTerminalFrom: string | null;
+    incrementalFrom: string | null;
     lastFullScanCompletedAt: string | null;
   }>;
   intervalSeconds: number;
@@ -64,6 +70,7 @@ interface PreflightWork {
       displayNumber: string;
       amount: number;
       documentType: "TD01" | "TD04";
+      orderDate?: string;
     }>;
   };
 }
@@ -191,15 +198,6 @@ function italianAmount(value: string): number {
   return cents;
 }
 
-function visibleRemoteStatus(value: string): RemoteInventoryDocument["status"] {
-  if (/non consegnat|mancata consegna/i.test(value)) return "NOT_DELIVERED";
-  if (/consegnat/i.test(value)) return "DELIVERED";
-  if (/scartat|rifiutat/i.test(value)) return "REJECTED";
-  if (/elaborazione|in lavorazione|inoltrat[oa] a sdi/i.test(value)) return "SDI_PROCESSING";
-  if (/inviat|trasmess/i.test(value)) return "SUBMITTED";
-  return "UNKNOWN";
-}
-
 function headerIndex(headers: string[], pattern: RegExp): number {
   return headers.findIndex((header) => pattern.test(header));
 }
@@ -308,7 +306,8 @@ async function readProductionRows(page: Page) {
         indices.recipientAddress >= 0 ? cells[indices.recipientAddress] || null : null,
       totalAmount: italianAmount(cells[indices.total]!),
       currency: "EUR",
-      status: visibleRemoteStatus(cells[indices.status]!),
+      status: normalizeArubaRemoteStatusLabel(cells[indices.status]!),
+      providerStatusLabel: cells[indices.status] || null,
       providerObservedAt: null,
       xmlSha256: null,
       orderReferences: parseProductionOrderReferences(cells[indices.orderReferences]!),
@@ -392,7 +391,8 @@ async function readProductionExtGrid(grid: Locator) {
       recipientAddress: null,
       totalAmount: italianAmount(cells[10]!),
       currency: "EUR",
-      status: visibleRemoteStatus(statusCells[0]!),
+      status: normalizeArubaRemoteStatusLabel(statusCells[0]!),
+      providerStatusLabel: statusCells[0] || null,
       providerObservedAt: null,
       xmlSha256: null,
       orderReferences: [],
@@ -663,6 +663,83 @@ async function assertDateFilterInactive(page: Page) {
   const candidates = (await synthetic.count()) ? synthetic : production;
   if ((await candidates.count()) !== 1) throw new Error("DOM_UNRECOGNIZED");
   if ((await candidates.first().inputValue()).trim()) throw new Error("ARUBA_FILTER_ACTIVE");
+}
+
+async function ensureProductionIncrementalOrder(page: Page) {
+  await armProductionGridReload(page);
+  await armProductionRequestCapture(page);
+  const dataRequests = observeProductionDataRequests(page);
+  try {
+    const changed = await page.evaluate(() => {
+      const root = document.querySelector<HTMLElement>(".aruba-grid-fatture-inviate");
+      if (!root) throw new Error("DOM_UNRECOGNIZED");
+      const runtime = (
+        window as typeof window & {
+          Ext?: {
+            ComponentQuery?: { query: (selector: string) => unknown[] };
+            util?: { Sorter?: new (config: { property: string; direction: string }) => unknown };
+          };
+        }
+      ).Ext;
+      if (!runtime?.ComponentQuery?.query || !runtime.util?.Sorter) {
+        if (
+          root.dataset.arubaSortProperty === "data" &&
+          root.dataset.arubaSortDirection === "DESC"
+        ) {
+          return false;
+        }
+        throw new Error("DOM_UNRECOGNIZED");
+      }
+      const stores = new Set<{
+        currentPage: number;
+        getModel?: () => { $className?: string };
+        getSorters: () => {
+          add: (sorter: unknown) => void;
+          getAt: (
+            index: number,
+          ) => { getDirection?: () => string; getProperty?: () => string } | undefined;
+          removeAll: () => void;
+        };
+        loadPage: (pageNumber: number) => void;
+      }>();
+      for (const component of runtime.ComponentQuery.query("grid,arubalockedgrid")) {
+        const candidate = component as {
+          element?: { dom?: HTMLElement };
+          getStore?: () => unknown;
+        };
+        const element = candidate.element?.dom;
+        if (!element || (!element.contains(root) && !root.contains(element))) continue;
+        const store = candidate.getStore?.() as typeof stores extends Set<infer T> ? T : never;
+        if (store) stores.add(store);
+      }
+      const matching = [...stores].filter((store) =>
+        store.getModel?.().$className?.includes("FatturaInviataSingoloList"),
+      );
+      if (matching.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+      const store = matching[0]!;
+      const first = store.getSorters().getAt(0);
+      if (
+        first?.getProperty?.() === "data" &&
+        first.getDirection?.().toUpperCase() === "DESC" &&
+        store.currentPage === 1
+      ) {
+        return false;
+      }
+      store.currentPage = 1;
+      store.getSorters().removeAll();
+      store.getSorters().add(new runtime.util.Sorter({ property: "data", direction: "DESC" }));
+      store.loadPage(1);
+      return true;
+    });
+    if (!changed) return;
+    const captured = await finishProductionRequestCapture(page);
+    await dataRequests.waitFor(captured);
+    await waitForProductionGridReload(page);
+  } finally {
+    await finishProductionRequestCapture(page);
+    dataRequests.dispose();
+    await clearProductionGridReload(page);
+  }
 }
 
 async function armProductionGridReload(page: Page) {
@@ -1043,6 +1120,7 @@ export async function runArubaReadCycle(
   manifest: ArubaReadManifest,
   scanOrdinal = 1,
   browser: "chrome" | "msedge" = "chrome",
+  preflightWork: PreflightWork[] = [],
 ) {
   const target = assertAllowedArubaTarget(manifest.panelUrl, manifest.environment);
   if (manifest.environment === "PRODUCTION" || !page.url() || page.url() === "about:blank") {
@@ -1061,10 +1139,24 @@ export async function runArubaReadCycle(
   await assertAccount(page, manifest.accountIdentity);
   await heartbeat();
   const observed = [];
+  const fullScan = manifest.fullScanRequired;
   for (const streamManifest of manifest.streams) {
     await heartbeat();
     const stream = streamManifest.name;
     await selectStream(page, stream);
+    const incrementalFrom = streamManifest.incrementalFrom?.slice(0, 10) ?? null;
+    if (!fullScan && !incrementalFrom) throw new Error("READ_SYNC_FAILED");
+    const scanFrom = fullScan
+      ? null
+      : arubaIncrementalScanFrom({
+          documentType: stream.startsWith("invoices:") ? "TD01" : "TD04",
+          incrementalFrom: incrementalFrom!,
+          oldestReconciliationDate: manifest.oldestReconciliationDate,
+          searches: preflightWork.flatMap((receipt) => receipt.request_json.searches ?? []),
+        });
+    if (!fullScan && manifest.environment === "PRODUCTION") {
+      await ensureProductionIncrementalOrder(page);
+    }
     let pageOrdinal = 1;
     while (true) {
       await heartbeat();
@@ -1076,13 +1168,25 @@ export async function runArubaReadCycle(
         pageOrdinal,
         manifest.environment,
       );
+      const boundaryReached =
+        !fullScan &&
+        inventory.documents.length > 0 &&
+        inventory.documents.every((document) => document.documentDate < scanFrom!);
+      const pageInventory = {
+        ...inventory,
+        terminal: inventory.terminal || boundaryReached,
+        fullScan,
+      };
+      if (hasAnomalousUnknownArubaStatuses(pageInventory.documents)) {
+        throw new Error("ARUBA_REMOTE_STATUS_UNRECOGNIZED");
+      }
       const ingest = await hubJson<{ requestedFiles?: Array<{ remoteId: string; kind: string }> }>(
         hub,
         token,
         "/api/aruba/sync/pagine",
         {
           method: "POST",
-          body: JSON.stringify({ ...inventory, fullScan: true }),
+          body: JSON.stringify(pageInventory),
         },
       );
       observed.push(...inventory.documents);
@@ -1098,7 +1202,7 @@ export async function runArubaReadCycle(
           await downloadOfficialFile(page, file, target),
         );
       }
-      if (inventory.terminal) break;
+      if (pageInventory.terminal) break;
       await advancePage(page, manifest.environment);
       pageOrdinal += 1;
     }
@@ -1108,7 +1212,7 @@ export async function runArubaReadCycle(
     body: JSON.stringify({
       streams: manifest.streams.map((stream) => stream.name),
       scanOrdinal,
-      fullScan: true,
+      fullScan,
     }),
   });
   return observed;
@@ -1149,7 +1253,7 @@ async function completePreflights(
 
 export async function runArubaReadHelper(options: ReadHelperOptions) {
   const hub = assertAllowedHubUrl(options.hubUrl);
-  const manifest = await hubJson<ArubaReadManifest>(hub, options.token, "/api/aruba/sync/manifest");
+  let manifest = await hubJson<ArubaReadManifest>(hub, options.token, "/api/aruba/sync/manifest");
   await mkdir(options.profileDirectory, { recursive: true, mode: 0o700 });
   let context: BrowserContext | undefined;
   try {
@@ -1162,6 +1266,13 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
     let nextPeriodicAt = 0;
     do {
       try {
+        if (scanOrdinal > 1) {
+          manifest = await hubJson<ArubaReadManifest>(
+            hub,
+            options.token,
+            "/api/aruba/sync/manifest",
+          );
+        }
         const pendingBeforeScan = await listPendingPreflights(hub, options.token);
         const observed = await runArubaReadCycle(
           page,
@@ -1170,6 +1281,7 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
           manifest,
           scanOrdinal,
           options.browser === "msedge" ? "msedge" : "chrome",
+          pendingBeforeScan.work,
         );
         await completePreflights(hub, options.token, pendingBeforeScan.work, observed);
         nextPeriodicAt = Date.now() + manifest.intervalSeconds * 1_000;
@@ -1202,6 +1314,11 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
         }
         const pending = await listPendingPreflights(hub, options.token);
         if (pending.work.length || pending.syncRequestedAt) {
+          manifest = await hubJson<ArubaReadManifest>(
+            hub,
+            options.token,
+            "/api/aruba/sync/manifest",
+          );
           const observed = await runArubaReadCycle(
             page,
             hub,
@@ -1209,6 +1326,7 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
             manifest,
             scanOrdinal,
             options.browser === "msedge" ? "msedge" : "chrome",
+            pending.work,
           );
           await completePreflights(hub, options.token, pending.work, observed);
           scanOrdinal += 1;

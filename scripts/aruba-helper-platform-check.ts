@@ -47,11 +47,15 @@ const server = createServer(async (request, response) => {
       accountIdentity: "synthetic-aruba-account",
       panelUrl: `${baseUrl}/aruba-sintetica?scenario=inventory`,
       oldestReconciliationDate: "2026-01-01",
+      fullScanRequired: true,
+      incrementalOverlapDays: 7,
       streams: [
         {
           name: "invoices:2026",
           cursor: null,
           overlapFrom: null,
+          nonTerminalFrom: null,
+          incrementalFrom: null,
           lastFullScanCompletedAt: null,
         },
       ],
