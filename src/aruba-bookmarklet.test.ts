@@ -67,12 +67,14 @@ test("il lettore Aruba corrente conserva le guardie della sincronizzazione", () 
   assert.match(runtime, /streamInfo\.incrementalFrom\.slice\(0,10\)/);
   assert.match(runtime, /new runtime\.util\.Sorter\(\{property:"data",direction:"DESC"\}\)/);
   assert.match(runtime, /await ensureIncrementalOrder\(\)/);
-  assert.match(runtime, /documents\.every\(document=>document\.documentDate<incrementalFrom\)/);
+  assert.match(runtime, /const scanFrom=fullScan\?null:preflightScanFrom/);
+  assert.match(runtime, /documents\.every\(document=>document\.documentDate<scanFrom\)/);
   assert.match(runtime, /selectStream\(stream\)/);
   assert.match(runtime, /arubacombobox-filterDate/);
   assert.match(runtime, /ARUBA_FILTER_ACTIVE/);
   assert.match(runtime, /ARUBA_REMOTE_STATUS_UNRECOGNIZED/);
   assert.match(runtime, /EMESSAENONCONS/);
+  assert.match(runtime, /knownUncertainStatus/);
   assert.match(runtime, /providerStatusLabel/);
   assert.doesNotMatch(runtime, /__UNKNOWN_(?:MIN|RATIO)__/);
   assert.match(runtime, /sync\/verifica-account/);
@@ -80,7 +82,7 @@ test("il lettore Aruba corrente conserva le guardie della sincronizzazione", () 
   assert.doesNotMatch(runtime, /main-toolbar-info-user|data-aruba-account/);
   assert.doesNotMatch(runtime, /applyDateFilter|input\[name=\\"dataDa\\"\]/);
   assert.match(runtime, /\/api\/aruba\/sync\/termina/);
-  assert.doesNotMatch(runtime, /preflightFrom/);
+  assert.match(runtime, /search\.orderDate/);
   assert.doesNotMatch(runtime, /Bearer |Authorization|hub-fatture-helper:\/\//);
   assert.doesNotThrow(() => new Function(runtime));
 });

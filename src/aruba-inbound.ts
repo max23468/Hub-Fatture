@@ -101,6 +101,28 @@ export type RemoteInventoryDocument = z.infer<typeof remoteInventoryDocumentSche
 export const ARUBA_UNKNOWN_STATUS_PAGE_MIN_DOCUMENTS = 10;
 export const ARUBA_UNKNOWN_STATUS_PAGE_MAX_RATIO = 0.5;
 
+export function arubaIncrementalScanFrom(input: {
+  documentType: "TD01" | "TD04";
+  incrementalFrom: string;
+  oldestReconciliationDate: string;
+  searches: Array<{ documentType?: unknown; orderDate?: unknown }>;
+}): string {
+  const relevant = input.searches.filter((search) => search.documentType === input.documentType);
+  if (!relevant.length) return input.incrementalFrom;
+  const dates = relevant.map((search) =>
+    typeof search.orderDate === "string"
+      ? search.orderDate.slice(0, 10)
+      : input.oldestReconciliationDate.slice(0, 10),
+  );
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(input.incrementalFrom) ||
+    dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date))
+  ) {
+    throw new Error("READ_SYNC_FAILED");
+  }
+  return [input.incrementalFrom, ...dates].sort()[0]!;
+}
+
 export function normalizeArubaRemoteStatusLabel(value: unknown): ArubaRemoteStatus {
   const label = normalizedMatchText(String(value ?? "")) ?? "";
   if (
@@ -141,11 +163,23 @@ export function normalizeArubaRemoteStatusLabel(value: unknown): ArubaRemoteStat
   return "UNKNOWN";
 }
 
+export function isKnownUncertainArubaStatusLabel(value: unknown): boolean {
+  const label = normalizedMatchText(String(value ?? "")) ?? "";
+  return label === "EMESSA" || label === "EMESSAEDINVIATA" || label === "ANNULLATA";
+}
+
 export function hasAnomalousUnknownArubaStatuses(
-  documents: Array<Pick<RemoteInventoryDocument, "status">>,
+  documents: Array<
+    Pick<RemoteInventoryDocument, "status"> &
+      Partial<Pick<RemoteInventoryDocument, "providerStatusLabel">>
+  >,
 ): boolean {
   if (documents.length < ARUBA_UNKNOWN_STATUS_PAGE_MIN_DOCUMENTS) return false;
-  const unknown = documents.filter((document) => document.status === "UNKNOWN").length;
+  const unknown = documents.filter(
+    (document) =>
+      document.status === "UNKNOWN" &&
+      !isKnownUncertainArubaStatusLabel(document.providerStatusLabel),
+  ).length;
   return unknown / documents.length >= ARUBA_UNKNOWN_STATUS_PAGE_MAX_RATIO;
 }
 

@@ -66,10 +66,12 @@ const integer=(value)=>{const parsed=Number(value);if(!Number.isInteger(parsed)|
 const italianDate=(value)=>{const match=String(value).match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);if(!match)fail("DOM_UNRECOGNIZED");return match[3]+"-"+match[2]+"-"+match[1]};
 const italianAmount=(value)=>{const match=String(value).match(/(?:€\s*)?(-?\d{1,3}(?:\.\d{3})*|\d+),(\d{2})(?:\s*€)?/);if(!match)fail("DOM_UNRECOGNIZED");const cents=Number(match[1].replaceAll(".","")+match[2]);if(!Number.isSafeInteger(cents)||cents<0)fail("DOM_UNRECOGNIZED");return cents};
 const remoteStatus=(value)=>{const label=matchText(value);if(label.includes("EMESSAENONCONS")||label.includes("NONCONSEGNAT")||label.includes("MANCATACONSEGNA")||label.includes("RECAPITOIMPOSSIBILE"))return"NOT_DELIVERED";if(label.includes("EMESSAECONSEGNAT")||label.includes("CONSEGNAT")||label==="ACCETTATA"||label.includes("DECORRENZATERMINI"))return"DELIVERED";if(label.includes("SCARTAT")||label.includes("RIFIUTAT")||label.includes("ERROREELABORAZIONE"))return"REJECTED";if(label.includes("PRESAINCARICO")||label.includes("INLAVORAZIONE")||label.includes("INOLTRATOASDI")||label.includes("INOLTRATAASDI"))return"SDI_PROCESSING";if(label==="EMESSA"||label==="EMESSAEDINVIATA"||label==="ANNULLATA")return"UNKNOWN";if(label.includes("INVIAT")||label.includes("TRASMESS"))return"SUBMITTED";return"UNKNOWN"};
-const anomalousStatuses=(documents)=>documents.length>=__UNKNOWN_MIN__&&documents.filter(document=>document.status==="UNKNOWN").length/documents.length>=__UNKNOWN_RATIO__;
+const knownUncertainStatus=(value)=>{const label=matchText(value);return label==="EMESSA"||label==="EMESSAEDINVIATA"||label==="ANNULLATA"};
+const anomalousStatuses=(documents)=>documents.length>=__UNKNOWN_MIN__&&documents.filter(document=>document.status==="UNKNOWN"&&!knownUncertainStatus(document.providerStatusLabel)).length/documents.length>=__UNKNOWN_RATIO__;
 const fiscalNumber=(value,year)=>{const match=/^(\S+)\s+(\d+)\/(\d{2}|\d{4})$/.exec(normalized(value));if(!match)fail("DOM_UNRECOGNIZED");const number=Number(match[2]);const expected=String(year);if(!Number.isSafeInteger(number)||number<=0||(match[3]!==expected&&match[3]!==expected.slice(-2)))fail("DOM_UNRECOGNIZED");return{series:match[1],fiscalNumber:String(number)}};
 const orderReferences=(value)=>{if(!normalized(value))return[];const hash=[...String(value).matchAll(/#\s*[A-Z0-9][A-Z0-9._/-]*/gi)].map(match=>match[0].replace(/\s+/g,""));const labelled=String(value).split(/[,;\n]+/).map(item=>{const parts=item.split(":");return /^(?:ordine|ordini|riferimento|riferimenti|causale)$/i.test(normalized(parts[0]))?normalized(parts.slice(1).join(":")):normalized(item)}).filter(item=>item&&item.length<=100);const result=[...new Set([...hash,...labelled])];if(result.length>20)fail("DOM_UNRECOGNIZED");return result};
 const streamParts=(stream)=>{const match=/^(invoices|credit-notes):(\d{4})$/.exec(stream);if(!match)fail("DOM_UNRECOGNIZED");return{type:match[1]==="invoices"?"TD01":"TD04",year:Number(match[2])}};
+const preflightScanFrom=(work,stream,fallback,incremental)=>{const type=streamParts(stream).type,searches=work.flatMap(item=>item.request_json?.searches??[]).filter(search=>search.documentType===type);if(!searches.length)return incremental;const dates=searches.map(search=>typeof search.orderDate==="string"?search.orderDate.slice(0,10):String(fallback).slice(0,10));if(dates.some(date=>!/^\d{4}-\d{2}-\d{2}$/.test(date)))fail("READ_SYNC_FAILED");return[incremental,...dates].sort()[0]};
 const semanticNext=()=>{const candidates=[...document.querySelectorAll("button")].filter(visible).filter(button=>/Pagina successiva|Successiva/i.test(normalized(button.getAttribute("aria-label")||button.textContent)));if(candidates.length>1)fail("DOM_UNRECOGNIZED");return candidates[0]};
 const productionNext=()=>{const selector='.aruba-grid-fatture-inviate button[aria-label*="nextPage"],.aruba-grid-fatture-inviate button[title*="nextPage"],.aruba-grid-fatture-inviate [title*="nextPage"] button';const candidates=[...document.querySelectorAll(selector)].filter(visible);if(candidates.length!==1)fail("DOM_UNRECOGNIZED");return candidates[0]};
 const enabled=(element)=>{if(!element||element.disabled||element.getAttribute("aria-disabled")==="true")return false;const control=element.closest(".x-button");return !control||(!control.classList.contains("x-disabled")&&control.getAttribute("aria-disabled")!=="true")};
@@ -146,6 +148,7 @@ try{
     const stream=streamInfo.name;
     const incrementalFrom=typeof streamInfo.incrementalFrom==="string"?streamInfo.incrementalFrom.slice(0,10):null;
     if(!fullScan&&!incrementalFrom)fail("READ_SYNC_FAILED");
+    const scanFrom=fullScan?null:preflightScanFrom(preflight.work??[],stream,manifest.oldestReconciliationDate,incrementalFrom);
     setStatus("Lettura "+stream+"…");
     const available=await selectStream(stream);
     const incrementalOrderVerified=!fullScan&&available&&document.querySelector(".aruba-grid-fatture-inviate")?await ensureIncrementalOrder():false;
@@ -155,7 +158,7 @@ try{
       const documents=available?readPage(stream):[];
       if(anomalousStatuses(documents))fail("ARUBA_REMOTE_STATUS_UNRECOGNIZED");
       observed.push(...documents);
-      const boundaryReached=!fullScan&&incrementalOrderVerified&&documents.length>0&&documents.every(document=>document.documentDate<incrementalFrom);
+      const boundaryReached=!fullScan&&incrementalOrderVerified&&documents.length>0&&documents.every(document=>document.documentDate<scanFrom);
       const terminal=!available||!hasNext()||boundaryReached;
       const page={stream,scanOrdinal:1,pageOrdinal,cursor:stream+":"+pageOrdinal,terminal,fullScan,documents};
       if(!accountVerified){
@@ -177,7 +180,7 @@ try{
     await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
     const searches=work.request_json?.searches??[];
     const candidates=observed.filter(document=>document.status!=="REJECTED"&&searches.length&&searches.every(search=>search.documentType===document.documentType)&&searches.some(search=>document.orderReferences.map(matchText).includes(matchText(search.displayNumber)))).map(document=>document.remoteId);
-    try{await rpc("/api/aruba/sync/preflight","POST",{receiptId:work.id,candidateRemoteIds:[...new Set(candidates)],searchesCompleted:true})}catch{preflightFailed=true}
+    try{await rpc("/api/aruba/sync/preflight","POST",{receiptId:work.id,candidateRemoteIds:[...new Set(candidates)],searchesCompleted:searches.length>0})}catch{preflightFailed=true}
   }
   await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
   await rpc("/api/aruba/sync/termina","POST",{});

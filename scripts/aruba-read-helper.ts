@@ -23,6 +23,7 @@ import {
   assertAllowedHubUrl,
 } from "../src/aruba.ts";
 import {
+  arubaIncrementalScanFrom,
   hasAnomalousUnknownArubaStatuses,
   inventoryPageSchema,
   normalizeArubaRemoteStatusLabel,
@@ -69,6 +70,7 @@ interface PreflightWork {
       displayNumber: string;
       amount: number;
       documentType: "TD01" | "TD04";
+      orderDate?: string;
     }>;
   };
 }
@@ -1118,6 +1120,7 @@ export async function runArubaReadCycle(
   manifest: ArubaReadManifest,
   scanOrdinal = 1,
   browser: "chrome" | "msedge" = "chrome",
+  preflightWork: PreflightWork[] = [],
 ) {
   const target = assertAllowedArubaTarget(manifest.panelUrl, manifest.environment);
   if (manifest.environment === "PRODUCTION" || !page.url() || page.url() === "about:blank") {
@@ -1143,6 +1146,14 @@ export async function runArubaReadCycle(
     await selectStream(page, stream);
     const incrementalFrom = streamManifest.incrementalFrom?.slice(0, 10) ?? null;
     if (!fullScan && !incrementalFrom) throw new Error("READ_SYNC_FAILED");
+    const scanFrom = fullScan
+      ? null
+      : arubaIncrementalScanFrom({
+          documentType: stream.startsWith("invoices:") ? "TD01" : "TD04",
+          incrementalFrom: incrementalFrom!,
+          oldestReconciliationDate: manifest.oldestReconciliationDate,
+          searches: preflightWork.flatMap((receipt) => receipt.request_json.searches ?? []),
+        });
     if (!fullScan && manifest.environment === "PRODUCTION") {
       await ensureProductionIncrementalOrder(page);
     }
@@ -1160,7 +1171,7 @@ export async function runArubaReadCycle(
       const boundaryReached =
         !fullScan &&
         inventory.documents.length > 0 &&
-        inventory.documents.every((document) => document.documentDate < incrementalFrom!);
+        inventory.documents.every((document) => document.documentDate < scanFrom!);
       const pageInventory = {
         ...inventory,
         terminal: inventory.terminal || boundaryReached,
@@ -1242,7 +1253,7 @@ async function completePreflights(
 
 export async function runArubaReadHelper(options: ReadHelperOptions) {
   const hub = assertAllowedHubUrl(options.hubUrl);
-  const manifest = await hubJson<ArubaReadManifest>(hub, options.token, "/api/aruba/sync/manifest");
+  let manifest = await hubJson<ArubaReadManifest>(hub, options.token, "/api/aruba/sync/manifest");
   await mkdir(options.profileDirectory, { recursive: true, mode: 0o700 });
   let context: BrowserContext | undefined;
   try {
@@ -1255,6 +1266,13 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
     let nextPeriodicAt = 0;
     do {
       try {
+        if (scanOrdinal > 1) {
+          manifest = await hubJson<ArubaReadManifest>(
+            hub,
+            options.token,
+            "/api/aruba/sync/manifest",
+          );
+        }
         const pendingBeforeScan = await listPendingPreflights(hub, options.token);
         const observed = await runArubaReadCycle(
           page,
@@ -1263,6 +1281,7 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
           manifest,
           scanOrdinal,
           options.browser === "msedge" ? "msedge" : "chrome",
+          pendingBeforeScan.work,
         );
         await completePreflights(hub, options.token, pendingBeforeScan.work, observed);
         nextPeriodicAt = Date.now() + manifest.intervalSeconds * 1_000;
@@ -1295,6 +1314,11 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
         }
         const pending = await listPendingPreflights(hub, options.token);
         if (pending.work.length || pending.syncRequestedAt) {
+          manifest = await hubJson<ArubaReadManifest>(
+            hub,
+            options.token,
+            "/api/aruba/sync/manifest",
+          );
           const observed = await runArubaReadCycle(
             page,
             hub,
@@ -1302,6 +1326,7 @@ export async function runArubaReadHelper(options: ReadHelperOptions) {
             manifest,
             scanOrdinal,
             options.browser === "msedge" ? "msedge" : "chrome",
+            pending.work,
           );
           await completePreflights(hub, options.token, pending.work, observed);
           scanOrdinal += 1;

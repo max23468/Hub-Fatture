@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  arubaIncrementalScanFrom,
   groupOrderCandidates,
   hasAnomalousUnknownArubaStatuses,
   inventoryPageSchema,
@@ -12,6 +13,32 @@ import {
   selectOrderMatch,
   type RemoteInventoryDocument,
 } from "./aruba-inbound.ts";
+
+test("la finestra incrementale si estende alla ricerca preflight più vecchia", () => {
+  const base = {
+    documentType: "TD01" as const,
+    incrementalFrom: "2026-08-18",
+    oldestReconciliationDate: "2025-01-01",
+  };
+  assert.equal(arubaIncrementalScanFrom({ ...base, searches: [] }), "2026-08-18");
+  assert.equal(
+    arubaIncrementalScanFrom({
+      ...base,
+      searches: [
+        { documentType: "TD04", orderDate: "2024-01-01" },
+        { documentType: "TD01", orderDate: "2026-07-03" },
+      ],
+    }),
+    "2026-07-03",
+  );
+  assert.equal(
+    arubaIncrementalScanFrom({
+      ...base,
+      searches: [{ documentType: "TD01" }],
+    }),
+    "2025-01-01",
+  );
+});
 
 test("normalizza tutte le diciture elettroniche osservate nel pannello Aruba", () => {
   assert.deepEqual(
@@ -67,6 +94,15 @@ test("ferma una pagina con una quota anomala di stati Aruba sconosciuti", () => 
   assert.equal(
     hasAnomalousUnknownArubaStatuses(
       Array.from({ length: 9 }, () => ({ status: "UNKNOWN" as const })),
+    ),
+    false,
+  );
+  assert.equal(
+    hasAnomalousUnknownArubaStatuses(
+      Array.from({ length: 10 }, () => ({
+        status: "UNKNOWN" as const,
+        providerStatusLabel: "Emessa",
+      })),
     ),
     false,
   );

@@ -757,7 +757,7 @@ test("il relay locale collega le finestre senza trasferire il WindowProxy al run
   await expect.poll(() => bridge.isClosed()).toBe(true);
 });
 
-test("il preferito attende la rete osservabile e usa il DOM come fallback di paginazione", async ({
+test("il preferito estende la lettura incrementale al preflight e attende la rete osservabile", async ({
   page,
 }) => {
   const year = new Date().getUTCFullYear();
@@ -793,12 +793,23 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           if (request.path === "/api/aruba/sync/manifest") {
             payload = {
               accountIdentity: "synthetic-aruba-account",
+              oldestReconciliationDate: "${year}-01-01",
               fullScanRequired: false,
               incrementalOverlapDays: 7,
               streams: [{ name: "invoices:${year}", incrementalFrom: "${year}-08-09" }]
             };
+          } else if (request.path === "/api/aruba/sync/preflight" && request.method === "GET") {
+            payload = { work: [{
+              id: "00000000-0000-4000-8000-000000000004",
+              request_json: { searches: [{
+                displayNumber: "#PREFLIGHT-OLDER",
+                documentType: "TD01",
+                orderDate: "${year}-08-01"
+              }] }
+            }] };
           } else if (request.path === "/api/aruba/sync/preflight") {
-            payload = { work: [] };
+            window.__preflightCompletion = request.body;
+            payload = { passed: true };
           } else if (request.path === "/api/aruba/sync/verifica-account") {
             payload = { verified: true, initialPairing: false };
           } else if (request.path === "/api/aruba/sync/pagine") {
@@ -827,12 +838,12 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
     });
   });
   await page.goto(`${panelOrigin}/base`);
-  const row = (remoteId: string, fiscalNumber: number) => `
+  const row = (remoteId: string, fiscalNumber: number, day = "12", month = "08") => `
     <div class="x-gridrow" data-recordindex="0">
       ${Array.from({ length: 23 }, (_, index) => {
         const value =
           index === 4
-            ? `10/08/${year}`
+            ? `${day}/${month}/${year}`
             : index === 5
               ? `FPR ${fiscalNumber}/${String(year).slice(-2)}`
               : index === 7
@@ -918,6 +929,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           currentPage = 2;
           const pending = fetch("/next-observable");
           const cells = grid.querySelector(".x-grid").querySelectorAll(".x-gridcell");
+          cells[4].firstChild.data = "05/08/${year}";
           cells[5].firstChild.data = "FPR 15/${String(year).slice(-2)}";
           cells[17].firstChild.data = "15000000001";
           pending.then(() => {
@@ -930,7 +942,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
         }
         currentPage = 3;
         requestKnownOnlyToAruba("/next-hidden").then(() => {
-          grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("30000000003", 3))};
+          grid.querySelector(".x-grid").innerHTML = ${JSON.stringify(row("30000000003", 3, "31", "07"))};
           grid.querySelector(".locked-grid-border-left").innerHTML = ${JSON.stringify(statusRow)};
           grid.setAttribute("data-page", "3");
           next.disabled = true;
@@ -1014,6 +1026,13 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
       providerStatusLabels: ["Emessa e non cons."],
     },
   ]);
+  expect(
+    await bridge.evaluate(
+      () =>
+        (window as typeof window & { __preflightCompletion?: { searchesCompleted: boolean } })
+          .__preflightCompletion?.searchesCompleted,
+    ),
+  ).toBe(true);
 });
 
 test("il lettore Production completa il reload dell’anno prima di aprire lo stream", async ({
