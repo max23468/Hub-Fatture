@@ -232,7 +232,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
          '{"reviewRequired":false,"displayName":"Mario Rossi"}') RETURNING id`,
       [secondCustomer.rows[0]!.id],
     );
-    await database.getPool().query(
+    const secondOrder = await database.getPool().query<{ id: string }>(
       `INSERT INTO orders
         (provider, external_account_id, external_order_id, display_number, created_at_source,
          updated_at_source, local_order_date, currency, gross_amount, payment_status,
@@ -240,7 +240,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
          raw_snapshot_json, normalized_snapshot_json)
        VALUES ('SHOPIFY', 'shop', 'cached-order-2', '#1002', now(), now(), '2026-08-12',
          'EUR', 5000, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}',
-         '{"orderReviewRequired":false}')`,
+         '{"orderReviewRequired":false}') RETURNING id`,
       [secondCustomer.rows[0]!.id, secondBillingCase.rows[0]!.id],
     );
     assert.equal(await inbound.revokeArubaReadSessions(actor), 1);
@@ -264,9 +264,54 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       ).rows[0].status,
       "NEEDS_REVIEW",
     );
+    await database
+      .getPool()
+      .query(`UPDATE aruba_remote_documents SET remote_status = 'SUBMITTED' WHERE id = $1`, [
+        remoteRow.rows[0]!.id,
+      ]);
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = (
+         SELECT jsonb_agg(jsonb_set(candidate, '{compatible}', 'true'))
+         FROM jsonb_array_elements(candidates_json) candidate
+       )
+       WHERE remote_document_id = $1`,
+      [remoteRow.rows[0]!.id],
+    );
+    await inbound.resolveArubaDocumentMatch(
+      remoteRow.rows[0]!.id,
+      order.rows[0]!.id,
+      "Candidato verificato manualmente sui metadati ufficiali",
+      actor,
+    );
+    assert.deepEqual(
+      (
+        await database
+          .getPool()
+          .query<{ status: string }>(
+            `SELECT status FROM billing_cases WHERE id = ANY($1::bigint[]) ORDER BY id`,
+            [[billingCase.rows[0]!.id, secondBillingCase.rows[0]!.id]],
+          )
+      ).rows.map((row) => row.status),
+      ["READY", "READY"],
+      "il collegamento manuale ricalcola anche le preparazioni candidate non selezionate",
+    );
+    await database
+      .getPool()
+      .query(`UPDATE aruba_remote_documents SET remote_status = 'DELIVERED' WHERE id = $1`, [
+        remoteRow.rows[0]!.id,
+      ]);
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET status = 'AMBIGUOUS', method = 'NONE', order_id = NULL, billing_case_id = NULL,
+           decided_by = NULL, decision_reason = NULL, decided_at = NULL
+       WHERE remote_document_id = $1`,
+      [remoteRow.rows[0]!.id],
+    );
     await database.getPool().query(
       `UPDATE orders SET local_order_date = '2026-01-01'
-       WHERE external_order_id = 'cached-order-2'`,
+       WHERE id = $1`,
+      [secondOrder.rows[0]!.id],
     );
     assert.equal(await inbound.revokeArubaReadSessions(actor), 1);
     issued = await inbound.issueArubaReadSession("cached-matcher-device-4", actor);

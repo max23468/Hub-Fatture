@@ -3581,6 +3581,7 @@ export async function resolveArubaDocumentMatch(
       order_id: string | null;
       candidates_json: Array<{
         candidateId?: string;
+        orderIds?: string[];
         compatible?: boolean;
         refundIds?: string[];
       }>;
@@ -3618,6 +3619,22 @@ export async function resolveArubaDocumentMatch(
     const selectedCandidate = current.candidates_json.find(
       (candidate) => candidate.candidateId === orderId && candidate.compatible,
     );
+    const candidateOrderIds = [
+      ...new Set(
+        current.candidates_json.flatMap((candidate) => [
+          ...(candidate.candidateId ? [candidate.candidateId] : []),
+          ...(candidate.orderIds ?? []),
+        ]),
+      ),
+    ];
+    const affectedCases = candidateOrderIds.length
+      ? await client.query<{ id: string }>(
+          `SELECT DISTINCT billing_case_id::text AS id
+           FROM orders
+           WHERE id = ANY($1::bigint[]) AND billing_case_id IS NOT NULL`,
+          [candidateOrderIds],
+        )
+      : { rows: [] };
     await client.query(
       `UPDATE aruba_document_matches SET status = 'MATCHED', method = 'MANUAL',
          order_id = $2, billing_case_id = (SELECT billing_case_id FROM orders WHERE id = $2),
@@ -3635,6 +3652,10 @@ export async function resolveArubaDocumentMatch(
     let documentId: string | null = null;
     if (isEmissionConfirmed(current.remote_status)) {
       documentId = await materializeLatestOfficialXml(client, remoteDocumentId, true);
+    }
+    for (const billingCase of affectedCases.rows) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Tutti i candidati dipendono dalla decisione manuale nella stessa transazione.
+      await recomputeBillingCaseStatus(client, billingCase.id, true);
     }
     await writeAudit(client, {
       actorType: "ADMIN",
