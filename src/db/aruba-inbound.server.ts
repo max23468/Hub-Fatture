@@ -6,6 +6,7 @@ import type pg from "pg";
 import { z } from "zod";
 
 import {
+  ARUBA_MATCHER_VERSION,
   groupOrderCandidates,
   hasAnomalousUnknownArubaStatuses,
   inventoryPageSchema,
@@ -46,6 +47,7 @@ import { AppError } from "../errors.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { localOrderDate } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
+import { reconcileCachedArubaMatcherUpgrade } from "./aruba-matcher-upgrade.server.ts";
 import {
   freezeArubaInventorySnapshot,
   type ArubaInventorySession,
@@ -58,7 +60,6 @@ import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 
 const READ_SESSION_TTL_MS = 8 * 60 * 60_000;
 const READ_LEASE_MS = 2 * 60_000;
-const MATCHER_VERSION = 1;
 
 export interface ArubaReadActor {
   id: number;
@@ -176,7 +177,7 @@ async function backfillHistoricalArubaDocuments(client: pg.PoolClient) {
       AND remote.remote_id = 'historical-document-' || documents.id
      WHERE documents.origin = 'ARUBA_HISTORY'
      ON CONFLICT (remote_document_id) DO NOTHING`,
-    [environment(), accountReference(), MATCHER_VERSION],
+    [environment(), accountReference(), ARUBA_MATCHER_VERSION],
   );
 }
 
@@ -259,6 +260,19 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
       [sessionEnvironment, sessionAccountReference],
     );
     if (active.rows[0]) throw new AppError("ARUBA_READ_SESSION_ACTIVE", 409);
+    await reconcileCachedArubaMatcherUpgrade(
+      client,
+      sessionEnvironment,
+      sessionAccountReference,
+      async (remoteId, remote) => {
+        const official = await loadLatestOfficialXml(client, remoteId);
+        await reconcileRemoteDocument(
+          client,
+          remoteId,
+          official ? officialEvidence(remote, official.xml) : remote,
+        );
+      },
+    );
     await client.query(
       `INSERT INTO aruba_sync_sessions
         (id, environment, account_reference, device_id, token_hash, started_at,
@@ -800,6 +814,13 @@ async function reconcileRemoteDocument(
   const compatibleIndex =
     status === "MATCHED" ? match.evaluations.findIndex((evaluation) => evaluation.compatible) : -1;
   const selected = compatibleIndex >= 0 ? evaluatedCandidates[compatibleIndex]!.source : null;
+  const reviewCandidates = match.evaluations
+    .map((evaluation, index) =>
+      evaluation.compatible || evaluation.potential ? evaluatedCandidates[index]!.source : null,
+    )
+    .filter((candidate): candidate is (typeof evaluatedCandidates)[number]["source"] =>
+      Boolean(candidate),
+    );
   let documentId: string | null = null;
   if (selected) {
     documentId = submitted?.id ?? null;
@@ -867,7 +888,7 @@ async function reconcileRemoteDocument(
       remoteId,
       status,
       selected && status === "MATCHED" ? "AUTOMATIC" : "NONE",
-      MATCHER_VERSION,
+      ARUBA_MATCHER_VERSION,
       documentId,
       selected?.id ?? null,
       selected?.billing_case_id ?? null,
@@ -882,11 +903,21 @@ async function reconcileRemoteDocument(
       ),
     ],
   );
-  if (selected && !isEmissionConfirmed(remote.status)) {
+  const reviewCaseIds = [
+    ...new Set(
+      reviewCandidates
+        .map((candidate) => candidate.billing_case_id)
+        .filter((caseId): caseId is string => Boolean(caseId)),
+    ),
+  ];
+  if (
+    reviewCaseIds.length &&
+    (status !== "MATCHED" || !isEmissionConfirmed(remote.status) || !remote.xmlSha256)
+  ) {
     await client.query(
       `UPDATE billing_cases SET status = 'NEEDS_REVIEW', updated_at = now()
-       WHERE id = $1 AND status IN ('DRAFT', 'READY')`,
-      [selected.billing_case_id],
+       WHERE id = ANY($1::bigint[]) AND status IN ('DRAFT', 'READY')`,
+      [reviewCaseIds],
     );
   }
 }
@@ -2111,7 +2142,7 @@ async function ingestParsedArubaPage(
              VALUES ($1, 'UNKNOWN_REMOTE_STATE', 'NONE', $2, '{}', '[]')
              ON CONFLICT (remote_document_id) DO UPDATE SET
                status = 'UNKNOWN_REMOTE_STATE', method = 'NONE', updated_at = now()`,
-          [current.id, MATCHER_VERSION],
+          [current.id, ARUBA_MATCHER_VERSION],
         );
       }
     }
@@ -2194,7 +2225,7 @@ async function ingestParsedArubaPage(
            VALUES ($1, 'ERROR', 'NONE', $2, '{"deduplicationCollision":true}', '[]')
            ON CONFLICT (remote_document_id) DO UPDATE SET
              status = 'ERROR', method = 'NONE', updated_at = now()`,
-          [collided.id, MATCHER_VERSION],
+          [collided.id, ARUBA_MATCHER_VERSION],
         );
       }
     }
@@ -2423,14 +2454,16 @@ const arubaPotentialMatchPredicate = `(matches.status = 'UNMATCHED'
   AND matches.method <> 'MANUAL'
   AND EXISTS (
     SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+    WHERE coalesce((candidate ->> 'potential')::boolean, false)
+      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
   ))`;
 
 const arubaExternalDocumentPredicate = `(matches.status = 'UNMATCHED' AND (
   (matches.method = 'MANUAL' AND remote.origin = 'ARUBA_EXTERNAL')
   OR (matches.method <> 'MANUAL' AND NOT EXISTS (
     SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+    WHERE coalesce((candidate ->> 'potential')::boolean, false)
+      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
   ))
 ))`;
 
@@ -2603,6 +2636,7 @@ export async function listRemoteDocuments(
                 SELECT candidate ->> 'candidateId'
                 FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS candidate
                 WHERE coalesce((candidate ->> 'compatible')::boolean, false)
+                   OR coalesce((candidate ->> 'potential')::boolean, false)
               )
             ), '[]') AS candidates
      FROM aruba_remote_documents AS remote
@@ -2995,6 +3029,7 @@ export async function completeArubaPreflight(
              SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
              WHERE (
                coalesce((candidate ->> 'compatible')::boolean, false)
+               OR coalesce((candidate ->> 'potential')::boolean, false)
                OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
              ) AND (
                candidate ->> 'candidateId' = ANY($3::text[])

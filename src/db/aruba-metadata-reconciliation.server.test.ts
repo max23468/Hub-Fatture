@@ -1,0 +1,187 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { remoteInventoryDocumentSchema, remoteMetadataDigest } from "../aruba-inbound.ts";
+import { temporaryDatabase } from "./database-fixture.ts";
+import { runMigrations } from "./migrations.server.ts";
+
+test("i metadati già estratti dall’helper rivalutano le preparazioni pronte", async () => {
+  const fixture = await temporaryDatabase("aruba_metadata_reconciliation");
+  try {
+    await runMigrations({ connectionString: fixture.connectionString });
+    process.env.APP_ENV = "test";
+    process.env.APP_BASE_URL = "http://localhost:8080";
+    process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
+    process.env.DATABASE_URL = fixture.connectionString;
+    process.env.ARUBA_ACCOUNT_REFERENCE = "synthetic-aruba-account";
+
+    const database = await import("./client.server.ts");
+    const inbound = await import("./aruba-inbound.server.ts");
+    const inventoryCycle = await import("./aruba-inventory-cycle.server.ts");
+    const billingCases = await import("./billing-cases.server.ts");
+    const user = await database.getPool().query<{ id: string }>(
+      `INSERT INTO users (username, password_hash, can_approve)
+       VALUES ('Massimo', 'synthetic', true) RETURNING id`,
+    );
+    const customer = await database.getPool().query<{ id: string }>(
+      `INSERT INTO customers
+        (kind, match_key, display_name, billing_address_json, source_confidence, review_required)
+       VALUES ('PRIVATE_IT', 'cached-aruba-match', 'Mario Rossi', '{}', 'TAX_ID', false)
+       RETURNING id`,
+    );
+    const billingCase = await database.getPool().query<{ id: string }>(
+      `INSERT INTO billing_cases
+        (customer_id, local_order_date, currency, status, customer_snapshot_json)
+       VALUES ($1, '2026-08-12', 'EUR', 'READY', '{}') RETURNING id`,
+      [customer.rows[0]!.id],
+    );
+    const order = await database.getPool().query<{ id: string }>(
+      `INSERT INTO orders
+        (provider, external_account_id, external_order_id, display_number, created_at_source,
+         updated_at_source, local_order_date, currency, gross_amount, payment_status,
+         fulfillment_status, trigger_status, customer_id, billing_case_id,
+         raw_snapshot_json, normalized_snapshot_json)
+       VALUES ('SHOPIFY', 'shop', 'cached-order', '#1001', now(), now(), '2026-08-12',
+         'EUR', 5000, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}', '{}')
+       RETURNING id`,
+      [customer.rows[0]!.id, billingCase.rows[0]!.id],
+    );
+    const remote = remoteInventoryDocumentSchema.parse({
+      remoteId: "REMOTE-CACHED-METADATA",
+      documentType: "TD01",
+      fiscalYear: 2026,
+      series: "FPR",
+      fiscalNumber: "777",
+      documentDate: "2026-08-12",
+      recipientName: "Mario Rossi",
+      recipientTaxId: null,
+      recipientTaxIdentifiers: [],
+      recipientCountryCode: null,
+      recipientAddress: null,
+      totalAmount: 5000,
+      currency: "EUR",
+      status: "DELIVERED",
+      providerObservedAt: "2026-08-12T12:00:00+02:00",
+      xmlSha256: null,
+      orderReferences: [],
+    });
+    await database.getPool().query(
+      `INSERT INTO aruba_sync_sessions
+        (id, environment, account_reference, device_id, token_hash, status, started_at,
+         absolute_expires_at, completed_at, full_scan_completed_at)
+       VALUES ('60000000-0000-4000-8000-000000000001', 'MOCK', 'synthetic-aruba-account',
+         'cached-matcher-device', repeat('a', 64), 'COMPLETED', now() - interval '1 hour',
+         now(), now(), now())`,
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_sync_pages
+        (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,
+         row_count, documents_json, payload_digest)
+       VALUES ('60000000-0000-4000-8000-000000000001', 'invoices:2026', 1, 1,
+         'invoices:2026:1', true, true, 1, $1, repeat('b', 64))`,
+      [JSON.stringify([remote])],
+    );
+    const remoteRow = await database.getPool().query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series,
+         fiscal_number, document_date, total_amount, remote_status,
+         remote_status_observed_at, origin, metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', $1, 'TD01', 2026, 'FPR', '777',
+         '2026-08-12', 5000, 'DELIVERED', now(), 'ARUBA_EXTERNAL', $2)
+       RETURNING id`,
+      [remote.remoteId, remoteMetadataDigest(remote)],
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_remote_observations
+        (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal,
+         page_ordinal, cursor, payload_digest)
+       VALUES ($1, '60000000-0000-4000-8000-000000000001', 'DELIVERED',
+         'invoices:2026', 1, 1, 'invoices:2026:1', $2)`,
+      [remoteRow.rows[0]!.id, remoteMetadataDigest(remote)],
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       VALUES ($1, 'UNMATCHED', 'NONE', 1, '[]')`,
+      [remoteRow.rows[0]!.id],
+    );
+    await database.getPool().query(
+      `UPDATE aruba_sync_sessions SET full_scan_completed_at = now()
+       WHERE id = '60000000-0000-4000-8000-000000000001'`,
+    );
+
+    const issued = await inbound.issueArubaReadSession("cached-matcher-device-2", {
+      id: Number(user.rows[0]!.id),
+      canApprove: true,
+      requestId: "cached-matcher-upgrade-test",
+    });
+
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT matches.status, matches.matcher_version,
+                  EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
+                    WHERE candidate ->> 'candidateId' = $2
+                      AND coalesce((candidate ->> 'potential')::boolean, false)
+                  ) AS potential
+           FROM aruba_document_matches matches
+           WHERE matches.remote_document_id = $1`,
+          [remoteRow.rows[0]!.id, order.rows[0]!.id],
+        )
+      ).rows[0],
+      { status: "UNMATCHED", matcher_version: 2, potential: true },
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
+      ).rows[0].status,
+      "NEEDS_REVIEW",
+    );
+    assert.equal((await inbound.getArubaInventoryHealth()).potentialMatches, 1);
+    assert.ok(
+      (await billingCases.getBillingCase(billingCase.rows[0]!.id))?.anomalies.includes(
+        "ARUBA_POTENTIAL_MATCH",
+      ),
+    );
+
+    assert.deepEqual(
+      await inbound.verifyArubaInventoryAccount(issued.token, { documents: [remote] }),
+      { verified: true, initialPairing: false },
+    );
+    const manifest = await inventoryCycle.arubaInventoryManifest(issued.token);
+    for (const [index, stream] of manifest.streams.entries()) {
+      await inbound.ingestArubaInventoryPage(issued.token, {
+        stream: stream.name,
+        scanOrdinal: 1,
+        pageOrdinal: 1,
+        cursor: `${stream.name}:${index + 1}`,
+        terminal: true,
+        fullScan: true,
+        documents: [],
+      });
+    }
+    await inventoryCycle.completeStableArubaInventory(
+      issued.token,
+      manifest.streams.map((stream) => stream.name),
+      1,
+      true,
+    );
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT status, matcher_version FROM aruba_document_matches
+           WHERE remote_document_id = $1`,
+          [remoteRow.rows[0]!.id],
+        )
+      ).rows[0],
+      { status: "UNKNOWN_REMOTE_STATE", matcher_version: 2 },
+    );
+  } finally {
+    const database = await import("./client.server.ts");
+    await database.closePool();
+    await fixture.drop();
+  }
+});

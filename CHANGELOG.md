@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.75
+
+- La sincronizzazione Aruba riconosce come candidati anche i documenti della griglia che coincidono in modo univoco per data, importo e nome completo del destinatario, pur senza considerarli fiscalmente collegati finché manca l’XML ufficiale. Le preparazioni coinvolte passano da “Pronte” a “Da verificare”; più candidati equivalenti restano ambigui.
+- All’avvio della sincronizzazione Hub Fatture rivaluta in modo selettivo i dati già estratti dal preferito, senza rileggere documento per documento l’intero inventario. La versione del matcher resta coerente anche quando una scansione completa segnala un documento non più visibile.
+- Il dettaglio della preparazione indica esplicitamente quando la verifica dipende da una possibile fattura già presente su Aruba e rimanda ai documenti da collegare. Importo o nome generico, da soli, non producono alcun candidato.
+
 ## 0.3.74
 
 - La sincronizzazione Aruba usa una finestra incrementale di sette giorni dopo il primo allineamento e ripete la lettura completa ogni trenta giorni. Prima di ogni ciclo l’helper rilegge il piano corrente; prima di interrompere una lettura incrementale imposta e verifica l’ordinamento Aruba per data documento decrescente ed estende la finestra fino alla verifica puntuale più vecchia. Questa versione forza una sola rilettura completa per riclassificare lo storico con il nuovo interprete degli stati; le esecuzioni successive tornano incrementali.

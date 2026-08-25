@@ -1223,6 +1223,11 @@ export const anomalyLabels: Record<string, { title: string; action: string }> = 
     title: "L’ordine è cambiato dopo la preparazione",
     action: "Confronta le versioni conservate qui sotto prima di proseguire.",
   },
+  ARUBA_POTENTIAL_MATCH: {
+    title: "Possibile fattura già presente su Aruba",
+    action:
+      "Apri Documenti → Da collegare e verifica il documento. Il collegamento definitivo richiede l’XML ufficiale.",
+  },
   ORDER_NOT_BILLABLE: {
     title: "Ordine annullato o rimborsato",
     action: "Separa l\u2019ordine oppure archivia la preparazione con “Non trasmettere”.",
