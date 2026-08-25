@@ -881,8 +881,13 @@ async function reconcileRemoteDocument(
     [remoteId],
   );
   const compatibleCandidateObserved = match.evaluations.some((evaluation) => evaluation.compatible);
+  if (previous.rows[0]?.method === "MANUAL" && previous.rows[0].status === "MATCHED") {
+    if (remote.status === "REJECTED" && previous.rows[0].billing_case_id) {
+      await recomputeBillingCaseStatus(client, previous.rows[0].billing_case_id, true);
+    }
+    return;
+  }
   if (
-    (previous.rows[0]?.method === "MANUAL" && previous.rows[0].status === "MATCHED") ||
     (previous.rows[0]?.method === "MANUAL" &&
       previous.rows[0].status === "UNMATCHED" &&
       !compatibleCandidateObserved) ||
