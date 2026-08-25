@@ -16,6 +16,7 @@ import {
 import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
 import {
+  arubaPotentialMatchSql,
   customerProfileMismatchSql,
   hasCaseOrdersSql,
   hasIncompatibleCaseOrdersSql,
@@ -601,28 +602,7 @@ export async function getBillingCase(id: string) {
             billing_cases.customer_snapshot_json ->> 'email' AS customer_email,
             (billing_cases.customer_snapshot_json ->> 'reviewRequired')::boolean AS review_required,
             billing_cases.customer_snapshot_json -> 'billingAddress' AS billing_address_json,
-            EXISTS (
-              SELECT 1
-              FROM aruba_document_matches matches
-              CROSS JOIN LATERAL jsonb_array_elements(matches.candidates_json) candidate
-              WHERE matches.status IN ('UNMATCHED', 'AMBIGUOUS')
-                AND matches.method <> 'MANUAL'
-                AND coalesce((candidate ->> 'potential')::boolean, false)
-                AND (
-                  candidate ->> 'candidateId' IN (
-                    SELECT orders.id::text FROM orders
-                    WHERE orders.billing_case_id = billing_cases.id
-                  )
-                  OR EXISTS (
-                    SELECT 1
-                    FROM jsonb_array_elements_text(
-                      coalesce(candidate -> 'orderIds', '[]'::jsonb)
-                    ) candidate_order_id
-                    JOIN orders ON orders.id::text = candidate_order_id
-                    WHERE orders.billing_case_id = billing_cases.id
-                  )
-                )
-            ) AS aruba_potential_match,
+            ${arubaPotentialMatchSql} AS aruba_potential_match,
             ${reactivationBlockerSql} AS reactivation_blocker,
             coalesce((
               SELECT jsonb_agg(to_jsonb(case_orders) ORDER BY case_orders.id)

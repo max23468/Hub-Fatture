@@ -913,6 +913,7 @@ async function reconcileRemoteDocument(
   ];
   if (
     reviewCaseIds.length &&
+    remote.status !== "REJECTED" &&
     (status !== "MATCHED" || !isEmissionConfirmed(remote.status) || !remote.xmlSha256)
   ) {
     await client.query(

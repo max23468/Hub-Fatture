@@ -61,6 +61,34 @@ export const customerProfileMismatchSql = `(
       IS DISTINCT FROM billing_cases.customer_snapshot_json -> 'canonicalProfile'
 )`;
 
+/** Un possibile documento Aruba non ancora risolto trattiene la preparazione. */
+export const arubaPotentialMatchSql = `EXISTS (
+  SELECT 1
+  FROM aruba_document_matches AS aruba_matches
+  JOIN aruba_remote_documents AS aruba_remote
+    ON aruba_remote.id = aruba_matches.remote_document_id
+  CROSS JOIN LATERAL jsonb_array_elements(aruba_matches.candidates_json) AS aruba_candidate
+  WHERE aruba_matches.status IN ('UNMATCHED', 'AMBIGUOUS')
+    AND aruba_matches.method <> 'MANUAL'
+    AND aruba_remote.remote_status <> 'REJECTED'
+    AND coalesce((aruba_candidate ->> 'potential')::boolean, false)
+    AND (
+      aruba_candidate ->> 'candidateId' IN (
+        SELECT aruba_orders.id::text FROM orders AS aruba_orders
+        WHERE aruba_orders.billing_case_id = billing_cases.id
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          coalesce(aruba_candidate -> 'orderIds', '[]'::jsonb)
+        ) AS aruba_candidate_order_id
+        JOIN orders AS aruba_orders
+          ON aruba_orders.id::text = aruba_candidate_order_id
+        WHERE aruba_orders.billing_case_id = billing_cases.id
+      )
+    )
+)`;
+
 /** Il primo fatto che impedisce di riattivare la preparazione, nell'ordine in cui va spiegato. */
 export const reactivationBlockerSql = `CASE
   WHEN NOT ${hasCaseOrdersSql} THEN 'EMPTY'

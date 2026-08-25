@@ -19,6 +19,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
     const inbound = await import("./aruba-inbound.server.ts");
     const inventoryCycle = await import("./aruba-inventory-cycle.server.ts");
     const billingCases = await import("./billing-cases.server.ts");
+    const billingCaseStatus = await import("./billing-case-status.server.ts");
     const user = await database.getPool().query<{ id: string }>(
       `INSERT INTO users (username, password_hash, can_approve)
        VALUES ('Massimo', 'synthetic', true) RETURNING id`,
@@ -178,6 +179,18 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
         "ARUBA_POTENTIAL_MATCH",
       ),
     );
+    await database.withTransaction((client) =>
+      billingCaseStatus.recomputeBillingCaseStatus(client, billingCase.rows[0]!.id),
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
+      ).rows[0].status,
+      "NEEDS_REVIEW",
+      "un ricalcolo ordinario conserva il possibile match Aruba ancora aperto",
+    );
     assert.equal(
       (
         await database.getPool().query(
@@ -256,6 +269,34 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
         "ARUBA_POTENTIAL_MATCH",
       ),
       false,
+    );
+    await inbound.ingestArubaInventoryPage(issued.token, {
+      stream: "invoices:2026",
+      scanOrdinal: 2,
+      pageOrdinal: 1,
+      cursor: "invoices:2026:rejected",
+      terminal: true,
+      fullScan: false,
+      documents: [
+        {
+          ...remote,
+          remoteId: "REMOTE-REJECTED-METADATA",
+          fiscalNumber: "779",
+          status: "REJECTED",
+        },
+      ],
+    });
+    await database.withTransaction((client) =>
+      billingCaseStatus.recomputeBillingCaseStatus(client, billingCase.rows[0]!.id),
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
+      ).rows[0].status,
+      "READY",
+      "un tentativo Aruba scartato non trattiene la preparazione",
     );
   } finally {
     const database = await import("./client.server.ts");
