@@ -482,22 +482,30 @@ async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDoc
               SELECT sum(refunds.amount) FROM refunds
               WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
             ), 0))::integer AS billable_amount,
-            customers.display_name AS recipient_name,
-            coalesce((SELECT jsonb_agg(jsonb_build_object(
+            coalesce(nullif(billing_cases.customer_snapshot_json ->> 'displayName', ''),
+              customers.display_name) AS recipient_name,
+            coalesce(billing_cases.customer_snapshot_json -> 'taxIdentifiers',
+              (SELECT jsonb_agg(jsonb_build_object(
                         'type', order_tax_identifiers.type,
                         'countryCode', coalesce(order_tax_identifiers.country_code,
                           orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'),
                         'value', order_tax_identifiers.normalized_value))
-                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '[]')
+                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id),
+              '[]')
               AS recipient_tax_identifiers,
             concat_ws(' ',
-              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
-              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',
-              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}',
-              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'
+              coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,line1}',
+                orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}'),
+              coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,postalCode}',
+                orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}'),
+              coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,city}',
+                orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}'),
+              coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,countryCode}',
+                orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}')
             ) AS recipient_address
      FROM orders
      JOIN customers ON customers.id = orders.customer_id
+     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      LEFT JOIN LATERAL (
        SELECT document_orders.document_id
        FROM document_orders JOIN documents ON documents.id = document_orders.document_id
@@ -857,8 +865,18 @@ async function reconcileRemoteDocument(
       }
     }
   }
-  const previous = await client.query<{ method: string; status: string }>(
-    `SELECT method, status FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
+  const previous = await client.query<{
+    method: string;
+    status: string;
+    billing_case_id: string | null;
+    candidates_json: Array<{
+      candidateId?: string;
+      orderIds?: string[];
+      potential?: boolean;
+    }>;
+  }>(
+    `SELECT method, status, billing_case_id::text, candidates_json
+     FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
     [remoteId],
   );
   const compatibleCandidateObserved = match.evaluations.some((evaluation) => evaluation.compatible);
@@ -911,16 +929,30 @@ async function reconcileRemoteDocument(
         .filter((caseId): caseId is string => Boolean(caseId)),
     ),
   ];
-  if (
-    reviewCaseIds.length &&
-    remote.status !== "REJECTED" &&
-    (status !== "MATCHED" || !isEmissionConfirmed(remote.status) || !remote.xmlSha256)
-  ) {
-    await client.query(
-      `UPDATE billing_cases SET status = 'NEEDS_REVIEW', updated_at = now()
-       WHERE id = ANY($1::bigint[]) AND status IN ('DRAFT', 'READY')`,
-      [reviewCaseIds],
-    );
+  const previousOrderIdSet = new Set<string>();
+  for (const candidate of previous.rows[0]?.candidates_json ?? []) {
+    if (!candidate.potential) continue;
+    if (candidate.candidateId) previousOrderIdSet.add(candidate.candidateId);
+    for (const orderId of candidate.orderIds ?? []) previousOrderIdSet.add(orderId);
+  }
+  const previousCases = previousOrderIdSet.size
+    ? await client.query<{ id: string }>(
+        `SELECT DISTINCT billing_case_id::text AS id
+         FROM orders
+         WHERE id = ANY($1::bigint[]) AND billing_case_id IS NOT NULL`,
+        [[...previousOrderIdSet]],
+      )
+    : { rows: [] };
+  const affectedCaseIds = [
+    ...new Set([
+      ...reviewCaseIds,
+      ...previousCases.rows.map((billingCase) => billingCase.id),
+      ...(previous.rows[0]?.billing_case_id ? [previous.rows[0].billing_case_id] : []),
+    ]),
+  ];
+  for (const billingCaseId of affectedCaseIds) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Tutti i casi dipendono dal match appena aggiornato nella stessa transazione.
+    await recomputeBillingCaseStatus(client, billingCaseId);
   }
 }
 

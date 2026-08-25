@@ -26,13 +26,15 @@ export async function reconcileCachedArubaMatcherUpgrade(
   }>(
     `SELECT orders.id::text, orders.provider, orders.display_number,
             orders.local_order_date::text, orders.billing_case_id::text,
-            customers.display_name AS recipient_name,
+            coalesce(nullif(billing_cases.customer_snapshot_json ->> 'displayName', ''),
+              customers.display_name) AS recipient_name,
             (orders.gross_amount - orders.deducted_shopify_payments_fee_amount - coalesce((
               SELECT sum(refunds.amount) FROM refunds
               WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
             ), 0))::integer AS billable_amount
      FROM orders
      JOIN customers ON customers.id = orders.customer_id
+     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      WHERE orders.trigger_status NOT IN (
        'INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'
      )
@@ -56,8 +58,12 @@ export async function reconcileCachedArubaMatcherUpgrade(
       (candidate) => (candidate.orderIds?.length ?? 1) > 1,
     ),
   ];
-  const cached = await client.query<{ id: string; payload: unknown }>(
-    `SELECT remote.id::text, latest.payload
+  const cached = await client.query<{
+    id: string;
+    payload: unknown;
+    candidates_json: Array<{ potential?: boolean }>;
+  }>(
+    `SELECT remote.id::text, latest.payload, matches.candidates_json
      FROM aruba_remote_documents remote
      JOIN aruba_document_matches matches ON matches.remote_document_id = remote.id
      JOIN LATERAL (
@@ -76,8 +82,8 @@ export async function reconcileCachedArubaMatcherUpgrade(
      ) latest ON true
      WHERE remote.environment = $1 AND remote.account_reference = $2
        AND remote.remote_status <> 'REJECTED'
-       AND matches.matcher_version < $3
        AND matches.method <> 'MANUAL'
+       AND matches.status <> 'ERROR'
        AND ((remote.document_type = 'TD01' AND EXISTS (
          SELECT 1 FROM orders
          WHERE orders.trigger_status NOT IN (
@@ -94,7 +100,7 @@ export async function reconcileCachedArubaMatcherUpgrade(
            AND refunds.credit_document_id IS NULL
        )))
      ORDER BY remote.id`,
-    [environment, account, ARUBA_MATCHER_VERSION],
+    [environment, account],
   );
   const invalidIds: string[] = [];
   for (const row of cached.rows) {
@@ -105,8 +111,9 @@ export async function reconcileCachedArubaMatcherUpgrade(
     }
     if (
       parsed.data.documentType === "TD01" &&
-      !selectOrderMatch(parsed.data, invoiceCandidates).evaluations.some(
-        (candidate) => candidate.potential,
+      !row.candidates_json.some((candidate) => candidate.potential) &&
+      !selectOrderMatch(parsed.data, invoiceCandidates).evaluations.some((candidate) =>
+        Boolean(candidate.potential),
       )
     ) {
       // Un documento senza candidati deve restare rivalutabile: un ordine coerente

@@ -26,14 +26,15 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
     );
     const customer = await database.getPool().query<{ id: string }>(
       `INSERT INTO customers
-        (kind, match_key, display_name, billing_address_json, source_confidence, review_required)
-       VALUES ('PRIVATE_IT', 'cached-aruba-match', 'Mario Rossi', '{}', 'TAX_ID', false)
+       (kind, match_key, display_name, billing_address_json, source_confidence, review_required)
+       VALUES ('PRIVATE_IT', 'cached-aruba-match', 'Nome originario', '{}', 'TAX_ID', false)
        RETURNING id`,
     );
     const billingCase = await database.getPool().query<{ id: string }>(
       `INSERT INTO billing_cases
        (customer_id, local_order_date, currency, status, customer_snapshot_json)
-       VALUES ($1, '2026-08-12', 'EUR', 'READY', '{"reviewRequired":false}') RETURNING id`,
+       VALUES ($1, '2026-08-12', 'EUR', 'READY',
+         '{"reviewRequired":false,"displayName":"Mario Rossi"}') RETURNING id`,
       [customer.rows[0]!.id],
     );
     const order = await database.getPool().query<{ id: string }>(
@@ -143,11 +144,12 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
        WHERE id = '60000000-0000-4000-8000-000000000001'`,
     );
 
-    const issued = await inbound.issueArubaReadSession("cached-matcher-device-2", {
+    const actor = {
       id: Number(user.rows[0]!.id),
       canApprove: true,
       requestId: "cached-matcher-upgrade-test",
-    });
+    };
+    await inbound.issueArubaReadSession("cached-matcher-device-2", actor);
 
     assert.deepEqual(
       (
@@ -201,6 +203,78 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       ).rows[0].matcher_version,
       1,
       "la cache senza candidati resta rivalutabile quando l’ordine arriva più tardi",
+    );
+
+    const secondCustomer = await database.getPool().query<{ id: string }>(
+      `INSERT INTO customers
+        (kind, match_key, display_name, billing_address_json, source_confidence, review_required)
+       VALUES ('PRIVATE_IT', 'cached-aruba-match-2', 'Altro nome originario', '{}',
+         'TAX_ID', false) RETURNING id`,
+    );
+    const secondBillingCase = await database.getPool().query<{ id: string }>(
+      `INSERT INTO billing_cases
+        (customer_id, local_order_date, currency, status, customer_snapshot_json)
+       VALUES ($1, '2026-08-12', 'EUR', 'READY',
+         '{"reviewRequired":false,"displayName":"Mario Rossi"}') RETURNING id`,
+      [secondCustomer.rows[0]!.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO orders
+        (provider, external_account_id, external_order_id, display_number, created_at_source,
+         updated_at_source, local_order_date, currency, gross_amount, payment_status,
+         fulfillment_status, trigger_status, customer_id, billing_case_id,
+         raw_snapshot_json, normalized_snapshot_json)
+       VALUES ('SHOPIFY', 'shop', 'cached-order-2', '#1002', now(), now(), '2026-08-12',
+         'EUR', 5000, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}',
+         '{"orderReviewRequired":false}')`,
+      [secondCustomer.rows[0]!.id, secondBillingCase.rows[0]!.id],
+    );
+    assert.equal(await inbound.revokeArubaReadSessions(actor), 1);
+    let issued = await inbound.issueArubaReadSession("cached-matcher-device-3", actor);
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query(`SELECT status FROM aruba_document_matches WHERE remote_document_id = $1`, [
+            remoteRow.rows[0]!.id,
+          ])
+      ).rows[0].status,
+      "AMBIGUOUS",
+      "un nuovo candidato rivaluta anche un match già classificato con la versione corrente",
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [secondBillingCase.rows[0]!.id])
+      ).rows[0].status,
+      "NEEDS_REVIEW",
+    );
+    await database.getPool().query(
+      `UPDATE orders SET local_order_date = '2026-01-01'
+       WHERE external_order_id = 'cached-order-2'`,
+    );
+    assert.equal(await inbound.revokeArubaReadSessions(actor), 1);
+    issued = await inbound.issueArubaReadSession("cached-matcher-device-4", actor);
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query(`SELECT status FROM aruba_document_matches WHERE remote_document_id = $1`, [
+            remoteRow.rows[0]!.id,
+          ])
+      ).rows[0].status,
+      "UNMATCHED",
+      "la scomparsa di un candidato rivaluta il match già classificato",
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [secondBillingCase.rows[0]!.id])
+      ).rows[0].status,
+      "READY",
+      "la preparazione rimossa dai candidati perde il blocco Aruba",
     );
 
     assert.deepEqual(
@@ -270,9 +344,41 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       ),
       false,
     );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [secondBillingCase.rows[0]!.id])
+      ).rows[0].status,
+      "READY",
+    );
     await inbound.ingestArubaInventoryPage(issued.token, {
       stream: "invoices:2026",
       scanOrdinal: 2,
+      pageOrdinal: 1,
+      cursor: "invoices:2026:rejected",
+      terminal: true,
+      fullScan: false,
+      documents: [
+        {
+          ...remote,
+          remoteId: "REMOTE-REJECTED-METADATA",
+          fiscalNumber: "779",
+          status: "SUBMITTED",
+        },
+      ],
+    });
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
+      ).rows[0].status,
+      "NEEDS_REVIEW",
+    );
+    await inbound.ingestArubaInventoryPage(issued.token, {
+      stream: "invoices:2026",
+      scanOrdinal: 3,
       pageOrdinal: 1,
       cursor: "invoices:2026:rejected",
       terminal: true,
