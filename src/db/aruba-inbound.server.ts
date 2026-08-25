@@ -952,7 +952,7 @@ async function reconcileRemoteDocument(
   ];
   for (const billingCaseId of affectedCaseIds) {
     // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Tutti i casi dipendono dal match appena aggiornato nella stessa transazione.
-    await recomputeBillingCaseStatus(client, billingCaseId);
+    await recomputeBillingCaseStatus(client, billingCaseId, true);
   }
 }
 
@@ -2670,7 +2670,6 @@ export async function listRemoteDocuments(
                 SELECT candidate ->> 'candidateId'
                 FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS candidate
                 WHERE coalesce((candidate ->> 'compatible')::boolean, false)
-                   OR coalesce((candidate ->> 'potential')::boolean, false)
               )
             ), '[]') AS candidates
      FROM aruba_remote_documents AS remote

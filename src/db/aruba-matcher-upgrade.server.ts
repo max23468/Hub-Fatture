@@ -112,8 +112,8 @@ export async function reconcileCachedArubaMatcherUpgrade(
     if (
       parsed.data.documentType === "TD01" &&
       !row.candidates_json.some((candidate) => candidate.potential) &&
-      !selectOrderMatch(parsed.data, invoiceCandidates).evaluations.some((candidate) =>
-        Boolean(candidate.potential),
+      !selectOrderMatch(parsed.data, invoiceCandidates).evaluations.some(
+        (candidate) => candidate.potential || candidate.compatible,
       )
     ) {
       // Un documento senza candidati deve restare rivalutabile: un ordine coerente

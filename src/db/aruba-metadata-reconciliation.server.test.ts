@@ -181,16 +181,30 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
         "ARUBA_POTENTIAL_MATCH",
       ),
     );
-    await database.withTransaction((client) =>
-      billingCaseStatus.recomputeBillingCaseStatus(client, billingCase.rows[0]!.id),
+    assert.deepEqual(
+      (await inbound.listRemoteDocuments()).find(
+        (document) => document.remote_id === remote.remoteId,
+      )?.candidates,
+      [],
+      "un candidato solo potenziale non viene proposto come collegamento manuale",
     );
-    assert.equal(
+    const stableRevision = (
+      await database
+        .getPool()
+        .query("SELECT revision FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
+    ).rows[0].revision;
+    await database.withTransaction((client) =>
+      billingCaseStatus.recomputeBillingCaseStatus(client, billingCase.rows[0]!.id, true),
+    );
+    assert.deepEqual(
       (
         await database
           .getPool()
-          .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
-      ).rows[0].status,
-      "NEEDS_REVIEW",
+          .query("SELECT status, revision FROM billing_cases WHERE id = $1", [
+            billingCase.rows[0]!.id,
+          ])
+      ).rows[0],
+      { status: "NEEDS_REVIEW", revision: stableRevision },
       "un ricalcolo ordinario conserva il possibile match Aruba ancora aperto",
     );
     assert.equal(
@@ -375,6 +389,27 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
           .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
       ).rows[0].status,
       "NEEDS_REVIEW",
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches AS matches
+       SET status = 'MATCHED', method = 'AUTOMATIC', billing_case_id = $1,
+           candidates_json = jsonb_set(candidates_json, '{0,compatible}', 'true')
+       FROM aruba_remote_documents AS remote
+       WHERE matches.remote_document_id = remote.id
+         AND remote.remote_id = 'REMOTE-REJECTED-METADATA'`,
+      [billingCase.rows[0]!.id],
+    );
+    await database.withTransaction((client) =>
+      billingCaseStatus.recomputeBillingCaseStatus(client, billingCase.rows[0]!.id),
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
+      ).rows[0].status,
+      "NEEDS_REVIEW",
+      "un match non terminale resta bloccante anche se è compatibile",
     );
     await inbound.ingestArubaInventoryPage(issued.token, {
       stream: "invoices:2026",
