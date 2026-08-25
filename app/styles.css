@@ -3431,7 +3431,7 @@ tbody tr:last-child td {
   width: 100%;
   min-width: 0;
   gap: 0.375rem;
-  justify-content: flex-end;
+  justify-content: center;
   margin-right: 0;
   padding-inline: 0.5rem;
   white-space: nowrap;

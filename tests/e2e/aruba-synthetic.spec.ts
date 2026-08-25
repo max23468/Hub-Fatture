@@ -137,7 +137,7 @@ test("la pagina Aruba sintetica copre autenticazione, validazione e rimozione", 
   await expect(page.getByRole("row")).toHaveCount(0);
 });
 
-test("l’helper di lettura ripete la scansione completa e limita i download", async ({
+test("l’helper passa dalla prima scansione completa alle successive incrementali", async ({
   page,
   baseURL,
 }) => {
@@ -182,6 +182,7 @@ test("l’helper di lettura ripete la scansione completa e limita i download", a
       cursor: `${name}:0`,
       overlapFrom: `${year}-08-01T00:00:00.000Z`,
       nonTerminalFrom: null,
+      incrementalFrom: `${year}-08-01`,
       lastFullScanCompletedAt: null,
     }));
     const manifest: ArubaReadManifest = {
@@ -192,6 +193,8 @@ test("l’helper di lettura ripete la scansione completa e limita i download", a
       accountIdentity: "synthetic-aruba-account",
       panelUrl: new URL("/aruba-sintetica?scenario=inventory", baseURL).toString(),
       oldestReconciliationDate: `${year}-01-01`,
+      fullScanRequired: true,
+      incrementalOverlapDays: 7,
       streams,
       intervalSeconds: 900,
       absoluteExpiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -200,12 +203,25 @@ test("l’helper di lettura ripete la scansione completa e limita i download", a
     await page.goto(manifest.panelUrl);
     await runArubaReadCycle(page, hub, token, manifest, 1);
     await expect(page.locator("[data-aruba-filter-from]")).toHaveValue("");
-    await runArubaReadCycle(page, hub, token, manifest, 2);
+    await runArubaReadCycle(
+      page,
+      hub,
+      token,
+      {
+        ...manifest,
+        fullScanRequired: false,
+        streams: manifest.streams.map((stream) => ({
+          ...stream,
+          lastFullScanCompletedAt: new Date().toISOString(),
+        })),
+      },
+      2,
+    );
     expect(pages).toEqual([
       { fullScan: true, stream: `invoices:${year}` },
       { fullScan: true, stream: `credit-notes:${year}` },
-      { fullScan: true, stream: `invoices:${year}` },
-      { fullScan: true, stream: `credit-notes:${year}` },
+      { fullScan: false, stream: `invoices:${year}` },
+      { fullScan: false, stream: `credit-notes:${year}` },
     ]);
     expect(files).toEqual(["ARUBA_XML"]);
     await expect(page.locator("[data-aruba-filter-from]")).toHaveValue("");
@@ -777,7 +793,9 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           if (request.path === "/api/aruba/sync/manifest") {
             payload = {
               accountIdentity: "synthetic-aruba-account",
-              streams: [{ name: "invoices:${year}" }]
+              fullScanRequired: true,
+              incrementalOverlapDays: 7,
+              streams: [{ name: "invoices:${year}", incrementalFrom: null }]
             };
           } else if (request.path === "/api/aruba/sync/preflight") {
             payload = { work: [] };
@@ -831,7 +849,7 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
     </div>`;
   const statusRow = `
     <div class="x-gridrow" data-recordindex="0">
-      <div class="x-gridcell">Emessa e consegnata</div>
+      <div class="x-gridcell">Emessa e non cons.</div>
       <div class="x-gridcell"></div>
       <div class="x-gridcell"></div>
     </div>`;
@@ -912,7 +930,12 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           __pages: Array<{
             pageOrdinal: number;
             terminal: boolean;
-            documents: Array<{ fiscalNumber: string; remoteId: string }>;
+            documents: Array<{
+              fiscalNumber: string;
+              providerStatusLabel: string | null;
+              remoteId: string;
+              status: string;
+            }>;
           }>;
         }
       ).__pages.map((item) => ({
@@ -920,12 +943,35 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
         terminal: item.terminal,
         fiscalNumbers: item.documents.map((document) => document.fiscalNumber),
         remoteIds: item.documents.map((document) => document.remoteId),
+        statuses: item.documents.map((document) => document.status),
+        providerStatusLabels: item.documents.map((document) => document.providerStatusLabel),
       })),
     ),
   ).toEqual([
-    { pageOrdinal: 1, terminal: false, fiscalNumbers: ["1"], remoteIds: ["10000000001"] },
-    { pageOrdinal: 2, terminal: false, fiscalNumbers: ["2"], remoteIds: ["20000000002"] },
-    { pageOrdinal: 3, terminal: true, fiscalNumbers: ["3"], remoteIds: ["30000000003"] },
+    {
+      pageOrdinal: 1,
+      terminal: false,
+      fiscalNumbers: ["1"],
+      remoteIds: ["10000000001"],
+      statuses: ["NOT_DELIVERED"],
+      providerStatusLabels: ["Emessa e non cons."],
+    },
+    {
+      pageOrdinal: 2,
+      terminal: false,
+      fiscalNumbers: ["2"],
+      remoteIds: ["20000000002"],
+      statuses: ["NOT_DELIVERED"],
+      providerStatusLabels: ["Emessa e non cons."],
+    },
+    {
+      pageOrdinal: 3,
+      terminal: true,
+      fiscalNumbers: ["3"],
+      remoteIds: ["30000000003"],
+      statuses: ["NOT_DELIVERED"],
+      providerStatusLabels: ["Emessa e non cons."],
+    },
   ]);
 });
 

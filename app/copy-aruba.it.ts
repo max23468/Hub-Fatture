@@ -13,6 +13,9 @@ export const arubaSettingsCopy = {
   arubaConnectionAttention: "Aggiornamento necessario",
   arubaConnectionAttentionHelp:
     "L’inventario è vecchio o l’ultima lettura non è riuscita. Avvia una nuova sincronizzazione.",
+  arubaConnectionConflict: "Sincronizzazione completata · verifiche richieste",
+  arubaConnectionConflictHelp:
+    "L’inventario è aggiornato. Alcuni documenti devono essere verificati prima delle operazioni fiscali.",
   arubaLastUpdate: (value: string) => `Ultimo aggiornamento: ${value}`,
   arubaOpenPanel: "Apri Aruba",
   arubaSyncOwnerOnly: "Solo il titolare può avviare la sincronizzazione Aruba.",
@@ -26,17 +29,19 @@ export const arubaSettingsCopy = {
   arubaDiagnosticValue: (code: string) =>
     code === "ARUBA_ACCOUNT_MISMATCH"
       ? "L’account Aruba aperto non coincide con quello già collegato"
-      : code === "DOM_UNRECOGNIZED"
-        ? "La pagina Aruba non ha completato il caricamento previsto"
-        : code === "READ_SYNC_FAILED"
-          ? "La lettura si è interrotta prima del completamento"
-          : code === "HUB_RESPONSE_TIMEOUT"
-            ? "Hub Fatture non ha risposto alla richiesta"
-            : code === "HUB_TIMEOUT"
-              ? "Il collegamento con Hub Fatture è scaduto"
-              : code === "HUB_BRIDGE_TIMEOUT"
-                ? "La finestra Hub Fatture non ha completato il collegamento"
-                : "Errore di sincronizzazione non disponibile",
+      : code === "ARUBA_REMOTE_STATUS_UNRECOGNIZED"
+        ? "Aruba mostra troppi stati non riconosciuti; la lettura è stata fermata"
+        : code === "DOM_UNRECOGNIZED"
+          ? "La pagina Aruba non ha completato il caricamento previsto"
+          : code === "READ_SYNC_FAILED"
+            ? "La lettura si è interrotta prima del completamento"
+            : code === "HUB_RESPONSE_TIMEOUT"
+              ? "Hub Fatture non ha risposto alla richiesta"
+              : code === "HUB_TIMEOUT"
+                ? "Il collegamento con Hub Fatture è scaduto"
+                : code === "HUB_BRIDGE_TIMEOUT"
+                  ? "La finestra Hub Fatture non ha completato il collegamento"
+                  : "Errore di sincronizzazione non disponibile",
   arubaBookmarkletTitle: "Configura una volta il preferito",
   arubaBookmarkletHelp:
     "Non devi installare nulla. Funziona con Safari, Chrome o Edge su computer.",

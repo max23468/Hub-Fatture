@@ -23,7 +23,9 @@ import {
   assertAllowedHubUrl,
 } from "../src/aruba.ts";
 import {
+  hasAnomalousUnknownArubaStatuses,
   inventoryPageSchema,
+  normalizeArubaRemoteStatusLabel,
   remoteMatchesPreflightSearches,
   type RemoteInventoryDocument,
 } from "../src/aruba-inbound.ts";
@@ -36,11 +38,14 @@ export interface ArubaReadManifest {
   accountIdentity: string;
   panelUrl: string;
   oldestReconciliationDate: string;
+  fullScanRequired: boolean;
+  incrementalOverlapDays: number;
   streams: Array<{
     name: string;
     cursor: string | null;
     overlapFrom: string | null;
     nonTerminalFrom: string | null;
+    incrementalFrom: string | null;
     lastFullScanCompletedAt: string | null;
   }>;
   intervalSeconds: number;
@@ -191,15 +196,6 @@ function italianAmount(value: string): number {
   return cents;
 }
 
-function visibleRemoteStatus(value: string): RemoteInventoryDocument["status"] {
-  if (/non consegnat|mancata consegna/i.test(value)) return "NOT_DELIVERED";
-  if (/consegnat/i.test(value)) return "DELIVERED";
-  if (/scartat|rifiutat/i.test(value)) return "REJECTED";
-  if (/elaborazione|in lavorazione|inoltrat[oa] a sdi/i.test(value)) return "SDI_PROCESSING";
-  if (/inviat|trasmess/i.test(value)) return "SUBMITTED";
-  return "UNKNOWN";
-}
-
 function headerIndex(headers: string[], pattern: RegExp): number {
   return headers.findIndex((header) => pattern.test(header));
 }
@@ -308,7 +304,8 @@ async function readProductionRows(page: Page) {
         indices.recipientAddress >= 0 ? cells[indices.recipientAddress] || null : null,
       totalAmount: italianAmount(cells[indices.total]!),
       currency: "EUR",
-      status: visibleRemoteStatus(cells[indices.status]!),
+      status: normalizeArubaRemoteStatusLabel(cells[indices.status]!),
+      providerStatusLabel: cells[indices.status] || null,
       providerObservedAt: null,
       xmlSha256: null,
       orderReferences: parseProductionOrderReferences(cells[indices.orderReferences]!),
@@ -392,7 +389,8 @@ async function readProductionExtGrid(grid: Locator) {
       recipientAddress: null,
       totalAmount: italianAmount(cells[10]!),
       currency: "EUR",
-      status: visibleRemoteStatus(statusCells[0]!),
+      status: normalizeArubaRemoteStatusLabel(statusCells[0]!),
+      providerStatusLabel: statusCells[0] || null,
       providerObservedAt: null,
       xmlSha256: null,
       orderReferences: [],
@@ -1061,6 +1059,7 @@ export async function runArubaReadCycle(
   await assertAccount(page, manifest.accountIdentity);
   await heartbeat();
   const observed = [];
+  const fullScan = manifest.fullScanRequired;
   for (const streamManifest of manifest.streams) {
     await heartbeat();
     const stream = streamManifest.name;
@@ -1076,13 +1075,27 @@ export async function runArubaReadCycle(
         pageOrdinal,
         manifest.environment,
       );
+      const incrementalFrom = streamManifest.incrementalFrom?.slice(0, 10) ?? null;
+      if (!fullScan && !incrementalFrom) throw new Error("READ_SYNC_FAILED");
+      const boundaryReached =
+        !fullScan &&
+        inventory.documents.length > 0 &&
+        inventory.documents.every((document) => document.documentDate < incrementalFrom!);
+      const pageInventory = {
+        ...inventory,
+        terminal: inventory.terminal || boundaryReached,
+        fullScan,
+      };
+      if (hasAnomalousUnknownArubaStatuses(pageInventory.documents)) {
+        throw new Error("ARUBA_REMOTE_STATUS_UNRECOGNIZED");
+      }
       const ingest = await hubJson<{ requestedFiles?: Array<{ remoteId: string; kind: string }> }>(
         hub,
         token,
         "/api/aruba/sync/pagine",
         {
           method: "POST",
-          body: JSON.stringify({ ...inventory, fullScan: true }),
+          body: JSON.stringify(pageInventory),
         },
       );
       observed.push(...inventory.documents);
@@ -1098,7 +1111,7 @@ export async function runArubaReadCycle(
           await downloadOfficialFile(page, file, target),
         );
       }
-      if (inventory.terminal) break;
+      if (pageInventory.terminal) break;
       await advancePage(page, manifest.environment);
       pageOrdinal += 1;
     }
@@ -1108,7 +1121,7 @@ export async function runArubaReadCycle(
     body: JSON.stringify({
       streams: manifest.streams.map((stream) => stream.name),
       scanOrdinal,
-      fullScan: true,
+      fullScan,
     }),
   });
   return observed;

@@ -217,7 +217,44 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
       await cycle.completeStableArubaInventory(secondToken, secondStreams, 1, false),
       { completed: true },
     );
-    assert.notEqual((await inbound.getArubaInventoryHealth()).blockingReason, "FAILURE");
+    const recoveredHealth = await inbound.getArubaInventoryHealth();
+    assert.notEqual(recoveredHealth.blockingReason, "FAILURE");
+    assert.equal(recoveredHealth.lastErrorCode, null);
+    await database.getPool().query(
+      `UPDATE sync_cursors SET full_scan_completed_at = now(), aruba_status_mapper_version = 2
+       WHERE provider = 'ARUBA'`,
+    );
+    const incrementalManifest = await cycle.arubaInventoryManifest(secondToken);
+    assert.equal(incrementalManifest.fullScanRequired, false);
+    assert.equal(incrementalManifest.incrementalOverlapDays, 7);
+    assert.equal(
+      incrementalManifest.streams.find((stream) => stream.name === "invoices:2024")
+        ?.incrementalFrom,
+      "2024-12-31",
+    );
+    const recentIncrementalFrom = incrementalManifest.streams.find(
+      (stream) => stream.name === "invoices:2026",
+    )?.incrementalFrom;
+    assert.ok(recentIncrementalFrom);
+    assert.ok(Date.now() - new Date(recentIncrementalFrom).getTime() >= 6.9 * 86_400_000);
+    await database
+      .getPool()
+      .query(`UPDATE sync_cursors SET aruba_status_mapper_version = 1 WHERE provider = 'ARUBA'`);
+    assert.equal((await cycle.arubaInventoryManifest(secondToken)).fullScanRequired, true);
+    await database
+      .getPool()
+      .query(`UPDATE sync_cursors SET aruba_status_mapper_version = 2 WHERE provider = 'ARUBA'`);
+    assert.equal((await cycle.arubaInventoryManifest(secondToken)).fullScanRequired, false);
+    await database.getPool().query(
+      `UPDATE sync_cursors SET full_scan_completed_at = now() - interval '8 days'
+       WHERE provider = 'ARUBA'`,
+    );
+    assert.equal((await cycle.arubaInventoryManifest(secondToken)).fullScanRequired, false);
+    await database.getPool().query(
+      `UPDATE sync_cursors SET full_scan_completed_at = now() - interval '31 days'
+       WHERE provider = 'ARUBA'`,
+    );
+    assert.equal((await cycle.arubaInventoryManifest(secondToken)).fullScanRequired, true);
     await database.getPool().query(
       `INSERT INTO aruba_sync_pages
         (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,

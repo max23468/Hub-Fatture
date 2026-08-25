@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.74
+
+- La sincronizzazione Aruba usa una finestra incrementale di sette giorni dopo il primo allineamento e ripete la lettura completa ogni trenta giorni. Questa versione forza una sola rilettura completa per riclassificare lo storico con il nuovo interprete degli stati; le esecuzioni successive tornano incrementali.
+- Gli stati effettivi mostrati da Aruba, inclusi “Emessa e consegnata” ed “Emessa e non cons.”, vengono tradotti nello stato operativo corretto invece di generare verifiche irrisolte generiche. Il testo originale resta disponibile per la diagnosi e una concentrazione anomala di stati sconosciuti interrompe la lettura senza considerarla allineata.
+- Un errore di account precedente non resta più visibile dopo una sincronizzazione completata; quando l’inventario è aggiornato ma contiene conflitti, le Impostazioni distinguono chiaramente le verifiche documentali da un errore di collegamento.
+- I pulsanti di dettaglio nelle tabelle Attività centrano testo e icona nello spazio disponibile, eliminando lo sbilanciamento laterale condiviso dalle azioni tabellari.
+
 ## 0.3.73
 
 - Il preferito Aruba mantiene il riferimento alla finestra Hub Fatture nel contesto che l’ha aperta e offre al lettore un relay locale filtrato. Il runtime non trasferisce più il `WindowProxy` tra script, eliminando il timeout osservato su Chrome dopo il caricamento corretto del lettore.

@@ -3,12 +3,74 @@ import test from "node:test";
 
 import {
   groupOrderCandidates,
+  hasAnomalousUnknownArubaStatuses,
   inventoryPageSchema,
+  normalizeArubaRemoteStatusLabel,
+  remoteMetadataDigest,
   remoteMatchesPreflightSearches,
   remoteStatusTransition,
   selectOrderMatch,
   type RemoteInventoryDocument,
 } from "./aruba-inbound.ts";
+
+test("normalizza tutte le diciture elettroniche osservate nel pannello Aruba", () => {
+  assert.deepEqual(
+    [
+      "Presa in carico",
+      "Errore elaborazione",
+      "Inviata",
+      "Scartata",
+      "Emessa e non cons.",
+      "Recapito impossibile",
+      "Emessa e consegnata",
+      "Consegnato",
+      "Accettata",
+      "Rifiutata",
+      "Decorrenza termini",
+    ].map(normalizeArubaRemoteStatusLabel),
+    [
+      "SDI_PROCESSING",
+      "REJECTED",
+      "SUBMITTED",
+      "REJECTED",
+      "NOT_DELIVERED",
+      "NOT_DELIVERED",
+      "DELIVERED",
+      "DELIVERED",
+      "DELIVERED",
+      "REJECTED",
+      "DELIVERED",
+    ],
+  );
+  assert.equal(normalizeArubaRemoteStatusLabel("Emessa"), "UNKNOWN");
+  assert.equal(normalizeArubaRemoteStatusLabel("Emessa ed inviata"), "UNKNOWN");
+  assert.equal(normalizeArubaRemoteStatusLabel("Annullata"), "UNKNOWN");
+});
+
+test("ferma una pagina con una quota anomala di stati Aruba sconosciuti", () => {
+  assert.equal(
+    hasAnomalousUnknownArubaStatuses(
+      Array.from({ length: 10 }, (_, index) => ({
+        status: index < 5 ? ("UNKNOWN" as const) : ("DELIVERED" as const),
+      })),
+    ),
+    true,
+  );
+  assert.equal(
+    hasAnomalousUnknownArubaStatuses(
+      Array.from({ length: 10 }, (_, index) => ({
+        status: index < 4 ? ("UNKNOWN" as const) : ("DELIVERED" as const),
+      })),
+    ),
+    false,
+  );
+  assert.equal(
+    hasAnomalousUnknownArubaStatuses(
+      Array.from({ length: 9 }, () => ({ status: "UNKNOWN" as const })),
+    ),
+    false,
+  );
+});
 
 const remote: RemoteInventoryDocument = {
   remoteId: "remote-1",
@@ -31,6 +93,13 @@ const remote: RemoteInventoryDocument = {
   xmlSha256: null,
   orderReferences: [],
 };
+
+test("la dicitura Aruba sorgente resta diagnostica e non cambia l’identità dei metadati", () => {
+  assert.equal(
+    remoteMetadataDigest({ ...remote, providerStatusLabel: "Emessa e consegnata" }),
+    remoteMetadataDigest({ ...remote, providerStatusLabel: "EMESSA E CONSEGNATA" }),
+  );
+});
 
 test("le pagine inventario rispettano tipo e anno dichiarati dallo stream", () => {
   const page = {

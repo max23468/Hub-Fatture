@@ -588,9 +588,11 @@ function ArubaSettingsSection({
 }) {
   const connectionState = inventory.activeSession
     ? "ACTIVE"
-    : inventory.blocking
-      ? "ATTENTION"
-      : "READY";
+    : inventory.blockingReason === "CONFLICT"
+      ? "CONFLICT"
+      : inventory.blocking
+        ? "ATTENTION"
+        : "READY";
   const connectionCopy = {
     ACTIVE: {
       title: copy.settings.arubaConnectionActive,
@@ -604,8 +606,13 @@ function ArubaSettingsSection({
       title: copy.settings.arubaConnectionAttention,
       description: copy.settings.arubaConnectionAttentionHelp,
     },
+    CONFLICT: {
+      title: copy.settings.arubaConnectionConflict,
+      description: copy.settings.arubaConnectionConflictHelp,
+    },
   }[connectionState];
-  const ConnectionIcon = connectionState === "ATTENTION" ? AlertTriangle : CircleCheck;
+  const ConnectionIcon =
+    connectionState === "ATTENTION" || connectionState === "CONFLICT" ? AlertTriangle : CircleCheck;
   return (
     <section className="settings-section" id="aruba-helper" aria-labelledby="aruba-helper-title">
       <SettingsSectionHeader

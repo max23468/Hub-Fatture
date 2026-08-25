@@ -41,4 +41,10 @@ test("la prima configurazione Aruba non richiede installazioni tecniche", () => 
     copy.settings.arubaDiagnosticValue("ARUBA_ACCOUNT_MISMATCH"),
     "L’account Aruba aperto non coincide con quello già collegato",
   );
+  assert.equal(
+    copy.settings.arubaDiagnosticValue("ARUBA_REMOTE_STATUS_UNRECOGNIZED"),
+    "Aruba mostra troppi stati non riconosciuti; la lettura è stata fermata",
+  );
+  assert.match(copy.settings.arubaConnectionConflict, /Sincronizzazione completata/);
+  assert.match(copy.settings.arubaConnectionConflictHelp, /inventario è aggiornato/);
 });
