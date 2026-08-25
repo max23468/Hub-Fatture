@@ -68,19 +68,24 @@ export const arubaPotentialMatchSql = `EXISTS (
   JOIN aruba_remote_documents AS aruba_remote
     ON aruba_remote.id = aruba_matches.remote_document_id
   CROSS JOIN LATERAL jsonb_array_elements(aruba_matches.candidates_json) AS aruba_candidate
-  WHERE aruba_matches.method <> 'MANUAL'
-    AND aruba_remote.remote_status <> 'REJECTED'
+  WHERE aruba_remote.remote_status <> 'REJECTED'
     AND (
-      (aruba_matches.status = 'UNMATCHED'
-        AND coalesce((aruba_candidate ->> 'potential')::boolean, false))
-      OR (aruba_matches.status = 'AMBIGUOUS'
-        AND (
-          coalesce((aruba_candidate ->> 'potential')::boolean, false)
-          OR coalesce((aruba_candidate ->> 'compatible')::boolean, false)
-        ))
-      OR (aruba_matches.status = 'MATCHED'
+      (aruba_matches.method <> 'MANUAL' AND (
+        (aruba_matches.status = 'UNMATCHED'
+          AND coalesce((aruba_candidate ->> 'potential')::boolean, false))
+        OR (aruba_matches.status = 'AMBIGUOUS'
+          AND (
+            coalesce((aruba_candidate ->> 'potential')::boolean, false)
+            OR coalesce((aruba_candidate ->> 'compatible')::boolean, false)
+          ))
+        OR (aruba_matches.status = 'MATCHED'
+          AND aruba_remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING')
+          AND coalesce((aruba_candidate ->> 'compatible')::boolean, false))
+      ))
+      OR (aruba_matches.method = 'MANUAL'
+        AND aruba_matches.status = 'MATCHED'
         AND aruba_remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING')
-        AND coalesce((aruba_candidate ->> 'compatible')::boolean, false))
+        AND aruba_candidate ->> 'candidateId' = aruba_matches.order_id::text)
     )
     AND (
       aruba_candidate ->> 'candidateId' IN (

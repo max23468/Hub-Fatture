@@ -320,7 +320,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
             [[billingCase.rows[0]!.id, secondBillingCase.rows[0]!.id]],
           )
       ).rows.map((row) => row.status),
-      ["READY", "READY"],
+      ["NEEDS_REVIEW", "READY"],
       "il collegamento manuale ricalcola anche le preparazioni candidate non selezionate",
     );
     await database
@@ -419,7 +419,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
     );
     await database.getPool().query(
       `UPDATE aruba_document_matches
-       SET status = 'UNMATCHED', method = 'NONE'
+       SET status = 'AMBIGUOUS', method = 'NONE'
        WHERE remote_document_id = $1`,
       [remoteRow.rows[0]!.id],
     );

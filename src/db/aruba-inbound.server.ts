@@ -3732,7 +3732,7 @@ export async function confirmArubaDocumentOutOfScope(
     );
     if (
       !current ||
-      !["PROFILE_CONFLICT", "UNMATCHED"].includes(current.status) ||
+      !["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(current.status) ||
       (current.status === "UNMATCHED" && current.method === "MANUAL") ||
       !isEmissionConfirmed(current.remote_status) ||
       !current.has_xml ||

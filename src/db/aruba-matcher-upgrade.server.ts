@@ -50,7 +50,11 @@ export async function reconcileCachedArubaMatcherUpgrade(
            AND refunds.amount > 0
            AND refunds.completed_at::date BETWEEN remote.document_date - 31
              AND remote.document_date + 31
-           AND refunds.credit_document_id IS NULL
+           AND (refunds.credit_document_id IS NULL OR EXISTS (
+             SELECT 1 FROM documents
+             WHERE documents.id = refunds.credit_document_id
+               AND documents.status = 'DRAFT'
+           ))
        )))
      ORDER BY remote.id`,
     [environment, account],
