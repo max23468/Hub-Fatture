@@ -57,6 +57,7 @@ import { getPool, withTransaction } from "./client.server.ts";
 import { loadArubaReadSession, type ArubaReadSessionRow } from "./aruba-read-session.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
+import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 
 const READ_SESSION_TTL_MS = 8 * 60 * 60_000;
 const READ_LEASE_MS = 2 * 60_000;
@@ -3638,7 +3639,12 @@ export async function confirmArubaDocumentOutOfScope(
       billing_case_id: string | null;
       document_id: string | null;
       related_invoice_document_id: string | null;
-      candidates_json: Array<{ compatible?: boolean }>;
+      candidates_json: Array<{
+        candidateId?: string;
+        orderIds?: string[];
+        compatible?: boolean;
+        potential?: boolean;
+      }>;
       remote_status: ArubaRemoteStatus;
       origin: string;
       has_xml: boolean;
@@ -3684,6 +3690,21 @@ export async function confirmArubaDocumentOutOfScope(
     ) {
       throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
     }
+    const candidateOrderIdSet = new Set<string>();
+    for (const candidate of current.candidates_json) {
+      if (!candidate.potential) continue;
+      if (candidate.candidateId) candidateOrderIdSet.add(candidate.candidateId);
+      for (const orderId of candidate.orderIds ?? []) candidateOrderIdSet.add(orderId);
+    }
+    const candidateOrderIds = [...candidateOrderIdSet];
+    const affectedCases = candidateOrderIds.length
+      ? await client.query<{ id: string }>(
+          `SELECT DISTINCT billing_case_id::text AS id
+           FROM orders
+           WHERE id = ANY($1::bigint[]) AND billing_case_id IS NOT NULL`,
+          [candidateOrderIds],
+        )
+      : { rows: [] };
     await client.query(
       `UPDATE aruba_document_matches SET status = 'UNMATCHED', method = 'MANUAL',
          order_id = NULL, billing_case_id = NULL, document_id = NULL,
@@ -3696,6 +3717,10 @@ export async function confirmArubaDocumentOutOfScope(
       `UPDATE aruba_remote_documents SET origin = 'ARUBA_EXTERNAL' WHERE id = $1`,
       [remoteDocumentId],
     );
+    for (const billingCase of affectedCases.rows) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il ricalcolo condivide la decisione e la transazione correnti.
+      await recomputeBillingCaseStatus(client, billingCase.id);
+    }
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),

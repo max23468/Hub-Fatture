@@ -31,8 +31,8 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
     );
     const billingCase = await database.getPool().query<{ id: string }>(
       `INSERT INTO billing_cases
-        (customer_id, local_order_date, currency, status, customer_snapshot_json)
-       VALUES ($1, '2026-08-12', 'EUR', 'READY', '{}') RETURNING id`,
+       (customer_id, local_order_date, currency, status, customer_snapshot_json)
+       VALUES ($1, '2026-08-12', 'EUR', 'READY', '{"reviewRequired":false}') RETURNING id`,
       [customer.rows[0]!.id],
     );
     const order = await database.getPool().query<{ id: string }>(
@@ -42,7 +42,8 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
          fulfillment_status, trigger_status, customer_id, billing_case_id,
          raw_snapshot_json, normalized_snapshot_json)
        VALUES ('SHOPIFY', 'shop', 'cached-order', '#1001', now(), now(), '2026-08-12',
-         'EUR', 5000, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}', '{}')
+         'EUR', 5000, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}',
+         '{"orderReviewRequired":false}')
        RETURNING id`,
       [customer.rows[0]!.id, billingCase.rows[0]!.id],
     );
@@ -65,6 +66,13 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       xmlSha256: null,
       orderReferences: [],
     });
+    const lateOrderRemote = remoteInventoryDocumentSchema.parse({
+      ...remote,
+      remoteId: "REMOTE-WAITING-FOR-ORDER",
+      fiscalNumber: "778",
+      recipientName: "Luigi Bianchi",
+      totalAmount: 7000,
+    });
     await database.getPool().query(
       `INSERT INTO aruba_sync_sessions
         (id, environment, account_reference, device_id, token_hash, status, started_at,
@@ -78,8 +86,8 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
         (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,
          row_count, documents_json, payload_digest)
        VALUES ('60000000-0000-4000-8000-000000000001', 'invoices:2026', 1, 1,
-         'invoices:2026:1', true, true, 1, $1, repeat('b', 64))`,
-      [JSON.stringify([remote])],
+         'invoices:2026:1', true, true, 2, $1, repeat('b', 64))`,
+      [JSON.stringify([remote, lateOrderRemote])],
     );
     const remoteRow = await database.getPool().query<{ id: string }>(
       `INSERT INTO aruba_remote_documents
@@ -91,6 +99,16 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
        RETURNING id`,
       [remote.remoteId, remoteMetadataDigest(remote)],
     );
+    const lateRemoteRow = await database.getPool().query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series,
+         fiscal_number, document_date, total_amount, remote_status,
+         remote_status_observed_at, origin, metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', $1, 'TD01', 2026, 'FPR', '778',
+         '2026-08-12', 7000, 'DELIVERED', now(), 'ARUBA_EXTERNAL', $2)
+       RETURNING id`,
+      [lateOrderRemote.remoteId, remoteMetadataDigest(lateOrderRemote)],
+    );
     await database.getPool().query(
       `INSERT INTO aruba_remote_observations
         (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal,
@@ -100,10 +118,24 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       [remoteRow.rows[0]!.id, remoteMetadataDigest(remote)],
     );
     await database.getPool().query(
+      `INSERT INTO aruba_remote_observations
+        (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal,
+         page_ordinal, cursor, payload_digest)
+       VALUES ($1, '60000000-0000-4000-8000-000000000001', 'DELIVERED',
+         'invoices:2026', 1, 1, 'invoices:2026:1', $2)`,
+      [lateRemoteRow.rows[0]!.id, remoteMetadataDigest(lateOrderRemote)],
+    );
+    await database.getPool().query(
       `INSERT INTO aruba_document_matches
         (remote_document_id, status, method, matcher_version, candidates_json)
        VALUES ($1, 'UNMATCHED', 'NONE', 1, '[]')`,
       [remoteRow.rows[0]!.id],
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       VALUES ($1, 'UNMATCHED', 'NONE', 1, '[]')`,
+      [lateRemoteRow.rows[0]!.id],
     );
     await database.getPool().query(
       `UPDATE aruba_sync_sessions SET full_scan_completed_at = now()
@@ -146,6 +178,17 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
         "ARUBA_POTENTIAL_MATCH",
       ),
     );
+    assert.equal(
+      (
+        await database.getPool().query(
+          `SELECT matcher_version FROM aruba_document_matches
+           WHERE remote_document_id = $1`,
+          [lateRemoteRow.rows[0]!.id],
+        )
+      ).rows[0].matcher_version,
+      1,
+      "la cache senza candidati resta rivalutabile quando l’ordine arriva più tardi",
+    );
 
     assert.deepEqual(
       await inbound.verifyArubaInventoryAccount(issued.token, { documents: [remote] }),
@@ -178,6 +221,41 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
         )
       ).rows[0],
       { status: "UNKNOWN_REMOTE_STATE", matcher_version: 2 },
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET status = 'UNMATCHED', method = 'NONE'
+       WHERE remote_document_id = $1`,
+      [remoteRow.rows[0]!.id],
+    );
+    const xmlStorage = await database.getPool().query<{ id: string }>(
+      `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('ARUBA_XML', 'aruba/cached-metadata.xml', repeat('c', 64), 100,
+         'application/xml') RETURNING id`,
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       VALUES ($1, $2, 'ARUBA_XML')`,
+      [remoteRow.rows[0]!.id, xmlStorage.rows[0]!.id],
+    );
+    await inbound.confirmArubaDocumentOutOfScope(
+      remoteRow.rows[0]!.id,
+      "Documento verificato come vendita esterna ai canali gestiti dall’applicazione",
+      { id: Number(user.rows[0]!.id), canApprove: true, requestId: "out-of-scope-test" },
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
+      ).rows[0].status,
+      "READY",
+    );
+    assert.equal(
+      (await billingCases.getBillingCase(billingCase.rows[0]!.id))?.anomalies.includes(
+        "ARUBA_POTENTIAL_MATCH",
+      ),
+      false,
     );
   } finally {
     const database = await import("./client.server.ts");

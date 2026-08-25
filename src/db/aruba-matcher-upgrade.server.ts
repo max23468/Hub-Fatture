@@ -96,7 +96,6 @@ export async function reconcileCachedArubaMatcherUpgrade(
      ORDER BY remote.id`,
     [environment, account, ARUBA_MATCHER_VERSION],
   );
-  const unchangedIds: string[] = [];
   const invalidIds: string[] = [];
   for (const row of cached.rows) {
     const parsed = remoteInventoryDocumentSchema.safeParse(row.payload);
@@ -110,18 +109,12 @@ export async function reconcileCachedArubaMatcherUpgrade(
         (candidate) => candidate.potential,
       )
     ) {
-      unchangedIds.push(row.id);
+      // Un documento senza candidati deve restare rivalutabile: un ordine coerente
+      // può arrivare da Shopify/eBay dopo questa lettura della cache Aruba.
       continue;
     }
     // react-doctor-disable-next-line react-doctor/async-await-in-loop -- I match condividono la stessa transazione e vengono aggiornati in ordine.
     await reconcile(row.id, parsed.data);
-  }
-  if (unchangedIds.length) {
-    await client.query(
-      `UPDATE aruba_document_matches SET matcher_version = $2, updated_at = now()
-       WHERE remote_document_id = ANY($1::bigint[]) AND matcher_version < $2`,
-      [unchangedIds, ARUBA_MATCHER_VERSION],
-    );
   }
   if (invalidIds.length) {
     await client.query(

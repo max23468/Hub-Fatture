@@ -27,12 +27,8 @@ import {
 } from "./billing-case-sql.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
-import {
-  groupOrder,
-  reconcileInvoiceDraft,
-  recomputeBillingCaseStatus,
-  type Actor,
-} from "./order-import.server.ts";
+import { groupOrder, reconcileInvoiceDraft, type Actor } from "./order-import.server.ts";
+import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 
 export interface EditableCustomer {
@@ -610,6 +606,7 @@ export async function getBillingCase(id: string) {
               FROM aruba_document_matches matches
               CROSS JOIN LATERAL jsonb_array_elements(matches.candidates_json) candidate
               WHERE matches.status IN ('UNMATCHED', 'AMBIGUOUS')
+                AND matches.method <> 'MANUAL'
                 AND coalesce((candidate ->> 'potential')::boolean, false)
                 AND (
                   candidate ->> 'candidateId' IN (
