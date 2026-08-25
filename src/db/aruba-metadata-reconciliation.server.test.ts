@@ -400,6 +400,23 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       ).rows[0],
       { status: "UNKNOWN_REMOTE_STATE", matcher_version: 2 },
     );
+    assert.equal(await inbound.revokeArubaReadSessions(actor), 1);
+    issued = await inbound.issueArubaReadSession("cached-matcher-device-5", actor);
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query(`SELECT status FROM aruba_document_matches WHERE remote_document_id = $1`, [
+            remoteRow.rows[0]!.id,
+          ])
+      ).rows[0].status,
+      "UNKNOWN_REMOTE_STATE",
+      "una nuova sessione parte senza reinterpretare una vecchia osservazione conflittuale",
+    );
+    assert.deepEqual(
+      await inbound.verifyArubaInventoryAccount(issued.token, { documents: [remote] }),
+      { verified: true, initialPairing: false },
+    );
     await database.getPool().query(
       `UPDATE aruba_document_matches
        SET status = 'UNMATCHED', method = 'NONE'

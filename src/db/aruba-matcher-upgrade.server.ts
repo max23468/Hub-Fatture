@@ -83,7 +83,7 @@ export async function reconcileCachedArubaMatcherUpgrade(
      WHERE remote.environment = $1 AND remote.account_reference = $2
        AND remote.remote_status <> 'REJECTED'
        AND matches.method <> 'MANUAL'
-       AND matches.status <> 'ERROR'
+       AND matches.status NOT IN ('ERROR', 'UNKNOWN_REMOTE_STATE')
        AND ((remote.document_type = 'TD01' AND EXISTS (
          SELECT 1 FROM orders
          WHERE orders.trigger_status NOT IN (
