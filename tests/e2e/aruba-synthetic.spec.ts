@@ -770,6 +770,7 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
       body: `<!doctype html><script>
         Object.defineProperty(window, "MessageChannel", { value: undefined });
         window.__pages = [];
+        window.__uploadedXml = [];
         addEventListener("message", (event) => {
           if (event.origin !== ${JSON.stringify(panelOrigin)} || !event.data) return;
           if (event.data.type === "HF_ARUBA_HELLO") {
@@ -814,6 +815,15 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
             payload = { verified: true, initialPairing: false };
           } else if (request.path === "/api/aruba/sync/pagine") {
             window.__pages.push(request.body);
+            payload = request.body.pageOrdinal === 1 ? {
+              requestedFiles: [{ remoteId: "10000000001", kind: "ARUBA_XML" }]
+            } : { requestedFiles: [] };
+          } else if (request.path === "/api/aruba/sync/file") {
+            window.__uploadedXml.push({
+              remoteId: request.body.remoteId,
+              kind: request.body.kind,
+              xml: new TextDecoder().decode(request.body.bytes)
+            });
           }
           event.source.postMessage({
             type: "HF_ARUBA_RESPONSE",
@@ -861,7 +871,7 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
   const statusRow = `
     <div class="x-gridrow" data-recordindex="0">
       <div class="x-gridcell">Emessa e non cons.</div>
-      <div class="x-gridcell"></div>
+      <div class="x-gridcell"><div class="x-tool"><div class="aru-xml"></div></div></div>
       <div class="x-gridcell"></div>
     </div>`;
   await page.setContent(`
@@ -890,6 +900,13 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
       }
       const requestKnownOnlyToAruba = window.fetch.bind(window);
       const grid = document.querySelector(".aruba-grid-fatture-inviate");
+      grid.querySelector(".x-tool").addEventListener("click", () => {
+        const blob = new Blob(["<FatturaElettronica>ufficiale</FatturaElettronica>"], { type: "application/xml" });
+        const anchor = document.createElement("a");
+        anchor.href = URL.createObjectURL(blob);
+        anchor.download = "fattura.xml";
+        anchor.click();
+      });
       let activeSorter = {
         getProperty: () => "dataCreazione",
         getDirection: () => "ASC"
@@ -1033,6 +1050,22 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
           .__preflightCompletion?.searchesCompleted,
     ),
   ).toBe(true);
+  expect(
+    await bridge.evaluate(
+      () =>
+        (
+          window as typeof window & {
+            __uploadedXml: Array<{ remoteId: string; kind: string; xml: string }>;
+          }
+        ).__uploadedXml,
+    ),
+  ).toEqual([
+    {
+      remoteId: "10000000001",
+      kind: "ARUBA_XML",
+      xml: "<FatturaElettronica>ufficiale</FatturaElettronica>",
+    },
+  ]);
 });
 
 test("il lettore Production completa il reload dell’anno prima di aprire lo stream", async ({

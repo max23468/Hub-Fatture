@@ -63,6 +63,12 @@ test("il lettore Aruba corrente conserva le guardie della sincronizzazione", () 
   assert.match(runtime, /changed=pageIdentity\(\)!==before/);
   assert.match(runtime, /La pagina Aruba non ha completato il caricamento previsto/);
   assert.match(runtime, /sync\/heartbeat/);
+  assert.match(runtime, /\/api\/aruba\/sync\/file/);
+  assert.match(runtime, /request\?\.kind!=="ARUBA_XML"/);
+  assert.match(runtime, /xmlBytesFromTool/);
+  assert.match(runtime, /URL\.createObjectURL/);
+  assert.match(runtime, /HTMLAnchorElement\.prototype\.click/);
+  assert.doesNotMatch(runtime, /__IMPORT_MAX__/);
   assert.match(runtime, /const fullScan=manifest\.fullScanRequired===true/);
   assert.match(runtime, /streamInfo\.incrementalFrom\.slice\(0,10\)/);
   assert.match(runtime, /new runtime\.util\.Sorter\(\{property:"data",direction:"DESC"\}\)/);

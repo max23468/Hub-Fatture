@@ -3,10 +3,11 @@ import { createHash } from "node:crypto";
 import { create } from "xmlbuilder2";
 import { z } from "zod";
 
+export { ARUBA_IMPORT_MAX_BYTES, ARUBA_PANEL_ORIGIN } from "./aruba-browser-constants.ts";
+import { ARUBA_IMPORT_MAX_BYTES, ARUBA_PANEL_ORIGIN } from "./aruba-browser-constants.ts";
+
 export const ARUBA_UPLOAD_MAX_BYTES = 4_900_000;
 export const ARUBA_UPLOAD_MAX_BATCH_BYTES = 30_000_000;
-export const ARUBA_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
-export const ARUBA_PANEL_ORIGIN = "https://fatturazioneelettronica.aruba.it";
 export const ARUBA_LOGIN_ORIGIN = "https://loginfatturazione.aruba.it";
 
 export const arubaModeSchema = z.enum(["ASSISTED", "AUTOMATIC"]);

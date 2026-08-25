@@ -10,7 +10,7 @@ import {
   sendArubaBridgeRuntime,
 } from "../aruba-bridge-state.ts";
 import { privateRouteMeta } from "../metadata";
-import { ARUBA_PANEL_ORIGIN } from "../../src/aruba.ts";
+import { ARUBA_IMPORT_MAX_BYTES, ARUBA_PANEL_ORIGIN } from "../../src/aruba-browser-constants.ts";
 import { buildArubaBookmarkletRuntime } from "../../src/aruba-bookmarklet.ts";
 import { getConfig } from "../../src/config.server.ts";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
@@ -56,6 +56,7 @@ const allowedRequests = new Map([
   ["POST /api/aruba/sync/fallita", true],
   ["GET /api/aruba/sync/preflight", true],
   ["POST /api/aruba/sync/preflight", true],
+  ["POST /api/aruba/sync/file", true],
 ]);
 
 export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
@@ -115,15 +116,42 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
       if (!/^\d{1,20}$/.test(id) || !allowedRequests.has(`${method} ${path}`)) return;
       try {
         const token = await issueToken();
-        const body = method === "POST" ? JSON.stringify(request.body ?? {}) : undefined;
-        if (body && body.length > 1_000_000) throw new Error("PAYLOAD_TOO_LARGE");
-        const response = await fetch(path, {
+        const fileRequest = path === "/api/aruba/sync/file";
+        const filePayload = request.body as
+          | { remoteId?: unknown; kind?: unknown; bytes?: unknown }
+          | undefined;
+        if (
+          fileRequest &&
+          (typeof filePayload?.remoteId !== "string" ||
+            !filePayload.remoteId ||
+            filePayload.remoteId.length > 200 ||
+            filePayload.kind !== "ARUBA_XML" ||
+            !(filePayload.bytes instanceof ArrayBuffer) ||
+            !filePayload.bytes.byteLength ||
+            filePayload.bytes.byteLength > ARUBA_IMPORT_MAX_BYTES)
+        ) {
+          throw new Error("INVALID_FILE_PAYLOAD");
+        }
+        const jsonBody =
+          method === "POST" && !fileRequest ? JSON.stringify(request.body ?? {}) : undefined;
+        if (jsonBody && jsonBody.length > 1_000_000) throw new Error("PAYLOAD_TOO_LARGE");
+        const targetPath = fileRequest
+          ? `/api/aruba/sync/documenti/${encodeURIComponent(filePayload!.remoteId as string)}/file`
+          : path;
+        const response = await fetch(targetPath, {
           method,
-          body,
+          body: fileRequest ? (filePayload!.bytes as ArrayBuffer) : jsonBody,
           headers: {
             Accept: "application/json",
             Authorization: `Bearer ${token}`,
-            ...(body ? { "Content-Type": "application/json" } : {}),
+            ...(fileRequest
+              ? {
+                  "Content-Type": "application/octet-stream",
+                  "X-Aruba-File-Kind": "ARUBA_XML",
+                }
+              : jsonBody
+                ? { "Content-Type": "application/json" }
+                : {}),
           },
         });
         if (!response.ok) {

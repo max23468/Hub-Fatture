@@ -165,7 +165,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
           [remoteRow.rows[0]!.id, order.rows[0]!.id],
         )
       ).rows[0],
-      { status: "UNMATCHED", matcher_version: 2, potential: true },
+      { status: "UNMATCHED", matcher_version: 3, potential: true },
     );
     assert.equal(
       (
@@ -215,7 +215,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
           [lateRemoteRow.rows[0]!.id],
         )
       ).rows[0].matcher_version,
-      2,
+      3,
       "la cache senza candidati resta rivalutabile anche dopo la classificazione corrente",
     );
     const secondCustomer = await database.getPool().query<{ id: string }>(
@@ -420,7 +420,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
           [remoteRow.rows[0]!.id],
         )
       ).rows[0],
-      { status: "UNKNOWN_REMOTE_STATE", matcher_version: 2 },
+      { status: "UNKNOWN_REMOTE_STATE", matcher_version: 3 },
     );
     assert.equal(await inbound.revokeArubaReadSessions(actor), 1);
     issued = await inbound.issueArubaReadSession("cached-matcher-device-5", actor);

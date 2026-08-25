@@ -72,7 +72,10 @@ export const arubaPotentialMatchSql = `EXISTS (
     AND (
       (aruba_matches.method <> 'MANUAL' AND (
         (aruba_matches.status = 'UNMATCHED'
-          AND coalesce((aruba_candidate ->> 'potential')::boolean, false))
+          AND (
+            coalesce((aruba_candidate ->> 'potential')::boolean, false)
+            OR coalesce((aruba_candidate ->> 'compatible')::boolean, false)
+          ))
         OR (aruba_matches.status = 'AMBIGUOUS'
           AND (
             coalesce((aruba_candidate ->> 'potential')::boolean, false)
