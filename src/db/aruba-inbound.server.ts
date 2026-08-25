@@ -6,6 +6,7 @@ import type pg from "pg";
 import { z } from "zod";
 
 import {
+  ARUBA_MATCHER_VERSION,
   groupOrderCandidates,
   hasAnomalousUnknownArubaStatuses,
   inventoryPageSchema,
@@ -46,6 +47,7 @@ import { AppError } from "../errors.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { localOrderDate } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
+import { reconcileCachedArubaMatcherUpgrade } from "./aruba-matcher-upgrade.server.ts";
 import {
   freezeArubaInventorySnapshot,
   type ArubaInventorySession,
@@ -53,12 +55,17 @@ import {
 import { storeImportedFile } from "./aruba.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { loadArubaReadSession, type ArubaReadSessionRow } from "./aruba-read-session.server.ts";
+import {
+  lockedRemoteMatch,
+  markRemoteProfileConflict,
+  type LockedRemoteMatch,
+} from "./aruba-remote-match.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
+import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 
 const READ_SESSION_TTL_MS = 8 * 60 * 60_000;
 const READ_LEASE_MS = 2 * 60_000;
-const MATCHER_VERSION = 1;
 
 export interface ArubaReadActor {
   id: number;
@@ -176,7 +183,7 @@ async function backfillHistoricalArubaDocuments(client: pg.PoolClient) {
       AND remote.remote_id = 'historical-document-' || documents.id
      WHERE documents.origin = 'ARUBA_HISTORY'
      ON CONFLICT (remote_document_id) DO NOTHING`,
-    [environment(), accountReference(), MATCHER_VERSION],
+    [environment(), accountReference(), ARUBA_MATCHER_VERSION],
   );
 }
 
@@ -259,6 +266,19 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
       [sessionEnvironment, sessionAccountReference],
     );
     if (active.rows[0]) throw new AppError("ARUBA_READ_SESSION_ACTIVE", 409);
+    await reconcileCachedArubaMatcherUpgrade(
+      client,
+      sessionEnvironment,
+      sessionAccountReference,
+      async (remoteId, remote) => {
+        const official = await loadLatestOfficialXml(client, remoteId);
+        const evidence = official ? officialEvidence(remote, official.xml) : remote;
+        await reconcileRemoteDocument(client, remoteId, evidence);
+        if (official && isEmissionConfirmed(evidence.status)) {
+          await materializeLatestOfficialXml(client, remoteId, true);
+        }
+      },
+    );
     await client.query(
       `INSERT INTO aruba_sync_sessions
         (id, environment, account_reference, device_id, token_hash, started_at,
@@ -467,22 +487,30 @@ async function orderCandidates(client: pg.PoolClient, remote: RemoteInventoryDoc
               SELECT sum(refunds.amount) FROM refunds
               WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
             ), 0))::integer AS billable_amount,
-            customers.display_name AS recipient_name,
-            coalesce((SELECT jsonb_agg(jsonb_build_object(
+            coalesce(nullif(billing_cases.customer_snapshot_json ->> 'displayName', ''),
+              customers.display_name) AS recipient_name,
+            coalesce(billing_cases.customer_snapshot_json -> 'taxIdentifiers',
+              (SELECT jsonb_agg(jsonb_build_object(
                         'type', order_tax_identifiers.type,
                         'countryCode', coalesce(order_tax_identifiers.country_code,
                           orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'),
                         'value', order_tax_identifiers.normalized_value))
-                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '[]')
+                      FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id),
+              '[]')
               AS recipient_tax_identifiers,
             concat_ws(' ',
-              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
-              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',
-              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}',
-              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'
+              coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,line1}',
+                orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}'),
+              coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,postalCode}',
+                orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}'),
+              coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,city}',
+                orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,city}'),
+              coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,countryCode}',
+                orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}')
             ) AS recipient_address
      FROM orders
      JOIN customers ON customers.id = orders.customer_id
+     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      LEFT JOIN LATERAL (
        SELECT document_orders.document_id
        FROM document_orders JOIN documents ON documents.id = document_orders.document_id
@@ -800,6 +828,13 @@ async function reconcileRemoteDocument(
   const compatibleIndex =
     status === "MATCHED" ? match.evaluations.findIndex((evaluation) => evaluation.compatible) : -1;
   const selected = compatibleIndex >= 0 ? evaluatedCandidates[compatibleIndex]!.source : null;
+  const reviewCandidates = match.evaluations
+    .map((evaluation, index) =>
+      evaluation.compatible || evaluation.potential ? evaluatedCandidates[index]!.source : null,
+    )
+    .filter((candidate): candidate is (typeof evaluatedCandidates)[number]["source"] =>
+      Boolean(candidate),
+    );
   let documentId: string | null = null;
   if (selected) {
     documentId = submitted?.id ?? null;
@@ -835,13 +870,29 @@ async function reconcileRemoteDocument(
       }
     }
   }
-  const previous = await client.query<{ method: string; status: string }>(
-    `SELECT method, status FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
+  const previous = await client.query<{
+    method: string;
+    status: string;
+    billing_case_id: string | null;
+    candidates_json: Array<{
+      candidateId?: string;
+      orderIds?: string[];
+      potential?: boolean;
+      compatible?: boolean;
+    }>;
+  }>(
+    `SELECT method, status, billing_case_id::text, candidates_json
+     FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
     [remoteId],
   );
   const compatibleCandidateObserved = match.evaluations.some((evaluation) => evaluation.compatible);
+  if (previous.rows[0]?.method === "MANUAL" && previous.rows[0].status === "MATCHED") {
+    if (remote.status === "REJECTED" && previous.rows[0].billing_case_id) {
+      await recomputeBillingCaseStatus(client, previous.rows[0].billing_case_id, true);
+    }
+    return;
+  }
   if (
-    (previous.rows[0]?.method === "MANUAL" && previous.rows[0].status === "MATCHED") ||
     (previous.rows[0]?.method === "MANUAL" &&
       previous.rows[0].status === "UNMATCHED" &&
       !compatibleCandidateObserved) ||
@@ -867,7 +918,7 @@ async function reconcileRemoteDocument(
       remoteId,
       status,
       selected && status === "MATCHED" ? "AUTOMATIC" : "NONE",
-      MATCHER_VERSION,
+      ARUBA_MATCHER_VERSION,
       documentId,
       selected?.id ?? null,
       selected?.billing_case_id ?? null,
@@ -882,12 +933,37 @@ async function reconcileRemoteDocument(
       ),
     ],
   );
-  if (selected && !isEmissionConfirmed(remote.status)) {
-    await client.query(
-      `UPDATE billing_cases SET status = 'NEEDS_REVIEW', updated_at = now()
-       WHERE id = $1 AND status IN ('DRAFT', 'READY')`,
-      [selected.billing_case_id],
-    );
+  const reviewCaseIds = [
+    ...new Set(
+      reviewCandidates
+        .map((candidate) => candidate.billing_case_id)
+        .filter((caseId): caseId is string => Boolean(caseId)),
+    ),
+  ];
+  const previousOrderIdSet = new Set<string>();
+  for (const candidate of previous.rows[0]?.candidates_json ?? []) {
+    if (!candidate.potential && !candidate.compatible) continue;
+    if (candidate.candidateId) previousOrderIdSet.add(candidate.candidateId);
+    for (const orderId of candidate.orderIds ?? []) previousOrderIdSet.add(orderId);
+  }
+  const previousCases = previousOrderIdSet.size
+    ? await client.query<{ id: string }>(
+        `SELECT DISTINCT billing_case_id::text AS id
+         FROM orders
+         WHERE id = ANY($1::bigint[]) AND billing_case_id IS NOT NULL`,
+        [[...previousOrderIdSet]],
+      )
+    : { rows: [] };
+  const affectedCaseIds = [
+    ...new Set([
+      ...reviewCaseIds,
+      ...previousCases.rows.map((billingCase) => billingCase.id),
+      ...(previous.rows[0]?.billing_case_id ? [previous.rows[0].billing_case_id] : []),
+    ]),
+  ];
+  for (const billingCaseId of affectedCaseIds) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Tutti i casi dipendono dal match appena aggiornato nella stessa transazione.
+    await recomputeBillingCaseStatus(client, billingCaseId, true);
   }
 }
 
@@ -965,42 +1041,6 @@ async function latestObservedRemote(client: pg.PoolClient, remoteDocumentId: str
   const parsed = remoteInventoryDocumentSchema.safeParse(latest.rows[0]?.payload);
   if (!parsed.success) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   return parsed.data;
-}
-
-interface LockedRemoteMatch {
-  id: string;
-  remote_id: string;
-  document_type: "TD01" | "TD04";
-  fiscal_year: number;
-  series: string | null;
-  fiscal_number: string | null;
-  document_date: string;
-  total_amount: number;
-  remote_status: ArubaRemoteStatus;
-  xml_sha256: string | null;
-  match_status: string;
-  match_method: string;
-  order_id: string | null;
-  document_id: string | null;
-  related_invoice_document_id: string | null;
-  refund_ids: string[];
-}
-
-async function lockedRemoteMatch(client: pg.PoolClient, remoteDocumentId: string) {
-  const result = await client.query<LockedRemoteMatch>(
-    `SELECT remote.id, remote.remote_id, remote.document_type, remote.fiscal_year,
-            remote.series, remote.fiscal_number, remote.document_date::text,
-            remote.total_amount, remote.remote_status, remote.xml_sha256,
-            matches.status AS match_status, matches.method AS match_method,
-            matches.order_id, matches.document_id,
-            matches.related_invoice_document_id, matches.refund_ids::text[]
-     FROM aruba_remote_documents AS remote
-     JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
-     WHERE remote.id = $1 AND remote.environment = $2 AND remote.account_reference = $3
-     FOR UPDATE OF remote, matches`,
-    [remoteDocumentId, environment(), accountReference()],
-  );
-  return result.rows[0] ?? null;
 }
 
 async function activeFiscalProfile(client: pg.PoolClient) {
@@ -1650,20 +1690,12 @@ async function materializeMatchedExternalDocument(
   try {
     identity = acceptedDocumentFiscalIdentity(xml);
   } catch {
-    await client.query(
-      `UPDATE aruba_document_matches SET status = 'PROFILE_CONFLICT', method = 'NONE',
-         document_id = NULL, updated_at = now() WHERE remote_document_id = $1`,
-      [remoteDocumentId],
-    );
+    await markRemoteProfileConflict(client, remote);
     return null;
   }
   const profile = await activeFiscalProfile(client);
   if (!profile || !acceptedProfileMatches(profile.profile, identity)) {
-    await client.query(
-      `UPDATE aruba_document_matches SET status = 'PROFILE_CONFLICT', method = 'NONE',
-         document_id = NULL, updated_at = now() WHERE remote_document_id = $1`,
-      [remoteDocumentId],
-    );
+    await markRemoteProfileConflict(client, remote);
     return null;
   }
   return remote.document_type === "TD01"
@@ -2111,7 +2143,7 @@ async function ingestParsedArubaPage(
              VALUES ($1, 'UNKNOWN_REMOTE_STATE', 'NONE', $2, '{}', '[]')
              ON CONFLICT (remote_document_id) DO UPDATE SET
                status = 'UNKNOWN_REMOTE_STATE', method = 'NONE', updated_at = now()`,
-          [current.id, MATCHER_VERSION],
+          [current.id, ARUBA_MATCHER_VERSION],
         );
       }
     }
@@ -2194,7 +2226,7 @@ async function ingestParsedArubaPage(
            VALUES ($1, 'ERROR', 'NONE', $2, '{"deduplicationCollision":true}', '[]')
            ON CONFLICT (remote_document_id) DO UPDATE SET
              status = 'ERROR', method = 'NONE', updated_at = now()`,
-          [collided.id, MATCHER_VERSION],
+          [collided.id, ARUBA_MATCHER_VERSION],
         );
       }
     }
@@ -2423,14 +2455,16 @@ const arubaPotentialMatchPredicate = `(matches.status = 'UNMATCHED'
   AND matches.method <> 'MANUAL'
   AND EXISTS (
     SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+    WHERE coalesce((candidate ->> 'potential')::boolean, false)
+      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
   ))`;
 
 const arubaExternalDocumentPredicate = `(matches.status = 'UNMATCHED' AND (
   (matches.method = 'MANUAL' AND remote.origin = 'ARUBA_EXTERNAL')
   OR (matches.method <> 'MANUAL' AND NOT EXISTS (
     SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+    WHERE coalesce((candidate ->> 'potential')::boolean, false)
+      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
   ))
 ))`;
 
@@ -2986,15 +3020,17 @@ export async function completeArubaPreflight(
     // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- La verifica autorevole usa lo stesso snapshot transazionale delle verifiche di copertura precedenti.
     const authoritativeCandidates = await client.query(
       `SELECT 1 FROM aruba_document_matches matches
-         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
+       JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
          WHERE remote.environment = $1 AND remote.account_reference = $2
-           AND remote.remote_status <> 'REJECTED' AND remote.document_type = $4 AND (
+           AND remote.remote_status <> 'REJECTED' AND remote.document_type = $4
+           AND NOT (matches.method = 'MANUAL' AND matches.status = 'UNMATCHED') AND (
            ($4 = 'TD01' AND (
              matches.order_id::text = ANY($3::text[])
              OR EXISTS (
              SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
              WHERE (
                coalesce((candidate ->> 'compatible')::boolean, false)
+               OR coalesce((candidate ->> 'potential')::boolean, false)
                OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
              ) AND (
                candidate ->> 'candidateId' = ANY($3::text[])
@@ -3513,6 +3549,7 @@ export async function resolveArubaDocumentMatch(
       order_id: string | null;
       candidates_json: Array<{
         candidateId?: string;
+        orderIds?: string[];
         compatible?: boolean;
         refundIds?: string[];
       }>;
@@ -3550,6 +3587,22 @@ export async function resolveArubaDocumentMatch(
     const selectedCandidate = current.candidates_json.find(
       (candidate) => candidate.candidateId === orderId && candidate.compatible,
     );
+    const candidateOrderIds = [
+      ...new Set(
+        current.candidates_json.flatMap((candidate) => [
+          ...(candidate.candidateId ? [candidate.candidateId] : []),
+          ...(candidate.orderIds ?? []),
+        ]),
+      ),
+    ];
+    const affectedCases = candidateOrderIds.length
+      ? await client.query<{ id: string }>(
+          `SELECT DISTINCT billing_case_id::text AS id
+           FROM orders
+           WHERE id = ANY($1::bigint[]) AND billing_case_id IS NOT NULL`,
+          [candidateOrderIds],
+        )
+      : { rows: [] };
     await client.query(
       `UPDATE aruba_document_matches SET status = 'MATCHED', method = 'MANUAL',
          order_id = $2, billing_case_id = (SELECT billing_case_id FROM orders WHERE id = $2),
@@ -3567,6 +3620,10 @@ export async function resolveArubaDocumentMatch(
     let documentId: string | null = null;
     if (isEmissionConfirmed(current.remote_status)) {
       documentId = await materializeLatestOfficialXml(client, remoteDocumentId, true);
+    }
+    for (const billingCase of affectedCases.rows) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Tutti i candidati dipendono dalla decisione manuale nella stessa transazione.
+      await recomputeBillingCaseStatus(client, billingCase.id, true);
     }
     await writeAudit(client, {
       actorType: "ADMIN",
@@ -3603,7 +3660,12 @@ export async function confirmArubaDocumentOutOfScope(
       billing_case_id: string | null;
       document_id: string | null;
       related_invoice_document_id: string | null;
-      candidates_json: Array<{ compatible?: boolean }>;
+      candidates_json: Array<{
+        candidateId?: string;
+        orderIds?: string[];
+        compatible?: boolean;
+        potential?: boolean;
+      }>;
       remote_status: ArubaRemoteStatus;
       origin: string;
       has_xml: boolean;
@@ -3636,7 +3698,7 @@ export async function confirmArubaDocumentOutOfScope(
     );
     if (
       !current ||
-      !["PROFILE_CONFLICT", "UNMATCHED"].includes(current.status) ||
+      !["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(current.status) ||
       (current.status === "UNMATCHED" && current.method === "MANUAL") ||
       !isEmissionConfirmed(current.remote_status) ||
       !current.has_xml ||
@@ -3649,6 +3711,21 @@ export async function confirmArubaDocumentOutOfScope(
     ) {
       throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
     }
+    const candidateOrderIdSet = new Set<string>();
+    for (const candidate of current.candidates_json) {
+      if (!candidate.potential) continue;
+      if (candidate.candidateId) candidateOrderIdSet.add(candidate.candidateId);
+      for (const orderId of candidate.orderIds ?? []) candidateOrderIdSet.add(orderId);
+    }
+    const candidateOrderIds = [...candidateOrderIdSet];
+    const affectedCases = candidateOrderIds.length
+      ? await client.query<{ id: string }>(
+          `SELECT DISTINCT billing_case_id::text AS id
+           FROM orders
+           WHERE id = ANY($1::bigint[]) AND billing_case_id IS NOT NULL`,
+          [candidateOrderIds],
+        )
+      : { rows: [] };
     await client.query(
       `UPDATE aruba_document_matches SET status = 'UNMATCHED', method = 'MANUAL',
          order_id = NULL, billing_case_id = NULL, document_id = NULL,
@@ -3661,6 +3738,10 @@ export async function confirmArubaDocumentOutOfScope(
       `UPDATE aruba_remote_documents SET origin = 'ARUBA_EXTERNAL' WHERE id = $1`,
       [remoteDocumentId],
     );
+    for (const billingCase of affectedCases.rows) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il ricalcolo condivide la decisione e la transazione correnti.
+      await recomputeBillingCaseStatus(client, billingCase.id);
+    }
     await writeAudit(client, {
       actorType: "ADMIN",
       actorId: String(actor.id),

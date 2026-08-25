@@ -16,6 +16,7 @@ import {
 import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
 import {
+  arubaPotentialMatchSql,
   customerProfileMismatchSql,
   hasCaseOrdersSql,
   hasIncompatibleCaseOrdersSql,
@@ -27,12 +28,8 @@ import {
 } from "./billing-case-sql.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
-import {
-  groupOrder,
-  reconcileInvoiceDraft,
-  recomputeBillingCaseStatus,
-  type Actor,
-} from "./order-import.server.ts";
+import { groupOrder, reconcileInvoiceDraft, type Actor } from "./order-import.server.ts";
+import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 
 export interface EditableCustomer {
@@ -72,6 +69,7 @@ type BillingCaseAnomaly =
   | "CUSTOMER_INCOMPLETE"
   | "CUSTOMER_MISMATCH"
   | "SOURCE_CONFLICT"
+  | "ARUBA_POTENTIAL_MATCH"
   | "ORDER_NOT_BILLABLE";
 
 /**
@@ -81,9 +79,11 @@ type BillingCaseAnomaly =
 function billingCaseAnomalies(
   orders: CaseOrder[],
   customerReviewRequired: boolean,
+  arubaPotentialMatch: boolean,
 ): BillingCaseAnomaly[] {
   const anomalies = new Set<BillingCaseAnomaly>();
   if (customerReviewRequired) anomalies.add("CUSTOMER_INCOMPLETE");
+  if (arubaPotentialMatch) anomalies.add("ARUBA_POTENTIAL_MATCH");
   for (const order of orders) {
     if (order.has_unsettled_payment) {
       anomalies.add("PENDING_PAYMENT");
@@ -111,6 +111,7 @@ interface BillingCaseDetailRow {
   revision: number;
   customer_corrected_at: string | null;
   review_required: boolean;
+  aruba_potential_match: boolean;
   customer_snapshot_json: EditableCustomer;
   reactivation_blocker: "EMPTY" | "INCOMPATIBLE_ORDERS" | "OTHER_OPEN_CASE" | null;
   orders: CaseOrder[];
@@ -601,6 +602,7 @@ export async function getBillingCase(id: string) {
             billing_cases.customer_snapshot_json ->> 'email' AS customer_email,
             (billing_cases.customer_snapshot_json ->> 'reviewRequired')::boolean AS review_required,
             billing_cases.customer_snapshot_json -> 'billingAddress' AS billing_address_json,
+            ${arubaPotentialMatchSql} AS aruba_potential_match,
             ${reactivationBlockerSql} AS reactivation_blocker,
             coalesce((
               SELECT jsonb_agg(to_jsonb(case_orders) ORDER BY case_orders.id)
@@ -666,6 +668,6 @@ export async function getBillingCase(id: string) {
   if (!row) return null;
   return {
     ...row,
-    anomalies: billingCaseAnomalies(row.orders, row.review_required),
+    anomalies: billingCaseAnomalies(row.orders, row.review_required, row.aruba_potential_match),
   };
 }

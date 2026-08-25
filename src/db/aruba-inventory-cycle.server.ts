@@ -4,6 +4,7 @@ import type pg from "pg";
 import { z } from "zod";
 
 import { ARUBA_PANEL_ORIGIN } from "../aruba.ts";
+import { ARUBA_MATCHER_VERSION } from "../aruba-inbound.ts";
 import { getConfig } from "../config.server.ts";
 import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
@@ -380,9 +381,9 @@ export async function completeStableArubaInventory(
         );
         await client.query(
           `UPDATE aruba_document_matches SET status = 'UNKNOWN_REMOTE_STATE', method = 'NONE',
-             matcher_version = 1, updated_at = now()
+             matcher_version = $2, updated_at = now()
            WHERE remote_document_id = ANY($1::bigint[])`,
-          [missingIds],
+          [missingIds, ARUBA_MATCHER_VERSION],
         );
       }
     }

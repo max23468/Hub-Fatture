@@ -226,6 +226,93 @@ test("un candidato univoco richiede data, importo e identità coerenti", () => {
   assert.equal(result.status, "MATCHED");
 });
 
+test("la griglia Aruba propone un nome specifico solo con data e importo esatti", () => {
+  const inventoryOnly = {
+    ...remote,
+    recipientTaxId: null,
+    recipientTaxIdentifiers: [],
+    recipientAddress: null,
+  };
+  const candidate = {
+    id: "1",
+    provider: "SHOPIFY" as const,
+    displayNumber: "1001",
+    localOrderDate: "2026-08-12",
+    billableAmount: 12_300,
+    recipientName: "Mario Rossi",
+    recipientTaxIdentifiers: [],
+    recipientAddress: null,
+  };
+  const potential = selectOrderMatch(inventoryOnly, [candidate]);
+  assert.equal(potential.status, "UNMATCHED");
+  assert.equal(potential.evaluations[0]?.potential, true);
+  assert.equal(
+    selectOrderMatch(inventoryOnly, [{ ...candidate, localOrderDate: "2026-08-11" }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(inventoryOnly, [{ ...candidate, localOrderDate: "2026-08-11" }]).evaluations[0]
+      ?.potential,
+    false,
+  );
+  assert.equal(
+    selectOrderMatch({ ...inventoryOnly, recipientName: "Mario" }, [
+      { ...candidate, recipientName: "Mario" },
+    ]).status,
+    "UNMATCHED",
+  );
+});
+
+test("due ordini con stesso nome, data e importo diventano ambigui", () => {
+  const inventoryOnly = {
+    ...remote,
+    recipientTaxId: null,
+    recipientTaxIdentifiers: [],
+    recipientAddress: null,
+  };
+  const candidate = {
+    provider: "EBAY" as const,
+    displayNumber: "A",
+    localOrderDate: "2026-08-12",
+    billableAmount: 12_300,
+    recipientName: "Mario Rossi",
+    recipientTaxIdentifiers: [],
+    recipientAddress: null,
+  };
+  assert.equal(
+    selectOrderMatch(inventoryOnly, [
+      { ...candidate, id: "1" },
+      { ...candidate, id: "2" },
+    ]).status,
+    "AMBIGUOUS",
+  );
+});
+
+test("i nomi del destinatario conservano lettere Unicode, forme brevi e mononimi", () => {
+  for (const recipientName of ["Γιάννης Παπαδόπουλος", "Анна Иванова", "Li Na", "Numisleo"]) {
+    const inventoryOnly = {
+      ...remote,
+      recipientName,
+      recipientTaxId: null,
+      recipientTaxIdentifiers: [],
+      recipientAddress: null,
+    };
+    const result = selectOrderMatch(inventoryOnly, [
+      {
+        id: recipientName,
+        provider: "SHOPIFY",
+        displayNumber: "1001",
+        localOrderDate: "2026-08-12",
+        billableAmount: 12_300,
+        recipientName,
+        recipientTaxIdentifiers: [],
+        recipientAddress: null,
+      },
+    ]);
+    assert.equal(result.evaluations[0]?.potential, true);
+  }
+});
+
 test("l’evidenza XML confronta tutti gli identificativi fiscali del destinatario", () => {
   const result = selectOrderMatch(
     {

@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+export const ARUBA_MATCHER_VERSION = 2;
+
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",
   "SDI_PROCESSING",
@@ -207,7 +209,7 @@ export function normalizedMatchText(value: string | null | undefined): string | 
   const normalized = value
     ?.normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^A-Za-z0-9]/g, "")
+    .replace(/[^\p{L}\p{N}]/gu, "")
     .toUpperCase();
   return normalized || null;
 }
@@ -254,10 +256,12 @@ export interface CandidateEvaluation {
   candidateId: string;
   orderIds: string[];
   compatible: boolean;
+  potential: boolean;
   signals: {
     provider: boolean;
     explicitReference: boolean;
     date: boolean;
+    sameDay: boolean;
     total: boolean;
     recipient: boolean;
     taxId: boolean;
@@ -269,6 +273,10 @@ function daysAfter(documentDate: string, sourceDate: string): number {
   return (
     (Date.parse(`${documentDate}T00:00:00Z`) - Date.parse(`${sourceDate}T00:00:00Z`)) / 86_400_000
   );
+}
+
+function hasSpecificRecipientName(value: string | null | undefined): boolean {
+  return (normalizedMatchText(value)?.length ?? 0) >= 2;
 }
 
 export function evaluateOrderCandidate(
@@ -291,6 +299,7 @@ export function evaluateOrderCandidate(
   });
   const elapsedDays = daysAfter(remote.documentDate, candidate.localOrderDate);
   const date = elapsedDays >= 0 && elapsedDays <= 31;
+  const sameDay = elapsedDays === 0;
   const total = remote.totalAmount === candidate.billableAmount;
   const remoteName = normalizedMatchText(remote.recipientName);
   const recipient = Boolean(
@@ -318,6 +327,8 @@ export function evaluateOrderCandidate(
   const inferredRecipientIsCompatible = remoteTaxIds.length
     ? taxId && identitySignals >= 2
     : identitySignals >= 2;
+  const potential =
+    provider && sameDay && total && recipient && hasSpecificRecipientName(remote.recipientName);
   return {
     candidateId: candidate.id,
     orderIds: candidate.orderIds ?? [candidate.id],
@@ -326,7 +337,8 @@ export function evaluateOrderCandidate(
       date &&
       total &&
       ((explicitReference && referencedRecipientIsCompatible) || inferredRecipientIsCompatible),
-    signals: { provider, explicitReference, date, total, recipient, taxId, address },
+    potential,
+    signals: { provider, explicitReference, date, sameDay, total, recipient, taxId, address },
   };
 }
 
@@ -384,8 +396,14 @@ export function selectOrderMatch(
 ): { status: "MATCHED" | "UNMATCHED" | "AMBIGUOUS"; evaluations: CandidateEvaluation[] } {
   const evaluations = candidates.map((candidate) => evaluateOrderCandidate(remote, candidate));
   const compatible = evaluations.filter((candidate) => candidate.compatible);
+  const potential = evaluations.filter((candidate) => candidate.potential);
   return {
-    status: compatible.length === 1 ? "MATCHED" : compatible.length ? "AMBIGUOUS" : "UNMATCHED",
+    status:
+      compatible.length === 1
+        ? "MATCHED"
+        : compatible.length || potential.length > 1
+          ? "AMBIGUOUS"
+          : "UNMATCHED",
     evaluations,
   };
 }
