@@ -93,7 +93,6 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
           const payload = (await response.json()) as { token?: unknown };
           if (typeof payload.token !== "string") throw new Error("HUB_ERROR");
           tokenRef.current = payload.token;
-          setStatus(copy.settings.arubaBridgeActive);
           return payload.token;
         })
         .finally(() => {
@@ -177,6 +176,7 @@ export default function ArubaBridge({ loaderData }: Route.ComponentProps) {
             targetOrigin: allowedPanelOrigin,
           });
           readyRef.current = true;
+          setStatus(copy.settings.arubaBridgeActive);
         } catch {
           readyRef.current = false;
           startedRef.current = false;

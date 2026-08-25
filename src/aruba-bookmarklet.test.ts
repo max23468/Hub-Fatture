@@ -65,6 +65,8 @@ test("il lettore Aruba corrente conserva le guardie della sincronizzazione", () 
   assert.match(runtime, /sync\/heartbeat/);
   assert.match(runtime, /const fullScan=manifest\.fullScanRequired===true/);
   assert.match(runtime, /streamInfo\.incrementalFrom\.slice\(0,10\)/);
+  assert.match(runtime, /new runtime\.util\.Sorter\(\{property:"data",direction:"DESC"\}\)/);
+  assert.match(runtime, /await ensureIncrementalOrder\(\)/);
   assert.match(runtime, /documents\.every\(document=>document\.documentDate<incrementalFrom\)/);
   assert.match(runtime, /selectStream\(stream\)/);
   assert.match(runtime, /arubacombobox-filterDate/);

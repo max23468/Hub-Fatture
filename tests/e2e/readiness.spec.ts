@@ -1479,6 +1479,13 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     delete runtime.__arubaConcurrentPolling;
   });
   await bridgePage.waitForEvent("close", { timeout: 10_000 });
+  expect(
+    await arubaPage.evaluate(
+      () =>
+        (window as typeof window & { __HUB_FATTURE_ARUBA_RUNTIME_ACTIVE__?: boolean })
+          .__HUB_FATTURE_ARUBA_RUNTIME_ACTIVE__,
+    ),
+  ).toBeUndefined();
   const preflightDate = `${new Date().getUTCFullYear()}-01-03`;
   const preflightClient = new pg.Client({ connectionString: databaseUrl });
   await preflightClient.connect();

@@ -663,6 +663,83 @@ async function assertDateFilterInactive(page: Page) {
   if ((await candidates.first().inputValue()).trim()) throw new Error("ARUBA_FILTER_ACTIVE");
 }
 
+async function ensureProductionIncrementalOrder(page: Page) {
+  await armProductionGridReload(page);
+  await armProductionRequestCapture(page);
+  const dataRequests = observeProductionDataRequests(page);
+  try {
+    const changed = await page.evaluate(() => {
+      const root = document.querySelector<HTMLElement>(".aruba-grid-fatture-inviate");
+      if (!root) throw new Error("DOM_UNRECOGNIZED");
+      const runtime = (
+        window as typeof window & {
+          Ext?: {
+            ComponentQuery?: { query: (selector: string) => unknown[] };
+            util?: { Sorter?: new (config: { property: string; direction: string }) => unknown };
+          };
+        }
+      ).Ext;
+      if (!runtime?.ComponentQuery?.query || !runtime.util?.Sorter) {
+        if (
+          root.dataset.arubaSortProperty === "data" &&
+          root.dataset.arubaSortDirection === "DESC"
+        ) {
+          return false;
+        }
+        throw new Error("DOM_UNRECOGNIZED");
+      }
+      const stores = new Set<{
+        currentPage: number;
+        getModel?: () => { $className?: string };
+        getSorters: () => {
+          add: (sorter: unknown) => void;
+          getAt: (
+            index: number,
+          ) => { getDirection?: () => string; getProperty?: () => string } | undefined;
+          removeAll: () => void;
+        };
+        loadPage: (pageNumber: number) => void;
+      }>();
+      for (const component of runtime.ComponentQuery.query("grid,arubalockedgrid")) {
+        const candidate = component as {
+          element?: { dom?: HTMLElement };
+          getStore?: () => unknown;
+        };
+        const element = candidate.element?.dom;
+        if (!element || (!element.contains(root) && !root.contains(element))) continue;
+        const store = candidate.getStore?.() as typeof stores extends Set<infer T> ? T : never;
+        if (store) stores.add(store);
+      }
+      const matching = [...stores].filter((store) =>
+        store.getModel?.().$className?.includes("FatturaInviataSingoloList"),
+      );
+      if (matching.length !== 1) throw new Error("DOM_UNRECOGNIZED");
+      const store = matching[0]!;
+      const first = store.getSorters().getAt(0);
+      if (
+        first?.getProperty?.() === "data" &&
+        first.getDirection?.().toUpperCase() === "DESC" &&
+        store.currentPage === 1
+      ) {
+        return false;
+      }
+      store.currentPage = 1;
+      store.getSorters().removeAll();
+      store.getSorters().add(new runtime.util.Sorter({ property: "data", direction: "DESC" }));
+      store.loadPage(1);
+      return true;
+    });
+    if (!changed) return;
+    const captured = await finishProductionRequestCapture(page);
+    await dataRequests.waitFor(captured);
+    await waitForProductionGridReload(page);
+  } finally {
+    await finishProductionRequestCapture(page);
+    dataRequests.dispose();
+    await clearProductionGridReload(page);
+  }
+}
+
 async function armProductionGridReload(page: Page) {
   await page.evaluate(() => {
     const runtime = window as typeof window & {
@@ -1064,6 +1141,11 @@ export async function runArubaReadCycle(
     await heartbeat();
     const stream = streamManifest.name;
     await selectStream(page, stream);
+    const incrementalFrom = streamManifest.incrementalFrom?.slice(0, 10) ?? null;
+    if (!fullScan && !incrementalFrom) throw new Error("READ_SYNC_FAILED");
+    if (!fullScan && manifest.environment === "PRODUCTION") {
+      await ensureProductionIncrementalOrder(page);
+    }
     let pageOrdinal = 1;
     while (true) {
       await heartbeat();
@@ -1075,8 +1157,6 @@ export async function runArubaReadCycle(
         pageOrdinal,
         manifest.environment,
       );
-      const incrementalFrom = streamManifest.incrementalFrom?.slice(0, 10) ?? null;
-      if (!fullScan && !incrementalFrom) throw new Error("READ_SYNC_FAILED");
       const boundaryReached =
         !fullScan &&
         inventory.documents.length > 0 &&

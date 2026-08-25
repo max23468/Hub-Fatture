@@ -793,9 +793,9 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
           if (request.path === "/api/aruba/sync/manifest") {
             payload = {
               accountIdentity: "synthetic-aruba-account",
-              fullScanRequired: true,
+              fullScanRequired: false,
               incrementalOverlapDays: 7,
-              streams: [{ name: "invoices:${year}", incrementalFrom: null }]
+              streams: [{ name: "invoices:${year}", incrementalFrom: "${year}-08-09" }]
             };
           } else if (request.path === "/api/aruba/sync/preflight") {
             payload = { work: [] };
@@ -861,7 +861,8 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
       <input aria-label="Seleziona" readonly value="">
     </div>
     <button aria-label="RICERCA"></button>
-    <div class="aruba-grid-fatture-inviate" data-page="1">
+    <div class="aruba-grid-fatture-inviate" data-page="1"
+         data-aruba-sort-property="dataCreazione" data-aruba-sort-direction="ASC">
       <div class="x-pagingtoolbar x-disabled" aria-disabled="true">
         <div class="pagingtoolbar-first"><button disabled>Prima pagina</button></div>
         <button aria-label="{app.buttons.labels.nextPage}">Successiva</button>
@@ -878,6 +879,38 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
       }
       const requestKnownOnlyToAruba = window.fetch.bind(window);
       const grid = document.querySelector(".aruba-grid-fatture-inviate");
+      let activeSorter = {
+        getProperty: () => "dataCreazione",
+        getDirection: () => "ASC"
+      };
+      const sorterCollection = {
+        getAt: () => activeSorter,
+        removeAll: () => { activeSorter = null; },
+        add: (sorter) => { activeSorter = sorter; }
+      };
+      const productionStore = {
+        currentPage: 3,
+        getModel: () => ({ $className: "FepaApp.model.fatturaInviataSingolo.FatturaInviataSingoloList" }),
+        getSorters: () => sorterCollection,
+        loadPage: (pageNumber) => {
+          productionStore.currentPage = pageNumber;
+          fetch("/sort-observable").then(() => {
+            grid.dataset.arubaSortProperty = activeSorter.getProperty();
+            grid.dataset.arubaSortDirection = activeSorter.getDirection();
+          });
+        }
+      };
+      window.Ext = {
+        ComponentQuery: {
+          query: () => [{ element: { dom: grid }, getStore: () => productionStore }]
+        },
+        util: {
+          Sorter: function(config) {
+            this.getProperty = () => config.property;
+            this.getDirection = () => config.direction;
+          }
+        }
+      };
       let currentPage = 1;
       const next = grid.querySelector('button[aria-label*="nextPage"]');
       next.addEventListener("click", () => {
@@ -923,6 +956,14 @@ test("il preferito attende la rete osservabile e usa il DOM come fallback di pag
   );
   await expect(page.locator('[data-reference="arubacombobox-filterDate"] input')).toHaveValue("");
   await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute("data-page", "3");
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute(
+    "data-aruba-sort-property",
+    "data",
+  );
+  await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute(
+    "data-aruba-sort-direction",
+    "DESC",
+  );
   expect(
     await bridge.evaluate(() =>
       (
