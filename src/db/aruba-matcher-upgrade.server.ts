@@ -2,10 +2,7 @@ import type pg from "pg";
 
 import {
   ARUBA_MATCHER_VERSION,
-  groupOrderCandidates,
   remoteInventoryDocumentSchema,
-  selectOrderMatch,
-  type ArubaOrderCandidate,
   type RemoteInventoryDocument,
 } from "../aruba-inbound.ts";
 
@@ -15,55 +12,11 @@ export async function reconcileCachedArubaMatcherUpgrade(
   account: string,
   reconcile: (remoteId: string, remote: RemoteInventoryDocument) => Promise<void>,
 ) {
-  const unresolvedOrders = await client.query<{
-    id: string;
-    provider: "SHOPIFY" | "EBAY";
-    display_number: string;
-    local_order_date: string;
-    billable_amount: number;
-    recipient_name: string;
-    billing_case_id: string | null;
-  }>(
-    `SELECT orders.id::text, orders.provider, orders.display_number,
-            orders.local_order_date::text, orders.billing_case_id::text,
-            coalesce(nullif(billing_cases.customer_snapshot_json ->> 'displayName', ''),
-              customers.display_name) AS recipient_name,
-            (orders.gross_amount - orders.deducted_shopify_payments_fee_amount - coalesce((
-              SELECT sum(refunds.amount) FROM refunds
-              WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
-            ), 0))::integer AS billable_amount
-     FROM orders
-     JOIN customers ON customers.id = orders.customer_id
-     LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
-     WHERE orders.trigger_status NOT IN (
-       'INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE'
-     )
-     ORDER BY orders.id`,
-  );
-  const individualCandidates: Array<ArubaOrderCandidate & { billingCaseId?: string | null }> =
-    unresolvedOrders.rows.map((order) => ({
-      id: order.id,
-      billingCaseId: order.billing_case_id,
-      provider: order.provider,
-      displayNumber: order.display_number,
-      localOrderDate: order.local_order_date,
-      billableAmount: order.billable_amount,
-      recipientName: order.recipient_name,
-      recipientTaxIdentifiers: [],
-      recipientAddress: null,
-    }));
-  const invoiceCandidates = [
-    ...individualCandidates,
-    ...groupOrderCandidates(individualCandidates).filter(
-      (candidate) => (candidate.orderIds?.length ?? 1) > 1,
-    ),
-  ];
   const cached = await client.query<{
     id: string;
     payload: unknown;
-    candidates_json: Array<{ potential?: boolean }>;
   }>(
-    `SELECT remote.id::text, latest.payload, matches.candidates_json
+    `SELECT remote.id::text, latest.payload
      FROM aruba_remote_documents remote
      JOIN aruba_document_matches matches ON matches.remote_document_id = remote.id
      JOIN LATERAL (
@@ -107,17 +60,6 @@ export async function reconcileCachedArubaMatcherUpgrade(
     const parsed = remoteInventoryDocumentSchema.safeParse(row.payload);
     if (!parsed.success) {
       invalidIds.push(row.id);
-      continue;
-    }
-    if (
-      parsed.data.documentType === "TD01" &&
-      !row.candidates_json.some((candidate) => candidate.potential) &&
-      !selectOrderMatch(parsed.data, invoiceCandidates).evaluations.some(
-        (candidate) => candidate.potential || candidate.compatible,
-      )
-    ) {
-      // Un documento senza candidati deve restare rivalutabile: un ordine coerente
-      // può arrivare da Shopify/eBay dopo questa lettura della cache Aruba.
       continue;
     }
     // react-doctor-disable-next-line react-doctor/async-await-in-loop -- I match condividono la stessa transazione e vengono aggiornati in ordine.

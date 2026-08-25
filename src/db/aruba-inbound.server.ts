@@ -267,11 +267,11 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
       sessionAccountReference,
       async (remoteId, remote) => {
         const official = await loadLatestOfficialXml(client, remoteId);
-        await reconcileRemoteDocument(
-          client,
-          remoteId,
-          official ? officialEvidence(remote, official.xml) : remote,
-        );
+        const evidence = official ? officialEvidence(remote, official.xml) : remote;
+        await reconcileRemoteDocument(client, remoteId, evidence);
+        if (official && isEmissionConfirmed(evidence.status)) {
+          await materializeLatestOfficialXml(client, remoteId, true);
+        }
       },
     );
     await client.query(
