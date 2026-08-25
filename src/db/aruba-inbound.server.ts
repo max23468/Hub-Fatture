@@ -55,6 +55,11 @@ import {
 import { storeImportedFile } from "./aruba.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { loadArubaReadSession, type ArubaReadSessionRow } from "./aruba-read-session.server.ts";
+import {
+  lockedRemoteMatch,
+  markRemoteProfileConflict,
+  type LockedRemoteMatch,
+} from "./aruba-remote-match.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
@@ -1038,42 +1043,6 @@ async function latestObservedRemote(client: pg.PoolClient, remoteDocumentId: str
   return parsed.data;
 }
 
-interface LockedRemoteMatch {
-  id: string;
-  remote_id: string;
-  document_type: "TD01" | "TD04";
-  fiscal_year: number;
-  series: string | null;
-  fiscal_number: string | null;
-  document_date: string;
-  total_amount: number;
-  remote_status: ArubaRemoteStatus;
-  xml_sha256: string | null;
-  match_status: string;
-  match_method: string;
-  order_id: string | null;
-  document_id: string | null;
-  related_invoice_document_id: string | null;
-  refund_ids: string[];
-}
-
-async function lockedRemoteMatch(client: pg.PoolClient, remoteDocumentId: string) {
-  const result = await client.query<LockedRemoteMatch>(
-    `SELECT remote.id, remote.remote_id, remote.document_type, remote.fiscal_year,
-            remote.series, remote.fiscal_number, remote.document_date::text,
-            remote.total_amount, remote.remote_status, remote.xml_sha256,
-            matches.status AS match_status, matches.method AS match_method,
-            matches.order_id, matches.document_id,
-            matches.related_invoice_document_id, matches.refund_ids::text[]
-     FROM aruba_remote_documents AS remote
-     JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
-     WHERE remote.id = $1 AND remote.environment = $2 AND remote.account_reference = $3
-     FOR UPDATE OF remote, matches`,
-    [remoteDocumentId, environment(), accountReference()],
-  );
-  return result.rows[0] ?? null;
-}
-
 async function activeFiscalProfile(client: pg.PoolClient) {
   const result = await client.query<{ version: number; profile_json: unknown }>(
     `SELECT version, profile_json FROM fiscal_profiles
@@ -1721,20 +1690,12 @@ async function materializeMatchedExternalDocument(
   try {
     identity = acceptedDocumentFiscalIdentity(xml);
   } catch {
-    await client.query(
-      `UPDATE aruba_document_matches SET status = 'PROFILE_CONFLICT', method = 'NONE',
-         document_id = NULL, updated_at = now() WHERE remote_document_id = $1`,
-      [remoteDocumentId],
-    );
+    await markRemoteProfileConflict(client, remote);
     return null;
   }
   const profile = await activeFiscalProfile(client);
   if (!profile || !acceptedProfileMatches(profile.profile, identity)) {
-    await client.query(
-      `UPDATE aruba_document_matches SET status = 'PROFILE_CONFLICT', method = 'NONE',
-         document_id = NULL, updated_at = now() WHERE remote_document_id = $1`,
-      [remoteDocumentId],
-    );
+    await markRemoteProfileConflict(client, remote);
     return null;
   }
   return remote.document_type === "TD01"

@@ -505,6 +505,25 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       "NEEDS_REVIEW",
       "un match non terminale resta bloccante anche se è compatibile",
     );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches AS matches
+       SET status = 'PROFILE_CONFLICT', method = 'NONE'
+       FROM aruba_remote_documents AS remote
+       WHERE matches.remote_document_id = remote.id
+         AND remote.remote_id = 'REMOTE-REJECTED-METADATA'`,
+    );
+    await database.withTransaction((client) =>
+      billingCaseStatus.recomputeBillingCaseStatus(client, billingCase.rows[0]!.id),
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
+      ).rows[0].status,
+      "NEEDS_REVIEW",
+      "un conflitto dell’XML ufficiale trattiene la preparazione candidata",
+    );
     await inbound.ingestArubaInventoryPage(issued.token, {
       stream: "invoices:2026",
       scanOrdinal: 3,
