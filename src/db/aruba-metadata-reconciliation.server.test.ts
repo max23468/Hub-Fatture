@@ -272,11 +272,38 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
     await database.getPool().query(
       `UPDATE aruba_document_matches
        SET candidates_json = (
-         SELECT jsonb_agg(jsonb_set(candidate, '{compatible}', 'true'))
+         SELECT jsonb_agg(
+           jsonb_set(jsonb_set(candidate, '{compatible}', 'true'), '{potential}', 'false')
+         )
          FROM jsonb_array_elements(candidates_json) candidate
        )
        WHERE remote_document_id = $1`,
       [remoteRow.rows[0]!.id],
+    );
+    await database.getPool().query(
+      `UPDATE billing_cases SET status = 'READY'
+       WHERE id = ANY($1::bigint[])`,
+      [[billingCase.rows[0]!.id, secondBillingCase.rows[0]!.id]],
+    );
+    await database.withTransaction(async (client) => {
+      await billingCaseStatus.recomputeBillingCaseStatus(client, billingCase.rows[0]!.id, true);
+      await billingCaseStatus.recomputeBillingCaseStatus(
+        client,
+        secondBillingCase.rows[0]!.id,
+        true,
+      );
+    });
+    assert.deepEqual(
+      (
+        await database
+          .getPool()
+          .query<{ status: string }>(
+            `SELECT status FROM billing_cases WHERE id = ANY($1::bigint[]) ORDER BY id`,
+            [[billingCase.rows[0]!.id, secondBillingCase.rows[0]!.id]],
+          )
+      ).rows.map((row) => row.status),
+      ["NEEDS_REVIEW", "NEEDS_REVIEW"],
+      "due candidati compatibili ambigui restano da verificare anche fuori dall’euristica potenziale",
     );
     await inbound.resolveArubaDocumentMatch(
       remoteRow.rows[0]!.id,

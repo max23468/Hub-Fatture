@@ -71,8 +71,13 @@ export const arubaPotentialMatchSql = `EXISTS (
   WHERE aruba_matches.method <> 'MANUAL'
     AND aruba_remote.remote_status <> 'REJECTED'
     AND (
-      (aruba_matches.status IN ('UNMATCHED', 'AMBIGUOUS')
+      (aruba_matches.status = 'UNMATCHED'
         AND coalesce((aruba_candidate ->> 'potential')::boolean, false))
+      OR (aruba_matches.status = 'AMBIGUOUS'
+        AND (
+          coalesce((aruba_candidate ->> 'potential')::boolean, false)
+          OR coalesce((aruba_candidate ->> 'compatible')::boolean, false)
+        ))
       OR (aruba_matches.status = 'MATCHED'
         AND aruba_remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING')
         AND coalesce((aruba_candidate ->> 'compatible')::boolean, false))
