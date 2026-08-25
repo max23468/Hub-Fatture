@@ -288,6 +288,31 @@ test("due ordini con stesso nome, data e importo diventano ambigui", () => {
   );
 });
 
+test("i nomi del destinatario conservano le lettere Unicode", () => {
+  for (const recipientName of ["Γιάννης Παπαδόπουλος", "Анна Иванова"]) {
+    const inventoryOnly = {
+      ...remote,
+      recipientName,
+      recipientTaxId: null,
+      recipientTaxIdentifiers: [],
+      recipientAddress: null,
+    };
+    const result = selectOrderMatch(inventoryOnly, [
+      {
+        id: recipientName,
+        provider: "SHOPIFY",
+        displayNumber: "1001",
+        localOrderDate: "2026-08-12",
+        billableAmount: 12_300,
+        recipientName,
+        recipientTaxIdentifiers: [],
+        recipientAddress: null,
+      },
+    ]);
+    assert.equal(result.evaluations[0]?.potential, true);
+  }
+});
+
 test("l’evidenza XML confronta tutti gli identificativi fiscali del destinatario", () => {
   const result = selectOrderMatch(
     {

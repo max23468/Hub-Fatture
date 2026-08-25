@@ -209,7 +209,7 @@ export function normalizedMatchText(value: string | null | undefined): string | 
   const normalized = value
     ?.normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^A-Za-z0-9]/g, "")
+    .replace(/[^\p{L}\p{N}]/gu, "")
     .toUpperCase();
   return normalized || null;
 }
@@ -279,7 +279,7 @@ function hasSpecificRecipientName(value: string | null | undefined): boolean {
   const tokens = value
     ?.normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")
-    .split(/[^A-Za-z0-9]+/)
+    .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean);
   return Boolean(tokens && tokens.length >= 2 && tokens.join("").length >= 6);
 }
