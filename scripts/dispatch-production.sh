@@ -2,7 +2,7 @@
 set -eu
 
 commit=${1:-}
-publish_release=${2:-true}
+publish_release=${2:-}
 
 if [ "${#commit}" -ne 40 ]; then
   echo "Uso: scripts/dispatch-production.sh <commit-main-40-caratteri> [true|false]" >&2
@@ -15,6 +15,19 @@ case "$commit" in
     ;;
 esac
 
+repository=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+default_branch=$(gh api "repos/$repository" --jq .default_branch)
+remote_commit=$(gh api "repos/$repository/commits/$commit" --jq .sha)
+test "$remote_commit" = "$commit"
+
+version=$(gh api "repos/$repository/contents/package.json?ref=$commit" --jq .content | base64 --decode | jq -er .version)
+if [ -z "$publish_release" ]; then
+  if [ "$version" = "1.0.0" ]; then
+    echo "Per 1.0.0 il secondo argomento true|false è obbligatorio e rappresenta l'autorizzazione distinta alla release." >&2
+    exit 2
+  fi
+  publish_release=true
+fi
 case "$publish_release" in
   true | false) ;;
   *)
@@ -22,11 +35,6 @@ case "$publish_release" in
     exit 2
     ;;
 esac
-
-repository=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
-default_branch=$(gh api "repos/$repository" --jq .default_branch)
-remote_commit=$(gh api "repos/$repository/commits/$commit" --jq .sha)
-test "$remote_commit" = "$commit"
 
 comparison=$(gh api "repos/$repository/compare/$commit...$default_branch" --jq .status)
 case "$comparison" in

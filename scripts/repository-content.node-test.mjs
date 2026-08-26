@@ -357,6 +357,14 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /\.imageDigest == \.deployedImageDigest/);
   assert.match(workflow, /rollback_digest=\$rollback_digest/);
   assert.match(workflow, /live_digest=\$live_digest/);
+  assert.match(
+    workflow,
+    /if sudo test -f \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json/,
+  );
+  assert.match(workflow, /Ricevuta assente: esecuzione del percorso di bootstrap Production/);
+  assert.match(workflow, /deploy_runtime=false/);
+  assert.match(workflow, /steps\.baseline\.outputs\.deploy_runtime == 'true'/);
+  assert.match(workflow, /Il candidato è già live: il redeploy viene saltato/);
   const release = workflow.slice(workflow.indexOf("\n  release:"));
   assert.match(release, /name: GitHub Release immutabile/);
   assert.match(release, /needs\.deploy\.result == 'success'/);
@@ -704,6 +712,14 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     await readFile(path.join(root, "ops/provision-production.sh"), "utf8"),
     /mask rpcbind\.socket rpcbind\.service/,
   );
+});
+
+test("il dispatch Production richiede una decisione esplicita per 1.0.0", async () => {
+  const dispatch = await readFile(path.join(root, "scripts/dispatch-production.sh"), "utf8");
+  assert.match(dispatch, /contents\/package\.json\?ref=\$commit/);
+  assert.match(dispatch, /if \[ "\$version" = "1\.0\.0" \]/);
+  assert.match(dispatch, /il secondo argomento true\|false è obbligatorio/);
+  assert.match(dispatch, /publish_release=true/);
 });
 
 test("la release usa sempre il nome canonico prima di diventare immutabile", async () => {

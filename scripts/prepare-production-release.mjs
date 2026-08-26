@@ -31,7 +31,7 @@ export function releaseManifest({
 }) {
   if (!versionPattern.test(version)) throw new Error("Versione release non valida");
   if (!sha.test(commit)) throw new Error("Commit release non valido");
-  if (!digest.test(imageDigest) || !digest.test(rollbackDigest)) {
+  if (!digest.test(imageDigest) || (rollbackDigest !== null && !digest.test(rollbackDigest))) {
     throw new Error("Digest release non valido");
   }
   if (!schemaPattern.test(schema)) throw new Error("Schema release non valido");
@@ -42,7 +42,7 @@ export function releaseManifest({
 export async function prepareRelease(outputDirectory, values) {
   const changelog = await readFile(new URL("../CHANGELOG.md", import.meta.url), "utf8");
   const manifest = releaseManifest(values);
-  const notes = `${changelogSection(changelog, values.version)}\n\n## Integrità della distribuzione\n\n- Commit e digest sono stati verificati dal gate exact-SHA e dal readback Production.\n- Il manifest allegato registra immagine, rollback, schema e attestazione immutabili.\n`;
+  const notes = `${changelogSection(changelog, values.version)}\n\n## Integrità della distribuzione\n\n- Commit e digest sono stati verificati dal gate exact-SHA e dal readback Production.\n- Il manifest allegato registra immagine, schema, attestazione e, quando esiste un predecessore, digest di rollback immutabili.\n`;
   await writeFile(
     path.join(outputDirectory, "release-manifest.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
@@ -57,7 +57,8 @@ async function main(argv = process.argv.slice(2)) {
       "Uso: prepare-production-release <dir> <version> <commit> <image> <rollback> <schema> <attestazione>",
     );
   }
-  const [outputDirectory, version, commit, imageDigest, rollbackDigest, schema, attestation] = argv;
+  const [outputDirectory, version, commit, imageDigest, rollbackValue, schema, attestation] = argv;
+  const rollbackDigest = rollbackValue || null;
   await prepareRelease(outputDirectory, {
     attestation,
     commit,

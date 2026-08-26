@@ -19,5 +19,7 @@ test("costruisce un manifest completo e rifiuta digest ambigui", () => {
     version: "1.2.3",
   };
   assert.deepEqual(releaseManifest(values), values);
+  assert.deepEqual(releaseManifest({ ...values, rollbackDigest: null }).rollbackDigest, null);
   assert.throws(() => releaseManifest({ ...values, imageDigest: "latest" }), /Digest/);
+  assert.throws(() => releaseManifest({ ...values, rollbackDigest: "latest" }), /Digest/);
 });

@@ -2393,7 +2393,7 @@ Un branch `develop` si aggiunge soltanto se compare un ambiente remoto intermedi
 Ogni release Production approvata è pubblicata automaticamente dopo il readback come GitHub Release immutabile:
 
 1. estrarre le note dalla voce della versione corrente in `CHANGELOG.md`;
-3. allegare un solo `release-manifest.json` privo di segreti e dati reali, con versione, commit, digest GHCR, versione schema, riferimento all'attestazione e digest di rollback;
+3. allegare un solo `release-manifest.json` privo di segreti e dati reali, con versione, commit, digest GHCR, versione schema, riferimento all'attestazione e digest di rollback quando esiste un deployment precedente;
 4. lasciare che il workflow la pubblichi soltanto dopo deploy e readback riusciti; per il go-live `v1.0.0`, passare esplicitamente `publish_release=false` finché la distinta attivazione produttiva non è autorizzata;
 5. con l'immutabilità attiva, non spostare né riutilizzare tag e non sostituire asset: una correzione produce una nuova patch release.
 

@@ -33,7 +33,7 @@ version=${tag#v}
 }
 jq -e '
   (.imageDigest | test("^sha256:[0-9a-f]{64}$")) and
-  (.rollbackDigest | test("^sha256:[0-9a-f]{64}$")) and
+  (.rollbackDigest == null or (.rollbackDigest | test("^sha256:[0-9a-f]{64}$"))) and
   (.schema | test("^[0-9]{3}_[A-Za-z0-9_]+[.]sql$")) and
   (.attestation | test("^https://github[.]com/"))
 ' "$manifest" >/dev/null || {
