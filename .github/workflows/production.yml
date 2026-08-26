@@ -191,6 +191,7 @@ jobs:
       - name: Attendi e riusa l'artefatto verificato costruito al merge
         id: reuse
         env:
+          BASE_MISSING: ${{ needs.candidate.outputs.base == '0000000000000000000000000000000000000000' }}
           CANDIDATE: ${{ needs.candidate.outputs.commit }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECOVERY: ${{ needs.candidate.outputs.commit == needs.candidate.outputs.base }}
@@ -198,7 +199,7 @@ jobs:
         run: |
           artifact_run=
           artifact_done=false
-          if [ "$ROLLBACK" = true ] || [ "$RECOVERY" = true ]; then
+          if [ "$ROLLBACK" = true ] || [ "$RECOVERY" = true ] || [ "$BASE_MISSING" = true ]; then
             artifact_done=true
           else
             for _ in $(seq 1 120); do
@@ -286,6 +287,7 @@ jobs:
       packages: read
     outputs:
       live_digest: ${{ steps.release_state.outputs.live_digest }}
+      rollback: ${{ steps.baseline.outputs.rollback }}
       rollback_digest: ${{ steps.release_state.outputs.rollback_digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -330,6 +332,7 @@ jobs:
           # shellcheck disable=SC2029
           live_receipt=$(ssh "$SSH_USER@$SSH_HOST" "if sudo test -f /opt/hub-fatture/data/operations/deploy-receipt.json; then sudo cat /opt/hub-fatture/data/operations/deploy-receipt.json; fi")
           deploy_runtime=${{ needs.candidate.outputs.runtime }}
+          effective_rollback=$ROLLBACK
           if [ -z "$live_receipt" ]; then
             test "${{ inputs.backup_only }}" != true || {
               echo "Il backup readiness richiede una ricevuta live." >&2
@@ -349,7 +352,14 @@ jobs:
             git cat-file -e "$live_base^{commit}"
             if [ "$live_base" != "$EXPECTED_BASE" ]; then
               if [ "$EXPECTED_BASE" = 0000000000000000000000000000000000000000 ]; then
-                git merge-base --is-ancestor "$live_base" "$CANDIDATE"
+                if git merge-base --is-ancestor "$live_base" "$CANDIDATE"; then
+                  effective_rollback=false
+                elif git merge-base --is-ancestor "$CANDIDATE" "$live_base"; then
+                  effective_rollback=true
+                else
+                  echo "Il candidato e la ricevuta live non appartengono alla stessa linea di main." >&2
+                  exit 1
+                fi
               elif [ "$ROLLBACK" = true ]; then
                 git merge-base --is-ancestor "$CANDIDATE" "$live_base"
                 git merge-base --is-ancestor "$live_base" "$EXPECTED_BASE"
@@ -378,6 +388,7 @@ jobs:
             fi
           fi
           echo "deploy_runtime=$deploy_runtime" >> "$GITHUB_OUTPUT"
+          echo "rollback=$effective_rollback" >> "$GITHUB_OUTPUT"
       - name: Crea il backup richiesto del candidato live
         if: inputs.backup_only
         env:
@@ -408,7 +419,7 @@ jobs:
       - name: Blocca rollback con schema divergente
         if: ${{ !inputs.backup_only && steps.baseline.outputs.deploy_runtime == 'true' }}
         env:
-          ROLLBACK: ${{ needs.candidate.outputs.rollback }}
+          ROLLBACK: ${{ steps.baseline.outputs.rollback }}
           SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
           SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
         run: |
@@ -507,7 +518,7 @@ jobs:
       always() &&
       inputs.publish_release &&
       !inputs.backup_only &&
-      needs.candidate.outputs.rollback != 'true' &&
+      needs.deploy.outputs.rollback != 'true' &&
       needs.deploy.result == 'success'
     needs: [candidate, image, deploy]
     runs-on: ubuntu-latest

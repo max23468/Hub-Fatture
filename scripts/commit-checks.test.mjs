@@ -217,7 +217,7 @@ test("la baseline vuota conserva i gate runtime di un commit precedente", async 
   await writeFile(path.join(repository, "app", "runtime.ts"), "export const runtime = true;\n");
   await writeFile(
     path.join(repository, ".github", "workflows", "ci.yml"),
-    "name: CI\njobs:\n  e2e:\n    name: E2E ${{ matrix.label }}\n    label: Chromium\n    label: WebKit\n",
+    'name: CI\njobs:\n  impact:\n    run: \'e2e_matrix={"include":[{"browser":"chromium","label":"Chromium"},{"browser":"webkit","label":"WebKit"}]}\'\n  e2e:\n    name: E2E ${{ matrix.label }}\n',
   );
   git("add", "app/runtime.ts", ".github/workflows/ci.yml");
   git("commit", "--quiet", "-m", "test: runtime");

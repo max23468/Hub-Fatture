@@ -328,7 +328,16 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
     workflow,
     /RECOVERY: \$\{\{ needs\.candidate\.outputs\.commit == needs\.candidate\.outputs\.base \}\}/,
   );
-  assert.match(workflow, /if \[ "\$ROLLBACK" = true \] \|\| \[ "\$RECOVERY" = true \]/);
+  assert.match(
+    workflow,
+    /if \[ "\$ROLLBACK" = true \] \|\| \[ "\$RECOVERY" = true \] \|\| \[ "\$BASE_MISSING" = true \]/,
+  );
+  assert.match(
+    workflow,
+    /elif git merge-base --is-ancestor "\$CANDIDATE" "\$live_base"; then\s+effective_rollback=true/,
+  );
+  assert.match(workflow, /ROLLBACK: \$\{\{ steps\.baseline\.outputs\.rollback \}\}/);
+  assert.match(workflow, /needs\.deploy\.outputs\.rollback != 'true'/);
   assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /needs\.candidate\.outputs\.runtime == 'true'/);
   assert.match(
@@ -389,7 +398,7 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   const release = workflow.slice(workflow.indexOf("\n  release:"));
   assert.match(release, /name: GitHub Release immutabile/);
   assert.match(release, /needs\.deploy\.result == 'success'/);
-  assert.match(release, /needs\.candidate\.outputs\.rollback != 'true'/);
+  assert.match(release, /needs\.deploy\.outputs\.rollback != 'true'/);
   assert.doesNotMatch(release, /needs\.candidate\.outputs\.runtime == 'true'/);
   assert.match(release, /IMAGE_DIGEST: \$\{\{ needs\.deploy\.outputs\.live_digest \}\}/);
   assert.doesNotMatch(release, /needs\.image\.outputs\.digest \|\|/);

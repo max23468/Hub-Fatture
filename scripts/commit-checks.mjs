@@ -34,8 +34,8 @@ const WORKFLOW_MARKER_BY_CHECK = {
   "PostgreSQL e migrazioni": "name: PostgreSQL e migrazioni",
   "Audit dipendenze": "name: Audit dipendenze",
   "Contract test provider": "name: Contract test provider",
-  "E2E Chromium": "label: Chromium",
-  "E2E WebKit": "label: WebKit",
+  "E2E Chromium": '"label":"Chromium"',
+  "E2E WebKit": '"label":"WebKit"',
   "Helper Aruba (chrome / macos-latest)": "name: Helper Aruba (",
   "Helper Aruba (msedge / windows-latest)": "name: Helper Aruba (",
 };
