@@ -324,7 +324,11 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   );
   assert.match(workflow, /impact_base=\$CANDIDATE/);
   assert.match(workflow, /ROLLBACK: \$\{\{ needs\.candidate\.outputs\.rollback \}\}/);
-  assert.match(workflow, /if \[ "\$ROLLBACK" = true \]/);
+  assert.match(
+    workflow,
+    /RECOVERY: \$\{\{ needs\.candidate\.outputs\.commit == needs\.candidate\.outputs\.base \}\}/,
+  );
+  assert.match(workflow, /if \[ "\$ROLLBACK" = true \] \|\| \[ "\$RECOVERY" = true \]/);
   assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /needs\.candidate\.outputs\.runtime == 'true'/);
   assert.match(

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyFiles } from "./change-impact.mjs";
-import { classifyPreflightFiles, preflightPlan } from "./publish-preflight.mjs";
+import {
+  classifyPreflightFiles,
+  preflightPlan,
+  validateReleaseMetadata,
+} from "./publish-preflight.mjs";
 
 const scripts = (phase) => phase.map((entry) => entry.join(" "));
 
@@ -43,4 +47,33 @@ test("una modifica all'autorità del classificatore forza il preflight completo"
   assert.equal(impact.provider, true);
   assert.equal(impact.e2eWebkit, true);
   assert.equal(impact.arubaPlatform, true);
+});
+
+test("i metadati release runtime devono essere completi prima dei gate", () => {
+  const valid = {
+    baseVersion: "0.3.78",
+    changelog: "# Changelog\n\n## 0.3.79\n\n- Pubblicazione proporzionata.\n",
+    lockVersion: "0.3.79",
+    rootLockVersion: "0.3.79",
+    version: "0.3.79",
+  };
+  assert.doesNotThrow(() => validateReleaseMetadata(valid));
+  assert.throws(
+    () => validateReleaseMetadata({ ...valid, lockVersion: "0.3.78" }),
+    /non allineata/,
+  );
+  assert.throws(
+    () =>
+      validateReleaseMetadata({
+        ...valid,
+        lockVersion: "0.3.78",
+        rootLockVersion: "0.3.78",
+        version: "0.3.78",
+      }),
+    /non incrementa/,
+  );
+  assert.throws(
+    () => validateReleaseMetadata({ ...valid, changelog: "# Changelog\n" }),
+    /changelog 0\.3\.79 assente/,
+  );
 });

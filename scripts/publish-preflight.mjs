@@ -1,6 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { classifyFiles } from "./change-impact.mjs";
+import { changelogSection } from "./prepare-production-release.mjs";
 
 const command = (script) => ["npm", "run", script];
 
@@ -31,6 +33,34 @@ export function classifyPreflightFiles(files) {
       ? [...files, "__change-impact-authority-must-fail-closed__"]
       : files,
   );
+}
+
+function versionParts(version) {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`Versione ${version} non valida`);
+  return version.split(".").map(Number);
+}
+
+export function validateReleaseMetadata({
+  baseVersion,
+  changelog,
+  lockVersion,
+  rootLockVersion,
+  version,
+}) {
+  const current = versionParts(version);
+  const base = versionParts(baseVersion);
+  if (lockVersion !== version || rootLockVersion !== version) {
+    throw new Error(`Versione ${version} non allineata in package-lock.json`);
+  }
+  if (
+    !current.some(
+      (part, index) =>
+        part > base[index] && current.slice(0, index).every((value, i) => value === base[i]),
+    )
+  ) {
+    throw new Error(`La versione runtime ${version} non incrementa ${baseVersion}`);
+  }
+  changelogSection(changelog, version);
 }
 
 function gitLines(args) {
@@ -67,6 +97,18 @@ async function main(argv = process.argv.slice(2)) {
 
   const files = changedFiles(base);
   const impact = classifyPreflightFiles(files);
+  if (impact.runtime) {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+    const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+    const basePackage = JSON.parse(gitLines(["show", `${base}:package.json`]).join("\n"));
+    validateReleaseMetadata({
+      baseVersion: basePackage.version,
+      changelog: readFileSync("CHANGELOG.md", "utf8"),
+      lockVersion: packageLock.version,
+      rootLockVersion: packageLock.packages?.[""]?.version,
+      version: packageJson.version,
+    });
+  }
   const plan = preflightPlan(impact);
   process.stdout.write(
     `Preflight ${impact.lane}: ${files.length} file, ${plan.core.length + plan.parallel.length + plan.browser.length} gate.\n`,

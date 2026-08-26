@@ -193,11 +193,12 @@ jobs:
         env:
           CANDIDATE: ${{ needs.candidate.outputs.commit }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECOVERY: ${{ needs.candidate.outputs.commit == needs.candidate.outputs.base }}
           ROLLBACK: ${{ needs.candidate.outputs.rollback }}
         run: |
           artifact_run=
           artifact_done=false
-          if [ "$ROLLBACK" = true ]; then
+          if [ "$ROLLBACK" = true ] || [ "$RECOVERY" = true ]; then
             artifact_done=true
           else
             for _ in $(seq 1 120); do
