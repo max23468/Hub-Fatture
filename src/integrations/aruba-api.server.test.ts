@@ -10,6 +10,25 @@ function response(value: unknown): Response {
   return Response.json(value);
 }
 
+function invoicePage(input: {
+  page: number;
+  totalElements: number;
+  ids?: string[];
+}): Record<string, unknown> {
+  const ids = input.ids ?? [];
+  const totalPages = Math.ceil(input.totalElements / 10);
+  return {
+    content: ids.map((id) => ({ id })),
+    first: input.page === 1,
+    last: totalPages === 0 || input.page === totalPages,
+    number: input.page,
+    numberOfElements: ids.length,
+    size: 10,
+    totalElements: input.totalElements,
+    totalPages,
+  };
+}
+
 test("il probe Production autentica l'utenza Base e usa soltanto letture API", async () => {
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -39,12 +58,7 @@ test("il probe Production autentica l'utenza Base e usa soltanto letture API", a
       assert.equal(new URL(url).searchParams.get("page"), "1");
       assert.equal(new URL(url).searchParams.get("size"), "10");
       assert.equal(init.method, undefined);
-      return response({
-        content: [],
-        numberOfElements: 0,
-        totalElements: 0,
-        totalPages: 0,
-      });
+      return response(invoicePage({ page: 1, totalElements: 0 }));
     };
 
     assert.deepEqual(
@@ -101,12 +115,7 @@ test("il probe Demo resta confinato agli host Demo ufficiali", async () => {
           accountStatus: { expired: false, expirationDate: null },
         });
       }
-      return response({
-        content: [],
-        numberOfElements: 0,
-        totalElements: 0,
-        totalPages: 0,
-      });
+      return response(invoicePage({ page: 1, totalElements: 0 }));
     };
     await runArubaApiReadProbe({
       environment: "DEMO",
@@ -145,12 +154,13 @@ test("il probe legge due pagine limitate senza materializzare dettagli o file", 
       const page = url.searchParams.get("page")!;
       searchedPages.push(page);
       const count = page === "1" ? 10 : 3;
-      return response({
-        content: Array.from({ length: count }, (_, index) => ({ ignored: `${page}-${index}` })),
-        numberOfElements: count,
-        totalElements: 13,
-        totalPages: 2,
-      });
+      return response(
+        invoicePage({
+          page: Number(page),
+          totalElements: 13,
+          ids: Array.from({ length: count }, (_, index) => `${page}-${index}`),
+        }),
+      );
     };
 
     const result = await runArubaApiReadProbe({
@@ -188,12 +198,14 @@ test("il probe limita la lettura a due pagine e dichiara la finestra incompleta"
         });
       }
       searchedPages += 1;
-      return response({
-        content: Array.from({ length: 10 }, () => ({})),
-        numberOfElements: 10,
-        totalElements: 31,
-        totalPages: 4,
-      });
+      const page = Number(url.searchParams.get("page"));
+      return response(
+        invoicePage({
+          page,
+          totalElements: 31,
+          ids: Array.from({ length: 10 }, (_, index) => `${page}-${index}`),
+        }),
+      );
     };
 
     const result = await runArubaApiReadProbe({
@@ -229,11 +241,131 @@ test("il probe rifiuta metadati di paginazione incoerenti", async () => {
         });
       }
       return response({
-        content: [{}],
+        content: [{ id: "gruppo-1" }],
+        first: true,
+        last: true,
+        number: 1,
         numberOfElements: 2,
+        size: 10,
         totalElements: 1,
         totalPages: 1,
       });
+    };
+
+    await assert.rejects(
+      runArubaApiReadProbe({
+        environment: "PRODUCTION",
+        username: "utente-sintetico",
+        password: "password-sintetica",
+        expectedTaxId: "00000000000",
+        now: NOW,
+      }),
+      (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("il probe rifiuta metadati di paginazione coercibili ma non numerici", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const invalidValue of [null, "", false, "0"]) {
+      globalThis.fetch = async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/auth/signin") {
+          return response({ access_token: "token-sintetico", expires_in: 1800 });
+        }
+        if (url.pathname === "/auth/userInfo") {
+          return response({
+            username: "utente-sintetico",
+            vatCode: "00000000000",
+            fiscalCode: null,
+            accountStatus: { expired: false, expirationDate: null },
+          });
+        }
+        return response({
+          ...invoicePage({ page: 1, totalElements: 0 }),
+          totalElements: invalidValue,
+        });
+      };
+
+      await assert.rejects(
+        runArubaApiReadProbe({
+          environment: "PRODUCTION",
+          username: "utente-sintetico",
+          password: "password-sintetica",
+          expectedTaxId: "00000000000",
+          now: NOW,
+        }),
+        (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("il probe rifiuta una pagina diversa da quella richiesta", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/signin") {
+        return response({ access_token: "token-sintetico", expires_in: 1800 });
+      }
+      if (url.pathname === "/auth/userInfo") {
+        return response({
+          username: "utente-sintetico",
+          vatCode: "00000000000",
+          fiscalCode: null,
+          accountStatus: { expired: false, expirationDate: null },
+        });
+      }
+      const firstPageIds = Array.from({ length: 10 }, (_, index) => `gruppo-${index}`);
+      return response(invoicePage({ page: 1, totalElements: 20, ids: firstPageIds }));
+    };
+
+    await assert.rejects(
+      runArubaApiReadProbe({
+        environment: "PRODUCTION",
+        username: "utente-sintetico",
+        password: "password-sintetica",
+        expectedTaxId: "00000000000",
+        now: NOW,
+      }),
+      (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("il probe rifiuta identificativi di gruppo duplicati tra pagine", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/signin") {
+        return response({ access_token: "token-sintetico", expires_in: 1800 });
+      }
+      if (url.pathname === "/auth/userInfo") {
+        return response({
+          username: "utente-sintetico",
+          vatCode: "00000000000",
+          fiscalCode: null,
+          accountStatus: { expired: false, expirationDate: null },
+        });
+      }
+      const page = Number(url.searchParams.get("page"));
+      return response(
+        invoicePage({
+          page,
+          totalElements: 11,
+          ids:
+            page === 1 ? Array.from({ length: 10 }, (_, index) => `gruppo-${index}`) : ["gruppo-0"],
+        }),
+      );
     };
 
     await assert.rejects(

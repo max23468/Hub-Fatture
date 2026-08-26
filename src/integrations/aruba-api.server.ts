@@ -32,10 +32,14 @@ const userInfoSchema = z.object({
 });
 
 const invoiceSearchSchema = z.object({
-  content: z.array(z.unknown()),
-  numberOfElements: z.coerce.number().int().nonnegative(),
-  totalElements: z.coerce.number().int().nonnegative(),
-  totalPages: z.coerce.number().int().nonnegative(),
+  content: z.array(z.object({ id: z.string().min(1) })),
+  first: z.boolean(),
+  last: z.boolean(),
+  number: z.number().int().positive(),
+  numberOfElements: z.number().int().nonnegative(),
+  size: z.number().int().positive(),
+  totalElements: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
 });
 
 const PROBE_PAGE_SIZE = 10;
@@ -104,6 +108,7 @@ async function readAdditionalPages(input: {
   page: number;
   requestedPages: number;
   returnedInvoiceGroups: number;
+  seenGroupIds: Set<string>;
   windowStart: Date;
   windowEnd: Date;
 }): Promise<number> {
@@ -120,14 +125,27 @@ async function readAdditionalPages(input: {
       { headers: bearer(input.token) },
     ),
   );
+  const expectedElements = Math.min(
+    PROBE_PAGE_SIZE,
+    Math.max(0, nextPage.totalElements - (input.page - 1) * PROBE_PAGE_SIZE),
+  );
+  const pageIds = nextPage.content.map((group) => group.id);
   if (
+    nextPage.number !== input.page ||
+    nextPage.size !== PROBE_PAGE_SIZE ||
+    nextPage.first ||
+    nextPage.last !== (input.page === nextPage.totalPages) ||
     nextPage.numberOfElements !== nextPage.content.length ||
+    nextPage.numberOfElements !== expectedElements ||
     nextPage.totalElements !== input.firstPage.totalElements ||
     nextPage.totalPages !== input.firstPage.totalPages ||
+    new Set(pageIds).size !== pageIds.length ||
+    pageIds.some((id) => input.seenGroupIds.has(id)) ||
     input.returnedInvoiceGroups + nextPage.numberOfElements > nextPage.totalElements
   ) {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
+  for (const id of pageIds) input.seenGroupIds.add(id);
   return readAdditionalPages({
     ...input,
     page: input.page + 1,
@@ -172,10 +190,17 @@ export async function runArubaApiReadProbe(
       { headers: bearer(token.access_token) },
     ),
   );
+  const firstPageIds = firstPage.content.map((group) => group.id);
+  const expectedFirstPageElements = Math.min(PROBE_PAGE_SIZE, firstPage.totalElements);
   if (
+    firstPage.number !== 1 ||
+    firstPage.size !== PROBE_PAGE_SIZE ||
+    !firstPage.first ||
+    firstPage.last !== firstPage.totalPages <= 1 ||
     firstPage.numberOfElements !== firstPage.content.length ||
+    firstPage.numberOfElements !== expectedFirstPageElements ||
     firstPage.totalPages !== Math.ceil(firstPage.totalElements / PROBE_PAGE_SIZE) ||
-    firstPage.numberOfElements > firstPage.totalElements
+    new Set(firstPageIds).size !== firstPageIds.length
   ) {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
@@ -188,6 +213,7 @@ export async function runArubaApiReadProbe(
     page: 2,
     requestedPages,
     returnedInvoiceGroups: firstPage.content.length,
+    seenGroupIds: new Set(firstPageIds),
     windowStart,
     windowEnd,
   });
