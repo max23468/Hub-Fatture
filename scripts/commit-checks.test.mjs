@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  classifyCheckImpact,
   checkConclusions,
   revisionRangeArguments,
   resolveCheckTargets,
@@ -51,6 +52,17 @@ test("usa l'esecuzione più recente dello stesso contesto", () => {
     ["CI"],
   );
   assert.deepEqual(state, { pending: [], failed: [] });
+});
+
+test("il classificatore vincola al proprio commit tutti i gate che forza", () => {
+  const impact = classifyCheckImpact(["scripts/change-impact.mjs"]);
+  assert.equal(impact.standard, true);
+  assert.equal(impact.database, true);
+  assert.equal(impact.securityData, true);
+  assert.equal(impact.provider, true);
+  assert.equal(impact.arubaPlatform, true);
+  assert.equal(impact.e2e, true);
+  assert.equal(impact.image, true);
 });
 
 test("lega i gate di superficie al commit applicabile e Foundation al candidato", () => {
