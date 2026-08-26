@@ -1,8 +1,8 @@
-FROM node:26.7.0-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341 AS development
+FROM node:26.7.0-bookworm-slim@sha256:4db36457f406501e6f608802e5da617e5fbd0e80b75901b6a09de1ae5a667d32 AS development
 
 RUN npm install --global npm@12.0.2 \
   && apt-get update \
-  && apt-get install --yes --no-install-recommends libxml2-utils \
+  && apt-get install --yes --no-install-recommends libxml2-utils=2.9.14+dfsg-1.3~deb12u6 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
@@ -25,14 +25,14 @@ RUN npm ci --omit=dev --ignore-scripts \
   && test ! -e node_modules/@react-router/dev \
   && test ! -e node_modules/vite
 
-FROM node:26.7.0-bookworm-slim@sha256:cd565714d4da3e84bfd341e31448f81d47c6362198f152345297c9c1154e6341 AS runtime
+FROM node:26.7.0-bookworm-slim@sha256:4db36457f406501e6f608802e5da617e5fbd0e80b75901b6a09de1ae5a667d32 AS runtime
 
 ARG APP_COMMIT_SHA=unknown
 LABEL org.opencontainers.image.source="https://github.com/max23468/Hub-Fatture" \
   org.opencontainers.image.revision=$APP_COMMIT_SHA
 
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends libxml2-utils \
+  && apt-get install --yes --no-install-recommends libxml2-utils=2.9.14+dfsg-1.3~deb12u6 \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --gid 10001 hub-fatture \
   && useradd --uid 10001 --gid hub-fatture --no-create-home --shell /usr/sbin/nologin hub-fatture \
