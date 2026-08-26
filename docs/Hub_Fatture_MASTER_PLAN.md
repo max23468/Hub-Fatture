@@ -306,11 +306,11 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Repository | GitHub pubblico, `main` protetto e branch brevi | Il codice è ispezionabile; la visibilità non richiede un secondo branch né rende l'app multi-tenant |
 | Licenza | Nessun file `LICENSE` finché il titolare non concede esplicitamente diritti di riuso | Repository pubblica non significa automaticamente open source |
 | CI/CD | GitHub Actions come unica corsia; nessun deploy automatico al merge | Evita drift fra sistemi e conserva il gate di autorizzazione Production |
-| Review Codex | Required check legato all'HEAD esatto, riusando il gate già collaudato in CF Ready | Impedisce di unire commit non revisionati senza progettare una seconda automazione equivalente |
-| Gate deploy | GitHub Environment `Production` protetto e approvato dal titolare | I segreti di deploy diventano accessibili soltanto dopo il gate manuale sul commit ammesso |
+| Review Codex | Required check legato all'HEAD esatto; P0/P1 bloccano, i thread Codex P2/P3 registrati vengono risolti automaticamente | Conserva gli advisory senza farli diventare bloccanti per duplicazione con la protezione conversazioni |
+| Gate deploy | Dispatch manuale dentro il ciclo `Pubblica`, Environment `Production` senza reviewer aggiuntivi | L'autorizzazione iniziale non viene duplicata; i segreti restano accessibili soltanto al job di deploy |
 | Toolchain runtime | Node.js/npm scelti in 14.3 e versionati soltanto negli artefatti M0 | Applica la decisione esplicita latest-first e allinea Mac, CI e build Docker senza affidarsi alle versioni globali |
 | Lint e formato | Oxlint e Oxfmt con pin esatto; niente ESLint/Prettier iniziali | Riusa una toolchain veloce già adottata in CF Ready senza duplicare strumenti equivalenti |
-| Test browser dell'app | Playwright con Chromium sulle PR e Chromium+WebKit in M12 | Rende riproducibili i flussi HF e fornisce trace diagnostiche senza estendere indiscriminatamente la matrice browser |
+| Test browser dell'app | Chromium su ogni superficie runtime; WebKit per UI, E2E, Aruba e modifiche fail-closed | Mantiene una seconda implementazione browser dove rileva regressioni reali senza duplicare indiscriminatamente la matrice |
 | Integrazione Aruba | Account Base con delega Web Service e API Aruba v2 documentate come canale primario del ciclo attivo; pannello/helper transitori e fallback manuale permanente | Riduce la fragilità del DOM mantenendo una via di recovery presidiata |
 | Sincronizzazione Aruba | Polling ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile; callback rinviato | Offre aggiornamento automatico senza dipendere da garanzie di isolamento callback non ancora disponibili |
 | Inventario Aruba | Cache provider-first di tutto lo storico disponibile, indipendente dai batch HF, con osservazioni append-only | Rileva documenti creati fuori da HF, impedisce doppie emissioni e rende verificabile la freschezza |
@@ -2355,10 +2355,10 @@ Non creare uno staging permanente finché un bisogno osservato non giustifica il
 Il GitHub Environment denominato `Production` è un gate di deploy, non un terzo ambiente applicativo. Deve:
 
 - consentire deploy soltanto da `main` e dai tag `v*` derivati da `main`;
-- richiedere l'approvazione manuale del titolare prima di esporre i secret al job;
-- mantenere disattivato `prevent self-review`, perché il repository ha un solo owner operativo;
+- non configurare reviewer obbligatori o timer: il dispatch manuale del titolare, oppure la sua richiesta affermativa di pubblicazione, è già l'autorizzazione al ciclo tecnico;
+- esporre i secret soltanto al job di backup o deploy; classificazione, gate e immagine non accedono ai secret dell'Environment;
 - impedire che un merge avvii automaticamente un deploy;
-- registrare nella ricevuta l'approvazione, lo SHA e il target OCI effettivo.
+- registrare nella ricevuta l'autorizzazione operativa, lo SHA e il target OCI effettivo.
 
 ### 18.3 Branch e pubblicazione Git
 
@@ -2390,12 +2390,11 @@ Un branch `develop` si aggiunge soltanto se compare un ambiente remoto intermedi
 - Migrazioni applicate sono immutabili; una correzione usa una nuova migrazione.
 - Il numero di versione non prova che il deploy sia avvenuto: la ricevuta remota resta separata.
 
-Ogni release Production approvata è pubblicata anche come GitHub Release immutabile:
+Ogni release Production approvata è pubblicata automaticamente dopo il readback come GitHub Release immutabile:
 
-1. preparare una draft release sul commit e tag candidati già passati dal canary Production M13;
-2. generare le note dalle PR tramite `.github/release.yml`, poi confrontarle con `CHANGELOG.md` e rimuovere voci non pertinenti;
+1. estrarre le note dalla voce della versione corrente in `CHANGELOG.md`;
 3. allegare un solo `release-manifest.json` privo di segreti e dati reali, con versione, commit, digest GHCR, versione schema, riferimento all'attestazione e digest di rollback;
-4. pubblicare la release soltanto dopo una richiesta affermativa di pubblicazione o un'autorizzazione esplicita separata; per il go-live `v1.0.0`, pubblicazione della GitHub Release e uso Production ordinario restano gate distinti perché costituiscono una nuova attivazione produttiva;
+4. lasciare che il workflow la pubblichi soltanto dopo deploy e readback riusciti; per il go-live `v1.0.0`, passare esplicitamente `publish_release=false` finché la distinta attivazione produttiva non è autorizzata;
 5. con l'immutabilità attiva, non spostare né riutilizzare tag e non sostituire asset: una correzione produce una nuova patch release.
 
 Non allegare copie dell'immagine Docker o altri archivi già forniti da GHCR/GitHub. La GitHub Release non concede diritti di uso ulteriori: repository e release restano pubbliche ma non open source finché manca una licenza approvata.
@@ -2404,7 +2403,7 @@ Riferimenti da riverificare allo scaffold: [note di release generate automaticam
 
 ### 18.5 CI e gate per tipo di modifica
 
-GitHub Actions è l'unico sistema CI/CD. Un comando locale canonico deve poter eseguire i controlli applicabili senza introdurre un classificatore complesso.
+GitHub Actions è l'unico sistema CI/CD. `npm run publish:preflight` riusa il classificatore deterministico della CI sul diff locale rispetto a `origin/main`, esegue prima i gate condivisi, poi audit, DB e provider indipendenti in parallelo e infine i soli browser applicabili.
 
 | Corsia | Quando | Gate minimo |
 |---|---|---|
@@ -2509,7 +2508,7 @@ Baseline GitHub pubblica:
 - `CI` come required check aggregatore dei soli job applicabili; il workflow
   separato `React Doctor` è required, conclude esplicitamente quando non
   applicabile e blocca dai warning in su;
-- GitHub Environment `Production` protetto, secret scoped, reviewer unico e restrizione a `main`/tag di release;
+- GitHub Environment `Production` protetto, secret scoped, senza reviewer o timer duplicati e con restrizione a `main`/tag di release;
 - package GHCR pubblico collegato alla repository, attestazioni abilitate e nessuna cancellazione automatica dei digest usati in Production o come rollback;
 - release immutabili abilitate, `.github/release.yml` minimale e pubblicazione consentita soltanto nel flusso release autorizzato;
 - auto-merge Dependabot limitato agli aggiornamenti npm e GitHub Actions minor/patch, senza checkout o esecuzione della PR nel workflow privilegiato;
@@ -2597,7 +2596,7 @@ richiesta serve conferma separata.
 
 Procedura prevista:
 
-1. Workflow manuale e serializzato sul commit/tag candidato già presente in `main`, soggetto all'approvazione del GitHub Environment `Production`; un secondo deploy non cancella quello in corso.
+1. Workflow manuale e serializzato sul commit candidato già presente in `main`, avviato subito dopo il merge con `scripts/dispatch-production.sh <sha>` dentro un ciclo `Pubblica` già autorizzato; non attende localmente i check post-merge, non richiede una seconda approvazione Environment e un secondo deploy non cancella quello in corso.
 2. Gate locali e CI verdi sullo stesso SHA, verificati da una barriera
    esplicita che attende `CI`, Foundation, CodeQL e React Doctor del commit
    candidato invece di affidarsi all'ordine temporale dei workflow.
@@ -2611,7 +2610,7 @@ Procedura prevista:
 8. Health check.
 9. Verifica login, webhook, connessioni e percorso critico applicabile.
 10. Readback completo di commit/versione, digest, schema, kill switch e configurazione non segreta effettiva.
-11. Registrazione della ricevuta; rollback applicativo compatibile o forward-fix se il check fallisce.
+11. Registrazione della ricevuta e pubblicazione automatica della GitHub Release immutabile con manifest derivato dal readback; rollback applicativo compatibile o forward-fix se il check fallisce.
 
 Le migrazioni distruttive richiedono un backup off-host recente verificato, un restore drill valido e autorizzazione. Non alterare o cancellare migrazioni già applicate per rendere possibile un rollback.
 

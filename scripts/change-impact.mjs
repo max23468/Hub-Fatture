@@ -102,6 +102,13 @@ export function classifyFiles(inputFiles) {
         file,
       ),
     );
+  const e2eWebkit =
+    failClosed ||
+    files.some((file) =>
+      /^(?:app\/|tests\/e2e\/|playwright\.config\.ts$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit)|src\/aruba-bookmarklet)/.test(
+        file,
+      ),
+    );
   const image = runtime;
   const migrationStorage =
     failClosed ||
@@ -146,6 +153,7 @@ export function classifyFiles(inputFiles) {
     arubaPlatform,
     react,
     e2e,
+    e2eWebkit,
     image,
     migrationStorage,
     deploy,
@@ -180,6 +188,7 @@ function outputs(result) {
     "arubaPlatform",
     "react",
     "e2e",
+    "e2eWebkit",
     "image",
     "migrationStorage",
     "deploy",
@@ -190,6 +199,10 @@ function outputs(result) {
     const outputKey = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
     lines.push(`${outputKey}=${result[key]}`);
   }
+  const e2eMatrix = [];
+  if (result.e2e) e2eMatrix.push({ browser: "chromium", label: "Chromium", install: "chromium" });
+  if (result.e2eWebkit) e2eMatrix.push({ browser: "webkit", label: "WebKit", install: "webkit" });
+  lines.push(`e2e_matrix=${JSON.stringify({ include: e2eMatrix })}`);
   lines.push(`files_json=${JSON.stringify(result.files)}`);
   lines.push(`unknown_json=${JSON.stringify(result.unknown)}`);
   return lines.join("\n");

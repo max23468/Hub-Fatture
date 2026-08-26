@@ -1,6 +1,6 @@
 {
   "name": "hub-fatture",
-  "version": "0.3.78",
+  "version": "0.3.79",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "build": "react-router build",
     "build:server": "tsc -p tsconfig.server.json",
     "check": "npm run check:full",
-    "check:docs": "node --test scripts/change-impact.test.mjs scripts/codex-review-gate.test.mjs scripts/repository-content.node-test.mjs",
+    "check:docs": "node --test scripts/change-impact.test.mjs scripts/codex-review-gate.test.mjs scripts/prepare-production-release.node-test.mjs scripts/publish-preflight.node-test.mjs scripts/repository-content.node-test.mjs",
     "check:standard": "npm run toolchain:check && npm run format:check && npm run lint && npm run typecheck && npm run build:server && npm run test:unit && npm run smoke:imports && npm run smoke:type-stripping && npm run build",
     "check:full": "npm run check:standard && npm run audit && npm run test:db && npm run test:provider && npm run doctor && npm run test:e2e",
     "db:migrate": "npm run build:server && node build-server/db/migrate.js",
@@ -27,6 +27,7 @@
     "format:check": "oxfmt --check .",
     "lint": "oxlint --deny-warnings .",
     "preflight:provider": "node scripts/provider-preflight.mjs",
+    "publish:preflight": "node scripts/publish-preflight.mjs",
     "smoke:imports": "node scripts/dependency-smoke.mjs",
     "smoke:type-stripping": "node scripts/type-stripping-smoke.ts",
     "start": "react-router-serve ./build/server/index.js",
@@ -38,8 +39,12 @@
     "test:unit": "node --test app/*.test.ts src/*.test.ts scripts/*.node-test.mjs scripts/*.test.mjs",
     "test:aruba:platform": "node scripts/aruba-helper-platform-check.ts",
     "test:e2e": "node scripts/with-test-database.mjs npm run test:e2e:direct",
-    "test:e2e:direct": "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
+    "test:e2e:chromium": "node scripts/with-test-database.mjs npm run test:e2e:chromium:direct",
+    "test:e2e:chromium:direct": "playwright test --project=chromium --workers=1",
+    "test:e2e:direct": "npm run test:e2e:chromium:direct && npm run test:e2e:webkit:direct",
     "test:e2e:release-candidate": "node scripts/with-test-database.mjs npm run test:e2e:direct",
+    "test:e2e:webkit": "node scripts/with-test-database.mjs npm run test:e2e:webkit:direct",
+    "test:e2e:webkit:direct": "playwright test --project=webkit --workers=1",
     "toolchain:check": "node scripts/toolchain-policy.mjs",
     "typecheck": "react-router typegen && tsc --noEmit"
   },

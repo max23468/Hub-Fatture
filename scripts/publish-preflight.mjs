@@ -1,0 +1,77 @@
+import { spawn, spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+import { classifyFiles } from "./change-impact.mjs";
+
+const command = (script) => ["npm", "run", script];
+
+export function preflightPlan(impact, platform = process.platform) {
+  const core = [command("check:docs")];
+  if (impact.standard) core.push(command("check:standard"));
+
+  const parallel = [];
+  if (impact.securityData) parallel.push(command("audit"));
+  if (impact.database) parallel.push(command("test:db"));
+  if (impact.provider) parallel.push(command("test:provider"));
+
+  const browser = [];
+  if (impact.e2e) browser.push(command("test:e2e:chromium"));
+  if (impact.e2eWebkit) browser.push(command("test:e2e:webkit"));
+  if (impact.arubaPlatform && platform === "darwin") {
+    browser.push(["npm", "run", "test:aruba:platform", "--", "chrome"]);
+  } else if (impact.arubaPlatform && platform === "win32") {
+    browser.push(["npm", "run", "test:aruba:platform", "--", "msedge"]);
+  }
+
+  return { browser, core, parallel };
+}
+
+function gitLines(args) {
+  const result = spawnSync("git", args, { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args.join(" ")} fallito`);
+  return result.stdout.split("\n").filter(Boolean);
+}
+
+export function changedFiles(base = "origin/main") {
+  gitLines(["rev-parse", "--verify", `${base}^{commit}`]);
+  return [
+    ...new Set([
+      ...gitLines(["diff", "--name-only", "--no-renames", "--diff-filter=ACDMRTUXB", base, "--"]),
+      ...gitLines(["ls-files", "--others", "--exclude-standard"]),
+    ]),
+  ].sort();
+}
+
+function run([executable, ...args]) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { stdio: "inherit" });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${executable} ${args.join(" ")} terminato con ${signal ?? code}`));
+    });
+  });
+}
+
+async function main(argv = process.argv.slice(2)) {
+  const base = argv[0] ?? "origin/main";
+  const diffCheck = spawnSync("git", ["diff", "--check"], { stdio: "inherit" });
+  if (diffCheck.status !== 0) throw new Error("git diff --check non superato");
+
+  const files = changedFiles(base);
+  const impact = classifyFiles(files);
+  const plan = preflightPlan(impact);
+  process.stdout.write(
+    `Preflight ${impact.lane}: ${files.length} file, ${plan.core.length + plan.parallel.length + plan.browser.length} gate.\n`,
+  );
+  for (const item of plan.core) await run(item);
+  await Promise.all(plan.parallel.map(run));
+  for (const item of plan.browser) await run(item);
+  process.stdout.write("Preflight di pubblicazione completato.\n");
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  await main().catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

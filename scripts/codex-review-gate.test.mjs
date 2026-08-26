@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   CODEX_REVIEW_POLLING,
+  advisoryThreadIds,
+  codexReviewPollingDelay,
+  codexReviewPollingDuration,
   classifyCodexReview,
   findingPriority,
   isAutomaticFirstReview,
@@ -80,6 +83,32 @@ test("P2/P3 sono advisory e completano il gate dopo l'assestamento", () => {
     "pending",
   );
   assert.equal(classify(input).state, "success");
+});
+
+test("risolve soltanto thread Codex P2/P3 dell'HEAD esatto", () => {
+  const thread = (id, priority, commit = headSha, login = bot.login, isResolved = false) => ({
+    id,
+    isResolved,
+    comments: {
+      nodes: [
+        { author: { login }, body: `**${priority}** Finding`, originalCommit: { oid: commit } },
+      ],
+    },
+  });
+  assert.deepEqual(
+    advisoryThreadIds(
+      [
+        thread("p2", "P2"),
+        thread("p3", "P3"),
+        thread("p1", "P1"),
+        thread("old", "P2", oldSha),
+        thread("human", "P2", headSha, "max23468"),
+        thread("done", "P2", headSha, bot.login, true),
+      ],
+      headSha,
+    ),
+    ["p2", "p3"],
+  );
 });
 
 test("un advisory top-level richiede il marker dell'HEAD", () => {
@@ -163,10 +192,13 @@ test("gli errori operativi bloccano in assenza di una review conclusa più recen
   );
 });
 
-test("valida il numero PR e mantiene il polling entro cinque ore", () => {
+test("valida il numero PR e usa un polling rapido con fallback entro cinque ore", () => {
   assert.equal(pullRequestNumber({ issue: { number: 42 } }), "42");
   assert.throws(() => pullRequestNumber({}, "x"), /Numero PR non valido/);
-  assert.equal(CODEX_REVIEW_POLLING.attempts * CODEX_REVIEW_POLLING.intervalMs, 18_000_000);
+  assert.equal(codexReviewPollingDelay(0), 30_000);
+  assert.equal(codexReviewPollingDelay(CODEX_REVIEW_POLLING.fastAttempts), 180_000);
+  assert.ok(codexReviewPollingDuration() < 18_000_000);
+  assert.ok(codexReviewPollingDuration() >= 17_000_000);
 });
 
 test("il workflow usa codice trusted e non richiede commenti al primo giro", async () => {
@@ -176,10 +208,13 @@ test("il workflow usa codice trusted e non richiede commenti al primo giro", asy
   );
   assert.match(workflow, /pull_request_target:/);
   assert.match(workflow, /issue_comment:/);
+  assert.match(workflow, /pull_request_review:/);
+  assert.match(workflow, /chatgpt-codex-connector\[bot\]/);
   assert.match(workflow, /github\.event\.comment\.body == '@codex review'/);
   assert.match(workflow, /github\.event\.comment\.author_association == 'OWNER'/);
   assert.doesNotMatch(workflow, /contains\(github\.event\.comment\.body/);
   assert.match(workflow, /statuses: write/);
+  assert.match(workflow, /pull-requests: write/);
   assert.doesNotMatch(workflow, /issues: write/);
   assert.match(workflow, /node --test scripts\/codex-review-gate\.test\.mjs/);
   assert.match(workflow, /ref:\s*\$\{\{ github\.event\.repository\.default_branch \}\}/);

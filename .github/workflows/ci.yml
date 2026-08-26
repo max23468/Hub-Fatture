@@ -25,6 +25,7 @@ jobs:
       provider: ${{ steps.impact.outputs.provider }}
       aruba-platform: ${{ steps.impact.outputs.aruba_platform }}
       e2e: ${{ steps.impact.outputs.e2e }}
+      e2e_matrix: ${{ steps.impact.outputs.e2e_matrix }}
       lane: ${{ steps.impact.outputs.lane }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -41,7 +42,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" -- scripts/change-impact.mjs | grep -Fxq scripts/change-impact.mjs; then
-            impact=$(printf '%s\n' standard=true security_data=true database=true provider=true aruba_platform=true e2e=true lane=deploy)
+            impact=$(printf '%s\n' standard=true security_data=true database=true provider=true aruba_platform=true e2e=true 'e2e_matrix={"include":[{"browser":"chromium","label":"Chromium","install":"chromium"},{"browser":"webkit","label":"WebKit","install":"webkit"}]}' lane=deploy)
           else
             impact=$(node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA")
           fi
@@ -78,7 +79,7 @@ jobs:
           install: true
           cache: true
       - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
-      - run: npm ci
+      - run: npm ci --no-audit --prefer-offline
       - run: npm run check:standard
 
   database:
@@ -116,7 +117,7 @@ jobs:
           install: true
           cache: true
       - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
-      - run: npm ci
+      - run: npm ci --no-audit --prefer-offline
       - run: npm run build:server
       - run: npm run test:db
 
@@ -134,7 +135,7 @@ jobs:
         with:
           install: true
           cache: true
-      - run: npm ci
+      - run: npm ci --no-audit --prefer-offline
       - run: npm run audit
 
   provider:
@@ -152,7 +153,7 @@ jobs:
           install: true
           cache: true
       - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
-      - run: npm ci
+      - run: npm ci --no-audit --prefer-offline
       - run: npm run test:provider
 
   e2e:
@@ -163,14 +164,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - browser: chromium
-            label: Chromium
-            install: chromium
-          - browser: webkit
-            label: WebKit
-            install: webkit chromium
+      matrix: ${{ fromJSON(needs.impact.outputs.e2e_matrix) }}
     services:
       postgres:
         image: postgres:18.6-bookworm@sha256:7d2695c3aa88e792e8b3b233e7e4adb296a20412c6c0ca361e3edaaacfada108
@@ -200,10 +194,10 @@ jobs:
           install: true
           cache: true
       - run: sudo apt-get update && sudo apt-get install --yes libxml2-utils
-      - run: npm ci
+      - run: npm ci --no-audit --prefer-offline
       - run: npm run build
-      - run: npx playwright install --with-deps ${{ matrix.install }}
-      - run: npx playwright test --project=${{ matrix.browser }} --workers=1
+      - run: npx --no-install playwright install --with-deps ${{ matrix.install }}
+      - run: npx --no-install playwright test --project=${{ matrix.browser }} --workers=1
 
   aruba-helper-platform:
     name: Helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
@@ -227,7 +221,7 @@ jobs:
         with:
           install: true
           cache: true
-      - run: npm ci
+      - run: npm ci --no-audit --prefer-offline
       - run: npm run test:aruba:platform -- ${{ matrix.browser }}
 
   gate:
