@@ -169,8 +169,23 @@ try{
   await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
   const fullScan=manifest.fullScanRequired===true;
   const observed=[];
-  const pendingPages=[];
   let accountVerified=false;
+  verifyAccount:
+  for(const streamInfo of manifest.streams){
+    const stream=streamInfo.name;
+    setStatus("Verifica dell’account Aruba…");
+    const available=await selectStream(stream);
+    while(true){
+      await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
+      const documents=available?readPage(stream):[];
+      if(anomalousStatuses(documents))fail("ARUBA_REMOTE_STATUS_UNRECOGNIZED");
+      const proof=await rpc("/api/aruba/sync/verifica-account","POST",{documents});
+      if(proof?.verified===true){accountVerified=true;break verifyAccount}
+      if(!available||!hasNext())break;
+      await advance();
+    }
+  }
+  if(!accountVerified)fail("ARUBA_ACCOUNT_MISMATCH");
   for(const streamInfo of manifest.streams){
     const stream=streamInfo.name;
     const incrementalFrom=typeof streamInfo.incrementalFrom==="string"?streamInfo.incrementalFrom.slice(0,10):null;
@@ -188,18 +203,13 @@ try{
       const boundaryReached=!fullScan&&incrementalOrderVerified&&documents.length>0&&documents.every(document=>document.documentDate<scanFrom);
       const terminal=!available||!hasNext()||boundaryReached;
       const page={stream,scanOrdinal:1,pageOrdinal,cursor:stream+":"+pageOrdinal,terminal,fullScan,documents};
-      if(!accountVerified){
-        setStatus("Verifica dell’account Aruba…");
-        pendingPages.push({page,sources:xmlSources()});
-        const proof=await rpc("/api/aruba/sync/verifica-account","POST",{documents});
-        accountVerified=proof?.verified===true;
-        if(accountVerified){for(const pending of pendingPages){const ingest=await rpc("/api/aruba/sync/pagine","POST",pending.page);await uploadRequestedXml(ingest,pending.sources)}pendingPages.length=0}
-      }else{const sources=xmlSources();const ingest=await rpc("/api/aruba/sync/pagine","POST",page);await uploadRequestedXml(ingest,sources)}
+      const sources=xmlSources();
+      const ingest=await rpc("/api/aruba/sync/pagine","POST",page);
+      await uploadRequestedXml(ingest,sources);
       if(terminal)break;
       await advance();pageOrdinal+=1;
     }
   }
-  if(!accountVerified)fail("ARUBA_ACCOUNT_MISMATCH");
   await rpc("/api/aruba/sync/completa","POST",{streams:manifest.streams.map(item=>item.name),scanOrdinal:1,fullScan});
   inventoryCompleted=true;
   let preflightFailed=false;

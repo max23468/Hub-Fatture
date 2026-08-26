@@ -771,6 +771,7 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
         Object.defineProperty(window, "MessageChannel", { value: undefined });
         window.__pages = [];
         window.__uploadedXml = [];
+        window.__accountProofs = 0;
         addEventListener("message", (event) => {
           if (event.origin !== ${JSON.stringify(panelOrigin)} || !event.data) return;
           if (event.data.type === "HF_ARUBA_HELLO") {
@@ -812,7 +813,8 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
             window.__preflightCompletion = request.body;
             payload = { passed: true };
           } else if (request.path === "/api/aruba/sync/verifica-account") {
-            payload = { verified: true, initialPairing: false };
+            window.__accountProofs += 1;
+            payload = { verified: window.__accountProofs >= 2, initialPairing: false };
           } else if (request.path === "/api/aruba/sync/pagine") {
             window.__pages.push(request.body);
             payload = request.body.pageOrdinal === 1 ? {
@@ -940,10 +942,25 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
         }
       };
       let currentPage = 1;
+      const first = grid.querySelector('.pagingtoolbar-first button');
       const next = grid.querySelector('button[aria-label*="nextPage"]');
+      const showFirstPage = () => {
+        currentPage = 1;
+        const cells = grid.querySelector(".x-grid").querySelectorAll(".x-gridcell");
+        cells[4].firstChild.data = "12/08/${year}";
+        cells[5].firstChild.data = "FPR 1/${String(year).slice(-2)}";
+        cells[17].firstChild.data = "10000000001";
+        grid.setAttribute("data-page", "1");
+        first.disabled = true;
+        next.disabled = false;
+      };
+      first.addEventListener("click", () => {
+        requestKnownOnlyToAruba("/first-observable").then(showFirstPage);
+      });
       next.addEventListener("click", () => {
         if (currentPage === 1) {
           currentPage = 2;
+          first.disabled = false;
           const pending = fetch("/next-observable");
           const cells = grid.querySelector(".x-grid").querySelectorAll(".x-gridcell");
           cells[4].firstChild.data = "05/08/${year}";
@@ -951,6 +968,7 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
           cells[17].firstChild.data = "15000000001";
           pending.then(() => {
             cells[17].firstChild.data = "20000000002";
+            grid.setAttribute("data-page", "2");
             setTimeout(() => {
               cells[5].firstChild.data = "FPR 2/${String(year).slice(-2)}";
             }, 300);
@@ -982,6 +1000,7 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
   const bridge = await popupPromise;
   await expect(page.locator("#hub-fatture-aruba-status")).toHaveText(
     "Sincronizzazione completata. Puoi tornare a Hub Fatture.",
+    { timeout: 15_000 },
   );
   await expect(page.locator('[data-reference="arubacombobox-filterDate"] input')).toHaveValue("");
   await expect(page.locator(".aruba-grid-fatture-inviate")).toHaveAttribute("data-page", "3");
@@ -993,6 +1012,11 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
     "data-aruba-sort-direction",
     "DESC",
   );
+  expect(
+    await bridge.evaluate(
+      () => (window as typeof window & { __accountProofs?: number }).__accountProofs,
+    ),
+  ).toBe(2);
   expect(
     await bridge.evaluate(() =>
       (
