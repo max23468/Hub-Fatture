@@ -6,9 +6,9 @@
 **Documentazione provider:** [API Aruba v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html) e [manuale account Premium](https://guide.pec.it/fatturazione-elettronica/manuale-account-premium.pdf)
 
 Questo piano sostituisce integralmente il precedente piano browser-centrico di riconciliazione in
-entrata. Descrive la destinazione completa, la transizione dai componenti browser, i gate e le
-milestone. Non autorizza deploy, modifiche nel pannello Aruba, callback, upload, dry-run Production,
-invii fiscali reali o rimozione degli helper.
+entrata. Descrive la destinazione completa, la transizione dai componenti browser, i gate e la
+sequenza di delivery. Non autorizza deploy, modifiche nel pannello Aruba, callback, upload, dry-run
+Production, invii fiscali reali o rimozione degli helper.
 
 ## 0. Baseline osservata
 
@@ -23,9 +23,9 @@ invii fiscali reali o rimozione degli helper.
 - nessun dettaglio, XML, PDF, P7M o notifica scaricato;
 - nessun dry-run, upload, invio o modifica del pannello eseguito.
 
-Questa baseline prova la fattibilità minima di autenticazione e paginazione, non chiude M8 e non
-dimostra ancora la cardinalità completa gruppo/documento, i file, tutti gli stati, il Tier o
-l'idempotenza delle mutazioni.
+Questa baseline prova la fattibilità minima di autenticazione e paginazione, non chiude la
+qualifica API e non dimostra ancora la cardinalità completa gruppo/documento, i file, tutti gli
+stati, il Tier o l'idempotenza delle mutazioni.
 
 ## 1. Esito atteso
 
@@ -333,7 +333,7 @@ contatore locale dei documenti accettati per trasmissione; non stima euro. Gli a
 a 400 e 475 e si azzerano il primo giorno del mese. Letture, download, dry-run e retry non vengono
 presentati come fatture inviate.
 
-La qualifica M8 registra rate limit, Tier, regole di conteggio e risposta `429` correnti. Il client
+La qualifica API registra rate limit, Tier, regole di conteggio e risposta `429` correnti. Il client
 applica budget conservativi, backoff con jitter e priorità agli stati non terminali. Un cambiamento
 contrattuale o un consumo anomalo riapre il gate economico prima di abilitare nuovi invii, ma non
 cancella automaticamente un documento già autorizzato.
@@ -369,7 +369,8 @@ Il fallback non supera match ambigui, errori documentali, stato incerto o invent
 
 ### 14.1 Inbound
 
-Durante M9 il preferito/bridge resta autorevole e l’API esegue giri shadow separati e sanitizzati.
+Durante la transizione inbound il preferito/bridge resta autorevole e l’API esegue giri shadow
+separati e sanitizzati.
 Non si fondono due fonti automatiche nella stessa vista canonica. Il dossier richiede:
 
 - stesso insieme normalizzato di documenti, senza divergenze inspiegate;
@@ -402,21 +403,22 @@ L’assenza della rimozione fisica non blocca da sola la 1.0; l’assenza della 
 
 ## 15. Qualifica e autorizzazioni Production
 
-Ogni milestone presenta prima dell’esecuzione reale un manifesto con endpoint/capacità, numero
+Ogni fase presenta prima dell’esecuzione reale un manifesto con endpoint/capacità, numero
 massimo di richieste, finestre temporali, classi di dati, persistenza prevista e prova di assenza di
-invio. Il consenso vale per la milestone e decade se il perimetro cambia.
+invio. Il consenso vale per la fase e decade se il perimetro cambia.
 
-- M8: sole letture limitate; file minimi temporanei, validati e cancellati subito.
-- M9: ingest canonico read-only e backfill autorizzato.
-- M10: dry-run e qualifiche di upload senza invio, con autorizzazione specifica.
-- M13: un solo invio TD01 reale mediante permesso monouso.
+- Qualifica API: sole letture limitate; file minimi temporanei, validati e cancellati subito.
+- Inbound API: ingest canonico read-only e backfill autorizzato.
+- Outbound API: dry-run e qualifiche di upload senza invio, con autorizzazione specifica.
+- Canary Production: un solo invio TD01 reale mediante permesso monouso.
 
 Deploy, modifica dei permessi/delega nel pannello, callback, abilitazione ordinaria e ogni altro invio
 reale richiedono autorizzazioni distinte.
 
 ## 16. Canary TD01 e TD04
 
-Il canary M13 usa un permesso monouso legato a ambiente, account, documento, revisione, batch, XML
+Il canary Production usa un permesso monouso legato a ambiente, account, documento, revisione,
+batch, XML
 hash e scadenza breve. Viene consumato atomicamente al primo tentativo autorizzato. L’interruttore
 ordinario degli invii resta disabilitato; un esito incerto non riapre il permesso.
 
@@ -468,9 +470,9 @@ La tolleranza è zero divergenze inspiegate sull’insieme normalizzato. Differe
 evidenza ufficiale, classificazione e correzione del contratto o del normalizzatore; una soglia
 statistica non sostituisce la completezza.
 
-## 18. Milestone
+## 18. Sequenza di delivery
 
-### M8 — Qualifica API e accordo
+### Qualifica API e accordo
 
 - contratto v2, identità, gruppi/documenti, paginazione, finestre, stati, file e notifiche;
 - limiti, Tier, regole di conteggio e accordo economico registrati senza importi sensibili;
@@ -480,7 +482,7 @@ statistica non sostituisce la completezza.
 **Gate:** semantica completa e limiti qualificati; identità esatta; nessun segreto nei log; accordo
 economico confermato; manifesto e prova read-only chiusi.
 
-### M9 — Inbound API primario
+### Inbound API primario
 
 - credenziale cifrata, due arresti, worker e job;
 - backfill completo, polling, file, matching, salute e UI;
@@ -490,7 +492,7 @@ economico confermato; manifesto e prova read-only chiusi.
 **Gate:** storico completo; zero divergenze inspiegate; recovery e restore provati; decisione di
 Massimo sul preferito/bridge registrata.
 
-### M10 — Outbound API senza invio reale
+### Outbound API senza invio reale
 
 - tre modalità globali, manifest, job e risultati per documento;
 - dry-run, qualifiche di upload senza invio, readback e stato incerto;
@@ -500,7 +502,7 @@ Massimo sul preferito/bridge registrata.
 **Gate:** nessun invio SdI; hash e autorizzazioni verificati; retry sicuro; dossier outbound tecnico
 pronto, esclusa la prova reale.
 
-### M11 — Parità e transizione browser
+### Parità e transizione browser
 
 - dossier separati inbound/outbound;
 - API unica fonte automatica per le capacità qualificate;
@@ -509,13 +511,13 @@ pronto, esclusa la prova reale.
 
 **Gate:** nessuna doppia autorità; fallback manuale completo; rischi residui accettati.
 
-### M12 — Ricertificazione release candidate
+### Ricertificazione release candidate
 
 - regressione completa dell’app, sicurezza, recovery, migrazioni, backup e rollback;
 - readiness riferita a commit, digest, schema e configurazione esatti;
 - nessun P0/P1 e nessuna incertezza Aruba aperta.
 
-### M13 — Canary Production TD01
+### Canary Production TD01
 
 - un TD01 reale legittimo scelto da Massimo;
 - permesso monouso e interruttore ordinario ancora disabilitato;
@@ -524,7 +526,7 @@ pronto, esclusa la prova reale.
 
 **Gate:** nessun duplicato, nessun retry cieco, stato remoto determinato e permesso consumato.
 
-### M14 — Go-live e `1.0.0`
+### Go-live e `1.0.0`
 
 - autorizzazione ordinaria separata;
 - monitoraggio rafforzato della prima giornata;

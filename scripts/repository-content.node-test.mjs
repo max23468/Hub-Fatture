@@ -132,14 +132,9 @@ test("il frontend usa Preparazione fattura al posto dei vecchi nomi", async () =
 
 test("le sigle della roadmap restano fuori da codice e documenti operativi", async () => {
   const roots = ["app", "src", "tests", "scripts", ".github/workflows", "docs"];
-  const roadmapDocuments = new Set([
-    "docs/Hub_Fatture_MASTER_PLAN.md",
-    "docs/plans/aruba-api-integration.md",
-    "docs/adr/0004-permesso-monouso-canary-aruba.md",
-  ]);
   const files = (await Promise.all(roots.map(collect)))
     .flat()
-    .filter((file) => !roadmapDocuments.has(file));
+    .filter((file) => file !== "docs/Hub_Fatture_MASTER_PLAN.md");
   const offenders = (await contents(files))
     .filter(({ text }) => /\bM\d+(?:-M\d+)?\b/.test(text))
     .map(({ file }) => file);
