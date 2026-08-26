@@ -112,6 +112,19 @@ test("risolve soltanto thread Codex P2/P3 dell'HEAD esatto", () => {
             ],
           },
         },
+        {
+          ...thread("mixed-priority", "P2"),
+          comments: {
+            nodes: [
+              {
+                author: bot,
+                body: "**P1** Finding precedente",
+                originalCommit: { oid: oldSha },
+              },
+              ...thread("mixed-priority", "P2").comments.nodes,
+            ],
+          },
+        },
         thread("graphql-bot", "P2", headSha, "chatgpt-codex-connector"),
         thread("done", "P2", headSha, bot.login, true),
       ],

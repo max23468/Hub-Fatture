@@ -48,7 +48,6 @@ export function advisoryThreadIds(threads, headSha) {
         !thread.comments.nodes.some(
           (comment) =>
             isCodexBot(comment.author?.login) &&
-            (comment.originalCommit?.oid === headSha || comment.commit?.oid === headSha) &&
             ["P0", "P1"].includes(findingPriority(comment.body)),
         ),
     )

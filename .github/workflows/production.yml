@@ -345,14 +345,14 @@ jobs:
             fi
             git cat-file -e "$live_base^{commit}"
             if [ "$live_base" != "$EXPECTED_BASE" ]; then
-              deployment=$(jq -n --arg ref "$live_base" '{ref:$ref,environment:"Production",task:"hub-fatture-production",description:"Riconciliazione da ricevuta live verificata",auto_merge:false,required_contexts:[]}' | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
-              gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -X POST -f state=success -f environment=Production -f environment_url=https://fatture.opik.net -f description="Baseline riconciliata dalla ricevuta live" >/dev/null
               if [ "$EXPECTED_BASE" = 0000000000000000000000000000000000000000 ]; then
                 git merge-base --is-ancestor "$live_base" "$CANDIDATE"
               else
                 git merge-base --is-ancestor "$EXPECTED_BASE" "$live_base"
                 git merge-base --is-ancestor "$live_base" "$CANDIDATE"
               fi
+              deployment=$(jq -n --arg ref "$live_base" '{ref:$ref,environment:"Production",task:"hub-fatture-production",description:"Riconciliazione da ricevuta live verificata",auto_merge:false,required_contexts:[]}' | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+              gh api "repos/$GITHUB_REPOSITORY/deployments/$deployment/statuses" -X POST -f state=success -f environment=Production -f environment_url=https://fatture.opik.net -f description="Baseline riconciliata dalla ricevuta live" >/dev/null
             fi
             if [ "${{ inputs.backup_only }}" = true ]; then
               test "$live_base" = "$CANDIDATE" || {

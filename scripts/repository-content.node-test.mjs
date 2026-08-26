@@ -301,6 +301,11 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
     /live_receipt=\$\(ssh .*sudo cat \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json/,
   );
   assert.match(workflow, /Riconciliazione da ricevuta live verificata/);
+  assert.ok(
+    workflow.indexOf('git merge-base --is-ancestor "$live_base" "$CANDIDATE"') <
+      workflow.indexOf('description="Baseline riconciliata dalla ricevuta live"'),
+    "la baseline deve essere validata prima di registrare il successo",
+  );
   assert.match(workflow, /for delay in 0 2 5 10 20 30/);
   assert.match(workflow, /-f state=success/);
   assert.match(workflow, /BASE: \$\{\{ needs\.candidate\.outputs\.check_base \}\}/);
