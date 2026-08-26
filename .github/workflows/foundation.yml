@@ -35,6 +35,9 @@ jobs:
         # dove il codice di uscita di `git grep` è ispezionabile invece di essere appiattito da `!`.
         # I file letti da scripts/toolchain-policy.mjs non si ripetono qui: quello script
         # fallisce già se mancano, ed è `npm run check` a eseguirlo.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           test -f AGENTS.md
           test -f docs/Hub_Fatture_MASTER_PLAN.md
@@ -42,7 +45,7 @@ jobs:
           test -f doctor.config.json
           test -f .github/workflows/react-doctor.yml
           test ! -e LICENSE
-          git diff-tree --check --no-commit-id --root -r HEAD
+          git diff --check "$BASE_SHA" "$HEAD_SHA"
       - name: Verifica titolo PR in formato Conventional Commit
         if: github.event_name == 'pull_request'
         env:

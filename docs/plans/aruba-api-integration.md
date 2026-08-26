@@ -1,8 +1,8 @@
 # Piano esecutivo — integrazione API Aruba
 
-**Stato:** approvato come specifica di destinazione; solo spike read-only locale disponibile  
-**Ambito:** API Aruba v2, solo ciclo attivo dell’utenza Base delegata  
-**Fonte canonica:** Master Plan, ADR Aruba e glossario  
+**Stato:** approvato come specifica di destinazione; solo spike read-only locale disponibile
+**Ambito:** API Aruba v2, solo ciclo attivo dell’utenza Base delegata
+**Fonte canonica:** Master Plan, ADR Aruba e glossario
 **Documentazione provider:** [API Aruba v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html) e [manuale account Premium](https://guide.pec.it/fatturazione-elettronica/manuale-account-premium.pdf)
 
 Questo piano sostituisce integralmente il precedente piano browser-centrico di riconciliazione in
