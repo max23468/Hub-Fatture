@@ -2184,7 +2184,7 @@ fallito dopo l'ultimo readback riuscito torna invece immediatamente azionabile.
 - Rotazione documentata.
 - Separazione development/production.
 - La credenziale API Aruba viene salvata soltanto come ciphertext AEAD dopo un test d'identità riuscito; il plaintext non è rileggibile dalla UI e non entra in log, audit, prompt, screenshot, fixture o repository. Sessione browser, cookie, OTP e seed TOTP del fallback non vengono mai acquisiti da HF.
-- I segreti necessari al deploy remoto vivono nel GitHub Environment `Production`, non nei workflow ordinari, e diventano disponibili al job soltanto dopo l'approvazione richiesta.
+- I segreti necessari al deploy remoto vivono nel GitHub Environment `Production`, non nei workflow ordinari, e diventano disponibili soltanto al job di deploy già autorizzato dal dispatch del titolare o dal ciclo `Pubblica`.
 - La chiave master AEAD e il materiale minimo per ricostruire l'accesso non dipendono dalla sola VPS: conservarne una copia nel recovery kit locale del titolare sul Mac, fuori dal repository e dagli archivi dati, con permessi riservati e disco protetto da FileVault.
 - L'unico segreto archiviato nel repository è la key SSH VPS cifrata con `age` in `ops/secrets/`; il plaintext e l'identità privata di decifratura restano sempre fuori da Git. La presenza del blob pubblico non autorizza a decifrarlo o usarlo senza approvazione.
 
@@ -3192,7 +3192,7 @@ Output:
 - monitor locale;
 - immagine `linux/arm64` pubblicata su GHCR, attestata e consumata per digest senza build sulla VPS;
 - immagine applicativa non-root, scansione vulnerabilità e baseline Compose senza privilegi verificati;
-- GitHub Environment `Production` protetto, approvazione single-owner e secret scoped verificati;
+- GitHub Environment `Production` protetto, senza reviewer o timer duplicati, limitato a `main`/tag e con secret scoped verificati;
 - plugin OCI Compute Instance Monitoring, Notifications Topic e quattro allarmi iniziali collaudati;
 - dominio APM Always Free e singolo monitor HTTP esterno collaudati con errore/ripristino controllati;
 - bucket OCI Object Storage privato, Instance Principal minimo, lifecycle, timer backup e allarme di mancato backup collaudati senza costi attivati;
@@ -3588,7 +3588,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Stato GitHub e checkout locale coerenti; nessuna modifica concorrente sovrascritta.
 - [ ] Immagine `linux/arm64` pubblicata su GHCR, attestazione verificata e digest registrato; nessuna build prevista sulla VPS.
 - [ ] Immagine applicativa non-root e scansione vulnerabilità senza finding critici/alti raggiungibili aperti; Compose senza privilegi, DB non pubblicato e filesystem read-only salvo volumi espliciti.
-- [ ] GitHub Environment `Production` limita il job a `main`/tag, richiede l'approvazione del titolare e non espone secret prima del gate.
+- [ ] GitHub Environment `Production` limita il job a `main`/tag, non aggiunge reviewer o timer al dispatch già autorizzato e non espone secret agli altri job.
 - [ ] Firewall configurato.
 - [ ] Dynu e TLS verificati.
 - [ ] Backup recente verificato e rollback identificato.

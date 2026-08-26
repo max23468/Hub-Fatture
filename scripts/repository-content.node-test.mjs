@@ -109,6 +109,9 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
   assert.match(masterPlan, /richiesta affermativa di pubblicazione autorizza (?:invece )?deploy/);
   assert.match(masterPlan, /stessa PR dell'implementazione/);
   assert.match(masterPlan, /Non aprire una seconda PR di sola versione, changelog o release/);
+  assert.doesNotMatch(masterPlan, /approvazione single-owner/);
+  assert.doesNotMatch(masterPlan, /soltanto dopo l'approvazione richiesta/);
+  assert.doesNotMatch(masterPlan, /richiede l'approvazione del titolare/);
   assert.match(glossary, /\| Pubblica\s+\| ciclo tecnico completo\s+\|/);
 });
 
