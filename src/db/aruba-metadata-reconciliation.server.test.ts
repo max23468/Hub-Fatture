@@ -165,7 +165,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
           [remoteRow.rows[0]!.id, order.rows[0]!.id],
         )
       ).rows[0],
-      { status: "UNMATCHED", matcher_version: 2, potential: true },
+      { status: "UNMATCHED", matcher_version: 3, potential: true },
     );
     assert.equal(
       (
@@ -207,6 +207,46 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
       { status: "NEEDS_REVIEW", revision: stableRevision },
       "un ricalcolo ordinario conserva il possibile match Aruba ancora aperto",
     );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = (
+         SELECT jsonb_agg(
+           jsonb_set(jsonb_set(candidate, '{potential}', 'false'), '{compatible}', 'false')
+         )
+         FROM jsonb_array_elements(candidates_json) candidate
+       )
+       WHERE remote_document_id = $1`,
+      [remoteRow.rows[0]!.id],
+    );
+    await database
+      .getPool()
+      .query("UPDATE billing_cases SET status = 'READY' WHERE id = $1", [billingCase.rows[0]!.id]);
+    await database.withTransaction((client) =>
+      billingCaseStatus.recomputeBillingCaseStatus(client, billingCase.rows[0]!.id, true),
+    );
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.rows[0]!.id])
+      ).rows[0].status,
+      "NEEDS_REVIEW",
+      "il probe trattiene la preparazione fino all'import dell'XML ufficiale",
+    );
+    assert.equal(
+      (await inbound.getArubaInventoryHealth()).potentialMatches,
+      1,
+      "il probe non viene classificato come documento esterno sano",
+    );
+    await database.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = (
+         SELECT jsonb_agg(jsonb_set(candidate, '{potential}', 'true'))
+         FROM jsonb_array_elements(candidates_json) candidate
+       )
+       WHERE remote_document_id = $1`,
+      [remoteRow.rows[0]!.id],
+    );
     assert.equal(
       (
         await database.getPool().query(
@@ -215,7 +255,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
           [lateRemoteRow.rows[0]!.id],
         )
       ).rows[0].matcher_version,
-      2,
+      3,
       "la cache senza candidati resta rivalutabile anche dopo la classificazione corrente",
     );
     const secondCustomer = await database.getPool().query<{ id: string }>(
@@ -420,7 +460,7 @@ test("i metadati già estratti dall’helper rivalutano le preparazioni pronte",
           [remoteRow.rows[0]!.id],
         )
       ).rows[0],
-      { status: "UNKNOWN_REMOTE_STATE", matcher_version: 2 },
+      { status: "UNKNOWN_REMOTE_STATE", matcher_version: 3 },
     );
     assert.equal(await inbound.revokeArubaReadSessions(actor), 1);
     issued = await inbound.issueArubaReadSession("cached-matcher-device-5", actor);

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.76
+
+- Il preferito Aruba importa durante la sincronizzazione soltanto gli XML ufficiali che Hub Fatture richiede. Il ponte trasferisce i byte senza esporre cookie o credenziali Aruba, applica il limite dimensionale condiviso e continua a funzionare con il preferito già salvato.
+- La ricerca preliminare tollera fino a tre giorni tra ordine e documento e ignora i comuni titoli personali nel nome. Questi segnali servono esclusivamente a richiedere l’XML e a sospendere prudentemente la preparazione: i metadati della griglia non possono più creare un collegamento automatico definitivo.
+- L’XML ufficiale diventa il gate esplicito del matcher automatico. Dopo ogni import, match, documento e stato della preparazione vengono ricalcolati nella stessa transazione, così Dashboard e Attività riflettono subito la riconciliazione senza un secondo passaggio manuale.
+
 ## 0.3.75
 
 - La sincronizzazione Aruba riconosce come candidati anche i documenti della griglia che coincidono in modo univoco per data, importo e nome completo del destinatario, pur senza considerarli fiscalmente collegati finché manca l’XML ufficiale. Le preparazioni coinvolte passano da “Pronte” a “Da verificare”; più candidati equivalenti restano ambigui.

@@ -47,6 +47,7 @@ import { AppError } from "../errors.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { localOrderDate } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
+import { arubaUnresolvedCandidateSql } from "./billing-case-sql.server.ts";
 import { reconcileCachedArubaMatcherUpgrade } from "./aruba-matcher-upgrade.server.ts";
 import {
   freezeArubaInventorySnapshot,
@@ -273,7 +274,7 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
       async (remoteId, remote) => {
         const official = await loadLatestOfficialXml(client, remoteId);
         const evidence = official ? officialEvidence(remote, official.xml) : remote;
-        await reconcileRemoteDocument(client, remoteId, evidence);
+        await reconcileRemoteDocument(client, remoteId, evidence, Boolean(official));
         if (official && isEmissionConfirmed(evidence.status)) {
           await materializeLatestOfficialXml(client, remoteId, true);
         }
@@ -668,6 +669,7 @@ async function reconcileRemoteDocument(
   client: pg.PoolClient,
   remoteId: string,
   remote: RemoteInventoryDocument,
+  official = false,
 ) {
   const submitted = await submittedDocumentForRemote(client, remote);
   const submittedMatches = Boolean(submitted && submittedDocumentMatchesRemote(submitted, remote));
@@ -870,6 +872,11 @@ async function reconcileRemoteDocument(
       }
     }
   }
+  if (!official && status === "MATCHED") {
+    status = "UNMATCHED";
+    documentId = null;
+  }
+  const confirmedSelected = status === "MATCHED" ? selected : null;
   const previous = await client.query<{
     method: string;
     status: string;
@@ -917,13 +924,13 @@ async function reconcileRemoteDocument(
     [
       remoteId,
       status,
-      selected && status === "MATCHED" ? "AUTOMATIC" : "NONE",
+      confirmedSelected ? "AUTOMATIC" : "NONE",
       ARUBA_MATCHER_VERSION,
       documentId,
-      selected?.id ?? null,
-      selected?.billing_case_id ?? null,
-      selected?.invoice_document_id ?? null,
-      selected?.selected_refund_ids ?? [],
+      confirmedSelected?.id ?? null,
+      confirmedSelected?.billing_case_id ?? null,
+      confirmedSelected?.invoice_document_id ?? null,
+      confirmedSelected?.selected_refund_ids ?? [],
       JSON.stringify(compatibleIndex >= 0 ? match.evaluations[compatibleIndex]!.signals : {}),
       JSON.stringify(
         match.evaluations.map((evaluation, index) => ({
@@ -1018,7 +1025,12 @@ async function reconcileCachedPreflightDocuments(
       officialEvidenceComplete = false;
       continue;
     }
-    await reconcileRemoteDocument(client, row.id, officialEvidence(remote.data, official.xml));
+    await reconcileRemoteDocument(
+      client,
+      row.id,
+      officialEvidence(remote.data, official.xml),
+      true,
+    );
   }
   return officialEvidenceComplete;
 }
@@ -1856,7 +1868,7 @@ async function importArubaRemoteOfficialFileAuthorized(
           await latestObservedRemote(client, remoteDocumentId),
           xml,
         );
-        await reconcileRemoteDocument(client, remoteDocumentId, evidence);
+        await reconcileRemoteDocument(client, remoteDocumentId, evidence, true);
         return materializeMatchedExternalDocument(
           client,
           remoteDocumentId,
@@ -1943,7 +1955,7 @@ async function importArubaRemoteOfficialFileAuthorized(
           await latestObservedRemote(client, remoteDocumentId),
           xml,
         );
-        await reconcileRemoteDocument(client, remoteDocumentId, evidence);
+        await reconcileRemoteDocument(client, remoteDocumentId, evidence, true);
         documentId = await materializeMatchedExternalDocument(
           client,
           remoteDocumentId,
@@ -2035,6 +2047,30 @@ export async function importArubaRemoteOfficialFileAsActor(
   return importArubaRemoteOfficialFileAuthorized(actor, remoteReference, rawKind, bytes);
 }
 
+async function needsOfficialXmlForReconciliation(client: pg.PoolClient, remoteDocumentId: string) {
+  const result = await client.query<{ needed: boolean }>(
+    `SELECT NOT EXISTS (
+       SELECT 1 FROM aruba_files
+       WHERE remote_document_id = $1 AND kind = 'ARUBA_XML'
+     ) AND EXISTS (
+       SELECT 1
+       FROM aruba_document_matches matches
+       CROSS JOIN LATERAL jsonb_array_elements(matches.candidates_json) candidate
+       WHERE matches.remote_document_id = $1
+         AND matches.method <> 'MANUAL'
+         AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
+         AND (
+           coalesce((candidate ->> 'probe')::boolean, false)
+           OR coalesce((candidate ->> 'potential')::boolean, false)
+           OR coalesce((candidate ->> 'compatible')::boolean, false)
+           OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+         )
+     ) AS needed`,
+    [remoteDocumentId],
+  );
+  return result.rows[0]?.needed === true;
+}
+
 async function ingestParsedArubaPage(
   client: pg.PoolClient,
   session: ArubaReadSessionRow,
@@ -2105,7 +2141,13 @@ async function ingestParsedArubaPage(
         [stored.rows[0].id],
       );
       const knownKinds = new Set(files.rows.map((file) => file.kind));
-      for (const kind of ["ARUBA_XML", "ARUBA_P7M", "ARUBA_PDF"] as const) {
+      if (
+        !knownKinds.has("ARUBA_XML") &&
+        (await needsOfficialXmlForReconciliation(client, stored.rows[0].id))
+      ) {
+        requestedFiles.push({ remoteId: remote.remoteId, kind: "ARUBA_XML" });
+      }
+      for (const kind of ["ARUBA_P7M", "ARUBA_PDF"] as const) {
         if (!knownKinds.has(kind)) requestedFiles.push({ remoteId: remote.remoteId, kind });
       }
       if (!knownKinds.has("SDI_NOTIFICATION") || !isEmissionConfirmed(remote.status)) {
@@ -2322,6 +2364,7 @@ async function ingestParsedArubaPage(
         client,
         storedId!,
         official ? officialEvidence(remote, official.xml) : remote,
+        Boolean(official),
       );
       if (isEmissionConfirmed(remote.status)) {
         await materializeLatestOfficialXml(client, storedId!);
@@ -2333,7 +2376,10 @@ async function ingestParsedArubaPage(
     );
     const knownKinds = new Set(files.rows.map((file) => file.kind));
     const changed = !current || current.metadata_digest !== metadataDigest;
-    if (changed || !knownKinds.has("ARUBA_XML")) {
+    if (
+      !knownKinds.has("ARUBA_XML") &&
+      (await needsOfficialXmlForReconciliation(client, storedId!))
+    ) {
       requestedFiles.push({ remoteId: remote.remoteId, kind: "ARUBA_XML" });
     }
     if (changed || !knownKinds.has("ARUBA_P7M")) {
@@ -2455,7 +2501,7 @@ const arubaPotentialMatchPredicate = `(matches.status = 'UNMATCHED'
   AND matches.method <> 'MANUAL'
   AND EXISTS (
     SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE coalesce((candidate ->> 'potential')::boolean, false)
+    WHERE ${arubaUnresolvedCandidateSql("candidate")}
       OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
   ))`;
 
@@ -2463,7 +2509,7 @@ const arubaExternalDocumentPredicate = `(matches.status = 'UNMATCHED' AND (
   (matches.method = 'MANUAL' AND remote.origin = 'ARUBA_EXTERNAL')
   OR (matches.method <> 'MANUAL' AND NOT EXISTS (
     SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE coalesce((candidate ->> 'potential')::boolean, false)
+    WHERE ${arubaUnresolvedCandidateSql("candidate")}
       OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
   ))
 ))`;

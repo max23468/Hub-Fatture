@@ -226,7 +226,7 @@ test("un candidato univoco richiede data, importo e identità coerenti", () => {
   assert.equal(result.status, "MATCHED");
 });
 
-test("la griglia Aruba propone un nome specifico solo con data e importo esatti", () => {
+test("la griglia Aruba propone un nome specifico entro tre giorni e ignora i titoli", () => {
   const inventoryOnly = {
     ...remote,
     recipientTaxId: null,
@@ -246,6 +246,7 @@ test("la griglia Aruba propone un nome specifico solo con data e importo esatti"
   const potential = selectOrderMatch(inventoryOnly, [candidate]);
   assert.equal(potential.status, "UNMATCHED");
   assert.equal(potential.evaluations[0]?.potential, true);
+  assert.equal(potential.evaluations[0]?.probe, true);
   assert.equal(
     selectOrderMatch(inventoryOnly, [{ ...candidate, localOrderDate: "2026-08-11" }]).status,
     "UNMATCHED",
@@ -253,7 +254,22 @@ test("la griglia Aruba propone un nome specifico solo con data e importo esatti"
   assert.equal(
     selectOrderMatch(inventoryOnly, [{ ...candidate, localOrderDate: "2026-08-11" }]).evaluations[0]
       ?.potential,
+    true,
+  );
+  assert.equal(
+    selectOrderMatch(inventoryOnly, [{ ...candidate, localOrderDate: "2026-08-08" }]).evaluations[0]
+      ?.potential,
     false,
+  );
+  assert.equal(
+    selectOrderMatch({ ...inventoryOnly, recipientName: "Анна Иванова" }, [candidate])
+      .evaluations[0]?.probe,
+    true,
+  );
+  assert.equal(
+    selectOrderMatch({ ...inventoryOnly, recipientName: "Dott. Mario Rossi" }, [candidate])
+      .evaluations[0]?.potential,
+    true,
   );
   assert.equal(
     selectOrderMatch({ ...inventoryOnly, recipientName: "Mario" }, [

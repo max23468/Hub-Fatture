@@ -1,3 +1,4 @@
+import { ARUBA_IMPORT_MAX_BYTES } from "./aruba-browser-constants.ts";
 import {
   ARUBA_UNKNOWN_STATUS_PAGE_MAX_RATIO,
   ARUBA_UNKNOWN_STATUS_PAGE_MIN_DOCUMENTS,
@@ -126,6 +127,32 @@ const readExtGrid=(stream)=>{const expected=streamParts(stream);const rows=[...d
 const headerIndex=(headers,pattern)=>headers.findIndex(header=>pattern.test(header));
 const readSemantic=(stream)=>{const expected=streamParts(stream);const tables=[...document.querySelectorAll("table")].filter(visible).filter(table=>{const headers=[...table.querySelectorAll("thead th")].map(cell=>normalized(cell.textContent));return headers.some(value=>/data/i.test(value))&&headers.some(value=>/stato/i.test(value))&&headers.some(value=>/totale|importo/i.test(value))});if(tables.length!==1)fail("DOM_UNRECOGNIZED");const table=tables[0];const headers=[...table.querySelectorAll("thead th")].map(cell=>normalized(cell.textContent));const indices={remoteId:headerIndex(headers,/^(?:id|identificativo)(?:\s+(?:aruba|remoto))?$/i),type:headerIndex(headers,/tipo|documento/i),number:headerIndex(headers,/numero/i),date:headerIndex(headers,/data/i),recipient:headerIndex(headers,/destinatario|cliente/i),tax:headerIndex(headers,/codice fiscale|partita iva|identificativo fiscale/i),address:headerIndex(headers,/indirizzo/i),orders:headerIndex(headers,/riferiment|ordine|causale/i),total:headerIndex(headers,/totale|importo/i),status:headerIndex(headers,/stato/i)};if([indices.remoteId,indices.date,indices.orders,indices.total,indices.status].some(value=>value<0))fail("DOM_UNRECOGNIZED");const rows=[...table.querySelectorAll("tbody tr")].filter(visible);if(rows.length>300)fail("DOM_UNRECOGNIZED");return rows.map(row=>{const cells=[...row.querySelectorAll("td")].map(cell=>normalized(cell.textContent));if(cells.length!==headers.length)fail("DOM_UNRECOGNIZED");const text=cells.join(" ");const typeText=indices.type>=0?cells[indices.type]:text;const type=/\bTD0?4\b/i.test(typeText)?"TD04":/\bTD0?1\b/i.test(typeText)?"TD01":null;const remoteId=cells[indices.remoteId];if(!type||!remoteId||remoteId.length>200)fail("DOM_UNRECOGNIZED");const documentDate=italianDate(cells[indices.date]);const year=Number(documentDate.slice(0,4));const identity=indices.number>=0?fiscalNumber(cells[indices.number],year):{series:null,fiscalNumber:null};return{remoteId,documentType:type,fiscalYear:year,series:identity.series,fiscalNumber:identity.fiscalNumber,documentDate,recipientName:indices.recipient>=0?cells[indices.recipient]||null:null,recipientTaxId:indices.tax>=0?cells[indices.tax]||null:null,recipientTaxIdentifiers:[],recipientCountryCode:null,recipientAddress:indices.address>=0?cells[indices.address]||null:null,totalAmount:italianAmount(cells[indices.total]),currency:"EUR",status:remoteStatus(cells[indices.status]),providerStatusLabel:cells[indices.status]||null,providerObservedAt:null,xmlSha256:null,orderReferences:orderReferences(cells[indices.orders])}}).filter(document=>document.documentType===expected.type&&document.fiscalYear===expected.year)};
 const readPage=(stream)=>document.querySelector("tr[data-aruba-remote-id]")?readSynthetic(stream):document.querySelector(".aruba-grid-fatture-inviate")?readExtGrid(stream):readSemantic(stream);
+const xmlSources=()=>{
+  const sources=new Map();
+  for(const row of [...document.querySelectorAll("tr[data-aruba-remote-id]")].filter(visible)){const remoteId=normalized(row.getAttribute("data-aruba-remote-id"));const url=row.getAttribute("data-aruba-xml-url");if(remoteId&&url)sources.set(remoteId,{url})}
+  const grid=document.querySelector(".aruba-grid-fatture-inviate");
+  if(grid){const primary=new Map([...grid.querySelectorAll(".x-gridrow[data-recordindex]")].filter(row=>row.querySelectorAll(".x-gridcell").length>=18).map(row=>[row.getAttribute("data-recordindex"),row]));for(const statusRow of grid.querySelectorAll(".x-gridrow[data-recordindex]")){if(statusRow.querySelectorAll(".x-gridcell").length>=18||!statusRow.querySelector(".x-gridcell:nth-child(2) .aru-xml"))continue;const index=statusRow.getAttribute("data-recordindex"),remoteId=normalized(primary.get(index)?.querySelectorAll(".x-gridcell")?.[17]?.textContent);if(remoteId)sources.set(remoteId,{recordIndex:index})}}
+  for(const link of [...document.querySelectorAll("a")].filter(visible).filter(link=>/Scarica XML/i.test(normalized(link.getAttribute("aria-label")||link.textContent)))){const row=link.closest("tr");if(!row)continue;const table=row.closest("table"),headers=[...(table?.querySelectorAll("thead th")??[])].map(cell=>normalized(cell.textContent)),index=headerIndex(headers,/^(?:id|identificativo)(?:\s+(?:aruba|remoto))?$/i),cells=[...row.querySelectorAll("td")];const remoteId=index>=0?normalized(cells[index]?.textContent):"";if(remoteId&&link.href)sources.set(remoteId,{url:link.href})}
+  return sources;
+};
+const allowedXmlUrl=(value)=>{const url=new URL(String(value),location.href);if(url.origin!==PANEL||!/^https?:$/.test(url.protocol))fail("OFFICIAL_FILE_DOWNLOAD_FAILED");return url.href};
+const xmlBytesFromUrl=async(value)=>{const response=await fetch(allowedXmlUrl(value),{credentials:"include"});if(!response.ok)fail("OFFICIAL_FILE_DOWNLOAD_FAILED");const bytes=await response.arrayBuffer();if(!bytes.byteLength||bytes.byteLength>__IMPORT_MAX__)fail("OFFICIAL_FILE_DOWNLOAD_FAILED");return bytes};
+const xmlBytesFromTool=async(recordIndex)=>{
+  if(!/^\d+$/.test(String(recordIndex)))fail("DOM_UNRECOGNIZED");
+  const selector='.aruba-grid-fatture-inviate .locked-grid-border-left .x-gridrow[data-recordindex="'+CSS.escape(String(recordIndex))+'"] .x-gridcell:nth-child(2) .aru-xml';
+  const icons=[...document.querySelectorAll(selector)].filter(visible);if(icons.length!==1)fail("DOM_UNRECOGNIZED");const tool=icons[0].closest(".x-tool");if(!tool)fail("DOM_UNRECOGNIZED");
+  let settle;const captured=new Promise(resolve=>{settle=resolve});let done=false;const remember=(value)=>{if(done||!value)return;done=true;settle(value)};
+  const originalCreate=URL.createObjectURL,originalOpen=window.open,originalAnchorClick=HTMLAnchorElement.prototype.click,originalSubmit=HTMLFormElement.prototype.submit;
+  const interceptClick=(event)=>{const anchor=event.target instanceof Element?event.target.closest("a[href]"):null;if(!anchor)return;event.preventDefault();event.stopImmediatePropagation();remember(anchor.href)};
+  const observer=new MutationObserver(mutations=>{for(const mutation of mutations)for(const node of mutation.addedNodes){if(!(node instanceof Element))continue;for(const element of [node,...node.querySelectorAll("a[href],iframe[src]")])remember(element instanceof HTMLAnchorElement?element.href:element instanceof HTMLIFrameElement?element.src:null)}});
+  URL.createObjectURL=function(value){if(value instanceof Blob)remember(value);return Reflect.apply(originalCreate,this,[value])};
+  window.open=function(value,...args){if(value)remember(String(value));return null};
+  HTMLAnchorElement.prototype.click=function(){remember(this.href)};
+  HTMLFormElement.prototype.submit=function(){remember(this.action)};
+  document.addEventListener("click",interceptClick,true);observer.observe(document.body,{childList:true,subtree:true});
+  try{tool.click();const source=await Promise.race([captured,sleep(10000).then(()=>null)]);if(!source)fail("OFFICIAL_FILE_DOWNLOAD_FAILED");const bytes=source instanceof Blob?await source.arrayBuffer():await xmlBytesFromUrl(source);if(!bytes.byteLength||bytes.byteLength>__IMPORT_MAX__)fail("OFFICIAL_FILE_DOWNLOAD_FAILED");return bytes}finally{URL.createObjectURL=originalCreate;window.open=originalOpen;HTMLAnchorElement.prototype.click=originalAnchorClick;HTMLFormElement.prototype.submit=originalSubmit;document.removeEventListener("click",interceptClick,true);observer.disconnect()}
+};
+const uploadRequestedXml=async(ingest,sources)=>{for(const request of ingest?.requestedFiles??[]){if(request?.kind!=="ARUBA_XML")continue;const source=sources.get(String(request.remoteId));if(!source)fail("OFFICIAL_FILE_DOWNLOAD_FAILED");setStatus("Importazione XML ufficiale…");const bytes=source.url?await xmlBytesFromUrl(source.url):await xmlBytesFromTool(source.recordIndex);await rpc("/api/aruba/sync/file","POST",{remoteId:String(request.remoteId),kind:"ARUBA_XML",bytes})}};
 const hasNext=()=>{const button=document.querySelector(".aruba-grid-fatture-inviate")?productionNext():semanticNext();return enabled(button)};
 const advance=async()=>{if(document.querySelector(".aruba-grid-fatture-inviate")){await clickProduction(productionNext(),true)}else{const next=semanticNext();if(!enabled(next))fail("DOM_UNRECOGNIZED");next.click();await sleep(300)}};
 let inventoryCompleted=false;
@@ -142,8 +169,23 @@ try{
   await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
   const fullScan=manifest.fullScanRequired===true;
   const observed=[];
-  const pendingPages=[];
   let accountVerified=false;
+  verifyAccount:
+  for(const streamInfo of manifest.streams){
+    const stream=streamInfo.name;
+    setStatus("Verifica dell’account Aruba…");
+    const available=await selectStream(stream);
+    while(true){
+      await rpc("/api/aruba/sync/heartbeat","POST",{helperVersion:"preferito-1",browser});
+      const documents=available?readPage(stream):[];
+      if(anomalousStatuses(documents))fail("ARUBA_REMOTE_STATUS_UNRECOGNIZED");
+      const proof=await rpc("/api/aruba/sync/verifica-account","POST",{documents});
+      if(proof?.verified===true){accountVerified=true;break verifyAccount}
+      if(!available||!hasNext())break;
+      await advance();
+    }
+  }
+  if(!accountVerified)fail("ARUBA_ACCOUNT_MISMATCH");
   for(const streamInfo of manifest.streams){
     const stream=streamInfo.name;
     const incrementalFrom=typeof streamInfo.incrementalFrom==="string"?streamInfo.incrementalFrom.slice(0,10):null;
@@ -161,18 +203,13 @@ try{
       const boundaryReached=!fullScan&&incrementalOrderVerified&&documents.length>0&&documents.every(document=>document.documentDate<scanFrom);
       const terminal=!available||!hasNext()||boundaryReached;
       const page={stream,scanOrdinal:1,pageOrdinal,cursor:stream+":"+pageOrdinal,terminal,fullScan,documents};
-      if(!accountVerified){
-        setStatus("Verifica dell’account Aruba…");
-        pendingPages.push(page);
-        const proof=await rpc("/api/aruba/sync/verifica-account","POST",{documents});
-        accountVerified=proof?.verified===true;
-        if(accountVerified){for(const pendingPage of pendingPages)await rpc("/api/aruba/sync/pagine","POST",pendingPage);pendingPages.length=0}
-      }else{await rpc("/api/aruba/sync/pagine","POST",page)}
+      const sources=xmlSources();
+      const ingest=await rpc("/api/aruba/sync/pagine","POST",page);
+      await uploadRequestedXml(ingest,sources);
       if(terminal)break;
       await advance();pageOrdinal+=1;
     }
   }
-  if(!accountVerified)fail("ARUBA_ACCOUNT_MISMATCH");
   await rpc("/api/aruba/sync/completa","POST",{streams:manifest.streams.map(item=>item.name),scanOrdinal:1,fullScan});
   inventoryCompleted=true;
   let preflightFailed=false;
@@ -197,7 +234,8 @@ try{
     .replace("__HUB__", JSON.stringify(options.hubOrigin))
     .replace("__PANEL__", JSON.stringify(options.panelOrigin))
     .replace("__UNKNOWN_MIN__", String(ARUBA_UNKNOWN_STATUS_PAGE_MIN_DOCUMENTS))
-    .replace("__UNKNOWN_RATIO__", String(ARUBA_UNKNOWN_STATUS_PAGE_MAX_RATIO));
+    .replace("__UNKNOWN_RATIO__", String(ARUBA_UNKNOWN_STATUS_PAGE_MAX_RATIO))
+    .replaceAll("__IMPORT_MAX__", String(ARUBA_IMPORT_MAX_BYTES));
 }
 
 export function buildArubaBookmarklet(options: ArubaBookmarkletOptions): string {

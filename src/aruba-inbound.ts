@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 2;
+export const ARUBA_MATCHER_VERSION = 3;
 
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",
@@ -257,11 +257,13 @@ export interface CandidateEvaluation {
   orderIds: string[];
   compatible: boolean;
   potential: boolean;
+  probe: boolean;
   signals: {
     provider: boolean;
     explicitReference: boolean;
     date: boolean;
     sameDay: boolean;
+    nearDate: boolean;
     total: boolean;
     recipient: boolean;
     taxId: boolean;
@@ -277,6 +279,19 @@ function daysAfter(documentDate: string, sourceDate: string): number {
 
 function hasSpecificRecipientName(value: string | null | undefined): boolean {
   return (normalizedMatchText(value)?.length ?? 0) >= 2;
+}
+
+function normalizedRecipientName(value: string | null | undefined): string | null {
+  const titles = new Set(["DOTT", "DOTTORE", "DOTTORESSA", "DR", "SIG", "SIGNOR", "SIGNORA"]);
+  const withoutTitles = value
+    ?.normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((token) => !titles.has(token.toUpperCase()))
+    .join(" ");
+  return normalizedMatchText(withoutTitles);
 }
 
 export function evaluateOrderCandidate(
@@ -300,10 +315,11 @@ export function evaluateOrderCandidate(
   const elapsedDays = daysAfter(remote.documentDate, candidate.localOrderDate);
   const date = elapsedDays >= 0 && elapsedDays <= 31;
   const sameDay = elapsedDays === 0;
+  const nearDate = elapsedDays >= 0 && elapsedDays <= 3;
   const total = remote.totalAmount === candidate.billableAmount;
-  const remoteName = normalizedMatchText(remote.recipientName);
+  const remoteName = normalizedRecipientName(remote.recipientName);
   const recipient = Boolean(
-    remoteName && remoteName === normalizedMatchText(candidate.recipientName),
+    remoteName && remoteName === normalizedRecipientName(candidate.recipientName),
   );
   const remoteTaxIds = remote.recipientTaxIdentifiers.map(canonicalFiscalIdentity);
   const candidateTaxIds = new Set(candidate.recipientTaxIdentifiers.map(canonicalFiscalIdentity));
@@ -327,8 +343,8 @@ export function evaluateOrderCandidate(
   const inferredRecipientIsCompatible = remoteTaxIds.length
     ? taxId && identitySignals >= 2
     : identitySignals >= 2;
-  const potential =
-    provider && sameDay && total && recipient && hasSpecificRecipientName(remote.recipientName);
+  const probe = provider && nearDate && total;
+  const potential = probe && recipient && hasSpecificRecipientName(remote.recipientName);
   return {
     candidateId: candidate.id,
     orderIds: candidate.orderIds ?? [candidate.id],
@@ -338,7 +354,18 @@ export function evaluateOrderCandidate(
       total &&
       ((explicitReference && referencedRecipientIsCompatible) || inferredRecipientIsCompatible),
     potential,
-    signals: { provider, explicitReference, date, sameDay, total, recipient, taxId, address },
+    probe,
+    signals: {
+      provider,
+      explicitReference,
+      date,
+      sameDay,
+      nearDate,
+      total,
+      recipient,
+      taxId,
+      address,
+    },
   };
 }
 

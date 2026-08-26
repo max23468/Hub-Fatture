@@ -182,6 +182,29 @@ export async function arubaInventoryManifest(token: string) {
       [scopedStreams],
     );
     const byStream = new Map(cursors.rows.map((row) => [row.stream, row]));
+    const pendingOfficialXml = await client.query<{ needed: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM aruba_remote_documents remote
+         JOIN aruba_document_matches matches ON matches.remote_document_id = remote.id
+         CROSS JOIN LATERAL jsonb_array_elements(matches.candidates_json) candidate
+         WHERE remote.environment = $1 AND remote.account_reference = $2
+           AND remote.remote_status <> 'REJECTED'
+           AND matches.method <> 'MANUAL'
+           AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
+           AND NOT EXISTS (
+             SELECT 1 FROM aruba_files files
+             WHERE files.remote_document_id = remote.id AND files.kind = 'ARUBA_XML'
+           )
+           AND (
+             coalesce((candidate ->> 'probe')::boolean, false)
+             OR coalesce((candidate ->> 'potential')::boolean, false)
+             OR coalesce((candidate ->> 'compatible')::boolean, false)
+             OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+           )
+       ) AS needed`,
+      [session.environment, session.account_reference],
+    );
     const overlapFloor = new Date(Date.now() - ARUBA_INCREMENTAL_OVERLAP_DAYS * 86_400_000);
     const fullScanFloor = new Date(Date.now() - ARUBA_FULL_SCAN_INTERVAL_DAYS * 86_400_000);
     const streams = snapshot.streams.map((stream) => {
@@ -205,18 +228,20 @@ export async function arubaInventoryManifest(token: string) {
         statusMapperVersion: cursor?.aruba_status_mapper_version ?? null,
       };
     });
-    const fullScanRequired = streams.some((stream) => {
-      const lastFullScan = stream.lastFullScanCompletedAt
-        ? new Date(stream.lastFullScanCompletedAt)
-        : null;
-      return (
-        !stream.cursor ||
-        !stream.incrementalFrom ||
-        !lastFullScan ||
-        lastFullScan.getTime() <= fullScanFloor.getTime() ||
-        stream.statusMapperVersion !== ARUBA_STATUS_MAPPER_VERSION
-      );
-    });
+    const fullScanRequired =
+      pendingOfficialXml.rows[0]?.needed === true ||
+      streams.some((stream) => {
+        const lastFullScan = stream.lastFullScanCompletedAt
+          ? new Date(stream.lastFullScanCompletedAt)
+          : null;
+        return (
+          !stream.cursor ||
+          !stream.incrementalFrom ||
+          !lastFullScan ||
+          lastFullScan.getTime() <= fullScanFloor.getTime() ||
+          stream.statusMapperVersion !== ARUBA_STATUS_MAPPER_VERSION
+        );
+      });
     return {
       operation: "READ_SYNC" as const,
       sessionId: session.id,
