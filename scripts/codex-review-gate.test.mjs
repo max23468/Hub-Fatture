@@ -103,11 +103,21 @@ test("risolve soltanto thread Codex P2/P3 dell'HEAD esatto", () => {
         thread("p1", "P1"),
         thread("old", "P2", oldSha),
         thread("human", "P2", headSha, "max23468"),
+        {
+          ...thread("answered", "P2"),
+          comments: {
+            nodes: [
+              ...thread("answered", "P2").comments.nodes,
+              { author: { login: "max23468" }, body: "Risposta del proprietario" },
+            ],
+          },
+        },
+        thread("graphql-bot", "P2", headSha, "chatgpt-codex-connector"),
         thread("done", "P2", headSha, bot.login, true),
       ],
       headSha,
     ),
-    ["p2", "p3"],
+    ["p2", "p3", "graphql-bot"],
   );
 });
 

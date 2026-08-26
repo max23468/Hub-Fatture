@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const CODEX_BOT = "chatgpt-codex-connector[bot]";
+const CODEX_BOT_GRAPHQL = "chatgpt-codex-connector";
 const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 export const CODEX_REVIEW_POLLING = {
   fastAttempts: 20,
@@ -22,6 +23,7 @@ export const codexReviewPollingDuration = () =>
 const timestamp = (value) => new Date(value ?? 0).getTime();
 const signalTimestamp = (signal) => timestamp(signal.submitted_at ?? signal.created_at);
 const matchesHead = (candidate, headSha) => Boolean(candidate && headSha.startsWith(candidate));
+const isCodexBot = (login) => login === CODEX_BOT || login === CODEX_BOT_GRAPHQL;
 
 export const reviewedCommit = (body = "") =>
   body.match(/\*\*Reviewed commit:\*\*\s*`([0-9a-f]{10,40})`/i)?.[1];
@@ -35,16 +37,17 @@ export function advisoryThreadIds(threads, headSha) {
     .filter((thread) =>
       thread.comments.nodes.some(
         (comment) =>
-          comment.author?.login === CODEX_BOT &&
+          isCodexBot(comment.author?.login) &&
           (comment.originalCommit?.oid === headSha || comment.commit?.oid === headSha) &&
           ["P2", "P3"].includes(findingPriority(comment.body)),
       ),
     )
+    .filter((thread) => thread.comments.nodes.every((comment) => isCodexBot(comment.author?.login)))
     .filter(
       (thread) =>
         !thread.comments.nodes.some(
           (comment) =>
-            comment.author?.login === CODEX_BOT &&
+            isCodexBot(comment.author?.login) &&
             (comment.originalCommit?.oid === headSha || comment.commit?.oid === headSha) &&
             ["P0", "P1"].includes(findingPriority(comment.body)),
         ),
