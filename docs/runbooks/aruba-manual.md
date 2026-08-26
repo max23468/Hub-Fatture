@@ -1,6 +1,8 @@
 # Procedura manuale Aruba
 
-Questa è la procedura completa quando l’helper non è disponibile, il browser non è supportato o il pannello è cambiato.
+Questa è la procedura permanente quando le API Aruba non sono disponibili o non sono autorizzate,
+oppure durante la transizione quando l’helper non è disponibile. Non dipende dalla presenza degli
+helper e resta valida dopo il loro eventuale ritiro.
 
 1. In **Documenti**, verificare numero, data, destinatario e totale; quindi scaricare l’XML approvato.
 2. Aprire manualmente il pannello ufficiale Aruba e completare personalmente login e password. Se compare una challenge OTP, SMS o CAPTCHA inattesa, completarla senza comunicare questi dati a Hub Fatture o all’helper.
@@ -20,7 +22,7 @@ Se l’inventario globale è sano ma manca il controllo immediato di una prepara
 
 Se invece la scansione automatica è fallita o incompleta, la verifica specifica non basta. Il readback completo deve coprire ogni stream indicato in Impostazioni, dall’estremo temporale richiesto fino alla pagina terminale, includendo tutte le righe una sola volta oppure un export ufficiale integrale. Conservare filtri, ordinali, conteggi, estremi e file necessari. Solo Massimo con permesso di approvazione può finalizzare la ricevuta; la sessione automatica fallita resta nella cronologia e collisioni, file non validi, match ambigui o stati remoti incerti non sono superabili manualmente.
 
-In **Impostazioni → Helper Aruba**, aprire il readback completo, copiare tutte le pagine nel formato mostrato e finalizzare soltanto dopo che il riepilogo copre ogni stream richiesto. Ordinali mancanti, pagina terminale assente, righe duplicate o una sessione helper ancora attiva bloccano la finalizzazione. L’operazione riuscita crea una nuova ricevuta manuale completa senza cancellare né trasformare le sessioni automatiche fallite.
+In **Impostazioni → Connessione Aruba → Recupero manuale**, aprire il readback completo, copiare tutte le pagine nel formato mostrato e finalizzare soltanto dopo che il riepilogo copre ogni stream richiesto. Ordinali mancanti, pagina terminale assente, righe duplicate o una sincronizzazione ancora attiva bloccano la finalizzazione. L’operazione riuscita crea una nuova ricevuta manuale completa senza cancellare né trasformare i giri automatici falliti.
 
 Per una preparazione usare invece **Readback manuale specifico**: riportare tutte le pagine delle ricerche indicate. Una pagina vuota e completa produce una ricevuta monouso valida cinque minuti; qualunque candidato produce un blocco e deve prima essere importato e riconciliato.
 

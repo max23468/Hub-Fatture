@@ -1,6 +1,12 @@
 # Contratto verificato dell’helper Aruba
 
-Questo contratto governa la pagina sintetica e l’helper locale unico per macOS e Windows. La prova controllata precedente al canary tecnico Production lo ha qualificato sul pannello Aruba Base reale con un TD01 e un TD04 dedicati, correttamente caricati e rimossi senza invio.
+**Stato:** baseline transitoria per dossier di parità; non è l’integrazione Aruba di destinazione.
+
+Questo contratto descrive la pagina sintetica, il preferito/bridge inbound e l’helper locale
+outbound già qualificati. Resta congelato come riferimento di confronto fino alla decisione
+esplicita di Massimo su ciascun componente. Nuove capacità e flussi ordinari seguono il
+[piano API Aruba](../plans/aruba-api-integration.md); non estendere questo contratto come seconda
+integrazione automatica permanente.
 
 ## Confini di sicurezza
 
@@ -8,7 +14,7 @@ Questo contratto governa la pagina sintetica e l’helper locale unico per macOS
 - L’helper usa Chrome o Edge installato localmente e un profilo browser dedicato. Non legge, esporta o trasmette cookie e local storage.
 - L’account corrente non usa la 2FA e non richiede un SMS per ogni upload. Login, password e qualunque challenge OTP/SMS/CAPTCHA inattesa sono sempre umani: se richiesti, l’helper si mette in pausa.
 - Il codice di avvio scade, vale per un batch, viene revocato quando termina la propria fase e non autorizza `Invia`. Durante una pausa umana l’helper ne rinnova la scadenza breve con heartbeat, entro un limite assoluto di 45 minuti dalla creazione; prima del limite il server revoca il token e forza il readback se l’operazione non è conclusa.
-- In ambiente operativo `ARUBA_SUBMISSION_ENABLED=false` disabilita l’invio automatico e forza i nuovi batch alla modalità assistita. Quando l’uso Production ordinario verrà autorizzato, l’helper ricontrollerà immediatamente prima del clic flag, modalità, manifest immutabile, documenti, revisioni, hash e validazione; non esistono permessi temporanei o eccezioni pilota.
+- Nel solo percorso browser transitorio, `ARUBA_SUBMISSION_ENABLED=false` disabilita l’invio automatico e forza il fallback manuale. Il permesso canary monouso appartiene esclusivamente al trasporto API e non abilita l’helper.
 - Dopo un esito incerto il manifest espone soltanto l’operazione `READBACK`: nessun nuovo upload o invio è ammesso fino alla riconciliazione.
 
 ## Manifest

@@ -1,10 +1,13 @@
 {
   "name": "hub-fatture",
-  "version": "0.3.76",
+  "version": "0.3.77",
   "private": true,
   "type": "module",
   "scripts": {
     "audit": "npm audit --audit-level=high",
+    "aruba:api:probe": "node scripts/aruba-api-read-probe.ts",
+    "aruba:api:probe:interactive": "sh scripts/aruba-api-read-probe.sh",
+    "aruba:api:probe:keychain": "sh scripts/aruba-api-read-probe-keychain.sh",
     "aruba:helper": "node scripts/aruba-helper.ts",
     "aruba:sync": "node scripts/aruba-read-runner.ts",
     "build": "react-router build",

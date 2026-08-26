@@ -1,35 +1,49 @@
 # Glossario
 
-| Termine UI                   | Equivalente tecnico           | Significato                                                                          | Non usare                               |
-| ---------------------------- | ----------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------- |
-| Preparazione fattura         | `billing_case`                | Area di lavoro che raggruppa gli ordini prima del documento                          | scheda, pratica                         |
-| Quando preparare le fatture  | `draft_trigger`               | Regola che avvia la preparazione dopo il pagamento o la spedizione                   | trigger                                 |
-| Ordini di esempio            | fixture di sviluppo           | Ordini fittizi usati solo per provare l’app                                          | fixture, dati sintetici                 |
-| Canale di vendita            | `provider`                    | Shopify oppure eBay, da cui arriva l’ordine                                          | provider, piattaforma                   |
-| Dati ricevuti                | source snapshot               | Informazioni originali ricevute da Shopify o eBay                                    | dati sorgente                           |
-| Dati usati da Hub Fatture    | normalized snapshot           | Informazioni rese coerenti e usate per preparare la fattura                          | dati normalizzati                       |
-| Bozza                        | `draft`                       | Documento modificabile e non numerato                                                | fattura emessa                          |
-| Approvazione                 | `approval`                    | Conferma esplicita che precede numerazione e preparazione                            | invio                                   |
-| Numerazione                  | `numbering`                   | Assegnazione irreversibile del numero fiscale verificato                             | salvataggio                             |
-| Trasmissione                 | `submission`                  | Invio acquisito da Aruba                                                             | validazione                             |
-| Consegna                     | `delivered`                   | Esito confermato da SdI                                                              | caricato                                |
-| Scarto                       | `rejected`                    | Rifiuto confermato da Aruba o SdI                                                    | errore generico                         |
-| Fattura                      | `invoice`                     | Documento fiscale di vendita                                                         | ordine                                  |
-| Nota di credito              | `credit_note`                 | Documento TD04 collegato a una fattura emessa                                        | rimborso                                |
-| Rimborso                     | `refund`                      | Restituzione economica osservata sulla piattaforma                                   | nota di credito                         |
-| Totale ordine                | `gross_amount`                | Totale pieno e immutabile ricevuto dal canale di vendita                             | totale fatturabile                      |
-| Commissione Shopify Payments | `shopify_payments_fee_amount` | Costo effettivo restituito da Shopify per una transazione Shopify Payments riuscita  | percentuale stimata, commissione PayPal |
-| Totale fatturabile           | `billable_amount`             | Totale ordine meno la commissione Shopify Payments quando la regola globale è attiva | totale ordine                           |
-| Totale documento             | `document_total`              | Totale corrente della bozza                                                          | totale fatturabile                      |
-| Differenza                   | `difference`                  | Scostamento motivato fra totale fatturabile e totale documento                       | commissione implicita                   |
-| Pagamento pendente           | `pending_payment`             | Incasso non ancora confermato                                                        | non pagato definitivamente              |
-| Non trasmettere              | `do_not_transmit`             | Bozza archiviata senza numero né invio                                               | elimina                                 |
-| Shopify / eBay               | provider sorgente             | Fonte autorevole dell’ordine                                                         | gestionale fiscale                      |
-| Aruba                        | provider di trasmissione      | Pannello ufficiale usato per upload e readback                                       | API HF                                  |
-| SdI                          | Sistema di Interscambio       | Fonte dell’esito fiscale                                                             | Aruba                                   |
-| Ambiente di prova            | `development`                 | Ambiente con ordini di esempio                                                       | Development, staging                    |
-| Ambiente operativo           | `production`                  | Ambiente con dati reali autorizzati                                                  | Production, live generico               |
-| Publish Git                  | merge/push Git                | Pubblicazione del codice in repository                                               | deploy                                  |
-| Pubblica                     | ciclo tecnico completo        | PR, merge, deploy e release applicabili, verifiche e pulizia                         | solo Publish Git                        |
-| Deploy                       | distribuzione                 | Attivazione di un artefatto su un ambiente                                           | release                                 |
-| Release                      | versione                      | Tag e GitHub Release autorizzati                                                     | deploy                                  |
+| Termine UI                   | Equivalente tecnico           | Significato                                                                              | Non usare                                   |
+| ---------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Preparazione fattura         | `billing_case`                | Area di lavoro che raggruppa gli ordini prima del documento                              | scheda, pratica                             |
+| Quando preparare le fatture  | `draft_trigger`               | Regola che avvia la preparazione dopo il pagamento o la spedizione                       | trigger                                     |
+| Ordini di esempio            | fixture di sviluppo           | Ordini fittizi usati solo per provare l’app                                              | fixture, dati sintetici                     |
+| Canale di vendita            | `provider`                    | Shopify oppure eBay, da cui arriva l’ordine                                              | provider, piattaforma                       |
+| Dati ricevuti                | source snapshot               | Informazioni originali ricevute da Shopify o eBay                                        | dati sorgente                               |
+| Dati usati da Hub Fatture    | normalized snapshot           | Informazioni rese coerenti e usate per preparare la fattura                              | dati normalizzati                           |
+| Bozza                        | `draft`                       | Documento modificabile e non numerato                                                    | fattura emessa                              |
+| Approvazione                 | `approval`                    | Conferma fiscale esplicita di Massimo riferita al documento esatto                       | approvazione automatica, invio              |
+| Numerazione                  | `numbering`                   | Assegnazione irreversibile del numero fiscale verificato                                 | salvataggio                                 |
+| Trasmissione                 | `submission`                  | Operazione che consegna ad Aruba un documento già approvato                              | approvazione, validazione                   |
+| Solo documento               | modalità di trasmissione      | L’approvazione crea e numera il documento; la trasmissione richiede un’azione successiva | assistita                                   |
+| Conferma contestuale         | modalità di trasmissione      | Dopo la creazione del documento propone una seconda conferma per trasmetterlo subito     | approva e trasmetti in un solo passaggio    |
+| Automatico dopo approvazione | modalità di trasmissione      | L’approvazione esplicita autorizza anche l’avvio automatico della trasmissione           | approvazione automatica                     |
+| Consegna                     | `delivered`                   | Esito confermato da SdI                                                                  | caricato                                    |
+| Scarto                       | `rejected`                    | Rifiuto confermato da Aruba o SdI                                                        | errore generico                             |
+| Fattura                      | `invoice`                     | Documento fiscale di vendita                                                             | ordine                                      |
+| Nota di credito              | `credit_note`                 | Documento TD04 collegato a una fattura emessa                                            | rimborso                                    |
+| Rimborso                     | `refund`                      | Restituzione economica osservata sulla piattaforma                                       | nota di credito                             |
+| Totale ordine                | `gross_amount`                | Totale pieno e immutabile ricevuto dal canale di vendita                                 | totale fatturabile                          |
+| Commissione Shopify Payments | `shopify_payments_fee_amount` | Costo effettivo restituito da Shopify per una transazione Shopify Payments riuscita      | percentuale stimata, commissione PayPal     |
+| Totale fatturabile           | `billable_amount`             | Totale ordine meno la commissione Shopify Payments quando la regola globale è attiva     | totale ordine                               |
+| Totale documento             | `document_total`              | Totale corrente della bozza                                                              | totale fatturabile                          |
+| Differenza                   | `difference`                  | Scostamento motivato fra totale fatturabile e totale documento                           | commissione implicita                       |
+| Pagamento pendente           | `pending_payment`             | Incasso non ancora confermato                                                            | non pagato definitivamente                  |
+| Non trasmettere              | `do_not_transmit`             | Bozza archiviata senza numero né invio                                                   | elimina                                     |
+| Shopify / eBay               | provider sorgente             | Fonte autorevole dell’ordine                                                             | gestionale fiscale                          |
+| Aruba                        | provider fiscale              | Servizio ufficiale che acquisisce documenti e rende disponibili stati e file             | pannello, helper                            |
+| Connessione Aruba            | `ARUBA` connection            | Account, delega e credenziale API configurati in Hub Fatture                             | account Aruba, helper                       |
+| Inventario Aruba             | remote inventory              | Rappresentazione locale e datata dei documenti osservati in Aruba                        | sincronizzazione, elenco completo implicito |
+| Sincronizzazione Aruba       | inventory sync                | Esecuzione API che aggiorna e riconcilia l’inventario Aruba                              | lettura fresca, helper                      |
+| Documento Aruba              | remote document               | Documento fiscale osservato in Aruba, indipendentemente da dove è stato creato           | submission, gruppo API                      |
+| Trasmissione Aruba           | submission                    | Tentativo avviato da Hub Fatture per consegnare un documento approvato ad Aruba          | documento Aruba, approvazione               |
+| Fallback manuale Aruba       | manual fallback               | Export XML, operazione nel pannello e import dei file o esiti ufficiali                  | helper, sincronizzazione automatica         |
+| Gruppo API                   | provider envelope             | Involucro tecnico restituito da Aruba, non equivalente a un documento remoto             | documento Aruba                             |
+| Pausa API                    | `ARUBA_API_PAUSED`            | Arresto generale di nuovi job e operazioni Aruba al successivo punto sicuro              | disconnessa, invii disabilitati             |
+| Invii fiscali abilitati      | `ARUBA_SUBMISSION_ENABLED`    | Interruttore separato che consente dry-run, upload e trasmissione                        | API attiva                                  |
+| Stato remoto incerto         | `UNKNOWN_REMOTE_STATE`        | Impossibilità di stabilire se Aruba abbia accettato o mutato il documento                | errore di rete                              |
+| Dry-run Aruba                | provider validation           | Validazione API del medesimo XML immutabile prima della trasmissione                     | test locale, invio                          |
+| SdI                          | Sistema di Interscambio       | Fonte dell’esito fiscale                                                                 | Aruba                                       |
+| Ambiente di prova            | `development`                 | Ambiente con ordini di esempio                                                           | Development, staging                        |
+| Ambiente operativo           | `production`                  | Ambiente con dati reali autorizzati                                                      | Production, live generico                   |
+| Publish Git                  | merge/push Git                | Pubblicazione del codice in repository                                                   | deploy                                      |
+| Pubblica                     | ciclo tecnico completo        | PR, merge, deploy e release applicabili, verifiche e pulizia                             | solo Publish Git                            |
+| Deploy                       | distribuzione                 | Attivazione di un artefatto su un ambiente                                               | release                                     |
+| Release                      | versione                      | Tag e GitHub Release autorizzati                                                         | deploy                                      |

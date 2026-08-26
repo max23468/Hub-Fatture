@@ -100,23 +100,18 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
   assert.match(glossary, /\| Pubblica\s+\| ciclo tecnico completo\s+\|/);
 });
 
-test("la prova Aruba reale chiude il collaudo prima del Canary", async () => {
+test("la qualifica API e l'outbound senza invio precedono il Canary", async () => {
   const masterPlan = await readFile(path.join(root, "docs/Hub_Fatture_MASTER_PLAN.md"), "utf8");
-  const collaudo = `M${8}`;
-  const canary = `M${9}`;
-  const integrazione = `M${5}`;
-  assert.match(
-    masterPlan,
-    new RegExp(`### 11\\.4 ${collaudo} - prova manuale controllata come gate di uscita`),
-  );
-  assert.match(
-    masterPlan,
-    new RegExp(`senza questa prova ${collaudo} resta aperta e ${canary} non può iniziare`),
-  );
-  assert.doesNotMatch(
-    masterPlan,
-    new RegExp(`prova manuale controllata sul pannello reale chiude ${integrazione}`),
-  );
+  const qualification = masterPlan.indexOf(`### M${8} - Qualifica API e accordo`);
+  const outbound = masterPlan.indexOf(`### M${10} - Outbound API senza invio reale`);
+  const canary = masterPlan.indexOf(`### M${13} - Canary Production TD01`);
+  const goLive = masterPlan.indexOf(`### M${14} - Go-live e \`1.0.0\``);
+  assert.ok(qualification >= 0);
+  assert.ok(outbound > qualification);
+  assert.ok(canary > outbound);
+  assert.ok(goLive > canary);
+  assert.match(masterPlan, /nessun invio SdI reale/);
+  assert.match(masterPlan, /permesso monouso/);
 });
 
 test("la sigla interna non compare nella superficie utente", async () => {
@@ -137,9 +132,14 @@ test("il frontend usa Preparazione fattura al posto dei vecchi nomi", async () =
 
 test("le sigle della roadmap restano fuori da codice e documenti operativi", async () => {
   const roots = ["app", "src", "tests", "scripts", ".github/workflows", "docs"];
+  const roadmapDocuments = new Set([
+    "docs/Hub_Fatture_MASTER_PLAN.md",
+    "docs/plans/aruba-api-integration.md",
+    "docs/adr/0004-permesso-monouso-canary-aruba.md",
+  ]);
   const files = (await Promise.all(roots.map(collect)))
     .flat()
-    .filter((file) => file !== "docs/Hub_Fatture_MASTER_PLAN.md");
+    .filter((file) => !roadmapDocuments.has(file));
   const offenders = (await contents(files))
     .filter(({ text }) => /\bM\d+(?:-M\d+)?\b/.test(text))
     .map(({ file }) => file);
