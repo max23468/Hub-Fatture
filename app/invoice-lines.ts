@@ -31,5 +31,8 @@ export function invoiceLinesFromForm(form: URLSearchParams) {
       };
     })
     .sort((left, right) => left.position - right.position)
-    .map(({ position: _, ...line }) => line);
+    .map(({ position, ...line }) => {
+      void position;
+      return line;
+    });
 }

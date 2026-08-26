@@ -748,6 +748,7 @@ test("il relay locale collega le finestre senza trasferire il WindowProxy al run
   const popupPromise = page.waitForEvent("popup");
   const bookmarklet = buildArubaBookmarklet({ hubOrigin, panelOrigin });
   await page.evaluate((source) => {
+    // oxlint-disable-next-line no-eval -- il test deve eseguire lo stesso URL javascript: del preferito.
     (0, eval)(source);
   }, bookmarklet.slice("javascript:".length));
   const bridge = await popupPromise;
@@ -995,6 +996,7 @@ test("il preferito estende la lettura incrementale al preflight e attende la ret
   const popupPromise = page.waitForEvent("popup");
   const bookmarklet = buildArubaBookmarklet({ hubOrigin, panelOrigin });
   await page.evaluate((source) => {
+    // oxlint-disable-next-line no-eval -- il test deve eseguire lo stesso URL javascript: del preferito.
     (0, eval)(source);
   }, bookmarklet.slice("javascript:".length));
   const bridge = await popupPromise;

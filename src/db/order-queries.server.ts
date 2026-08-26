@@ -550,7 +550,10 @@ export async function listOpenActivities(
   const total = result.rows[0]?.total_count ?? 0;
   const pageResult = paginate(result.rows);
   return {
-    rows: pageResult.rows.map(({ total_count: _, ...row }) => row),
+    rows: pageResult.rows.map(({ total_count, ...row }) => {
+      void total_count;
+      return row;
+    }),
     hasNext: pageResult.hasNext,
     total,
   };
