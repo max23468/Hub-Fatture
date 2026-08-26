@@ -26,8 +26,8 @@ printf "\n"
 printf "P.IVA o codice fiscale atteso dell'utenza Base: "
 IFS= read -r aruba_api_expected_tax_id
 
-ARUBA_API_ENVIRONMENT=PRODUCTION \
-  ARUBA_API_USERNAME="$aruba_api_username" \
-  ARUBA_API_PASSWORD="$aruba_api_password" \
-  ARUBA_API_EXPECTED_TAX_ID="$aruba_api_expected_tax_id" \
-  node scripts/aruba-api-read-probe.ts
+printf '%s' "$aruba_api_password" | \
+  ARUBA_API_ENVIRONMENT=PRODUCTION \
+    ARUBA_API_USERNAME="$aruba_api_username" \
+    ARUBA_API_EXPECTED_TAX_ID="$aruba_api_expected_tax_id" \
+    node scripts/aruba-api-read-probe.ts
