@@ -17,6 +17,7 @@ const TEST_ONLY = [
 
 const RUNTIME = [
   /^\.dockerignore$/,
+  /^\.github\/workflows\/foundation\.yml$/,
   /^app\//,
   /^src\//,
   /^migrations\//,
@@ -50,7 +51,9 @@ export function classifyFiles(inputFiles) {
       !matches(file, KNOWN_TOOLING),
   );
   const failClosed = unknown.length > 0;
-  const docsOnly = files.length > 0 && files.every((file) => matches(file, DOCUMENTATION));
+  const docsOnly =
+    files.length > 0 &&
+    files.every((file) => matches(file, DOCUMENTATION) && !matches(file, RUNTIME));
   const testsOnly =
     files.length > 0 &&
     !docsOnly &&
