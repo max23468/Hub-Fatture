@@ -1,4 +1,13 @@
-FROM node:26.7.0-bookworm-slim@sha256:4db36457f406501e6f608802e5da617e5fbd0e80b75901b6a09de1ae5a667d32 AS development
+FROM node:26.7.0-bookworm-slim@sha256:4db36457f406501e6f608802e5da617e5fbd0e80b75901b6a09de1ae5a667d32 AS debian-snapshot
+
+ARG DEBIAN_SNAPSHOT=20260824T000000Z
+RUN sed -i \
+    -e "s|^URIs: http://deb.debian.org/debian$|URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|" \
+    -e "s|^URIs: http://deb.debian.org/debian-security$|URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|" \
+    /etc/apt/sources.list.d/debian.sources \
+  && printf '%s\n' 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99snapshot
+
+FROM debian-snapshot AS development
 
 RUN npm install --global npm@12.0.2 \
   && apt-get update \
@@ -25,7 +34,7 @@ RUN npm ci --omit=dev --ignore-scripts \
   && test ! -e node_modules/@react-router/dev \
   && test ! -e node_modules/vite
 
-FROM node:26.7.0-bookworm-slim@sha256:4db36457f406501e6f608802e5da617e5fbd0e80b75901b6a09de1ae5a667d32 AS runtime
+FROM debian-snapshot AS runtime
 
 ARG APP_COMMIT_SHA=unknown
 LABEL org.opencontainers.image.source="https://github.com/max23468/Hub-Fatture" \
