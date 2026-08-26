@@ -34,7 +34,11 @@ test("distingue check mancanti, pendenti e falliti", () => {
     { name: "Foundation", status: "in_progress", conclusion: null },
     { name: "react-doctor", status: "completed", conclusion: "failure" },
   ]);
-  assert.deepEqual(state.pending.sort(), ["Analyze (javascript-typescript)", "Foundation"]);
+  assert.deepEqual(state.pending.sort(), [
+    "Analyze (javascript-typescript)",
+    "Foundation",
+    "Foundation (immagine)",
+  ]);
   assert.deepEqual(state.failed, ["react-doctor"]);
 });
 
@@ -68,6 +72,7 @@ test("lega i gate di superficie al commit applicabile e Foundation al candidato"
   assert.deepEqual(targets, {
     CI: runtime,
     Foundation: docs,
+    "Foundation (immagine)": runtime,
     "Analyze (javascript-typescript)": runtime,
     "react-doctor": runtime,
   });
@@ -85,6 +90,7 @@ test("un fix runtime successivo sostituisce i gate del candidato fallito", () =>
   );
   assert.equal(targets.CI, fixed);
   assert.equal(targets.Foundation, fixed);
+  assert.equal(targets["Foundation (immagine)"], fixed);
   assert.equal(targets["Analyze (javascript-typescript)"], fixed);
   assert.equal(targets["react-doctor"], fixed);
 });
@@ -214,6 +220,7 @@ test("la baseline vuota conserva i gate runtime di un commit precedente", async 
   const targets = resolveCheckTargets("0".repeat(40), candidate);
   assert.equal(targets.CI, runtime);
   assert.equal(targets.Foundation, candidate);
+  assert.equal(targets["Foundation (immagine)"], runtime);
   assert.equal(targets["E2E Chromium"], runtime);
   assert.equal(targets["E2E WebKit"], runtime);
 });

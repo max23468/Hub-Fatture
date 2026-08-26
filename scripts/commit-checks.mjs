@@ -3,9 +3,20 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { classifyFiles } from "./change-impact.mjs";
 
-const REQUIRED = ["CI", "Foundation", "Analyze (javascript-typescript)", "react-doctor"];
+const FOUNDATION_IMAGE = "Foundation (immagine)";
+const REQUIRED = [
+  "CI",
+  "Foundation",
+  FOUNDATION_IMAGE,
+  "Analyze (javascript-typescript)",
+  "react-doctor",
+];
+const CHECK_CONTEXT_BY_TARGET = {
+  [FOUNDATION_IMAGE]: "Foundation",
+};
 const SURFACE_BY_CHECK = {
   CI: "standard",
+  [FOUNDATION_IMAGE]: "image",
   "Analyze (javascript-typescript)": "standard",
   "react-doctor": "react",
 };
@@ -40,7 +51,7 @@ export function checkConclusions(checkRuns, required = REQUIRED) {
   const pending = [];
   const failed = [];
   for (const name of required) {
-    const check = latest.get(name);
+    const check = latest.get(CHECK_CONTEXT_BY_TARGET[name] ?? name);
     if (!check || check.status !== "completed") pending.push(name);
     else if (
       !["success", "neutral", "skipped"].includes(check.conclusion) ||

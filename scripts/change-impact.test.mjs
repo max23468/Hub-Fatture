@@ -27,6 +27,16 @@ test("la governance GitHub evita i gate applicativi ma conserva la dependency re
   assert.equal(impact.runtime, false);
 });
 
+test("una modifica a Foundation rigenera e verifica l'immagine", () => {
+  const impact = classifyFiles([".github/workflows/foundation.yml"]);
+  assert.equal(impact.lane, "standard");
+  assert.equal(impact.docsOnly, false);
+  assert.equal(impact.standard, true);
+  assert.equal(impact.runtime, true);
+  assert.equal(impact.image, true);
+  assert.equal(impact.e2e, true);
+});
+
 test("un candidato già distribuito non richiede alcun gate o deploy", () => {
   const impact = classifyFiles([]);
   assert.equal(impact.lane, "none");
