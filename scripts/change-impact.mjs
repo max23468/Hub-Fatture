@@ -201,7 +201,9 @@ function outputs(result) {
   }
   const e2eMatrix = [];
   if (result.e2e) e2eMatrix.push({ browser: "chromium", label: "Chromium", install: "chromium" });
-  if (result.e2eWebkit) e2eMatrix.push({ browser: "webkit", label: "WebKit", install: "webkit" });
+  if (result.e2eWebkit) {
+    e2eMatrix.push({ browser: "webkit", label: "WebKit", install: "webkit chromium" });
+  }
   lines.push(`e2e_matrix=${JSON.stringify({ include: e2eMatrix })}`);
   lines.push(`files_json=${JSON.stringify(result.files)}`);
   lines.push(`unknown_json=${JSON.stringify(result.unknown)}`);

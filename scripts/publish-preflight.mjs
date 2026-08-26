@@ -25,6 +25,14 @@ export function preflightPlan(impact, platform = process.platform) {
   return { browser, core, parallel };
 }
 
+export function classifyPreflightFiles(files) {
+  return classifyFiles(
+    files.includes("scripts/change-impact.mjs")
+      ? [...files, "__change-impact-authority-must-fail-closed__"]
+      : files,
+  );
+}
+
 function gitLines(args) {
   const result = spawnSync("git", args, { encoding: "utf8" });
   if (result.status !== 0) throw new Error(result.stderr.trim() || `git ${args.join(" ")} fallito`);
@@ -58,7 +66,7 @@ async function main(argv = process.argv.slice(2)) {
   if (diffCheck.status !== 0) throw new Error("git diff --check non superato");
 
   const files = changedFiles(base);
-  const impact = classifyFiles(files);
+  const impact = classifyPreflightFiles(files);
   const plan = preflightPlan(impact);
   process.stdout.write(
     `Preflight ${impact.lane}: ${files.length} file, ${plan.core.length + plan.parallel.length + plan.browser.length} gate.\n`,

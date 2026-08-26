@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyFiles } from "./change-impact.mjs";
-import { preflightPlan } from "./publish-preflight.mjs";
+import { classifyPreflightFiles, preflightPlan } from "./publish-preflight.mjs";
 
 const scripts = (phase) => phase.map((entry) => entry.join(" "));
 
@@ -34,4 +34,13 @@ test("UI ed Aruba aggiungono WebKit e la ricevuta della piattaforma locale", () 
 test("migrazioni attivano audit e database senza serializzarli", () => {
   const plan = preflightPlan(classifyFiles(["migrations/999_example.sql"]));
   assert.deepEqual(scripts(plan.parallel), ["npm run audit", "npm run test:db"]);
+});
+
+test("una modifica all'autorità del classificatore forza il preflight completo", () => {
+  const impact = classifyPreflightFiles(["scripts/change-impact.mjs"]);
+  assert.equal(impact.failClosed, true);
+  assert.equal(impact.database, true);
+  assert.equal(impact.provider, true);
+  assert.equal(impact.e2eWebkit, true);
+  assert.equal(impact.arubaPlatform, true);
 });

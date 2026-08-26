@@ -356,10 +356,14 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /\.schema == \$schema/);
   assert.match(workflow, /\.imageDigest == \.deployedImageDigest/);
   assert.match(workflow, /rollback_digest=\$rollback_digest/);
+  assert.match(workflow, /live_digest=\$live_digest/);
   const release = workflow.slice(workflow.indexOf("\n  release:"));
   assert.match(release, /name: GitHub Release immutabile/);
   assert.match(release, /needs\.deploy\.result == 'success'/);
   assert.match(release, /needs\.candidate\.outputs\.rollback != 'true'/);
+  assert.doesNotMatch(release, /needs\.candidate\.outputs\.runtime == 'true'/);
+  assert.match(release, /needs\.image\.outputs\.digest \|\| needs\.deploy\.outputs\.live_digest/);
+  assert.match(release, /new URL\(process\.argv\[1\]\)\.pathname\.match/);
   assert.match(release, /prepare-production-release\.mjs/);
   assert.match(release, /publish-github-release\.sh/);
   assert.doesNotMatch(release, /environment:\s*\n\s+name: Production/);
@@ -405,7 +409,7 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
     e2e,
     /npx --no-install playwright test --project=\$\{\{ matrix\.browser \}\} --workers=1/,
   );
-  assert.doesNotMatch(e2e, /install --with-deps webkit chromium/);
+  assert.match(ci, /"browser":"webkit","label":"WebKit","install":"webkit chromium"/);
   assert.doesNotMatch(ci, /- run: npm ci$/m);
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
   assert.doesNotMatch(ci, /workflow_dispatch:/);
