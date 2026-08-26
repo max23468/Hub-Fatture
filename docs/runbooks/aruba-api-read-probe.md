@@ -64,12 +64,18 @@ Il probe esegue soltanto:
 1. `POST /auth/signin`, con le credenziali nel body form HTTPS;
 2. `GET /auth/userInfo`, verificando P.IVA/codice fiscale atteso e account non scaduto;
 3. `GET /api/v2/invoices-out`, al massimo due pagine da dieci gruppi nello stesso intervallo di
-   24 ore. Il probe verifica la coerenza dei metadati di paginazione, scarta il contenuto e stampa
-   soltanto i conteggi. Se la finestra richiede più di due pagine, dichiara la copertura incompleta
-   senza proseguire automaticamente.
+   24 ore. Il probe verifica la coerenza dei metadati di paginazione e del contratto
+   gruppo-documenti, scarta identificativi e contenuto fiscale e stampa soltanto aggregati
+   sanitizzati. Se la finestra richiede più di due pagine, dichiara la copertura incompleta senza
+   proseguire automaticamente.
 
-L'output contiene ambiente, esito della verifica e soli conteggi. Non contiene username, P.IVA,
-token, password, destinatari, importi o nomi file.
+L'output contiene ambiente, esito della verifica, gruppi letti/totali, documenti osservati,
+cardinalità dei gruppi e conteggi per tipo e stato canonico. Non contiene username, P.IVA, token,
+password, destinatari, importi, numeri documento, nomi file o ID SdI.
+
+Il manifesto della prossima prova Production resta fissato a queste sole tre operazioni, massimo
+quattro richieste HTTP complessive, nessun dettaglio o file, nessuna notifica, nessuna persistenza e
+nessuna mutazione. L’autorizzazione deve riferirsi esplicitamente a questa nuova lettura Production.
 
 ## Criteri di arresto
 
@@ -81,7 +87,6 @@ Arrestarsi senza tentare endpoint alternativi quando:
 - Aruba restituisce uno schema inatteso, un rate limit o uno stato non gestito;
 - la delega risulta diversa da quella osservata nel pannello.
 
-Un probe riuscito con `completeWindowRead: true` qualifica autenticazione, lettura del ciclo
-attivo e paginazione della sola finestra osservata. Non prova ancora Tier, conteggio economico,
-callback, download massivi, invio, idempotenza, semantica gruppi-documenti o riconciliazione
-completa.
+Un probe riuscito con `completeWindowRead: true` qualifica autenticazione, lettura del ciclo attivo
+e paginazione della sola finestra osservata. Non prova ancora callback, download massivi, invio,
+idempotenza, semantica gruppi-documenti o riconciliazione completa.

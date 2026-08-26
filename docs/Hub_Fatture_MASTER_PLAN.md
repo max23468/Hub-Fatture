@@ -921,16 +921,17 @@ Nessuna propagazione dei dati cliente verso eBay nella 1.x. Le correzioni restan
 Il titolare possiede un account Aruba Base. Sul pannello reale è stata osservata una delega in
 stato `Delegato` con il permesso `WS Ciclo Attivo` concesso e ciclo passivo/comunicazioni
 finanziarie negati. L'account Base si autentica alle API con il proprio token; il collegamento al
-delegato abilita il Web Service e attribuisce i consumi al relativo Tier secondo la
-documentazione Aruba v2. La denominazione `Supervisore/commercialista` mostrata dal pannello
-non è prova sufficiente del Tier: la prima lettura autenticata deve qualificare il collegamento.
+delegato abilita il Web Service. La denominazione `Supervisore/commercialista` mostrata dal pannello
+non è prova sufficiente dell’accesso API: la prima lettura autenticata deve qualificare il
+collegamento.
 
 L'API diventa il canale primario soltanto dopo che una prova fail-closed ha verificato
 autenticazione, identità fiscale, ricerca delle fatture inviate, paginazione, limiti, stati e
-download ufficiali, senza eseguire upload o invii reali. L'accordo forfettario per circa 500
-fatture per mese solare comprende l'uso API pianificato; la qualifica tecnica deve ancora
-registrare Tier, contatori e limiti correnti. Finché i gate tecnici non sono chiusi, pannello,
-preferito e import manuale restano il percorso operativo corrente.
+download ufficiali, senza eseguire upload o invii reali. L'accordo forfettario per circa 500 fatture
+per mese solare comprende l'uso API pianificato; la qualifica tecnica registra soltanto i limiti
+degli endpoint e la risposta `429`. Tier e contatori del Premium delegato restano fuori dal prodotto.
+Finché i gate tecnici non sono chiusi, pannello, preferito e import manuale restano il percorso
+operativo corrente.
 
 Conservare due ambienti applicativi e target provider espliciti:
 
@@ -1047,7 +1048,7 @@ Scaricare e verificare il PDF restituito dalle API Aruba. Un PDF generato localm
 
 ### 10.8 Fallback manuale
 
-Il download XML da HF, il caricamento manuale nel pannello e l'import successivo di XML/PDF/P7M/notifiche costituiscono un percorso completo e sempre disponibile. È il fallback ufficiale in caso di API indisponibile, credenziale revocata, quota o recovery.
+Il download XML da HF, il caricamento manuale nel pannello e l'import successivo di XML/PDF/P7M/notifiche costituiscono un percorso completo e sempre disponibile. È il fallback ufficiale in caso di API indisponibile, credenziale revocata, limite tecnico degli endpoint o recovery.
 
 La preparazione TD01 non offre fallback o override Aruba specifici. Se lo stato globale blocca l'approvazione, il titolare completa o sostituisce la sincronizzazione dalla Dashboard o dalle Impostazioni. Il readback manuale specifico resta disponibile soltanto per i flussi che richiedono ancora un preflight on-demand, come le TD04, finché non saranno riprogettati separatamente.
 
@@ -1135,7 +1136,7 @@ La qualifica registra:
 - identità e ambiente effettivi;
 - cardinalità fra gruppi API e documenti;
 - paginazione, finestre, cursori e conteggi;
-- Tier, rate limit, regole di consumo e risposta `429`;
+- rate limit e risposta `429`;
 - mapping stati, notifiche e stati terminali;
 - disponibilità, formato, dimensioni e hash di XML, PDF, P7M e notifiche;
 - semantica di dry-run, upload, invio, readback e idempotenza;
@@ -1385,7 +1386,7 @@ La vista `Da gestire` riunisce errori, verifiche richieste, scarti, documenti Ar
 - Numerazione/sezionale: protetta e configurata dopo audit.
 - Connessione Aruba: identità verificata, stato iniziale `In pausa`, attivazione della sincronizzazione, rotazione/revoca credenziale e due arresti indipendenti.
 - Modalità Aruba globale e rigida: `Solo documento` come default, `Conferma contestuale` o `Automatico dopo approvazione`.
-- Stato della sincronizzazione Aruba, backfill, ultimo inventario completo, checkpoint, Tier/quota ufficiali quando disponibili e azione read-only **Sincronizza ora**.
+- Stato della sincronizzazione Aruba, backfill, ultimo inventario completo, checkpoint, limiti provider osservati e azione read-only **Sincronizza ora**.
 - `Fallback transitorio` owner-only, disabilitato di default e visibile soltanto finché il relativo helper non viene ritirato.
 - Trasporto SMTP scelto e stato, senza mostrare credenziali.
 - Sistema: ambiente e fuso orario; versione applicativa, backup e ripristino compaiono soltanto quando M7 fornisce dati e azioni reali.
@@ -1400,7 +1401,7 @@ La vista interna `Connessioni` mostra, per Shopify, eBay e il trasporto SMTP can
 - verifica credenziali;
 - dettagli errore sanificati.
 
-Per Aruba `verifica credenziali` esegue autenticazione e controllo dell'identità fiscale senza mostrare il segreto. La vista ordinaria distingue connessione, sincronizzazione e trasmissioni; mostra ultimo giro, copertura del backfill, conteggi `documenti`, `senza ordine Shopify/eBay` e `da verificare`, oltre agli avvisi non bloccanti a 400 e 475 trasmissioni nel mese solare. Massimo gestisce credenziale, modalità e arresti; Codex può soltanto consultare salute/errori/quota e richiedere `Sincronizza ora`.
+Per Aruba `verifica credenziali` esegue autenticazione e controllo dell'identità fiscale senza mostrare il segreto. La vista ordinaria distingue connessione, sincronizzazione e trasmissioni; mostra ultimo giro, copertura del backfill, conteggi `documenti`, `senza ordine Shopify/eBay` e `da verificare`, oltre agli avvisi non bloccanti a 400 e 475 trasmissioni nel mese solare. Massimo gestisce credenziale, modalità e arresti; Codex può soltanto consultare salute, errori, limiti tecnici osservati e contatore locale delle trasmissioni e richiedere `Sincronizza ora`. Tier e contatori del Premium delegato non vengono letti né mostrati.
 
 Il readback manuale completo non compare nella vista ordinaria: resta raggiungibile dal recupero avanzato soltanto quando esiste un errore bloccante e solo per il titolare.
 
@@ -2164,7 +2165,7 @@ fallito dopo l'ultimo readback riuscito torna invece immediatamente azionabile.
 ### 17.1 Autenticazione
 
 - Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive e identità canoniche di audit distinte.
-- I due account condividono le letture operative, ma soltanto Massimo può configurare/testare/ruotare/revocare la credenziale Aruba, cambiare modalità, attivare o fermare la sincronizzazione, abilitare gli invii e compiere transizioni fiscali. Codex può consultare salute/errori/quota e richiedere `Sincronizza ora` in lettura. Approvazione, numerazione, trasmissione, finalizzazione di un readback manuale e risoluzione manuale di un match con effetti fiscali richiedono `can_approve`, valorizzato soltanto per `Massimo`. Il controllo è server-side su ogni endpoint e job; nascondere il pulsante non è una protezione.
+- I due account condividono le letture operative, ma soltanto Massimo può configurare/testare/ruotare/revocare la credenziale Aruba, cambiare modalità, attivare o fermare la sincronizzazione, abilitare gli invii e compiere transizioni fiscali. Codex può consultare salute, errori, limiti tecnici osservati e contatore locale delle trasmissioni e richiedere `Sincronizza ora` in lettura; Tier e contatori del Premium delegato restano fuori dal prodotto. Approvazione, numerazione, trasmissione, finalizzazione di un readback manuale e risoluzione manuale di un match con effetti fiscali richiedono `can_approve`, valorizzato soltanto per `Massimo`. Il controllo è server-side su ogni endpoint e job; nascondere il pulsante non è una protezione.
 - `can_approve` è una colonna booleana sui due account fissi, non un sistema di ruoli, e nasce nella migrazione M4 che introduce l'approvazione.
 - Username e password, senza secondo fattore applicativo.
 - Password di almeno 8 e non oltre 128 caratteri, hashate con `node:crypto.scrypt` e verificate con confronto constant-time.
@@ -2829,7 +2830,7 @@ Stop point per rivalutare capacità o architettura, non trigger di migrazione au
 - Usare un solo dominio APM Always Free e un solo monitor HTTP; non abilitare funzioni APM aggiuntive senza un bisogno osservato.
 - Usare un solo bucket Object Storage privato per i backup cifrati, con lifecycle e soglia prudenziale; il preflight blocca configurazioni che escono dalla quota senza costo.
 - Il PoC OCI Email Delivery resta entro la quota senza costo verificata, usa soltanto messaggi sintetici e non abilita costi; quota e condizioni vanno riverificate prima di M6.
-- Shopify Partner/Dev, Codex/Claude Code e account Aruba Base delegato sono prerequisiti posseduti o gestiti separatamente dal titolare. Il forfait Aruba copre circa 500 fatture per mese solare e l'uso API previsto; Hub Fatture mostra avvisi non bloccanti a 400 e 475, valori ufficiali di Tier/quota quando disponibili e nessuna stima monetaria. Un browser supportato resta necessario per il fallback manuale e, durante la transizione, per gli helper.
+- Shopify Partner/Dev, Codex/Claude Code e account Aruba Base delegato sono prerequisiti posseduti o gestiti separatamente dal titolare. Il forfait Aruba copre circa 500 fatture per mese solare e l'uso API previsto; Hub Fatture mostra avvisi non bloccanti a 400 e 475 e nessuna stima monetaria. Tier e contatori del Premium delegato restano fuori dal prodotto. Un browser supportato resta necessario per il fallback manuale e, durante la transizione, per gli helper.
 - Se un limite gratuito o una condizione contrattuale cambia, fermarsi e proporre l'alternativa prima di attivare costi.
 
 ### 21.7 Politica delle dipendenze
@@ -3216,11 +3217,15 @@ Richiede autorizzazione esplicita prima del deploy.
 
 ### M8 - Qualifica API e accordo
 
+**Stato: completata.** Contratto, fixture, adapter, comparatore shadow fail-closed, prova Production
+paginata read-only e confronto iniziale con il fallback disponibili. La parità su snapshot allineati,
+il backfill e l’acquisizione dei file reali appartengono a M9.
+
 Output:
 
 - contratto Aruba v2 tipizzato per autenticazione, identità, gruppi/documenti, paginazione, ricerca, stati, file e notifiche;
 - qualifica read-only Production limitata e sanitizzata, eseguita con manifesto autorizzato;
-- Tier, rate limit, regole di conteggio e accordo economico registrati senza importi sensibili;
+- rate limit e accordo economico registrati senza importi sensibili;
 - adapter e contract test fail-closed su fixture, senza integrazione UI/DB/worker;
 - confronto iniziale con l'inventario del preferito senza ingest canonico.
 
@@ -3228,7 +3233,7 @@ Gate:
 
 - identità fiscale e ambiente esatti;
 - semantica gruppo/documento e paginazione completa qualificate;
-- limiti, file, stati e notifiche documentati oppure dichiarati gate aperti;
+- limiti, forme di file, stati e notifiche documentati e coperti da contratto/fixture;
 - nessun segreto nei log o nelle evidenze;
 - nessuna persistenza canonica di file reali e nessuna mutazione Aruba;
 - accordo forfettario comprensivo dell'uso API confermato.
@@ -3280,7 +3285,7 @@ Output:
 - API unica fonte automatica per le capacità qualificate;
 - fallback manuale end-to-end;
 - decisione esplicita di Massimo su preferito/bridge e helper Playwright;
-- rimozione fisica oppure confinamento in `Fallback transitorio`, owner-only e disabilitato di default.
+- rimozione fisica di codice eseguibile, rotte, token, stato dispositivo, UI, dipendenze e runbook operativi specifici oppure confinamento in `Fallback transitorio`, owner-only e disabilitato di default; audit, file canonici, provenienza `HELPER` e storia Git restano preservati.
 
 Gate:
 
@@ -3607,8 +3612,8 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [ ] Nuovo avvio dell'helper verificato su inventario già popolato: la finestra completa comprende ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, mentre i file invariati non vengono riscaricati.
 - [ ] Sessione helper di sola sincronizzazione, legata al dispositivo, revocabile e limitata a 8 ore verificata incapace di upload o invio; una sola scansione concorrente anche da due dispositivi.
 - [ ] Readback manuale completo verificato dopo helper indisponibile o scansione fallita: ogni riga di tutti gli stream/pagine o export ufficiale completo acquisiti, evidenze richieste importate, ricevuta `MANUAL` finalizzata dal solo titolare e sessione fallita conservata.
-- [ ] Dashboard, approvazione e numerazione TD01 rispettano `Mai letto`, avviso a un'ora e blocco a 24 ore/stato incerto; la preparazione non offre override e rimanda la correzione dello stato globale a Dashboard o Impostazioni.
-- [ ] Ogni approvazione TD01, anche massiva, rilegge lo stato globale dell'inventario; inventario assente, oltre 24 ore, fallito o con match, conflitti o stati incerti blocca la mutazione senza introdurre un passaggio Aruba nella preparazione. Il preflight on-demand TD04 resta verificato separatamente.
+- [ ] Dashboard, approvazione e numerazione TD01 rispettano `Mai letto`, avviso oltre 30 minuti e blocco oltre quattro ore/stato incerto; la preparazione non offre override e rimanda la correzione dello stato globale a Dashboard o Impostazioni.
+- [ ] Ogni approvazione TD01, anche massiva, rilegge lo stato globale dell'inventario; inventario assente, oltre quattro ore, fallito o con match, conflitti o stati incerti blocca la mutazione senza introdurre un passaggio Aruba nella preparazione. Il preflight on-demand TD04 resta verificato separatamente.
 - [ ] Deduplicazione confinata per account/ambiente, ownership esclusiva submission/remote document dei file/notifiche e mapping monotono degli stati verificati.
 - [ ] I documenti Aruba senza ordine Shopify/eBay restano visibili in `Documenti → Da collegare` senza creare ordini; soltanto riferimenti espliciti incompatibili, match potenziali, ambiguità, conflitti ed errori compaiono anche in `Da verificare` e `Attività`.
 - [ ] Match emesso su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.
@@ -3641,7 +3646,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 
 ### Checklist API M8-M14
 
-- [ ] M8: manifesto read-only autorizzato, identità verificata, paginazione completa, gruppi/documenti, stati, file, limiti/Tier e accordo economico qualificati senza persistenza reale canonica.
+- [x] M8: manifesto read-only autorizzato, identità verificata, paginazione completa, gruppi/documenti, stati, forme di file/notifiche, limiti e accordo economico qualificati senza persistenza reale canonica; confronto iniziale fallback classificato e parità allineata assegnata a M9.
 - [ ] M9: credenziale cifrata e restore provati; connessione inizialmente in pausa; backfill di tutto lo storico disponibile completato; polling 15 minuti, non terminali e full mensile verificati.
 - [ ] M9: zero divergenze inbound inspiegate; switch di autorità atomico; decisione esplicita di Massimo sul preferito/bridge.
 - [ ] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; upload senza invio e stato incerto qualificati con autorizzazione separata.
@@ -3734,7 +3739,7 @@ Questi punti non sono dimenticanze. Sono sospesi intenzionalmente perché dipend
 | HF-O07 | Trasporto e limiti SMTP — chiusa su `OCI_EMAIL_DELIVERY` | invio copia cliente | PoC OCI nella regione di Milano e stima del titolare | dominio, SPF/DKIM, mittente, autenticazione, consegna, errore, hard bounce, suppression e reinvio verificati; volume massimo stimato di 500 copie mensili sotto il margine prudenziale di 2.500 |
 | HF-O08 | Retention fiscale e tecnica definitiva — chiusa | go-live | approvazione del titolare e del commercialista | durate, eccezioni e procedura di cancellazione approvate nel contratto corrente |
 | HF-O09 | Direzione visiva della Brand Foundation leggera | UI definitiva | due o tre proposte minime coerenti con uso privato e accessibilità | il titolare approva `docs/brand/brand-foundation.md`, SVG canonico e asset richiesti senza ampliare il perimetro |
-| HF-O10 | Semantica completa API Aruba: gruppi/documenti, file, stati, limiti, contatori e idempotenza | M9-M10 | documentazione v2 e qualifiche Production M8 autorizzate | contratto tipizzato, fixture sanificate, limiti e codici errore chiusi senza divergenze inspiegate |
+| HF-O10 | Semantica completa API Aruba: gruppi/documenti, file, stati, limiti tecnici, conteggi di risposta e idempotenza | M9-M10 | documentazione v2 e qualifiche Production M8 autorizzate | contratto tipizzato, fixture sanificate, limiti e codici errore chiusi senza divergenze inspiegate |
 | HF-O11 | Isolamento callback per la sola utenza Base | nessuna milestone corrente | garanzia scritta Aruba/agenzia su endpoint, dati e ciclo attivo | eventuale tranche futura approvata; fino ad allora nessun receiver o scaffolding |
 | HF-O12 | Destino separato di preferito/bridge e helper Playwright | M12 e 1.0 | dossier di parità inbound/outbound e rischi residui | Massimo decide esplicitamente ritiro o mantenimento transitorio di ciascun componente |
 | HF-O13 | Canary API TD04 | solo automazione TD04 | rimborso reale legittimo e autorizzazione specifica | canary monouso chiuso; fino ad allora TD04 resta manuale e non blocca la 1.0 |

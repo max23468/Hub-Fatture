@@ -127,6 +127,7 @@ export function arubaIncrementalScanFrom(input: {
 
 export function normalizeArubaRemoteStatusLabel(value: unknown): ArubaRemoteStatus {
   const label = normalizedMatchText(String(value ?? "")) ?? "";
+  if (label.includes("ERROREELABORAZIONE")) return "UNKNOWN";
   if (
     label.includes("EMESSAENONCONS") ||
     label.includes("NONCONSEGNAT") ||
@@ -143,11 +144,7 @@ export function normalizeArubaRemoteStatusLabel(value: unknown): ArubaRemoteStat
   ) {
     return "DELIVERED";
   }
-  if (
-    label.includes("SCARTAT") ||
-    label.includes("RIFIUTAT") ||
-    label.includes("ERROREELABORAZIONE")
-  ) {
+  if (label.includes("SCARTAT") || label.includes("RIFIUTAT")) {
     return "REJECTED";
   }
   if (

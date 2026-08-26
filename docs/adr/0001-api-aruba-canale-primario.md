@@ -11,8 +11,9 @@ qualifica tecnica, contrattuale ed economica; questa decisione non autorizza ope
 reali.
 
 L'accordo forfettario per circa 500 fatture per mese solare comprende l'uso API pianificato ed è
-approvato. La qualifica iniziale deve ancora verificare Tier, quote, contatori e condizioni tecniche. Prima di quel gate il
-canale corrente resta operativo; dopo la promozione, l'indisponibilità delle API conduce al
+approvato. Tier e contatori del Premium delegato non appartengono al prodotto; la qualifica verifica
+soltanto limiti tecnici, risposta `429` e condizioni necessarie all'integrazione. Prima di quel gate
+il canale corrente resta operativo; dopo la promozione, l'indisponibilità delle API conduce al
 fallback manuale approvato e non mantiene due integrazioni automatiche permanenti.
 
 ## Conseguenze

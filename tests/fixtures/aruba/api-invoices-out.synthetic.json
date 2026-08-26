@@ -1,0 +1,64 @@
+{
+  "content": [
+    {
+      "id": "gruppo-vuoto-sintetico",
+      "invoices": [],
+      "invoiceType": "FPR12",
+      "docType": "out",
+      "filename": "IT00000000000_GRUPPOVUOTO.xml.p7m",
+      "idSdi": null,
+      "pddAvailable": false,
+      "file": null
+    },
+    {
+      "id": "gruppo-td04-sintetico",
+      "invoices": [
+        {
+          "invoiceDate": "2026-08-26T12:00:00.000Z",
+          "number": "FPR-SYNTH-1",
+          "documentType": "TD04",
+          "status": "Scartata",
+          "statusDescription": null
+        }
+      ],
+      "invoiceType": "FPR12",
+      "docType": "out",
+      "filename": "IT00000000000_TD04SYNTH.xml.p7m",
+      "idSdi": "SDI-SYNTH-1",
+      "pddAvailable": true,
+      "file": null
+    },
+    {
+      "id": "gruppo-multiplo-sintetico",
+      "invoices": [
+        {
+          "invoiceDate": "2026-08-26T12:00:00.000Z",
+          "number": "FPR-SYNTH-2",
+          "documentType": "TD01",
+          "status": "Consegnata",
+          "statusDescription": ""
+        },
+        {
+          "invoiceDate": "2026-08-26T12:00:00.000Z",
+          "number": "FPR-SYNTH-3",
+          "documentType": "TD24",
+          "status": "Presa in carico",
+          "statusDescription": ""
+        }
+      ],
+      "invoiceType": "FPR12",
+      "docType": "out",
+      "filename": "IT00000000000_MULTISYNTH.xml.p7m",
+      "idSdi": null,
+      "pddAvailable": false,
+      "file": null
+    }
+  ],
+  "first": true,
+  "last": true,
+  "totalElements": 3,
+  "totalPages": 1,
+  "size": 10,
+  "number": 1,
+  "numberOfElements": 3
+}

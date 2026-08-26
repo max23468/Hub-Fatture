@@ -1,6 +1,13 @@
 import { z } from "zod";
 
+import {
+  arubaRemoteStatusSchema,
+  normalizeArubaRemoteStatusLabel,
+  type ArubaRemoteStatus,
+} from "../aruba-inbound.ts";
+import { ARUBA_IMPORT_MAX_BYTES } from "../aruba-browser-constants.ts";
 import { AppError } from "../errors.ts";
+import type { ArubaShadowDocument } from "../aruba-shadow-comparison.ts";
 import { providerJson } from "./provider-http.server.ts";
 
 export type ArubaApiEnvironment = "DEMO" | "PRODUCTION";
@@ -31,8 +38,157 @@ const userInfoSchema = z.object({
   }),
 });
 
+const PROBE_PAGE_SIZE = 10;
+const PROBE_MAX_PAGES = 2;
+const MAX_BASE64_FILE_CHARS = Math.ceil(ARUBA_IMPORT_MAX_BYTES / 3) * 4;
+const base64FileSchema = z
+  .string()
+  .min(1)
+  .max(MAX_BASE64_FILE_CHARS)
+  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/);
+const providerDateTimeSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/);
+
+export const ARUBA_API_V2_CONTRACT = {
+  authenticationRequestsPerMinutePerIp: 1,
+  sentInvoiceSearchRequestsPerMinutePerIp: 12,
+  sentNotificationSearchRequestsPerMinutePerIp: 12,
+  maximumSearchWindowHours: 48,
+  maximumPageSize: 100,
+  documentedInvoiceStatuses: [
+    "Presa in carico",
+    "Errore elaborazione",
+    "Inviata",
+    "Scartata",
+    "Non consegnata",
+    "Recapito impossibile",
+    "Consegnata",
+    "Accettata",
+    "Rifiutata",
+    "Decorrenza termini",
+  ],
+  officialFiles: {
+    invoiceDetail: ["ARUBA_XML_OR_P7M", "ARUBA_PDF"],
+    invoiceZip: ["ARUBA_INVOICE_WITH_NOTIFICATIONS_ZIP"],
+    preservationPackage: ["ARUBA_PDD_ZIP"],
+    notifications: ["SDI_NOTIFICATION"],
+  },
+} as const;
+
+const arubaApiInvoiceStatusSchema = z.enum(ARUBA_API_V2_CONTRACT.documentedInvoiceStatuses);
+
+const invoiceSummarySchema = z.object({
+  invoiceDate: z.iso.datetime({ offset: true }),
+  number: z.string().trim().min(1).max(100),
+  documentType: z
+    .string()
+    .trim()
+    .regex(/^TD\d{2}$/),
+  status: arubaApiInvoiceStatusSchema,
+  statusDescription: z.string().max(2_000).nullish(),
+});
+
+const invoiceGroupSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  invoices: z.array(invoiceSummarySchema).max(100),
+  invoiceType: z.string().trim().min(1).max(32),
+  docType: z.literal("out"),
+  filename: z.string().trim().min(1).max(255),
+  idSdi: z.string().trim().min(1).max(200).nullish(),
+  pddAvailable: z.boolean(),
+  file: z.null().optional(),
+});
+
+const detailedInvoiceSummarySchema = invoiceSummarySchema.extend({
+  totalDocument: z.number().finite(),
+  totalVat: z.number().finite(),
+  netPayable: z.number().finite(),
+});
+
+const companySchema = z.object({
+  description: z.string().trim().min(1).max(300),
+  countryCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/),
+  vatCode: z.string().trim().max(64).nullish(),
+  fiscalCode: z.string().trim().max(64).nullish(),
+});
+
+export const arubaApiInvoiceDetailSchema = z.object({
+  channelGroup: z.number().int().nonnegative(),
+  shopName: z.string().trim().max(300).nullish(),
+  invoices: z.array(detailedInvoiceSummarySchema).min(1).max(100),
+  sdiErrors: z.array(z.unknown()).max(100),
+  id: z.string().trim().min(1).max(200),
+  sender: companySchema,
+  receiver: companySchema,
+  invoiceType: z.string().trim().min(1).max(32),
+  docType: z.literal("out"),
+  file: base64FileSchema,
+  filename: z.string().trim().min(1).max(255),
+  username: z.string().trim().min(1).max(200),
+  creationDate: providerDateTimeSchema,
+  lastUpdate: providerDateTimeSchema,
+  idSdi: z.string().trim().min(1).max(200).nullish(),
+  pdfFile: base64FileSchema.nullish(),
+  pddAvailable: z.boolean(),
+});
+
+export function arubaApiGroupsToShadowDocuments(value: unknown): ArubaShadowDocument[] {
+  const result = z.array(invoiceGroupSchema).max(100).safeParse(value);
+  if (!result.success) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  return result.data.flatMap((group) =>
+    group.invoices.flatMap((invoice) => {
+      if (invoice.documentType !== "TD01" && invoice.documentType !== "TD04") return [];
+      const documentDate = invoice.invoiceDate.slice(0, 10);
+      return [
+        {
+          remoteId: group.id,
+          documentType: invoice.documentType,
+          fiscalYear: Number(documentDate.slice(0, 4)),
+          series: null,
+          fiscalNumber: null,
+          documentDate,
+          status: normalizeArubaRemoteStatusLabel(invoice.status),
+        },
+      ];
+    }),
+  );
+}
+
+export const arubaApiNotificationListSchema = z
+  .object({
+    count: z.number().int().nonnegative(),
+    notifications: z
+      .array(
+        z.object({
+          date: z.string().trim().min(1).max(64),
+          docType: z.string().trim().min(1).max(32),
+          filename: z.string().trim().min(1).max(255),
+          invoiceId: z.string().trim().min(1).max(200),
+          notificationDate: z.string().trim().min(1).max(64),
+          number: z.string().trim().max(100).nullish(),
+          result: z.enum(["EC01", "EC02"]).nullish(),
+          file: base64FileSchema,
+        }),
+      )
+      .max(100),
+  })
+  .superRefine((value, context) => {
+    if (value.count !== value.notifications.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["count"],
+        message: "Il conteggio notifiche Aruba non coincide con gli elementi restituiti",
+      });
+    }
+  });
+
 const invoiceSearchSchema = z.object({
-  content: z.array(z.object({ id: z.string().min(1) })),
+  content: z.array(invoiceGroupSchema).max(PROBE_PAGE_SIZE),
   first: z.boolean(),
   last: z.boolean(),
   number: z.number().int().positive(),
@@ -41,9 +197,6 @@ const invoiceSearchSchema = z.object({
   totalElements: z.number().int().nonnegative(),
   totalPages: z.number().int().nonnegative(),
 });
-
-const PROBE_PAGE_SIZE = 10;
-const PROBE_MAX_PAGES = 2;
 
 function parsed<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
@@ -79,10 +232,52 @@ export interface ArubaApiReadProbeResult {
   outboundReadAuthorized: true;
   requestedPages: number;
   returnedInvoiceGroups: number;
+  returnedDocuments: number;
   totalInvoiceGroups: number;
+  groupCardinality: { empty: number; single: number; multiple: number };
+  documentTypes: { TD01: number; TD04: number; other: number };
+  canonicalStatuses: Record<ArubaRemoteStatus, number>;
   completeWindowRead: boolean;
   windowStart: string;
   windowEnd: string;
+}
+
+interface SanitizedInventorySummary {
+  returnedDocuments: number;
+  groupCardinality: ArubaApiReadProbeResult["groupCardinality"];
+  documentTypes: ArubaApiReadProbeResult["documentTypes"];
+  canonicalStatuses: ArubaApiReadProbeResult["canonicalStatuses"];
+}
+
+function emptyInventorySummary(): SanitizedInventorySummary {
+  return {
+    returnedDocuments: 0,
+    groupCardinality: { empty: 0, single: 0, multiple: 0 },
+    documentTypes: { TD01: 0, TD04: 0, other: 0 },
+    canonicalStatuses: Object.fromEntries(
+      arubaRemoteStatusSchema.options.map((status) => [status, 0]),
+    ) as Record<ArubaRemoteStatus, number>,
+  };
+}
+
+function addGroupsToSummary(
+  summary: SanitizedInventorySummary,
+  groups: z.infer<typeof invoiceGroupSchema>[],
+): void {
+  for (const group of groups) {
+    const cardinality =
+      group.invoices.length === 0 ? "empty" : group.invoices.length === 1 ? "single" : "multiple";
+    summary.groupCardinality[cardinality] += 1;
+    summary.returnedDocuments += group.invoices.length;
+    for (const invoice of group.invoices) {
+      const type =
+        invoice.documentType === "TD01" || invoice.documentType === "TD04"
+          ? invoice.documentType
+          : "other";
+      summary.documentTypes[type] += 1;
+      summary.canonicalStatuses[normalizeArubaRemoteStatusLabel(invoice.status)] += 1;
+    }
+  }
 }
 
 function invoiceSearchUrl(input: {
@@ -109,6 +304,7 @@ async function readAdditionalPages(input: {
   requestedPages: number;
   returnedInvoiceGroups: number;
   seenGroupIds: Set<string>;
+  summary: SanitizedInventorySummary;
   windowStart: Date;
   windowEnd: Date;
 }): Promise<number> {
@@ -146,6 +342,7 @@ async function readAdditionalPages(input: {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
   for (const id of pageIds) input.seenGroupIds.add(id);
+  addGroupsToSummary(input.summary, nextPage.content);
   return readAdditionalPages({
     ...input,
     page: input.page + 1,
@@ -206,6 +403,8 @@ export async function runArubaApiReadProbe(
   }
 
   const requestedPages = Math.max(1, Math.min(firstPage.totalPages, PROBE_MAX_PAGES));
+  const summary = emptyInventorySummary();
+  addGroupsToSummary(summary, firstPage.content);
   const returnedInvoiceGroups = await readAdditionalPages({
     target,
     token: token.access_token,
@@ -214,6 +413,7 @@ export async function runArubaApiReadProbe(
     requestedPages,
     returnedInvoiceGroups: firstPage.content.length,
     seenGroupIds: new Set(firstPageIds),
+    summary,
     windowStart,
     windowEnd,
   });
@@ -231,7 +431,11 @@ export async function runArubaApiReadProbe(
     outboundReadAuthorized: true,
     requestedPages,
     returnedInvoiceGroups,
+    returnedDocuments: summary.returnedDocuments,
     totalInvoiceGroups: firstPage.totalElements,
+    groupCardinality: summary.groupCardinality,
+    documentTypes: summary.documentTypes,
+    canonicalStatuses: summary.canonicalStatuses,
     completeWindowRead,
     windowStart: windowStart.toISOString(),
     windowEnd: windowEnd.toISOString(),

@@ -57,7 +57,7 @@ test("normalizza tutte le diciture elettroniche osservate nel pannello Aruba", (
     ].map(normalizeArubaRemoteStatusLabel),
     [
       "SDI_PROCESSING",
-      "REJECTED",
+      "UNKNOWN",
       "SUBMITTED",
       "REJECTED",
       "NOT_DELIVERED",

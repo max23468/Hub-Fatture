@@ -1,6 +1,6 @@
 # Piano esecutivo — integrazione API Aruba
 
-**Stato:** approvato come specifica di destinazione; solo spike read-only locale disponibile
+**Stato:** qualifica read-only completata; sincronizzazione inbound non iniziata
 **Ambito:** API Aruba v2, solo ciclo attivo dell’utenza Base delegata
 **Fonte canonica:** Master Plan, ADR Aruba e glossario
 **Documentazione provider:** [API Aruba v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html) e [manuale account Premium](https://guide.pec.it/fatturazione-elettronica/manuale-account-premium.pdf)
@@ -18,14 +18,16 @@ Production, invii fiscali reali o rimozione degli helper.
 - autenticazione Production, identità fiscale attesa, account attivo e lettura ciclo attivo
   verificate fail-closed;
 - primo probe Production limitato: 13 gruppi dichiarati nella finestra di 24 ore e una sola voce
-  materializzata; il probe ora supporta al massimo due pagine da dieci gruppi, ma questa lettura
-  paginata non è ancora stata eseguita né qualificata in Production;
+  materializzata;
+- successivo probe Production autorizzato: finestra di 24 ore letta integralmente, 8 gruppi e 8
+  documenti TD01, tutti in gruppi singoli, senza contenuti o persistenza;
 - nessun dettaglio, XML, PDF, P7M o notifica scaricato;
 - nessun dry-run, upload, invio o modifica del pannello eseguito.
 
-Questa baseline prova la fattibilità minima di autenticazione e paginazione, non chiude la
-qualifica API e non dimostra ancora la cardinalità completa gruppo/documento, i file, tutti gli
-stati, il Tier o l'idempotenza delle mutazioni.
+Questa baseline chiude la qualifica read-only: prova autenticazione, paginazione della finestra
+osservata, distinzione dei conteggi gruppo/documento e confronto iniziale con il fallback. Non prova
+backfill, parità su snapshot allineati, file reali, persistenza, idempotenza o capacità mutative, che
+appartengono alle milestone successive.
 
 ## 1. Esito atteso
 
@@ -122,7 +124,8 @@ ritentabili vivono nel worker.
 | `connections`               | configurazione Aruba, ciphertext, identità attesa, stato pausa e ultimo test |
 | `aruba_remote_documents`    | documento osservato nel provider, indipendente dall’origine                  |
 | `aruba_remote_observations` | storia append-only di stati, metadati e provenienza                          |
-| `aruba_remote_files`        | XML, PDF, P7M e notifiche con hash, MIME, dimensione e ownership             |
+| `aruba_files`               | XML, PDF e P7M con hash, MIME, dimensione e ownership alternativa            |
+| `sdi_notifications`         | notifiche SdI con file canonico e ownership alternativa                      |
 | `aruba_document_matches`    | collegamenti deterministici o decisioni manuali auditate                     |
 | `aruba_sync_runs`           | lease, cursori, finestre, pagine, conteggi, watermark ed esito del giro API  |
 | `aruba_submissions`         | tentativi originati da Hub Fatture, mai documenti remoti generici            |
@@ -281,8 +284,9 @@ milestone tecnica precedente, ma blocca il dossier di parità e il ritiro del re
 
 Massimo può configurare/testare/ruotare/revocare la connessione, cambiare modalità, attivare o
 fermare la sincronizzazione, abilitare gli invii e compiere azioni fiscali manuali. Codex può vedere
-salute, errori e quota ufficiale e può richiedere soltanto `Sincronizza ora` in lettura. Ogni endpoint
-applica il controllo server-side.
+salute, errori, limiti tecnici osservati e contatore locale delle trasmissioni e può richiedere
+soltanto `Sincronizza ora` in lettura. Tier e contatori del Premium delegato non vengono letti né
+mostrati. Ogni endpoint applica il controllo server-side.
 
 ### 9.3 Due arresti indipendenti
 
@@ -302,7 +306,7 @@ Non nasce una destinazione primaria `Aruba`.
 - stato `In pausa`, `Connessa`, `Attenzione` o `Bloccata`;
 - identità verificata e data del test, senza username o segreti completi;
 - attivazione sincronizzazione, modalità globale e interruttore invii;
-- ultimo giro, backfill, quota/Tier ufficiali quando disponibili;
+- ultimo giro, backfill e limiti provider osservati;
 - fallback manuale e, finché esiste, `Fallback transitorio` owner-only e disabilitato di default;
 - rotazione/revoca credenziale.
 
@@ -325,7 +329,7 @@ Non nasce una destinazione primaria `Aruba`.
 - audit di configurazione, pause, abilitazioni, trasmissioni e decisioni manuali;
 - nessun payload fiscale o segreto nei messaggi.
 
-## 11. Quota e costi
+## 11. Soglie locali e costi
 
 L’accordo corrente copre un volume previsto di circa 500 fatture per mese solare e l’uso delle API
 necessario al piano. Hub Fatture mostra soltanto valori ufficiali Aruba quando disponibili e un
@@ -333,10 +337,10 @@ contatore locale dei documenti accettati per trasmissione; non stima euro. Gli a
 a 400 e 475 e si azzerano il primo giorno del mese. Letture, download, dry-run e retry non vengono
 presentati come fatture inviate.
 
-La qualifica API registra rate limit, Tier, regole di conteggio e risposta `429` correnti. Il client
-applica budget conservativi, backoff con jitter e priorità agli stati non terminali. Un cambiamento
-contrattuale o un consumo anomalo riapre il gate economico prima di abilitare nuovi invii, ma non
-cancella automaticamente un documento già autorizzato.
+La qualifica API registra rate limit e risposta `429` correnti. Il client applica budget
+conservativi, backoff con jitter e priorità agli stati non terminali. Tier e contatori del Premium
+delegato restano fuori dal prodotto. Un cambiamento contrattuale riapre il gate economico prima di
+abilitare nuovi invii, ma non cancella automaticamente un documento già autorizzato.
 
 ## 12. Callback
 
@@ -475,12 +479,12 @@ statistica non sostituisce la completezza.
 ### Qualifica API e accordo
 
 - contratto v2, identità, gruppi/documenti, paginazione, finestre, stati, file e notifiche;
-- limiti, Tier, regole di conteggio e accordo economico registrati senza importi sensibili;
+- limiti tecnici e accordo economico registrati senza importi sensibili;
 - probe Production read-only limitato e sanitizzato;
 - nessuna persistenza canonica di file reali e nessuna mutazione.
 
 **Gate:** semantica completa e limiti qualificati; identità esatta; nessun segreto nei log; accordo
-economico confermato; manifesto e prova read-only chiusi.
+economico confermato; manifesto e prova read-only chiusi. **Completato nella qualifica API.**
 
 ### Inbound API primario
 
@@ -530,7 +534,7 @@ pronto, esclusa la prova reale.
 
 - autorizzazione ordinaria separata;
 - monitoraggio rafforzato della prima giornata;
-- avvisi quota e salute operativi;
+- avvisi locali a 400/475 e salute operativi;
 - decisioni helper registrate;
 - TD04 ancora manuale finché non supera il proprio canary.
 
@@ -544,8 +548,8 @@ pronto, esclusa la prova reale.
   rate budget.
 - L’assenza di DEMO evita coordinamento con l’agenzia ma alza il rigore delle fixture e dei manifesti
   Production.
-- Il forfait mensile elimina una decisione economica aperta, ma i contatori provider restano da
-  qualificare e monitorare.
+- Il forfait mensile elimina una decisione economica aperta; Tier e contatori del Premium delegato
+  restano fuori dal prodotto.
 - La transizione conserva reversibilità senza trasformare gli helper in legacy permanente.
 - Callback e TD04 automatico restano capacità esplicitamente rinviate, non scaffolding incompleto.
 
@@ -553,7 +557,7 @@ pronto, esclusa la prova reale.
 
 - forma esatta dei gruppi API e cardinalità dei documenti in ogni risposta;
 - disponibilità e semantica di XML, PDF, P7M, notifiche e download per tutto lo storico;
-- Tier effettivo, contatori ufficiali e comportamento al superamento;
+- comportamento tecnico al superamento dei limiti degli endpoint;
 - chiavi o garanzie d’idempotenza per dry-run, upload e invio;
 - capacità di distinguere con certezza upload, invio e accettazione dopo un timeout;
 - eventuale isolamento per delegante della callback Premium.
