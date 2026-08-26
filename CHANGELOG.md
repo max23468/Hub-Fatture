@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.77
+
+- Il piano canonico adotta le API Aruba v2 come destinazione primaria per il ciclo attivo, con inbound, outbound, credenziali cifrate, modalità di trasmissione, arresti indipendenti, fallback manuale e gate Production distinti.
+- La roadmap separa qualifica read-only, inventario API, outbound senza invio, decisione su preferito/bridge e helper Playwright, ricertificazione, canary TD01 monouso e go-live. Nessun componente browser viene ritirato senza un dossier di parità e una decisione esplicita.
+- Un probe locale rigorosamente read-only verifica host, identità fiscale, stato account, schema e limiti di paginazione senza scaricare file né esporre credenziali. La sola prova Production osservata resta registrata con il suo limite effettivo; le qualifiche non ancora eseguite non sono dichiarate concluse.
+
 ## 0.3.76
 
 - Il preferito Aruba importa durante la sincronizzazione soltanto gli XML ufficiali che Hub Fatture richiede. Il ponte trasferisce i byte senza esporre cookie o credenziali Aruba, applica il limite dimensionale condiviso e continua a funzionare con il preferito già salvato.
