@@ -49,7 +49,7 @@ test("usa l'esecuzione più recente dello stesso contesto", () => {
   assert.deepEqual(state, { pending: [], failed: [] });
 });
 
-test("lega ogni gate all'ultimo commit del cumulativo che attiva la sua superficie", () => {
+test("lega i gate di superficie al commit applicabile e Foundation al candidato", () => {
   const runtime = "1".repeat(40);
   const docs = "2".repeat(40);
   const targets = selectCheckTargets(
@@ -67,7 +67,7 @@ test("lega ogni gate all'ultimo commit del cumulativo che attiva la sua superfic
   );
   assert.deepEqual(targets, {
     CI: runtime,
-    Foundation: runtime,
+    Foundation: docs,
     "Analyze (javascript-typescript)": runtime,
     "react-doctor": runtime,
   });
@@ -213,7 +213,7 @@ test("la baseline vuota conserva i gate runtime di un commit precedente", async 
   process.chdir(repository);
   const targets = resolveCheckTargets("0".repeat(40), candidate);
   assert.equal(targets.CI, runtime);
-  assert.equal(targets.Foundation, runtime);
+  assert.equal(targets.Foundation, candidate);
   assert.equal(targets["E2E Chromium"], runtime);
   assert.equal(targets["E2E WebKit"], runtime);
 });

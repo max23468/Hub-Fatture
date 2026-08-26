@@ -6,7 +6,6 @@ import { classifyFiles } from "./change-impact.mjs";
 const REQUIRED = ["CI", "Foundation", "Analyze (javascript-typescript)", "react-doctor"];
 const SURFACE_BY_CHECK = {
   CI: "standard",
-  Foundation: "image",
   "Analyze (javascript-typescript)": "standard",
   "react-doctor": "react",
 };
