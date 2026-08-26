@@ -103,6 +103,22 @@ function changedFilesForCommit(sha) {
     .filter(Boolean);
 }
 
+export function classifyCheckImpact(files) {
+  const impact = classifyFiles(files);
+  if (!files.includes("scripts/change-impact.mjs")) return impact;
+  return {
+    ...impact,
+    lane: "deploy",
+    standard: true,
+    database: true,
+    securityData: true,
+    provider: true,
+    arubaPlatform: true,
+    e2e: true,
+    image: true,
+  };
+}
+
 function conditionalChecksForCommit(sha) {
   let workflow;
   try {
@@ -126,7 +142,7 @@ export function resolveCheckTargets(base, candidate) {
     .filter(Boolean);
   const entries = commits.map((sha) => ({
     sha,
-    impact: classifyFiles(changedFilesForCommit(sha)),
+    impact: classifyCheckImpact(changedFilesForCommit(sha)),
     conditionalChecks: conditionalChecksForCommit(sha),
   }));
   return selectCheckTargets(entries, candidate);
