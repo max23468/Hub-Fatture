@@ -47,6 +47,7 @@ import { AppError } from "../errors.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { localOrderDate } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
+import { arubaUnresolvedCandidateSql } from "./billing-case-sql.server.ts";
 import { reconcileCachedArubaMatcherUpgrade } from "./aruba-matcher-upgrade.server.ts";
 import {
   freezeArubaInventorySnapshot,
@@ -2500,8 +2501,7 @@ const arubaPotentialMatchPredicate = `(matches.status = 'UNMATCHED'
   AND matches.method <> 'MANUAL'
   AND EXISTS (
     SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE coalesce((candidate ->> 'potential')::boolean, false)
-      OR coalesce((candidate ->> 'compatible')::boolean, false)
+    WHERE ${arubaUnresolvedCandidateSql("candidate")}
       OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
   ))`;
 
@@ -2509,8 +2509,7 @@ const arubaExternalDocumentPredicate = `(matches.status = 'UNMATCHED' AND (
   (matches.method = 'MANUAL' AND remote.origin = 'ARUBA_EXTERNAL')
   OR (matches.method <> 'MANUAL' AND NOT EXISTS (
     SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE coalesce((candidate ->> 'potential')::boolean, false)
-      OR coalesce((candidate ->> 'compatible')::boolean, false)
+    WHERE ${arubaUnresolvedCandidateSql("candidate")}
       OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
   ))
 ))`;
