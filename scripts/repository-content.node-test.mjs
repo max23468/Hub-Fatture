@@ -367,7 +367,12 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
     /if sudo test -f \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json/,
   );
   assert.match(workflow, /Ricevuta assente: esecuzione del percorso di bootstrap Production/);
+  assert.match(
+    workflow,
+    /needs\.candidate\.outputs\.runtime == 'true' \|\|\s+needs\.candidate\.outputs\.commit == needs\.candidate\.outputs\.base/,
+  );
   assert.match(workflow, /deploy_runtime=false/);
+  assert.match(workflow, /if \[ -z "\$live_receipt" \]; then[\s\S]*deploy_runtime=true/);
   assert.match(workflow, /steps\.baseline\.outputs\.deploy_runtime == 'true'/);
   assert.match(workflow, /Il candidato è già live: il redeploy viene saltato/);
   const release = workflow.slice(workflow.indexOf("\n  release:"));

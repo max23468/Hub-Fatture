@@ -124,7 +124,10 @@ jobs:
 
   checks:
     name: Gate exact-SHA
-    if: needs.candidate.outputs.runtime == 'true' && !inputs.backup_only
+    if: >-
+      !inputs.backup_only &&
+      (needs.candidate.outputs.runtime == 'true' ||
+       needs.candidate.outputs.commit == needs.candidate.outputs.base)
     needs: candidate
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -159,7 +162,10 @@ jobs:
 
   image:
     name: Build, scan e attestazione
-    if: needs.candidate.outputs.image == 'true' && !inputs.backup_only
+    if: >-
+      !inputs.backup_only &&
+      (needs.candidate.outputs.image == 'true' ||
+       needs.candidate.outputs.commit == needs.candidate.outputs.base)
     needs: candidate
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
@@ -260,13 +266,11 @@ jobs:
     if: >-
       always() &&
       (inputs.backup_only ||
-        (needs.candidate.outputs.runtime == 'true' &&
-         needs.checks.result == 'success' &&
-         needs.image.result == 'success') ||
         (!inputs.backup_only &&
-         inputs.publish_release &&
-         needs.candidate.outputs.runtime != 'true' &&
-         needs.candidate.outputs.commit == needs.candidate.outputs.base))
+         needs.checks.result == 'success' &&
+         needs.image.result == 'success' &&
+         (needs.candidate.outputs.runtime == 'true' ||
+          needs.candidate.outputs.commit == needs.candidate.outputs.base)))
     needs: [candidate, checks, image]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -289,13 +293,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        if: ${{ !inputs.backup_only && needs.candidate.outputs.runtime == 'true' }}
+        if: ${{ !inputs.backup_only }}
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Verifica attestazione del digest
-        if: ${{ !inputs.backup_only && needs.candidate.outputs.runtime == 'true' }}
+        if: ${{ !inputs.backup_only }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: oci://ghcr.io/max23468/hub-fatture@${{ needs.image.outputs.digest }}
@@ -329,10 +333,7 @@ jobs:
               echo "Il backup readiness richiede una ricevuta live." >&2
               exit 1
             }
-            test "$deploy_runtime" = true || {
-              echo "Una release senza deploy richiede una ricevuta live verificata." >&2
-              exit 1
-            }
+            deploy_runtime=true
             echo "Ricevuta assente: esecuzione del percorso di bootstrap Production." >> "$GITHUB_STEP_SUMMARY"
           else
             live_base=$(printf '%s' "$live_receipt" | jq -er .commit)
