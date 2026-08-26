@@ -38,7 +38,7 @@ type InventorySnapshot = z.infer<typeof inventorySnapshotSchema>;
 
 const ARUBA_INCREMENTAL_OVERLAP_DAYS = 7;
 const ARUBA_FULL_SCAN_INTERVAL_DAYS = 30;
-const ARUBA_STATUS_MAPPER_VERSION = 2;
+const ARUBA_STATUS_MAPPER_VERSION = 3;
 
 function panelUrl(environment: ArubaInventorySession["environment"]): string {
   return environment === "PRODUCTION"

@@ -221,7 +221,7 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
     assert.notEqual(recoveredHealth.blockingReason, "FAILURE");
     assert.equal(recoveredHealth.lastErrorCode, null);
     await database.getPool().query(
-      `UPDATE sync_cursors SET full_scan_completed_at = now(), aruba_status_mapper_version = 2
+      `UPDATE sync_cursors SET full_scan_completed_at = now(), aruba_status_mapper_version = 3
        WHERE provider = 'ARUBA'`,
     );
     const incrementalManifest = await cycle.arubaInventoryManifest(secondToken);
@@ -239,11 +239,11 @@ test("il perimetro Aruba resta immutabile, copre il cambio anno e persiste INCOM
     assert.ok(Date.now() - new Date(recentIncrementalFrom).getTime() >= 6.9 * 86_400_000);
     await database
       .getPool()
-      .query(`UPDATE sync_cursors SET aruba_status_mapper_version = 1 WHERE provider = 'ARUBA'`);
+      .query(`UPDATE sync_cursors SET aruba_status_mapper_version = 2 WHERE provider = 'ARUBA'`);
     assert.equal((await cycle.arubaInventoryManifest(secondToken)).fullScanRequired, true);
     await database
       .getPool()
-      .query(`UPDATE sync_cursors SET aruba_status_mapper_version = 2 WHERE provider = 'ARUBA'`);
+      .query(`UPDATE sync_cursors SET aruba_status_mapper_version = 3 WHERE provider = 'ARUBA'`);
     assert.equal((await cycle.arubaInventoryManifest(secondToken)).fullScanRequired, false);
     await database.getPool().query(
       `UPDATE sync_cursors SET full_scan_completed_at = now() - interval '8 days'
