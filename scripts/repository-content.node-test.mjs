@@ -84,7 +84,15 @@ test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
   );
   assert.equal(
     manifest.scripts["test:e2e:direct"],
-    "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
+    "npm run test:e2e:chromium:direct && npm run test:e2e:webkit:direct",
+  );
+  assert.equal(
+    manifest.scripts["test:e2e:chromium:direct"],
+    "playwright test --project=chromium --workers=1",
+  );
+  assert.equal(
+    manifest.scripts["test:e2e:webkit:direct"],
+    "playwright test --project=webkit --workers=1",
   );
 });
 
@@ -278,7 +286,20 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
     "una baseline legacy non prova quale SHA sia stato realmente installato",
   );
   assert.match(workflow, /task:"hub-fatture-production"/);
-  assert.match(workflow, /deploy-receipt\.json; then sudo jq -er \.commit/);
+  assert.equal(
+    workflow.match(/environment:\n\s+name: Production/g)?.length,
+    1,
+    "soltanto il job che usa i segreti deve dichiarare l'Environment Production",
+  );
+  const candidate = workflow.slice(
+    workflow.indexOf("\n  candidate:"),
+    workflow.indexOf("\n  checks:"),
+  );
+  assert.doesNotMatch(candidate, /secrets\.PRODUCTION_/);
+  assert.match(
+    workflow,
+    /live_receipt=\$\(ssh .*sudo cat \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json/,
+  );
   assert.match(workflow, /Riconciliazione da ricevuta live verificata/);
   assert.match(workflow, /for delay in 0 2 5 10 20 30/);
   assert.match(workflow, /-f state=success/);
@@ -300,6 +321,8 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   );
   const deploy = workflow.slice(workflow.indexOf("\n  deploy:"));
   const image = workflow.slice(workflow.indexOf("\n  image:"), workflow.indexOf("\n  deploy:"));
+  assert.match(deploy, /Verifica e riconcilia la baseline live/);
+  assert.match(deploy, /fetch-depth: 0/);
   assert.match(image, /actions: read/);
   assert.match(image, /actions\/workflows\/production-artifact\.yml\/runs/);
   assert.match(image, /test "\$conclusion" = success/);
@@ -322,8 +345,9 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /backup\.sh deploy/);
   assert.match(workflow, /backup-receipt\.json/);
   assert.match(workflow, /backup_only:/);
+  assert.match(workflow, /publish_release:/);
   assert.match(workflow, /if: inputs\.backup_only/);
-  assert.match(workflow, /hub-fatture-production-tooling\/backup\.sh/);
+  assert.match(deploy, /scp scripts\/backup\.sh/);
   assert.match(workflow, /HUB_FATTURE_ROOT=\/opt\/hub-fatture '\$remote_script' readiness/);
   assert.match(workflow, /trap 'rm -f \\"\$remote_script\\"' EXIT/);
   assert.match(workflow, /deploy-receipt\.json.*= '\$CANDIDATE'.*'\$remote_script' readiness/s);
@@ -331,6 +355,18 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /\.version == \$version/);
   assert.match(workflow, /\.schema == \$schema/);
   assert.match(workflow, /\.imageDigest == \.deployedImageDigest/);
+  assert.match(workflow, /rollback_digest=\$rollback_digest/);
+  assert.match(workflow, /live_digest=\$live_digest/);
+  const release = workflow.slice(workflow.indexOf("\n  release:"));
+  assert.match(release, /name: GitHub Release immutabile/);
+  assert.match(release, /needs\.deploy\.result == 'success'/);
+  assert.match(release, /needs\.candidate\.outputs\.rollback != 'true'/);
+  assert.doesNotMatch(release, /needs\.candidate\.outputs\.runtime == 'true'/);
+  assert.match(release, /needs\.image\.outputs\.digest \|\| needs\.deploy\.outputs\.live_digest/);
+  assert.match(release, /new URL\(process\.argv\[1\]\)\.pathname\.match/);
+  assert.match(release, /prepare-production-release\.mjs/);
+  assert.match(release, /publish-github-release\.sh/);
+  assert.doesNotMatch(release, /environment:\s*\n\s+name: Production/);
 });
 
 test("la qualifica e-mail Production è presidiata e non espone dati sensibili", async () => {
@@ -365,11 +401,16 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(ci, /name: PostgreSQL e migrazioni\n    if: needs\.impact\.outputs\.database/);
   assert.match(ci, /name: E2E \$\{\{ matrix\.label \}\}\n    if: needs\.impact\.outputs\.e2e/);
   const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
-  assert.match(e2e, /browser: chromium[\s\S]*label: Chromium/);
-  assert.match(e2e, /browser: webkit[\s\S]*label: WebKit[\s\S]*install: webkit chromium/);
-  assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npx playwright test"));
+  assert.match(ci, /e2e_matrix: \$\{\{ steps\.impact\.outputs\.e2e_matrix \}\}/);
+  assert.match(e2e, /fromJSON\(needs\.impact\.outputs\.e2e_matrix\)/);
+  assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npx --no-install playwright test"));
   assert.match(e2e, /playwright install --with-deps \$\{\{ matrix\.install \}\}/);
-  assert.match(e2e, /playwright test --project=\$\{\{ matrix\.browser \}\} --workers=1/);
+  assert.match(
+    e2e,
+    /npx --no-install playwright test --project=\$\{\{ matrix\.browser \}\} --workers=1/,
+  );
+  assert.match(ci, /"browser":"webkit","label":"WebKit","install":"webkit chromium"/);
+  assert.doesNotMatch(ci, /- run: npm ci$/m);
   assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
   assert.doesNotMatch(ci, /workflow_dispatch:/);
   assert.match(
@@ -409,6 +450,18 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
   assert.match(foundation, /if: steps\.impact\.outputs\.image == 'true'/);
   assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
+});
+
+test("i thread Codex advisory non duplicano il blocco delle conversazioni", async () => {
+  const [workflow, gate] = await Promise.all(
+    [".github/workflows/codex-review-gate.yml", "scripts/codex-review-gate.mjs"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
+  assert.match(workflow, /pull-requests: write/);
+  assert.match(gate, /resolveReviewThread/);
+  assert.match(gate, /advisoryThreadIds\(threads, headSha\)/);
+  assert.match(gate, /\["P0", "P1"\]/);
 });
 
 test("la riconciliazione Aruba non tronca i candidati fiscali", async () => {
@@ -462,6 +515,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     "scripts/production-preflight.sh",
     "scripts/production-readback.sh",
     "scripts/production-release-candidate-readback.sh",
+    "scripts/dispatch-production.sh",
     "scripts/publish-github-release.sh",
     "scripts/read-env.sh",
     "scripts/restore.sh",
