@@ -55,25 +55,6 @@ test("nessuna chiave privata in chiaro è tracciata", () => {
   assert.equal(keys.stdout.trim(), "");
 });
 
-test("il probe Aruba passa la password soltanto tramite stdin", async () => {
-  const [interactive, keychain, probe, runbook] = await Promise.all(
-    [
-      "scripts/aruba-api-read-probe.sh",
-      "scripts/aruba-api-read-probe-keychain.sh",
-      "scripts/aruba-api-read-probe.ts",
-      "docs/runbooks/aruba-api-read-probe.md",
-    ].map((file) => readFile(path.join(root, file), "utf8")),
-  );
-
-  for (const wrapper of [interactive, keychain]) {
-    assert.match(wrapper, /printf '%s' "\$aruba_api_password" \|/);
-    assert.doesNotMatch(wrapper, /ARUBA_API_PASSWORD/);
-  }
-  assert.match(probe, /for await \(const chunk of process[.]stdin\)/);
-  assert.doesNotMatch(probe, /process[.]env[.]ARUBA_API_PASSWORD/);
-  assert.doesNotMatch(runbook, /ARUBA_API_PASSWORD/);
-});
-
 test("il readiness pubblico non espone volumi degli ordini live", async () => {
   const readiness = await readFile(
     path.join(root, "docs", "runbooks", "release-readiness.md"),

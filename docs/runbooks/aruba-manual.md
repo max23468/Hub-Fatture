@@ -22,11 +22,7 @@ Se l’inventario globale è sano ma manca il controllo immediato di una prepara
 
 Se invece la scansione automatica è fallita o incompleta, la verifica specifica non basta. Il readback completo deve coprire ogni stream indicato in Impostazioni, dall’estremo temporale richiesto fino alla pagina terminale, includendo tutte le righe una sola volta oppure un export ufficiale integrale. Conservare filtri, ordinali, conteggi, estremi e file necessari. Solo Massimo con permesso di approvazione può finalizzare la ricevuta; la sessione automatica fallita resta nella cronologia e collisioni, file non validi, match ambigui o stati remoti incerti non sono superabili manualmente.
 
-In **Impostazioni → Aruba**, aprire **Recupero avanzato** e scegliere **Avvia recupero manuale**;
-quindi copiare tutte le pagine nel formato mostrato e finalizzare soltanto dopo che il riepilogo
-copre ogni stream richiesto. Ordinali mancanti, pagina terminale assente, righe duplicate o una
-sincronizzazione ancora attiva bloccano la finalizzazione. L’operazione riuscita crea una nuova
-ricevuta manuale completa senza cancellare né trasformare i giri automatici falliti.
+In **Impostazioni → Connessione Aruba → Recupero manuale**, aprire il readback completo, copiare tutte le pagine nel formato mostrato e finalizzare soltanto dopo che il riepilogo copre ogni stream richiesto. Ordinali mancanti, pagina terminale assente, righe duplicate o una sincronizzazione ancora attiva bloccano la finalizzazione. L’operazione riuscita crea una nuova ricevuta manuale completa senza cancellare né trasformare i giri automatici falliti.
 
 Per una preparazione usare invece **Readback manuale specifico**: riportare tutte le pagine delle ricerche indicate. Una pagina vuota e completa produce una ricevuta monouso valida cinque minuti; qualunque candidato produce un blocco e deve prima essere importato e riconciliato.
 

@@ -30,8 +30,8 @@ if ! aruba_api_password="$(
   exit 1
 fi
 
-printf '%s' "$aruba_api_password" | \
-  ARUBA_API_ENVIRONMENT=PRODUCTION \
-    ARUBA_API_USERNAME="$ARUBA_API_USERNAME" \
-    ARUBA_API_EXPECTED_TAX_ID="$ARUBA_API_EXPECTED_TAX_ID" \
-    node scripts/aruba-api-read-probe.ts
+ARUBA_API_ENVIRONMENT=PRODUCTION \
+  ARUBA_API_USERNAME="$ARUBA_API_USERNAME" \
+  ARUBA_API_PASSWORD="$aruba_api_password" \
+  ARUBA_API_EXPECTED_TAX_ID="$ARUBA_API_EXPECTED_TAX_ID" \
+  node scripts/aruba-api-read-probe.ts

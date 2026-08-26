@@ -21,17 +21,15 @@ host DEMO.
 ## Inserimento temporaneo
 
 Per la prima prova usare il comando interattivo: richiede i dati nel Terminale, disabilita l'eco
-della password e la passa al processo Node soltanto tramite stdin. La credenziale non entra
-nell'ambiente né negli argomenti del processo figlio. Non inserire valori nella riga di comando,
-in file `.env`, nella cronologia della shell o in output.
+della password e li conserva soltanto nelle variabili del processo fino alla conclusione. Non
+inserire valori nella riga di comando, in file `.env`, nella cronologia della shell o in output.
 
 Il processo interno usa esclusivamente questi nomi:
 
 - `ARUBA_API_ENVIRONMENT`, valore esplicito `DEMO` o `PRODUCTION`;
 - `ARUBA_API_USERNAME`;
+- `ARUBA_API_PASSWORD`;
 - `ARUBA_API_EXPECTED_TAX_ID`.
-
-La password è l'unico dato letto da stdin e non ha un nome di variabile d'ambiente.
 
 ## Esecuzione interattiva Production
 
@@ -57,8 +55,7 @@ ARUBA_API_EXPECTED_TAX_ID='<piva-o-cf>' \
 mise exec -- npm run aruba:api:probe:keychain
 ```
 
-Il wrapper fallisce prima della rete se la voce non è presente e inoltra il valore recuperato
-soltanto tramite stdin, senza esportarlo nell'ambiente del processo Node. Il comando `security
+Il wrapper fallisce prima della rete se la voce non è presente. Il comando `security
 find-generic-password ... -w` non deve essere eseguito direttamente in un Terminale, perché
 stamperebbe la password.
 
