@@ -320,6 +320,7 @@ jobs:
           CANDIDATE: ${{ needs.candidate.outputs.commit }}
           EXPECTED_BASE: ${{ needs.candidate.outputs.base }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ROLLBACK: ${{ needs.candidate.outputs.rollback }}
           SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
           SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
         run: |
@@ -348,6 +349,9 @@ jobs:
             if [ "$live_base" != "$EXPECTED_BASE" ]; then
               if [ "$EXPECTED_BASE" = 0000000000000000000000000000000000000000 ]; then
                 git merge-base --is-ancestor "$live_base" "$CANDIDATE"
+              elif [ "$ROLLBACK" = true ]; then
+                git merge-base --is-ancestor "$CANDIDATE" "$live_base"
+                git merge-base --is-ancestor "$live_base" "$EXPECTED_BASE"
               else
                 git merge-base --is-ancestor "$EXPECTED_BASE" "$live_base"
                 git merge-base --is-ancestor "$live_base" "$CANDIDATE"
@@ -523,7 +527,7 @@ jobs:
         env:
           COMMIT: ${{ needs.candidate.outputs.commit }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          IMAGE_DIGEST: ${{ needs.image.outputs.digest || needs.deploy.outputs.live_digest }}
+          IMAGE_DIGEST: ${{ needs.deploy.outputs.live_digest }}
           ROLLBACK_DIGEST: ${{ needs.deploy.outputs.rollback_digest }}
           VERSION: ${{ needs.candidate.outputs.version }}
         run: |

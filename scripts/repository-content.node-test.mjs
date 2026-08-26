@@ -306,6 +306,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
       workflow.indexOf('description="Baseline riconciliata dalla ricevuta live"'),
     "la baseline deve essere validata prima di registrare il successo",
   );
+  assert.match(
+    workflow,
+    /elif \[ "\$ROLLBACK" = true \]; then\s+git merge-base --is-ancestor "\$CANDIDATE" "\$live_base"\s+git merge-base --is-ancestor "\$live_base" "\$EXPECTED_BASE"/,
+  );
   assert.match(workflow, /for delay in 0 2 5 10 20 30/);
   assert.match(workflow, /-f state=success/);
   assert.match(workflow, /BASE: \$\{\{ needs\.candidate\.outputs\.check_base \}\}/);
@@ -380,7 +384,8 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(release, /needs\.deploy\.result == 'success'/);
   assert.match(release, /needs\.candidate\.outputs\.rollback != 'true'/);
   assert.doesNotMatch(release, /needs\.candidate\.outputs\.runtime == 'true'/);
-  assert.match(release, /needs\.image\.outputs\.digest \|\| needs\.deploy\.outputs\.live_digest/);
+  assert.match(release, /IMAGE_DIGEST: \$\{\{ needs\.deploy\.outputs\.live_digest \}\}/);
+  assert.doesNotMatch(release, /needs\.image\.outputs\.digest \|\|/);
   assert.match(release, /new URL\(process\.argv\[1\]\)\.pathname\.match/);
   assert.match(release, /prepare-production-release\.mjs/);
   assert.match(release, /publish-github-release\.sh/);
