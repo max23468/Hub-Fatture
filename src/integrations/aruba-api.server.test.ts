@@ -1,10 +1,23 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { AppError } from "../errors.ts";
-import { runArubaApiReadProbe } from "./aruba-api.server.ts";
+import {
+  ARUBA_API_V2_CONTRACT,
+  arubaApiInvoiceDetailSchema,
+  arubaApiNotificationListSchema,
+  arubaApiGroupsToShadowDocuments,
+  runArubaApiReadProbe,
+} from "./aruba-api.server.ts";
 
 const NOW = new Date("2026-08-26T12:00:00.000Z");
+const SYNTHETIC_INVOICE_PAGE = JSON.parse(
+  readFileSync(
+    new URL("../../tests/fixtures/aruba/api-invoices-out.synthetic.json", import.meta.url),
+    "utf8",
+  ),
+) as Record<string, unknown>;
 
 function response(value: unknown): Response {
   return Response.json(value);
@@ -14,15 +27,36 @@ function invoicePage(input: {
   page: number;
   totalElements: number;
   ids?: string[];
+  groups?: Array<Record<string, unknown>>;
 }): Record<string, unknown> {
   const ids = input.ids ?? [];
+  const groups =
+    input.groups ??
+    ids.map((id) => ({
+      id,
+      invoices: [
+        {
+          invoiceDate: "2026-08-26T12:00:00.000Z",
+          number: `FPR-${id}`,
+          documentType: "TD01",
+          status: "Inviata",
+          statusDescription: "",
+        },
+      ],
+      invoiceType: "FPR12",
+      docType: "out",
+      filename: `IT00000000000_${id}.xml.p7m`,
+      idSdi: `SDI-${id}`,
+      pddAvailable: true,
+      file: null,
+    }));
   const totalPages = Math.ceil(input.totalElements / 10);
   return {
-    content: ids.map((id) => ({ id })),
+    content: groups,
     first: input.page === 1,
     last: totalPages === 0 || input.page === totalPages,
     number: input.page,
-    numberOfElements: ids.length,
+    numberOfElements: groups.length,
     size: 10,
     totalElements: input.totalElements,
     totalPages,
@@ -77,7 +111,18 @@ test("il probe Production autentica l'utenza Base e usa soltanto letture API", a
         outboundReadAuthorized: true,
         requestedPages: 1,
         returnedInvoiceGroups: 0,
+        returnedDocuments: 0,
         totalInvoiceGroups: 0,
+        groupCardinality: { empty: 0, single: 0, multiple: 0 },
+        documentTypes: { TD01: 0, TD04: 0, other: 0 },
+        canonicalStatuses: {
+          SUBMITTED: 0,
+          SDI_PROCESSING: 0,
+          DELIVERED: 0,
+          NOT_DELIVERED: 0,
+          REJECTED: 0,
+          UNKNOWN: 0,
+        },
         completeWindowRead: true,
         windowStart: "2026-08-25T12:00:00.000Z",
         windowEnd: "2026-08-26T12:00:00.000Z",
@@ -173,7 +218,11 @@ test("il probe legge due pagine limitate senza materializzare dettagli o file", 
     assert.deepEqual(searchedPages, ["1", "2"]);
     assert.equal(result.requestedPages, 2);
     assert.equal(result.returnedInvoiceGroups, 13);
+    assert.equal(result.returnedDocuments, 13);
     assert.equal(result.totalInvoiceGroups, 13);
+    assert.deepEqual(result.groupCardinality, { empty: 0, single: 13, multiple: 0 });
+    assert.deepEqual(result.documentTypes, { TD01: 13, TD04: 0, other: 0 });
+    assert.equal(result.canonicalStatuses.SUBMITTED, 13);
     assert.equal(result.completeWindowRead, true);
   } finally {
     globalThis.fetch = originalFetch;
@@ -381,6 +430,207 @@ test("il probe rifiuta identificativi di gruppo duplicati tra pagine", async () 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("il probe distingue gruppi vuoti, singoli e multipli senza confonderli con i documenti", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/signin") {
+        return response({ access_token: "token-sintetico", expires_in: 1800 });
+      }
+      if (url.pathname === "/auth/userInfo") {
+        return response({
+          username: "utente-sintetico",
+          vatCode: "00000000000",
+          fiscalCode: null,
+          accountStatus: { expired: false, expirationDate: null },
+        });
+      }
+      return response(SYNTHETIC_INVOICE_PAGE);
+    };
+
+    const result = await runArubaApiReadProbe({
+      environment: "PRODUCTION",
+      username: "utente-sintetico",
+      password: "password-sintetica",
+      expectedTaxId: "00000000000",
+      now: NOW,
+    });
+    assert.equal(result.returnedInvoiceGroups, 3);
+    assert.equal(result.returnedDocuments, 3);
+    assert.deepEqual(result.groupCardinality, { empty: 1, single: 1, multiple: 1 });
+    assert.deepEqual(result.documentTypes, { TD01: 1, TD04: 1, other: 1 });
+    assert.equal(result.canonicalStatuses.REJECTED, 1);
+    assert.equal(result.canonicalStatuses.DELIVERED, 1);
+    assert.equal(result.canonicalStatuses.SDI_PROCESSING, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("l’adapter shadow conserva l’ID del gruppo senza inventare la serie fiscale", () => {
+  const groups = (SYNTHETIC_INVOICE_PAGE.content ?? []) as unknown[];
+  assert.deepEqual(arubaApiGroupsToShadowDocuments(groups), [
+    {
+      remoteId: "gruppo-td04-sintetico",
+      documentType: "TD04",
+      fiscalYear: 2026,
+      series: null,
+      fiscalNumber: null,
+      documentDate: "2026-08-26",
+      status: "REJECTED",
+    },
+    {
+      remoteId: "gruppo-multiplo-sintetico",
+      documentType: "TD01",
+      fiscalYear: 2026,
+      series: null,
+      fiscalNumber: null,
+      documentDate: "2026-08-26",
+      status: "DELIVERED",
+    },
+  ]);
+});
+
+test("il contratto rifiuta stati fattura API non documentati", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/signin") {
+        return response({ access_token: "token-sintetico", expires_in: 1800 });
+      }
+      if (url.pathname === "/auth/userInfo") {
+        return response({
+          username: "utente-sintetico",
+          vatCode: "00000000000",
+          fiscalCode: null,
+          accountStatus: { expired: false, expirationDate: null },
+        });
+      }
+      const page = invoicePage({ page: 1, totalElements: 1, ids: ["gruppo-1"] });
+      (
+        (page.content as Array<Record<string, unknown>>)[0]!.invoices as Array<
+          Record<string, unknown>
+        >
+      )[0]!.status = "Emessa";
+      return response(page);
+    };
+    await assert.rejects(
+      runArubaApiReadProbe({
+        environment: "PRODUCTION",
+        username: "utente-sintetico",
+        password: "password-sintetica",
+        expectedTaxId: "00000000000",
+        now: NOW,
+      }),
+      (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("il contratto notifiche verifica cardinalità e risultato", () => {
+  const notification = {
+    date: "2026-08-26T12:00:00.000Z",
+    docType: "RC",
+    file: "PHJpY2V2dXRhIC8+",
+    filename: "IT00000000000_SYNTH_RC_001.xml",
+    invoiceId: "fattura-sintetica",
+    notificationDate: "2026-08-26T12:00:00.000Z",
+    number: null,
+    result: null,
+  };
+  assert.equal(
+    arubaApiNotificationListSchema.parse({ count: 1, notifications: [notification] }).count,
+    1,
+  );
+  assert.equal(
+    arubaApiNotificationListSchema.safeParse({ count: 2, notifications: [notification] }).success,
+    false,
+  );
+  assert.equal(
+    arubaApiNotificationListSchema.safeParse({
+      count: 1,
+      notifications: [{ ...notification, result: "EC03" }],
+    }).success,
+    false,
+  );
+  assert.equal(
+    arubaApiNotificationListSchema.safeParse({
+      count: 1,
+      notifications: [{ ...notification, file: "non-base64" }],
+    }).success,
+    false,
+  );
+});
+
+test("il contratto dettaglio tipizza i file ufficiali senza invocare il provider", () => {
+  const detail = {
+    channelGroup: 2,
+    shopName: null,
+    invoices: [
+      {
+        invoiceDate: "2026-08-26T12:00:00.000Z",
+        number: "1",
+        documentType: "TD01",
+        status: "Consegnata",
+        statusDescription: "",
+        totalDocument: 100,
+        totalVat: 0,
+        netPayable: 100,
+      },
+    ],
+    sdiErrors: [],
+    id: "invoice-sintetica",
+    sender: {
+      description: "Cedente sintetico",
+      countryCode: "IT",
+      vatCode: "00000000000",
+      fiscalCode: null,
+    },
+    receiver: {
+      description: "Destinatario sintetico",
+      countryCode: "IT",
+      vatCode: null,
+      fiscalCode: "00000000000",
+    },
+    invoiceType: "FPR12",
+    docType: "out",
+    file: "PHhtbC8+",
+    filename: "IT00000000000_SYNTH.xml.p7m",
+    username: "utente-sintetico",
+    creationDate: "2026-08-26T12:00:00.000+0000",
+    lastUpdate: "2026-08-26T12:01:00.000Z",
+    idSdi: "SDI-SYNTH",
+    pdfFile: "JVBERi0xLjQ=",
+    pddAvailable: true,
+  };
+  assert.equal(arubaApiInvoiceDetailSchema.parse(detail).docType, "out");
+  assert.equal(
+    arubaApiInvoiceDetailSchema.safeParse({ ...detail, file: "non-base64" }).success,
+    false,
+  );
+  assert.equal(arubaApiInvoiceDetailSchema.safeParse({ ...detail, file: "a" }).success, false);
+  assert.equal(arubaApiInvoiceDetailSchema.safeParse({ ...detail, docType: "in" }).success, false);
+  assert.equal(
+    arubaApiInvoiceDetailSchema.safeParse({
+      ...detail,
+      invoices: [{ ...detail.invoices[0], invoiceDate: "26/08/2026" }],
+    }).success,
+    false,
+  );
+});
+
+test("il contratto registra i limiti read-only ufficiali correnti", () => {
+  assert.equal(ARUBA_API_V2_CONTRACT.authenticationRequestsPerMinutePerIp, 1);
+  assert.equal(ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp, 12);
+  assert.equal(ARUBA_API_V2_CONTRACT.sentNotificationSearchRequestsPerMinutePerIp, 12);
+  assert.equal(ARUBA_API_V2_CONTRACT.maximumSearchWindowHours, 48);
+  assert.deepEqual(ARUBA_API_V2_CONTRACT.officialFiles.notifications, ["SDI_NOTIFICATION"]);
 });
 
 test("il probe si arresta prima della lettura se l'identità Aruba non coincide", async () => {

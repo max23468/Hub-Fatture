@@ -1,6 +1,6 @@
 {
   "name": "hub-fatture",
-  "version": "0.3.77",
+  "version": "0.3.78",
   "private": true,
   "type": "module",
   "scripts": {
@@ -32,12 +32,14 @@
     "start": "react-router-serve ./build/server/index.js",
     "start:worker": "node build-server/worker.js",
     "test": "node --test",
-    "test:db": "node --test --test-concurrency=4 src/db/*.test.ts",
+    "test:db": "node scripts/with-test-database.mjs npm run test:db:direct",
+    "test:db:direct": "node --test --test-concurrency=4 src/db/*.test.ts",
     "test:provider": "node --test src/integrations/*.test.ts",
     "test:unit": "node --test app/*.test.ts src/*.test.ts scripts/*.node-test.mjs scripts/*.test.mjs",
     "test:aruba:platform": "node scripts/aruba-helper-platform-check.ts",
-    "test:e2e": "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
-    "test:e2e:release-candidate": "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
+    "test:e2e": "node scripts/with-test-database.mjs npm run test:e2e:direct",
+    "test:e2e:direct": "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
+    "test:e2e:release-candidate": "node scripts/with-test-database.mjs npm run test:e2e:direct",
     "toolchain:check": "node scripts/toolchain-policy.mjs",
     "typecheck": "react-router typegen && tsc --noEmit"
   },

@@ -76,10 +76,14 @@ test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
   const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   assert.equal(
     manifest.scripts["test:e2e"],
-    "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
+    "node scripts/with-test-database.mjs npm run test:e2e:direct",
   );
   assert.equal(
     manifest.scripts["test:e2e:release-candidate"],
+    "node scripts/with-test-database.mjs npm run test:e2e:direct",
+  );
+  assert.equal(
+    manifest.scripts["test:e2e:direct"],
     "playwright test --project=chromium --workers=1 && playwright test --project=webkit --workers=1",
   );
 });
@@ -425,10 +429,9 @@ test("il job PostgreSQL installa il validatore XML usato dalle suite DB", async 
   );
   assert.match(database, /apt-get install --yes libxml2-utils/);
   assert.match(database, /npm run test:db/);
-  assert.equal(
-    JSON.parse(packageJson).scripts["test:db"],
-    "node --test --test-concurrency=4 src/db/*.test.ts",
-  );
+  const scripts = JSON.parse(packageJson).scripts;
+  assert.equal(scripts["test:db"], "node scripts/with-test-database.mjs npm run test:db:direct");
+  assert.equal(scripts["test:db:direct"], "node --test --test-concurrency=4 src/db/*.test.ts");
 });
 
 test("la modifica del classificatore forza i gate senza eseguirlo come autorità", async () => {

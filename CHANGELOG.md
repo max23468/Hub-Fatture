@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.78
+
+- La qualifica read-only Aruba v2 distingue gruppi API e documenti, verifica la paginazione completa della finestra autorizzata e restituisce soltanto conteggi sanitizzati per tipi e stati canonici.
+- Il contratto fail-closed copre stati documentati, forme di dettaglio, file e notifiche, limiti tecnici e risposta `429`; Tier e contatori Premium restano fuori dal prodotto e non vengono letti né mostrati.
+- Un comparatore shadow correla soltanto identificativi remoti nello stesso namespace o identità fiscali complete, senza dedurre serie mancanti né dichiarare parità fra finestre temporali non allineate. Backfill, file reali e autorità inbound restano nella fase successiva.
+- I comandi locali per test database ed E2E avviano e attendono automaticamente PostgreSQL quando `TEST_DATABASE_URL` non è già configurato; gli ambienti CI continuano a usare il database esplicito fornito dal gate.
+
 ## 0.3.77
 
 - Il piano canonico adotta le API Aruba v2 come destinazione primaria per il ciclo attivo, con inbound, outbound, credenziali cifrate, modalità di trasmissione, arresti indipendenti, fallback manuale e gate Production distinti.

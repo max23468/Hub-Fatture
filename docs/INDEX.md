@@ -15,6 +15,7 @@
 | [Audit Aruba e profilo FatturaPA](evidence/aruba-fatturapa-profile.md)                | Profilo fiscale, numerazione e prove anonimizzate         | Corrente    | No             |
 | [Attivazione profilo fiscale](runbooks/fiscal-profile.md)                             | Procedura sicura da XML accettato a profilo versionato    | Corrente    | Sì             |
 | [Contratto helper Aruba](contracts/aruba-helper.md)                                   | Baseline browser per transizione e dossier di parità      | Transitorio | Sì             |
+| [Contratto API Aruba](contracts/aruba-api.md)                                         | Gruppi, documenti, stati, file e limiti read-only v2      | Candidato   | Sì             |
 | [Probe API Aruba](runbooks/aruba-api-read-probe.md)                                   | Procedura read-only senza persistenza di credenziali      | Candidato   | Sì             |
 | [Qualifica API Aruba](evidence/aruba-api-qualification.md)                            | Stato delega, test locali e gate API ancora aperto        | In corso    | No             |
 | [ADR API Aruba primaria](adr/0001-api-aruba-canale-primario.md)                       | Destinazione API e migrazione progressiva                 | Approvato   | Sì             |

@@ -5,7 +5,7 @@ function requireTestDatabase(): string {
   const url = process.env.TEST_DATABASE_URL;
   if (!url) {
     throw new Error(
-      "TEST_DATABASE_URL assente: avvia `docker compose --profile test up -d postgres-test` ed esportala.",
+      "TEST_DATABASE_URL assente: esegui i test tramite `npm run test:db`, che prepara PostgreSQL automaticamente.",
     );
   }
   return url;
