@@ -199,12 +199,28 @@ const invoiceSearchSchema = z.object({
   content: z.array(invoiceGroupSchema).max(PROBE_PAGE_SIZE),
   first: z.boolean(),
   last: z.boolean(),
-  number: z.number().int().positive(),
+  number: z.number().int().nonnegative(),
   numberOfElements: z.number().int().nonnegative(),
   size: z.number().int().positive(),
   totalElements: z.number().int().nonnegative(),
   totalPages: z.number().int().nonnegative(),
 });
+
+function isEmptySearchSentinel(
+  result: z.infer<typeof invoiceSearchSchema>,
+  requestedPage: number,
+): boolean {
+  return (
+    requestedPage === 1 &&
+    result.number === 0 &&
+    !result.first &&
+    result.last &&
+    result.numberOfElements === 0 &&
+    result.content.length === 0 &&
+    result.totalElements === 0 &&
+    result.totalPages === 0
+  );
+}
 
 export type ArubaApiInvoiceGroup = z.infer<typeof invoiceGroupSchema>;
 export type ArubaApiInvoiceDetail = z.infer<typeof arubaApiInvoiceDetailSchema>;
@@ -322,21 +338,23 @@ export async function readArubaApiInvoicePage(input: {
     Math.max(0, result.totalElements - (page.data - 1) * PROBE_PAGE_SIZE),
   );
   const groupIds = result.content.map((group) => group.id);
+  const emptySearchSentinel = isEmptySearchSentinel(result, page.data);
   if (
-    result.number !== page.data ||
     result.size !== PROBE_PAGE_SIZE ||
-    result.first !== (page.data === 1) ||
-    result.last !== (result.totalPages === 0 || page.data === result.totalPages) ||
-    result.numberOfElements !== result.content.length ||
-    result.numberOfElements !== expectedElements ||
-    result.totalPages !== Math.ceil(result.totalElements / PROBE_PAGE_SIZE) ||
-    new Set(groupIds).size !== groupIds.length
+    (!emptySearchSentinel &&
+      (result.number !== page.data ||
+        result.first !== (page.data === 1) ||
+        result.last !== (result.totalPages === 0 || page.data === result.totalPages) ||
+        result.numberOfElements !== result.content.length ||
+        result.numberOfElements !== expectedElements ||
+        result.totalPages !== Math.ceil(result.totalElements / PROBE_PAGE_SIZE) ||
+        new Set(groupIds).size !== groupIds.length))
   ) {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
   return {
     groups: result.content,
-    page: result.number,
+    page: emptySearchSentinel ? page.data : result.number,
     size: result.size,
     totalGroups: result.totalElements,
     totalPages: result.totalPages,
@@ -552,15 +570,17 @@ export async function runArubaApiReadProbe(
   );
   const firstPageIds = firstPage.content.map((group) => group.id);
   const expectedFirstPageElements = Math.min(PROBE_PAGE_SIZE, firstPage.totalElements);
+  const emptySearchSentinel = isEmptySearchSentinel(firstPage, 1);
   if (
-    firstPage.number !== 1 ||
     firstPage.size !== PROBE_PAGE_SIZE ||
-    !firstPage.first ||
-    firstPage.last !== firstPage.totalPages <= 1 ||
-    firstPage.numberOfElements !== firstPage.content.length ||
-    firstPage.numberOfElements !== expectedFirstPageElements ||
-    firstPage.totalPages !== Math.ceil(firstPage.totalElements / PROBE_PAGE_SIZE) ||
-    new Set(firstPageIds).size !== firstPageIds.length
+    (!emptySearchSentinel &&
+      (firstPage.number !== 1 ||
+        !firstPage.first ||
+        firstPage.last !== firstPage.totalPages <= 1 ||
+        firstPage.numberOfElements !== firstPage.content.length ||
+        firstPage.numberOfElements !== expectedFirstPageElements ||
+        firstPage.totalPages !== Math.ceil(firstPage.totalElements / PROBE_PAGE_SIZE) ||
+        new Set(firstPageIds).size !== firstPageIds.length))
   ) {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }

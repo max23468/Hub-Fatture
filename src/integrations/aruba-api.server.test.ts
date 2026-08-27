@@ -66,6 +66,14 @@ function invoicePage(input: {
   };
 }
 
+function emptyProductionInvoicePage(): Record<string, unknown> {
+  return {
+    ...invoicePage({ page: 1, totalElements: 0 }),
+    first: false,
+    number: 0,
+  };
+}
+
 test("il probe Production autentica l'utenza Base e usa soltanto letture API", async () => {
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -95,7 +103,7 @@ test("il probe Production autentica l'utenza Base e usa soltanto letture API", a
       assert.equal(new URL(url).searchParams.get("page"), "1");
       assert.equal(new URL(url).searchParams.get("size"), "10");
       assert.equal(init.method, undefined);
-      return response(invoicePage({ page: 1, totalElements: 0 }));
+      return response(emptyProductionInvoicePage());
     };
 
     assert.deepEqual(
@@ -716,6 +724,60 @@ test("l’adapter inbound usa gli endpoint ufficiali per pagina, dettaglio e not
     assert.match(paths[1]!, /includePdf=true/);
     assert.match(paths[1]!, /includeFile=true/);
     assert.match(paths[2]!, /^\/api\/v2\/invoices-out\/notifications\?/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("l’adapter normalizza soltanto la sentinella Production di una finestra vuota", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => response(emptyProductionInvoicePage());
+    const page = await readArubaApiInvoicePage({
+      session: {
+        environment: "PRODUCTION",
+        accessToken: "token-sintetico",
+        expiresAt: Date.now() + 1_800_000,
+      },
+      page: 1,
+      windowStart: new Date("2019-01-01T00:00:00.000Z"),
+      windowEnd: new Date("2019-01-03T00:00:00.000Z"),
+    });
+    assert.deepEqual(page, {
+      groups: [],
+      page: 1,
+      size: 10,
+      totalGroups: 0,
+      totalPages: 0,
+      terminal: true,
+    });
+
+    globalThis.fetch = async () =>
+      response({
+        ...emptyProductionInvoicePage(),
+        content: [
+          (
+            invoicePage({ page: 1, totalElements: 1, ids: ["gruppo-sintetico"] })
+              .content as unknown[]
+          )[0],
+        ],
+        numberOfElements: 1,
+        totalElements: 1,
+        totalPages: 1,
+      });
+    await assert.rejects(
+      readArubaApiInvoicePage({
+        session: {
+          environment: "PRODUCTION",
+          accessToken: "token-sintetico",
+          expiresAt: Date.now() + 1_800_000,
+        },
+        page: 1,
+        windowStart: new Date("2019-01-01T00:00:00.000Z"),
+        windowEnd: new Date("2019-01-03T00:00:00.000Z"),
+      }),
+      (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
