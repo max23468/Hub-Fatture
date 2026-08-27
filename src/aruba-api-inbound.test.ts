@@ -106,6 +106,11 @@ test("il mapper API separa i documenti del gruppo senza attribuire file condivis
   const hashes = new Map(mapped[0]!.files.map((file) => [file.kind, file.sha256]));
   assert.equal(hashes.has("ARUBA_XML"), false);
   assert.equal(hashes.has("ARUBA_PDF"), false);
+  const groupHashes = new Map(mapped[0]!.groupFiles.map((file) => [file.kind, file.sha256]));
+  assert.equal(groupHashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
+  assert.equal(groupHashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
+  assert.equal(hasRequiredArubaApiFiles(mapped[0]!), true);
+  assert.deepEqual(mapped[1]!.groupFiles, mapped[0]!.groupFiles);
   assert.equal(
     hashes.get("SDI_NOTIFICATION"),
     createHash("sha256").update(notification).digest("hex"),
@@ -124,6 +129,7 @@ test("il mapper attribuisce i file ufficiali soltanto a un gruppo con una fattur
   const hashes = new Map(mapped[0]!.files.map((file) => [file.kind, file.sha256]));
   assert.equal(hashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
   assert.equal(hashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
+  assert.deepEqual(mapped[0]!.groupFiles, []);
 });
 
 test("il PDF opzionale non blocca un documento con il payload fiscale ufficiale", () => {

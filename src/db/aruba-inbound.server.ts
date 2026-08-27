@@ -125,7 +125,7 @@ async function requiredInventoryCoverage(client: pg.Pool | pg.PoolClient) {
        FROM orders
        WHERE trigger_status NOT IN ('INVOICED', 'CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')`,
   );
-  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- Le query usano lo stesso client PostgreSQL e devono restare ordinate anche dentro una transazione chiamante.
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- Ordinato.
   const nonTerminalYears = await client.query<{ fiscal_year: number }>(
     `SELECT DISTINCT fiscal_year FROM aruba_remote_documents
        WHERE environment = $1 AND account_reference = $2
@@ -1016,16 +1016,17 @@ async function reconcileCachedPreflightDocuments(
      FROM aruba_remote_documents remote
      JOIN aruba_document_matches matches ON matches.remote_document_id = remote.id
      LEFT JOIN LATERAL (
-       SELECT document.value AS payload
+       SELECT coalesce(observations.payload_json, document.value) AS payload
        FROM aruba_remote_observations observations
-       JOIN aruba_sync_pages pages
+       LEFT JOIN aruba_sync_pages pages
          ON pages.sync_session_id = observations.sync_session_id
         AND pages.stream = observations.stream
         AND pages.scan_ordinal = observations.scan_ordinal
         AND pages.page_ordinal = observations.page_ordinal
-       CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) document(value)
+       LEFT JOIN LATERAL jsonb_array_elements(pages.documents_json) document(value) ON
+         document.value ->> 'remoteId' = remote.remote_id
        WHERE observations.remote_document_id = remote.id
-         AND document.value ->> 'remoteId' = remote.remote_id
+         AND coalesce(observations.payload_json, document.value) IS NOT NULL
        ORDER BY observations.observed_at DESC, observations.id DESC
        LIMIT 1
      ) latest ON true
@@ -1066,16 +1067,17 @@ async function reconcileCachedPreflightDocuments(
 
 async function latestObservedRemote(client: pg.PoolClient, remoteDocumentId: string) {
   const latest = await client.query<{ payload: unknown }>(
-    `SELECT document.value AS payload
+    `SELECT coalesce(observations.payload_json, document.value) AS payload
      FROM aruba_remote_documents remote
      JOIN aruba_remote_observations observations ON observations.remote_document_id = remote.id
-     JOIN aruba_sync_pages pages
+     LEFT JOIN aruba_sync_pages pages
        ON pages.sync_session_id = observations.sync_session_id
       AND pages.stream = observations.stream
       AND pages.scan_ordinal = observations.scan_ordinal
       AND pages.page_ordinal = observations.page_ordinal
-     CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) document(value)
-     WHERE remote.id = $1 AND document.value ->> 'remoteId' = remote.remote_id
+     LEFT JOIN LATERAL jsonb_array_elements(pages.documents_json) document(value) ON
+       document.value ->> 'remoteId' = remote.remote_id
+     WHERE remote.id = $1 AND coalesce(observations.payload_json, document.value) IS NOT NULL
      ORDER BY observations.observed_at DESC, observations.id DESC LIMIT 1`,
     [remoteDocumentId],
   );
@@ -2527,13 +2529,13 @@ export async function ingestParsedArubaPage(
       apiSource
         ? `INSERT INTO aruba_remote_observations
             (remote_document_id, sync_run_id, remote_status, provider_observed_at,
-             stream, scan_ordinal, page_ordinal, cursor, payload_digest)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             stream, scan_ordinal, page_ordinal, cursor, payload_digest, payload_json)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            ON CONFLICT DO NOTHING`
         : `INSERT INTO aruba_remote_observations
             (remote_document_id, sync_session_id, remote_status, provider_observed_at,
-             stream, scan_ordinal, page_ordinal, cursor, payload_digest)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             stream, scan_ordinal, page_ordinal, cursor, payload_digest, payload_json)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            ON CONFLICT DO NOTHING`,
       [
         storedId,
@@ -2545,6 +2547,7 @@ export async function ingestParsedArubaPage(
         page.pageOrdinal,
         page.cursor,
         remoteMetadataDigest(remote),
+        JSON.stringify(remote),
       ],
     );
     if (!conflicted) {

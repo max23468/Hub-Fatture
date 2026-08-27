@@ -36,6 +36,7 @@ import {
   waitForArubaApiReadSlot,
 } from "./aruba-api-traffic.server.ts";
 import { commitArubaApiInventoryPage } from "./aruba-api-canonical-page.server.ts";
+import { importArubaApiGroupFile } from "./aruba-api-group-file.server.ts";
 import { importArubaRemoteOfficialFileFromApi } from "./aruba-inbound.server.ts";
 import { stageApiPage } from "./aruba-api-stage.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
@@ -1267,6 +1268,23 @@ async function persistCanonicalPage(
   if (remoteDocumentIds.size !== documents.length) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
+  const groupFiles = new Map(
+    documents.flatMap((document) =>
+      document.groupFiles.map(
+        (file) => [`${document.providerGroupId}:${file.kind}:${file.sha256}`, file] as const,
+      ),
+    ),
+  );
+  for (const file of groupFiles.values()) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Ogni artefatto condiviso deve essere durabile prima del commit atomico della pagina.
+    await importArubaApiGroupFile({
+      runId: run.id,
+      providerGroupId: file.providerGroupId,
+      kind: file.kind,
+      filename: file.filename,
+      bytes: file.bytes,
+    });
+  }
   for (const document of documents) {
     const remoteDocumentId = remoteDocumentIds.get(document.remote.remoteId);
     if (!remoteDocumentId) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
@@ -1283,13 +1301,12 @@ async function persistCanonicalPage(
   }
   await getPool().query(
     `UPDATE aruba_sync_runs SET
-       file_count = (
-         SELECT count(DISTINCT files.id)::integer
-         FROM aruba_files files
-         JOIN aruba_remote_observations observations
+       file_count = (SELECT count(DISTINCT files.id)::integer
+         FROM aruba_files files JOIN aruba_remote_observations observations
            ON observations.remote_document_id = files.remote_document_id
-          AND observations.sync_run_id = aruba_sync_runs.id
-       ),
+          AND observations.sync_run_id = aruba_sync_runs.id)
+         + (SELECT count(*)::integer FROM aruba_api_group_files group_files
+           WHERE group_files.sync_run_id = aruba_sync_runs.id),
        notification_count = (
          SELECT count(DISTINCT files.id)::integer
          FROM aruba_files files

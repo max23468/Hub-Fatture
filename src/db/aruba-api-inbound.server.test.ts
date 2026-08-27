@@ -562,9 +562,9 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0],
       { automatic_authority: "API" },
     );
-    const inbound = await import("./aruba-inbound.server.ts");
     const apiStage = await import("./aruba-api-stage.server.ts");
     const canonicalPage = await import("./aruba-api-canonical-page.server.ts");
+    const groupFile = await import("./aruba-api-group-file.server.ts");
     const stagedRunId = "30000000-0000-4000-8000-000000000099";
     await getPool().query(
       `INSERT INTO aruba_sync_runs
@@ -628,6 +628,16 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         remoteDocumentId: stagedBrowserDocument.rows[0]!.id,
       },
     ]);
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::integer AS count FROM aruba_remote_observations
+           WHERE sync_run_id = $1 AND payload_json ->> 'remoteId' = 'atomic-stage-synthetic'`,
+          [stagedRunId],
+        )
+      ).rows[0].count,
+      1,
+    );
     await assert.rejects(
       canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1, [
         stagedBrowserDocument.rows[0]!.id,
@@ -643,20 +653,16 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0],
       { page_count: 0, checkpoint_page: 1 },
     );
-    await inbound.importArubaRemoteOfficialFileFromApi(
-      stagedBrowserDocument.rows[0]!.id,
-      "ARUBA_P7M",
-      Buffer.from(
+    await groupFile.importArubaApiGroupFile({
+      runId: stagedRunId,
+      providerGroupId: "atomic-stage-group",
+      kind: "ARUBA_P7M",
+      filename: "atomic-stage.xml.p7m",
+      bytes: Buffer.from(
         await readFile("tests/fixtures/aruba/official-p7m.synthetic.der.base64", "utf8"),
         "base64",
       ),
-      {
-        type: "API",
-        runId: stagedRunId,
-        providerGroupId: "atomic-stage-group",
-        providerFilename: "atomic-stage.xml.p7m",
-      },
-    );
+    });
     assert.deepEqual(
       await canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1, [
         stagedBrowserDocument.rows[0]!.id,
@@ -666,6 +672,12 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     await getPool().query("DELETE FROM aruba_remote_observations WHERE sync_run_id = $1", [
       stagedRunId,
     ]);
+    await getPool().query(
+      `WITH removed AS (DELETE FROM aruba_api_group_files WHERE sync_run_id = $1
+         RETURNING storage_object_id)
+       DELETE FROM storage_objects WHERE id IN (SELECT storage_object_id FROM removed)`,
+      [stagedRunId],
+    );
     await getPool().query("DELETE FROM aruba_sync_run_pages WHERE sync_run_id = $1", [stagedRunId]);
     await getPool().query("DELETE FROM aruba_deduplication_conflicts WHERE sync_run_id = $1", [
       stagedRunId,
@@ -690,6 +702,16 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0].authority_mode,
       "CANONICAL",
     );
+    await getPool().query(
+      `UPDATE jobs SET completed_at = now() - interval '16 minutes'
+       WHERE status = 'COMPLETED'`,
+    );
+    await jobs.scheduleDueSyncs();
+    assert.deepEqual(
+      (await getPool().query(`SELECT type FROM jobs WHERE status = 'PENDING' ORDER BY id`)).rows,
+      [{ type: "aruba_refresh_nonterminal" }],
+    );
+    await getPool().query(`DELETE FROM jobs WHERE status = 'PENDING'`);
     await getPool().query(
       `INSERT INTO jobs (type, status, run_at, last_error_code)
        VALUES

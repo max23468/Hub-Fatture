@@ -67,10 +67,11 @@ export interface ArubaApiInboundDocument {
   remoteKey: string;
   remote: RemoteInventoryDocument;
   files: ArubaApiInboundFile[];
+  groupFiles: ArubaApiInboundFile[];
 }
 
 export function hasRequiredArubaApiFiles(document: ArubaApiInboundDocument): boolean {
-  return document.files.some(
+  return [...document.files, ...document.groupFiles].some(
     (candidate) => candidate.kind === "ARUBA_XML" || candidate.kind === "ARUBA_P7M",
   );
 }
@@ -217,10 +218,10 @@ export function mapArubaApiInboundGroup(input: {
           ]
         : []),
     ];
-    // Aruba restituisce i file principali a livello di gruppo. Finché un gruppo contiene più
-    // documenti non esiste una prova sufficiente per attribuire lo stesso artefatto a una singola
-    // fattura: lo conserviamo fuori dal percorso canonico e lasciamo il gate fail-closed.
-    const attributableSharedFiles = input.detail.invoices.length === 1 ? sharedFiles : [];
+    // Aruba restituisce i file principali a livello di gruppo. Nei gruppi multipli li conserviamo
+    // come evidenza condivisa senza attribuirli arbitrariamente a una singola fattura.
+    const singleDocumentGroup = input.detail.invoices.length === 1;
+    const attributableSharedFiles = singleDocumentGroup ? sharedFiles : [];
     const officialXml = attributableSharedFiles.find((candidate) => candidate.kind === "ARUBA_XML");
     return [
       {
@@ -253,6 +254,7 @@ export function mapArubaApiInboundGroup(input: {
             return files;
           }, []),
         ],
+        groupFiles: singleDocumentGroup ? [] : sharedFiles,
       },
     ];
   });

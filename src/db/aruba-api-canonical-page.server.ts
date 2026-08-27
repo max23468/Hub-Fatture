@@ -65,8 +65,13 @@ export async function commitArubaApiInventoryPage(
            NOT EXISTS (SELECT 1 FROM aruba_files files
              WHERE files.remote_document_id = observations.remote_document_id
                AND files.kind IN ('ARUBA_XML', 'ARUBA_P7M'))
+           AND NOT EXISTS (SELECT 1 FROM aruba_api_group_files group_files
+             WHERE group_files.sync_run_id = observations.sync_run_id
+               AND group_files.provider_group_id = remote.provider_group_id
+               AND group_files.kind IN ('ARUBA_XML', 'ARUBA_P7M'))
          )::integer AS incomplete_files
        FROM aruba_remote_observations observations
+       JOIN aruba_remote_documents remote ON remote.id = observations.remote_document_id
        WHERE observations.sync_run_id = $1 AND observations.page_ordinal = $2
          AND observations.remote_document_id = ANY($3::bigint[])`,
       [id.data, parsed.data.pageOrdinal, parsedRemoteDocumentIds.data],
