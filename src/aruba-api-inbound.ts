@@ -238,9 +238,10 @@ export function mapArubaApiInboundGroup(input: {
         },
         files: [
           ...sharedFiles,
-          ...notificationFiles
-            .filter((notification) => notification.invoiceIndex === index)
-            .map((notification) => notification.file),
+          ...notificationFiles.reduce<ArubaApiInboundFile[]>((files, notification) => {
+            if (notification.invoiceIndex === index) files.push(notification.file);
+            return files;
+          }, []),
         ],
       },
     ];
