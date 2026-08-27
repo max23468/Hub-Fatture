@@ -126,7 +126,7 @@ const companySchema = z.object({
 });
 
 export const arubaApiInvoiceDetailSchema = z.object({
-  channelGroup: z.number().int().nonnegative(),
+  channelGroup: z.number().int().nonnegative().nullable(),
   shopName: z.string().trim().max(300).nullish(),
   invoices: z.array(detailedInvoiceSummarySchema).min(1).max(100),
   sdiErrors: z.array(z.unknown()).max(100),

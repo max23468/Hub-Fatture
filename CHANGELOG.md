@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.85
+
+- Il backfill API Aruba accetta il `channelGroup` nullo restituito dai dettagli storici Production, mantenendo il rifiuto di tipi diversi e proseguendo l’acquisizione read-only di XML, PDF e notifiche.
+
 ## 0.3.84
 
 - Il backfill API Aruba riconosce la sentinella documentata dal comportamento Production per una finestra storica vuota, normalizzandola come pagina 1 terminale senza allentare i controlli su pagine non vuote o metadati incoerenti.
