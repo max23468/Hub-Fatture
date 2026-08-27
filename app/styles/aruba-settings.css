@@ -2,6 +2,80 @@
   margin-top: var(--space-4);
 }
 
+.aruba-api-card {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.aruba-api-card + .aruba-sync-card {
+  margin-top: var(--space-6);
+}
+
+.aruba-api-card > header,
+.aruba-api-card > header h3,
+.aruba-api-card > header p,
+.aruba-api-credentials-form__header h4,
+.aruba-api-credentials-form__header p,
+.aruba-api-credentials-form__actions p {
+  margin: 0;
+}
+
+.aruba-api-card > header,
+.aruba-api-credentials-form__header,
+.aruba-api-fact {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.aruba-api-card > header p,
+.aruba-api-credentials-form__header p,
+.aruba-api-fact small {
+  color: var(--color-text-muted);
+}
+
+.aruba-api-facts {
+  grid-auto-rows: 1fr;
+}
+
+.aruba-api-fact small {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.aruba-api-credentials-form {
+  gap: var(--space-6);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-6);
+}
+
+.aruba-api-credentials-form .field-with-help {
+  min-width: 0;
+}
+
+.aruba-api-credentials-form label {
+  overflow-wrap: anywhere;
+}
+
+.aruba-api-credentials-form__header,
+.aruba-api-credentials-form__actions {
+  grid-column: 1 / -1;
+}
+
+.aruba-api-credentials-form__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-6);
+}
+
+.aruba-api-credentials-form__actions .button {
+  flex: 0 0 auto;
+  grid-column: auto;
+}
+
 .aruba-bookmarklet {
   display: grid;
   gap: var(--space-4);
@@ -236,6 +310,19 @@
 }
 
 @media (max-width: 48rem) {
+  .aruba-api-credentials-form {
+    grid-template-columns: 1fr;
+  }
+
+  .aruba-api-credentials-form__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aruba-api-credentials-form__actions .button {
+    width: 100%;
+  }
+
   .aruba-bookmarklet {
     padding: var(--space-4);
   }

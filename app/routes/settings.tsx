@@ -585,7 +585,11 @@ function ArubaApiSettingsCard({
     "sync-aruba-api",
   );
   return (
-    <section className="settings-inset-card" id="aruba-api" aria-labelledby="aruba-api-title">
+    <section
+      className="settings-inset-card aruba-api-card"
+      id="aruba-api"
+      aria-labelledby="aruba-api-title"
+    >
       <header>
         <h3 id="aruba-api-title">{copy.settings.arubaApiTitle}</h3>
         <p>{copy.settings.arubaApiHelp}</p>
@@ -595,25 +599,26 @@ function ArubaApiSettingsCard({
           {copy.settings.arubaApiSavedNotice}
         </p>
       ) : null}
-      <dl className="settings-facts-grid settings-facts-grid--three">
+      <dl className="settings-facts-grid settings-facts-grid--three aruba-api-facts">
         <div>
           <dt>{copy.settings.arubaApiStatus}</dt>
-          <dd>
-            {api.configured
-              ? api.apiPaused
-                ? copy.settings.arubaApiPaused
-                : api.status === "CONNECTED"
-                  ? copy.settings.arubaApiRunning
-                  : api.status === "REAUTH_REQUIRED"
-                    ? copy.settings.arubaApiAttention
-                    : copy.settings.arubaApiBlocked
-              : copy.settings.arubaApiNotConfigured}
-          </dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaApiIdentityVerified}</dt>
-          <dd>
-            {api.credentialsVerifiedAt ? dateTime(api.credentialsVerifiedAt) : copy.settings.never}
+          <dd className="aruba-api-fact">
+            <span>
+              {api.configured
+                ? api.apiPaused
+                  ? copy.settings.arubaApiPaused
+                  : api.status === "CONNECTED"
+                    ? copy.settings.arubaApiRunning
+                    : api.status === "REAUTH_REQUIRED"
+                      ? copy.settings.arubaApiAttention
+                      : copy.settings.arubaApiBlocked
+                : copy.settings.arubaApiNotConfigured}
+            </span>
+            <small>
+              {api.credentialsVerifiedAt
+                ? `${copy.settings.arubaApiIdentityVerified}: ${dateTime(api.credentialsVerifiedAt)}`
+                : copy.settings.arubaApiIdentityNotVerified}
+            </small>
           </dd>
         </div>
         <div>
@@ -633,14 +638,6 @@ function ArubaApiSettingsCard({
           </dd>
         </div>
         <div>
-          <dt>{copy.settings.arubaApiLatestRun}</dt>
-          <dd>
-            {api.latestRun
-              ? `${copy.settings.arubaApiRunKinds[api.latestRun.kind]} · ${copy.settings.arubaApiRunStatuses[api.latestRun.status]} · ${copy.settings.arubaApiRunCounts(api.latestRun.documents, api.latestRun.files, api.latestRun.notifications)} · ${copy.settings.arubaApiRunRequests(api.latestRun.requests, api.latestRun.requestLimit)}`
-              : copy.settings.never}
-          </dd>
-        </div>
-        <div>
           <dt>{copy.settings.arubaApiBackfill}</dt>
           <dd>
             {api.lastFullSyncAt
@@ -649,14 +646,43 @@ function ArubaApiSettingsCard({
           </dd>
         </div>
         <div>
-          <dt>{copy.settings.arubaApiCheckpoint}</dt>
-          <dd>
-            {api.latestRun
-              ? copy.settings.arubaApiCheckpointValue(
-                  dateTime(api.latestRun.checkpointEnd),
-                  api.latestRun.checkpointPage,
-                )
-              : copy.settings.never}
+          <dt>{copy.settings.arubaApiLatestRun}</dt>
+          <dd className="aruba-api-fact">
+            {api.latestRun ? (
+              <>
+                <span>
+                  {copy.settings.arubaApiRunKinds[api.latestRun.kind]} ·{" "}
+                  {copy.settings.arubaApiRunStatuses[api.latestRun.status]}
+                </span>
+                <small>
+                  {copy.settings.arubaApiRunCounts(
+                    api.latestRun.documents,
+                    api.latestRun.files,
+                    api.latestRun.notifications,
+                  )}
+                </small>
+                <small>
+                  {copy.settings.arubaApiRunRequests(
+                    api.latestRun.requests,
+                    api.latestRun.requestLimit,
+                  )}
+                </small>
+                <small>
+                  {copy.settings.arubaApiCheckpoint}:{" "}
+                  {copy.settings.arubaApiCheckpointValue(
+                    dateTime(api.latestRun.checkpointEnd),
+                    api.latestRun.checkpointPage,
+                  )}
+                </small>
+              </>
+            ) : (
+              <>
+                <span>{copy.settings.never}</span>
+                <small>
+                  {copy.settings.arubaApiCheckpoint}: {copy.settings.never}
+                </small>
+              </>
+            )}
           </dd>
         </div>
         <div>
@@ -670,31 +696,73 @@ function ArubaApiSettingsCard({
         </div>
       </dl>
       {canApprove ? (
-        <Form method="post" className="security-form">
+        <Form method="post" className="security-form aruba-api-credentials-form">
           <input type="hidden" name="csrf" value={csrfToken} />
           <input
             type="hidden"
             name="intent"
             value={api.configured ? "rotate-aruba-api" : "save-aruba-api"}
           />
-          <label>
-            {copy.settings.arubaApiUsername}
-            <input autoComplete="username" name="arubaApiUsername" required type="text" />
-          </label>
-          <label>
-            {copy.settings.arubaApiPassword}
-            <input autoComplete="new-password" name="arubaApiPassword" required type="password" />
-          </label>
-          <label>
-            {copy.settings.arubaApiExpectedTaxId}
-            <input autoComplete="off" name="arubaApiExpectedTaxId" required type="text" />
-          </label>
-          <p className="field-help">{copy.settings.arubaApiSecretHelp}</p>
-          <button className="button button--secondary" type="submit">
-            {api.configured
-              ? copy.settings.arubaApiRotateCredentials
-              : copy.settings.arubaApiSaveCredentials}
-          </button>
+          <header className="aruba-api-credentials-form__header">
+            <h4>{copy.settings.arubaApiCredentialsTitle}</h4>
+            <p>{copy.settings.arubaApiCredentialsHelp}</p>
+          </header>
+          <div className="field-with-help">
+            <label htmlFor="aruba-api-username">{copy.settings.arubaApiUsername}</label>
+            <input
+              aria-describedby="aruba-api-username-help"
+              autoCapitalize="none"
+              autoComplete="off"
+              id="aruba-api-username"
+              name="arubaApiUsername"
+              required
+              spellCheck={false}
+              type="text"
+            />
+            <p className="field-help" id="aruba-api-username-help">
+              {copy.settings.arubaApiUsernameHelp}
+            </p>
+          </div>
+          <div className="field-with-help">
+            <label htmlFor="aruba-api-password">{copy.settings.arubaApiPassword}</label>
+            <input
+              aria-describedby="aruba-api-password-help aruba-api-secret-help"
+              autoComplete="new-password"
+              id="aruba-api-password"
+              name="arubaApiPassword"
+              required
+              type="password"
+            />
+            <p className="field-help" id="aruba-api-password-help">
+              {copy.settings.arubaApiPasswordHelp}
+            </p>
+          </div>
+          <div className="field-with-help">
+            <label htmlFor="aruba-api-tax-id">{copy.settings.arubaApiExpectedTaxId}</label>
+            <input
+              aria-describedby="aruba-api-tax-id-help"
+              autoCapitalize="characters"
+              autoComplete="off"
+              id="aruba-api-tax-id"
+              name="arubaApiExpectedTaxId"
+              required
+              spellCheck={false}
+              type="text"
+            />
+            <p className="field-help" id="aruba-api-tax-id-help">
+              {copy.settings.arubaApiExpectedTaxIdHelp}
+            </p>
+          </div>
+          <div className="aruba-api-credentials-form__actions">
+            <p className="field-help" id="aruba-api-secret-help">
+              {copy.settings.arubaApiSecretHelp}
+            </p>
+            <button className="button button--secondary" type="submit">
+              {api.configured
+                ? copy.settings.arubaApiRotateCredentials
+                : copy.settings.arubaApiSaveCredentials}
+            </button>
+          </div>
         </Form>
       ) : (
         <p className="field-help">{copy.settings.arubaApiCodexHelp}</p>

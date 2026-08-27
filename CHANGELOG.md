@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.82
+
+- Le Impostazioni Aruba identificano esplicitamente le credenziali del pannello di Fatturazione Elettronica, distinguendole dall’account e-mail Aruba e chiarendo verifica, cifratura e identità fiscale attesa.
+- Il riepilogo della lettura automatica accorpa le otto tessere in sei senza perdere stato, parità, storico, checkpoint o limiti; campi, azioni e sincronizzazione recuperano una spaziatura coerente anche su schermi stretti grazie al token di layout valido condiviso.
+
 ## 0.3.81
 
 - Dopo ogni deploy riuscito, la VPS conserva soltanto le immagini Hub Fatture live e di rollback e quelle ancora referenziate da container; la selezione usa il label OCI del repository e fallisce se un’identità protetta non è disponibile.
