@@ -1,6 +1,6 @@
 # Piano esecutivo — integrazione API Aruba
 
-**Stato:** qualifica read-only completata; sincronizzazione inbound non iniziata
+**Stato:** qualifica read-only completata; candidato inbound implementato, prove Production e dossier di parità aperti
 **Ambito:** API Aruba v2, solo ciclo attivo dell’utenza Base delegata
 **Fonte canonica:** Master Plan, ADR Aruba e glossario
 **Documentazione provider:** [API Aruba v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html) e [manuale account Premium](https://guide.pec.it/fatturazione-elettronica/manuale-account-premium.pdf)
@@ -25,9 +25,10 @@ Production, invii fiscali reali o rimozione degli helper.
 - nessun dry-run, upload, invio o modifica del pannello eseguito.
 
 Questa baseline chiude la qualifica read-only: prova autenticazione, paginazione della finestra
-osservata, distinzione dei conteggi gruppo/documento e confronto iniziale con il fallback. Non prova
-backfill, parità su snapshot allineati, file reali, persistenza, idempotenza o capacità mutative, che
-appartengono alle milestone successive.
+osservata, distinzione dei conteggi gruppo/documento e confronto iniziale con il fallback. Il codice
+inbound aggiunge credenziale cifrata, backfill, checkpoint, file, notifiche e confronto shadow; le
+prove Production su storico completo, file reali, restore e parità restano aperte finché non esiste
+il relativo dossier osservato. Le capacità mutative appartengono alle milestone successive.
 
 ## 1. Esito atteso
 
@@ -495,6 +496,10 @@ economico confermato; manifesto e prova read-only chiusi. **Completato nella qua
 
 **Gate:** storico completo; zero divergenze inspiegate; recovery e restore provati; decisione di
 Massimo sul preferito/bridge registrata.
+
+**Stato corrente:** implementazione e regressioni locali disponibili; backfill Production, restore
+della credenziale e dossier reale restano gate operativi. L’autorità browser resta invariata finché
+il titolare non approva separatamente un dossier `MATCHED`.
 
 ### Outbound API senza invio reale
 

@@ -47,7 +47,14 @@ import { AppError } from "../errors.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { localOrderDate } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
-import { arubaUnresolvedCandidateSql } from "./billing-case-sql.server.ts";
+import {
+  loadArubaApiFileSession,
+  type ArubaApiFileAuthorization,
+} from "./aruba-api-run-session.server.ts";
+import {
+  arubaBlockingMatchPredicate,
+  getArubaInventoryHealth,
+} from "./aruba-inventory-health.server.ts";
 import { reconcileCachedArubaMatcherUpgrade } from "./aruba-matcher-upgrade.server.ts";
 import {
   freezeArubaInventorySnapshot,
@@ -64,6 +71,14 @@ import {
 import { isDatabaseId } from "./database-id.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
+
+export {
+  getArubaInventoryHealth,
+  getLockedArubaInventoryHealth,
+  type ArubaInventoryHealth,
+} from "./aruba-inventory-health.server.ts";
+export type { ArubaApiFileAuthorization } from "./aruba-api-run-session.server.ts";
+export { failArubaInventory } from "./aruba-read-failure.server.ts";
 
 const READ_SESSION_TTL_MS = 8 * 60 * 60_000;
 const READ_LEASE_MS = 2 * 60_000;
@@ -250,6 +265,16 @@ export async function issueArubaReadSession(deviceId: unknown, actor: ArubaReadA
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `aruba-read:${sessionEnvironment}:${sessionAccountReference}`,
     ]);
+    const authority = await client.query<{ automatic_authority: "BROWSER" | "API" }>(
+      `SELECT automatic_authority FROM connections
+       WHERE provider = 'ARUBA'
+         AND environment = CASE WHEN $1 = 'PRODUCTION' THEN 'PRODUCTION' ELSE 'DEVELOPMENT' END
+         AND account_reference = $2`,
+      [sessionEnvironment, sessionAccountReference],
+    );
+    if (authority.rows[0]?.automatic_authority === "API") {
+      throw new AppError("ARUBA_READ_SESSION_FORBIDDEN", 403);
+    }
     await backfillHistoricalArubaDocuments(client);
     await client.query(
       `UPDATE aruba_sync_sessions
@@ -1781,7 +1806,7 @@ async function materializeLatestOfficialXml(
 }
 
 async function importArubaRemoteOfficialFileAuthorized(
-  authorization: string | ArubaReadActor,
+  authorization: string | ArubaReadActor | ArubaApiFileAuthorization,
   remoteReference: string,
   rawKind: unknown,
   bytes: Buffer,
@@ -1796,16 +1821,26 @@ async function importArubaRemoteOfficialFileAuthorized(
   } catch {
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
   }
+  const apiAuthorization =
+    typeof authorization !== "string" && "type" in authorization && authorization.type === "API"
+      ? authorization
+      : null;
+  const actorAuthorization =
+    typeof authorization !== "string" && !apiAuthorization
+      ? (authorization as ArubaReadActor)
+      : null;
   const session =
     typeof authorization === "string"
       ? await loadArubaReadSession(getPool(), authorization)
-      : {
-          id: `manual:${authorization.id}`,
-          environment: environment(),
-          account_reference: accountReference(),
-        };
+      : apiAuthorization
+        ? await loadArubaApiFileSession(getPool(), apiAuthorization)
+        : {
+            id: `manual:${actorAuthorization!.id}`,
+            environment: environment(),
+            account_reference: accountReference(),
+          };
   if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
-  if (typeof authorization !== "string" && !authorization.canApprove) {
+  if (actorAuthorization && !actorAuthorization.canApprove) {
     throw new AppError("ARUBA_READ_SESSION_FORBIDDEN", 403);
   }
   const digest = createHash("sha256").update(bytes).digest("hex");
@@ -1817,7 +1852,16 @@ async function importArubaRemoteOfficialFileAuthorized(
   );
   const remoteDocumentId = resolved.rows[0]?.id;
   if (!remoteDocumentId) throw new AppError("ARUBA_INVENTORY_INVALID", 404);
-  if (kind.data === "SDI_NOTIFICATION") {
+  if (apiAuthorization) {
+    const owned = await getPool().query<{ provider_group_id: string | null }>(
+      `SELECT provider_group_id FROM aruba_remote_documents
+       WHERE id = $1 AND environment = $2 AND account_reference = $3`,
+      [remoteDocumentId, session.environment, session.account_reference],
+    );
+    if (owned.rows[0]?.provider_group_id !== apiAuthorization.providerGroupId) {
+      throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    }
+  } else if (kind.data === "SDI_NOTIFICATION") {
     const expected = await getPool().query<{ remote_id: string; filename: string | null }>(
       `SELECT remote.remote_id, submitted.filename
        FROM aruba_remote_documents AS remote
@@ -1905,7 +1949,9 @@ async function importArubaRemoteOfficialFileAuthorized(
       const lockedSession =
         typeof authorization === "string"
           ? await loadArubaReadSession(client, authorization, true)
-          : session;
+          : apiAuthorization
+            ? await loadArubaApiFileSession(client, apiAuthorization, true)
+            : session;
       if (!lockedSession) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
       await lockArubaInventory(client, lockedSession.environment, lockedSession.account_reference);
       const remote = await client.query<{ id: string; xml_sha256: string | null }>(
@@ -1966,8 +2012,18 @@ async function importArubaRemoteOfficialFileAuthorized(
       const file = await client.query<{ id: string }>(
         `INSERT INTO aruba_files
           (document_id, remote_document_id, storage_object_id, kind, metadata_json)
-         VALUES ($1, $2, $3, $4, jsonb_build_object('sha256', $5::text)) RETURNING id`,
-        [documentId, remoteDocumentId, storage.rows[0]!.id, kind.data, digest],
+         VALUES ($1, $2, $3, $4,
+           jsonb_build_object('sha256', $5::text, 'source', $6::text, 'filename', $7::text))
+         RETURNING id`,
+        [
+          documentId,
+          remoteDocumentId,
+          storage.rows[0]!.id,
+          kind.data,
+          digest,
+          apiAuthorization ? "API" : "BROWSER",
+          apiAuthorization?.providerFilename ?? null,
+        ],
       );
       if (kind.data === "ARUBA_XML") {
         await client.query(
@@ -2004,7 +2060,12 @@ async function importArubaRemoteOfficialFileAuthorized(
             (remote_document_id, remote_notification_id, type, status, storage_object_id, metadata_json)
            VALUES ($1, $2, $3, $3, $4, '{}')
            ON CONFLICT (remote_document_id, remote_notification_id) DO NOTHING`,
-          [remoteDocumentId, digest, status, storage.rows[0]!.id],
+          [
+            remoteDocumentId,
+            apiAuthorization?.notificationId ?? digest,
+            status,
+            storage.rows[0]!.id,
+          ],
         );
       }
       await writeAudit(client, {
@@ -2017,7 +2078,9 @@ async function importArubaRemoteOfficialFileAuthorized(
         requestId:
           typeof authorization === "string"
             ? `aruba-read:${lockedSession.id}`
-            : authorization.requestId,
+            : apiAuthorization
+              ? `aruba-api:${apiAuthorization.runId}`
+              : actorAuthorization!.requestId,
       });
       return { id: file.rows[0]!.id, repeated: false, documentId };
     });
@@ -2047,6 +2110,15 @@ export async function importArubaRemoteOfficialFileAsActor(
   return importArubaRemoteOfficialFileAuthorized(actor, remoteReference, rawKind, bytes);
 }
 
+export async function importArubaRemoteOfficialFileFromApi(
+  remoteReference: string,
+  rawKind: unknown,
+  bytes: Buffer,
+  authorization: ArubaApiFileAuthorization,
+) {
+  return importArubaRemoteOfficialFileAuthorized(authorization, remoteReference, rawKind, bytes);
+}
+
 async function needsOfficialXmlForReconciliation(client: pg.PoolClient, remoteDocumentId: string) {
   const result = await client.query<{ needed: boolean }>(
     `SELECT NOT EXISTS (
@@ -2071,9 +2143,18 @@ async function needsOfficialXmlForReconciliation(client: pg.PoolClient, remoteDo
   return result.rows[0]?.needed === true;
 }
 
+type ArubaPageIngestContext = Pick<
+  ArubaReadSessionRow,
+  "id" | "environment" | "account_reference"
+> & {
+  sourceKind?: "BROWSER" | "API";
+  providerGroupIds?: ReadonlyMap<string, string>;
+  groupCount?: number;
+};
+
 async function ingestParsedArubaPage(
   client: pg.PoolClient,
-  session: ArubaReadSessionRow,
+  session: ArubaPageIngestContext,
   page: z.infer<typeof inventoryPageSchema>,
   updateCursor = true,
 ) {
@@ -2081,22 +2162,53 @@ async function ingestParsedArubaPage(
     remoteId: string;
     kind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
   }> = [];
-  const sessionMode = await client.query<{
-    is_full_scan: boolean;
-    has_pages: boolean;
-    account_verified: boolean;
-    source: "HELPER" | "MANUAL";
-  }>(
-    `SELECT sessions.is_full_scan, sessions.source,
-       EXISTS (SELECT 1 FROM aruba_sync_pages pages
-         WHERE pages.sync_session_id = sessions.id
-           AND pages.stream ~ '^(invoices|credit-notes):') AS has_pages,
-       EXISTS (SELECT 1 FROM aruba_sync_pages pages
-         WHERE pages.sync_session_id = sessions.id
-           AND pages.stream = '__account_proof__') AS account_verified
-     FROM aruba_sync_sessions sessions WHERE sessions.id = $1`,
-    [session.id],
-  );
+  const apiSource = session.sourceKind === "API";
+  const sessionMode = apiSource
+    ? await client.query<{
+        is_full_scan: boolean;
+        has_pages: boolean;
+        account_verified: boolean;
+        source: "API";
+      }>(
+        `SELECT runs.kind IN ('BACKFILL', 'FULL') AS is_full_scan, 'API'::text AS source,
+           EXISTS (SELECT 1 FROM aruba_sync_run_pages pages
+             WHERE pages.sync_run_id = runs.id) AS has_pages,
+           true AS account_verified
+         FROM aruba_sync_runs runs
+         JOIN connections ON connections.provider = 'ARUBA'
+           AND connections.environment = CASE WHEN runs.environment = 'PRODUCTION'
+             THEN 'PRODUCTION' ELSE 'DEVELOPMENT' END
+           AND connections.account_reference = runs.account_reference
+         WHERE runs.id = $1 AND runs.status = 'RUNNING'
+           AND runs.authority_mode = 'CANONICAL'
+           AND connections.automatic_authority = 'API'`,
+        [session.id],
+      )
+    : await client.query<{
+        is_full_scan: boolean;
+        has_pages: boolean;
+        account_verified: boolean;
+        source: "HELPER" | "MANUAL";
+      }>(
+        `SELECT sessions.is_full_scan, sessions.source,
+           EXISTS (SELECT 1 FROM aruba_sync_pages pages
+             WHERE pages.sync_session_id = sessions.id
+               AND pages.stream ~ '^(invoices|credit-notes):') AS has_pages,
+           EXISTS (SELECT 1 FROM aruba_sync_pages pages
+             WHERE pages.sync_session_id = sessions.id
+               AND pages.stream = '__account_proof__') AS account_verified
+         FROM aruba_sync_sessions sessions
+         WHERE sessions.id = $1 AND (
+           sessions.source = 'MANUAL' OR coalesce((
+             SELECT automatic_authority FROM connections
+             WHERE provider = 'ARUBA'
+               AND environment = CASE WHEN sessions.environment = 'PRODUCTION'
+                 THEN 'PRODUCTION' ELSE 'DEVELOPMENT' END
+               AND account_reference = sessions.account_reference
+           ), 'BROWSER') = 'BROWSER'
+         )`,
+        [session.id],
+      );
   const currentMode = sessionMode.rows[0];
   if (!currentMode) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
   if (currentMode.source === "HELPER" && hasAnomalousUnknownArubaStatuses(page.documents)) {
@@ -2120,11 +2232,20 @@ async function ingestParsedArubaPage(
     ]);
   }
   const digest = payloadDigest(page);
-  const existingPage = await client.query<{ payload_digest: string }>(
-    `SELECT payload_digest FROM aruba_sync_pages
-       WHERE sync_session_id = $1 AND stream = $2 AND scan_ordinal = $3 AND page_ordinal = $4`,
-    [session.id, page.stream, page.scanOrdinal, page.pageOrdinal],
-  );
+  const existingPage = apiSource
+    ? await client.query<{ payload_digest: string }>(
+        `SELECT payload_digest FROM aruba_sync_run_pages
+         WHERE sync_run_id = $1
+           AND window_start = (SELECT checkpoint_start FROM aruba_sync_runs WHERE id = $1)
+           AND window_end = (SELECT checkpoint_end FROM aruba_sync_runs WHERE id = $1)
+           AND page_ordinal = $2`,
+        [session.id, page.pageOrdinal],
+      )
+    : await client.query<{ payload_digest: string }>(
+        `SELECT payload_digest FROM aruba_sync_pages
+         WHERE sync_session_id = $1 AND stream = $2 AND scan_ordinal = $3 AND page_ordinal = $4`,
+        [session.id, page.stream, page.scanOrdinal, page.pageOrdinal],
+      );
   if (existingPage.rows[0]) {
     if (existingPage.rows[0].payload_digest !== digest) {
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
@@ -2247,11 +2368,17 @@ async function ingestParsedArubaPage(
         conflicted = true;
         storedId = collided.id;
         await client.query(
-          `INSERT INTO aruba_deduplication_conflicts
-             (environment, account_reference, existing_remote_document_id, incoming_remote_id,
-              collision_key, incoming_payload_digest, sync_session_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT DO NOTHING`,
+          apiSource
+            ? `INSERT INTO aruba_deduplication_conflicts
+                 (environment, account_reference, existing_remote_document_id, incoming_remote_id,
+                  collision_key, incoming_payload_digest, sync_run_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               ON CONFLICT DO NOTHING`
+            : `INSERT INTO aruba_deduplication_conflicts
+                 (environment, account_reference, existing_remote_document_id, incoming_remote_id,
+                  collision_key, incoming_payload_digest, sync_session_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               ON CONFLICT DO NOTHING`,
           [
             session.environment,
             session.account_reference,
@@ -2340,12 +2467,25 @@ async function ingestParsedArubaPage(
         ],
       );
     }
+    if (apiSource) {
+      await client.query(
+        `UPDATE aruba_remote_documents SET provider_group_id = $2, automatic_source = 'API'
+         WHERE id = $1`,
+        [storedId, session.providerGroupIds?.get(remote.remoteId) ?? null],
+      );
+    }
     await client.query(
-      `INSERT INTO aruba_remote_observations
-          (remote_document_id, sync_session_id, remote_status, provider_observed_at,
-           stream, scan_ordinal, page_ordinal, cursor, payload_digest)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         ON CONFLICT DO NOTHING`,
+      apiSource
+        ? `INSERT INTO aruba_remote_observations
+            (remote_document_id, sync_run_id, remote_status, provider_observed_at,
+             stream, scan_ordinal, page_ordinal, cursor, payload_digest)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT DO NOTHING`
+        : `INSERT INTO aruba_remote_observations
+            (remote_document_id, sync_session_id, remote_status, provider_observed_at,
+             stream, scan_ordinal, page_ordinal, cursor, payload_digest)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT DO NOTHING`,
       [
         storedId,
         session.id,
@@ -2395,33 +2535,65 @@ async function ingestParsedArubaPage(
   const watermark = await client.query<{ value: string }>(
     `SELECT nextval('aruba_inventory_watermark_seq')::text AS value`,
   );
-  await client.query(
-    `INSERT INTO aruba_sync_pages
-        (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,
-         row_count, documents_json, payload_digest)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-    [
-      session.id,
-      page.stream,
-      page.scanOrdinal,
-      page.pageOrdinal,
-      page.cursor,
-      page.terminal,
-      page.fullScan,
-      page.documents.length,
-      JSON.stringify(page.documents),
-      digest,
-    ],
-  );
-  await client.query(
-    `UPDATE aruba_sync_sessions SET status = 'SCANNING', last_heartbeat_at = now(),
-         lease_expires_at = least(absolute_expires_at, now() + interval '2 minutes'),
-         page_count = page_count + 1, document_count = document_count + $2,
-         final_cursor = $3, inventory_watermark = $4
-       WHERE id = $1`,
-    [session.id, page.documents.length, page.cursor, Number(watermark.rows[0]!.value)],
-  );
-  if (updateCursor) {
+  if (apiSource) {
+    await client.query(
+      `INSERT INTO aruba_sync_run_pages
+        (sync_run_id, window_start, window_end, page_ordinal, terminal,
+         group_count, document_count, payload_digest)
+       SELECT id, checkpoint_start, checkpoint_end, $2, $3, $4, $5, $6
+       FROM aruba_sync_runs WHERE id = $1 AND status = 'RUNNING'`,
+      [
+        session.id,
+        page.pageOrdinal,
+        page.terminal,
+        session.groupCount ?? page.documents.length,
+        page.documents.length,
+        digest,
+      ],
+    );
+    await client.query(
+      `UPDATE aruba_sync_runs SET page_count = page_count + 1,
+         group_count = group_count + $2, document_count = document_count + $3,
+         checkpoint_page = CASE WHEN $4 THEN 1 ELSE $5 END,
+         lease_expires_at = now() + interval '3 minutes'
+       WHERE id = $1 AND status = 'RUNNING'`,
+      [
+        session.id,
+        session.groupCount ?? page.documents.length,
+        page.documents.length,
+        page.terminal,
+        page.pageOrdinal + 1,
+      ],
+    );
+  } else {
+    await client.query(
+      `INSERT INTO aruba_sync_pages
+          (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,
+           row_count, documents_json, payload_digest)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        session.id,
+        page.stream,
+        page.scanOrdinal,
+        page.pageOrdinal,
+        page.cursor,
+        page.terminal,
+        page.fullScan,
+        page.documents.length,
+        JSON.stringify(page.documents),
+        digest,
+      ],
+    );
+    await client.query(
+      `UPDATE aruba_sync_sessions SET status = 'SCANNING', last_heartbeat_at = now(),
+           lease_expires_at = least(absolute_expires_at, now() + interval '2 minutes'),
+           page_count = page_count + 1, document_count = document_count + $2,
+           final_cursor = $3, inventory_watermark = $4
+         WHERE id = $1`,
+      [session.id, page.documents.length, page.cursor, Number(watermark.rows[0]!.value)],
+    );
+  }
+  if (updateCursor && !apiSource) {
     await client.query(
       `INSERT INTO sync_cursors
        (provider, stream, cursor, overlap_from, last_page_ordinal, updated_at)
@@ -2450,199 +2622,48 @@ export async function ingestArubaInventoryPage(token: string, rawPage: unknown) 
   });
 }
 
-export async function failArubaInventory(token: string, rawCode: unknown) {
-  const code = z
-    .string()
-    .regex(/^[A-Z0-9_]{3,100}$/)
-    .safeParse(rawCode);
-  if (!code.success) throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+export async function ingestArubaApiInventoryPage(
+  runId: string,
+  rawPage: unknown,
+  providerGroupIds: ReadonlyMap<string, string>,
+  groupCount: number,
+) {
+  const id = z.uuid().safeParse(runId);
+  const parsed = inventoryPageSchema.safeParse(rawPage);
+  const parsedGroupCount = z.number().int().nonnegative().safeParse(groupCount);
+  if (!id.success || !parsed.success || !parsedGroupCount.success) {
+    throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+  }
+  if (parsed.data.documents.some((document) => !providerGroupIds.has(document.remoteId))) {
+    throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+  }
   return withTransaction(async (client) => {
-    await lockArubaInventory(client);
-    const result = await client.query(
-      `UPDATE aruba_sync_sessions SET status = 'FAILED', lease_expires_at = NULL, failed_at = now(),
-         error_code = $2, error_message_sanitized = 'Sincronizzazione Aruba interrotta'
-       WHERE token_hash = $1 AND status IN ('ACTIVE', 'SCANNING')
-         AND (completed_at IS NULL OR last_heartbeat_at > completed_at)
-       RETURNING id`,
-      [hashToken(token), code.data],
+    const run = await client.query<{
+      environment: "MOCK" | "PRODUCTION";
+      account_reference: string;
+    }>(
+      `SELECT environment, account_reference FROM aruba_sync_runs
+       WHERE id = $1 AND status = 'RUNNING' AND authority_mode = 'CANONICAL'
+       FOR UPDATE`,
+      [id.data],
     );
-    if (result.rows[0]) return { failed: true, ignored: false };
-    const completed = await client.query(
-      `SELECT 1 FROM aruba_sync_sessions
-       WHERE token_hash = $1 AND status IN ('ACTIVE', 'SCANNING', 'COMPLETED')
-         AND completed_at IS NOT NULL
-         AND (last_heartbeat_at IS NULL OR last_heartbeat_at <= completed_at)`,
-      [hashToken(token)],
+    const context = run.rows[0];
+    if (!context) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
+    await lockArubaInventory(client, context.environment, context.account_reference);
+    return ingestParsedArubaPage(
+      client,
+      {
+        id: id.data,
+        environment: context.environment,
+        account_reference: context.account_reference,
+        sourceKind: "API",
+        providerGroupIds,
+        groupCount: parsedGroupCount.data,
+      },
+      parsed.data,
+      false,
     );
-    if (completed.rows[0]) return { failed: false, ignored: true };
-    throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
   });
-}
-
-export interface ArubaInventoryHealth {
-  status: "NEVER" | "HEALTHY" | "WARNING" | "BLOCKED";
-  blocking: boolean;
-  lastCompletedAt: string | null;
-  ageMinutes: number | null;
-  activeSession: boolean;
-  activeDeviceSuffix: string | null;
-  activeSessionExpiresAt: string | null;
-  nextScheduledAt: string | null;
-  lastErrorCode: string | null;
-  externalDocuments: number;
-  potentialMatches: number;
-  ambiguous: number;
-  conflicts: number;
-  remoteDocuments: number;
-  blockingReason: "NEVER" | "STALE" | "FAILURE" | "CONFLICT" | null;
-}
-
-const arubaPotentialMatchPredicate = `(matches.status = 'UNMATCHED'
-  AND matches.method <> 'MANUAL'
-  AND EXISTS (
-    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE ${arubaUnresolvedCandidateSql("candidate")}
-      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
-  ))`;
-
-const arubaExternalDocumentPredicate = `(matches.status = 'UNMATCHED' AND (
-  (matches.method = 'MANUAL' AND remote.origin = 'ARUBA_EXTERNAL')
-  OR (matches.method <> 'MANUAL' AND NOT EXISTS (
-    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE ${arubaUnresolvedCandidateSql("candidate")}
-      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
-  ))
-))`;
-
-const arubaBlockingMatchPredicate = `(remote.remote_status <> 'REJECTED' AND (
-  ${arubaPotentialMatchPredicate}
-  OR matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')
-))`;
-
-export async function getArubaInventoryHealth(
-  client: pg.Pool | pg.PoolClient = getPool(),
-): Promise<ArubaInventoryHealth> {
-  const result = await client.query<{
-    last_completed_at: Date | null;
-    last_full_scan_completed_at: Date | null;
-    active_session: boolean;
-    active_device_suffix: string | null;
-    active_session_expires_at: Date | null;
-    next_scheduled_at: Date | null;
-    last_error_code: string | null;
-    unresolved_failure: boolean;
-    external_documents: string;
-    potential_matches: string;
-    ambiguous: string;
-    conflicts: string;
-    remote_documents: string;
-  }>(
-    `SELECT
-       (SELECT max(completed_at) FROM aruba_sync_sessions
-        WHERE environment = $1 AND account_reference = $2 AND completed_at IS NOT NULL)
-         AS last_completed_at,
-       (SELECT max(full_scan_completed_at) FROM aruba_sync_sessions
-        WHERE environment = $1 AND account_reference = $2
-          AND full_scan_completed_at IS NOT NULL) AS last_full_scan_completed_at,
-       EXISTS (SELECT 1 FROM aruba_sync_sessions
-        WHERE environment = $1 AND account_reference = $2
-          AND status IN ('ACTIVE', 'SCANNING') AND absolute_expires_at > now()
-          AND lease_expires_at > now() AND last_heartbeat_at > now() - interval '2 minutes')
-         AS active_session,
-       (SELECT right(device_id, 6) FROM aruba_sync_sessions
-        WHERE environment = $1 AND account_reference = $2 AND status IN ('ACTIVE', 'SCANNING')
-          AND absolute_expires_at > now() AND lease_expires_at > now()
-          AND last_heartbeat_at > now() - interval '2 minutes'
-        ORDER BY started_at DESC LIMIT 1) AS active_device_suffix,
-       (SELECT absolute_expires_at FROM aruba_sync_sessions
-        WHERE environment = $1 AND account_reference = $2 AND status IN ('ACTIVE', 'SCANNING')
-          AND absolute_expires_at > now() AND lease_expires_at > now()
-          AND last_heartbeat_at > now() - interval '2 minutes'
-        ORDER BY started_at DESC LIMIT 1) AS active_session_expires_at,
-       (SELECT coalesce(completed_at, last_heartbeat_at, started_at) + interval '15 minutes'
-        FROM aruba_sync_sessions
-        WHERE environment = $1 AND account_reference = $2 AND status IN ('ACTIVE', 'SCANNING')
-          AND absolute_expires_at > now() AND lease_expires_at > now()
-          AND last_heartbeat_at > now() - interval '2 minutes'
-        ORDER BY started_at DESC LIMIT 1) AS next_scheduled_at,
-       (SELECT error_code FROM aruba_sync_sessions
-        WHERE environment = $1 AND account_reference = $2
-          AND status IN ('FAILED', 'INCOMPLETE') AND error_code IS NOT NULL
-          AND coalesce(failed_at, started_at) > coalesce((SELECT max(completed_at)
-            FROM aruba_sync_sessions WHERE environment = $1 AND account_reference = $2
-              AND completed_at IS NOT NULL), '-infinity')
-        ORDER BY started_at DESC LIMIT 1) AS last_error_code,
-       EXISTS (SELECT 1 FROM aruba_sync_sessions AS failed
-        WHERE failed.environment = $1 AND failed.account_reference = $2
-          AND failed.status IN ('FAILED', 'INCOMPLETE')
-          AND coalesce(failed.failed_at, failed.started_at) > coalesce((SELECT max(completed_at) FROM aruba_sync_sessions
-            WHERE environment = $1 AND account_reference = $2
-              AND completed_at IS NOT NULL), '-infinity'))
-         AS unresolved_failure,
-       (SELECT count(*) FROM aruba_document_matches matches
-        JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
-        WHERE remote.environment = $1 AND remote.account_reference = $2
-          AND ${arubaExternalDocumentPredicate}) AS external_documents,
-       (SELECT count(*) FROM aruba_document_matches matches
-        JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
-        WHERE remote.environment = $1 AND remote.account_reference = $2
-          AND remote.remote_status <> 'REJECTED'
-          AND ${arubaPotentialMatchPredicate}) AS potential_matches,
-       (SELECT count(*) FROM aruba_document_matches matches
-        JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
-        WHERE remote.environment = $1 AND remote.account_reference = $2
-          AND remote.remote_status <> 'REJECTED' AND matches.status = 'AMBIGUOUS') AS ambiguous,
-       (SELECT count(*) FROM aruba_document_matches matches
-        JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
-        WHERE remote.environment = $1 AND remote.account_reference = $2
-          AND remote.remote_status <> 'REJECTED'
-          AND matches.status IN ('PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')) AS conflicts,
-       (SELECT count(*) FROM aruba_remote_documents
-        WHERE environment = $1 AND account_reference = $2) AS remote_documents`,
-    [environment(), accountReference()],
-  );
-  const row = result.rows[0]!;
-  const completed = row.last_full_scan_completed_at ? row.last_completed_at : null;
-  const ageMinutes = completed ? Math.max(0, (Date.now() - completed.getTime()) / 60_000) : null;
-  const unresolved = Number(row.potential_matches) + Number(row.ambiguous) + Number(row.conflicts);
-  const blockingReason = !completed
-    ? "NEVER"
-    : row.unresolved_failure
-      ? "FAILURE"
-      : unresolved > 0
-        ? "CONFLICT"
-        : (ageMinutes ?? Infinity) > 24 * 60
-          ? "STALE"
-          : null;
-  const status = !completed
-    ? "NEVER"
-    : row.unresolved_failure || unresolved > 0 || (ageMinutes ?? Infinity) > 24 * 60
-      ? "BLOCKED"
-      : (ageMinutes ?? 0) > 60
-        ? "WARNING"
-        : "HEALTHY";
-  return {
-    status,
-    blocking: status === "NEVER" || status === "BLOCKED",
-    lastCompletedAt: completed?.toISOString() ?? null,
-    ageMinutes,
-    activeSession: row.active_session,
-    activeDeviceSuffix: row.active_device_suffix,
-    activeSessionExpiresAt: row.active_session_expires_at?.toISOString() ?? null,
-    nextScheduledAt: row.next_scheduled_at?.toISOString() ?? null,
-    lastErrorCode: row.last_error_code,
-    externalDocuments: Number(row.external_documents),
-    potentialMatches: Number(row.potential_matches),
-    ambiguous: Number(row.ambiguous),
-    conflicts: Number(row.conflicts),
-    remoteDocuments: Number(row.remote_documents),
-    blockingReason,
-  };
-}
-
-export async function getLockedArubaInventoryHealth(client: pg.PoolClient) {
-  await lockArubaInventory(client);
-  return getArubaInventoryHealth(client);
 }
 
 export async function listRemoteDocuments(

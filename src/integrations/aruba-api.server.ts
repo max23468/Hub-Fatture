@@ -100,10 +100,18 @@ const invoiceGroupSchema = z.object({
   file: z.null().optional(),
 });
 
+const providerDecimalSchema = z.union([
+  z.number().finite(),
+  z
+    .string()
+    .trim()
+    .regex(/^-?\d+(?:[.,]\d+)?$/),
+]);
+
 const detailedInvoiceSummarySchema = invoiceSummarySchema.extend({
-  totalDocument: z.number().finite(),
-  totalVat: z.number().finite(),
-  netPayable: z.number().finite(),
+  totalDocument: providerDecimalSchema,
+  totalVat: providerDecimalSchema,
+  netPayable: providerDecimalSchema,
 });
 
 const companySchema = z.object({
@@ -198,6 +206,31 @@ const invoiceSearchSchema = z.object({
   totalPages: z.number().int().nonnegative(),
 });
 
+export type ArubaApiInvoiceGroup = z.infer<typeof invoiceGroupSchema>;
+export type ArubaApiInvoiceDetail = z.infer<typeof arubaApiInvoiceDetailSchema>;
+export type ArubaApiNotificationList = z.infer<typeof arubaApiNotificationListSchema>;
+
+export interface ArubaApiCredentials {
+  username: string;
+  password: string;
+  expectedTaxId: string;
+}
+
+export interface ArubaApiSession {
+  environment: ArubaApiEnvironment;
+  accessToken: string;
+  expiresAt: number;
+}
+
+export interface ArubaApiInvoicePage {
+  groups: ArubaApiInvoiceGroup[];
+  page: number;
+  size: number;
+  totalGroups: number;
+  totalPages: number;
+  terminal: boolean;
+}
+
 function parsed<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
@@ -214,6 +247,150 @@ function taxIdentity(value: string | null | undefined): string | null {
 
 function bearer(token: string): HeadersInit {
   return { Accept: "application/json", Authorization: `Bearer ${token}` };
+}
+
+export async function authenticateArubaApi(input: {
+  environment: ArubaApiEnvironment;
+  credentials: ArubaApiCredentials;
+  now?: number;
+}): Promise<ArubaApiSession> {
+  const target = endpoints[input.environment];
+  const credentials = z
+    .object({
+      username: z.string().trim().min(1).max(200),
+      password: z.string().min(1).max(500),
+      expectedTaxId: z.string().trim().min(1).max(64),
+    })
+    .safeParse(input.credentials);
+  if (!credentials.success) throw new AppError("AUTH_INVALID_CREDENTIALS", 422);
+  const token = parsed(
+    tokenSchema,
+    await providerJson(`${target.auth}/auth/signin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: new URLSearchParams({
+        grant_type: "password",
+        username: credentials.data.username,
+        password: credentials.data.password,
+      }),
+    }),
+  );
+  const userInfo = parsed(
+    userInfoSchema,
+    await providerJson(`${target.auth}/auth/userInfo`, { headers: bearer(token.access_token) }),
+  );
+  const expectedTaxId = taxIdentity(credentials.data.expectedTaxId);
+  const observedTaxIds = new Set([taxIdentity(userInfo.vatCode), taxIdentity(userInfo.fiscalCode)]);
+  if (!expectedTaxId || !observedTaxIds.has(expectedTaxId)) {
+    throw new AppError("AUTH_PROVIDER_ACCOUNT_MISMATCH", 409);
+  }
+  if (userInfo.accountStatus.expired) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  return {
+    environment: input.environment,
+    accessToken: token.access_token,
+    expiresAt: (input.now ?? Date.now()) + token.expires_in * 1_000,
+  };
+}
+
+export async function readArubaApiInvoicePage(input: {
+  session: ArubaApiSession;
+  page: number;
+  windowStart: Date;
+  windowEnd: Date;
+  documentType?: "TD01" | "TD04";
+}): Promise<ArubaApiInvoicePage> {
+  const page = z.number().int().positive().safeParse(input.page);
+  const windowHours = (input.windowEnd.getTime() - input.windowStart.getTime()) / 3_600_000;
+  if (!page.success || windowHours <= 0 || windowHours > 48) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
+  }
+  const target = endpoints[input.session.environment];
+  const url = new URL("/api/v2/invoices-out", target.services);
+  url.search = new URLSearchParams({
+    page: String(page.data),
+    size: String(PROBE_PAGE_SIZE),
+    creationStartDate: input.windowStart.toISOString(),
+    creationEndDate: input.windowEnd.toISOString(),
+    ...(input.documentType ? { documentType: input.documentType } : {}),
+  }).toString();
+  const result = parsed(
+    invoiceSearchSchema,
+    await providerJson(url.toString(), { headers: bearer(input.session.accessToken) }),
+  );
+  const expectedElements = Math.min(
+    PROBE_PAGE_SIZE,
+    Math.max(0, result.totalElements - (page.data - 1) * PROBE_PAGE_SIZE),
+  );
+  const groupIds = result.content.map((group) => group.id);
+  if (
+    result.number !== page.data ||
+    result.size !== PROBE_PAGE_SIZE ||
+    result.first !== (page.data === 1) ||
+    result.last !== (result.totalPages === 0 || page.data === result.totalPages) ||
+    result.numberOfElements !== result.content.length ||
+    result.numberOfElements !== expectedElements ||
+    result.totalPages !== Math.ceil(result.totalElements / PROBE_PAGE_SIZE) ||
+    new Set(groupIds).size !== groupIds.length
+  ) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  return {
+    groups: result.content,
+    page: result.number,
+    size: result.size,
+    totalGroups: result.totalElements,
+    totalPages: result.totalPages,
+    terminal: result.last,
+  };
+}
+
+export async function readArubaApiInvoiceDetail(
+  session: ArubaApiSession,
+  groupId: string,
+): Promise<ArubaApiInvoiceDetail> {
+  const id = z.string().trim().min(1).max(200).safeParse(groupId);
+  if (!id.success) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
+  const url = new URL("/api/v2/invoices-out/detail", endpoints[session.environment].services);
+  url.search = new URLSearchParams({
+    id: id.data,
+    includePdf: "true",
+    includeFile: "true",
+  }).toString();
+  const detail = parsed(
+    arubaApiInvoiceDetailSchema,
+    await providerJson(
+      url.toString(),
+      { headers: bearer(session.accessToken) },
+      { maxBytes: 32 * 1024 * 1024, timeoutMs: 20_000 },
+    ),
+  );
+  if (detail.id !== id.data) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  return detail;
+}
+
+export async function readArubaApiNotifications(
+  session: ArubaApiSession,
+  groupId: string,
+): Promise<ArubaApiNotificationList> {
+  const id = z.string().trim().min(1).max(200).safeParse(groupId);
+  if (!id.success) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
+  const url = new URL(
+    "/api/v2/invoices-out/notifications",
+    endpoints[session.environment].services,
+  );
+  url.search = new URLSearchParams({ id: id.data }).toString();
+  const notifications = parsed(
+    arubaApiNotificationListSchema,
+    await providerJson(
+      url.toString(),
+      { headers: bearer(session.accessToken) },
+      { maxBytes: 16 * 1024 * 1024, timeoutMs: 20_000 },
+    ),
+  );
+  if (notifications.notifications.some((notification) => notification.invoiceId !== id.data)) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  return notifications;
 }
 
 export interface ArubaApiReadProbeInput {
@@ -354,29 +531,15 @@ export async function runArubaApiReadProbe(
   input: ArubaApiReadProbeInput,
 ): Promise<ArubaApiReadProbeResult> {
   const target = endpoints[input.environment];
-  const token = parsed(
-    tokenSchema,
-    await providerJson(`${target.auth}/auth/signin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      body: new URLSearchParams({
-        grant_type: "password",
-        username: input.username,
-        password: input.password,
-      }),
-    }),
-  );
-
-  const userInfo = parsed(
-    userInfoSchema,
-    await providerJson(`${target.auth}/auth/userInfo`, { headers: bearer(token.access_token) }),
-  );
-  const expectedTaxId = taxIdentity(input.expectedTaxId);
-  const observedTaxIds = new Set([taxIdentity(userInfo.vatCode), taxIdentity(userInfo.fiscalCode)]);
-  if (!expectedTaxId || !observedTaxIds.has(expectedTaxId)) {
-    throw new AppError("AUTH_PROVIDER_ACCOUNT_MISMATCH", 409);
-  }
-  if (userInfo.accountStatus.expired) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  const session = await authenticateArubaApi({
+    environment: input.environment,
+    credentials: {
+      username: input.username,
+      password: input.password,
+      expectedTaxId: input.expectedTaxId,
+    },
+    now: input.now?.getTime(),
+  });
 
   const windowEnd = input.now ?? new Date();
   const windowStart = new Date(windowEnd.getTime() - 24 * 60 * 60 * 1000);
@@ -384,7 +547,7 @@ export async function runArubaApiReadProbe(
     invoiceSearchSchema,
     await providerJson(
       invoiceSearchUrl({ services: target.services, page: 1, windowStart, windowEnd }),
-      { headers: bearer(token.access_token) },
+      { headers: bearer(session.accessToken) },
     ),
   );
   const firstPageIds = firstPage.content.map((group) => group.id);
@@ -407,7 +570,7 @@ export async function runArubaApiReadProbe(
   addGroupsToSummary(summary, firstPage.content);
   const returnedInvoiceGroups = await readAdditionalPages({
     target,
-    token: token.access_token,
+    token: session.accessToken,
     firstPage,
     page: 2,
     requestedPages,

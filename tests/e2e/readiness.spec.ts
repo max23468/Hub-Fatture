@@ -372,7 +372,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("034_aruba_status_mapper_version.sql", {
+  const inboundMigration = page.getByText("035_aruba_api_inbound.sql", {
     exact: true,
   });
   await expect(inboundMigration).toBeVisible();

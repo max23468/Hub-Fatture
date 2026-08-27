@@ -3,8 +3,10 @@
 ## Perimetro corrente
 
 Il contratto copre il solo ciclo attivo dell’utenza Base delegata: autenticazione, identità,
-ricerca paginata delle fatture inviate e forma documentata di file e notifiche. Non autorizza né
-implementa dry-run, upload, invio, callback, persistenza canonica o cambio dell’autorità operativa.
+ricerca paginata delle fatture inviate, dettaglio, file e notifiche. La sincronizzazione inbound
+esegue giri shadow separati dall’inventario browser e, soltanto dopo un dossier `MATCHED` e una
+decisione esplicita del titolare, può passare atomicamente all’ingest canonico. Non autorizza né
+implementa dry-run, upload, invio o callback.
 
 La fonte provider è la documentazione ufficiale API v2, il cui changelog corrente espone la
 revisione 2.5.0. Un cambiamento della forma o dei limiti riapre la qualifica prima di estendere il
@@ -87,7 +89,7 @@ Il probe verifica numero pagina, cardinalità, prima/ultima pagina, totale stabi
 duplicati e corrispondenza tra elementi restituiti e metadati. Se la finestra supera due pagine,
 restituisce copertura incompleta e si arresta.
 
-## File e notifiche
+## File e notifiche inbound
 
 La documentazione v2 espone:
 
@@ -97,15 +99,29 @@ La documentazione v2 espone:
 - elenco e dettaglio delle notifiche SdI;
 - download massivo asincrono.
 
-Il contratto tipizza la forma delle notifiche e registra queste capacità, ma il probe corrente non invoca
-nessuno di tali endpoint. Disponibilità reale, MIME, dimensioni, ownership e parità dei file restano
-da qualificare con un manifesto read-only separato. Il download massivo non appartiene al probe
-perché crea una preparazione remota e non è una lettura priva di effetti osservabili.
+Il worker legge il dettaglio dei soli gruppi non vuoti con `includeFile=true` e `includePdf=true`,
+poi recupera le notifiche dello stesso gruppo. Accetta esclusivamente XML o P7M, PDF opzionale e
+notifiche con contenuto base64 valido; calcola SHA-256 sui byte decodificati e rifiuta gruppo,
+identificativi o cardinalità incoerenti. Durante lo shadow conserva nel dossier soltanto metadati e
+hash sanitizzati; dopo il passaggio autorizzato riusa storage, validazione, ownership e
+riconciliazione canonici già esistenti.
 
-## Capacità rinviate alla sincronizzazione inbound
+Il pacchetto di conservazione e il download massivo restano fuori dall’inbound corrente: il primo
+non è necessario alla parità dei file operativi, il secondo crea una preparazione remota e non è una
+lettura priva di effetti osservabili.
 
-La qualifica API copre le forme documentate e il comportamento read-only senza acquisire contenuti
-fiscali. La successiva sincronizzazione inbound dovrà verificare su snapshot allineati la parità
-TD01/TD04 e acquisire XML, P7M, PDF e notifiche nel nuovo inventario canonico. Queste prove
-richiedono backfill, persistenza e autorizzazioni proprie della sincronizzazione e non sono residui
-della qualifica API.
+## Sincronizzazione inbound e arresti
+
+La connessione salva la credenziale soltanto come ciphertext dopo autenticazione e verifica
+dell’identità fiscale attesa. Parte con API in pausa, inbound disabilitato e autorità browser. Il
+worker usa backfill riprendibile dal 2019, finestre massime di 48 ore, checkpoint dopo il commit di
+ogni pagina, incrementale con sette giorni di sovrapposizione, rilettura dei non terminali e full
+mensile. Il limite di autenticazione è condiviso nel database; ricerca e notifiche usano budget
+indipendenti di 12 richieste al minuto. Ogni giro ha inoltre un tetto fail-closed di 10.000 richieste
+provider, incluse autenticazione, ricerca, dettaglio e notifiche; l’esaurimento interrompe il giro
+senza dichiarare completo il backfill.
+
+Pausa o revoca vengono rilevate ai punti sicuri fra pagine. Una connessione shadow non alimenta
+l’inventario canonico e il deploy non cambia l’autorità automatica. Il passaggio all’API richiede un
+dossier shadow completo e `MATCHED`, assenza di lavori attivi, revoca delle sessioni helper e avvio
+di un nuovo full canonico. Upload, dry-run e invio non fanno parte di questo contratto.

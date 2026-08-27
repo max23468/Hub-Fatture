@@ -63,6 +63,8 @@ export const errorCatalog = {
     "Il documento Aruba non coincide con il profilo fiscale o con il caso locale.",
   ARUBA_INVENTORY_BLOCKED:
     "L’inventario Aruba non è abbastanza recente o contiene verifiche irrisolte.",
+  ARUBA_API_BUDGET_EXHAUSTED:
+    "La sincronizzazione Aruba ha raggiunto il limite autorizzato di richieste.",
   ARUBA_PREFLIGHT_REQUIRED:
     "È stato richiesto un controllo Aruba aggiornato. Attendi l’helper e riprova entro cinque minuti.",
   INVALID_CONTENT_TYPE: "Formato della richiesta non supportato.",

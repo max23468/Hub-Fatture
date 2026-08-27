@@ -8,6 +8,9 @@ import {
   arubaApiInvoiceDetailSchema,
   arubaApiNotificationListSchema,
   arubaApiGroupsToShadowDocuments,
+  readArubaApiInvoiceDetail,
+  readArubaApiInvoicePage,
+  readArubaApiNotifications,
   runArubaApiReadProbe,
 } from "./aruba-api.server.ts";
 
@@ -631,6 +634,91 @@ test("il contratto registra i limiti read-only ufficiali correnti", () => {
   assert.equal(ARUBA_API_V2_CONTRACT.sentNotificationSearchRequestsPerMinutePerIp, 12);
   assert.equal(ARUBA_API_V2_CONTRACT.maximumSearchWindowHours, 48);
   assert.deepEqual(ARUBA_API_V2_CONTRACT.officialFiles.notifications, ["SDI_NOTIFICATION"]);
+});
+
+test("l’adapter inbound usa gli endpoint ufficiali per pagina, dettaglio e notifiche", async () => {
+  const originalFetch = globalThis.fetch;
+  const paths: string[] = [];
+  const group = (
+    invoicePage({ page: 1, totalElements: 1, ids: ["gruppo-1"] }).content as unknown[]
+  )[0];
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      paths.push(`${url.pathname}?${url.searchParams.toString()}`);
+      if (url.pathname.endsWith("/detail")) {
+        return response({
+          channelGroup: 1,
+          shopName: null,
+          invoices: [
+            {
+              invoiceDate: "2026-08-26T12:00:00.000Z",
+              number: "FPR-gruppo-1",
+              documentType: "TD01",
+              status: "Inviata",
+              statusDescription: "",
+              totalDocument: "100.00",
+              totalVat: "0.00",
+              netPayable: "100.00",
+            },
+          ],
+          sdiErrors: [],
+          id: "gruppo-1",
+          sender: {
+            description: "Cedente sintetico",
+            countryCode: "IT",
+            vatCode: "00000000000",
+            fiscalCode: null,
+          },
+          receiver: {
+            description: "Destinatario sintetico",
+            countryCode: "IT",
+            vatCode: "00000000000",
+            fiscalCode: null,
+          },
+          invoiceType: "FPR12",
+          docType: "out",
+          file: "PHhtbC8+",
+          filename: "IT00000000000_gruppo-1.xml",
+          username: "utente-sintetico",
+          creationDate: "2026-08-26T12:00:00.000Z",
+          lastUpdate: "2026-08-26T12:01:00.000Z",
+          idSdi: "SDI-1",
+          pdfFile: "JVBERi0xLjQ=",
+          pddAvailable: true,
+        });
+      }
+      if (url.pathname.endsWith("/notifications")) {
+        return response({ count: 0, notifications: [] });
+      }
+      return response(invoicePage({ page: 1, totalElements: 1, groups: [group as never] }));
+    };
+    const session = {
+      environment: "PRODUCTION" as const,
+      accessToken: "token-sintetico",
+      expiresAt: Date.now() + 1_800_000,
+    };
+    assert.equal(
+      (
+        await readArubaApiInvoicePage({
+          session,
+          page: 1,
+          windowStart: new Date("2026-08-25T12:00:00.000Z"),
+          windowEnd: NOW,
+        })
+      ).groups.length,
+      1,
+    );
+    assert.equal((await readArubaApiInvoiceDetail(session, "gruppo-1")).id, "gruppo-1");
+    assert.equal((await readArubaApiNotifications(session, "gruppo-1")).count, 0);
+    assert.match(paths[0]!, /^\/api\/v2\/invoices-out\?/);
+    assert.match(paths[1]!, /^\/api\/v2\/invoices-out\/detail\?/);
+    assert.match(paths[1]!, /includePdf=true/);
+    assert.match(paths[1]!, /includeFile=true/);
+    assert.match(paths[2]!, /^\/api\/v2\/invoices-out\/notifications\?/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("il probe si arresta prima della lettura se l'identità Aruba non coincide", async () => {

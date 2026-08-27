@@ -46,4 +46,5 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `ARUBA_SEND_NOT_AUTHORIZED`      | CONFLICT permanente   | no               | verificare kill switch e manifest     |
 | `ARUBA_RECONCILIATION_REQUIRED`  | UNKNOWN               | no               | completare il readback                |
 | `ARUBA_IMPORT_INVALID`           | VALIDATION permanente | no               | scegliere il file ufficiale corretto  |
+| `ARUBA_API_BUDGET_EXHAUSTED`     | PROVIDER permanente   | no               | autorizzare un nuovo manifesto        |
 | `UNKNOWN`                        | UNKNOWN               | no               | diagnosticare con request ID          |

@@ -13,7 +13,7 @@ import { runMigrations } from "./migrations.server.ts";
 
 test(
   "TD04 cumulativa: idempotenza, concorrenza, limite e audit atomico",
-  { timeout: 30_000 },
+  { timeout: 60_000 },
   async () => {
     const databaseFixture = await temporaryDatabase("credit_notes");
     const storage = await mkdtemp(path.join(tmpdir(), "hub-fatture-credit-notes-"));

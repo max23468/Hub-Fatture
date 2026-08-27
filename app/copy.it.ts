@@ -13,6 +13,10 @@ const connectorJobLabels: Record<string, string> = {
   shopify_sync_orders: "Aggiornamento ordini Shopify",
   shopify_process_webhook: "Aggiornamento ricevuto da Shopify",
   ebay_sync_orders: "Aggiornamento ordini eBay",
+  aruba_backfill_inventory: "Backfill inventario Aruba",
+  aruba_sync_inventory: "Aggiornamento inventario Aruba",
+  aruba_refresh_nonterminal: "Aggiornamento stati Aruba aperti",
+  aruba_full_inventory: "Controllo completo inventario Aruba",
   ebay_preview_history: "Storico ordini eBay",
 };
 

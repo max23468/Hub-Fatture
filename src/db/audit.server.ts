@@ -36,6 +36,10 @@ export const auditActions = [
   "ARUBA_RECONCILIATION_REQUIRED",
   "ARUBA_READBACK_RECONCILED",
   "ARUBA_FILE_IMPORTED",
+  "ARUBA_API_CREDENTIALS_CHANGED",
+  "ARUBA_API_CONTROLS_CHANGED",
+  "ARUBA_API_SYNC_REQUESTED",
+  "ARUBA_API_AUTHORITY_CHANGED",
   "ARUBA_SETTINGS_CHANGED",
   "ARUBA_READ_SESSION_ISSUED",
   "ARUBA_INVENTORY_COMPLETED",
@@ -93,7 +97,8 @@ export async function writeAudit(
       revisionId: string;
       reason: string;
       reviewRequired: boolean;
-      provider: "SHOPIFY" | "EBAY";
+      provider: "SHOPIFY" | "EBAY" | "ARUBA";
+      credentialOperation: "CONFIGURED" | "ROTATED" | "REVOKED";
       scope: string;
       value: "PAID" | "FULFILLED";
       documentKind: "INVOICE" | "CREDIT_NOTE";

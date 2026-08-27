@@ -21,6 +21,10 @@ import {
 import { fetchShopifyOrder, syncShopifyOrders } from "./integrations/shopify.server.ts";
 import { processRefund } from "./db/refunds.server.ts";
 import { sendCustomerEmail } from "./db/email.server.ts";
+import {
+  markArubaApiConnectionError,
+  runArubaApiInboundJob,
+} from "./db/aruba-api-inbound.server.ts";
 
 const workerId = randomUUID();
 let stopping = false;
@@ -61,6 +65,7 @@ async function runJob() {
       await processRefund(String(job.payload.refundId ?? ""), job);
     }
     if (job.type === "send_customer_email") await sendCustomerEmail(job);
+    if (job.type.startsWith("aruba_")) result = await runArubaApiInboundJob(job);
     if (job.type === "shopify_process_webhook") {
       const orderId = String(job.payload.orderId ?? "");
       if (!orderId) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
@@ -87,8 +92,15 @@ async function runJob() {
       ? "SHOPIFY"
       : job.type.startsWith("ebay")
         ? "EBAY"
-        : null;
-    if (provider && terminal !== null) await markConnectionError(provider, appError.code, terminal);
+        : job.type.startsWith("aruba_")
+          ? "ARUBA"
+          : null;
+    if ((provider === "SHOPIFY" || provider === "EBAY") && terminal !== null) {
+      await markConnectionError(provider, appError.code, terminal);
+    }
+    if (provider === "ARUBA" && terminal !== null) {
+      await markArubaApiConnectionError(appError.code, terminal);
+    }
     console.error(
       JSON.stringify({ event: "connector_job_failed", jobId: job.id, code: appError.code }),
     );
