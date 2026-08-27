@@ -65,6 +65,8 @@ export const errorCatalog = {
     "L’inventario Aruba non è abbastanza recente o contiene verifiche irrisolte.",
   ARUBA_API_BUDGET_EXHAUSTED:
     "La sincronizzazione Aruba ha raggiunto il limite autorizzato di richieste.",
+  ARUBA_API_COOLDOWN_ACTIVE:
+    "La lettura Aruba è in pausa di sicurezza dopo una richiesta di rallentamento.",
   ARUBA_PREFLIGHT_REQUIRED:
     "È stato richiesto un controllo Aruba aggiornato. Attendi l’helper e riprova entro cinque minuti.",
   INVALID_CONTENT_TYPE: "Formato della richiesta non supportato.",

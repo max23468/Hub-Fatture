@@ -374,7 +374,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("036_aruba_rejected_attempt_identity.sql", {
+  const inboundMigration = page.getByText("037_aruba_api_traffic_guard.sql", {
     exact: true,
   });
   await expect(inboundMigration).toBeVisible();
@@ -1477,7 +1477,23 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
        credentials_verified_at = EXCLUDED.credentials_verified_at`,
     [encryptedArubaCredentials],
   );
+  await arubaApiUiClient.query(
+    `INSERT INTO aruba_sync_runs
+      (id, environment, api_environment, account_reference, kind, authority_mode, status,
+       window_start, window_end, checkpoint_start, checkpoint_end, checkpoint_page,
+       page_count, request_count, lease_expires_at, started_at)
+     VALUES ('30000000-0000-4000-8000-000000000001', 'MOCK', 'DEMO',
+       'synthetic-aruba-layout', 'BACKFILL', 'SHADOW', 'RUNNING',
+       now() - interval '10 days', now(), now() - interval '6 days',
+       now() - interval '4 days', 2, 12, 36, now() + interval '3 minutes',
+       now() - interval '1 hour')`,
+  );
   await page.reload();
+  await expect(
+    arubaApiSettings.getByRole("progressbar", { name: "Avanzamento del backfill Aruba" }),
+  ).toHaveAttribute("value", "40");
+  await expect(arubaApiSettings).toContainText("Backfill in corso · 40%");
+  await expect(arubaApiSettings).toContainText("finestre da 48 ore rimanenti");
   await expect(credentialForm).toHaveCount(0);
   const editCredentials = arubaApiSettings.getByRole("button", {
     name: "Aggiorna credenziali",
@@ -1592,6 +1608,9 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const mobileTransmissionSize = await transmissionBox.boundingBox();
   expect(mobileTransmissionSize?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(358);
   expect(mobileTransmissionSize?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(140);
+  await arubaApiUiClient.query(
+    "DELETE FROM aruba_sync_runs WHERE account_reference = 'synthetic-aruba-layout'",
+  );
   await arubaApiUiClient.query(
     "DELETE FROM connections WHERE provider = 'ARUBA' AND environment = 'DEVELOPMENT'",
   );
