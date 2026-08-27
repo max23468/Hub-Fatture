@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.89
+
+- La lettura Aruba coordina in PostgreSQL un limite prudenziale complessivo fra processi e istanze, include le autenticazioni e applica a ogni `429` una pausa di sicurezza condivisa di 65 minuti, evitando raffiche causate da worker duplicati, riavvii o configurazioni concorrenti della VPS.
+- Le Impostazioni mostrano l’avanzamento del backfill dai checkpoint consolidati, con finestre residue e stima indicativa, e distinguono gli errori operativi attuali da quelli storici già superati.
+- Il dossier di parità espone copertura, assenze e divergenze nei due versi; i gate di recovery verificano con dati sintetici che backup e ripristino preservino credenziale cifrata e checkpoint. L’autorità resta al browser e questa release non abilita upload o invii Aruba.
+
 ## 0.3.88
 
 - Dopo il collegamento Aruba, le Impostazioni mostrano una sintesi compatta e montano il modulo soltanto quando Massimo sceglie di aggiornare le credenziali; nome utente e identità fiscale vengono ripristinati dal dato cifrato, mentre la password non viene mai restituita.
