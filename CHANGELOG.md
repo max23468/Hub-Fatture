@@ -2,7 +2,7 @@
 
 ## 0.3.89
 
-- La lettura Aruba coordina in PostgreSQL un limite prudenziale complessivo fra processi e istanze, include le autenticazioni e applica a ogni `429` una pausa di sicurezza condivisa di 65 minuti, evitando raffiche causate da worker duplicati, riavvii o configurazioni concorrenti della VPS.
+- La lettura Aruba coordina in PostgreSQL limiti prudenti e separati per inventario e notifiche fra processi e istanze; le autenticazioni restano serializzate e ogni `429` applica una pausa di sicurezza condivisa di 65 minuti, evitando raffiche causate da worker duplicati, riavvii o configurazioni concorrenti della VPS senza confondere i Tier di invio con le API di lettura.
 - Le Impostazioni mostrano l’avanzamento del backfill dai checkpoint consolidati, con finestre residue e stima indicativa, e distinguono gli errori operativi attuali da quelli storici già superati.
 - Il dossier di parità espone copertura, assenze e divergenze nei due versi; i gate di recovery verificano con dati sintetici che backup e ripristino preservino credenziale cifrata e checkpoint. L’autorità resta al browser e questa release non abilita upload o invii Aruba.
 

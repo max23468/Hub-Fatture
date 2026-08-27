@@ -2,7 +2,6 @@ export const ARUBA_API_POLICY = Object.freeze({
   authenticationIntervalMs: 60_100,
   invoiceReadIntervalMs: 6_100,
   notificationReadIntervalMs: 6_100,
-  globalProviderIntervalMs: 65_500,
   providerCooldownMs: 65 * 60_000,
   requestLimitPerRun: 10_000,
   backfillWindowMs: 48 * 60 * 60_000,

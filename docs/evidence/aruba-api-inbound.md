@@ -17,10 +17,10 @@ Il manifesto comprende soltanto:
 - un solo backfill shadow, con checkpoint dopo ogni pagina e tetto fail-closed di 10.000 richieste
   provider complessive nel giro; la verifica iniziale della credenziale usa una sola sequenza di
   autenticazione, pari a due richieste HTTPS;
-- limiti applicativi più prudenti del contratto Aruba: una autenticazione ogni 60,1 secondi, una
-  lettura inventario o notifiche ogni 6,1 secondi e non più di 54 richieste provider complessive
-  all’ora, autenticazione inclusa. Il tetto globale conserva margine anche rispetto al tier minimo
-  Aruba da 60 richieste/ora;
+- limiti applicativi più prudenti del contratto Aruba: una autenticazione ogni 60,1 secondi e una
+  lettura inventario o notifiche ogni 6,1 secondi. I due bucket di ricerca restano separati come gli
+  SLA da 12 richieste al minuto documentati da Aruba; i Tier di invio non vengono applicati alle
+  letture, perché il relativo contatore cresce soltanto per fatture trasmesse con successo;
 - prenotazione degli slot in PostgreSQL, condivisa fra processi e istanze: riavvii, worker doppi e
   configurazioni concorrenti della VPS non azzerano o moltiplicano il rate limit;
 - cooldown fail-closed di 65 minuti dopo ogni risposta `429`, condiviso fra tutti i worker. I retry

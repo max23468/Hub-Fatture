@@ -925,7 +925,6 @@ function ArubaApiSettingsCard({
             {copy.settings.arubaApiLimitValue(
               api.limits.inventoryRequestsPerMinute,
               api.limits.notificationRequestsPerMinute,
-              api.limits.totalProviderRequestsPerHour,
             )}
             {api.limits.cooldownUntil ? (
               <small className="aruba-api-limit-warning">

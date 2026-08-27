@@ -17,6 +17,33 @@ test("un 429 Aruba coordina il cooldown e impedisce retry ravvicinati", async ()
     await runMigrations({ connectionString: database.connectionString });
     const traffic = await import("./aruba-api-traffic.server.ts");
     const connectors = await import("./connectors.server.ts");
+    const reservationStartedAt = Date.now();
+    await Promise.all([
+      traffic.waitForArubaApiReadSlot("DEMO", "INVOICE_READ"),
+      traffic.waitForArubaApiReadSlot("DEMO", "NOTIFICATION_READ"),
+    ]);
+    const reservations = await getPool().query<{
+      scope: string;
+      reserved_request_count: string;
+      delay_ms: number;
+    }>(
+      `SELECT scope, reserved_request_count,
+              extract(epoch FROM (next_allowed_at - to_timestamp($1 / 1000.0)))::double precision
+                * 1000 AS delay_ms
+       FROM aruba_api_traffic_limits ORDER BY scope`,
+      [reservationStartedAt],
+    );
+    assert.deepEqual(
+      reservations.rows.map((row) => ({
+        scope: row.scope,
+        reservedRequestCount: Number(row.reserved_request_count),
+        hasSafetyMargin: row.delay_ms >= 6_000 && row.delay_ms <= 7_000,
+      })),
+      [
+        { scope: "INVOICE_READ", reservedRequestCount: 1, hasSafetyMargin: true },
+        { scope: "NOTIFICATION_READ", reservedRequestCount: 1, hasSafetyMargin: true },
+      ],
+    );
     await traffic.recordArubaApiRateLimited("DEMO");
     await assert.rejects(
       traffic.assertArubaApiCooldownInactive("DEMO"),

@@ -230,7 +230,6 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         )
       ).rows,
       [
-        { scope: "GLOBAL_PROVIDER", cooling_down: true, rate_limited_count: 1 },
         { scope: "INVOICE_READ", cooling_down: true, rate_limited_count: 1 },
         { scope: "NOTIFICATION_READ", cooling_down: true, rate_limited_count: 1 },
       ],

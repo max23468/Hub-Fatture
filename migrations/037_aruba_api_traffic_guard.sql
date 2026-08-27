@@ -1,6 +1,6 @@
 CREATE TABLE aruba_api_traffic_limits (
   api_environment text NOT NULL CHECK (api_environment IN ('DEMO', 'PRODUCTION')),
-  scope text NOT NULL CHECK (scope IN ('GLOBAL_PROVIDER', 'INVOICE_READ', 'NOTIFICATION_READ')),
+  scope text NOT NULL CHECK (scope IN ('INVOICE_READ', 'NOTIFICATION_READ')),
   next_allowed_at timestamptz NOT NULL DEFAULT now(),
   cooldown_until timestamptz,
   last_rate_limited_at timestamptz,

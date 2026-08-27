@@ -84,8 +84,8 @@ export const arubaSettingsCopy = {
   },
   arubaApiCheckpoint: "Checkpoint",
   arubaApiLimits: "Limiti di lettura API",
-  arubaApiLimitValue: (inventory: number, notifications: number, total: number) =>
-    `${inventory}/min inventario · ${notifications}/min notifiche · ${total}/ora complessive`,
+  arubaApiLimitValue: (inventory: number, notifications: number) =>
+    `${inventory}/min inventario · ${notifications}/min notifiche`,
   arubaApiRunKinds: {
     BACKFILL: "Backfill",
     INCREMENTAL: "Incrementale",

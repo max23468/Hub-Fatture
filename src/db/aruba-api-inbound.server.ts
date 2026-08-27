@@ -29,7 +29,6 @@ import {
   assertArubaApiCooldownInactive,
   getArubaApiTrafficStatus,
   recordArubaApiRateLimited,
-  waitForArubaApiAuthenticationTrafficSlot,
   waitForArubaApiReadSlot,
 } from "./aruba-api-traffic.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
@@ -173,7 +172,6 @@ async function reserveArubaApiAuthentication(environment: ArubaApiEnvironment) {
       "DELETE FROM aruba_api_auth_attempts WHERE attempted_at < now() - interval '1 day'",
     );
   });
-  await waitForArubaApiAuthenticationTrafficSlot(environment);
 }
 
 async function arubaProviderCall<T>(environment: ArubaApiEnvironment, call: () => Promise<T>) {
@@ -229,9 +227,6 @@ export async function getArubaApiConnectionStatus() {
         inventoryRequestsPerMinute: Math.floor(60_000 / ARUBA_API_POLICY.invoiceReadIntervalMs),
         notificationRequestsPerMinute: Math.floor(
           60_000 / ARUBA_API_POLICY.notificationReadIntervalMs,
-        ),
-        totalProviderRequestsPerHour: Math.floor(
-          3_600_000 / ARUBA_API_POLICY.globalProviderIntervalMs,
         ),
         providerInventoryRequestsPerMinute:
           ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
@@ -305,9 +300,6 @@ export async function getArubaApiConnectionStatus() {
       inventoryRequestsPerMinute: Math.floor(60_000 / ARUBA_API_POLICY.invoiceReadIntervalMs),
       notificationRequestsPerMinute: Math.floor(
         60_000 / ARUBA_API_POLICY.notificationReadIntervalMs,
-      ),
-      totalProviderRequestsPerHour: Math.floor(
-        3_600_000 / ARUBA_API_POLICY.globalProviderIntervalMs,
       ),
       providerInventoryRequestsPerMinute:
         ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
