@@ -768,28 +768,30 @@ function ArubaApiSettingsCard({
         <p className="field-help">{copy.settings.arubaApiCodexHelp}</p>
       )}
       {api.configured && canApprove ? (
-        <Form method="post" className="settings-card-action">
+        <Form method="post" className="aruba-api-controls">
           <input type="hidden" name="csrf" value={csrfToken} />
           <input type="hidden" name="intent" value="controls-aruba-api" />
-          <label>
-            <input
-              defaultChecked={api.apiPaused}
-              name="arubaApiPaused"
-              type="checkbox"
-              value="true"
-            />
-            {copy.settings.arubaApiPauseControl}
-          </label>
+          <div className="aruba-api-controls__options">
+            <label className="aruba-api-toggle">
+              <input
+                defaultChecked={api.apiPaused}
+                name="arubaApiPaused"
+                type="checkbox"
+                value="true"
+              />
+              <span>{copy.settings.arubaApiPauseControl}</span>
+            </label>
+            <label className="aruba-api-toggle">
+              <input
+                defaultChecked={api.inboundEnabled}
+                name="arubaApiInboundEnabled"
+                type="checkbox"
+                value="true"
+              />
+              <span>{copy.settings.arubaApiInboundControl}</span>
+            </label>
+          </div>
           <input name="arubaApiPaused" type="hidden" value="false" />
-          <label>
-            <input
-              defaultChecked={api.inboundEnabled}
-              name="arubaApiInboundEnabled"
-              type="checkbox"
-              value="true"
-            />
-            {copy.settings.arubaApiInboundControl}
-          </label>
           <input name="arubaApiInboundEnabled" type="hidden" value="false" />
           <button className="button button--secondary" type="submit">
             {copy.settings.arubaApiSaveControls}
@@ -797,7 +799,7 @@ function ArubaApiSettingsCard({
         </Form>
       ) : null}
       {api.configured && api.inboundEnabled && !api.apiPaused ? (
-        <Form method="post" className="settings-card-action">
+        <Form method="post" className="aruba-api-sync-action">
           <input type="hidden" name="csrf" value={csrfToken} />
           <input type="hidden" name="intent" value="sync-aruba-api" />
           <button className="button" type="submit">
@@ -806,14 +808,14 @@ function ArubaApiSettingsCard({
         </Form>
       ) : null}
       {api.configured && canApprove ? (
-        <Form method="post" className="settings-card-action">
+        <Form method="post" className="aruba-api-revoke">
           <input type="hidden" name="csrf" value={csrfToken} />
           <input type="hidden" name="intent" value="revoke-aruba-api" />
-          <label>
+          <label className="aruba-api-toggle aruba-api-toggle--revoke">
             <input name="confirmRevoke" required type="checkbox" value="yes" />
-            {copy.settings.arubaApiRevokeConfirmation}
+            <span>{copy.settings.arubaApiRevokeConfirmation}</span>
           </label>
-          <button className="button button--secondary" type="submit">
+          <button className="button button--warning" type="submit">
             {copy.settings.arubaApiRevoke}
           </button>
         </Form>
@@ -902,119 +904,121 @@ function ArubaSettingsSection({
       {aruba.automaticForcedAssisted ? (
         <p className="warning">{copy.settings.arubaKillSwitch}</p>
       ) : null}
-      <ArubaApiSettingsCard
-        api={arubaApi}
-        canApprove={canApprove}
-        csrfToken={csrfToken}
-        errorFor={errorFor}
-        notice={arubaApiNotice}
-      />
-      <section className="aruba-sync-card" aria-labelledby="aruba-sync-status-title">
-        <div className="aruba-sync-card__status">
-          <span
-            className={`aruba-sync-card__icon aruba-sync-card__icon--${connectionState.toLowerCase()}`}
-          >
-            <ConnectionIcon aria-hidden="true" size={22} strokeWidth={1.8} />
-          </span>
-          <div>
-            <p className="aruba-sync-card__eyebrow">{copy.settings.arubaSyncTitle}</p>
-            <h3 id="aruba-sync-status-title">{connectionCopy.title}</h3>
-            <p>{connectionCopy.description}</p>
-            <p className="aruba-sync-card__updated">
-              {copy.settings.arubaLastUpdate(
-                inventory.lastCompletedAt
-                  ? dateTime(inventory.lastCompletedAt)
-                  : copy.settings.never,
-              )}
-            </p>
-          </div>
-        </div>
-        {canApprove ? (
-          <div className="aruba-sync-card__actions">
-            <a className="button" href={arubaPanelUrl} rel="noreferrer" target="_blank">
-              {copy.settings.arubaOpenPanel}
-            </a>
-          </div>
-        ) : (
-          <p className="field-help">{copy.settings.arubaSyncOwnerOnly}</p>
-        )}
-      </section>
-      {canApprove && arubaApi.automaticAuthority === "BROWSER" ? (
-        <section
-          className="settings-inset-card aruba-bookmarklet"
-          aria-labelledby="aruba-bookmarklet-title"
-        >
-          <header>
-            <h3 id="aruba-bookmarklet-title">{copy.settings.arubaBookmarkletTitle}</h3>
-            <p>{copy.settings.arubaBookmarkletHelp}</p>
-          </header>
-          <ol>
-            <li>
-              <div className="aruba-bookmarklet__step">
-                <div className="aruba-bookmarklet__copy">
-                  <strong>{copy.settings.arubaBookmarkletSaveTitle}</strong>
-                  <span>{copy.settings.arubaBookmarkletSaveHelp}</span>
-                </div>
-                <BookmarkletLink value={arubaBookmarkletUrl} />
-              </div>
-            </li>
-            <li>
-              <div className="aruba-bookmarklet__copy">
-                <strong>{copy.settings.arubaBookmarkletRunTitle}</strong>
-                <span>{copy.settings.arubaBookmarkletRunHelp}</span>
-              </div>
-            </li>
-          </ol>
-        </section>
-      ) : null}
-      <ArubaInventoryCard inventory={inventory} />
-      <ArubaConnectionDetails inventory={inventory} />
-      {canApprove && inventory.blocking ? (
-        <ArubaManualRecovery
+      <div className="aruba-settings-stack">
+        <ArubaApiSettingsCard
+          api={arubaApi}
+          canApprove={canApprove}
           csrfToken={csrfToken}
           errorFor={errorFor}
-          manualReadback={manualReadback}
+          notice={arubaApiNotice}
         />
-      ) : null}
-      {canApprove ? (
-        <section
-          className="settings-transmission-section"
-          aria-labelledby="aruba-transmission-title"
-        >
-          <header>
-            <h3 id="aruba-transmission-title">{copy.settings.arubaTransmissionTitle}</h3>
-            <p>{copy.settings.arubaTransmissionHelp}</p>
-          </header>
-          <SettingsForm
-            accessibleSubmitLabel={copy.settings.arubaSave}
-            className="settings-choice-card settings-choice-card--compact"
-            key={aruba.mode.version}
-            submitLabel={copy.settings.saveShort}
-          >
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="save-aruba" />
-            <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
-            <label className="settings-choice-card__field">
-              <span>{copy.settings.arubaMode}</span>
-              <SettingsSelect
-                data-initial={aruba.mode.value}
-                defaultValue={aruba.mode.value}
-                name="arubaMode"
-              >
-                <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
-                <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
-              </SettingsSelect>
-            </label>
-          </SettingsForm>
+        <section className="aruba-sync-card" aria-labelledby="aruba-sync-status-title">
+          <div className="aruba-sync-card__status">
+            <span
+              className={`aruba-sync-card__icon aruba-sync-card__icon--${connectionState.toLowerCase()}`}
+            >
+              <ConnectionIcon aria-hidden="true" size={22} strokeWidth={1.8} />
+            </span>
+            <div>
+              <p className="aruba-sync-card__eyebrow">{copy.settings.arubaSyncTitle}</p>
+              <h3 id="aruba-sync-status-title">{connectionCopy.title}</h3>
+              <p>{connectionCopy.description}</p>
+              <p className="aruba-sync-card__updated">
+                {copy.settings.arubaLastUpdate(
+                  inventory.lastCompletedAt
+                    ? dateTime(inventory.lastCompletedAt)
+                    : copy.settings.never,
+                )}
+              </p>
+            </div>
+          </div>
+          {canApprove ? (
+            <div className="aruba-sync-card__actions">
+              <a className="button" href={arubaPanelUrl} rel="noreferrer" target="_blank">
+                {copy.settings.arubaOpenPanel}
+              </a>
+            </div>
+          ) : (
+            <p className="field-help">{copy.settings.arubaSyncOwnerOnly}</p>
+          )}
         </section>
-      ) : (
-        <p>{copy.settings.arubaOwnerOnly}</p>
-      )}
-      {errorFor("save-aruba") ? (
-        <p className="error" role="alert">
-          {errorFor("save-aruba")}
-        </p>
-      ) : null}
+        {canApprove && arubaApi.automaticAuthority === "BROWSER" ? (
+          <section
+            className="settings-inset-card aruba-bookmarklet"
+            aria-labelledby="aruba-bookmarklet-title"
+          >
+            <header>
+              <h3 id="aruba-bookmarklet-title">{copy.settings.arubaBookmarkletTitle}</h3>
+              <p>{copy.settings.arubaBookmarkletHelp}</p>
+            </header>
+            <ol>
+              <li>
+                <div className="aruba-bookmarklet__step">
+                  <div className="aruba-bookmarklet__copy">
+                    <strong>{copy.settings.arubaBookmarkletSaveTitle}</strong>
+                    <span>{copy.settings.arubaBookmarkletSaveHelp}</span>
+                  </div>
+                  <BookmarkletLink value={arubaBookmarkletUrl} />
+                </div>
+              </li>
+              <li>
+                <div className="aruba-bookmarklet__copy">
+                  <strong>{copy.settings.arubaBookmarkletRunTitle}</strong>
+                  <span>{copy.settings.arubaBookmarkletRunHelp}</span>
+                </div>
+              </li>
+            </ol>
+          </section>
+        ) : null}
+        <ArubaInventoryCard inventory={inventory} />
+        <ArubaConnectionDetails inventory={inventory} />
+        {canApprove && inventory.blocking ? (
+          <ArubaManualRecovery
+            csrfToken={csrfToken}
+            errorFor={errorFor}
+            manualReadback={manualReadback}
+          />
+        ) : null}
+        {canApprove ? (
+          <section
+            className="settings-transmission-section"
+            aria-labelledby="aruba-transmission-title"
+          >
+            <header>
+              <h3 id="aruba-transmission-title">{copy.settings.arubaTransmissionTitle}</h3>
+              <p>{copy.settings.arubaTransmissionHelp}</p>
+            </header>
+            <SettingsForm
+              accessibleSubmitLabel={copy.settings.arubaSave}
+              className="settings-choice-card settings-choice-card--compact"
+              key={aruba.mode.version}
+              submitLabel={copy.settings.saveShort}
+            >
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="save-aruba" />
+              <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
+              <label className="settings-choice-card__field">
+                <span>{copy.settings.arubaMode}</span>
+                <SettingsSelect
+                  data-initial={aruba.mode.value}
+                  defaultValue={aruba.mode.value}
+                  name="arubaMode"
+                >
+                  <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
+                  <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
+                </SettingsSelect>
+              </label>
+            </SettingsForm>
+          </section>
+        ) : (
+          <p>{copy.settings.arubaOwnerOnly}</p>
+        )}
+        {errorFor("save-aruba") ? (
+          <p className="error" role="alert">
+            {errorFor("save-aruba")}
+          </p>
+        ) : null}
+      </div>
     </section>
   );
 }

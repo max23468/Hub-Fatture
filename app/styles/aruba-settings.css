@@ -1,14 +1,11 @@
-.settings-manual-readback {
-  margin-top: var(--space-4);
+.aruba-settings-stack {
+  display: grid;
+  gap: var(--space-6);
 }
 
 .aruba-api-card {
   display: grid;
   gap: var(--space-6);
-}
-
-.aruba-api-card + .aruba-sync-card {
-  margin-top: var(--space-6);
 }
 
 .aruba-api-card > header,
@@ -43,6 +40,7 @@
 }
 
 .aruba-api-credentials-form {
+  align-items: start;
   gap: var(--space-6);
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-6);
@@ -76,10 +74,77 @@
   grid-column: auto;
 }
 
+.aruba-api-controls,
+.aruba-api-sync-action,
+.aruba-api-revoke {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-6);
+}
+
+.aruba-api-controls {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-4);
+}
+
+.aruba-api-controls__options {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.aruba-api-toggle {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface-muted) 55%, var(--color-surface));
+  padding: var(--space-3);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.aruba-api-toggle input[type="checkbox"] {
+  width: 1.125rem;
+  height: 1.125rem;
+  min-height: 0;
+  flex: 0 0 auto;
+  margin: 0.125rem 0 0;
+  padding: 0;
+  accent-color: var(--color-primary);
+}
+
+.aruba-api-controls .button,
+.aruba-api-sync-action .button,
+.aruba-api-revoke .button {
+  width: auto;
+  justify-self: start;
+}
+
+.aruba-api-sync-action {
+  justify-items: start;
+}
+
+.aruba-api-revoke {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.aruba-api-toggle--revoke {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
 .aruba-bookmarklet {
   display: grid;
   gap: var(--space-4);
-  margin-top: var(--space-4);
 }
 
 .aruba-bookmarklet header,
@@ -211,10 +276,6 @@
   gap: var(--space-2);
 }
 
-.aruba-inventory-card {
-  margin-top: var(--space-4);
-}
-
 .aruba-inventory-card > header {
   display: flex;
   align-items: center;
@@ -254,7 +315,6 @@
 }
 
 .settings-disclosure {
-  margin-top: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--color-surface-muted) 45%, var(--color-surface));
@@ -275,7 +335,6 @@
 }
 
 .settings-transmission-section {
-  margin-top: var(--space-6);
   max-width: 46rem;
 }
 
@@ -320,6 +379,22 @@
   }
 
   .aruba-api-credentials-form__actions .button {
+    width: 100%;
+  }
+
+  .aruba-api-controls,
+  .aruba-api-revoke {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .aruba-api-controls__options {
+    grid-template-columns: 1fr;
+  }
+
+  .aruba-api-controls .button,
+  .aruba-api-sync-action .button,
+  .aruba-api-revoke .button {
     width: 100%;
   }
 
