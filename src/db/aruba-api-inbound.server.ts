@@ -740,6 +740,17 @@ async function persistShadowPage(
   page: number,
   terminal: boolean,
 ) {
+  const uniqueFiles = new Map(
+    documents.flatMap((document) =>
+      document.files.map(
+        (file) => [`${file.providerGroupId}:${file.kind}:${file.sha256}`, file] as const,
+      ),
+    ),
+  );
+  const fileCount = uniqueFiles.size;
+  const notificationCount = [...uniqueFiles.values()].filter(
+    (file) => file.kind === "SDI_NOTIFICATION",
+  ).length;
   return withTransaction(async (client) => {
     const locked = await client.query<ArubaSyncRunRow>(
       `SELECT * FROM aruba_sync_runs WHERE id = $1 AND status = 'RUNNING' FOR UPDATE`,
@@ -822,10 +833,11 @@ async function persistShadowPage(
     await client.query(
       `UPDATE aruba_sync_runs SET page_count = page_count + 1,
          group_count = group_count + $2, document_count = document_count + $3,
-         checkpoint_page = CASE WHEN $4 THEN 1 ELSE $5 END,
+         file_count = file_count + $4, notification_count = notification_count + $5,
+         checkpoint_page = CASE WHEN $6 THEN 1 ELSE $7 END,
          lease_expires_at = now() + interval '3 minutes'
        WHERE id = $1`,
-      [run.id, groupCount, documents.length, terminal, page + 1],
+      [run.id, groupCount, documents.length, fileCount, notificationCount, terminal, page + 1],
     );
     return { repeated: false };
   });

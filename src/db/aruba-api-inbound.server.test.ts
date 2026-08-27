@@ -82,7 +82,22 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         });
       }
       if (url.pathname === "/api/v2/invoices-out/notifications") {
-        return response({ count: 0, notifications: [] });
+        const groupId = url.searchParams.get("id");
+        return response({
+          count: 1,
+          notifications: [
+            {
+              date: "2019-01-01T02:32:00.000Z",
+              docType: "RC",
+              filename: "IT00000000000_TARGET_RC.xml",
+              invoiceId: groupId,
+              notificationDate: "",
+              number: "FPR-TARGET-1",
+              result: null,
+              file: Buffer.from("notifica sintetica").toString("base64"),
+            },
+          ],
+        });
       }
       assert.equal(url.pathname, "/api/v2/invoices-out");
       const pause = pauseAfterSearch;
@@ -364,6 +379,16 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     assert.equal(targeted.documents, 1);
     assert.deepEqual(targetedGroupRequests, ["gruppo-shadow-aperto"]);
     assert.equal(await jobs.completeJob(targetedJob!, targeted), true);
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT document_count, file_count, notification_count
+           FROM aruba_sync_runs WHERE kind = 'TARGETED'
+           ORDER BY started_at DESC LIMIT 1`,
+        )
+      ).rows[0],
+      { document_count: 1, file_count: 2, notification_count: 1 },
+    );
     await assert.rejects(
       getPool().query(
         "UPDATE connections SET automatic_authority = 'API' WHERE provider = 'ARUBA'",

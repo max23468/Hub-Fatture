@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.86
+
+- Il backfill API Aruba usa la data principale quando una notifica storica restituisce `notificationDate` vuota e aggiorna in modo deduplicato i contatori di file e notifiche realmente osservati nel giro shadow.
+
 ## 0.3.85
 
 - Il backfill API Aruba accetta il `channelGroup` nullo restituito dai dettagli storici Production, mantenendo il rifiuto di tipi diversi e proseguendo l’acquisizione read-only di XML, PDF e notifiche.
