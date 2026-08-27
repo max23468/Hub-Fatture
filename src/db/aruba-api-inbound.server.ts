@@ -489,7 +489,8 @@ async function runMayContinue(run: ArubaSyncRunRow): Promise<boolean> {
   );
   if (active.rows[0]) return true;
   await getPool().query(
-    `UPDATE aruba_sync_runs SET lease_expires_at = now()
+    `UPDATE aruba_sync_runs SET status = 'CANCELLED', completed_at = now(),
+       lease_expires_at = now()
      WHERE id = $1 AND status = 'RUNNING'`,
     [run.id],
   );
@@ -1153,16 +1154,19 @@ export async function switchArubaInboundAuthorityToApi(actor: ArubaApiActor) {
     ) {
       throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
     }
-    const dossier = await client.query<{ id: string }>(
-      `SELECT dossiers.id FROM aruba_inbound_parity_dossiers AS dossiers
+    const dossier = await client.query<{ id: string; status: string }>(
+      `SELECT dossiers.id, dossiers.status
+       FROM aruba_inbound_parity_dossiers AS dossiers
        JOIN aruba_sync_runs AS runs ON runs.id = dossiers.sync_run_id
        WHERE dossiers.environment = $1 AND dossiers.account_reference = $2
-         AND dossiers.status = 'MATCHED' AND runs.status = 'COMPLETED'
+         AND runs.status = 'COMPLETED'
          AND runs.authority_mode = 'SHADOW' AND runs.kind IN ('BACKFILL', 'FULL')
        ORDER BY dossiers.created_at DESC LIMIT 1 FOR UPDATE OF dossiers`,
       [inventoryEnvironment(), current.account_reference],
     );
-    if (!dossier.rows[0]) throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
+    if (!dossier.rows[0] || dossier.rows[0].status !== "MATCHED") {
+      throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
+    }
     const activeApiWork = await client.query(
       `SELECT 1 FROM aruba_sync_runs
        WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'

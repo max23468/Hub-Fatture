@@ -14,6 +14,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
   const database = await temporaryDatabase("aruba_api_inbound");
   const originalFetch = globalThis.fetch;
   let pageTwoAttempts = 0;
+  let pauseAfterSearch: (() => Promise<void>) | null = null;
   process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
   process.env.APP_BASE_URL = "http://localhost:8080";
   process.env.APP_ENV = "test";
@@ -36,6 +37,9 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         });
       }
       assert.equal(url.pathname, "/api/v2/invoices-out");
+      const pause = pauseAfterSearch;
+      pauseAfterSearch = null;
+      if (pause) await pause();
       const page = Number(url.searchParams.get("page"));
       if (page === 2 && pageTwoAttempts++ === 0) {
         return new Response(null, { status: 429 });
@@ -211,6 +215,79 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows,
       [{ status: "MATCHED", api_documents: 0, browser_documents: 0 }],
     );
+    const pausedRequest = await api.requestArubaApiSync(owner);
+    assert.equal(pausedRequest.queued, true);
+    await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [pausedRequest.jobId]);
+    const pausedJob = await jobs.claimJob("aruba-api-paused-worker");
+    assert.equal(pausedJob?.type, "aruba_sync_inventory");
+    pauseAfterSearch = async () => {
+      await api.setArubaApiControls({ apiPaused: true, inboundEnabled: true }, owner);
+    };
+    const stopped = await api.runArubaApiInboundJob(pausedJob!, {
+      rateDelayMs: 0,
+      now: new Date("2019-01-01T02:00:00.000Z"),
+    });
+    assert.equal(stopped.stopped, true);
+    assert.equal(await jobs.completeJob(pausedJob!, stopped), true);
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT status FROM aruba_sync_runs
+           WHERE kind = 'INCREMENTAL' ORDER BY started_at DESC LIMIT 1`,
+        )
+      ).rows[0].status,
+      "CANCELLED",
+    );
+    await api.setArubaApiControls({ apiPaused: false, inboundEnabled: true }, owner);
+    const resumedRequest = await api.requestArubaApiSync(owner);
+    assert.equal(resumedRequest.queued, true);
+    await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [resumedRequest.jobId]);
+    const resumedJob = await jobs.claimJob("aruba-api-resumed-worker");
+    assert.equal(resumedJob?.type, "aruba_sync_inventory");
+    const resumed = await api.runArubaApiInboundJob(resumedJob!, {
+      rateDelayMs: 0,
+      now: new Date("2019-01-01T03:00:00.000Z"),
+    });
+    assert.equal(resumed.stopped, undefined);
+    assert.equal(await jobs.completeJob(resumedJob!, resumed), true);
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT status FROM aruba_sync_runs
+           WHERE kind = 'INCREMENTAL' ORDER BY started_at DESC LIMIT 1`,
+        )
+      ).rows[0].status,
+      "COMPLETED",
+    );
+    const divergentRunId = "20000000-0000-4000-8000-000000000001";
+    const divergentDossierId = "30000000-0000-4000-8000-000000000001";
+    await getPool().query(
+      `INSERT INTO aruba_sync_runs
+         (id, environment, api_environment, account_reference, kind, authority_mode,
+          status, window_start, window_end, checkpoint_start, checkpoint_end,
+          lease_expires_at, completed_at)
+       VALUES ($1, 'MOCK', 'DEMO', 'synthetic-aruba-account', 'FULL', 'SHADOW',
+         'COMPLETED', '2019-01-01T00:00:00Z', '2019-01-02T00:00:00Z',
+         '2019-01-01T00:00:00Z', '2019-01-02T00:00:00Z', now(), now())`,
+      [divergentRunId],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_inbound_parity_dossiers
+         (id, sync_run_id, environment, account_reference, status, api_documents,
+          browser_documents, matched_documents, missing_in_api, missing_in_browser,
+          status_mismatches, file_mismatches, summary_json, created_at)
+       VALUES ($1, $2, 'MOCK', 'synthetic-aruba-account', 'DIVERGENT',
+         1, 1, 0, 0, 0, 1, 0, '{}'::jsonb, now() + interval '1 minute')`,
+      [divergentDossierId, divergentRunId],
+    );
+    await assert.rejects(
+      api.switchArubaInboundAuthorityToApi(owner),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_INCOMPLETE",
+    );
+    await getPool().query("DELETE FROM aruba_inbound_parity_dossiers WHERE id = $1", [
+      divergentDossierId,
+    ]);
+    await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [divergentRunId]);
     assert.equal(
       (await getPool().query("SELECT count(*)::int AS count FROM aruba_remote_documents")).rows[0]
         .count,
