@@ -15,6 +15,13 @@ import {
 } from "../../src/db/auth.server.ts";
 import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts";
 import {
+  getArubaApiConnectionStatus,
+  requestArubaApiSync,
+  revokeArubaApiCredentials,
+  saveArubaApiCredentials,
+  setArubaApiControls,
+} from "../../src/db/aruba-api-inbound.server.ts";
+import {
   addArubaManualReadbackPages,
   createArubaManualReadback,
   finalizeArubaManualReadback,
@@ -62,6 +69,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     fiscalProfile,
     system,
     arubaInventory,
+    arubaApi,
   ] = await Promise.all([
     getAccountProfile(request, user),
     getDraftTrigger(),
@@ -73,6 +81,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     getFiscalProfileSettings(),
     getSystemStatus(),
     getArubaInventoryHealth(),
+    getArubaApiConnectionStatus(),
   ]);
   return {
     username: user.username,
@@ -93,6 +102,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     environment: config.APP_ENV,
     system,
     arubaInventory,
+    arubaApi,
+    arubaApiNotice: url.searchParams.get("aruba-api"),
     arubaPanelUrl,
     arubaBookmarkletUrl: buildArubaBookmarklet({
       hubOrigin: new URL(config.APP_BASE_URL).origin,
@@ -175,6 +186,47 @@ export async function action({ request }: Route.ActionArgs) {
         { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
       );
       return redirect("/impostazioni?aruba=salvata#aruba-helper");
+    }
+    if (intent === "save-aruba-api" || intent === "rotate-aruba-api") {
+      await saveArubaApiCredentials(
+        {
+          apiEnvironment: getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEMO",
+          username: form.get("arubaApiUsername"),
+          password: form.get("arubaApiPassword"),
+          expectedTaxId: form.get("arubaApiExpectedTaxId"),
+        },
+        { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
+      );
+      return redirect("/impostazioni?aruba-api=credenziale#aruba-api");
+    }
+    if (intent === "revoke-aruba-api") {
+      if (form.get("confirmRevoke") !== "yes") {
+        throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+      }
+      await revokeArubaApiCredentials({
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return redirect("/impostazioni?aruba-api=revocata#aruba-api");
+    }
+    if (intent === "controls-aruba-api") {
+      await setArubaApiControls(
+        {
+          apiPaused: form.get("arubaApiPaused") ?? "false",
+          inboundEnabled: form.get("arubaApiInboundEnabled") ?? "false",
+        },
+        { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
+      );
+      return redirect("/impostazioni?aruba-api=controlli#aruba-api");
+    }
+    if (intent === "sync-aruba-api") {
+      await requestArubaApiSync({
+        id: user.id,
+        canApprove: user.canApprove,
+        requestId: requestId(request),
+      });
+      return redirect("/impostazioni?aruba-api=sincronizzazione#aruba-api");
     }
     if (intent === "create-aruba-manual-readback") {
       const manualReadback = await createArubaManualReadback({

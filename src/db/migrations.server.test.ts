@@ -45,11 +45,13 @@ const SHOPIFY_SHIPPING_IDENTITY_REPLAY = "031_shopify_shipping_identity_replay.s
 const REMOVE_ARUBA_SEND_PERMITS = "032_remove_aruba_send_permits.sql";
 const SUPPORT_SAFARI_ARUBA_READ_SYNC = "033_support_safari_aruba_read_sync.sql";
 const ARUBA_STATUS_MAPPER_VERSION = "034_aruba_status_mapper_version.sql";
+const ARUBA_API_INBOUND = "035_aruba_api_inbound.sql";
 
 async function copyMigrationSnapshot(directory: string) {
   await cp("migrations", directory, { recursive: true });
   await rm(path.join(directory, SUPPORT_SAFARI_ARUBA_READ_SYNC));
   await rm(path.join(directory, ARUBA_STATUS_MAPPER_VERSION));
+  await rm(path.join(directory, ARUBA_API_INBOUND));
 }
 
 test("la migrazione rimuove i permessi Aruba e conserva lo stato pronto", async () => {
@@ -86,6 +88,7 @@ test("la migrazione rimuove i permessi Aruba e conserva lo stato pronto", async 
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -143,6 +146,7 @@ test("la migrazione clienti elimina soltanto i profili privi di collegamenti", a
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -230,6 +234,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -296,6 +301,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       const jobs = await client.query(
@@ -390,6 +396,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -491,6 +498,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -614,6 +622,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -707,6 +716,7 @@ test("l'upgrade rilegge il mapper Shopify senza riavvolgere eBay", async () => {
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -816,6 +826,7 @@ test("l'upgrade rilegge soltanto gli ordini eBay già importati", async () => {
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -905,6 +916,7 @@ test("l'upgrade non crea un cursore eBay senza ordini eBay", async () => {
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -991,6 +1003,7 @@ test("l'upgrade elimina soltanto i duplicati sintetici dei rimborsi eBay", async
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -1044,6 +1057,7 @@ test("l'upgrade elimina la configurazione obsoleta della protezione per upload A
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1096,12 +1110,13 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     assert.equal(
       (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-      "34",
+      "35",
     );
     assert.equal(
       (
@@ -1262,6 +1277,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -1374,6 +1390,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1569,6 +1586,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       REMOVE_ARUBA_SEND_PERMITS,
       SUPPORT_SAFARI_ARUBA_READ_SYNC,
       ARUBA_STATUS_MAPPER_VERSION,
+      ARUBA_API_INBOUND,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

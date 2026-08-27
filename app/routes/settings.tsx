@@ -27,6 +27,7 @@ import { dateTime } from "../format";
 import { privateRouteMeta } from "../metadata";
 import type { getAccountProfile } from "../../src/db/auth.server.ts";
 import type { getArubaSettings } from "../../src/db/aruba.server.ts";
+import type { getArubaApiConnectionStatus } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
 import { defaultHistoricalStartDate } from "../../src/orders.ts";
@@ -563,6 +564,201 @@ function ArubaManualRecovery({
   );
 }
 
+function ArubaApiSettingsCard({
+  api,
+  notice,
+  canApprove,
+  csrfToken,
+  errorFor,
+}: {
+  api: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
+  notice: string | null;
+  canApprove: boolean;
+  csrfToken: string;
+  errorFor: ErrorFor;
+}) {
+  const apiError = errorFor(
+    "save-aruba-api",
+    "rotate-aruba-api",
+    "revoke-aruba-api",
+    "controls-aruba-api",
+    "sync-aruba-api",
+  );
+  return (
+    <section className="settings-inset-card" id="aruba-api" aria-labelledby="aruba-api-title">
+      <header>
+        <h3 id="aruba-api-title">{copy.settings.arubaApiTitle}</h3>
+        <p>{copy.settings.arubaApiHelp}</p>
+      </header>
+      {notice ? (
+        <p className="notice" role="status">
+          {copy.settings.arubaApiSavedNotice}
+        </p>
+      ) : null}
+      <dl className="settings-facts-grid settings-facts-grid--three">
+        <div>
+          <dt>{copy.settings.arubaApiStatus}</dt>
+          <dd>
+            {api.configured
+              ? api.apiPaused
+                ? copy.settings.arubaApiPaused
+                : api.status === "CONNECTED"
+                  ? copy.settings.arubaApiRunning
+                  : api.status === "REAUTH_REQUIRED"
+                    ? copy.settings.arubaApiAttention
+                    : copy.settings.arubaApiBlocked
+              : copy.settings.arubaApiNotConfigured}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiIdentityVerified}</dt>
+          <dd>
+            {api.credentialsVerifiedAt ? dateTime(api.credentialsVerifiedAt) : copy.settings.never}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiAuthority}</dt>
+          <dd>
+            {api.automaticAuthority === "API"
+              ? copy.settings.arubaApiAuthorityApi
+              : copy.settings.arubaApiAuthorityBrowser}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiParity}</dt>
+          <dd>
+            {api.parity
+              ? copy.settings.arubaApiParityLabels[api.parity.status]
+              : copy.settings.arubaApiNoParity}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiLatestRun}</dt>
+          <dd>
+            {api.latestRun
+              ? `${copy.settings.arubaApiRunKinds[api.latestRun.kind]} · ${copy.settings.arubaApiRunStatuses[api.latestRun.status]} · ${copy.settings.arubaApiRunCounts(api.latestRun.documents, api.latestRun.files, api.latestRun.notifications)} · ${copy.settings.arubaApiRunRequests(api.latestRun.requests, api.latestRun.requestLimit)}`
+              : copy.settings.never}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiBackfill}</dt>
+          <dd>
+            {api.lastFullSyncAt
+              ? copy.settings.arubaApiBackfillComplete
+              : copy.settings.arubaApiBackfillPending}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiCheckpoint}</dt>
+          <dd>
+            {api.latestRun
+              ? copy.settings.arubaApiCheckpointValue(
+                  dateTime(api.latestRun.checkpointEnd),
+                  api.latestRun.checkpointPage,
+                )
+              : copy.settings.never}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiLimits}</dt>
+          <dd>
+            {copy.settings.arubaApiLimitValue(
+              api.limits.inventoryRequestsPerMinute,
+              api.limits.notificationRequestsPerMinute,
+            )}
+          </dd>
+        </div>
+      </dl>
+      {canApprove ? (
+        <Form method="post" className="security-form">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input
+            type="hidden"
+            name="intent"
+            value={api.configured ? "rotate-aruba-api" : "save-aruba-api"}
+          />
+          <label>
+            {copy.settings.arubaApiUsername}
+            <input autoComplete="username" name="arubaApiUsername" required type="text" />
+          </label>
+          <label>
+            {copy.settings.arubaApiPassword}
+            <input autoComplete="new-password" name="arubaApiPassword" required type="password" />
+          </label>
+          <label>
+            {copy.settings.arubaApiExpectedTaxId}
+            <input autoComplete="off" name="arubaApiExpectedTaxId" required type="text" />
+          </label>
+          <p className="field-help">{copy.settings.arubaApiSecretHelp}</p>
+          <button className="button button--secondary" type="submit">
+            {api.configured
+              ? copy.settings.arubaApiRotateCredentials
+              : copy.settings.arubaApiSaveCredentials}
+          </button>
+        </Form>
+      ) : (
+        <p className="field-help">{copy.settings.arubaApiCodexHelp}</p>
+      )}
+      {api.configured && canApprove ? (
+        <Form method="post" className="settings-card-action">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="controls-aruba-api" />
+          <label>
+            <input
+              defaultChecked={api.apiPaused}
+              name="arubaApiPaused"
+              type="checkbox"
+              value="true"
+            />
+            {copy.settings.arubaApiPauseControl}
+          </label>
+          <input name="arubaApiPaused" type="hidden" value="false" />
+          <label>
+            <input
+              defaultChecked={api.inboundEnabled}
+              name="arubaApiInboundEnabled"
+              type="checkbox"
+              value="true"
+            />
+            {copy.settings.arubaApiInboundControl}
+          </label>
+          <input name="arubaApiInboundEnabled" type="hidden" value="false" />
+          <button className="button button--secondary" type="submit">
+            {copy.settings.arubaApiSaveControls}
+          </button>
+        </Form>
+      ) : null}
+      {api.configured && api.inboundEnabled && !api.apiPaused ? (
+        <Form method="post" className="settings-card-action">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="sync-aruba-api" />
+          <button className="button" type="submit">
+            {copy.settings.arubaApiSyncNow}
+          </button>
+        </Form>
+      ) : null}
+      {api.configured && canApprove ? (
+        <Form method="post" className="settings-card-action">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="revoke-aruba-api" />
+          <label>
+            <input name="confirmRevoke" required type="checkbox" value="yes" />
+            {copy.settings.arubaApiRevokeConfirmation}
+          </label>
+          <button className="button button--secondary" type="submit">
+            {copy.settings.arubaApiRevoke}
+          </button>
+        </Form>
+      ) : null}
+      {apiError ? (
+        <p className="error" role="alert">
+          {apiError}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function ArubaSettingsSection({
   aruba,
   arubaSaved,
@@ -574,6 +770,8 @@ function ArubaSettingsSection({
   canApprove,
   csrfToken,
   errorFor,
+  arubaApi,
+  arubaApiNotice,
 }: {
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
   arubaSaved: boolean;
@@ -585,6 +783,8 @@ function ArubaSettingsSection({
   canApprove: boolean;
   csrfToken: string;
   errorFor: ErrorFor;
+  arubaApi: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
+  arubaApiNotice: string | null;
 }) {
   const connectionState = inventory.activeSession
     ? "ACTIVE"
@@ -634,6 +834,13 @@ function ArubaSettingsSection({
       {aruba.automaticForcedAssisted ? (
         <p className="warning">{copy.settings.arubaKillSwitch}</p>
       ) : null}
+      <ArubaApiSettingsCard
+        api={arubaApi}
+        canApprove={canApprove}
+        csrfToken={csrfToken}
+        errorFor={errorFor}
+        notice={arubaApiNotice}
+      />
       <section className="aruba-sync-card" aria-labelledby="aruba-sync-status-title">
         <div className="aruba-sync-card__status">
           <span
@@ -647,8 +854,8 @@ function ArubaSettingsSection({
             <p>{connectionCopy.description}</p>
             <p className="aruba-sync-card__updated">
               {copy.settings.arubaLastUpdate(
-                aruba.helper.lastReadbackAt
-                  ? dateTime(aruba.helper.lastReadbackAt)
+                inventory.lastCompletedAt
+                  ? dateTime(inventory.lastCompletedAt)
                   : copy.settings.never,
               )}
             </p>
@@ -664,7 +871,7 @@ function ArubaSettingsSection({
           <p className="field-help">{copy.settings.arubaSyncOwnerOnly}</p>
         )}
       </section>
-      {canApprove ? (
+      {canApprove && arubaApi.automaticAuthority === "BROWSER" ? (
         <section
           className="settings-inset-card aruba-bookmarklet"
           aria-labelledby="aruba-bookmarklet-title"
@@ -953,6 +1160,8 @@ export default function Settings() {
     aruba,
     arubaSaved,
     arubaInventory,
+    arubaApi,
+    arubaApiNotice,
     arubaPanelUrl,
     arubaBookmarkletUrl,
     arubaManualReadbackCompleted,
@@ -1084,6 +1293,8 @@ export default function Settings() {
 
           <ArubaSettingsSection
             aruba={aruba}
+            arubaApi={arubaApi}
+            arubaApiNotice={arubaApiNotice}
             arubaSaved={arubaSaved}
             inventory={arubaInventory}
             arubaPanelUrl={arubaPanelUrl}

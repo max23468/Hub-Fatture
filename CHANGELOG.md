@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.80
+
+- La connessione Aruba API verifica l’identità prima di cifrare la credenziale, parte in pausa e riserva a Massimo configurazione, rotazione, revoca e attivazione; Codex mantiene la sola lettura operativa e il comando “Sincronizza ora”. Il cambio dell’autorità non è esposto e richiederà una futura autorizzazione esplicita.
+- Il worker acquisisce in sola lettura lo storico del ciclo attivo con finestre da 48 ore, checkpoint per pagina, tetto fail-closed di 10.000 richieste per giro, limiti provider condivisi, ripresa dopo errori transitori, incrementale con sovrapposizione, rilettura dei non terminali e scansione completa mensile.
+- XML o P7M, PDF e notifiche vengono validati e confrontati per hash in giri shadow separati dall’inventario browser; nei gruppi multipli ogni notifica deve identificare una sola fattura tramite il numero provider. Il dossier richiede correlazione biunivoca e zero differenze di stato o file; una pausa terminalizza il giro attivo e l’esaurimento del budget crea una continuazione dallo stesso checkpoint.
+- Dashboard, Impostazioni e Attività espongono salute, avanzamento, checkpoint ed errori senza mostrare credenziali o dati Premium. Upload, dry-run e invio Aruba restano assenti e l’autorità browser non cambia con il deploy.
+
 ## 0.3.79
 
 - La pubblicazione avvia Production subito dopo il merge autorizzato e lascia al workflow l’attesa dei gate exact-SHA e dell’artefatto, eliminando conferme Environment duplicate senza trasformare ogni merge in un deploy automatico.

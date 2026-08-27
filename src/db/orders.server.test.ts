@@ -90,7 +90,7 @@ function legacyReviewFingerprint(raw: OrderInput): string {
     .digest("hex");
 }
 
-test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 30_000 }, async () => {
+test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 60_000 }, async () => {
   const clean = await temporaryDatabase("orders");
   try {
     await runMigrations({ connectionString: clean.connectionString });

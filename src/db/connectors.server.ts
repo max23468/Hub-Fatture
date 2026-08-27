@@ -16,13 +16,21 @@ export type JobType =
   | "ebay_sync_orders"
   | "ebay_preview_history"
   | "process_refund"
-  | "send_customer_email";
+  | "send_customer_email"
+  | "aruba_backfill_inventory"
+  | "aruba_sync_inventory"
+  | "aruba_refresh_nonterminal"
+  | "aruba_full_inventory";
 
 const manuallyRetryableJobTypes: JobType[] = [
   "shopify_sync_orders",
   "shopify_process_webhook",
   "ebay_sync_orders",
   "ebay_preview_history",
+  "aruba_backfill_inventory",
+  "aruba_sync_inventory",
+  "aruba_refresh_nonterminal",
+  "aruba_full_inventory",
 ];
 
 export interface ConnectorActor {
@@ -511,6 +519,54 @@ export async function scheduleDueSyncs() {
      ON CONFLICT DO NOTHING`,
       [activeEnvironment("SHOPIFY"), activeEnvironment("EBAY")],
     );
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:ARUBA'))");
+    await client.query(
+      `INSERT INTO jobs (type, run_at)
+       SELECT CASE
+         WHEN NOT EXISTS (
+           SELECT 1 FROM aruba_sync_runs
+           WHERE environment = CASE WHEN connections.environment = 'PRODUCTION'
+             THEN 'PRODUCTION' ELSE 'MOCK' END
+             AND account_reference = connections.account_reference
+             AND kind = 'BACKFILL' AND status = 'COMPLETED'
+         ) THEN 'aruba_backfill_inventory'
+         WHEN connections.last_full_sync_at IS NULL
+           OR connections.last_full_sync_at <= now() - interval '30 days'
+           THEN 'aruba_full_inventory'
+         WHEN EXISTS (
+           SELECT 1 FROM aruba_remote_documents
+           WHERE environment = CASE WHEN connections.environment = 'PRODUCTION'
+             THEN 'PRODUCTION' ELSE 'MOCK' END
+             AND account_reference = connections.account_reference
+             AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+         ) AND EXISTS (
+           SELECT 1 FROM aruba_api_latest_shadow_documents
+           WHERE environment = CASE WHEN connections.environment = 'PRODUCTION'
+             THEN 'PRODUCTION' ELSE 'MOCK' END
+             AND account_reference = connections.account_reference
+             AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+         ) AND NOT EXISTS (
+           SELECT 1 FROM jobs
+           WHERE type = 'aruba_refresh_nonterminal'
+             AND coalesce(completed_at, run_at) > now() - interval '15 minutes'
+         ) THEN 'aruba_refresh_nonterminal'
+         ELSE 'aruba_sync_inventory'
+       END,
+       greatest(now(), connections.credentials_verified_at + interval '61 seconds')
+       FROM connections
+       WHERE provider = 'ARUBA' AND environment = $1
+         AND status = 'CONNECTED' AND encrypted_credentials IS NOT NULL
+         AND credentials_verified_at IS NOT NULL
+         AND inbound_enabled AND NOT api_paused
+         AND NOT EXISTS (
+           SELECT 1 FROM jobs
+           WHERE type IN ('aruba_backfill_inventory', 'aruba_sync_inventory',
+             'aruba_refresh_nonterminal', 'aruba_full_inventory')
+             AND coalesce(completed_at, run_at) > now() - interval '15 minutes'
+         )
+       ON CONFLICT DO NOTHING`,
+      [getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT"],
+    );
   });
 }
 
@@ -618,6 +674,16 @@ export async function completeJob(job: ClaimedJob, result: Record<string, unknow
         [provider, activeEnvironment(provider)],
       );
     }
+    if (job.type.startsWith("aruba_") && result.stopped !== true) {
+      await client.query(
+        `UPDATE connections SET status = CASE WHEN api_paused THEN 'PAUSED' ELSE 'CONNECTED' END,
+           last_checked_at = now(), last_synced_at = now(), last_error_code = NULL,
+           last_error_message_sanitized = NULL, updated_at = now()
+         WHERE provider = 'ARUBA'
+           AND environment = $1 AND encrypted_credentials IS NOT NULL`,
+        [getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT"],
+      );
+    }
     const eventId = Number(job.payload.webhookEventId);
     if (Number.isSafeInteger(eventId)) {
       await client.query(
@@ -631,16 +697,18 @@ export async function completeJob(job: ClaimedJob, result: Record<string, unknow
 }
 
 export async function failJob(job: ClaimedJob, code: ErrorCode) {
+  const budgetContinuation = code === "ARUBA_API_BUDGET_EXHAUSTED";
   const retryable =
     code === "PROVIDER_RATE_LIMITED" ||
     code === "PROVIDER_UNAVAILABLE" ||
     code === "EMAIL_DELIVERY_TEMPORARY";
-  const terminal = job.attempts >= job.maxAttempts || !retryable;
+  const terminal = budgetContinuation ? false : job.attempts >= job.maxAttempts || !retryable;
   return withTransaction(async (client) => {
     const failed = await client.query(
       `UPDATE jobs SET status = $5, run_at = CASE WHEN $5 = 'PENDING'
-           THEN now() + make_interval(secs => LEAST(900,
-             5 * power(2, attempts)::integer + floor(random() * 6)::integer))
+           THEN CASE WHEN $4 = 'ARUBA_API_BUDGET_EXHAUSTED' THEN now()
+             ELSE now() + make_interval(secs => LEAST(900,
+               5 * power(2, attempts)::integer + floor(random() * 6)::integer)) END
            ELSE run_at END,
          lease_expires_at = NULL, locked_by = NULL, claim_token = NULL, last_error_code = $4
        WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3
@@ -677,13 +745,15 @@ export async function actionableConnectorFailures() {
             coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) AS failed_at
      FROM jobs
      JOIN connections
-       ON connections.provider = CASE
+      ON connections.provider = CASE
             WHEN jobs.type LIKE 'shopify_%' THEN 'SHOPIFY'
             WHEN jobs.type LIKE 'ebay_%' THEN 'EBAY'
+            WHEN jobs.type LIKE 'aruba_%' THEN 'ARUBA'
           END
       AND connections.environment = CASE
             WHEN jobs.type LIKE 'shopify_%' THEN $2
             WHEN jobs.type LIKE 'ebay_%' THEN $3
+            WHEN jobs.type LIKE 'aruba_%' THEN $4
           END
       AND connections.status IN ('CONNECTED', 'ERROR')
      WHERE jobs.status = 'FAILED'
@@ -691,7 +761,12 @@ export async function actionableConnectorFailures() {
        AND (connections.last_synced_at IS NULL
          OR coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) > connections.last_synced_at)
      ORDER BY failed_at DESC, jobs.id DESC`,
-    [manuallyRetryableJobTypes, activeEnvironment("SHOPIFY"), activeEnvironment("EBAY")],
+    [
+      manuallyRetryableJobTypes,
+      activeEnvironment("SHOPIFY"),
+      activeEnvironment("EBAY"),
+      getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT",
+    ],
   );
   return result.rows.map((row) => ({
     id: row.id,
@@ -712,7 +787,17 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
       [jobId, manuallyRetryableJobTypes],
     );
     if (!unlocked.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
-    const provider = unlocked.rows[0].type.startsWith("shopify") ? "SHOPIFY" : "EBAY";
+    const provider = unlocked.rows[0].type.startsWith("shopify")
+      ? "SHOPIFY"
+      : unlocked.rows[0].type.startsWith("ebay")
+        ? "EBAY"
+        : "ARUBA";
+    const providerEnvironment =
+      provider === "ARUBA"
+        ? getConfig().APP_ENV === "production"
+          ? "PRODUCTION"
+          : "DEVELOPMENT"
+        : activeEnvironment(provider);
     await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:' || $1))", [provider]);
     if (unlocked.rows[0].type === "ebay_preview_history") {
       await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
@@ -768,10 +853,22 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
     } else {
       const runnable = await client.query(
         `SELECT 1 FROM connections
-         WHERE provider = $1 AND environment = $2 AND status IN ('CONNECTED', 'ERROR')`,
-        [provider, activeEnvironment(provider)],
+         WHERE provider = $1 AND environment = $2 AND status IN ('CONNECTED', 'ERROR')
+           AND ($1 <> 'ARUBA' OR (
+             encrypted_credentials IS NOT NULL AND credentials_verified_at IS NOT NULL
+             AND inbound_enabled AND NOT api_paused
+           ))`,
+        [provider, providerEnvironment],
       );
       if (!runnable.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+    }
+    if (provider === "ARUBA") {
+      await client.query(
+        `UPDATE connections SET status = 'CONNECTED', last_error_code = NULL,
+           last_error_message_sanitized = NULL, updated_at = now()
+         WHERE provider = 'ARUBA' AND environment = $1 AND status = 'ERROR'`,
+        [providerEnvironment],
+      );
     }
     const retried = await client.query<{ id: string }>(
       `UPDATE jobs SET status = 'PENDING', run_at = now(), attempts = 0, completed_at = NULL,

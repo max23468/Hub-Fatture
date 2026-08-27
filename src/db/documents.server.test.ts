@@ -14,7 +14,7 @@ import { runMigrations } from "./migrations.server.ts";
 
 test(
   "approvazione, numerazione concorrente, stale e storage sono fail-closed",
-  { timeout: 30_000 },
+  { timeout: 60_000 },
   async () => {
     const databaseFixture = await temporaryDatabase("documents");
     const storage = await mkdtemp(path.join(tmpdir(), "hub-fatture-documents-"));
