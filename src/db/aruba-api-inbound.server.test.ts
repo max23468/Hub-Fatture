@@ -310,7 +310,13 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         (sync_run_id, provider_group_id, remote_key, document_type, fiscal_year,
          series, fiscal_number, document_date, total_amount, remote_status, xml_sha256)
        SELECT id, 'api-parity-group-2019', 'api-parity-2019', 'TD01', 2019,
-         'FPR', '1', '2019-01-01', 10000, 'DELIVERED', repeat('c', 64)
+         'FPR', '1', '2019-01-01', 10000, 'DELIVERED', NULL
+       FROM aruba_sync_runs WHERE status = 'INCOMPLETE'`,
+    );
+    await getPool().query(
+      `INSERT INTO aruba_api_shadow_group_files
+        (sync_run_id, provider_group_id, kind, sha256)
+       SELECT id, 'api-parity-group-2019', 'ARUBA_XML', repeat('c', 64)
        FROM aruba_sync_runs WHERE status = 'INCOMPLETE'`,
     );
     await getPool().query(
@@ -359,6 +365,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         },
       ],
     );
+    assert.equal((await api.getArubaInboundClosureReadiness()).gates.PARITY_MATCHED, true);
     assert.deepEqual(
       (
         await getPool().query(
@@ -432,6 +439,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0].status,
       "COMPLETED",
     );
+    assert.equal((await api.getArubaInboundClosureReadiness()).gates.PARITY_MATCHED, false);
     await getPool().query(
       `INSERT INTO aruba_remote_documents
         (environment, account_reference, remote_id, document_type, fiscal_year,
@@ -508,6 +516,14 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
        )`,
     );
     await getPool().query("UPDATE aruba_api_traffic_limits SET cooldown_until = NULL");
+    const staleApiDossier = await api.getArubaInboundClosureReadiness();
+    assert.equal(staleApiDossier.readyForAuthoritySwitch, false);
+    assert.equal(staleApiDossier.blockers.includes("PARITY_MATCHED"), true);
+    await getPool().query(
+      `UPDATE aruba_sync_runs SET status = 'CANCELLED'
+       WHERE authority_mode = 'SHADOW' AND status = 'COMPLETED'
+         AND kind IN ('INCREMENTAL', 'TARGETED')`,
+    );
     const pdfOptionalReadiness = await api.getArubaInboundClosureReadiness();
     assert.deepEqual(pdfOptionalReadiness.blockers, []);
     assert.equal(pdfOptionalReadiness.readyForAuthoritySwitch, true);
