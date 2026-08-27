@@ -277,12 +277,19 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       `INSERT INTO aruba_sync_pages
         (sync_session_id, stream, scan_ordinal, page_ordinal, terminal, full_scan,
          row_count, documents_json, payload_digest)
-       VALUES ('10000000-0000-4000-8000-000000000001', 'invoices:2019', 1, 1,
-         true, true, 1, jsonb_build_array(jsonb_build_object(
-           'remoteId', 'browser-parity-2019', 'documentType', 'TD01', 'fiscalYear', 2019,
-           'series', 'FPR', 'fiscalNumber', '1', 'documentDate', '2019-01-01',
-           'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', repeat('c', 64)
-         )), repeat('d', 64))`,
+       VALUES
+         ('10000000-0000-4000-8000-000000000001', 'invoices:2019', 1, 1,
+          true, true, 1, jsonb_build_array(jsonb_build_object(
+            'remoteId', 'browser-parity-2019', 'documentType', 'TD01', 'fiscalYear', 2019,
+            'series', 'FPR', 'fiscalNumber', '1', 'documentDate', '2019-01-01',
+            'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', repeat('c', 64)
+          )), repeat('d', 64)),
+         ('10000000-0000-4000-8000-000000000001', 'invoices:2019', 2, 1,
+          true, true, 1, jsonb_build_array(jsonb_build_object(
+            'remoteId', 'browser-parity-2019', 'documentType', 'TD01', 'fiscalYear', 2019,
+            'series', 'FPR', 'fiscalNumber', '1', 'documentDate', '2019-01-01',
+            'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', repeat('c', 64)
+          )), repeat('e', 64))`,
     );
     await getPool().query(
       `INSERT INTO aruba_api_shadow_documents
@@ -345,6 +352,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
                   missing_in_api, missing_in_browser, status_mismatches, file_mismatches,
                   summary_json->'populationStreams' AS population_streams,
                   summary_json->'apiFileCoverage' AS api_file_coverage,
+                  (summary_json->>'browserBaselineScanOrdinal')::int AS browser_scan_ordinal,
                   (summary_json->>'unresolvedBrowserConflicts')::int AS browser_conflicts
            FROM aruba_inbound_parity_dossiers`,
         )
@@ -361,6 +369,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
           file_mismatches: 0,
           population_streams: ["invoices:2019"],
           api_file_coverage: { notifications: 0, p7m: 0, pdf: 0, xml: 1 },
+          browser_scan_ordinal: 2,
           browser_conflicts: 0,
         },
       ],

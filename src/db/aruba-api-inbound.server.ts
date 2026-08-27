@@ -894,11 +894,21 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     id: string;
     started_at: Date;
     completed_at: Date;
+    scan_ordinal: number;
   }>(
-    `SELECT id, started_at, completed_at FROM aruba_sync_sessions
-     WHERE environment = $1 AND account_reference = $2 AND status = 'COMPLETED'
-       AND is_full_scan AND completed_at IS NOT NULL
-     ORDER BY completed_at DESC LIMIT 1`,
+    `SELECT sessions.id, sessions.started_at, sessions.completed_at,
+            full_scan.scan_ordinal
+     FROM aruba_sync_sessions AS sessions
+     JOIN LATERAL (
+       SELECT max(pages.scan_ordinal)::integer AS scan_ordinal
+       FROM aruba_sync_pages AS pages
+       WHERE pages.sync_session_id = sessions.id AND pages.full_scan
+       HAVING max(pages.scan_ordinal) IS NOT NULL
+     ) AS full_scan ON true
+     WHERE sessions.environment = $1 AND sessions.account_reference = $2
+       AND sessions.status = 'COMPLETED' AND sessions.is_full_scan
+       AND sessions.completed_at IS NOT NULL AND sessions.full_scan_completed_at IS NOT NULL
+     ORDER BY sessions.full_scan_completed_at DESC LIMIT 1`,
     [run.environment, run.account_reference],
   );
   const baseline = browserSession.rows[0];
@@ -907,9 +917,10 @@ async function createParityDossier(run: ArubaSyncRunRow) {
         await getPool().query<{ stream: string }>(
           `SELECT DISTINCT stream FROM aruba_sync_pages
            WHERE sync_session_id = $1
+             AND scan_ordinal = $2
              AND stream ~ '^(invoices|credit-notes):[0-9]{4}$'
            ORDER BY stream`,
-          [baseline.id],
+          [baseline.id, baseline.scan_ordinal],
         )
       ).rows.map((row) => row.stream)
     : [];
@@ -973,8 +984,9 @@ async function createParityDossier(run: ArubaSyncRunRow) {
                   ELSE jsonb_build_array(document->>'xmlSha256') END AS file_hashes
          FROM aruba_sync_pages AS pages
          CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) AS item(document)
-         WHERE pages.sync_session_id = $1 AND pages.stream = ANY($2::text[])`,
-        [baseline.id, populationStreams],
+         WHERE pages.sync_session_id = $1 AND pages.scan_ordinal = $2
+           AND pages.stream = ANY($3::text[])`,
+        [baseline.id, baseline.scan_ordinal, populationStreams],
       )
     : { rows: [] as never[] };
   const apiParityDocuments: ArubaInboundParityDocument[] = api.rows.map((document) => ({
@@ -1026,7 +1038,8 @@ async function createParityDossier(run: ArubaSyncRunRow) {
          'browserBaselineCompletedAt', $13::timestamptz,
          'populationStreams', $14::jsonb,
          'unresolvedBrowserConflicts', $15::integer,
-         'apiFileCoverage', $16::jsonb
+         'apiFileCoverage', $16::jsonb,
+         'browserBaselineScanOrdinal', $17::integer
        ))
      ON CONFLICT (sync_run_id) DO NOTHING`,
     [
@@ -1046,6 +1059,7 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       JSON.stringify(populationStreams),
       unresolvedBrowserConflicts,
       JSON.stringify(apiFileCoverage),
+      baseline?.scan_ordinal ?? null,
     ],
   );
 }
