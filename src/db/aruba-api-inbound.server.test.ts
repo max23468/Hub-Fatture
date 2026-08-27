@@ -505,9 +505,15 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
          ORDER BY completed_at DESC LIMIT 1
        )`,
     );
+    assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, false);
     await getPool().query(
-      `UPDATE aruba_sync_runs SET notification_count = 1
-       WHERE kind = 'BACKFILL' AND status = 'COMPLETED'`,
+      `UPDATE aruba_api_shadow_documents
+       SET notification_hashes = jsonb_build_array(repeat('8', 64))
+       WHERE sync_run_id = (
+         SELECT id FROM aruba_sync_runs
+         WHERE kind = 'BACKFILL' AND status = 'COMPLETED'
+         ORDER BY completed_at DESC LIMIT 1
+       )`,
     );
     await getPool().query("UPDATE aruba_api_traffic_limits SET cooldown_until = NULL");
     assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, true);
@@ -531,6 +537,73 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0],
       { automatic_authority: "API" },
     );
+    const inbound = await import("./aruba-inbound.server.ts");
+    const canonicalPage = await import("./aruba-api-canonical-page.server.ts");
+    const stagedRunId = "30000000-0000-4000-8000-000000000099";
+    await getPool().query(
+      `INSERT INTO aruba_sync_runs
+        (id, environment, api_environment, account_reference, kind, authority_mode, status,
+         window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at)
+       VALUES ($1, 'MOCK', 'DEMO', 'synthetic-aruba-account', 'INCREMENTAL', 'CANONICAL',
+         'RUNNING', '2019-01-01', '2019-01-03', '2019-01-01', '2019-01-03',
+         now() + interval '3 minutes')`,
+      [stagedRunId],
+    );
+    const stagedPage = {
+      stream: "api:incremental",
+      scanOrdinal: 1,
+      pageOrdinal: 1,
+      cursor: null,
+      terminal: true,
+      fullScan: false,
+      documents: [
+        {
+          remoteId: "atomic-stage-synthetic",
+          documentType: "TD01" as const,
+          fiscalYear: 2019,
+          series: null,
+          fiscalNumber: null,
+          documentDate: "2019-01-02",
+          recipientName: "Destinatario sintetico",
+          recipientTaxId: "11111111111",
+          recipientTaxIdentifiers: [
+            { type: "PARTITA_IVA" as const, countryCode: "IT", value: "11111111111" },
+          ],
+          recipientCountryCode: "IT",
+          recipientAddress: null,
+          totalAmount: 12_300,
+          currency: "EUR" as const,
+          status: "SUBMITTED" as const,
+          providerStatusLabel: "Inviata",
+          providerObservedAt: "2019-01-02T12:00:00.000Z",
+          xmlSha256: null,
+          orderReferences: [],
+        },
+      ],
+    };
+    await inbound.stageApiPage(
+      stagedRunId,
+      stagedPage,
+      new Map([["atomic-stage-synthetic", "atomic-stage-group"]]),
+      1,
+    );
+    await assert.rejects(
+      canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT page_count, checkpoint_page FROM aruba_sync_runs WHERE id = $1`,
+          [stagedRunId],
+        )
+      ).rows[0],
+      { page_count: 0, checkpoint_page: 1 },
+    );
+    await getPool().query("DELETE FROM aruba_remote_observations WHERE sync_run_id = $1", [
+      stagedRunId,
+    ]);
+    await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [stagedRunId]);
     const canonicalRequest = await api.requestArubaApiSync(owner);
     assert.equal(canonicalRequest.queued, true);
     await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [canonicalRequest.jobId]);

@@ -211,7 +211,11 @@ export function mapArubaApiInboundGroup(input: {
           ]
         : []),
     ];
-    const officialXml = sharedFiles.find((candidate) => candidate.kind === "ARUBA_XML");
+    // Aruba restituisce i file principali a livello di gruppo. Finché un gruppo contiene più
+    // documenti non esiste una prova sufficiente per attribuire lo stesso artefatto a una singola
+    // fattura: lo conserviamo fuori dal percorso canonico e lasciamo il gate fail-closed.
+    const attributableSharedFiles = input.detail.invoices.length === 1 ? sharedFiles : [];
+    const officialXml = attributableSharedFiles.find((candidate) => candidate.kind === "ARUBA_XML");
     return [
       {
         providerGroupId: input.group.id,
@@ -237,7 +241,7 @@ export function mapArubaApiInboundGroup(input: {
           orderReferences: [],
         },
         files: [
-          ...sharedFiles,
+          ...attributableSharedFiles,
           ...notificationFiles.reduce<ArubaApiInboundFile[]>((files, notification) => {
             if (notification.invoiceIndex === index) files.push(notification.file);
             return files;

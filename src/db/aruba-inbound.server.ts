@@ -2559,7 +2559,7 @@ async function ingestParsedArubaPage(
   const watermark = await client.query<{ value: string }>(
     `SELECT nextval('aruba_inventory_watermark_seq')::text AS value`,
   );
-  if (apiSource) {
+  if (apiSource && updateCursor) {
     await client.query(
       `INSERT INTO aruba_sync_run_pages
         (sync_run_id, window_start, window_end, page_ordinal, terminal,
@@ -2589,7 +2589,7 @@ async function ingestParsedArubaPage(
         page.pageOrdinal + 1,
       ],
     );
-  } else {
+  } else if (!apiSource) {
     await client.query(
       `INSERT INTO aruba_sync_pages
           (sync_session_id, stream, scan_ordinal, page_ordinal, cursor, terminal, full_scan,
@@ -2646,7 +2646,7 @@ export async function ingestArubaInventoryPage(token: string, rawPage: unknown) 
   });
 }
 
-export async function ingestArubaApiInventoryPage(
+export async function stageApiPage(
   runId: string,
   rawPage: unknown,
   providerGroupIds: ReadonlyMap<string, string>,

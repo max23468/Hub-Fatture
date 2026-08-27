@@ -31,10 +31,8 @@ import {
   recordArubaApiRateLimited,
   waitForArubaApiReadSlot,
 } from "./aruba-api-traffic.server.ts";
-import {
-  importArubaRemoteOfficialFileFromApi,
-  ingestArubaApiInventoryPage,
-} from "./aruba-inbound.server.ts";
+import { commitArubaApiInventoryPage } from "./aruba-api-canonical-page.server.ts";
+import { importArubaRemoteOfficialFileFromApi, stageApiPage } from "./aruba-inbound.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import type { ClaimedJob, JobType } from "./connectors.server.ts";
 
@@ -458,7 +456,7 @@ interface ArubaInboundClosureRow {
   unresolved_browser_conflicts: number;
   documents_without_official_payload: number;
   documents_without_pdf: number;
-  notification_count: number;
+  documents_without_notification: number;
 }
 
 async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
@@ -499,7 +497,10 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
          coalesce((SELECT count(*)::integer FROM aruba_api_shadow_documents documents
            WHERE documents.sync_run_id = candidate.id AND documents.pdf_sha256 IS NULL), 0)
            AS documents_without_pdf,
-         coalesce(candidate.notification_count, 0)::integer AS notification_count
+         coalesce((SELECT count(*)::integer FROM aruba_api_shadow_documents documents
+           WHERE documents.sync_run_id = candidate.id
+             AND jsonb_array_length(documents.notification_hashes) = 0), 0)
+           AS documents_without_notification
        FROM current_connection connection
        LEFT JOIN candidate ON true
        LEFT JOIN dossier ON true`,
@@ -524,7 +525,7 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
     unresolved_browser_conflicts: 0,
     documents_without_official_payload: 0,
     documents_without_pdf: 0,
-    notification_count: 0,
+    documents_without_notification: 0,
   };
   const gates: Record<ArubaInboundClosureGate, boolean> = {
     CONNECTION_READY: row.connection_ready,
@@ -542,7 +543,7 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
       row.api_documents > 0 &&
       row.documents_without_official_payload === 0 &&
       row.documents_without_pdf === 0,
-    NOTIFICATIONS_VERIFIED: row.notification_count > 0,
+    NOTIFICATIONS_VERIFIED: row.api_documents > 0 && row.documents_without_notification === 0,
     BROWSER_CONFLICTS_ZERO: row.unresolved_browser_conflicts === 0,
     TRAFFIC_GUARD_CLEAR: traffic.rows[0]?.cooling_down !== true,
     BROWSER_STILL_AUTHORITATIVE: row.automatic_authority === "BROWSER",
@@ -1227,23 +1228,28 @@ async function persistCanonicalPage(
   page: number,
   terminal: boolean,
 ) {
+  if (
+    documents.some(
+      (document) =>
+        !document.files.some((file) => file.kind === "ARUBA_XML" || file.kind === "ARUBA_P7M") ||
+        !document.files.some((file) => file.kind === "ARUBA_PDF"),
+    )
+  ) {
+    throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+  }
   const providerGroupIds = new Map(
     documents.map((document) => [document.remote.remoteId, document.providerGroupId]),
   );
-  await ingestArubaApiInventoryPage(
-    run.id,
-    {
-      stream: `api:${run.kind.toLowerCase()}`,
-      scanOrdinal: 1,
-      pageOrdinal: page,
-      cursor: terminal ? null : String(page + 1),
-      terminal,
-      fullScan: run.kind === "BACKFILL" || run.kind === "FULL",
-      documents: documents.map((document) => document.remote),
-    },
-    providerGroupIds,
-    groupCount,
-  );
+  const pagePayload = {
+    stream: `api:${run.kind.toLowerCase()}`,
+    scanOrdinal: 1,
+    pageOrdinal: page,
+    cursor: terminal ? null : String(page + 1),
+    terminal,
+    fullScan: run.kind === "BACKFILL" || run.kind === "FULL",
+    documents: documents.map((document) => document.remote),
+  };
+  await stageApiPage(run.id, pagePayload, providerGroupIds, groupCount);
   for (const document of documents) {
     for (const file of document.files) {
       // react-doctor-disable-next-line react-doctor/async-await-in-loop -- I file appartengono alla pagina canonica appena acquisita e vanno validati e persistiti in ordine prima del checkpoint successivo.
@@ -1276,6 +1282,7 @@ async function persistCanonicalPage(
      WHERE id = $1 AND status = 'RUNNING'`,
     [run.id],
   );
+  await commitArubaApiInventoryPage(run.id, pagePayload, groupCount);
 }
 
 async function persistApiPage(

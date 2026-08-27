@@ -71,7 +71,7 @@ function input() {
   };
 }
 
-test("il mapper API separa i documenti del gruppo e verifica gli hash ufficiali", () => {
+test("il mapper API separa i documenti del gruppo senza attribuire file condivisi", () => {
   const mapped = mapArubaApiInboundGroup(input());
   assert.equal(mapped.length, 2);
   assert.notEqual(mapped[0]!.remoteKey, mapped[1]!.remoteKey);
@@ -104,8 +104,8 @@ test("il mapper API separa i documenti del gruppo e verifica gli hash ufficiali"
     ],
   );
   const hashes = new Map(mapped[0]!.files.map((file) => [file.kind, file.sha256]));
-  assert.equal(hashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
-  assert.equal(hashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
+  assert.equal(hashes.has("ARUBA_XML"), false);
+  assert.equal(hashes.has("ARUBA_PDF"), false);
   assert.equal(
     hashes.get("SDI_NOTIFICATION"),
     createHash("sha256").update(notification).digest("hex"),
@@ -114,6 +114,16 @@ test("il mapper API separa i documenti del gruppo e verifica gli hash ufficiali"
     mapped[1]!.files.some((file) => file.kind === "SDI_NOTIFICATION"),
     false,
   );
+});
+
+test("il mapper attribuisce i file ufficiali soltanto a un gruppo con una fattura", () => {
+  const single = input();
+  single.group.invoices = single.group.invoices.slice(0, 1);
+  single.detail.invoices = single.detail.invoices.slice(0, 1);
+  const mapped = mapArubaApiInboundGroup(single);
+  const hashes = new Map(mapped[0]!.files.map((file) => [file.kind, file.sha256]));
+  assert.equal(hashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
+  assert.equal(hashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
 });
 
 test("il mapper conserva come sconosciuto il Paese destinatario assente nei dettagli storici", () => {
