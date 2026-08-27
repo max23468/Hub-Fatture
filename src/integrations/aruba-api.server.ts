@@ -120,7 +120,8 @@ const companySchema = z.object({
     .string()
     .trim()
     .toUpperCase()
-    .regex(/^[A-Z]{2}$/),
+    .regex(/^[A-Z]{2}$/)
+    .nullable(),
   vatCode: z.string().trim().max(64).nullish(),
   fiscalCode: z.string().trim().max(64).nullish(),
 });

@@ -29,7 +29,7 @@ export interface ArubaApiInboundDetail {
   lastUpdate: string;
   receiver: {
     description: string;
-    countryCode: string;
+    countryCode: string | null;
     vatCode?: string | null;
     fiscalCode?: string | null;
   };

@@ -105,6 +105,8 @@ poi recupera le notifiche dello stesso gruppo. Accetta esclusivamente XML o P7M,
 notifiche con contenuto base64 valido; calcola SHA-256 sui byte decodificati e rifiuta gruppo,
 identificativi o cardinalità incoerenti. Durante lo shadow conserva nel dossier soltanto metadati e
 hash sanitizzati; i byte letti non alimentano lo storage o la riconciliazione canonici.
+Nei dettagli storici il Paese del destinatario può essere `null`: il normalizzatore conserva il
+valore sconosciuto e non deduce `IT` dagli identificativi fiscali o da altri campi.
 
 Il pacchetto di conservazione e il download massivo restano fuori dall’inbound corrente: il primo
 non è necessario alla parità dei file operativi, il secondo crea una preparazione remota e non è una

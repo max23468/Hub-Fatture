@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.87
+
+- Il backfill API Aruba conserva come sconosciuto il Paese destinatario assente nei dettagli storici, senza dedurre `IT` dagli identificativi fiscali, e prosegue la lettura shadow di documenti, file e notifiche.
+
 ## 0.3.86
 
 - Il backfill API Aruba usa la data principale quando una notifica storica restituisce `notificationDate` vuota e aggiorna in modo deduplicato i contatori di file e notifiche realmente osservati nel giro shadow.
