@@ -274,6 +274,11 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
        VALUES ('ARUBA_XML', 'aruba/parity-2019.xml', repeat('c', 64), 100, 'application/xml')
       RETURNING id`,
     );
+    const sharedBrowserFile = await getPool().query<{ id: string }>(
+      `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('ARUBA_XML', 'aruba/parity-2019-shared.xml', repeat('c', 64), 100,
+         'application/xml') RETURNING id`,
+    );
     await getPool().query(
       `INSERT INTO aruba_remote_documents
         (environment, account_reference, remote_id, document_type, fiscal_year, series,
@@ -284,8 +289,10 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     );
     await getPool().query(
       `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
-       VALUES ($1, $2, 'ARUBA_XML')`,
-      [browserDocument.rows[0]!.id, browserFile.rows[0]!.id],
+       VALUES ($1, $2, 'ARUBA_XML'),
+         ((SELECT id FROM aruba_remote_documents
+           WHERE remote_id = 'browser-session-successiva-2019'), $3, 'ARUBA_XML')`,
+      [browserDocument.rows[0]!.id, browserFile.rows[0]!.id, sharedBrowserFile.rows[0]!.id],
     );
     await getPool().query(
       `INSERT INTO aruba_sync_pages
@@ -299,11 +306,24 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
             'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', null
           )), repeat('d', 64)),
          ('10000000-0000-4000-8000-000000000001', 'invoices:2019', 2, 1,
-          true, true, 1, jsonb_build_array(jsonb_build_object(
+          true, true, 2, jsonb_build_array(jsonb_build_object(
             'remoteId', 'browser-parity-2019', 'documentType', 'TD01', 'fiscalYear', 2019,
             'series', 'FPR', 'fiscalNumber', '1', 'documentDate', '2019-01-01',
             'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', null
+          ), jsonb_build_object(
+            'remoteId', 'browser-session-successiva-2019', 'documentType', 'TD01',
+            'fiscalYear', 2019, 'series', 'FPR', 'fiscalNumber', '2',
+            'documentDate', '2019-01-02', 'totalAmount', 20000, 'status', 'DELIVERED',
+            'xmlSha256', null
           )), repeat('e', 64))`,
+    );
+    await getPool().query(
+      `INSERT INTO aruba_api_shadow_documents
+        (sync_run_id, provider_group_id, remote_key, document_type, fiscal_year,
+         series, fiscal_number, document_date, total_amount, remote_status, xml_sha256)
+       SELECT id, 'api-parity-group-2019', 'api-parity-2019-2', 'TD01', 2019,
+         'FPR', '2', '2019-01-02', 20000, 'DELIVERED', NULL
+       FROM aruba_sync_runs WHERE status = 'INCOMPLETE'`,
     );
     await getPool().query(
       `INSERT INTO aruba_api_shadow_documents
@@ -381,15 +401,15 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       [
         {
           status: "MATCHED",
-          api_documents: 1,
-          browser_documents: 1,
-          matched_documents: 1,
+          api_documents: 2,
+          browser_documents: 2,
+          matched_documents: 2,
           missing_in_api: 0,
           missing_in_browser: 0,
           status_mismatches: 0,
           file_mismatches: 0,
           population_streams: ["invoices:2019"],
-          api_file_coverage: { notifications: 0, p7m: 0, pdf: 0, xml: 1 },
+          api_file_coverage: { notifications: 0, p7m: 0, pdf: 0, xml: 2 },
           browser_scan_ordinal: 2,
           browser_conflicts: 0,
         },

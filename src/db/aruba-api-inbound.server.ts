@@ -1511,17 +1511,18 @@ async function createParityDossier(run: ArubaSyncRunRow) {
                 document->>'documentDate' AS document_date,
                 (document->>'totalAmount')::integer AS total_amount,
                 document->>'status' AS remote_status,
-                coalesce(official_xml.hashes, ARRAY[]::text[]) AS file_hashes
+                coalesce(official_files.hashes, ARRAY[]::text[]) AS file_hashes
          FROM aruba_sync_pages AS pages
          CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) AS item(document)
          LEFT JOIN LATERAL (
-           SELECT array_agg(storage.sha256 ORDER BY storage.sha256) AS hashes
+           SELECT array_agg(DISTINCT storage.sha256 ORDER BY storage.sha256) AS hashes
            FROM aruba_remote_documents AS remote
            JOIN aruba_files AS files ON files.remote_document_id = remote.id
            JOIN storage_objects AS storage ON storage.id = files.storage_object_id
            WHERE remote.environment = $4 AND remote.account_reference = $5
-             AND remote.remote_id = document->>'remoteId' AND files.kind = 'ARUBA_XML'
-         ) AS official_xml ON true
+             AND remote.remote_id = document->>'remoteId'
+             AND files.kind IN ('ARUBA_XML', 'ARUBA_P7M')
+         ) AS official_files ON true
          WHERE pages.sync_session_id = $1 AND pages.scan_ordinal = $2
            AND pages.stream = ANY($3::text[])`,
         [
@@ -1533,6 +1534,17 @@ async function createParityDossier(run: ArubaSyncRunRow) {
         ],
       )
     : { rows: [] as never[] };
+  const groupFileHashes = new Set(
+    api.rows.flatMap((document) =>
+      [document.group_xml_sha256, document.group_p7m_sha256].filter((value): value is string =>
+        Boolean(value),
+      ),
+    ),
+  );
+  const browserFileHashes = new Set(browser.rows.flatMap((document) => document.file_hashes));
+  const groupFileMismatches = [...groupFileHashes].filter(
+    (hash) => !browserFileHashes.has(hash),
+  ).length;
   const apiParityDocuments: ArubaInboundParityDocument[] = api.rows.map((document) => ({
     documentType: document.document_type,
     fiscalYear: document.fiscal_year,
@@ -1541,7 +1553,7 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     documentDate: document.document_date,
     totalAmount: document.total_amount,
     remoteStatus: document.remote_status,
-    fileHashes: [document.xml_sha256, document.group_xml_sha256].filter((value): value is string =>
+    fileHashes: [document.xml_sha256, document.p7m_sha256].filter((value): value is string =>
       Boolean(value),
     ),
   }));
@@ -1553,12 +1565,20 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     documentDate: document.document_date,
     totalAmount: document.total_amount,
     remoteStatus: document.remote_status,
-    fileHashes: document.file_hashes,
+    fileHashes: document.file_hashes.filter((hash) => !groupFileHashes.has(hash)),
   }));
-  const comparison = compareArubaInboundParity({
+  const documentComparison = compareArubaInboundParity({
     api: apiParityDocuments,
     browser: browserParityDocuments,
   });
+  const comparison = {
+    ...documentComparison,
+    status:
+      documentComparison.status === "DIVERGENT" || groupFileMismatches > 0
+        ? ("DIVERGENT" as const)
+        : ("MATCHED" as const),
+    fileMismatches: documentComparison.fileMismatches + groupFileMismatches,
+  };
   const status =
     !baseline || populationStreams.length === 0
       ? "INCOMPLETE"
@@ -1592,7 +1612,8 @@ async function createParityDossier(run: ArubaSyncRunRow) {
          'unresolvedBrowserConflicts', $15::integer,
          'apiFileCoverage', $16::jsonb,
          'browserBaselineScanOrdinal', $17::integer,
-         'browserBaselineSessionId', $18::uuid
+         'browserBaselineSessionId', $18::uuid,
+         'groupFileMismatches', $19::integer
        ))
      ON CONFLICT (sync_run_id) DO NOTHING`,
     [
@@ -1614,6 +1635,7 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       JSON.stringify(apiFileCoverage),
       baseline?.scan_ordinal ?? null,
       baseline?.id ?? null,
+      groupFileMismatches,
     ],
   );
 }
