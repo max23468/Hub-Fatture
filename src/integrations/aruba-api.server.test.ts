@@ -622,6 +622,14 @@ test("il contratto dettaglio tipizza i file ufficiali senza invocare il provider
   };
   assert.equal(arubaApiInvoiceDetailSchema.parse(detail).docType, "out");
   assert.equal(
+    arubaApiInvoiceDetailSchema.parse({ ...detail, channelGroup: null }).channelGroup,
+    null,
+  );
+  assert.equal(
+    arubaApiInvoiceDetailSchema.safeParse({ ...detail, channelGroup: "2" }).success,
+    false,
+  );
+  assert.equal(
     arubaApiInvoiceDetailSchema.safeParse({ ...detail, file: "non-base64" }).success,
     false,
   );
