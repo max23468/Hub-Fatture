@@ -113,10 +113,6 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       (error) => error instanceof AppError && error.code === "ARUBA_OPERATION_FORBIDDEN",
     );
     await api.setArubaApiControls({ apiPaused: false, inboundEnabled: true }, owner);
-    await assert.rejects(
-      api.switchArubaInboundAuthorityToApi(owner),
-      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_INCOMPLETE",
-    );
     await getPool().query(
       `INSERT INTO aruba_sync_sessions
         (id, environment, account_reference, device_id, token_hash, status,
@@ -176,33 +172,44 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     );
     assert.equal(
       (await getPool().query("SELECT status FROM aruba_sync_runs")).rows[0].status,
-      "FAILED",
+      "INCOMPLETE",
     );
-    await getPool().query(
-      `UPDATE aruba_sync_runs SET status = 'RUNNING', request_limit = 10000,
-         last_error_code = NULL, last_error_message_sanitized = NULL`,
-    );
-    const result = await api.runArubaApiInboundJob(job!, runOptions);
+    assert.equal(await jobs.failJob(job!, "ARUBA_API_BUDGET_EXHAUSTED"), false);
+    const continuedJob = await jobs.claimJob("aruba-api-continuation-worker");
+    assert.equal(continuedJob?.id, job?.id);
+    const result = await api.runArubaApiInboundJob(continuedJob!, runOptions);
     assert.equal(result.mode, "SHADOW");
     assert.equal(result.documents, 0);
-    assert.equal(await jobs.completeJob(job!, result), true);
+    assert.equal(await jobs.completeJob(continuedJob!, result), true);
     assert.deepEqual(
       (
         await getPool().query(
           `SELECT status, authority_mode, page_count, group_count, document_count,
-                  request_count, request_limit
-           FROM aruba_sync_runs`,
+                  request_count, request_limit,
+                  continued_from_run_id IS NOT NULL AS continued
+           FROM aruba_sync_runs ORDER BY started_at, id`,
         )
       ).rows,
       [
+        {
+          status: "INCOMPLETE",
+          authority_mode: "SHADOW",
+          page_count: 1,
+          group_count: 10,
+          document_count: 0,
+          request_count: 4,
+          request_limit: 4,
+          continued: false,
+        },
         {
           status: "COMPLETED",
           authority_mode: "SHADOW",
           page_count: 2,
           group_count: 11,
           document_count: 0,
-          request_count: 5,
+          request_count: 1,
           request_limit: 10000,
+          continued: true,
         },
       ],
     );
@@ -259,59 +266,24 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0].status,
       "COMPLETED",
     );
-    const divergentRunId = "20000000-0000-4000-8000-000000000001";
-    const divergentDossierId = "30000000-0000-4000-8000-000000000001";
-    await getPool().query(
-      `INSERT INTO aruba_sync_runs
-         (id, environment, api_environment, account_reference, kind, authority_mode,
-          status, window_start, window_end, checkpoint_start, checkpoint_end,
-          lease_expires_at, completed_at)
-       VALUES ($1, 'MOCK', 'DEMO', 'synthetic-aruba-account', 'FULL', 'SHADOW',
-         'COMPLETED', '2019-01-01T00:00:00Z', '2019-01-02T00:00:00Z',
-         '2019-01-01T00:00:00Z', '2019-01-02T00:00:00Z', now(), now())`,
-      [divergentRunId],
-    );
-    await getPool().query(
-      `INSERT INTO aruba_inbound_parity_dossiers
-         (id, sync_run_id, environment, account_reference, status, api_documents,
-          browser_documents, matched_documents, missing_in_api, missing_in_browser,
-          status_mismatches, file_mismatches, summary_json, created_at)
-       VALUES ($1, $2, 'MOCK', 'synthetic-aruba-account', 'DIVERGENT',
-         1, 1, 0, 0, 0, 1, 0, '{}'::jsonb, now() + interval '1 minute')`,
-      [divergentDossierId, divergentRunId],
-    );
     await assert.rejects(
-      api.switchArubaInboundAuthorityToApi(owner),
-      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_INCOMPLETE",
+      getPool().query(
+        "UPDATE connections SET automatic_authority = 'API' WHERE provider = 'ARUBA'",
+      ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "23514",
     );
-    await getPool().query("DELETE FROM aruba_inbound_parity_dossiers WHERE id = $1", [
-      divergentDossierId,
-    ]);
-    await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [divergentRunId]);
     assert.equal(
       (await getPool().query("SELECT count(*)::int AS count FROM aruba_remote_documents")).rows[0]
         .count,
       0,
     );
-    assert.deepEqual(await api.switchArubaInboundAuthorityToApi(owner), {
-      automaticAuthority: "API",
-    });
     assert.deepEqual(
       (
         await getPool().query(
           `SELECT automatic_authority FROM connections WHERE provider = 'ARUBA'`,
         )
       ).rows[0],
-      { automatic_authority: "API" },
-    );
-    assert.equal(
-      (
-        await getPool().query(
-          `SELECT count(*)::int AS count FROM jobs
-           WHERE type = 'aruba_full_inventory' AND status = 'PENDING'`,
-        )
-      ).rows[0].count,
-      1,
+      { automatic_authority: "BROWSER" },
     );
     await assert.rejects(
       api.revokeArubaApiCredentials(codex),

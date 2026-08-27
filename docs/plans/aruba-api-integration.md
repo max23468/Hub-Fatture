@@ -492,14 +492,16 @@ economico confermato; manifesto e prova read-only chiusi. **Completato nella qua
 - credenziale cifrata, due arresti, worker e job;
 - backfill completo, polling, file, matching, salute e UI;
 - giri shadow separati dal browser e dossier inbound;
-- passaggio atomico dell’autorità automatica all’API.
+- passaggio atomico dell’autorità automatica all’API, in una modifica successiva e separatamente
+  autorizzata dopo il dossier.
 
 **Gate:** storico completo; zero divergenze inspiegate; recovery e restore provati; decisione di
 Massimo sul preferito/bridge registrata.
 
-**Stato corrente:** implementazione e regressioni locali disponibili; backfill Production, restore
-della credenziale e dossier reale restano gate operativi. L’autorità browser resta invariata finché
-il titolare non approva separatamente un dossier `MATCHED`.
+**Stato corrente:** implementazione shadow e regressioni locali disponibili; backfill Production,
+restore della credenziale e dossier reale restano gate operativi. Per decisione del titolare questa
+delivery termina al dossier: schema, server e UI mantengono obbligatoriamente l’autorità browser. Il
+passaggio richiederà una futura autorizzazione e una nuova delivery completa dei gate canonici.
 
 ### Outbound API senza invio reale
 

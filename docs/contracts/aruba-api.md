@@ -4,9 +4,10 @@
 
 Il contratto copre il solo ciclo attivo dell’utenza Base delegata: autenticazione, identità,
 ricerca paginata delle fatture inviate, dettaglio, file e notifiche. La sincronizzazione inbound
-esegue giri shadow separati dall’inventario browser e, soltanto dopo un dossier `MATCHED` e una
-decisione esplicita del titolare, può passare atomicamente all’ingest canonico. Non autorizza né
-implementa dry-run, upload, invio o callback.
+esegue soltanto giri shadow separati dall’inventario browser e termina al dossier di parità.
+L’autorità automatica resta vincolata al browser anche con un dossier `MATCHED`: un futuro passaggio
+all’ingest canonico richiederà una nuova autorizzazione, una nuova modifica applicativa e i relativi
+gate. Il contratto non autorizza né implementa dry-run, upload, invio o callback.
 
 La fonte provider è la documentazione ufficiale API v2, il cui changelog corrente espone la
 revisione 2.5.0. Un cambiamento della forma o dei limiti riapre la qualifica prima di estendere il
@@ -103,8 +104,7 @@ Il worker legge il dettaglio dei soli gruppi non vuoti con `includeFile=true` e 
 poi recupera le notifiche dello stesso gruppo. Accetta esclusivamente XML o P7M, PDF opzionale e
 notifiche con contenuto base64 valido; calcola SHA-256 sui byte decodificati e rifiuta gruppo,
 identificativi o cardinalità incoerenti. Durante lo shadow conserva nel dossier soltanto metadati e
-hash sanitizzati; dopo il passaggio autorizzato riusa storage, validazione, ownership e
-riconciliazione canonici già esistenti.
+hash sanitizzati; i byte letti non alimentano lo storage o la riconciliazione canonici.
 
 Il pacchetto di conservazione e il download massivo restano fuori dall’inbound corrente: il primo
 non è necessario alla parità dei file operativi, il secondo crea una preparazione remota e non è una
@@ -119,9 +119,10 @@ ogni pagina, incrementale con sette giorni di sovrapposizione, rilettura dei non
 mensile. Il limite di autenticazione è condiviso nel database; ricerca e notifiche usano budget
 indipendenti di 12 richieste al minuto. Ogni giro ha inoltre un tetto fail-closed di 10.000 richieste
 provider, incluse autenticazione, ricerca, dettaglio e notifiche; l’esaurimento interrompe il giro
-senza dichiarare completo il backfill.
+senza dichiarare completo il backfill e crea una continuazione dallo stesso checkpoint con un nuovo
+budget, copiando soltanto l’evidenza shadow già acquisita.
 
 Pausa o revoca vengono rilevate ai punti sicuri fra pagine. Una connessione shadow non alimenta
-l’inventario canonico e il deploy non cambia l’autorità automatica. Il passaggio all’API richiede un
-dossier shadow completo e `MATCHED`, assenza di lavori attivi, revoca delle sessioni helper e avvio
-di un nuovo full canonico. Upload, dry-run e invio non fanno parte di questo contratto.
+l’inventario canonico e il deploy non cambia l’autorità automatica. Schema, server e UI non offrono
+un passaggio all’API in questa release, neppure dopo un dossier `MATCHED`. Upload, dry-run e invio non
+fanno parte di questo contratto.

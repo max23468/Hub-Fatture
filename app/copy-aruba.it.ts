@@ -76,8 +76,6 @@ export const arubaSettingsCopy = {
   arubaApiRunRequests: (requests: number, limit: number) =>
     `${requests}/${limit} richieste autorizzate`,
   arubaApiCheckpointValue: (value: string, page: number) => `${value} · pagina ${page}`,
-  arubaApiSwitchAuthority: "Usa l’API come fonte automatica",
-  arubaApiSwitchHelp: "Disponibile soltanto dopo un backfill shadow completo e senza divergenze.",
   arubaApiRevoke: "Revoca credenziale API",
   arubaApiRevokeConfirmation: "Confermo di voler revocare la credenziale e fermare l’API",
   arubaApiSavedNotice: "Impostazioni API Aruba aggiornate.",

@@ -20,7 +20,6 @@ import {
   revokeArubaApiCredentials,
   saveArubaApiCredentials,
   setArubaApiControls,
-  switchArubaInboundAuthorityToApi,
 } from "../../src/db/aruba-api-inbound.server.ts";
 import {
   addArubaManualReadbackPages,
@@ -228,14 +227,6 @@ export async function action({ request }: Route.ActionArgs) {
         requestId: requestId(request),
       });
       return redirect("/impostazioni?aruba-api=sincronizzazione#aruba-api");
-    }
-    if (intent === "switch-aruba-inbound-api") {
-      await switchArubaInboundAuthorityToApi({
-        id: user.id,
-        canApprove: user.canApprove,
-        requestId: requestId(request),
-      });
-      return redirect("/impostazioni?aruba-api=autorita#aruba-api");
     }
     if (intent === "create-aruba-manual-readback") {
       const manualReadback = await createArubaManualReadback({

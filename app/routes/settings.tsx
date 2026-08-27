@@ -583,7 +583,6 @@ function ArubaApiSettingsCard({
     "revoke-aruba-api",
     "controls-aruba-api",
     "sync-aruba-api",
-    "switch-aruba-inbound-api",
   );
   return (
     <section className="settings-inset-card" id="aruba-api" aria-labelledby="aruba-api-title">
@@ -735,16 +734,6 @@ function ArubaApiSettingsCard({
           <input type="hidden" name="intent" value="sync-aruba-api" />
           <button className="button" type="submit">
             {copy.settings.arubaApiSyncNow}
-          </button>
-        </Form>
-      ) : null}
-      {canApprove && api.automaticAuthority === "BROWSER" && api.parity?.status === "MATCHED" ? (
-        <Form method="post" className="settings-card-action">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="switch-aruba-inbound-api" />
-          <p className="field-help">{copy.settings.arubaApiSwitchHelp}</p>
-          <button className="button" type="submit">
-            {copy.settings.arubaApiSwitchAuthority}
           </button>
         </Form>
       ) : null}

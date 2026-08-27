@@ -23,10 +23,6 @@ import {
   type ArubaApiSession,
 } from "../integrations/aruba-api.server.ts";
 import { writeAudit } from "./audit.server.ts";
-import {
-  importArubaRemoteOfficialFileFromApi,
-  ingestArubaApiInventoryPage,
-} from "./aruba-inbound.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import type { ClaimedJob, JobType } from "./connectors.server.ts";
 
@@ -72,6 +68,7 @@ interface ArubaApiConnectionRow {
 
 interface ArubaSyncRunRow {
   id: string;
+  continued_from_run_id: string | null;
   environment: "MOCK" | "PRODUCTION";
   api_environment: ArubaApiEnvironment;
   account_reference: string;
@@ -536,6 +533,63 @@ async function openOrResumeRun(
       );
       return active.rows[0];
     }
+    const previous = await client.query<ArubaSyncRunRow>(
+      `SELECT previous.* FROM aruba_sync_runs AS previous
+       WHERE previous.environment = $1 AND previous.account_reference = $2
+         AND previous.kind = $3 AND previous.status = 'INCOMPLETE'
+         AND previous.last_error_code = 'ARUBA_API_BUDGET_EXHAUSTED'
+         AND NOT EXISTS (
+           SELECT 1 FROM aruba_sync_runs AS continuation
+           WHERE continuation.continued_from_run_id = previous.id
+         )
+       ORDER BY previous.started_at DESC LIMIT 1 FOR UPDATE OF previous`,
+      [inventoryEnvironment(), current.account_reference, kind],
+    );
+    if (previous.rows[0]) {
+      const source = previous.rows[0];
+      const continuationId = randomUUID();
+      const inserted = await client.query<ArubaSyncRunRow>(
+        `INSERT INTO aruba_sync_runs
+          (id, continued_from_run_id, environment, api_environment, account_reference,
+           kind, authority_mode, window_start, window_end, checkpoint_start,
+           checkpoint_end, checkpoint_page, page_count, group_count, document_count,
+           file_count, notification_count, request_limit, lease_expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'SHADOW', $7, $8, $9, $10, $11,
+           $12, $13, $14, $15, $16, $17, now() + interval '3 minutes')
+         RETURNING *`,
+        [
+          continuationId,
+          source.id,
+          source.environment,
+          credentials.apiEnvironment,
+          source.account_reference,
+          source.kind,
+          source.window_start,
+          source.window_end,
+          source.checkpoint_start,
+          source.checkpoint_end,
+          source.checkpoint_page,
+          source.page_count,
+          source.group_count,
+          source.document_count,
+          source.file_count,
+          source.notification_count,
+          REQUEST_LIMIT,
+        ],
+      );
+      await client.query(
+        `INSERT INTO aruba_api_shadow_documents
+          (sync_run_id, provider_group_id, remote_key, document_type, fiscal_year,
+           series, fiscal_number, document_date, total_amount, remote_status,
+           xml_sha256, p7m_sha256, pdf_sha256, notification_hashes, observed_at)
+         SELECT $1, provider_group_id, remote_key, document_type, fiscal_year,
+           series, fiscal_number, document_date, total_amount, remote_status,
+           xml_sha256, p7m_sha256, pdf_sha256, notification_hashes, observed_at
+         FROM aruba_api_shadow_documents WHERE sync_run_id = $2`,
+        [continuationId, source.id],
+      );
+      return inserted.rows[0]!;
+    }
     let windowStart = FULL_HISTORY_START;
     if (kind === "INCREMENTAL") {
       const latest = await client.query<{ window_end: Date }>(
@@ -556,7 +610,6 @@ async function openOrResumeRun(
     }
     const windowEnd = now;
     const checkpointEnd = nextWindowEnd(windowStart, windowEnd);
-    const authorityMode = current.automatic_authority === "API" ? "CANONICAL" : "SHADOW";
     const inserted = await client.query<ArubaSyncRunRow>(
       `INSERT INTO aruba_sync_runs
         (id, environment, api_environment, account_reference, kind, authority_mode,
@@ -571,7 +624,7 @@ async function openOrResumeRun(
         credentials.apiEnvironment,
         current.account_reference,
         kind,
-        authorityMode,
+        "SHADOW",
         windowStart,
         windowEnd,
         checkpointEnd,
@@ -778,55 +831,6 @@ async function persistShadowPage(
   });
 }
 
-async function importCanonicalFiles(run: ArubaSyncRunRow, documents: ArubaApiInboundDocument[]) {
-  let files = 0;
-  let notifications = 0;
-  const pendingFiles: Array<{
-    document: ArubaApiInboundDocument;
-    file: ArubaApiInboundDocument["files"][number];
-  }> = [];
-  for (const document of documents) {
-    for (const file of document.files) {
-      pendingFiles.push({ document, file });
-    }
-  }
-  const importAt = async (index: number): Promise<void> => {
-    const pending = pendingFiles[index];
-    if (!pending) return;
-    const { document, file } = pending;
-    const imported = await importArubaRemoteOfficialFileFromApi(
-      document.remote.remoteId,
-      file.kind,
-      file.bytes,
-      {
-        type: "API",
-        runId: run.id,
-        providerGroupId: file.providerGroupId,
-        providerFilename: file.filename,
-        notificationId:
-          file.kind === "SDI_NOTIFICATION"
-            ? `${file.providerGroupId}:${file.filename}:${file.sha256.slice(0, 16)}`
-            : undefined,
-      },
-    );
-    if (!imported.repeated) {
-      files += 1;
-      if (file.kind === "SDI_NOTIFICATION") notifications += 1;
-    }
-    return importAt(index + 1);
-  };
-  await importAt(0);
-  if (files || notifications) {
-    await getPool().query(
-      `UPDATE aruba_sync_runs SET file_count = file_count + $2,
-         notification_count = notification_count + $3,
-         lease_expires_at = now() + interval '3 minutes'
-       WHERE id = $1 AND status = 'RUNNING'`,
-      [run.id, files, notifications],
-    );
-  }
-}
-
 async function persistApiPage(
   run: ArubaSyncRunRow,
   documents: ArubaApiInboundDocument[],
@@ -834,28 +838,7 @@ async function persistApiPage(
   page: number,
   terminal: boolean,
 ) {
-  if (run.authority_mode === "SHADOW") {
-    await persistShadowPage(run, documents, groupCount, page, terminal);
-    return;
-  }
-  const groupIds = new Map(
-    documents.map((document) => [document.remote.remoteId, document.providerGroupId]),
-  );
-  await ingestArubaApiInventoryPage(
-    run.id,
-    {
-      stream: `api-${run.kind.toLowerCase()}`,
-      scanOrdinal: 1,
-      pageOrdinal: page,
-      cursor: `${run.checkpoint_end.toISOString()}:${page}`,
-      terminal,
-      fullScan: run.kind === "BACKFILL" || run.kind === "FULL",
-      documents: documents.map((document) => document.remote),
-    },
-    groupIds,
-    groupCount,
-  );
-  await importCanonicalFiles(run, documents);
+  await persistShadowPage(run, documents, groupCount, page, terminal);
 }
 
 async function advanceWindow(runId: string) {
@@ -1116,12 +1099,14 @@ export async function runArubaApiInboundJob(
       error instanceof AppError ? error : new AppError("PROVIDER_RESPONSE_INVALID", 502);
     const retryable =
       appError.code === "PROVIDER_RATE_LIMITED" || appError.code === "PROVIDER_UNAVAILABLE";
+    const budgetExhausted = appError.code === "ARUBA_API_BUDGET_EXHAUSTED";
     await getPool().query(
-      `UPDATE aruba_sync_runs SET status = CASE WHEN $2 THEN status ELSE 'FAILED' END,
-         lease_expires_at = now(), last_error_code = $3,
+      `UPDATE aruba_sync_runs SET status = CASE
+           WHEN $2 THEN 'INCOMPLETE' WHEN $3 THEN status ELSE 'FAILED' END,
+         lease_expires_at = now(), last_error_code = $4,
          last_error_message_sanitized = 'Sincronizzazione API Aruba interrotta'
        WHERE id = $1 AND status = 'RUNNING'`,
-      [run.id, retryable, appError.code],
+      [run.id, budgetExhausted, retryable, appError.code],
     );
     throw appError;
   }
@@ -1139,77 +1124,4 @@ export async function markArubaApiConnectionError(code: ErrorCode, terminal: boo
      WHERE provider = 'ARUBA' AND environment = $3`,
     [code, terminal, connectionEnvironment()],
   );
-}
-
-export async function switchArubaInboundAuthorityToApi(actor: ArubaApiActor) {
-  requireOwner(actor);
-  return withTransaction(async (client) => {
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:ARUBA'))");
-    const current = await connection(client, true);
-    if (
-      !current?.encrypted_credentials ||
-      !current.inbound_enabled ||
-      current.api_paused ||
-      current.status !== "CONNECTED"
-    ) {
-      throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
-    }
-    const dossier = await client.query<{ id: string; status: string }>(
-      `SELECT dossiers.id, dossiers.status
-       FROM aruba_inbound_parity_dossiers AS dossiers
-       JOIN aruba_sync_runs AS runs ON runs.id = dossiers.sync_run_id
-       WHERE dossiers.environment = $1 AND dossiers.account_reference = $2
-         AND runs.status = 'COMPLETED'
-         AND runs.authority_mode = 'SHADOW' AND runs.kind IN ('BACKFILL', 'FULL')
-       ORDER BY dossiers.created_at DESC LIMIT 1 FOR UPDATE OF dossiers`,
-      [inventoryEnvironment(), current.account_reference],
-    );
-    if (!dossier.rows[0] || dossier.rows[0].status !== "MATCHED") {
-      throw new AppError("ARUBA_INVENTORY_INCOMPLETE", 409);
-    }
-    const activeApiWork = await client.query(
-      `SELECT 1 FROM aruba_sync_runs
-       WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
-       UNION ALL
-       SELECT 1 FROM jobs
-       WHERE type IN ('aruba_backfill_inventory', 'aruba_sync_inventory',
-         'aruba_refresh_nonterminal', 'aruba_full_inventory')
-         AND status IN ('PENDING', 'RUNNING')
-       LIMIT 1`,
-      [inventoryEnvironment(), current.account_reference],
-    );
-    if (activeApiWork.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
-    await client.query(
-      `UPDATE aruba_sync_sessions SET status = 'REVOKED', lease_expires_at = NULL
-       WHERE environment = $1 AND account_reference = $2
-         AND source = 'HELPER' AND status IN ('ACTIVE', 'SCANNING')`,
-      [inventoryEnvironment(), current.account_reference],
-    );
-    await client.query(
-      `UPDATE connections SET automatic_authority = 'API', last_full_sync_at = NULL,
-         updated_at = now()
-       WHERE id = $1`,
-      [current.id],
-    );
-    await client.query(
-      `INSERT INTO jobs (type, payload_json, run_at)
-       VALUES ('aruba_full_inventory', jsonb_build_object('authoritySwitchDossierId', $1::text),
-         greatest(now(), $2::timestamptz + interval '61 seconds'))
-       ON CONFLICT DO NOTHING`,
-      [dossier.rows[0].id, current.credentials_verified_at],
-    );
-    await writeAudit(client, {
-      actorType: "ADMIN",
-      actorId: String(actor.id),
-      action: "ARUBA_API_AUTHORITY_CHANGED",
-      eventClass: "CRITICAL",
-      entityType: "CONNECTION",
-      entityId: current.id,
-      metadata: { provider: "ARUBA" },
-      before: { automaticAuthority: current.automatic_authority },
-      after: { automaticAuthority: "API", parityDossierId: dossier.rows[0].id },
-      requestId: actor.requestId,
-    });
-    return { automaticAuthority: "API" as const };
-  });
 }

@@ -691,16 +691,18 @@ export async function completeJob(job: ClaimedJob, result: Record<string, unknow
 }
 
 export async function failJob(job: ClaimedJob, code: ErrorCode) {
+  const budgetContinuation = code === "ARUBA_API_BUDGET_EXHAUSTED";
   const retryable =
     code === "PROVIDER_RATE_LIMITED" ||
     code === "PROVIDER_UNAVAILABLE" ||
     code === "EMAIL_DELIVERY_TEMPORARY";
-  const terminal = job.attempts >= job.maxAttempts || !retryable;
+  const terminal = budgetContinuation ? false : job.attempts >= job.maxAttempts || !retryable;
   return withTransaction(async (client) => {
     const failed = await client.query(
       `UPDATE jobs SET status = $5, run_at = CASE WHEN $5 = 'PENDING'
-           THEN now() + make_interval(secs => LEAST(900,
-             5 * power(2, attempts)::integer + floor(random() * 6)::integer))
+           THEN CASE WHEN $4 = 'ARUBA_API_BUDGET_EXHAUSTED' THEN now()
+             ELSE now() + make_interval(secs => LEAST(900,
+               5 * power(2, attempts)::integer + floor(random() * 6)::integer)) END
            ELSE run_at END,
          lease_expires_at = NULL, locked_by = NULL, claim_token = NULL, last_error_code = $4
        WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3

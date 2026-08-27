@@ -11,7 +11,7 @@ ALTER TABLE connections
   ADD COLUMN api_paused boolean NOT NULL DEFAULT true,
   ADD COLUMN inbound_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN automatic_authority text NOT NULL DEFAULT 'BROWSER'
-    CHECK (automatic_authority IN ('BROWSER', 'API')),
+    CHECK (automatic_authority = 'BROWSER'),
   ADD COLUMN credentials_verified_at timestamptz,
   ADD COLUMN credentials_rotated_at timestamptz,
   ADD COLUMN credentials_revoked_at timestamptz,
@@ -48,11 +48,12 @@ CREATE INDEX aruba_api_auth_attempts_recent_idx
 
 CREATE TABLE aruba_sync_runs (
   id uuid PRIMARY KEY,
+  continued_from_run_id uuid UNIQUE REFERENCES aruba_sync_runs(id),
   environment text NOT NULL CHECK (environment IN ('MOCK', 'PRODUCTION')),
   api_environment text NOT NULL CHECK (api_environment IN ('DEMO', 'PRODUCTION')),
   account_reference text NOT NULL CHECK (length(account_reference) BETWEEN 1 AND 200),
   kind text NOT NULL CHECK (kind IN ('BACKFILL', 'INCREMENTAL', 'TARGETED', 'FULL')),
-  authority_mode text NOT NULL CHECK (authority_mode IN ('SHADOW', 'CANONICAL')),
+  authority_mode text NOT NULL CHECK (authority_mode = 'SHADOW'),
   status text NOT NULL DEFAULT 'RUNNING'
     CHECK (status IN ('RUNNING', 'COMPLETED', 'FAILED', 'INCOMPLETE', 'CANCELLED')),
   window_start timestamptz NOT NULL,
