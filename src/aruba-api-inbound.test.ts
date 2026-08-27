@@ -116,6 +116,22 @@ test("il mapper API separa i documenti del gruppo e verifica gli hash ufficiali"
   );
 });
 
+test("il mapper conserva come sconosciuto il Paese destinatario assente nei dettagli storici", () => {
+  const historical = input();
+  const mapped = mapArubaApiInboundGroup({
+    ...historical,
+    detail: {
+      ...historical.detail,
+      receiver: { ...historical.detail.receiver, countryCode: null },
+    },
+  });
+  assert.equal(mapped[0]?.remote.recipientCountryCode, null);
+  assert.deepEqual(
+    mapped[0]?.remote.recipientTaxIdentifiers.map((identifier) => identifier.countryCode),
+    [null],
+  );
+});
+
 test("il mapper API rifiuta gruppi, dettagli e notifiche non correlati", () => {
   const mismatched = input();
   assert.throws(

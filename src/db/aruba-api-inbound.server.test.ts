@@ -65,7 +65,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
           },
           receiver: {
             description: "Destinatario sintetico",
-            countryCode: "IT",
+            countryCode: null,
             vatCode: "11111111111",
             fiscalCode: null,
           },

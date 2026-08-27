@@ -633,6 +633,13 @@ test("il contratto dettaglio tipizza i file ufficiali senza invocare il provider
     null,
   );
   assert.equal(
+    arubaApiInvoiceDetailSchema.parse({
+      ...detail,
+      receiver: { ...detail.receiver, countryCode: null },
+    }).receiver.countryCode,
+    null,
+  );
+  assert.equal(
     arubaApiInvoiceDetailSchema.safeParse({ ...detail, channelGroup: "2" }).success,
     false,
   );
