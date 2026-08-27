@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.81
+
+- Dopo ogni deploy riuscito, la VPS conserva soltanto le immagini Hub Fatture live e di rollback e quelle ancora referenziate da container; la selezione usa il label OCI del repository e fallisce se un’identità protetta non è disponibile.
+- Deploy Hub Fatture e build o manutenzioni Docker Sequent condividono un lock host, evitando che operazioni concorrenti sul motore Docker saturino o alterino lo storage comune.
+
 ## 0.3.80
 
 - La connessione Aruba API verifica l’identità prima di cifrare la credenziale, parte in pausa e riserva a Massimo configurazione, rotazione, revoca e attivazione; Codex mantiene la sola lettura operativa e il comando “Sincronizza ora”. Il cambio dell’autorità non è esposto e richiederà una futura autorizzazione esplicita.

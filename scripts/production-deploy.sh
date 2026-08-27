@@ -12,10 +12,13 @@ printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$
 
 root=${HUB_FATTURE_ROOT:-/opt/hub-fatture}
 candidate_dir=${HUB_FATTURE_CANDIDATE_DIR:-$root/scripts}
+shared_docker_lock=${SHARED_DOCKER_LOCK:-/run/lock/hub-fatture-sequent-docker.lock}
 image="ghcr.io/max23468/hub-fatture@$digest"
 cd "$root"
 exec 9>./backup.lock
 flock -n 9 || { echo "Un backup o deploy è già in corso" >&2; exit 1; }
+exec 8>"$shared_docker_lock"
+flock -n 8 || { echo "Una build o manutenzione Docker condivisa è già in corso" >&2; exit 1; }
 if [ -f .deploy.env ] && [ ! -f data/operations/deploy-receipt.json ]; then
   residual_containers=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ps --all -q) \
     || { echo "Stato del primo deploy non rilevabile" >&2; exit 1; }

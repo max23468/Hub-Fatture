@@ -2611,6 +2611,7 @@ Procedura prevista:
 9. Verifica login, webhook, connessioni e percorso critico applicabile.
 10. Readback completo di commit/versione, digest, schema, kill switch e configurazione non segreta effettiva.
 11. Registrazione della ricevuta e pubblicazione automatica della GitHub Release immutabile con manifest derivato dal readback; rollback applicativo compatibile o forward-fix se il check fallisce.
+12. Pulizia selettiva delle sole immagini Hub Fatture superate, dopo avere protetto digest live, rollback e immagini referenziate dai container; build e manutenzioni Docker dei due prodotti sono serializzate da un lock host condiviso.
 
 Le migrazioni distruttive richiedono un backup off-host recente verificato, un restore drill valido e autorizzazione. Non alterare o cancellare migrazioni già applicate per rendere possibile un rollback.
 
