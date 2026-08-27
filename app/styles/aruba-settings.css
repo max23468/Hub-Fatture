@@ -46,6 +46,35 @@
   padding-top: var(--space-6);
 }
 
+.aruba-api-credentials-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-6);
+}
+
+.aruba-api-credentials-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.aruba-api-credentials-summary h4,
+.aruba-api-credentials-summary p {
+  margin: 0;
+}
+
+.aruba-api-credentials-summary p {
+  color: var(--color-text-muted);
+}
+
+.aruba-api-credentials-summary .button {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 .aruba-api-credentials-form .field-with-help {
   min-width: 0;
 }
@@ -72,6 +101,12 @@
 .aruba-api-credentials-form__actions .button {
   flex: 0 0 auto;
   grid-column: auto;
+}
+
+.aruba-api-credentials-form__buttons {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-3);
 }
 
 .aruba-api-controls,
@@ -369,6 +404,21 @@
 }
 
 @media (max-width: 48rem) {
+  .aruba-api-credentials-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .aruba-api-credentials-summary .button,
+  .aruba-api-credentials-form__buttons,
+  .aruba-api-credentials-form__buttons .button {
+    width: 100%;
+  }
+
+  .aruba-api-credentials-form__buttons {
+    flex-direction: column-reverse;
+  }
+
   .aruba-api-credentials-form {
     grid-template-columns: 1fr;
   }

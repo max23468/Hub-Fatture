@@ -10,7 +10,7 @@ import {
   Settings2,
   ShieldCheck,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Form, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/settings";
 
@@ -28,6 +28,7 @@ import { privateRouteMeta } from "../metadata";
 import type { getAccountProfile } from "../../src/db/auth.server.ts";
 import type { getArubaSettings } from "../../src/db/aruba.server.ts";
 import type { getArubaApiConnectionStatus } from "../../src/db/aruba-api-inbound.server.ts";
+import type { getArubaApiCredentialIdentity } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
 import { defaultHistoricalStartDate } from "../../src/orders.ts";
@@ -566,23 +567,29 @@ function ArubaManualRecovery({
 
 function ArubaApiSettingsCard({
   api,
+  credentialIdentity,
   notice,
   canApprove,
   csrfToken,
   errorFor,
 }: {
   api: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
+  credentialIdentity: Awaited<ReturnType<typeof getArubaApiCredentialIdentity>>;
   notice: string | null;
   canApprove: boolean;
   csrfToken: string;
   errorFor: ErrorFor;
 }) {
+  const credentialsError = errorFor("save-aruba-api", "rotate-aruba-api");
   const apiError = errorFor(
     "save-aruba-api",
     "rotate-aruba-api",
     "revoke-aruba-api",
     "controls-aruba-api",
     "sync-aruba-api",
+  );
+  const [credentialsOpen, setCredentialsOpen] = useState(
+    !api.configured || Boolean(credentialsError),
   );
   return (
     <section
@@ -695,8 +702,22 @@ function ArubaApiSettingsCard({
           </dd>
         </div>
       </dl>
-      {canApprove ? (
-        <Form method="post" className="security-form aruba-api-credentials-form">
+      {canApprove && api.configured && !credentialsOpen ? (
+        <div className="aruba-api-credentials-summary">
+          <div>
+            <h4>{copy.settings.arubaApiCredentialsTitle}</h4>
+            <p>{copy.settings.arubaApiCredentialsConnected}</p>
+          </div>
+          <button
+            className="button button--secondary"
+            onClick={() => setCredentialsOpen(true)}
+            type="button"
+          >
+            {copy.settings.arubaApiEditCredentials}
+          </button>
+        </div>
+      ) : canApprove ? (
+        <Form autoComplete="off" method="post" className="security-form aruba-api-credentials-form">
           <input type="hidden" name="csrf" value={csrfToken} />
           <input
             type="hidden"
@@ -718,6 +739,8 @@ function ArubaApiSettingsCard({
               required
               spellCheck={false}
               type="text"
+              defaultValue={credentialIdentity?.username ?? ""}
+              autoFocus={api.configured}
             />
             <p className="field-help" id="aruba-api-username-help">
               {copy.settings.arubaApiUsernameHelp}
@@ -732,6 +755,7 @@ function ArubaApiSettingsCard({
               name="arubaApiPassword"
               required
               type="password"
+              defaultValue=""
             />
             <p className="field-help" id="aruba-api-password-help">
               {copy.settings.arubaApiPasswordHelp}
@@ -748,6 +772,7 @@ function ArubaApiSettingsCard({
               required
               spellCheck={false}
               type="text"
+              defaultValue={credentialIdentity?.expectedTaxId ?? ""}
             />
             <p className="field-help" id="aruba-api-tax-id-help">
               {copy.settings.arubaApiExpectedTaxIdHelp}
@@ -757,11 +782,22 @@ function ArubaApiSettingsCard({
             <p className="field-help" id="aruba-api-secret-help">
               {copy.settings.arubaApiSecretHelp}
             </p>
-            <button className="button button--secondary" type="submit">
-              {api.configured
-                ? copy.settings.arubaApiRotateCredentials
-                : copy.settings.arubaApiSaveCredentials}
-            </button>
+            <div className="aruba-api-credentials-form__buttons">
+              {api.configured ? (
+                <button
+                  className="button button--secondary"
+                  onClick={() => setCredentialsOpen(false)}
+                  type="button"
+                >
+                  {copy.settings.arubaApiCancelCredentials}
+                </button>
+              ) : null}
+              <button className="button" type="submit">
+                {api.configured
+                  ? copy.settings.arubaApiRotateCredentials
+                  : copy.settings.arubaApiSaveCredentials}
+              </button>
+            </div>
           </div>
         </Form>
       ) : (
@@ -841,6 +877,7 @@ function ArubaSettingsSection({
   csrfToken,
   errorFor,
   arubaApi,
+  arubaApiCredentialIdentity,
   arubaApiNotice,
 }: {
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
@@ -854,6 +891,7 @@ function ArubaSettingsSection({
   csrfToken: string;
   errorFor: ErrorFor;
   arubaApi: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
+  arubaApiCredentialIdentity: Awaited<ReturnType<typeof getArubaApiCredentialIdentity>>;
   arubaApiNotice: string | null;
 }) {
   const connectionState = inventory.activeSession
@@ -907,6 +945,7 @@ function ArubaSettingsSection({
       <div className="aruba-settings-stack">
         <ArubaApiSettingsCard
           api={arubaApi}
+          credentialIdentity={arubaApiCredentialIdentity}
           canApprove={canApprove}
           csrfToken={csrfToken}
           errorFor={errorFor}
@@ -1233,6 +1272,7 @@ export default function Settings() {
     arubaSaved,
     arubaInventory,
     arubaApi,
+    arubaApiCredentialIdentity,
     arubaApiNotice,
     arubaPanelUrl,
     arubaBookmarkletUrl,
@@ -1366,6 +1406,7 @@ export default function Settings() {
           <ArubaSettingsSection
             aruba={aruba}
             arubaApi={arubaApi}
+            arubaApiCredentialIdentity={arubaApiCredentialIdentity}
             arubaApiNotice={arubaApiNotice}
             arubaSaved={arubaSaved}
             inventory={arubaInventory}

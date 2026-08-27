@@ -171,6 +171,14 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       { status: "PAUSED", paused: true, enabled: false, authority: "BROWSER" },
     );
     assert.equal((await api.getArubaApiConnectionStatus()).configured, true);
+    assert.deepEqual(await api.getArubaApiCredentialIdentity(owner), {
+      username: "utente-sintetico",
+      expectedTaxId: "00000000000",
+    });
+    await assert.rejects(
+      api.getArubaApiCredentialIdentity(codex),
+      (error) => error instanceof AppError && error.code === "ARUBA_OPERATION_FORBIDDEN",
+    );
     await assert.rejects(
       api.setArubaApiControls({ apiPaused: false, inboundEnabled: true }, codex),
       (error) => error instanceof AppError && error.code === "ARUBA_OPERATION_FORBIDDEN",

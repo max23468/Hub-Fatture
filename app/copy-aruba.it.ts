@@ -34,6 +34,10 @@ export const arubaSettingsCopy = {
   arubaApiCredentialsTitle: "Credenziali di Fatturazione Elettronica",
   arubaApiCredentialsHelp:
     "Usa le stesse credenziali con cui accedi al pannello Aruba Fatturazione Elettronica. Non servono credenziali API separate.",
+  arubaApiCredentialsConnected:
+    "Collegamento verificato. Apri il modulo soltanto se devi cambiare i dati di accesso.",
+  arubaApiEditCredentials: "Aggiorna credenziali",
+  arubaApiCancelCredentials: "Annulla",
   arubaApiUsername: "Nome utente del pannello Aruba",
   arubaApiUsernameHelp:
     "È il nome utente del pannello, non l’account Aruba del tipo nome@aruba.it.",

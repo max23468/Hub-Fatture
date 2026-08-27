@@ -267,6 +267,22 @@ export async function getArubaApiConnectionStatus() {
   };
 }
 
+export async function getArubaApiCredentialIdentity(actor: ArubaApiActor) {
+  requireOwner(actor);
+  const current = await connection(getPool());
+  if (!current?.encrypted_credentials) return null;
+  try {
+    const credentials = parseStoredCredentials(current.encrypted_credentials);
+    return {
+      username: credentials.username,
+      expectedTaxId: credentials.expectedTaxId,
+    };
+  } catch (error) {
+    if (error instanceof AppError && error.code === "PROVIDER_NOT_CONFIGURED") return null;
+    throw error;
+  }
+}
+
 export async function saveArubaApiCredentials(
   input: {
     apiEnvironment: unknown;

@@ -15,6 +15,7 @@ import {
 } from "../../src/db/auth.server.ts";
 import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts";
 import {
+  getArubaApiCredentialIdentity,
   getArubaApiConnectionStatus,
   requestArubaApiSync,
   revokeArubaApiCredentials,
@@ -70,6 +71,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     system,
     arubaInventory,
     arubaApi,
+    arubaApiCredentialIdentity,
   ] = await Promise.all([
     getAccountProfile(request, user),
     getDraftTrigger(),
@@ -82,6 +84,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     getSystemStatus(),
     getArubaInventoryHealth(),
     getArubaApiConnectionStatus(),
+    user.canApprove
+      ? getArubaApiCredentialIdentity({
+          id: user.id,
+          canApprove: user.canApprove,
+          requestId: requestId(request),
+        })
+      : Promise.resolve(null),
   ]);
   return {
     username: user.username,
@@ -103,6 +112,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     system,
     arubaInventory,
     arubaApi,
+    arubaApiCredentialIdentity,
     arubaApiNotice: url.searchParams.get("aruba-api"),
     arubaPanelUrl,
     arubaBookmarkletUrl: buildArubaBookmarklet({
