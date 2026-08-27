@@ -493,10 +493,30 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       { document_count: 1, file_count: 2, notification_count: 1 },
     );
     await assert.rejects(
-      getPool().query(
-        "UPDATE connections SET automatic_authority = 'API' WHERE provider = 'ARUBA'",
-      ),
-      (error: unknown) => error instanceof Error && "code" in error && error.code === "23514",
+      api.promoteArubaApiAuthority({ fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK" }, codex),
+      (error) => error instanceof AppError && error.code === "ARUBA_OPERATION_FORBIDDEN",
+    );
+    assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, false);
+    await getPool().query(
+      `UPDATE aruba_api_shadow_documents SET pdf_sha256 = repeat('9', 64)
+       WHERE sync_run_id = (
+         SELECT id FROM aruba_sync_runs
+         WHERE kind = 'BACKFILL' AND status = 'COMPLETED'
+         ORDER BY completed_at DESC LIMIT 1
+       )`,
+    );
+    await getPool().query(
+      `UPDATE aruba_sync_runs SET notification_count = 1
+       WHERE kind = 'BACKFILL' AND status = 'COMPLETED'`,
+    );
+    await getPool().query("UPDATE aruba_api_traffic_limits SET cooldown_until = NULL");
+    assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, true);
+    assert.deepEqual(
+      await api.promoteArubaApiAuthority({ fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK" }, owner),
+      {
+        automaticAuthority: "API",
+        fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK",
+      },
     );
     assert.equal(
       (await getPool().query("SELECT count(*)::int AS count FROM aruba_remote_documents")).rows[0]
@@ -509,7 +529,26 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
           `SELECT automatic_authority FROM connections WHERE provider = 'ARUBA'`,
         )
       ).rows[0],
-      { automatic_authority: "BROWSER" },
+      { automatic_authority: "API" },
+    );
+    const canonicalRequest = await api.requestArubaApiSync(owner);
+    assert.equal(canonicalRequest.queued, true);
+    await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [canonicalRequest.jobId]);
+    const canonicalJob = await jobs.claimJob("aruba-api-canonical-worker");
+    const canonical = await api.runArubaApiInboundJob(canonicalJob!, {
+      rateDelayMs: 0,
+      now: new Date("2019-01-01T05:00:00.000Z"),
+    });
+    assert.equal(canonical.mode, "CANONICAL");
+    assert.equal(await jobs.completeJob(canonicalJob!, canonical), true);
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT authority_mode FROM aruba_sync_runs
+           WHERE kind = 'INCREMENTAL' ORDER BY started_at DESC LIMIT 1`,
+        )
+      ).rows[0].authority_mode,
+      "CANONICAL",
     );
     await getPool().query(
       `INSERT INTO jobs (type, status, run_at, last_error_code)
@@ -522,6 +561,18 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       actionableFailures: 1,
       historicalFailures: 1,
       failureCodes: [{ code: "PROVIDER_RESPONSE_INVALID", count: 1 }],
+    });
+    await getPool().query(
+      `INSERT INTO jobs
+        (type, status, run_at, locked_at, lease_expires_at, locked_by, claim_token)
+       VALUES ('aruba_sync_inventory', 'RUNNING', now(), now() + interval '2 minutes',
+         now() + interval '5 minutes', 'recovery-worker', gen_random_uuid())`,
+    );
+    assert.deepEqual(await api.getArubaBackfillReadiness(), {
+      activeJobs: 1,
+      actionableFailures: 0,
+      historicalFailures: 2,
+      failureCodes: [],
     });
     await assert.rejects(
       api.revokeArubaApiCredentials(codex),

@@ -53,6 +53,17 @@ Controlli conclusivi:
 - nessun container privilegiato, database non pubblicato e filesystem applicativo read-only;
 - connessioni non configurate restano fail-closed e nessun provider viene chiamato durante lo smoke.
 
+Per rileggere una volta sola la chiusura inbound Aruba senza contattare il provider né modificare il
+database, eseguire nel container web già attivo:
+
+```sh
+docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-web \
+  node build-server/operations/aruba-inbound-closure-report.js
+```
+
+Il JSON contiene soltanto commit, versione, schema, conteggi, gate e codici tecnici. `READY` non
+esegue il passaggio di autorità: attesta soltanto che può essere richiesta la decisione del titolare.
+
 ## Release tecnica
 
 Dopo il readback Production riuscito, il job `GitHub Release immutabile` estrae

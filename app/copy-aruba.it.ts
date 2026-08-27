@@ -124,6 +124,13 @@ export const arubaSettingsCopy = {
   arubaApiSafetyPause: "Pausa di sicurezza API",
   arubaApiSafetyPauseInactive: "Non attiva",
   arubaApiSafetyPauseUntil: (value: string) => `Attiva fino al ${value}`,
+  arubaApiCutoverReadiness: "Passaggio alla lettura API",
+  arubaApiCutoverReady: "Verifiche tecniche completate · attende conferma del titolare",
+  arubaApiCutoverPending: (completed: number, total: number) =>
+    `${completed}/${total} verifiche tecniche completate`,
+  arubaApiReconciliationPreview: "Riconciliazione dopo il backfill",
+  arubaApiReconciliationPreviewValue: (ready: number, total: number) =>
+    `${ready}/${total} documenti pronti per una rilettura mirata`,
   arubaParityDossierSummary: (parity: {
     apiDocuments: number;
     browserDocuments: number;

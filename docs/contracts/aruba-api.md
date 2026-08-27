@@ -130,6 +130,8 @@ interrompe il giro senza dichiarare completo il backfill e crea una continuazion
 checkpoint con un nuovo budget, copiando soltanto l’evidenza shadow già acquisita.
 
 Pausa o revoca vengono rilevate ai punti sicuri fra pagine. Una connessione shadow non alimenta
-l’inventario canonico e il deploy non cambia l’autorità automatica. Schema, server e UI non offrono
-un passaggio all’API in questa release, neppure dopo un dossier `MATCHED`. Upload, dry-run e invio non
-fanno parte di questo contratto.
+l’inventario canonico e il deploy non cambia l’autorità automatica. Il percorso di cutover resta
+inaccessibile dall’interfaccia: può essere invocato soltanto dal titolare dopo tutti i gate tecnici e
+con una decisione esplicita sul fallback. La transazione registra l’audit, revoca le sessioni helper
+automatiche ancora aperte e rende canonici soltanto i giri API successivi; qualunque gate mancante
+mantiene il browser come autorità. Upload, dry-run e invio non fanno parte di questo contratto.

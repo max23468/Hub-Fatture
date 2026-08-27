@@ -62,9 +62,28 @@ reclaim di un job Aruba con lease scaduta e la ripresa dal checkpoint senza dupl
 Queste prove usano esclusivamente identità e password sintetiche; non leggono né ripristinano il
 database Production.
 
+## Anteprima e chiusura read-only
+
+L’anteprima di riconciliazione confronta le verifiche ancora aperte con il solo giro di backfill più
+recente. Espone esclusivamente conteggi: firma API assente, firma unica con file ufficiale, oppure più
+firme API compatibili. Una firma unica indica che il documento è pronto per una rilettura mirata;
+non costituisce un collegamento e non modifica match, documenti o preparazioni.
+
+Il comando `aruba:closure-report` raccoglie versione, schema, autorità, ultimo giro, dossier,
+undici gate fail-closed e anteprima di riconciliazione. Non accetta azioni o decisioni e non esegue
+scritture. Può quindi essere ripetuto durante il backfill senza creare un monitor o contattare Aruba.
+
 ## Stato osservato
 
-La versione Production precedente ha avviato il backfill read-only shadow e mantiene il browser
-come autorità. Il presente candidato aggiunge localmente protezioni di traffico, progresso e dossier
-operativo; non è ancora pubblicato. Il dossier finale e qualunque decisione sull’autorità restano
-successivi al completamento del backfill e richiedono la conferma prevista dal Master Plan.
+La versione Production distribuita esegue il backfill read-only shadow, coordina i limiti fra
+istanze e mantiene il browser come autorità. Il candidato successivo distingue gli errori
+operativi ancora attuali dai tentativi già superati da un job sano, espone un riepilogo fail-closed
+delle verifiche di chiusura, aggiunge l’anteprima sanitizzata e prepara il percorso canonico API.
+
+Il passaggio di autorità preparato non è esposto come azione dell’interfaccia e non viene eseguito
+automaticamente: richiede backfill completo, nessun job o errore attuale, dossier `MATCHED`, zero
+divergenze normalizzate e conflitti browser, copertura dei file ufficiali, notifiche osservate,
+assenza di cooldown e una decisione esplicita del titolare sul fallback. La stessa transazione
+registra l’audit, revoca le eventuali sessioni helper automatiche e rende canonici soltanto i giri
+API successivi. Il dossier finale e l’eventuale conferma del titolare restano successivi al
+completamento del backfill.

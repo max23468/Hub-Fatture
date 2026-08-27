@@ -18,11 +18,13 @@ import {
   getArubaApiCredentialIdentity,
   getArubaApiConnectionStatus,
   getArubaBackfillReadiness,
+  getArubaInboundClosureReadiness,
   requestArubaApiSync,
   revokeArubaApiCredentials,
   saveArubaApiCredentials,
   setArubaApiControls,
 } from "../../src/db/aruba-api-inbound.server.ts";
+import { getArubaApiReconciliationPreview } from "../../src/db/aruba-api-reconciliation-preview.server.ts";
 import {
   addArubaManualReadbackPages,
   createArubaManualReadback,
@@ -74,6 +76,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     arubaApi,
     arubaApiCredentialIdentity,
     arubaBackfillReadiness,
+    arubaClosureReadiness,
+    arubaReconciliationPreview,
   ] = await Promise.all([
     getAccountProfile(request, user),
     getDraftTrigger(),
@@ -94,6 +98,8 @@ export async function loader({ request }: Route.LoaderArgs) {
         })
       : Promise.resolve(null),
     getArubaBackfillReadiness(),
+    getArubaInboundClosureReadiness(),
+    getArubaApiReconciliationPreview(),
   ]);
   return {
     username: user.username,
@@ -117,6 +123,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     arubaApi,
     arubaApiCredentialIdentity,
     arubaBackfillReadiness,
+    arubaClosureReadiness,
+    arubaReconciliationPreview,
     arubaApiNotice: url.searchParams.get("aruba-api"),
     arubaPanelUrl,
     arubaBookmarkletUrl: buildArubaBookmarklet({
