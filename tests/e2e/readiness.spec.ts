@@ -89,7 +89,7 @@ test.beforeAll(async () => {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   await client.query(
-    "TRUNCATE users, sessions, login_attempts, audit_events, settings, customers, billing_cases, orders, fiscal_profiles RESTART IDENTITY CASCADE",
+    "TRUNCATE users, sessions, login_attempts, audit_events, settings, connections, customers, billing_cases, orders, fiscal_profiles RESTART IDENTITY CASCADE",
   );
   const profile = JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"));
   await client.query(
