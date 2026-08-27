@@ -172,16 +172,21 @@ export const arubaApiNotificationListSchema = z
     count: z.number().int().nonnegative(),
     notifications: z
       .array(
-        z.object({
-          date: z.string().trim().min(1).max(64),
-          docType: z.string().trim().min(1).max(32),
-          filename: z.string().trim().min(1).max(255),
-          invoiceId: z.string().trim().min(1).max(200),
-          notificationDate: z.string().trim().min(1).max(64),
-          number: z.string().trim().max(100).nullish(),
-          result: z.enum(["EC01", "EC02"]).nullish(),
-          file: base64FileSchema,
-        }),
+        z
+          .object({
+            date: z.string().trim().min(1).max(64),
+            docType: z.string().trim().min(1).max(32),
+            filename: z.string().trim().min(1).max(255),
+            invoiceId: z.string().trim().min(1).max(200),
+            notificationDate: z.string().trim().max(64),
+            number: z.string().trim().max(100).nullish(),
+            result: z.enum(["EC01", "EC02"]).nullish(),
+            file: base64FileSchema,
+          })
+          .transform((notification) => ({
+            ...notification,
+            notificationDate: notification.notificationDate || notification.date,
+          })),
       )
       .max(100),
   })

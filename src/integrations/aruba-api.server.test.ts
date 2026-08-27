@@ -560,6 +560,13 @@ test("il contratto notifiche verifica cardinalità e risultato", () => {
     1,
   );
   assert.equal(
+    arubaApiNotificationListSchema.parse({
+      count: 1,
+      notifications: [{ ...notification, notificationDate: "" }],
+    }).notifications[0]?.notificationDate,
+    notification.date,
+  );
+  assert.equal(
     arubaApiNotificationListSchema.safeParse({ count: 2, notifications: [notification] }).success,
     false,
   );
