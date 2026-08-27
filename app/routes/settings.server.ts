@@ -17,7 +17,7 @@ import { getArubaSettings, setArubaSettings } from "../../src/db/aruba.server.ts
 import {
   getArubaApiCredentialIdentity,
   getArubaApiConnectionStatus,
-  getArubaM9Readiness,
+  getArubaBackfillReadiness,
   requestArubaApiSync,
   revokeArubaApiCredentials,
   saveArubaApiCredentials,
@@ -73,7 +73,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     arubaInventory,
     arubaApi,
     arubaApiCredentialIdentity,
-    arubaM9Readiness,
+    arubaBackfillReadiness,
   ] = await Promise.all([
     getAccountProfile(request, user),
     getDraftTrigger(),
@@ -93,7 +93,7 @@ export async function loader({ request }: Route.LoaderArgs) {
           requestId: requestId(request),
         })
       : Promise.resolve(null),
-    getArubaM9Readiness(),
+    getArubaBackfillReadiness(),
   ]);
   return {
     username: user.username,
@@ -116,7 +116,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     arubaInventory,
     arubaApi,
     arubaApiCredentialIdentity,
-    arubaM9Readiness,
+    arubaBackfillReadiness,
     arubaApiNotice: url.searchParams.get("aruba-api"),
     arubaPanelUrl,
     arubaBookmarkletUrl: buildArubaBookmarklet({

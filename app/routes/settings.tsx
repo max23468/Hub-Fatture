@@ -29,7 +29,7 @@ import type { getAccountProfile } from "../../src/db/auth.server.ts";
 import type { getArubaSettings } from "../../src/db/aruba.server.ts";
 import type { getArubaApiConnectionStatus } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaApiCredentialIdentity } from "../../src/db/aruba-api-inbound.server.ts";
-import type { getArubaM9Readiness } from "../../src/db/aruba-api-inbound.server.ts";
+import type { getArubaBackfillReadiness } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
 import { defaultHistoricalStartDate } from "../../src/orders.ts";
@@ -469,7 +469,7 @@ function ArubaConnectionDetails({
 }: {
   api: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
   inventory: Awaited<ReturnType<typeof getArubaInventoryHealth>>;
-  readiness: Awaited<ReturnType<typeof getArubaM9Readiness>>;
+  readiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
 }) {
   return (
     <details className="settings-disclosure aruba-connection-details">
@@ -1017,7 +1017,7 @@ function ArubaSettingsSection({
   arubaApi,
   arubaApiCredentialIdentity,
   arubaApiNotice,
-  arubaM9Readiness,
+  arubaBackfillReadiness,
 }: {
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
   arubaSaved: boolean;
@@ -1032,7 +1032,7 @@ function ArubaSettingsSection({
   arubaApi: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
   arubaApiCredentialIdentity: Awaited<ReturnType<typeof getArubaApiCredentialIdentity>>;
   arubaApiNotice: string | null;
-  arubaM9Readiness: Awaited<ReturnType<typeof getArubaM9Readiness>>;
+  arubaBackfillReadiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
 }) {
   const connectionState = inventory.activeSession
     ? "ACTIVE"
@@ -1150,7 +1150,11 @@ function ArubaSettingsSection({
           </section>
         ) : null}
         <ArubaInventoryCard inventory={inventory} />
-        <ArubaConnectionDetails api={arubaApi} inventory={inventory} readiness={arubaM9Readiness} />
+        <ArubaConnectionDetails
+          api={arubaApi}
+          inventory={inventory}
+          readiness={arubaBackfillReadiness}
+        />
         {canApprove && inventory.blocking ? (
           <ArubaManualRecovery
             csrfToken={csrfToken}
@@ -1414,7 +1418,7 @@ export default function Settings() {
     arubaApi,
     arubaApiCredentialIdentity,
     arubaApiNotice,
-    arubaM9Readiness,
+    arubaBackfillReadiness,
     arubaPanelUrl,
     arubaBookmarkletUrl,
     arubaManualReadbackCompleted,
@@ -1549,7 +1553,7 @@ export default function Settings() {
             arubaApi={arubaApi}
             arubaApiCredentialIdentity={arubaApiCredentialIdentity}
             arubaApiNotice={arubaApiNotice}
-            arubaM9Readiness={arubaM9Readiness}
+            arubaBackfillReadiness={arubaBackfillReadiness}
             arubaSaved={arubaSaved}
             inventory={arubaInventory}
             arubaPanelUrl={arubaPanelUrl}

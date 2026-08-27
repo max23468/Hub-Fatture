@@ -517,7 +517,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
          ('aruba_sync_inventory', 'FAILED', now() - interval '1 day', 'PROVIDER_UNAVAILABLE'),
          ('aruba_full_inventory', 'FAILED', now() + interval '1 minute', 'PROVIDER_RESPONSE_INVALID')`,
     );
-    assert.deepEqual(await api.getArubaM9Readiness(), {
+    assert.deepEqual(await api.getArubaBackfillReadiness(), {
       activeJobs: 0,
       actionableFailures: 1,
       historicalFailures: 1,

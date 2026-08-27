@@ -364,7 +364,7 @@ export async function getArubaApiConnectionStatus() {
   };
 }
 
-export async function getArubaM9Readiness() {
+export async function getArubaBackfillReadiness() {
   const result = await getPool().query<{
     active_jobs: number;
     actionable_failures: number;
