@@ -48,6 +48,10 @@ import { validateFatturaXml } from "../fatturapa.server.ts";
 import { localOrderDate } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
 import {
+  findArubaRemoteCollision,
+  resolveRejectedAttemptIdentityConflicts,
+} from "./aruba-rejected-attempt.server.ts";
+import {
   loadArubaApiFileSession,
   type ArubaApiFileAuthorization,
 } from "./aruba-api-run-session.server.ts";
@@ -2152,6 +2156,31 @@ type ArubaPageIngestContext = Pick<
   groupCount?: number;
 };
 
+async function restoreResolvedRejectedAttempts(
+  client: pg.PoolClient,
+  session: ArubaPageIngestContext,
+  incomingRemoteId: string,
+) {
+  const remoteDocumentIds = await resolveRejectedAttemptIdentityConflicts(
+    client,
+    { environment: session.environment, accountReference: session.account_reference },
+    incomingRemoteId,
+  );
+  for (const remoteDocumentId of remoteDocumentIds) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il ricalcolo usa lo stesso client e deve osservare la rimozione del conflitto precedente.
+    const remote = await latestObservedRemote(client, remoteDocumentId);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il file ufficiale appartiene allo stesso tentativo rifiutato appena ripristinato.
+    const official = await loadLatestOfficialXml(client, remoteDocumentId);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Ogni riconciliazione aggiorna stato e candidati prima della successiva.
+    await reconcileRemoteDocument(
+      client,
+      remoteDocumentId,
+      official ? officialEvidence(remote, official.xml) : remote,
+      Boolean(official),
+    );
+  }
+}
+
 async function ingestParsedArubaPage(
   client: pg.PoolClient,
   session: ArubaPageIngestContext,
@@ -2312,24 +2341,16 @@ async function ingestParsedArubaPage(
     }
     let storedId = current?.id;
     if (!current) {
-      const collision = await client.query<{ id: string; remote_id: string }>(
-        `SELECT id, remote_id FROM aruba_remote_documents
-         WHERE environment = $1 AND account_reference = $2 AND (
-           ($3::text IS NOT NULL AND fiscal_year = $4 AND upper(series) = upper($3)
-             AND upper(fiscal_number) = upper($5) AND document_type = $6)
-           OR ($7::text IS NOT NULL AND xml_sha256 = $7)
-         ) FOR UPDATE`,
-        [
-          session.environment,
-          session.account_reference,
-          remote.series,
-          remote.fiscalYear,
-          remote.fiscalNumber,
-          remote.documentType,
-          remote.xmlSha256,
-        ],
-      );
-      const collided = collision.rows[0];
+      const collided = await findArubaRemoteCollision(client, {
+        environment: session.environment,
+        accountReference: session.account_reference,
+        series: remote.series,
+        fiscalYear: remote.fiscalYear,
+        fiscalNumber: remote.fiscalNumber,
+        documentType: remote.documentType,
+        xmlSha256: remote.xmlSha256,
+        remoteStatus: remote.status,
+      });
       if (collided?.remote_id.startsWith("historical-document-")) {
         await client.query(
           `UPDATE aruba_remote_documents SET remote_id = $2, document_type = $3,
@@ -2473,6 +2494,9 @@ async function ingestParsedArubaPage(
          WHERE id = $1`,
         [storedId, session.providerGroupIds?.get(remote.remoteId) ?? null],
       );
+    }
+    if (!conflicted) {
+      await restoreResolvedRejectedAttempts(client, session, remote.remoteId);
     }
     await client.query(
       apiSource

@@ -906,11 +906,24 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     ? (
         await getPool().query<{ stream: string }>(
           `SELECT DISTINCT stream FROM aruba_sync_pages
-           WHERE sync_session_id = $1 ORDER BY stream`,
+           WHERE sync_session_id = $1
+             AND stream ~ '^(invoices|credit-notes):[0-9]{4}$'
+           ORDER BY stream`,
           [baseline.id],
         )
       ).rows.map((row) => row.stream)
     : [];
+  const unresolvedBrowserConflicts = baseline
+    ? Number(
+        (
+          await getPool().query<{ count: number }>(
+            `SELECT count(*)::int AS count FROM aruba_deduplication_conflicts
+             WHERE sync_session_id = $1 AND resolved_at IS NULL`,
+            [baseline.id],
+          )
+        ).rows[0]?.count ?? 0,
+      )
+    : 0;
   const api = baseline
     ? await getPool().query<{
         document_type: string;
@@ -940,7 +953,6 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     : { rows: [] as never[] };
   const browser = baseline
     ? await getPool().query<{
-        id: string;
         document_type: string;
         fiscal_year: number;
         series: string | null;
@@ -948,29 +960,21 @@ async function createParityDossier(run: ArubaSyncRunRow) {
         document_date: string;
         total_amount: number;
         remote_status: string;
-        file_hashes: Record<string, string[]>;
+        file_hashes: string[];
       }>(
-        `SELECT remote.id, remote.document_type, remote.fiscal_year, remote.series,
-                remote.fiscal_number, remote.document_date::text, remote.total_amount,
-                remote.remote_status,
-                coalesce(jsonb_object_agg(files.kind, files.hashes)
-                  FILTER (WHERE files.kind IS NOT NULL), '{}') AS file_hashes
-         FROM aruba_remote_documents AS remote
-         LEFT JOIN LATERAL (
-           SELECT aruba_files.kind, jsonb_agg(storage.sha256 ORDER BY storage.sha256) AS hashes
-           FROM aruba_files
-           JOIN storage_objects AS storage ON storage.id = aruba_files.storage_object_id
-           WHERE aruba_files.remote_document_id = remote.id
-           GROUP BY aruba_files.kind
-         ) AS files ON true
-         WHERE remote.environment = $1 AND remote.account_reference = $2
-           AND remote.automatic_source <> 'API' AND remote.last_full_scan_at >= $3
-           AND concat(
-             CASE remote.document_type WHEN 'TD01' THEN 'invoices:' ELSE 'credit-notes:' END,
-             remote.fiscal_year
-           ) = ANY($4::text[])
-         GROUP BY remote.id`,
-        [run.environment, run.account_reference, baseline.started_at, populationStreams],
+        `SELECT document->>'documentType' AS document_type,
+                (document->>'fiscalYear')::integer AS fiscal_year,
+                nullif(document->>'series', '') AS series,
+                nullif(document->>'fiscalNumber', '') AS fiscal_number,
+                document->>'documentDate' AS document_date,
+                (document->>'totalAmount')::integer AS total_amount,
+                document->>'status' AS remote_status,
+                CASE WHEN nullif(document->>'xmlSha256', '') IS NULL THEN '[]'::jsonb
+                  ELSE jsonb_build_array(document->>'xmlSha256') END AS file_hashes
+         FROM aruba_sync_pages AS pages
+         CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) AS item(document)
+         WHERE pages.sync_session_id = $1 AND pages.stream = ANY($2::text[])`,
+        [baseline.id, populationStreams],
       )
     : { rows: [] as never[] };
   const apiParityDocuments: ArubaInboundParityDocument[] = api.rows.map((document) => ({
@@ -981,12 +985,7 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     documentDate: document.document_date,
     totalAmount: document.total_amount,
     remoteStatus: document.remote_status,
-    fileHashes: [
-      document.xml_sha256,
-      document.p7m_sha256,
-      document.pdf_sha256,
-      ...document.notification_hashes,
-    ].filter((value): value is string => Boolean(value)),
+    fileHashes: [document.xml_sha256].filter((value): value is string => Boolean(value)),
   }));
   const browserParityDocuments: ArubaInboundParityDocument[] = browser.rows.map((document) => ({
     documentType: document.document_type,
@@ -996,13 +995,27 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     documentDate: document.document_date,
     totalAmount: document.total_amount,
     remoteStatus: document.remote_status,
-    fileHashes: Object.values(document.file_hashes).flat(),
+    fileHashes: document.file_hashes,
   }));
   const comparison = compareArubaInboundParity({
     api: apiParityDocuments,
     browser: browserParityDocuments,
   });
-  const status = !baseline ? "INCOMPLETE" : comparison.status;
+  const status =
+    !baseline || populationStreams.length === 0
+      ? "INCOMPLETE"
+      : unresolvedBrowserConflicts > 0
+        ? "DIVERGENT"
+        : comparison.status;
+  const apiFileCoverage = {
+    xml: api.rows.filter((document) => document.xml_sha256 !== null).length,
+    p7m: api.rows.filter((document) => document.p7m_sha256 !== null).length,
+    pdf: api.rows.filter((document) => document.pdf_sha256 !== null).length,
+    notifications: api.rows.reduce(
+      (count, document) => count + document.notification_hashes.length,
+      0,
+    ),
+  };
   await getPool().query(
     `INSERT INTO aruba_inbound_parity_dossiers
       (id, sync_run_id, environment, account_reference, status, api_documents,
@@ -1011,7 +1024,9 @@ async function createParityDossier(run: ArubaSyncRunRow) {
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
        jsonb_build_object(
          'browserBaselineCompletedAt', $13::timestamptz,
-         'populationStreams', $14::jsonb
+         'populationStreams', $14::jsonb,
+         'unresolvedBrowserConflicts', $15::integer,
+         'apiFileCoverage', $16::jsonb
        ))
      ON CONFLICT (sync_run_id) DO NOTHING`,
     [
@@ -1029,6 +1044,8 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       comparison.fileMismatches,
       baseline?.completed_at ?? null,
       JSON.stringify(populationStreams),
+      unresolvedBrowserConflicts,
+      JSON.stringify(apiFileCoverage),
     ],
   );
 }
