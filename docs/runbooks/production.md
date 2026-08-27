@@ -6,6 +6,8 @@ La Production canonica è la VPS OCI `fatture-hub-vm` in `eu-milan-1`, raggiunta
 
 La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL non pubblica porte; Caddy è l’unico ingresso. `ARUBA_SUBMISSION_ENABLED=false` è fissato anche nel Compose e ogni readback deve confermarlo.
 
+Deploy Hub Fatture e build/manutenzioni Docker Sequent condividono un lock host dedicato. Dopo un readback riuscito, la corsia Production elimina soltanto le immagini Hub Fatture che non corrispondono né al digest live né al rollback e che non sono usate da alcun container. La selezione usa il label OCI del repository, non tag generici o una pulizia Docker globale; un’identità protetta assente interrompe l’operazione.
+
 Per un candidato precedente al Canary tecnico Production, dopo il normale readback eseguire anche `scripts/production-release-candidate-readback.sh`: il controllo fallisce se trova documenti approvati, import iniziali non completati, ordini storici non riconciliati o batch Aruba aperti.
 
 ## Prima del deploy

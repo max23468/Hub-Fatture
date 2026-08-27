@@ -559,6 +559,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     "ops/provision-production.sh",
     "scripts/backup.sh",
     "scripts/monitor-local.sh",
+    "scripts/prune-docker-images.sh",
     "scripts/production-deploy.sh",
     "scripts/production-preflight.sh",
     "scripts/production-readback.sh",
@@ -660,6 +661,8 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /ps --all -q/);
   assert.match(deploy, /Container residui dal primo deploy fallito/);
   assert.match(deploy, /exec 9>\.\/backup\.lock/);
+  assert.match(deploy, /hub-fatture-sequent-docker\.lock/);
+  assert.match(deploy, /Una build o manutenzione Docker condivisa è già in corso/);
   assert.doesNotMatch(deploy, /deploy\.lock/);
   assert.match(deploy, /HUB_FATTURE_CANDIDATE_DIR/);
   assert.match(deploy, /"\$candidate_dir\/production-preflight\.sh"/);
@@ -695,6 +698,11 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(
     workflow.slice(operationalInstall),
     /'\$target\/production-release-candidate-readback\.sh'.*\/opt\/hub-fatture\/scripts\//,
+  );
+  assert.match(workflow, /scripts\/prune-docker-images\.sh/);
+  assert.match(
+    workflow,
+    /if sudo test -f \/opt\/hub-fatture\/data\/operations\/rollback\.env; then sudo \/opt\/hub-fatture\/scripts\/prune-docker-images\.sh; fi/,
   );
   assert.ok(
     preDeployBackup >= 0 &&
