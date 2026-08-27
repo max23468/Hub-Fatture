@@ -1408,16 +1408,101 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const credentialForm = arubaApiSettings.locator(".aruba-api-credentials-form");
   const credentialSpacing = await credentialForm.evaluate((form) => {
     const fields = form.querySelectorAll<HTMLInputElement>("input:not([type='hidden'])");
+    const fieldGroups = form.querySelectorAll<HTMLElement>(".field-with-help");
     const actions = form.querySelector<HTMLElement>(".aruba-api-credentials-form__actions");
     const fieldBoxes = Array.from(fields, (field) => field.getBoundingClientRect());
     const lowestFieldEdge = Math.max(...fieldBoxes.map(({ bottom }) => bottom));
+    const firstTwoGroups = Array.from(fieldGroups).slice(0, 2);
     return {
       actionsGap: actions ? actions.getBoundingClientRect().top - lowestFieldEdge : 0,
       columnGap: fieldBoxes[1]!.left - fieldBoxes[0]!.right,
+      inputTopDelta: Math.abs(fieldBoxes[0]!.top - fieldBoxes[1]!.top),
+      labelTopDelta: Math.abs(
+        firstTwoGroups[0]!.querySelector("label")!.getBoundingClientRect().top -
+          firstTwoGroups[1]!.querySelector("label")!.getBoundingClientRect().top,
+      ),
     };
   });
   expect(credentialSpacing.actionsGap).toBeGreaterThanOrEqual(24);
   expect(credentialSpacing.columnGap).toBeGreaterThanOrEqual(24);
+  expect(credentialSpacing.inputTopDelta).toBeLessThanOrEqual(1);
+  expect(credentialSpacing.labelTopDelta).toBeLessThanOrEqual(1);
+  const arubaStackSpacing = await page.locator(".aruba-settings-stack").evaluate((stack) => {
+    const panels = Array.from(stack.children).filter((element) =>
+      element.matches(
+        ".aruba-api-card, .aruba-sync-card, .aruba-bookmarklet, .aruba-inventory-card, .settings-disclosure, .settings-transmission-section",
+      ),
+    );
+    const boxes = panels.map((panel) => panel.getBoundingClientRect());
+    return {
+      computedGap: Number.parseFloat(getComputedStyle(stack).rowGap),
+      panelGaps: boxes.slice(1).map((box, index) => box.top - boxes[index]!.bottom),
+    };
+  });
+  expect(arubaStackSpacing.computedGap).toBe(24);
+  expect(arubaStackSpacing.panelGaps.length).toBeGreaterThanOrEqual(3);
+  for (const gap of arubaStackSpacing.panelGaps) {
+    expect(gap).toBeGreaterThanOrEqual(23);
+    expect(gap).toBeLessThanOrEqual(25);
+  }
+
+  const arubaApiUiClient = new pg.Client({ connectionString: databaseUrl });
+  await arubaApiUiClient.connect();
+  await arubaApiUiClient.query(
+    `INSERT INTO connections
+       (provider, environment, account_reference, encrypted_credentials, status,
+        api_paused, inbound_enabled, automatic_authority, last_checked_at,
+        credentials_verified_at)
+     VALUES ('ARUBA', 'DEVELOPMENT', 'synthetic-aruba-layout', 'synthetic-layout-only',
+       'PAUSED', true, false, 'BROWSER', now(), now())
+     ON CONFLICT (provider, environment) DO UPDATE SET
+       account_reference = EXCLUDED.account_reference,
+       encrypted_credentials = EXCLUDED.encrypted_credentials,
+       status = EXCLUDED.status,
+       api_paused = EXCLUDED.api_paused,
+       inbound_enabled = EXCLUDED.inbound_enabled,
+       automatic_authority = EXCLUDED.automatic_authority,
+       last_checked_at = EXCLUDED.last_checked_at,
+       credentials_verified_at = EXCLUDED.credentials_verified_at`,
+  );
+  await page.reload();
+  const configuredControls = arubaApiSettings.locator(".aruba-api-controls");
+  const revokeControls = arubaApiSettings.locator(".aruba-api-revoke");
+  await expect(configuredControls).toBeVisible();
+  await expect(revokeControls).toBeVisible();
+  const configuredControlLayout = await arubaApiSettings.evaluate((section) => {
+    const checkboxes = Array.from(
+      section.querySelectorAll<HTMLInputElement>("input[type='checkbox']"),
+      (checkbox) => checkbox.getBoundingClientRect(),
+    );
+    const buttons = Array.from(
+      section.querySelectorAll<HTMLElement>(
+        ".aruba-api-controls .button, .aruba-api-revoke .button",
+      ),
+      (button) => button.getBoundingClientRect(),
+    );
+    return {
+      checkboxSizes: checkboxes.map(({ width, height }) => ({ width, height })),
+      buttonSizes: buttons.map(({ width, height }) => ({ width, height })),
+      controlsHeight:
+        section.querySelector<HTMLElement>(".aruba-api-controls")?.getBoundingClientRect().height ??
+        0,
+      revokeHeight:
+        section.querySelector<HTMLElement>(".aruba-api-revoke")?.getBoundingClientRect().height ??
+        0,
+    };
+  });
+  expect(configuredControlLayout.checkboxSizes).toHaveLength(3);
+  for (const checkbox of configuredControlLayout.checkboxSizes) {
+    expect(checkbox.width).toBeLessThanOrEqual(20);
+    expect(checkbox.height).toBeLessThanOrEqual(20);
+  }
+  for (const button of configuredControlLayout.buttonSizes) {
+    expect(button.width).toBeLessThan(260);
+    expect(button.height).toBeLessThanOrEqual(46);
+  }
+  expect(configuredControlLayout.controlsHeight).toBeLessThan(112);
+  expect(configuredControlLayout.revokeHeight).toBeLessThan(96);
   const ownerArubaSync = page.locator(".aruba-sync-card");
   const openAruba = ownerArubaSync.getByRole("link", { name: "Apri Aruba" });
   await expect(openAruba).toBeVisible();
@@ -1442,6 +1527,25 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await expectViewportFits(page);
+  const mobileCredentialGaps = await credentialForm.evaluate((form) => {
+    const groups = Array.from(form.querySelectorAll<HTMLElement>(".field-with-help"));
+    const boxes = groups.map((group) => group.getBoundingClientRect());
+    return boxes.slice(1).map((box, index) => box.top - boxes[index]!.bottom);
+  });
+  for (const gap of mobileCredentialGaps) {
+    expect(gap).toBeGreaterThanOrEqual(23);
+    expect(gap).toBeLessThanOrEqual(25);
+  }
+  await expect(configuredControls).toBeVisible();
+  await expect(revokeControls).toBeVisible();
+  for (const checkbox of await arubaApiSettings.locator("input[type='checkbox']").all()) {
+    const box = await checkbox.boundingBox();
+    expect(box?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(20);
+    expect(box?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(20);
+  }
+  expect(
+    await arubaApiSettings.evaluate((section) => section.scrollWidth <= section.clientWidth),
+  ).toBe(true);
   expect(await bookmarklet.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
     true,
   );
@@ -1455,6 +1559,10 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const mobileTransmissionSize = await transmissionBox.boundingBox();
   expect(mobileTransmissionSize?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(358);
   expect(mobileTransmissionSize?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(140);
+  await arubaApiUiClient.query(
+    "DELETE FROM connections WHERE provider = 'ARUBA' AND environment = 'DEVELOPMENT'",
+  );
+  await arubaApiUiClient.end();
   await page.setViewportSize({ width: 1280, height: 720 });
   const arubaPage = await page.context().newPage();
   const arubaPanelHref = await openAruba.getAttribute("href");

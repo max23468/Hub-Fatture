@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.83
+
+- I campi delle credenziali Aruba partono dalla stessa quota anche quando un testo di aiuto va a capo; tutti i pannelli della sezione usano inoltre lo stesso distacco verticale su desktop e mobile.
+- Dopo la verifica dell’accesso, pausa e sincronizzazione diventano controlli compatti con checkbox native e azioni a larghezza naturale. La revoca resta separata e riconoscibile senza ereditare le dimensioni dei normali campi del modulo.
+
 ## 0.3.82
 
 - Le Impostazioni Aruba identificano esplicitamente le credenziali del pannello di Fatturazione Elettronica, distinguendole dall’account e-mail Aruba e chiarendo verifica, cifratura e identità fiscale attesa.
