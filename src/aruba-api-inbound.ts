@@ -47,6 +47,7 @@ export interface ArubaApiInboundNotification {
   invoiceId: string;
   docType: string;
   notificationDate: string;
+  number?: string | null;
   result?: "EC01" | "EC02" | null;
   file: string;
 }
@@ -150,8 +151,22 @@ export function mapArubaApiInboundGroup(input: {
           }),
         ]
       : []),
-    ...input.notifications.map((notification) =>
-      file({
+  ];
+  const notificationFiles = input.notifications.map((notification) => {
+    const number = notification.number?.trim() || null;
+    const matchingIndexes = input.detail.invoices.flatMap((invoice, index) =>
+      number === null
+        ? input.detail.invoices.length === 1
+          ? [index]
+          : []
+        : invoice.number === number
+          ? [index]
+          : [],
+    );
+    if (matchingIndexes.length !== 1) throw new Error("ARUBA_API_GROUP_MISMATCH");
+    return {
+      invoiceIndex: matchingIndexes[0]!,
+      file: file({
         kind: "SDI_NOTIFICATION",
         filename: notification.filename,
         encoded: notification.file,
@@ -159,8 +174,8 @@ export function mapArubaApiInboundGroup(input: {
         notificationType: notification.docType,
         notificationDate: notification.notificationDate,
       }),
-    ),
-  ];
+    };
+  });
 
   return input.detail.invoices.flatMap((invoice, index) => {
     const summary = input.group.invoices[index];
@@ -221,7 +236,12 @@ export function mapArubaApiInboundGroup(input: {
           xmlSha256: officialXml?.sha256 ?? null,
           orderReferences: [],
         },
-        files: sharedFiles,
+        files: [
+          ...sharedFiles,
+          ...notificationFiles
+            .filter((notification) => notification.invoiceIndex === index)
+            .map((notification) => notification.file),
+        ],
       },
     ];
   });

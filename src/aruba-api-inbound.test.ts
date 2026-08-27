@@ -63,6 +63,7 @@ function input() {
         invoiceId: "gruppo-sintetico",
         docType: "RC",
         notificationDate: "2026-08-26T10:03:00.000Z",
+        number: "FPR-101",
         result: null,
         file: notification.toString("base64"),
       },
@@ -109,6 +110,10 @@ test("il mapper API separa i documenti del gruppo e verifica gli hash ufficiali"
     hashes.get("SDI_NOTIFICATION"),
     createHash("sha256").update(notification).digest("hex"),
   );
+  assert.equal(
+    mapped[1]!.files.some((file) => file.kind === "SDI_NOTIFICATION"),
+    false,
+  );
 });
 
 test("il mapper API rifiuta gruppi, dettagli e notifiche non correlati", () => {
@@ -123,6 +128,26 @@ test("il mapper API rifiuta gruppi, dettagli e notifiche non correlati", () => {
             invoiceId: "altro-gruppo",
           },
         ],
+      }),
+    /ARUBA_API_GROUP_MISMATCH/,
+  );
+});
+
+test("il mapper associa ogni notifica a una sola fattura del gruppo", () => {
+  const ambiguous = input();
+  assert.throws(
+    () =>
+      mapArubaApiInboundGroup({
+        ...ambiguous,
+        notifications: [{ ...ambiguous.notifications[0]!, number: null }],
+      }),
+    /ARUBA_API_GROUP_MISMATCH/,
+  );
+  assert.throws(
+    () =>
+      mapArubaApiInboundGroup({
+        ...ambiguous,
+        notifications: [{ ...ambiguous.notifications[0]!, number: "FPR-INESISTENTE" }],
       }),
     /ARUBA_API_GROUP_MISMATCH/,
   );

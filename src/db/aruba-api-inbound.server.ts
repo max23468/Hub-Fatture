@@ -672,6 +672,7 @@ async function readGroup(
       invoiceId: notification.invoiceId,
       docType: notification.docType,
       notificationDate: notification.notificationDate,
+      number: notification.number,
       result: notification.result,
       file: notification.file,
     })),
