@@ -191,7 +191,6 @@ jobs:
       - name: Attendi e riusa l'artefatto verificato costruito al merge
         id: reuse
         env:
-          BASE_MISSING: ${{ needs.candidate.outputs.base == '0000000000000000000000000000000000000000' }}
           CANDIDATE: ${{ needs.candidate.outputs.commit }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECOVERY: ${{ needs.candidate.outputs.commit == needs.candidate.outputs.base }}
@@ -199,8 +198,10 @@ jobs:
         run: |
           artifact_run=
           artifact_done=false
-          if [ "$ROLLBACK" = true ] || [ "$RECOVERY" = true ] || [ "$BASE_MISSING" = true ]; then
+          artifact_expected=true
+          if [ "$ROLLBACK" = true ] || [ "$RECOVERY" = true ]; then
             artifact_done=true
+            artifact_expected=false
           else
             for _ in $(seq 1 120); do
               if [ -z "$artifact_run" ]; then
@@ -225,13 +226,23 @@ jobs:
             exit 1
           }
           tag="ghcr.io/max23468/hub-fatture:sha-$CANDIDATE"
-          digest=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
-          if printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' \
-            && gh attestation verify "oci://ghcr.io/max23468/hub-fatture@$digest" --repo "$GITHUB_REPOSITORY" >/dev/null; then
-            echo "digest=$digest" >> "$GITHUB_OUTPUT"
-            echo "reused=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          reuse_attempts=1
+          if [ "$artifact_expected" = true ]; then
+            reuse_attempts=12
           fi
+          for attempt in $(seq 1 "$reuse_attempts"); do
+            digest=$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+            if printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' \
+              && gh attestation verify "oci://ghcr.io/max23468/hub-fatture@$digest" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "digest=$digest" >> "$GITHUB_OUTPUT"
+              echo "reused=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$attempt" -lt "$reuse_attempts" ]; then
+              echo "Artefatto exact-SHA non ancora verificabile; nuovo tentativo tra cinque secondi ($attempt/$reuse_attempts)."
+              sleep 5
+            fi
+          done
           echo "reused=false" >> "$GITHUB_OUTPUT"
       - name: Pubblica una sola immagine ARM64 come fallback
         if: steps.reuse.outputs.reused != 'true'

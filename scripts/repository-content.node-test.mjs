@@ -335,7 +335,7 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   );
   assert.match(
     workflow,
-    /if \[ "\$ROLLBACK" = true \] \|\| \[ "\$RECOVERY" = true \] \|\| \[ "\$BASE_MISSING" = true \]/,
+    /if \[ "\$ROLLBACK" = true \] \|\| \[ "\$RECOVERY" = true \]; then\s+artifact_done=true\s+artifact_expected=false/,
   );
   assert.match(
     workflow,
@@ -356,6 +356,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(image, /actions: read/);
   assert.match(image, /actions\/workflows\/production-artifact\.yml\/runs/);
   assert.match(image, /test "\$conclusion" = success/);
+  assert.doesNotMatch(image, /BASE_MISSING/);
+  assert.match(image, /reuse_attempts=12/);
+  assert.match(image, /for attempt in \$\(seq 1 "\$reuse_attempts"\)/);
+  assert.match(image, /sleep 5/);
   assert.match(deploy, /packages: read/);
   const registryLogin = deploy.indexOf("docker/login-action@");
   assert.notEqual(registryLogin, -1);
