@@ -980,13 +980,26 @@ async function createParityDossier(run: ArubaSyncRunRow) {
                 document->>'documentDate' AS document_date,
                 (document->>'totalAmount')::integer AS total_amount,
                 document->>'status' AS remote_status,
-                CASE WHEN nullif(document->>'xmlSha256', '') IS NULL THEN '[]'::jsonb
-                  ELSE jsonb_build_array(document->>'xmlSha256') END AS file_hashes
+                coalesce(official_xml.hashes, ARRAY[]::text[]) AS file_hashes
          FROM aruba_sync_pages AS pages
          CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) AS item(document)
+         LEFT JOIN LATERAL (
+           SELECT array_agg(storage.sha256 ORDER BY storage.sha256) AS hashes
+           FROM aruba_remote_documents AS remote
+           JOIN aruba_files AS files ON files.remote_document_id = remote.id
+           JOIN storage_objects AS storage ON storage.id = files.storage_object_id
+           WHERE remote.environment = $4 AND remote.account_reference = $5
+             AND remote.remote_id = document->>'remoteId' AND files.kind = 'ARUBA_XML'
+         ) AS official_xml ON true
          WHERE pages.sync_session_id = $1 AND pages.scan_ordinal = $2
            AND pages.stream = ANY($3::text[])`,
-        [baseline.id, baseline.scan_ordinal, populationStreams],
+        [
+          baseline.id,
+          baseline.scan_ordinal,
+          populationStreams,
+          run.environment,
+          run.account_reference,
+        ],
       )
     : { rows: [] as never[] };
   const apiParityDocuments: ArubaInboundParityDocument[] = api.rows.map((document) => ({

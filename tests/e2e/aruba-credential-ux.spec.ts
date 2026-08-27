@@ -13,7 +13,7 @@ test.beforeAll(async () => {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   await client.query(
-    "TRUNCATE users, sessions, login_attempts, audit_events, settings, customers, billing_cases, orders, fiscal_profiles RESTART IDENTITY CASCADE",
+    "TRUNCATE users, sessions, login_attempts, audit_events, settings, connections, customers, billing_cases, orders, fiscal_profiles RESTART IDENTITY CASCADE",
   );
   const [ownerHash, agentHash] = await Promise.all([
     hashPassword("password-massimo"),
@@ -59,7 +59,8 @@ test("le credenziali Aruba collegate restano compatte e modificabili in sicurezz
   page.on("console", (message) => {
     if (["error", "warning"].includes(message.type())) consoleProblems.push(message.text());
   });
-  await page.goto("/impostazioni#aruba-api");
+  await page.getByRole("link", { name: "Impostazioni" }).click();
+  await page.waitForURL(/\/impostazioni/);
 
   const section = page.locator("#aruba-api");
   const form = section.locator(".aruba-api-credentials-form");

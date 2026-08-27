@@ -282,13 +282,13 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
           true, true, 1, jsonb_build_array(jsonb_build_object(
             'remoteId', 'browser-parity-2019', 'documentType', 'TD01', 'fiscalYear', 2019,
             'series', 'FPR', 'fiscalNumber', '1', 'documentDate', '2019-01-01',
-            'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', repeat('c', 64)
+            'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', null
           )), repeat('d', 64)),
          ('10000000-0000-4000-8000-000000000001', 'invoices:2019', 2, 1,
           true, true, 1, jsonb_build_array(jsonb_build_object(
             'remoteId', 'browser-parity-2019', 'documentType', 'TD01', 'fiscalYear', 2019,
             'series', 'FPR', 'fiscalNumber', '1', 'documentDate', '2019-01-01',
-            'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', repeat('c', 64)
+            'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', null
           )), repeat('e', 64))`,
     );
     await getPool().query(
