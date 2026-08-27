@@ -4,6 +4,8 @@ import type pg from "pg";
 import { z } from "zod";
 
 import { mapArubaApiInboundGroup, type ArubaApiInboundDocument } from "../aruba-api-inbound.ts";
+import { ARUBA_API_POLICY, type ArubaApiReadScope } from "../aruba-api-policy.ts";
+import { calculateArubaBackfillProgress } from "../aruba-backfill-progress.ts";
 import {
   compareArubaInboundParity,
   type ArubaInboundParityDocument,
@@ -23,14 +25,19 @@ import {
   type ArubaApiSession,
 } from "../integrations/aruba-api.server.ts";
 import { writeAudit } from "./audit.server.ts";
+import {
+  assertArubaApiCooldownInactive,
+  getArubaApiTrafficStatus,
+  recordArubaApiRateLimited,
+  waitForArubaApiReadSlot,
+} from "./aruba-api-traffic.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import type { ClaimedJob, JobType } from "./connectors.server.ts";
 
 const FULL_HISTORY_START = new Date("2019-01-01T00:00:00.000Z");
-const WINDOW_MS = 48 * 60 * 60_000;
+const WINDOW_MS = ARUBA_API_POLICY.backfillWindowMs;
 const INCREMENTAL_OVERLAP_MS = 7 * 24 * 60 * 60_000;
-const DEFAULT_RATE_DELAY_MS = 5_100;
-const REQUEST_LIMIT = 10_000;
+const REQUEST_LIMIT = ARUBA_API_POLICY.requestLimitPerRun;
 
 const storedCredentialsSchema = z.object({
   apiEnvironment: z.enum(["DEMO", "PRODUCTION"]),
@@ -89,6 +96,7 @@ interface ArubaSyncRunRow {
   request_limit: number;
   started_at: Date;
   completed_at: Date | null;
+  lineage_started_at?: Date;
 }
 
 function connectionEnvironment(): ArubaApiConnectionRow["environment"] {
@@ -133,21 +141,48 @@ function parseStoredCredentials(value: string): StoredCredentials {
   }
 }
 
-async function reserveArubaApiAuthentication() {
-  return withTransaction(async (client) => {
+function storedApiEnvironment(current: ArubaApiConnectionRow): ArubaApiEnvironment {
+  if (current.encrypted_credentials) {
+    try {
+      return parseStoredCredentials(current.encrypted_credentials).apiEnvironment;
+    } catch {
+      // Lo stato deve restare consultabile anche con una credenziale non decifrabile.
+    }
+  }
+  return getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEMO";
+}
+
+async function reserveArubaApiAuthentication(environment: ArubaApiEnvironment) {
+  await assertArubaApiCooldownInactive(environment);
+  await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba-api-authentication'))");
+    await assertArubaApiCooldownInactive(environment, client);
     const latest = await client.query<{ attempted_at: Date }>(
       `SELECT attempted_at FROM aruba_api_auth_attempts
        ORDER BY attempted_at DESC LIMIT 1`,
     );
-    if (latest.rows[0] && Date.now() - latest.rows[0].attempted_at.getTime() < 60_000) {
-      throw new AppError("PROVIDER_RATE_LIMITED", 429);
+    if (
+      latest.rows[0] &&
+      Date.now() - latest.rows[0].attempted_at.getTime() < ARUBA_API_POLICY.authenticationIntervalMs
+    ) {
+      throw new AppError("ARUBA_API_COOLDOWN_ACTIVE", 429);
     }
     await client.query("INSERT INTO aruba_api_auth_attempts DEFAULT VALUES");
     await client.query(
       "DELETE FROM aruba_api_auth_attempts WHERE attempted_at < now() - interval '1 day'",
     );
   });
+}
+
+async function arubaProviderCall<T>(environment: ArubaApiEnvironment, call: () => Promise<T>) {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof AppError && error.code === "PROVIDER_RATE_LIMITED") {
+      await recordArubaApiRateLimited(environment);
+    }
+    throw error;
+  }
 }
 
 async function connection(client: pg.Pool | pg.PoolClient, lock = false) {
@@ -189,19 +224,36 @@ export async function getArubaApiConnectionStatus() {
       lastFullSyncAt: null,
       lastErrorCode: null,
       limits: {
-        inventoryRequestsPerMinute: ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
-        notificationRequestsPerMinute:
+        inventoryRequestsPerMinute: Math.floor(60_000 / ARUBA_API_POLICY.invoiceReadIntervalMs),
+        notificationRequestsPerMinute: Math.floor(
+          60_000 / ARUBA_API_POLICY.notificationReadIntervalMs,
+        ),
+        providerInventoryRequestsPerMinute:
+          ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
+        providerNotificationRequestsPerMinute:
           ARUBA_API_V2_CONTRACT.sentNotificationSearchRequestsPerMinutePerIp,
+        cooldownUntil: null,
+        lastRateLimitedAt: null,
       },
       latestRun: null,
       parity: null,
     };
   }
-  const [latestRun, parity] = await Promise.all([
+  const [latestRun, parity, traffic] = await Promise.all([
     getPool().query<ArubaSyncRunRow>(
-      `SELECT * FROM aruba_sync_runs
-       WHERE environment = $1 AND account_reference = $2
-       ORDER BY started_at DESC LIMIT 1`,
+      `WITH RECURSIVE latest AS (
+         SELECT * FROM aruba_sync_runs
+         WHERE environment = $1 AND account_reference = $2
+         ORDER BY started_at DESC LIMIT 1
+       ), lineage AS (
+         SELECT id, continued_from_run_id, started_at FROM latest
+         UNION ALL
+         SELECT parent.id, parent.continued_from_run_id, parent.started_at
+         FROM aruba_sync_runs AS parent
+         JOIN lineage AS child ON parent.id = child.continued_from_run_id
+       )
+       SELECT latest.*, (SELECT min(started_at) FROM lineage) AS lineage_started_at
+       FROM latest`,
       [inventoryEnvironment(), current.account_reference],
     ),
     getPool().query<{
@@ -209,14 +261,27 @@ export async function getArubaApiConnectionStatus() {
       api_documents: number;
       browser_documents: number;
       matched_documents: number;
+      missing_in_api: number;
+      missing_in_browser: number;
+      status_mismatches: number;
+      file_mismatches: number;
+      summary_json: {
+        unresolvedBrowserConflicts?: number;
+        populationStreams?: string[];
+        apiFileCoverage?: { xml?: number; p7m?: number; pdf?: number; notifications?: number };
+        browserBaselineCompletedAt?: string | null;
+      };
       created_at: Date;
     }>(
-      `SELECT status, api_documents, browser_documents, matched_documents, created_at
+      `SELECT status, api_documents, browser_documents, matched_documents,
+              missing_in_api, missing_in_browser, status_mismatches, file_mismatches,
+              summary_json, created_at
        FROM aruba_inbound_parity_dossiers
        WHERE environment = $1 AND account_reference = $2
        ORDER BY created_at DESC LIMIT 1`,
       [inventoryEnvironment(), current.account_reference],
     ),
+    getArubaApiTrafficStatus(storedApiEnvironment(current)),
   ]);
   const run = latestRun.rows[0];
   const dossier = parity.rows[0];
@@ -232,9 +297,16 @@ export async function getArubaApiConnectionStatus() {
     lastFullSyncAt: current.last_full_sync_at?.toISOString() ?? null,
     lastErrorCode: current.last_error_code,
     limits: {
-      inventoryRequestsPerMinute: ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
-      notificationRequestsPerMinute:
+      inventoryRequestsPerMinute: Math.floor(60_000 / ARUBA_API_POLICY.invoiceReadIntervalMs),
+      notificationRequestsPerMinute: Math.floor(
+        60_000 / ARUBA_API_POLICY.notificationReadIntervalMs,
+      ),
+      providerInventoryRequestsPerMinute:
+        ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
+      providerNotificationRequestsPerMinute:
         ARUBA_API_V2_CONTRACT.sentNotificationSearchRequestsPerMinutePerIp,
+      cooldownUntil: traffic.cooldownUntil,
+      lastRateLimitedAt: traffic.lastRateLimitedAt,
     },
     latestRun: run
       ? {
@@ -250,9 +322,21 @@ export async function getArubaApiConnectionStatus() {
           requests: run.request_count,
           requestLimit: run.request_limit,
           checkpointEnd: run.checkpoint_end.toISOString(),
+          checkpointStart: run.checkpoint_start.toISOString(),
           checkpointPage: run.checkpoint_page,
+          windowStart: run.window_start.toISOString(),
+          windowEnd: run.window_end.toISOString(),
           startedAt: run.started_at.toISOString(),
           completedAt: run.completed_at?.toISOString() ?? null,
+          progress: calculateArubaBackfillProgress({
+            kind: run.kind,
+            status: run.status,
+            windowStart: run.window_start,
+            windowEnd: run.window_end,
+            checkpointStart: run.checkpoint_start,
+            lineageStartedAt: run.lineage_started_at ?? run.started_at,
+            completedAt: run.completed_at,
+          }),
         }
       : null,
     parity: dossier
@@ -261,9 +345,67 @@ export async function getArubaApiConnectionStatus() {
           apiDocuments: dossier.api_documents,
           browserDocuments: dossier.browser_documents,
           matchedDocuments: dossier.matched_documents,
+          missingInApi: dossier.missing_in_api,
+          missingInBrowser: dossier.missing_in_browser,
+          statusMismatches: dossier.status_mismatches,
+          fileMismatches: dossier.file_mismatches,
+          unresolvedBrowserConflicts: dossier.summary_json.unresolvedBrowserConflicts ?? 0,
+          populationStreams: dossier.summary_json.populationStreams ?? [],
+          apiFileCoverage: {
+            xml: dossier.summary_json.apiFileCoverage?.xml ?? 0,
+            p7m: dossier.summary_json.apiFileCoverage?.p7m ?? 0,
+            pdf: dossier.summary_json.apiFileCoverage?.pdf ?? 0,
+            notifications: dossier.summary_json.apiFileCoverage?.notifications ?? 0,
+          },
+          browserBaselineCompletedAt: dossier.summary_json.browserBaselineCompletedAt ?? null,
           createdAt: dossier.created_at.toISOString(),
         }
       : null,
+  };
+}
+
+export async function getArubaBackfillReadiness() {
+  const result = await getPool().query<{
+    active_jobs: number;
+    actionable_failures: number;
+    historical_failures: number;
+    failure_codes: Array<{ code: string; count: number }>;
+  }>(
+    `WITH aruba_connection AS (
+       SELECT last_synced_at FROM connections
+       WHERE provider = 'ARUBA' AND environment = $1
+     ), classified AS (
+       SELECT jobs.status, jobs.last_error_code,
+              coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) AS observed_at,
+              connection.last_synced_at
+       FROM jobs
+       CROSS JOIN aruba_connection AS connection
+       WHERE jobs.type IN ('aruba_backfill_inventory', 'aruba_sync_inventory',
+         'aruba_refresh_nonterminal', 'aruba_full_inventory')
+     ), code_counts AS (
+       SELECT coalesce(last_error_code, 'UNKNOWN') AS code, count(*)::int AS count
+       FROM classified
+       WHERE status = 'FAILED'
+         AND (last_synced_at IS NULL OR observed_at > last_synced_at)
+       GROUP BY coalesce(last_error_code, 'UNKNOWN')
+     )
+     SELECT
+       count(*) FILTER (WHERE status IN ('PENDING', 'RUNNING'))::int AS active_jobs,
+       count(*) FILTER (WHERE status = 'FAILED'
+         AND (last_synced_at IS NULL OR observed_at > last_synced_at))::int AS actionable_failures,
+       count(*) FILTER (WHERE status = 'FAILED'
+         AND last_synced_at IS NOT NULL AND observed_at <= last_synced_at)::int AS historical_failures,
+       coalesce((SELECT jsonb_agg(jsonb_build_object('code', code, 'count', count)
+         ORDER BY count DESC, code) FROM code_counts), '[]'::jsonb) AS failure_codes
+     FROM classified`,
+    [connectionEnvironment()],
+  );
+  const row = result.rows[0];
+  return {
+    activeJobs: row?.active_jobs ?? 0,
+    actionableFailures: row?.actionable_failures ?? 0,
+    historicalFailures: row?.historical_failures ?? 0,
+    failureCodes: row?.failure_codes ?? [],
   };
 }
 
@@ -295,11 +437,13 @@ export async function saveArubaApiCredentials(
   requireOwner(actor);
   const parsed = storedCredentialsSchema.safeParse(input);
   if (!parsed.success) throw new AppError("AUTH_INVALID_CREDENTIALS", 422);
-  await reserveArubaApiAuthentication();
-  await authenticateArubaApi({
-    environment: parsed.data.apiEnvironment,
-    credentials: parsed.data,
-  });
+  await reserveArubaApiAuthentication(parsed.data.apiEnvironment);
+  await arubaProviderCall(parsed.data.apiEnvironment, () =>
+    authenticateArubaApi({
+      environment: parsed.data.apiEnvironment,
+      credentials: parsed.data,
+    }),
+  );
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:ARUBA'))");
     const existing = await connection(client, true);
@@ -689,22 +833,30 @@ class ArubaSessionManager {
     this.cacheKey = cacheKey;
     this.runId = runId;
     this.reserveAuthentication = reserveAuthentication;
-    this.authenticationGate = new RateGate(Math.max(rateDelayMs, 60_100));
+    this.authenticationGate = new RateGate(
+      Math.max(rateDelayMs, ARUBA_API_POLICY.authenticationIntervalMs),
+    );
   }
 
   async current() {
     this.session ??= ArubaSessionManager.sessions.get(this.cacheKey) ?? null;
     if (!this.session || this.session.expiresAt <= Date.now() + 60_000) {
       await this.authenticationGate.wait();
-      if (this.reserveAuthentication) await reserveArubaApiAuthentication();
+      if (this.reserveAuthentication) await reserveArubaApiAuthentication(this.environment);
       await reserveArubaApiRequests(this.runId, 2);
-      this.session = await authenticateArubaApi({
-        environment: this.environment,
-        credentials: this.credentials,
-      });
+      this.session = await arubaProviderCall(this.environment, () =>
+        authenticateArubaApi({
+          environment: this.environment,
+          credentials: this.credentials,
+        }),
+      );
       ArubaSessionManager.sessions.set(this.cacheKey, this.session);
     }
     return this.session;
+  }
+
+  environmentName() {
+    return this.environment;
   }
 }
 
@@ -724,16 +876,24 @@ function apiGroupFromDetail(detail: ArubaApiInvoiceDetail) {
 async function readGroup(
   runId: string,
   manager: ArubaSessionManager,
-  notificationGate: RateGate,
+  waitForRead: (scope: ArubaApiReadScope) => Promise<void>,
   group: ReturnType<typeof apiGroupFromDetail>,
   knownDetail?: ArubaApiInvoiceDetail,
 ) {
-  if (!knownDetail) await reserveArubaApiRequests(runId);
+  if (!knownDetail) {
+    await waitForRead("INVOICE_READ");
+    await reserveArubaApiRequests(runId);
+  }
   const detail =
-    knownDetail ?? (await readArubaApiInvoiceDetail(await manager.current(), group.id));
-  await notificationGate.wait();
+    knownDetail ??
+    (await arubaProviderCall(manager.environmentName(), async () =>
+      readArubaApiInvoiceDetail(await manager.current(), group.id),
+    ));
+  await waitForRead("NOTIFICATION_READ");
   await reserveArubaApiRequests(runId);
-  const notifications = await readArubaApiNotifications(await manager.current(), group.id);
+  const notifications = await arubaProviderCall(manager.environmentName(), async () =>
+    readArubaApiNotifications(await manager.current(), group.id),
+  );
   return mapArubaApiInboundGroup({
     group,
     detail,
@@ -1114,7 +1274,7 @@ async function completeRun(runId: string) {
 async function targetedDocuments(
   run: ArubaSyncRunRow,
   manager: ArubaSessionManager,
-  gate: RateGate,
+  waitForRead: (scope: ArubaApiReadScope) => Promise<void>,
 ) {
   const groups = await getPool().query<{ provider_group_id: string }>(
     `SELECT DISTINCT provider_group_id FROM aruba_api_latest_shadow_documents
@@ -1125,12 +1285,14 @@ async function targetedDocuments(
   );
   const documents: ArubaApiInboundDocument[] = [];
   for (const group of groups.rows) {
+    await waitForRead("INVOICE_READ");
     await reserveArubaApiRequests(run.id);
-    const detail = await readArubaApiInvoiceDetail(
-      await manager.current(),
-      group.provider_group_id,
+    const detail = await arubaProviderCall(manager.environmentName(), async () =>
+      readArubaApiInvoiceDetail(await manager.current(), group.provider_group_id),
     );
-    documents.push(...(await readGroup(run.id, manager, gate, apiGroupFromDetail(detail), detail)));
+    documents.push(
+      ...(await readGroup(run.id, manager, waitForRead, apiGroupFromDetail(detail), detail)),
+    );
   }
   return { documents: documents.flat(), groupCount: groups.rows.length };
 }
@@ -1143,7 +1305,7 @@ export async function runArubaApiInboundJob(
   const { current, credentials } = await runnableConnection();
   const kind = runKind(job.type);
   const run = await openOrResumeRun(current, credentials, kind, options.now ?? new Date());
-  const rateDelayMs = options.rateDelayMs ?? DEFAULT_RATE_DELAY_MS;
+  const rateDelayMs = options.rateDelayMs ?? ARUBA_API_POLICY.invoiceReadIntervalMs;
   const manager = new ArubaSessionManager(
     credentials.apiEnvironment,
     credentials,
@@ -1152,14 +1314,25 @@ export async function runArubaApiInboundJob(
     rateDelayMs,
     options.rateDelayMs === undefined,
   );
-  const searchGate = new RateGate(rateDelayMs);
-  const notificationGate = new RateGate(rateDelayMs);
+  const testGlobalGate = new RateGate(rateDelayMs);
+  const testScopeGates = {
+    INVOICE_READ: new RateGate(rateDelayMs),
+    NOTIFICATION_READ: new RateGate(rateDelayMs),
+  } satisfies Record<ArubaApiReadScope, RateGate>;
+  const waitForRead = async (scope: ArubaApiReadScope) => {
+    if (options.rateDelayMs === undefined) {
+      await waitForArubaApiReadSlot(credentials.apiEnvironment, scope);
+      return;
+    }
+    await testGlobalGate.wait();
+    await testScopeGates[scope].wait();
+  };
   try {
     if (kind === "TARGETED") {
       if (!(await runMayContinue(run))) {
         return { runId: run.id, kind, mode: run.authority_mode, stopped: true };
       }
-      const targeted = await targetedDocuments(run, manager, notificationGate);
+      const targeted = await targetedDocuments(run, manager, waitForRead);
       await persistApiPage(run, targeted.documents, targeted.groupCount, 1, true);
       await completeRun(run.id);
       return { runId: run.id, kind, documents: targeted.documents.length };
@@ -1174,18 +1347,20 @@ export async function runArubaApiInboundJob(
       );
       const checkpoint = latest.rows[0];
       if (!checkpoint) throw new AppError("CONFLICT_REVISION", 409);
-      await searchGate.wait();
+      await waitForRead("INVOICE_READ");
       await reserveArubaApiRequests(run.id);
-      const page = await readArubaApiInvoicePage({
-        session: await manager.current(),
-        page: checkpoint.checkpoint_page,
-        windowStart: checkpoint.checkpoint_start,
-        windowEnd: checkpoint.checkpoint_end,
-      });
+      const page = await arubaProviderCall(credentials.apiEnvironment, async () =>
+        readArubaApiInvoicePage({
+          session: await manager.current(),
+          page: checkpoint.checkpoint_page,
+          windowStart: checkpoint.checkpoint_start,
+          windowEnd: checkpoint.checkpoint_end,
+        }),
+      );
       const documents: ArubaApiInboundDocument[] = [];
       for (const group of page.groups) {
         if (!group.invoices.length) continue;
-        documents.push(...(await readGroup(run.id, manager, notificationGate, group)));
+        documents.push(...(await readGroup(run.id, manager, waitForRead, group)));
       }
       await persistApiPage(checkpoint, documents, page.groups.length, page.page, page.terminal);
       if (!page.terminal) continue;
@@ -1204,7 +1379,9 @@ export async function runArubaApiInboundJob(
     const appError =
       error instanceof AppError ? error : new AppError("PROVIDER_RESPONSE_INVALID", 502);
     const retryable =
-      appError.code === "PROVIDER_RATE_LIMITED" || appError.code === "PROVIDER_UNAVAILABLE";
+      appError.code === "PROVIDER_RATE_LIMITED" ||
+      appError.code === "ARUBA_API_COOLDOWN_ACTIVE" ||
+      appError.code === "PROVIDER_UNAVAILABLE";
     const budgetExhausted = appError.code === "ARUBA_API_BUDGET_EXHAUSTED";
     await getPool().query(
       `UPDATE aruba_sync_runs SET status = CASE

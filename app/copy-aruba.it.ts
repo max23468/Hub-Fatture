@@ -67,6 +67,21 @@ export const arubaSettingsCopy = {
   arubaApiBackfill: "Copertura dello storico",
   arubaApiBackfillComplete: "Backfill completo",
   arubaApiBackfillPending: "Backfill da completare",
+  arubaApiBackfillRunning: (percent: number) =>
+    `Backfill in corso · ${percent.toLocaleString("it-IT")}%`,
+  arubaApiBackfillProgressLabel: "Avanzamento del backfill Aruba",
+  arubaApiBackfillCoveredThrough: (value: string) => `Storico consolidato fino al ${value}`,
+  arubaApiBackfillRemaining: (windows: number, estimatedMinutes: number | null) => {
+    const estimate =
+      estimatedMinutes === null
+        ? "stima in calcolo"
+        : estimatedMinutes < 60
+          ? `circa ${estimatedMinutes} min`
+          : estimatedMinutes < 1_440
+            ? `circa ${Math.ceil(estimatedMinutes / 60)} ore`
+            : `circa ${Math.ceil(estimatedMinutes / 1_440)} giorni`;
+    return `${windows} finestre da 48 ore rimanenti · ${estimate}`;
+  },
   arubaApiCheckpoint: "Checkpoint",
   arubaApiLimits: "Limiti di lettura API",
   arubaApiLimitValue: (inventory: number, notifications: number) =>
@@ -101,6 +116,31 @@ export const arubaSettingsCopy = {
   arubaSessionInactive: "No",
   arubaDiagnostic: "Ultimo errore",
   arubaNoError: "Nessuno",
+  arubaPotentialMatches: "Abbinamenti da confermare",
+  arubaAmbiguousMatches: "Abbinamenti ambigui",
+  arubaBlockingConflicts: "Conflitti bloccanti",
+  arubaActionableFailures: "Errori operativi attuali",
+  arubaHistoricalFailures: "Errori già superati",
+  arubaApiSafetyPause: "Pausa di sicurezza API",
+  arubaApiSafetyPauseInactive: "Non attiva",
+  arubaApiSafetyPauseUntil: (value: string) => `Attiva fino al ${value}`,
+  arubaParityDossierSummary: (parity: {
+    apiDocuments: number;
+    browserDocuments: number;
+    matchedDocuments: number;
+    missingInApi: number;
+    missingInBrowser: number;
+    statusMismatches: number;
+    fileMismatches: number;
+    unresolvedBrowserConflicts: number;
+    apiFileCoverage: { xml: number; p7m: number; pdf: number; notifications: number };
+  }) =>
+    `Dossier di parità: ${parity.matchedDocuments}/${parity.apiDocuments} documenti API allineati; ` +
+    `${parity.browserDocuments} nel pannello, ${parity.missingInApi} mancanti nell’API, ` +
+    `${parity.missingInBrowser} mancanti nel pannello, ${parity.statusMismatches} stati e ` +
+    `${parity.fileMismatches} file divergenti, ${parity.unresolvedBrowserConflicts} conflitti browser. ` +
+    `Copertura API: ${parity.apiFileCoverage.xml} XML, ${parity.apiFileCoverage.p7m} P7M, ` +
+    `${parity.apiFileCoverage.pdf} PDF e ${parity.apiFileCoverage.notifications} notifiche.`,
   arubaDiagnosticValue: (code: string) =>
     code === "ARUBA_ACCOUNT_MISMATCH"
       ? "L’account Aruba aperto non coincide con quello già collegato"

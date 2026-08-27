@@ -86,6 +86,11 @@ dei soli conteggi, vicinanza temporale e totale non costituiscono prova.
 - ricerca notifiche inviate: massimo 12 richieste al minuto per IP;
 - `429` produce `PROVIDER_RATE_LIMITED`, senza endpoint alternativi o retry immediato.
 
+I Tier orari e annuali documentati nella sezione di invio non limitano il backfill: Aruba incrementa
+quel contatore soltanto quando una fattura inviata supera i controlli sincroni. Il backfill non usa
+gli endpoint di upload o invio. Mantiene comunque un margine operativo applicando 9 richieste al
+minuto a ciascuno dei due bucket di lettura.
+
 Il probe verifica numero pagina, cardinalità, prima/ultima pagina, totale stabile, assenza di ID
 duplicati e corrispondenza tra elementi restituiti e metadati. Se la finestra supera due pagine,
 restituisce copertura incompleta e si arresta.
@@ -118,11 +123,11 @@ La connessione salva la credenziale soltanto come ciphertext dopo autenticazione
 dell’identità fiscale attesa. Parte con API in pausa, inbound disabilitato e autorità browser. Il
 worker usa backfill riprendibile dal 2019, finestre massime di 48 ore, checkpoint dopo il commit di
 ogni pagina, incrementale con sette giorni di sovrapposizione, rilettura dei non terminali e full
-mensile. Il limite di autenticazione è condiviso nel database; ricerca e notifiche usano budget
-indipendenti di 12 richieste al minuto. Ogni giro ha inoltre un tetto fail-closed di 10.000 richieste
-provider, incluse autenticazione, ricerca, dettaglio e notifiche; l’esaurimento interrompe il giro
-senza dichiarare completo il backfill e crea una continuazione dallo stesso checkpoint con un nuovo
-budget, copiando soltanto l’evidenza shadow già acquisita.
+mensile. Il limite di autenticazione è condiviso nel database; ricerca e notifiche usano bucket
+indipendenti e coordinati di 9 richieste al minuto. Ogni giro ha inoltre un tetto fail-closed di
+10.000 richieste provider, incluse autenticazione, ricerca, dettaglio e notifiche; l’esaurimento
+interrompe il giro senza dichiarare completo il backfill e crea una continuazione dallo stesso
+checkpoint con un nuovo budget, copiando soltanto l’evidenza shadow già acquisita.
 
 Pausa o revoca vengono rilevate ai punti sicuri fra pagine. Una connessione shadow non alimenta
 l’inventario canonico e il deploy non cambia l’autorità automatica. Schema, server e UI non offrono

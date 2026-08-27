@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -47,9 +47,15 @@ const SUPPORT_SAFARI_ARUBA_READ_SYNC = "033_support_safari_aruba_read_sync.sql";
 const ARUBA_STATUS_MAPPER_VERSION = "034_aruba_status_mapper_version.sql";
 const ARUBA_API_INBOUND = "035_aruba_api_inbound.sql";
 const ARUBA_REJECTED_ATTEMPT_IDENTITY = "036_aruba_rejected_attempt_identity.sql";
+const ARUBA_API_TRAFFIC_GUARD = "037_aruba_api_traffic_guard.sql";
 
 async function copyMigrationSnapshot(directory: string) {
   await cp("migrations", directory, { recursive: true });
+  for (const migration of await readdir(directory)) {
+    if (/^\d{3}_.+\.sql$/.test(migration) && migration > ARUBA_REJECTED_ATTEMPT_IDENTITY) {
+      await rm(path.join(directory, migration));
+    }
+  }
   await rm(path.join(directory, SUPPORT_SAFARI_ARUBA_READ_SYNC));
   await rm(path.join(directory, ARUBA_STATUS_MAPPER_VERSION));
   await rm(path.join(directory, ARUBA_API_INBOUND));
@@ -92,6 +98,7 @@ test("la migrazione rimuove i permessi Aruba e conserva lo stato pronto", async 
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -151,6 +158,7 @@ test("la migrazione clienti elimina soltanto i profili privi di collegamenti", a
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -240,6 +248,7 @@ test("la migrazione privacy aggiorna un database con i connettori già applicati
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
   } finally {
     await rm(firstTwo, { recursive: true, force: true });
@@ -308,6 +317,7 @@ test("l'upgrade neutralizza le sincronizzazioni precedenti all'import storico", 
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       const jobs = await client.query(
@@ -404,6 +414,7 @@ test("l'upgrade conserva la classificazione storica dei webhook già accodati", 
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -507,6 +518,7 @@ test("l'upgrade riallinea automaticamente gli identificativi fiscali storici", a
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -632,6 +644,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -727,6 +740,7 @@ test("l'upgrade rilegge il mapper Shopify senza riavvolgere eBay", async () => {
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -838,6 +852,7 @@ test("l'upgrade rilegge soltanto gli ordini eBay già importati", async () => {
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -929,6 +944,7 @@ test("l'upgrade non crea un cursore eBay senza ordini eBay", async () => {
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1017,6 +1033,7 @@ test("l'upgrade elimina soltanto i duplicati sintetici dei rimborsi eBay", async
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -1072,6 +1089,7 @@ test("l'upgrade elimina la configurazione obsoleta della protezione per upload A
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1126,13 +1144,14 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     const cleanClient = new pg.Client({ connectionString: clean.connectionString });
     await cleanClient.connect();
     try {
       assert.equal(
         (await cleanClient.query("SELECT count(*) FROM schema_migrations")).rows[0].count,
-        "36",
+        "37",
       );
       assert.equal(
         (
@@ -1300,6 +1319,7 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
@@ -1414,6 +1434,7 @@ test("l'aggiornamento conserva i rimborsi già sottratti prima dell'emissione", 
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
@@ -1611,6 +1632,7 @@ test("l'aggiornamento deriva il pagamento e completa gli snapshot preesistenti",
       ARUBA_STATUS_MAPPER_VERSION,
       ARUBA_API_INBOUND,
       ARUBA_REJECTED_ATTEMPT_IDENTITY,
+      ARUBA_API_TRAFFIC_GUARD,
     ]);
     assert.ok(deployCaseId);
     await withClient(database.connectionString, async (client) => {

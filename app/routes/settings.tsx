@@ -29,6 +29,7 @@ import type { getAccountProfile } from "../../src/db/auth.server.ts";
 import type { getArubaSettings } from "../../src/db/aruba.server.ts";
 import type { getArubaApiConnectionStatus } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaApiCredentialIdentity } from "../../src/db/aruba-api-inbound.server.ts";
+import type { getArubaBackfillReadiness } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
 import { defaultHistoricalStartDate } from "../../src/orders.ts";
@@ -462,9 +463,13 @@ function ArubaInventoryCard({
 }
 
 function ArubaConnectionDetails({
+  api,
   inventory,
+  readiness,
 }: {
+  api: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
   inventory: Awaited<ReturnType<typeof getArubaInventoryHealth>>;
+  readiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
 }) {
   return (
     <details className="settings-disclosure aruba-connection-details">
@@ -492,7 +497,40 @@ function ArubaConnectionDetails({
               : copy.settings.arubaNoError}
           </dd>
         </div>
+        <div>
+          <dt>{copy.settings.arubaPotentialMatches}</dt>
+          <dd>{inventory.potentialMatches}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaAmbiguousMatches}</dt>
+          <dd>{inventory.ambiguous}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaBlockingConflicts}</dt>
+          <dd>{inventory.conflicts}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaActionableFailures}</dt>
+          <dd>{readiness.actionableFailures}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaHistoricalFailures}</dt>
+          <dd>{readiness.historicalFailures}</dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiSafetyPause}</dt>
+          <dd>
+            {api.limits.cooldownUntil
+              ? copy.settings.arubaApiSafetyPauseUntil(dateTime(api.limits.cooldownUntil))
+              : copy.settings.arubaApiSafetyPauseInactive}
+          </dd>
+        </div>
       </dl>
+      {api.parity ? (
+        <p className="field-help aruba-parity-summary">
+          {copy.settings.arubaParityDossierSummary(api.parity)}
+        </p>
+      ) : null}
     </details>
   );
 }
@@ -810,10 +848,35 @@ function ArubaApiSettingsCard({
         </div>
         <div>
           <dt>{copy.settings.arubaApiBackfill}</dt>
-          <dd>
-            {api.lastFullSyncAt
-              ? copy.settings.arubaApiBackfillComplete
-              : copy.settings.arubaApiBackfillPending}
+          <dd className="aruba-api-fact">
+            <span>
+              {api.lastFullSyncAt
+                ? copy.settings.arubaApiBackfillComplete
+                : api.latestRun?.progress
+                  ? copy.settings.arubaApiBackfillRunning(api.latestRun.progress.percent)
+                  : copy.settings.arubaApiBackfillPending}
+            </span>
+            {api.latestRun?.progress ? (
+              <>
+                <progress
+                  aria-label={copy.settings.arubaApiBackfillProgressLabel}
+                  className="aruba-api-progress"
+                  max={100}
+                  value={api.latestRun.progress.percent}
+                />
+                <small>
+                  {copy.settings.arubaApiBackfillCoveredThrough(
+                    dateTime(api.latestRun.progress.coveredThrough),
+                  )}
+                </small>
+                <small>
+                  {copy.settings.arubaApiBackfillRemaining(
+                    api.latestRun.progress.remainingWindows,
+                    api.latestRun.progress.estimatedRemainingMinutes,
+                  )}
+                </small>
+              </>
+            ) : null}
           </dd>
         </div>
         <div>
@@ -863,6 +926,11 @@ function ArubaApiSettingsCard({
               api.limits.inventoryRequestsPerMinute,
               api.limits.notificationRequestsPerMinute,
             )}
+            {api.limits.cooldownUntil ? (
+              <small className="aruba-api-limit-warning">
+                {copy.settings.arubaApiSafetyPauseUntil(dateTime(api.limits.cooldownUntil))}
+              </small>
+            ) : null}
           </dd>
         </div>
       </dl>
@@ -949,6 +1017,7 @@ function ArubaSettingsSection({
   arubaApi,
   arubaApiCredentialIdentity,
   arubaApiNotice,
+  arubaBackfillReadiness,
 }: {
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
   arubaSaved: boolean;
@@ -963,6 +1032,7 @@ function ArubaSettingsSection({
   arubaApi: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
   arubaApiCredentialIdentity: Awaited<ReturnType<typeof getArubaApiCredentialIdentity>>;
   arubaApiNotice: string | null;
+  arubaBackfillReadiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
 }) {
   const connectionState = inventory.activeSession
     ? "ACTIVE"
@@ -1080,7 +1150,11 @@ function ArubaSettingsSection({
           </section>
         ) : null}
         <ArubaInventoryCard inventory={inventory} />
-        <ArubaConnectionDetails inventory={inventory} />
+        <ArubaConnectionDetails
+          api={arubaApi}
+          inventory={inventory}
+          readiness={arubaBackfillReadiness}
+        />
         {canApprove && inventory.blocking ? (
           <ArubaManualRecovery
             csrfToken={csrfToken}
@@ -1344,6 +1418,7 @@ export default function Settings() {
     arubaApi,
     arubaApiCredentialIdentity,
     arubaApiNotice,
+    arubaBackfillReadiness,
     arubaPanelUrl,
     arubaBookmarkletUrl,
     arubaManualReadbackCompleted,
@@ -1478,6 +1553,7 @@ export default function Settings() {
             arubaApi={arubaApi}
             arubaApiCredentialIdentity={arubaApiCredentialIdentity}
             arubaApiNotice={arubaApiNotice}
+            arubaBackfillReadiness={arubaBackfillReadiness}
             arubaSaved={arubaSaved}
             inventory={arubaInventory}
             arubaPanelUrl={arubaPanelUrl}

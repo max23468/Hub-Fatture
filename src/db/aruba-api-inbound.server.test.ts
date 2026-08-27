@@ -151,7 +151,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         },
         owner,
       ),
-      (error) => error instanceof AppError && error.code === "PROVIDER_RATE_LIMITED",
+      (error) => error instanceof AppError && error.code === "ARUBA_API_COOLDOWN_ACTIVE",
     );
     const stored = await getPool().query<{
       encrypted_credentials: string;
@@ -220,6 +220,19 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     await assert.rejects(
       api.runArubaApiInboundJob(job!, runOptions),
       (error) => error instanceof AppError && error.code === "PROVIDER_RATE_LIMITED",
+    );
+    assert.equal((await api.getArubaApiConnectionStatus()).limits.cooldownUntil !== null, true);
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT scope, cooldown_until > now() AS cooling_down, rate_limited_count
+           FROM aruba_api_traffic_limits ORDER BY scope`,
+        )
+      ).rows,
+      [
+        { scope: "INVOICE_READ", cooling_down: true, rate_limited_count: 1 },
+        { scope: "NOTIFICATION_READ", cooling_down: true, rate_limited_count: 1 },
+      ],
     );
     assert.deepEqual(
       (
@@ -498,6 +511,18 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0],
       { automatic_authority: "BROWSER" },
     );
+    await getPool().query(
+      `INSERT INTO jobs (type, status, run_at, last_error_code)
+       VALUES
+         ('aruba_sync_inventory', 'FAILED', now() - interval '1 day', 'PROVIDER_UNAVAILABLE'),
+         ('aruba_full_inventory', 'FAILED', now() + interval '1 minute', 'PROVIDER_RESPONSE_INVALID')`,
+    );
+    assert.deepEqual(await api.getArubaBackfillReadiness(), {
+      activeJobs: 0,
+      actionableFailures: 1,
+      historicalFailures: 1,
+      failureCodes: [{ code: "PROVIDER_RESPONSE_INVALID", count: 1 }],
+    });
     await assert.rejects(
       api.revokeArubaApiCredentials(codex),
       (error) => error instanceof AppError && error.code === "ARUBA_OPERATION_FORBIDDEN",
