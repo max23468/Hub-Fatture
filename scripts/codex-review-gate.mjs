@@ -2,18 +2,57 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const CODEX_BOT = "chatgpt-codex-connector[bot]";
+const CODEX_BOT_GRAPHQL = "chatgpt-codex-connector";
 const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
-export const CODEX_REVIEW_POLLING = { attempts: 100, intervalMs: 180_000 };
+export const CODEX_REVIEW_POLLING = {
+  fastAttempts: 20,
+  fastIntervalMs: 30_000,
+  slowAttempts: 96,
+  slowIntervalMs: 180_000,
+};
+
+export const codexReviewPollingDelay = (attempt) =>
+  attempt < CODEX_REVIEW_POLLING.fastAttempts
+    ? CODEX_REVIEW_POLLING.fastIntervalMs
+    : CODEX_REVIEW_POLLING.slowIntervalMs;
+
+export const codexReviewPollingDuration = () =>
+  CODEX_REVIEW_POLLING.fastAttempts * CODEX_REVIEW_POLLING.fastIntervalMs +
+  CODEX_REVIEW_POLLING.slowAttempts * CODEX_REVIEW_POLLING.slowIntervalMs;
 
 const timestamp = (value) => new Date(value ?? 0).getTime();
 const signalTimestamp = (signal) => timestamp(signal.submitted_at ?? signal.created_at);
 const matchesHead = (candidate, headSha) => Boolean(candidate && headSha.startsWith(candidate));
+const isCodexBot = (login) => login === CODEX_BOT || login === CODEX_BOT_GRAPHQL;
 
 export const reviewedCommit = (body = "") =>
   body.match(/\*\*Reviewed commit:\*\*\s*`([0-9a-f]{10,40})`/i)?.[1];
 
 export const findingPriority = (body = "") =>
   body.match(/^(?:\*\*|<sub>)*(?:!?\[)?(P[0-3])(?: Badge)?(?:\]\([^)]*\)|\]\s*|\*\*)/m)?.[1];
+
+export function advisoryThreadIds(threads, headSha) {
+  return threads
+    .filter((thread) => !thread.isResolved)
+    .filter((thread) =>
+      thread.comments.nodes.some(
+        (comment) =>
+          isCodexBot(comment.author?.login) &&
+          (comment.originalCommit?.oid === headSha || comment.commit?.oid === headSha) &&
+          ["P2", "P3"].includes(findingPriority(comment.body)),
+      ),
+    )
+    .filter((thread) => thread.comments.nodes.every((comment) => isCodexBot(comment.author?.login)))
+    .filter(
+      (thread) =>
+        !thread.comments.nodes.some(
+          (comment) =>
+            isCodexBot(comment.author?.login) &&
+            ["P0", "P1"].includes(findingPriority(comment.body)),
+        ),
+    )
+    .map((thread) => thread.id);
+}
 
 export const isAutomaticFirstReview = (eventName, action) =>
   eventName === "pull_request_target" && ["opened", "ready_for_review"].includes(action);
@@ -131,6 +170,7 @@ async function request(path, options = {}) {
     headers: {
       accept: "application/vnd.github+json",
       authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      "content-type": "application/json",
       "x-github-api-version": "2022-11-28",
       ...options.headers,
     },
@@ -147,6 +187,51 @@ async function all(path) {
     );
     items.push(...batch);
     if (batch.length < 100) return items;
+  }
+}
+
+async function pullRequestReviewThreads(repository, number) {
+  const [owner, name] = repository.split("/");
+  const threads = [];
+  let cursor = null;
+  do {
+    const response = await request("/graphql", {
+      method: "POST",
+      body: JSON.stringify({
+        query: `query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
+          repository(owner:$owner,name:$name) {
+            pullRequest(number:$number) {
+              reviewThreads(first:100,after:$cursor) {
+                nodes { id isResolved comments(first:100) { nodes { body author { login } commit { oid } originalCommit { oid } } } }
+                pageInfo { hasNextPage endCursor }
+              }
+            }
+          }
+        }`,
+        variables: { cursor, name, number: Number(number), owner },
+      }),
+    });
+    if (response.errors?.length) throw new Error(response.errors[0].message);
+    const connection = response.data.repository.pullRequest.reviewThreads;
+    threads.push(...connection.nodes);
+    cursor = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+  } while (cursor);
+  return threads;
+}
+
+async function resolveReviewThread(threadId) {
+  const response = await request("/graphql", {
+    method: "POST",
+    body: JSON.stringify({
+      query: `mutation($threadId:ID!) {
+        resolveReviewThread(input:{threadId:$threadId}) { thread { id isResolved } }
+      }`,
+      variables: { threadId },
+    }),
+  });
+  if (response.errors?.length) throw new Error(response.errors[0].message);
+  if (!response.data.resolveReviewThread.thread.isResolved) {
+    throw new Error(`Il thread advisory ${threadId} non risulta risolto`);
   }
 }
 
@@ -178,7 +263,8 @@ async function main() {
   await setStatus(repository, headSha, "pending", "In attesa della review Codex");
   if (pullRequest.draft) return;
 
-  for (let attempt = 0; attempt < CODEX_REVIEW_POLLING.attempts; attempt += 1) {
+  const attempts = CODEX_REVIEW_POLLING.fastAttempts + CODEX_REVIEW_POLLING.slowAttempts;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const [comments, prReactions, reviews, reviewComments] = await Promise.all([
       all(`/repos/${repository}/issues/${number}/comments`),
       all(`/repos/${repository}/issues/${number}/reactions`),
@@ -208,10 +294,14 @@ async function main() {
       reviews,
     });
     if (result.state !== "pending") {
+      if (result.state === "success") {
+        const threads = await pullRequestReviewThreads(repository, number);
+        await Promise.all(advisoryThreadIds(threads, headSha).map(resolveReviewThread));
+      }
       await setStatus(repository, headSha, result.state, result.description);
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, CODEX_REVIEW_POLLING.intervalMs));
+    await new Promise((resolve) => setTimeout(resolve, codexReviewPollingDelay(attempt)));
   }
 
   await setStatus(repository, headSha, "error", "Review Codex non conclusa entro cinque ore");

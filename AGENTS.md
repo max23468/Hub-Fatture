@@ -41,6 +41,11 @@ branch e commit, versione e changelog quando richiesti, push, PR, soli gate
 bloccanti, merge, tag e GitHub Release quando previsti, deploy o promozione
 tecnica e verifica live. La sequenza concreta, in particolare tra versionamento,
 merge, deploy e release, è quella definita dalla policy della repository.
+Per una modifica runtime, appena il merge restituisce lo SHA esatto di `main`,
+l'agente avvia `scripts/dispatch-production.sh <sha>` senza attendere localmente
+i check post-merge: il workflow Production conserva il proprio gate exact-SHA e
+attende autonomamente gli stessi check. Questo anticipo vale soltanto dentro un
+ciclo `Pubblica` già autorizzato e non trasforma ogni merge in un auto-deploy.
 
 Prima di aprire una PR di pubblicazione, completa i gate locali applicabili e
 presenta un HEAD coerente e pronto alla review, così ogni nuovo commit riapre il
@@ -62,7 +67,9 @@ specifico.
 I finding P2/P3 della review restano advisory e non autorizzano modifiche:
 l'agente li implementa soltanto su richiesta esplicita del proprietario. Quando
 la review è conclusa e l'evidenza si riferisce all'HEAD esatto, li riepiloga e
-prosegue con la pubblicazione; i finding P0/P1 restano bloccanti.
+prosegue con la pubblicazione; il gate risolve automaticamente soltanto i thread
+inline Codex P2/P3 già registrati sull'HEAD esatto, mentre P0/P1 e conversazioni
+umane restano bloccanti.
 
 La pulizia finale rimuove soltanto branch e worktree temporanei creati nel ciclo
 corrente e già assorbiti; controlla stash e altri residui senza alterare elementi

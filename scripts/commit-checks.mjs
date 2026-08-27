@@ -25,7 +25,7 @@ const CONDITIONAL_SURFACE_BY_CHECK = {
   "Audit dipendenze": "securityData",
   "Contract test provider": "provider",
   "E2E Chromium": "e2e",
-  "E2E WebKit": "e2e",
+  "E2E WebKit": "e2eWebkit",
   "Helper Aruba (chrome / macos-latest)": "arubaPlatform",
   "Helper Aruba (msedge / windows-latest)": "arubaPlatform",
 };
@@ -34,8 +34,8 @@ const WORKFLOW_MARKER_BY_CHECK = {
   "PostgreSQL e migrazioni": "name: PostgreSQL e migrazioni",
   "Audit dipendenze": "name: Audit dipendenze",
   "Contract test provider": "name: Contract test provider",
-  "E2E Chromium": "label: Chromium",
-  "E2E WebKit": "label: WebKit",
+  "E2E Chromium": '"label":"Chromium"',
+  "E2E WebKit": '"label":"WebKit"',
   "Helper Aruba (chrome / macos-latest)": "name: Helper Aruba (",
   "Helper Aruba (msedge / windows-latest)": "name: Helper Aruba (",
 };
@@ -115,6 +115,7 @@ export function classifyCheckImpact(files) {
     provider: true,
     arubaPlatform: true,
     e2e: true,
+    e2eWebkit: true,
     image: true,
   };
 }

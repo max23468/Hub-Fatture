@@ -33,7 +33,7 @@ version=${tag#v}
 }
 jq -e '
   (.imageDigest | test("^sha256:[0-9a-f]{64}$")) and
-  (.rollbackDigest | test("^sha256:[0-9a-f]{64}$")) and
+  (.rollbackDigest == null or (.rollbackDigest | test("^sha256:[0-9a-f]{64}$"))) and
   (.schema | test("^[0-9]{3}_[A-Za-z0-9_]+[.]sql$")) and
   (.attestation | test("^https://github[.]com/"))
 ' "$manifest" >/dev/null || {
@@ -43,8 +43,30 @@ jq -e '
 
 repository=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 if gh release view "$tag" --repo "$repository" >/dev/null 2>&1; then
-  echo "La release $tag esiste già e non viene modificata" >&2
-  exit 1
+  existing=$(gh release view "$tag" --repo "$repository" \
+    --json tagName,isDraft,isPrerelease,isImmutable,targetCommitish,assets)
+  printf '%s' "$existing" | jq -e \
+    --arg tag "$tag" \
+    --arg commit "$commit" '
+      .tagName == $tag and
+      .targetCommitish == $commit and
+      .isDraft == false and
+      .isPrerelease == false and
+      .isImmutable == true and
+      ([.assets[].name] == ["release-manifest.json"])
+    ' >/dev/null || {
+    echo "La release $tag esiste ma non corrisponde al candidato" >&2
+    exit 1
+  }
+  existing_dir=$(mktemp -d "${TMPDIR:-/tmp}/hub-fatture-existing-release.XXXXXX")
+  trap 'rm -rf -- "$existing_dir"' EXIT HUP INT TERM
+  gh release download "$tag" --repo "$repository" --pattern release-manifest.json --dir "$existing_dir"
+  cmp -s "$manifest" "$existing_dir/release-manifest.json" || {
+    echo "Il manifest della release $tag non corrisponde al readback corrente" >&2
+    exit 1
+  }
+  echo "La release immutabile $tag è già conforme."
+  exit 0
 fi
 
 resolve_remote_tag() {

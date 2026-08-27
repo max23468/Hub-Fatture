@@ -2,7 +2,7 @@
 
 ## Confine
 
-La Production canonica è la VPS OCI `fatture-hub-vm` in `eu-milan-1`, raggiunta soltanto tramite `fatture.opik.net`. Sul push runtime a `main`, `Production artifact` costruisce una sola immagine ARM64, blocca vulnerabilità alte o critiche note, pubblica e attesta il digest senza accedere alla VPS. Il workflow manuale `Production` accetta esclusivamente un commit già contenuto in `main`, confronta il candidato con l'ultimo deployment exact-SHA riuscito, attende i gate applicabili al diff cumulativo e riusa l'artefatto; costruisce un fallback soltanto se il digest verificato non è disponibile, quindi attende l’approvazione dell’Environment prima di accedere ai segreti SSH.
+La Production canonica è la VPS OCI `fatture-hub-vm` in `eu-milan-1`, raggiunta soltanto tramite `fatture.opik.net`. Sul push runtime a `main`, `Production artifact` costruisce una sola immagine ARM64, blocca vulnerabilità alte o critiche note, pubblica e attesta il digest senza accedere alla VPS. Dentro un ciclo `Pubblica` già autorizzato, `scripts/dispatch-production.sh <sha>` avvia subito il workflow `Production` appena è noto lo SHA del merge; non attende localmente i check post-merge perché la barriera exact-SHA del workflow li attende in parallelo all'artefatto. Il workflow accetta esclusivamente un commit già contenuto in `main`, confronta il candidato con l'ultimo deployment riuscito e riusa l'artefatto; costruisce un fallback soltanto se il digest verificato non è disponibile. Classificazione, gate, immagine e release non dichiarano l’Environment e non vedono i relativi segreti; il solo job di backup o deploy usa l’Environment senza reviewer obbligatori, rilegge la ricevuta VPS autorevole, riconcilia una baseline GitHub eventualmente arretrata e procede senza ulteriori conferme. Un merge fuori da un ciclo autorizzato non avvia alcun deploy.
 
 La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL non pubblica porte; Caddy è l’unico ingresso. `ARUBA_SUBMISSION_ENABLED=false` è fissato anche nel Compose e ogni readback deve confermarlo.
 
@@ -10,11 +10,11 @@ Per un candidato precedente al Canary tecnico Production, dopo il normale readba
 
 ## Prima del deploy
 
-1. Gate locali e CI verdi sul commit esatto.
+1. `npm run publish:preflight` classifica il diff rispetto a `origin/main` ed esegue soltanto i gate locali applicabili; audit, DB e contract test indipendenti procedono in parallelo.
 2. DNS Dynu, istanza, regione e hostname verificati da `scripts/production-preflight.sh`.
-3. Environment `Production` limitato a `main` e protetto dal solo titolare.
+3. Environment `Production` limitato a `main`, privo di reviewer obbligatori e usato soltanto dal job che necessita dei segreti; il dispatch manuale o la richiesta affermativa di pubblicazione costituisce l’autorizzazione.
 4. `.env` VPS con permessi `600`, Notifications Topic OCI obbligatorio e nessun valore nei log o nella repository.
-5. Digest di rollback presente in `.deploy.env` e ultimo backup verificato quando il deploy modifica schema o storage.
+5. Digest di rollback presente in `.deploy.env` per ogni sostituzione di un deployment esistente e ultimo backup verificato quando il deploy modifica schema o storage; il bootstrap di un target privo di ricevuta non inventa un rollback inesistente.
 
 Il workflow verifica direttamente i check `CI`, `Foundation`, CodeQL e React
 Doctor dell'ultimo commit non distribuito che attiva la rispettiva superficie.
@@ -22,7 +22,7 @@ Un successivo commit solo documentale non può quindi mascherare con check no-op
 un errore sul runtime ancora da distribuire; un fix successivo della stessa
 superficie sostituisce invece il gate precedente. Una modifica solo documentale,
 di test o governance che non introduce differenze runtime dal commit già
-distribuito termina senza richiedere approvazione Production. Se più PR runtime
+distribuito termina senza avviare il job Production. Se più PR runtime
 sono state assorbite in `main`, si distribuisce una sola volta il candidato
 finale.
 
@@ -40,7 +40,7 @@ la nuova base.
 
 ## Deploy e readback
 
-Avviare manualmente il workflow indicando lo SHA completo di `main`. Il workflow verifica attestazione e target, prepara Compose, Caddyfile e bundle operativo come candidati, esegue il pull per digest e attende gli health check. Gli script e le unità `systemd` candidate vengono installati soltanto dopo il readback riuscito, così un rollback continua a usare il bundle operativo precedente. Backup e deploy condividono lo stesso lock per l’intera fase critica. Per codice ordinario viene riletta una ricevuta giornaliera riuscita e recente; migrazioni o modifiche allo storage producono un backup aggiuntivo prima del deploy e uno dopo il readback. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Dopo il readback il workflow registra un deployment tecnico separato, marcato con lo SHA realmente installato: questo record, non lo SHA del workflow dispatch, diventa la base del diff successivo. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
+Avviare `scripts/dispatch-production.sh <sha>` indicando lo SHA completo di `main`; usare il secondo argomento `false` soltanto quando una policy distinta vieta esplicitamente la release. Per la versione `1.0.0` il secondo argomento `true|false` è sempre obbligatorio: `true` rappresenta l’autorizzazione distinta al go-live, mentre l’assenza del flag fallisce chiusa. Il workflow verifica attestazione e target, prepara Compose, Caddyfile e bundle operativo come candidati, esegue il pull per digest e attende gli health check. Gli script e le unità `systemd` candidate vengono installati soltanto dopo il readback riuscito, così un rollback continua a usare il bundle operativo precedente. Backup e deploy condividono lo stesso lock per l’intera fase critica. Per codice ordinario viene riletta una ricevuta giornaliera riuscita e recente; migrazioni o modifiche allo storage producono un backup aggiuntivo prima del deploy e uno dopo il readback. La ricevuta remota contiene commit, versione, digest, ultima migrazione, stato del kill switch e timestamp; non contiene IP, credenziali o dati cliente. Se il candidato coincide già con la ricevuta live, il workflow riconcilia GitHub ma non ridistribuisce né sovrascrive il vero rollback. Un target senza ricevuta segue invece il percorso di bootstrap e registra esplicitamente l'assenza di un predecessore nel manifest. Dopo il readback il workflow registra un deployment tecnico separato, marcato con lo SHA realmente installato: questo record, non lo SHA del workflow dispatch, diventa la base del diff successivo. Prima di sostituire un deploy esistente, lo script conserva in `data/operations/` il precedente environment di deploy senza segreti insieme ai relativi Compose e Caddyfile.
 
 Controlli conclusivi:
 
@@ -53,14 +53,13 @@ Controlli conclusivi:
 
 ## Release tecnica
 
-Dopo deploy e readback, pubblicare la GitHub Release esclusivamente con
-`scripts/publish-github-release.sh <tag> <commit> <manifest-json> <note-md>`.
-Lo script verifica che versione e commit del manifest coincidano con il tag e
-il candidato, copia l’asset in un percorso temporaneo col nome canonico
-`release-manifest.json`, crea la release Latest e rilegge tag, asset unico e
-immutabilità. Non usare direttamente un file temporaneo con un nome diverso:
-GitHub conserva il basename locale e una release immutabile non può essere
-corretta sostituendo l’asset.
+Dopo il readback Production riuscito, il job `GitHub Release immutabile` estrae
+le note della versione corrente dal changelog, costruisce il manifest con
+commit, digest distribuito, digest di rollback, schema e attestazione, quindi
+usa `scripts/publish-github-release.sh`. Lo script crea la release Latest e
+rilegge tag, asset unico e immutabilità; una ripetizione è un no-op soltanto se
+release e manifest esistenti coincidono byte per byte. Rollback, backup-only e
+deploy senza modifica runtime non pubblicano release.
 
 ## Rollback
 

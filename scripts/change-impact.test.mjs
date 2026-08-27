@@ -35,6 +35,7 @@ test("una modifica a Foundation rigenera e verifica l'immagine", () => {
   assert.equal(impact.runtime, true);
   assert.equal(impact.image, true);
   assert.equal(impact.e2e, true);
+  assert.equal(impact.e2eWebkit, false);
 });
 
 test("un candidato già distribuito non richiede alcun gate o deploy", () => {
@@ -49,6 +50,7 @@ test("i test isolati non trasformano il candidato in runtime", () => {
   assert.equal(impact.testsOnly, true);
   assert.equal(impact.runtime, false);
   assert.equal(impact.e2e, true);
+  assert.equal(impact.e2eWebkit, true);
 });
 
 test("UI e codice ordinario richiedono artefatto, E2E e React Doctor", () => {
@@ -57,6 +59,7 @@ test("UI e codice ordinario richiedono artefatto, E2E e React Doctor", () => {
   assert.equal(impact.runtime, true);
   assert.equal(impact.image, true);
   assert.equal(impact.e2e, true);
+  assert.equal(impact.e2eWebkit, true);
   assert.equal(impact.react, true);
 });
 
@@ -81,6 +84,7 @@ test("migrazioni e storage attivano DB, sicurezza e backup aggiuntivo", () => {
   assert.equal(impact.securityData, true);
   assert.equal(impact.migrationStorage, true);
   assert.equal(impact.deploy, true);
+  assert.equal(impact.e2eWebkit, false);
 });
 
 test("i connettori attivano contract test e corsia provider", () => {
@@ -88,6 +92,8 @@ test("i connettori attivano contract test e corsia provider", () => {
   assert.equal(impact.lane, "provider");
   assert.equal(impact.provider, true);
   assert.equal(impact.runtime, true);
+  assert.equal(impact.e2e, true);
+  assert.equal(impact.e2eWebkit, false);
 });
 
 test("l'helper Aruba limita la matrice multipiattaforma ai cambi pertinenti", () => {
