@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { AppError } from "../errors.ts";
@@ -538,6 +539,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       { automatic_authority: "API" },
     );
     const inbound = await import("./aruba-inbound.server.ts");
+    const apiStage = await import("./aruba-api-stage.server.ts");
     const canonicalPage = await import("./aruba-api-canonical-page.server.ts");
     const stagedRunId = "30000000-0000-4000-8000-000000000099";
     await getPool().query(
@@ -548,6 +550,15 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
          'RUNNING', '2019-01-01', '2019-01-03', '2019-01-01', '2019-01-03',
          now() + interval '3 minutes')`,
       [stagedRunId],
+    );
+    const stagedBrowserDocument = await getPool().query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series,
+         fiscal_number, document_date, total_amount, remote_status, remote_status_observed_at,
+         last_full_scan_at, metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'browser-atomic-stage', 'TD01', 2019,
+         'FPR', '99', '2019-01-02', 12300, 'SUBMITTED', now(), now(), repeat('7', 64))
+       RETURNING id`,
     );
     const stagedPage = {
       stream: "api:incremental",
@@ -561,8 +572,8 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
           remoteId: "atomic-stage-synthetic",
           documentType: "TD01" as const,
           fiscalYear: 2019,
-          series: null,
-          fiscalNumber: null,
+          series: "FPR",
+          fiscalNumber: "99",
           documentDate: "2019-01-02",
           recipientName: "Destinatario sintetico",
           recipientTaxId: "11111111111",
@@ -581,14 +592,36 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         },
       ],
     };
-    await inbound.stageApiPage(
+    const stagedResult = await apiStage.stageApiPage(
       stagedRunId,
       stagedPage,
       new Map([["atomic-stage-synthetic", "atomic-stage-group"]]),
       1,
     );
+    assert.deepEqual(stagedResult.resolvedDocuments, [
+      {
+        remoteId: "atomic-stage-synthetic",
+        remoteDocumentId: stagedBrowserDocument.rows[0]!.id,
+      },
+    ]);
+    await inbound.importArubaRemoteOfficialFileFromApi(
+      stagedBrowserDocument.rows[0]!.id,
+      "ARUBA_PDF",
+      Buffer.from(
+        await readFile("tests/fixtures/aruba/official-pdf.synthetic.base64", "utf8"),
+        "base64",
+      ),
+      {
+        type: "API",
+        runId: stagedRunId,
+        providerGroupId: "atomic-stage-group",
+        providerFilename: "atomic-stage.pdf",
+      },
+    );
     await assert.rejects(
-      canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1),
+      canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1, [
+        stagedBrowserDocument.rows[0]!.id,
+      ]),
       (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
     );
     assert.deepEqual(
@@ -601,6 +634,9 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       { page_count: 0, checkpoint_page: 1 },
     );
     await getPool().query("DELETE FROM aruba_remote_observations WHERE sync_run_id = $1", [
+      stagedRunId,
+    ]);
+    await getPool().query("DELETE FROM aruba_deduplication_conflicts WHERE sync_run_id = $1", [
       stagedRunId,
     ]);
     await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [stagedRunId]);

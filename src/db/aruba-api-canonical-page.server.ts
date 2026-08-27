@@ -5,16 +5,27 @@ import { z } from "zod";
 import { inventoryPageSchema } from "../aruba-inbound.ts";
 import { AppError } from "../errors.ts";
 import { withTransaction } from "./client.server.ts";
+import { isDatabaseId } from "./database-id.ts";
 
 export async function commitArubaApiInventoryPage(
   runId: string,
   rawPage: unknown,
   groupCount: number,
+  remoteDocumentIds: readonly string[],
 ) {
   const id = z.uuid().safeParse(runId);
   const parsed = inventoryPageSchema.safeParse(rawPage);
   const parsedGroupCount = z.number().int().nonnegative().safeParse(groupCount);
-  if (!id.success || !parsed.success || !parsedGroupCount.success) {
+  const parsedRemoteDocumentIds = z
+    .array(z.string().refine(isDatabaseId))
+    .safeParse(remoteDocumentIds);
+  if (
+    !id.success ||
+    !parsed.success ||
+    !parsedGroupCount.success ||
+    !parsedRemoteDocumentIds.success ||
+    new Set(parsedRemoteDocumentIds.data).size !== parsed.data.documents.length
+  ) {
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
   }
   return withTransaction(async (client) => {
@@ -59,17 +70,9 @@ export async function commitArubaApiInventoryPage(
                AND files.kind = 'ARUBA_PDF')
          )::integer AS incomplete_files
        FROM aruba_remote_observations observations
-       JOIN aruba_remote_documents remote ON remote.id = observations.remote_document_id
        WHERE observations.sync_run_id = $1 AND observations.page_ordinal = $2
-         AND remote.environment = $3 AND remote.account_reference = $4
-         AND remote.remote_id = ANY($5::text[])`,
-      [
-        id.data,
-        parsed.data.pageOrdinal,
-        context.environment,
-        context.account_reference,
-        parsed.data.documents.map((document) => document.remoteId),
-      ],
+         AND observations.remote_document_id = ANY($3::bigint[])`,
+      [id.data, parsed.data.pageOrdinal, parsedRemoteDocumentIds.data],
     );
     if (
       staged.rows[0]?.count !== parsed.data.documents.length ||

@@ -32,7 +32,8 @@ import {
   waitForArubaApiReadSlot,
 } from "./aruba-api-traffic.server.ts";
 import { commitArubaApiInventoryPage } from "./aruba-api-canonical-page.server.ts";
-import { importArubaRemoteOfficialFileFromApi, stageApiPage } from "./aruba-inbound.server.ts";
+import { importArubaRemoteOfficialFileFromApi } from "./aruba-inbound.server.ts";
+import { stageApiPage } from "./aruba-api-stage.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import type { ClaimedJob, JobType } from "./connectors.server.ts";
 
@@ -1249,11 +1250,19 @@ async function persistCanonicalPage(
     fullScan: run.kind === "BACKFILL" || run.kind === "FULL",
     documents: documents.map((document) => document.remote),
   };
-  await stageApiPage(run.id, pagePayload, providerGroupIds, groupCount);
+  const staged = await stageApiPage(run.id, pagePayload, providerGroupIds, groupCount);
+  const remoteDocumentIds = new Map(
+    staged.resolvedDocuments?.map((document) => [document.remoteId, document.remoteDocumentId]),
+  );
+  if (remoteDocumentIds.size !== documents.length) {
+    throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+  }
   for (const document of documents) {
+    const remoteDocumentId = remoteDocumentIds.get(document.remote.remoteId);
+    if (!remoteDocumentId) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     for (const file of document.files) {
       // react-doctor-disable-next-line react-doctor/async-await-in-loop -- I file appartengono alla pagina canonica appena acquisita e vanno validati e persistiti in ordine prima del checkpoint successivo.
-      await importArubaRemoteOfficialFileFromApi(document.remote.remoteId, file.kind, file.bytes, {
+      await importArubaRemoteOfficialFileFromApi(remoteDocumentId, file.kind, file.bytes, {
         type: "API",
         runId: run.id,
         providerGroupId: document.providerGroupId,
@@ -1282,7 +1291,9 @@ async function persistCanonicalPage(
      WHERE id = $1 AND status = 'RUNNING'`,
     [run.id],
   );
-  await commitArubaApiInventoryPage(run.id, pagePayload, groupCount);
+  await commitArubaApiInventoryPage(run.id, pagePayload, groupCount, [
+    ...remoteDocumentIds.values(),
+  ]);
 }
 
 async function persistApiPage(

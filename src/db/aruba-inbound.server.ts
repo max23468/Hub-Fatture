@@ -2181,7 +2181,7 @@ async function restoreResolvedRejectedAttempts(
   }
 }
 
-async function ingestParsedArubaPage(
+export async function ingestParsedArubaPage(
   client: pg.PoolClient,
   session: ArubaPageIngestContext,
   page: z.infer<typeof inventoryPageSchema>,
@@ -2191,6 +2191,7 @@ async function ingestParsedArubaPage(
     remoteId: string;
     kind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
   }> = [];
+  const resolvedDocuments: Array<{ remoteId: string; remoteDocumentId: string }> = [];
   const apiSource = session.sourceKind === "API";
   const sessionMode = apiSource
     ? await client.query<{
@@ -2280,20 +2281,38 @@ async function ingestParsedArubaPage(
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
     for (const remote of page.documents) {
-      const stored = await client.query<{ id: string }>(
-        `SELECT id FROM aruba_remote_documents
-         WHERE environment = $1 AND account_reference = $2 AND remote_id = $3`,
-        [session.environment, session.account_reference, remote.remoteId],
-      );
-      if (!stored.rows[0]) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+      const stored = apiSource
+        ? await client.query<{ id: string }>(
+            `SELECT DISTINCT remote.id
+             FROM aruba_remote_observations observations
+             JOIN aruba_remote_documents remote ON remote.id = observations.remote_document_id
+             WHERE observations.sync_run_id = $1 AND observations.page_ordinal = $2
+               AND observations.payload_digest = $3 AND remote.environment = $4
+               AND remote.account_reference = $5 AND remote.provider_group_id = $6`,
+            [
+              session.id,
+              page.pageOrdinal,
+              remoteMetadataDigest(remote),
+              session.environment,
+              session.account_reference,
+              session.providerGroupIds?.get(remote.remoteId),
+            ],
+          )
+        : await client.query<{ id: string }>(
+            `SELECT id FROM aruba_remote_documents
+             WHERE environment = $1 AND account_reference = $2 AND remote_id = $3`,
+            [session.environment, session.account_reference, remote.remoteId],
+          );
+      if (stored.rowCount !== 1) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+      resolvedDocuments.push({ remoteId: remote.remoteId, remoteDocumentId: stored.rows[0]!.id });
       const files = await client.query<{ kind: string }>(
         `SELECT kind FROM aruba_files WHERE remote_document_id = $1`,
-        [stored.rows[0].id],
+        [stored.rows[0]!.id],
       );
       const knownKinds = new Set(files.rows.map((file) => file.kind));
       if (
         !knownKinds.has("ARUBA_XML") &&
-        (await needsOfficialXmlForReconciliation(client, stored.rows[0].id))
+        (await needsOfficialXmlForReconciliation(client, stored.rows[0]!.id))
       ) {
         requestedFiles.push({ remoteId: remote.remoteId, kind: "ARUBA_XML" });
       }
@@ -2304,7 +2323,12 @@ async function ingestParsedArubaPage(
         requestedFiles.push({ remoteId: remote.remoteId, kind: "SDI_NOTIFICATION" });
       }
     }
-    return { repeated: true, documents: page.documents.length, requestedFiles };
+    return {
+      repeated: true,
+      documents: page.documents.length,
+      requestedFiles,
+      resolvedDocuments: apiSource ? resolvedDocuments : undefined,
+    };
   }
   for (const remote of page.documents) {
     const metadataDigest = remoteMetadataDigest(remote);
@@ -2494,6 +2518,7 @@ async function ingestParsedArubaPage(
          WHERE id = $1`,
         [storedId, session.providerGroupIds?.get(remote.remoteId) ?? null],
       );
+      resolvedDocuments.push({ remoteId: remote.remoteId, remoteDocumentId: storedId! });
     }
     if (!conflicted) {
       await restoreResolvedRejectedAttempts(client, session, remote.remoteId);
@@ -2632,7 +2657,12 @@ async function ingestParsedArubaPage(
       ],
     );
   }
-  return { repeated: false, documents: page.documents.length, requestedFiles };
+  return {
+    repeated: false,
+    documents: page.documents.length,
+    requestedFiles,
+    resolvedDocuments: apiSource ? resolvedDocuments : undefined,
+  };
 }
 
 export async function ingestArubaInventoryPage(token: string, rawPage: unknown) {
@@ -2643,50 +2673,6 @@ export async function ingestArubaInventoryPage(token: string, rawPage: unknown) 
     if (!session) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
     await lockArubaInventory(client, session.environment, session.account_reference);
     return ingestParsedArubaPage(client, session, parsed.data);
-  });
-}
-
-export async function stageApiPage(
-  runId: string,
-  rawPage: unknown,
-  providerGroupIds: ReadonlyMap<string, string>,
-  groupCount: number,
-) {
-  const id = z.uuid().safeParse(runId);
-  const parsed = inventoryPageSchema.safeParse(rawPage);
-  const parsedGroupCount = z.number().int().nonnegative().safeParse(groupCount);
-  if (!id.success || !parsed.success || !parsedGroupCount.success) {
-    throw new AppError("ARUBA_INVENTORY_INVALID", 422);
-  }
-  if (parsed.data.documents.some((document) => !providerGroupIds.has(document.remoteId))) {
-    throw new AppError("ARUBA_INVENTORY_INVALID", 422);
-  }
-  return withTransaction(async (client) => {
-    const run = await client.query<{
-      environment: "MOCK" | "PRODUCTION";
-      account_reference: string;
-    }>(
-      `SELECT environment, account_reference FROM aruba_sync_runs
-       WHERE id = $1 AND status = 'RUNNING' AND authority_mode = 'CANONICAL'
-       FOR UPDATE`,
-      [id.data],
-    );
-    const context = run.rows[0];
-    if (!context) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
-    await lockArubaInventory(client, context.environment, context.account_reference);
-    return ingestParsedArubaPage(
-      client,
-      {
-        id: id.data,
-        environment: context.environment,
-        account_reference: context.account_reference,
-        sourceKind: "API",
-        providerGroupIds,
-        groupCount: parsedGroupCount.data,
-      },
-      parsed.data,
-      false,
-    );
   });
 }
 
