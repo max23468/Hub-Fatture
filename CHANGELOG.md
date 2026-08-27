@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.84
+
+- Il backfill API Aruba riconosce la sentinella documentata dal comportamento Production per una finestra storica vuota, normalizzandola come pagina 1 terminale senza allentare i controlli su pagine non vuote o metadati incoerenti.
+
 ## 0.3.83
 
 - I campi delle credenziali Aruba partono dalla stessa quota anche quando un testo di aiuto va a capo; tutti i pannelli della sezione usano inoltre lo stesso distacco verticale su desktop e mobile.
