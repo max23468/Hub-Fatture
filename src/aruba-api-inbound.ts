@@ -69,6 +69,12 @@ export interface ArubaApiInboundDocument {
   files: ArubaApiInboundFile[];
 }
 
+export function hasRequiredArubaApiFiles(document: ArubaApiInboundDocument): boolean {
+  return document.files.some(
+    (candidate) => candidate.kind === "ARUBA_XML" || candidate.kind === "ARUBA_P7M",
+  );
+}
+
 function file(input: {
   kind: ArubaApiInboundFile["kind"];
   filename: string;

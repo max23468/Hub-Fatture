@@ -65,9 +65,6 @@ export async function commitArubaApiInventoryPage(
            NOT EXISTS (SELECT 1 FROM aruba_files files
              WHERE files.remote_document_id = observations.remote_document_id
                AND files.kind IN ('ARUBA_XML', 'ARUBA_P7M'))
-           OR NOT EXISTS (SELECT 1 FROM aruba_files files
-             WHERE files.remote_document_id = observations.remote_document_id
-               AND files.kind = 'ARUBA_PDF')
          )::integer AS incomplete_files
        FROM aruba_remote_observations observations
        WHERE observations.sync_run_id = $1 AND observations.page_ordinal = $2

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import { mapArubaApiInboundGroup } from "./aruba-api-inbound.ts";
+import { hasRequiredArubaApiFiles, mapArubaApiInboundGroup } from "./aruba-api-inbound.ts";
 
 const xml = Buffer.from('<?xml version="1.0"?><FatturaElettronica />');
 const pdf = Buffer.from("%PDF-1.4 synthetic");
@@ -124,6 +124,22 @@ test("il mapper attribuisce i file ufficiali soltanto a un gruppo con una fattur
   const hashes = new Map(mapped[0]!.files.map((file) => [file.kind, file.sha256]));
   assert.equal(hashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
   assert.equal(hashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
+});
+
+test("il PDF opzionale non blocca un documento con il payload fiscale ufficiale", () => {
+  const single = input();
+  single.group.invoices = single.group.invoices.slice(0, 1);
+  single.detail.invoices = single.detail.invoices.slice(0, 1);
+  const [document] = mapArubaApiInboundGroup({
+    ...single,
+    detail: { ...single.detail, pdfFile: null },
+  });
+  assert(document);
+  assert.equal(
+    document.files.some((candidate) => candidate.kind === "ARUBA_PDF"),
+    false,
+  );
+  assert.equal(hasRequiredArubaApiFiles(document), true);
 });
 
 test("il mapper conserva come sconosciuto il Paese destinatario assente nei dettagli storici", () => {

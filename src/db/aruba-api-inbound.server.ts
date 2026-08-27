@@ -3,7 +3,11 @@ import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import { z } from "zod";
 
-import { mapArubaApiInboundGroup, type ArubaApiInboundDocument } from "../aruba-api-inbound.ts";
+import {
+  hasRequiredArubaApiFiles,
+  mapArubaApiInboundGroup,
+  type ArubaApiInboundDocument,
+} from "../aruba-api-inbound.ts";
 import { ARUBA_API_POLICY, type ArubaApiReadScope } from "../aruba-api-policy.ts";
 import { calculateArubaBackfillProgress } from "../aruba-backfill-progress.ts";
 import {
@@ -437,6 +441,7 @@ export type ArubaInboundClosureGate =
   | "NO_ACTIVE_JOBS"
   | "NO_ACTIONABLE_FAILURES"
   | "PARITY_MATCHED"
+  | "BROWSER_BASELINE_CURRENT"
   | "NORMALIZED_DIVERGENCES_ZERO"
   | "OFFICIAL_FILES_COMPLETE"
   | "NOTIFICATIONS_VERIFIED"
@@ -449,6 +454,7 @@ interface ArubaInboundClosureRow {
   automatic_authority: "BROWSER" | "API";
   backfill_complete: boolean;
   parity_status: "MATCHED" | "DIVERGENT" | "INCOMPLETE" | null;
+  browser_baseline_current: boolean;
   api_documents: number;
   missing_in_api: number;
   missing_in_browser: number;
@@ -456,7 +462,6 @@ interface ArubaInboundClosureRow {
   file_mismatches: number;
   unresolved_browser_conflicts: number;
   documents_without_official_payload: number;
-  documents_without_pdf: number;
   documents_without_notification: number;
 }
 
@@ -475,6 +480,17 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
          WHERE runs.environment = $2 AND runs.kind = 'BACKFILL'
            AND runs.authority_mode = 'SHADOW' AND runs.status = 'COMPLETED'
          ORDER BY runs.completed_at DESC LIMIT 1
+       ), browser_baseline AS (
+         SELECT sessions.id
+         FROM aruba_sync_sessions sessions
+         JOIN current_connection connection
+           ON connection.account_reference = sessions.account_reference
+         WHERE sessions.environment = $2 AND sessions.status = 'COMPLETED'
+           AND sessions.is_full_scan AND sessions.completed_at IS NOT NULL
+           AND sessions.full_scan_completed_at IS NOT NULL
+           AND EXISTS (SELECT 1 FROM aruba_sync_pages pages
+             WHERE pages.sync_session_id = sessions.id AND pages.full_scan)
+         ORDER BY sessions.full_scan_completed_at DESC LIMIT 1
        ), dossier AS (
          SELECT dossiers.* FROM aruba_inbound_parity_dossiers dossiers
          JOIN candidate ON candidate.id = dossiers.sync_run_id
@@ -484,6 +500,10 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
          coalesce(connection.automatic_authority, 'BROWSER') AS automatic_authority,
          candidate.id IS NOT NULL AS backfill_complete,
          dossier.status AS parity_status,
+         coalesce(
+           dossier.summary_json->>'browserBaselineSessionId' = browser_baseline.id::text,
+           false
+         ) AS browser_baseline_current,
          coalesce(dossier.api_documents, 0)::integer AS api_documents,
          coalesce(dossier.missing_in_api, 0)::integer AS missing_in_api,
          coalesce(dossier.missing_in_browser, 0)::integer AS missing_in_browser,
@@ -496,15 +516,13 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
              AND documents.xml_sha256 IS NULL AND documents.p7m_sha256 IS NULL), 0)
            AS documents_without_official_payload,
          coalesce((SELECT count(*)::integer FROM aruba_api_shadow_documents documents
-           WHERE documents.sync_run_id = candidate.id AND documents.pdf_sha256 IS NULL), 0)
-           AS documents_without_pdf,
-         coalesce((SELECT count(*)::integer FROM aruba_api_shadow_documents documents
            WHERE documents.sync_run_id = candidate.id
              AND jsonb_array_length(documents.notification_hashes) = 0), 0)
            AS documents_without_notification
        FROM current_connection connection
        LEFT JOIN candidate ON true
-       LEFT JOIN dossier ON true`,
+       LEFT JOIN dossier ON true
+       LEFT JOIN browser_baseline ON true`,
     [connectionEnvironment(), inventoryEnvironment()],
   );
   const jobs = await arubaBackfillReadiness(client);
@@ -518,6 +536,7 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
     automatic_authority: "BROWSER" as const,
     backfill_complete: false,
     parity_status: null,
+    browser_baseline_current: false,
     api_documents: 0,
     missing_in_api: 0,
     missing_in_browser: 0,
@@ -525,7 +544,6 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
     file_mismatches: 0,
     unresolved_browser_conflicts: 0,
     documents_without_official_payload: 0,
-    documents_without_pdf: 0,
     documents_without_notification: 0,
   };
   const gates: Record<ArubaInboundClosureGate, boolean> = {
@@ -534,16 +552,14 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
     NO_ACTIVE_JOBS: jobs.activeJobs === 0,
     NO_ACTIONABLE_FAILURES: jobs.actionableFailures === 0,
     PARITY_MATCHED: row.parity_status === "MATCHED",
+    BROWSER_BASELINE_CURRENT: row.browser_baseline_current,
     NORMALIZED_DIVERGENCES_ZERO:
       row.api_documents > 0 &&
       row.missing_in_api === 0 &&
       row.missing_in_browser === 0 &&
       row.status_mismatches === 0 &&
       row.file_mismatches === 0,
-    OFFICIAL_FILES_COMPLETE:
-      row.api_documents > 0 &&
-      row.documents_without_official_payload === 0 &&
-      row.documents_without_pdf === 0,
+    OFFICIAL_FILES_COMPLETE: row.api_documents > 0 && row.documents_without_official_payload === 0,
     NOTIFICATIONS_VERIFIED: row.api_documents > 0 && row.documents_without_notification === 0,
     BROWSER_CONFLICTS_ZERO: row.unresolved_browser_conflicts === 0,
     TRAFFIC_GUARD_CLEAR: traffic.rows[0]?.cooling_down !== true,
@@ -1229,13 +1245,7 @@ async function persistCanonicalPage(
   page: number,
   terminal: boolean,
 ) {
-  if (
-    documents.some(
-      (document) =>
-        !document.files.some((file) => file.kind === "ARUBA_XML" || file.kind === "ARUBA_P7M") ||
-        !document.files.some((file) => file.kind === "ARUBA_PDF"),
-    )
-  ) {
+  if (documents.some((document) => !hasRequiredArubaApiFiles(document))) {
     throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   }
   const providerGroupIds = new Map(
@@ -1493,7 +1503,8 @@ async function createParityDossier(run: ArubaSyncRunRow) {
          'populationStreams', $14::jsonb,
          'unresolvedBrowserConflicts', $15::integer,
          'apiFileCoverage', $16::jsonb,
-         'browserBaselineScanOrdinal', $17::integer
+         'browserBaselineScanOrdinal', $17::integer,
+         'browserBaselineSessionId', $18::uuid
        ))
      ON CONFLICT (sync_run_id) DO NOTHING`,
     [
@@ -1514,6 +1525,7 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       unresolvedBrowserConflicts,
       JSON.stringify(apiFileCoverage),
       baseline?.scan_ordinal ?? null,
+      baseline?.id ?? null,
     ],
   );
 }

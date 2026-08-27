@@ -499,15 +499,6 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     );
     assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, false);
     await getPool().query(
-      `UPDATE aruba_api_shadow_documents SET pdf_sha256 = repeat('9', 64)
-       WHERE sync_run_id = (
-         SELECT id FROM aruba_sync_runs
-         WHERE kind = 'BACKFILL' AND status = 'COMPLETED'
-         ORDER BY completed_at DESC LIMIT 1
-       )`,
-    );
-    assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, false);
-    await getPool().query(
       `UPDATE aruba_api_shadow_documents
        SET notification_hashes = jsonb_build_array(repeat('8', 64))
        WHERE sync_run_id = (
@@ -517,6 +508,39 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
        )`,
     );
     await getPool().query("UPDATE aruba_api_traffic_limits SET cooldown_until = NULL");
+    const pdfOptionalReadiness = await api.getArubaInboundClosureReadiness();
+    assert.deepEqual(pdfOptionalReadiness.blockers, []);
+    assert.equal(pdfOptionalReadiness.readyForAuthoritySwitch, true);
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::int AS count FROM aruba_api_shadow_documents
+           WHERE pdf_sha256 IS NULL`,
+        )
+      ).rows[0].count > 0,
+      true,
+    );
+    const newerBrowserSessionId = "10000000-0000-4000-8000-000000000002";
+    await getPool().query(
+      `INSERT INTO aruba_sync_sessions
+        (id, environment, account_reference, device_id, token_hash, status,
+         absolute_expires_at, completed_at, full_scan_completed_at, is_full_scan)
+       VALUES ($1, 'MOCK', 'synthetic-aruba-account', 'newer-browser-baseline', repeat('9', 64),
+         'COMPLETED', now() + interval '1 hour', now() + interval '1 minute',
+         now() + interval '1 minute', true)`,
+      [newerBrowserSessionId],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_sync_pages
+        (sync_session_id, stream, scan_ordinal, page_ordinal, terminal, full_scan,
+         row_count, documents_json, payload_digest)
+       VALUES ($1, 'invoices:2019', 1, 1, true, true, 0, '[]', repeat('9', 64))`,
+      [newerBrowserSessionId],
+    );
+    const staleDossier = await api.getArubaInboundClosureReadiness();
+    assert.equal(staleDossier.readyForAuthoritySwitch, false);
+    assert.equal(staleDossier.blockers.includes("BROWSER_BASELINE_CURRENT"), true);
+    await getPool().query("DELETE FROM aruba_sync_sessions WHERE id = $1", [newerBrowserSessionId]);
     assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, true);
     assert.deepEqual(
       await api.promoteArubaApiAuthority({ fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK" }, owner),
@@ -604,20 +628,6 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         remoteDocumentId: stagedBrowserDocument.rows[0]!.id,
       },
     ]);
-    await inbound.importArubaRemoteOfficialFileFromApi(
-      stagedBrowserDocument.rows[0]!.id,
-      "ARUBA_PDF",
-      Buffer.from(
-        await readFile("tests/fixtures/aruba/official-pdf.synthetic.base64", "utf8"),
-        "base64",
-      ),
-      {
-        type: "API",
-        runId: stagedRunId,
-        providerGroupId: "atomic-stage-group",
-        providerFilename: "atomic-stage.pdf",
-      },
-    );
     await assert.rejects(
       canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1, [
         stagedBrowserDocument.rows[0]!.id,
@@ -633,9 +643,30 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0],
       { page_count: 0, checkpoint_page: 1 },
     );
+    await inbound.importArubaRemoteOfficialFileFromApi(
+      stagedBrowserDocument.rows[0]!.id,
+      "ARUBA_P7M",
+      Buffer.from(
+        await readFile("tests/fixtures/aruba/official-p7m.synthetic.der.base64", "utf8"),
+        "base64",
+      ),
+      {
+        type: "API",
+        runId: stagedRunId,
+        providerGroupId: "atomic-stage-group",
+        providerFilename: "atomic-stage.xml.p7m",
+      },
+    );
+    assert.deepEqual(
+      await canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1, [
+        stagedBrowserDocument.rows[0]!.id,
+      ]),
+      { repeated: false },
+    );
     await getPool().query("DELETE FROM aruba_remote_observations WHERE sync_run_id = $1", [
       stagedRunId,
     ]);
+    await getPool().query("DELETE FROM aruba_sync_run_pages WHERE sync_run_id = $1", [stagedRunId]);
     await getPool().query("DELETE FROM aruba_deduplication_conflicts WHERE sync_run_id = $1", [
       stagedRunId,
     ]);
