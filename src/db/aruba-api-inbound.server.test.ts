@@ -15,6 +15,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
   const originalFetch = globalThis.fetch;
   let pageTwoAttempts = 0;
   let pauseAfterSearch: (() => Promise<void>) | null = null;
+  const targetedGroupRequests: string[] = [];
   process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
   process.env.APP_BASE_URL = "http://localhost:8080";
   process.env.APP_ENV = "test";
@@ -35,6 +36,53 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
           fiscalCode: null,
           accountStatus: { expired: false, expirationDate: null },
         });
+      }
+      if (url.pathname === "/api/v2/invoices-out/detail") {
+        const groupId = url.searchParams.get("id");
+        targetedGroupRequests.push(groupId ?? "");
+        return response({
+          channelGroup: 1,
+          shopName: null,
+          invoices: [
+            {
+              invoiceDate: "2019-01-01T02:30:00.000Z",
+              number: "FPR-TARGET-1",
+              documentType: "TD01",
+              status: "Presa in carico",
+              statusDescription: null,
+              totalDocument: "100.00",
+              totalVat: "22.00",
+              netPayable: "100.00",
+            },
+          ],
+          sdiErrors: [],
+          id: groupId,
+          sender: {
+            description: "Mittente sintetico",
+            countryCode: "IT",
+            vatCode: "00000000000",
+            fiscalCode: null,
+          },
+          receiver: {
+            description: "Destinatario sintetico",
+            countryCode: "IT",
+            vatCode: "11111111111",
+            fiscalCode: null,
+          },
+          invoiceType: "FPR12",
+          docType: "out",
+          file: Buffer.from("fattura sintetica").toString("base64"),
+          filename: "IT00000000000_TARGET.xml",
+          username: "utente-sintetico",
+          creationDate: "2019-01-01T02:30:00.000Z",
+          lastUpdate: "2019-01-01T02:31:00.000Z",
+          idSdi: null,
+          pdfFile: null,
+          pddAvailable: false,
+        });
+      }
+      if (url.pathname === "/api/v2/invoices-out/notifications") {
+        return response({ count: 0, notifications: [] });
       }
       assert.equal(url.pathname, "/api/v2/invoices-out");
       const pause = pauseAfterSearch;
@@ -266,6 +314,56 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0].status,
       "COMPLETED",
     );
+    await getPool().query(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year,
+         document_date, total_amount, remote_status, remote_status_observed_at,
+         metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'browser-aperto-sintetico', 'TD01',
+         2019, '2019-01-01', 10000, 'SDI_PROCESSING', now(), repeat('d', 64))`,
+    );
+    await getPool().query(
+      `INSERT INTO aruba_api_shadow_documents
+        (sync_run_id, provider_group_id, remote_key, document_type, fiscal_year,
+         document_date, total_amount, remote_status)
+       SELECT id, 'gruppo-shadow-aperto', 'shadow-aperto-sintetico', 'TD01', 2019,
+         '2019-01-01', 10000, 'SDI_PROCESSING'
+       FROM aruba_sync_runs
+       WHERE kind = 'INCREMENTAL' AND status = 'COMPLETED'
+       ORDER BY completed_at DESC LIMIT 1`,
+    );
+    await getPool().query(
+      `UPDATE jobs SET completed_at = now() - interval '16 minutes'
+       WHERE status = 'COMPLETED'`,
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT provider_group_id, remote_status
+           FROM aruba_api_latest_shadow_documents
+           WHERE environment = 'MOCK' AND account_reference = 'synthetic-aruba-account'`,
+        )
+      ).rows,
+      [{ provider_group_id: "gruppo-shadow-aperto", remote_status: "SDI_PROCESSING" }],
+    );
+    await jobs.scheduleDueSyncs();
+    assert.deepEqual(
+      (await getPool().query(`SELECT type FROM jobs WHERE status = 'PENDING' ORDER BY id`)).rows,
+      [{ type: "aruba_refresh_nonterminal" }],
+    );
+    await getPool().query(
+      `UPDATE jobs SET run_at = now()
+       WHERE type = 'aruba_refresh_nonterminal' AND status = 'PENDING'`,
+    );
+    const targetedJob = await jobs.claimJob("aruba-api-targeted-worker");
+    assert.equal(targetedJob?.type, "aruba_refresh_nonterminal");
+    const targeted = await api.runArubaApiInboundJob(targetedJob!, {
+      rateDelayMs: 0,
+      now: new Date("2019-01-01T04:00:00.000Z"),
+    });
+    assert.equal(targeted.documents, 1);
+    assert.deepEqual(targetedGroupRequests, ["gruppo-shadow-aperto"]);
+    assert.equal(await jobs.completeJob(targetedJob!, targeted), true);
     await assert.rejects(
       getPool().query(
         "UPDATE connections SET automatic_authority = 'API' WHERE provider = 'ARUBA'",
@@ -275,7 +373,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     assert.equal(
       (await getPool().query("SELECT count(*)::int AS count FROM aruba_remote_documents")).rows[0]
         .count,
-      0,
+      1,
     );
     assert.deepEqual(
       (

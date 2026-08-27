@@ -1010,9 +1010,8 @@ async function targetedDocuments(
   gate: RateGate,
 ) {
   const groups = await getPool().query<{ provider_group_id: string }>(
-    `SELECT DISTINCT provider_group_id FROM aruba_remote_documents
+    `SELECT DISTINCT provider_group_id FROM aruba_api_latest_shadow_documents
      WHERE environment = $1 AND account_reference = $2
-       AND provider_group_id IS NOT NULL
        AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
      ORDER BY provider_group_id`,
     [run.environment, run.account_reference],

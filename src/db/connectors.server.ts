@@ -539,6 +539,12 @@ export async function scheduleDueSyncs() {
              THEN 'PRODUCTION' ELSE 'MOCK' END
              AND account_reference = connections.account_reference
              AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+         ) AND EXISTS (
+           SELECT 1 FROM aruba_api_latest_shadow_documents
+           WHERE environment = CASE WHEN connections.environment = 'PRODUCTION'
+             THEN 'PRODUCTION' ELSE 'MOCK' END
+             AND account_reference = connections.account_reference
+             AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
          ) AND NOT EXISTS (
            SELECT 1 FROM jobs
            WHERE type = 'aruba_refresh_nonterminal'

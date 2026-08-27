@@ -154,6 +154,43 @@ CREATE TABLE aruba_inbound_parity_dossiers (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE VIEW aruba_api_latest_shadow_documents AS
+WITH latest_full AS (
+  SELECT DISTINCT ON (environment, account_reference)
+    environment,
+    account_reference,
+    completed_at
+  FROM aruba_sync_runs
+  WHERE status = 'COMPLETED' AND kind IN ('BACKFILL', 'FULL')
+  ORDER BY environment, account_reference, completed_at DESC, started_at DESC, id DESC
+)
+SELECT DISTINCT ON (runs.environment, runs.account_reference, shadow.remote_key)
+  runs.environment,
+  runs.account_reference,
+  shadow.sync_run_id,
+  shadow.provider_group_id,
+  shadow.remote_key,
+  shadow.document_type,
+  shadow.fiscal_year,
+  shadow.series,
+  shadow.fiscal_number,
+  shadow.document_date,
+  shadow.total_amount,
+  shadow.remote_status,
+  shadow.xml_sha256,
+  shadow.p7m_sha256,
+  shadow.pdf_sha256,
+  shadow.notification_hashes,
+  shadow.observed_at
+FROM aruba_api_shadow_documents AS shadow
+JOIN aruba_sync_runs AS runs ON runs.id = shadow.sync_run_id
+JOIN latest_full ON latest_full.environment = runs.environment
+  AND latest_full.account_reference = runs.account_reference
+  AND runs.completed_at >= latest_full.completed_at
+WHERE runs.status = 'COMPLETED'
+ORDER BY runs.environment, runs.account_reference, shadow.remote_key,
+  shadow.observed_at DESC, runs.completed_at DESC, runs.started_at DESC, runs.id DESC;
+
 ALTER TABLE aruba_remote_documents
   ADD COLUMN provider_group_id text,
   ADD COLUMN automatic_source text NOT NULL DEFAULT 'BROWSER'
