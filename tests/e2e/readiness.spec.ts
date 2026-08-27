@@ -1496,7 +1496,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   await expect(arubaApiSettings).toContainText("finestre da 48 ore rimanenti");
   await page.getByText("Dettagli sincronizzazione", { exact: true }).click();
   await expect(page.getByText("Passaggio alla lettura API", { exact: true })).toBeVisible();
-  await expect(page.getByText(/\d+\/11 verifiche tecniche completate/)).toBeVisible();
+  await expect(page.getByText(/\d+\/12 verifiche tecniche completate/)).toBeVisible();
   await expect(page.getByText("Riconciliazione dopo il backfill", { exact: true })).toBeVisible();
   await expect(page.getByText(/\d+\/\d+ documenti pronti per una rilettura mirata/)).toBeVisible();
   await expect(credentialForm).toHaveCount(0);
