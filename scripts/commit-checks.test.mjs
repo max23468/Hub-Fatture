@@ -62,6 +62,7 @@ test("il classificatore vincola al proprio commit tutti i gate che forza", () =>
   assert.equal(impact.provider, true);
   assert.equal(impact.arubaPlatform, true);
   assert.equal(impact.e2e, true);
+  assert.equal(impact.e2eWebkit, true);
   assert.equal(impact.image, true);
 });
 
@@ -115,7 +116,14 @@ test("conserva il target di ogni superficie CI indipendente", () => {
     [
       {
         sha: database,
-        impact: { standard: true, image: true, database: true, securityData: true, e2e: true },
+        impact: {
+          standard: true,
+          image: true,
+          database: true,
+          securityData: true,
+          e2e: true,
+          e2eWebkit: true,
+        },
       },
       {
         sha: provider,
@@ -123,7 +131,7 @@ test("conserva il target di ogni superficie CI indipendente", () => {
       },
       {
         sha: runtime,
-        impact: { standard: true, image: true, e2e: true },
+        impact: { standard: true, image: true, e2e: true, e2eWebkit: true },
       },
     ],
     runtime,
@@ -134,6 +142,22 @@ test("conserva il target di ogni superficie CI indipendente", () => {
   assert.equal(targets["Contract test provider"], provider);
   assert.equal(targets["E2E Chromium"], runtime);
   assert.equal(targets["E2E WebKit"], runtime);
+});
+
+test("un backend runtime non attende un WebKit che la matrice non crea", () => {
+  const backend = "1".repeat(40);
+  const targets = selectCheckTargets(
+    [
+      {
+        sha: backend,
+        impact: { standard: true, image: true, e2e: true, e2eWebkit: false },
+        conditionalChecks: ["E2E Chromium", "E2E WebKit"],
+      },
+    ],
+    backend,
+  );
+  assert.equal(targets["E2E Chromium"], backend);
+  assert.equal("E2E WebKit" in targets, false);
 });
 
 test("i commit con CI monolitica non richiedono job storici inesistenti", () => {

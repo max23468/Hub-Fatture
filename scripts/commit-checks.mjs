@@ -25,7 +25,7 @@ const CONDITIONAL_SURFACE_BY_CHECK = {
   "Audit dipendenze": "securityData",
   "Contract test provider": "provider",
   "E2E Chromium": "e2e",
-  "E2E WebKit": "e2e",
+  "E2E WebKit": "e2eWebkit",
   "Helper Aruba (chrome / macos-latest)": "arubaPlatform",
   "Helper Aruba (msedge / windows-latest)": "arubaPlatform",
 };
@@ -115,6 +115,7 @@ export function classifyCheckImpact(files) {
     provider: true,
     arubaPlatform: true,
     e2e: true,
+    e2eWebkit: true,
     image: true,
   };
 }

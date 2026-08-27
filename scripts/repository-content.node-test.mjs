@@ -309,9 +309,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
       workflow.indexOf('description="Baseline riconciliata dalla ricevuta live"'),
     "la baseline deve essere validata prima di registrare il successo",
   );
+  assert.match(workflow, /elif git merge-base --is-ancestor "\$CANDIDATE" "\$live_base"/);
   assert.match(
     workflow,
-    /elif \[ "\$ROLLBACK" = true \]; then\s+git merge-base --is-ancestor "\$CANDIDATE" "\$live_base"\s+git merge-base --is-ancestor "\$live_base" "\$EXPECTED_BASE"/,
+    /! git merge-base --is-ancestor "\$EXPECTED_BASE" "\$live_base"[\s\S]*! git merge-base --is-ancestor "\$live_base" "\$EXPECTED_BASE"/,
   );
   assert.match(workflow, /for delay in 0 2 5 10 20 30/);
   assert.match(workflow, /-f state=success/);
