@@ -12,6 +12,88 @@ import { runMigrations } from "./migrations.server.ts";
 
 const execute = promisify(execFile);
 
+function containerConnectionString(connectionString: string) {
+  const url = new URL(connectionString);
+  url.hostname = "127.0.0.1";
+  url.port = "5432";
+  return url.toString();
+}
+
+async function postgresContainerFor(connectionString: string) {
+  const port = new URL(connectionString).port || "5432";
+  const containers = await execute("docker", ["ps", "--format", "{{.ID}}\t{{.Ports}}"]);
+  const match = containers.stdout.split("\n").find((line) => line.includes(`:${port}->5432/tcp`));
+  const containerId = match?.split("\t", 1)[0];
+  if (!containerId) throw new Error(`Container PostgreSQL non trovato sulla porta ${port}`);
+  return containerId;
+}
+
+async function dumpAndRestoreWithServerClient(
+  containerId: string,
+  sourceConnectionString: string,
+  targetConnectionString: string,
+  backupPath: string,
+) {
+  const containerBackupPath = `/tmp/${path.basename(path.dirname(backupPath))}.dump`;
+  try {
+    await execute("docker", [
+      "exec",
+      containerId,
+      "pg_dump",
+      "--format=custom",
+      "--file",
+      containerBackupPath,
+      containerConnectionString(sourceConnectionString),
+    ]);
+    await execute("docker", ["cp", `${containerId}:${containerBackupPath}`, backupPath]);
+    await execute("docker", [
+      "exec",
+      containerId,
+      "pg_restore",
+      "--no-owner",
+      "--no-privileges",
+      "--dbname",
+      containerConnectionString(targetConnectionString),
+      containerBackupPath,
+    ]);
+  } finally {
+    await execute("docker", ["exec", containerId, "rm", "-f", containerBackupPath]).catch(
+      () => undefined,
+    );
+  }
+}
+
+async function dumpAndRestore(
+  sourceConnectionString: string,
+  targetConnectionString: string,
+  backupPath: string,
+) {
+  const containerId = await postgresContainerFor(sourceConnectionString).catch(() => null);
+  if (containerId) {
+    await dumpAndRestoreWithServerClient(
+      containerId,
+      sourceConnectionString,
+      targetConnectionString,
+      backupPath,
+    );
+    return;
+  }
+  try {
+    await execute("pg_dump", ["--format=custom", "--file", backupPath, sourceConnectionString]);
+    await execute("pg_restore", [
+      "--no-owner",
+      "--no-privileges",
+      "--dbname",
+      targetConnectionString,
+      backupPath,
+    ]);
+  } catch (error) {
+    throw new Error("Client PostgreSQL compatibile non disponibile per la prova di restore", {
+      cause: error,
+    });
+  }
+}
+
 test("backup e restore preservano la credenziale Aruba cifrata e il checkpoint", async () => {
   const source = await temporaryDatabase("aruba_restore_source");
   const target = await temporaryDatabase("aruba_restore_target");
@@ -47,14 +129,7 @@ test("backup e restore preservano la credenziale Aruba cifrata e il checkpoint",
            '2026-01-03T00:00:00Z', '2026-01-05T00:00:00Z', 3, 42, now())`,
       );
     });
-    await execute("pg_dump", ["--format=custom", "--file", backupPath, source.connectionString]);
-    await execute("pg_restore", [
-      "--no-owner",
-      "--no-privileges",
-      "--dbname",
-      target.connectionString,
-      backupPath,
-    ]);
+    await dumpAndRestore(source.connectionString, target.connectionString, backupPath);
     await withClient(target.connectionString, async (client) => {
       const restored = await client.query<{
         encrypted_credentials: string;
