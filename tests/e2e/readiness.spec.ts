@@ -1397,6 +1397,27 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(cleanupResponse.ok).toBe(true);
 
   await page.getByRole("link", { name: "Impostazioni" }).click();
+  const arubaApiSettings = page.locator("#aruba-api");
+  await expect(arubaApiSettings.locator(".aruba-api-facts > div")).toHaveCount(6);
+  await expect(arubaApiSettings.getByLabel("Nome utente del pannello Aruba")).toBeVisible();
+  await expect(arubaApiSettings.getByLabel("Password del pannello Aruba")).toBeVisible();
+  await expect(arubaApiSettings).toContainText("Non servono credenziali API separate");
+  await expect(
+    arubaApiSettings.getByRole("button", { name: "Verifica e collega Aruba" }),
+  ).toBeVisible();
+  const credentialForm = arubaApiSettings.locator(".aruba-api-credentials-form");
+  const credentialSpacing = await credentialForm.evaluate((form) => {
+    const fields = form.querySelectorAll<HTMLInputElement>("input:not([type='hidden'])");
+    const actions = form.querySelector<HTMLElement>(".aruba-api-credentials-form__actions");
+    const fieldBoxes = Array.from(fields, (field) => field.getBoundingClientRect());
+    const lowestFieldEdge = Math.max(...fieldBoxes.map(({ bottom }) => bottom));
+    return {
+      actionsGap: actions ? actions.getBoundingClientRect().top - lowestFieldEdge : 0,
+      columnGap: fieldBoxes[1]!.left - fieldBoxes[0]!.right,
+    };
+  });
+  expect(credentialSpacing.actionsGap).toBeGreaterThanOrEqual(24);
+  expect(credentialSpacing.columnGap).toBeGreaterThanOrEqual(24);
   const ownerArubaSync = page.locator(".aruba-sync-card");
   const openAruba = ownerArubaSync.getByRole("link", { name: "Apri Aruba" });
   await expect(openAruba).toBeVisible();

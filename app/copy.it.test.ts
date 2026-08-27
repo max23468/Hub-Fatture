@@ -17,6 +17,14 @@ test("le Impostazioni distinguono i documenti esterni dalle verifiche Aruba", ()
   assert.equal(copy.settings.arubaUnresolved, "Da verificare");
 });
 
+test("la connessione Aruba distingue le credenziali del pannello da credenziali API dedicate", () => {
+  assert.equal(copy.settings.arubaApiUsername, "Nome utente del pannello Aruba");
+  assert.equal(copy.settings.arubaApiPassword, "Password del pannello Aruba");
+  assert.match(copy.settings.arubaApiCredentialsHelp, /Non servono credenziali API separate/);
+  assert.match(copy.settings.arubaApiUsernameHelp, /non l’account Aruba.*@aruba\.it/);
+  assert.equal(copy.settings.arubaApiSaveCredentials, "Verifica e collega Aruba");
+});
+
 test("la prima configurazione Aruba non richiede installazioni tecniche", () => {
   assert.match(copy.settings.arubaBookmarkletHelp, /Non devi installare nulla/);
   assert.doesNotMatch(
