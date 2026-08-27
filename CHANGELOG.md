@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.88
+
+- Dopo il collegamento Aruba, le Impostazioni mostrano una sintesi compatta e montano il modulo soltanto quando Massimo sceglie di aggiornare le credenziali; nome utente e identità fiscale vengono ripristinati dal dato cifrato, mentre la password non viene mai restituita.
+- Il dossier inbound confronta lo snapshot browser esatto, separa la copertura di XML, P7M, PDF e notifiche e resta divergente in presenza di conflitti browser irrisolti, senza confondere file non acquisibili dal browser con differenze di parità.
+- I tentativi Aruba rifiutati non occupano più l’identità fiscale del tentativo successivo: entrambi restano nello storico, i tentativi validi conservano l’unicità e i vecchi conflitti vengono riconciliati senza collegamenti forzati.
+
 ## 0.3.87
 
 - Il backfill API Aruba conserva come sconosciuto il Paese destinatario assente nei dettagli storici, senza dedurre `IT` dagli identificativi fiscali, e prosegue la lettura shadow di documenti, file e notifiche.

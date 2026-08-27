@@ -23,6 +23,8 @@ test("la connessione Aruba distingue le credenziali del pannello da credenziali 
   assert.match(copy.settings.arubaApiCredentialsHelp, /Non servono credenziali API separate/);
   assert.match(copy.settings.arubaApiUsernameHelp, /non l’account Aruba.*@aruba\.it/);
   assert.equal(copy.settings.arubaApiSaveCredentials, "Verifica e collega Aruba");
+  assert.equal(copy.settings.arubaApiEditCredentials, "Aggiorna credenziali");
+  assert.match(copy.settings.arubaApiCredentialsConnected, /Collegamento verificato/);
 });
 
 test("la prima configurazione Aruba non richiede installazioni tecniche", () => {

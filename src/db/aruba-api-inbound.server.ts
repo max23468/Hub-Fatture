@@ -267,6 +267,22 @@ export async function getArubaApiConnectionStatus() {
   };
 }
 
+export async function getArubaApiCredentialIdentity(actor: ArubaApiActor) {
+  requireOwner(actor);
+  const current = await connection(getPool());
+  if (!current?.encrypted_credentials) return null;
+  try {
+    const credentials = parseStoredCredentials(current.encrypted_credentials);
+    return {
+      username: credentials.username,
+      expectedTaxId: credentials.expectedTaxId,
+    };
+  } catch (error) {
+    if (error instanceof AppError && error.code === "PROVIDER_NOT_CONFIGURED") return null;
+    throw error;
+  }
+}
+
 export async function saveArubaApiCredentials(
   input: {
     apiEnvironment: unknown;
@@ -874,30 +890,53 @@ async function advanceWindow(runId: string) {
 }
 
 async function createParityDossier(run: ArubaSyncRunRow) {
-  const browserSession = await getPool().query<{ started_at: Date; completed_at: Date }>(
-    `SELECT started_at, completed_at FROM aruba_sync_sessions
-     WHERE environment = $1 AND account_reference = $2 AND status = 'COMPLETED'
-       AND is_full_scan AND completed_at IS NOT NULL
-     ORDER BY completed_at DESC LIMIT 1`,
+  const browserSession = await getPool().query<{
+    id: string;
+    started_at: Date;
+    completed_at: Date;
+    scan_ordinal: number;
+  }>(
+    `SELECT sessions.id, sessions.started_at, sessions.completed_at,
+            full_scan.scan_ordinal
+     FROM aruba_sync_sessions AS sessions
+     JOIN LATERAL (
+       SELECT max(pages.scan_ordinal)::integer AS scan_ordinal
+       FROM aruba_sync_pages AS pages
+       WHERE pages.sync_session_id = sessions.id AND pages.full_scan
+       HAVING max(pages.scan_ordinal) IS NOT NULL
+     ) AS full_scan ON true
+     WHERE sessions.environment = $1 AND sessions.account_reference = $2
+       AND sessions.status = 'COMPLETED' AND sessions.is_full_scan
+       AND sessions.completed_at IS NOT NULL AND sessions.full_scan_completed_at IS NOT NULL
+     ORDER BY sessions.full_scan_completed_at DESC LIMIT 1`,
     [run.environment, run.account_reference],
   );
   const baseline = browserSession.rows[0];
-  const api = await getPool().query<{
-    document_type: string;
-    fiscal_year: number;
-    series: string | null;
-    fiscal_number: string | null;
-    document_date: string;
-    total_amount: number;
-    remote_status: string;
-    xml_sha256: string | null;
-    p7m_sha256: string | null;
-    pdf_sha256: string | null;
-    notification_hashes: string[];
-  }>(`SELECT * FROM aruba_api_shadow_documents WHERE sync_run_id = $1`, [run.id]);
-  const browser = baseline
+  const populationStreams = baseline
+    ? (
+        await getPool().query<{ stream: string }>(
+          `SELECT DISTINCT stream FROM aruba_sync_pages
+           WHERE sync_session_id = $1
+             AND scan_ordinal = $2
+             AND stream ~ '^(invoices|credit-notes):[0-9]{4}$'
+           ORDER BY stream`,
+          [baseline.id, baseline.scan_ordinal],
+        )
+      ).rows.map((row) => row.stream)
+    : [];
+  const unresolvedBrowserConflicts = baseline
+    ? Number(
+        (
+          await getPool().query<{ count: number }>(
+            `SELECT count(*)::int AS count FROM aruba_deduplication_conflicts
+             WHERE sync_session_id = $1 AND resolved_at IS NULL`,
+            [baseline.id],
+          )
+        ).rows[0]?.count ?? 0,
+      )
+    : 0;
+  const api = baseline
     ? await getPool().query<{
-        id: string;
         document_type: string;
         fiscal_year: number;
         series: string | null;
@@ -905,25 +944,62 @@ async function createParityDossier(run: ArubaSyncRunRow) {
         document_date: string;
         total_amount: number;
         remote_status: string;
-        file_hashes: Record<string, string[]>;
+        xml_sha256: string | null;
+        p7m_sha256: string | null;
+        pdf_sha256: string | null;
+        notification_hashes: string[];
       }>(
-        `SELECT remote.id, remote.document_type, remote.fiscal_year, remote.series,
-                remote.fiscal_number, remote.document_date::text, remote.total_amount,
-                remote.remote_status,
-                coalesce(jsonb_object_agg(files.kind, files.hashes)
-                  FILTER (WHERE files.kind IS NOT NULL), '{}') AS file_hashes
-         FROM aruba_remote_documents AS remote
+        `SELECT shadow.document_type, shadow.fiscal_year, shadow.series,
+                shadow.fiscal_number, shadow.document_date::text AS document_date,
+                shadow.total_amount, shadow.remote_status, shadow.xml_sha256,
+                shadow.p7m_sha256, shadow.pdf_sha256, shadow.notification_hashes
+         FROM aruba_api_shadow_documents AS shadow
+         WHERE shadow.sync_run_id = $1
+           AND concat(
+             CASE shadow.document_type WHEN 'TD01' THEN 'invoices:' ELSE 'credit-notes:' END,
+             shadow.fiscal_year
+           ) = ANY($2::text[])`,
+        [run.id, populationStreams],
+      )
+    : { rows: [] as never[] };
+  const browser = baseline
+    ? await getPool().query<{
+        document_type: string;
+        fiscal_year: number;
+        series: string | null;
+        fiscal_number: string | null;
+        document_date: string;
+        total_amount: number;
+        remote_status: string;
+        file_hashes: string[];
+      }>(
+        `SELECT document->>'documentType' AS document_type,
+                (document->>'fiscalYear')::integer AS fiscal_year,
+                nullif(document->>'series', '') AS series,
+                nullif(document->>'fiscalNumber', '') AS fiscal_number,
+                document->>'documentDate' AS document_date,
+                (document->>'totalAmount')::integer AS total_amount,
+                document->>'status' AS remote_status,
+                coalesce(official_xml.hashes, ARRAY[]::text[]) AS file_hashes
+         FROM aruba_sync_pages AS pages
+         CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) AS item(document)
          LEFT JOIN LATERAL (
-           SELECT aruba_files.kind, jsonb_agg(storage.sha256 ORDER BY storage.sha256) AS hashes
-           FROM aruba_files
-           JOIN storage_objects AS storage ON storage.id = aruba_files.storage_object_id
-           WHERE aruba_files.remote_document_id = remote.id
-           GROUP BY aruba_files.kind
-         ) AS files ON true
-         WHERE remote.environment = $1 AND remote.account_reference = $2
-           AND remote.automatic_source <> 'API' AND remote.last_full_scan_at >= $3
-         GROUP BY remote.id`,
-        [run.environment, run.account_reference, baseline.started_at],
+           SELECT array_agg(storage.sha256 ORDER BY storage.sha256) AS hashes
+           FROM aruba_remote_documents AS remote
+           JOIN aruba_files AS files ON files.remote_document_id = remote.id
+           JOIN storage_objects AS storage ON storage.id = files.storage_object_id
+           WHERE remote.environment = $4 AND remote.account_reference = $5
+             AND remote.remote_id = document->>'remoteId' AND files.kind = 'ARUBA_XML'
+         ) AS official_xml ON true
+         WHERE pages.sync_session_id = $1 AND pages.scan_ordinal = $2
+           AND pages.stream = ANY($3::text[])`,
+        [
+          baseline.id,
+          baseline.scan_ordinal,
+          populationStreams,
+          run.environment,
+          run.account_reference,
+        ],
       )
     : { rows: [] as never[] };
   const apiParityDocuments: ArubaInboundParityDocument[] = api.rows.map((document) => ({
@@ -934,12 +1010,7 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     documentDate: document.document_date,
     totalAmount: document.total_amount,
     remoteStatus: document.remote_status,
-    fileHashes: [
-      document.xml_sha256,
-      document.p7m_sha256,
-      document.pdf_sha256,
-      ...document.notification_hashes,
-    ].filter((value): value is string => Boolean(value)),
+    fileHashes: [document.xml_sha256].filter((value): value is string => Boolean(value)),
   }));
   const browserParityDocuments: ArubaInboundParityDocument[] = browser.rows.map((document) => ({
     documentType: document.document_type,
@@ -949,20 +1020,40 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     documentDate: document.document_date,
     totalAmount: document.total_amount,
     remoteStatus: document.remote_status,
-    fileHashes: Object.values(document.file_hashes).flat(),
+    fileHashes: document.file_hashes,
   }));
   const comparison = compareArubaInboundParity({
     api: apiParityDocuments,
     browser: browserParityDocuments,
   });
-  const status = !baseline ? "INCOMPLETE" : comparison.status;
+  const status =
+    !baseline || populationStreams.length === 0
+      ? "INCOMPLETE"
+      : unresolvedBrowserConflicts > 0
+        ? "DIVERGENT"
+        : comparison.status;
+  const apiFileCoverage = {
+    xml: api.rows.filter((document) => document.xml_sha256 !== null).length,
+    p7m: api.rows.filter((document) => document.p7m_sha256 !== null).length,
+    pdf: api.rows.filter((document) => document.pdf_sha256 !== null).length,
+    notifications: api.rows.reduce(
+      (count, document) => count + document.notification_hashes.length,
+      0,
+    ),
+  };
   await getPool().query(
     `INSERT INTO aruba_inbound_parity_dossiers
       (id, sync_run_id, environment, account_reference, status, api_documents,
        browser_documents, matched_documents, missing_in_api, missing_in_browser,
        status_mismatches, file_mismatches, summary_json)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-       jsonb_build_object('browserBaselineCompletedAt', $13::timestamptz))
+       jsonb_build_object(
+         'browserBaselineCompletedAt', $13::timestamptz,
+         'populationStreams', $14::jsonb,
+         'unresolvedBrowserConflicts', $15::integer,
+         'apiFileCoverage', $16::jsonb,
+         'browserBaselineScanOrdinal', $17::integer
+       ))
      ON CONFLICT (sync_run_id) DO NOTHING`,
     [
       randomUUID(),
@@ -978,6 +1069,10 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       comparison.statusMismatches,
       comparison.fileMismatches,
       baseline?.completed_at ?? null,
+      JSON.stringify(populationStreams),
+      unresolvedBrowserConflicts,
+      JSON.stringify(apiFileCoverage),
+      baseline?.scan_ordinal ?? null,
     ],
   );
 }

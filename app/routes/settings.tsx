@@ -10,7 +10,7 @@ import {
   Settings2,
   ShieldCheck,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Form, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/settings";
 
@@ -28,6 +28,7 @@ import { privateRouteMeta } from "../metadata";
 import type { getAccountProfile } from "../../src/db/auth.server.ts";
 import type { getArubaSettings } from "../../src/db/aruba.server.ts";
 import type { getArubaApiConnectionStatus } from "../../src/db/aruba-api-inbound.server.ts";
+import type { getArubaApiCredentialIdentity } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
 import { defaultHistoricalStartDate } from "../../src/orders.ts";
@@ -564,19 +565,189 @@ function ArubaManualRecovery({
   );
 }
 
+type ArubaApiCredentialIdentity = Awaited<ReturnType<typeof getArubaApiCredentialIdentity>>;
+
+function useArubaCredentialForm({
+  configured,
+  credentialIdentity,
+  hasError,
+}: {
+  configured: boolean;
+  credentialIdentity: ArubaApiCredentialIdentity;
+  hasError: boolean;
+}) {
+  const defaults = () => ({
+    username: credentialIdentity?.username ?? "",
+    expectedTaxId: credentialIdentity?.expectedTaxId ?? "",
+  });
+  const [credentialsOpen, setCredentialsOpen] = useState(!configured || hasError);
+  const [credentialDraft, setCredentialDraft] = useState(defaults);
+  const openCredentials = () => {
+    setCredentialDraft(defaults());
+    setCredentialsOpen(true);
+  };
+  const cancelCredentials = () => {
+    setCredentialDraft(defaults());
+    setCredentialsOpen(false);
+  };
+  return {
+    cancelCredentials,
+    credentialDraft,
+    credentialsOpen,
+    openCredentials,
+    setCredentialDraft,
+  };
+}
+
+function ArubaApiCredentials({
+  canApprove,
+  configured,
+  credentialIdentity,
+  csrfToken,
+  hasError,
+}: {
+  canApprove: boolean;
+  configured: boolean;
+  credentialIdentity: ArubaApiCredentialIdentity;
+  csrfToken: string;
+  hasError: boolean;
+}) {
+  const {
+    cancelCredentials,
+    credentialDraft,
+    credentialsOpen,
+    openCredentials,
+    setCredentialDraft,
+  } = useArubaCredentialForm({ configured, credentialIdentity, hasError });
+
+  if (!canApprove) return <p className="field-help">{copy.settings.arubaApiCodexHelp}</p>;
+  if (configured && !credentialsOpen) {
+    return (
+      <div className="aruba-api-credentials-summary">
+        <div>
+          <h4>{copy.settings.arubaApiCredentialsTitle}</h4>
+          <p>{copy.settings.arubaApiCredentialsConnected}</p>
+        </div>
+        <button className="button button--secondary" onClick={openCredentials} type="button">
+          {copy.settings.arubaApiEditCredentials}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <Form autoComplete="off" method="post" className="security-form aruba-api-credentials-form">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input
+        type="hidden"
+        name="intent"
+        value={configured ? "rotate-aruba-api" : "save-aruba-api"}
+      />
+      <header className="aruba-api-credentials-form__header">
+        <h4>{copy.settings.arubaApiCredentialsTitle}</h4>
+        <p>{copy.settings.arubaApiCredentialsHelp}</p>
+      </header>
+      <div className="field-with-help">
+        <label htmlFor="aruba-api-username">{copy.settings.arubaApiUsername}</label>
+        <input
+          aria-describedby="aruba-api-username-help"
+          autoCapitalize="none"
+          autoComplete="new-password"
+          id="aruba-api-username"
+          name="arubaApiUsername"
+          required
+          spellCheck={false}
+          type="text"
+          value={credentialDraft.username}
+          onChange={(event) => {
+            const { value } = event.currentTarget;
+            setCredentialDraft((current) => ({
+              ...current,
+              username: value,
+            }));
+          }}
+          autoFocus={configured}
+        />
+        <p className="field-help" id="aruba-api-username-help">
+          {copy.settings.arubaApiUsernameHelp}
+        </p>
+      </div>
+      <div className="field-with-help">
+        <label htmlFor="aruba-api-password">{copy.settings.arubaApiPassword}</label>
+        <input
+          aria-describedby="aruba-api-password-help aruba-api-secret-help"
+          autoComplete="new-password"
+          id="aruba-api-password"
+          name="arubaApiPassword"
+          required
+          type="password"
+          defaultValue=""
+        />
+        <p className="field-help" id="aruba-api-password-help">
+          {copy.settings.arubaApiPasswordHelp}
+        </p>
+      </div>
+      <div className="field-with-help">
+        <label htmlFor="aruba-api-tax-id">{copy.settings.arubaApiExpectedTaxId}</label>
+        <input
+          aria-describedby="aruba-api-tax-id-help"
+          autoCapitalize="characters"
+          autoComplete="off"
+          id="aruba-api-tax-id"
+          name="arubaApiExpectedTaxId"
+          required
+          spellCheck={false}
+          type="text"
+          value={credentialDraft.expectedTaxId}
+          onChange={(event) => {
+            const { value } = event.currentTarget;
+            setCredentialDraft((current) => ({
+              ...current,
+              expectedTaxId: value,
+            }));
+          }}
+        />
+        <p className="field-help" id="aruba-api-tax-id-help">
+          {copy.settings.arubaApiExpectedTaxIdHelp}
+        </p>
+      </div>
+      <div className="aruba-api-credentials-form__actions">
+        <p className="field-help" id="aruba-api-secret-help">
+          {copy.settings.arubaApiSecretHelp}
+        </p>
+        <div className="aruba-api-credentials-form__buttons">
+          {configured ? (
+            <button className="button button--secondary" onClick={cancelCredentials} type="button">
+              {copy.settings.arubaApiCancelCredentials}
+            </button>
+          ) : null}
+          <button className="button" type="submit">
+            {configured
+              ? copy.settings.arubaApiRotateCredentials
+              : copy.settings.arubaApiSaveCredentials}
+          </button>
+        </div>
+      </div>
+    </Form>
+  );
+}
+
 function ArubaApiSettingsCard({
   api,
+  credentialIdentity,
   notice,
   canApprove,
   csrfToken,
   errorFor,
 }: {
   api: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
+  credentialIdentity: ArubaApiCredentialIdentity;
   notice: string | null;
   canApprove: boolean;
   csrfToken: string;
   errorFor: ErrorFor;
 }) {
+  const credentialsError = errorFor("save-aruba-api", "rotate-aruba-api");
   const apiError = errorFor(
     "save-aruba-api",
     "rotate-aruba-api",
@@ -695,78 +866,13 @@ function ArubaApiSettingsCard({
           </dd>
         </div>
       </dl>
-      {canApprove ? (
-        <Form method="post" className="security-form aruba-api-credentials-form">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input
-            type="hidden"
-            name="intent"
-            value={api.configured ? "rotate-aruba-api" : "save-aruba-api"}
-          />
-          <header className="aruba-api-credentials-form__header">
-            <h4>{copy.settings.arubaApiCredentialsTitle}</h4>
-            <p>{copy.settings.arubaApiCredentialsHelp}</p>
-          </header>
-          <div className="field-with-help">
-            <label htmlFor="aruba-api-username">{copy.settings.arubaApiUsername}</label>
-            <input
-              aria-describedby="aruba-api-username-help"
-              autoCapitalize="none"
-              autoComplete="off"
-              id="aruba-api-username"
-              name="arubaApiUsername"
-              required
-              spellCheck={false}
-              type="text"
-            />
-            <p className="field-help" id="aruba-api-username-help">
-              {copy.settings.arubaApiUsernameHelp}
-            </p>
-          </div>
-          <div className="field-with-help">
-            <label htmlFor="aruba-api-password">{copy.settings.arubaApiPassword}</label>
-            <input
-              aria-describedby="aruba-api-password-help aruba-api-secret-help"
-              autoComplete="new-password"
-              id="aruba-api-password"
-              name="arubaApiPassword"
-              required
-              type="password"
-            />
-            <p className="field-help" id="aruba-api-password-help">
-              {copy.settings.arubaApiPasswordHelp}
-            </p>
-          </div>
-          <div className="field-with-help">
-            <label htmlFor="aruba-api-tax-id">{copy.settings.arubaApiExpectedTaxId}</label>
-            <input
-              aria-describedby="aruba-api-tax-id-help"
-              autoCapitalize="characters"
-              autoComplete="off"
-              id="aruba-api-tax-id"
-              name="arubaApiExpectedTaxId"
-              required
-              spellCheck={false}
-              type="text"
-            />
-            <p className="field-help" id="aruba-api-tax-id-help">
-              {copy.settings.arubaApiExpectedTaxIdHelp}
-            </p>
-          </div>
-          <div className="aruba-api-credentials-form__actions">
-            <p className="field-help" id="aruba-api-secret-help">
-              {copy.settings.arubaApiSecretHelp}
-            </p>
-            <button className="button button--secondary" type="submit">
-              {api.configured
-                ? copy.settings.arubaApiRotateCredentials
-                : copy.settings.arubaApiSaveCredentials}
-            </button>
-          </div>
-        </Form>
-      ) : (
-        <p className="field-help">{copy.settings.arubaApiCodexHelp}</p>
-      )}
+      <ArubaApiCredentials
+        canApprove={canApprove}
+        configured={api.configured}
+        credentialIdentity={credentialIdentity}
+        csrfToken={csrfToken}
+        hasError={Boolean(credentialsError)}
+      />
       {api.configured && canApprove ? (
         <Form method="post" className="aruba-api-controls">
           <input type="hidden" name="csrf" value={csrfToken} />
@@ -841,6 +947,7 @@ function ArubaSettingsSection({
   csrfToken,
   errorFor,
   arubaApi,
+  arubaApiCredentialIdentity,
   arubaApiNotice,
 }: {
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
@@ -854,6 +961,7 @@ function ArubaSettingsSection({
   csrfToken: string;
   errorFor: ErrorFor;
   arubaApi: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
+  arubaApiCredentialIdentity: Awaited<ReturnType<typeof getArubaApiCredentialIdentity>>;
   arubaApiNotice: string | null;
 }) {
   const connectionState = inventory.activeSession
@@ -907,6 +1015,7 @@ function ArubaSettingsSection({
       <div className="aruba-settings-stack">
         <ArubaApiSettingsCard
           api={arubaApi}
+          credentialIdentity={arubaApiCredentialIdentity}
           canApprove={canApprove}
           csrfToken={csrfToken}
           errorFor={errorFor}
@@ -1233,6 +1342,7 @@ export default function Settings() {
     arubaSaved,
     arubaInventory,
     arubaApi,
+    arubaApiCredentialIdentity,
     arubaApiNotice,
     arubaPanelUrl,
     arubaBookmarkletUrl,
@@ -1366,6 +1476,7 @@ export default function Settings() {
           <ArubaSettingsSection
             aruba={aruba}
             arubaApi={arubaApi}
+            arubaApiCredentialIdentity={arubaApiCredentialIdentity}
             arubaApiNotice={arubaApiNotice}
             arubaSaved={arubaSaved}
             inventory={arubaInventory}

@@ -7,12 +7,14 @@ import pg from "pg";
 
 import { runHelper } from "../../scripts/aruba-helper.ts";
 import { SESSION_TTL_SECONDS } from "../../src/config.server.ts";
+import { encryptCredential } from "../../src/crypto.server.ts";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
   "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
 const appBaseUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173";
 const storageRoot = path.resolve("storage/e2e-documents");
+const credentialsEncryptionKey = Buffer.alloc(32, 9).toString("base64url");
 
 async function expectPlainLanguage(page: Page) {
   await expect(page.locator("body")).not.toContainText(
@@ -87,7 +89,7 @@ test.beforeAll(async () => {
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   await client.query(
-    "TRUNCATE users, sessions, login_attempts, audit_events, settings, customers, billing_cases, orders, fiscal_profiles RESTART IDENTITY CASCADE",
+    "TRUNCATE users, sessions, login_attempts, audit_events, settings, connections, customers, billing_cases, orders, fiscal_profiles RESTART IDENTITY CASCADE",
   );
   const profile = JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"));
   await client.query(
@@ -372,7 +374,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("035_aruba_api_inbound.sql", {
+  const inboundMigration = page.getByText("036_aruba_rejected_attempt_identity.sql", {
     exact: true,
   });
   await expect(inboundMigration).toBeVisible();
@@ -1448,12 +1450,21 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
 
   const arubaApiUiClient = new pg.Client({ connectionString: databaseUrl });
   await arubaApiUiClient.connect();
+  const encryptedArubaCredentials = encryptCredential(
+    {
+      apiEnvironment: "DEMO",
+      username: "utente-pannello-sintetico",
+      password: "password-pannello-sintetica",
+      expectedTaxId: "00000000000",
+    },
+    credentialsEncryptionKey,
+  );
   await arubaApiUiClient.query(
     `INSERT INTO connections
        (provider, environment, account_reference, encrypted_credentials, status,
         api_paused, inbound_enabled, automatic_authority, last_checked_at,
         credentials_verified_at)
-     VALUES ('ARUBA', 'DEVELOPMENT', 'synthetic-aruba-layout', 'synthetic-layout-only',
+     VALUES ('ARUBA', 'DEVELOPMENT', 'synthetic-aruba-layout', $1,
        'PAUSED', true, false, 'BROWSER', now(), now())
      ON CONFLICT (provider, environment) DO UPDATE SET
        account_reference = EXCLUDED.account_reference,
@@ -1464,8 +1475,27 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
        automatic_authority = EXCLUDED.automatic_authority,
        last_checked_at = EXCLUDED.last_checked_at,
        credentials_verified_at = EXCLUDED.credentials_verified_at`,
+    [encryptedArubaCredentials],
   );
   await page.reload();
+  await expect(credentialForm).toHaveCount(0);
+  const editCredentials = arubaApiSettings.getByRole("button", {
+    name: "Aggiorna credenziali",
+  });
+  await expect(editCredentials).toBeVisible();
+  await expect(arubaApiSettings).toContainText(
+    "Apri il modulo soltanto se devi cambiare i dati di accesso",
+  );
+  await editCredentials.click();
+  await expect(credentialForm).toBeVisible();
+  await expect(arubaApiSettings.getByLabel("Nome utente del pannello Aruba")).toHaveValue(
+    "utente-pannello-sintetico",
+  );
+  await expect(arubaApiSettings.getByLabel("P.IVA o codice fiscale dell’attività")).toHaveValue(
+    "00000000000",
+  );
+  await expect(arubaApiSettings.getByLabel("Password del pannello Aruba")).toHaveValue("");
+  await expect(arubaApiSettings.getByLabel("Nome utente del pannello Aruba")).toBeFocused();
   const configuredControls = arubaApiSettings.locator(".aruba-api-controls");
   const revokeControls = arubaApiSettings.locator(".aruba-api-revoke");
   await expect(configuredControls).toBeVisible();
@@ -1536,6 +1566,9 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     expect(gap).toBeGreaterThanOrEqual(23);
     expect(gap).toBeLessThanOrEqual(25);
   }
+  await arubaApiSettings.getByRole("button", { name: "Annulla" }).click();
+  await expect(credentialForm).toHaveCount(0);
+  await expect(editCredentials).toBeVisible();
   await expect(configuredControls).toBeVisible();
   await expect(revokeControls).toBeVisible();
   for (const checkbox of await arubaApiSettings.locator("input[type='checkbox']").all()) {

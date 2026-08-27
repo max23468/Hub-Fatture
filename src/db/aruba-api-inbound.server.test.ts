@@ -171,6 +171,14 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       { status: "PAUSED", paused: true, enabled: false, authority: "BROWSER" },
     );
     assert.equal((await api.getArubaApiConnectionStatus()).configured, true);
+    assert.deepEqual(await api.getArubaApiCredentialIdentity(owner), {
+      username: "utente-sintetico",
+      expectedTaxId: "00000000000",
+    });
+    await assert.rejects(
+      api.getArubaApiCredentialIdentity(codex),
+      (error) => error instanceof AppError && error.code === "ARUBA_OPERATION_FORBIDDEN",
+    );
     await assert.rejects(
       api.setArubaApiControls({ apiPaused: false, inboundEnabled: true }, codex),
       (error) => error instanceof AppError && error.code === "ARUBA_OPERATION_FORBIDDEN",
@@ -238,6 +246,67 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       "INCOMPLETE",
     );
     assert.equal(await jobs.failJob(job!, "ARUBA_API_BUDGET_EXHAUSTED"), false);
+    const browserDocument = await getPool().query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series,
+         fiscal_number, document_date, total_amount, remote_status, remote_status_observed_at,
+         last_full_scan_at, metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'browser-parity-2019', 'TD01', 2019,
+         'FPR', '1', '2019-01-01', 10000, 'DELIVERED', now(), now(), repeat('b', 64))
+       RETURNING id`,
+    );
+    const browserFile = await getPool().query<{ id: string }>(
+      `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('ARUBA_XML', 'aruba/parity-2019.xml', repeat('c', 64), 100, 'application/xml')
+      RETURNING id`,
+    );
+    await getPool().query(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series,
+         fiscal_number, document_date, total_amount, remote_status, remote_status_observed_at,
+         last_full_scan_at, metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'browser-session-successiva-2019', 'TD01',
+         2019, 'FPR', '2', '2019-01-02', 20000, 'DELIVERED', now(), now(), repeat('f', 64))`,
+    );
+    await getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       VALUES ($1, $2, 'ARUBA_XML')`,
+      [browserDocument.rows[0]!.id, browserFile.rows[0]!.id],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_sync_pages
+        (sync_session_id, stream, scan_ordinal, page_ordinal, terminal, full_scan,
+         row_count, documents_json, payload_digest)
+       VALUES
+         ('10000000-0000-4000-8000-000000000001', 'invoices:2019', 1, 1,
+          true, true, 1, jsonb_build_array(jsonb_build_object(
+            'remoteId', 'browser-parity-2019', 'documentType', 'TD01', 'fiscalYear', 2019,
+            'series', 'FPR', 'fiscalNumber', '1', 'documentDate', '2019-01-01',
+            'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', null
+          )), repeat('d', 64)),
+         ('10000000-0000-4000-8000-000000000001', 'invoices:2019', 2, 1,
+          true, true, 1, jsonb_build_array(jsonb_build_object(
+            'remoteId', 'browser-parity-2019', 'documentType', 'TD01', 'fiscalYear', 2019,
+            'series', 'FPR', 'fiscalNumber', '1', 'documentDate', '2019-01-01',
+            'totalAmount', 10000, 'status', 'DELIVERED', 'xmlSha256', null
+          )), repeat('e', 64))`,
+    );
+    await getPool().query(
+      `INSERT INTO aruba_api_shadow_documents
+        (sync_run_id, provider_group_id, remote_key, document_type, fiscal_year,
+         series, fiscal_number, document_date, total_amount, remote_status, xml_sha256)
+       SELECT id, 'api-parity-group-2019', 'api-parity-2019', 'TD01', 2019,
+         'FPR', '1', '2019-01-01', 10000, 'DELIVERED', repeat('c', 64)
+       FROM aruba_sync_runs WHERE status = 'INCOMPLETE'`,
+    );
+    await getPool().query(
+      `INSERT INTO aruba_api_shadow_documents
+        (sync_run_id, provider_group_id, remote_key, document_type, fiscal_year,
+         series, fiscal_number, document_date, total_amount, remote_status, xml_sha256)
+       SELECT id, 'api-history-group-2018', 'api-history-2018', 'TD01', 2018,
+         'FPR', '1', '2018-01-01', 5000, 'DELIVERED', repeat('e', 64)
+       FROM aruba_sync_runs WHERE status = 'INCOMPLETE'`,
+    );
     const continuedJob = await jobs.claimJob("aruba-api-continuation-worker");
     assert.equal(continuedJob?.id, job?.id);
     const result = await api.runArubaApiInboundJob(continuedJob!, runOptions);
@@ -279,11 +348,31 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     assert.deepEqual(
       (
         await getPool().query(
-          `SELECT status, api_documents, browser_documents
+          `SELECT status, api_documents, browser_documents, matched_documents,
+                  missing_in_api, missing_in_browser, status_mismatches, file_mismatches,
+                  summary_json->'populationStreams' AS population_streams,
+                  summary_json->'apiFileCoverage' AS api_file_coverage,
+                  (summary_json->>'browserBaselineScanOrdinal')::int AS browser_scan_ordinal,
+                  (summary_json->>'unresolvedBrowserConflicts')::int AS browser_conflicts
            FROM aruba_inbound_parity_dossiers`,
         )
       ).rows,
-      [{ status: "MATCHED", api_documents: 0, browser_documents: 0 }],
+      [
+        {
+          status: "MATCHED",
+          api_documents: 1,
+          browser_documents: 1,
+          matched_documents: 1,
+          missing_in_api: 0,
+          missing_in_browser: 0,
+          status_mismatches: 0,
+          file_mismatches: 0,
+          population_streams: ["invoices:2019"],
+          api_file_coverage: { notifications: 0, p7m: 0, pdf: 0, xml: 1 },
+          browser_scan_ordinal: 2,
+          browser_conflicts: 0,
+        },
+      ],
     );
     const pausedRequest = await api.requestArubaApiSync(owner);
     assert.equal(pausedRequest.queued, true);
@@ -356,7 +445,8 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         await getPool().query(
           `SELECT provider_group_id, remote_status
            FROM aruba_api_latest_shadow_documents
-           WHERE environment = 'MOCK' AND account_reference = 'synthetic-aruba-account'`,
+           WHERE environment = 'MOCK' AND account_reference = 'synthetic-aruba-account'
+             AND remote_status = 'SDI_PROCESSING'`,
         )
       ).rows,
       [{ provider_group_id: "gruppo-shadow-aperto", remote_status: "SDI_PROCESSING" }],
@@ -398,7 +488,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     assert.equal(
       (await getPool().query("SELECT count(*)::int AS count FROM aruba_remote_documents")).rows[0]
         .count,
-      1,
+      3,
     );
     assert.deepEqual(
       (
