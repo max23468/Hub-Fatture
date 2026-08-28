@@ -180,6 +180,7 @@ test("XML e P7M usano la stessa impronta fiscale per documenti e gruppi", () => 
   groupedInput.detail.invoices = groupedInput.detail.invoices.slice(0, 1);
   const direct = mapArubaApiInboundGroup(groupedInput);
   assert.equal(arubaApiParityFileHash(direct[0]!.files[0]!), expected);
+  assert.equal(direct[0]!.remote.xmlSha256, expected);
 });
 
 test("il PDF opzionale non blocca un documento con il payload fiscale ufficiale", () => {

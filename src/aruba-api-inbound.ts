@@ -229,7 +229,9 @@ export function mapArubaApiInboundGroup(input: {
     // come evidenza condivisa senza attribuirli arbitrariamente a una singola fattura.
     const singleDocumentGroup = input.detail.invoices.length === 1;
     const attributableSharedFiles = singleDocumentGroup ? sharedFiles : [];
-    const officialXml = attributableSharedFiles.find((candidate) => candidate.kind === "ARUBA_XML");
+    const officialPayload = attributableSharedFiles.find(
+      (candidate) => candidate.kind === "ARUBA_XML" || candidate.kind === "ARUBA_P7M",
+    );
     return [
       {
         providerGroupId: input.group.id,
@@ -251,7 +253,7 @@ export function mapArubaApiInboundGroup(input: {
           status: normalizeArubaRemoteStatusLabel(invoice.status),
           providerStatusLabel: invoice.status,
           providerObservedAt: input.detail.lastUpdate,
-          xmlSha256: officialXml?.sha256 ?? null,
+          xmlSha256: officialPayload ? arubaApiParityFileHash(officialPayload) : null,
           orderReferences: [],
         },
         files: [
