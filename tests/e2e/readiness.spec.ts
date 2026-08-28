@@ -8,6 +8,7 @@ import pg from "pg";
 import { runHelper } from "../../scripts/aruba-helper.ts";
 import { SESSION_TTL_SECONDS } from "../../src/config.server.ts";
 import { encryptCredential } from "../../src/crypto.server.ts";
+import { withResetE2eDatabase } from "./database.ts";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
@@ -84,27 +85,24 @@ async function expectApprovalLabelsReadable(page: Page) {
 // Lo schema viene azzerato all'avvio del server, i dati a ogni worker: un retry riparte
 // da database vuoto invece di trovare gli account già creati e saltare il flusso di setup.
 test.beforeAll(async () => {
-  if (!new URL(databaseUrl).pathname.endsWith("_test")) throw new Error("Database E2E non isolato");
   await rm(storageRoot, { recursive: true, force: true });
-  const client = new pg.Client({ connectionString: databaseUrl });
-  await client.connect();
-  await client.query(
-    "TRUNCATE users, sessions, login_attempts, audit_events, settings, connections, customers, billing_cases, orders, fiscal_profiles RESTART IDENTITY CASCADE",
-  );
-  const profile = JSON.parse(await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"));
-  await client.query(
-    "INSERT INTO fiscal_profiles (version, status, profile_json) VALUES (1, 'MOCK', $1)",
-    [profile],
-  );
-  await client.query(
-    `INSERT INTO settings (key, value_json) VALUES
-       ('draft_trigger', '"PAID"'),
-       ('aruba_mode', '"ASSISTED"'),
-       ('shopify_payment_fee_mode', '"DEDUCT"'),
-       ('customer_email_mode', '"AUTOMATIC"')
-     ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, version = 1`,
-  );
-  await client.end();
+  await withResetE2eDatabase(databaseUrl, async (client) => {
+    const profile = JSON.parse(
+      await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"),
+    );
+    await client.query(
+      "INSERT INTO fiscal_profiles (version, status, profile_json) VALUES (1, 'MOCK', $1)",
+      [profile],
+    );
+    await client.query(
+      `INSERT INTO settings (key, value_json) VALUES
+         ('draft_trigger', '"PAID"'),
+         ('aruba_mode', '"ASSISTED"'),
+         ('shopify_payment_fee_mode', '"DEDUCT"'),
+         ('customer_email_mode', '"AUTOMATIC"')
+       ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, version = 1`,
+    );
+  });
 });
 
 test.afterAll(async () => {

@@ -77,6 +77,17 @@ test("dockerignore è un input dell'immagine Production", () => {
   assert.equal(impact.e2e, true);
 });
 
+test("il Dockerfile applicativo attiva la corsia runtime e immagine completa", () => {
+  const impact = classifyFiles(["Dockerfile"]);
+  assert.equal(impact.lane, "deploy");
+  assert.equal(impact.runtime, true);
+  assert.equal(impact.image, true);
+  assert.equal(impact.dependencies, true);
+  assert.equal(impact.securityData, true);
+  assert.equal(impact.deploy, true);
+  assert.equal(impact.e2e, true);
+});
+
 test("migrazioni e storage attivano DB, sicurezza e backup aggiuntivo", () => {
   const impact = classifyFiles(["migrations/019_example.sql", "src/db/document-storage.server.ts"]);
   assert.equal(impact.lane, "deploy");

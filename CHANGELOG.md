@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.92
+
+- L’immagine applicativa usa Debian 13 Trixie Slim in tutti gli stage, mantenendo Node 26.7.0 e npm 12.0.2 negli stage di build. Base e repository APT restano immutabili tramite digest e snapshot, mentre il runtime continua a eseguire come utente non-root senza npm, npx o strumenti di build; host Ubuntu, Caddy e PostgreSQL non cambiano.
+
 ## 0.3.91
 
 - Il backfill Aruba accetta i P7M storici validi secondo lo schema ufficiale FatturaPA anche quando la numerazione non segue la serie interna corrente; XML non fiscali, contenitori P7M non validi e documenti fuori schema restano bloccati.
