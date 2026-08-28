@@ -55,6 +55,17 @@ test("nessuna chiave privata in chiaro è tracciata", () => {
   assert.equal(keys.stdout.trim(), "");
 });
 
+test("l'accesso SSH Production usa un agent effimero e la chiave cifrata", async () => {
+  const sshProduction = await readFile(path.join(root, "scripts", "ssh-production.sh"), "utf8");
+  assert.match(sshProduction, /ops\/secrets\/oci-vps-access\.key\.age/);
+  assert.match(sshProduction, /age --decrypt[\s\S]*\| ssh-add -/);
+  assert.match(sshProduction, /ssh-agent -a/);
+  assert.match(sshProduction, /IdentitiesOnly=yes/);
+  assert.match(sshProduction, /IdentityAgent=/);
+  assert.match(sshProduction, /trap cleanup EXIT HUP INT TERM/);
+  assert.doesNotMatch(sshProduction, /ssh-key-ampere-a1\.key/);
+});
+
 test("il readiness pubblico non espone volumi degli ordini live", async () => {
   const readiness = await readFile(
     path.join(root, "docs", "runbooks", "release-readiness.md"),
@@ -568,6 +579,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     "scripts/publish-github-release.sh",
     "scripts/read-env.sh",
     "scripts/restore.sh",
+    "scripts/ssh-production.sh",
   ];
   for (const script of scripts) {
     const result = spawnSync("sh", ["-n", script], { cwd: root, encoding: "utf8" });
