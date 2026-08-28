@@ -3,9 +3,9 @@ import { unlink } from "node:fs/promises";
 
 import { z } from "zod";
 
-import { ARUBA_IMPORT_MAX_BYTES, validateOfficialFile, validateUntrustedXml } from "../aruba.ts";
+import { ARUBA_IMPORT_MAX_BYTES, validateOfficialFile } from "../aruba.ts";
 import { AppError } from "../errors.ts";
-import { validateFatturaXml } from "../fatturapa.server.ts";
+import { validatedArubaFiscalXml } from "./aruba-p7m-evidence.server.ts";
 import { storeImportedFile } from "./aruba.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 
@@ -33,10 +33,8 @@ export async function importArubaApiGroupFile(input: {
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
   }
   try {
-    validateOfficialFile(kind.data, input.bytes);
-    if (kind.data === "ARUBA_XML") {
-      await validateFatturaXml(validateUntrustedXml(input.bytes));
-    }
+    if (kind.data === "ARUBA_PDF") validateOfficialFile(kind.data, input.bytes);
+    else await validatedArubaFiscalXml(kind.data, input.bytes);
   } catch {
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
   }

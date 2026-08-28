@@ -6,6 +6,7 @@ import { AppError } from "../errors.ts";
 import { closePool, getPool, withJoinedTransaction } from "./client.server.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
+import { signedXml } from "../../tests/p7m-fixture.ts";
 
 function response(value: unknown) {
   return Response.json(value);
@@ -445,6 +446,31 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         },
       ],
     );
+    await getPool().query(
+      `UPDATE aruba_api_shadow_documents
+       SET notification_hashes = jsonb_build_array(repeat('6', 64))
+       WHERE sync_run_id = (
+         SELECT id FROM aruba_sync_runs WHERE kind = 'BACKFILL' AND status = 'COMPLETED'
+         ORDER BY completed_at DESC LIMIT 1
+       )`,
+    );
+    await getPool().query(
+      `UPDATE aruba_api_shadow_documents SET remote_status = 'SDI_PROCESSING',
+         notification_hashes = '[]'
+       WHERE sync_run_id = (
+         SELECT id FROM aruba_sync_runs WHERE kind = 'BACKFILL' AND status = 'COMPLETED'
+         ORDER BY completed_at DESC LIMIT 1
+       ) AND remote_key = 'api-parity-2019'`,
+    );
+    assert.equal((await api.getArubaInboundClosureReadiness()).gates.NOTIFICATIONS_VERIFIED, true);
+    await getPool().query(
+      `UPDATE aruba_api_shadow_documents SET remote_status = 'DELIVERED',
+         notification_hashes = '[]'
+       WHERE sync_run_id = (
+         SELECT id FROM aruba_sync_runs WHERE kind = 'BACKFILL' AND status = 'COMPLETED'
+         ORDER BY completed_at DESC LIMIT 1
+       )`,
+    );
     const pausedRequest = await api.requestArubaApiSync(owner);
     assert.equal(pausedRequest.queued, true);
     await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [pausedRequest.jobId]);
@@ -849,15 +875,25 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0],
       { page_count: 0, checkpoint_page: 1 },
     );
+    await assert.rejects(
+      groupFile.importArubaApiGroupFile({
+        runId: stagedRunId,
+        providerGroupId: "atomic-stage-group",
+        kind: "ARUBA_P7M",
+        filename: "atomic-stage.xml.p7m",
+        bytes: signedXml(Buffer.from("<DocumentoNonFiscale />")),
+      }),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_INVALID",
+    );
+    const acceptedInvoiceXml = await readFile(
+      "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
+    );
     await groupFile.importArubaApiGroupFile({
       runId: stagedRunId,
       providerGroupId: "atomic-stage-group",
       kind: "ARUBA_P7M",
       filename: "atomic-stage.xml.p7m",
-      bytes: Buffer.from(
-        await readFile("tests/fixtures/aruba/official-p7m.synthetic.der.base64", "utf8"),
-        "base64",
-      ),
+      bytes: signedXml(acceptedInvoiceXml),
     });
     assert.deepEqual(
       await canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1, [

@@ -539,6 +539,7 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
            AS documents_without_official_payload,
          coalesce((SELECT count(*)::integer FROM aruba_api_shadow_documents documents
            WHERE documents.sync_run_id = candidate.id
+             AND documents.remote_status IN ('DELIVERED', 'NOT_DELIVERED', 'REJECTED')
              AND jsonb_array_length(documents.notification_hashes) = 0), 0)
            AS documents_without_notification
        FROM current_connection connection
