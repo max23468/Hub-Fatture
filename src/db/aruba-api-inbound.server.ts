@@ -235,10 +235,8 @@ export async function getArubaApiConnectionStatus() {
       lastFullSyncAt: null,
       lastErrorCode: null,
       limits: {
-        inventoryRequestsPerMinute: Math.floor(60_000 / ARUBA_API_POLICY.invoiceReadIntervalMs),
-        notificationRequestsPerMinute: Math.floor(
-          60_000 / ARUBA_API_POLICY.notificationReadIntervalMs,
-        ),
+        inventoryRequestsPerMinute: Math.floor(60_000 / getConfig().ARUBA_API_READ_INTERVAL_MS),
+        notificationRequestsPerMinute: Math.floor(60_000 / getConfig().ARUBA_API_READ_INTERVAL_MS),
         providerInventoryRequestsPerMinute:
           ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
         providerNotificationRequestsPerMinute:
@@ -308,10 +306,8 @@ export async function getArubaApiConnectionStatus() {
     lastFullSyncAt: current.last_full_sync_at?.toISOString() ?? null,
     lastErrorCode: current.last_error_code,
     limits: {
-      inventoryRequestsPerMinute: Math.floor(60_000 / ARUBA_API_POLICY.invoiceReadIntervalMs),
-      notificationRequestsPerMinute: Math.floor(
-        60_000 / ARUBA_API_POLICY.notificationReadIntervalMs,
-      ),
+      inventoryRequestsPerMinute: Math.floor(60_000 / getConfig().ARUBA_API_READ_INTERVAL_MS),
+      notificationRequestsPerMinute: Math.floor(60_000 / getConfig().ARUBA_API_READ_INTERVAL_MS),
       providerInventoryRequestsPerMinute:
         ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
       providerNotificationRequestsPerMinute:

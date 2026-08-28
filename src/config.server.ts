@@ -12,6 +12,7 @@ const schema = z
     APP_VERSION: z.string().default("0.0.0"),
     ARUBA_ACCOUNT_IDENTITY: z.string().trim().min(1).max(200).default("synthetic-aruba-account"),
     ARUBA_ACCOUNT_REFERENCE: z.string().trim().min(1).max(200).default("synthetic-aruba-account"),
+    ARUBA_API_READ_INTERVAL_MS: z.coerce.number().int().min(5_200).max(6_100).default(6_100),
     ARUBA_SUBMISSION_ENABLED: z
       .enum(["true", "false"])
       .default("false")

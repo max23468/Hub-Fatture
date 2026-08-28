@@ -2,9 +2,10 @@ import type pg from "pg";
 
 import {
   ARUBA_API_POLICY,
-  arubaApiReadIntervalMs,
+  configuredArubaApiReadIntervalMs,
   type ArubaApiReadScope,
 } from "../aruba-api-policy.ts";
+import { getConfig } from "../config.server.ts";
 import { AppError } from "../errors.ts";
 import type { ArubaApiEnvironment } from "../integrations/aruba-api.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
@@ -78,7 +79,12 @@ export async function waitForArubaApiReadSlot(
            reserved_request_count = reserved_request_count + 1,
            updated_at = now()
        WHERE api_environment = $1 AND scope = $2`,
-      [environment, scope, reservationTime, arubaApiReadIntervalMs(scope)],
+      [
+        environment,
+        scope,
+        reservationTime,
+        configuredArubaApiReadIntervalMs(getConfig().ARUBA_API_READ_INTERVAL_MS),
+      ],
     );
     return reservationTime;
   });
