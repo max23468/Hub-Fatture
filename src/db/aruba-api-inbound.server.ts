@@ -4,7 +4,6 @@ import type pg from "pg";
 import { z } from "zod";
 
 import {
-  arubaApiParityFileHash,
   hasRequiredArubaApiFiles,
   mapArubaApiInboundGroup,
   type ArubaApiInboundDocument,
@@ -19,6 +18,7 @@ import {
 import { getConfig } from "../config.server.ts";
 import { decryptCredential, encryptCredential } from "../crypto.server.ts";
 import { AppError, type ErrorCode } from "../errors.ts";
+import { validatedArubaFiscalXml } from "./aruba-p7m-evidence.server.ts";
 import {
   ARUBA_API_V2_CONTRACT,
   authenticateArubaApi,
@@ -1261,6 +1261,14 @@ async function persistShadowPage(
   const notificationCount = [...uniqueFiles.values()].filter(
     (file) => file.kind === "SDI_NOTIFICATION",
   ).length;
+  const fiscalFiles = [...uniqueFiles.values(), ...groupFiles.values()].filter(
+    (file) => file.kind === "ARUBA_XML" || file.kind === "ARUBA_P7M",
+  );
+  const fiscalHashes = new Map(
+    await Promise.all(
+      fiscalFiles.map(async (file) => [file, await validatedArubaApiParityFileHash(file)] as const),
+    ),
+  );
   return withTransaction(async (client) => {
     const locked = await client.query<ArubaSyncRunRow>(
       `SELECT * FROM aruba_sync_runs WHERE id = $1 AND status = 'RUNNING' FOR UPDATE`,
@@ -1286,7 +1294,7 @@ async function persistShadowPage(
       return { repeated: true };
     }
     for (const file of groupFiles.values()) {
-      const parityHash = arubaApiParityFileHash(file);
+      const parityHash = fiscalHashes.get(file) ?? file.sha256;
       const stored = await client.query(
         `INSERT INTO aruba_api_shadow_group_files
           (sync_run_id, provider_group_id, kind, sha256)
@@ -1305,8 +1313,8 @@ async function persistShadowPage(
       let pdfSha256: string | null = null;
       const notificationHashes: string[] = [];
       for (const file of document.files) {
-        if (file.kind === "ARUBA_XML") xmlSha256 ??= file.sha256;
-        if (file.kind === "ARUBA_P7M") p7mSha256 ??= arubaApiParityFileHash(file);
+        if (file.kind === "ARUBA_XML") xmlSha256 ??= fiscalHashes.get(file)!;
+        if (file.kind === "ARUBA_P7M") p7mSha256 ??= fiscalHashes.get(file)!;
         if (file.kind === "ARUBA_PDF") pdfSha256 ??= file.sha256;
         if (file.kind === "SDI_NOTIFICATION") notificationHashes.push(file.sha256);
       }
@@ -1365,6 +1373,15 @@ async function persistShadowPage(
     );
     return { repeated: false };
   });
+}
+
+export async function validatedArubaApiParityFileHash(
+  file: ArubaApiInboundDocument["files"][number],
+) {
+  if (file.kind !== "ARUBA_XML" && file.kind !== "ARUBA_P7M") return file.sha256;
+  const fiscalXml = await validatedArubaFiscalXml(file.kind, file.bytes);
+  if (!fiscalXml) throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+  return fiscalXml.sha256;
 }
 
 async function persistCanonicalPageContents(

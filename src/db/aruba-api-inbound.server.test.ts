@@ -71,6 +71,9 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       legacyBackfillRunId,
       legacyP7mRunId,
     ]);
+    const shadowInvoiceXml = await readFile(
+      "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
+    );
     globalThis.fetch = async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/auth/signin") {
@@ -118,7 +121,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
           },
           invoiceType: "FPR12",
           docType: "out",
-          file: Buffer.from("fattura sintetica").toString("base64"),
+          file: shadowInvoiceXml.toString("base64"),
           filename: "IT00000000000_TARGET.xml",
           username: "utente-sintetico",
           creationDate: "2019-01-01T02:30:00.000Z",
@@ -176,6 +179,16 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       });
     };
     const api = await import("./aruba-api-inbound.server.ts");
+    await assert.rejects(
+      api.validatedArubaApiParityFileHash({
+        kind: "ARUBA_P7M",
+        filename: "non-fiscale.xml.p7m",
+        bytes: signedXml(Buffer.from("<DocumentoNonFiscale />")),
+        sha256: "0".repeat(64),
+        providerGroupId: "gruppo-non-fiscale",
+      }),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_INVALID",
+    );
     const jobs = await import("./connectors.server.ts");
     const owner = { id: 1, canApprove: true, requestId: "aruba-api-owner-test" };
     const codex = { id: 2, canApprove: false, requestId: "aruba-api-codex-test" };
