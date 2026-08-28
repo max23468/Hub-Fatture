@@ -768,7 +768,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
          fiscal_number, document_date, total_amount, remote_status, remote_status_observed_at,
          last_full_scan_at, metadata_digest)
        VALUES ('MOCK', 'synthetic-aruba-account', 'browser-atomic-stage', 'TD01', 2019,
-         'FPR', '99', '2019-01-02', 12300, 'SUBMITTED', now(), now(), repeat('7', 64))
+         'FPR', '99', '2019-01-02', 12300, 'DELIVERED', now(), now(), repeat('7', 64))
        RETURNING id`,
     );
     const stagedPage = {
@@ -882,11 +882,16 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     assert.deepEqual(
       (
         await getPool().query(
-          `SELECT remote_id, automatic_source FROM aruba_remote_documents WHERE id = $1`,
+          `SELECT remote_id, remote_status, automatic_source
+           FROM aruba_remote_documents WHERE id = $1`,
           [stagedBrowserDocument.rows[0]!.id],
         )
       ).rows[0],
-      { remote_id: "atomic-stage-synthetic", automatic_source: "API" },
+      {
+        remote_id: "atomic-stage-synthetic",
+        remote_status: "DELIVERED",
+        automatic_source: "API",
+      },
     );
     assert.equal(
       (

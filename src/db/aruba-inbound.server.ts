@@ -48,6 +48,7 @@ import { validateFatturaXml } from "../fatturapa.server.ts";
 import { localOrderDate } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
 import {
+  consolidateArubaRemoteCollision,
   findArubaRemoteCollision,
   resolveRejectedAttemptIdentityConflicts,
 } from "./aruba-rejected-attempt.server.ts";
@@ -2398,39 +2399,15 @@ export async function ingestParsedArubaPage(
         collided &&
         (apiSource || collided.api || collided.remote_id.startsWith("historical-document-"))
       ) {
-        await client.query(
-          `UPDATE aruba_remote_documents SET remote_id = $2, document_type = $3,
-             fiscal_year = $4, series = $5, fiscal_number = $6, document_date = $7,
-             recipient_name_normalized = $8, recipient_tax_id_normalized = $9,
-             recipient_country_code = $10, recipient_address_normalized = $11,
-             total_amount = $12, currency = $13, remote_status = $14,
-             remote_status_observed_at = coalesce($15::timestamptz, now()),
-             xml_sha256 = coalesce($16, xml_sha256), last_observed_at = now(),
-             last_full_scan_at = CASE WHEN $17 THEN now() ELSE last_full_scan_at END,
-             inventory_version = inventory_version + 1, metadata_digest = $18
-           WHERE id = $1`,
-          [
-            collided.id,
-            remote.remoteId,
-            remote.documentType,
-            remote.fiscalYear,
-            remote.series,
-            remote.fiscalNumber,
-            remote.documentDate,
-            normalizedMatchText(remote.recipientName),
-            normalizedMatchText(remote.recipientTaxId),
-            remote.recipientCountryCode,
-            normalizedMatchText(remote.recipientAddress),
-            remote.totalAmount,
-            remote.currency,
-            remote.status,
-            remote.providerObservedAt,
-            remote.xmlSha256,
-            page.fullScan,
-            metadataDigest,
-          ],
+        const consolidation = await consolidateArubaRemoteCollision(
+          client,
+          collided,
+          remote,
+          page.fullScan,
+          metadataDigest,
         );
-        storedId = collided.id;
+        storedId = consolidation.id;
+        conflicted = consolidation.conflicted;
       } else if (collided) {
         conflicted = true;
         storedId = collided.id;
