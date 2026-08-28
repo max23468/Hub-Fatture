@@ -530,6 +530,14 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0].status,
       "COMPLETED",
     );
+    const parityRefresh = await api.requestArubaApiSync(owner);
+    assert.equal(parityRefresh.queued, true);
+    assert.equal(
+      (await getPool().query("SELECT type FROM jobs WHERE id = $1", [parityRefresh.jobId])).rows[0]
+        .type,
+      "aruba_full_inventory",
+    );
+    await getPool().query("DELETE FROM jobs WHERE id = $1", [parityRefresh.jobId]);
     assert.equal((await api.getArubaInboundClosureReadiness()).gates.PARITY_MATCHED, false);
     await getPool().query(
       `INSERT INTO aruba_remote_documents

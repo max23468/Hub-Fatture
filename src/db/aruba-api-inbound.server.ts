@@ -881,7 +881,29 @@ export async function requestArubaApiSync(actor: ArubaApiActor) {
          AND kind = 'BACKFILL' AND status = 'COMPLETED'`,
       [inventoryEnvironment(), current.account_reference],
     );
-    const type = backfill.rows[0] ? "aruba_sync_inventory" : "aruba_backfill_inventory";
+    const currentDossier = backfill.rows[0]
+      ? await client.query(
+          `SELECT 1 FROM aruba_sync_runs candidate
+           JOIN aruba_inbound_parity_dossiers dossier ON dossier.sync_run_id = candidate.id
+           WHERE candidate.environment = $1 AND candidate.account_reference = $2
+             AND candidate.kind IN ('BACKFILL', 'FULL')
+             AND candidate.authority_mode = 'SHADOW' AND candidate.status = 'COMPLETED'
+             AND NOT EXISTS (SELECT 1 FROM aruba_sync_runs later
+               WHERE later.environment = candidate.environment
+                 AND later.account_reference = candidate.account_reference
+                 AND later.authority_mode = 'SHADOW' AND later.status = 'COMPLETED'
+                 AND (later.completed_at, later.started_at, later.id) >
+                   (candidate.completed_at, candidate.started_at, candidate.id))
+           ORDER BY candidate.completed_at DESC, candidate.started_at DESC, candidate.id DESC
+           LIMIT 1`,
+          [inventoryEnvironment(), current.account_reference],
+        )
+      : null;
+    const type = !backfill.rows[0]
+      ? "aruba_backfill_inventory"
+      : currentDossier?.rows[0]
+        ? "aruba_sync_inventory"
+        : "aruba_full_inventory";
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO jobs (type, payload_json, run_at)
        VALUES ($1, jsonb_build_object('requestedBy', $2::text),
