@@ -12,12 +12,12 @@ test("un 429 Aruba coordina il cooldown e impedisce retry ravvicinati", async ()
   process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
   process.env.APP_BASE_URL = "http://localhost:8080";
   process.env.APP_ENV = "test";
+  process.env.ARUBA_API_READ_INTERVAL_MS = "5200";
   process.env.CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 31).toString("base64url");
   try {
     await runMigrations({ connectionString: database.connectionString });
     const traffic = await import("./aruba-api-traffic.server.ts");
     const connectors = await import("./connectors.server.ts");
-    const reservationStartedAt = Date.now();
     await Promise.all([
       traffic.waitForArubaApiReadSlot("DEMO", "INVOICE_READ"),
       traffic.waitForArubaApiReadSlot("DEMO", "NOTIFICATION_READ"),
@@ -28,20 +28,19 @@ test("un 429 Aruba coordina il cooldown e impedisce retry ravvicinati", async ()
       delay_ms: number;
     }>(
       `SELECT scope, reserved_request_count,
-              extract(epoch FROM (next_allowed_at - to_timestamp($1 / 1000.0)))::double precision
-                * 1000 AS delay_ms
+              extract(epoch FROM (next_allowed_at - updated_at))::double precision * 1000
+                AS delay_ms
        FROM aruba_api_traffic_limits ORDER BY scope`,
-      [reservationStartedAt],
     );
     assert.deepEqual(
       reservations.rows.map((row) => ({
         scope: row.scope,
         reservedRequestCount: Number(row.reserved_request_count),
-        hasSafetyMargin: row.delay_ms >= 6_000 && row.delay_ms <= 7_000,
+        usesAcceleratedInterval: row.delay_ms >= 5_190 && row.delay_ms <= 5_300,
       })),
       [
-        { scope: "INVOICE_READ", reservedRequestCount: 1, hasSafetyMargin: true },
-        { scope: "NOTIFICATION_READ", reservedRequestCount: 1, hasSafetyMargin: true },
+        { scope: "INVOICE_READ", reservedRequestCount: 1, usesAcceleratedInterval: true },
+        { scope: "NOTIFICATION_READ", reservedRequestCount: 1, usesAcceleratedInterval: true },
       ],
     );
     await traffic.recordArubaApiRateLimited("DEMO");

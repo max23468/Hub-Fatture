@@ -29,6 +29,12 @@ schema=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env e
 kill_switch=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-web \
   sh -c 'printf %s "$ARUBA_SUBMISSION_ENABLED"')
 [ "$kill_switch" = "false" ] || { echo "Kill switch Aruba inatteso" >&2; exit 1; }
+aruba_read_interval_ms=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-worker \
+  sh -c 'printf %s "$ARUBA_API_READ_INTERVAL_MS"')
+printf '%s' "$aruba_read_interval_ms" | grep -Eq '^[0-9]+$' \
+  || { echo "Intervallo letture Aruba inatteso" >&2; exit 1; }
+[ "$aruba_read_interval_ms" -ge 5200 ] && [ "$aruba_read_interval_ms" -le 6100 ] \
+  || { echo "Intervallo letture Aruba fuori dal perimetro sicuro" >&2; exit 1; }
 
 jq -n \
   --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -36,4 +42,5 @@ jq -n \
   --arg digest "$APP_IMAGE_DIGEST" \
   --arg version "$APP_VERSION" \
   --arg schema "$schema" \
-  '{status:"ok",checkedAt:$checkedAt,commit:$commit,imageDigest:$digest,applicationVersion:$version,schema:$schema,arubaSubmissionEnabled:false}'
+  --argjson arubaApiReadIntervalMs "$aruba_read_interval_ms" \
+  '{status:"ok",checkedAt:$checkedAt,commit:$commit,imageDigest:$digest,applicationVersion:$version,schema:$schema,arubaSubmissionEnabled:false,arubaApiReadIntervalMs:$arubaApiReadIntervalMs}'

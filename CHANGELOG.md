@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.93
+
+- Il backfill Aruba può usare temporaneamente un intervallo prudente di 5,2 secondi fra le letture, restando sotto il limite documentato di 12 richieste al minuto per canale. Il valore predefinito resta 6,1 secondi, la configurazione rifiuta valori fuori dall’intervallo sicuro e conserva coordinamento PostgreSQL, singolo giro canonico e cooldown condiviso sui `429`.
+- Il readback Production registra l’intervallo effettivo del worker senza modificare il blocco degli invii Aruba.
+
 ## 0.3.92
 
 - L’immagine applicativa usa Debian 13 Trixie Slim in tutti gli stage, mantenendo Node 26.7.0 e npm 12.0.2 negli stage di build. Base e repository APT restano immutabili tramite digest e snapshot, mentre il runtime continua a eseguire come utente non-root senza npm, npx o strumenti di build; host Ubuntu, Caddy e PostgreSQL non cambiano.
