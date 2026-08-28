@@ -632,6 +632,38 @@ export async function promoteArubaApiAuthority(
       throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
     }
     await client.query(
+      `WITH candidate AS (
+         SELECT runs.id FROM aruba_sync_runs runs
+         WHERE runs.environment = $1 AND runs.account_reference = $2
+           AND runs.kind IN ('BACKFILL', 'FULL') AND runs.authority_mode = 'SHADOW'
+           AND runs.status = 'COMPLETED'
+         ORDER BY runs.completed_at DESC, runs.started_at DESC, runs.id DESC LIMIT 1
+       ), correlated AS (
+         SELECT remote.id, min(shadow.provider_group_id) AS provider_group_id
+         FROM aruba_remote_documents remote
+         JOIN aruba_api_shadow_documents shadow ON shadow.sync_run_id = (SELECT id FROM candidate)
+          AND (
+            (remote.xml_sha256 IS NOT NULL
+              AND remote.xml_sha256 IN (shadow.xml_sha256, shadow.p7m_sha256))
+            OR (remote.series IS NOT NULL AND remote.fiscal_number IS NOT NULL
+              AND shadow.series IS NOT NULL AND shadow.fiscal_number IS NOT NULL
+              AND remote.document_type = shadow.document_type
+              AND remote.fiscal_year = shadow.fiscal_year
+              AND upper(regexp_replace(remote.series, '[^[:alnum:]]', '', 'g')) =
+                upper(regexp_replace(shadow.series, '[^[:alnum:]]', '', 'g'))
+              AND upper(regexp_replace(remote.fiscal_number, '[^[:alnum:]]', '', 'g')) =
+                upper(regexp_replace(shadow.fiscal_number, '[^[:alnum:]]', '', 'g')))
+          )
+         WHERE remote.environment = $1 AND remote.account_reference = $2
+         GROUP BY remote.id HAVING count(DISTINCT shadow.provider_group_id) = 1
+       )
+       UPDATE aruba_remote_documents remote SET automatic_source = 'API',
+         provider_group_id = correlated.provider_group_id,
+         inventory_version = inventory_version + 1, last_observed_at = now()
+       FROM correlated WHERE remote.id = correlated.id`,
+      [inventoryEnvironment(), current.account_reference],
+    );
+    await client.query(
       `UPDATE connections SET automatic_authority = 'API', updated_at = now()
        WHERE id = $1 AND automatic_authority = 'BROWSER'`,
       [current.id],

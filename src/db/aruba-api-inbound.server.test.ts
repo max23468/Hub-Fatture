@@ -670,6 +670,17 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       activeBrowserSessionId,
     ]);
     assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, true);
+    await getPool().query(
+      `UPDATE aruba_remote_documents SET remote_status = 'SDI_PROCESSING'
+       WHERE remote_id = 'browser-parity-2019'`,
+    );
+    await getPool().query(
+      `UPDATE aruba_api_shadow_documents SET remote_status = 'SDI_PROCESSING'
+       WHERE remote_key = 'api-parity-2019' AND sync_run_id = (
+         SELECT id FROM aruba_sync_runs WHERE kind = 'BACKFILL' AND status = 'COMPLETED'
+         ORDER BY completed_at DESC LIMIT 1
+       )`,
+    );
     assert.deepEqual(
       await api.promoteArubaApiAuthority({ fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK" }, owner),
       {
@@ -689,6 +700,15 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         )
       ).rows[0],
       { automatic_authority: "API" },
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT automatic_source, provider_group_id FROM aruba_remote_documents
+           WHERE remote_id = 'browser-parity-2019'`,
+        )
+      ).rows[0],
+      { automatic_source: "API", provider_group_id: "api-parity-group-2019" },
     );
     const apiStage = await import("./aruba-api-stage.server.ts");
     const canonicalPage = await import("./aruba-api-canonical-page.server.ts");
