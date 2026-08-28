@@ -64,7 +64,6 @@ import {
   freezeArubaInventorySnapshot,
   type ArubaInventorySession,
 } from "./aruba-inventory-cycle.server.ts";
-import { storeImportedFile } from "./aruba.server.ts";
 import { getJoinedTransactionClient, getPool, withTransaction } from "./client.server.ts";
 import { loadArubaReadSession, type ArubaReadSessionRow } from "./aruba-read-session.server.ts";
 import {
@@ -72,8 +71,8 @@ import {
   findArubaStoredEvidence,
   findArubaStoredEvidenceForAccount,
   persistArubaOfficialEvidence,
+  prepareArubaOfficialEvidence,
   removeEvidence,
-  validatedArubaFiscalXml,
 } from "./aruba-p7m-evidence.server.ts";
 import {
   lockedRemoteMatch,
@@ -1943,14 +1942,12 @@ async function importArubaRemoteOfficialFileAuthorized(
       documentId,
     };
   }
-  const fiscalXml = await validatedArubaFiscalXml(kind.data, bytes);
-  const stored = await storeImportedFile(`remote-${remoteDocumentId}`, kind.data, bytes);
-  let extractedXml: Awaited<ReturnType<typeof storeImportedFile>> | null = null;
+  const { fiscalXml, stored, extractedXml } = await prepareArubaOfficialEvidence(
+    remoteDocumentId,
+    kind.data,
+    bytes,
+  );
   try {
-    extractedXml =
-      kind.data === "ARUBA_P7M" && fiscalXml
-        ? await storeImportedFile(`remote-${remoteDocumentId}-p7m`, "ARUBA_XML", fiscalXml.bytes)
-        : null;
     const outcome = await withTransaction(async (client) => {
       const lockedSession =
         typeof authorization === "string"

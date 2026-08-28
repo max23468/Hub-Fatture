@@ -7,6 +7,7 @@ import { arubaFiscalPayload, type ArubaFileKind, validateUntrustedXml } from "..
 import { fiscalDocumentEnvelopeFromXml } from "../documents.ts";
 import { AppError } from "../errors.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
+import { storeImportedFile } from "./aruba.server.ts";
 
 export async function validatedArubaFiscalXml(kind: ArubaFileKind, bytes: Buffer) {
   if (kind !== "ARUBA_XML" && kind !== "ARUBA_P7M") return null;
@@ -22,6 +23,26 @@ export async function validatedArubaFiscalXml(kind: ArubaFileKind, bytes: Buffer
     };
   } catch {
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+  }
+}
+
+export async function prepareArubaOfficialEvidence(
+  remoteDocumentId: string,
+  kind: ArubaFileKind,
+  bytes: Buffer,
+) {
+  const fiscalXml = await validatedArubaFiscalXml(kind, bytes);
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- Il file originale va scritto soltanto dopo aver validato il payload fiscale.
+  const stored = await storeImportedFile(`remote-${remoteDocumentId}`, kind, bytes);
+  try {
+    const extractedXml =
+      kind === "ARUBA_P7M" && fiscalXml
+        ? await storeImportedFile(`remote-${remoteDocumentId}-p7m`, "ARUBA_XML", fiscalXml.bytes)
+        : null;
+    return { fiscalXml, stored, extractedXml };
+  } catch (error) {
+    await unlink(stored.absolutePath).catch(() => undefined);
+    throw error;
   }
 }
 
