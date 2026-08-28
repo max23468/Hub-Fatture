@@ -10,6 +10,18 @@ Deploy Hub Fatture e build/manutenzioni Docker Sequent condividono un lock host 
 
 Per un candidato precedente al Canary tecnico Production, dopo il normale readback eseguire anche `scripts/production-release-candidate-readback.sh`: il controllo fallisce se trova documenti approvati, import iniziali non completati, ordini storici non riconciliati o batch Aruba aperti.
 
+## Accesso SSH dal Mac
+
+Usare `scripts/ssh-production.sh [comando remoto]`. Il comando avvia un `ssh-agent` effimero,
+decifra in streaming il blob `age` con l'identità del recovery kit locale e offre soltanto quella
+identità tramite `IdentitiesOnly=yes`; alla chiusura elimina agent e file pubblico temporaneo. Non
+crea copie plaintext della chiave privata e non dipende dalle identità predefinite di `~/.ssh`.
+
+Per impostazione predefinita il recovery kit è in `~/Documents/Hub-Fatture-Recovery`; percorsi e
+target possono essere sostituiti per un recovery controllato con `HUB_FATTURE_RECOVERY_DIR`,
+`HUB_FATTURE_AGE_IDENTITY`, `HUB_FATTURE_SSH_KEY_AGE`, `HUB_FATTURE_SSH_HOST` e
+`HUB_FATTURE_SSH_USER`, senza salvare valori sensibili nel repository.
+
 ## Prima del deploy
 
 1. `npm run publish:preflight` classifica il diff rispetto a `origin/main` ed esegue soltanto i gate locali applicabili; audit, DB e contract test indipendenti procedono in parallelo.
