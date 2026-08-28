@@ -460,6 +460,7 @@ interface ArubaInboundClosureRow {
   backfill_complete: boolean;
   parity_status: "MATCHED" | "DIVERGENT" | "INCOMPLETE" | null;
   browser_baseline_current: boolean;
+  browser_session_active: boolean;
   api_documents: number;
   missing_in_api: number;
   missing_in_browser: number;
@@ -522,6 +523,11 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
            dossier.summary_json->>'browserBaselineSessionId' = browser_baseline.id::text,
            false
          ) AS browser_baseline_current,
+         EXISTS (SELECT 1 FROM aruba_sync_sessions active_session
+           WHERE active_session.environment = $2
+             AND active_session.account_reference = connection.account_reference
+             AND active_session.source = 'HELPER'
+             AND active_session.status IN ('ACTIVE', 'SCANNING')) AS browser_session_active,
          coalesce(dossier.api_documents, 0)::integer AS api_documents,
          coalesce(dossier.missing_in_api, 0)::integer AS missing_in_api,
          coalesce(dossier.missing_in_browser, 0)::integer AS missing_in_browser,
@@ -561,6 +567,7 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
     backfill_complete: false,
     parity_status: null,
     browser_baseline_current: false,
+    browser_session_active: false,
     api_documents: 0,
     missing_in_api: 0,
     missing_in_browser: 0,
@@ -576,7 +583,7 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
     NO_ACTIVE_JOBS: jobs.activeJobs === 0,
     NO_ACTIONABLE_FAILURES: jobs.actionableFailures === 0,
     PARITY_MATCHED: row.parity_status === "MATCHED",
-    BROWSER_BASELINE_CURRENT: row.browser_baseline_current,
+    BROWSER_BASELINE_CURRENT: row.browser_baseline_current && !row.browser_session_active,
     NORMALIZED_DIVERGENCES_ZERO:
       row.api_documents > 0 &&
       row.missing_in_api === 0 &&

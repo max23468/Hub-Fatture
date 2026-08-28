@@ -27,14 +27,18 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
   try {
     await runMigrations({ connectionString: database.connectionString });
     const legacyP7mRunId = "30000000-0000-4000-8000-000000000039";
+    const legacyBackfillRunId = "30000000-0000-4000-8000-000000000038";
     await getPool().query(
       `INSERT INTO aruba_sync_runs
         (id, environment, api_environment, account_reference, kind, authority_mode, status,
          window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at,
          completed_at)
-       VALUES ($1, 'MOCK', 'DEMO', 'legacy-p7m-account', 'BACKFILL', 'SHADOW', 'COMPLETED',
-         '2019-01-01', '2019-01-03', '2019-01-01', '2019-01-02', now(), now())`,
-      [legacyP7mRunId],
+       VALUES
+         ($1, 'MOCK', 'DEMO', 'legacy-p7m-account', 'BACKFILL', 'SHADOW', 'COMPLETED',
+           '2018-01-01', '2019-01-01', '2018-01-01', '2019-01-01', now(), now()),
+         ($2, 'MOCK', 'DEMO', 'legacy-p7m-account', 'FULL', 'SHADOW', 'COMPLETED',
+           '2019-01-01', '2019-01-03', '2019-01-01', '2019-01-02', now(), now())`,
+      [legacyBackfillRunId, legacyP7mRunId],
     );
     await getPool().query(
       `INSERT INTO aruba_api_shadow_documents
@@ -50,12 +54,23 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       "039_aruba_p7m_parity_normalization.sql",
     ]);
-    assert.equal(
-      (await getPool().query("SELECT status FROM aruba_sync_runs WHERE id = $1", [legacyP7mRunId]))
-        .rows[0].status,
-      "CANCELLED",
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT id, status FROM aruba_sync_runs
+           WHERE id IN ($1, $2) ORDER BY id`,
+          [legacyBackfillRunId, legacyP7mRunId],
+        )
+      ).rows,
+      [
+        { id: legacyBackfillRunId, status: "CANCELLED" },
+        { id: legacyP7mRunId, status: "CANCELLED" },
+      ],
     );
-    await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [legacyP7mRunId]);
+    await getPool().query("DELETE FROM aruba_sync_runs WHERE id IN ($1, $2)", [
+      legacyBackfillRunId,
+      legacyP7mRunId,
+    ]);
     globalThis.fetch = async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/auth/signin") {
@@ -633,6 +648,27 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     assert.equal(staleDossier.readyForAuthoritySwitch, false);
     assert.equal(staleDossier.blockers.includes("BROWSER_BASELINE_CURRENT"), true);
     await getPool().query("DELETE FROM aruba_sync_sessions WHERE id = $1", [newerBrowserSessionId]);
+    assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, true);
+    const activeBrowserSessionId = "10000000-0000-4000-8000-000000000003";
+    await getPool().query(
+      `INSERT INTO aruba_sync_sessions
+        (id, environment, account_reference, device_id, token_hash, status,
+         absolute_expires_at, is_full_scan)
+       VALUES ($1, 'MOCK', 'synthetic-aruba-account', 'browser-session-active', repeat('7', 64),
+         'SCANNING', now() + interval '1 hour', true)`,
+      [activeBrowserSessionId],
+    );
+    assert.equal(
+      (await api.getArubaInboundClosureReadiness()).gates.BROWSER_BASELINE_CURRENT,
+      false,
+    );
+    await assert.rejects(
+      api.promoteArubaApiAuthority({ fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK" }, owner),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
+    );
+    await getPool().query("DELETE FROM aruba_sync_sessions WHERE id = $1", [
+      activeBrowserSessionId,
+    ]);
     assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, true);
     assert.deepEqual(
       await api.promoteArubaApiAuthority({ fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK" }, owner),
