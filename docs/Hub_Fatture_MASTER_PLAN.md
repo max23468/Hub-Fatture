@@ -306,7 +306,6 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Repository | GitHub pubblico, `main` protetto e branch brevi | Il codice è ispezionabile; la visibilità non richiede un secondo branch né rende l'app multi-tenant |
 | Licenza | Nessun file `LICENSE` finché il titolare non concede esplicitamente diritti di riuso | Repository pubblica non significa automaticamente open source |
 | CI/CD | GitHub Actions come unica corsia; nessun deploy automatico al merge | Evita drift fra sistemi e conserva il gate di autorizzazione Production |
-| Review Codex | Required check legato all'HEAD esatto; P0/P1 bloccano, i thread Codex P2/P3 registrati vengono risolti automaticamente | Conserva gli advisory senza farli diventare bloccanti per duplicazione con la protezione conversazioni |
 | Gate deploy | Dispatch manuale dentro il ciclo `Pubblica`, Environment `Production` senza reviewer aggiuntivi | L'autorizzazione iniziale non viene duplicata; i segreti restano accessibili soltanto al job di deploy |
 | Toolchain runtime | Node.js/npm scelti in 14.3 e versionati soltanto negli artefatti M0 | Applica la decisione esplicita latest-first e allinea Mac, CI e build Docker senza affidarsi alle versioni globali |
 | Lint e formato | Oxlint e Oxfmt con pin esatto; niente ESLint/Prettier iniziali | Riusa una toolchain veloce già adottata in CF Ready senza duplicare strumenti equivalenti |
@@ -2370,9 +2369,7 @@ Per il repository pubblico e single-owner usare il flusso minimo:
 - branch protection, base aggiornata, conversazioni risolte e gate richiesti applicati anche all'amministratore;
 - cancellazione esplicita dei soli branch temporanei dopo il merge;
 - prima di aprire la PR di pubblicazione, completare i gate locali applicabili e
-  presentare un HEAD coerente e già pronto alla review; un nuovo commit riapre
-  la review Codex soltanto per una correzione reale, non per completare lavoro
-  prevedibile dopo l'apertura;
+  presentare un HEAD coerente e già pronto alla review;
 - una richiesta affermativa e inequivocabile di pubblicazione autorizza deploy
   Production e release tecniche applicabili; fuori da tale richiesta restano
   avviati dal titolare e separati dal merge.
@@ -3479,7 +3476,6 @@ Deve fermarsi e chiedere prima di:
 | Documentazione o runbook in drift | Operazioni eseguite con istruzioni obsolete | Fonte canonica, controllo link/comandi e aggiornamento nella stessa PR |
 | Backup presente ma non ripristinabile | Perdita dati prolungata | Checksum, manifest, restore drill trimestrale e prima dei cambi distruttivi |
 | Dipendenza vulnerabile o non riproducibile | Compromissione o build divergenti | Pin, lockfile, audit, CI e aggiornamenti deliberati |
-| Review Codex riferita a un commit precedente | Merge di codice non revisionato | Required check che accetta soltanto evidenze dell'HEAD esatto e torna pending a ogni nuovo commit |
 | Log di diagnosi espongono dati fiscali | Violazione privacy | Eventi sanitizzati, debug solo Development con dati sintetici e retention breve |
 | Repository pubblica espone dati, segreti o configurazioni | Compromissione e violazione privacy | Scansione albero+storia prima del primo push, rotazione, template, Push Protection e workflow fork senza secret |
 | Key VPS adiacente al futuro repository | Accesso VPS esposto per commit accidentale | Ignorare il plaintext, archiviare soltanto la copia `age`, verificare equivalenza e bloccare chiavi private in staged tree/cronologia |
@@ -3624,7 +3620,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [ ] Playwright verde per HF su Chromium/WebKit e per l'helper sintetico su Windows/macOS con Chrome o Edge; eventuali trace esaminate e nessun artefatto con dati reali conservato.
 - [ ] Audit critici verificati atomici con le transizioni fiscali.
 - [ ] Audit trasversale M8 completato sul commit candidato e collegato al record di readiness.
-- [ ] Nessun P0/P1 aperto; eventuali P2/P3 accettati con condizione di riapertura.
+- [ ] Nessun blocker aperto.
 - [ ] Retention fiscale e tecnica approvata.
 - [ ] Record corrente `docs/runbooks/release-readiness.md` completo con prove fresche.
 - [ ] Runbook P0, rollback e restore drill verificati.

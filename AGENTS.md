@@ -63,13 +63,6 @@ elementi non sono pronti, la PR di implementazione non è pronta al merge. Una
 deroga richiede una richiesta esplicita del proprietario riferita al caso
 specifico.
 
-I finding P2/P3 della review restano advisory e non autorizzano modifiche:
-l'agente li implementa soltanto su richiesta esplicita del proprietario. Quando
-la review è conclusa e l'evidenza si riferisce all'HEAD esatto, li riepiloga e
-prosegue con la pubblicazione; il gate risolve automaticamente soltanto i thread
-inline Codex P2/P3 già registrati sull'HEAD esatto, mentre P0/P1 e conversazioni
-umane restano bloccanti.
-
 La pulizia finale rimuove soltanto branch e worktree temporanei creati nel ciclo
 corrente e già assorbiti; controlla stash e altri residui senza alterare elementi
 preesistenti o estranei alla pubblicazione. Se un passaggio non è applicabile, lo

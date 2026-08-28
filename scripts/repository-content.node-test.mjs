@@ -114,7 +114,6 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
     ),
   );
   assert.match(agents, /richiesta affermativa di pubblicazione/);
-  assert.match(agents, /P2\/P3 della review restano advisory e non autorizzano modifiche/);
   assert.match(agents, /stessa PR dell'implementazione/);
   assert.match(agents, /Non fondere la modifica runtime per aprire[\s\S]*seconda PR/);
   assert.match(masterPlan, /richiesta affermativa di pubblicazione autorizza (?:invece )?deploy/);
@@ -548,6 +547,18 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
   assert.match(foundation, /if: steps\.impact\.outputs\.image == 'true'/);
   assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
+});
+
+test("la governance non reintroduce il gate Codex rimosso", async () => {
+  const operationalSources = await Promise.all(
+    ["AGENTS.md", "docs/Hub_Fatture_MASTER_PLAN.md", "package.json"].map((file) =>
+      readFile(path.join(root, file), "utf8"),
+    ),
+  );
+  assert.doesNotMatch(
+    operationalSources.join("\n"),
+    /codex-review|@codex review|Codex review gate|Review Codex/i,
+  );
 });
 
 test("la riconciliazione Aruba non tronca i candidati fiscali", async () => {
