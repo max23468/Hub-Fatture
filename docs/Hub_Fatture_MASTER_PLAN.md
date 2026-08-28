@@ -2438,18 +2438,6 @@ ricevuta Production.
 
 La CI non esegue deploy automatici su merge. Action di terze parti vanno vincolate a commit completi, con permessi minimi, timeout e `concurrency` appropriata. I workflow di verifica possono cancellare run obsoleti; un deploy Production già avviato non viene cancellato da un nuovo push. Dependabot copre npm, GitHub Actions, Dockerfile e Compose e apre PR verso `main`; gli aggiornamenti npm e GitHub Actions minor/patch sono raggruppati e possono essere uniti automaticamente dopo i gate, mentre major, Docker e Compose restano deliberati manualmente.
 
-Il required check `codex-review` riusa il contratto già collaudato in CF Ready invece di introdurre un secondo protocollo:
-
-- all'apertura o al passaggio da draft a ready parte la review automatica senza commenti di richiesta;
-- dopo un nuovo commit o per un retry l'agente pubblica una sola riga `@codex review` per l'HEAD corrente;
-- il gate accetta soltanto un segnale positivo del reviewer Codex legato allo stesso SHA o un verdetto pulito che dichiari esplicitamente il commit revisionato;
-- finding P0/P1 sull'HEAD corrente, inline o top-level, bloccano il merge; P2/P3 restano advisory e non impediscono il gate;
-- uno status riuscito è riusabile soltanto per lo stesso SHA; se l'HEAD cambia il gate torna pending;
-- il workflow non crea commenti di richiesta: osserva i segnali della review Codex già avviata, pubblica lo status necessario e non esegue codice della PR;
-- se usa `pull_request_target`, legge metadati con permessi minimi e può fare checkout soltanto del branch predefinito fidato; non fa checkout, build, installazione, download di artifact o esecuzione di contenuto della PR.
-
-Workflow, script e test sono copie locali degli artefatti canonici comuni alle repository compatibili, senza varianti specifiche per Hub Fatture.
-
 L'auto-merge Dependabot è ammesso soltanto quando tutte le condizioni seguenti sono vere:
 
 - autore verificato `dependabot[bot]` e repository head uguale alla repository corrente;
@@ -2504,7 +2492,6 @@ Baseline GitHub pubblica:
 - `SECURITY.md` e Private Vulnerability Reporting attivo;
 - Secret Scanning, Push Protection, CodeQL, Dependency Review, vulnerability alert e security update;
 - required checks per documentazione, verifica completa e dependency review quando applicabile;
-- `codex-review` required e non aggirabile, con evidenza positiva riferita all'HEAD esatto;
 - `CI` come required check aggregatore dei soli job applicabili; il workflow
   separato `React Doctor` è required, conclude esplicitamente quando non
   applicabile e blocca dai warning in su;
@@ -3030,7 +3017,6 @@ Output:
 - fixture mock prive di dati reali;
 - `AGENTS.md`, `README.md` e `docs/INDEX.md` allineati allo stato reale;
 - branch protection su `main`, template PR, Dependabot e baseline sicurezza GitHub pubblica configurati; Issues, Discussions e Projects rivolti alla community disabilitati;
-- gate `codex-review` canonico, required e verificato su HEAD stabile, nuovo commit e finding corrente senza eseguire codice PR in contesto privilegiato;
 - auto-merge Dependabot configurato fail-closed, senza auto-approvazione né esecuzione del codice PR nel contesto privilegiato; la prova end-to-end è differita a M8 e non blocca M1-M7;
 - release immutabili abilitate e categorie minime di `.github/release.yml` definite senza creare una release anticipata;
 - React Doctor completo bloccante nel gate locale e sul push runtime a `main`,
@@ -3350,7 +3336,7 @@ Ogni task lascia un check eseguibile. Evitare scaffolding non usato: una tabella
 
 ### Fondazioni - M0/M1
 
-Repository e documenti minimi, poi il monolite React Router sulla toolchain risolta in M0, poi `mise.toml`, TypeScript strict, Oxlint e Oxfmt. Quindi Compose locale con immagini per digest, livello dati `pg` con runner di migrazioni, configurazione validata all'avvio, health check. Infine i gate: `node:test`, Playwright con Chromium, comando locale canonico, CI, protezioni GitHub e `codex-review` canonico. In parallelo la Brand Foundation leggera e la messa in sicurezza della key VPS come blob `age`.
+Repository e documenti minimi, poi il monolite React Router sulla toolchain risolta in M0, poi `mise.toml`, TypeScript strict, Oxlint e Oxfmt. Quindi Compose locale con immagini per digest, livello dati `pg` con runner di migrazioni, configurazione validata all'avvio, health check. Infine i gate: `node:test`, Playwright con Chromium, comando locale canonico, CI e protezioni GitHub. In parallelo la Brand Foundation leggera e la messa in sicurezza della key VPS come blob `age`.
 
 ### Autenticazione - M1
 
@@ -3549,7 +3535,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - [ ] Creare `AGENTS.md`, `CLAUDE.md` minimale, README, CONTRIBUTING, `SECURITY.md` e `docs/INDEX.md` coerenti.
 - [ ] Pianificare in M1 la Brand Foundation e il design system interno leggero, senza pacchetto separato, sito o asset speculativi.
 - [ ] Dichiarare repository pubblica ma non open source; non aggiungere `LICENSE` senza decisione esplicita.
-- [ ] Configurare protezione `main`, template PR, vulnerabilità private, Dependabot e auto-merge degli aggiornamenti npm e GitHub Actions minor/patch senza auto-approvazione; lasciare disabilitati Issues, Discussions e Projects rivolti alla community; adattare da CF Ready `codex-review` exact-HEAD e verificarlo su un nuovo commit.
+- [ ] Configurare protezione `main`, template PR, vulnerabilità private, Dependabot e auto-merge degli aggiornamenti npm e GitHub Actions minor/patch senza auto-approvazione; lasciare disabilitati Issues, Discussions e Projects rivolti alla community.
 - [ ] Configurare Playwright con Chromium, smoke sintetico e trace soltanto al primo retry fallito.
 - [ ] Abilitare release immutabili e predisporre `.github/release.yml` senza pubblicare release.
 - [ ] Raccogliere documentazione ufficiale corrente Shopify/eBay e guide del pannello Aruba.

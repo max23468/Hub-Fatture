@@ -48,8 +48,7 @@ attende autonomamente gli stessi check. Questo anticipo vale soltanto dentro un
 ciclo `Pubblica` già autorizzato e non trasforma ogni merge in un auto-deploy.
 
 Prima di aprire una PR di pubblicazione, completa i gate locali applicabili e
-presenta un HEAD coerente e pronto alla review, così ogni nuovo commit riapre il
-gate Codex soltanto quando corregge un finding reale. Classifica l'impatto sul
+presenta un HEAD coerente e pronto alla review. Classifica l'impatto sul
 diff cumulativo fra l'ultimo commit distribuito e il candidato finale, non sulla
 sola ultima PR. Modifiche esclusivamente documentali, di test o di governance
 non richiedono immagine, deploy o release; più modifiche runtime correlate già
