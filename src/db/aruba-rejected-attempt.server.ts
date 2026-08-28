@@ -20,8 +20,12 @@ export async function findArubaRemoteCollision(
   client: QueryClient,
   input: ArubaRemoteCollisionInput,
 ) {
-  const collision = await client.query<{ id: string; remote_id: string }>(
-    `SELECT id, remote_id FROM aruba_remote_documents
+  const collision = await client.query<{
+    id: string;
+    remote_id: string;
+    api: boolean;
+  }>(
+    `SELECT id, remote_id, automatic_source = 'API' AS api FROM aruba_remote_documents
      WHERE environment = $1 AND account_reference = $2 AND (
        ($3::text IS NOT NULL AND $8::text <> 'REJECTED' AND remote_status <> 'REJECTED'
          AND fiscal_year = $4 AND upper(series) = upper($3)

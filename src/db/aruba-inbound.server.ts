@@ -1005,7 +1005,7 @@ async function reconcileRemoteDocument(
     ]),
   ];
   for (const billingCaseId of affectedCaseIds) {
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Tutti i casi dipendono dal match appena aggiornato nella stessa transazione.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Dipende dal match precedente.
     await recomputeBillingCaseStatus(client, billingCaseId, true);
   }
 }
@@ -2389,7 +2389,10 @@ export async function ingestParsedArubaPage(
         xmlSha256: remote.xmlSha256,
         remoteStatus: remote.status,
       });
-      if (collided && (apiSource || collided.remote_id.startsWith("historical-document-"))) {
+      if (
+        collided &&
+        (apiSource || collided.api || collided.remote_id.startsWith("historical-document-"))
+      ) {
         await client.query(
           `UPDATE aruba_remote_documents SET remote_id = $2, document_type = $3,
              fiscal_year = $4, series = $5, fiscal_number = $6, document_date = $7,
