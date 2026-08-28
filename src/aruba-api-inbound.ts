@@ -61,6 +61,7 @@ export interface ArubaApiInboundFile {
   providerGroupId: string;
   notificationType?: string;
   notificationDate?: string;
+  notificationInvoiceNumber?: string;
 }
 
 export interface ArubaApiInboundDocument {
@@ -90,6 +91,7 @@ function file(input: {
   providerGroupId: string;
   notificationType?: string;
   notificationDate?: string;
+  notificationInvoiceNumber?: string;
 }): ArubaApiInboundFile {
   const encoded = base64Schema.safeParse(input.encoded);
   if (!encoded.success) throw new Error("ARUBA_API_FILE_INVALID");
@@ -103,6 +105,7 @@ function file(input: {
     providerGroupId: input.providerGroupId,
     notificationType: input.notificationType,
     notificationDate: input.notificationDate,
+    notificationInvoiceNumber: input.notificationInvoiceNumber,
   };
 }
 
@@ -187,6 +190,7 @@ export function mapArubaApiInboundGroup(input: {
         providerGroupId: input.group.id,
         notificationType: notification.docType,
         notificationDate: notification.notificationDate,
+        notificationInvoiceNumber: number ?? undefined,
       }),
     };
   });
@@ -252,6 +256,7 @@ export function mapArubaApiInboundGroup(input: {
           currency: "EUR" as const,
           status: normalizeArubaRemoteStatusLabel(invoice.status),
           providerStatusLabel: invoice.status,
+          providerInvoiceNumber: invoice.number,
           providerObservedAt: input.detail.lastUpdate,
           xmlSha256: officialPayload ? arubaApiParityFileHash(officialPayload) : null,
           orderReferences: [],

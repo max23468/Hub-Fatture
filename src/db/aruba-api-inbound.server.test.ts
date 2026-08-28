@@ -784,6 +784,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
           currency: "EUR" as const,
           status: "SUBMITTED" as const,
           providerStatusLabel: "Inviata",
+          providerInvoiceNumber: "99",
           providerObservedAt: "2019-01-02T12:00:00.000Z",
           xmlSha256: null,
           orderReferences: [],
@@ -909,7 +910,32 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
           providerGroupId: "atomic-stage-group",
           providerFilename: "notifica-errata.xml",
           expectedDocumentFilename: "atomic-stage.xml.p7m",
+          expectedInvoiceNumber: "99",
+          requiresInvoiceNumber: true,
+          notificationInvoiceNumber: "99",
           notificationId: "notifica-errata",
+        },
+      ),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_CONFLICT",
+    );
+    const wrongInvoiceNotification = Buffer.from(
+      "<RicevutaConsegna><NomeFile>atomic-stage.xml</NomeFile></RicevutaConsegna>",
+    );
+    await assert.rejects(
+      inbound.importArubaRemoteOfficialFileFromApi(
+        stagedBrowserDocument.rows[0]!.id,
+        "SDI_NOTIFICATION",
+        wrongInvoiceNotification,
+        {
+          type: "API",
+          runId: stagedRunId,
+          providerGroupId: "atomic-stage-group",
+          providerFilename: "notifica-altra-fattura.xml",
+          expectedDocumentFilename: "atomic-stage.xml.p7m",
+          expectedInvoiceNumber: "99",
+          requiresInvoiceNumber: true,
+          notificationInvoiceNumber: "100",
+          notificationId: "notifica-altra-fattura",
         },
       ),
       (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_CONFLICT",

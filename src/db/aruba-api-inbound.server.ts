@@ -1415,7 +1415,10 @@ async function persistCanonicalPageContents(
   }
   for (const document of documents) {
     const remoteDocumentId = remoteDocumentIds.get(document.remote.remoteId);
-    if (!remoteDocumentId) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    const expectedInvoiceNumber = document.remote.providerInvoiceNumber;
+    if (!remoteDocumentId || !expectedInvoiceNumber) {
+      throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    }
     const expectedDocumentFilename = [...document.files, ...document.groupFiles].find(
       (file) => file.kind === "ARUBA_XML" || file.kind === "ARUBA_P7M",
     )?.filename;
@@ -1427,6 +1430,9 @@ async function persistCanonicalPageContents(
         providerGroupId: document.providerGroupId,
         providerFilename: file.filename,
         expectedDocumentFilename,
+        expectedInvoiceNumber,
+        requiresInvoiceNumber: document.groupFiles.length > 0,
+        notificationInvoiceNumber: file.notificationInvoiceNumber,
         notificationId: file.kind === "SDI_NOTIFICATION" ? file.sha256 : undefined,
       });
     }

@@ -53,6 +53,7 @@ import {
 } from "./aruba-rejected-attempt.server.ts";
 import {
   loadArubaApiFileSession,
+  matchesArubaApiDocumentIdentity,
   type ArubaApiFileAuthorization,
 } from "./aruba-api-run-session.server.ts";
 import {
@@ -1867,17 +1868,21 @@ async function importArubaRemoteOfficialFileAuthorized(
   const remoteDocumentId = resolved.rows[0]?.id;
   if (!remoteDocumentId) throw new AppError("ARUBA_INVENTORY_INVALID", 404);
   if (apiAuthorization) {
-    const owned = await database.query<{ provider_group_id: string | null }>(
-      `SELECT provider_group_id FROM aruba_remote_documents
-       WHERE id = $1 AND environment = $2 AND account_reference = $3`,
-      [remoteDocumentId, session.environment, session.account_reference],
-    );
-    if (owned.rows[0]?.provider_group_id !== apiAuthorization.providerGroupId) {
+    if (
+      !(await matchesArubaApiDocumentIdentity(
+        database,
+        remoteDocumentId,
+        session,
+        apiAuthorization,
+      ))
+    ) {
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
     if (
       kind.data === "SDI_NOTIFICATION" &&
       (!apiAuthorization.expectedDocumentFilename ||
+        (apiAuthorization.requiresInvoiceNumber &&
+          apiAuthorization.notificationInvoiceNumber !== apiAuthorization.expectedInvoiceNumber) ||
         !notificationBelongsToDocument(bytes.toString("utf8"), {
           filename: apiAuthorization.expectedDocumentFilename.replace(/\.p7m$/i, ""),
         }))

@@ -146,6 +146,12 @@ test("il mapper API separa i documenti del gruppo senza attribuire file condivis
     hashes.get("SDI_NOTIFICATION"),
     createHash("sha256").update(notification).digest("hex"),
   );
+  assert.equal(mapped[0]!.remote.providerInvoiceNumber, "FPR-101");
+  assert.equal(
+    mapped[0]!.files.find((file) => file.kind === "SDI_NOTIFICATION")?.notificationInvoiceNumber,
+    "FPR-101",
+  );
+  assert.equal(mapped[1]!.remote.providerInvoiceNumber, "FPR-102");
   assert.equal(
     mapped[1]!.files.some((file) => file.kind === "SDI_NOTIFICATION"),
     false,

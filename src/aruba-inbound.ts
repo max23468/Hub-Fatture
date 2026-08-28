@@ -55,6 +55,7 @@ export const remoteInventoryDocumentSchema = z.object({
   currency: z.literal("EUR").default("EUR"),
   status: arubaRemoteStatusSchema,
   providerStatusLabel: z.string().trim().min(1).max(300).nullable().optional(),
+  providerInvoiceNumber: z.string().trim().min(1).max(100).nullable().optional(),
   providerObservedAt: z.iso.datetime({ offset: true }).nullable().default(null),
   xmlSha256: z
     .string()

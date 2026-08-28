@@ -6,7 +6,43 @@ export interface ArubaApiFileAuthorization {
   providerGroupId: string;
   providerFilename: string;
   expectedDocumentFilename: string | undefined;
+  expectedInvoiceNumber: string;
+  requiresInvoiceNumber: boolean;
+  notificationInvoiceNumber?: string;
   notificationId?: string;
+}
+
+interface ArubaApiFileSession {
+  id: string;
+  environment: "MOCK" | "PRODUCTION";
+  account_reference: string;
+}
+
+export async function matchesArubaApiDocumentIdentity(
+  client: pg.Pool | pg.PoolClient,
+  remoteDocumentId: string,
+  session: ArubaApiFileSession,
+  authorization: ArubaApiFileAuthorization,
+) {
+  const owned = await client.query<{
+    provider_group_id: string | null;
+    provider_invoice_number: string | null;
+  }>(
+    `SELECT remote.provider_group_id,
+       observations.payload_json ->> 'providerInvoiceNumber' AS provider_invoice_number
+     FROM aruba_remote_documents AS remote
+     LEFT JOIN LATERAL (
+       SELECT payload_json FROM aruba_remote_observations
+       WHERE remote_document_id = remote.id AND sync_run_id = $4
+       ORDER BY id DESC LIMIT 1
+     ) AS observations ON true
+     WHERE remote.id = $1 AND remote.environment = $2 AND remote.account_reference = $3`,
+    [remoteDocumentId, session.environment, session.account_reference, authorization.runId],
+  );
+  return (
+    owned.rows[0]?.provider_group_id === authorization.providerGroupId &&
+    owned.rows[0]?.provider_invoice_number === authorization.expectedInvoiceNumber
+  );
 }
 
 export async function loadArubaApiFileSession(
@@ -14,13 +50,8 @@ export async function loadArubaApiFileSession(
   authorization: ArubaApiFileAuthorization,
   lock = false,
 ) {
-  type SessionRow = {
-    id: string;
-    environment: "MOCK" | "PRODUCTION";
-    account_reference: string;
-  };
   const result = lock
-    ? await client.query<SessionRow>(
+    ? await client.query<ArubaApiFileSession>(
         `SELECT runs.id, runs.environment, runs.account_reference
          FROM aruba_sync_runs AS runs
          JOIN connections ON connections.provider = 'ARUBA'
@@ -33,7 +64,7 @@ export async function loadArubaApiFileSession(
          FOR UPDATE OF runs, connections`,
         [authorization.runId],
       )
-    : await client.query<SessionRow>(
+    : await client.query<ArubaApiFileSession>(
         `SELECT runs.id, runs.environment, runs.account_reference
          FROM aruba_sync_runs AS runs
          JOIN connections ON connections.provider = 'ARUBA'
