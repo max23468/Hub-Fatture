@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { AppError } from "../errors.ts";
-import { closePool, getPool, withJoinedTransaction } from "./client.server.ts";
+import {
+  closePool,
+  getPool,
+  registerJoinedTransactionFile,
+  withJoinedTransaction,
+} from "./client.server.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 import { signedXml } from "../../tests/p7m-fixture.ts";
@@ -1135,6 +1142,26 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0],
       { authority_mode: "SHADOW", continued_from_run_id: null },
     );
+    const uncertainCommitDirectory = await mkdtemp(path.join(tmpdir(), "hub-fatture-commit-"));
+    const uncertainCommitFile = path.join(uncertainCommitDirectory, "evidenza.xml");
+    await writeFile(uncertainCommitFile, "evidenza sintetica");
+    try {
+      await assert.rejects(
+        withJoinedTransaction(async (client) => {
+          registerJoinedTransactionFile(uncertainCommitFile);
+          const query = client.query.bind(client);
+          client.query = (async (...args: Parameters<typeof client.query>) => {
+            const result = await query(...args);
+            if (args[0] === "COMMIT") throw new Error("COMMIT_ACK_LOST");
+            return result;
+          }) as typeof client.query;
+        }),
+        /COMMIT_ACK_LOST/,
+      );
+      await access(uncertainCommitFile);
+    } finally {
+      await rm(uncertainCommitDirectory, { recursive: true, force: true });
+    }
   } finally {
     globalThis.fetch = originalFetch;
     await closePool();

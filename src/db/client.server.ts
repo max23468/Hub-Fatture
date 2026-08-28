@@ -60,14 +60,18 @@ export async function withJoinedTransaction<T>(
   if (active) return callback(active.client);
   const client = await getPool().connect();
   const context: JoinedTransaction = { client, rollbackFiles: new Set() };
+  let commitStarted = false;
   try {
     await client.query("BEGIN");
     const result = await joinedTransaction.run(context, () => callback(client));
+    commitStarted = true;
     await client.query("COMMIT");
     return result;
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    await Promise.allSettled([...context.rollbackFiles].map((file) => unlink(file)));
+    if (!commitStarted) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      await Promise.allSettled([...context.rollbackFiles].map((file) => unlink(file)));
+    }
     throw error;
   } finally {
     client.release();
