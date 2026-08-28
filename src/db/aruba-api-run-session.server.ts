@@ -5,6 +5,7 @@ export interface ArubaApiFileAuthorization {
   runId: string;
   providerGroupId: string;
   providerFilename: string;
+  expectedDocumentFilename: string | undefined;
   notificationId?: string;
 }
 

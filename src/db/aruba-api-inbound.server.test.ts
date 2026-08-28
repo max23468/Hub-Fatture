@@ -804,6 +804,36 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows[0].count,
       1,
     );
+    const inbound = await import("./aruba-inbound.server.ts");
+    const mismatchedNotification = Buffer.from(
+      "<RicevutaConsegna><NomeFile>documento-diverso.xml</NomeFile></RicevutaConsegna>",
+    );
+    await assert.rejects(
+      inbound.importArubaRemoteOfficialFileFromApi(
+        stagedBrowserDocument.rows[0]!.id,
+        "SDI_NOTIFICATION",
+        mismatchedNotification,
+        {
+          type: "API",
+          runId: stagedRunId,
+          providerGroupId: "atomic-stage-group",
+          providerFilename: "notifica-errata.xml",
+          expectedDocumentFilename: "atomic-stage.xml.p7m",
+          notificationId: "notifica-errata",
+        },
+      ),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_CONFLICT",
+    );
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::integer AS count FROM aruba_files
+           WHERE remote_document_id = $1 AND kind = 'SDI_NOTIFICATION'`,
+          [stagedBrowserDocument.rows[0]!.id],
+        )
+      ).rows[0].count,
+      0,
+    );
     await assert.rejects(
       canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1, [
         stagedBrowserDocument.rows[0]!.id,
@@ -898,9 +928,9 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     );
     assert.deepEqual(await api.getArubaBackfillReadiness(), {
       activeJobs: 1,
-      actionableFailures: 0,
-      historicalFailures: 2,
-      failureCodes: [],
+      actionableFailures: 1,
+      historicalFailures: 1,
+      failureCodes: [{ code: "PROVIDER_RESPONSE_INVALID", count: 1 }],
     });
     await assert.rejects(
       api.revokeArubaApiCredentials(codex),

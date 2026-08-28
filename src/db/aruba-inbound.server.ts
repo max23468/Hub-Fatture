@@ -1875,6 +1875,15 @@ async function importArubaRemoteOfficialFileAuthorized(
     if (owned.rows[0]?.provider_group_id !== apiAuthorization.providerGroupId) {
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
+    if (
+      kind.data === "SDI_NOTIFICATION" &&
+      (!apiAuthorization.expectedDocumentFilename ||
+        !notificationBelongsToDocument(bytes.toString("utf8"), {
+          filename: apiAuthorization.expectedDocumentFilename.replace(/\.p7m$/i, ""),
+        }))
+    ) {
+      throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    }
   } else if (kind.data === "SDI_NOTIFICATION") {
     const expected = await database.query<{ remote_id: string; filename: string | null }>(
       `SELECT remote.remote_id, submitted.filename

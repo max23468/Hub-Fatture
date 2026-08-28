@@ -383,42 +383,43 @@ async function arubaBackfillReadiness(client: pg.Pool | pg.PoolClient) {
     failure_codes: Array<{ code: string; count: number }>;
   }>(
     `WITH aruba_connection AS (
-       SELECT last_synced_at FROM connections
+       SELECT account_reference,
+         CASE WHEN environment = 'PRODUCTION' THEN 'PRODUCTION' ELSE 'MOCK' END AS inventory_environment
+       FROM connections
        WHERE provider = 'ARUBA' AND environment = $1
      ), classified AS (
-       SELECT jobs.status, jobs.last_error_code, jobs.lease_expires_at,
-              coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) AS observed_at,
-              connection.last_synced_at
+       SELECT jobs.type, jobs.status, jobs.last_error_code, jobs.lease_expires_at,
+              coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) AS observed_at
        FROM jobs
-       CROSS JOIN aruba_connection AS connection
        WHERE jobs.type IN ('aruba_backfill_inventory', 'aruba_sync_inventory',
          'aruba_refresh_nonterminal', 'aruba_full_inventory')
-     ), recovery AS (
-       SELECT greatest(
-         max(last_synced_at),
-         max(observed_at) FILTER (WHERE status = 'COMPLETED'),
-         max(observed_at) FILTER (WHERE status = 'RUNNING' AND lease_expires_at > now())
-       ) AS recovered_at
-       FROM classified
+     ), recovered AS (
+       SELECT failed.observed_at, failed.last_error_code,
+         EXISTS (
+           SELECT 1 FROM aruba_sync_runs runs
+           CROSS JOIN aruba_connection connection
+           WHERE runs.status = 'COMPLETED' AND runs.completed_at > failed.observed_at
+             AND runs.environment = connection.inventory_environment
+             AND runs.account_reference = connection.account_reference
+             AND CASE failed.type
+               WHEN 'aruba_backfill_inventory' THEN runs.kind = 'BACKFILL'
+               WHEN 'aruba_full_inventory' THEN runs.kind IN ('BACKFILL', 'FULL')
+               WHEN 'aruba_sync_inventory' THEN runs.kind IN ('BACKFILL', 'FULL', 'INCREMENTAL')
+               WHEN 'aruba_refresh_nonterminal' THEN runs.kind IN ('BACKFILL', 'FULL', 'TARGETED')
+               ELSE false
+             END
+         ) AS recovered
+       FROM classified failed
+       WHERE failed.status = 'FAILED'
      ), code_counts AS (
        SELECT coalesce(last_error_code, 'UNKNOWN') AS code, count(*)::int AS count
-       FROM classified
-       WHERE status = 'FAILED'
-         AND (SELECT recovered_at FROM recovery) IS DISTINCT FROM greatest(
-           (SELECT recovered_at FROM recovery), observed_at
-         )
+       FROM recovered WHERE NOT recovered
        GROUP BY coalesce(last_error_code, 'UNKNOWN')
      )
      SELECT
        count(*) FILTER (WHERE status IN ('PENDING', 'RUNNING'))::int AS active_jobs,
-       count(*) FILTER (WHERE status = 'FAILED'
-         AND (SELECT recovered_at FROM recovery) IS DISTINCT FROM greatest(
-           (SELECT recovered_at FROM recovery), observed_at
-         ))::int AS actionable_failures,
-       count(*) FILTER (WHERE status = 'FAILED'
-         AND (SELECT recovered_at FROM recovery) IS NOT DISTINCT FROM greatest(
-           (SELECT recovered_at FROM recovery), observed_at
-         ))::int AS historical_failures,
+       (SELECT count(*)::int FROM recovered WHERE NOT recovered) AS actionable_failures,
+       (SELECT count(*)::int FROM recovered WHERE recovered) AS historical_failures,
        coalesce((SELECT jsonb_agg(jsonb_build_object('code', code, 'count', count)
          ORDER BY count DESC, code) FROM code_counts), '[]'::jsonb) AS failure_codes
      FROM classified`,
@@ -1353,6 +1354,9 @@ async function persistCanonicalPageContents(
   for (const document of documents) {
     const remoteDocumentId = remoteDocumentIds.get(document.remote.remoteId);
     if (!remoteDocumentId) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    const expectedDocumentFilename = [...document.files, ...document.groupFiles].find(
+      (file) => file.kind === "ARUBA_XML" || file.kind === "ARUBA_P7M",
+    )?.filename;
     for (const file of document.files) {
       // react-doctor-disable-next-line react-doctor/async-await-in-loop -- I file appartengono alla pagina canonica appena acquisita e vanno validati e persistiti in ordine prima del checkpoint successivo.
       await importArubaRemoteOfficialFileFromApi(remoteDocumentId, file.kind, file.bytes, {
@@ -1360,6 +1364,7 @@ async function persistCanonicalPageContents(
         runId: run.id,
         providerGroupId: document.providerGroupId,
         providerFilename: file.filename,
+        expectedDocumentFilename,
         notificationId: file.kind === "SDI_NOTIFICATION" ? file.sha256 : undefined,
       });
     }
