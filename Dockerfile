@@ -1,6 +1,6 @@
-FROM node:26.7.0-bookworm-slim@sha256:4db36457f406501e6f608802e5da617e5fbd0e80b75901b6a09de1ae5a667d32 AS debian-snapshot
+FROM node:26.7.0-trixie-slim@sha256:5758d367d7b4f48b73a9bb3530e687e47efb289f3b43f9c0450a25225ae0db5d AS debian-snapshot
 
-ARG DEBIAN_SNAPSHOT=20260824T000000Z
+ARG DEBIAN_SNAPSHOT=20260828T000000Z
 RUN sed -i \
     -e "s|^URIs: http://deb.debian.org/debian$|URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|" \
     -e "s|^URIs: http://deb.debian.org/debian-security$|URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|" \
@@ -11,7 +11,10 @@ FROM debian-snapshot AS development
 
 RUN npm install --global npm@12.0.2 \
   && apt-get update \
-  && apt-get install --yes --no-install-recommends libxml2-utils=2.9.14+dfsg-1.3~deb12u6 \
+  && apt-get install --yes --no-install-recommends \
+    libssl3t64=3.5.7-1~deb13u2 \
+    libxml2-utils=2.12.7+dfsg+really2.9.14-2.1+deb13u3 \
+    openssl-provider-legacy=3.5.7-1~deb13u2 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
@@ -41,7 +44,10 @@ LABEL org.opencontainers.image.source="https://github.com/max23468/Hub-Fatture" 
   org.opencontainers.image.revision=$APP_COMMIT_SHA
 
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends libxml2-utils=2.9.14+dfsg-1.3~deb12u6 \
+  && apt-get install --yes --no-install-recommends \
+    libssl3t64=3.5.7-1~deb13u2 \
+    libxml2-utils=2.12.7+dfsg+really2.9.14-2.1+deb13u3 \
+    openssl-provider-legacy=3.5.7-1~deb13u2 \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --gid 10001 hub-fatture \
   && useradd --uid 10001 --gid hub-fatture --no-create-home --shell /usr/sbin/nologin hub-fatture \

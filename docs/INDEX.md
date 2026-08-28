@@ -23,6 +23,7 @@
 | [ADR credenziale Aruba](adr/0002-credenziale-aruba-cifrata-nel-runtime.md)            | Custodia, rotazione e recovery della connessione          | Approvato   | Sì             |
 | [ADR sincronizzazione Aruba](adr/0003-polling-aruba-con-callback-di-accelerazione.md) | Polling autorevole e callback condizionata                | Approvato   | Sì             |
 | [ADR canary Aruba](adr/0004-permesso-monouso-canary-aruba.md)                         | Autorizzazione confinata del primo invio API              | Approvato   | Sì             |
+| [ADR base applicativa Debian 13](adr/0005-base-applicativa-debian-13-trixie-slim.md)  | Base container, aggiornamenti e rollback applicativo      | Approvato   | Sì             |
 | [Piano integrazione API Aruba](plans/aruba-api-integration.md)                        | Architettura, flussi, helper, gate e milestone            | Approvato   | Sì             |
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                                   | Export, upload manuale, readback e import                 | Corrente    | Sì             |
 | [Integrazione Aruba locale](evidence/aruba-helper.md)                                 | Baseline browser osservata per il confronto di parità     | Storico     | No             |
@@ -34,6 +35,7 @@
 | [Backup e ripristino](runbooks/backup-restore.md)                                     | Backup cifrato, copia Mac e restore drill                 | Corrente    | Sì             |
 | [Incidenti Production](runbooks/incidents.md)                                         | Triage P0-P2 e kill switch                                | Corrente    | Sì             |
 | [Evidenza Production OCI](evidence/production-oci.md)                                 | Gate locali e ricevute remote della Production OCI        | Verificato  | No             |
+| [Migrazione Debian 13 Slim](evidence/debian-13-slim-migration.md)                     | Baseline, qualifica locale e rollback dell’immagine app   | Corrente    | No             |
 | [Recupero pubblicazione 0.3.63](evidence/release-0.3.63-recovery.md)                  | Deroga una tantum al flusso PR della release              | Storico     | No             |
 | [Finding tecnici attivi](audits/active-findings.md)                                   | Vista breve del debito tecnico ancora azionabile          | Corrente    | No             |
 | [Audit del release candidate](audits/release-candidate-review.md)                     | Registro storico delle verifiche e relative risoluzioni   | Storico     | No             |

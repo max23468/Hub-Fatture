@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { LOCAL_TEST_DATABASE_URL, prepareTestDatabaseEnvironment } from "./with-test-database.mjs";
+import {
+  LOCAL_TEST_DATABASE_URL,
+  localTestDatabaseUrl,
+  prepareTestDatabaseEnvironment,
+} from "./with-test-database.mjs";
 
 test("riusa il database esplicito senza avviare Docker", () => {
   let starts = 0;
@@ -27,6 +31,18 @@ test("avvia PostgreSQL locale e imposta l'URL sintetico quando manca", () => {
   assert.equal(starts, 1);
   assert.equal(environment.TEST_DATABASE_URL, LOCAL_TEST_DATABASE_URL);
   assert.equal(environment.PATH, "/bin");
+});
+
+test("una porta dedicata mantiene isolata la corsia automatica", () => {
+  const environment = prepareTestDatabaseEnvironment({
+    environment: { PATH: "/bin", TEST_DATABASE_PORT: "55433" },
+    startDatabase() {},
+  });
+  assert.equal(
+    environment.TEST_DATABASE_URL,
+    "postgres://hub_fatture:hub_fatture_test@127.0.0.1:55433/hub_fatture_test",
+  );
+  assert.throws(() => localTestDatabaseUrl({ TEST_DATABASE_PORT: "0" }), /porta TCP valida/);
 });
 
 test("i gate DB ed E2E usano sempre il runner automatico", () => {

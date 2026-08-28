@@ -4,6 +4,14 @@ import process from "node:process";
 export const LOCAL_TEST_DATABASE_URL =
   "postgres://hub_fatture:hub_fatture_test@127.0.0.1:5433/hub_fatture_test";
 
+export function localTestDatabaseUrl(environment = process.env) {
+  const port = Number(environment.TEST_DATABASE_PORT ?? 5433);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("TEST_DATABASE_PORT deve essere una porta TCP valida");
+  }
+  return `postgres://hub_fatture:hub_fatture_test@127.0.0.1:${port}/hub_fatture_test`;
+}
+
 function startLocalTestDatabase() {
   const result = spawnSync(
     "docker",
@@ -22,7 +30,7 @@ export function prepareTestDatabaseEnvironment({
 } = {}) {
   if (environment.TEST_DATABASE_URL) return { ...environment };
   startDatabase();
-  return { ...environment, TEST_DATABASE_URL: LOCAL_TEST_DATABASE_URL };
+  return { ...environment, TEST_DATABASE_URL: localTestDatabaseUrl(environment) };
 }
 
 export function runWithTestDatabase(command, args, environment) {

@@ -428,6 +428,45 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.doesNotMatch(release, /environment:\s*\n\s+name: Production/);
 });
 
+test("l’immagine applicativa usa Trixie Slim immutabile e resta qualificabile ARM64", async () => {
+  const [dockerfile, dependabot, compose, artifact] = await Promise.all(
+    [
+      "Dockerfile",
+      ".github/dependabot.yml",
+      "compose.production.yaml",
+      ".github/workflows/production-artifact.yml",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
+  );
+
+  assert.match(
+    dockerfile,
+    /^FROM node:26\.7\.0-trixie-slim@sha256:[0-9a-f]{64} AS debian-snapshot$/m,
+  );
+  assert.doesNotMatch(dockerfile, /^FROM node:[^\n]*bookworm/m);
+  assert.match(dockerfile, /^ARG DEBIAN_SNAPSHOT=\d{8}T\d{6}Z$/m);
+  assert.match(dockerfile, /archive\/debian\/\$\{DEBIAN_SNAPSHOT\}/);
+  assert.match(dockerfile, /archive\/debian-security\/\$\{DEBIAN_SNAPSHOT\}/);
+  assert.match(dockerfile, /Acquire::Check-Valid-Until "false"/);
+
+  const libxmlPins = [...dockerfile.matchAll(/libxml2-utils=([^\s\\]+)/g)].map(
+    ([, version]) => version,
+  );
+  assert.equal(libxmlPins.length, 2);
+  assert.equal(new Set(libxmlPins).size, 1);
+  assert.match(libxmlPins[0], /^\d[^\s]*deb13u\d+$/);
+  assert.equal(dockerfile.match(/apt-get install --yes --no-install-recommends/g)?.length, 2);
+  assert.equal(dockerfile.match(/rm -rf \/var\/lib\/apt\/lists\/\*/g)?.length, 2);
+  assert.doesNotMatch(dockerfile, /apt-get (?:dist-)?upgrade/);
+
+  assert.equal(dependabot.match(/package-ecosystem: docker$/gm)?.length, 1);
+  assert.equal(dependabot.match(/package-ecosystem: docker-compose$/gm)?.length, 1);
+  assert.match(compose, /postgres:18\.6-bookworm@sha256:[0-9a-f]{64}/);
+  assert.match(artifact, /platforms: linux\/arm64/);
+  assert.match(artifact, /ignore-unfixed: true/);
+  assert.match(artifact, /severity: CRITICAL,HIGH/);
+  assert.match(artifact, /actions\/attest-build-provenance@[0-9a-f]{40}/);
+});
+
 test("la qualifica e-mail Production è presidiata e non espone dati sensibili", async () => {
   const qualification = await readFile(
     path.join(root, "src/operations/email-delivery-qualification.ts"),

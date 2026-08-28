@@ -9,7 +9,7 @@ Questo documento descrive la baseline verificabile della toolchain. Non registra
 - `Dockerfile` e `compose.yaml`: immagini, digest e strumenti di sistema.
 - `doctor.config.json`: superficie analizzata da React Doctor.
 
-Le immagini dichiarate devono includere `linux/arm64`. Nessun documento duplica i pin contenuti in queste fonti.
+Le immagini dichiarate devono includere `linux/arm64`. La base applicativa è l’immagine ufficiale Node Slim su Debian 13 Trixie, fissata per digest; i repository Debian e Debian Security usano lo stesso snapshot immutabile e i pacchetti richiesti dal runtime sono installati con pin esatti, inclusa la versione di `libxml2-utils` disponibile nello snapshot. Nessun documento corrente duplica i pin contenuti in queste fonti.
 
 ## Confini
 
@@ -19,6 +19,7 @@ Le immagini dichiarate devono includere `linux/arm64`. Nessun documento duplica 
 - La repository resta pubblicamente visibile ma proprietaria e non contiene chiavi private in chiaro.
 - Il gate richiede rete per `npm audit` e un PostgreSQL di test raggiungibile: in sua assenza fallisce con un messaggio esplicito e non salta test.
 - `typescript` resta nella chiusura di produzione del lockfile perché `@react-router/node` lo dichiara peer opzionale: è l'unica eccezione ammessa dalla policy toolchain e il layer finale dell'immagine Production deve rimuoverlo.
+- `Acquire::Check-Valid-Until=false` è confinato alla build snapshot: gli indici `trixie-updates` e `trixie-security` scadono normalmente, mentre la riproducibilità richiede che lo snapshot storico resti installabile dopo la sua finestra di validità. Firma e keyring Debian restano verificati.
 
 ## Verifica ripetibile
 
