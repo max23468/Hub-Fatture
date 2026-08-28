@@ -550,6 +550,13 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
 });
 
 test("la governance non reintroduce il gate Codex rimosso", async () => {
+  for (const file of [
+    ".github/workflows/codex-review-gate.yml",
+    "scripts/codex-review-gate.mjs",
+    "scripts/codex-review-gate.test.mjs",
+  ]) {
+    await assert.rejects(readFile(path.join(root, file), "utf8"), { code: "ENOENT" });
+  }
   const operationalSources = await Promise.all(
     ["AGENTS.md", "docs/Hub_Fatture_MASTER_PLAN.md", "package.json"].map((file) =>
       readFile(path.join(root, file), "utf8"),

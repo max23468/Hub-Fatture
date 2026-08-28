@@ -74,7 +74,7 @@
 
 - La pubblicazione avvia Production subito dopo il merge autorizzato e lascia al workflow l’attesa dei gate exact-SHA e dell’artefatto, eliminando conferme Environment duplicate senza trasformare ogni merge in un deploy automatico.
 - Il preflight locale classifica il diff e limita gate, browser e verifiche multipiattaforma alle superfici coinvolte; setup npm e Playwright riusano cache e installano soltanto ciò che serve.
-- Rimossa la precedente automazione di review GitHub.
+- Il gate Codex reagisce agli eventi della review, mantiene P0/P1 bloccanti e risolve automaticamente soltanto i thread inline P2/P3 già registrati sull’HEAD esatto.
 - Dopo un readback Production riuscito, il workflow pubblica in modo idempotente la GitHub Release immutabile con note di versione e manifest verificato di commit, immagine, rollback, schema e attestazione.
 
 ## 0.3.78
