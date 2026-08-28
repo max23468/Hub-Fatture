@@ -69,7 +69,7 @@ test("un tentativo rifiutato non occupa l'identità fiscale del tentativo succes
         xmlSha256: null,
         remoteStatus: "DELIVERED",
       }),
-      { id: replacement.rows[0]!.id, remote_id: "replacement-attempt" },
+      { id: replacement.rows[0]!.id, remote_id: "replacement-attempt", api: false },
     );
     await assert.rejects(
       client.query(
