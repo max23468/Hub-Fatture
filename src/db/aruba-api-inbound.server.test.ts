@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { AppError } from "../errors.ts";
-import { closePool, getPool } from "./client.server.ts";
+import { closePool, getPool, withJoinedTransaction } from "./client.server.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 
@@ -601,6 +601,24 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     const apiStage = await import("./aruba-api-stage.server.ts");
     const canonicalPage = await import("./aruba-api-canonical-page.server.ts");
     const groupFile = await import("./aruba-api-group-file.server.ts");
+    const arubaStorage = await import("./aruba.server.ts");
+    let rolledBackFile = "";
+    await assert.rejects(
+      withJoinedTransaction(async () => {
+        const stored = await arubaStorage.storeImportedFile(
+          "atomic-rollback",
+          "ARUBA_P7M",
+          Buffer.from("payload sintetico da eliminare"),
+        );
+        rolledBackFile = stored.absolutePath;
+        throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+      }),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
+    );
+    await assert.rejects(
+      readFile(rolledBackFile),
+      (error) => (error as NodeJS.ErrnoException).code === "ENOENT",
+    );
     const stagedRunId = "30000000-0000-4000-8000-000000000099";
     await getPool().query(
       `INSERT INTO aruba_sync_runs
@@ -652,6 +670,69 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         },
       ],
     };
+    const newDocumentPage = {
+      ...stagedPage,
+      documents: [
+        {
+          ...stagedPage.documents[0]!,
+          remoteId: "atomic-new-document",
+          fiscalNumber: "100",
+        },
+      ],
+    };
+    await assert.rejects(
+      withJoinedTransaction(async () => {
+        const staged = await apiStage.stageApiPage(
+          stagedRunId,
+          newDocumentPage,
+          new Map([["atomic-new-document", "atomic-new-group"]]),
+          1,
+        );
+        await canonicalPage.commitArubaApiInventoryPage(
+          stagedRunId,
+          newDocumentPage,
+          1,
+          staged.resolvedDocuments!.map((document) => document.remoteDocumentId),
+        );
+      }),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
+    );
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::integer AS count FROM aruba_remote_documents
+           WHERE remote_id = 'atomic-new-document'`,
+        )
+      ).rows[0].count,
+      0,
+    );
+    await assert.rejects(
+      withJoinedTransaction(async () => {
+        const staged = await apiStage.stageApiPage(
+          stagedRunId,
+          stagedPage,
+          new Map([["atomic-stage-synthetic", "atomic-stage-group"]]),
+          1,
+        );
+        await canonicalPage.commitArubaApiInventoryPage(
+          stagedRunId,
+          stagedPage,
+          1,
+          staged.resolvedDocuments!.map((document) => document.remoteDocumentId),
+        );
+      }),
+      (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
+    );
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::integer AS count FROM aruba_remote_observations
+           WHERE sync_run_id = $1 AND payload_json ->> 'remoteId' = 'atomic-stage-synthetic'`,
+          [stagedRunId],
+        )
+      ).rows[0].count,
+      0,
+    );
     const stagedResult = await apiStage.stageApiPage(
       stagedRunId,
       stagedPage,
@@ -664,6 +745,25 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         remoteDocumentId: stagedBrowserDocument.rows[0]!.id,
       },
     ]);
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT remote_id, automatic_source FROM aruba_remote_documents WHERE id = $1`,
+          [stagedBrowserDocument.rows[0]!.id],
+        )
+      ).rows[0],
+      { remote_id: "atomic-stage-synthetic", automatic_source: "API" },
+    );
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::integer AS count FROM aruba_deduplication_conflicts
+           WHERE sync_run_id = $1`,
+          [stagedRunId],
+        )
+      ).rows[0].count,
+      0,
+    );
     assert.equal(
       (
         await getPool().query(
@@ -791,6 +891,45 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         inbound_enabled: false,
         automatic_authority: "BROWSER",
       },
+    );
+    await getPool().query("DELETE FROM aruba_api_auth_attempts");
+    await api.saveArubaApiCredentials(
+      {
+        apiEnvironment: "DEMO",
+        username: "utente-sintetico",
+        password: "password-sintetica-nuova",
+        expectedTaxId: "00000000000",
+      },
+      owner,
+    );
+    await api.setArubaApiControls({ apiPaused: false, inboundEnabled: true }, owner);
+    const obsoleteCanonicalRunId = "30000000-0000-4000-8000-000000000100";
+    await getPool().query(
+      `INSERT INTO aruba_sync_runs
+        (id, environment, api_environment, account_reference, kind, authority_mode, status,
+         window_start, window_end, checkpoint_start, checkpoint_end, request_count, request_limit,
+         lease_expires_at, last_error_code)
+       VALUES ($1, 'MOCK', 'DEMO', 'synthetic-aruba-account', 'INCREMENTAL', 'CANONICAL',
+         'INCOMPLETE', '2019-01-01', '2019-01-03', '2019-01-01', '2019-01-02', 1, 1,
+         now(), 'ARUBA_API_BUDGET_EXHAUSTED')`,
+      [obsoleteCanonicalRunId],
+    );
+    const shadowRequest = await api.requestArubaApiSync(owner);
+    await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [shadowRequest.jobId]);
+    const shadowJob = await jobs.claimJob("aruba-api-authority-regression-worker");
+    const shadowResult = await api.runArubaApiInboundJob(shadowJob!, {
+      rateDelayMs: 0,
+      now: new Date("2019-01-01T06:00:00.000Z"),
+    });
+    assert.equal(shadowResult.mode, "SHADOW");
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT authority_mode, continued_from_run_id FROM aruba_sync_runs
+           WHERE status = 'COMPLETED' ORDER BY completed_at DESC LIMIT 1`,
+        )
+      ).rows[0],
+      { authority_mode: "SHADOW", continued_from_run_id: null },
     );
   } finally {
     globalThis.fetch = originalFetch;

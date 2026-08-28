@@ -28,7 +28,7 @@ import { AppError } from "../errors.ts";
 import { POSTGRES_INTEGER_MAX } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
 import { customerEmailTriggerStatus, scheduleCustomerEmail } from "./email.server.ts";
-import { getPool, withTransaction } from "./client.server.ts";
+import { getPool, registerJoinedTransactionFile, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
 const HELPER_TOKEN_TTL_MS = 15 * 60_000;
@@ -1060,6 +1060,7 @@ export async function storeImportedFile(documentId: string, kind: ArubaFileKind,
     await handle.close();
   }
   await rename(temporaryPath, absolutePath);
+  registerJoinedTransactionFile(absolutePath);
   return { relativePath, absolutePath, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 

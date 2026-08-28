@@ -39,7 +39,7 @@ import { commitArubaApiInventoryPage } from "./aruba-api-canonical-page.server.t
 import { importArubaApiGroupFile } from "./aruba-api-group-file.server.ts";
 import { importArubaRemoteOfficialFileFromApi } from "./aruba-inbound.server.ts";
 import { stageApiPage } from "./aruba-api-stage.server.ts";
-import { getPool, withTransaction } from "./client.server.ts";
+import { getPool, withJoinedTransaction, withTransaction } from "./client.server.ts";
 import type { ClaimedJob, JobType } from "./connectors.server.ts";
 
 const FULL_HISTORY_START = new Date("2019-01-01T00:00:00.000Z");
@@ -915,11 +915,22 @@ async function openOrResumeRun(
 ) {
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba-api-run'))");
+    const expectedAuthority: AuthorityMode =
+      current.automatic_authority === "API" ? "CANONICAL" : "SHADOW";
+    await client.query(
+      `UPDATE aruba_sync_runs SET status = 'CANCELLED', lease_expires_at = now(),
+         last_error_code = 'ARUBA_READ_SESSION_INVALID',
+         last_error_message_sanitized = 'Autorità Aruba modificata durante il run'
+       WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
+         AND authority_mode <> $3`,
+      [inventoryEnvironment(), current.account_reference, expectedAuthority],
+    );
     const active = await client.query<ArubaSyncRunRow>(
       `SELECT * FROM aruba_sync_runs
        WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
+         AND authority_mode = $3
        FOR UPDATE`,
-      [inventoryEnvironment(), current.account_reference],
+      [inventoryEnvironment(), current.account_reference, expectedAuthority],
     );
     if (active.rows[0]) {
       if (active.rows[0].kind !== kind) throw new AppError("CONFLICT_REVISION", 409);
@@ -935,12 +946,13 @@ async function openOrResumeRun(
        WHERE previous.environment = $1 AND previous.account_reference = $2
          AND previous.kind = $3 AND previous.status = 'INCOMPLETE'
          AND previous.last_error_code = 'ARUBA_API_BUDGET_EXHAUSTED'
+         AND previous.authority_mode = $4
          AND NOT EXISTS (
            SELECT 1 FROM aruba_sync_runs AS continuation
            WHERE continuation.continued_from_run_id = previous.id
          )
        ORDER BY previous.started_at DESC LIMIT 1 FOR UPDATE OF previous`,
-      [inventoryEnvironment(), current.account_reference, kind],
+      [inventoryEnvironment(), current.account_reference, kind, expectedAuthority],
     );
     if (previous.rows[0]) {
       const source = previous.rows[0];
@@ -1029,7 +1041,7 @@ async function openOrResumeRun(
         credentials.apiEnvironment,
         current.account_reference,
         kind,
-        current.automatic_authority === "API" ? "CANONICAL" : "SHADOW",
+        expectedAuthority,
         windowStart,
         windowEnd,
         checkpointEnd,
@@ -1288,7 +1300,7 @@ async function persistShadowPage(
   });
 }
 
-async function persistCanonicalPage(
+async function persistCanonicalPageContents(
   run: ArubaSyncRunRow,
   documents: ArubaApiInboundDocument[],
   groupCount: number,
@@ -1348,8 +1360,9 @@ async function persistCanonicalPage(
       });
     }
   }
-  await getPool().query(
-    `UPDATE aruba_sync_runs SET
+  await withTransaction((client) =>
+    client.query(
+      `UPDATE aruba_sync_runs SET
        file_count = (SELECT count(DISTINCT files.id)::integer
          FROM aruba_files files JOIN aruba_remote_observations observations
            ON observations.remote_document_id = files.remote_document_id
@@ -1364,12 +1377,25 @@ async function persistCanonicalPage(
           AND observations.sync_run_id = aruba_sync_runs.id
          WHERE files.kind = 'SDI_NOTIFICATION'
        )
-     WHERE id = $1 AND status = 'RUNNING'`,
-    [run.id],
+       WHERE id = $1 AND status = 'RUNNING'`,
+      [run.id],
+    ),
   );
   await commitArubaApiInventoryPage(run.id, pagePayload, groupCount, [
     ...remoteDocumentIds.values(),
   ]);
+}
+
+async function persistCanonicalPage(
+  run: ArubaSyncRunRow,
+  documents: ArubaApiInboundDocument[],
+  groupCount: number,
+  page: number,
+  terminal: boolean,
+) {
+  return withJoinedTransaction(() =>
+    persistCanonicalPageContents(run, documents, groupCount, page, terminal),
+  );
 }
 
 async function persistApiPage(

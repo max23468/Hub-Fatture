@@ -65,7 +65,7 @@ import {
   type ArubaInventorySession,
 } from "./aruba-inventory-cycle.server.ts";
 import { storeImportedFile } from "./aruba.server.ts";
-import { getPool, withTransaction } from "./client.server.ts";
+import { getJoinedTransactionClient, getPool, withTransaction } from "./client.server.ts";
 import { loadArubaReadSession, type ArubaReadSessionRow } from "./aruba-read-session.server.ts";
 import {
   lockedRemoteMatch,
@@ -1835,11 +1835,12 @@ async function importArubaRemoteOfficialFileAuthorized(
     typeof authorization !== "string" && !apiAuthorization
       ? (authorization as ArubaReadActor)
       : null;
+  const database = getJoinedTransactionClient() ?? getPool();
   const session =
     typeof authorization === "string"
-      ? await loadArubaReadSession(getPool(), authorization)
+      ? await loadArubaReadSession(database, authorization)
       : apiAuthorization
-        ? await loadArubaApiFileSession(getPool(), apiAuthorization)
+        ? await loadArubaApiFileSession(database, apiAuthorization)
         : {
             id: `manual:${actorAuthorization!.id}`,
             environment: environment(),
@@ -1850,7 +1851,7 @@ async function importArubaRemoteOfficialFileAuthorized(
     throw new AppError("ARUBA_READ_SESSION_FORBIDDEN", 403);
   }
   const digest = createHash("sha256").update(bytes).digest("hex");
-  const resolved = await getPool().query<{ id: string }>(
+  const resolved = await database.query<{ id: string }>(
     `SELECT id FROM aruba_remote_documents
      WHERE environment = $1 AND account_reference = $2
        AND (id::text = $3 OR remote_id = $3) LIMIT 1`,
@@ -1859,7 +1860,7 @@ async function importArubaRemoteOfficialFileAuthorized(
   const remoteDocumentId = resolved.rows[0]?.id;
   if (!remoteDocumentId) throw new AppError("ARUBA_INVENTORY_INVALID", 404);
   if (apiAuthorization) {
-    const owned = await getPool().query<{ provider_group_id: string | null }>(
+    const owned = await database.query<{ provider_group_id: string | null }>(
       `SELECT provider_group_id FROM aruba_remote_documents
        WHERE id = $1 AND environment = $2 AND account_reference = $3`,
       [remoteDocumentId, session.environment, session.account_reference],
@@ -1868,7 +1869,7 @@ async function importArubaRemoteOfficialFileAuthorized(
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
   } else if (kind.data === "SDI_NOTIFICATION") {
-    const expected = await getPool().query<{ remote_id: string; filename: string | null }>(
+    const expected = await database.query<{ remote_id: string; filename: string | null }>(
       `SELECT remote.remote_id, submitted.filename
        FROM aruba_remote_documents AS remote
        LEFT JOIN LATERAL (
@@ -1896,7 +1897,7 @@ async function importArubaRemoteOfficialFileAuthorized(
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
   }
-  const duplicate = await getPool().query<{
+  const duplicate = await database.query<{
     id: string;
     document_id: string | null;
     storage_object_id: string;
@@ -1927,7 +1928,7 @@ async function importArubaRemoteOfficialFileAuthorized(
         );
       });
       if (documentId) {
-        await getPool().query(`UPDATE aruba_files SET document_id = $2 WHERE id = $1`, [
+        await database.query(`UPDATE aruba_files SET document_id = $2 WHERE id = $1`, [
           duplicate.rows[0].id,
           documentId,
         ]);
@@ -2169,11 +2170,11 @@ async function restoreResolvedRejectedAttempts(
     incomingRemoteId,
   );
   for (const remoteDocumentId of remoteDocumentIds) {
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il ricalcolo usa lo stesso client e deve osservare la rimozione del conflitto precedente.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Osserva la rimozione corrente.
     const remote = await latestObservedRemote(client, remoteDocumentId);
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il file ufficiale appartiene allo stesso tentativo rifiutato appena ripristinato.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Usa il file del tentativo ripristinato.
     const official = await loadLatestOfficialXml(client, remoteDocumentId);
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Ogni riconciliazione aggiorna stato e candidati prima della successiva.
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Riconcilia in ordine.
     await reconcileRemoteDocument(
       client,
       remoteDocumentId,
@@ -2377,7 +2378,7 @@ export async function ingestParsedArubaPage(
         xmlSha256: remote.xmlSha256,
         remoteStatus: remote.status,
       });
-      if (collided?.remote_id.startsWith("historical-document-")) {
+      if (collided && (apiSource || collided.remote_id.startsWith("historical-document-"))) {
         await client.query(
           `UPDATE aruba_remote_documents SET remote_id = $2, document_type = $3,
              fiscal_year = $4, series = $5, fiscal_number = $6, document_date = $7,
