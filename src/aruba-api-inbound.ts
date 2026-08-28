@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { normalizeArubaRemoteStatusLabel, type RemoteInventoryDocument } from "./aruba-inbound.ts";
+import { arubaFiscalPayloadSha256 } from "./aruba.ts";
 import { decimalToCents } from "./orders.ts";
 
 const base64Schema = z
@@ -74,6 +75,12 @@ export function hasRequiredArubaApiFiles(document: ArubaApiInboundDocument): boo
   return [...document.files, ...document.groupFiles].some(
     (candidate) => candidate.kind === "ARUBA_XML" || candidate.kind === "ARUBA_P7M",
   );
+}
+
+export function arubaApiParityFileHash(file: ArubaApiInboundFile): string {
+  return file.kind === "ARUBA_P7M"
+    ? arubaFiscalPayloadSha256("ARUBA_P7M", file.bytes)
+    : file.sha256;
 }
 
 function file(input: {

@@ -4,12 +4,14 @@ import type pg from "pg";
 import { z } from "zod";
 
 import {
+  arubaApiParityFileHash,
   hasRequiredArubaApiFiles,
   mapArubaApiInboundGroup,
   type ArubaApiInboundDocument,
 } from "../aruba-api-inbound.ts";
 import { ARUBA_API_POLICY, type ArubaApiReadScope } from "../aruba-api-policy.ts";
 import { calculateArubaBackfillProgress } from "../aruba-backfill-progress.ts";
+import { arubaFiscalPayloadSha256 } from "../aruba.ts";
 import {
   compareArubaInboundParity,
   type ArubaInboundParityDocument,
@@ -41,6 +43,7 @@ import { importArubaRemoteOfficialFileFromApi } from "./aruba-inbound.server.ts"
 import { stageApiPage } from "./aruba-api-stage.server.ts";
 import { getPool, withJoinedTransaction, withTransaction } from "./client.server.ts";
 import type { ClaimedJob, JobType } from "./connectors.server.ts";
+import { readVerifiedStorageObject } from "./storage-object.server.ts";
 
 const FULL_HISTORY_START = new Date("2019-01-01T00:00:00.000Z");
 const WINDOW_MS = ARUBA_API_POLICY.backfillWindowMs;
@@ -1220,6 +1223,7 @@ async function persistShadowPage(
       return { repeated: true };
     }
     for (const file of groupFiles.values()) {
+      const parityHash = arubaApiParityFileHash(file);
       const stored = await client.query(
         `INSERT INTO aruba_api_shadow_group_files
           (sync_run_id, provider_group_id, kind, sha256)
@@ -1228,7 +1232,7 @@ async function persistShadowPage(
            SET sha256 = aruba_api_shadow_group_files.sha256
            WHERE aruba_api_shadow_group_files.sha256 = EXCLUDED.sha256
          RETURNING sync_run_id`,
-        [run.id, file.providerGroupId, file.kind, file.sha256],
+        [run.id, file.providerGroupId, file.kind, parityHash],
       );
       if (!stored.rows[0]) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
@@ -1239,7 +1243,7 @@ async function persistShadowPage(
       const notificationHashes: string[] = [];
       for (const file of document.files) {
         if (file.kind === "ARUBA_XML") xmlSha256 ??= file.sha256;
-        if (file.kind === "ARUBA_P7M") p7mSha256 ??= file.sha256;
+        if (file.kind === "ARUBA_P7M") p7mSha256 ??= arubaApiParityFileHash(file);
         if (file.kind === "ARUBA_PDF") pdfSha256 ??= file.sha256;
         if (file.kind === "SDI_NOTIFICATION") notificationHashes.push(file.sha256);
       }
@@ -1528,7 +1532,12 @@ async function createParityDossier(run: ArubaSyncRunRow) {
         document_date: string;
         total_amount: number;
         remote_status: string;
-        file_hashes: string[];
+        file_evidence: Array<{
+          kind: "ARUBA_XML" | "ARUBA_P7M";
+          sha256: string;
+          relativePath: string;
+          sizeBytes: number;
+        }>;
       }>(
         `SELECT document->>'documentType' AS document_type,
                 (document->>'fiscalYear')::integer AS fiscal_year,
@@ -1537,11 +1546,14 @@ async function createParityDossier(run: ArubaSyncRunRow) {
                 document->>'documentDate' AS document_date,
                 (document->>'totalAmount')::integer AS total_amount,
                 document->>'status' AS remote_status,
-                coalesce(official_files.hashes, ARRAY[]::text[]) AS file_hashes
+                coalesce(official_files.evidence, '[]'::jsonb) AS file_evidence
          FROM aruba_sync_pages AS pages
          CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) AS item(document)
          LEFT JOIN LATERAL (
-           SELECT array_agg(DISTINCT storage.sha256 ORDER BY storage.sha256) AS hashes
+           SELECT jsonb_agg(DISTINCT jsonb_build_object(
+             'kind', files.kind, 'sha256', storage.sha256,
+             'relativePath', storage.relative_path, 'sizeBytes', storage.size_bytes
+           )) AS evidence
            FROM aruba_remote_documents AS remote
            JOIN aruba_files AS files ON files.remote_document_id = remote.id
            JOIN storage_objects AS storage ON storage.id = files.storage_object_id
@@ -1567,7 +1579,19 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       ),
     ),
   );
-  const browserFileHashes = new Set(browser.rows.flatMap((document) => document.file_hashes));
+  const browserDocuments = await Promise.all(
+    browser.rows.map(async (document) => ({
+      ...document,
+      file_hashes: await Promise.all(
+        document.file_evidence.map(async (file) =>
+          file.kind === "ARUBA_P7M"
+            ? arubaFiscalPayloadSha256("ARUBA_P7M", await readVerifiedStorageObject(file))
+            : file.sha256,
+        ),
+      ),
+    })),
+  );
+  const browserFileHashes = new Set(browserDocuments.flatMap((document) => document.file_hashes));
   const groupFileMismatches = [...groupFileHashes].filter(
     (hash) => !browserFileHashes.has(hash),
   ).length;
@@ -1583,7 +1607,7 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       Boolean(value),
     ),
   }));
-  const browserParityDocuments: ArubaInboundParityDocument[] = browser.rows.map((document) => ({
+  const browserParityDocuments: ArubaInboundParityDocument[] = browserDocuments.map((document) => ({
     documentType: document.document_type,
     fiscalYear: document.fiscal_year,
     series: document.series,

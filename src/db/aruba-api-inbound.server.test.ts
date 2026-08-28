@@ -25,6 +25,36 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
   process.env.DATABASE_URL = database.connectionString;
   try {
     await runMigrations({ connectionString: database.connectionString });
+    const legacyP7mRunId = "30000000-0000-4000-8000-000000000039";
+    await getPool().query(
+      `INSERT INTO aruba_sync_runs
+        (id, environment, api_environment, account_reference, kind, authority_mode, status,
+         window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at,
+         completed_at)
+       VALUES ($1, 'MOCK', 'DEMO', 'legacy-p7m-account', 'BACKFILL', 'SHADOW', 'COMPLETED',
+         '2019-01-01', '2019-01-03', '2019-01-01', '2019-01-02', now(), now())`,
+      [legacyP7mRunId],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_api_shadow_documents
+        (sync_run_id, provider_group_id, remote_key, document_type, fiscal_year,
+         document_date, total_amount, remote_status, p7m_sha256)
+       VALUES ($1, 'legacy-p7m-group', 'legacy-p7m-document', 'TD01', 2019,
+         '2019-01-01', 100, 'DELIVERED', repeat('a', 64))`,
+      [legacyP7mRunId],
+    );
+    await getPool().query(
+      "DELETE FROM schema_migrations WHERE name = '039_aruba_p7m_parity_normalization.sql'",
+    );
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      "039_aruba_p7m_parity_normalization.sql",
+    ]);
+    assert.equal(
+      (await getPool().query("SELECT status FROM aruba_sync_runs WHERE id = $1", [legacyP7mRunId]))
+        .rows[0].status,
+      "CANCELLED",
+    );
+    await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [legacyP7mRunId]);
     globalThis.fetch = async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/auth/signin") {

@@ -374,7 +374,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("038_aruba_api_authority_cutover.sql", {
+  const inboundMigration = page.getByText("039_aruba_p7m_parity_normalization.sql", {
     exact: true,
   });
   await expect(inboundMigration).toBeVisible();

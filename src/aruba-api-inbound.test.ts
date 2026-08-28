@@ -2,11 +2,42 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import { hasRequiredArubaApiFiles, mapArubaApiInboundGroup } from "./aruba-api-inbound.ts";
+import {
+  arubaApiParityFileHash,
+  hasRequiredArubaApiFiles,
+  mapArubaApiInboundGroup,
+} from "./aruba-api-inbound.ts";
+import { arubaFiscalPayloadSha256 } from "./aruba.ts";
 
 const xml = Buffer.from('<?xml version="1.0"?><FatturaElettronica />');
 const pdf = Buffer.from("%PDF-1.4 synthetic");
 const notification = Buffer.from('<?xml version="1.0"?><RicevutaConsegna />');
+
+function der(tag: number, content: Buffer) {
+  const length =
+    content.byteLength < 128
+      ? Buffer.from([content.byteLength])
+      : Buffer.from([0x82, content.byteLength >> 8, content.byteLength & 0xff]);
+  return Buffer.concat([Buffer.from([tag]), length, content]);
+}
+
+function signedXml(xmlBytes: Buffer) {
+  const signedDataOid = Buffer.from([
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02,
+  ]);
+  const dataOid = Buffer.from([0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01]);
+  const encapsulated = der(0x30, Buffer.concat([dataOid, der(0xa0, der(0x04, xmlBytes))]));
+  const signedData = der(
+    0x30,
+    Buffer.concat([
+      der(0x02, Buffer.from([1])),
+      der(0x31, Buffer.alloc(0)),
+      encapsulated,
+      der(0x31, Buffer.alloc(0)),
+    ]),
+  );
+  return der(0x30, Buffer.concat([signedDataOid, der(0xa0, signedData)]));
+}
 
 function input() {
   return {
@@ -130,6 +161,25 @@ test("il mapper attribuisce i file ufficiali soltanto a un gruppo con una fattur
   assert.equal(hashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
   assert.equal(hashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
   assert.deepEqual(mapped[0]!.groupFiles, []);
+});
+
+test("XML e P7M usano la stessa impronta fiscale per documenti e gruppi", () => {
+  const p7m = signedXml(xml);
+  const expected = arubaFiscalPayloadSha256("ARUBA_XML", xml);
+  assert.notEqual(createHash("sha256").update(p7m).digest("hex"), expected);
+  assert.equal(arubaFiscalPayloadSha256("ARUBA_P7M", p7m), expected);
+
+  const groupedInput = input();
+  groupedInput.group.filename = "IT00000000000_SYNTH.xml.p7m";
+  groupedInput.detail.filename = "IT00000000000_SYNTH.xml.p7m";
+  groupedInput.detail.file = p7m.toString("base64");
+  const grouped = mapArubaApiInboundGroup(groupedInput);
+  assert.equal(arubaApiParityFileHash(grouped[0]!.groupFiles[0]!), expected);
+
+  groupedInput.group.invoices = groupedInput.group.invoices.slice(0, 1);
+  groupedInput.detail.invoices = groupedInput.detail.invoices.slice(0, 1);
+  const direct = mapArubaApiInboundGroup(groupedInput);
+  assert.equal(arubaApiParityFileHash(direct[0]!.files[0]!), expected);
 });
 
 test("il PDF opzionale non blocca un documento con il payload fiscale ufficiale", () => {
