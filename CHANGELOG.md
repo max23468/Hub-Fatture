@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.91
+
+- Il backfill Aruba accetta i P7M storici validi secondo lo schema ufficiale FatturaPA anche quando la numerazione non segue la serie interna corrente; XML non fiscali, contenitori P7M non validi e documenti fuori schema restano bloccati.
+
 ## 0.3.90
 
 - Le Impostazioni distinguono i tentativi Aruba storici dagli errori ancora operativi, mostrano undici verifiche tecniche fail-closed e un’anteprima sanitizzata dei documenti che, dopo il backfill, dispongono di firma API unica e file ufficiale per una rilettura mirata.
