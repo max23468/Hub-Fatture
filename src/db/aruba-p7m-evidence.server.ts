@@ -4,7 +4,6 @@ import { unlink } from "node:fs/promises";
 import type pg from "pg";
 
 import { arubaFiscalPayload, type ArubaFileKind, validateUntrustedXml } from "../aruba.ts";
-import { fiscalDocumentEnvelopeFromXml } from "../documents.ts";
 import { AppError } from "../errors.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { storeImportedFile } from "./aruba.server.ts";
@@ -15,7 +14,6 @@ export async function validatedArubaFiscalXml(kind: ArubaFileKind, bytes: Buffer
     const xmlBytes = arubaFiscalPayload(kind, bytes);
     const xml = validateUntrustedXml(xmlBytes);
     await validateFatturaXml(xml);
-    fiscalDocumentEnvelopeFromXml(xml);
     return {
       bytes: xmlBytes,
       xml,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -195,6 +196,22 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         providerGroupId: "gruppo-non-fiscale",
       }),
       (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_INVALID",
+    );
+    const historicalNumberingXml = Buffer.from(
+      shadowInvoiceXml
+        .toString("utf8")
+        .replace("<Numero>FPR 0001/26</Numero>", "<Numero>STORICO-2019</Numero>"),
+    );
+    assert.match(historicalNumberingXml.toString("utf8"), /<Numero>STORICO-2019<\/Numero>/);
+    assert.equal(
+      await api.validatedArubaApiParityFileHash({
+        kind: "ARUBA_P7M",
+        filename: "storico-valido.xml.p7m",
+        bytes: signedXml(historicalNumberingXml),
+        sha256: "0".repeat(64),
+        providerGroupId: "gruppo-storico-valido",
+      }),
+      createHash("sha256").update(historicalNumberingXml).digest("hex"),
     );
     const jobs = await import("./connectors.server.ts");
     const owner = { id: 1, canApprove: true, requestId: "aruba-api-owner-test" };
