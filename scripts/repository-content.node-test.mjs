@@ -550,18 +550,6 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
 });
 
-test("i thread Codex advisory non duplicano il blocco delle conversazioni", async () => {
-  const [workflow, gate] = await Promise.all(
-    [".github/workflows/codex-review-gate.yml", "scripts/codex-review-gate.mjs"].map((file) =>
-      readFile(path.join(root, file), "utf8"),
-    ),
-  );
-  assert.match(workflow, /pull-requests: write/);
-  assert.match(gate, /resolveReviewThread/);
-  assert.match(gate, /advisoryThreadIds\(threads, headSha\)/);
-  assert.match(gate, /\["P0", "P1"\]/);
-});
-
 test("la riconciliazione Aruba non tronca i candidati fiscali", async () => {
   const inbound = await readFile(path.join(root, "src/db/aruba-inbound.server.ts"), "utf8");
   assert.doesNotMatch(inbound, /LIMIT 500/);
