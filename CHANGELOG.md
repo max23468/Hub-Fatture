@@ -5,7 +5,7 @@
 - Le Impostazioni distinguono i tentativi Aruba storici dagli errori ancora operativi, mostrano undici verifiche tecniche fail-closed e un’anteprima sanitizzata dei documenti che, dopo il backfill, dispongono di firma API unica e file ufficiale per una rilettura mirata.
 - Un report read-only raccoglie commit, schema, ultimo giro, dossier, gate e riconciliazione senza contattare Aruba né modificare il database. Backup e ripristino sintetici verificano la credenziale cifrata e i checkpoint su database isolati.
 - Il percorso canonico e il passaggio atomico all’API sono preparati ma non esposti nell’interfaccia: richiedono storico completo, parità, file, notifiche, assenza di conflitti e una futura decisione esplicita del titolare sul fallback. Il browser resta autorevole e upload, dry-run e invii Aruba rimangono disabilitati.
-- La parità confronta la stessa impronta fiscale quando un canale espone l’XML e l’altro il contenitore P7M; gli snapshot shadow precedenti con P7M vengono invalidati e ricalcolati senza riusare evidenze non normalizzate.
+- La parità confronta la stessa impronta fiscale quando un canale espone l’XML e l’altro il contenitore P7M; gli snapshot shadow precedenti con P7M vengono invalidati e ricalcolati senza riusare evidenze non normalizzate. Nel giro canonico il P7M originale resta archiviato, mentre il suo XML fiscale validato alimenta riconciliazione e documento operativo.
 
 ## 0.3.89
 

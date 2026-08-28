@@ -339,11 +339,15 @@ function validateSignedDataDer(bytes: Buffer): Buffer | null {
   return payload;
 }
 
-export function arubaFiscalPayloadSha256(kind: "ARUBA_XML" | "ARUBA_P7M", bytes: Buffer) {
+export function arubaFiscalPayload(kind: "ARUBA_XML" | "ARUBA_P7M", bytes: Buffer) {
   const payload = kind === "ARUBA_P7M" ? validateSignedDataDer(bytes) : bytes;
   if (!payload) throw new Error("p7m");
   validateUntrustedXml(payload);
-  return createHash("sha256").update(payload).digest("hex");
+  return payload;
+}
+
+export function arubaFiscalPayloadSha256(kind: "ARUBA_XML" | "ARUBA_P7M", bytes: Buffer) {
+  return createHash("sha256").update(arubaFiscalPayload(kind, bytes)).digest("hex");
 }
 
 export function validateUntrustedXml(bytes: Buffer): string {

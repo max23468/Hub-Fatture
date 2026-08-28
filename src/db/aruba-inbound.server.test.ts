@@ -13,6 +13,7 @@ import {
   generateFatturaXml,
 } from "../documents.ts";
 import { remoteInventoryDocumentSchema, remoteMetadataDigest } from "../aruba-inbound.ts";
+import { assertMaterializedP7mEvidence, signedXml } from "../../tests/p7m-fixture.ts";
 
 test("l’inventario Aruba è completo, idempotente e non collega usando il solo totale", async () => {
   const fixture = await temporaryDatabase("aruba_inbound");
@@ -246,10 +247,11 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
     const importedInvoice = await inbound.importArubaRemoteOfficialFile(
       session.token,
       "REMOTE-001",
-      "ARUBA_XML",
-      Buffer.from(historicalInvoiceXml),
+      "ARUBA_P7M",
+      signedXml(Buffer.from(historicalInvoiceXml)),
     );
     assert.ok(importedInvoice.documentId);
+    await assertMaterializedP7mEvidence(database.getPool(), "REMOTE-001");
     const summaryBlock = historicalInvoiceXml.match(
       /\s*<DatiRiepilogo>[\s\S]*?<\/DatiRiepilogo>/,
     )?.[0];
@@ -1963,7 +1965,6 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       interruptedPage,
     );
     assert.equal(resumedPage.repeated, false);
-    assert.ok(resumedPage.requestedFiles.some((file) => file.kind === "ARUBA_P7M"));
     await inbound.requestImmediateArubaSync(actor);
     const immediate = await inbound.listArubaPreflightWork(resumedSession.token);
     assert.ok(immediate.syncRequestedAt);
