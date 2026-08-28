@@ -374,7 +374,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("037_aruba_api_traffic_guard.sql", {
+  const inboundMigration = page.getByText("039_aruba_p7m_parity_normalization.sql", {
     exact: true,
   });
   await expect(inboundMigration).toBeVisible();
@@ -1494,6 +1494,11 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   ).toHaveAttribute("value", "40");
   await expect(arubaApiSettings).toContainText("Backfill in corso · 40%");
   await expect(arubaApiSettings).toContainText("finestre da 48 ore rimanenti");
+  await page.getByText("Dettagli sincronizzazione", { exact: true }).click();
+  await expect(page.getByText("Passaggio alla lettura API", { exact: true })).toBeVisible();
+  await expect(page.getByText(/\d+\/12 verifiche tecniche completate/)).toBeVisible();
+  await expect(page.getByText("Riconciliazione dopo il backfill", { exact: true })).toBeVisible();
+  await expect(page.getByText(/\d+\/\d+ documenti pronti per una rilettura mirata/)).toBeVisible();
   await expect(credentialForm).toHaveCount(0);
   const editCredentials = arubaApiSettings.getByRole("button", {
     name: "Aggiorna credenziali",

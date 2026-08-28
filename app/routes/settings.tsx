@@ -30,6 +30,8 @@ import type { getArubaSettings } from "../../src/db/aruba.server.ts";
 import type { getArubaApiConnectionStatus } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaApiCredentialIdentity } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaBackfillReadiness } from "../../src/db/aruba-api-inbound.server.ts";
+import type { getArubaInboundClosureReadiness } from "../../src/db/aruba-api-inbound.server.ts";
+import type { getArubaApiReconciliationPreview } from "../../src/db/aruba-api-reconciliation-preview.server.ts";
 import type { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
 import { defaultHistoricalStartDate } from "../../src/orders.ts";
@@ -464,13 +466,19 @@ function ArubaInventoryCard({
 
 function ArubaConnectionDetails({
   api,
+  closure,
   inventory,
+  reconciliationPreview,
   readiness,
 }: {
   api: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
+  closure: Awaited<ReturnType<typeof getArubaInboundClosureReadiness>>;
   inventory: Awaited<ReturnType<typeof getArubaInventoryHealth>>;
+  reconciliationPreview: Awaited<ReturnType<typeof getArubaApiReconciliationPreview>>;
   readiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
 }) {
+  const completedClosureGates = Object.values(closure.gates).filter(Boolean).length;
+  const totalClosureGates = Object.keys(closure.gates).length;
   return (
     <details className="settings-disclosure aruba-connection-details">
       <summary>{copy.settings.arubaConnectionDetails}</summary>
@@ -523,6 +531,23 @@ function ArubaConnectionDetails({
             {api.limits.cooldownUntil
               ? copy.settings.arubaApiSafetyPauseUntil(dateTime(api.limits.cooldownUntil))
               : copy.settings.arubaApiSafetyPauseInactive}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiCutoverReadiness}</dt>
+          <dd>
+            {closure.readyForAuthoritySwitch
+              ? copy.settings.arubaApiCutoverReady
+              : copy.settings.arubaApiCutoverPending(completedClosureGates, totalClosureGates)}
+          </dd>
+        </div>
+        <div>
+          <dt>{copy.settings.arubaApiReconciliationPreview}</dt>
+          <dd>
+            {copy.settings.arubaApiReconciliationPreviewValue(
+              reconciliationPreview.readyForTargetedReconciliation,
+              reconciliationPreview.unresolvedDocuments,
+            )}
           </dd>
         </div>
       </dl>
@@ -1018,6 +1043,8 @@ function ArubaSettingsSection({
   arubaApiCredentialIdentity,
   arubaApiNotice,
   arubaBackfillReadiness,
+  arubaClosureReadiness,
+  arubaReconciliationPreview,
 }: {
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
   arubaSaved: boolean;
@@ -1033,6 +1060,8 @@ function ArubaSettingsSection({
   arubaApiCredentialIdentity: Awaited<ReturnType<typeof getArubaApiCredentialIdentity>>;
   arubaApiNotice: string | null;
   arubaBackfillReadiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
+  arubaClosureReadiness: Awaited<ReturnType<typeof getArubaInboundClosureReadiness>>;
+  arubaReconciliationPreview: Awaited<ReturnType<typeof getArubaApiReconciliationPreview>>;
 }) {
   const connectionState = inventory.activeSession
     ? "ACTIVE"
@@ -1152,7 +1181,9 @@ function ArubaSettingsSection({
         <ArubaInventoryCard inventory={inventory} />
         <ArubaConnectionDetails
           api={arubaApi}
+          closure={arubaClosureReadiness}
           inventory={inventory}
+          reconciliationPreview={arubaReconciliationPreview}
           readiness={arubaBackfillReadiness}
         />
         {canApprove && inventory.blocking ? (
@@ -1419,6 +1450,8 @@ export default function Settings() {
     arubaApiCredentialIdentity,
     arubaApiNotice,
     arubaBackfillReadiness,
+    arubaClosureReadiness,
+    arubaReconciliationPreview,
     arubaPanelUrl,
     arubaBookmarkletUrl,
     arubaManualReadbackCompleted,
@@ -1554,6 +1587,8 @@ export default function Settings() {
             arubaApiCredentialIdentity={arubaApiCredentialIdentity}
             arubaApiNotice={arubaApiNotice}
             arubaBackfillReadiness={arubaBackfillReadiness}
+            arubaClosureReadiness={arubaClosureReadiness}
+            arubaReconciliationPreview={arubaReconciliationPreview}
             arubaSaved={arubaSaved}
             inventory={arubaInventory}
             arubaPanelUrl={arubaPanelUrl}

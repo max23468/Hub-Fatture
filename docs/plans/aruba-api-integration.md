@@ -498,10 +498,11 @@ economico confermato; manifesto e prova read-only chiusi. **Completato nella qua
 **Gate:** storico completo; zero divergenze inspiegate; recovery e restore provati; decisione di
 Massimo sul preferito/bridge registrata.
 
-**Stato corrente:** implementazione shadow e regressioni locali disponibili; backfill Production,
-restore della credenziale e dossier reale restano gate operativi. Per decisione del titolare questa
-delivery termina al dossier: schema, server e UI mantengono obbligatoriamente l’autorità browser. Il
-passaggio richiederà una futura autorizzazione e una nuova delivery completa dei gate canonici.
+**Stato corrente:** l’implementazione shadow è distribuita e il backfill Production è in corso;
+restore della credenziale, recovery e protezioni di traffico hanno regressioni dedicate. Il
+candidato prepara anteprima read-only, report di chiusura, percorso canonico e cambio atomico, ma
+non espone un’azione per eseguirlo. L’autorità resta obbligatoriamente browser fino al dossier reale
+e a una futura conferma esplicita del titolare, registrata insieme alla decisione sul fallback.
 
 ### Outbound API senza invio reale
 

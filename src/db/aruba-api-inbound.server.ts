@@ -3,9 +3,14 @@ import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import { z } from "zod";
 
-import { mapArubaApiInboundGroup, type ArubaApiInboundDocument } from "../aruba-api-inbound.ts";
+import {
+  hasRequiredArubaApiFiles,
+  mapArubaApiInboundGroup,
+  type ArubaApiInboundDocument,
+} from "../aruba-api-inbound.ts";
 import { ARUBA_API_POLICY, type ArubaApiReadScope } from "../aruba-api-policy.ts";
 import { calculateArubaBackfillProgress } from "../aruba-backfill-progress.ts";
+import { arubaFiscalPayloadSha256 } from "../aruba.ts";
 import {
   compareArubaInboundParity,
   type ArubaInboundParityDocument,
@@ -13,6 +18,7 @@ import {
 import { getConfig } from "../config.server.ts";
 import { decryptCredential, encryptCredential } from "../crypto.server.ts";
 import { AppError, type ErrorCode } from "../errors.ts";
+import { validatedArubaFiscalXml } from "./aruba-p7m-evidence.server.ts";
 import {
   ARUBA_API_V2_CONTRACT,
   authenticateArubaApi,
@@ -31,8 +37,13 @@ import {
   recordArubaApiRateLimited,
   waitForArubaApiReadSlot,
 } from "./aruba-api-traffic.server.ts";
-import { getPool, withTransaction } from "./client.server.ts";
+import { commitArubaApiInventoryPage } from "./aruba-api-canonical-page.server.ts";
+import { importArubaApiGroupFile } from "./aruba-api-group-file.server.ts";
+import { importArubaRemoteOfficialFileFromApi } from "./aruba-inbound.server.ts";
+import { stageApiPage } from "./aruba-api-stage.server.ts";
+import { getPool, withJoinedTransaction, withTransaction } from "./client.server.ts";
 import type { ClaimedJob, JobType } from "./connectors.server.ts";
+import { readVerifiedStorageObject } from "./storage-object.server.ts";
 
 const FULL_HISTORY_START = new Date("2019-01-01T00:00:00.000Z");
 const WINDOW_MS = ARUBA_API_POLICY.backfillWindowMs;
@@ -364,37 +375,51 @@ export async function getArubaApiConnectionStatus() {
   };
 }
 
-export async function getArubaBackfillReadiness() {
-  const result = await getPool().query<{
+async function arubaBackfillReadiness(client: pg.Pool | pg.PoolClient) {
+  const result = await client.query<{
     active_jobs: number;
     actionable_failures: number;
     historical_failures: number;
     failure_codes: Array<{ code: string; count: number }>;
   }>(
     `WITH aruba_connection AS (
-       SELECT last_synced_at FROM connections
+       SELECT account_reference,
+         CASE WHEN environment = 'PRODUCTION' THEN 'PRODUCTION' ELSE 'MOCK' END AS inventory_environment
+       FROM connections
        WHERE provider = 'ARUBA' AND environment = $1
      ), classified AS (
-       SELECT jobs.status, jobs.last_error_code,
-              coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) AS observed_at,
-              connection.last_synced_at
+       SELECT jobs.type, jobs.status, jobs.last_error_code, jobs.lease_expires_at,
+              coalesce(jobs.locked_at, jobs.run_at, jobs.created_at) AS observed_at
        FROM jobs
-       CROSS JOIN aruba_connection AS connection
        WHERE jobs.type IN ('aruba_backfill_inventory', 'aruba_sync_inventory',
          'aruba_refresh_nonterminal', 'aruba_full_inventory')
+     ), recovered AS (
+       SELECT failed.observed_at, failed.last_error_code,
+         EXISTS (
+           SELECT 1 FROM aruba_sync_runs runs
+           CROSS JOIN aruba_connection connection
+           WHERE runs.status = 'COMPLETED' AND runs.completed_at > failed.observed_at
+             AND runs.environment = connection.inventory_environment
+             AND runs.account_reference = connection.account_reference
+             AND CASE failed.type
+               WHEN 'aruba_backfill_inventory' THEN runs.kind = 'BACKFILL'
+               WHEN 'aruba_full_inventory' THEN runs.kind IN ('BACKFILL', 'FULL')
+               WHEN 'aruba_sync_inventory' THEN runs.kind IN ('BACKFILL', 'FULL', 'INCREMENTAL')
+               WHEN 'aruba_refresh_nonterminal' THEN runs.kind IN ('BACKFILL', 'FULL', 'TARGETED')
+               ELSE false
+             END
+         ) AS recovered
+       FROM classified failed
+       WHERE failed.status = 'FAILED'
      ), code_counts AS (
        SELECT coalesce(last_error_code, 'UNKNOWN') AS code, count(*)::int AS count
-       FROM classified
-       WHERE status = 'FAILED'
-         AND (last_synced_at IS NULL OR observed_at > last_synced_at)
+       FROM recovered WHERE NOT recovered
        GROUP BY coalesce(last_error_code, 'UNKNOWN')
      )
      SELECT
        count(*) FILTER (WHERE status IN ('PENDING', 'RUNNING'))::int AS active_jobs,
-       count(*) FILTER (WHERE status = 'FAILED'
-         AND (last_synced_at IS NULL OR observed_at > last_synced_at))::int AS actionable_failures,
-       count(*) FILTER (WHERE status = 'FAILED'
-         AND last_synced_at IS NOT NULL AND observed_at <= last_synced_at)::int AS historical_failures,
+       (SELECT count(*)::int FROM recovered WHERE NOT recovered) AS actionable_failures,
+       (SELECT count(*)::int FROM recovered WHERE recovered) AS historical_failures,
        coalesce((SELECT jsonb_agg(jsonb_build_object('code', code, 'count', count)
          ORDER BY count DESC, code) FROM code_counts), '[]'::jsonb) AS failure_codes
      FROM classified`,
@@ -407,6 +432,262 @@ export async function getArubaBackfillReadiness() {
     historicalFailures: row?.historical_failures ?? 0,
     failureCodes: row?.failure_codes ?? [],
   };
+}
+
+export async function getArubaBackfillReadiness() {
+  return arubaBackfillReadiness(getPool());
+}
+
+const arubaFallbackDecisionSchema = z.enum(["KEEP_TRANSITIONAL_FALLBACK", "RETIRE_BROWSER_HELPER"]);
+
+export type ArubaInboundClosureGate =
+  | "CONNECTION_READY"
+  | "BACKFILL_COMPLETE"
+  | "NO_ACTIVE_JOBS"
+  | "NO_ACTIONABLE_FAILURES"
+  | "PARITY_MATCHED"
+  | "BROWSER_BASELINE_CURRENT"
+  | "NORMALIZED_DIVERGENCES_ZERO"
+  | "OFFICIAL_FILES_COMPLETE"
+  | "NOTIFICATIONS_VERIFIED"
+  | "BROWSER_CONFLICTS_ZERO"
+  | "TRAFFIC_GUARD_CLEAR"
+  | "BROWSER_STILL_AUTHORITATIVE";
+
+interface ArubaInboundClosureRow {
+  connection_ready: boolean;
+  automatic_authority: "BROWSER" | "API";
+  backfill_complete: boolean;
+  parity_status: "MATCHED" | "DIVERGENT" | "INCOMPLETE" | null;
+  browser_baseline_current: boolean;
+  browser_session_active: boolean;
+  api_documents: number;
+  missing_in_api: number;
+  missing_in_browser: number;
+  status_mismatches: number;
+  file_mismatches: number;
+  unresolved_browser_conflicts: number;
+  documents_without_official_payload: number;
+  documents_without_notification: number;
+}
+
+async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
+  const result = await client.query<ArubaInboundClosureRow>(
+    `WITH current_connection AS (
+         SELECT account_reference, status = 'CONNECTED' AND encrypted_credentials IS NOT NULL
+                  AND credentials_verified_at IS NOT NULL AND inbound_enabled AND NOT api_paused
+                  AS connection_ready,
+                automatic_authority
+         FROM connections WHERE provider = 'ARUBA' AND environment = $1
+       ), completed_backfill AS (
+         SELECT runs.id FROM aruba_sync_runs runs
+         JOIN current_connection connection
+           ON connection.account_reference = runs.account_reference
+         WHERE runs.environment = $2 AND runs.kind = 'BACKFILL'
+           AND runs.authority_mode = 'SHADOW' AND runs.status = 'COMPLETED'
+         ORDER BY runs.completed_at DESC LIMIT 1
+       ), candidate AS (
+         SELECT runs.* FROM aruba_sync_runs runs
+         JOIN current_connection connection
+           ON connection.account_reference = runs.account_reference
+         WHERE runs.environment = $2 AND runs.kind IN ('BACKFILL', 'FULL')
+           AND runs.authority_mode = 'SHADOW' AND runs.status = 'COMPLETED'
+         ORDER BY runs.completed_at DESC, runs.started_at DESC, runs.id DESC LIMIT 1
+       ), browser_baseline AS (
+         SELECT sessions.id
+         FROM aruba_sync_sessions sessions
+         JOIN current_connection connection
+           ON connection.account_reference = sessions.account_reference
+         WHERE sessions.environment = $2 AND sessions.status = 'COMPLETED'
+           AND sessions.is_full_scan AND sessions.completed_at IS NOT NULL
+           AND sessions.full_scan_completed_at IS NOT NULL
+           AND EXISTS (SELECT 1 FROM aruba_sync_pages pages
+             WHERE pages.sync_session_id = sessions.id AND pages.full_scan)
+         ORDER BY sessions.full_scan_completed_at DESC LIMIT 1
+       ), dossier AS (
+         SELECT dossiers.* FROM aruba_inbound_parity_dossiers dossiers
+         JOIN candidate ON candidate.id = dossiers.sync_run_id
+         WHERE NOT EXISTS (SELECT 1 FROM aruba_sync_runs later
+           WHERE later.environment = candidate.environment
+             AND later.account_reference = candidate.account_reference
+             AND later.authority_mode = 'SHADOW' AND later.status = 'COMPLETED'
+             AND (later.completed_at, later.started_at, later.id) >
+               (candidate.completed_at, candidate.started_at, candidate.id))
+       )
+       SELECT
+         coalesce(connection.connection_ready, false) AS connection_ready,
+         coalesce(connection.automatic_authority, 'BROWSER') AS automatic_authority,
+         completed_backfill.id IS NOT NULL AS backfill_complete,
+         dossier.status AS parity_status,
+         coalesce(
+           dossier.summary_json->>'browserBaselineSessionId' = browser_baseline.id::text,
+           false
+         ) AS browser_baseline_current,
+         EXISTS (SELECT 1 FROM aruba_sync_sessions active_session
+           WHERE active_session.environment = $2
+             AND active_session.account_reference = connection.account_reference
+             AND active_session.source = 'HELPER'
+             AND active_session.status IN ('ACTIVE', 'SCANNING')) AS browser_session_active,
+         coalesce(dossier.api_documents, 0)::integer AS api_documents,
+         coalesce(dossier.missing_in_api, 0)::integer AS missing_in_api,
+         coalesce(dossier.missing_in_browser, 0)::integer AS missing_in_browser,
+         coalesce(dossier.status_mismatches, 0)::integer AS status_mismatches,
+         coalesce(dossier.file_mismatches, 0)::integer AS file_mismatches,
+         coalesce((dossier.summary_json->>'unresolvedBrowserConflicts')::integer, 0)
+           AS unresolved_browser_conflicts,
+         coalesce((SELECT count(*)::integer FROM aruba_api_shadow_documents documents
+           WHERE documents.sync_run_id = candidate.id
+             AND documents.xml_sha256 IS NULL AND documents.p7m_sha256 IS NULL
+             AND NOT EXISTS (SELECT 1 FROM aruba_api_shadow_group_files group_files
+               WHERE group_files.sync_run_id = documents.sync_run_id
+                 AND group_files.provider_group_id = documents.provider_group_id
+                 AND group_files.kind IN ('ARUBA_XML', 'ARUBA_P7M'))), 0)
+           AS documents_without_official_payload,
+         coalesce((SELECT count(*)::integer FROM aruba_api_shadow_documents documents
+           WHERE documents.sync_run_id = candidate.id
+             AND documents.remote_status IN ('DELIVERED', 'NOT_DELIVERED', 'REJECTED')
+             AND jsonb_array_length(documents.notification_hashes) = 0), 0)
+           AS documents_without_notification
+       FROM current_connection connection
+       LEFT JOIN candidate ON true
+       LEFT JOIN completed_backfill ON true
+       LEFT JOIN dossier ON true
+       LEFT JOIN browser_baseline ON true`,
+    [connectionEnvironment(), inventoryEnvironment()],
+  );
+  const jobs = await arubaBackfillReadiness(client);
+  const traffic = await client.query<{ cooling_down: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM aruba_api_traffic_limits
+        WHERE api_environment = $1 AND cooldown_until > now()) AS cooling_down`,
+    [getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEMO"],
+  );
+  const row = result.rows[0] ?? {
+    connection_ready: false,
+    automatic_authority: "BROWSER" as const,
+    backfill_complete: false,
+    parity_status: null,
+    browser_baseline_current: false,
+    browser_session_active: false,
+    api_documents: 0,
+    missing_in_api: 0,
+    missing_in_browser: 0,
+    status_mismatches: 0,
+    file_mismatches: 0,
+    unresolved_browser_conflicts: 0,
+    documents_without_official_payload: 0,
+    documents_without_notification: 0,
+  };
+  const gates: Record<ArubaInboundClosureGate, boolean> = {
+    CONNECTION_READY: row.connection_ready,
+    BACKFILL_COMPLETE: row.backfill_complete,
+    NO_ACTIVE_JOBS: jobs.activeJobs === 0,
+    NO_ACTIONABLE_FAILURES: jobs.actionableFailures === 0,
+    PARITY_MATCHED: row.parity_status === "MATCHED",
+    BROWSER_BASELINE_CURRENT: row.browser_baseline_current && !row.browser_session_active,
+    NORMALIZED_DIVERGENCES_ZERO:
+      row.api_documents > 0 &&
+      row.missing_in_api === 0 &&
+      row.missing_in_browser === 0 &&
+      row.status_mismatches === 0 &&
+      row.file_mismatches === 0,
+    OFFICIAL_FILES_COMPLETE: row.api_documents > 0 && row.documents_without_official_payload === 0,
+    NOTIFICATIONS_VERIFIED: row.api_documents > 0 && row.documents_without_notification === 0,
+    BROWSER_CONFLICTS_ZERO: row.unresolved_browser_conflicts === 0,
+    TRAFFIC_GUARD_CLEAR: traffic.rows[0]?.cooling_down !== true,
+    BROWSER_STILL_AUTHORITATIVE: row.automatic_authority === "BROWSER",
+  };
+  const blockers: ArubaInboundClosureGate[] = [];
+  for (const [gate, passed] of Object.entries(gates) as Array<[ArubaInboundClosureGate, boolean]>) {
+    if (!passed) blockers.push(gate);
+  }
+  return {
+    readyForAuthoritySwitch: blockers.length === 0,
+    gates,
+    blockers,
+    actionableFailures: jobs.actionableFailures,
+    historicalFailures: jobs.historicalFailures,
+  };
+}
+
+export async function getArubaInboundClosureReadiness() {
+  return arubaInboundClosureReadiness(getPool());
+}
+
+export async function promoteArubaApiAuthority(
+  input: { fallbackDecision: unknown },
+  actor: ArubaApiActor,
+) {
+  requireOwner(actor);
+  const fallbackDecision = arubaFallbackDecisionSchema.safeParse(input.fallbackDecision);
+  if (!fallbackDecision.success) throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:ARUBA'))");
+    const current = await connection(client, true);
+    if (!current) throw new AppError("PROVIDER_NOT_CONFIGURED", 404);
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `aruba-read:${inventoryEnvironment()}:${current.account_reference}`,
+    ]);
+    const readiness = await arubaInboundClosureReadiness(client);
+    if (!readiness.readyForAuthoritySwitch) {
+      throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+    }
+    await client.query(
+      `WITH candidate AS (
+         SELECT runs.id FROM aruba_sync_runs runs
+         WHERE runs.environment = $1 AND runs.account_reference = $2
+           AND runs.kind IN ('BACKFILL', 'FULL') AND runs.authority_mode = 'SHADOW'
+           AND runs.status = 'COMPLETED'
+         ORDER BY runs.completed_at DESC, runs.started_at DESC, runs.id DESC LIMIT 1
+       ), correlated AS (
+         SELECT remote.id, min(shadow.provider_group_id) AS provider_group_id
+         FROM aruba_remote_documents remote
+         JOIN aruba_api_shadow_documents shadow ON shadow.sync_run_id = (SELECT id FROM candidate)
+          AND (
+            (remote.xml_sha256 IS NOT NULL
+              AND remote.xml_sha256 IN (shadow.xml_sha256, shadow.p7m_sha256))
+            OR (remote.series IS NOT NULL AND remote.fiscal_number IS NOT NULL
+              AND shadow.series IS NOT NULL AND shadow.fiscal_number IS NOT NULL
+              AND remote.document_type = shadow.document_type
+              AND remote.fiscal_year = shadow.fiscal_year
+              AND upper(regexp_replace(remote.series, '[^[:alnum:]]', '', 'g')) =
+                upper(regexp_replace(shadow.series, '[^[:alnum:]]', '', 'g'))
+              AND upper(regexp_replace(remote.fiscal_number, '[^[:alnum:]]', '', 'g')) =
+                upper(regexp_replace(shadow.fiscal_number, '[^[:alnum:]]', '', 'g')))
+          )
+         WHERE remote.environment = $1 AND remote.account_reference = $2
+         GROUP BY remote.id HAVING count(DISTINCT shadow.provider_group_id) = 1
+       )
+       UPDATE aruba_remote_documents remote SET automatic_source = 'API',
+         provider_group_id = correlated.provider_group_id,
+         inventory_version = inventory_version + 1, last_observed_at = now()
+       FROM correlated WHERE remote.id = correlated.id`,
+      [inventoryEnvironment(), current.account_reference],
+    );
+    await client.query(
+      `UPDATE connections SET automatic_authority = 'API', updated_at = now()
+       WHERE id = $1 AND automatic_authority = 'BROWSER'`,
+      [current.id],
+    );
+    await client.query(
+      `UPDATE aruba_sync_sessions SET status = 'REVOKED', lease_expires_at = NULL
+       WHERE environment = $1 AND account_reference = $2
+         AND source = 'HELPER' AND status IN ('ACTIVE', 'SCANNING')`,
+      [inventoryEnvironment(), current.account_reference],
+    );
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "ARUBA_API_AUTHORITY_CHANGED",
+      eventClass: "CRITICAL",
+      entityType: "CONNECTION",
+      entityId: current.id,
+      metadata: { provider: "ARUBA", scope: fallbackDecision.data },
+      before: { automaticAuthority: "BROWSER" },
+      after: { automaticAuthority: "API" },
+      requestId: actor.requestId,
+    });
+    return { automaticAuthority: "API" as const, fallbackDecision: fallbackDecision.data };
+  });
 }
 
 export async function getArubaApiCredentialIdentity(actor: ArubaApiActor) {
@@ -600,7 +881,29 @@ export async function requestArubaApiSync(actor: ArubaApiActor) {
          AND kind = 'BACKFILL' AND status = 'COMPLETED'`,
       [inventoryEnvironment(), current.account_reference],
     );
-    const type = backfill.rows[0] ? "aruba_sync_inventory" : "aruba_backfill_inventory";
+    const currentDossier = backfill.rows[0]
+      ? await client.query(
+          `SELECT 1 FROM aruba_sync_runs candidate
+           JOIN aruba_inbound_parity_dossiers dossier ON dossier.sync_run_id = candidate.id
+           WHERE candidate.environment = $1 AND candidate.account_reference = $2
+             AND candidate.kind IN ('BACKFILL', 'FULL')
+             AND candidate.authority_mode = 'SHADOW' AND candidate.status = 'COMPLETED'
+             AND NOT EXISTS (SELECT 1 FROM aruba_sync_runs later
+               WHERE later.environment = candidate.environment
+                 AND later.account_reference = candidate.account_reference
+                 AND later.authority_mode = 'SHADOW' AND later.status = 'COMPLETED'
+                 AND (later.completed_at, later.started_at, later.id) >
+                   (candidate.completed_at, candidate.started_at, candidate.id))
+           ORDER BY candidate.completed_at DESC, candidate.started_at DESC, candidate.id DESC
+           LIMIT 1`,
+          [inventoryEnvironment(), current.account_reference],
+        )
+      : null;
+    const type = !backfill.rows[0]
+      ? "aruba_backfill_inventory"
+      : currentDossier?.rows[0]
+        ? "aruba_sync_inventory"
+        : "aruba_full_inventory";
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO jobs (type, payload_json, run_at)
        VALUES ($1, jsonb_build_object('requestedBy', $2::text),
@@ -678,11 +981,22 @@ async function openOrResumeRun(
 ) {
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba-api-run'))");
+    const expectedAuthority: AuthorityMode =
+      current.automatic_authority === "API" ? "CANONICAL" : "SHADOW";
+    await client.query(
+      `UPDATE aruba_sync_runs SET status = 'CANCELLED', lease_expires_at = now(),
+         last_error_code = 'ARUBA_READ_SESSION_INVALID',
+         last_error_message_sanitized = 'Autorità Aruba modificata durante il run'
+       WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
+         AND authority_mode <> $3`,
+      [inventoryEnvironment(), current.account_reference, expectedAuthority],
+    );
     const active = await client.query<ArubaSyncRunRow>(
       `SELECT * FROM aruba_sync_runs
        WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
+         AND authority_mode = $3
        FOR UPDATE`,
-      [inventoryEnvironment(), current.account_reference],
+      [inventoryEnvironment(), current.account_reference, expectedAuthority],
     );
     if (active.rows[0]) {
       if (active.rows[0].kind !== kind) throw new AppError("CONFLICT_REVISION", 409);
@@ -698,12 +1012,13 @@ async function openOrResumeRun(
        WHERE previous.environment = $1 AND previous.account_reference = $2
          AND previous.kind = $3 AND previous.status = 'INCOMPLETE'
          AND previous.last_error_code = 'ARUBA_API_BUDGET_EXHAUSTED'
+         AND previous.authority_mode = $4
          AND NOT EXISTS (
            SELECT 1 FROM aruba_sync_runs AS continuation
            WHERE continuation.continued_from_run_id = previous.id
          )
        ORDER BY previous.started_at DESC LIMIT 1 FOR UPDATE OF previous`,
-      [inventoryEnvironment(), current.account_reference, kind],
+      [inventoryEnvironment(), current.account_reference, kind, expectedAuthority],
     );
     if (previous.rows[0]) {
       const source = previous.rows[0];
@@ -714,8 +1029,8 @@ async function openOrResumeRun(
            kind, authority_mode, window_start, window_end, checkpoint_start,
            checkpoint_end, checkpoint_page, page_count, group_count, document_count,
            file_count, notification_count, request_limit, lease_expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'SHADOW', $7, $8, $9, $10, $11,
-           $12, $13, $14, $15, $16, $17, now() + interval '3 minutes')
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+           $13, $14, $15, $16, $17, $18, now() + interval '3 minutes')
          RETURNING *`,
         [
           continuationId,
@@ -724,6 +1039,7 @@ async function openOrResumeRun(
           credentials.apiEnvironment,
           source.account_reference,
           source.kind,
+          source.authority_mode,
           source.window_start,
           source.window_end,
           source.checkpoint_start,
@@ -746,6 +1062,13 @@ async function openOrResumeRun(
            series, fiscal_number, document_date, total_amount, remote_status,
            xml_sha256, p7m_sha256, pdf_sha256, notification_hashes, observed_at
          FROM aruba_api_shadow_documents WHERE sync_run_id = $2`,
+        [continuationId, source.id],
+      );
+      await client.query(
+        `INSERT INTO aruba_api_shadow_group_files
+          (sync_run_id, provider_group_id, kind, sha256)
+         SELECT $1, provider_group_id, kind, sha256
+         FROM aruba_api_shadow_group_files WHERE sync_run_id = $2`,
         [continuationId, source.id],
       );
       return inserted.rows[0]!;
@@ -784,7 +1107,7 @@ async function openOrResumeRun(
         credentials.apiEnvironment,
         current.account_reference,
         kind,
-        "SHADOW",
+        expectedAuthority,
         windowStart,
         windowEnd,
         checkpointEnd,
@@ -923,10 +1246,29 @@ async function persistShadowPage(
       ),
     ),
   );
-  const fileCount = uniqueFiles.size;
+  const groupFiles = new Map<string, ArubaApiInboundDocument["groupFiles"][number]>();
+  for (const document of documents) {
+    for (const file of document.groupFiles) {
+      const key = `${file.providerGroupId}:${file.kind}`;
+      const previous = groupFiles.get(key);
+      if (previous && previous.sha256 !== file.sha256) {
+        throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+      }
+      groupFiles.set(key, file);
+    }
+  }
+  const fileCount = uniqueFiles.size + groupFiles.size;
   const notificationCount = [...uniqueFiles.values()].filter(
     (file) => file.kind === "SDI_NOTIFICATION",
   ).length;
+  const fiscalFiles = [...uniqueFiles.values(), ...groupFiles.values()].filter(
+    (file) => file.kind === "ARUBA_XML" || file.kind === "ARUBA_P7M",
+  );
+  const fiscalHashes = new Map(
+    await Promise.all(
+      fiscalFiles.map(async (file) => [file, await validatedArubaApiParityFileHash(file)] as const),
+    ),
+  );
   return withTransaction(async (client) => {
     const locked = await client.query<ArubaSyncRunRow>(
       `SELECT * FROM aruba_sync_runs WHERE id = $1 AND status = 'RUNNING' FOR UPDATE`,
@@ -951,14 +1293,28 @@ async function persistShadowPage(
       }
       return { repeated: true };
     }
+    for (const file of groupFiles.values()) {
+      const parityHash = fiscalHashes.get(file) ?? file.sha256;
+      const stored = await client.query(
+        `INSERT INTO aruba_api_shadow_group_files
+          (sync_run_id, provider_group_id, kind, sha256)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (sync_run_id, provider_group_id, kind) DO UPDATE
+           SET sha256 = aruba_api_shadow_group_files.sha256
+           WHERE aruba_api_shadow_group_files.sha256 = EXCLUDED.sha256
+         RETURNING sync_run_id`,
+        [run.id, file.providerGroupId, file.kind, parityHash],
+      );
+      if (!stored.rows[0]) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    }
     for (const document of documents) {
       let xmlSha256: string | null = null;
       let p7mSha256: string | null = null;
       let pdfSha256: string | null = null;
       const notificationHashes: string[] = [];
       for (const file of document.files) {
-        if (file.kind === "ARUBA_XML") xmlSha256 ??= file.sha256;
-        if (file.kind === "ARUBA_P7M") p7mSha256 ??= file.sha256;
+        if (file.kind === "ARUBA_XML") xmlSha256 ??= fiscalHashes.get(file)!;
+        if (file.kind === "ARUBA_P7M") p7mSha256 ??= fiscalHashes.get(file)!;
         if (file.kind === "ARUBA_PDF") pdfSha256 ??= file.sha256;
         if (file.kind === "SDI_NOTIFICATION") notificationHashes.push(file.sha256);
       }
@@ -1019,6 +1375,123 @@ async function persistShadowPage(
   });
 }
 
+export async function validatedArubaApiParityFileHash(
+  file: ArubaApiInboundDocument["files"][number],
+) {
+  if (file.kind !== "ARUBA_XML" && file.kind !== "ARUBA_P7M") return file.sha256;
+  const fiscalXml = await validatedArubaFiscalXml(file.kind, file.bytes);
+  if (!fiscalXml) throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+  return fiscalXml.sha256;
+}
+
+async function persistCanonicalPageContents(
+  run: ArubaSyncRunRow,
+  documents: ArubaApiInboundDocument[],
+  groupCount: number,
+  page: number,
+  terminal: boolean,
+) {
+  if (documents.some((document) => !hasRequiredArubaApiFiles(document))) {
+    throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+  }
+  const providerGroupIds = new Map(
+    documents.map((document) => [document.remote.remoteId, document.providerGroupId]),
+  );
+  const pagePayload = {
+    stream: `api:${run.kind.toLowerCase()}`,
+    scanOrdinal: 1,
+    pageOrdinal: page,
+    cursor: terminal ? null : String(page + 1),
+    terminal,
+    fullScan: run.kind === "BACKFILL" || run.kind === "FULL",
+    documents: documents.map((document) => document.remote),
+  };
+  const staged = await stageApiPage(run.id, pagePayload, providerGroupIds, groupCount);
+  const remoteDocumentIds = new Map(
+    staged.resolvedDocuments?.map((document) => [document.remoteId, document.remoteDocumentId]),
+  );
+  if (remoteDocumentIds.size !== documents.length) {
+    throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+  }
+  const groupFiles = new Map(
+    documents.flatMap((document) =>
+      document.groupFiles.map(
+        (file) => [`${document.providerGroupId}:${file.kind}:${file.sha256}`, file] as const,
+      ),
+    ),
+  );
+  for (const file of groupFiles.values()) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Ogni artefatto condiviso deve essere durabile prima del commit atomico della pagina.
+    await importArubaApiGroupFile({
+      runId: run.id,
+      providerGroupId: file.providerGroupId,
+      kind: file.kind,
+      filename: file.filename,
+      bytes: file.bytes,
+    });
+  }
+  for (const document of documents) {
+    const remoteDocumentId = remoteDocumentIds.get(document.remote.remoteId);
+    const expectedInvoiceNumber = document.remote.providerInvoiceNumber;
+    if (!remoteDocumentId || !expectedInvoiceNumber) {
+      throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    }
+    const expectedDocumentFilename = [...document.files, ...document.groupFiles].find(
+      (file) => file.kind === "ARUBA_XML" || file.kind === "ARUBA_P7M",
+    )?.filename;
+    for (const file of document.files) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- I file appartengono alla pagina canonica appena acquisita e vanno validati e persistiti in ordine prima del checkpoint successivo.
+      await importArubaRemoteOfficialFileFromApi(remoteDocumentId, file.kind, file.bytes, {
+        type: "API",
+        runId: run.id,
+        providerGroupId: document.providerGroupId,
+        providerFilename: file.filename,
+        expectedDocumentFilename,
+        expectedInvoiceNumber,
+        requiresInvoiceNumber: document.groupFiles.length > 0,
+        notificationInvoiceNumber: file.notificationInvoiceNumber,
+        notificationId: file.kind === "SDI_NOTIFICATION" ? file.sha256 : undefined,
+      });
+    }
+  }
+  await withTransaction((client) =>
+    client.query(
+      `UPDATE aruba_sync_runs SET
+       file_count = (SELECT count(DISTINCT files.id)::integer
+         FROM aruba_files files JOIN aruba_remote_observations observations
+           ON observations.remote_document_id = files.remote_document_id
+          AND observations.sync_run_id = aruba_sync_runs.id)
+         + (SELECT count(*)::integer FROM aruba_api_group_files group_files
+           WHERE group_files.sync_run_id = aruba_sync_runs.id),
+       notification_count = (
+         SELECT count(DISTINCT files.id)::integer
+         FROM aruba_files files
+         JOIN aruba_remote_observations observations
+           ON observations.remote_document_id = files.remote_document_id
+          AND observations.sync_run_id = aruba_sync_runs.id
+         WHERE files.kind = 'SDI_NOTIFICATION'
+       )
+       WHERE id = $1 AND status = 'RUNNING'`,
+      [run.id],
+    ),
+  );
+  await commitArubaApiInventoryPage(run.id, pagePayload, groupCount, [
+    ...remoteDocumentIds.values(),
+  ]);
+}
+
+async function persistCanonicalPage(
+  run: ArubaSyncRunRow,
+  documents: ArubaApiInboundDocument[],
+  groupCount: number,
+  page: number,
+  terminal: boolean,
+) {
+  return withJoinedTransaction(() =>
+    persistCanonicalPageContents(run, documents, groupCount, page, terminal),
+  );
+}
+
 async function persistApiPage(
   run: ArubaSyncRunRow,
   documents: ArubaApiInboundDocument[],
@@ -1026,7 +1499,11 @@ async function persistApiPage(
   page: number,
   terminal: boolean,
 ) {
-  await persistShadowPage(run, documents, groupCount, page, terminal);
+  if (run.authority_mode === "CANONICAL") {
+    await persistCanonicalPage(run, documents, groupCount, page, terminal);
+  } else {
+    await persistShadowPage(run, documents, groupCount, page, terminal);
+  }
 }
 
 async function advanceWindow(runId: string) {
@@ -1108,12 +1585,26 @@ async function createParityDossier(run: ArubaSyncRunRow) {
         p7m_sha256: string | null;
         pdf_sha256: string | null;
         notification_hashes: string[];
+        group_xml_sha256: string | null;
+        group_p7m_sha256: string | null;
+        group_pdf_sha256: string | null;
       }>(
         `SELECT shadow.document_type, shadow.fiscal_year, shadow.series,
                 shadow.fiscal_number, shadow.document_date::text AS document_date,
                 shadow.total_amount, shadow.remote_status, shadow.xml_sha256,
-                shadow.p7m_sha256, shadow.pdf_sha256, shadow.notification_hashes
+                shadow.p7m_sha256, shadow.pdf_sha256, shadow.notification_hashes,
+                group_files.xml_sha256 AS group_xml_sha256,
+                group_files.p7m_sha256 AS group_p7m_sha256,
+                group_files.pdf_sha256 AS group_pdf_sha256
          FROM aruba_api_shadow_documents AS shadow
+         LEFT JOIN LATERAL (
+           SELECT max(sha256) FILTER (WHERE kind = 'ARUBA_XML') AS xml_sha256,
+                  max(sha256) FILTER (WHERE kind = 'ARUBA_P7M') AS p7m_sha256,
+                  max(sha256) FILTER (WHERE kind = 'ARUBA_PDF') AS pdf_sha256
+           FROM aruba_api_shadow_group_files
+           WHERE sync_run_id = shadow.sync_run_id
+             AND provider_group_id = shadow.provider_group_id
+         ) group_files ON true
          WHERE shadow.sync_run_id = $1
            AND concat(
              CASE shadow.document_type WHEN 'TD01' THEN 'invoices:' ELSE 'credit-notes:' END,
@@ -1131,7 +1622,12 @@ async function createParityDossier(run: ArubaSyncRunRow) {
         document_date: string;
         total_amount: number;
         remote_status: string;
-        file_hashes: string[];
+        file_evidence: Array<{
+          kind: "ARUBA_XML" | "ARUBA_P7M";
+          sha256: string;
+          relativePath: string;
+          sizeBytes: number;
+        }>;
       }>(
         `SELECT document->>'documentType' AS document_type,
                 (document->>'fiscalYear')::integer AS fiscal_year,
@@ -1140,17 +1636,21 @@ async function createParityDossier(run: ArubaSyncRunRow) {
                 document->>'documentDate' AS document_date,
                 (document->>'totalAmount')::integer AS total_amount,
                 document->>'status' AS remote_status,
-                coalesce(official_xml.hashes, ARRAY[]::text[]) AS file_hashes
+                coalesce(official_files.evidence, '[]'::jsonb) AS file_evidence
          FROM aruba_sync_pages AS pages
          CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) AS item(document)
          LEFT JOIN LATERAL (
-           SELECT array_agg(storage.sha256 ORDER BY storage.sha256) AS hashes
+           SELECT jsonb_agg(DISTINCT jsonb_build_object(
+             'kind', files.kind, 'sha256', storage.sha256,
+             'relativePath', storage.relative_path, 'sizeBytes', storage.size_bytes
+           )) AS evidence
            FROM aruba_remote_documents AS remote
            JOIN aruba_files AS files ON files.remote_document_id = remote.id
            JOIN storage_objects AS storage ON storage.id = files.storage_object_id
            WHERE remote.environment = $4 AND remote.account_reference = $5
-             AND remote.remote_id = document->>'remoteId' AND files.kind = 'ARUBA_XML'
-         ) AS official_xml ON true
+             AND remote.remote_id = document->>'remoteId'
+             AND files.kind IN ('ARUBA_XML', 'ARUBA_P7M')
+         ) AS official_files ON true
          WHERE pages.sync_session_id = $1 AND pages.scan_ordinal = $2
            AND pages.stream = ANY($3::text[])`,
         [
@@ -1162,6 +1662,29 @@ async function createParityDossier(run: ArubaSyncRunRow) {
         ],
       )
     : { rows: [] as never[] };
+  const groupFileHashes = new Set(
+    api.rows.flatMap((document) =>
+      [document.group_xml_sha256, document.group_p7m_sha256].filter((value): value is string =>
+        Boolean(value),
+      ),
+    ),
+  );
+  const browserDocuments = await Promise.all(
+    browser.rows.map(async (document) => ({
+      ...document,
+      file_hashes: await Promise.all(
+        document.file_evidence.map(async (file) =>
+          file.kind === "ARUBA_P7M"
+            ? arubaFiscalPayloadSha256("ARUBA_P7M", await readVerifiedStorageObject(file))
+            : file.sha256,
+        ),
+      ),
+    })),
+  );
+  const browserFileHashes = new Set(browserDocuments.flatMap((document) => document.file_hashes));
+  const groupFileMismatches = [...groupFileHashes].filter(
+    (hash) => !browserFileHashes.has(hash),
+  ).length;
   const apiParityDocuments: ArubaInboundParityDocument[] = api.rows.map((document) => ({
     documentType: document.document_type,
     fiscalYear: document.fiscal_year,
@@ -1170,9 +1693,11 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     documentDate: document.document_date,
     totalAmount: document.total_amount,
     remoteStatus: document.remote_status,
-    fileHashes: [document.xml_sha256].filter((value): value is string => Boolean(value)),
+    fileHashes: [document.xml_sha256, document.p7m_sha256].filter((value): value is string =>
+      Boolean(value),
+    ),
   }));
-  const browserParityDocuments: ArubaInboundParityDocument[] = browser.rows.map((document) => ({
+  const browserParityDocuments: ArubaInboundParityDocument[] = browserDocuments.map((document) => ({
     documentType: document.document_type,
     fiscalYear: document.fiscal_year,
     series: document.series,
@@ -1180,12 +1705,20 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     documentDate: document.document_date,
     totalAmount: document.total_amount,
     remoteStatus: document.remote_status,
-    fileHashes: document.file_hashes,
+    fileHashes: document.file_hashes.filter((hash) => !groupFileHashes.has(hash)),
   }));
-  const comparison = compareArubaInboundParity({
+  const documentComparison = compareArubaInboundParity({
     api: apiParityDocuments,
     browser: browserParityDocuments,
   });
+  const comparison = {
+    ...documentComparison,
+    status:
+      documentComparison.status === "DIVERGENT" || groupFileMismatches > 0
+        ? ("DIVERGENT" as const)
+        : ("MATCHED" as const),
+    fileMismatches: documentComparison.fileMismatches + groupFileMismatches,
+  };
   const status =
     !baseline || populationStreams.length === 0
       ? "INCOMPLETE"
@@ -1193,9 +1726,15 @@ async function createParityDossier(run: ArubaSyncRunRow) {
         ? "DIVERGENT"
         : comparison.status;
   const apiFileCoverage = {
-    xml: api.rows.filter((document) => document.xml_sha256 !== null).length,
-    p7m: api.rows.filter((document) => document.p7m_sha256 !== null).length,
-    pdf: api.rows.filter((document) => document.pdf_sha256 !== null).length,
+    xml: api.rows.filter(
+      (document) => document.xml_sha256 !== null || document.group_xml_sha256 !== null,
+    ).length,
+    p7m: api.rows.filter(
+      (document) => document.p7m_sha256 !== null || document.group_p7m_sha256 !== null,
+    ).length,
+    pdf: api.rows.filter(
+      (document) => document.pdf_sha256 !== null || document.group_pdf_sha256 !== null,
+    ).length,
     notifications: api.rows.reduce(
       (count, document) => count + document.notification_hashes.length,
       0,
@@ -1212,7 +1751,9 @@ async function createParityDossier(run: ArubaSyncRunRow) {
          'populationStreams', $14::jsonb,
          'unresolvedBrowserConflicts', $15::integer,
          'apiFileCoverage', $16::jsonb,
-         'browserBaselineScanOrdinal', $17::integer
+         'browserBaselineScanOrdinal', $17::integer,
+         'browserBaselineSessionId', $18::uuid,
+         'groupFileMismatches', $19::integer
        ))
      ON CONFLICT (sync_run_id) DO NOTHING`,
     [
@@ -1233,6 +1774,8 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       unresolvedBrowserConflicts,
       JSON.stringify(apiFileCoverage),
       baseline?.scan_ordinal ?? null,
+      baseline?.id ?? null,
+      groupFileMismatches,
     ],
   );
 }
@@ -1277,7 +1820,13 @@ async function targetedDocuments(
   waitForRead: (scope: ArubaApiReadScope) => Promise<void>,
 ) {
   const groups = await getPool().query<{ provider_group_id: string }>(
-    `SELECT DISTINCT provider_group_id FROM aruba_api_latest_shadow_documents
+    run.authority_mode === "CANONICAL"
+      ? `SELECT DISTINCT provider_group_id FROM aruba_remote_documents
+     WHERE environment = $1 AND account_reference = $2
+       AND automatic_source = 'API' AND provider_group_id IS NOT NULL
+       AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+     ORDER BY provider_group_id`
+      : `SELECT DISTINCT provider_group_id FROM aruba_api_latest_shadow_documents
      WHERE environment = $1 AND account_reference = $2
        AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
      ORDER BY provider_group_id`,

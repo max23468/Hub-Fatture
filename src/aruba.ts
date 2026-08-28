@@ -255,7 +255,7 @@ function derElement(bytes: Buffer, offset: number, limit: number, depth = 0) {
   return { tag, contentStart, contentEnd: end, end };
 }
 
-function validateSignedDataDer(bytes: Buffer): void {
+function validateSignedDataDer(bytes: Buffer): Buffer | null {
   const root = derElement(bytes, 0, bytes.byteLength);
   if (root.tag !== 0x30 || root.end !== bytes.byteLength) throw new Error("p7m");
   const children = (start: number, end: number) => {
@@ -302,6 +302,26 @@ function validateSignedDataDer(bytes: Buffer): void {
   ) {
     throw new Error("p7m");
   }
+  let payload: Buffer | null = null;
+  if (encapsulatedContent.length > 1) {
+    if (encapsulatedContent.length !== 2 || encapsulatedContent[1]!.tag !== 0xa0) {
+      throw new Error("p7m");
+    }
+    const explicitPayload = children(
+      encapsulatedContent[1]!.contentStart,
+      encapsulatedContent[1]!.contentEnd,
+    );
+    if (explicitPayload.length !== 1) throw new Error("p7m");
+    const octets = (element: ReturnType<typeof derElement>): Buffer[] => {
+      if (element.tag === 0x04) {
+        return [bytes.subarray(element.contentStart, element.contentEnd)];
+      }
+      if (element.tag !== 0x24) throw new Error("p7m");
+      return children(element.contentStart, element.contentEnd).flatMap(octets);
+    };
+    payload = Buffer.concat(octets(explicitPayload[0]!));
+    if (!payload.byteLength) throw new Error("p7m");
+  }
   let elements = 0;
   const visit = (start: number, end: number, depth: number) => {
     if (depth > 64) throw new Error("p7m");
@@ -316,6 +336,18 @@ function validateSignedDataDer(bytes: Buffer): void {
     if (offset !== end) throw new Error("p7m");
   };
   visit(root.contentStart, root.contentEnd, 1);
+  return payload;
+}
+
+export function arubaFiscalPayload(kind: "ARUBA_XML" | "ARUBA_P7M", bytes: Buffer) {
+  const payload = kind === "ARUBA_P7M" ? validateSignedDataDer(bytes) : bytes;
+  if (!payload) throw new Error("p7m");
+  validateUntrustedXml(payload);
+  return payload;
+}
+
+export function arubaFiscalPayloadSha256(kind: "ARUBA_XML" | "ARUBA_P7M", bytes: Buffer) {
+  return createHash("sha256").update(arubaFiscalPayload(kind, bytes)).digest("hex");
 }
 
 export function validateUntrustedXml(bytes: Buffer): string {

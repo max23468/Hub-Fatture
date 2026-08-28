@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { normalizeArubaRemoteStatusLabel, type RemoteInventoryDocument } from "./aruba-inbound.ts";
+import { arubaFiscalPayloadSha256 } from "./aruba.ts";
 import { decimalToCents } from "./orders.ts";
 
 const base64Schema = z
@@ -60,6 +61,7 @@ export interface ArubaApiInboundFile {
   providerGroupId: string;
   notificationType?: string;
   notificationDate?: string;
+  notificationInvoiceNumber?: string;
 }
 
 export interface ArubaApiInboundDocument {
@@ -67,6 +69,19 @@ export interface ArubaApiInboundDocument {
   remoteKey: string;
   remote: RemoteInventoryDocument;
   files: ArubaApiInboundFile[];
+  groupFiles: ArubaApiInboundFile[];
+}
+
+export function hasRequiredArubaApiFiles(document: ArubaApiInboundDocument): boolean {
+  return [...document.files, ...document.groupFiles].some(
+    (candidate) => candidate.kind === "ARUBA_XML" || candidate.kind === "ARUBA_P7M",
+  );
+}
+
+export function arubaApiParityFileHash(file: ArubaApiInboundFile): string {
+  return file.kind === "ARUBA_P7M"
+    ? arubaFiscalPayloadSha256("ARUBA_P7M", file.bytes)
+    : file.sha256;
 }
 
 function file(input: {
@@ -76,6 +91,7 @@ function file(input: {
   providerGroupId: string;
   notificationType?: string;
   notificationDate?: string;
+  notificationInvoiceNumber?: string;
 }): ArubaApiInboundFile {
   const encoded = base64Schema.safeParse(input.encoded);
   if (!encoded.success) throw new Error("ARUBA_API_FILE_INVALID");
@@ -89,6 +105,7 @@ function file(input: {
     providerGroupId: input.providerGroupId,
     notificationType: input.notificationType,
     notificationDate: input.notificationDate,
+    notificationInvoiceNumber: input.notificationInvoiceNumber,
   };
 }
 
@@ -173,6 +190,7 @@ export function mapArubaApiInboundGroup(input: {
         providerGroupId: input.group.id,
         notificationType: notification.docType,
         notificationDate: notification.notificationDate,
+        notificationInvoiceNumber: number ?? undefined,
       }),
     };
   });
@@ -211,7 +229,13 @@ export function mapArubaApiInboundGroup(input: {
           ]
         : []),
     ];
-    const officialXml = sharedFiles.find((candidate) => candidate.kind === "ARUBA_XML");
+    // Aruba restituisce i file principali a livello di gruppo. Nei gruppi multipli li conserviamo
+    // come evidenza condivisa senza attribuirli arbitrariamente a una singola fattura.
+    const singleDocumentGroup = input.detail.invoices.length === 1;
+    const attributableSharedFiles = singleDocumentGroup ? sharedFiles : [];
+    const officialPayload = attributableSharedFiles.find(
+      (candidate) => candidate.kind === "ARUBA_XML" || candidate.kind === "ARUBA_P7M",
+    );
     return [
       {
         providerGroupId: input.group.id,
@@ -232,17 +256,19 @@ export function mapArubaApiInboundGroup(input: {
           currency: "EUR" as const,
           status: normalizeArubaRemoteStatusLabel(invoice.status),
           providerStatusLabel: invoice.status,
+          providerInvoiceNumber: invoice.number,
           providerObservedAt: input.detail.lastUpdate,
-          xmlSha256: officialXml?.sha256 ?? null,
+          xmlSha256: officialPayload ? arubaApiParityFileHash(officialPayload) : null,
           orderReferences: [],
         },
         files: [
-          ...sharedFiles,
+          ...attributableSharedFiles,
           ...notificationFiles.reduce<ArubaApiInboundFile[]>((files, notification) => {
             if (notification.invoiceIndex === index) files.push(notification.file);
             return files;
           }, []),
         ],
+        groupFiles: singleDocumentGroup ? [] : sharedFiles,
       },
     ];
   });

@@ -2,11 +2,42 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-import { mapArubaApiInboundGroup } from "./aruba-api-inbound.ts";
+import {
+  arubaApiParityFileHash,
+  hasRequiredArubaApiFiles,
+  mapArubaApiInboundGroup,
+} from "./aruba-api-inbound.ts";
+import { arubaFiscalPayloadSha256 } from "./aruba.ts";
 
 const xml = Buffer.from('<?xml version="1.0"?><FatturaElettronica />');
 const pdf = Buffer.from("%PDF-1.4 synthetic");
 const notification = Buffer.from('<?xml version="1.0"?><RicevutaConsegna />');
+
+function der(tag: number, content: Buffer) {
+  const length =
+    content.byteLength < 128
+      ? Buffer.from([content.byteLength])
+      : Buffer.from([0x82, content.byteLength >> 8, content.byteLength & 0xff]);
+  return Buffer.concat([Buffer.from([tag]), length, content]);
+}
+
+function signedXml(xmlBytes: Buffer) {
+  const signedDataOid = Buffer.from([
+    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02,
+  ]);
+  const dataOid = Buffer.from([0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x01]);
+  const encapsulated = der(0x30, Buffer.concat([dataOid, der(0xa0, der(0x04, xmlBytes))]));
+  const signedData = der(
+    0x30,
+    Buffer.concat([
+      der(0x02, Buffer.from([1])),
+      der(0x31, Buffer.alloc(0)),
+      encapsulated,
+      der(0x31, Buffer.alloc(0)),
+    ]),
+  );
+  return der(0x30, Buffer.concat([signedDataOid, der(0xa0, signedData)]));
+}
 
 function input() {
   return {
@@ -71,7 +102,7 @@ function input() {
   };
 }
 
-test("il mapper API separa i documenti del gruppo e verifica gli hash ufficiali", () => {
+test("il mapper API separa i documenti del gruppo senza attribuire file condivisi", () => {
   const mapped = mapArubaApiInboundGroup(input());
   assert.equal(mapped.length, 2);
   assert.notEqual(mapped[0]!.remoteKey, mapped[1]!.remoteKey);
@@ -104,16 +135,74 @@ test("il mapper API separa i documenti del gruppo e verifica gli hash ufficiali"
     ],
   );
   const hashes = new Map(mapped[0]!.files.map((file) => [file.kind, file.sha256]));
-  assert.equal(hashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
-  assert.equal(hashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
+  assert.equal(hashes.has("ARUBA_XML"), false);
+  assert.equal(hashes.has("ARUBA_PDF"), false);
+  const groupHashes = new Map(mapped[0]!.groupFiles.map((file) => [file.kind, file.sha256]));
+  assert.equal(groupHashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
+  assert.equal(groupHashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
+  assert.equal(hasRequiredArubaApiFiles(mapped[0]!), true);
+  assert.deepEqual(mapped[1]!.groupFiles, mapped[0]!.groupFiles);
   assert.equal(
     hashes.get("SDI_NOTIFICATION"),
     createHash("sha256").update(notification).digest("hex"),
   );
+  assert.equal(mapped[0]!.remote.providerInvoiceNumber, "FPR-101");
+  assert.equal(
+    mapped[0]!.files.find((file) => file.kind === "SDI_NOTIFICATION")?.notificationInvoiceNumber,
+    "FPR-101",
+  );
+  assert.equal(mapped[1]!.remote.providerInvoiceNumber, "FPR-102");
   assert.equal(
     mapped[1]!.files.some((file) => file.kind === "SDI_NOTIFICATION"),
     false,
   );
+});
+
+test("il mapper attribuisce i file ufficiali soltanto a un gruppo con una fattura", () => {
+  const single = input();
+  single.group.invoices = single.group.invoices.slice(0, 1);
+  single.detail.invoices = single.detail.invoices.slice(0, 1);
+  const mapped = mapArubaApiInboundGroup(single);
+  const hashes = new Map(mapped[0]!.files.map((file) => [file.kind, file.sha256]));
+  assert.equal(hashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
+  assert.equal(hashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
+  assert.deepEqual(mapped[0]!.groupFiles, []);
+});
+
+test("XML e P7M usano la stessa impronta fiscale per documenti e gruppi", () => {
+  const p7m = signedXml(xml);
+  const expected = arubaFiscalPayloadSha256("ARUBA_XML", xml);
+  assert.notEqual(createHash("sha256").update(p7m).digest("hex"), expected);
+  assert.equal(arubaFiscalPayloadSha256("ARUBA_P7M", p7m), expected);
+
+  const groupedInput = input();
+  groupedInput.group.filename = "IT00000000000_SYNTH.xml.p7m";
+  groupedInput.detail.filename = "IT00000000000_SYNTH.xml.p7m";
+  groupedInput.detail.file = p7m.toString("base64");
+  const grouped = mapArubaApiInboundGroup(groupedInput);
+  assert.equal(arubaApiParityFileHash(grouped[0]!.groupFiles[0]!), expected);
+
+  groupedInput.group.invoices = groupedInput.group.invoices.slice(0, 1);
+  groupedInput.detail.invoices = groupedInput.detail.invoices.slice(0, 1);
+  const direct = mapArubaApiInboundGroup(groupedInput);
+  assert.equal(arubaApiParityFileHash(direct[0]!.files[0]!), expected);
+  assert.equal(direct[0]!.remote.xmlSha256, expected);
+});
+
+test("il PDF opzionale non blocca un documento con il payload fiscale ufficiale", () => {
+  const single = input();
+  single.group.invoices = single.group.invoices.slice(0, 1);
+  single.detail.invoices = single.detail.invoices.slice(0, 1);
+  const [document] = mapArubaApiInboundGroup({
+    ...single,
+    detail: { ...single.detail, pdfFile: null },
+  });
+  assert(document);
+  assert.equal(
+    document.files.some((candidate) => candidate.kind === "ARUBA_PDF"),
+    false,
+  );
+  assert.equal(hasRequiredArubaApiFiles(document), true);
 });
 
 test("il mapper conserva come sconosciuto il Paese destinatario assente nei dettagli storici", () => {
