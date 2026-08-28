@@ -14,7 +14,7 @@
     "build": "react-router build",
     "build:server": "tsc -p tsconfig.server.json",
     "check": "npm run check:full",
-    "check:docs": "node --test scripts/change-impact.test.mjs scripts/codex-review-gate.test.mjs scripts/prepare-production-release.node-test.mjs scripts/publish-preflight.node-test.mjs scripts/repository-content.node-test.mjs",
+    "check:docs": "node --test scripts/change-impact.test.mjs scripts/prepare-production-release.node-test.mjs scripts/publish-preflight.node-test.mjs scripts/repository-content.node-test.mjs",
     "check:standard": "npm run toolchain:check && npm run format:check && npm run lint && npm run typecheck && npm run build:server && npm run test:unit && npm run smoke:imports && npm run smoke:type-stripping && npm run build",
     "check:full": "npm run check:standard && npm run audit && npm run test:db && npm run test:provider && npm run doctor && npm run test:e2e",
     "db:migrate": "npm run build:server && node build-server/db/migrate.js",

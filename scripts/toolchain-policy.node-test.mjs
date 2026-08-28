@@ -45,15 +45,13 @@ test("i pin di Node e npm coincidono in manifest, mise e Dockerfile", async () =
   assert.deepEqual(findPinDrift(pins), []);
 });
 
-// Il gate Codex canonico usa solo stdlib ed è autocollaudato; i workflow applicativi
-// che eseguono Node devono invece installare il runtime di progetto pinzato.
+// I workflow che eseguono Node devono installare il runtime di progetto pinzato.
 test("i workflow che eseguono Node installano prima il runtime pinzato", async () => {
   const directory = new URL("../.github/workflows/", import.meta.url);
   const workflows = (await readdir(directory)).filter((name) => name.endsWith(".yml"));
   assert.ok(workflows.length > 0, "nessun workflow trovato");
 
   for (const workflow of workflows) {
-    if (workflow === "codex-review-gate.yml") continue;
     const text = await read(`.github/workflows/${workflow}`);
     const usesNode = text.search(/^\s+(?:- )?(?:run: )?(?:\|\s*)?[^\n]*\bnode /m);
     if (usesNode === -1) continue;

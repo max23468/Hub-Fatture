@@ -114,7 +114,6 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
     ),
   );
   assert.match(agents, /richiesta affermativa di pubblicazione/);
-  assert.match(agents, /P2\/P3 della review restano advisory e non autorizzano modifiche/);
   assert.match(agents, /stessa PR dell'implementazione/);
   assert.match(agents, /Non fondere la modifica runtime per aprire[\s\S]*seconda PR/);
   assert.match(masterPlan, /richiesta affermativa di pubblicazione autorizza (?:invece )?deploy/);
@@ -550,16 +549,23 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
 });
 
-test("i thread Codex advisory non duplicano il blocco delle conversazioni", async () => {
-  const [workflow, gate] = await Promise.all(
-    [".github/workflows/codex-review-gate.yml", "scripts/codex-review-gate.mjs"].map((file) =>
+test("la governance non reintroduce il gate Codex rimosso", async () => {
+  for (const file of [
+    ".github/workflows/codex-review-gate.yml",
+    "scripts/codex-review-gate.mjs",
+    "scripts/codex-review-gate.test.mjs",
+  ]) {
+    await assert.rejects(readFile(path.join(root, file), "utf8"), { code: "ENOENT" });
+  }
+  const operationalSources = await Promise.all(
+    ["AGENTS.md", "docs/Hub_Fatture_MASTER_PLAN.md", "package.json"].map((file) =>
       readFile(path.join(root, file), "utf8"),
     ),
   );
-  assert.match(workflow, /pull-requests: write/);
-  assert.match(gate, /resolveReviewThread/);
-  assert.match(gate, /advisoryThreadIds\(threads, headSha\)/);
-  assert.match(gate, /\["P0", "P1"\]/);
+  assert.doesNotMatch(
+    operationalSources.join("\n"),
+    /codex-review|@codex review|Codex review gate|Review Codex/i,
+  );
 });
 
 test("la riconciliazione Aruba non tronca i candidati fiscali", async () => {

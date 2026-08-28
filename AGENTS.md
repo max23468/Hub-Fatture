@@ -48,8 +48,7 @@ attende autonomamente gli stessi check. Questo anticipo vale soltanto dentro un
 ciclo `Pubblica` già autorizzato e non trasforma ogni merge in un auto-deploy.
 
 Prima di aprire una PR di pubblicazione, completa i gate locali applicabili e
-presenta un HEAD coerente e pronto alla review, così ogni nuovo commit riapre il
-gate Codex soltanto quando corregge un finding reale. Classifica l'impatto sul
+presenta un HEAD coerente e pronto alla review. Classifica l'impatto sul
 diff cumulativo fra l'ultimo commit distribuito e il candidato finale, non sulla
 sola ultima PR. Modifiche esclusivamente documentali, di test o di governance
 non richiedono immagine, deploy o release; più modifiche runtime correlate già
@@ -63,13 +62,6 @@ poi una seconda PR dedicata soltanto a versione, changelog o release. Se questi
 elementi non sono pronti, la PR di implementazione non è pronta al merge. Una
 deroga richiede una richiesta esplicita del proprietario riferita al caso
 specifico.
-
-I finding P2/P3 della review restano advisory e non autorizzano modifiche:
-l'agente li implementa soltanto su richiesta esplicita del proprietario. Quando
-la review è conclusa e l'evidenza si riferisce all'HEAD esatto, li riepiloga e
-prosegue con la pubblicazione; il gate risolve automaticamente soltanto i thread
-inline Codex P2/P3 già registrati sull'HEAD esatto, mentre P0/P1 e conversazioni
-umane restano bloccanti.
 
 La pulizia finale rimuove soltanto branch e worktree temporanei creati nel ciclo
 corrente e già assorbiti; controlla stash e altri residui senza alterare elementi
