@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { normalizeArubaRemoteStatusLabel, type RemoteInventoryDocument } from "./aruba-inbound.ts";
-import { arubaFiscalPayloadSha256 } from "./aruba.ts";
+import { arubaFiscalPayload, arubaFiscalPayloadSha256, validateUntrustedXml } from "./aruba.ts";
+import { fiscalDocumentEnvelopesFromXml } from "./documents.ts";
 import { decimalToCents } from "./orders.ts";
 
 const base64Schema = z
@@ -171,6 +172,15 @@ export function mapArubaApiInboundGroup(input: {
         ]
       : []),
   ];
+  const officialFile = sharedFiles.find(
+    (candidate): candidate is ArubaApiInboundFile & { kind: "ARUBA_XML" | "ARUBA_P7M" } =>
+      candidate.kind === "ARUBA_XML" || candidate.kind === "ARUBA_P7M",
+  );
+  if (!officialFile) throw new Error("ARUBA_API_FILE_INVALID");
+  const fiscalIdentities = fiscalDocumentEnvelopesFromXml(
+    validateUntrustedXml(arubaFiscalPayload(officialFile.kind, officialFile.bytes)),
+    { allowUnknownNumber: true },
+  );
   const notificationFiles = input.notifications.map((notification) => {
     const number = notification.number?.trim() || null;
     const matchingIndexes = input.detail.invoices.flatMap((invoice, index) =>
@@ -210,6 +220,15 @@ export function mapArubaApiInboundGroup(input: {
     }
     if (invoice.documentType !== "TD01" && invoice.documentType !== "TD04") return [];
     const documentDate = invoice.invoiceDate.slice(0, 10);
+    const totalAmount = cents(invoice.totalDocument);
+    const matchingFiscalIdentities = fiscalIdentities.filter(
+      (identity) =>
+        identity.type === invoice.documentType &&
+        identity.documentDate === documentDate &&
+        identity.totalAmount === totalAmount,
+    );
+    if (matchingFiscalIdentities.length !== 1) throw new Error("ARUBA_API_GROUP_MISMATCH");
+    const fiscalIdentity = matchingFiscalIdentities[0]!;
     const key = remoteKey(input.group.id, invoice);
     const taxIdentifiers = [
       ...(input.detail.receiver.vatCode
@@ -246,15 +265,15 @@ export function mapArubaApiInboundGroup(input: {
           remoteId: key,
           documentType: invoice.documentType,
           fiscalYear: Number(documentDate.slice(0, 4)),
-          series: null,
-          fiscalNumber: null,
+          series: fiscalIdentity.series,
+          fiscalNumber: fiscalIdentity.fiscalNumber,
           documentDate,
           recipientName: input.detail.receiver.description,
           recipientTaxId: input.detail.receiver.fiscalCode ?? input.detail.receiver.vatCode ?? null,
           recipientTaxIdentifiers: taxIdentifiers,
           recipientCountryCode: input.detail.receiver.countryCode,
           recipientAddress: null,
-          totalAmount: cents(invoice.totalDocument),
+          totalAmount,
           currency: "EUR" as const,
           status: normalizeArubaRemoteStatusLabel(invoice.status),
           providerStatusLabel: invoice.status,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,6 +22,7 @@ function response(value: unknown) {
 
 test("l’inbound API cifra la credenziale e completa un backfill shadow riprendibile", async () => {
   const database = await temporaryDatabase("aruba_api_inbound");
+  const documentStorage = await mkdtemp(path.join(tmpdir(), "hub-fatture-aruba-api-storage-"));
   const originalFetch = globalThis.fetch;
   let pageTwoAttempts = 0;
   let pauseAfterSearch: (() => Promise<void>) | null = null;
@@ -32,6 +33,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
   process.env.ARUBA_ACCOUNT_REFERENCE = "synthetic-aruba-account";
   process.env.CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64url");
   process.env.DATABASE_URL = database.connectionString;
+  process.env.DOCUMENT_STORAGE_ROOT = documentStorage;
   try {
     await runMigrations({ connectionString: database.connectionString });
     const legacyP7mRunId = "30000000-0000-4000-8000-000000000039";
@@ -88,8 +90,15 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       legacyBackfillRunId,
       legacyP7mRunId,
     ]);
-    const shadowInvoiceXml = await readFile(
+    const profileInvoiceXml = await readFile(
       "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
+    );
+    const shadowInvoiceXml = Buffer.from(
+      profileInvoiceXml
+        .toString("utf8")
+        .replaceAll("2026-08-10", "2019-01-01")
+        .replace("FPR 0001/26", "FPR 0001/19")
+        .replaceAll("123.45", "100.00"),
     );
     globalThis.fetch = async (input) => {
       const url = new URL(String(input));
@@ -161,7 +170,9 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
               notificationDate: "",
               number: "FPR-TARGET-1",
               result: null,
-              file: Buffer.from("notifica sintetica").toString("base64"),
+              file: Buffer.from(
+                "<RicevutaConsegna><NomeFile>IT00000000000_TARGET.xml</NomeFile></RicevutaConsegna>",
+              ).toString("base64"),
             },
           ],
         });
@@ -207,7 +218,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_INVALID",
     );
     const historicalNumberingXml = Buffer.from(
-      shadowInvoiceXml
+      profileInvoiceXml
         .toString("utf8")
         .replace("<Numero>FPR 0001/26</Numero>", "<Numero>STORICO-2019</Numero>"),
     );
@@ -371,17 +382,43 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
          last_full_scan_at, metadata_digest)
        VALUES ('MOCK', 'synthetic-aruba-account', 'browser-parity-2019', 'TD01', 2019,
          'FPR', '1', '2019-01-01', 10000, 'DELIVERED', now(), now(), repeat('b', 64))
-       RETURNING id`,
+      RETURNING id`,
     );
+    const firstParityXml = shadowInvoiceXml
+      .toString("utf8")
+      .replaceAll("2026-08-10", "2019-01-01")
+      .replace("FPR 0001/26", "FPR 0001/19")
+      .replaceAll("123.45", "100.00");
+    const firstParityBody = firstParityXml.match(
+      /<FatturaElettronicaBody[\s\S]*<\/FatturaElettronicaBody>/,
+    )?.[0];
+    assert.ok(firstParityBody);
+    const secondParityBody = firstParityBody
+      .replaceAll("2019-01-01", "2019-01-02")
+      .replace("FPR 0001/19", "FPR 0002/19")
+      .replaceAll("100.00", "200.00");
+    const groupedParityXml = firstParityXml.replace(
+      "</FatturaElettronica>",
+      `${secondParityBody}</FatturaElettronica>`,
+    );
+    const groupedParityBytes = Buffer.from(groupedParityXml);
+    const groupedParitySha256 = createHash("sha256").update(groupedParityBytes).digest("hex");
+    await mkdir(path.join(documentStorage, "aruba"), { recursive: true });
+    await Promise.all([
+      writeFile(path.join(documentStorage, "aruba/parity-2019.xml"), groupedParityBytes),
+      writeFile(path.join(documentStorage, "aruba/parity-2019-shared.xml"), groupedParityBytes),
+    ]);
     const browserFile = await getPool().query<{ id: string }>(
       `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
-       VALUES ('ARUBA_XML', 'aruba/parity-2019.xml', repeat('c', 64), 100, 'application/xml')
+       VALUES ('ARUBA_XML', 'aruba/parity-2019.xml', $1, $2, 'application/xml')
       RETURNING id`,
+      [groupedParitySha256, groupedParityBytes.byteLength],
     );
     const sharedBrowserFile = await getPool().query<{ id: string }>(
       `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
-       VALUES ('ARUBA_XML', 'aruba/parity-2019-shared.xml', repeat('c', 64), 100,
+       VALUES ('ARUBA_XML', 'aruba/parity-2019-shared.xml', $1, $2,
          'application/xml') RETURNING id`,
+      [groupedParitySha256, groupedParityBytes.byteLength],
     );
     await getPool().query(
       `INSERT INTO aruba_remote_documents
@@ -440,8 +477,9 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     await getPool().query(
       `INSERT INTO aruba_api_shadow_group_files
         (sync_run_id, provider_group_id, kind, sha256)
-       SELECT id, 'api-parity-group-2019', 'ARUBA_XML', repeat('c', 64)
+       SELECT id, 'api-parity-group-2019', 'ARUBA_XML', $1
        FROM aruba_sync_runs WHERE status = 'INCOMPLETE'`,
+      [groupedParitySha256],
     );
     await getPool().query(
       `INSERT INTO aruba_api_shadow_documents
@@ -646,10 +684,10 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     assert.equal(
       (await getPool().query("SELECT type FROM jobs WHERE id = $1", [parityRefresh.jobId])).rows[0]
         .type,
-      "aruba_full_inventory",
+      "aruba_sync_inventory",
     );
     await getPool().query("DELETE FROM jobs WHERE id = $1", [parityRefresh.jobId]);
-    assert.equal((await api.getArubaInboundClosureReadiness()).gates.PARITY_MATCHED, false);
+    assert.equal((await api.getArubaInboundClosureReadiness()).gates.PARITY_MATCHED, true);
     await getPool().query(
       `INSERT INTO aruba_remote_documents
         (environment, account_reference, remote_id, document_type, fiscal_year,
@@ -727,8 +765,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     );
     await getPool().query("UPDATE aruba_api_traffic_limits SET cooldown_until = NULL");
     const staleApiDossier = await api.getArubaInboundClosureReadiness();
-    assert.equal(staleApiDossier.readyForAuthoritySwitch, false);
-    assert.equal(staleApiDossier.blockers.includes("PARITY_MATCHED"), true);
+    assert.equal(staleApiDossier.blockers.includes("PARITY_MATCHED"), false);
     await getPool().query(
       `UPDATE aruba_sync_runs SET status = 'CANCELLED'
        WHERE authority_mode = 'SHADOW' AND status = 'COMPLETED'
@@ -790,6 +827,15 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     ]);
     assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, true);
     await getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       SELECT id, 'AMBIGUOUS', 'NONE', 3, '[{"probe":true}]'::jsonb
+       FROM aruba_remote_documents WHERE remote_id = 'browser-session-successiva-2019'
+       ON CONFLICT (remote_document_id) DO UPDATE SET
+         status = EXCLUDED.status, method = EXCLUDED.method,
+         candidates_json = EXCLUDED.candidates_json`,
+    );
+    await getPool().query(
       `UPDATE aruba_remote_documents SET remote_status = 'SDI_PROCESSING'
        WHERE remote_id = 'browser-parity-2019'`,
     );
@@ -801,11 +847,16 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
        )`,
     );
     assert.deepEqual(
-      await api.promoteArubaApiAuthority({ fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK" }, owner),
+      await api.promoteArubaApiAuthority({ fallbackDecision: "RETIRE_BROWSER_HELPER" }, owner),
       {
         automaticAuthority: "API",
-        fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK",
+        fallbackDecision: "RETIRE_BROWSER_HELPER",
       },
+    );
+    const inboundAfterCutover = await import("./aruba-inbound.server.ts");
+    await assert.rejects(
+      inboundAfterCutover.issueArubaReadSession("browser-after-api-cutover", owner),
+      (error) => error instanceof AppError && error.code === "ARUBA_READ_SESSION_FORBIDDEN",
     );
     assert.equal(
       (await getPool().query("SELECT count(*)::int AS count FROM aruba_remote_documents")).rows[0]
@@ -828,6 +879,49 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         )
       ).rows[0],
       { automatic_source: "API", provider_group_id: "api-parity-group-2019" },
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT type, payload_json->>'reason' AS reason
+           FROM jobs WHERE status = 'PENDING'`,
+        )
+      ).rows,
+      [
+        {
+          type: "aruba_refresh_nonterminal",
+          reason: "AUTHORITY_CUTOVER_RECONCILIATION",
+        },
+      ],
+    );
+    await getPool().query(
+      `UPDATE aruba_remote_documents SET remote_status = 'DELIVERED'
+       WHERE environment = 'MOCK' AND account_reference = 'synthetic-aruba-account'`,
+    );
+    targetedGroupRequests.length = 0;
+    const reconciliationJob = await jobs.claimJob("aruba-api-cutover-reconciliation-worker");
+    assert.equal(reconciliationJob?.type, "aruba_refresh_nonterminal");
+    const reconciliationResult = await api.runArubaApiInboundJob(reconciliationJob!, {
+      rateDelayMs: 0,
+      now: new Date("2019-01-01T05:00:00.000Z"),
+    });
+    assert.equal(reconciliationResult.documents, 1);
+    assert.deepEqual(targetedGroupRequests, ["api-parity-group-2019"]);
+    assert.equal(await jobs.completeJob(reconciliationJob!, reconciliationResult), true);
+    const closureReport = await import("./aruba-api-closure-report.server.ts");
+    const finalizingReport = await closureReport.getArubaInboundClosureReport();
+    assert.equal(finalizingReport.status, "FINALIZING");
+    assert.equal(finalizingReport.postSwitch.canonicalReconciliationComplete, true);
+    assert.equal(finalizingReport.postSwitch.unresolvedDocuments, 2);
+    await getPool().query(
+      `DELETE FROM aruba_document_matches
+       WHERE status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')
+          OR (status = 'UNMATCHED' AND method <> 'MANUAL')`,
+    );
+    assert.equal((await closureReport.getArubaInboundClosureReport()).status, "CLOSED");
+    await getPool().query(
+      `UPDATE aruba_remote_documents SET remote_status = 'SDI_PROCESSING'
+       WHERE provider_group_id = 'api-parity-group-2019'`,
     );
     const apiStage = await import("./aruba-api-stage.server.ts");
     const canonicalPage = await import("./aruba-api-canonical-page.server.ts");
@@ -1257,5 +1351,6 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     globalThis.fetch = originalFetch;
     await closePool();
     await database.drop();
+    await rm(documentStorage, { recursive: true, force: true });
   }
 });

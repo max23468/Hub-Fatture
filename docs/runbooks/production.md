@@ -78,6 +78,18 @@ docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T ap
 Il JSON contiene soltanto commit, versione, schema, conteggi, gate e codici tecnici. `READY` non
 esegue il passaggio di autorità: attesta soltanto che può essere richiesta la decisione del titolare.
 
+Se una scansione browser completa era già terminata quando il backfill API si è chiuso, ricostruire
+il dossier sulla popolazione temporale comune senza contattare Aruba né riscaricare documenti:
+
+```sh
+docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-web \
+  node build-server/operations/aruba-inbound-rebuild-parity.js
+```
+
+L’operazione usa le identità fiscali persistite durante la scansione API, allinea la popolazione alla
+data della baseline browser e aggiorna in modo idempotente il dossier. Non recupera identità mancanti
+da una scansione precedente e non risolve automaticamente i conflitti browser.
+
 ## Release tecnica
 
 Dopo il readback Production riuscito, il job `GitHub Release immutabile` estrae

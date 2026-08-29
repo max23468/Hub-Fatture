@@ -9,7 +9,17 @@ import {
 } from "./aruba-api-inbound.ts";
 import { arubaFiscalPayloadSha256 } from "./aruba.ts";
 
-const xml = Buffer.from('<?xml version="1.0"?><FatturaElettronica />');
+const xml = Buffer.from(`<?xml version="1.0"?>
+<FatturaElettronica versione="FPR12">
+  <FatturaElettronicaBody><DatiGenerali><DatiGeneraliDocumento>
+    <TipoDocumento>TD01</TipoDocumento><Divisa>EUR</Divisa><Data>2026-08-26</Data>
+    <Numero>FPR 101/26</Numero><ImportoTotaleDocumento>100.25</ImportoTotaleDocumento>
+  </DatiGeneraliDocumento></DatiGenerali></FatturaElettronicaBody>
+  <FatturaElettronicaBody><DatiGenerali><DatiGeneraliDocumento>
+    <TipoDocumento>TD04</TipoDocumento><Divisa>EUR</Divisa><Data>2026-08-26</Data>
+    <Numero>FPR 102/26</Numero><ImportoTotaleDocumento>10.00</ImportoTotaleDocumento>
+  </DatiGeneraliDocumento></DatiGenerali></FatturaElettronicaBody>
+</FatturaElettronica>`);
 const pdf = Buffer.from("%PDF-1.4 synthetic");
 const notification = Buffer.from('<?xml version="1.0"?><RicevutaConsegna />');
 
@@ -119,16 +129,16 @@ test("il mapper API separa i documenti del gruppo senza attribuire file condivis
       {
         group: "gruppo-sintetico",
         type: "TD01",
-        series: null,
-        number: null,
+        series: "FPR",
+        number: "101",
         total: 10_025,
         status: "DELIVERED",
       },
       {
         group: "gruppo-sintetico",
         type: "TD04",
-        series: null,
-        number: null,
+        series: "FPR",
+        number: "102",
         total: 1_000,
         status: "REJECTED",
       },
@@ -167,6 +177,18 @@ test("il mapper attribuisce i file ufficiali soltanto a un gruppo con una fattur
   assert.equal(hashes.get("ARUBA_XML"), createHash("sha256").update(xml).digest("hex"));
   assert.equal(hashes.get("ARUBA_PDF"), createHash("sha256").update(pdf).digest("hex"));
   assert.deepEqual(mapped[0]!.groupFiles, []);
+});
+
+test("il mapper conserva l’identità nulla per una numerazione storica non strutturata", () => {
+  const historical = input();
+  historical.group.invoices = historical.group.invoices.slice(0, 1);
+  historical.detail.invoices = historical.detail.invoices.slice(0, 1);
+  historical.detail.file = Buffer.from(
+    xml.toString("utf8").replace("FPR 101/26", "STORICO-2019"),
+  ).toString("base64");
+  const [document] = mapArubaApiInboundGroup(historical);
+  assert.equal(document?.remote.series, null);
+  assert.equal(document?.remote.fiscalNumber, null);
 });
 
 test("XML e P7M usano la stessa impronta fiscale per documenti e gruppi", () => {
@@ -225,6 +247,9 @@ test("il mapper normalizza al valore monetario interno un totale Aruba con segno
   const signed = input();
   signed.group.invoices = signed.group.invoices.slice(0, 1);
   signed.detail.invoices = [{ ...signed.detail.invoices[0]!, totalDocument: "-145,00" }];
+  signed.detail.file = Buffer.from(xml.toString("utf8").replace("100.25", "145.00")).toString(
+    "base64",
+  );
   const [document] = mapArubaApiInboundGroup(signed);
   assert.equal(document?.remote.totalAmount, 14_500);
 });
