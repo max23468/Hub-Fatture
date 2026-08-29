@@ -100,8 +100,10 @@ export function compareArubaInboundParity(input: {
     const apiHashes = [...new Set(apiDocument.fileHashes)].toSorted();
     const browserHashes = [...new Set(browserDocument.fileHashes)].toSorted();
     if (
-      apiHashes.length !== browserHashes.length ||
-      apiHashes.some((hash, index) => hash !== browserHashes[index])
+      apiHashes.length > 0 &&
+      browserHashes.length > 0 &&
+      (apiHashes.length !== browserHashes.length ||
+        apiHashes.some((hash, index) => hash !== browserHashes[index]))
     ) {
       fileMismatches += 1;
     }
