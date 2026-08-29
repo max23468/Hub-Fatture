@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { PRIVATE_ROBOTS_DIRECTIVE, privatePageKeys, privatePageMeta } from "./metadata.ts";
+import { WEB_MANIFEST_PATH, privateWebManifest } from "./web-manifest.ts";
 
 function titleFrom(meta: ReturnType<typeof privatePageMeta>) {
   const descriptor = meta.find((candidate) => "title" in candidate);
@@ -85,4 +86,60 @@ test("ogni route visuale dichiara i metadati della pagina", async () => {
     const source = await readFile(new URL(`./${modulePath}`, import.meta.url), "utf8");
     assert.match(source, /export function meta|export const meta/, `meta assente in ${modulePath}`);
   }
+});
+
+test("il manifest usa identità e icone canoniche senza rendere pubblica l'app", () => {
+  const manifest = privateWebManifest({
+    faviconHref: "/assets/favicon.svg",
+    appIconHref: "/assets/app-icon.png",
+  });
+
+  assert.equal(WEB_MANIFEST_PATH, "/manifest.webmanifest");
+  assert.equal(manifest.id, "/");
+  assert.equal(manifest.name, "Hub Fatture");
+  assert.equal(manifest.short_name, "Hub Fatture");
+  assert.equal(manifest.lang, "it");
+  assert.equal(manifest.start_url, "/");
+  assert.equal(manifest.scope, "/");
+  assert.equal(manifest.display, "standalone");
+  assert.equal(manifest.background_color, "#f4f8fa");
+  assert.equal(manifest.theme_color, "#064b63");
+  assert.deepEqual(manifest.icons, [
+    {
+      src: "/assets/favicon.svg",
+      sizes: "any",
+      type: "image/svg+xml",
+      purpose: "any",
+    },
+    {
+      src: "/assets/app-icon.png",
+      sizes: "1200x1200",
+      type: "image/png",
+      purpose: "any",
+    },
+  ]);
+});
+
+test("la shell browser espone manifest, fallback icone e integrazione mobile", async () => {
+  const [root, routes, manifestRoute, caddy] = await Promise.all(
+    [
+      "root.tsx",
+      "routes.ts",
+      "routes/manifest.ts",
+      "../ops/Caddyfile.production",
+    ].map((file) => readFile(new URL(`./${file}`, import.meta.url), "utf8")),
+  );
+
+  assert.match(routes, /route\("manifest\.webmanifest", "routes\/manifest\.ts"\)/);
+  assert.match(root, /rel="manifest"/);
+  assert.match(root, /type="image\/svg\+xml" sizes="any"/);
+  assert.match(root, /type="image\/png" sizes="1200x1200"/);
+  assert.match(root, /rel="apple-touch-icon"/);
+  assert.match(root, /rel="mask-icon"/);
+  assert.match(root, /name="mobile-web-app-capable" content="yes"/);
+  assert.match(root, /name="apple-mobile-web-app-capable" content="yes"/);
+  assert.match(root, /name="color-scheme" content="light dark"/);
+  assert.match(manifestRoute, /application\/manifest\+json/);
+  assert.match(manifestRoute, /X-Robots-Tag/);
+  assert.ok(caddy.includes(`X-Robots-Tag "${PRIVATE_ROBOTS_DIRECTIVE}"`));
 });
