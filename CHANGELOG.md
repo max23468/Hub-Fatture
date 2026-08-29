@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.94
+
+- Il retry manuale di un backfill Aruba fallito continua dal checkpoint consolidato e conserva documenti, file e notifiche shadow già validati, invece di riavviare lo storico dal 2019. La continuazione resta fail-closed e mantiene autorità browser, limiti API e audit del job.
+- Il test del rate limit misura l’intervallo di lettura usando l’orologio applicativo, evitando falsi errori quando PostgreSQL nel container ha uno scarto temporale rispetto al processo Node.
+
 ## 0.3.93
 
 - Il backfill Aruba può usare temporaneamente un intervallo prudente di 5,2 secondi fra le letture, restando sotto il limite documentato di 12 richieste al minuto per canale. Il valore predefinito resta 6,1 secondi, la configurazione rifiuta valori fuori dall’intervallo sicuro e conserva coordinamento PostgreSQL, singolo giro canonico e cooldown condiviso sui `429`.
