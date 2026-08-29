@@ -53,7 +53,7 @@ stato e file ufficiali; Hub Fatture conserva una proiezione locale datata e una 
 - utenza Aruba Base collegata mediante delega a un account abilitato ai Web Services;
 - sole fatture inviate del ciclo attivo, inclusi TD01 e TD04;
 - ambiente mock con fixture sanificate e Production con qualifiche limitate e autorizzate;
-- backfill di tutto lo storico disponibile;
+- inventario iniziale dal 1° luglio 2026;
 - polling incrementale ogni 15 minuti, rilettura mirata degli stati non terminali e scansione
   completa mensile;
 - comando read-only `Sincronizza ora` per Massimo e Codex;
@@ -86,7 +86,7 @@ stato e file ufficiali; Hub Fatture conserva una proiezione locale datata e una 
 | Modalità predefinita     | `Solo documento`                                                                                       |
 | Modalità di trasmissione | Globali e rigide; nessun override per batch o documento                                                |
 | Freshness                | avviso dopo 30 minuti; blocco dopo 4 ore; conflitto o incertezza bloccano subito                       |
-| Backfill                 | tutto lo storico disponibile, progressivo e riprendibile                                               |
+| Backfill                 | dal 1° luglio 2026, progressivo e riprendibile                                                         |
 | Retry invio              | automatico soltanto quando è provata l’idempotenza o la mancata accettazione                           |
 | Helper                   | ritiro separato per inbound e outbound, deciso esplicitamente da Massimo dopo un dossier di parità     |
 | Canary                   | un TD01 reale legittimo, scelto da Massimo e protetto da permesso monouso                              |
@@ -170,7 +170,7 @@ non un’approssimazione.
 
 ### 6.2 Backfill completo
 
-Il primo giro divide lo storico disponibile in finestre compatibili con il contratto Aruba, pagina
+Il primo giro divide il periodo dal 1° luglio 2026 al momento di avvio in finestre compatibili con il contratto Aruba, pagina
 ogni finestra fino al terminale e salva un checkpoint soltanto dopo il commit idempotente della
 pagina. Si arresta sui rate limit e riprende dal checkpoint. Metadati e file vengono acquisiti in
 modo progressivo, validati prima della persistenza e deduplicati per hash.

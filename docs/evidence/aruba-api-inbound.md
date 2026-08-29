@@ -10,7 +10,7 @@ conferma esplicita.
 Il manifesto comprende soltanto:
 
 - autenticazione e `userInfo` per verificare ambiente, account attivo e identità fiscale attesa;
-- `GET /api/v2/invoices-out` dal `2019-01-01` al momento di avvio, in finestre massime di 48 ore e
+- `GET /api/v2/invoices-out` dal `2026-07-01` al momento di avvio, in finestre massime di 48 ore e
   pagine da 10 gruppi;
 - dettaglio con XML o P7M e PDF opzionale per i soli gruppi non vuoti;
 - notifiche SdI per gli stessi gruppi;

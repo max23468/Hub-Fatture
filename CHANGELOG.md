@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- L’inventario API Aruba usa come confine permanente il 1° luglio 2026: la prima scansione completa e le full mensili non rileggono periodi anteriori, mentre gli incrementali mantengono la sovrapposizione senza oltrepassare il confine e i dati storici già acquisiti restano conservati.
+- Il dossier confronta API, baseline browser e conflitti soltanto sulla popolazione temporale comune dal 1° luglio 2026, evitando divergenze prodotte da documenti intenzionalmente fuori perimetro; una continuazione precedente al nuovo confine non viene ripresa.
+
 ## 0.4.1
 
 - Il backfill e le scansioni complete Aruba ricavano e persistono l’identità fiscale dai byte XML/P7M anche nei gruppi con più fatture, senza invalidare il dossier quando un incrementale shadow successivo completa; la parità usa una popolazione temporale comune e resta fail-closed sui conflitti browser.
