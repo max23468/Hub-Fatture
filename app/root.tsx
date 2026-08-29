@@ -13,8 +13,10 @@ import type { MetaFunction } from "react-router";
 import { PublicCardHeader, PublicPage } from "./components/public-page";
 import { copy } from "./copy.it";
 import { privateRouteMeta } from "./metadata";
+import { WEB_MANIFEST_PATH } from "./web-manifest";
 import favicon from "../docs/brand/assets/favicon.svg?url";
 import appIcon from "../docs/brand/assets/shopify-app-icon.png?url";
+import maskIcon from "../docs/brand/assets/shopify-navigation-icon.svg?url";
 import "./styles.css";
 import "./styles/aruba-settings.css";
 import "./styles/preparation.css";
@@ -27,9 +29,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="light dark" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <Meta />
-        <link rel="icon" href={favicon} type="image/svg+xml" />
+        <link rel="manifest" href={WEB_MANIFEST_PATH} />
+        <link rel="icon" href={favicon} type="image/svg+xml" sizes="any" />
+        <link rel="icon" href={appIcon} type="image/png" sizes="1200x1200" />
         <link rel="apple-touch-icon" href={appIcon} />
+        <link rel="mask-icon" href={maskIcon} color="#064b63" />
         <script dangerouslySetInnerHTML={{ __html: uiBootstrap }} />
         <Links />
       </head>

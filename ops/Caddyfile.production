@@ -25,6 +25,7 @@ fatture.opik.net {
 		Referrer-Policy same-origin
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
+		X-Robots-Tag "noindex, nofollow, noarchive, nosnippet, noimageindex"
 	}
 
 	encode zstd gzip
