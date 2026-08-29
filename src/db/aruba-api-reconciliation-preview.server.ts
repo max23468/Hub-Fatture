@@ -26,8 +26,9 @@ export async function getArubaApiReconciliationPreview() {
     `WITH candidate_run AS (
        SELECT runs.id, runs.status
        FROM aruba_sync_runs AS runs
-       WHERE runs.environment = $1 AND runs.kind = 'BACKFILL'
-       ORDER BY runs.started_at DESC, runs.id DESC
+       WHERE runs.environment = $1 AND runs.kind IN ('BACKFILL', 'FULL')
+         AND runs.authority_mode = 'SHADOW'
+       ORDER BY runs.completed_at DESC NULLS FIRST, runs.started_at DESC, runs.id DESC
        LIMIT 1
      ), unresolved AS (
        SELECT DISTINCT matches.id, matches.status, remote.document_type, remote.fiscal_year,

@@ -31,6 +31,7 @@ import {
   type ArubaApiSession,
 } from "../integrations/aruba-api.server.ts";
 import { writeAudit } from "./audit.server.ts";
+import { arubaUnresolvedCandidateSql } from "./billing-case-sql.server.ts";
 import {
   assertArubaApiCooldownInactive,
   getArubaApiTrafficStatus,
@@ -676,6 +677,15 @@ export async function promoteArubaApiAuthority(
        WHERE environment = $1 AND account_reference = $2
          AND source = 'HELPER' AND status IN ('ACTIVE', 'SCANNING')`,
       [inventoryEnvironment(), current.account_reference],
+    );
+    await client.query(
+      `INSERT INTO jobs (type, payload_json)
+       VALUES ('aruba_refresh_nonterminal', jsonb_build_object(
+         'reason', 'AUTHORITY_CUTOVER_RECONCILIATION',
+         'requestedBy', $1::text
+       ))
+       ON CONFLICT DO NOTHING`,
+      [String(actor.id)],
     );
     await writeAudit(client, {
       actorType: "ADMIN",
@@ -1855,11 +1865,29 @@ async function targetedDocuments(
 ) {
   const groups = await getPool().query<{ provider_group_id: string }>(
     run.authority_mode === "CANONICAL"
-      ? `SELECT DISTINCT provider_group_id FROM aruba_remote_documents
-     WHERE environment = $1 AND account_reference = $2
-       AND automatic_source = 'API' AND provider_group_id IS NOT NULL
-       AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
-     ORDER BY provider_group_id`
+      ? `WITH unresolved AS (
+           SELECT DISTINCT matches.remote_document_id
+           FROM aruba_document_matches AS matches
+           LEFT JOIN LATERAL jsonb_array_elements(matches.candidates_json) AS candidate ON true
+           WHERE (
+             (matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
+               AND ${arubaUnresolvedCandidateSql("candidate")})
+             OR matches.status IN (
+               'AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE'
+             )
+           )
+         )
+         SELECT DISTINCT remote.provider_group_id
+         FROM aruba_remote_documents AS remote
+         LEFT JOIN unresolved ON unresolved.remote_document_id = remote.id
+         WHERE remote.environment = $1 AND remote.account_reference = $2
+           AND remote.automatic_source = 'API' AND remote.provider_group_id IS NOT NULL
+           AND remote.remote_status <> 'REJECTED'
+           AND (
+             remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+             OR unresolved.remote_document_id IS NOT NULL
+           )
+         ORDER BY remote.provider_group_id`
       : `SELECT DISTINCT provider_group_id FROM aruba_api_latest_shadow_documents
      WHERE environment = $1 AND account_reference = $2
        AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')

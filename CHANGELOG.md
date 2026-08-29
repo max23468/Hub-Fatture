@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Il backfill e le scansioni complete Aruba ricavano e persistono l’identità fiscale dai byte XML/P7M anche nei gruppi con più fatture, senza invalidare il dossier quando un incrementale shadow successivo completa; la parità usa una popolazione temporale comune e resta fail-closed sui conflitti browser.
+- Il passaggio atomico all’autorità API accoda una riconciliazione canonica mirata che rilegge con file e notifiche ufficiali anche i documenti terminali ancora `Da verificare`, senza trasformare date e importi in collegamenti automatici.
+- Il report di chiusura distingue preparazione, finalizzazione e chiusura effettiva: M9 risulta chiusa soltanto dopo audit del cutover, job canonico completato, nessuna attività o errore operativo e zero verifiche Aruba irrisolte.
+
 ## 0.4.0
 
 - Il backfill API Aruba cede il worker dopo ogni pagina consolidata, conserva il checkpoint e riprende dalla coda senza consumare tentativi; i job operativi non restano più bloccati dietro una scansione storica lunga e lo stop Production concede fino a tre minuti per completare la pagina in corso.

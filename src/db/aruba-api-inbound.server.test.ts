@@ -170,7 +170,9 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
               notificationDate: "",
               number: "FPR-TARGET-1",
               result: null,
-              file: Buffer.from("notifica sintetica").toString("base64"),
+              file: Buffer.from(
+                "<RicevutaConsegna><NomeFile>IT00000000000_TARGET.xml</NomeFile></RicevutaConsegna>",
+              ).toString("base64"),
             },
           ],
         });
@@ -825,6 +827,15 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     ]);
     assert.equal((await api.getArubaInboundClosureReadiness()).readyForAuthoritySwitch, true);
     await getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       SELECT id, 'AMBIGUOUS', 'NONE', 3, '[{"probe":true}]'::jsonb
+       FROM aruba_remote_documents WHERE remote_id = 'browser-session-successiva-2019'
+       ON CONFLICT (remote_document_id) DO UPDATE SET
+         status = EXCLUDED.status, method = EXCLUDED.method,
+         candidates_json = EXCLUDED.candidates_json`,
+    );
+    await getPool().query(
       `UPDATE aruba_remote_documents SET remote_status = 'SDI_PROCESSING'
        WHERE remote_id = 'browser-parity-2019'`,
     );
@@ -863,6 +874,49 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         )
       ).rows[0],
       { automatic_source: "API", provider_group_id: "api-parity-group-2019" },
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT type, payload_json->>'reason' AS reason
+           FROM jobs WHERE status = 'PENDING'`,
+        )
+      ).rows,
+      [
+        {
+          type: "aruba_refresh_nonterminal",
+          reason: "AUTHORITY_CUTOVER_RECONCILIATION",
+        },
+      ],
+    );
+    await getPool().query(
+      `UPDATE aruba_remote_documents SET remote_status = 'DELIVERED'
+       WHERE environment = 'MOCK' AND account_reference = 'synthetic-aruba-account'`,
+    );
+    targetedGroupRequests.length = 0;
+    const reconciliationJob = await jobs.claimJob("aruba-api-cutover-reconciliation-worker");
+    assert.equal(reconciliationJob?.type, "aruba_refresh_nonterminal");
+    const reconciliationResult = await api.runArubaApiInboundJob(reconciliationJob!, {
+      rateDelayMs: 0,
+      now: new Date("2019-01-01T05:00:00.000Z"),
+    });
+    assert.equal(reconciliationResult.documents, 1);
+    assert.deepEqual(targetedGroupRequests, ["api-parity-group-2019"]);
+    assert.equal(await jobs.completeJob(reconciliationJob!, reconciliationResult), true);
+    const closureReport = await import("./aruba-api-closure-report.server.ts");
+    const finalizingReport = await closureReport.getArubaInboundClosureReport();
+    assert.equal(finalizingReport.status, "FINALIZING");
+    assert.equal(finalizingReport.postSwitch.canonicalReconciliationComplete, true);
+    assert.equal(finalizingReport.postSwitch.unresolvedDocuments, 2);
+    await getPool().query(
+      `DELETE FROM aruba_document_matches
+       WHERE status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')
+          OR (status = 'UNMATCHED' AND method <> 'MANUAL')`,
+    );
+    assert.equal((await closureReport.getArubaInboundClosureReport()).status, "CLOSED");
+    await getPool().query(
+      `UPDATE aruba_remote_documents SET remote_status = 'SDI_PROCESSING'
+       WHERE provider_group_id = 'api-parity-group-2019'`,
     );
     const apiStage = await import("./aruba-api-stage.server.ts");
     const canonicalPage = await import("./aruba-api-canonical-page.server.ts");

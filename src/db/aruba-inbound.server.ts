@@ -34,11 +34,9 @@ import { hashToken } from "../crypto.server.ts";
 import {
   acceptedCreditNoteFromXml,
   acceptedDocumentFiscalIdentity,
+  acceptedFiscalDocumentEvidenceFromXml,
   acceptedInvoiceFromXml,
-  acceptedRecipientFromXml,
   documentInputSchema,
-  fiscalDocumentEnvelopeFromXml,
-  fiscalDocumentReferencesFromXml,
   fiscalProfileSchema,
   projectFatturaXml,
   type FiscalProfile,
@@ -1116,7 +1114,15 @@ function acceptedRecipientName(
 }
 
 function officialEvidence(remote: RemoteInventoryDocument, xml: string): RemoteInventoryDocument {
-  const identity = fiscalDocumentEnvelopeFromXml(xml);
+  const evidence = acceptedFiscalDocumentEvidenceFromXml(xml, {
+    type: remote.documentType,
+    year: remote.fiscalYear,
+    documentDate: remote.documentDate,
+    totalAmount: remote.totalAmount,
+    series: remote.series,
+    fiscalNumber: remote.fiscalNumber,
+  });
+  const identity = evidence.identity;
   if (
     remote.documentType !== identity.type ||
     remote.fiscalYear !== identity.year ||
@@ -1127,7 +1133,7 @@ function officialEvidence(remote: RemoteInventoryDocument, xml: string): RemoteI
   ) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
-  const recipient = acceptedRecipientFromXml(xml);
+  const recipient = evidence.recipient;
   const authoritativeRecipient = {
     recipientName: acceptedRecipientName(recipient),
     recipientTaxId: recipient.taxIdentifiers[0]?.value ?? null,
@@ -1149,14 +1155,14 @@ function officialEvidence(remote: RemoteInventoryDocument, xml: string): RemoteI
       ...remote,
       ...authoritativeRecipient,
       xmlSha256: createHash("sha256").update(xml).digest("hex"),
-      orderReferences: fiscalDocumentReferencesFromXml(xml),
+      orderReferences: evidence.orderReferences,
     };
   }
   return {
     ...remote,
     ...authoritativeRecipient,
     xmlSha256: createHash("sha256").update(xml).digest("hex"),
-    orderReferences: fiscalDocumentReferencesFromXml(xml),
+    orderReferences: evidence.orderReferences,
   };
 }
 
@@ -2077,7 +2083,9 @@ async function importArubaRemoteOfficialFileAuthorized(
           `INSERT INTO sdi_notifications
             (remote_document_id, remote_notification_id, type, status, storage_object_id, metadata_json)
            VALUES ($1, $2, $3, $3, $4, '{}')
-           ON CONFLICT (remote_document_id, remote_notification_id) DO NOTHING`,
+           ON CONFLICT (remote_document_id, remote_notification_id)
+             WHERE remote_document_id IS NOT NULL
+           DO NOTHING`,
           [
             remoteDocumentId,
             apiAuthorization?.notificationId ?? digest,

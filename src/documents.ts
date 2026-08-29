@@ -186,44 +186,53 @@ export function fiscalProfileFromAcceptedInvoiceXml(
   });
 }
 
-function acceptedFiscalDocument(xml: string) {
+function acceptedFiscalDocuments(xml: string) {
   const parsed = create(xml).end({ format: "object" }) as Record<string, unknown>;
   const root = xmlRecord(parsed.FatturaElettronica);
   const header = xmlRecord(root.FatturaElettronicaHeader);
-  const body = xmlRecord(root.FatturaElettronicaBody);
-  const general = xmlRecord(xmlRecord(body.DatiGenerali).DatiGeneraliDocumento);
   const transmission = xmlRecord(header.DatiTrasmissione);
   const transmitter = xmlRecord(transmission.IdTrasmittente);
   const supplier = xmlRecord(header.CedentePrestatore);
   const supplierVat = xmlRecord(xmlRecord(supplier.DatiAnagrafici).IdFiscaleIVA);
-  const type = xmlValue(general.TipoDocumento);
-  const documentDate = xmlValue(general.Data);
-  const documentNumber = /^FPR (\d+)\/(\d{2})$/.exec(xmlValue(general.Numero));
-  const year = Number(documentDate.slice(0, 4));
-  if (
-    xmlValue(root["@versione"]) !== "FPR12" ||
-    !["TD01", "TD04"].includes(type) ||
-    xmlValue(general.Divisa) !== "EUR" ||
-    !documentNumber ||
-    Number(documentNumber[2]) !== year % 100
-  ) {
+  if (xmlValue(root["@versione"]) !== "FPR12") {
     throw new Error("Il documento fiscale non è FPR12, EUR o numerato correttamente");
   }
-  return {
-    xml,
-    header,
-    body,
-    type,
-    documentDate,
-    documentNumber: xmlValue(general.Numero),
-    totalAmount: xmlOptional(general.ImportoTotaleDocumento)
-      ? decimalToCents(xmlValue(general.ImportoTotaleDocumento))
-      : undefined,
-    year,
-    number: Number(documentNumber[1]),
-    transmitter: `${xmlValue(transmitter.IdPaese)}:${xmlValue(transmitter.IdCodice)}`,
-    seller: `${xmlValue(supplierVat.IdPaese)}:${xmlValue(supplierVat.IdCodice)}`,
-  };
+  return xmlArray(root.FatturaElettronicaBody).map((body) => {
+    const general = xmlRecord(xmlRecord(body.DatiGenerali).DatiGeneraliDocumento);
+    const type = xmlValue(general.TipoDocumento);
+    const documentDate = xmlValue(general.Data);
+    const documentNumber = /^FPR (\d+)\/(\d{2})$/.exec(xmlValue(general.Numero));
+    const year = Number(documentDate.slice(0, 4));
+    if (
+      !["TD01", "TD04"].includes(type) ||
+      xmlValue(general.Divisa) !== "EUR" ||
+      !documentNumber ||
+      Number(documentNumber[2]) !== year % 100
+    ) {
+      throw new Error("Il documento fiscale non è FPR12, EUR o numerato correttamente");
+    }
+    return {
+      xml,
+      header,
+      body,
+      type,
+      documentDate,
+      documentNumber: xmlValue(general.Numero),
+      totalAmount: xmlOptional(general.ImportoTotaleDocumento)
+        ? decimalToCents(xmlValue(general.ImportoTotaleDocumento))
+        : undefined,
+      year,
+      number: Number(documentNumber[1]),
+      transmitter: `${xmlValue(transmitter.IdPaese)}:${xmlValue(transmitter.IdCodice)}`,
+      seller: `${xmlValue(supplierVat.IdPaese)}:${xmlValue(supplierVat.IdCodice)}`,
+    };
+  });
+}
+
+function acceptedFiscalDocument(xml: string) {
+  const documents = acceptedFiscalDocuments(xml);
+  if (documents.length !== 1) throw new Error("Il file contiene più documenti fiscali");
+  return documents[0]!;
 }
 
 /** Identità fiscali contenute in un file FatturaPA, inclusi i gruppi con più body. */
@@ -385,6 +394,10 @@ export function fiscalDocumentEnvelopeFromXml(xml: string) {
 /** Riferimenti di riconciliazione leggibili anche per documenti fuori dal profilo attivo. */
 export function fiscalDocumentReferencesFromXml(xml: string) {
   const source = acceptedFiscalDocument(xml);
+  return fiscalDocumentReferences(source);
+}
+
+function fiscalDocumentReferences(source: ReturnType<typeof acceptedFiscalDocument>) {
   const generalBlock = xmlRecord(source.body.DatiGenerali);
   const general = xmlRecord(generalBlock.DatiGeneraliDocumento);
   const goods = xmlRecord(source.body.DatiBeniServizi);
@@ -400,6 +413,49 @@ export function fiscalDocumentReferencesFromXml(xml: string) {
     );
   }
   return references;
+}
+
+/** Prova ufficiale del solo body che coincide in modo univoco con il documento remoto. */
+export function acceptedFiscalDocumentEvidenceFromXml(
+  xml: string,
+  expected: {
+    type: "TD01" | "TD04";
+    year: number;
+    documentDate: string;
+    totalAmount: number;
+    series: string | null;
+    fiscalNumber: string | null;
+  },
+) {
+  const matches = acceptedFiscalDocuments(xml).filter((source) => {
+    const totalAmount = source.totalAmount ?? acceptedLineTotal(source.body);
+    return (
+      source.type === expected.type &&
+      source.year === expected.year &&
+      source.documentDate === expected.documentDate &&
+      totalAmount === expected.totalAmount &&
+      (!expected.series || normalizedDocumentPart(expected.series) === "FPR") &&
+      (!expected.fiscalNumber || Number(expected.fiscalNumber) === source.number)
+    );
+  });
+  if (matches.length !== 1) throw new Error("Il documento fiscale ufficiale non è univoco");
+  const source = matches[0]!;
+  return {
+    identity: {
+      type: source.type as "TD01" | "TD04",
+      year: source.year,
+      number: source.number,
+      documentNumber: source.documentNumber,
+      documentDate: source.documentDate,
+      totalAmount: source.totalAmount ?? acceptedLineTotal(source.body),
+    },
+    recipient: acceptedRecipient(source),
+    orderReferences: fiscalDocumentReferences(source),
+  };
+}
+
+function normalizedDocumentPart(value: string) {
+  return value.replace(/[^\p{L}\p{N}]/gu, "").toUpperCase();
 }
 
 /** Dati autorevoli necessari per collegare a HF una fattura storica scaricata da Aruba. */
