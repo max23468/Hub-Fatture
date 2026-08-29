@@ -1,13 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import pg from "pg";
 
-import { runHelper } from "../../scripts/aruba-helper.ts";
 import { SESSION_TTL_SECONDS } from "../../src/config.server.ts";
 import { encryptCredential } from "../../src/crypto.server.ts";
+import { latestMigrationFileName } from "../../src/migration-files.ts";
 import { withResetE2eDatabase } from "./database.ts";
 
 const databaseUrl =
@@ -97,7 +96,7 @@ test.beforeAll(async () => {
     await client.query(
       `INSERT INTO settings (key, value_json) VALUES
          ('draft_trigger', '"PAID"'),
-         ('aruba_mode', '"ASSISTED"'),
+         ('aruba_mode', '"DOCUMENT_ONLY"'),
          ('shopify_payment_fee_mode', '"DEDUCT"'),
          ('customer_email_mode', '"AUTOMATIC"')
        ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, version = 1`,
@@ -372,10 +371,10 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(
     await page.locator(".session-list").evaluate((list) => list.scrollHeight > list.clientHeight),
   ).toBe(true);
-  const inboundMigration = page.getByText("039_aruba_p7m_parity_normalization.sql", {
+  const latestMigration = page.getByText(latestMigrationFileName(await readdir("migrations")), {
     exact: true,
   });
-  await expect(inboundMigration).toBeVisible();
+  await expect(latestMigration).toBeVisible();
   await expect(page.getByText("Disabilitato", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Nessuna ricevuta valida disponibile", { exact: true }),
@@ -833,7 +832,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
        (id, environment, mode, account_reference, manifest_sha256, document_count, status,
         requires_reconciliation, created_by, last_readback_at)
      VALUES
-       ('00000000-0000-4000-8000-000000000073', 'MOCK', 'ASSISTED', 'synthetic', $1, 1,
+       ('00000000-0000-4000-8000-000000000073', 'MOCK', 'DOCUMENT_ONLY', 'synthetic', $1, 1,
         'RECONCILIATION_REQUIRED', true, (SELECT id FROM users ORDER BY id LIMIT 1), now())`,
     ["7".repeat(64)],
   );
@@ -1336,65 +1335,31 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect(xmlDownload.headers()["content-type"]).toContain("application/xml");
   expect((await xmlDownload.body()).subarray(0, 5).toString()).toBe("<?xml");
 
-  await page.getByRole("button", { name: "Genera codice di avvio" }).click();
-  const assistedToken = (await page.locator(".code-block").textContent())?.trim();
-  expect(assistedToken).toHaveLength(43);
-  const assistedManifestResponse = await fetch(`${appBaseUrl}/api/aruba/helper/manifest`, {
-    headers: { Authorization: `Bearer ${assistedToken}` },
+  await expect(
+    page
+      .locator(".document-batch-list")
+      .getByText("Solo documento; nessuna trasmissione pianificata", { exact: true })
+      .first(),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Genera codice di avvio" })).toHaveCount(0);
+  const outboundBatchClient = new pg.Client({ connectionString: databaseUrl });
+  await outboundBatchClient.connect();
+  const outboundBatch = await outboundBatchClient.query<{
+    mode: string;
+    transport: string;
+    status: string;
+  }>(
+    `SELECT mode, transport, status
+     FROM aruba_batches
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+  );
+  await outboundBatchClient.end();
+  expect(outboundBatch.rows[0]).toEqual({
+    mode: "DOCUMENT_ONLY",
+    transport: "API",
+    status: "DOCUMENT_ONLY",
   });
-  expect(assistedManifestResponse.ok).toBe(true);
-  const assistedManifest = (await assistedManifestResponse.json()) as {
-    documents: Array<{ id: string }>;
-  };
-  const assistedProfile = await mkdtemp(path.join(tmpdir(), "hub-fatture-aruba-assisted-"));
-  try {
-    expect(
-      await runHelper({
-        hubUrl: appBaseUrl,
-        token: assistedToken!,
-        profileDirectory: assistedProfile,
-        browser: "chromium",
-        headless: true,
-        mockScenario: "login-auto",
-        closeAfterStop: true,
-      }),
-    ).toBe("ASSISTED_STOP");
-  } finally {
-    await rm(assistedProfile, { recursive: true, force: true });
-  }
-  const revokedResponse = await fetch(`${appBaseUrl}/api/aruba/helper/eventi`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${assistedToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      type: "READBACK",
-      documents: assistedManifest.documents.map((document) => ({
-        id: document.id,
-        status: "REMOVED",
-      })),
-    }),
-  });
-  expect(revokedResponse.status).toBe(401);
-  await page.reload();
-  await page.getByRole("button", { name: "Genera codice di avvio" }).click();
-  const readbackToken = (await page.locator(".code-block").textContent())?.trim();
-  const cleanupResponse = await fetch(`${appBaseUrl}/api/aruba/helper/eventi`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${readbackToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      type: "READBACK",
-      documents: assistedManifest.documents.map((document) => ({
-        id: document.id,
-        status: "REMOVED",
-      })),
-    }),
-  });
-  expect(cleanupResponse.ok).toBe(true);
 
   await page.getByRole("link", { name: "Impostazioni" }).click();
   const arubaApiSettings = page.locator("#aruba-api");
@@ -1430,7 +1395,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const arubaStackSpacing = await page.locator(".aruba-settings-stack").evaluate((stack) => {
     const panels = Array.from(stack.children).filter((element) =>
       element.matches(
-        ".aruba-api-card, .aruba-sync-card, .aruba-bookmarklet, .aruba-inventory-card, .settings-disclosure, .settings-transmission-section",
+        ".aruba-api-card, .aruba-sync-card, .aruba-bookmarklet, .aruba-inventory-card, .aruba-monthly-usage-card, .settings-disclosure, .settings-transmission-section",
       ),
     );
     const boxes = panels.map((panel) => panel.getBoundingClientRect());
@@ -1743,7 +1708,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     { status: "COMPLETED", full_scan: false },
     { status: "COMPLETED", full_scan: true },
   ]);
-  await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC");
+  await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC_AFTER_APPROVAL");
   const settingsResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" && response.url().includes("/impostazioni"),
@@ -1752,37 +1717,14 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   expect((await settingsResponse).status()).toBeLessThan(400);
   await expect(page).toHaveURL(/aruba=salvata/);
   await expect(page.getByRole("status")).toContainText("Impostazioni Aruba aggiornate");
-  await expect(page.getByLabel("Modalità Aruba")).toHaveValue("AUTOMATIC");
-  await page.getByRole("link", { name: "Documenti", exact: true }).click();
-  const retryResponse = page.waitForResponse(
-    (response) => response.request().method() === "POST" && response.url().includes("/documenti"),
+  await expect(page.getByLabel("Modalità Aruba")).toHaveValue("AUTOMATIC_AFTER_APPROVAL");
+  await expect(page.getByRole("region", { name: "Trasmissioni Aruba del mese" })).toContainText(
+    "0 documenti accettati",
   );
-  const retryButton = page.getByRole("button", { name: "Prepara nuovo tentativo" });
-  await retryButton.focus();
-  await retryButton.press("Enter");
-  if ((await retryResponse).status() >= 400) {
-    await page.getByRole("alert").waitFor();
-    throw new Error((await page.getByRole("alert").textContent()) ?? "Retry Aruba non riuscito");
-  }
-  await expect(page).toHaveURL(/batch=creato/);
-  await page.getByRole("button", { name: "Genera codice di avvio" }).first().click();
-  const retryToken = (await page.locator(".code-block").textContent())?.trim();
-  expect(retryToken).toHaveLength(43);
-  const retryProfile = await mkdtemp(path.join(tmpdir(), "hub-fatture-aruba-retry-"));
-  try {
-    expect(
-      await runHelper({
-        hubUrl: appBaseUrl,
-        token: retryToken!,
-        profileDirectory: retryProfile,
-        browser: "chromium",
-        headless: true,
-        closeAfterStop: true,
-      }),
-    ).toBe("ASSISTED_STOP");
-  } finally {
-    await rm(retryProfile, { recursive: true, force: true });
-  }
+  await expect(page.getByText(/le approvazioni creano soltanto il documento/)).toBeVisible();
+  await page.getByRole("link", { name: "Documenti", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Prepara nuovo tentativo" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Genera codice di avvio" })).toHaveCount(0);
 
   process.env.APP_ENV = "test";
   process.env.APP_BASE_URL = appBaseUrl;
@@ -1905,7 +1847,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     )
   ).rows[0]!.id;
   await database.getPool().query(
-    `UPDATE settings SET value_json = '"ASSISTED"'::jsonb, version = version + 1
+    `UPDATE settings SET value_json = '"DOCUMENT_ONLY"'::jsonb, version = version + 1
      WHERE key = 'aruba_mode'`,
   );
   const noteId = await refunds.processRefund(refundId);
@@ -1936,11 +1878,18 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     .getByLabel(/Confermo rimborsi, riferimenti alla fattura, totale e numerazione irreversibile/)
     .check();
   await page.getByRole("button", { name: "Approva, numera e prepara per Aruba" }).click();
-  await expect(page).toHaveURL(/\/documenti$/);
+  await expect(page).toHaveURL(/\/documenti$/, { timeout: 60_000 });
 
   const note = (
-    await database.getPool().query<{ filename: string; batch_id: string }>(
-      `SELECT batch_documents.filename, batch_documents.batch_id
+    await database.getPool().query<{
+      filename: string;
+      batch_id: string;
+      mode: string;
+      transport: string;
+      status: string;
+    }>(
+      `SELECT batch_documents.filename, batch_documents.batch_id,
+              batches.mode, batches.transport, batches.status
        FROM aruba_batch_documents AS batch_documents
        JOIN aruba_batches AS batches ON batches.id = batch_documents.batch_id
        WHERE batch_documents.document_id = $1
@@ -1948,23 +1897,16 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
       [noteId],
     )
   ).rows[0]!;
-  const noteToken = await aruba.issueHelperToken(note.batch_id, actor);
-  const noteProfile = await mkdtemp(path.join(tmpdir(), "hub-fatture-m6-td04-"));
-  try {
-    expect(
-      await runHelper({
-        hubUrl: appBaseUrl,
-        token: noteToken.token,
-        profileDirectory: noteProfile,
-        browser: "chromium",
-        headless: true,
-        mockScenario: "valid",
-        closeAfterStop: true,
-      }),
-    ).toBe("ASSISTED_STOP");
-  } finally {
-    await rm(noteProfile, { recursive: true, force: true });
-  }
+  expect(note).toMatchObject({
+    mode: "DOCUMENT_ONLY",
+    transport: "API",
+    status: "DOCUMENT_ONLY",
+  });
+  await assert.rejects(
+    aruba.issueHelperToken(note.batch_id, actor),
+    (error: unknown) =>
+      error instanceof Error && "code" in error && error.code === "ARUBA_BATCH_INVALID",
+  );
   await aruba.importOfficialArubaFile(
     noteId!,
     "ARUBA_XML",
@@ -2007,6 +1949,66 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
       has: page.locator(`a[href='/documenti/${noteId}/nota']`),
     }),
   ).toContainText("Inviata");
+});
+
+test("la qualifica Production richiede un consenso esplicito prima del dry run", async ({
+  page,
+}) => {
+  const database = await import("../../src/db/client.server.ts");
+  const batch = (
+    await database.getPool().query<{
+      environment: string;
+      id: string;
+      status: string;
+    }>(
+      `SELECT id, environment, status
+       FROM aruba_batches
+       WHERE mode = 'DOCUMENT_ONLY' AND transport = 'API' AND document_count = 1
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+  ).rows[0]!;
+
+  await database
+    .getPool()
+    .query(
+      "UPDATE aruba_batches SET environment = 'PRODUCTION', status = 'DOCUMENT_ONLY' WHERE id = $1",
+      [batch.id],
+    );
+
+  try {
+    await page.goto("/login");
+    await page.getByLabel("Nome utente").fill("Massimo");
+    await page.getByLabel("Password").fill("password-massimo");
+    await page.getByRole("button", { name: "Accedi" }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await page.goto("/documenti");
+
+    const dryRunConfirmation = page.getByRole("checkbox", {
+      name: /Confermo una sola chiamata Aruba con dryRun=true/,
+    });
+    const dryRunAuthorization = page.getByRole("button", {
+      name: "Autorizza una verifica Production",
+    });
+    await expect(dryRunConfirmation).toBeVisible();
+    await expect(dryRunConfirmation).toBeEnabled();
+    await expect(dryRunConfirmation).toHaveAttribute("aria-checked", "false");
+    await expect(dryRunAuthorization).toBeVisible();
+    await expect(dryRunAuthorization).toBeDisabled();
+
+    await dryRunConfirmation.press("Space");
+
+    await expect(dryRunConfirmation).toHaveAttribute("aria-checked", "true");
+    await expect(dryRunAuthorization).toBeEnabled();
+    await expect(page.locator('input[name="confirmDryRunQualification"]')).toHaveValue("yes");
+  } finally {
+    await database
+      .getPool()
+      .query("UPDATE aruba_batches SET environment = $2, status = $3 WHERE id = $1", [
+        batch.id,
+        batch.environment,
+        batch.status,
+      ]);
+  }
 });
 
 test("titoli e metadati identificano le pagine senza renderle indicizzabili", async ({ page }) => {

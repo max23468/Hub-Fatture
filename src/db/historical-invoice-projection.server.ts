@@ -149,6 +149,7 @@ export async function getHistoricalInvoiceProjection(
     ],
   };
   const total = input.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
+  const arubaSettings = await getArubaSettings();
   return {
     caseRevision: row.revision,
     profileMissing: false,
@@ -174,7 +175,9 @@ export async function getHistoricalInvoiceProjection(
     xml,
     comparison,
     approved: true,
-    arubaMode: (await getArubaSettings()).effectiveMode,
+    arubaMode: arubaSettings.effectiveMode,
+    arubaConfiguredMode: arubaSettings.mode.value,
+    arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
     arubaInventory: await getArubaInventoryHealth(),
     customerEmail: await customerEmailPreview(caseId),
   };

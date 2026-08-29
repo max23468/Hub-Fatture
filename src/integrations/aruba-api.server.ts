@@ -6,6 +6,7 @@ import {
   type ArubaRemoteStatus,
 } from "../aruba-inbound.ts";
 import { ARUBA_IMPORT_MAX_BYTES } from "../aruba-browser-constants.ts";
+import { ARUBA_UPLOAD_MAX_BYTES } from "../aruba.ts";
 import { AppError } from "../errors.ts";
 import type { ArubaShadowDocument } from "../aruba-shadow-comparison.ts";
 import { providerJson } from "./provider-http.server.ts";
@@ -54,6 +55,8 @@ export const ARUBA_API_V2_CONTRACT = {
   authenticationRequestsPerMinutePerIp: 1,
   sentInvoiceSearchRequestsPerMinutePerIp: 12,
   sentNotificationSearchRequestsPerMinutePerIp: 12,
+  invoiceUploadRequestsPerMinutePerIp: 30,
+  maximumInvoiceUploadBytes: 5_000_000,
   maximumSearchWindowHours: 48,
   maximumPageSize: 100,
   documentedInvoiceStatuses: [
@@ -77,6 +80,12 @@ export const ARUBA_API_V2_CONTRACT = {
 } as const;
 
 const arubaApiInvoiceStatusSchema = z.enum(ARUBA_API_V2_CONTRACT.documentedInvoiceStatuses);
+
+const invoiceUploadResponseSchema = z.object({
+  errorCode: z.string().trim().max(20),
+  errorDescription: z.string().trim().max(2_000),
+  uploadFileName: z.string().trim().max(255).nullish(),
+});
 
 const invoiceSummarySchema = z.object({
   invoiceDate: z.iso.datetime({ offset: true }),
@@ -253,6 +262,13 @@ export interface ArubaApiInvoicePage {
   terminal: boolean;
 }
 
+export interface ArubaApiDryRunResult {
+  accepted: boolean;
+  errorCode: string;
+  errorDescription: string;
+  uploadFileName: string | null;
+}
+
 function parsed<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
@@ -269,6 +285,41 @@ function taxIdentity(value: string | null | undefined): string | null {
 
 function bearer(token: string): HeadersInit {
   return { Accept: "application/json", Authorization: `Bearer ${token}` };
+}
+
+export async function dryRunArubaApiInvoice(
+  session: ArubaApiSession,
+  xml: Buffer,
+): Promise<ArubaApiDryRunResult> {
+  if (!xml.byteLength || xml.byteLength > ARUBA_UPLOAD_MAX_BYTES) {
+    throw new AppError("ARUBA_BATCH_INVALID", 422);
+  }
+  const target = endpoints[session.environment];
+  const result = parsed(
+    invoiceUploadResponseSchema,
+    await providerJson(`${target.services}/services/invoice/upload`, {
+      method: "POST",
+      headers: {
+        ...bearer(session.accessToken),
+        "Content-Type": "application/json;charset=UTF-8",
+      },
+      body: JSON.stringify({
+        dataFile: xml.toString("base64"),
+        credential: "",
+        domain: "",
+        senderPIVA: "",
+        skipExtraSchema: false,
+        dryRun: true,
+      }),
+    }),
+  );
+  const accepted = ["", "0000"].includes(result.errorCode) && Boolean(result.uploadFileName);
+  return {
+    accepted,
+    errorCode: result.errorCode,
+    errorDescription: result.errorDescription,
+    uploadFileName: result.uploadFileName ?? null,
+  };
 }
 
 export async function authenticateArubaApi(input: {

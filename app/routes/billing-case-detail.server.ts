@@ -66,6 +66,7 @@ function runIntent(
         confirmPending: form.get("confirmPending") === "yes",
         confirmDifference: form.get("confirmDifference") === "yes",
         arubaMode: form.get("arubaMode"),
+        confirmArubaDowngrade: form.get("confirmArubaDowngrade") === "yes",
         emailChoice: form.get("emailChoice"),
         emailModeVersion: form.get("emailModeVersion"),
       },

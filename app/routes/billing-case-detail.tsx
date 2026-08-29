@@ -726,6 +726,12 @@ function ApprovalCard({
               {copy.document.confirmDifference}
             </label>
           ) : null}
+          {projection.arubaDowngradeRequired ? (
+            <label className="checkbox-row">
+              <input name="confirmArubaDowngrade" required type="checkbox" value="yes" />
+              {copy.document.confirmArubaDowngrade(projection.arubaConfiguredMode)}
+            </label>
+          ) : null}
           <fieldset className="preparation-approval__confirmation">
             <legend>{copy.document.finalConfirmation}</legend>
             <dl className="facts facts--columns">

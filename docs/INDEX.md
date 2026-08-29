@@ -20,6 +20,7 @@
 | [Probe API Aruba](runbooks/aruba-api-read-probe.md)                                   | Procedura read-only senza persistenza di credenziali      | Candidato   | Sì             |
 | [Qualifica API Aruba](evidence/aruba-api-qualification.md)                            | Stato delega, test locali e gate API ancora aperto        | In corso    | No             |
 | [Inbound API Aruba](evidence/aruba-api-inbound.md)                                    | Manifesto shadow e prove Production inbound               | In corso    | No             |
+| [Outbound API Aruba](evidence/aruba-api-outbound.md)                                  | Dry-run, arresti, manifest ed esiti senza invio reale     | Corrente    | No             |
 | [ADR API Aruba primaria](adr/0001-api-aruba-canale-primario.md)                       | Destinazione API e migrazione progressiva                 | Approvato   | Sì             |
 | [ADR credenziale Aruba](adr/0002-credenziale-aruba-cifrata-nel-runtime.md)            | Custodia, rotazione e recovery della connessione          | Approvato   | Sì             |
 | [ADR sincronizzazione Aruba](adr/0003-polling-aruba-con-callback-di-accelerazione.md) | Polling autorevole e callback condizionata                | Approvato   | Sì             |

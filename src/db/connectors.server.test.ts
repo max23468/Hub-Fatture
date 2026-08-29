@@ -568,6 +568,34 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       (await getPool().query("SELECT status FROM webhook_events")).rows[0].status,
       "PROCESSED",
     );
+    const cooperativeBackfill = await getPool().query<{ id: string }>(
+      `INSERT INTO jobs (type, run_at)
+       VALUES ('aruba_backfill_inventory', now() - interval '1 minute') RETURNING id`,
+    );
+    const backfillQuantum = await connectors.claimJob("worker-aruba-quantum");
+    assert.equal(backfillQuantum?.id, cooperativeBackfill.rows[0]!.id);
+    assert.equal(backfillQuantum?.attempts, 1);
+    assert.equal(
+      await connectors.yieldJob(backfillQuantum!, { continuationPending: true }, 60_000),
+      true,
+    );
+    assert.deepEqual(
+      (
+        await getPool().query("SELECT status, attempts, locked_by FROM jobs WHERE id = $1", [
+          cooperativeBackfill.rows[0]!.id,
+        ])
+      ).rows[0],
+      { status: "PENDING", attempts: 0, locked_by: null },
+    );
+    const outbound = await getPool().query<{ id: string }>(
+      `INSERT INTO jobs (type, payload_json, run_at, max_attempts)
+       VALUES ('aruba_dry_run_submission', '{"submissionId":"42"}', now(), 1)
+       RETURNING id`,
+    );
+    const prioritizedOutbound = await connectors.claimJob("worker-aruba-outbound");
+    assert.equal(prioritizedOutbound?.id, outbound.rows[0]!.id);
+    assert.equal(await connectors.completeJob(prioritizedOutbound!), true);
+    await getPool().query("DELETE FROM jobs WHERE id = $1", [cooperativeBackfill.rows[0]!.id]);
     await connectors.ingestShopifyWebhook({
       externalEventId: "event-account-obsoleto",
       topic: "ORDERS_UPDATED",

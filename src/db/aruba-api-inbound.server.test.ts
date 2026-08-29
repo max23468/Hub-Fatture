@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -56,12 +56,21 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
          '2019-01-01', 100, 'DELIVERED', repeat('a', 64))`,
       [legacyP7mRunId],
     );
+    const beforeOutbound = await mkdtemp(path.join(tmpdir(), "hub-fatture-before-outbound-"));
+    await cp("migrations", beforeOutbound, { recursive: true });
+    await rm(path.join(beforeOutbound, "040_aruba_api_outbound.sql"));
     await getPool().query(
-      "DELETE FROM schema_migrations WHERE name = '039_aruba_p7m_parity_normalization.sql'",
+      `DELETE FROM schema_migrations
+       WHERE name IN ('039_aruba_p7m_parity_normalization.sql', '040_aruba_api_outbound.sql')`,
     );
-    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
-      "039_aruba_p7m_parity_normalization.sql",
-    ]);
+    assert.deepEqual(
+      await runMigrations({
+        connectionString: database.connectionString,
+        directory: beforeOutbound,
+      }),
+      ["039_aruba_p7m_parity_normalization.sql"],
+    );
+    await rm(beforeOutbound, { recursive: true, force: true });
     assert.deepEqual(
       (
         await getPool().query(
@@ -298,9 +307,21 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       jobId: "1",
     });
     await getPool().query("UPDATE jobs SET run_at = now() WHERE id = 1");
-    const job = await jobs.claimJob("aruba-api-test-worker");
+    let job = await jobs.claimJob("aruba-api-test-worker");
     assert.equal(job?.type, "aruba_backfill_inventory");
-    const runOptions = { rateDelayMs: 0, now: new Date("2019-01-01T01:00:00.000Z") };
+    const runOptions = {
+      rateDelayMs: 0,
+      now: new Date("2019-01-01T01:00:00.000Z"),
+      pageBudget: Number.MAX_SAFE_INTEGER,
+    };
+    const firstQuantum = await api.runArubaApiInboundJob(job!, {
+      ...runOptions,
+      pageBudget: 1,
+    });
+    assert.equal(firstQuantum.continuationPending, true);
+    assert.equal(await jobs.yieldJob(job!, firstQuantum, 0), true);
+    job = await jobs.claimJob("aruba-api-resumed-quantum-worker");
+    assert.equal(job?.attempts, 1);
     await assert.rejects(
       api.runArubaApiInboundJob(job!, runOptions),
       (error) => error instanceof AppError && error.code === "PROVIDER_RATE_LIMITED",

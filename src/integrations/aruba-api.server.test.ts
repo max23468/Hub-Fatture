@@ -8,11 +8,76 @@ import {
   arubaApiInvoiceDetailSchema,
   arubaApiNotificationListSchema,
   arubaApiGroupsToShadowDocuments,
+  dryRunArubaApiInvoice,
   readArubaApiInvoiceDetail,
   readArubaApiInvoicePage,
   readArubaApiNotifications,
   runArubaApiReadProbe,
 } from "./aruba-api.server.ts";
+
+test("il dry-run invia lo stesso XML con i controlli extraschema e senza trasmettere a SdI", async () => {
+  const originalFetch = globalThis.fetch;
+  const xml = Buffer.from("<FatturaElettronica>contenuto sintetico</FatturaElettronica>");
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(String(input));
+      assert.equal(url.origin, "https://demows.fatturazioneelettronica.aruba.it");
+      assert.equal(url.pathname, "/services/invoice/upload");
+      assert.equal(url.search, "");
+      assert.equal(init.method, "POST");
+      assert.equal(new Headers(init.headers).get("authorization"), "Bearer token-sintetico");
+      assert.deepEqual(JSON.parse(String(init.body)), {
+        dataFile: xml.toString("base64"),
+        credential: "",
+        domain: "",
+        senderPIVA: "",
+        skipExtraSchema: false,
+        dryRun: true,
+      });
+      return response({
+        errorCode: "0000",
+        errorDescription: "Operazione effettuata - richiesta-sintetica",
+        uploadFileName: "IT00000000000_test.xml.p7m",
+      });
+    };
+
+    assert.deepEqual(
+      await dryRunArubaApiInvoice(
+        { environment: "DEMO", accessToken: "token-sintetico", expiresAt: Date.now() + 60_000 },
+        xml,
+      ),
+      {
+        accepted: true,
+        errorCode: "0000",
+        errorDescription: "Operazione effettuata - richiesta-sintetica",
+        uploadFileName: "IT00000000000_test.xml.p7m",
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("il dry-run restituisce un rifiuto sincrono senza trasformarlo in successo", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      response({
+        errorCode: "0096",
+        errorDescription: "Errore di validazione sintetico",
+        uploadFileName: null,
+      });
+    const result = await dryRunArubaApiInvoice(
+      { environment: "PRODUCTION", accessToken: "token", expiresAt: Date.now() + 60_000 },
+      Buffer.from("<xml />"),
+    );
+    assert.equal(result.accepted, false);
+    assert.equal(result.errorCode, "0096");
+    assert.equal(result.uploadFileName, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 const NOW = new Date("2026-08-26T12:00:00.000Z");
 const SYNTHETIC_INVOICE_PAGE = JSON.parse(

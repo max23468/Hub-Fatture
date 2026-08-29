@@ -16,6 +16,13 @@ test("le Impostazioni mostrano l’attività del helper di lettura Aruba", async
 
     const database = await import("./client.server.ts");
     const aruba = await import("./aruba.server.ts");
+    const owner = (
+      await database
+        .getPool()
+        .query<{ id: number }>(
+          "INSERT INTO users (username, password_hash, can_approve) VALUES ('Massimo', 'synthetic', true) RETURNING id",
+        )
+    ).rows[0]!;
     await database.getPool().query(
       `INSERT INTO aruba_sync_sessions
         (id, environment, account_reference, device_id, token_hash, status,
@@ -41,6 +48,23 @@ test("le Impostazioni mostrano l’attività del helper di lettura Aruba", async
       browser: "chrome",
       lastReadbackAt: "2026-08-15T12:19:00.000Z",
     });
+    assert.equal(settings.mode.value, "DOCUMENT_ONLY");
+    assert.equal(settings.effectiveMode, "DOCUMENT_ONLY");
+    await aruba.setArubaSettings(
+      { mode: "CONTEXTUAL_CONFIRMATION", modeVersion: settings.mode.version },
+      { id: owner.id, canApprove: true, requestId: "settings-contextual" },
+    );
+    const contextual = await aruba.getArubaSettings();
+    assert.equal(contextual.mode.value, "CONTEXTUAL_CONFIRMATION");
+    assert.equal(contextual.effectiveMode, "DOCUMENT_ONLY");
+    await aruba.setArubaSettings(
+      { mode: "AUTOMATIC_AFTER_APPROVAL", modeVersion: contextual.mode.version },
+      { id: owner.id, canApprove: true, requestId: "settings-automatic" },
+    );
+    const automatic = await aruba.getArubaSettings();
+    assert.equal(automatic.mode.value, "AUTOMATIC_AFTER_APPROVAL");
+    assert.equal(automatic.effectiveMode, "DOCUMENT_ONLY");
+    assert.equal(automatic.transmissionForcedDocumentOnly, true);
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());
     await fixture.drop();

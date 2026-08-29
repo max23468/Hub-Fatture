@@ -53,10 +53,10 @@ test("i gate DB ed E2E usano sempre il runner automatico", () => {
   );
   assert.equal(
     packageJson.scripts["test:e2e"],
-    "node scripts/with-test-database.mjs npm run test:e2e:direct",
+    "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
   );
   assert.equal(
     packageJson.scripts["test:e2e:release-candidate"],
-    "node scripts/with-test-database.mjs npm run test:e2e:direct",
+    "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
   );
 });

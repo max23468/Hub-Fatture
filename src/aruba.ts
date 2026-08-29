@@ -10,7 +10,11 @@ export const ARUBA_UPLOAD_MAX_BYTES = 4_900_000;
 export const ARUBA_UPLOAD_MAX_BATCH_BYTES = 30_000_000;
 export const ARUBA_LOGIN_ORIGIN = "https://loginfatturazione.aruba.it";
 
-export const arubaModeSchema = z.enum(["ASSISTED", "AUTOMATIC"]);
+export const arubaModeSchema = z.enum([
+  "DOCUMENT_ONLY",
+  "CONTEXTUAL_CONFIRMATION",
+  "AUTOMATIC_AFTER_APPROVAL",
+]);
 export const arubaEnvironmentSchema = z.enum(["MOCK", "PRODUCTION"]);
 
 export const arubaManifestDocumentSchema = z.object({
@@ -60,7 +64,22 @@ export function effectiveArubaMode(
   environment: ArubaEnvironment,
   submissionEnabled: boolean,
 ): ArubaMode {
-  return environment === "PRODUCTION" && !submissionEnabled ? "ASSISTED" : configured;
+  return !submissionEnabled ? "DOCUMENT_ONLY" : configured;
+}
+
+export function arubaMonthlyTransmissionUsage(accepted: number) {
+  const safeAccepted = Number.isInteger(accepted) && accepted > 0 ? accepted : 0;
+  return {
+    accepted: safeAccepted,
+    limit: 500,
+    remaining: Math.max(0, 500 - safeAccepted),
+    warning:
+      safeAccepted >= 475
+        ? ("CRITICAL" as const)
+        : safeAccepted >= 400
+          ? ("WARNING" as const)
+          : null,
+  };
 }
 
 export function manifestSha256(

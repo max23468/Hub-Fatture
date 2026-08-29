@@ -166,7 +166,7 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
       `INSERT INTO aruba_batches
          (id, environment, mode, account_reference, manifest_sha256, document_count,
           status, created_by)
-       VALUES ($1, 'MOCK', 'AUTOMATIC', 'synthetic', $2, 1, 'CANCELLED', $3)`,
+       VALUES ($1, 'MOCK', 'AUTOMATIC_AFTER_APPROVAL', 'synthetic', $2, 1, 'CANCELLED', $3)`,
       [batchId, "e".repeat(64), userId],
     );
     await client.query(

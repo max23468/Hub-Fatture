@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  Check,
   CircleAlert,
   Download,
   FileCheck2,
@@ -11,6 +12,7 @@ import {
   RefreshCw,
   Upload,
 } from "lucide-react";
+import { useState, useSyncExternalStore } from "react";
 import { Form, Link } from "react-router";
 
 import type {
@@ -34,6 +36,8 @@ type ArubaBatch = Awaited<ReturnType<typeof listArubaBatches>>[number];
 type UnbatchedDocument = Awaited<ReturnType<typeof listUnbatchedApprovedDocuments>>[number];
 type OfficialFile = Awaited<ReturnType<typeof listOfficialArubaFiles>>[number];
 type EmailDelivery = Awaited<ReturnType<typeof listEmailDeliveries>>[number];
+
+const subscribeToHydration = () => () => {};
 
 export interface DocumentFiltersValue {
   query: string;
@@ -368,9 +372,13 @@ function DocumentRow({
 }
 
 function ManualBatchPanel({
+  arubaConfiguredMode,
+  arubaDowngradeRequired,
   csrfToken,
   documents,
 }: {
+  arubaConfiguredMode: string;
+  arubaDowngradeRequired: boolean;
   csrfToken: string;
   documents: UnbatchedDocument[];
 }) {
@@ -401,12 +409,57 @@ function ManualBatchPanel({
             </label>
           ))}
         </div>
+        {arubaDowngradeRequired ? (
+          <label className="checkbox-row">
+            <input name="confirmArubaDowngrade" required type="checkbox" value="yes" />
+            {copy.document.confirmArubaDowngrade(arubaConfiguredMode)}
+          </label>
+        ) : null}
         <button className="button document-task-panel__action" type="submit">
           <Layers3 aria-hidden="true" size={18} strokeWidth={1.8} />
           {copy.documents.createBatch}
         </button>
       </Form>
     </section>
+  );
+}
+
+function DryRunQualificationForm({ batchId, csrfToken }: { batchId: string; csrfToken: string }) {
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
+  const [confirmed, setConfirmed] = useState(false);
+
+  return (
+    <Form method="post">
+      <input name="csrf" type="hidden" value={csrfToken} />
+      <input name="intent" type="hidden" value="authorize-aruba-dry-run" />
+      <input name="batchId" type="hidden" value={batchId} />
+      {confirmed ? <input name="confirmDryRunQualification" type="hidden" value="yes" /> : null}
+      <button
+        aria-checked={confirmed}
+        className="checkbox-row dry-run-consent"
+        disabled={!hydrated}
+        onKeyDown={(event) => {
+          if (event.key !== " " && event.key !== "Enter") return;
+          event.preventDefault();
+          setConfirmed(true);
+        }}
+        onPointerUp={() => setConfirmed(true)}
+        role="checkbox"
+        type="button"
+      >
+        <span aria-hidden="true" className="dry-run-consent__control">
+          {confirmed ? <Check size={14} strokeWidth={3} /> : null}
+        </span>
+        <span>{copy.documents.confirmDryRunQualification}</span>
+      </button>
+      <button className="button button--secondary" disabled={!hydrated || !confirmed} type="submit">
+        {copy.documents.authorizeDryRunQualification}
+      </button>
+    </Form>
   );
 }
 
@@ -454,8 +507,25 @@ function BatchPanel({
                 </span>
               </span>
             </span>
+            <details className="technical-details">
+              <summary>{copy.documents.batchDocumentResults}</summary>
+              <ul>
+                {batch.documents.map((document) => (
+                  <li key={document.id}>
+                    <strong>{document.fiscal_label}</strong>
+                    {" · "}
+                    {copy.documents.arubaDocumentStatus[document.status] ?? document.status}
+                    {document.error_code ? ` · ${document.error_code}` : ""}
+                    {document.error_message ? ` · ${document.error_message}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </details>
             <div aria-label={copy.documents.batchActions} className="document-batch-list__actions">
-              {canApprove && batch.status !== "CANCELLED" && !batch.can_retry ? (
+              {canApprove &&
+              batch.transport === "HELPER" &&
+              batch.status !== "CANCELLED" &&
+              !batch.can_retry ? (
                 <Form method="post">
                   <input name="csrf" type="hidden" value={csrfToken} />
                   <input name="intent" type="hidden" value="issue-helper-token" />
@@ -465,7 +535,7 @@ function BatchPanel({
                   </button>
                 </Form>
               ) : null}
-              {canApprove && batch.can_retry ? (
+              {canApprove && batch.transport === "HELPER" && batch.can_retry ? (
                 <Form method="post">
                   <input name="csrf" type="hidden" value={csrfToken} />
                   <input name="intent" type="hidden" value="retry-aruba-batch" />
@@ -474,6 +544,21 @@ function BatchPanel({
                     {copy.documents.retryBatch}
                   </button>
                 </Form>
+              ) : null}
+              {canApprove &&
+              batch.transport === "API" &&
+              batch.status === "AWAITING_CONFIRMATION" ? (
+                <Form method="post">
+                  <input name="csrf" type="hidden" value={csrfToken} />
+                  <input name="intent" type="hidden" value="confirm-aruba-api-batch" />
+                  <input name="batchId" type="hidden" value={batch.id} />
+                  <button className="button" type="submit">
+                    {copy.documents.confirmApiTransmission}
+                  </button>
+                </Form>
+              ) : null}
+              {canApprove && batch.can_authorize_dry_run ? (
+                <DryRunQualificationForm batchId={batch.id} csrfToken={csrfToken} />
               ) : null}
             </div>
           </li>
@@ -484,6 +569,8 @@ function BatchPanel({
 }
 
 export function DocumentsView({
+  arubaConfiguredMode,
+  arubaDowngradeRequired,
   batches,
   canApprove,
   csrfToken,
@@ -498,6 +585,8 @@ export function DocumentsView({
   unbatched,
   view,
 }: {
+  arubaConfiguredMode: string;
+  arubaDowngradeRequired: boolean;
   batches: ArubaBatch[];
   canApprove: boolean;
   csrfToken: string;
@@ -528,7 +617,12 @@ export function DocumentsView({
     <>
       <DocumentOverview summary={summary} />
       {canApprove && unbatched.length ? (
-        <ManualBatchPanel csrfToken={csrfToken} documents={unbatched} />
+        <ManualBatchPanel
+          arubaConfiguredMode={arubaConfiguredMode}
+          arubaDowngradeRequired={arubaDowngradeRequired}
+          csrfToken={csrfToken}
+          documents={unbatched}
+        />
       ) : null}
       <section
         aria-labelledby="document-archive-title"

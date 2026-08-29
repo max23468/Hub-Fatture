@@ -17,6 +17,7 @@ import {
   listOfficialArubaFiles,
   listUnbatchedApprovedDocuments,
   retryArubaBatch,
+  getArubaSettings,
 } from "../../src/db/aruba.server.ts";
 import {
   documentArchiveSummary,
@@ -29,6 +30,10 @@ import {
   retryCustomerEmail,
 } from "../../src/db/email.server.ts";
 import { publicError } from "../../src/errors.ts";
+import {
+  authorizeArubaApiDryRunQualification,
+  confirmArubaApiBatch,
+} from "../../src/db/aruba-api-outbound.server.ts";
 import {
   confirmArubaDocumentOutOfScope,
   importArubaRemoteOfficialFileAsActor,
@@ -96,23 +101,25 @@ export async function loader({ request }: Route.LoaderArgs) {
     documentSortKeys,
     { key: "data" as DocumentListSortKey, direction: "desc" },
   );
-  const [documents, summary, batches, unbatched, remoteDocuments] = await Promise.all([
-    listDocuments({
-      query: filters.query || undefined,
-      kind: filters.kind ? (filters.kind as "INVOICE" | "CREDIT_NOTE") : undefined,
-      status: filters.status ? (filters.status as "DRAFT" | "APPROVED") : undefined,
-      arubaStatus: filters.arubaStatus || undefined,
-      transmission,
-      dateFrom: filters.dateFrom || undefined,
-      dateTo: filters.dateTo || undefined,
-      page,
-      sort,
-    }),
-    documentArchiveSummary(),
-    listArubaBatches(),
-    listUnbatchedApprovedDocuments(),
-    view === "da-collegare" ? listRemoteDocuments({ attentionOnly: true }) : Promise.resolve([]),
-  ]);
+  const [documents, summary, batches, unbatched, remoteDocuments, arubaSettings] =
+    await Promise.all([
+      listDocuments({
+        query: filters.query || undefined,
+        kind: filters.kind ? (filters.kind as "INVOICE" | "CREDIT_NOTE") : undefined,
+        status: filters.status ? (filters.status as "DRAFT" | "APPROVED") : undefined,
+        arubaStatus: filters.arubaStatus || undefined,
+        transmission,
+        dateFrom: filters.dateFrom || undefined,
+        dateTo: filters.dateTo || undefined,
+        page,
+        sort,
+      }),
+      documentArchiveSummary(),
+      listArubaBatches(),
+      listUnbatchedApprovedDocuments(),
+      view === "da-collegare" ? listRemoteDocuments({ attentionOnly: true }) : Promise.resolve([]),
+      getArubaSettings(),
+    ]);
   const documentIds = documents.rows.map((document) => document.id);
   const [officialFiles, emailDeliveries, customerEmail] = await Promise.all([
     listOfficialArubaFiles(documentIds),
@@ -126,6 +133,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     documents,
     batches,
     unbatched,
+    arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
+    arubaConfiguredMode: arubaSettings.mode.value,
     officialFiles,
     emailDeliveries,
     emailEnabled: customerEmail.mode !== "DISABLED",
@@ -136,6 +145,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     view,
     remoteDocuments,
     batchCreated: url.searchParams.get("batch") === "creato",
+    dryRunAuthorized: url.searchParams.get("batch") === "dry-run-autorizzato",
     fileImported: url.searchParams.get("file") === "importato",
   };
 }
@@ -175,11 +185,27 @@ export async function action({ request }: Route.ActionArgs) {
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
     if (form.get("intent") === "create-aruba-batch") {
-      await createBatchForDocuments(form.getAll("documentId"), actor);
+      await createBatchForDocuments(
+        form.getAll("documentId"),
+        actor,
+        form.get("confirmArubaDowngrade") === "yes",
+      );
       return redirect("/documenti?batch=creato");
     }
     if (form.get("intent") === "issue-helper-token") {
       return data({ helper: await issueHelperToken(form.get("batchId") ?? "", actor) });
+    }
+    if (form.get("intent") === "confirm-aruba-api-batch") {
+      await confirmArubaApiBatch(form.get("batchId") ?? "", actor);
+      return redirect("/documenti?batch=confermato");
+    }
+    if (form.get("intent") === "authorize-aruba-dry-run") {
+      await authorizeArubaApiDryRunQualification(
+        form.get("batchId") ?? "",
+        actor,
+        form.get("confirmDryRunQualification") === "yes",
+      );
+      return redirect("/documenti?batch=dry-run-autorizzato");
     }
     if (form.get("intent") === "retry-aruba-batch") {
       await retryArubaBatch(form.get("batchId") ?? "", actor);
@@ -226,6 +252,8 @@ export default function Documents() {
     documents,
     batches,
     unbatched,
+    arubaConfiguredMode,
+    arubaDowngradeRequired,
     officialFiles,
     emailDeliveries,
     emailEnabled,
@@ -235,6 +263,7 @@ export default function Documents() {
     sort,
     view,
     batchCreated,
+    dryRunAuthorized,
     fileImported,
     remoteDocuments,
   } = useLoaderData<typeof loader>();
@@ -284,6 +313,11 @@ export default function Documents() {
       {batchCreated ? (
         <p className="notice" role="status">
           {copy.documents.batchCreated}
+        </p>
+      ) : null}
+      {dryRunAuthorized ? (
+        <p className="notice notice--success" role="status">
+          {copy.documents.dryRunQualificationAuthorized}
         </p>
       ) : null}
       {fileImported ? (
@@ -429,6 +463,8 @@ export default function Documents() {
         </section>
       ) : (
         <DocumentsView
+          arubaConfiguredMode={arubaConfiguredMode}
+          arubaDowngradeRequired={arubaDowngradeRequired}
           batches={batches}
           canApprove={canApprove}
           csrfToken={csrfToken}

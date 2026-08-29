@@ -18,7 +18,8 @@ import { creditableRemainder } from "../refunds.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import { consumeArubaPreflight, ensureArubaPreflight } from "./aruba-inbound.server.ts";
-import { createArubaBatch, getArubaSettings } from "./aruba.server.ts";
+import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
+import { getArubaSettings } from "./aruba.server.ts";
 import { assertJobLease, renewLockedJobLease, type ClaimedJob } from "./connectors.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { customerEmailPreview, snapshotDocumentEmail } from "./email.server.ts";
@@ -499,6 +500,7 @@ export async function getCreditNoteProjection(documentId: string) {
   await validateFatturaXml(projected.xml);
   const approvedXml = row.status === "APPROVED" ? await readDocumentXml(row.id) : null;
   const xml = approvedXml?.toString("utf8") ?? projected.xml;
+  const arubaSettings = await getArubaSettings();
   return {
     id: row.id,
     status: row.status,
@@ -518,7 +520,9 @@ export async function getCreditNoteProjection(documentId: string) {
     lines: input.lines,
     refunds: row.refunds,
     comparison: creditComparison(row, input),
-    arubaMode: (await getArubaSettings()).effectiveMode,
+    arubaMode: arubaSettings.effectiveMode,
+    arubaConfiguredMode: arubaSettings.mode.value,
+    arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
     customerEmail: await customerEmailPreview(row.billing_case_id),
   };
 }
@@ -530,6 +534,7 @@ export async function approveCreditNote(
     projectionSha256: unknown;
     confirmApproval: boolean;
     arubaMode: unknown;
+    confirmArubaDowngrade?: boolean;
     emailChoice: unknown;
     emailModeVersion: unknown;
   },
@@ -617,7 +622,7 @@ export async function approveCreditNote(
       ],
     );
     const label = fiscalNumberLabel(row.series, year, number);
-    const batchId = await createArubaBatch(
+    const batchId = await createArubaApiBatch(
       client,
       [
         {
@@ -633,6 +638,7 @@ export async function approveCreditNote(
       ],
       actor,
       raw.arubaMode,
+      raw.confirmArubaDowngrade,
     );
     const audit = {
       actorType: "ADMIN" as const,

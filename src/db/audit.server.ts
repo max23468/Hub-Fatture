@@ -40,6 +40,12 @@ export const auditActions = [
   "ARUBA_API_CONTROLS_CHANGED",
   "ARUBA_API_SYNC_REQUESTED",
   "ARUBA_API_AUTHORITY_CHANGED",
+  "ARUBA_API_BATCH_CONFIRMED",
+  "ARUBA_API_DRY_RUN_AUTHORIZED",
+  "ARUBA_API_DRY_RUN_STARTED",
+  "ARUBA_API_DRY_RUN_COMPLETED",
+  "ARUBA_API_DRY_RUN_FAILED",
+  "ARUBA_API_DRY_RUN_UNKNOWN",
   "ARUBA_SETTINGS_CHANGED",
   "ARUBA_READ_SESSION_ISSUED",
   "ARUBA_INVENTORY_COMPLETED",
@@ -88,6 +94,7 @@ export async function writeAudit(
       | "ARUBA_SYNC_SESSION"
       | "ARUBA_REMOTE_DOCUMENT"
       | "ARUBA_PREFLIGHT_RECEIPT"
+      | "ARUBA_SUBMISSION_ATTEMPT"
       | "FISCAL_PROFILE"
       | "REFUND"
       | "EMAIL_DELIVERY";
@@ -109,7 +116,7 @@ export async function writeAudit(
       batchId: string;
       manifestSha256: string;
       documentCount: number;
-      arubaMode: "ASSISTED" | "AUTOMATIC";
+      arubaMode: "DOCUMENT_ONLY" | "CONTEXTUAL_CONFIRMATION" | "AUTOMATIC_AFTER_APPROVAL";
       fileKind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
       dataClass:
         | "SOURCE_PAYLOADS"
@@ -126,6 +133,9 @@ export async function writeAudit(
       freshnessAgeMinutes: number;
       draftVersion: number;
       projectionSha256: string;
+      endpoint: "/services/invoice/upload";
+      requestLimit: 1;
+      recoveredAfterRestart: boolean;
     }>;
     /** Solo campi anagrafici allowlisted o riferimenti a snapshot: mai token o payload integrali. */
     before?: Record<string, unknown> | null;

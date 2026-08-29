@@ -29,6 +29,7 @@ import { POSTGRES_INTEGER_MAX } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
 import { customerEmailTriggerStatus, scheduleCustomerEmail } from "./email.server.ts";
 import { getPool, registerJoinedTransactionFile, withTransaction } from "./client.server.ts";
+import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
 const HELPER_TOKEN_TTL_MS = 15 * 60_000;
@@ -47,6 +48,7 @@ interface BatchIdentity {
   id: string;
   environment: "MOCK" | "PRODUCTION";
   mode: ArubaMode;
+  transport: "API" | "HELPER" | "MANUAL";
   account_reference: string;
   manifest_sha256: string;
   document_count: number;
@@ -150,7 +152,7 @@ export async function getArubaSettings() {
     ),
   ]);
   const settings = new Map(result.rows.map((row) => [row.key, row]));
-  const mode = arubaModeSchema.parse(settings.get("aruba_mode")?.value_json ?? "ASSISTED");
+  const mode = arubaModeSchema.parse(settings.get("aruba_mode")?.value_json ?? "DOCUMENT_ONLY");
   const helperStatus = helper.rows[0];
   return {
     mode: {
@@ -158,7 +160,7 @@ export async function getArubaSettings() {
       version: settings.get("aruba_mode")?.version ?? 0,
     },
     effectiveMode: effectiveArubaMode(mode, environment, config.ARUBA_SUBMISSION_ENABLED),
-    automaticForcedAssisted: environment === "PRODUCTION" && !config.ARUBA_SUBMISSION_ENABLED,
+    transmissionForcedDocumentOnly: !config.ARUBA_SUBMISSION_ENABLED,
     helper: {
       lastSeenAt: helperStatus?.helper_last_seen_at?.toISOString() ?? null,
       version: helperStatus?.helper_version ?? null,
@@ -207,7 +209,7 @@ async function currentMode(client: pg.PoolClient): Promise<ArubaMode> {
   const setting = await client.query<{ value_json: unknown }>(
     "SELECT value_json FROM settings WHERE key = 'aruba_mode' FOR UPDATE",
   );
-  return arubaModeSchema.parse(setting.rows[0]?.value_json ?? "ASSISTED");
+  return arubaModeSchema.parse(setting.rows[0]?.value_json ?? "DOCUMENT_ONLY");
 }
 
 async function currentArubaAccount(client: pg.PoolClient) {
@@ -254,7 +256,10 @@ export async function createArubaBatch(
   if (expectedMode !== undefined && expectedMode !== effectiveMode) {
     throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
   }
-  if (preservedMode === "AUTOMATIC" && effectiveMode !== "AUTOMATIC") {
+  if (
+    preservedMode === "AUTOMATIC_AFTER_APPROVAL" &&
+    effectiveMode !== "AUTOMATIC_AFTER_APPROVAL"
+  ) {
     throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
   }
   const mode = preservedMode ?? effectiveMode;
@@ -311,7 +316,11 @@ export async function createArubaBatch(
   return batchId;
 }
 
-export async function createBatchForDocuments(documentIds: string[], actor: ArubaActor) {
+export async function createBatchForDocuments(
+  documentIds: string[],
+  actor: ArubaActor,
+  confirmDocumentOnlyDowngrade = false,
+) {
   if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
   const ids = [...new Set(documentIds)];
   if (!ids.length || ids.length > 300 || ids.some((id) => !isDatabaseId(id))) {
@@ -350,7 +359,7 @@ export async function createBatchForDocuments(documentIds: string[], actor: Arub
       [ids],
     );
     if (rows.rows.length !== ids.length) throw new AppError("ARUBA_BATCH_INVALID", 409);
-    return createArubaBatch(
+    return createArubaApiBatch(
       client,
       rows.rows.map((row) => ({
         id: row.id,
@@ -364,8 +373,7 @@ export async function createBatchForDocuments(documentIds: string[], actor: Arub
       })),
       actor,
       undefined,
-      1,
-      "ASSISTED",
+      confirmDocumentOnlyDowngrade,
     );
   });
 }
@@ -398,7 +406,7 @@ export async function issueHelperToken(batchId: string, actor: ArubaActor) {
       [batchId],
     );
     const current = batch.rows[0];
-    if (!current || current.status === "CANCELLED") {
+    if (!current || current.transport !== "HELPER" || current.status === "CANCELLED") {
       throw new AppError("ARUBA_BATCH_INVALID", 409);
     }
     if (current.status === "RECONCILED") {
@@ -802,7 +810,7 @@ export async function recordHelperEvent(token: string, rawEvent: unknown): Promi
     }
     if (event.type === "ASSISTED_STOP") {
       if (
-        context.mode !== "ASSISTED" ||
+        context.mode === "AUTOMATIC_AFTER_APPROVAL" ||
         context.requires_reconciliation ||
         context.status !== "HELPER_ACTIVE"
       ) {
@@ -906,7 +914,7 @@ export async function verifyArubaSendAuthorization(
     const context = await loadToken(client, token, true);
     if (!context) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
     if (
-      context.mode !== "AUTOMATIC" ||
+      context.mode !== "AUTOMATIC_AFTER_APPROVAL" ||
       context.requires_reconciliation ||
       manifestDigest !== context.manifest_sha256 ||
       (context.environment === "PRODUCTION" && !getConfig().ARUBA_SUBMISSION_ENABLED)
@@ -961,22 +969,56 @@ export async function listArubaBatches() {
     id: string;
     environment: string;
     mode: ArubaMode;
+    transport: "API" | "HELPER" | "MANUAL";
     status: string;
     document_count: number;
     created_at: string;
     last_readback_at: string | null;
     manifest_sha256: string;
     can_retry: boolean;
+    qualification_status: string | null;
+    can_authorize_dry_run: boolean;
+    documents: Array<{
+      id: string;
+      fiscal_label: string;
+      status: string;
+      error_code: string | null;
+      error_message: string | null;
+    }>;
   }>(
-    `SELECT batches.id, batches.environment, batches.mode, batches.status,
+    `SELECT batches.id, batches.environment, batches.mode, batches.transport, batches.status,
             batches.document_count, batches.created_at, batches.last_readback_at,
             batches.manifest_sha256,
             batches.status = 'RECONCILED' AND NOT EXISTS (
               SELECT 1 FROM aruba_submissions
               WHERE aruba_submissions.batch_id = batches.id
                 AND aruba_submissions.status <> 'REMOVED'
-            ) AS can_retry
+            ) AS can_retry,
+            (SELECT qualifications.status FROM aruba_dry_run_qualifications AS qualifications
+             WHERE qualifications.batch_id = batches.id) AS qualification_status,
+            batches.environment = 'PRODUCTION' AND batches.transport = 'API'
+              AND batches.mode = 'DOCUMENT_ONLY' AND batches.status = 'DOCUMENT_ONLY'
+              AND batches.document_count = 1 AND NOT EXISTS (
+                SELECT 1 FROM aruba_dry_run_qualifications AS qualifications
+                WHERE qualifications.batch_id = batches.id
+              ) AS can_authorize_dry_run,
+            coalesce(jsonb_agg(jsonb_build_object(
+              'id', documents.id,
+              'fiscal_label', documents.series || ' ' ||
+                lpad(documents.fiscal_number::text, 4, '0') || '/' ||
+                right(documents.fiscal_year::text, 2),
+              'status', submissions.status,
+              'error_code', submissions.error_code,
+              'error_message', submissions.error_message_sanitized
+            ) ORDER BY batch_documents.position), '[]'::jsonb) AS documents
      FROM aruba_batches AS batches
+     JOIN aruba_batch_documents AS batch_documents ON batch_documents.batch_id = batches.id
+     JOIN documents ON documents.id = batch_documents.document_id
+     JOIN aruba_submissions AS submissions
+       ON submissions.batch_id = batches.id
+      AND submissions.document_id = batch_documents.document_id
+      AND submissions.attempt_number = batches.attempt_number
+     GROUP BY batches.id
      ORDER BY batches.created_at DESC LIMIT 100`,
   );
   return result.rows;
@@ -990,7 +1032,12 @@ export async function retryArubaBatch(batchId: string, actor: ArubaActor) {
       [batchId],
     );
     const current = batch.rows[0];
-    if (!current || current.status !== "RECONCILED" || current.requires_reconciliation) {
+    if (
+      !current ||
+      current.transport !== "HELPER" ||
+      current.status !== "RECONCILED" ||
+      current.requires_reconciliation
+    ) {
       throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
     }
     const unsafe = await client.query(

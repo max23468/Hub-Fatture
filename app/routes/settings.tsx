@@ -32,6 +32,7 @@ import type { getArubaApiCredentialIdentity } from "../../src/db/aruba-api-inbou
 import type { getArubaBackfillReadiness } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaInboundClosureReadiness } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaApiReconciliationPreview } from "../../src/db/aruba-api-reconciliation-preview.server.ts";
+import type { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
 import type { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
 import { defaultHistoricalStartDate } from "../../src/orders.ts";
@@ -1045,6 +1046,7 @@ function ArubaSettingsSection({
   arubaBackfillReadiness,
   arubaClosureReadiness,
   arubaReconciliationPreview,
+  arubaMonthlyUsage,
 }: {
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
   arubaSaved: boolean;
@@ -1062,6 +1064,7 @@ function ArubaSettingsSection({
   arubaBackfillReadiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
   arubaClosureReadiness: Awaited<ReturnType<typeof getArubaInboundClosureReadiness>>;
   arubaReconciliationPreview: Awaited<ReturnType<typeof getArubaApiReconciliationPreview>>;
+  arubaMonthlyUsage: Awaited<ReturnType<typeof getArubaMonthlyTransmissionUsage>>;
 }) {
   const connectionState = inventory.activeSession
     ? "ACTIVE"
@@ -1108,7 +1111,7 @@ function ArubaSettingsSection({
           Readback manuale completo acquisito e inventario Aruba aggiornato.
         </p>
       ) : null}
-      {aruba.automaticForcedAssisted ? (
+      {aruba.transmissionForcedDocumentOnly ? (
         <p className="warning">{copy.settings.arubaKillSwitch}</p>
       ) : null}
       <div className="aruba-settings-stack">
@@ -1186,6 +1189,21 @@ function ArubaSettingsSection({
           reconciliationPreview={arubaReconciliationPreview}
           readiness={arubaBackfillReadiness}
         />
+        <section
+          className="settings-inset-card aruba-monthly-usage-card"
+          aria-labelledby="aruba-monthly-usage-title"
+        >
+          <h3 id="aruba-monthly-usage-title">{copy.settings.arubaMonthlyUsageTitle}</h3>
+          <p>{copy.settings.arubaMonthlyUsage(arubaMonthlyUsage.accepted)}</p>
+          {arubaMonthlyUsage.warning ? (
+            <p className="warning" role="status">
+              {copy.settings.arubaMonthlyWarning(
+                arubaMonthlyUsage.warning,
+                arubaMonthlyUsage.remaining,
+              )}
+            </p>
+          ) : null}
+        </section>
         {canApprove && inventory.blocking ? (
           <ArubaManualRecovery
             csrfToken={csrfToken}
@@ -1218,8 +1236,13 @@ function ArubaSettingsSection({
                   defaultValue={aruba.mode.value}
                   name="arubaMode"
                 >
-                  <option value="ASSISTED">{copy.settings.arubaAssisted}</option>
-                  <option value="AUTOMATIC">{copy.settings.arubaAutomatic}</option>
+                  <option value="DOCUMENT_ONLY">{copy.settings.arubaDocumentOnly}</option>
+                  <option value="CONTEXTUAL_CONFIRMATION">
+                    {copy.settings.arubaContextualConfirmation}
+                  </option>
+                  <option value="AUTOMATIC_AFTER_APPROVAL">
+                    {copy.settings.arubaAutomaticAfterApproval}
+                  </option>
                 </SettingsSelect>
               </label>
             </SettingsForm>
@@ -1452,6 +1475,7 @@ export default function Settings() {
     arubaBackfillReadiness,
     arubaClosureReadiness,
     arubaReconciliationPreview,
+    arubaMonthlyUsage,
     arubaPanelUrl,
     arubaBookmarkletUrl,
     arubaManualReadbackCompleted,
@@ -1589,6 +1613,7 @@ export default function Settings() {
             arubaBackfillReadiness={arubaBackfillReadiness}
             arubaClosureReadiness={arubaClosureReadiness}
             arubaReconciliationPreview={arubaReconciliationPreview}
+            arubaMonthlyUsage={arubaMonthlyUsage}
             arubaSaved={arubaSaved}
             inventory={arubaInventory}
             arubaPanelUrl={arubaPanelUrl}

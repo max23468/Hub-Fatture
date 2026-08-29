@@ -24,7 +24,8 @@ import { escapeLike, PAGE_SIZE, pageOffset, paginate } from "../orders.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { writeAudit } from "./audit.server.ts";
 import { getArubaInventoryHealth, getLockedArubaInventoryHealth } from "./aruba-inbound.server.ts";
-import { createArubaBatch, getArubaSettings } from "./aruba.server.ts";
+import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
+import { getArubaSettings } from "./aruba.server.ts";
 import {
   customerEmailChoiceSchema,
   customerEmailPreview,
@@ -533,6 +534,7 @@ export async function getInvoiceProjection(caseId: string) {
   );
   const sourceTotal = caseRow.orders.reduce((sum, order) => sum + order.billable_amount, 0);
   const total = input.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
+  const arubaSettings = await getArubaSettings();
   return {
     caseRevision: caseRow.revision,
     profileMissing: false as const,
@@ -562,7 +564,9 @@ export async function getInvoiceProjection(caseId: string) {
     xml: projection.xml,
     comparison: invoiceComparison(caseRow, input, profile.profile_json),
     approved: draft?.status === "APPROVED",
-    arubaMode: (await getArubaSettings()).effectiveMode,
+    arubaMode: arubaSettings.effectiveMode,
+    arubaConfiguredMode: arubaSettings.mode.value,
+    arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
     arubaInventory: await getArubaInventoryHealth(),
     customerEmail: await customerEmailPreview(caseId),
   };
@@ -870,6 +874,7 @@ export async function approveInvoice(
     confirmPending: boolean;
     confirmDifference: boolean;
     arubaMode?: unknown;
+    confirmArubaDowngrade?: boolean;
     emailChoice: unknown;
     emailModeVersion: unknown;
   },
@@ -1022,7 +1027,7 @@ export async function approveInvoice(
         [caseId],
       );
       const label = fiscalNumberLabel(series, year, fiscalNumber);
-      const batchId = await createArubaBatch(
+      const batchId = await createArubaApiBatch(
         client,
         [
           {
@@ -1038,6 +1043,7 @@ export async function approveInvoice(
         ],
         actor,
         raw.arubaMode,
+        raw.confirmArubaDowngrade,
       );
       await writeAudit(client, {
         actorType: "ADMIN",
@@ -1428,6 +1434,7 @@ export async function approveInvoices(
   rawArubaMode?: unknown,
   rawEmailChoices: Record<string, unknown> = {},
   rawEmailModeVersion?: unknown,
+  confirmArubaDowngrade = false,
 ) {
   if (!actor.canApprove) throw new AppError("DOCUMENT_APPROVAL_FORBIDDEN", 403);
   if (!confirmApproval) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
@@ -1488,6 +1495,7 @@ export async function approveInvoices(
             confirmPending: false,
             confirmDifference: false,
             arubaMode: arubaMode.data,
+            confirmArubaDowngrade,
             emailChoice: candidate.emailChoice,
             emailModeVersion: rawEmailModeVersion,
           },

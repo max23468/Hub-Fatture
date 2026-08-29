@@ -338,7 +338,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       `INSERT INTO aruba_batches
         (id, environment, mode, account_reference, manifest_sha256, document_count,
          attempt_number, status, created_by)
-       VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic-aruba-account', repeat('9', 64), 1, 1,
+       VALUES ($1, 'MOCK', 'DOCUMENT_ONLY', 'synthetic-aruba-account', repeat('9', 64), 1, 1,
          'SUBMITTED', $2)`,
       [hubSubmissionBatchId, actor.id],
     );
@@ -346,7 +346,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       `INSERT INTO aruba_submissions
         (batch_id, document_id, attempt_number, environment, mode, manifest_sha256,
          xml_sha256, remote_id, status)
-       VALUES ($1, $2, 1, 'MOCK', 'ASSISTED', repeat('9', 64), repeat('8', 64),
+       VALUES ($1, $2, 1, 'MOCK', 'DOCUMENT_ONLY', repeat('9', 64), repeat('8', 64),
          'REMOTE-FOREIGN-PROFILE', 'DELIVERED')`,
       [hubSubmissionBatchId, draft.rows[0]!.id],
     );
@@ -800,7 +800,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       `INSERT INTO aruba_batches
         (id, environment, mode, account_reference, manifest_sha256, document_count,
          attempt_number, status, created_by)
-       VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic-aruba-account', repeat('7', 64), 1, 1,
+       VALUES ($1, 'MOCK', 'DOCUMENT_ONLY', 'synthetic-aruba-account', repeat('7', 64), 1, 1,
          'SUBMITTED', $2)`,
       [submittedBatchId, actor.id],
     );
@@ -819,7 +819,7 @@ test("l’inventario Aruba è completo, idempotente e non collega usando il solo
       `INSERT INTO aruba_submissions
         (batch_id, document_id, attempt_number, environment, mode, manifest_sha256,
          xml_sha256, remote_id, status)
-       VALUES ($1, $2, 1, 'MOCK', 'ASSISTED', repeat('7', 64), $3,
+       VALUES ($1, $2, 1, 'MOCK', 'DOCUMENT_ONLY', repeat('7', 64), $3,
          'REMOTE-TD04-001', 'DELIVERED')`,
       [submittedBatchId, importedCredit.documentId, submittedCredit.rows[0]!.xml_sha256],
     );

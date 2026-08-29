@@ -21,7 +21,8 @@ export type JobType =
   | "aruba_backfill_inventory"
   | "aruba_sync_inventory"
   | "aruba_refresh_nonterminal"
-  | "aruba_full_inventory";
+  | "aruba_full_inventory"
+  | "aruba_dry_run_submission";
 
 const manuallyRetryableJobTypes: JobType[] = [
   "shopify_sync_orders",
@@ -659,6 +660,27 @@ export async function jobLeaseCurrent(job: ClaimedJob): Promise<boolean> {
     [job.id, job.workerId, job.claimToken],
   );
   return Boolean(current.rows[0]);
+}
+
+export async function yieldJob(
+  job: ClaimedJob,
+  result: Record<string, unknown> = {},
+  delayMs = 1_000,
+) {
+  if (!Number.isSafeInteger(delayMs) || delayMs < 0 || delayMs > 60_000) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
+  }
+  const yielded = await getPool().query(
+    `UPDATE jobs SET status = 'PENDING',
+       run_at = now() + make_interval(secs => $4::double precision / 1000),
+       attempts = greatest(attempts - 1, 0), locked_at = NULL,
+       lease_expires_at = NULL, locked_by = NULL, claim_token = NULL,
+       result_json = $5, last_error_code = NULL
+     WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2 AND claim_token = $3
+       AND lease_expires_at > now()`,
+    [job.id, job.workerId, job.claimToken, delayMs, JSON.stringify(result)],
+  );
+  return yielded.rowCount === 1;
 }
 
 export async function completeJob(job: ClaimedJob, result: Record<string, unknown> = {}) {
