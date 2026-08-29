@@ -3,6 +3,7 @@ import { index, route, type RouteConfig } from "@react-router/dev/routes";
 export default [
   index("routes/home.tsx"),
   route("robots.txt", "routes/robots.ts"),
+  route("manifest.webmanifest", "routes/manifest.ts"),
   route("health", "routes/health.ts"),
   route("integrations/shopify/auth", "routes/shopify-auth.ts"),
   route("integrations/shopify/callback", "routes/shopify-callback.ts"),
