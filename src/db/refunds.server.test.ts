@@ -32,11 +32,13 @@ test(
         "INSERT INTO users (username, password_hash, can_approve) VALUES ('Massimo', 'synthetic', true) RETURNING id",
       );
       await client.query(
-        `INSERT INTO aruba_sync_sessions
-          (id, environment, account_reference, device_id, token_hash, status,
-           absolute_expires_at, completed_at, full_scan_completed_at, is_full_scan)
-         VALUES ('00000000-0000-4000-8000-000000000302', 'MOCK', 'synthetic-aruba-account',
-           'synthetic-device-refunds', repeat('4', 64), 'COMPLETED', now(), now(), now(), true)`,
+        `INSERT INTO aruba_sync_runs
+          (id, environment, api_environment, account_reference, kind, authority_mode, status,
+           window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at,
+           completed_at, full_scan_completed_at)
+         VALUES ('00000000-0000-4000-8000-000000000302', 'MOCK', 'DEMO',
+           'synthetic-aruba-account', 'FULL', 'CANONICAL', 'COMPLETED', now() - interval '2 days',
+           now(), now() - interval '2 days', now(), now(), now(), now())`,
       );
       await client.query(
         "INSERT INTO fiscal_profiles (version, status, profile_json) VALUES (1, 'MOCK', $1)",

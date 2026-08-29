@@ -10,7 +10,7 @@ import {
   Settings2,
   ShieldCheck,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Form, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/settings";
 
@@ -30,8 +30,6 @@ import type { getArubaSettings } from "../../src/db/aruba.server.ts";
 import type { getArubaApiConnectionStatus } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaApiCredentialIdentity } from "../../src/db/aruba-api-inbound.server.ts";
 import type { getArubaBackfillReadiness } from "../../src/db/aruba-api-inbound.server.ts";
-import type { getArubaInboundClosureReadiness } from "../../src/db/aruba-api-inbound.server.ts";
-import type { getArubaApiReconciliationPreview } from "../../src/db/aruba-api-reconciliation-preview.server.ts";
 import type { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
 import type { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import type { connectionSummaries, latestEbayHistory } from "../../src/db/connectors.server.ts";
@@ -46,24 +44,6 @@ export function meta({ error }: Route.MetaArgs) {
 }
 
 type ErrorFor = (...intents: string[]) => string | null;
-
-function BookmarkletLink({ value }: { value: string }) {
-  const linkRef = useRef<HTMLAnchorElement>(null);
-  useEffect(() => {
-    linkRef.current?.setAttribute("href", value);
-  }, [value]);
-  return (
-    <a
-      aria-label={copy.settings.arubaBookmarkletAccessibleLabel}
-      className="button button--secondary aruba-bookmarklet__button"
-      href="#aruba-bookmarklet-title"
-      ref={linkRef}
-      title={copy.settings.arubaBookmarkletLabel}
-    >
-      {copy.settings.arubaBookmarkletLabel}
-    </a>
-  );
-}
 
 function ProfileSettingsSection({
   username,
@@ -467,19 +447,13 @@ function ArubaInventoryCard({
 
 function ArubaConnectionDetails({
   api,
-  closure,
   inventory,
-  reconciliationPreview,
   readiness,
 }: {
   api: Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
-  closure: Awaited<ReturnType<typeof getArubaInboundClosureReadiness>>;
   inventory: Awaited<ReturnType<typeof getArubaInventoryHealth>>;
-  reconciliationPreview: Awaited<ReturnType<typeof getArubaApiReconciliationPreview>>;
   readiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
 }) {
-  const completedClosureGates = Object.values(closure.gates).filter(Boolean).length;
-  const totalClosureGates = Object.keys(closure.gates).length;
   return (
     <details className="settings-disclosure aruba-connection-details">
       <summary>{copy.settings.arubaConnectionDetails}</summary>
@@ -534,29 +508,7 @@ function ArubaConnectionDetails({
               : copy.settings.arubaApiSafetyPauseInactive}
           </dd>
         </div>
-        <div>
-          <dt>{copy.settings.arubaApiCutoverReadiness}</dt>
-          <dd>
-            {closure.readyForAuthoritySwitch
-              ? copy.settings.arubaApiCutoverReady
-              : copy.settings.arubaApiCutoverPending(completedClosureGates, totalClosureGates)}
-          </dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaApiReconciliationPreview}</dt>
-          <dd>
-            {copy.settings.arubaApiReconciliationPreviewValue(
-              reconciliationPreview.readyForTargetedReconciliation,
-              reconciliationPreview.unresolvedDocuments,
-            )}
-          </dd>
-        </div>
       </dl>
-      {api.parity ? (
-        <p className="field-help aruba-parity-summary">
-          {copy.settings.arubaParityDossierSummary(api.parity)}
-        </p>
-      ) : null}
     </details>
   );
 }
@@ -858,19 +810,7 @@ function ArubaApiSettingsCard({
         </div>
         <div>
           <dt>{copy.settings.arubaApiAuthority}</dt>
-          <dd>
-            {api.automaticAuthority === "API"
-              ? copy.settings.arubaApiAuthorityApi
-              : copy.settings.arubaApiAuthorityBrowser}
-          </dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaApiParity}</dt>
-          <dd>
-            {api.parity
-              ? copy.settings.arubaApiParityLabels[api.parity.status]
-              : copy.settings.arubaApiNoParity}
-          </dd>
+          <dd>{copy.settings.arubaApiAuthorityApi}</dd>
         </div>
         <div>
           <dt>{copy.settings.arubaApiBackfill}</dt>
@@ -993,18 +933,31 @@ function ArubaApiSettingsCard({
           </div>
           <input name="arubaApiPaused" type="hidden" value="false" />
           <input name="arubaApiInboundEnabled" type="hidden" value="false" />
-          <button className="button button--secondary" type="submit">
-            {copy.settings.arubaApiSaveControls}
-          </button>
+          <div className="aruba-api-controls__actions">
+            <button className="button button--secondary" type="submit">
+              {copy.settings.arubaApiSaveControls}
+            </button>
+            {api.inboundEnabled && !api.apiPaused ? (
+              <button className="button" form="aruba-api-sync-form" type="submit">
+                {copy.settings.arubaApiSyncNow}
+              </button>
+            ) : null}
+          </div>
         </Form>
       ) : null}
       {api.configured && api.inboundEnabled && !api.apiPaused ? (
-        <Form method="post" className="aruba-api-sync-action">
+        <Form
+          method="post"
+          className={canApprove ? "aruba-api-sync-form" : "aruba-api-sync-action"}
+          id="aruba-api-sync-form"
+        >
           <input type="hidden" name="csrf" value={csrfToken} />
           <input type="hidden" name="intent" value="sync-aruba-api" />
-          <button className="button" type="submit">
-            {copy.settings.arubaApiSyncNow}
-          </button>
+          {!canApprove ? (
+            <button className="button" type="submit">
+              {copy.settings.arubaApiSyncNow}
+            </button>
+          ) : null}
         </Form>
       ) : null}
       {api.configured && canApprove ? (
@@ -1033,8 +986,6 @@ function ArubaSettingsSection({
   aruba,
   arubaSaved,
   inventory,
-  arubaPanelUrl,
-  arubaBookmarkletUrl,
   manualReadback,
   manualReadbackCompleted,
   canApprove,
@@ -1044,15 +995,11 @@ function ArubaSettingsSection({
   arubaApiCredentialIdentity,
   arubaApiNotice,
   arubaBackfillReadiness,
-  arubaClosureReadiness,
-  arubaReconciliationPreview,
   arubaMonthlyUsage,
 }: {
   aruba: Awaited<ReturnType<typeof getArubaSettings>>;
   arubaSaved: boolean;
   inventory: Awaited<ReturnType<typeof getArubaInventoryHealth>>;
-  arubaPanelUrl: string;
-  arubaBookmarkletUrl: string;
   manualReadback?: ManualReadbackData | null;
   manualReadbackCompleted: boolean;
   canApprove: boolean;
@@ -1062,8 +1009,6 @@ function ArubaSettingsSection({
   arubaApiCredentialIdentity: Awaited<ReturnType<typeof getArubaApiCredentialIdentity>>;
   arubaApiNotice: string | null;
   arubaBackfillReadiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
-  arubaClosureReadiness: Awaited<ReturnType<typeof getArubaInboundClosureReadiness>>;
-  arubaReconciliationPreview: Awaited<ReturnType<typeof getArubaApiReconciliationPreview>>;
   arubaMonthlyUsage: Awaited<ReturnType<typeof getArubaMonthlyTransmissionUsage>>;
 }) {
   const connectionState = inventory.activeSession
@@ -1094,9 +1039,9 @@ function ArubaSettingsSection({
   const ConnectionIcon =
     connectionState === "ATTENTION" || connectionState === "CONFLICT" ? AlertTriangle : CircleCheck;
   return (
-    <section className="settings-section" id="aruba-helper" aria-labelledby="aruba-helper-title">
+    <section className="settings-section" id="aruba" aria-labelledby="aruba-title">
       <SettingsSectionHeader
-        id="aruba-helper"
+        id="aruba"
         icon={Landmark}
         title={copy.settings.arubaTitle}
         intro={copy.settings.arubaHelp}
@@ -1143,50 +1088,11 @@ function ArubaSettingsSection({
               </p>
             </div>
           </div>
-          {canApprove ? (
-            <div className="aruba-sync-card__actions">
-              <a className="button" href={arubaPanelUrl} rel="noreferrer" target="_blank">
-                {copy.settings.arubaOpenPanel}
-              </a>
-            </div>
-          ) : (
-            <p className="field-help">{copy.settings.arubaSyncOwnerOnly}</p>
-          )}
         </section>
-        {canApprove && arubaApi.automaticAuthority === "BROWSER" ? (
-          <section
-            className="settings-inset-card aruba-bookmarklet"
-            aria-labelledby="aruba-bookmarklet-title"
-          >
-            <header>
-              <h3 id="aruba-bookmarklet-title">{copy.settings.arubaBookmarkletTitle}</h3>
-              <p>{copy.settings.arubaBookmarkletHelp}</p>
-            </header>
-            <ol>
-              <li>
-                <div className="aruba-bookmarklet__step">
-                  <div className="aruba-bookmarklet__copy">
-                    <strong>{copy.settings.arubaBookmarkletSaveTitle}</strong>
-                    <span>{copy.settings.arubaBookmarkletSaveHelp}</span>
-                  </div>
-                  <BookmarkletLink value={arubaBookmarkletUrl} />
-                </div>
-              </li>
-              <li>
-                <div className="aruba-bookmarklet__copy">
-                  <strong>{copy.settings.arubaBookmarkletRunTitle}</strong>
-                  <span>{copy.settings.arubaBookmarkletRunHelp}</span>
-                </div>
-              </li>
-            </ol>
-          </section>
-        ) : null}
         <ArubaInventoryCard inventory={inventory} />
         <ArubaConnectionDetails
           api={arubaApi}
-          closure={arubaClosureReadiness}
           inventory={inventory}
-          reconciliationPreview={arubaReconciliationPreview}
           readiness={arubaBackfillReadiness}
         />
         <section
@@ -1473,11 +1379,7 @@ export default function Settings() {
     arubaApiCredentialIdentity,
     arubaApiNotice,
     arubaBackfillReadiness,
-    arubaClosureReadiness,
-    arubaReconciliationPreview,
     arubaMonthlyUsage,
-    arubaPanelUrl,
-    arubaBookmarkletUrl,
     arubaManualReadbackCompleted,
     customerEmail,
     customerEmailSaved,
@@ -1611,13 +1513,9 @@ export default function Settings() {
             arubaApiCredentialIdentity={arubaApiCredentialIdentity}
             arubaApiNotice={arubaApiNotice}
             arubaBackfillReadiness={arubaBackfillReadiness}
-            arubaClosureReadiness={arubaClosureReadiness}
-            arubaReconciliationPreview={arubaReconciliationPreview}
             arubaMonthlyUsage={arubaMonthlyUsage}
             arubaSaved={arubaSaved}
             inventory={arubaInventory}
-            arubaPanelUrl={arubaPanelUrl}
-            arubaBookmarkletUrl={arubaBookmarkletUrl}
             manualReadback={manualReadback}
             manualReadbackCompleted={arubaManualReadbackCompleted}
             canApprove={canApprove}

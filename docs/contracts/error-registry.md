@@ -37,10 +37,6 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `EMAIL_DELIVERY_FAILED`          | NETWORK transitorio   | sì, con backoff  | attendere il retry o reinviare        |
 | `EMAIL_DELIVERY_UNCERTAIN`       | UNKNOWN               | no               | verificare prima del reinvio          |
 | `ARUBA_BATCH_INVALID`            | CONFLICT permanente   | no               | ricreare il batch dai documenti       |
-| `ARUBA_HELPER_TOKEN_INVALID`     | AUTH temporaneo       | no               | generare un nuovo codice di avvio     |
-| `ARUBA_HOST_NOT_ALLOWED`         | AUTH permanente       | no               | chiudere e verificare l’indirizzo     |
-| `ARUBA_AUTHENTICATION_REQUIRED`  | AUTH presidiato       | no               | completare manualmente nel browser    |
-| `ARUBA_DOM_UNRECOGNIZED`         | PROVIDER permanente   | no               | usare il percorso manuale             |
 | `ARUBA_VALIDATION_FAILED`        | VALIDATION permanente | no               | rimuovere gli upload e correggere     |
 | `ARUBA_OPERATION_FORBIDDEN`      | AUTH permanente       | no               | usare l’account titolare              |
 | `ARUBA_SEND_NOT_AUTHORIZED`      | CONFLICT permanente   | no               | verificare kill switch e manifest     |

@@ -2,18 +2,28 @@
 
 ## Perimetro corrente
 
-Il contratto copre il solo ciclo attivo dell’utenza Base delegata: autenticazione, identità,
-ricerca paginata delle fatture inviate, dettaglio, file e notifiche. La sincronizzazione inbound
-esegue soltanto giri shadow separati dall’inventario browser e termina al dossier di parità.
-L’autorità inbound automatica resta vincolata al browser anche con un dossier `MATCHED`: un futuro
-passaggio all’ingest canonico richiederà una nuova autorizzazione, una nuova modifica applicativa e
-i relativi gate. Il percorso outbound aggiunge invece la sola qualificazione senza invio:
-manifest immutabile, un job per documento e `POST /services/invoice/upload` con `dryRun=true`.
-`dryRun=false`, trasmissione reale, callback e prova SdI restano fuori dal contratto corrente.
+Le API Aruba v2 documentate sono l’unica autorità automatica per inventario, file e stati. Il
+runtime non contiene né espone automazioni del pannello, preferiti, bridge o helper locali. Il
+fallback permanente è l’importazione manuale presidiata di dati e file ufficiali; non costituisce
+una seconda autorità automatica.
 
-La fonte provider è la [documentazione ufficiale API v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html),
-il cui changelog corrente espone la revisione 2.5.0. Un cambiamento della forma o dei limiti riapre
-la qualifica prima di estendere il canale Production.
+Il contratto copre autenticazione, verifica dell’identità, ricerca paginata delle fatture inviate,
+dettaglio, file e notifiche. Per l’outbound copre manifest immutabile e qualifica con
+`POST /services/invoice/upload` e `dryRun=true`. `dryRun=false`, trasmissione reale, callback e
+prova SdI restano subordinati ai rispettivi gate e alle autorizzazioni esplicite.
+
+La fonte provider è la [documentazione ufficiale API v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html).
+Un cambiamento di forma, stati o limiti riapre la qualifica prima di estendere il canale Production.
+
+## Autorità e credenziali
+
+- `connections.automatic_authority` per Aruba ammette soltanto `API`.
+- Le credenziali vengono conservate solo cifrate dopo autenticazione e verifica dell’identità
+  fiscale attesa.
+- Pausa o revoca vengono rilette ai punti sicuri fra le pagine e prima di ogni chiamata outbound.
+- I dati acquisiti tramite API alimentano direttamente l’inventario canonico dopo i controlli del
+  contratto; non esistono giri shadow o dossier browser nel ciclo attivo.
+- L’importazione manuale conserva la provenienza `MANUAL`, richiede il titolare e resta fail-closed.
 
 ## Outbound senza invio
 
@@ -21,59 +31,32 @@ Le tre modalità globali sono rigide:
 
 - `DOCUMENT_ONLY`: crea il documento e non pianifica chiamate outbound;
 - `CONTEXTUAL_CONFIRMATION`: crea il documento e attende una conferma separata del titolare;
-- `AUTOMATIC_AFTER_APPROVAL`: pianifica automaticamente la qualificazione dry-run dopo
-  l’approvazione.
+- `AUTOMATIC_AFTER_APPROVAL`: pianifica la qualifica API dopo l’approvazione.
 
 Quando `ARUBA_SUBMISSION_ENABLED=false`, la modalità effettiva è sempre `DOCUMENT_ONLY`. Se la
-modalità configurata richiederebbe la trasmissione, ogni approvazione o preparazione manuale esige
-una conferma esplicita del downgrade; il server non accetta il solo valore nascosto inviato dalla
-pagina. Il secondo arresto indipendente è `connections.api_paused`. Entrambi vengono riletti prima
-di creare o confermare il batch e nuovamente dal worker prima della rete. La sola eccezione è una
-qualifica Production monouso: resta confinata a un batch `DOCUMENT_ONLY` di un documento, lega
-account e manifest, scade dopo quindici minuti e autorizza al massimo una richiesta
-`/services/invoice/upload` con `dryRun=true`. Il worker la consuma atomicamente prima della rete;
-non abilita `dryRun=false` e non modifica l’interruttore globale.
+modalità configurata richiederebbe trasmissione, il server richiede una conferma esplicita del
+downgrade. Il secondo arresto indipendente è `connections.api_paused`; entrambi vengono riletti
+prima di creare o confermare il batch e nuovamente dal worker prima della rete.
 
-Il provider documenta un solo endpoint di upload: `dryRun=true` valida e carica il contenuto per la
-verifica sincrona senza inviarlo a SdI; `dryRun=false` effettua la trasmissione reale. La fase non
-inventa quindi un’operazione remota intermedia: qualifica il percorso di upload esclusivamente con
-`dryRun=true` e conserva `dryRun=false` inaccessibile fino alla fase di invio controllato.
+Una qualifica Production monouso resta confinata a un batch `DOCUMENT_ONLY` di un documento, lega
+account e manifest, scade dopo quindici minuti e autorizza al massimo una richiesta con
+`dryRun=true`. Il worker la consuma atomicamente prima della rete. Non abilita `dryRun=false` e non
+modifica l’interruttore globale.
 
-Ogni batch lega ambiente, account, modalità, tentativo e documenti a un SHA-256 del manifest. Prima
-del dry-run il worker ricostruisce quel manifest dai dati approvati, verifica l’identità del
-titolare che lo ha creato, stato e revisione del documento, hash XML, ambiente, account, modalità e
-stato della connessione. Ogni documento ha un tentativo e un esito autonomi. Timeout, risposta non
-interpretabile o esito remoto ambiguo producono `UNKNOWN_REMOTE_STATE`, bloccano il batch e non
-consentono retry automatici.
+Ogni batch lega ambiente, account, modalità, tentativo e documenti allo SHA-256 del manifest.
+Timeout, risposta non interpretabile o esito remoto ambiguo producono `UNKNOWN_REMOTE_STATE`,
+bloccano il batch e non consentono retry automatici. I dry-run non incrementano il contatore
+mensile delle trasmissioni accettate.
 
-Il contatore mensile locale usa `submitted_at`, cioè soltanto documenti accettati per una
-trasmissione reale. Dashboard e Impostazioni mostrano un avviso a 400 e un avviso critico a 475,
-con soglia operativa 500. Un dry-run non incrementa il contatore.
-
-## Gruppo API e documento Aruba
+## Gruppi, documenti e stati
 
 `GET /api/v2/invoices-out` restituisce pagine di gruppi API. Ogni gruppo ha un ID provider e un
-array `invoices`; zero, uno o più elementi sono cardinalità distinte e ammesse dal contratto locale.
-Il conteggio `totalElements` riguarda i gruppi, non i documenti. Hub Fatture mantiene quindi due
-conteggi separati e non materializza mai un gruppo come documento Aruba.
+array `invoices`; zero, uno o più elementi sono cardinalità distinte. `totalElements` conta i gruppi,
+non i documenti. Hub Fatture conserva quindi conteggi separati e non materializza mai un gruppo
+come documento.
 
-Ogni elemento di `invoices` dichiara almeno data, numero, tipo documento e stato. Il probe conserva
-in memoria soltanto i campi necessari alla qualifica e restituisce aggregati sanitizzati:
-
-- gruppi letti e gruppi totali dichiarati;
-- documenti osservati;
-- gruppi vuoti, singoli e multipli;
-- conteggi TD01, TD04 e altri tipi;
-- conteggi per stato canonico.
-
-Identità delle controparti, importi, numeri, nomi file, ID SdI e payload non vengono stampati o
-persistiti.
-
-## Stati
-
-Il parser ammette soltanto gli stati documentati da Aruba e riusa il normalizzatore canonico della
-baseline browser. Uno stato nuovo o una forma inattesa falliscono con `PROVIDER_RESPONSE_INVALID`:
-non vengono approssimati né classificati silenziosamente.
+Il parser ammette soltanto gli stati documentati da Aruba. Uno stato nuovo o una forma inattesa
+falliscono con `PROVIDER_RESPONSE_INVALID`; non vengono approssimati.
 
 | Stato API Aruba      | Stato canonico   |
 | -------------------- | ---------------- |
@@ -88,94 +71,36 @@ non vengono approssimati né classificati silenziosamente.
 | Rifiutata            | `REJECTED`       |
 | Decorrenza termini   | `DELIVERED`      |
 
-La qualifica Production deve verificare che le etichette reali coincidano con questo contratto e
-deve confrontare separatamente TD01 e TD04 con l’inventario del fallback.
+## Paginazione, limiti e checkpoint
 
-## Confronto shadow con il fallback
-
-Il confronto opera su due snapshot temporanei che dichiarano lo stesso ambiente, account e chiave
-di popolazione, e restituisce soltanto conteggi sanitizzati. Non presume che l’ID del gruppo API sia
-l’ID del documento browser e non considera equivalenti due finestre scelte rispettivamente per data
-di creazione e data documento.
-
-La correlazione usa, in ordine:
-
-1. lo stesso ID remoto, soltanto quando i due snapshot dichiarano lo stesso namespace;
-2. la stessa identità fiscale completa: tipo, anno, serie e numero.
-
-La lista API documentata espone il numero ma non una serie separata. L’adapter shadow non la deduce:
-conserva l’ID del gruppo come candidato e lascia serie e numero fiscale non materializzati. Tale ID
-diventa confrontabile soltanto se l’adapter fallback qualifica esplicitamente lo stesso namespace;
-più documenti nello stesso gruppo producono candidati duplicati e quindi un esito ambiguo.
-
-Data documento e altre invarianti devono comunque coincidere. Duplicati, identità parziali,
-collisioni o un ID remoto associato a invarianti diverse falliscono chiusi come ambiguità o
-divergenza. La parità richiede copertura biunivoca completa e stati canonici coincidenti; uguaglianza
-dei soli conteggi, vicinanza temporale e totale non costituiscono prova.
-
-## Paginazione e limiti
-
-- finestra provider massima documentata: 48 ore;
-- pagina ammessa dal provider: da 1 a 100 elementi;
-- probe di qualifica corrente: finestra fissa di 24 ore, 10 gruppi per pagina, massimo due pagine;
+- finestra provider massima: 48 ore;
+- pagina: da 1 a 100 elementi;
 - autenticazione: massimo una richiesta al minuto per IP;
-- ricerca fatture inviate: massimo 12 richieste al minuto per IP;
-- ricerca notifiche inviate: massimo 12 richieste al minuto per IP;
-- `429` produce `PROVIDER_RATE_LIMITED`, senza endpoint alternativi o retry immediato.
+- ricerca fatture e notifiche: massimo 12 richieste al minuto per IP per ciascun bucket;
+- margine operativo locale: 9 richieste al minuto per ciascun bucket di lettura;
+- `429`: `PROVIDER_RATE_LIMITED`, senza endpoint alternativi o retry immediato;
+- tetto fail-closed per giro: 10.000 richieste provider.
 
-I Tier orari e annuali documentati nella sezione di invio non limitano il backfill: Aruba incrementa
-quel contatore soltanto quando una fattura inviata supera i controlli sincroni. Il backfill non usa
-gli endpoint di upload o invio. Mantiene comunque un margine operativo applicando 9 richieste al
-minuto a ciascuno dei due bucket di lettura.
-
-Il probe verifica numero pagina, cardinalità, prima/ultima pagina, totale stabile, assenza di ID
-duplicati e corrispondenza tra elementi restituiti e metadati. Se la finestra supera due pagine,
-restituisce copertura incompleta e si arresta.
+L’inventario riparte dal 1° luglio 2026, salva il checkpoint dopo il commit di ogni pagina e può continuare da
+un giro incompleto con un nuovo budget. Gli incrementali sovrappongono sette giorni e rileggono gli
+stati non terminali. Una scansione completa periodica corregge eventuali derive. Ogni job consolida
+una pagina e rilascia la coda; un riavvio non trasforma il yield cooperativo in un retry.
 
 ## File e notifiche inbound
 
-La documentazione v2 espone:
+Il worker legge il dettaglio dei gruppi non vuoti con file fiscale e PDF opzionale, poi recupera le
+notifiche correlate. Accetta esclusivamente XML o P7M, PDF opzionale e notifiche con base64 valido;
+calcola SHA-256 sui byte decodificati e rifiuta gruppo, identificativi o cardinalità incoerenti.
+I byte validati alimentano lo storage immutabile e la riconciliazione canonica.
 
-- dettaglio fattura con file XML o P7M e PDF opzionale;
-- ZIP della fattura con notifiche;
-- pacchetto di conservazione quando `pddAvailable` è vero;
-- elenco e dettaglio delle notifiche SdI;
-- download massivo asincrono.
-
-Il worker legge il dettaglio dei soli gruppi non vuoti con `includeFile=true` e `includePdf=true`,
-poi recupera le notifiche dello stesso gruppo. Accetta esclusivamente XML o P7M, PDF opzionale e
-notifiche con contenuto base64 valido; calcola SHA-256 sui byte decodificati e rifiuta gruppo,
-identificativi o cardinalità incoerenti. Durante lo shadow conserva nel dossier soltanto metadati e
-hash sanitizzati; i byte letti non alimentano lo storage o la riconciliazione canonici.
 Nei dettagli storici il Paese del destinatario può essere `null`: il normalizzatore conserva il
-valore sconosciuto e non deduce `IT` dagli identificativi fiscali o da altri campi.
+valore sconosciuto e non deduce `IT`. Il pacchetto di conservazione e il download massivo asincrono
+restano fuori dal ciclo inbound perché non sono necessari alla riconciliazione operativa e possono
+avere effetti remoti osservabili.
 
-Il pacchetto di conservazione e il download massivo restano fuori dall’inbound corrente: il primo
-non è necessario alla parità dei file operativi, il secondo crea una preparazione remota e non è una
-lettura priva di effetti osservabili.
+## Recupero manuale
 
-## Sincronizzazione inbound e arresti
-
-La connessione salva la credenziale soltanto come ciphertext dopo autenticazione e verifica
-dell’identità fiscale attesa. Parte con API in pausa, inbound disabilitato e autorità browser. Il
-worker usa un inventario riprendibile dal 1° luglio 2026, finestre massime di 48 ore, checkpoint dopo il commit di
-ogni pagina, incrementale con sette giorni di sovrapposizione, rilettura dei non terminali e full
-mensile. Il limite di autenticazione è condiviso nel database; ricerca e notifiche usano bucket
-indipendenti e coordinati di 9 richieste al minuto. Ogni giro ha inoltre un tetto fail-closed di
-10.000 richieste provider, incluse autenticazione, ricerca, dettaglio e notifiche; l’esaurimento
-interrompe il giro senza dichiarare completo il backfill e crea una continuazione dallo stesso
-checkpoint con un nuovo budget, copiando soltanto l’evidenza shadow già acquisita.
-
-Pausa o revoca vengono rilevate ai punti sicuri fra pagine. Una connessione shadow non alimenta
-l’inventario canonico e il deploy non cambia l’autorità automatica. Il percorso di cutover resta
-inaccessibile dall’interfaccia: può essere invocato soltanto dal titolare dopo tutti i gate tecnici e
-con una decisione esplicita sul fallback. La transazione registra l’audit, revoca le sessioni helper
-automatiche ancora aperte e rende canonici soltanto i giri API successivi; qualunque gate mancante
-mantiene il browser come autorità. Il dry-run outbound è separato dall’autorità inbound; upload con
-`dryRun=false` e invio reale non fanno parte della fase corrente.
-
-Ogni job di backfill consolida una sola pagina e poi rilascia la coda senza consumare un tentativo.
-Il checkpoint rimane nella run, mentre lo stesso job torna pendente dopo un breve intervallo: un
-dry-run già autorizzato deve quindi attendere al massimo la pagina in corso. Il worker dispone di
-tre minuti per completare il punto sicuro durante un arresto ordinato; un riavvio non trasforma il
-yield cooperativo in un retry.
+Il recupero manuale è disponibile soltanto quando le API non possono fornire una lettura necessaria.
+Il titolare importa dati e file ufficiali; l’app valida identità, tipo, anno, importi, hash e
+copertura prima di consolidare. Un’importazione incompleta o ambigua non rende sano l’inventario e
+non sblocca operazioni fiscali.

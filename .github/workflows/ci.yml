@@ -23,7 +23,6 @@ jobs:
       security-data: ${{ steps.impact.outputs.security_data }}
       database: ${{ steps.impact.outputs.database }}
       provider: ${{ steps.impact.outputs.provider }}
-      aruba-platform: ${{ steps.impact.outputs.aruba_platform }}
       e2e: ${{ steps.impact.outputs.e2e }}
       e2e_matrix: ${{ steps.impact.outputs.e2e_matrix }}
       lane: ${{ steps.impact.outputs.lane }}
@@ -42,7 +41,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA" -- scripts/change-impact.mjs | grep -Fxq scripts/change-impact.mjs; then
-            impact=$(printf '%s\n' standard=true security_data=true database=true provider=true aruba_platform=true e2e=true 'e2e_matrix={"include":[{"browser":"chromium","label":"Chromium","install":"chromium"},{"browser":"webkit","label":"WebKit","install":"webkit chromium"}]}' lane=deploy)
+            impact=$(printf '%s\n' standard=true security_data=true database=true provider=true e2e=true 'e2e_matrix={"include":[{"browser":"chromium","label":"Chromium","install":"chromium"},{"browser":"webkit","label":"WebKit","install":"webkit chromium"}]}' lane=deploy)
           else
             impact=$(node scripts/change-impact.mjs "$BASE_SHA" "$HEAD_SHA")
           fi
@@ -199,35 +198,10 @@ jobs:
       - run: npx --no-install playwright install --with-deps ${{ matrix.install }}
       - run: npx --no-install playwright test --project=${{ matrix.browser }} --workers=1
 
-  aruba-helper-platform:
-    name: Helper Aruba (${{ matrix.browser }} / ${{ matrix.os }})
-    if: needs.impact.outputs.aruba-platform == 'true'
-    needs: impact
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            browser: chrome
-          - os: windows-latest
-            browser: msedge
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-        with:
-          install: true
-          cache: true
-      - run: npm ci --no-audit --prefer-offline
-      - run: npm run test:aruba:platform -- ${{ matrix.browser }}
-
   gate:
     name: CI
     if: always()
-    needs: [impact, repository, standard, database, security, provider, e2e, aruba-helper-platform]
+    needs: [impact, repository, standard, database, security, provider, e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Consolida i gate applicabili

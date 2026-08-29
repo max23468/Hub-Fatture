@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.6
+
+- Aruba usa esclusivamente le API come runtime automatico: preferito, bridge, helper, scansioni browser, endpoint, token, workflow e UI correlati vengono rimossi, conservando soltanto audit e provenienza storica e il fallback manuale sui file ufficiali.
+- Dashboard e Attività contano azioni umane effettive, escludono valori obsoleti dai totali operativi e aggiornano lo stato dei connettori senza moltiplicare un singolo problema provider per tutte le preparazioni coinvolte.
+
 ## 0.4.5
 
 - La validazione differita delle note di credito ignora una bozza transitoria già eliminata nella stessa transazione di riconciliazione Aruba, ma continua a bloccare ogni nota persistente che non quadra con ordini e rimborsi collegati.

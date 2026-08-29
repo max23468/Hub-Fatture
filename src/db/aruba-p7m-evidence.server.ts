@@ -51,7 +51,7 @@ export async function ensureExtractedP7mXml(
     relativePath: string;
     sha256: string;
     sizeBytes: number;
-    source: "API" | "BROWSER";
+    source: "API" | "MANUAL";
     p7mSha256: string;
     filename: string | null;
   },
@@ -98,7 +98,7 @@ export async function persistArubaOfficialEvidence(
     relativePath: string;
     sha256: string;
     sizeBytes: number;
-    source: "API" | "BROWSER";
+    source: "API" | "MANUAL";
     filename: string | null;
     existing: { id: string; storage_object_id: string } | null;
     extractedXml: { relativePath: string; sha256: string; sizeBytes: number } | null;

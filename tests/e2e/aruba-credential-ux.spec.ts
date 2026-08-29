@@ -34,7 +34,7 @@ test.beforeAll(async () => {
           api_paused, inbound_enabled, automatic_authority, last_checked_at,
           credentials_verified_at)
        VALUES ('ARUBA', 'DEVELOPMENT', 'synthetic-aruba-layout', $1,
-         'PAUSED', true, false, 'BROWSER', now(), now())`,
+         'CONNECTED', false, true, 'API', now(), now())`,
       [encryptedCredentials],
     );
   });
@@ -62,6 +62,29 @@ test("le credenziali Aruba collegate restano compatte e modificabili in sicurezz
   const edit = section.getByRole("button", { name: "Aggiorna credenziali" });
   await expect(form).toHaveCount(0);
   await expect(edit).toBeVisible();
+  const controlActions = section.locator(".aruba-api-controls__actions .button");
+  await expect(controlActions).toHaveCount(2);
+  await expect(controlActions.nth(0)).toHaveText("Salva controlli API");
+  await expect(controlActions.nth(1)).toHaveText("Sincronizza ora");
+  const desktopButtons = await controlActions.evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const bounds = button.getBoundingClientRect();
+      return { height: bounds.height, top: bounds.top };
+    }),
+  );
+  expect(Math.abs(desktopButtons[0]!.height - desktopButtons[1]!.height)).toBeLessThanOrEqual(1);
+  expect(Math.abs(desktopButtons[0]!.top - desktopButtons[1]!.top)).toBeLessThanOrEqual(1);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileButtons = await controlActions.evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const bounds = button.getBoundingClientRect();
+      return { height: bounds.height, width: bounds.width };
+    }),
+  );
+  expect(Math.abs(mobileButtons[0]!.height - mobileButtons[1]!.height)).toBeLessThanOrEqual(1);
+  expect(Math.abs(mobileButtons[0]!.width - mobileButtons[1]!.width)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   await edit.click();
   const username = section.getByLabel("Nome utente del pannello Aruba");

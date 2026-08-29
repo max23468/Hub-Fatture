@@ -161,7 +161,7 @@ export default function Home() {
       connected: true,
       requiresUpdate: arubaInventory.blocking || Number(summary.open_aruba_batches) > 0,
       never: copy.dashboard.neverRead,
-      to: "/impostazioni#aruba-helper",
+      to: "/impostazioni#aruba",
       icon: Cloud,
     },
   ].map((connection) => {

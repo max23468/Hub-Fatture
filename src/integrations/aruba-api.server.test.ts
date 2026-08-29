@@ -7,7 +7,6 @@ import {
   ARUBA_API_V2_CONTRACT,
   arubaApiInvoiceDetailSchema,
   arubaApiNotificationListSchema,
-  arubaApiGroupsToShadowDocuments,
   dryRunArubaApiInvoice,
   readArubaApiInvoiceDetail,
   readArubaApiInvoicePage,
@@ -544,30 +543,6 @@ test("il probe distingue gruppi vuoti, singoli e multipli senza confonderli con 
   } finally {
     globalThis.fetch = originalFetch;
   }
-});
-
-test("l’adapter shadow conserva l’ID del gruppo senza inventare la serie fiscale", () => {
-  const groups = (SYNTHETIC_INVOICE_PAGE.content ?? []) as unknown[];
-  assert.deepEqual(arubaApiGroupsToShadowDocuments(groups), [
-    {
-      remoteId: "gruppo-td04-sintetico",
-      documentType: "TD04",
-      fiscalYear: 2026,
-      series: null,
-      fiscalNumber: null,
-      documentDate: "2026-08-26",
-      status: "REJECTED",
-    },
-    {
-      remoteId: "gruppo-multiplo-sintetico",
-      documentType: "TD01",
-      fiscalYear: 2026,
-      series: null,
-      fiscalNumber: null,
-      documentDate: "2026-08-26",
-      status: "DELIVERED",
-    },
-  ]);
 });
 
 test("il contratto rifiuta stati fattura API non documentati", async () => {

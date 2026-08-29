@@ -25,7 +25,7 @@ const sections: Array<{ id: string; label: string; icon: LucideIcon }> = [
   { id: "fatturazione", label: copy.settings.billingTitle, icon: Settings2 },
   { id: "profilo-fiscale", label: copy.settings.fiscalTitle, icon: FileCheck2 },
   { id: "connessioni", label: copy.settings.connectionsTitle, icon: PlugZap },
-  { id: "aruba-helper", label: copy.settings.arubaTitle, icon: Landmark },
+  { id: "aruba", label: copy.settings.arubaTitle, icon: Landmark },
   { id: "email-cliente", label: copy.settings.customerEmailTitle, icon: Mail },
   { id: "sistema", label: copy.settings.systemTitle, icon: ShieldCheck },
 ];

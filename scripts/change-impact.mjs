@@ -86,29 +86,14 @@ export function classifyFiles(inputFiles) {
         file,
       ),
     );
-  const arubaPlatform =
-    failClosed ||
-    files.some((file) =>
-      /^(?:\.github\/workflows\/aruba-platform\.yml$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit)|src\/aruba(?:-inbound|-bookmarklet)?\.ts$|tests\/e2e\/aruba-synthetic|app\/routes\/aruba-(?:bridge|browser|helper|sync))/.test(
-        file,
-      ),
-    );
   const react = failClosed || files.some((file) => /^app\/.*\.(?:css|ts|tsx)$/.test(file));
   const e2e =
     failClosed ||
     runtime ||
-    files.some((file) =>
-      /^(?:tests\/e2e\/|playwright\.config\.ts$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit)|src\/aruba-bookmarklet)/.test(
-        file,
-      ),
-    );
+    files.some((file) => /^(?:tests\/e2e\/|playwright\.config\.ts$)/.test(file));
   const e2eWebkit =
     failClosed ||
-    files.some((file) =>
-      /^(?:app\/|tests\/e2e\/|playwright\.config\.ts$|scripts\/(?:aruba-helper|aruba-read-helper|aruba-read-runner|aruba-download-limit)|src\/aruba-bookmarklet)/.test(
-        file,
-      ),
-    );
+    files.some((file) => /^(?:app\/|tests\/e2e\/|playwright\.config\.ts$)/.test(file));
   const image = runtime;
   const migrationStorage =
     failClosed ||
@@ -150,7 +135,6 @@ export function classifyFiles(inputFiles) {
     database,
     securityData,
     provider,
-    arubaPlatform,
     react,
     e2e,
     e2eWebkit,
@@ -185,7 +169,6 @@ function outputs(result) {
     "database",
     "securityData",
     "provider",
-    "arubaPlatform",
     "react",
     "e2e",
     "e2eWebkit",

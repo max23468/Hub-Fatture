@@ -15,20 +15,19 @@
 | [Connettori Shopify ed eBay](evidence/connectors.md)                                  | Contratti API, fixture e gate dei provider                | Corrente    | No             |
 | [Audit Aruba e profilo FatturaPA](evidence/aruba-fatturapa-profile.md)                | Profilo fiscale, numerazione e prove anonimizzate         | Corrente    | No             |
 | [Attivazione profilo fiscale](runbooks/fiscal-profile.md)                             | Procedura sicura da XML accettato a profilo versionato    | Corrente    | Sì             |
-| [Contratto helper Aruba](contracts/aruba-helper.md)                                   | Baseline browser per transizione e dossier di parità      | Transitorio | Sì             |
-| [Contratto API Aruba](contracts/aruba-api.md)                                         | Gruppi, documenti, stati, file e limiti read-only v2      | Candidato   | Sì             |
+| [Contratto API Aruba](contracts/aruba-api.md)                                         | Autorità API, gruppi, documenti, stati, file e limiti v2  | Corrente    | Sì             |
 | [Probe API Aruba](runbooks/aruba-api-read-probe.md)                                   | Procedura read-only senza persistenza di credenziali      | Candidato   | Sì             |
 | [Qualifica API Aruba](evidence/aruba-api-qualification.md)                            | Stato delega, test locali e gate API ancora aperto        | In corso    | No             |
-| [Inbound API Aruba](evidence/aruba-api-inbound.md)                                    | Manifesto shadow e prove Production inbound               | In corso    | No             |
+| [Inbound API Aruba](evidence/aruba-api-inbound.md)                                    | Evidenze Production dell’inbound API canonico             | Storico     | No             |
 | [Outbound API Aruba](evidence/aruba-api-outbound.md)                                  | Dry-run, arresti, manifest ed esiti senza invio reale     | Corrente    | No             |
 | [ADR API Aruba primaria](adr/0001-api-aruba-canale-primario.md)                       | Destinazione API e migrazione progressiva                 | Approvato   | Sì             |
 | [ADR credenziale Aruba](adr/0002-credenziale-aruba-cifrata-nel-runtime.md)            | Custodia, rotazione e recovery della connessione          | Approvato   | Sì             |
 | [ADR sincronizzazione Aruba](adr/0003-polling-aruba-con-callback-di-accelerazione.md) | Polling autorevole e callback condizionata                | Approvato   | Sì             |
 | [ADR canary Aruba](adr/0004-permesso-monouso-canary-aruba.md)                         | Autorizzazione confinata del primo invio API              | Approvato   | Sì             |
 | [ADR base applicativa Debian 13](adr/0005-base-applicativa-debian-13-trixie-slim.md)  | Base container, aggiornamenti e rollback applicativo      | Approvato   | Sì             |
-| [Piano integrazione API Aruba](plans/aruba-api-integration.md)                        | Architettura, flussi, helper, gate e milestone            | Approvato   | Sì             |
+| [Piano integrazione API Aruba](plans/aruba-api-integration.md)                        | Architettura API, flussi, gate e milestone                | Approvato   | Sì             |
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                                   | Export, upload manuale, readback e import                 | Corrente    | Sì             |
-| [Integrazione Aruba locale](evidence/aruba-helper.md)                                 | Baseline browser osservata per il confronto di parità     | Storico     | No             |
+| [Integrazione Aruba locale](evidence/aruba-helper.md)                                 | Evidenza storica del percorso browser ritirato            | Storico     | No             |
 | [Note di credito ed e-mail](contracts/credit-notes-email.md)                          | Contratto TD04, trigger e trasporto cliente               | Candidato   | Sì             |
 | [Conservazione e cancellazione](contracts/retention-deletion.md)                      | Durate, eccezioni e procedura di cancellazione            | Approvato   | Sì             |
 | [PoC OCI Email Delivery](runbooks/oci-email-delivery-poc.md)                          | Preflight e prova Development con stop gate               | Completato  | Sì             |

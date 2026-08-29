@@ -537,26 +537,14 @@ export async function scheduleDueSyncs() {
          WHEN connections.last_full_sync_at IS NULL
            OR connections.last_full_sync_at <= now() - interval '30 days'
            THEN 'aruba_full_inventory'
-         WHEN ((connections.automatic_authority = 'API' AND EXISTS (
+         WHEN (EXISTS (
            SELECT 1 FROM aruba_remote_documents
            WHERE environment = CASE WHEN connections.environment = 'PRODUCTION'
              THEN 'PRODUCTION' ELSE 'MOCK' END
              AND account_reference = connections.account_reference
              AND automatic_source = 'API' AND provider_group_id IS NOT NULL
              AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
-         )) OR (connections.automatic_authority = 'BROWSER' AND EXISTS (
-           SELECT 1 FROM aruba_remote_documents
-           WHERE environment = CASE WHEN connections.environment = 'PRODUCTION'
-             THEN 'PRODUCTION' ELSE 'MOCK' END
-             AND account_reference = connections.account_reference
-             AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
-         ) AND EXISTS (
-           SELECT 1 FROM aruba_api_latest_shadow_documents
-           WHERE environment = CASE WHEN connections.environment = 'PRODUCTION'
-             THEN 'PRODUCTION' ELSE 'MOCK' END
-             AND account_reference = connections.account_reference
-             AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
-         ))) AND NOT EXISTS (
+         )) AND NOT EXISTS (
            SELECT 1 FROM jobs
            WHERE type = 'aruba_refresh_nonterminal'
              AND coalesce(completed_at, run_at) > now() - interval '15 minutes'

@@ -3,14 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  ARUBA_UPLOAD_MAX_BATCH_BYTES,
-  arubaManifestSchema,
   arubaMonthlyTransmissionUsage,
-  assertAllowedArubaAuthenticationNavigation,
-  assertAllowedArubaDownload,
-  assertAllowedArubaNavigation,
-  assertAllowedArubaTarget,
-  assertAllowedHubUrl,
   effectiveArubaMode,
   manifestSha256,
   notificationBelongsToDocument,
@@ -19,68 +12,7 @@ import {
   validateUntrustedXml,
 } from "./aruba.ts";
 
-test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
-  assert.equal(
-    assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/", "PRODUCTION").origin,
-    "https://fatturazioneelettronica.aruba.it",
-  );
-  assert.throws(() =>
-    assertAllowedArubaTarget(
-      "https://fatturazioneelettronica.aruba.it.attacker.invalid/",
-      "PRODUCTION",
-    ),
-  );
-  assert.throws(() =>
-    assertAllowedArubaTarget("https://fatturazioneelettronica.aruba.it/?token=x", "PRODUCTION"),
-  );
-  assert.equal(
-    assertAllowedArubaTarget("http://127.0.0.1:4173/aruba-sintetica?scenario=inventory", "MOCK")
-      .search,
-    "?scenario=inventory",
-  );
-  assert.throws(() =>
-    assertAllowedArubaTarget("http://127.0.0.1:4173/aruba-sintetica?token=x", "MOCK"),
-  );
-  const aruba = new URL("https://fatturazioneelettronica.aruba.it/");
-  assert.equal(
-    assertAllowedArubaNavigation(
-      "https://fatturazioneelettronica.aruba.it/documenti?stato=inviata",
-      aruba,
-    ).pathname,
-    "/documenti",
-  );
-  assert.throws(() =>
-    assertAllowedArubaNavigation("https://download.attacker.invalid/fattura.xml", aruba),
-  );
-  assert.equal(
-    assertAllowedArubaAuthenticationNavigation(
-      "https://loginfatturazione.aruba.it/?returnUrl=%2F%23dashboard",
-      aruba,
-    ).origin,
-    "https://loginfatturazione.aruba.it",
-  );
-  assert.throws(() =>
-    assertAllowedArubaAuthenticationNavigation(
-      "https://loginfatturazione.aruba.it.attacker.invalid/",
-      aruba,
-    ),
-  );
-  assert.throws(() =>
-    assertAllowedArubaAuthenticationNavigation(
-      "https://loginfatturazione.aruba.it/",
-      new URL("http://127.0.0.1:4173/aruba-sintetica"),
-    ),
-  );
-  assert.equal(
-    assertAllowedArubaDownload("data:application/xml,%3Cxml%2F%3E", aruba).protocol,
-    "data:",
-  );
-  assert.throws(() =>
-    assertAllowedArubaDownload("https://download.attacker.invalid/fattura.xml", aruba),
-  );
-  assert.equal(assertAllowedHubUrl("http://127.0.0.1:8080").hostname, "127.0.0.1");
-  assert.throws(() => assertAllowedHubUrl("http://hub.example"));
-
+test("manifest API e parser dei file Aruba restano fail-closed", async () => {
   const batch = {
     batchId: "00000000-0000-4000-8000-000000000001",
     environment: "MOCK" as const,
@@ -126,30 +58,6 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
     warning: "CRITICAL",
   });
   assert.equal(arubaMonthlyTransmissionUsage(501).remaining, 0);
-  const oversizedBatch = {
-    ...batch,
-    operation: "UPLOAD" as const,
-    manifestSha256: "b".repeat(64),
-    panelUrl: "http://127.0.0.1/aruba-sintetica",
-    documents: Array.from({ length: 7 }, (_, index) => ({
-      ...batch.documents[0]!,
-      id: String(index + 1),
-      filename: `FPR-${index + 1}.xml`,
-      sizeBytes: Math.floor(ARUBA_UPLOAD_MAX_BATCH_BYTES / 7) + 1,
-    })),
-  };
-  assert.equal(arubaManifestSchema.safeParse(oversizedBatch).success, false);
-  assert.equal(
-    arubaManifestSchema.safeParse({
-      ...oversizedBatch,
-      documents: oversizedBatch.documents.map((document) => ({
-        ...document,
-        sizeBytes: Math.floor(ARUBA_UPLOAD_MAX_BATCH_BYTES / 7),
-      })),
-    }).success,
-    true,
-  );
-
   const delivered = Buffer.from(
     '<?xml version="1.0"?><RicevutaConsegna><Id>1</Id></RicevutaConsegna>',
   );

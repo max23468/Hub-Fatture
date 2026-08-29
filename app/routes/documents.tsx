@@ -12,11 +12,9 @@ import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.ser
 import {
   createBatchForDocuments,
   importOfficialArubaFile,
-  issueHelperToken,
   listArubaBatches,
   listOfficialArubaFiles,
   listUnbatchedApprovedDocuments,
-  retryArubaBatch,
   getArubaSettings,
 } from "../../src/db/aruba.server.ts";
 import {
@@ -192,9 +190,6 @@ export async function action({ request }: Route.ActionArgs) {
       );
       return redirect("/documenti?batch=creato");
     }
-    if (form.get("intent") === "issue-helper-token") {
-      return data({ helper: await issueHelperToken(form.get("batchId") ?? "", actor) });
-    }
     if (form.get("intent") === "confirm-aruba-api-batch") {
       await confirmArubaApiBatch(form.get("batchId") ?? "", actor);
       return redirect("/documenti?batch=confermato");
@@ -206,10 +201,6 @@ export async function action({ request }: Route.ActionArgs) {
         form.get("confirmDryRunQualification") === "yes",
       );
       return redirect("/documenti?batch=dry-run-autorizzato");
-    }
-    if (form.get("intent") === "retry-aruba-batch") {
-      await retryArubaBatch(form.get("batchId") ?? "", actor);
-      return redirect("/documenti?batch=creato");
     }
     if (form.get("intent") === "retry-customer-email") {
       await retryCustomerEmail(
@@ -268,7 +259,6 @@ export default function Documents() {
     remoteDocuments,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const helper = actionData && "helper" in actionData ? actionData.helper : null;
   const error = actionData && "message" in actionData ? actionData.message : null;
 
   return (
@@ -324,13 +314,6 @@ export default function Documents() {
         <p className="notice" role="status">
           {copy.documents.fileImported}
         </p>
-      ) : null}
-      {helper ? (
-        <section aria-labelledby="helper-code" className="notice" role="status">
-          <h2 id="helper-code">{copy.documents.helperCodeTitle}</h2>
-          <p>{copy.documents.helperCodeHelp(dateTime(helper.expiresAt))}</p>
-          <code className="code-block">{helper.token}</code>
-        </section>
       ) : null}
       {error ? (
         <p className="error" role="alert">

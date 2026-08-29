@@ -115,7 +115,7 @@ test("backup e restore preservano la credenziale Aruba cifrata e il checkpoint",
           (provider, environment, account_reference, encrypted_credentials, status,
            api_paused, inbound_enabled, automatic_authority, credentials_verified_at)
          VALUES ('ARUBA', 'DEVELOPMENT', 'synthetic-restore-account', $1, 'PAUSED',
-           true, false, 'BROWSER', now())`,
+           true, false, 'API', now())`,
         [encrypted],
       );
       await client.query(
@@ -124,7 +124,7 @@ test("backup e restore preservano la credenziale Aruba cifrata e il checkpoint",
            status, window_start, window_end, checkpoint_start, checkpoint_end,
            checkpoint_page, request_count, lease_expires_at)
          VALUES ('20000000-0000-4000-8000-000000000001', 'MOCK', 'DEMO',
-           'synthetic-restore-account', 'BACKFILL', 'SHADOW', 'RUNNING',
+           'synthetic-restore-account', 'BACKFILL', 'CANONICAL', 'RUNNING',
            '2026-01-01T00:00:00Z', '2026-01-05T00:00:00Z',
            '2026-01-03T00:00:00Z', '2026-01-05T00:00:00Z', 3, 42, now())`,
       );

@@ -1,14 +1,13 @@
 # Piano esecutivo — integrazione API Aruba
 
-**Stato:** qualifica read-only completata; candidato inbound implementato, prove Production e dossier di parità aperti
+**Stato:** inbound API canonico e ritiro browser completati; restano ricertificazione, canary e go-live
 **Ambito:** API Aruba v2, solo ciclo attivo dell’utenza Base delegata
 **Fonte canonica:** Master Plan, ADR Aruba e glossario
 **Documentazione provider:** [API Aruba v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html) e [manuale account Premium](https://guide.pec.it/fatturazione-elettronica/manuale-account-premium.pdf)
 
-Questo piano sostituisce integralmente il precedente piano browser-centrico di riconciliazione in
-entrata. Descrive la destinazione completa, la transizione dai componenti browser, i gate e la
-sequenza di delivery. Non autorizza deploy, modifiche nel pannello Aruba, callback, upload, dry-run
-Production, invii fiscali reali o rimozione degli helper.
+Questo piano ha sostituito integralmente il precedente percorso browser-centrico. Descrive la
+destinazione API, i gate e la sequenza di delivery. Non autorizza deploy, modifiche nel pannello
+Aruba, callback, upload, dry-run Production o invii fiscali reali.
 
 ## 0. Baseline osservata
 
@@ -60,8 +59,7 @@ stato e file ufficiali; Hub Fatture conserva una proiezione locale datata e una 
 - credenziale cifrata nel database e recuperabile tramite il recovery kit protetto;
 - upload e trasmissione API soltanto nelle milestone e con le autorizzazioni previste;
 - fallback manuale per export, pannello, import e readback completo;
-- transizione e decisione separata sul ritiro del preferito/bridge inbound e dell’helper Playwright
-  outbound.
+- ritiro completo delle precedenti superfici browser, con preservazione dell’audit storico.
 
 ### 2.2 Escluso
 
@@ -370,41 +368,32 @@ Il fallback permanente è un flusso guidato, non una spunta dichiarativa:
 
 Il fallback non supera match ambigui, errori documentali, stato incerto o inventario incompleto.
 
-## 14. Transizione e fine degli helper
+## 14. Ritiro delle superfici browser
 
-### 14.1 Inbound
+### 14.1 Decisione conclusa
 
-Durante la transizione inbound il preferito/bridge resta autorevole e l’API esegue giri shadow
-separati e sanitizzati.
-Non si fondono due fonti automatiche nella stessa vista canonica. Il dossier richiede:
+Il titolare ha deciso il ritiro completo di preferito, bridge e helper Playwright. Le API sono
+l’unica autorità automatica; il fallback manuale non alimenta una seconda fonte automatica. La
+decisione conserva:
 
-- stesso insieme normalizzato di documenti, senza divergenze inspiegate;
-- paginazione e copertura completa;
-- stessi stati terminali e non terminali;
-- file e notifiche ufficiali equivalenti;
-- recovery, rate limit e backfill provati.
+- audit append-only e codici di provenienza storici;
+- file canonici già archiviati;
+- storia Git ed evidenze storiche della transizione;
+- fallback manuale presidiato.
 
-Dopo il dossier e un ingest completo controllato, il passaggio di autorità è atomico: l’API diventa
-l’unica fonte automatica. Il preferito può restare soltanto nel `Fallback transitorio` finché Massimo
-decide esplicitamente se ritirarlo.
+Codice eseguibile, rotte, token, stato dispositivo, UI, dipendenze e runbook operativi browser sono
+rimossi. Un ratchet di repository ne impedisce la reintroduzione accidentale.
 
-### 14.2 Outbound
+### 14.2 Outbound API
 
 Il dossier confronta dry-run, upload, validazione, invio, readback, file, stati, manifest, arresti e
 recovery. TD01 può raggiungere la parità dopo il canary reale; TD04 non è dichiarato in parità finché
 non supera un canary legittimo separato.
 
-### 14.3 Decisione e rimozione
+### 14.3 Condizione permanente
 
-Non esiste una scadenza automatica di 30 o 90 giorni. Prima della 1.0 Massimo deve decidere
-separatamente per inbound e outbound:
-
-- **ritira:** rimuovere codice eseguibile, rotte, token, stato dispositivo, UI, dipendenze e runbook
-  operativi specifici; conservare audit, file canonici, provenienza `HELPER` e storia Git;
-- **mantieni transitorio:** confinare il componente in Impostazioni, owner-only, disabilitato di
-  default, con rischi e condizione di rimozione documentati.
-
-L’assenza della rimozione fisica non blocca da sola la 1.0; l’assenza della decisione esplicita sì.
+Una nuova automazione del pannello costituirebbe una modifica materiale di architettura e richiede
+una decisione esplicita, un nuovo contratto e gate dedicati; non è un fallback implicito.
 
 ## 15. Qualifica e autorizzazioni Production
 
@@ -491,18 +480,14 @@ economico confermato; manifesto e prova read-only chiusi. **Completato nella qua
 
 - credenziale cifrata, due arresti, worker e job;
 - backfill completo, polling, file, matching, salute e UI;
-- giri shadow separati dal browser e dossier inbound;
-- passaggio atomico dell’autorità automatica all’API, in una modifica successiva e separatamente
-  autorizzata dopo il dossier.
+- ingest API canonico con checkpoint, file e matching fail-closed;
+- autorità automatica esclusivamente API.
 
-**Gate:** storico completo; zero divergenze inspiegate; recovery e restore provati; decisione di
-Massimo sul preferito/bridge registrata.
+**Gate:** storico completo; zero divergenze inspiegate; recovery e restore provati; ritiro delle
+superfici browser registrato.
 
-**Stato corrente:** l’implementazione shadow è distribuita e il backfill Production è in corso;
-restore della credenziale, recovery e protezioni di traffico hanno regressioni dedicate. Il
-candidato prepara anteprima read-only, report di chiusura, percorso canonico e cambio atomico, ma
-non espone un’azione per eseguirlo. L’autorità resta obbligatoriamente browser fino al dossier reale
-e a una futura conferma esplicita del titolare, registrata insieme alla decisione sul fallback.
+**Stato corrente:** l’inbound API è canonico. Restore della credenziale, recovery e protezioni di
+traffico hanno regressioni dedicate; il fallback manuale resta permanente.
 
 ### Outbound API senza invio reale
 
@@ -514,14 +499,13 @@ e a una futura conferma esplicita del titolare, registrata insieme alla decision
 **Gate:** nessun invio SdI; hash e autorizzazioni verificati; retry sicuro; dossier outbound tecnico
 pronto, esclusa la prova reale.
 
-### Parità e transizione browser
+### Ritiro del percorso browser
 
-- dossier separati inbound/outbound;
-- API unica fonte automatica per le capacità qualificate;
-- decisione esplicita di Massimo su ciascun helper;
-- eventuale rimozione o confinamento transitorio.
+- API unica fonte automatica;
+- preferito, bridge e helper Playwright rimossi dal runtime;
+- audit, file canonici e provenienza storica preservati.
 
-**Gate:** nessuna doppia autorità; fallback manuale completo; rischi residui accettati.
+**Gate:** nessuna doppia autorità; fallback manuale completo; ratchet anti-reintroduzione verde.
 
 ### Ricertificazione release candidate
 
