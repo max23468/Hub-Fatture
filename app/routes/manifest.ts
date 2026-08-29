@@ -12,7 +12,9 @@ export function loader() {
   });
   securePrivateHeaders(headers);
 
-  return new Response(JSON.stringify(privateWebManifest({ faviconHref: favicon, appIconHref: appIcon })), {
-    headers,
+  const manifest = privateWebManifest({
+    faviconHref: favicon,
+    appIconHref: appIcon,
   });
+  return new Response(JSON.stringify(manifest), { headers });
 }
