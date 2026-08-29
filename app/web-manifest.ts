@@ -2,6 +2,7 @@ import { copy } from "./copy.it.ts";
 
 export const WEB_MANIFEST_PATH = "/manifest.webmanifest";
 
+// Integra l'app con i browser senza introdurre segnali di indicizzazione pubblica.
 export function privateWebManifest({
   faviconHref,
   appIconHref,
