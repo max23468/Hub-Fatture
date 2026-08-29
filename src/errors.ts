@@ -47,6 +47,10 @@ export const errorCatalog = {
   ARUBA_OPERATION_FORBIDDEN: "Solo il titolare può eseguire questa operazione Aruba.",
   ARUBA_SEND_NOT_AUTHORIZED:
     "L’invio automatico non è abilitato o il manifest non coincide con il batch validato.",
+  ARUBA_SUBMISSION_PAUSED:
+    "La trasmissione Aruba è in pausa: il documento resta archiviato senza invio.",
+  ARUBA_SUBMISSION_UNKNOWN:
+    "L’esito della richiesta Aruba è incerto: esegui il readback prima di riprovare.",
   ARUBA_RECONCILIATION_REQUIRED:
     "Lo stato remoto è incerto: completa il readback prima di un nuovo tentativo.",
   ARUBA_IMPORT_INVALID: "Il file Aruba non è riconosciuto o non coincide con il documento.",

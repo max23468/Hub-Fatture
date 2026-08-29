@@ -241,7 +241,7 @@ const baseUrl = `http://127.0.0.1:${address.port}`;
 const payload = {
   batchId: "00000000-0000-4000-8000-000000000001",
   environment: "MOCK" as const,
-  mode: "AUTOMATIC" as const,
+  mode: "AUTOMATIC_AFTER_APPROVAL" as const,
   accountReference: "synthetic-aruba-account",
   attemptNumber: 1,
   documents: [

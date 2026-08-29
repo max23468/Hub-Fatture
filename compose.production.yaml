@@ -113,6 +113,7 @@ services:
     restart: unless-stopped
     <<: *app-security
     command: ["node", "build-server/worker.js"]
+    stop_grace_period: 3m
     environment: *app-environment
     volumes:
       - ./data/documents:/app/storage/documents

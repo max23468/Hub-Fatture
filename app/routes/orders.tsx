@@ -111,9 +111,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   ]);
   const approvalCandidates =
     view === "fatturare" && user.canApprove ? await listMassApprovalCandidates() : [];
-  const arubaMode = approvalCandidates.length
-    ? (await getArubaSettings()).effectiveMode
-    : "ASSISTED";
+  const arubaSettings = approvalCandidates.length ? await getArubaSettings() : null;
+  const arubaMode = arubaSettings?.effectiveMode ?? "DOCUMENT_ONLY";
   return {
     username: user.username,
     canApprove: user.canApprove,
@@ -131,6 +130,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     preparationSort,
     approvalCandidates,
     arubaMode,
+    arubaConfiguredMode: arubaSettings?.mode.value ?? "DOCUMENT_ONLY",
+    arubaDowngradeRequired: Boolean(
+      arubaSettings && arubaSettings.mode.value !== arubaSettings.effectiveMode,
+    ),
     approved: url.searchParams.get("approvati"),
     approvalErrors: url.searchParams.get("errori"),
     storagePending: url.searchParams.get("archiviazione"),
@@ -162,6 +165,7 @@ export async function action({ request }: Route.ActionArgs) {
           }),
         ),
         form.get("emailModeVersion"),
+        form.get("confirmArubaDowngrade") === "yes",
       );
       return redirect(
         `/ordini?vista=fatturare&approvati=${result.approved}&errori=${result.failed}&archiviazione=${result.storagePending}`,
@@ -297,10 +301,14 @@ function caseStatusTone(status: string) {
 function MassApprovalPanel({
   approvalCandidates,
   arubaMode,
+  arubaConfiguredMode,
+  arubaDowngradeRequired,
   csrfToken,
 }: {
   approvalCandidates: ApprovalCandidates;
   arubaMode: string;
+  arubaConfiguredMode: string;
+  arubaDowngradeRequired: boolean;
   csrfToken: string;
 }) {
   return (
@@ -406,11 +414,19 @@ function MassApprovalPanel({
         </div>
         <p>
           <strong>Percorso Aruba:</strong>{" "}
-          {arubaMode === "AUTOMATIC"
+          {arubaMode === "AUTOMATIC_AFTER_APPROVAL"
             ? copy.document.automaticHelperMode
-            : copy.document.assistedHelperMode}
+            : arubaMode === "CONTEXTUAL_CONFIRMATION"
+              ? copy.document.contextualTransmissionMode
+              : copy.document.documentOnlyMode}
         </p>
         <p className="warning">{copy.orders.massApprovalConsequence}</p>
+        {arubaDowngradeRequired ? (
+          <label className="checkbox-row">
+            <input name="confirmArubaDowngrade" required type="checkbox" value="yes" />
+            {copy.document.confirmArubaDowngrade(arubaConfiguredMode)}
+          </label>
+        ) : null}
         {approvalCandidates.map((candidate) => (
           <input
             key={`approval-${candidate.billing_case_id}`}
@@ -809,6 +825,8 @@ export default function Orders() {
     preparationSort,
     approvalCandidates,
     arubaMode,
+    arubaConfiguredMode,
+    arubaDowngradeRequired,
     approved,
     approvalErrors,
     storagePending,
@@ -872,6 +890,8 @@ export default function Orders() {
         <MassApprovalPanel
           approvalCandidates={approvalCandidates}
           arubaMode={arubaMode}
+          arubaConfiguredMode={arubaConfiguredMode}
+          arubaDowngradeRequired={arubaDowngradeRequired}
           csrfToken={csrfToken}
         />
       ) : null}

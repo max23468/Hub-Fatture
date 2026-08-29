@@ -29,6 +29,8 @@ test(
       const documents = await import("./documents.server.ts");
       const documentStorage = await import("./document-storage.server.ts");
       const aruba = await import("./aruba.server.ts");
+      const arubaOutbound = await import("./aruba-api-outbound.server.ts");
+      const jobs = await import("./connectors.server.ts");
       const orders = await import("./orders.server.ts");
       const database = await import("./client.server.ts");
       await database
@@ -609,6 +611,35 @@ test(
       const owner = { id: 1, canApprove: true, requestId: "aruba-m5" };
       const assistedBatchId = approved[0]!.batchId;
       const invalidBatchId = approved[1]!.batchId;
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT transport, mode, status FROM aruba_batches
+             WHERE id = ANY($1::uuid[]) ORDER BY id`,
+            [[assistedBatchId, invalidBatchId]],
+          )
+        ).rows,
+        [
+          { transport: "API", mode: "DOCUMENT_ONLY", status: "DOCUMENT_ONLY" },
+          { transport: "API", mode: "DOCUMENT_ONLY", status: "DOCUMENT_ONLY" },
+        ],
+      );
+      await database.getPool().query(
+        `UPDATE aruba_batches SET transport = 'HELPER', status = 'PREPARED'
+         WHERE id = ANY($1::uuid[])`,
+        [[assistedBatchId, invalidBatchId]],
+      );
+      await database.getPool().query(
+        `UPDATE aruba_submissions SET transport = 'HELPER', status = 'PENDING'
+         WHERE batch_id = ANY($1::uuid[])`,
+        [[assistedBatchId, invalidBatchId]],
+      );
+      await database.getPool().query(
+        `INSERT INTO connections
+          (provider, environment, account_reference, encrypted_credentials, status)
+         VALUES ('ARUBA', 'DEVELOPMENT', 'synthetic-aruba-account', NULL, 'CONNECTED')
+         ON CONFLICT (provider, environment) DO NOTHING`,
+      );
       assert.ok(assistedBatchId && invalidBatchId);
       await assert.rejects(
         aruba.issueHelperToken(assistedBatchId, {
@@ -620,7 +651,7 @@ test(
       );
       const assistedToken = await aruba.issueHelperToken(assistedBatchId, owner);
       const assistedManifest = await aruba.helperManifest(assistedToken.token);
-      assert.equal(assistedManifest.mode, "ASSISTED");
+      assert.equal(assistedManifest.mode, "DOCUMENT_ONLY");
       assert.equal(assistedManifest.accountReference, "synthetic-aruba-account");
       assert.deepEqual(
         (
@@ -994,7 +1025,7 @@ test(
           [approvalToken(cases[2]!.id, thirdProjection)],
           { id: 1, canApprove: true, requestId: "approve-mass-stale" },
           true,
-          "ASSISTED",
+          "DOCUMENT_ONLY",
           { [cases[2]!.id]: "SKIP" },
           thirdProjection.customerEmail.version,
         ),
@@ -1069,9 +1100,16 @@ test(
           "lines" in approvableThirdProjection,
       );
       const arubaSettings = await aruba.getArubaSettings();
+      const runtimeConfigForOutbound = (await import("../config.server.ts")).getConfig();
+      Object.assign(runtimeConfigForOutbound, { ARUBA_SUBMISSION_ENABLED: true });
+      await database.getPool().query(
+        `UPDATE connections SET encrypted_credentials = 'synthetic',
+           credentials_verified_at = now(), api_paused = false
+         WHERE provider = 'ARUBA' AND environment = 'DEVELOPMENT'`,
+      );
       await aruba.setArubaSettings(
         {
-          mode: "AUTOMATIC",
+          mode: "AUTOMATIC_AFTER_APPROVAL",
           modeVersion: arubaSettings.mode.version,
         },
         owner,
@@ -1084,7 +1122,7 @@ test(
             [approvalToken(cases[2]!.id, approvableThirdProjection)],
             { id: 1, canApprove: true, requestId: "approve-mass" },
             true,
-            "AUTOMATIC",
+            "AUTOMATIC_AFTER_APPROVAL",
             { [cases[2]!.id]: "SEND" },
             approvableThirdProjection.customerEmail.version,
           ),
@@ -1165,9 +1203,208 @@ test(
       });
       await assert.rejects(
         database.withTransaction((client) =>
-          aruba.createArubaBatch(client, mixedDocuments, owner, undefined, 1, "AUTOMATIC"),
+          arubaOutbound.createArubaApiBatch(client, mixedDocuments, owner, "DOCUMENT_ONLY"),
+        ),
+        (error) => error instanceof AppError && error.code === "DOCUMENT_NOT_APPROVABLE",
+      );
+      await assert.rejects(
+        database.withTransaction((client) =>
+          aruba.createArubaBatch(
+            client,
+            mixedDocuments,
+            owner,
+            undefined,
+            1,
+            "AUTOMATIC_AFTER_APPROVAL",
+          ),
         ),
         (error) => error instanceof AppError && error.code === "ARUBA_SEND_NOT_AUTHORIZED",
+      );
+      await database.getPool().query(
+        `UPDATE connections SET environment = 'PRODUCTION',
+           account_reference = 'qualified-production-account', status = 'CONNECTED',
+           encrypted_credentials = 'synthetic-invalid-ciphertext',
+           credentials_verified_at = now(), api_paused = false
+         WHERE provider = 'ARUBA'`,
+      );
+      const qualificationBatchId = await database.withTransaction((client) =>
+        arubaOutbound.createArubaApiBatch(
+          client,
+          [mixedDocuments[0]!],
+          owner,
+          "DOCUMENT_ONLY",
+          true,
+        ),
+      );
+      await assert.rejects(
+        arubaOutbound.authorizeArubaApiDryRunQualification(qualificationBatchId, owner, false),
+        (error) => error instanceof AppError && error.code === "ARUBA_BATCH_INVALID",
+      );
+      const qualification = await arubaOutbound.authorizeArubaApiDryRunQualification(
+        qualificationBatchId,
+        owner,
+        true,
+      );
+      assert.match(qualification.qualificationId, /^[0-9a-f-]{36}$/);
+      assert.equal(qualification.queued, 1);
+      await database.getPool().query(
+        `UPDATE jobs SET run_at = now() + interval '1 hour'
+         WHERE status = 'PENDING' AND id <> (
+           SELECT jobs.id FROM jobs
+           JOIN aruba_submissions AS submissions
+             ON jobs.payload_json ->> 'submissionId' = submissions.id::text
+           WHERE submissions.batch_id = $1 AND jobs.type = 'aruba_dry_run_submission'
+         )`,
+        [qualificationBatchId],
+      );
+      const qualificationJob = await jobs.claimJob("aruba-dry-run-qualification-worker");
+      assert.equal(qualificationJob?.type, "aruba_dry_run_submission");
+      const qualificationResult = await arubaOutbound.runArubaApiOutboundJob(qualificationJob!);
+      assert.equal(qualificationResult.accepted, false);
+      assert.equal(await jobs.completeJob(qualificationJob!, qualificationResult), true);
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT qualifications.status, qualifications.consumed_at IS NOT NULL AS consumed,
+                    qualifications.completed_at IS NOT NULL AS completed,
+                    batches.status AS batch_status, submissions.status AS submission_status
+             FROM aruba_dry_run_qualifications AS qualifications
+             JOIN aruba_batches AS batches ON batches.id = qualifications.batch_id
+             JOIN aruba_submissions AS submissions ON submissions.batch_id = batches.id
+             WHERE batches.id = $1`,
+            [qualificationBatchId],
+          )
+        ).rows[0],
+        {
+          status: "FAILED",
+          consumed: true,
+          completed: true,
+          batch_status: "DRY_RUN_FAILED",
+          submission_status: "DRY_RUN_FAILED",
+        },
+      );
+      assert.equal(runtimeConfig.ARUBA_SUBMISSION_ENABLED, false);
+      await assert.rejects(
+        arubaOutbound.authorizeArubaApiDryRunQualification(qualificationBatchId, owner, true),
+        (error) => error instanceof AppError && error.code === "ARUBA_BATCH_INVALID",
+      );
+      const interruptedBatchId = await database.withTransaction((client) =>
+        arubaOutbound.createArubaApiBatch(
+          client,
+          [mixedDocuments[0]!],
+          owner,
+          "DOCUMENT_ONLY",
+          true,
+        ),
+      );
+      await arubaOutbound.authorizeArubaApiDryRunQualification(interruptedBatchId, owner, true);
+      await database.getPool().query(
+        `UPDATE jobs SET run_at = now() + interval '1 hour'
+         WHERE status = 'PENDING' AND id <> (
+           SELECT jobs.id FROM jobs
+           JOIN aruba_submissions AS submissions
+             ON jobs.payload_json ->> 'submissionId' = submissions.id::text
+           WHERE submissions.batch_id = $1 AND jobs.type = 'aruba_dry_run_submission'
+         )`,
+        [interruptedBatchId],
+      );
+      const interruptedJob = await jobs.claimJob("aruba-dry-run-recovery-worker");
+      assert.equal(interruptedJob?.type, "aruba_dry_run_submission");
+      await database.getPool().query(
+        `UPDATE aruba_dry_run_qualifications
+         SET status = 'CONSUMED', consumed_at = now()
+         WHERE batch_id = $1`,
+        [interruptedBatchId],
+      );
+      await database.getPool().query(
+        `INSERT INTO aruba_submission_attempts
+           (id, submission_id, operation, attempt_number, request_fingerprint,
+            xml_sha256, status, started_at)
+         SELECT $2, submissions.id, 'DRY_RUN', 1, repeat('9', 64),
+                submissions.xml_sha256, 'RUNNING', now()
+         FROM aruba_submissions AS submissions WHERE submissions.batch_id = $1`,
+        [interruptedBatchId, "40000000-0000-4000-8000-000000000040"],
+      );
+      const recoveredDryRun = await arubaOutbound.runArubaApiOutboundJob(interruptedJob!);
+      assert.deepEqual(recoveredDryRun, {
+        accepted: false,
+        unknownRemoteState: true,
+        submissionId: interruptedJob!.payload.submissionId,
+        batchId: interruptedBatchId,
+      });
+      assert.equal(await jobs.completeJob(interruptedJob!, recoveredDryRun), true);
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT qualifications.status, batches.status AS batch_status,
+                    batches.requires_reconciliation, submissions.status AS submission_status,
+                    attempts.status AS attempt_status
+             FROM aruba_dry_run_qualifications AS qualifications
+             JOIN aruba_batches AS batches ON batches.id = qualifications.batch_id
+             JOIN aruba_submissions AS submissions ON submissions.batch_id = batches.id
+             JOIN aruba_submission_attempts AS attempts
+               ON attempts.submission_id = submissions.id
+             WHERE batches.id = $1`,
+            [interruptedBatchId],
+          )
+        ).rows[0],
+        {
+          status: "UNKNOWN_REMOTE_STATE",
+          batch_status: "UNKNOWN_REMOTE_STATE",
+          requires_reconciliation: true,
+          submission_status: "UNKNOWN_REMOTE_STATE",
+          attempt_status: "UNKNOWN_REMOTE_STATE",
+        },
+      );
+      const cancelledBatchId = await database.withTransaction((client) =>
+        arubaOutbound.createArubaApiBatch(
+          client,
+          [mixedDocuments[0]!],
+          owner,
+          "DOCUMENT_ONLY",
+          true,
+        ),
+      );
+      await arubaOutbound.authorizeArubaApiDryRunQualification(cancelledBatchId, owner, true);
+      await database.getPool().query(
+        `UPDATE jobs SET run_at = now() + interval '1 hour'
+         WHERE status = 'PENDING' AND id <> (
+           SELECT jobs.id FROM jobs
+           JOIN aruba_submissions AS submissions
+             ON jobs.payload_json ->> 'submissionId' = submissions.id::text
+           WHERE submissions.batch_id = $1 AND jobs.type = 'aruba_dry_run_submission'
+         )`,
+        [cancelledBatchId],
+      );
+      await database
+        .getPool()
+        .query("UPDATE connections SET api_paused = true WHERE provider = 'ARUBA'");
+      const cancelledJob = await jobs.claimJob("aruba-dry-run-cancelled-worker");
+      const cancelledResult = await arubaOutbound.runArubaApiOutboundJob(cancelledJob!);
+      assert.equal(cancelledResult.accepted, false);
+      assert.equal(await jobs.completeJob(cancelledJob!, cancelledResult), true);
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT qualifications.status, batches.status AS batch_status,
+                    submissions.status AS submission_status
+             FROM aruba_dry_run_qualifications AS qualifications
+             JOIN aruba_batches AS batches ON batches.id = qualifications.batch_id
+             JOIN aruba_submissions AS submissions ON submissions.batch_id = batches.id
+             WHERE batches.id = $1`,
+            [cancelledBatchId],
+          )
+        ).rows[0],
+        {
+          status: "CANCELLED",
+          batch_status: "DRY_RUN_FAILED",
+          submission_status: "DRY_RUN_FAILED",
+        },
+      );
+      await database.getPool().query(
+        `UPDATE connections SET environment = 'DEVELOPMENT',
+           account_reference = 'synthetic-aruba-account', api_paused = false
+         WHERE provider = 'ARUBA'`,
       );
       Object.assign(runtimeConfig, originalArubaRuntime);
       await assert.rejects(
@@ -1235,11 +1472,50 @@ test(
         (await aruba.listArubaBatches()).find((batch) => batch.id === mixedBatchId)?.can_retry,
         true,
       );
-      const automaticBatch = (await aruba.listArubaBatches()).find(
-        (batch) => batch.mode === "AUTOMATIC" && batch.status === "PREPARED",
+      const automaticBatchId = (
+        await database.getPool().query<{ id: string }>(
+          `SELECT id FROM aruba_batches
+           WHERE mode = 'AUTOMATIC_AFTER_APPROVAL' AND transport = 'API'
+           ORDER BY created_at DESC LIMIT 1`,
+        )
+      ).rows[0]!.id;
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT batches.status, submissions.status AS submission_status,
+                    jobs.max_attempts
+             FROM aruba_batches AS batches
+             JOIN aruba_submissions AS submissions ON submissions.batch_id = batches.id
+             JOIN jobs ON jobs.payload_json ->> 'submissionId' = submissions.id::text
+             WHERE batches.id = $1`,
+            [automaticBatchId],
+          )
+        ).rows[0],
+        {
+          status: "DRY_RUN_PENDING",
+          submission_status: "DRY_RUN_PENDING",
+          max_attempts: 1,
+        },
       );
-      assert.ok(automaticBatch);
-      const automaticToken = await aruba.issueHelperToken(automaticBatch.id, owner);
+      await database.getPool().query(
+        `DELETE FROM jobs WHERE type = 'aruba_dry_run_submission'
+           AND payload_json ->> 'submissionId' IN (
+             SELECT id::text FROM aruba_submissions WHERE batch_id = $1
+           )`,
+        [automaticBatchId],
+      );
+      await database
+        .getPool()
+        .query("UPDATE aruba_batches SET transport = 'HELPER', status = 'PREPARED' WHERE id = $1", [
+          automaticBatchId,
+        ]);
+      await database
+        .getPool()
+        .query(
+          "UPDATE aruba_submissions SET transport = 'HELPER', status = 'PENDING' WHERE batch_id = $1",
+          [automaticBatchId],
+        );
+      const automaticToken = await aruba.issueHelperToken(automaticBatchId, owner);
       const automaticManifest = await aruba.helperManifest(automaticToken.token);
       assert.equal(automaticManifest.operation, "UPLOAD");
       await aruba.recordHelperEvent(automaticToken.token, {
@@ -1281,7 +1557,7 @@ test(
           remoteId: remoteIds[document.id],
         })),
       });
-      const automaticReadbackToken = await aruba.issueHelperToken(automaticBatch.id, owner);
+      const automaticReadbackToken = await aruba.issueHelperToken(automaticBatchId, owner);
       assert.equal(
         (await aruba.helperManifest(automaticReadbackToken.token)).operation,
         "READBACK",
@@ -1322,12 +1598,18 @@ test(
            FROM aruba_submissions AS submissions
            JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
            WHERE submissions.batch_id = $1`,
-          [automaticBatch.id],
+          [automaticBatchId],
         )
       ).rows[0]!;
       assert.equal(automaticState.status, "SUBMITTED");
       assert.ok(automaticState.submitted_at);
       assert.equal(automaticState.can_retry, false);
+      assert.ok((await arubaOutbound.getArubaMonthlyTransmissionUsage()).accepted >= 1);
+      const automaticBatch = (await aruba.listArubaBatches()).find(
+        (batch) => batch.id === automaticBatchId,
+      );
+      assert.equal(automaticBatch?.documents.length, 1);
+      assert.equal(automaticBatch?.documents[0]?.status, "SUBMITTED");
       await database
         .getPool()
         .query("ALTER TABLE aruba_batch_documents DISABLE TRIGGER aruba_batch_documents_immutable");
@@ -1361,7 +1643,7 @@ test(
             .getPool()
             .query("SELECT mode FROM aruba_batches WHERE id = $1", [recoveredBatch.value])
         ).rows[0].mode,
-        "ASSISTED",
+        "AUTOMATIC_AFTER_APPROVAL",
       );
       await unlink(path.join(storage, rows[0]!.relative_path));
       assert.ok(

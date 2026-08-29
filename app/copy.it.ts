@@ -204,6 +204,10 @@ export const copy = {
     lastArubaReadback: "Ultimo readback Aruba",
     documentsToday: "Documenti emessi oggi",
     documentsThisMonth: "Documenti emessi questo mese",
+    arubaMonthlyWarning: (level: "WARNING" | "CRITICAL", accepted: number, remaining: number) =>
+      level === "CRITICAL"
+        ? `Aruba: ${accepted} trasmissioni accettate questo mese; ne restano ${remaining} prima della soglia 500.`
+        : `Aruba: soglia di attenzione raggiunta con ${accepted} trasmissioni; ne restano ${remaining} prima di 500.`,
   },
   orders: {
     eyebrow: "Vendite online",
@@ -601,9 +605,13 @@ export const copy = {
     emailAttachment: "Allegato",
     emailSend: "Invia dopo il primo esito SdI DELIVERED o NOT_DELIVERED.",
     emailSkip: "Non inviare per questo documento.",
-    assistedHelperMode: "Assistita; l’helper si arresta prima di Invia",
+    documentOnlyMode: "Crea e archivia il documento, senza trasmetterlo ad Aruba",
+    contextualTransmissionMode:
+      "Dopo la creazione potrai scegliere esplicitamente se avviare la trasmissione",
     automaticHelperMode:
-      "Automatica dopo approvazione; disponibile soltanto quando l’uso Production è abilitato",
+      "Dopo l’approvazione viene preparata automaticamente la trasmissione API, solo con i controlli attivi",
+    confirmArubaDowngrade: (configuredMode: string) =>
+      `La modalità ${configuredMode === "AUTOMATIC_AFTER_APPROVAL" ? "automatica" : "con conferma"} non è disponibile: confermo di creare soltanto il documento, senza trasmissione Aruba.`,
     irreversibleNumbering:
       "Con l’approvazione viene assegnato automaticamente il prossimo numero fiscale disponibile. Il numero sarà definitivo e non potrà essere riutilizzato per un altro documento.",
     approve: "Approva fattura",
@@ -719,6 +727,8 @@ export const copy = {
       `${count} ${count === 1 ? "file disponibile" : "file disponibili"}`,
     noOfficialFiles: "Nessun file ufficiale importato.",
     batchCreated: "Batch Aruba creato con manifest immutabile.",
+    dryRunQualificationAuthorized:
+      "Una sola verifica API Production è stata autorizzata per questo manifest.",
     fileImported: "File ufficiale importato e verificato.",
     importOfficial: "Importa file ufficiale",
     fileType: "Tipo di file",
@@ -758,13 +768,31 @@ export const copy = {
     batchLastReadback: "Ultimo readback",
     batchNeverRead: "Non ancora eseguito",
     batchActions: "Azioni batch",
-    batchSummary: (count: number, mode: string) =>
-      `${count} ${count === 1 ? "documento" : "documenti"} · ${mode === "AUTOMATIC" ? "Automatica" : "Assistita"}`,
+    batchDocumentResults: "Esiti per documento",
+    batchSummary: (count: number, mode: string) => {
+      const label =
+        mode === "AUTOMATIC_AFTER_APPROVAL"
+          ? "Automatica dopo approvazione"
+          : mode === "CONTEXTUAL_CONFIRMATION"
+            ? "Con conferma contestuale"
+            : "Solo documento";
+      return `${count} ${count === 1 ? "documento" : "documenti"} · ${label}`;
+    },
     lastReadback: (value: string) => `ultimo readback ${value}`,
     issueHelperCode: "Genera codice di avvio",
+    confirmApiTransmission: "Avvia verifica e trasmissione API",
+    authorizeDryRunQualification: "Autorizza una verifica Production",
+    confirmDryRunQualification:
+      "Confermo una sola chiamata Aruba con dryRun=true per questo documento e questo manifest. Nessun invio SdI è autorizzato.",
     retryBatch: "Prepara nuovo tentativo",
     arubaBatchStatus: {
       PREPARED: "Preparato",
+      DOCUMENT_ONLY: "Solo documento; nessuna trasmissione pianificata",
+      AWAITING_CONFIRMATION: "In attesa della conferma di trasmissione",
+      DRY_RUN_PENDING: "Verifica Aruba pianificata",
+      DRY_RUN_VALIDATED: "Verifica Aruba superata",
+      DRY_RUN_FAILED: "Verifica Aruba non superata",
+      UNKNOWN_REMOTE_STATE: "Esito Aruba incerto; readback necessario",
       HELPER_ACTIVE: "Helper attivo",
       VALIDATION_FAILED: "Validazione non riuscita",
       READY_ASSISTED: "Validato; arrestato prima dell’invio",
@@ -773,6 +801,25 @@ export const copy = {
       RECONCILIATION_REQUIRED: "Readback necessario",
       RECONCILED: "Riconciliato",
       CANCELLED: "Annullato",
+    } as Record<string, string>,
+    arubaDocumentStatus: {
+      PENDING: "In attesa",
+      DRY_RUN_PENDING: "Verifica Aruba pianificata",
+      DRY_RUN_VALIDATED: "Verifica Aruba superata",
+      DRY_RUN_FAILED: "Verifica Aruba non superata",
+      UPLOADED: "Caricato",
+      VALIDATED: "Validato",
+      VALIDATION_FAILED: "Validazione non riuscita",
+      READY_TO_SEND: "Pronto per l’invio",
+      SUBMITTED: "Accettato per la trasmissione",
+      SDI_PROCESSING: "In lavorazione SdI",
+      DELIVERED: "Consegnato",
+      NOT_DELIVERED: "Non consegnato",
+      REJECTED: "Scartato",
+      UNKNOWN: "Esito non noto",
+      UNKNOWN_REMOTE_STATE: "Esito remoto incerto",
+      REMOVED: "Rimosso",
+      RECONCILED: "Riconciliato",
     } as Record<string, string>,
     empty: "Nessun documento",
     emptyHelp: "Le bozze compaiono dopo il primo salvataggio della preparazione.",
@@ -996,8 +1043,9 @@ export const copy = {
       OCI_EMAIL_DELIVERY: "OCI Email Delivery",
     } as Record<string, string>,
     arubaMode: "Modalità Aruba",
-    arubaAssisted: "Assistita",
-    arubaAutomatic: "Automatica dopo conferma",
+    arubaDocumentOnly: "Crea solo il documento",
+    arubaContextualConfirmation: "Chiedi se trasmettere dopo la creazione",
+    arubaAutomaticAfterApproval: "Trasmetti automaticamente dopo l’approvazione",
     arubaSaved: "Impostazioni Aruba aggiornate.",
     arubaSave: "Salva integrazione Aruba",
     arubaOwnerOnly: "Solo il titolare può cambiare la modalità Aruba.",
@@ -1011,7 +1059,14 @@ export const copy = {
     arubaRemoteDocuments: "Documenti rilevati",
     arubaUnresolved: "Da verificare",
     arubaKillSwitch:
-      "Gli invii automatici operativi sono disabilitati: i nuovi batch useranno la modalità assistita.",
+      "La trasmissione fiscale è disabilitata: le approvazioni creano soltanto il documento.",
+    arubaMonthlyUsageTitle: "Trasmissioni Aruba del mese",
+    arubaMonthlyUsage: (count: number) =>
+      `${count} documenti accettati per la trasmissione su una soglia operativa di 500.`,
+    arubaMonthlyWarning: (level: "WARNING" | "CRITICAL", remaining: number) =>
+      level === "CRITICAL"
+        ? `Soglia critica raggiunta: restano ${remaining} trasmissioni prima di 500.`
+        : `Soglia di attenzione raggiunta: restano ${remaining} trasmissioni prima di 500.`,
     ...arubaSettingsCopy,
     systemTitle: "Sistema",
     systemHelp: "Controlla i parametri generali che influenzano tutta l’applicazione.",

@@ -19,6 +19,7 @@ import { dateTime } from "../format";
 import { privateRouteMeta } from "../metadata";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 import { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
+import { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
 import { dashboardSummary } from "../../src/db/orders.server.ts";
 
 const chartDateFormatter = new Intl.DateTimeFormat("it-IT", {
@@ -34,9 +35,10 @@ function chartDate(value: string) {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
-  const [summary, arubaInventory] = await Promise.all([
+  const [summary, arubaInventory, arubaMonthlyUsage] = await Promise.all([
     dashboardSummary(),
     getArubaInventoryHealth(),
+    getArubaMonthlyTransmissionUsage(),
   ]);
   return {
     username: user.username,
@@ -45,6 +47,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     currentTime: new Date().toISOString(),
     summary,
     arubaInventory,
+    arubaMonthlyUsage,
   };
 }
 
@@ -53,8 +56,15 @@ export function meta({ error }: Route.MetaArgs) {
 }
 
 export default function Home() {
-  const { username, canApprove, csrfToken, currentTime, summary, arubaInventory } =
-    useLoaderData<typeof loader>();
+  const {
+    username,
+    canApprove,
+    csrfToken,
+    currentTime,
+    summary,
+    arubaInventory,
+    arubaMonthlyUsage,
+  } = useLoaderData<typeof loader>();
   const workItems = [
     {
       value: Number(summary.ready_cases),
@@ -197,6 +207,16 @@ export default function Home() {
         <p className="eyebrow">{copy.dashboard.eyebrow}</p>
         <h1>{copy.dashboard.title}</h1>
       </div>
+
+      {arubaMonthlyUsage.warning ? (
+        <p className="warning" role="status">
+          {copy.dashboard.arubaMonthlyWarning(
+            arubaMonthlyUsage.warning,
+            arubaMonthlyUsage.accepted,
+            arubaMonthlyUsage.remaining,
+          )}
+        </p>
+      ) : null}
 
       <div className="dashboard-grid">
         <section className="dashboard-panel work-panel" aria-labelledby="dashboard-work-title">

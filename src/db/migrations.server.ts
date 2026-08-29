@@ -4,7 +4,8 @@ import path from "node:path";
 
 import pg from "pg";
 
-const MIGRATION_NAME = /^\d{3}_[a-z0-9_]+\.sql$/;
+import { sortedMigrationFileNames } from "../migration-files.ts";
+
 const MIGRATION_LOCK = 1_214_606_389;
 
 export interface MigrationOptions {
@@ -29,7 +30,7 @@ export async function runMigrations({
       )
     `);
 
-    const files = (await readdir(directory)).filter((name) => MIGRATION_NAME.test(name)).sort();
+    const files = sortedMigrationFileNames(await readdir(directory));
     const existing = await client.query<{ name: string; checksum: string }>(
       "SELECT name, checksum FROM schema_migrations ORDER BY name",
     );

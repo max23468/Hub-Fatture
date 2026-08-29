@@ -1,17 +1,54 @@
-# Contratto read-only API Aruba v2
+# Contratto API Aruba v2
 
 ## Perimetro corrente
 
 Il contratto copre il solo ciclo attivo dell’utenza Base delegata: autenticazione, identità,
 ricerca paginata delle fatture inviate, dettaglio, file e notifiche. La sincronizzazione inbound
 esegue soltanto giri shadow separati dall’inventario browser e termina al dossier di parità.
-L’autorità automatica resta vincolata al browser anche con un dossier `MATCHED`: un futuro passaggio
-all’ingest canonico richiederà una nuova autorizzazione, una nuova modifica applicativa e i relativi
-gate. Il contratto non autorizza né implementa dry-run, upload, invio o callback.
+L’autorità inbound automatica resta vincolata al browser anche con un dossier `MATCHED`: un futuro
+passaggio all’ingest canonico richiederà una nuova autorizzazione, una nuova modifica applicativa e
+i relativi gate. Il percorso outbound aggiunge invece la sola qualificazione senza invio:
+manifest immutabile, un job per documento e `POST /services/invoice/upload` con `dryRun=true`.
+`dryRun=false`, trasmissione reale, callback e prova SdI restano fuori dal contratto corrente.
 
-La fonte provider è la documentazione ufficiale API v2, il cui changelog corrente espone la
-revisione 2.5.0. Un cambiamento della forma o dei limiti riapre la qualifica prima di estendere il
-canale Production.
+La fonte provider è la [documentazione ufficiale API v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html),
+il cui changelog corrente espone la revisione 2.5.0. Un cambiamento della forma o dei limiti riapre
+la qualifica prima di estendere il canale Production.
+
+## Outbound senza invio
+
+Le tre modalità globali sono rigide:
+
+- `DOCUMENT_ONLY`: crea il documento e non pianifica chiamate outbound;
+- `CONTEXTUAL_CONFIRMATION`: crea il documento e attende una conferma separata del titolare;
+- `AUTOMATIC_AFTER_APPROVAL`: pianifica automaticamente la qualificazione dry-run dopo
+  l’approvazione.
+
+Quando `ARUBA_SUBMISSION_ENABLED=false`, la modalità effettiva è sempre `DOCUMENT_ONLY`. Se la
+modalità configurata richiederebbe la trasmissione, ogni approvazione o preparazione manuale esige
+una conferma esplicita del downgrade; il server non accetta il solo valore nascosto inviato dalla
+pagina. Il secondo arresto indipendente è `connections.api_paused`. Entrambi vengono riletti prima
+di creare o confermare il batch e nuovamente dal worker prima della rete. La sola eccezione è una
+qualifica Production monouso: resta confinata a un batch `DOCUMENT_ONLY` di un documento, lega
+account e manifest, scade dopo quindici minuti e autorizza al massimo una richiesta
+`/services/invoice/upload` con `dryRun=true`. Il worker la consuma atomicamente prima della rete;
+non abilita `dryRun=false` e non modifica l’interruttore globale.
+
+Il provider documenta un solo endpoint di upload: `dryRun=true` valida e carica il contenuto per la
+verifica sincrona senza inviarlo a SdI; `dryRun=false` effettua la trasmissione reale. La fase non
+inventa quindi un’operazione remota intermedia: qualifica il percorso di upload esclusivamente con
+`dryRun=true` e conserva `dryRun=false` inaccessibile fino alla fase di invio controllato.
+
+Ogni batch lega ambiente, account, modalità, tentativo e documenti a un SHA-256 del manifest. Prima
+del dry-run il worker ricostruisce quel manifest dai dati approvati, verifica l’identità del
+titolare che lo ha creato, stato e revisione del documento, hash XML, ambiente, account, modalità e
+stato della connessione. Ogni documento ha un tentativo e un esito autonomi. Timeout, risposta non
+interpretabile o esito remoto ambiguo producono `UNKNOWN_REMOTE_STATE`, bloccano il batch e non
+consentono retry automatici.
+
+Il contatore mensile locale usa `submitted_at`, cioè soltanto documenti accettati per una
+trasmissione reale. Dashboard e Impostazioni mostrano un avviso a 400 e un avviso critico a 475,
+con soglia operativa 500. Un dry-run non incrementa il contatore.
 
 ## Gruppo API e documento Aruba
 
@@ -134,4 +171,11 @@ l’inventario canonico e il deploy non cambia l’autorità automatica. Il perc
 inaccessibile dall’interfaccia: può essere invocato soltanto dal titolare dopo tutti i gate tecnici e
 con una decisione esplicita sul fallback. La transazione registra l’audit, revoca le sessioni helper
 automatiche ancora aperte e rende canonici soltanto i giri API successivi; qualunque gate mancante
-mantiene il browser come autorità. Upload, dry-run e invio non fanno parte di questo contratto.
+mantiene il browser come autorità. Il dry-run outbound è separato dall’autorità inbound; upload con
+`dryRun=false` e invio reale non fanno parte della fase corrente.
+
+Ogni job di backfill consolida una sola pagina e poi rilascia la coda senza consumare un tentativo.
+Il checkpoint rimane nella run, mentre lo stesso job torna pendente dopo un breve intervallo: un
+dry-run già autorizzato deve quindi attendere al massimo la pagina in corso. Il worker dispone di
+tre minuti per completare il punto sicuro durante un arresto ordinato; un riavvio non trasforma il
+yield cooperativo in un retry.

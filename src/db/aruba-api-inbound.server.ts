@@ -128,7 +128,15 @@ function requireOwner(actor: ArubaApiActor) {
   if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
 }
 
-function runKind(type: JobType): RunKind {
+type ArubaInboundJobType = Extract<
+  JobType,
+  | "aruba_backfill_inventory"
+  | "aruba_sync_inventory"
+  | "aruba_refresh_nonterminal"
+  | "aruba_full_inventory"
+>;
+
+function runKind(type: ArubaInboundJobType): RunKind {
   if (type === "aruba_backfill_inventory") return "BACKFILL";
   if (type === "aruba_refresh_nonterminal") return "TARGETED";
   if (type === "aruba_full_inventory") return "FULL";
@@ -136,8 +144,13 @@ function runKind(type: JobType): RunKind {
   throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
 }
 
-function runJobType(type: JobType): type is Extract<JobType, `aruba_${string}`> {
-  return type.startsWith("aruba_");
+function runJobType(type: JobType): type is ArubaInboundJobType {
+  return [
+    "aruba_backfill_inventory",
+    "aruba_sync_inventory",
+    "aruba_refresh_nonterminal",
+    "aruba_full_inventory",
+  ].includes(type);
 }
 
 function parseStoredCredentials(value: string): StoredCredentials {
@@ -1847,7 +1860,7 @@ async function targetedDocuments(
 
 export async function runArubaApiInboundJob(
   job: ClaimedJob,
-  options: { rateDelayMs?: number; now?: Date } = {},
+  options: { rateDelayMs?: number; now?: Date; pageBudget?: number } = {},
 ) {
   if (!runJobType(job.type)) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
   const { current, credentials } = await runnableConnection();
@@ -1875,6 +1888,12 @@ export async function runArubaApiInboundJob(
     await testGlobalGate.wait();
     await testScopeGates[scope].wait();
   };
+  const pageBudget =
+    options.pageBudget ?? (options.rateDelayMs === undefined ? 1 : Number.MAX_SAFE_INTEGER);
+  if (!Number.isSafeInteger(pageBudget) || pageBudget < 1) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
+  }
+  let processedPages = 0;
   try {
     if (kind === "TARGETED") {
       if (!(await runMayContinue(run))) {
@@ -1911,8 +1930,32 @@ export async function runArubaApiInboundJob(
         documents.push(...(await readGroup(run.id, manager, waitForRead, group)));
       }
       await persistApiPage(checkpoint, documents, page.groups.length, page.page, page.terminal);
-      if (!page.terminal) continue;
-      if (await advanceWindow(run.id)) continue;
+      processedPages += 1;
+      if (!(await runMayContinue(run))) {
+        return { runId: run.id, kind, mode: run.authority_mode, stopped: true };
+      }
+      if (!page.terminal) {
+        if (processedPages >= pageBudget) {
+          return {
+            runId: run.id,
+            kind,
+            mode: run.authority_mode,
+            continuationPending: true,
+          };
+        }
+        continue;
+      }
+      if (await advanceWindow(run.id)) {
+        if (processedPages >= pageBudget) {
+          return {
+            runId: run.id,
+            kind,
+            mode: run.authority_mode,
+            continuationPending: true,
+          };
+        }
+        continue;
+      }
       const completed = await completeRun(run.id);
       return {
         runId: completed.id,

@@ -12,6 +12,7 @@ import {
   markConnectionError,
   renewJobLease,
   scheduleDueSyncs,
+  yieldJob,
 } from "./db/connectors.server.ts";
 import {
   importEbayHistory,
@@ -25,6 +26,7 @@ import {
   markArubaApiConnectionError,
   runArubaApiInboundJob,
 } from "./db/aruba-api-inbound.server.ts";
+import { runArubaApiOutboundJob } from "./db/aruba-api-outbound.server.ts";
 
 const workerId = randomUUID();
 let stopping = false;
@@ -65,7 +67,11 @@ async function runJob() {
       await processRefund(String(job.payload.refundId ?? ""), job);
     }
     if (job.type === "send_customer_email") await sendCustomerEmail(job);
-    if (job.type.startsWith("aruba_")) result = await runArubaApiInboundJob(job);
+    if (job.type === "aruba_dry_run_submission") {
+      result = await runArubaApiOutboundJob(job);
+    } else if (job.type.startsWith("aruba_")) {
+      result = await runArubaApiInboundJob(job);
+    }
     if (job.type === "shopify_process_webhook") {
       const orderId = String(job.payload.orderId ?? "");
       if (!orderId) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
@@ -84,6 +90,10 @@ async function runJob() {
       );
     }
     await assertLease();
+    if (result.continuationPending === true) {
+      if (!(await yieldJob(job, result))) throw new AppError("CONFLICT_REVISION", 409);
+      return true;
+    }
     if (!(await completeJob(job, result))) throw new AppError("CONFLICT_REVISION", 409);
   } catch (error) {
     const appError = error instanceof AppError ? error : new AppError("PROVIDER_UNAVAILABLE", 503);

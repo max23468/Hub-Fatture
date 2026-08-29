@@ -41,6 +41,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         projectionSha256: form.get("projectionSha256"),
         confirmApproval: form.get("confirmApproval") === "yes",
         arubaMode: form.get("arubaMode"),
+        confirmArubaDowngrade: form.get("confirmArubaDowngrade") === "yes",
         emailChoice: form.get("emailChoice"),
         emailModeVersion: form.get("emailModeVersion"),
       },
@@ -205,6 +206,12 @@ export default function CreditNoteDetail() {
                 <input name="confirmApproval" required type="checkbox" value="yes" />
                 {copy.creditNote.confirmation}
               </label>
+              {note.arubaDowngradeRequired ? (
+                <label className="checkbox-row">
+                  <input name="confirmArubaDowngrade" required type="checkbox" value="yes" />
+                  {copy.document.confirmArubaDowngrade(note.arubaConfiguredMode)}
+                </label>
+              ) : null}
               <button className="button" type="submit">
                 {copy.creditNote.approve}
               </button>

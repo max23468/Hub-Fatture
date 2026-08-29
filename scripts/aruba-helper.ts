@@ -598,7 +598,7 @@ export async function runHelper(
       throw new Error("VALIDATION_FAILED");
     }
     const send = await finalSendButton(page, value.documents.length);
-    if (value.mode === "ASSISTED") {
+    if (value.mode !== "AUTOMATIC_AFTER_APPROVAL") {
       await event(hub, options.token, { type: "ASSISTED_STOP" });
       finalStateKnown = true;
       if (!options.closeAfterStop) await keepAssistedBrowserOpen(context, page);

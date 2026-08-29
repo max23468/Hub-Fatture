@@ -128,7 +128,7 @@ test(
         `INSERT INTO aruba_batches
         (id, environment, mode, account_reference, manifest_sha256, document_count,
          status, created_by)
-       VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic', $2, 1, 'RECONCILED', $3)`,
+       VALUES ($1, 'MOCK', 'DOCUMENT_ONLY', 'synthetic', $2, 1, 'RECONCILED', $3)`,
         [batchId, "c".repeat(64), user.rows[0]!.id],
       );
       await client.query(
@@ -141,7 +141,7 @@ test(
         `INSERT INTO aruba_submissions
         (batch_id, document_id, attempt_number, environment, mode, manifest_sha256,
          xml_sha256, status)
-       VALUES ($1, $2, 1, 'MOCK', 'ASSISTED', $3, $4, 'DELIVERED')`,
+       VALUES ($1, $2, 1, 'MOCK', 'DOCUMENT_ONLY', $3, $4, 'DELIVERED')`,
         [batchId, invoice.rows[0]!.id, "c".repeat(64), "a".repeat(64)],
       );
       const submissionId = (
@@ -922,7 +922,7 @@ test(
         {
           status: "APPROVED",
           document_type: "TD04",
-          mode: "ASSISTED",
+          mode: "DOCUMENT_ONLY",
           submission_status: "PENDING",
         },
       );
@@ -1144,7 +1144,7 @@ test(
         `INSERT INTO aruba_batches
           (id, environment, mode, account_reference, manifest_sha256, document_count,
            status, created_by)
-         VALUES ($1, 'MOCK', 'ASSISTED', 'synthetic', $2, 1, 'RECONCILED', $3)`,
+         VALUES ($1, 'MOCK', 'DOCUMENT_ONLY', 'synthetic', $2, 1, 'RECONCILED', $3)`,
         [overrideBatchId, "2".repeat(64), user.rows[0]!.id],
       );
       await client.query(
@@ -1157,7 +1157,7 @@ test(
         `INSERT INTO aruba_submissions
           (batch_id, document_id, attempt_number, environment, mode, manifest_sha256,
            xml_sha256, status)
-         VALUES ($1, $2, 1, 'MOCK', 'ASSISTED', $3, $4, 'DELIVERED')`,
+         VALUES ($1, $2, 1, 'MOCK', 'DOCUMENT_ONLY', $3, $4, 'DELIVERED')`,
         [overrideBatchId, overrideInvoice.rows[0]!.id, "2".repeat(64), "1".repeat(64)],
       );
       const overrideRefunds: string[] = [];

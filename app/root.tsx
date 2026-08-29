@@ -19,6 +19,7 @@ import appIcon from "../docs/brand/assets/shopify-app-icon.png?url";
 import maskIcon from "../docs/brand/assets/shopify-navigation-icon.svg?url";
 import "./styles.css";
 import "./styles/aruba-settings.css";
+import "./styles/documents.css";
 import "./styles/preparation.css";
 
 const uiBootstrap = `try{const t=localStorage.getItem("tema");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;const s=localStorage.getItem("sidebar");const n=matchMedia("(min-width:48.0625rem) and (max-width:63.999rem)").matches;document.documentElement.dataset.sidebar=s==="collapsed"||(s!=="expanded"&&n)?"collapsed":"expanded"}catch{}`;

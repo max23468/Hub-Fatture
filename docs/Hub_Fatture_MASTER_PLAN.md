@@ -1012,7 +1012,11 @@ La scelta è globale e rigida per approvazioni singole e massive. La UI mostra l
 6. Il readback API verifica accettazione, identificativi, stato e file ufficiali.
 7. Gli aggiornamenti successivi riconciliano stati e notifiche senza regressioni.
 
-Il dry-run Production richiede autorizzazione della milestone e non equivale a un invio SdI. Non usare bozze Aruba modificabili: l'XML approvato da HF resta immutabile.
+Il dry-run Production richiede autorizzazione della milestone e non equivale a un invio SdI. Nel
+contratto Aruba corrente la qualifica dell'upload senza invio coincide con la stessa chiamata
+`POST /services/invoice/upload` fissata a `dryRun=true`: un unico permesso monouso può autorizzare
+soltanto questa operazione, ma non autorizza `dryRun=false`, modifiche al pannello o azioni
+successive. Non usare bozze Aruba modificabili: l'XML approvato da HF resta immutabile.
 
 ### 10.5 Idempotenza e stato incerto
 
@@ -1128,7 +1132,8 @@ Ogni milestone Production inizia con un manifesto autorizzato che elenca endpoin
 numero massimo di richieste, finestre temporali, classi di dati, persistenza e prova di assenza di
 invio. M8 usa soltanto letture e conserva gli eventuali file reali minimi in modo temporaneo,
 validandoli e cancellandoli subito. M9 autorizza la persistenza canonica e il backfill. M10 può
-eseguire dry-run e qualifiche di upload senza invio soltanto dopo autorizzazione specifica.
+eseguire la sola chiamata di qualifica upload con `dryRun=true`, senza invio, soltanto dopo
+autorizzazione specifica.
 
 La qualifica registra:
 
@@ -1141,8 +1146,10 @@ La qualifica registra:
 - semantica di dry-run, upload, invio, readback e idempotenza;
 - differenze rispetto al percorso browser e al fallback manuale.
 
-Una qualifica non autorizza quella successiva. In particolare dry-run Production, upload, modifica
-del pannello, callback e invio reale restano azioni distinte.
+Una qualifica non autorizza quella successiva. Nel contratto Aruba corrente dry-run Production e
+qualifica dell'upload senza invio sono la medesima azione provider perché il flag `dryRun=true`
+appartiene all'endpoint di upload. Questa singola azione resta distinta da `dryRun=false`, modifica
+del pannello, callback e invio reale, che richiedono autorizzazioni proprie.
 
 ### 11.5 Materiali e output delle milestone
 
@@ -3258,7 +3265,8 @@ Gate:
 - `ARUBA_SUBMISSION_ENABLED=false` invariato;
 - retry automatico soltanto con prova di idempotenza o mancata accettazione;
 - modalità e permessi verificati server-side;
-- dry-run Production e qualifica upload autorizzati separatamente e chiusi senza residui.
+- chiamata Production di dry-run e qualifica upload senza invio autorizzata specificamente e chiusa
+  senza residui; nessuna autorizzazione implicita a `dryRun=false`.
 
 ### M11 - Parità e transizione browser
 
@@ -3631,7 +3639,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [x] M8: manifesto read-only autorizzato, identità verificata, paginazione completa, gruppi/documenti, stati, forme di file/notifiche, limiti e accordo economico qualificati senza persistenza reale canonica; confronto iniziale fallback classificato e parità allineata assegnata a M9.
 - [ ] M9: credenziale cifrata e restore provati; connessione inizialmente in pausa; backfill di tutto lo storico disponibile completato; polling 15 minuti, non terminali e full mensile verificati.
 - [ ] M9: zero divergenze inbound inspiegate; switch di autorità atomico; decisione esplicita di Massimo sul preferito/bridge.
-- [ ] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; upload senza invio e stato incerto qualificati con autorizzazione separata.
+- [ ] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; chiamata di upload con `dryRun=true` e stato incerto qualificati con autorizzazione specifica, senza autorizzare `dryRun=false`.
 - [ ] M10: pausa API e invii fiscali disabilitati riletti server-side; Codex respinto su configurazione e mutazioni, ma ammesso su salute e `Sincronizza ora`.
 - [ ] M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
 - [ ] M12: candidato esatto ricertificato con CI, audit, migrazioni, backup, restore, rollback, security e readiness; nessun P0/P1 o stato incerto.

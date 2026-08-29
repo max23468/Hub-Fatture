@@ -87,11 +87,19 @@ test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
   const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   assert.equal(
     manifest.scripts["test:e2e"],
-    "node scripts/with-test-database.mjs npm run test:e2e:direct",
+    "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
   );
   assert.equal(
     manifest.scripts["test:e2e:release-candidate"],
-    "node scripts/with-test-database.mjs npm run test:e2e:direct",
+    "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
+  );
+  assert.equal(
+    manifest.scripts["test:e2e:chromium"],
+    "npm run build && node scripts/with-test-database.mjs npm run test:e2e:chromium:direct",
+  );
+  assert.equal(
+    manifest.scripts["test:e2e:webkit"],
+    "npm run build && node scripts/with-test-database.mjs npm run test:e2e:webkit:direct",
   );
   assert.equal(
     manifest.scripts["test:e2e:direct"],
@@ -263,6 +271,7 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(postgres, /read_only: true/);
   assert.match(postgres, /no-new-privileges:true/);
   assert.match(compose, /ARUBA_SUBMISSION_ENABLED: "false"/);
+  assert.match(compose, /app-worker:[\s\S]*stop_grace_period: 3m/);
   assert.match(compose, /read_only: true/);
   assert.match(compose, /cap_drop: \[ALL\]/);
   assert.equal(compose.match(/logging: \*default-logging/g)?.length, 4);

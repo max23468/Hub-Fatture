@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- Il backfill API Aruba cede il worker dopo ogni pagina consolidata, conserva il checkpoint e riprende dalla coda senza consumare tentativi; i job operativi non restano più bloccati dietro una scansione storica lunga e lo stop Production concede fino a tre minuti per completare la pagina in corso.
+- Massimo può qualificare una sola verifica Aruba Production `dryRun=true` per un documento e un manifest esatti, mentre l’invio resta globalmente disabilitato. Il permesso scade, viene consumato prima della chiamata e non può essere riusato; un’interruzione dopo l’avvio produce uno stato remoto incerto e richiede readback, senza retry automatico.
+- La qualifica richiede un consenso esplicito accessibile e idempotente, verificato in Chromium e WebKit. I comandi E2E standalone ricostruiscono sempre il bundle prima del collaudo, evitando risultati riferiti a una build precedente.
+
 ## 0.3.97
 
 - La superficie web Production integra manifest, favicon SVG con fallback PNG, icona Apple Touch, pinned tab Safari e metadati standalone per una migliore esperienza su browser desktop e mobile, mantenendo titoli specifici per pagina.

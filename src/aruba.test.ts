@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   ARUBA_UPLOAD_MAX_BATCH_BYTES,
   arubaManifestSchema,
+  arubaMonthlyTransmissionUsage,
   assertAllowedArubaAuthenticationNavigation,
   assertAllowedArubaDownload,
   assertAllowedArubaNavigation,
@@ -83,7 +84,7 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   const batch = {
     batchId: "00000000-0000-4000-8000-000000000001",
     environment: "MOCK" as const,
-    mode: "ASSISTED" as const,
+    mode: "DOCUMENT_ONLY" as const,
     accountReference: "synthetic-aruba-account",
     attemptNumber: 1,
     documents: [
@@ -101,9 +102,30 @@ test("allowlist, manifest e parser Aruba restano fail-closed", async () => {
   };
   assert.equal(manifestSha256(batch), manifestSha256(structuredClone(batch)));
   assert.notEqual(manifestSha256(batch), manifestSha256({ ...batch, attemptNumber: 2 }));
-  assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", false), "ASSISTED");
-  assert.equal(effectiveArubaMode("AUTOMATIC", "PRODUCTION", true), "AUTOMATIC");
-  assert.equal(effectiveArubaMode("AUTOMATIC", "MOCK", false), "AUTOMATIC");
+  assert.equal(
+    effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", "PRODUCTION", false),
+    "DOCUMENT_ONLY",
+  );
+  assert.equal(
+    effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", "PRODUCTION", true),
+    "AUTOMATIC_AFTER_APPROVAL",
+  );
+  assert.equal(effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", "MOCK", false), "DOCUMENT_ONLY");
+  assert.equal(arubaMonthlyTransmissionUsage(399).warning, null);
+  assert.deepEqual(arubaMonthlyTransmissionUsage(400), {
+    accepted: 400,
+    limit: 500,
+    remaining: 100,
+    warning: "WARNING",
+  });
+  assert.equal(arubaMonthlyTransmissionUsage(474).warning, "WARNING");
+  assert.deepEqual(arubaMonthlyTransmissionUsage(475), {
+    accepted: 475,
+    limit: 500,
+    remaining: 25,
+    warning: "CRITICAL",
+  });
+  assert.equal(arubaMonthlyTransmissionUsage(501).remaining, 0);
   const oversizedBatch = {
     ...batch,
     operation: "UPLOAD" as const,

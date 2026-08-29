@@ -132,7 +132,7 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
          (id, environment, mode, account_reference, manifest_sha256, document_count,
           status, requires_reconciliation, created_by)
        VALUES
-         ('00000000-0000-4000-8000-000000000001', 'MOCK', 'ASSISTED', 'synthetic',
+         ('00000000-0000-4000-8000-000000000001', 'MOCK', 'DOCUMENT_ONLY', 'synthetic',
           repeat('f', 64), 1, 'RECONCILIATION_REQUIRED', true, 1)`,
     );
     await database.getPool().query(
