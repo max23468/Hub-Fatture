@@ -14,25 +14,25 @@ Hub Fatture usa versioni `MAJOR.MINOR.PATCH` senza suffissi prerelease.
 
 ## Treni fino alla 1.0
 
-| Roadmap | Versione | Significato |
+| Fase della roadmap | Versione | Significato |
 | --- | --- | --- |
-| M9 — Inbound API primario | `0.3.x` | Treno corrente; prosegue dalla release Production `0.3.96` fino alla chiusura di M9 |
-| M10 — Outbound API senza invio reale | `0.4.x` | `0.4.0` è la prima release runtime che entra effettivamente in M10 |
-| M11 — Parità e transizione browser | `0.5.x` | `0.5.0` apre la fase in cui le API diventano la fonte automatica per le capacità qualificate e si decide il destino degli helper |
-| Stabilizzazione dopo M11 | `0.6.x` | Hardening, pulizia e preparazione del candidato; non è una milestone aggiuntiva |
-| M12 — Ricertificazione release candidate | `1.0.0` non pubblicata | Il candidato assume già la versione definitiva e viene distribuito con invii ordinari disabilitati |
-| M13 — Canary TD01 | stesso `1.0.0` | Il canary prova esattamente lo stesso SHA e digest del candidato ricertificato |
-| M14 — Go-live | `1.0.0` | Lo stesso artefatto validato viene promosso e pubblicato come release definitiva |
+| Inbound API primario | `0.3.x` | Treno corrente; prosegue dalla release Production `0.3.96` fino alla chiusura della fase inbound |
+| Outbound API senza invio reale | `0.4.x` | `0.4.0` è la prima release runtime che entra effettivamente nella fase outbound |
+| Parità e transizione browser | `0.5.x` | `0.5.0` apre la fase in cui le API diventano la fonte automatica per le capacità qualificate e si decide il destino degli helper |
+| Stabilizzazione successiva | `0.6.x` | Hardening, pulizia e preparazione del candidato; non è una milestone aggiuntiva |
+| Ricertificazione release candidate | `1.0.0` non pubblicata | Il candidato assume già la versione definitiva e viene distribuito con invii ordinari disabilitati |
+| Canary Production TD01 | stesso `1.0.0` | Il canary prova esattamente lo stesso SHA e digest del candidato ricertificato |
+| Go-live | `1.0.0` | Lo stesso artefatto validato viene promosso e pubblicato come release definitiva |
 
 Le serie `0.7.x`, `0.8.x` e `0.9.x` non fanno parte della roadmap corrente e non vanno introdotte per riempire artificialmente la distanza dalla `1.0.0`.
 
 ## Candidato 1.0.0
 
-Quando M12 congela un candidato, `package.json` passa a `1.0.0`, ma la GitHub Release resta non pubblicata. M12 e M13 devono usare lo stesso artefatto identificato da SHA e digest.
+Quando la fase di ricertificazione congela un candidato, `package.json` passa a `1.0.0`, ma la GitHub Release resta non pubblicata. Ricertificazione e canary devono usare lo stesso artefatto identificato da SHA e digest.
 
-Se M12 o M13 richiedono una modifica al codice, il candidato precedente è scartato: si produce un nuovo SHA/digest mantenendo `1.0.0` non pubblicata e si ripete la ricertificazione prevista. M14 non introduce modifiche runtime; se una modifica si rende necessaria, si torna a M12.
+Se la ricertificazione o il canary richiedono una modifica al codice, il candidato precedente è scartato: si produce un nuovo SHA/digest mantenendo `1.0.0` non pubblicata e si ripete la ricertificazione prevista. Il go-live non introduce modifiche runtime; se una modifica si rende necessaria, si torna alla ricertificazione.
 
-La pubblicazione della GitHub Release `1.0.0` avviene soltanto dopo il canary M13 riuscito e l'approvazione finale prevista da M14.
+La pubblicazione della GitHub Release `1.0.0` avviene soltanto dopo il canary riuscito e l'approvazione finale prevista dalla roadmap.
 
 ## Relazione con le release tecniche
 
