@@ -26,6 +26,7 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
   const originalFetch = globalThis.fetch;
   let pageTwoAttempts = 0;
   let pauseAfterSearch: (() => Promise<void>) | null = null;
+  let invalidTargetedGroupOnce: string | null = null;
   const targetedGroupRequests: string[] = [];
   process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
   process.env.APP_BASE_URL = "http://localhost:8080";
@@ -61,9 +62,14 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     const beforeOutbound = await mkdtemp(path.join(tmpdir(), "hub-fatture-before-outbound-"));
     await cp("migrations", beforeOutbound, { recursive: true });
     await rm(path.join(beforeOutbound, "040_aruba_api_outbound.sql"));
+    await rm(path.join(beforeOutbound, "041_aruba_targeted_checkpoints.sql"));
     await getPool().query(
       `DELETE FROM schema_migrations
-       WHERE name IN ('039_aruba_p7m_parity_normalization.sql', '040_aruba_api_outbound.sql')`,
+       WHERE name IN (
+         '039_aruba_p7m_parity_normalization.sql',
+         '040_aruba_api_outbound.sql',
+         '041_aruba_targeted_checkpoints.sql'
+       )`,
     );
     assert.deepEqual(
       await runMigrations({
@@ -115,6 +121,10 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       if (url.pathname === "/api/v2/invoices-out/detail") {
         const groupId = url.searchParams.get("id");
         targetedGroupRequests.push(groupId ?? "");
+        if (groupId === invalidTargetedGroupOnce) {
+          invalidTargetedGroupOnce = null;
+          return response({ risposta: "non valida" });
+        }
         return response({
           channelGroup: 1,
           shopName: null,
@@ -732,6 +742,16 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
       ).rows,
       [{ provider_group_id: "gruppo-shadow-aperto", remote_status: "SDI_PROCESSING" }],
     );
+    await getPool().query(
+      `INSERT INTO aruba_api_shadow_documents
+        (sync_run_id, provider_group_id, remote_key, document_type, fiscal_year,
+         document_date, total_amount, remote_status)
+       SELECT sync_run_id, 'gruppo-shadow-z-errore', 'shadow-aperto-z-sintetico',
+         document_type, fiscal_year, document_date, total_amount, remote_status
+       FROM aruba_api_latest_shadow_documents
+       WHERE environment = 'MOCK' AND account_reference = 'synthetic-aruba-account'
+         AND provider_group_id = 'gruppo-shadow-aperto'`,
+    );
     await jobs.scheduleDueSyncs();
     assert.deepEqual(
       (await getPool().query(`SELECT type FROM jobs WHERE status = 'PENDING' ORDER BY id`)).rows,
@@ -743,13 +763,44 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     );
     const targetedJob = await jobs.claimJob("aruba-api-targeted-worker");
     assert.equal(targetedJob?.type, "aruba_refresh_nonterminal");
-    const targeted = await api.runArubaApiInboundJob(targetedJob!, {
-      rateDelayMs: 0,
-      now: new Date("2026-07-01T04:00:00.000Z"),
+    invalidTargetedGroupOnce = "gruppo-shadow-z-errore";
+    await assert.rejects(
+      api.runArubaApiInboundJob(targetedJob!, {
+        rateDelayMs: 0,
+        now: new Date("2026-07-01T04:00:00.000Z"),
+      }),
+      (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+    );
+    assert.equal(await jobs.failJob(targetedJob!, "PROVIDER_RESPONSE_INVALID"), true);
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT checkpoint_page, page_count, group_count,
+                  (SELECT count(*)::integer FROM aruba_api_targeted_run_groups groups
+                   WHERE groups.sync_run_id = runs.id) AS snapshotted_groups
+           FROM aruba_sync_runs runs WHERE kind = 'TARGETED'
+           ORDER BY started_at DESC LIMIT 1`,
+        )
+      ).rows[0],
+      { checkpoint_page: 2, page_count: 1, group_count: 1, snapshotted_groups: 2 },
+    );
+    await jobs.retryFailedJob(targetedJob!.id, {
+      type: "ADMIN",
+      id: codex.id,
+      requestId: codex.requestId,
     });
-    assert.equal(targeted.documents, 1);
-    assert.deepEqual(targetedGroupRequests, ["gruppo-shadow-aperto"]);
-    assert.equal(await jobs.completeJob(targetedJob!, targeted), true);
+    const resumedTargetedJob = await jobs.claimJob("aruba-api-targeted-resume-worker");
+    const targeted = await api.runArubaApiInboundJob(resumedTargetedJob!, {
+      rateDelayMs: 0,
+      now: new Date("2026-07-01T04:01:00.000Z"),
+    });
+    assert.equal(targeted.documents, 2);
+    assert.deepEqual(targetedGroupRequests, [
+      "gruppo-shadow-aperto",
+      "gruppo-shadow-z-errore",
+      "gruppo-shadow-z-errore",
+    ]);
+    assert.equal(await jobs.completeJob(resumedTargetedJob!, targeted), true);
     assert.deepEqual(
       (
         await getPool().query(
@@ -758,7 +809,11 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
            ORDER BY started_at DESC LIMIT 1`,
         )
       ).rows[0],
-      { document_count: 1, file_count: 2, notification_count: 1 },
+      { document_count: 2, file_count: 4, notification_count: 2 },
+    );
+    await getPool().query(
+      `DELETE FROM aruba_api_shadow_documents
+       WHERE provider_group_id = 'gruppo-shadow-z-errore'`,
     );
     await assert.rejects(
       api.promoteArubaApiAuthority({ fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK" }, codex),

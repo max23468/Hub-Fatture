@@ -1087,6 +1087,13 @@ async function openOrResumeRun(
          FROM aruba_api_shadow_group_files WHERE sync_run_id = $2`,
         [continuationId, source.id],
       );
+      await client.query(
+        `INSERT INTO aruba_api_targeted_run_groups
+          (sync_run_id, group_ordinal, provider_group_id)
+         SELECT $1, group_ordinal, provider_group_id
+         FROM aruba_api_targeted_run_groups WHERE sync_run_id = $2`,
+        [continuationId, source.id],
+      );
       return inserted.rows[0]!;
     }
     let windowStart = inventoryFloor;
@@ -1874,54 +1881,91 @@ async function completeRun(runId: string) {
   return completed;
 }
 
-async function targetedDocuments(
+async function snapshotTargetedGroups(run: ArubaSyncRunRow) {
+  return withTransaction(async (client) => {
+    const locked = await client.query<ArubaSyncRunRow>(
+      `SELECT * FROM aruba_sync_runs
+       WHERE id = $1 AND status = 'RUNNING' AND kind = 'TARGETED'
+       FOR UPDATE`,
+      [run.id],
+    );
+    const current = locked.rows[0];
+    if (!current) throw new AppError("CONFLICT_REVISION", 409);
+    const existing = await client.query<{ count: number }>(
+      `SELECT count(*)::integer AS count
+       FROM aruba_api_targeted_run_groups WHERE sync_run_id = $1`,
+      [run.id],
+    );
+    if (existing.rows[0]!.count === 0 && current.checkpoint_page === 1) {
+      const groups = await client.query<{ provider_group_id: string }>(
+        run.authority_mode === "CANONICAL"
+          ? `WITH unresolved AS (
+               SELECT DISTINCT matches.remote_document_id
+               FROM aruba_document_matches AS matches
+               LEFT JOIN LATERAL jsonb_array_elements(matches.candidates_json) AS candidate ON true
+               WHERE (
+                 (matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
+                   AND ${arubaUnresolvedCandidateSql("candidate")})
+                 OR matches.status IN (
+                   'AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE'
+                 )
+               )
+             )
+             SELECT DISTINCT remote.provider_group_id
+             FROM aruba_remote_documents AS remote
+             LEFT JOIN unresolved ON unresolved.remote_document_id = remote.id
+             WHERE remote.environment = $1 AND remote.account_reference = $2
+               AND remote.automatic_source = 'API' AND remote.provider_group_id IS NOT NULL
+               AND remote.remote_status <> 'REJECTED'
+               AND (
+                 remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+                 OR unresolved.remote_document_id IS NOT NULL
+               )
+             ORDER BY remote.provider_group_id`
+          : `SELECT DISTINCT provider_group_id FROM aruba_api_latest_shadow_documents
+             WHERE environment = $1 AND account_reference = $2
+               AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+             ORDER BY provider_group_id`,
+        [run.environment, run.account_reference],
+      );
+      if (groups.rows.length > 0) {
+        await client.query(
+          `INSERT INTO aruba_api_targeted_run_groups
+            (sync_run_id, group_ordinal, provider_group_id)
+           SELECT $1, ordinality::integer, provider_group_id
+           FROM unnest($2::text[]) WITH ORDINALITY AS groups(provider_group_id, ordinality)`,
+          [run.id, groups.rows.map((group) => group.provider_group_id)],
+        );
+      }
+    }
+    const snapshot = await client.query<{
+      group_ordinal: number;
+      provider_group_id: string;
+      group_count: number;
+    }>(
+      `SELECT group_ordinal, provider_group_id,
+              (SELECT count(*)::integer FROM aruba_api_targeted_run_groups
+               WHERE sync_run_id = $1) AS group_count
+       FROM aruba_api_targeted_run_groups
+       WHERE sync_run_id = $1 AND group_ordinal = $2`,
+      [run.id, current.checkpoint_page],
+    );
+    return snapshot.rows[0] ?? null;
+  });
+}
+
+async function readTargetedGroup(
   run: ArubaSyncRunRow,
   manager: ArubaSessionManager,
   waitForRead: (scope: ArubaApiReadScope) => Promise<void>,
+  providerGroupId: string,
 ) {
-  const groups = await getPool().query<{ provider_group_id: string }>(
-    run.authority_mode === "CANONICAL"
-      ? `WITH unresolved AS (
-           SELECT DISTINCT matches.remote_document_id
-           FROM aruba_document_matches AS matches
-           LEFT JOIN LATERAL jsonb_array_elements(matches.candidates_json) AS candidate ON true
-           WHERE (
-             (matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
-               AND ${arubaUnresolvedCandidateSql("candidate")})
-             OR matches.status IN (
-               'AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE'
-             )
-           )
-         )
-         SELECT DISTINCT remote.provider_group_id
-         FROM aruba_remote_documents AS remote
-         LEFT JOIN unresolved ON unresolved.remote_document_id = remote.id
-         WHERE remote.environment = $1 AND remote.account_reference = $2
-           AND remote.automatic_source = 'API' AND remote.provider_group_id IS NOT NULL
-           AND remote.remote_status <> 'REJECTED'
-           AND (
-             remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
-             OR unresolved.remote_document_id IS NOT NULL
-           )
-         ORDER BY remote.provider_group_id`
-      : `SELECT DISTINCT provider_group_id FROM aruba_api_latest_shadow_documents
-     WHERE environment = $1 AND account_reference = $2
-       AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
-     ORDER BY provider_group_id`,
-    [run.environment, run.account_reference],
+  await waitForRead("INVOICE_READ");
+  await reserveArubaApiRequests(run.id);
+  const detail = await arubaProviderCall(manager.environmentName(), async () =>
+    readArubaApiInvoiceDetail(await manager.current(), providerGroupId),
   );
-  const documents: ArubaApiInboundDocument[] = [];
-  for (const group of groups.rows) {
-    await waitForRead("INVOICE_READ");
-    await reserveArubaApiRequests(run.id);
-    const detail = await arubaProviderCall(manager.environmentName(), async () =>
-      readArubaApiInvoiceDetail(await manager.current(), group.provider_group_id),
-    );
-    documents.push(
-      ...(await readGroup(run.id, manager, waitForRead, apiGroupFromDetail(detail), detail)),
-    );
-  }
-  return { documents: documents.flat(), groupCount: groups.rows.length };
+  return readGroup(run.id, manager, waitForRead, apiGroupFromDetail(detail), detail);
 }
 
 export async function runArubaApiInboundJob(
@@ -1962,13 +2006,37 @@ export async function runArubaApiInboundJob(
   let processedPages = 0;
   try {
     if (kind === "TARGETED") {
-      if (!(await runMayContinue(run))) {
-        return { runId: run.id, kind, mode: run.authority_mode, stopped: true };
+      while (true) {
+        if (!(await runMayContinue(run))) {
+          return { runId: run.id, kind, mode: run.authority_mode, stopped: true };
+        }
+        const target = await snapshotTargetedGroups(run);
+        if (!target) {
+          const completed = await completeRun(run.id);
+          return { runId: completed.id, kind, documents: completed.document_count };
+        }
+        const documents = await readTargetedGroup(
+          run,
+          manager,
+          waitForRead,
+          target.provider_group_id,
+        );
+        const terminal = target.group_ordinal === target.group_count;
+        await persistApiPage(run, documents, 1, target.group_ordinal, terminal);
+        processedPages += 1;
+        if (terminal) {
+          const completed = await completeRun(run.id);
+          return { runId: completed.id, kind, documents: completed.document_count };
+        }
+        if (processedPages >= pageBudget) {
+          return {
+            runId: run.id,
+            kind,
+            mode: run.authority_mode,
+            continuationPending: true,
+          };
+        }
       }
-      const targeted = await targetedDocuments(run, manager, waitForRead);
-      await persistApiPage(run, targeted.documents, targeted.groupCount, 1, true);
-      await completeRun(run.id);
-      return { runId: run.id, kind, documents: targeted.documents.length };
     }
     while (true) {
       if (!(await runMayContinue(run))) {
