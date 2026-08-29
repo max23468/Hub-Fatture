@@ -221,6 +221,14 @@ test("il mapper conserva come sconosciuto il Paese destinatario assente nei dett
   );
 });
 
+test("il mapper normalizza al valore monetario interno un totale Aruba con segno", () => {
+  const signed = input();
+  signed.group.invoices = signed.group.invoices.slice(0, 1);
+  signed.detail.invoices = [{ ...signed.detail.invoices[0]!, totalDocument: "-145,00" }];
+  const [document] = mapArubaApiInboundGroup(signed);
+  assert.equal(document?.remote.totalAmount, 14_500);
+});
+
 test("il mapper API rifiuta gruppi, dettagli e notifiche non correlati", () => {
   const mismatched = input();
   assert.throws(
