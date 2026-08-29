@@ -11,6 +11,7 @@ import {
   acceptedInvoiceFromXml,
   acceptedRecipientFromXml,
   fiscalDocumentEnvelopeFromXml,
+  fiscalDocumentEnvelopesFromXml,
   generateFatturaXml,
   projectFatturaXml,
   type DocumentInput,
@@ -185,6 +186,32 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     creditXml,
     await readFile("tests/fixtures/fatturapa/accepted-credit-note.anonymized.xml", "utf8"),
   );
+  const creditBody = creditXml.match(
+    /<FatturaElettronicaBody[\s\S]*<\/FatturaElettronicaBody>/,
+  )?.[0];
+  assert.ok(creditBody);
+  const groupedXml = invoiceXml.replace(
+    "</FatturaElettronica>",
+    `${creditBody}</FatturaElettronica>`,
+  );
+  assert.deepEqual(fiscalDocumentEnvelopesFromXml(groupedXml), [
+    {
+      type: "TD01",
+      year: 2026,
+      series: "FPR",
+      fiscalNumber: "1",
+      documentDate: "2026-08-10",
+      totalAmount: 12345,
+    },
+    {
+      type: "TD04",
+      year: 2026,
+      series: "FPR",
+      fiscalNumber: "2",
+      documentDate: "2026-08-11",
+      totalAmount: 2345,
+    },
+  ]);
   const profileFromLatestDocument = fiscalProfileFromAcceptedInvoiceXml(
     invoiceXml,
     syntheticFiscalProfile.numbering.approvedAt,

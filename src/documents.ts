@@ -226,6 +226,49 @@ function acceptedFiscalDocument(xml: string) {
   };
 }
 
+/** Identità fiscali contenute in un file FatturaPA, inclusi i gruppi con più body. */
+export function fiscalDocumentEnvelopesFromXml(
+  xml: string,
+  options: { allowUnknownNumber?: boolean } = {},
+) {
+  const parsed = create(xml).end({ format: "object" }) as Record<string, unknown>;
+  const root = xmlRecord(parsed.FatturaElettronica);
+  if (xmlValue(root["@versione"]) !== "FPR12") {
+    throw new Error("Il documento fiscale non è FPR12");
+  }
+  return xmlArray(root.FatturaElettronicaBody).flatMap((body) => {
+    const general = xmlRecord(xmlRecord(body.DatiGenerali).DatiGeneraliDocumento);
+    const type = xmlValue(general.TipoDocumento);
+    if (type !== "TD01" && type !== "TD04") return [];
+    const documentDate = xmlValue(general.Data);
+    const year = Number(documentDate.slice(0, 4));
+    const documentNumber = /^(\S+)\s+(\d+)\/(\d{2}|\d{4})$/.exec(xmlValue(general.Numero));
+    const number = Number(documentNumber?.[2]);
+    const validNumber =
+      documentNumber &&
+      Number.isSafeInteger(number) &&
+      number > 0 &&
+      (documentNumber[3] === String(year) || documentNumber[3] === String(year).slice(-2));
+    if (
+      xmlValue(general.Divisa) !== "EUR" ||
+      !postgresDateSchema.safeParse(documentDate).success ||
+      (!validNumber && !options.allowUnknownNumber)
+    ) {
+      throw new Error("Il documento fiscale non è FPR12, EUR o numerato correttamente");
+    }
+    return {
+      type,
+      year,
+      series: validNumber ? documentNumber[1]! : null,
+      fiscalNumber: validNumber ? String(number) : null,
+      documentDate,
+      totalAmount: general.ImportoTotaleDocumento
+        ? decimalToCents(xmlValue(general.ImportoTotaleDocumento))
+        : acceptedLineTotal(body),
+    };
+  });
+}
+
 function xmlArray(input: unknown): Record<string, unknown>[] {
   return (Array.isArray(input) ? input : [input]).map(xmlRecord);
 }

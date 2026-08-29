@@ -516,12 +516,6 @@ async function arubaInboundClosureReadiness(client: pg.Pool | pg.PoolClient) {
        ), dossier AS (
          SELECT dossiers.* FROM aruba_inbound_parity_dossiers dossiers
          JOIN candidate ON candidate.id = dossiers.sync_run_id
-         WHERE NOT EXISTS (SELECT 1 FROM aruba_sync_runs later
-           WHERE later.environment = candidate.environment
-             AND later.account_reference = candidate.account_reference
-             AND later.authority_mode = 'SHADOW' AND later.status = 'COMPLETED'
-             AND (later.completed_at, later.started_at, later.id) >
-               (candidate.completed_at, candidate.started_at, candidate.id))
        )
        SELECT
          coalesce(connection.connection_ready, false) AS connection_ready,
@@ -897,12 +891,6 @@ export async function requestArubaApiSync(actor: ArubaApiActor) {
            WHERE candidate.environment = $1 AND candidate.account_reference = $2
              AND candidate.kind IN ('BACKFILL', 'FULL')
              AND candidate.authority_mode = 'SHADOW' AND candidate.status = 'COMPLETED'
-             AND NOT EXISTS (SELECT 1 FROM aruba_sync_runs later
-               WHERE later.environment = candidate.environment
-                 AND later.account_reference = candidate.account_reference
-                 AND later.authority_mode = 'SHADOW' AND later.status = 'COMPLETED'
-                 AND (later.completed_at, later.started_at, later.id) >
-                   (candidate.completed_at, candidate.started_at, candidate.id))
            ORDER BY candidate.completed_at DESC, candidate.started_at DESC, candidate.id DESC
            LIMIT 1`,
           [inventoryEnvironment(), current.account_reference],
@@ -1544,9 +1532,12 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     started_at: Date;
     completed_at: Date;
     scan_ordinal: number;
+    comparison_cutoff: string;
   }>(
     `SELECT sessions.id, sessions.started_at, sessions.completed_at,
-            full_scan.scan_ordinal
+            full_scan.scan_ordinal,
+            to_char(sessions.completed_at AT TIME ZONE 'Europe/Rome', 'YYYY-MM-DD')
+              AS comparison_cutoff
      FROM aruba_sync_sessions AS sessions
      JOIN LATERAL (
        SELECT max(pages.scan_ordinal)::integer AS scan_ordinal
@@ -1621,8 +1612,9 @@ async function createParityDossier(run: ArubaSyncRunRow) {
            AND concat(
              CASE shadow.document_type WHEN 'TD01' THEN 'invoices:' ELSE 'credit-notes:' END,
              shadow.fiscal_year
-           ) = ANY($2::text[])`,
-        [run.id, populationStreams],
+           ) = ANY($2::text[])
+           AND shadow.document_date < $3::date`,
+        [run.id, populationStreams, baseline.comparison_cutoff],
       )
     : { rows: [] as never[] };
   const browser = baseline
@@ -1650,7 +1642,10 @@ async function createParityDossier(run: ArubaSyncRunRow) {
                 document->>'status' AS remote_status,
                 coalesce(official_files.evidence, '[]'::jsonb) AS file_evidence
          FROM aruba_sync_pages AS pages
-         CROSS JOIN LATERAL jsonb_array_elements(pages.documents_json) AS item(document)
+         CROSS JOIN LATERAL jsonb_array_elements(
+           CASE WHEN jsonb_typeof(pages.documents_json) = 'array'
+             THEN pages.documents_json ELSE '[]'::jsonb END
+         ) AS item(document)
          LEFT JOIN LATERAL (
            SELECT jsonb_agg(DISTINCT jsonb_build_object(
              'kind', files.kind, 'sha256', storage.sha256,
@@ -1664,13 +1659,15 @@ async function createParityDossier(run: ArubaSyncRunRow) {
              AND files.kind IN ('ARUBA_XML', 'ARUBA_P7M')
          ) AS official_files ON true
          WHERE pages.sync_session_id = $1 AND pages.scan_ordinal = $2
-           AND pages.stream = ANY($3::text[])`,
+           AND pages.stream = ANY($3::text[])
+           AND (document->>'documentDate')::date < $6::date`,
         [
           baseline.id,
           baseline.scan_ordinal,
           populationStreams,
           run.environment,
           run.account_reference,
+          baseline.comparison_cutoff,
         ],
       )
     : { rows: [] as never[] };
@@ -1765,9 +1762,20 @@ async function createParityDossier(run: ArubaSyncRunRow) {
          'apiFileCoverage', $16::jsonb,
          'browserBaselineScanOrdinal', $17::integer,
          'browserBaselineSessionId', $18::uuid,
-         'groupFileMismatches', $19::integer
+         'groupFileMismatches', $19::integer,
+         'comparisonCutoffExclusive', $20::text
        ))
-     ON CONFLICT (sync_run_id) DO NOTHING`,
+     ON CONFLICT (sync_run_id) DO UPDATE SET
+       status = EXCLUDED.status,
+       api_documents = EXCLUDED.api_documents,
+       browser_documents = EXCLUDED.browser_documents,
+       matched_documents = EXCLUDED.matched_documents,
+       missing_in_api = EXCLUDED.missing_in_api,
+       missing_in_browser = EXCLUDED.missing_in_browser,
+       status_mismatches = EXCLUDED.status_mismatches,
+       file_mismatches = EXCLUDED.file_mismatches,
+       summary_json = EXCLUDED.summary_json,
+       created_at = now()`,
     [
       randomUUID(),
       run.id,
@@ -1788,8 +1796,22 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       baseline?.scan_ordinal ?? null,
       baseline?.id ?? null,
       groupFileMismatches,
+      baseline?.comparison_cutoff ?? null,
     ],
   );
+}
+
+export async function rebuildLatestArubaInboundParityDossier() {
+  const result = await getPool().query<ArubaSyncRunRow>(
+    `SELECT * FROM aruba_sync_runs
+     WHERE status = 'COMPLETED' AND authority_mode = 'SHADOW'
+       AND kind IN ('BACKFILL', 'FULL')
+     ORDER BY completed_at DESC LIMIT 1`,
+  );
+  const run = result.rows[0];
+  if (!run) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+  await createParityDossier(run);
+  return getArubaInboundClosureReadiness();
 }
 
 async function completeRun(runId: string) {

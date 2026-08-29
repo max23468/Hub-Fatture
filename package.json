@@ -9,6 +9,7 @@
     "aruba:api:probe:interactive": "sh scripts/aruba-api-read-probe.sh",
     "aruba:api:probe:keychain": "sh scripts/aruba-api-read-probe-keychain.sh",
     "aruba:closure-report": "npm run build:server && node build-server/operations/aruba-inbound-closure-report.js",
+    "aruba:parity:rebuild": "npm run build:server && node build-server/operations/aruba-inbound-rebuild-parity.js",
     "aruba:helper": "node scripts/aruba-helper.ts",
     "aruba:sync": "node scripts/aruba-read-runner.ts",
     "build": "react-router build",
