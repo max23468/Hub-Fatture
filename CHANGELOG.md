@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- La rilettura mirata Aruba congela l’elenco dei gruppi, consolida ciascun gruppo separatamente e riprende dal primo checkpoint non completato dopo un errore provider, senza rileggere né perdere le pratiche già acquisite e senza dipendere dal browser.
+
 ## 0.4.3
 
 - La parità Aruba considera divergenza di file soltanto evidenze ufficiali presenti su entrambe le fonti e incompatibili: l'assenza di file nel vecchio baseline browser non blocca più il cutover quando l'API dispone del payload ufficiale, la cui completezza resta verificata dal gate dedicato.
