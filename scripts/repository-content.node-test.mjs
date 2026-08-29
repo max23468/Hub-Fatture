@@ -267,6 +267,9 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(compose, /cap_drop: \[ALL\]/);
   assert.equal(compose.match(/logging: \*default-logging/g)?.length, 4);
   assert.match(compose, /max-size: 10m/);
+  assert.match(compose, /\/opt\/shared-caddy\/sites:\/etc\/caddy\/sites:ro/);
+  assert.match(compose, /networks: \[frontend, shared-public-proxy\]/);
+  assert.match(compose, /shared-public-proxy:\n    external: true\n    name: sequent-proxy/);
   assert.match(dockerfile, /USER 10001:10001/);
   assert.match(dockerfile, /test ! -e node_modules\/typescript/);
   assert.match(dockerfile, /rm -rf \/usr\/local\/lib\/node_modules\/npm/);
@@ -275,6 +278,7 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(compose, /node node_modules\/@react-router\/serve\/bin\.cjs/);
   assert.match(dockerfile, /COPY --chown=hub-fatture:hub-fatture schemas \.\/schemas/);
   assert.match(caddy, /fatture\.opik\.net/);
+  assert.match(caddy, /import \/etc\/caddy\/sites\/\*\.caddy/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(artifact, /docker\/setup-buildx-action@[0-9a-f]{40} # v4\./);
@@ -701,6 +705,10 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /exec 9>\.\/backup\.lock/);
   assert.match(deploy, /hub-fatture-sequent-docker\.lock/);
   assert.match(deploy, /Una build o manutenzione Docker condivisa è già in corso/);
+  assert.match(deploy, /stat -c '%U:%G:%a' \/opt\/shared-caddy\/sites/);
+  assert.match(deploy, /stat -c '%U:%G:%a' "\$shared_site"/);
+  assert.match(deploy, /Nessun virtual host condiviso qualificato/);
+  assert.match(deploy, /docker network inspect sequent-proxy/);
   assert.doesNotMatch(deploy, /deploy\.lock/);
   assert.match(deploy, /HUB_FATTURE_CANDIDATE_DIR/);
   assert.match(deploy, /"\$candidate_dir\/production-preflight\.sh"/);

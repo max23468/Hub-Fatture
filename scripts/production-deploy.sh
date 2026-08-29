@@ -28,6 +28,22 @@ if [ -f .deploy.env ] && [ ! -f data/operations/deploy-receipt.json ]; then
 fi
 [ -f compose.yaml.next ] || { echo "Compose candidato assente" >&2; exit 1; }
 [ -f Caddyfile.next ] || { echo "Caddyfile candidato assente" >&2; exit 1; }
+[ -d /opt/shared-caddy/sites ] && [ ! -L /opt/shared-caddy/sites ] \
+  || { echo "Directory dei virtual host condivisi non conforme" >&2; exit 1; }
+[ "$(stat -c '%U:%G:%a' /opt/shared-caddy/sites)" = root:root:755 ] \
+  || { echo "Permessi dei virtual host condivisi non conformi" >&2; exit 1; }
+shared_site_count=0
+for shared_site in /opt/shared-caddy/sites/*.caddy; do
+  [ -e "$shared_site" ] || continue
+  [ -f "$shared_site" ] && [ ! -L "$shared_site" ] \
+    && [ "$(stat -c '%U:%G:%a' "$shared_site")" = root:root:644 ] \
+    || { echo "Virtual host condiviso non conforme" >&2; exit 1; }
+  shared_site_count=$((shared_site_count + 1))
+done
+[ "$shared_site_count" -gt 0 ] \
+  || { echo "Nessun virtual host condiviso qualificato" >&2; exit 1; }
+docker network inspect sequent-proxy >/dev/null 2>&1 \
+  || { echo "Rete del proxy pubblico condiviso assente" >&2; exit 1; }
 [ -x "$candidate_dir/production-preflight.sh" ] \
   || { echo "Preflight candidato assente" >&2; exit 1; }
 [ -x "$candidate_dir/production-readback.sh" ] \

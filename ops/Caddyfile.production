@@ -30,3 +30,5 @@ fatture.opik.net {
 	encode zstd gzip
 	reverse_proxy app-web:3000
 }
+
+import /etc/caddy/sites/*.caddy
