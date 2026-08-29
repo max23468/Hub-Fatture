@@ -14,15 +14,15 @@ Hub Fatture usa versioni `MAJOR.MINOR.PATCH` senza suffissi prerelease.
 
 ## Treni fino alla 1.0
 
-| Fase della roadmap | Versione | Significato |
-| --- | --- | --- |
-| Inbound API primario | `0.3.x` | Treno corrente; prosegue dalla release Production `0.3.96` fino alla chiusura della fase inbound |
-| Outbound API senza invio reale | `0.4.x` | `0.4.0` è la prima release runtime che entra effettivamente nella fase outbound |
-| Parità e transizione browser | `0.5.x` | `0.5.0` apre la fase in cui le API diventano la fonte automatica per le capacità qualificate e si decide il destino degli helper |
-| Stabilizzazione successiva | `0.6.x` | Hardening, pulizia e preparazione del candidato; non è una milestone aggiuntiva |
-| Ricertificazione release candidate | `1.0.0` non pubblicata | Il candidato assume già la versione definitiva e viene distribuito con invii ordinari disabilitati |
-| Canary Production TD01 | stesso `1.0.0` | Il canary prova esattamente lo stesso SHA e digest del candidato ricertificato |
-| Go-live | `1.0.0` | Lo stesso artefatto validato viene promosso e pubblicato come release definitiva |
+| Fase della roadmap                 | Versione               | Significato                                                                                                                      |
+| ---------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Inbound API primario               | `0.3.x`                | Treno corrente; prosegue dalla release Production `0.3.96` fino alla chiusura della fase inbound                                 |
+| Outbound API senza invio reale     | `0.4.x`                | `0.4.0` è la prima release runtime che entra effettivamente nella fase outbound                                                  |
+| Parità e transizione browser       | `0.5.x`                | `0.5.0` apre la fase in cui le API diventano la fonte automatica per le capacità qualificate e si decide il destino degli helper |
+| Stabilizzazione successiva         | `0.6.x`                | Hardening, pulizia e preparazione del candidato; non è una milestone aggiuntiva                                                  |
+| Ricertificazione release candidate | `1.0.0` non pubblicata | Il candidato assume già la versione definitiva e viene distribuito con invii ordinari disabilitati                               |
+| Canary Production TD01             | stesso `1.0.0`         | Il canary prova esattamente lo stesso SHA e digest del candidato ricertificato                                                   |
+| Go-live                            | `1.0.0`                | Lo stesso artefatto validato viene promosso e pubblicato come release definitiva                                                 |
 
 Le serie `0.7.x`, `0.8.x` e `0.9.x` non fanno parte della roadmap corrente e non vanno introdotte per riempire artificialmente la distanza dalla `1.0.0`.
 

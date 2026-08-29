@@ -122,12 +122,9 @@ test("il manifest usa identità e icone canoniche senza rendere pubblica l'app",
 
 test("la shell browser espone manifest, fallback icone e integrazione mobile", async () => {
   const [root, routes, manifestRoute, caddy] = await Promise.all(
-    [
-      "root.tsx",
-      "routes.ts",
-      "routes/manifest.ts",
-      "../ops/Caddyfile.production",
-    ].map((file) => readFile(new URL(`./${file}`, import.meta.url), "utf8")),
+    ["root.tsx", "routes.ts", "routes/manifest.ts", "../ops/Caddyfile.production"].map((file) =>
+      readFile(new URL(`./${file}`, import.meta.url), "utf8"),
+    ),
   );
 
   assert.match(routes, /route\("manifest\.webmanifest", "routes\/manifest\.ts"\)/);

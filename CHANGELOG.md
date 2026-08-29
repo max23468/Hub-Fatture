@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.97
+
+- La superficie web Production integra manifest, favicon SVG con fallback PNG, icona Apple Touch, pinned tab Safari e metadati standalone per una migliore esperienza su browser desktop e mobile, mantenendo titoli specifici per pagina.
+- La non indicizzazione viene ribadita anche dal reverse proxy con `X-Robots-Tag`; `robots.txt`, meta `noindex` e autenticazione restano invariati e non vengono introdotti sitemap, canonical o dati strutturati pubblici.
+
 ## 0.3.96
 
 - Il Caddy condiviso conserva i virtual host root-owned degli altri servizi autorizzati e la rete pubblica esterna anche dopo un deploy Hub Fatture; il preflight blocca directory, permessi o rete divergenti, evitando che la rigenerazione di Compose e Caddyfile renda irraggiungibile un servizio coesistente.
