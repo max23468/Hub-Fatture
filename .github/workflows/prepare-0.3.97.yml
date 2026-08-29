@@ -1,0 +1,52 @@
+name: Prepare 0.3.97
+
+on:
+  push:
+    branches:
+      - web/production-browser-compatibility
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: web/production-browser-compatibility
+          fetch-depth: 0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        with:
+          install: true
+          cache: true
+      - run: npm ci --no-audit --prefer-offline
+      - name: Prepara versione e changelog
+        run: |
+          npm version 0.3.97 --no-git-tag-version
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("CHANGELOG.md")
+          text = path.read_text()
+          marker = "# Changelog\n\n"
+          assert text.startswith(marker)
+          entry = """## 0.3.97
+
+          - La superficie web Production integra manifest, favicon SVG con fallback PNG, icona Apple Touch, pinned tab Safari e metadati standalone per una migliore esperienza su browser desktop e mobile, mantenendo titoli specifici per pagina.
+          - La non indicizzazione viene ribadita anche dal reverse proxy con `X-Robots-Tag`; `robots.txt`, meta `noindex` e autenticazione restano invariati e non vengono introdotti sitemap, canonical o dati strutturati pubblici.
+
+          """
+          path.write_text(marker + entry + text[len(marker):])
+          PY
+          npm run format
+      - name: Rimuovi preparazione temporanea
+        run: git rm .github/workflows/prepare-0.3.97.yml
+      - name: Commit preparazione release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(release): prepare 0.3.97"
+          git push origin HEAD:web/production-browser-compatibility
