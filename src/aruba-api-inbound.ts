@@ -111,7 +111,9 @@ function file(input: {
 
 function cents(value: string | number): number {
   try {
-    return decimalToCents((typeof value === "number" ? String(value) : value).replace(",", "."));
+    return Math.abs(
+      decimalToCents((typeof value === "number" ? String(value) : value).replace(",", ".")),
+    );
   } catch {
     throw new Error("ARUBA_API_AMOUNT_INVALID");
   }

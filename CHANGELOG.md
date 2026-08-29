@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.95
+
+- Il mapper API Aruba normalizza i totali provider con segno alla rappresentazione monetaria interna non negativa, coerente con il readback browser e con i vincoli del dominio, evitando che una fattura storica con totale API negativo interrompa il backfill. Una regressione copre il caso osservato in Production.
+
 ## 0.3.94
 
 - Il retry manuale di un backfill Aruba fallito continua dal checkpoint consolidato e conserva documenti, file e notifiche shadow già validati, invece di riavviare lo storico dal 2019. La continuazione resta fail-closed e mantiene autorità browser, limiti API e audit del job.
