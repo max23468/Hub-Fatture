@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+
+- La parità Aruba considera divergenza di file soltanto evidenze ufficiali presenti su entrambe le fonti e incompatibili: l'assenza di file nel vecchio baseline browser non blocca più il cutover quando l'API dispone del payload ufficiale, la cui completezza resta verificata dal gate dedicato.
+
 ## 0.4.2
 
 - L’inventario API Aruba usa come confine permanente il 1° luglio 2026: la prima scansione completa e le full mensili non rileggono periodi anteriori, mentre gli incrementali mantengono la sovrapposizione senza oltrepassare il confine e i dati storici già acquisiti restano conservati.

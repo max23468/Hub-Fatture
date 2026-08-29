@@ -36,6 +36,18 @@ test("la parità inbound correla soltanto prove forti e confronta tutti i file",
   assert.equal(missingPdf.fileMismatches, 1);
 });
 
+test("l'assenza di file nel baseline browser non contraddice l'evidenza ufficiale API", () => {
+  const identified = { ...base, series: "FPR", fiscalNumber: "101/26" };
+  const result = compareArubaInboundParity({
+    api: [identified],
+    browser: [{ ...identified, fileHashes: [] }],
+  });
+
+  assert.equal(result.status, "MATCHED");
+  assert.equal(result.matchedDocuments, 1);
+  assert.equal(result.fileMismatches, 0);
+});
+
 test("data e totale senza identità o hash comune non dimostrano parità", () => {
   const result = compareArubaInboundParity({
     api: [{ ...base, fileHashes: [] }],
