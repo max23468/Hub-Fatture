@@ -158,7 +158,7 @@ lettura priva di effetti osservabili.
 
 La connessione salva la credenziale soltanto come ciphertext dopo autenticazione e verifica
 dell’identità fiscale attesa. Parte con API in pausa, inbound disabilitato e autorità browser. Il
-worker usa backfill riprendibile dal 2019, finestre massime di 48 ore, checkpoint dopo il commit di
+worker usa un inventario riprendibile dal 1° luglio 2026, finestre massime di 48 ore, checkpoint dopo il commit di
 ogni pagina, incrementale con sette giorni di sovrapposizione, rilettura dei non terminali e full
 mensile. Il limite di autenticazione è condiviso nel database; ricerca e notifiche usano bucket
 indipendenti e coordinati di 9 richieste al minuto. Ogni giro ha inoltre un tetto fail-closed di

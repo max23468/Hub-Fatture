@@ -46,10 +46,10 @@ import { getPool, withJoinedTransaction, withTransaction } from "./client.server
 import type { ClaimedJob, JobType } from "./connectors.server.ts";
 import { readVerifiedStorageObject } from "./storage-object.server.ts";
 
-const FULL_HISTORY_START = new Date("2019-01-01T00:00:00.000Z");
 const WINDOW_MS = ARUBA_API_POLICY.backfillWindowMs;
 const INCREMENTAL_OVERLAP_MS = 7 * 24 * 60 * 60_000;
 const REQUEST_LIMIT = ARUBA_API_POLICY.requestLimitPerRun;
+const INVENTORY_START = new Date("2026-07-01T00:00:00.000Z");
 
 const storedCredentialsSchema = z.object({
   apiEnvironment: z.enum(["DEMO", "PRODUCTION"]),
@@ -117,6 +117,10 @@ function connectionEnvironment(): ArubaApiConnectionRow["environment"] {
 
 function inventoryEnvironment(): ArubaSyncRunRow["environment"] {
   return getConfig().APP_ENV === "production" ? "PRODUCTION" : "MOCK";
+}
+
+export function arubaApiInventoryFloor(): Date {
+  return new Date(INVENTORY_START);
 }
 
 function credentialsKey(): string {
@@ -986,6 +990,7 @@ async function openOrResumeRun(
   kind: RunKind,
   now: Date,
 ) {
+  const inventoryFloor = arubaApiInventoryFloor();
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba-api-run'))");
     const expectedAuthority: AuthorityMode =
@@ -1018,6 +1023,7 @@ async function openOrResumeRun(
       `SELECT previous.* FROM aruba_sync_runs AS previous
        WHERE previous.environment = $1 AND previous.account_reference = $2
          AND previous.kind = $3
+         AND previous.window_start >= $5
          AND (previous.status = 'FAILED' OR (
            previous.status = 'INCOMPLETE'
            AND previous.last_error_code = 'ARUBA_API_BUDGET_EXHAUSTED'
@@ -1028,7 +1034,7 @@ async function openOrResumeRun(
            WHERE continuation.continued_from_run_id = previous.id
          )
        ORDER BY previous.started_at DESC LIMIT 1 FOR UPDATE OF previous`,
-      [inventoryEnvironment(), current.account_reference, kind, expectedAuthority],
+      [inventoryEnvironment(), current.account_reference, kind, expectedAuthority, inventoryFloor],
     );
     if (previous.rows[0]) {
       const source = previous.rows[0];
@@ -1083,7 +1089,7 @@ async function openOrResumeRun(
       );
       return inserted.rows[0]!;
     }
-    let windowStart = FULL_HISTORY_START;
+    let windowStart = inventoryFloor;
     if (kind === "INCREMENTAL") {
       const latest = await client.query<{ window_end: Date }>(
         `SELECT window_end FROM aruba_sync_runs
@@ -1094,7 +1100,7 @@ async function openOrResumeRun(
       );
       windowStart = new Date(
         Math.max(
-          FULL_HISTORY_START.getTime(),
+          inventoryFloor.getTime(),
           (latest.rows[0]?.window_end ?? now).getTime() - INCREMENTAL_OVERLAP_MS,
         ),
       );
@@ -1578,9 +1584,14 @@ async function createParityDossier(run: ArubaSyncRunRow) {
     ? Number(
         (
           await getPool().query<{ count: number }>(
-            `SELECT count(*)::int AS count FROM aruba_deduplication_conflicts
-             WHERE sync_session_id = $1 AND resolved_at IS NULL`,
-            [baseline.id],
+            `SELECT count(*)::int AS count
+             FROM aruba_deduplication_conflicts AS conflicts
+             JOIN aruba_remote_documents AS remote
+               ON remote.id = conflicts.existing_remote_document_id
+             WHERE conflicts.sync_session_id = $1 AND conflicts.resolved_at IS NULL
+               AND remote.document_date >= $2::date
+               AND remote.document_date < $3::date`,
+            [baseline.id, run.window_start, baseline.comparison_cutoff],
           )
         ).rows[0]?.count ?? 0,
       )
@@ -1623,8 +1634,9 @@ async function createParityDossier(run: ArubaSyncRunRow) {
              CASE shadow.document_type WHEN 'TD01' THEN 'invoices:' ELSE 'credit-notes:' END,
              shadow.fiscal_year
            ) = ANY($2::text[])
-           AND shadow.document_date < $3::date`,
-        [run.id, populationStreams, baseline.comparison_cutoff],
+           AND shadow.document_date < $3::date
+           AND shadow.document_date >= $4::date`,
+        [run.id, populationStreams, baseline.comparison_cutoff, run.window_start],
       )
     : { rows: [] as never[] };
   const browser = baseline
@@ -1670,7 +1682,8 @@ async function createParityDossier(run: ArubaSyncRunRow) {
          ) AS official_files ON true
          WHERE pages.sync_session_id = $1 AND pages.scan_ordinal = $2
            AND pages.stream = ANY($3::text[])
-           AND (document->>'documentDate')::date < $6::date`,
+           AND (document->>'documentDate')::date < $6::date
+           AND (document->>'documentDate')::date >= $7::date`,
         [
           baseline.id,
           baseline.scan_ordinal,
@@ -1678,6 +1691,7 @@ async function createParityDossier(run: ArubaSyncRunRow) {
           run.environment,
           run.account_reference,
           baseline.comparison_cutoff,
+          run.window_start,
         ],
       )
     : { rows: [] as never[] };
@@ -1773,7 +1787,8 @@ async function createParityDossier(run: ArubaSyncRunRow) {
          'browserBaselineScanOrdinal', $17::integer,
          'browserBaselineSessionId', $18::uuid,
          'groupFileMismatches', $19::integer,
-         'comparisonCutoffExclusive', $20::text
+         'comparisonCutoffExclusive', $20::text,
+         'comparisonStartInclusive', $21::text
        ))
      ON CONFLICT (sync_run_id) DO UPDATE SET
        status = EXCLUDED.status,
@@ -1807,6 +1822,7 @@ async function createParityDossier(run: ArubaSyncRunRow) {
       baseline?.id ?? null,
       groupFileMismatches,
       baseline?.comparison_cutoff ?? null,
+      run.window_start.toISOString().slice(0, 10),
     ],
   );
 }

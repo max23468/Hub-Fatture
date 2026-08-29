@@ -195,7 +195,7 @@ e quando un rimborso di prova produce correttamente:
 | HF-F30 | Valutare OCI Email Delivery in Development e selezionare un solo trasporto SMTP canonico prima dell'uso Production | Confermato come PoC; adozione OCI condizionata |
 | HF-F31 | Eseguire la sincronizzazione del ciclo attivo tramite API Aruba v2 con credenziale cifrata, polling ogni 15 minuti e comando read-only `Sincronizza ora` | Confermato |
 | HF-F32 | Offrire in Impostazioni le modalità globali e rigide `Solo documento`, `Conferma contestuale` e `Automatico dopo approvazione`, con `Solo documento` come default | Confermato |
-| HF-F33 | Inventariare dall'account Aruba fatture e TD04 anche quando non sono stati generati da HF, con backfill di tutto lo storico disponibile, incrementali con sovrapposizione e scansione completa mensile | Confermato |
+| HF-F33 | Inventariare dall'account Aruba fatture e TD04 anche quando non sono stati generati da HF, con inventario iniziale dal 1° luglio 2026, incrementali con sovrapposizione e scansione completa mensile sullo stesso orizzonte | Confermato |
 | HF-F34 | Collegare automaticamente un documento Aruba a ordini e documenti locali soltanto con corrispondenza univoca e XML ufficiale coerente; lasciare ambiguità, conflitti e documenti privi di ordine nelle code di verifica | Confermato |
 | HF-F35 | Per TD01 consumare lo stato globale dell'inventario: avviso oltre 30 minuti, blocco se mai completato o oltre 4 ore e blocco immediato per conflitto o stato remoto incerto | Confermato |
 | HF-F36 | Rendere il backfill completo, il polling, i checkpoint e i cursori riprendibili e idempotenti; nuovo stream, cursore assente o incongruenza forzano una scansione completa | Confermato |
@@ -235,7 +235,7 @@ e quando un rimborso di prova produce correttamente:
 - Sincronizzazione di notifiche ed esiti.
 - Inventario in sola lettura di fatture e TD04 presenti in Aruba, inclusi i documenti nati fuori da HF, con riconciliazione continuativa e coda `Documenti → Da collegare`.
 - I documenti nati fuori da Shopify ed eBay restano soltanto nell’inventario Aruba per prevenire doppie emissioni: se non presentano né un riferimento ordine esplicito né un match locale compatibile non diventano ordini, fatture da gestire o verifiche bloccanti.
-- Sincronizzazione API automatica ogni 15 minuti, backfill di tutto lo storico disponibile e
+- Sincronizzazione API automatica ogni 15 minuti, inventario iniziale dal 1° luglio 2026 e
   comando read-only `Sincronizza ora`.
 - Modalità Aruba globali e rigide `Solo documento`, `Conferma contestuale` e `Automatico dopo
   approvazione`, con `Solo documento` come default.
@@ -312,7 +312,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Test browser dell'app | Chromium su ogni superficie runtime; WebKit per UI, E2E, Aruba e modifiche fail-closed | Mantiene una seconda implementazione browser dove rileva regressioni reali senza duplicare indiscriminatamente la matrice |
 | Integrazione Aruba | Account Base con delega Web Service e API Aruba v2 documentate come canale primario del ciclo attivo; pannello/helper transitori e fallback manuale permanente | Riduce la fragilità del DOM mantenendo una via di recovery presidiata |
 | Sincronizzazione Aruba | Polling ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile; callback rinviato | Offre aggiornamento automatico senza dipendere da garanzie di isolamento callback non ancora disponibili |
-| Inventario Aruba | Cache provider-first di tutto lo storico disponibile, indipendente dai batch HF, con osservazioni append-only | Rileva documenti creati fuori da HF, impedisce doppie emissioni e rende verificabile la freschezza |
+| Inventario Aruba | Cache provider-first dal 1° luglio 2026, indipendente dai batch HF, con osservazioni append-only | Rileva documenti creati fuori da HF, impedisce doppie emissioni nel periodo operativo e rende verificabile la freschezza |
 | Modalità Aruba | `Solo documento`, `Conferma contestuale` e `Automatico dopo approvazione`, globali e rigide | Separa approvazione, creazione e trasmissione senza consenso implicito |
 | Comparatore fiscale | Diff strutturato server-side fra sorgente, bozza e proiezione XML | Rende visibili trasformazioni, correzioni e arrotondamenti senza affidarsi a un fragile confronto testuale dell'XML |
 | Versionamento | `package.json` + SemVer/tag per le release Production | Collega codice e artefatto senza imporre bump alle modifiche locali o documentali |
@@ -346,7 +346,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Disponibilità esterna | Un monitor HTTP OCI APM ogni 6 minuti | Verifica dall'esterno Dynu, DNS, TLS, Caddy e applicazione senza transazioni o dati reali |
 | Evidenze | Preflight, ricevuta, readback e rollback per ogni scrittura remota | Un comando riuscito non dimostra target e stato live corretti |
 | Documentazione | Master Plan, indice e fonti canoniche senza duplicazioni | Riduce istruzioni in drift e rende verificabile ogni handover |
-| Storico Aruba | Tutto lo storico disponibile, acquisito progressivamente | Consente un confronto completo con l'helper e una riconciliazione provider-first stabile |
+| Storico Aruba | Dal 1° luglio 2026, acquisito progressivamente; i dati anteriori già presenti restano conservati | Consente il confronto con la baseline rilevante e una riconciliazione provider-first stabile senza riletture remote superflue |
 | Lingua | Solo italiano | Requisito 1.x; evitare infrastruttura i18n non richiesta |
 
 ### 4.1 Decisioni confermate con condizione
@@ -980,7 +980,7 @@ Usare soltanto la UI visibile e gli URL ufficiali Aruba, con allowlist stretta d
 
 Questa sottosezione descrive il comportamento transitorio già implementato e serve soltanto al
 confronto shadow e al dossier di parità. Non è l'architettura di destinazione: M9 introduce il
-backfill API di tutto lo storico disponibile, polling ogni 15 minuti, rilettura mirata dei non
+inventario API dal 1° luglio 2026, polling ogni 15 minuti, rilettura mirata dei non
 terminali e scansione completa mensile. Il passaggio di autorità è atomico; API e preferito non
 alimentano contemporaneamente lo stesso inventario canonico.
 
@@ -2134,7 +2134,7 @@ Valori di routine da calibrare:
 
 - Shopify recovery sync: ogni 10-15 minuti.
 - eBay sync: ogni 10-15 minuti.
-- Aruba inventory: backfill di tutto lo storico disponibile, incrementale ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile; nuovo stream, cursore assente o incongruenza forzano una nuova scansione completa.
+- Aruba inventory: inventario dal 1° luglio 2026, incrementale ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile sullo stesso orizzonte; nuovo stream, cursore assente o incongruenza forzano una nuova scansione completa.
 - Pulizia sessioni: giornaliera.
 
 Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify, eBay e inventario Aruba. Il worker Aruba applica budget conservativi, priorità ai documenti non terminali, backoff con jitter e un solo giro canonico per account e ambiente. Mostrare età dell'ultimo inventario completo, copertura del backfill, checkpoint e azione `Sincronizza ora`.
@@ -3234,7 +3234,7 @@ Output:
 
 - credenziale Aruba cifrata, test d'identità, rotazione/revoca e connessione inizialmente in pausa;
 - pausa API generale, interruttore invii separato e permessi Massimo/Codex;
-- worker con backfill di tutto lo storico disponibile, polling ogni 15 minuti, rilettura dei non terminali e scansione completa mensile;
+- worker con inventario dal 1° luglio 2026, polling ogni 15 minuti, rilettura dei non terminali e scansione completa mensile sullo stesso orizzonte;
 - inventario, osservazioni, file, matching prudenziale, salute 30 minuti/quattro ore e UI sulle superfici esistenti;
 - giri API shadow separati dall'inventario browser e dossier di parità inbound;
 - passaggio atomico dell'autorità automatica all'API.
@@ -3395,7 +3395,7 @@ Al primo collegamento, proporre come default gli ultimi sette giorni calcolati r
 
 Importare ordini creati o aggiornati nel periodo, inclusi annullamenti e rimborsi collegati.
 
-Separatamente dall'import ordini, il backfill Aruba acquisisce progressivamente tutto lo storico disponibile del ciclo attivo, inclusi file e notifiche applicabili. Le sincronizzazioni successive sono incrementali ogni 15 minuti con overlap, rilettura dei non terminali e scansione completa mensile; non dipendono dall'esistenza di batch HF. La prima persistenza reale appartiene a M9 e non abilita upload o invii.
+Separatamente dall'import ordini, l'inventario Aruba acquisisce progressivamente fatture e TD04 dal 1° luglio 2026, inclusi file e notifiche applicabili. Le sincronizzazioni successive sono incrementali ogni 15 minuti con overlap, rilettura dei non terminali e scansione completa mensile sul medesimo orizzonte; non dipendono dall'esistenza di batch HF. I dati anteriori già acquisiti restano conservati ma non vengono riletti. La prima persistenza reale appartiene a M9 e non abilita upload o invii.
 
 ### 25.2 Stato prudenziale
 
@@ -3637,7 +3637,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 ### Checklist API M8-M14
 
 - [x] M8: manifesto read-only autorizzato, identità verificata, paginazione completa, gruppi/documenti, stati, forme di file/notifiche, limiti e accordo economico qualificati senza persistenza reale canonica; confronto iniziale fallback classificato e parità allineata assegnata a M9.
-- [ ] M9: credenziale cifrata e restore provati; connessione inizialmente in pausa; backfill di tutto lo storico disponibile completato; polling 15 minuti, non terminali e full mensile verificati.
+- [ ] M9: credenziale cifrata e restore provati; connessione inizialmente in pausa; inventario dal 1° luglio 2026 completato; polling 15 minuti, non terminali e full mensile verificati.
 - [ ] M9: zero divergenze inbound inspiegate; switch di autorità atomico; decisione esplicita di Massimo sul preferito/bridge.
 - [ ] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; chiamata di upload con `dryRun=true` e stato incerto qualificati con autorizzazione specifica, senza autorizzare `dryRun=false`.
 - [ ] M10: pausa API e invii fiscali disabilitati riletti server-side; Codex respinto su configurazione e mutazioni, ma ammesso su salute e `Sincronizza ora`.
