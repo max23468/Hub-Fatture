@@ -468,6 +468,59 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
         },
       ],
     );
+    const failedRunId = "30000000-0000-4000-8000-000000000040";
+    await getPool().query(
+      `INSERT INTO aruba_sync_runs
+        (id, environment, api_environment, account_reference, kind, authority_mode, status,
+         window_start, window_end, checkpoint_start, checkpoint_end, checkpoint_page,
+         page_count, group_count, request_count, request_limit, lease_expires_at,
+         last_error_code, last_error_message_sanitized)
+       VALUES ($1, 'MOCK', 'DEMO', 'synthetic-aruba-account', 'FULL', 'SHADOW', 'FAILED',
+         '2019-01-01', '2019-01-05', '2019-01-03', '2019-01-05', 2,
+         1, 10, 12, 10000, now(), 'PROVIDER_RESPONSE_INVALID',
+         'Sincronizzazione API Aruba interrotta')`,
+      [failedRunId],
+    );
+    const failedJob = await getPool().query<{ id: string }>(
+      `INSERT INTO jobs (type, status, payload_json, run_at)
+       VALUES ('aruba_full_inventory', 'PENDING', '{}', now()) RETURNING id`,
+    );
+    const retriedFailedJob = await jobs.claimJob("aruba-api-failed-continuation-worker");
+    assert.equal(retriedFailedJob?.id, failedJob.rows[0]!.id);
+    const retriedFailedResult = await api.runArubaApiInboundJob(retriedFailedJob!, runOptions);
+    assert.equal(await jobs.completeJob(retriedFailedJob!, retriedFailedResult), true);
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT continued_from_run_id, status, checkpoint_start, checkpoint_page,
+                  page_count, group_count, request_count
+           FROM aruba_sync_runs WHERE continued_from_run_id = $1`,
+          [failedRunId],
+        )
+      ).rows,
+      [
+        {
+          continued_from_run_id: failedRunId,
+          status: "COMPLETED",
+          checkpoint_start: new Date("2019-01-03T00:00:00.000Z"),
+          checkpoint_page: 1,
+          page_count: 2,
+          group_count: 11,
+          request_count: 1,
+        },
+      ],
+    );
+    await getPool().query(
+      `DELETE FROM aruba_inbound_parity_dossiers
+       WHERE sync_run_id IN (
+         SELECT id FROM aruba_sync_runs WHERE continued_from_run_id = $1
+       )`,
+      [failedRunId],
+    );
+    await getPool().query("DELETE FROM aruba_sync_runs WHERE continued_from_run_id = $1", [
+      failedRunId,
+    ]);
+    await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [failedRunId]);
     assert.equal((await api.getArubaInboundClosureReadiness()).gates.PARITY_MATCHED, true);
     assert.deepEqual(
       (

@@ -1006,8 +1006,11 @@ async function openOrResumeRun(
     const previous = await client.query<ArubaSyncRunRow>(
       `SELECT previous.* FROM aruba_sync_runs AS previous
        WHERE previous.environment = $1 AND previous.account_reference = $2
-         AND previous.kind = $3 AND previous.status = 'INCOMPLETE'
-         AND previous.last_error_code = 'ARUBA_API_BUDGET_EXHAUSTED'
+         AND previous.kind = $3
+         AND (previous.status = 'FAILED' OR (
+           previous.status = 'INCOMPLETE'
+           AND previous.last_error_code = 'ARUBA_API_BUDGET_EXHAUSTED'
+         ))
          AND previous.authority_mode = $4
          AND NOT EXISTS (
            SELECT 1 FROM aruba_sync_runs AS continuation
