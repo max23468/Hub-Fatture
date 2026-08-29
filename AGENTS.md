@@ -1,6 +1,6 @@
 # Istruzioni per gli agenti
 
-`docs/Hub_Fatture_MASTER_PLAN.md` è la fonte canonica per prodotto, UX, brand, architettura, modello commerciale, test, distribuzione e roadmap. Prima di agire leggi la sezione 0 (come leggere la specifica) e le sezioni che il tuo intervento tocca:
+`docs/Hub_Fatture_MASTER_PLAN.md` è la fonte canonica per prodotto, UX, brand, architettura, modello commerciale, test, distribuzione e roadmap. `docs/contracts/versioning.md` è la fonte canonica per la convenzione delle versioni applicative fino alla `1.0.0`. Prima di agire leggi la sezione 0 (come leggere la specifica) e le sezioni che il tuo intervento tocca:
 
 | Intervento                                   | Sezioni      |
 | -------------------------------------------- | ------------ |
@@ -25,6 +25,7 @@ In dubbio sulla sezione competente, leggi l'indice del documento invece di legge
   una richiesta di pubblicazione, invii Aruba reali, decisioni fiscali o
   modifiche materiali allo scope.
 - Non aggiungere dipendenze, servizi o tool non approvati dal Master Plan.
+- Applica `docs/contracts/versioning.md` a ogni bump: fino alla 1.0 non introdurre treni, prerelease o salti di minor non previsti dalla policy.
 - Fuori dalla roadmap del Master Plan, descrivi capacità e gate osservabili senza duplicare date, branch, conteggi di test o sigle di milestone; lo stato corrente deriva dall’HEAD e dalla CI.
 - La sigla `HF` è interna: non deve comparire nel frontend o in contenuti destinati all’utente.
 - La repository è pubblica ma proprietaria: non aggiungere `LICENSE`, dati reali, segreti o configurazioni sensibili.

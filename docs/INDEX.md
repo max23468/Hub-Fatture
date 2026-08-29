@@ -3,6 +3,7 @@
 | Documento                                                                             | Scopo                                                     | Stato       | Fonte canonica |
 | ------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----------- | -------------- |
 | [Hub Fatture Master Plan](Hub_Fatture_MASTER_PLAN.md)                                 | Prodotto, UX, architettura, test, distribuzione e roadmap | Consolidato | Sì             |
+| [Versioning](contracts/versioning.md)                                                  | Convenzione delle versioni fino alla 1.0                  | Approvata   | Sì             |
 | [Readiness toolchain](evidence/toolchain-readiness.md)                                | Fonti, controlli e limiti della toolchain                 | Corrente    | No             |
 | [Fondazioni locali](evidence/local-foundations.md)                                    | Capacità e gate ripetibili delle fondazioni applicative   | Corrente    | No             |
 | [Brand Foundation](brand/brand-foundation.md)                                         | Identità visiva e tono UI minimi                          | Approvata   | Sì             |
