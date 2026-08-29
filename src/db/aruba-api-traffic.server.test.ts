@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AppError } from "../errors.ts";
-import { closePool, getPool } from "./client.server.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
-import { runMigrations } from "./migrations.server.ts";
 
 test("un 429 Aruba coordina il cooldown e impedisce retry ravvicinati", async () => {
   const database = await temporaryDatabase("aruba_traffic_guard");
@@ -14,29 +12,33 @@ test("un 429 Aruba coordina il cooldown e impedisce retry ravvicinati", async ()
   process.env.APP_ENV = "test";
   process.env.ARUBA_API_READ_INTERVAL_MS = "5200";
   process.env.CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 31).toString("base64url");
+  const { closePool, getPool } = await import("./client.server.ts");
+  const { runMigrations } = await import("./migrations.server.ts");
   try {
     await runMigrations({ connectionString: database.connectionString });
     const traffic = await import("./aruba-api-traffic.server.ts");
     const connectors = await import("./connectors.server.ts");
+    const reservationStartedAt = Date.now();
     await Promise.all([
       traffic.waitForArubaApiReadSlot("DEMO", "INVOICE_READ"),
       traffic.waitForArubaApiReadSlot("DEMO", "NOTIFICATION_READ"),
     ]);
+    const reservationCompletedAt = Date.now();
     const reservations = await getPool().query<{
       scope: string;
       reserved_request_count: string;
-      delay_ms: number;
+      next_allowed_at: Date;
     }>(
-      `SELECT scope, reserved_request_count,
-              extract(epoch FROM (next_allowed_at - updated_at))::double precision * 1000
-                AS delay_ms
+      `SELECT scope, reserved_request_count, next_allowed_at
        FROM aruba_api_traffic_limits ORDER BY scope`,
     );
     assert.deepEqual(
       reservations.rows.map((row) => ({
         scope: row.scope,
         reservedRequestCount: Number(row.reserved_request_count),
-        usesAcceleratedInterval: row.delay_ms >= 5_190 && row.delay_ms <= 5_300,
+        usesAcceleratedInterval:
+          row.next_allowed_at.getTime() >= reservationStartedAt + 5_190 &&
+          row.next_allowed_at.getTime() <= reservationCompletedAt + 5_210,
       })),
       [
         { scope: "INVOICE_READ", reservedRequestCount: 1, usesAcceleratedInterval: true },
