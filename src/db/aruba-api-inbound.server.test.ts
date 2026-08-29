@@ -847,11 +847,16 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
        )`,
     );
     assert.deepEqual(
-      await api.promoteArubaApiAuthority({ fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK" }, owner),
+      await api.promoteArubaApiAuthority({ fallbackDecision: "RETIRE_BROWSER_HELPER" }, owner),
       {
         automaticAuthority: "API",
-        fallbackDecision: "KEEP_TRANSITIONAL_FALLBACK",
+        fallbackDecision: "RETIRE_BROWSER_HELPER",
       },
+    );
+    const inboundAfterCutover = await import("./aruba-inbound.server.ts");
+    await assert.rejects(
+      inboundAfterCutover.issueArubaReadSession("browser-after-api-cutover", owner),
+      (error) => error instanceof AppError && error.code === "ARUBA_READ_SESSION_FORBIDDEN",
     );
     assert.equal(
       (await getPool().query("SELECT count(*)::int AS count FROM aruba_remote_documents")).rows[0]
