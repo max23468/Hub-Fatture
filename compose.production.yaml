@@ -63,10 +63,11 @@ services:
       - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/shared-caddy/sites:/etc/caddy/sites:ro
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
       - ./data/logs/caddy:/var/log/caddy
-    networks: [frontend]
+    networks: [frontend, shared-public-proxy]
     depends_on:
       app-web:
         condition: service_healthy
@@ -155,3 +156,6 @@ networks:
   frontend: {}
   backend:
     internal: true
+  shared-public-proxy:
+    external: true
+    name: sequent-proxy

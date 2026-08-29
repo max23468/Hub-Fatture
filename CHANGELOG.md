@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.96
+
+- Il Caddy condiviso conserva i virtual host root-owned degli altri servizi autorizzati e la rete pubblica esterna anche dopo un deploy Hub Fatture; il preflight blocca directory, permessi o rete divergenti, evitando che la rigenerazione di Compose e Caddyfile renda irraggiungibile un servizio coesistente.
+
 ## 0.3.95
 
 - Il mapper API Aruba normalizza i totali provider con segno alla rappresentazione monetaria interna non negativa, coerente con il readback browser e con i vincoli del dominio, evitando che una fattura storica con totale API negativo interrompa il backfill. Una regressione copre il caso osservato in Production.
