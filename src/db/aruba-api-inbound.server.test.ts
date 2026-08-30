@@ -196,7 +196,7 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         },
         owner,
       ),
-      (error) => error instanceof AppError && error.code === "ARUBA_API_COOLDOWN_ACTIVE",
+      (error) => error instanceof AppError && error.code === "ARUBA_API_AUTH_INTERVAL_ACTIVE",
     );
     const stored = await getPool().query<{
       encrypted_credentials: string;

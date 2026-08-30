@@ -43,4 +43,5 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `ARUBA_RECONCILIATION_REQUIRED`  | UNKNOWN               | no               | completare il readback                |
 | `ARUBA_IMPORT_INVALID`           | VALIDATION permanente | no               | scegliere il file ufficiale corretto  |
 | `ARUBA_API_BUDGET_EXHAUSTED`     | PROVIDER permanente   | no               | autorizzare un nuovo manifesto        |
+| `ARUBA_API_AUTH_INTERVAL_ACTIVE` | PROVIDER temporaneo   | sì               | attendere il retry automatico breve   |
 | `UNKNOWN`                        | UNKNOWN               | no               | diagnosticare con request ID          |

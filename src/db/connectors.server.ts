@@ -360,6 +360,7 @@ export async function markConnectionError(provider: Provider, code: ErrorCode, t
         ? "ERROR"
         : code === "PROVIDER_RATE_LIMITED" ||
             code === "ARUBA_API_COOLDOWN_ACTIVE" ||
+            code === "ARUBA_API_AUTH_INTERVAL_ACTIVE" ||
             code === "PROVIDER_UNAVAILABLE"
           ? "CONNECTED"
           : "ERROR";
@@ -721,17 +722,21 @@ export async function failJob(job: ClaimedJob, code: ErrorCode) {
   const retryable =
     code === "PROVIDER_RATE_LIMITED" ||
     code === "ARUBA_API_COOLDOWN_ACTIVE" ||
+    code === "ARUBA_API_AUTH_INTERVAL_ACTIVE" ||
     code === "PROVIDER_UNAVAILABLE" ||
     code === "EMAIL_DELIVERY_TEMPORARY";
   const terminal = budgetContinuation ? false : job.attempts >= job.maxAttempts || !retryable;
-  const arubaCooldown =
+  const arubaProviderCooldown =
     job.type.startsWith("aruba_") &&
     (code === "PROVIDER_RATE_LIMITED" || code === "ARUBA_API_COOLDOWN_ACTIVE");
+  const arubaAuthenticationInterval =
+    job.type.startsWith("aruba_") && code === "ARUBA_API_AUTH_INTERVAL_ACTIVE";
   return withTransaction(async (client) => {
     const failed = await client.query(
       `UPDATE jobs SET status = $5, run_at = CASE WHEN $5 = 'PENDING'
            THEN CASE WHEN $4 = 'ARUBA_API_BUDGET_EXHAUSTED' THEN now()
              WHEN $6 THEN now() + make_interval(secs => $7::double precision / 1000)
+             WHEN $8 THEN now() + make_interval(secs => $9::double precision / 1000)
              ELSE now() + make_interval(secs => LEAST(900,
                5 * power(2, attempts)::integer + floor(random() * 6)::integer)) END
            ELSE run_at END,
@@ -744,8 +749,10 @@ export async function failJob(job: ClaimedJob, code: ErrorCode) {
         job.claimToken,
         code,
         terminal ? "FAILED" : "PENDING",
-        arubaCooldown,
+        arubaProviderCooldown,
         ARUBA_API_POLICY.providerCooldownMs,
+        arubaAuthenticationInterval,
+        ARUBA_API_POLICY.authenticationIntervalMs,
       ],
     );
     if (failed.rowCount !== 1) return null;

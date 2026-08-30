@@ -739,6 +739,25 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
         .status,
       "FAILED",
     );
+    const authenticationIntervalJob = await getPool().query<{ id: string }>(
+      `INSERT INTO jobs (type, run_at)
+       VALUES ('aruba_full_inventory', now()) RETURNING id`,
+    );
+    const claimedAuthenticationIntervalJob = await connectors.claimJob(
+      "worker-aruba-authentication-interval",
+    );
+    assert.equal(claimedAuthenticationIntervalJob?.id, authenticationIntervalJob.rows[0]!.id);
+    await connectors.failJob(claimedAuthenticationIntervalJob!, "ARUBA_API_AUTH_INTERVAL_ACTIVE");
+    const authenticationRetryDelay = Number(
+      (
+        await getPool().query(
+          "SELECT extract(epoch FROM (run_at - now())) AS seconds FROM jobs WHERE id = $1",
+          [claimedAuthenticationIntervalJob!.id],
+        )
+      ).rows[0].seconds,
+    );
+    assert.ok(authenticationRetryDelay > 55 && authenticationRetryDelay <= 61);
+    await getPool().query("DELETE FROM jobs WHERE id = $1", [claimedAuthenticationIntervalJob!.id]);
     assert.equal(
       (
         await getPool().query(

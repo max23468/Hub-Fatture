@@ -66,6 +66,8 @@ export const errorCatalog = {
     "La sincronizzazione Aruba ha raggiunto il limite autorizzato di richieste.",
   ARUBA_API_COOLDOWN_ACTIVE:
     "La lettura Aruba è in pausa di sicurezza dopo una richiesta di rallentamento.",
+  ARUBA_API_AUTH_INTERVAL_ACTIVE:
+    "Una nuova autenticazione Aruba è già programmata al termine dell’intervallo di sicurezza.",
   ARUBA_PREFLIGHT_REQUIRED:
     "È richiesto un controllo Aruba aggiornato. Completa la verifica API e riprova entro cinque minuti.",
   INVALID_CONTENT_TYPE: "Formato della richiesta non supportato.",

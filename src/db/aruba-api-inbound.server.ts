@@ -187,7 +187,7 @@ async function reserveArubaApiAuthentication(environment: ArubaApiEnvironment) {
       latest.rows[0] &&
       Date.now() - latest.rows[0].attempted_at.getTime() < ARUBA_API_POLICY.authenticationIntervalMs
     ) {
-      throw new AppError("ARUBA_API_COOLDOWN_ACTIVE", 429);
+      throw new AppError("ARUBA_API_AUTH_INTERVAL_ACTIVE", 429);
     }
     await client.query("INSERT INTO aruba_api_auth_attempts DEFAULT VALUES");
     await client.query(
@@ -1291,6 +1291,7 @@ export async function runArubaApiInboundJob(
     const retryable =
       appError.code === "PROVIDER_RATE_LIMITED" ||
       appError.code === "ARUBA_API_COOLDOWN_ACTIVE" ||
+      appError.code === "ARUBA_API_AUTH_INTERVAL_ACTIVE" ||
       appError.code === "PROVIDER_UNAVAILABLE";
     const budgetExhausted = appError.code === "ARUBA_API_BUDGET_EXHAUSTED";
     await getPool().query(
