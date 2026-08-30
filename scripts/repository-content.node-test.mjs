@@ -864,10 +864,12 @@ test("l'applicazione accede a PostgreSQL soltanto tramite il livello dati", asyn
 });
 
 test("le approvazioni rileggono l'inventario Aruba sotto lock prima degli ordini", async () => {
-  const [documents, refunds] = await Promise.all(
-    ["src/db/documents.server.ts", "src/db/refunds.server.ts"].map((file) =>
-      readFile(path.join(root, file), "utf8"),
-    ),
+  const [documents, massApprovals, refunds] = await Promise.all(
+    [
+      "src/db/documents.server.ts",
+      "src/db/document-mass-approval.server.ts",
+      "src/db/refunds.server.ts",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
   );
   const invoiceStart = documents.indexOf("export async function approveInvoice");
   const invoiceEnd = documents.indexOf("export async function", invoiceStart + 1);
@@ -884,9 +886,9 @@ test("le approvazioni rileggono l'inventario Aruba sotto lock prima degli ordini
   );
   assert.doesNotMatch(invoiceApproval, /(?:ensure|consume)ArubaPreflight/);
 
-  const massStart = documents.indexOf("export async function approveInvoices");
-  const massEnd = documents.indexOf("export async function", massStart + 1);
-  const massApproval = documents.slice(massStart, massEnd < 0 ? undefined : massEnd);
+  const massStart = massApprovals.indexOf("export async function approveInvoices");
+  const massEnd = massApprovals.indexOf("export async function", massStart + 1);
+  const massApproval = massApprovals.slice(massStart, massEnd < 0 ? undefined : massEnd);
   assert.ok(massApproval.indexOf("approveInvoice") >= 0);
   assert.doesNotMatch(massApproval, /requestArubaPreflight/);
 

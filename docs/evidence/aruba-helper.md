@@ -1,5 +1,27 @@
 # Evidenza integrazione Aruba e qualifica reale
 
+> Archivio storico: il runtime descritto in questa evidenza è stato ritirato con la transizione
+> API-only. Non è una procedura operativa corrente.
+
+## Percorso browser ritirato
+
+Il percorso browser usava il preferito `Sincronizza Aruba` in Safari, Chrome o Edge, un ponte HF
+autenticato in una finestra separata e sessioni casuali temporanee di sola lettura. Il titolare
+eseguiva login e challenge; dalla Home selezionava personalmente `Fatture inviate` perché il menu
+ExtJS richiedeva interazione nativa. Il lettore acquisiva soltanto righe sanitizzate e i byte XML
+prodotti dal controllo ufficiale della riga, senza trasferire cookie o sessioni Aruba a HF.
+
+Le scansioni coprivano gli anni fiscali richiesti, ripartivano dall’inizio della finestra dopo
+un’interruzione e usavano ingest idempotente. Le letture incrementali includevano almeno sette
+giorni e i documenti non terminali; una stream nuova, un cursore assente o una scansione completa
+scaduta forzavano il giro integrale. Mapper e soglie sugli stati sconosciuti rendevano fail-closed
+i cambiamenti massivi del pannello. XML mancanti, match ambigui, conflitti e stati remoti incerti
+restavano bloccanti.
+
+La transizione API ha sostituito questo percorso con le API Aruba v2 come unica autorità automatica. Endpoint,
+helper, preferito, token, tabelle shadow e colonne browser sono stati rimossi; resta soltanto la
+provenienza `HELPER` sulle sessioni storiche per l’audit.
+
 ## Capacità verificabili localmente
 
 - pagina Aruba sintetica con upload ordinario senza challenge, autenticazione e challenge di sicurezza post-upload inattesa in pausa, validazione valida/non valida, DOM inatteso ed esito incerto;

@@ -17,7 +17,7 @@ test("un 429 Aruba coordina il cooldown e impedisce retry ravvicinati", async ()
   try {
     await runMigrations({ connectionString: database.connectionString });
     const traffic = await import("./aruba-api-traffic.server.ts");
-    const connectors = await import("./connectors.server.ts");
+    const connectors = await import("./connector-jobs.server.ts");
     const reservationStartedAt = Date.now();
     await Promise.all([
       traffic.waitForArubaApiReadSlot("DEMO", "INVOICE_READ"),

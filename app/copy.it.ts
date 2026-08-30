@@ -839,6 +839,7 @@ export const copy = {
     attentionHelp: "Le attività sono ordinate dalla più recente e portano al punto da risolvere.",
     reviewsCount: "Verifiche",
     failedJobsCount: "Operazioni non riuscite",
+    privacyRequestsCount: "Richieste privacy",
     openHistory: "Apri la cronologia",
     openConnections: "Controlla le connessioni",
     jobRetried: "Operazione del canale riavviata.",
@@ -848,6 +849,19 @@ export const copy = {
     failedJob: (code: string | null, attempts: number) =>
       `${errorCodeLabel(code)} · ${attempts} ${attempts === 1 ? "tentativo" : "tentativi"}`,
     retryJob: "Riprova ora",
+    privacyRequestsTitle: "Richieste dati Shopify",
+    privacyRequestsHelp:
+      "Richieste privacy ricevute da Shopify da evadere prima di registrarle come completate.",
+    privacyRequestTitle: "Richiesta dati cliente",
+    privacyRequestIdentifier: "Identificativo richiesta",
+    privacyRequestReceivedAt: "Ricevuta",
+    privacyRequestCustomers: "Clienti coinvolti",
+    privacyRequestOrders: "Ordini coinvolti",
+    privacyRequestNoCustomers: "Nessun cliente indicato",
+    privacyRequestNoOrders: "Nessun ordine indicato",
+    privacyRequestConfirmation: "Confermo di avere evaso la richiesta privacy",
+    completePrivacyRequest: "Segna come completata",
+    privacyRequestCompleted: "Richiesta privacy registrata come completata.",
     reviewTitle: "Verifiche su ordini e documenti",
     creditNotesFilter: (count: number) =>
       `${count} ${count === 1 ? "nota di credito da approvare" : "note di credito da approvare"}`,

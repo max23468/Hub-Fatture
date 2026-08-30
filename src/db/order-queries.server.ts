@@ -9,7 +9,7 @@ import {
 import { getConfig } from "../config.server.ts";
 import { auditActions } from "./audit.server.ts";
 import { getPool } from "./client.server.ts";
-import { actionableConnectorFailures } from "./connectors.server.ts";
+import { actionableConnectorFailures } from "./connector-jobs.server.ts";
 import {
   billingCasePendingPaymentSql,
   pendingPaymentSql,

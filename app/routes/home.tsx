@@ -19,9 +19,9 @@ import { dateTime } from "../format";
 import { privateRouteMeta } from "../metadata";
 import { dashboardConnectionFreshness } from "../../src/dashboard.ts";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
-import { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
+import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
-import { dashboardSummary } from "../../src/db/orders.server.ts";
+import { dashboardSummary } from "../../src/db/order-queries.server.ts";
 
 const chartDateFormatter = new Intl.DateTimeFormat("it-IT", {
   weekday: "short",

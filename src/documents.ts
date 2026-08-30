@@ -391,12 +391,6 @@ export function fiscalDocumentEnvelopeFromXml(xml: string) {
   };
 }
 
-/** Riferimenti di riconciliazione leggibili anche per documenti fuori dal profilo attivo. */
-export function fiscalDocumentReferencesFromXml(xml: string) {
-  const source = acceptedFiscalDocument(xml);
-  return fiscalDocumentReferences(source);
-}
-
 function fiscalDocumentReferences(source: ReturnType<typeof acceptedFiscalDocument>) {
   const generalBlock = xmlRecord(source.body.DatiGenerali);
   const general = xmlRecord(generalBlock.DatiGeneraliDocumento);

@@ -20,14 +20,17 @@ import type {
   listOfficialArubaFiles,
   listUnbatchedApprovedDocuments,
 } from "../../src/db/aruba.server.ts";
-import type { documentArchiveSummary, listDocuments } from "../../src/db/documents.server.ts";
+import type {
+  documentArchiveSummary,
+  listDocuments,
+} from "../../src/db/document-archive.server.ts";
 import type { listEmailDeliveries } from "../../src/db/email.server.ts";
 import { copy } from "../copy.it";
 import { date, dateTime, euros } from "../format";
 import { Pager } from "./pager";
 import { SortControlLink } from "./sortable-table";
 import type { SortState } from "../table-sort";
-import type { DocumentListSortKey } from "../../src/db/documents.server.ts";
+import type { DocumentListSortKey } from "../../src/db/document-archive.server.ts";
 
 type DocumentPage = Awaited<ReturnType<typeof listDocuments>>;
 type DocumentRowData = DocumentPage["rows"][number];

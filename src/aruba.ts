@@ -30,11 +30,7 @@ export type ArubaMode = z.infer<typeof arubaModeSchema>;
 export type ArubaEnvironment = z.infer<typeof arubaEnvironmentSchema>;
 export type ArubaManifestDocument = z.infer<typeof arubaManifestDocumentSchema>;
 
-export function effectiveArubaMode(
-  configured: ArubaMode,
-  environment: ArubaEnvironment,
-  submissionEnabled: boolean,
-): ArubaMode {
+export function effectiveArubaMode(configured: ArubaMode, submissionEnabled: boolean): ArubaMode {
   return !submissionEnabled ? "DOCUMENT_ONLY" : configured;
 }
 

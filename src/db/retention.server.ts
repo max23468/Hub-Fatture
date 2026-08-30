@@ -17,7 +17,6 @@ export const retentionDataClasses = [
   "OPERATIONAL_JOBS",
   "OPERATIONAL_AUDIT",
   "CUSTOMER_EMAIL",
-  "ARUBA_CREDENTIALS",
 ] as const;
 
 export type RetentionDataClass = (typeof retentionDataClasses)[number];
@@ -28,7 +27,6 @@ const emptyResult = (): RetentionResult => ({
   OPERATIONAL_JOBS: 0,
   OPERATIONAL_AUDIT: 0,
   CUSTOMER_EMAIL: 0,
-  ARUBA_CREDENTIALS: 0,
 });
 
 export function assertRetentionBackupVerified(
@@ -228,15 +226,6 @@ export async function applyRetentionPolicy(): Promise<RetentionResult> {
       }
       result.CUSTOMER_EMAIL = deliveries.rowCount ?? 0;
       await recordRetention(client, "CUSTOMER_EMAIL", result.CUSTOMER_EMAIL, requestId);
-    }
-
-    if (!(await classHeld(client, "ARUBA_CREDENTIALS"))) {
-      const tokens = await client.query(
-        `DELETE FROM aruba_helper_tokens
-         WHERE coalesce(revoked_at, expires_at) <= now() - interval '30 days'`,
-      );
-      result.ARUBA_CREDENTIALS = tokens.rowCount ?? 0;
-      await recordRetention(client, "ARUBA_CREDENTIALS", result.ARUBA_CREDENTIALS, requestId);
     }
 
     return result;

@@ -34,15 +34,9 @@ test("manifest API e parser dei file Aruba restano fail-closed", async () => {
   };
   assert.equal(manifestSha256(batch), manifestSha256(structuredClone(batch)));
   assert.notEqual(manifestSha256(batch), manifestSha256({ ...batch, attemptNumber: 2 }));
-  assert.equal(
-    effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", "PRODUCTION", false),
-    "DOCUMENT_ONLY",
-  );
-  assert.equal(
-    effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", "PRODUCTION", true),
-    "AUTOMATIC_AFTER_APPROVAL",
-  );
-  assert.equal(effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", "MOCK", false), "DOCUMENT_ONLY");
+  assert.equal(effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", false), "DOCUMENT_ONLY");
+  assert.equal(effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", true), "AUTOMATIC_AFTER_APPROVAL");
+  assert.equal(effectiveArubaMode("AUTOMATIC_AFTER_APPROVAL", false), "DOCUMENT_ONLY");
   assert.equal(arubaMonthlyTransmissionUsage(399).warning, null);
   assert.deepEqual(arubaMonthlyTransmissionUsage(400), {
     accepted: 400,

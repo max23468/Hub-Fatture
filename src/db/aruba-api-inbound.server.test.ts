@@ -172,9 +172,13 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         totalPages: 2,
       });
     };
-    const api = await import("./aruba-api-inbound.server.ts");
+    const api = {
+      ...(await import("./aruba-api-context.server.ts")),
+      ...(await import("./aruba-api-settings.server.ts")),
+      ...(await import("./aruba-api-inbound.server.ts")),
+    };
     assert.equal(api.arubaApiInventoryFloor().toISOString(), "2026-07-01T00:00:00.000Z");
-    const jobs = await import("./connectors.server.ts");
+    const jobs = await import("./connector-jobs.server.ts");
     const owner = { id: 1, canApprove: true, requestId: "aruba-api-owner-test" };
     const codex = { id: 2, canApprove: false, requestId: "aruba-api-codex-test" };
     await api.saveArubaApiCredentials(
@@ -474,7 +478,7 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       ).rows[0].count,
       1,
     );
-    const inbound = await import("./aruba-inbound.server.ts");
+    const inbound = await import("./aruba-official-file-import.server.ts");
     const mismatchedNotification = Buffer.from(
       "<RicevutaConsegna><NomeFile>documento-diverso.xml</NomeFile></RicevutaConsegna>",
     );

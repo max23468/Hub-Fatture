@@ -9,6 +9,8 @@
     "jsx": "react-jsx",
     "rootDirs": [".", "./.react-router/types"],
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noEmit": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

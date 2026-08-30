@@ -19,7 +19,8 @@ import { dryRunArubaApiInvoice } from "../integrations/aruba-api.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import { authenticateConfiguredArubaApiForOutbound } from "./aruba-api-connection.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
-import { assertJobLease, type ClaimedJob } from "./connectors.server.ts";
+import { assertJobLease } from "./connector-jobs.server.ts";
+import type { ClaimedJob } from "./connector-types.server.ts";
 import { readVerifiedStorageObject } from "./storage-object.server.ts";
 
 export interface ArubaOutboundActor {
@@ -101,7 +102,7 @@ export async function createArubaApiBatch(
   const config = getConfig();
   const environment = config.APP_ENV === "production" ? "PRODUCTION" : "MOCK";
   const configuredMode = await currentMode(client);
-  const mode = effectiveArubaMode(configuredMode, environment, config.ARUBA_SUBMISSION_ENABLED);
+  const mode = effectiveArubaMode(configuredMode, config.ARUBA_SUBMISSION_ENABLED);
   if (expectedMode !== undefined && expectedMode !== mode) {
     throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
   }
@@ -306,8 +307,7 @@ export async function confirmArubaApiBatch(batchId: string, actor: ArubaOutbound
     if (
       current.environment !== environment ||
       current.account_reference !== config.ARUBA_ACCOUNT_REFERENCE ||
-      effectiveArubaMode(configuredMode, environment, config.ARUBA_SUBMISSION_ENABLED) !==
-        current.mode ||
+      effectiveArubaMode(configuredMode, config.ARUBA_SUBMISSION_ENABLED) !== current.mode ||
       !(await outboundConnectionReady(client, environment, config.ARUBA_ACCOUNT_REFERENCE))
     ) {
       throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
@@ -518,8 +518,7 @@ async function prepareDryRun(job: ClaimedJob): Promise<DryRunContext> {
     const ordinaryAuthorization =
       config.ARUBA_SUBMISSION_ENABLED &&
       current?.mode !== "DOCUMENT_ONLY" &&
-      effectiveArubaMode(configuredMode, environment, config.ARUBA_SUBMISSION_ENABLED) ===
-        current?.mode;
+      effectiveArubaMode(configuredMode, config.ARUBA_SUBMISSION_ENABLED) === current?.mode;
     const qualificationAuthorization =
       !config.ARUBA_SUBMISSION_ENABLED &&
       environment === "PRODUCTION" &&
@@ -872,29 +871,6 @@ export async function runArubaApiOutboundJob(job: ClaimedJob) {
       errorCode: error instanceof AppError ? error.code : "UNKNOWN",
     };
   }
-}
-
-export async function getArubaApiOutboundSummary() {
-  const result = await getPool().query<{
-    document_only: string;
-    awaiting_confirmation: string;
-    dry_run_pending: string;
-    dry_run_validated: string;
-    dry_run_failed: string;
-    unknown_remote_state: string;
-  }>(
-    `SELECT
-       count(*) FILTER (WHERE status = 'DOCUMENT_ONLY')::text AS document_only,
-       count(*) FILTER (WHERE status = 'AWAITING_CONFIRMATION')::text AS awaiting_confirmation,
-       count(*) FILTER (WHERE status = 'DRY_RUN_PENDING')::text AS dry_run_pending,
-       count(*) FILTER (WHERE status = 'DRY_RUN_VALIDATED')::text AS dry_run_validated,
-       count(*) FILTER (WHERE status = 'DRY_RUN_FAILED')::text AS dry_run_failed,
-       count(*) FILTER (WHERE status = 'UNKNOWN_REMOTE_STATE')::text AS unknown_remote_state
-     FROM aruba_batches WHERE transport = 'API'`,
-  );
-  return Object.fromEntries(
-    Object.entries(result.rows[0]!).map(([key, value]) => [key, Number(value)]),
-  );
 }
 
 export async function getArubaMonthlyTransmissionUsage() {

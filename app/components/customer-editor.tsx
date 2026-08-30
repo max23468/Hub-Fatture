@@ -1,7 +1,7 @@
 import { Form } from "react-router";
 
 import { copy, customerKindLabels, taxIdentifierLabels } from "../copy.it";
-import type { EditableCustomer } from "../../src/db/orders.server.ts";
+import type { EditableCustomer } from "../../src/db/billing-cases.server.ts";
 
 /**
  * Correzione anagrafica prima dell'approvazione (7.5). Il modulo riparte sempre dallo snapshot

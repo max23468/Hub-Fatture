@@ -13,15 +13,6 @@ export const arubaRemoteStatusSchema = z.enum([
   "UNKNOWN",
 ]);
 
-export const arubaMatchStatusSchema = z.enum([
-  "MATCHED",
-  "UNMATCHED",
-  "AMBIGUOUS",
-  "PROFILE_CONFLICT",
-  "ERROR",
-  "UNKNOWN_REMOTE_STATE",
-]);
-
 export const fiscalIdentitySchema = z.object({
   type: z.enum(["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"]),
   countryCode: z

@@ -18,7 +18,7 @@ test(
       process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
       process.env.DATABASE_URL = clean.connectionString;
 
-      const orders = await import("./orders.server.ts");
+      const orders = await import("./order-import.server.ts");
       const customers = await import("./customers.server.ts");
       const database = await import("./client.server.ts");
       const fixture = JSON.parse(

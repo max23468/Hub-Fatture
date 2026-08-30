@@ -161,21 +161,6 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
           'retention-old-critical', now() - interval '181 days')`,
     );
 
-    const batchId = randomUUID();
-    await client.query(
-      `INSERT INTO aruba_batches
-         (id, environment, mode, account_reference, manifest_sha256, document_count,
-          status, created_by)
-       VALUES ($1, 'MOCK', 'AUTOMATIC_AFTER_APPROVAL', 'synthetic', $2, 1, 'CANCELLED', $3)`,
-      [batchId, "e".repeat(64), userId],
-    );
-    await client.query(
-      `INSERT INTO aruba_helper_tokens
-         (token_hash, batch_id, expires_at, revoked_at, created_at)
-       VALUES ($1, $2, now() - interval '31 days', now() - interval '31 days',
-               now() - interval '40 days')`,
-      ["f".repeat(64), batchId],
-    );
     await client.query(
       `INSERT INTO retention_holds (data_class, reason, approved_by, review_at)
        VALUES ('SOURCE_PAYLOADS', 'Verifica sintetica in corso', $1, now() + interval '1 day')`,
@@ -188,7 +173,6 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
       OPERATIONAL_JOBS: 1,
       OPERATIONAL_AUDIT: 1,
       CUSTOMER_EMAIL: 1,
-      ARUBA_CREDENTIALS: 1,
     });
     assert.deepEqual(
       (
@@ -296,7 +280,7 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
              AND before_json IS NULL AND after_json IS NULL`,
         )
       ).rows[0]!.count,
-      5,
+      4,
     );
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());

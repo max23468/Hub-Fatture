@@ -44,6 +44,13 @@ interface FailedJob {
   failedAt: string;
 }
 
+interface PrivacyDataRequest {
+  externalEventId: string;
+  receivedAt: string;
+  customerIds: string[];
+  orderIds: string[];
+}
+
 interface HistoryEvent {
   id: string;
   action: string;
@@ -59,8 +66,16 @@ interface HistoryEvent {
   created_at: string;
 }
 
-function ActivityOverview({ failedJobs, open }: { failedJobs: number; open: OpenActivityPage }) {
-  const total = open.total + failedJobs;
+function ActivityOverview({
+  failedJobs,
+  open,
+  privacyRequests,
+}: {
+  failedJobs: number;
+  open: OpenActivityPage;
+  privacyRequests: number;
+}) {
+  const total = open.total + failedJobs + privacyRequests;
   return (
     <section
       className="dashboard-panel activity-overview section-gap"
@@ -84,7 +99,80 @@ function ActivityOverview({ failedJobs, open }: { failedJobs: number; open: Open
           <dt>{copy.activity.failedJobsCount}</dt>
           <dd>{failedJobs}</dd>
         </div>
+        <div>
+          <dt>{copy.activity.privacyRequestsCount}</dt>
+          <dd>{privacyRequests}</dd>
+        </div>
       </dl>
+    </section>
+  );
+}
+
+function PrivacyDataRequestsPanel({
+  csrfToken,
+  requests,
+}: {
+  csrfToken: string;
+  requests: PrivacyDataRequest[];
+}) {
+  if (!requests.length) return null;
+  return (
+    <section className="dashboard-panel activity-panel" aria-labelledby="activity-privacy-title">
+      <header className="activity-panel__header">
+        <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
+          <ShieldCheck size={22} strokeWidth={1.8} />
+        </span>
+        <span>
+          <h2 id="activity-privacy-title">{copy.activity.privacyRequestsTitle}</h2>
+          <p>{copy.activity.privacyRequestsHelp}</p>
+        </span>
+        <strong className="activity-panel__count">{requests.length}</strong>
+      </header>
+      <ul className="activity-list">
+        {requests.map((privacyRequest) => (
+          <li className="activity-row" key={privacyRequest.externalEventId}>
+            <span className="activity-row__main">
+              <small className="activity-row__reason">{copy.activity.privacyRequestsTitle}</small>
+              <strong>{copy.activity.privacyRequestTitle}</strong>
+              <span className="activity-row__context">
+                {copy.activity.privacyRequestIdentifier}: {privacyRequest.externalEventId}
+              </span>
+            </span>
+            <span className="activity-row__facts">
+              <span>
+                <small>{copy.activity.privacyRequestReceivedAt}</small>
+                <time dateTime={isoDateTime(privacyRequest.receivedAt)}>
+                  {dateTime(privacyRequest.receivedAt)}
+                </time>
+              </span>
+              <span>
+                <small>{copy.activity.privacyRequestCustomers}</small>
+                <strong>
+                  {privacyRequest.customerIds.join(", ") || copy.activity.privacyRequestNoCustomers}
+                </strong>
+              </span>
+              <span>
+                <small>{copy.activity.privacyRequestOrders}</small>
+                <strong>
+                  {privacyRequest.orderIds.join(", ") || copy.activity.privacyRequestNoOrders}
+                </strong>
+              </span>
+            </span>
+            <Form method="post">
+              <input type="hidden" name="csrf" value={csrfToken} />
+              <input type="hidden" name="intent" value="complete-shopify-data-request" />
+              <input type="hidden" name="externalEventId" value={privacyRequest.externalEventId} />
+              <label>
+                <input type="checkbox" name="privacyHandled" value="confirmed" required />{" "}
+                {copy.activity.privacyRequestConfirmation}
+              </label>
+              <button className="button button--secondary" type="submit">
+                {copy.activity.completePrivacyRequest}
+              </button>
+            </Form>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -333,20 +421,27 @@ export function ManageActivityView({
   csrfToken,
   failedJobs,
   open,
+  privacyRequests,
   sort,
 }: {
   csrfToken: string;
   failedJobs: FailedJob[];
   open: OpenActivityPage;
+  privacyRequests: PrivacyDataRequest[];
   sort: SortState<OpenActivitySortKey>;
 }) {
-  if (!open.total && !failedJobs.length) return <ActivityEmpty />;
+  if (!open.total && !failedJobs.length && !privacyRequests.length) return <ActivityEmpty />;
   return (
     <>
-      <ActivityOverview failedJobs={failedJobs.length} open={open} />
+      <ActivityOverview
+        failedJobs={failedJobs.length}
+        open={open}
+        privacyRequests={privacyRequests.length}
+      />
       <div className="activity-stack">
         <ReviewActivitiesPanel open={open} sort={sort} />
         <FailedJobsPanel csrfToken={csrfToken} jobs={failedJobs} />
+        <PrivacyDataRequestsPanel csrfToken={csrfToken} requests={privacyRequests} />
       </div>
     </>
   );

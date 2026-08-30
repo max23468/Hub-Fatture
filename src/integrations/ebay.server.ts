@@ -6,16 +6,15 @@ import { getConfig } from "../config.server.ts";
 import {
   completedHistoryImportResult,
   historyImportPending,
-  jobLeaseCurrent,
   loadConnection,
   markConnectionSynced,
-  processEbayDeletionRecord,
   readCursor,
   saveConnection,
   writeCursor,
-  type ClaimedJob,
-  type ConnectorActor,
-} from "../db/connectors.server.ts";
+} from "../db/connector-connections.server.ts";
+import { jobLeaseCurrent } from "../db/connector-jobs.server.ts";
+import { processEbayDeletionRecord } from "../db/connector-webhooks.server.ts";
+import type { ClaimedJob, ConnectorActor } from "../db/connector-types.server.ts";
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
 import {
@@ -28,7 +27,6 @@ import { providerJson } from "./provider-http.server.ts";
 import { providerOrder } from "./provider-order.ts";
 
 export const EBAY_FULFILLMENT_API_VERSION = "v1";
-export const EBAY_FULFILLMENT_SCHEMA_RELEASE = "1.20.7";
 export const EBAY_SCOPE = [
   "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
   "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",

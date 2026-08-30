@@ -9,7 +9,8 @@ import { getConfig } from "../config.server.ts";
 import { AppError } from "../errors.ts";
 import { sendCanonicalEmail, smtpFailureKind } from "../integrations/email-delivery.server.ts";
 import { writeAudit } from "./audit.server.ts";
-import { assertJobLease, type ClaimedJob } from "./connectors.server.ts";
+import { assertJobLease } from "./connector-jobs.server.ts";
+import type { ClaimedJob } from "./connector-types.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
