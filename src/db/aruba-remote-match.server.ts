@@ -27,6 +27,7 @@ export interface LockedRemoteMatch {
     orderIds?: string[];
     potential?: boolean;
     compatible?: boolean;
+    reviewable?: boolean;
   }>;
 }
 
@@ -57,7 +58,7 @@ export async function markRemoteProfileConflict(client: pg.PoolClient, remote: L
   );
   const orderIds = new Set<string>();
   for (const candidate of remote.candidates_json) {
-    if (!candidate.potential && !candidate.compatible) continue;
+    if (!candidate.potential && !candidate.compatible && !candidate.reviewable) continue;
     if (candidate.candidateId) orderIds.add(candidate.candidateId);
     for (const orderId of candidate.orderIds ?? []) orderIds.add(orderId);
   }

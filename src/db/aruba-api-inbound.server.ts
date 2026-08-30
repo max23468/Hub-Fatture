@@ -24,6 +24,7 @@ import { waitForArubaApiReadSlot } from "./aruba-api-traffic.server.ts";
 import { commitArubaApiInventoryPage } from "./aruba-api-canonical-page.server.ts";
 import { importArubaApiGroupFile } from "./aruba-api-group-file.server.ts";
 import { importArubaRemoteOfficialFileFromApi } from "./aruba-official-file-import.server.ts";
+import { upgradeCachedArubaMatcher } from "./aruba-matcher-upgrade.server.ts";
 import { stageApiPage } from "./aruba-api-stage.server.ts";
 import { getPool, withJoinedTransaction, withTransaction } from "./client.server.ts";
 import type { ClaimedJob } from "./connector-types.server.ts";
@@ -472,6 +473,10 @@ async function advanceWindow(runId: string) {
     );
     const run = result.rows[0];
     if (!run) throw new AppError("CONFLICT_REVISION", 409);
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `aruba-read:${run.environment}:${run.account_reference}`,
+    ]);
+    await upgradeCachedArubaMatcher(client, run.environment, run.account_reference);
     if (run.checkpoint_end >= run.window_end) return false;
     const nextStart = run.checkpoint_end;
     await client.query(

@@ -70,14 +70,16 @@ export const customerProfileMismatchSql = `(
 
 /**
  * Un segnale debole (data/importo/nome) serve soltanto finché non è disponibile
- * l'XML ufficiale. Dopo il download del file, trattiene il caso esclusivamente
- * una compatibilità fiscale reale o un riferimento ordine esplicito.
+ * l'XML ufficiale. Dopo il download del file, trattiene il caso anche quando
+ * data, importo e almeno un'identità coincidono: il collegamento resta manuale,
+ * ma il documento non deve sparire dalla coda prima della decisione.
  */
 export const arubaActionableCandidateSql = (
   candidateAlias = "aruba_candidate",
   remoteAlias = "aruba_remote",
 ) => `(
   coalesce((${candidateAlias} ->> 'compatible')::boolean, false)
+  OR coalesce((${candidateAlias} ->> 'reviewable')::boolean, false)
   OR coalesce((${candidateAlias} -> 'signals' ->> 'explicitReference')::boolean, false)
   OR (${remoteAlias}.xml_sha256 IS NULL AND (
     coalesce((${candidateAlias} ->> 'probe')::boolean, false)

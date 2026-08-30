@@ -306,6 +306,48 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
 
+  const discountedDelivery = structuredClone(privateOrder) as {
+    pricingSummary: Record<string, unknown>;
+    lineItems: Array<Record<string, unknown>>;
+    paymentSummary: { payments: Array<Record<string, unknown>> };
+  };
+  discountedDelivery.pricingSummary = {
+    total: { value: "94.48", currency: "EUR" },
+    deliveryCost: { value: "17.00", currency: "EUR" },
+    deliveryDiscount: { value: "-8.00", currency: "EUR" },
+  };
+  discountedDelivery.lineItems = [
+    {
+      lineItemId: "line-discounted-delivery",
+      title: "Articoli con spedizione scontata",
+      quantity: 1,
+      lineItemCost: { value: "85.48", currency: "EUR" },
+      discountedLineItemCost: { value: "85.48", currency: "EUR" },
+      refunds: [],
+    },
+  ];
+  discountedDelivery.paymentSummary.payments[0]!.amount = {
+    value: "94.48",
+    currency: "EUR",
+  };
+  const discountedDeliveryMapped = mapEbayOrder(discountedDelivery, "botCF");
+  assert.equal(discountedDeliveryMapped.shippingAmount, "9.00");
+  assert.equal(
+    discountedDeliveryMapped.lines.reduce(
+      (sum, line) => sum + decimalToCents(line.grossAmount) - decimalToCents(line.discountAmount),
+      decimalToCents(discountedDeliveryMapped.shippingAmount),
+    ),
+    decimalToCents(discountedDeliveryMapped.total),
+  );
+  assert.equal(
+    orderReviewRequired(
+      discountedDeliveryMapped,
+      true,
+      decimalToCents(discountedDeliveryMapped.total),
+    ),
+    false,
+  );
+
   const duplicatedLineRefund = structuredClone(refundedOrder) as {
     lineItems: Array<{ refunds: unknown[] }>;
   };

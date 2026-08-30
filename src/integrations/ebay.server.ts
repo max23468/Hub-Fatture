@@ -18,6 +18,7 @@ import type { ClaimedJob, ConnectorActor } from "../db/connector-types.server.ts
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
 import {
+  decimalToCents,
   defaultHistoricalStartDate,
   historicalOrderWindow,
   markHistoricalOrders,
@@ -77,6 +78,23 @@ function text(value: unknown): string | undefined {
 
 function money(value: unknown): { value: string; currency: string } | null {
   return moneySchema.safeParse(value).data ?? null;
+}
+
+function netDeliveryAmount(pricing: Record<string, unknown>, currency: string): string {
+  const cost = money(pricing.deliveryCost);
+  const discount = money(pricing.deliveryDiscount);
+  if ((cost && cost.currency !== currency) || (discount && discount.currency !== currency)) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  try {
+    const costCents = decimalToCents(cost?.value ?? "0.00");
+    const discountCents = Math.abs(decimalToCents(discount?.value ?? "0.00"));
+    const netCents = costCents - discountCents;
+    if (netCents < 0) throw new Error("Sconto spedizione superiore al costo");
+    return (netCents / 100).toFixed(2);
+  } catch {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
 }
 
 function setBounded<K, V>(map: Map<K, V>, key: K, value: V, limit: number): void {
@@ -357,7 +375,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
     updatedAt,
     currency: total.currency,
     total: total.value,
-    shippingAmount: money(pricing.deliveryCost)?.value ?? "0.00",
+    shippingAmount: netDeliveryAmount(pricing, total.currency),
     paymentStatus: ["FULLY_REFUNDED", "REFUNDED"].includes(paymentStatus)
       ? "REFUNDED"
       : paymentStatus === "PAID"

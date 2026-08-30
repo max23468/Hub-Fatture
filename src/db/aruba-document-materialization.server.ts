@@ -5,6 +5,7 @@ import path from "node:path";
 import type pg from "pg";
 
 import {
+  canManuallyLinkCandidate,
   groupOrderCandidates,
   isEmissionConfirmed,
   normalizedMatchText,
@@ -261,7 +262,10 @@ async function materializeExternalInvoice(
   const selectedEvaluation =
     remote.match_status === "MATCHED" && remote.order_id
       ? verified.evaluations.find(
-          (candidate) => candidate.compatible && candidate.candidateId === remote.order_id,
+          (candidate) =>
+            candidate.candidateId === remote.order_id &&
+            (candidate.compatible ||
+              (remote.match_method === "MANUAL" && canManuallyLinkCandidate(candidate))),
         )
       : verified.status === "MATCHED"
         ? verified.evaluations.find((candidate) => candidate.compatible)

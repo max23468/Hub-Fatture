@@ -22,7 +22,7 @@ export async function listRemoteDocuments(
     match_status: string;
     order_id: string | null;
     document_id: string | null;
-    candidates: Array<{ id: string; label: string }>;
+    candidates: Array<{ id: string; label: string; guided: boolean }>;
     has_xml: boolean;
   }>(
     `SELECT remote.id, remote.remote_id, remote.document_type, remote.fiscal_number,
@@ -37,14 +37,14 @@ export async function listRemoteDocuments(
               SELECT jsonb_agg(jsonb_build_object(
                 'id', orders.id::text,
                 'label', CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify ' ELSE 'eBay ' END
-                  || orders.display_number
+                  || orders.display_number,
+                'guided', coalesce((candidate ->> 'reviewable')::boolean, false)
+                  AND NOT coalesce((candidate ->> 'compatible')::boolean, false)
               ) ORDER BY orders.id)
-              FROM orders
-              WHERE orders.id::text IN (
-                SELECT candidate ->> 'candidateId'
-                FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS candidate
-                WHERE coalesce((candidate ->> 'compatible')::boolean, false)
-              )
+              FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS candidate
+              JOIN orders ON orders.id::text = candidate ->> 'candidateId'
+              WHERE coalesce((candidate ->> 'compatible')::boolean, false)
+                 OR coalesce((candidate ->> 'reviewable')::boolean, false)
             ), '[]') AS candidates
      FROM aruba_remote_documents AS remote
      LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id

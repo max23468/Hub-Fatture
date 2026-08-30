@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.4
+
+- I documenti Aruba già emessi con data e totale esatti restano disponibili per una verifica manuale motivata quando l’identità è parziale, senza trasformare un indizio in un collegamento automatico; i match memorizzati vengono rivalutati dopo una sincronizzazione o una correzione locale.
+- Gli ordini eBay sottraggono gli sconti di spedizione dal costo di consegna, con controlli su valuta e importi non validi, evitando differenze artificiali fra totale sorgente e righe fatturabili.
+
 ## 0.5.3
 
 - Il runtime elimina definitivamente tabelle, colonne, facciate ed export del precedente percorso browser Aruba: API e import manuale restano gli unici proprietari delle rispettive capacità, con provenienza storica conservata soltanto per l’audit.

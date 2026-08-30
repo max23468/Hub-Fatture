@@ -14,6 +14,7 @@ import {
   type CustomerContext,
 } from "../orders.ts";
 import { AppError } from "../errors.ts";
+import { rematchCachedArubaDocumentsForBillingCase } from "./aruba-billing-case-rematch.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import {
   arubaPotentialMatchSql,
@@ -269,7 +270,7 @@ export async function reviewBillingCaseSourceChanges(
   if (!isDatabaseId(id)) return null;
   if (!confirmed) throw new AppError("ORDER_INVALID_INPUT", 422);
   const revision = assertRevision(expectedRevision);
-  return withTransaction(async (client) => {
+  const status = await withTransaction(async (client) => {
     await serializeOrderMutations(client);
     const current = await lockBillingCase(client, id, revision);
     if (!current) return null;
@@ -354,6 +355,8 @@ export async function reviewBillingCaseSourceChanges(
     }
     return recomputeBillingCaseStatus(client, id);
   });
+  if (status === null) return null;
+  return rematchCachedArubaDocumentsForBillingCase(id);
 }
 
 /**
@@ -378,7 +381,7 @@ export async function correctBillingCaseCustomer(
   ) {
     throw new AppError("ORDER_INVALID_INPUT", 422);
   }
-  return withTransaction(async (client) => {
+  const status = await withTransaction(async (client) => {
     await serializeOrderMutations(client);
     const current = await lockBillingCase(client, id, revision);
     if (!current) return null;
@@ -433,6 +436,8 @@ export async function correctBillingCaseCustomer(
     });
     return recomputeBillingCaseStatus(client, id);
   });
+  if (status === null) return null;
+  return rematchCachedArubaDocumentsForBillingCase(id);
 }
 
 /**
