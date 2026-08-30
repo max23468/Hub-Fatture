@@ -7,20 +7,21 @@ import { z } from "zod";
 
 import { getConfig } from "../config.server.ts";
 import {
-  ingestShopifyWebhook,
   historyImportPending,
-  jobLeaseCurrent,
   loadConnection,
   markConnectionSynced,
-  processShopifyPrivacyRecord,
-  processShopifyUninstallRecord,
-  recordShopifyDataRequest,
   readCursor,
   saveConnection,
   writeCursor,
-  type ClaimedJob,
-  type ConnectorActor,
-} from "../db/connectors.server.ts";
+} from "../db/connector-connections.server.ts";
+import { jobLeaseCurrent } from "../db/connector-jobs.server.ts";
+import {
+  ingestShopifyWebhook,
+  processShopifyPrivacyRecord,
+  processShopifyUninstallRecord,
+  recordShopifyDataRequest,
+} from "../db/connector-webhooks.server.ts";
+import type { ClaimedJob, ConnectorActor } from "../db/connector-types.server.ts";
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
 import {

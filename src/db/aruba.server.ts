@@ -6,16 +6,13 @@ import type pg from "pg";
 
 import {
   ARUBA_IMPORT_MAX_BYTES,
-  ARUBA_UPLOAD_MAX_BATCH_BYTES,
   arubaFileKindSchema,
   arubaModeSchema,
   effectiveArubaMode,
-  manifestSha256,
   notificationBelongsToDocument,
   notificationStatus,
   validateOfficialFile,
   type ArubaFileKind,
-  type ArubaManifestDocument,
   type ArubaMode,
 } from "../aruba.ts";
 import { getConfig } from "../config.server.ts";
@@ -33,19 +30,6 @@ export interface ArubaActor {
   requestId: string;
 }
 
-export interface ApprovedDocumentForBatch extends ArubaManifestDocument {}
-
-function manifestPayload(
-  batchId: string,
-  environment: "MOCK" | "PRODUCTION",
-  mode: ArubaMode,
-  accountReference: string,
-  attemptNumber: number,
-  documents: ArubaManifestDocument[],
-) {
-  return { batchId, environment, mode, accountReference, attemptNumber, documents };
-}
-
 function integer(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0 || parsed > POSTGRES_INTEGER_MAX) {
@@ -56,7 +40,6 @@ function integer(value: unknown): number {
 
 export async function getArubaSettings() {
   const config = getConfig();
-  const environment = config.APP_ENV === "production" ? "PRODUCTION" : "MOCK";
   const result = await getPool().query<{ key: string; value_json: unknown; version: number }>(
     "SELECT key, value_json, version FROM settings WHERE key = 'aruba_mode'",
   );
@@ -67,7 +50,7 @@ export async function getArubaSettings() {
       value: mode,
       version: settings.get("aruba_mode")?.version ?? 0,
     },
-    effectiveMode: effectiveArubaMode(mode, environment, config.ARUBA_SUBMISSION_ENABLED),
+    effectiveMode: effectiveArubaMode(mode, config.ARUBA_SUBMISSION_ENABLED),
     transmissionForcedDocumentOnly: !config.ARUBA_SUBMISSION_ENABLED,
   };
 }
@@ -105,117 +88,6 @@ export async function setArubaSettings(
       requestId: actor.requestId,
     });
   });
-}
-
-async function currentMode(client: pg.PoolClient): Promise<ArubaMode> {
-  const setting = await client.query<{ value_json: unknown }>(
-    "SELECT value_json FROM settings WHERE key = 'aruba_mode' FOR UPDATE",
-  );
-  return arubaModeSchema.parse(setting.rows[0]?.value_json ?? "DOCUMENT_ONLY");
-}
-
-async function currentArubaAccount(client: pg.PoolClient) {
-  const config = getConfig();
-  const environment = config.APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT";
-  await client.query(
-    `INSERT INTO connections
-      (provider, environment, account_reference, encrypted_credentials, status, last_checked_at)
-     VALUES ('ARUBA', $1, $2, NULL, 'CONNECTED', now())
-     ON CONFLICT (provider, environment) DO UPDATE SET
-       account_reference = EXCLUDED.account_reference, status = 'CONNECTED',
-       last_checked_at = now(), updated_at = now(), last_error_code = NULL,
-       last_error_message_sanitized = NULL`,
-    [environment, config.ARUBA_ACCOUNT_REFERENCE],
-  );
-  return config.ARUBA_ACCOUNT_REFERENCE;
-}
-
-export async function createArubaBatch(
-  client: pg.PoolClient,
-  documents: ApprovedDocumentForBatch[],
-  actor: ArubaActor,
-  expectedMode?: unknown,
-  attemptNumber = 1,
-  preservedMode?: ArubaMode,
-): Promise<string> {
-  if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
-  if (
-    !documents.length ||
-    documents.length > 300 ||
-    documents.reduce((sum, document) => sum + document.sizeBytes, 0) > ARUBA_UPLOAD_MAX_BATCH_BYTES
-  ) {
-    throw new AppError("ARUBA_BATCH_INVALID", 422);
-  }
-  const unique = new Set(documents.map((document) => document.id));
-  if (unique.size !== documents.length) throw new AppError("ARUBA_BATCH_INVALID", 422);
-  const configuredMode = await currentMode(client);
-  const environment = getConfig().APP_ENV === "production" ? "PRODUCTION" : "MOCK";
-  const effectiveMode = effectiveArubaMode(
-    configuredMode,
-    environment,
-    getConfig().ARUBA_SUBMISSION_ENABLED,
-  );
-  if (expectedMode !== undefined && expectedMode !== effectiveMode) {
-    throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
-  }
-  if (
-    preservedMode === "AUTOMATIC_AFTER_APPROVAL" &&
-    effectiveMode !== "AUTOMATIC_AFTER_APPROVAL"
-  ) {
-    throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
-  }
-  const mode = preservedMode ?? effectiveMode;
-  const accountReference = await currentArubaAccount(client);
-  const batchId = randomUUID();
-  const digest = manifestSha256(
-    manifestPayload(batchId, environment, mode, accountReference, attemptNumber, documents),
-  );
-  await client.query(
-    `INSERT INTO aruba_batches
-      (id, environment, mode, account_reference, manifest_sha256, document_count,
-       attempt_number, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [
-      batchId,
-      environment,
-      mode,
-      accountReference,
-      digest,
-      documents.length,
-      attemptNumber,
-      actor.id,
-    ],
-  );
-  for (const [index, document] of documents.entries()) {
-    await client.query(
-      `INSERT INTO aruba_batch_documents
-        (batch_id, document_id, position, document_revision, xml_sha256, filename)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [batchId, document.id, index + 1, document.revision, document.sha256, document.filename],
-    );
-    await client.query(
-      `INSERT INTO aruba_submissions
-        (batch_id, document_id, attempt_number, environment, mode, manifest_sha256, xml_sha256)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [batchId, document.id, attemptNumber, environment, mode, digest, document.sha256],
-    );
-  }
-  await writeAudit(client, {
-    actorType: "ADMIN",
-    actorId: String(actor.id),
-    action: "ARUBA_BATCH_CREATED",
-    eventClass: "CRITICAL",
-    entityType: "ARUBA_BATCH",
-    entityId: batchId,
-    metadata: {
-      batchId,
-      manifestSha256: digest,
-      documentCount: documents.length,
-      arubaMode: mode,
-    },
-    requestId: actor.requestId,
-  });
-  return batchId;
 }
 
 export async function createBatchForDocuments(

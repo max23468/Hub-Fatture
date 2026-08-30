@@ -16,7 +16,7 @@ import {
   reviewBillingCaseSourceChanges,
   separateOrderFromBillingCase,
   updateBillingCaseTransmission,
-} from "../../src/db/orders.server.ts";
+} from "../../src/db/billing-cases.server.ts";
 import { AppError } from "../../src/errors.ts";
 import { readArubaInventoryForm } from "../../src/http.server.ts";
 import { invoiceLinesFromForm } from "../invoice-lines.ts";

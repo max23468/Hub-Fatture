@@ -29,7 +29,9 @@ import {
 } from "./billing-case-sql.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
-import { groupOrder, reconcileInvoiceDraft, type Actor } from "./order-import.server.ts";
+import type { OrderActor as Actor } from "./order-actor.server.ts";
+import { groupOrder } from "./order-grouping.server.ts";
+import { reconcileInvoiceDraft } from "./order-draft-reconciliation.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 
@@ -44,7 +46,11 @@ export interface EditableCustomer {
   recipientCode?: string;
   phone?: string;
   billingAddress?: Record<string, string | undefined>;
-  taxIdentifiers?: Array<{ type?: string; value?: string; countryCode?: string }>;
+  taxIdentifiers?: Array<{
+    type?: string;
+    value?: string;
+    countryCode?: string;
+  }>;
 }
 
 interface CaseOrder {

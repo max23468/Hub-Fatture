@@ -13,7 +13,7 @@ test("un rimborso pre-emissione oltre il netto Shopify Payments blocca l’appro
     process.env.APP_BASE_URL = "http://localhost:8080";
     process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
     process.env.DATABASE_URL = databaseFixture.connectionString;
-    const orders = await import("./orders.server.ts");
+    const orders = await import("./order-import.server.ts");
     const database = await import("./client.server.ts");
     const order = JSON.parse(
       await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"),

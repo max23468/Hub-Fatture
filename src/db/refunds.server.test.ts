@@ -299,7 +299,7 @@ test(
           .rows[0].sender,
         "contabilita@example.invalid",
       );
-      const jobs = await import("./connectors.server.ts");
+      const jobs = await import("./connector-jobs.server.ts");
       const claimEmailJob = async (delivery: string, worker: string) => {
         await client.query(
           `UPDATE jobs SET run_at = '-infinity'::timestamptz
@@ -754,7 +754,7 @@ test(
           },
         ],
       });
-      const orders = await import("./orders.server.ts");
+      const orders = await import("./order-import.server.ts");
       await orders.importOrders([importedOrder], {
         id: Number(user.rows[0]!.id),
         requestId: "refresh-linked-credit-note",

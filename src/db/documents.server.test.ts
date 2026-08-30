@@ -25,12 +25,18 @@ test(
       process.env.DATABASE_URL = databaseFixture.connectionString;
       process.env.DOCUMENT_STORAGE_ROOT = storage;
       process.env.SMTP_FROM = "approvazioni@example.invalid";
-      const documents = await import("./documents.server.ts");
+      const documents = {
+        ...(await import("./documents.server.ts")),
+        ...(await import("./document-mass-approval.server.ts")),
+      };
       const documentStorage = await import("./document-storage.server.ts");
       const aruba = await import("./aruba.server.ts");
       const arubaOutbound = await import("./aruba-api-outbound.server.ts");
-      const jobs = await import("./connectors.server.ts");
-      const orders = await import("./orders.server.ts");
+      const jobs = await import("./connector-jobs.server.ts");
+      const orders = {
+        ...(await import("./billing-cases.server.ts")),
+        ...(await import("./order-import.server.ts")),
+      };
       const database = await import("./client.server.ts");
       await database
         .getPool()
@@ -907,19 +913,6 @@ test(
         ),
         (error) => error instanceof AppError && error.code === "DOCUMENT_NOT_APPROVABLE",
       );
-      await assert.rejects(
-        database.withTransaction((client) =>
-          aruba.createArubaBatch(
-            client,
-            mixedDocuments,
-            owner,
-            undefined,
-            1,
-            "AUTOMATIC_AFTER_APPROVAL",
-          ),
-        ),
-        (error) => error instanceof AppError && error.code === "ARUBA_SEND_NOT_AUTHORIZED",
-      );
       await database.getPool().query(
         `UPDATE connections SET environment = 'PRODUCTION',
            account_reference = 'qualified-production-account', status = 'CONNECTED',
@@ -1111,7 +1104,13 @@ test(
       Object.assign(runtimeConfig, originalArubaRuntime);
       await assert.rejects(
         database.withTransaction((client) =>
-          aruba.createArubaBatch(client, [{ ...mixedDocuments[0]!, sizeBytes: 30_000_001 }], owner),
+          arubaOutbound.createArubaApiBatch(
+            client,
+            [{ ...mixedDocuments[0]!, sizeBytes: 30_000_001 }],
+            owner,
+            undefined,
+            true,
+          ),
         ),
         (error) => error instanceof AppError && error.code === "ARUBA_BATCH_INVALID",
       );
@@ -1132,7 +1131,9 @@ test(
         FOR EACH ROW EXECUTE FUNCTION reject_test_aruba_audit();
       `);
       await assert.rejects(
-        database.withTransaction((client) => aruba.createArubaBatch(client, mixedDocuments, owner)),
+        database.withTransaction((client) =>
+          arubaOutbound.createArubaApiBatch(client, mixedDocuments, owner, undefined, true),
+        ),
         /test audit rollback/,
       );
       assert.equal(

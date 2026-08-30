@@ -5,44 +5,26 @@ import type pg from "pg";
 
 import { writeAudit } from "./audit.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
-import {
-  openBillingCaseSql,
-  orderBillableSql,
-  pendingPaymentSql,
-} from "./billing-case-sql.server.ts";
+import { openBillingCaseSql, pendingPaymentSql } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
 import {
-  assertJobLease,
   completeHistoryImportInTransaction,
   lockHistoryImportConnection,
-  renewLockedJobLease,
-  type ClaimedJob,
-  type HistoryImportResult,
-  type Provider,
-} from "./connectors.server.ts";
+} from "./connector-connections.server.ts";
+import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
+import type { ClaimedJob, HistoryImportResult, Provider } from "./connector-types.server.ts";
 import { AppError } from "../errors.ts";
-import {
-  documentInputSchema,
-  fiscalProfileSchema,
-  projectFatturaXml,
-  recipientFromCustomerSnapshot,
-  type DocumentInput,
-  type FiscalProfile,
-} from "../documents.ts";
-import { validateFatturaXml } from "../fatturapa.server.ts";
+import { recipientFromCustomerSnapshot } from "../documents.ts";
 import {
   canonicalCustomerProfile,
-  canonicalTaxIdentifiers,
   customerIdentity,
   customerDisplayName,
   decimalToCents,
-  draftTriggerSchema,
   effectiveOrderPaymentStatus,
   localOrderDate,
   orderInputSchema,
   orderReviewRequired,
   presentationCustomer,
-  shopifyPaymentFeeModeSchema,
   triggerStatus,
   type CustomerContext,
   type DraftTrigger,
@@ -51,291 +33,14 @@ import {
 } from "../orders.ts";
 import { preIssueRefund } from "../refunds.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
-import { refreshCreditNoteDraft } from "./refunds.server.ts";
-
-export interface Actor {
-  id?: number;
-  type?: "ADMIN" | "SYSTEM";
-  requestId: string;
-}
-
-function auditActor(actor: Actor) {
-  return {
-    actorType: actor.type ?? ("ADMIN" as const),
-    actorId: actor.id === undefined ? null : String(actor.id),
-  };
-}
-
-interface GroupableOrder {
-  id: string;
-  customerId: string;
-  customerSnapshot: Record<string, unknown>;
-  localOrderDate: string;
-  currency: string;
-  isolated?: boolean;
-}
-
-async function invoiceDraftAuditSnapshot(client: pg.PoolClient, caseId: string, lock = false) {
-  const result = await client.query<{ id: string; snapshot: Record<string, unknown> }>(
-    `SELECT documents.id, jsonb_build_object(
-       'recipient', documents.recipient_snapshot_json,
-       'lines', coalesce((
-         SELECT jsonb_agg(jsonb_build_object(
-           'orderId', document_lines.order_id::text,
-           'description', document_lines.description,
-           'quantity', document_lines.quantity,
-           'unitAmount', document_lines.unit_amount
-         ) ORDER BY document_lines.line_number)
-         FROM document_lines WHERE document_lines.document_id = documents.id
-       ), '[]'::jsonb),
-       'sourceTotal', documents.source_total_amount,
-       'total', documents.total_amount,
-       'difference', documents.difference_amount,
-       'paymentStatus', documents.payment_status,
-       'paymentMethod', documents.payment_method,
-       'causale', documents.causale,
-       'notes', documents.notes,
-       'draftVersion', documents.draft_version,
-       'projectionSha256', documents.projection_sha256
-     ) AS snapshot
-     FROM documents
-     WHERE documents.billing_case_id = $1
-       AND documents.kind = 'INVOICE' AND documents.status = 'DRAFT'
-     ${lock ? "FOR UPDATE OF documents" : ""}`,
-    [caseId],
-  );
-  return result.rows[0] ?? null;
-}
-
-export async function reconcileInvoiceDraft(
-  client: pg.PoolClient,
-  caseId: string,
-  fallbackDifferenceReason = "Importi personalizzati prima della modifica della regola commissioni Shopify Payments",
-) {
-  const before = await invoiceDraftAuditSnapshot(client, caseId, true);
-  const documentId = before?.id;
-  if (!documentId) return null;
-  await client.query(
-    `DELETE FROM document_lines
-     WHERE document_id = $1
-       AND NOT EXISTS (
-         SELECT 1 FROM orders
-         WHERE orders.id = document_lines.order_id AND orders.billing_case_id = $2
-       )`,
-    [documentId, caseId],
-  );
-  await client.query(
-    `DELETE FROM document_orders
-     WHERE document_id = $1
-       AND NOT EXISTS (
-         SELECT 1 FROM orders
-         WHERE orders.id = document_orders.order_id AND orders.billing_case_id = $2
-       )`,
-    [documentId, caseId],
-  );
-  await client.query(
-    `WITH desired AS (
-       SELECT orders.id,
-              orders.billable_amount - coalesce((
-                SELECT sum(refunds.amount) FROM refunds
-                WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
-              ), 0) AS amount
-       FROM orders WHERE orders.billing_case_id = $2
-     )
-     UPDATE document_lines
-     SET quantity = 1, unit_amount = desired.amount, total_amount = desired.amount
-     FROM document_orders, desired
-     WHERE document_lines.document_id = $1
-       AND document_orders.document_id = document_lines.document_id
-       AND document_orders.order_id = document_lines.order_id
-       AND desired.id = document_lines.order_id
-       AND document_lines.quantity = 1
-       AND document_lines.unit_amount = document_orders.amount
-       AND document_lines.total_amount = document_orders.amount
-       AND document_orders.amount <> desired.amount`,
-    [documentId, caseId],
-  );
-  await client.query(
-    `WITH desired AS (
-       SELECT orders.id,
-              orders.billable_amount - coalesce((
-                SELECT sum(refunds.amount) FROM refunds
-                WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
-              ), 0) AS amount
-       FROM orders WHERE orders.billing_case_id = $2
-     )
-     UPDATE document_orders
-     SET amount = desired.amount
-     FROM desired
-     WHERE document_orders.document_id = $1
-       AND document_orders.order_id = desired.id
-       AND document_orders.amount <> desired.amount`,
-    [documentId, caseId],
-  );
-  await client.query(
-    `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
-     SELECT $1, 'INVOICE', orders.id,
-            orders.billable_amount - coalesce((
-              SELECT sum(refunds.amount) FROM refunds
-              WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
-            ), 0)
-     FROM orders
-     WHERE orders.billing_case_id = $2
-       AND NOT EXISTS (
-         SELECT 1 FROM document_orders
-         WHERE document_orders.document_id = $1 AND document_orders.order_id = orders.id
-       )`,
-    [documentId, caseId],
-  );
-  await client.query(
-    `WITH missing AS (
-       SELECT orders.id,
-              'Vendita beni usati - Ordine '
-                || CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
-                || ' ' || orders.display_number AS description,
-              orders.billable_amount - coalesce((
-                SELECT sum(refunds.amount) FROM refunds
-                WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
-              ), 0) AS billable_amount,
-              row_number() OVER (ORDER BY orders.id) AS position
-       FROM orders
-       WHERE orders.billing_case_id = $2
-         AND NOT EXISTS (
-           SELECT 1 FROM document_lines
-           WHERE document_lines.document_id = $1 AND document_lines.order_id = orders.id
-         )
-     ), offset_value AS (
-       SELECT coalesce(max(line_number), 0) AS value
-       FROM document_lines WHERE document_id = $1
-     )
-     INSERT INTO document_lines
-       (document_id, order_id, line_number, description, quantity, unit_amount,
-        total_amount, tax_nature)
-     SELECT $1, missing.id, offset_value.value + missing.position, missing.description,
-            1, missing.billable_amount, missing.billable_amount, 'N5'
-     FROM missing CROSS JOIN offset_value`,
-    [documentId, caseId],
-  );
-  await client.query(
-    `WITH totals AS (
-       SELECT coalesce((SELECT sum(document_orders.amount) FROM document_orders
-                        WHERE document_orders.document_id = $1), 0)::integer AS source_total,
-              coalesce((SELECT sum(document_lines.total_amount) FROM document_lines
-                        WHERE document_lines.document_id = $1), 0)::integer AS document_total
-     )
-     UPDATE documents
-     SET source_total_amount = totals.source_total,
-         total_amount = totals.document_total,
-         difference_amount = totals.document_total - totals.source_total,
-         difference_reason = CASE
-           WHEN totals.document_total = totals.source_total THEN NULL
-           ELSE coalesce(documents.difference_reason, $2)
-         END,
-         draft_version = draft_version + 1,
-         projection_sha256 = repeat('0', 64),
-         updated_at = now()
-     FROM totals
-     WHERE id = $1`,
-    [documentId, fallbackDifferenceReason],
-  );
-  const after = await invoiceDraftAuditSnapshot(client, caseId);
-  return after ? { before: before.snapshot, after: after.snapshot } : null;
-}
-
-async function refreshInvoiceDraftProjection(client: pg.PoolClient, caseId: string) {
-  const result = await client.query<{
-    id: string;
-    document_date: string;
-    recipient_snapshot_json: DocumentInput["recipient"];
-    payment_status: string;
-    payment_method: string;
-    causale: string | null;
-    notes: string | null;
-    profile_json: FiscalProfile;
-    lines: DocumentInput["lines"];
-  }>(
-    `SELECT documents.id,
-            (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date::text AS document_date,
-            documents.recipient_snapshot_json, documents.payment_status,
-            documents.payment_method, documents.causale, documents.notes,
-            fiscal_profiles.profile_json,
-            coalesce((
-              SELECT jsonb_agg(jsonb_build_object(
-                'orderId', document_lines.order_id::text,
-                'description', document_lines.description,
-                'quantity', document_lines.quantity,
-                'unitAmount', document_lines.unit_amount
-              ) ORDER BY document_lines.line_number)
-              FROM document_lines WHERE document_lines.document_id = documents.id
-            ), '[]') AS lines
-     FROM documents
-     JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
-     WHERE documents.billing_case_id = $1
-       AND documents.kind = 'INVOICE' AND documents.status = 'DRAFT'`,
-    [caseId],
-  );
-  const row = result.rows[0];
-  if (!row) return;
-  const profile = fiscalProfileSchema.safeParse(row.profile_json);
-  const input = documentInputSchema.safeParse({
-    kind: "INVOICE",
-    documentDate: row.document_date,
-    recipient: row.recipient_snapshot_json,
-    lines: row.lines,
-    paymentStatus: row.payment_status,
-    paymentMethod: row.payment_method,
-    causale: row.causale ?? undefined,
-    notes: row.notes ?? undefined,
-  });
-  if (!profile.success || !input.success) throw new AppError("DOCUMENT_INVALID", 422);
-  const projection = projectFatturaXml(profile.data, input.data);
-  await validateFatturaXml(projection.xml);
-  await client.query(
-    `UPDATE documents SET document_date = $2, projection_sha256 = $3, updated_at = now()
-     WHERE id = $1`,
-    [row.id, row.document_date, projection.sha256],
-  );
-}
-
-export async function reconcilePreIssueInvoiceAmount(
-  client: pg.PoolClient,
-  orderId: string,
-  caseId: string,
-  amount: number,
-) {
-  const adjusted = await client.query(
-    `UPDATE document_orders SET amount = $2
-     WHERE order_id = $1 AND document_kind = 'INVOICE' AND amount <> $2`,
-    [orderId, amount],
-  );
-  if (!adjusted.rowCount) return false;
-  await client.query(
-    `UPDATE document_lines
-     SET quantity = 1, unit_amount = $2, total_amount = $2
-     WHERE order_id = $1
-       AND document_id IN (SELECT id FROM documents WHERE kind = 'INVOICE' AND status = 'DRAFT')`,
-    [orderId, amount],
-  );
-  await client.query(
-    `UPDATE documents
-     SET source_total_amount = totals.amount,
-         total_amount = totals.amount,
-         difference_amount = 0,
-         difference_reason = NULL,
-         draft_version = draft_version + 1,
-         projection_sha256 = repeat('0', 64),
-         updated_at = now()
-     FROM (
-       SELECT document_id, sum(amount)::integer AS amount
-       FROM document_orders WHERE document_kind = 'INVOICE' GROUP BY document_id
-     ) AS totals
-     WHERE documents.id = totals.document_id
-       AND documents.billing_case_id = $1 AND documents.status = 'DRAFT'`,
-    [caseId],
-  );
-  await refreshInvoiceDraftProjection(client, caseId);
-  return true;
-}
+import { refreshInvoiceDraftProjection } from "./invoice-draft-projection.server.ts";
+import { reconcilePreIssueInvoiceAmount } from "./order-draft-reconciliation.server.ts";
+import { groupOrder } from "./order-grouping.server.ts";
+import { replaceOrderChildren } from "./order-children-persistence.server.ts";
+import { applySourceConflict } from "./order-source-conflict.server.ts";
+import { currentOrderSettings } from "./order-import-settings.server.ts";
+import { auditOrderActor, type OrderActor as Actor } from "./order-actor.server.ts";
+import { canonicalOrderTimestamp } from "./order-timestamp.ts";
 
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
   const canonicalProfile = canonicalCustomerProfile(input);
@@ -440,14 +145,6 @@ function cents(value: string): number {
   }
 }
 
-function canonicalTimestamp(value: string | null): string | null {
-  if (!value) return null;
-  const fraction = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/.exec(value)?.[1]?.replace(/0+$/, "");
-  const instant = new Date(value).toISOString();
-  const seconds = instant.slice(0, instant.indexOf("."));
-  return fraction ? `${seconds}.${fraction}Z` : `${seconds}Z`;
-}
-
 function reviewFingerprint(
   input: OrderInput,
   identityKey: string,
@@ -476,7 +173,7 @@ function reviewFingerprint(
         ...legacyPayment,
         amount: paymentAmounts[index],
         ...(feeAmount > 0 ? { shopifyPaymentsFeeAmount: feeAmount } : {}),
-        paidAt: canonicalTimestamp(payment.paidAt),
+        paidAt: canonicalOrderTimestamp(payment.paidAt),
       };
     })
     .sort((left, right) =>
@@ -491,7 +188,7 @@ function reviewFingerprint(
       externalRefundId: refund.externalRefundId,
       status: refund.status,
       amount: refundAmounts[index],
-      completedAt: canonicalTimestamp(refund.completedAt),
+      completedAt: canonicalOrderTimestamp(refund.completedAt),
     }))
     .sort((left, right) => left.externalRefundId.localeCompare(right.externalRefundId));
   const relevant = {
@@ -500,7 +197,7 @@ function reviewFingerprint(
     localDate,
     paymentStatus: effectiveOrderPaymentStatus(input, totalAmount),
     fulfillmentStatus: input.fulfillmentStatus,
-    cancelledAt: canonicalTimestamp(input.cancelledAt),
+    cancelledAt: canonicalOrderTimestamp(input.cancelledAt),
     sourceReviewRequired: input.sourceReviewRequired,
     customerIdentity: identityKey,
     customer: canonicalCustomerProfile(input),
@@ -510,141 +207,6 @@ function reviewFingerprint(
     shippingAmount,
   };
   return createHash("sha256").update(JSON.stringify(relevant)).digest("hex");
-}
-
-/**
- * Unico punto che decide se una preparazione modificabile è pronta o da verificare.
- * Import, correzione anagrafica, separazione ordine e riattivazione lo riusano: la regola
- * vive in un posto solo e una correzione può davvero riportare la preparazione a `READY`.
- */
-export async function groupOrder(
-  client: pg.PoolClient,
-  order: GroupableOrder,
-  actor: Actor,
-  forced = false,
-) {
-  const lockKey = `billing-case:${order.customerId}:${order.localOrderDate}:${order.currency}`;
-  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
-  let caseId: string | undefined;
-  if (!order.isolated) {
-    // Il frammento interpolato è una costante di billing-case-sql.server.ts; i dati
-    // della richiesta restano nei parametri $1, $2 e $3.
-    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
-    const existing = await client.query<{ id: string }>(
-      `SELECT id FROM billing_cases
-       WHERE customer_id = $1 AND local_order_date = $2 AND currency = $3
-         AND ${openBillingCaseSql()}
-       FOR UPDATE`,
-      [order.customerId, order.localOrderDate, order.currency],
-    );
-    caseId = existing.rows[0]?.id;
-  }
-  if (!caseId) {
-    const created = await client.query<{ id: string }>(
-      `INSERT INTO billing_cases
-        (customer_id, local_order_date, currency, status, customer_snapshot_json,
-         do_not_transmit_reason)
-       VALUES ($1, $2, $3, $5, $4, $6)
-       RETURNING id`,
-      [
-        order.customerId,
-        order.localOrderDate,
-        order.currency,
-        JSON.stringify(order.customerSnapshot),
-        order.isolated ? "DO_NOT_TRANSMIT" : "NEEDS_REVIEW",
-        order.isolated ? "Ordine rimborsato prima dell’emissione" : null,
-      ],
-    );
-    caseId = created.rows[0]!.id;
-    await writeAudit(client, {
-      ...auditActor(actor),
-      action: "BILLING_CASE_CREATED",
-      eventClass: "CRITICAL",
-      entityType: "BILLING_CASE",
-      entityId: caseId,
-      requestId: actor.requestId,
-    });
-    if (order.isolated) {
-      await writeAudit(client, {
-        actorType: "SYSTEM",
-        action: "BILLING_CASE_DO_NOT_TRANSMIT",
-        eventClass: "CRITICAL",
-        entityType: "BILLING_CASE",
-        entityId: caseId,
-        metadata: { billingCaseId: caseId, reason: "REFUNDED" },
-        requestId: actor.requestId,
-      });
-    }
-  }
-  const assigned = await client.query(
-    `UPDATE orders
-     SET billing_case_id = $2, trigger_status = 'GROUPED'
-     WHERE id = $1 AND billing_case_id IS NULL`,
-    [order.id, caseId],
-  );
-  if (assigned.rowCount) {
-    const reconciliation = await reconcileInvoiceDraft(client, caseId);
-    const refund = await client.query<{
-      gross_amount: number;
-      billable_amount: number;
-      refunds: Array<{ status: string; amount: number | null }>;
-    }>(
-      `SELECT orders.gross_amount, orders.billable_amount,
-              coalesce(jsonb_agg(jsonb_build_object(
-                'status', refunds.status, 'amount', refunds.amount
-              )) FILTER (WHERE refunds.id IS NOT NULL), '[]'::jsonb) AS refunds
-       FROM orders LEFT JOIN refunds ON refunds.order_id = orders.id
-       WHERE orders.id = $1
-       GROUP BY orders.id`,
-      [order.id],
-    );
-    const refundEffect = preIssueRefund(
-      refund.rows[0]!.gross_amount,
-      refund.rows[0]!.refunds,
-      refund.rows[0]!.billable_amount,
-    );
-    if (
-      refundEffect.state === "PARTIAL" &&
-      (await reconcilePreIssueInvoiceAmount(client, order.id, caseId, refundEffect.billableAmount))
-    ) {
-      await writeAudit(client, {
-        ...auditActor(actor),
-        action: "REFUND_APPLIED_BEFORE_ISSUE",
-        eventClass: "CRITICAL",
-        entityType: "ORDER",
-        entityId: order.id,
-        metadata: { billingCaseId: caseId },
-        requestId: actor.requestId,
-      });
-    }
-    await writeAudit(client, {
-      ...auditActor(actor),
-      action: forced ? "ORDER_GROUPING_FORCED" : "ORDER_GROUPED",
-      eventClass: "CRITICAL",
-      entityType: "ORDER",
-      entityId: order.id,
-      metadata: { billingCaseId: caseId },
-      before: reconciliation?.before,
-      after: reconciliation?.after,
-      requestId: actor.requestId,
-    });
-  }
-  await recomputeBillingCaseStatus(client, caseId);
-  return caseId;
-}
-
-async function currentOrderSettings(client: pg.PoolClient) {
-  const result = await client.query<{ key: string; value_json: unknown }>(
-    `SELECT key, value_json FROM settings
-     WHERE key IN ('draft_trigger', 'shopify_payment_fee_mode')`,
-  );
-  const settings = new Map(result.rows.map((row) => [row.key, row.value_json]));
-  return {
-    trigger: draftTriggerSchema.parse(settings.get("draft_trigger") ?? "PAID"),
-    shopifyPaymentFeeMode: shopifyPaymentFeeModeSchema.parse(
-      settings.get("shopify_payment_fee_mode") ?? "DEDUCT",
-    ),
-  };
 }
 
 /**
@@ -1141,12 +703,15 @@ async function importOne(
     if (restored.rowCount || adjusted) {
       await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
       await writeAudit(client, {
-        ...auditActor(actor),
+        ...auditOrderActor(actor),
         action: "REFUND_APPLIED_BEFORE_ISSUE",
         eventClass: "CRITICAL",
         entityType: "ORDER",
         entityId: orderId,
-        metadata: { billingCaseId: effectiveBillingCaseId, provider: input.provider },
+        metadata: {
+          billingCaseId: effectiveBillingCaseId,
+          provider: input.provider,
+        },
         requestId: actor.requestId,
       });
     }
@@ -1177,13 +742,18 @@ async function importOne(
     if (restored.rowCount || adjusted) {
       await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
       await writeAudit(client, {
-        ...auditActor(actor),
+        ...auditOrderActor(actor),
         action: "REFUND_REVERSED_BEFORE_ISSUE",
         eventClass: "CRITICAL",
         entityType: "ORDER",
         entityId: orderId,
-        metadata: { billingCaseId: effectiveBillingCaseId, provider: input.provider },
-        before: { billableAmount: billableAmount - previousAppliedRefundAmount },
+        metadata: {
+          billingCaseId: effectiveBillingCaseId,
+          provider: input.provider,
+        },
+        before: {
+          billableAmount: billableAmount - previousAppliedRefundAmount,
+        },
         after: { billableAmount },
         requestId: actor.requestId,
       });
@@ -1216,12 +786,15 @@ async function importOne(
     }
     if (marked.rowCount || closed.rowCount) {
       await writeAudit(client, {
-        ...auditActor(actor),
+        ...auditOrderActor(actor),
         action: "REFUND_APPLIED_BEFORE_ISSUE",
         eventClass: "CRITICAL",
         entityType: "ORDER",
         entityId: orderId,
-        metadata: { billingCaseId: effectiveBillingCaseId, provider: input.provider },
+        metadata: {
+          billingCaseId: effectiveBillingCaseId,
+          provider: input.provider,
+        },
         requestId: actor.requestId,
       });
     }
@@ -1254,7 +827,7 @@ async function importOne(
     );
   }
   await writeAudit(client, {
-    ...auditActor(actor),
+    ...auditOrderActor(actor),
     action: previous.rows[0] ? "ORDER_SOURCE_UPDATED" : "ORDER_IMPORTED",
     eventClass: "OPERATIONAL",
     entityType: "ORDER",
@@ -1263,374 +836,6 @@ async function importOne(
     requestId: actor.requestId,
   });
   return previous.rows[0] ? "updated" : "imported";
-}
-
-/**
- * I dati della sorgente sono cambiati sotto una preparazione già aperta. La preparazione
- * non può più essere emessa come sta: o viene archiviata (ordine annullato o rimborsato)
- * e gli altri ordini tornano in coda, oppure passa da verificare.
- * Restituisce la preparazione a cui l'ordine resta agganciato, `null` se ne è uscito.
- */
-async function applySourceConflict(
-  client: pg.PoolClient,
-  actor: Actor,
-  context: {
-    input: OrderInput;
-    oldOrder: PreviousOrderRow;
-    orderId: string;
-    customerId: string;
-    status: ReturnType<typeof triggerStatus> | "INVOICED";
-    revisionId: string;
-    invoiced: boolean;
-    billingCaseId: string | null;
-    refundEffect: ReturnType<typeof preIssueRefund>["state"];
-    becameHistorical: boolean;
-  },
-) {
-  const { input, oldOrder, orderId, customerId, status, invoiced } = context;
-  const reason = context.becameHistorical
-    ? ("HISTORICAL" as const)
-    : input.cancelledAt
-      ? ("CANCELLED" as const)
-      : input.paymentStatus === "REFUNDED" || context.refundEffect === "TOTAL"
-        ? ("REFUNDED" as const)
-        : null;
-  if (!reason && !invoiced) {
-    await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
-      orderId,
-    ]);
-  }
-  // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
-  // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
-  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
-  const transitionedCase = await client.query(
-    `UPDATE billing_cases
-       SET status = $2,
-           do_not_transmit_reason = $3,
-           revision = revision + 1,
-           updated_at = now()
-       WHERE id = $1 AND ${openBillingCaseSql()}`,
-    [
-      oldOrder!.billing_case_id,
-      reason ? "DO_NOT_TRANSMIT" : "NEEDS_REVIEW",
-      reason === "CANCELLED"
-        ? "Ordine annullato dalla sorgente"
-        : reason === "REFUNDED"
-          ? "Ordine rimborsato prima dell’emissione"
-          : reason === "HISTORICAL"
-            ? "Ordine storico da confrontare con Aruba"
-            : null,
-    ],
-  );
-  await writeAudit(client, {
-    ...auditActor(actor),
-    action: "ORDER_SOURCE_CONFLICT",
-    eventClass: "CRITICAL",
-    entityType: "ORDER",
-    entityId: orderId,
-    metadata: {
-      billingCaseId: oldOrder.billing_case_id!,
-      revisionId: context.revisionId,
-    },
-    requestId: actor.requestId,
-  });
-  if (reason && transitionedCase.rowCount) {
-    await writeAudit(client, {
-      actorType: "SYSTEM",
-      action: "BILLING_CASE_DO_NOT_TRANSMIT",
-      eventClass: "CRITICAL",
-      entityType: "BILLING_CASE",
-      entityId: oldOrder!.billing_case_id!,
-      metadata: {
-        billingCaseId: oldOrder!.billing_case_id!,
-        reason,
-        reviewRequired: oldOrder!.trigger_status === "NEEDS_REVIEW",
-      },
-      requestId: actor.requestId,
-    });
-    // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
-    // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...
-    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
-    const remainingOrders = await client.query<{
-      id: string;
-      customer_id: string;
-      local_order_date: string;
-      currency: string;
-      customer_snapshot: Record<string, unknown>;
-    }>(
-      `UPDATE orders
-         SET billing_case_id = NULL,
-             trigger_status = 'ELIGIBLE',
-             normalized_snapshot_json = jsonb_set(
-               normalized_snapshot_json,
-               '{deferredReviewRequired}',
-               -- L'anomalia propria dell'ordine resta leggibile nel suo snapshot: qui va
-               -- conservata soltanto la verifica che il distacco cancellerebbe.
-               to_jsonb(
-                 coalesce(
-                   (normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
-                   false
-                 )
-                 OR trigger_status = 'NEEDS_REVIEW'
-               )
-             )
-         WHERE billing_case_id = $1 AND id <> $2
-           AND ${orderBillableSql()}
-         RETURNING id, customer_id, local_order_date::text, currency,
-           normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot`,
-      [oldOrder!.billing_case_id, orderId],
-    );
-    // Ogni assegnazione deve osservare la preparazione creata dalla precedente nella stessa transazione.
-    for (const remainingOrder of remainingOrders.rows) {
-      // react-doctor-disable-next-line react-doctor/async-await-in-loop
-      await groupOrder(
-        client,
-        {
-          id: remainingOrder.id,
-          customerId: remainingOrder.customer_id,
-          customerSnapshot: remainingOrder.customer_snapshot,
-          localOrderDate: remainingOrder.local_order_date,
-          currency: remainingOrder.currency,
-        },
-        actor,
-      );
-    }
-  }
-  if (reason === "HISTORICAL") {
-    await client.query(
-      `UPDATE orders SET billing_case_id = NULL, trigger_status = $2 WHERE id = $1`,
-      [orderId, status],
-    );
-    return null;
-  }
-  if (
-    !reason &&
-    oldOrder.billing_case_status === "DO_NOT_TRANSMIT" &&
-    oldOrder.billing_case_do_not_transmit_automatic
-  ) {
-    // L'ordine esce da una preparazione archiviata dal sistema perché i suoi dati sono
-    // cambiati due volte: la preparazione che lo accoglie nasce da verificare.
-    await client.query(
-      `UPDATE orders
-         SET billing_case_id = NULL, trigger_status = $3, customer_id = $2,
-             normalized_snapshot_json = jsonb_set(
-               normalized_snapshot_json,
-               '{deferredReviewRequired}',
-               to_jsonb($4::boolean)
-             )
-         WHERE id = $1`,
-      [orderId, customerId, status, true],
-    );
-    return null;
-  }
-  return context.billingCaseId;
-}
-
-/**
- * Righe, identificativi fiscali e pagamenti seguono la sorgente. Dopo l'emissione righe e
- * identificativi restano congelati sul documento, mentre i pagamenti continuano ad allinearsi:
- * quelli registrati a mano non vengono mai toccati.
- */
-async function replaceOrderChildren(
-  client: pg.PoolClient,
-  orderId: string,
-  input: OrderInput,
-  amounts: Pick<
-    ReturnType<typeof orderAmounts>,
-    "lineAmounts" | "paymentAmounts" | "shopifyPaymentsFeeAmounts" | "refundAmounts"
-  >,
-  invoiced: boolean,
-  actor: Actor,
-) {
-  const { lineAmounts, paymentAmounts, shopifyPaymentsFeeAmounts, refundAmounts } = amounts;
-  const previousApplied = await client.query<{ amount: number }>(
-    `SELECT coalesce(sum(amount), 0)::integer AS amount FROM refunds
-     WHERE order_id = $1 AND applied_before_issue`,
-    [orderId],
-  );
-  if (!invoiced) {
-    await client.query("DELETE FROM order_lines WHERE order_id = $1", [orderId]);
-    for (const [index, line] of input.lines.entries()) {
-      const lineAmount = lineAmounts[index]!;
-      await client.query(
-        `INSERT INTO order_lines
-          (order_id, external_line_id, description, quantity, gross_amount, discount_amount, raw_json)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [
-          orderId,
-          line.externalLineId,
-          line.description,
-          line.quantity,
-          lineAmount.grossAmount,
-          lineAmount.discountAmount,
-          JSON.stringify(line),
-        ],
-      );
-    }
-    await client.query("DELETE FROM order_tax_identifiers WHERE order_id = $1", [orderId]);
-    for (const identifier of canonicalTaxIdentifiers(input)) {
-      await client.query(
-        `INSERT INTO order_tax_identifiers
-          (order_id, type, raw_value, normalized_value, country_code, source_field)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          orderId,
-          identifier.type,
-          identifier.rawValue,
-          identifier.value,
-          identifier.countryCode ?? null,
-          identifier.sourceField,
-        ],
-      );
-    }
-  }
-  await client.query(
-    `DELETE FROM payments
-     WHERE order_id = $1 AND recorded_manually = false
-       AND NOT (external_payment_id = ANY($2::text[]))`,
-    [orderId, input.payments.map((payment) => payment.externalPaymentId)],
-  );
-  for (const [index, payment] of input.payments.entries()) {
-    await client.query(
-      `INSERT INTO payments
-        (order_id, external_payment_id, method, status, amount,
-         shopify_payments_fee_amount, paid_at, raw_json)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (order_id, external_payment_id) DO UPDATE SET
-         method = EXCLUDED.method,
-         status = EXCLUDED.status,
-         amount = EXCLUDED.amount,
-         shopify_payments_fee_amount = EXCLUDED.shopify_payments_fee_amount,
-         paid_at = EXCLUDED.paid_at,
-         raw_json = EXCLUDED.raw_json
-       WHERE payments.recorded_manually = false`,
-      [
-        orderId,
-        payment.externalPaymentId,
-        payment.method,
-        payment.status,
-        paymentAmounts[index],
-        shopifyPaymentsFeeAmounts[index],
-        payment.paidAt,
-        JSON.stringify(payment),
-      ],
-    );
-  }
-  const creditDraftsToRefresh = new Set<string>();
-  const removedFromDrafts = await client.query<{ credit_document_id: string }>(
-    `SELECT refunds.credit_document_id
-     FROM refunds JOIN documents ON documents.id = refunds.credit_document_id
-     WHERE refunds.order_id = $1 AND documents.status = 'DRAFT'
-       AND NOT (refunds.external_refund_id = ANY($2::text[]))
-     FOR UPDATE OF refunds`,
-    [orderId, input.refunds.map((refund) => refund.externalRefundId)],
-  );
-  for (const refund of removedFromDrafts.rows) {
-    creditDraftsToRefresh.add(refund.credit_document_id);
-  }
-  await client.query(
-    `DELETE FROM refunds
-     WHERE order_id = $1
-       AND (credit_document_id IS NULL OR EXISTS (
-         SELECT 1 FROM documents
-         WHERE documents.id = refunds.credit_document_id AND documents.status = 'DRAFT'
-       ))
-       AND NOT ($3::boolean AND applied_before_issue)
-       AND NOT (external_refund_id = ANY($2::text[]))`,
-    [orderId, input.refunds.map((refund) => refund.externalRefundId), invoiced],
-  );
-  for (const [index, refund] of input.refunds.entries()) {
-    const previous = await client.query<{
-      credit_document_id: string | null;
-      status: string;
-      amount: number | null;
-      completed_at: Date | null;
-    }>(
-      `SELECT refunds.credit_document_id, refunds.status, refunds.amount, refunds.completed_at
-       FROM refunds
-       WHERE provider = $1 AND external_account_id = $2 AND external_order_id = $3
-         AND external_refund_id = $4
-       FOR UPDATE`,
-      [input.provider, input.externalAccountId, input.externalOrderId, refund.externalRefundId],
-    );
-    const old = previous.rows[0];
-    const nextAmount = refundAmounts[index];
-    const changed = Boolean(
-      old &&
-      (old.status !== refund.status ||
-        old.amount !== nextAmount ||
-        old.completed_at?.toISOString() !== canonicalTimestamp(refund.completedAt)),
-    );
-    if (changed && old?.credit_document_id) {
-      const linked = await client.query<{ status: string }>(
-        "SELECT status FROM documents WHERE id = $1",
-        [old.credit_document_id],
-      );
-      if (linked.rows[0]?.status === "DRAFT") creditDraftsToRefresh.add(old.credit_document_id);
-    }
-    await client.query(
-      `INSERT INTO refunds
-        (provider, external_account_id, external_order_id, external_refund_id, order_id,
-         status, amount, completed_at, raw_json, applied_before_issue)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (provider, external_account_id, external_order_id, external_refund_id)
-       DO UPDATE SET status = EXCLUDED.status, amount = EXCLUDED.amount,
-                     completed_at = EXCLUDED.completed_at, raw_json = EXCLUDED.raw_json,
-                     applied_before_issue = CASE WHEN $11::boolean
-                       THEN refunds.applied_before_issue
-                       ELSE EXCLUDED.applied_before_issue
-                     END,
-                     credit_document_id = CASE
-                       WHEN EXCLUDED.status = 'COMPLETED' AND EXCLUDED.amount > 0
-                         THEN refunds.credit_document_id
-                       ELSE NULL
-                     END,
-                     updated_at = now()
-       WHERE refunds.credit_document_id IS NULL OR EXISTS (
-         SELECT 1 FROM documents
-         WHERE documents.id = refunds.credit_document_id AND documents.status = 'DRAFT'
-       )`,
-      [
-        input.provider,
-        input.externalAccountId,
-        input.externalOrderId,
-        refund.externalRefundId,
-        orderId,
-        refund.status,
-        refundAmounts[index],
-        refund.completedAt,
-        JSON.stringify(refund.raw),
-        !invoiced && refund.status === "COMPLETED" && nextAmount !== null && nextAmount > 0,
-        invoiced,
-      ],
-    );
-  }
-  for (const documentId of creditDraftsToRefresh) {
-    // Le modifiche e il relativo registro condividono la stessa operazione PostgreSQL.
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop
-    const total = await refreshCreditNoteDraft(client, documentId);
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop
-    await writeAudit(client, {
-      ...auditActor(actor),
-      action: "REFUND_CREDIT_NOTE_UPDATED",
-      eventClass: "CRITICAL",
-      entityType: "DOCUMENT",
-      entityId: documentId,
-      metadata: { provider: input.provider, documentKind: "CREDIT_NOTE" },
-      after: { total },
-      requestId: actor.requestId,
-    });
-  }
-  await client.query(
-    `INSERT INTO jobs (type, payload_json)
-     SELECT 'process_refund', jsonb_build_object('refundId', refunds.id::text)
-     FROM refunds
-     WHERE refunds.order_id = $1 AND refunds.status IN ('COMPLETED', 'AMBIGUOUS')
-       AND NOT refunds.applied_before_issue
-     ON CONFLICT DO NOTHING`,
-    [orderId],
-  );
-  return previousApplied.rows[0]?.amount ?? 0;
 }
 
 interface HistoryImportCompletion {

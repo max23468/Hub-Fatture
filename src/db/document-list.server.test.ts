@@ -15,7 +15,7 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
     process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
     process.env.DATABASE_URL = clean.connectionString;
 
-    const documents = await import("./documents.server.ts");
+    const documents = await import("./document-archive.server.ts");
     const aruba = await import("./aruba.server.ts");
     const email = await import("./email.server.ts");
     const database = await import("./client.server.ts");

@@ -27,7 +27,11 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
 
   try {
     await runMigrations({ connectionString: database.connectionString });
-    const connectors = await import("./connectors.server.ts");
+    const connectors = {
+      ...(await import("./connector-connections.server.ts")),
+      ...(await import("./connector-jobs.server.ts")),
+      ...(await import("./connector-webhooks.server.ts")),
+    };
     const systemActor = { type: "SYSTEM" as const, requestId: "connector-test" };
     await connectors.saveConnection(
       {
@@ -151,14 +155,15 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       0,
     );
     assert.deepEqual(
-      await importOrders([], { type: "SYSTEM", requestId: "shopify-history-empty" }),
+      await importOrders([], { type: "SYSTEM", requestId: "shopify-history-empty" }, undefined, {
+        provider: "SHOPIFY",
+        accountReference: "shop.example.invalid",
+        cursor: "2026-08-12T10:00:00Z",
+        overlapFrom: "2026-08-12T09:55:00Z",
+        count: 0,
+        reviewRequired: 0,
+      }),
       { imported: 0, updated: 0, ignored: 0 },
-    );
-    await connectors.completeHistoryImport(
-      "SHOPIFY",
-      "shop.example.invalid",
-      "2026-08-12T10:00:00Z",
-      "2026-08-12T09:55:00Z",
     );
     assert.equal(await connectors.historyImportPending("SHOPIFY"), false);
     assert.equal(
@@ -260,16 +265,16 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       ).rows[0].total,
       0,
     );
-    assert.deepEqual(await importOrders([], { type: "SYSTEM", requestId: "ebay-history-empty" }), {
-      imported: 0,
-      updated: 0,
-      ignored: 0,
-    });
-    await connectors.completeHistoryImport(
-      "EBAY",
-      "sandbox-sintetica",
-      "2026-08-12T10:00:00Z",
-      "2026-08-12T09:55:00Z",
+    assert.deepEqual(
+      await importOrders([], { type: "SYSTEM", requestId: "ebay-history-empty" }, undefined, {
+        provider: "EBAY",
+        accountReference: "sandbox-sintetica",
+        cursor: "2026-08-12T10:00:00Z",
+        overlapFrom: "2026-08-12T09:55:00Z",
+        count: 0,
+        reviewRequired: 0,
+      }),
+      { imported: 0, updated: 0, ignored: 0 },
     );
     assert.equal(await connectors.historyImportPending("EBAY"), false);
     await getPool().query("DELETE FROM jobs WHERE type = 'shopify_sync_orders'");
@@ -293,7 +298,9 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     await getPool().query(
       "DELETE FROM sync_cursors WHERE provider = 'EBAY' AND stream = 'history_import'",
     );
-    await connectors.enqueueJob("ebay_sync_orders");
+    await getPool().query(
+      "INSERT INTO jobs (type, payload_json) VALUES ('ebay_sync_orders', '{}')",
+    );
     const obsoleteSyncJob = await connectors.claimJob("worker-obsolete-account");
     assert.equal(obsoleteSyncJob?.type, "ebay_sync_orders");
     await connectors.enqueueEbayHistory("2026-08-05", "IMPORT");
@@ -387,15 +394,6 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     assert.equal((await connectors.readCursor("EBAY")).cursor, null);
     assert.equal(await connectors.historyImportPending("EBAY"), true);
-    await assert.rejects(
-      connectors.completeHistoryImport(
-        "EBAY",
-        "sandbox-sintetica",
-        "2026-08-12T11:00:00Z",
-        "2026-08-12T10:55:00Z",
-      ),
-      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
-    );
     assert.equal(await connectors.historyImportPending("EBAY"), true);
     assert.equal(
       (
@@ -709,7 +707,9 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     await getPool().query(
       "UPDATE jobs SET status = 'COMPLETED' WHERE type = 'shopify_process_webhook'",
     );
-    await connectors.enqueueJob("ebay_sync_orders");
+    await getPool().query(
+      "INSERT INTO jobs (type, payload_json) VALUES ('ebay_sync_orders', '{}')",
+    );
     const retryableJob = await connectors.claimJob("worker-retry");
     assert.ok(retryableJob);
     await connectors.failJob(retryableJob, "PROVIDER_RATE_LIMITED");
@@ -1116,6 +1116,13 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       webhookRequest("customers/data_request", "privacy-data-1", dataRequestSignature),
       dataRequestBody,
     );
+    const secondDataRequestId = `${dataRequestId}-second`;
+    await connectors.recordShopifyDataRequest({
+      externalEventId: secondDataRequestId,
+      payloadSha256: "c".repeat(64),
+      customerIds: ["gid://shopify/Customer/2002"],
+      orderIds: ["gid://shopify/Order/1002"],
+    });
     const pendingRequest = await getPool().query<{
       status: string;
       request_payload_json: { customerIds: string[]; orderIds: string[] };
@@ -1128,20 +1135,48 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
       orderIds: ["gid://shopify/Order/1001"],
     });
     assert.deepEqual(
-      (await connectors.pendingShopifyDataRequests()).map(
-        ({ receivedAt: _receivedAt, ...request }) => request,
-      ),
+      (await connectors.pendingShopifyDataRequests())
+        .map(({ receivedAt: _receivedAt, ...request }) => request)
+        .toSorted((left, right) => left.externalEventId.localeCompare(right.externalEventId)),
       [
         {
           externalEventId: dataRequestId,
           customerIds: ["gid://shopify/Customer/2001"],
           orderIds: ["gid://shopify/Order/1001"],
         },
+        {
+          externalEventId: secondDataRequestId,
+          customerIds: ["gid://shopify/Customer/2002"],
+          orderIds: ["gid://shopify/Order/1002"],
+        },
       ],
     );
-    await connectors.completeShopifyDataRequest(dataRequestId, {
+    await assert.rejects(
+      connectors.completeShopifyDataRequest(dataRequestId, null, {
+        id: 1,
+        requestId: "privacy-data-not-confirmed",
+      }),
+      (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+    );
+    await connectors.completeShopifyDataRequest(dataRequestId, "confirmed", {
       id: 1,
       requestId: "privacy-data-completed",
+    });
+    assert.deepEqual(
+      (await connectors.pendingShopifyDataRequests()).map(
+        ({ receivedAt: _receivedAt, ...request }) => request,
+      ),
+      [
+        {
+          externalEventId: secondDataRequestId,
+          customerIds: ["gid://shopify/Customer/2002"],
+          orderIds: ["gid://shopify/Order/1002"],
+        },
+      ],
+    );
+    await connectors.completeShopifyDataRequest(secondDataRequestId, "confirmed", {
+      id: 1,
+      requestId: "privacy-data-second-completed",
     });
     assert.deepEqual(await connectors.pendingShopifyDataRequests(), []);
     assert.deepEqual(

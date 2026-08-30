@@ -1,0 +1,368 @@
+import type pg from "pg";
+
+import { AppError } from "../errors.ts";
+import { writeAudit } from "./audit.server.ts";
+import { getPool, withTransaction } from "./client.server.ts";
+import { activeConnectorEnvironment } from "./connector-environment.server.ts";
+import type { Provider } from "./connector-types.server.ts";
+
+export async function ingestShopifyWebhook(input: {
+  externalEventId: string;
+  topic: string;
+  payloadSha256: string;
+  orderId: string | null;
+}) {
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:SHOPIFY'))");
+    const event = await client.query<{ id: string; acquired: boolean }>(
+      `INSERT INTO webhook_events
+        (provider, external_event_id, topic, payload_sha256, claimed_at,
+         lease_expires_at, attempt_count)
+       VALUES ('SHOPIFY', $1, $2, $3, now(), now() + interval '2 minutes', 1)
+       ON CONFLICT (provider, external_event_id) DO UPDATE SET
+         claimed_at = now(), lease_expires_at = now() + interval '2 minutes',
+         attempt_count = webhook_events.attempt_count + 1, status = 'PROCESSING', error_code = NULL
+       WHERE (webhook_events.status = 'FAILED'
+          OR (webhook_events.status = 'PROCESSING' AND webhook_events.lease_expires_at <= now()))
+         AND webhook_events.topic = EXCLUDED.topic
+         AND webhook_events.payload_sha256 = EXCLUDED.payload_sha256
+       RETURNING id, true AS acquired`,
+      [input.externalEventId, input.topic, input.payloadSha256],
+    );
+    if (!event.rows[0]) {
+      await assertWebhookIdentity(
+        client,
+        "SHOPIFY",
+        input.externalEventId,
+        input.topic,
+        input.payloadSha256,
+      );
+      return { duplicate: true };
+    }
+    if (input.orderId) {
+      const history = await client.query<{ pending: boolean }>(
+        `SELECT NOT EXISTS (
+           SELECT 1 FROM sync_cursors
+           WHERE provider = 'SHOPIFY' AND stream = 'history_import'
+         ) AS pending`,
+      );
+      await client.query(
+        `INSERT INTO jobs (type, payload_json)
+         VALUES ('shopify_process_webhook', $1)`,
+        [
+          JSON.stringify({
+            orderId: input.orderId,
+            webhookEventId: event.rows[0].id,
+            historical: history.rows[0]!.pending,
+          }),
+        ],
+      );
+    } else {
+      await client.query(
+        `UPDATE webhook_events SET status = 'PROCESSED', processed_at = now(),
+           lease_expires_at = NULL WHERE id = $1`,
+        [event.rows[0].id],
+      );
+    }
+    return { duplicate: false };
+  });
+}
+
+export async function recordShopifyDataRequest(input: {
+  externalEventId: string;
+  payloadSha256: string;
+  customerIds: string[];
+  orderIds: string[];
+}) {
+  return withTransaction(async (client) => {
+    const result = await client.query<{ id: string }>(
+      `INSERT INTO webhook_events
+        (provider, external_event_id, topic, payload_sha256, request_payload_json,
+         status, attempt_count)
+       VALUES ('SHOPIFY', $1, 'CUSTOMERS_DATA_REQUEST', $2, $3, 'PENDING', 1)
+       ON CONFLICT (provider, external_event_id) DO NOTHING
+       RETURNING id`,
+      [
+        input.externalEventId,
+        input.payloadSha256,
+        JSON.stringify({ customerIds: input.customerIds, orderIds: input.orderIds }),
+      ],
+    );
+    if (!result.rows[0]) {
+      await assertWebhookIdentity(
+        client,
+        "SHOPIFY",
+        input.externalEventId,
+        "CUSTOMERS_DATA_REQUEST",
+        input.payloadSha256,
+      );
+    }
+    return { duplicate: !result.rows[0] };
+  });
+}
+
+export async function pendingShopifyDataRequests() {
+  const result = await getPool().query<{
+    external_event_id: string;
+    received_at: Date;
+    request_payload_json: { customerIds?: unknown[]; orderIds?: unknown[] };
+  }>(
+    `SELECT external_event_id, received_at, request_payload_json FROM webhook_events
+     WHERE provider = 'SHOPIFY' AND topic = 'CUSTOMERS_DATA_REQUEST' AND status = 'PENDING'
+     ORDER BY received_at`,
+  );
+  return result.rows.map((row) => ({
+    externalEventId: row.external_event_id,
+    receivedAt: row.received_at.toISOString(),
+    customerIds: deletionIdentifiers(row.request_payload_json.customerIds ?? []),
+    orderIds: deletionIdentifiers(row.request_payload_json.orderIds ?? []),
+  }));
+}
+
+export async function completeShopifyDataRequest(
+  externalEventId: unknown,
+  confirmed: unknown,
+  actor: { id: number; requestId: string },
+) {
+  const eventId = typeof externalEventId === "string" ? externalEventId.trim() : "";
+  if (!eventId || confirmed !== "confirmed") throw new AppError("CONFLICT_REVISION", 409);
+  return withTransaction(async (client) => {
+    const completed = await client.query<{ id: string }>(
+      `UPDATE webhook_events
+       SET status = 'PROCESSED', processed_at = now(), lease_expires_at = NULL,
+         request_payload_json = '{}'
+       WHERE provider = 'SHOPIFY' AND topic = 'CUSTOMERS_DATA_REQUEST'
+         AND external_event_id = $1 AND status = 'PENDING'
+       RETURNING id`,
+      [eventId],
+    );
+    if (!completed.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "SHOPIFY_DATA_REQUEST_COMPLETED",
+      eventClass: "CRITICAL",
+      entityType: "WEBHOOK_EVENT",
+      entityId: completed.rows[0].id,
+      metadata: { provider: "SHOPIFY" },
+      requestId: actor.requestId,
+    });
+  });
+}
+
+function deletionIdentifiers(values: unknown[]): string[] {
+  return values.filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+}
+
+async function deleteUnissuedCustomerData(
+  client: pg.PoolClient,
+  provider: Provider,
+  identifiers: string[],
+) {
+  if (!identifiers.length) return 0;
+  const result = await client.query<{ id: string }>(
+    `DELETE FROM orders
+     WHERE provider = $1
+       AND customer_id IN (
+         SELECT customer_id FROM customer_source_records
+         WHERE provider = $1 AND external_customer_id = ANY($2::text[])
+       )
+       AND (billing_case_id IS NULL OR billing_case_id IN (
+         SELECT id FROM billing_cases
+         WHERE status IN ('DRAFT', 'NEEDS_REVIEW', 'READY', 'DO_NOT_TRANSMIT')
+       ))
+     RETURNING id`,
+    [provider, identifiers],
+  );
+  await client.query(
+    `DELETE FROM customer_source_records
+     WHERE provider = $1 AND external_customer_id = ANY($2::text[])`,
+    [provider, identifiers],
+  );
+  await client.query(
+    `DELETE FROM billing_cases
+     WHERE status IN ('DRAFT', 'NEEDS_REVIEW', 'READY', 'DO_NOT_TRANSMIT')
+       AND NOT EXISTS (SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id)`,
+  );
+  await client.query(
+    `DELETE FROM customers WHERE NOT EXISTS (
+       SELECT 1 FROM orders WHERE orders.customer_id = customers.id
+     ) AND NOT EXISTS (
+       SELECT 1 FROM customer_source_records WHERE customer_source_records.customer_id = customers.id
+     )`,
+  );
+  return result.rowCount ?? 0;
+}
+
+async function acquireDeletionEvent(
+  client: pg.PoolClient,
+  provider: Provider,
+  externalEventId: string,
+  topic: string,
+  payloadSha256: string,
+) {
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO webhook_events
+      (provider, external_event_id, topic, payload_sha256, claimed_at, lease_expires_at,
+       status, attempt_count)
+     VALUES ($1, $2, $3, $4, now(), now() + interval '2 minutes', 'PROCESSING', 1)
+     ON CONFLICT (provider, external_event_id) DO UPDATE SET
+       claimed_at = now(), lease_expires_at = now() + interval '2 minutes',
+       attempt_count = webhook_events.attempt_count + 1
+     WHERE webhook_events.status <> 'PROCESSED'
+       AND (webhook_events.status = 'FAILED' OR webhook_events.lease_expires_at <= now())
+       AND webhook_events.topic = EXCLUDED.topic
+       AND webhook_events.payload_sha256 = EXCLUDED.payload_sha256
+     RETURNING id`,
+    [provider, externalEventId, topic, payloadSha256],
+  );
+  if (!result.rows[0]) {
+    await assertWebhookIdentity(client, provider, externalEventId, topic, payloadSha256);
+  }
+  return result.rows[0]?.id ?? null;
+}
+
+async function assertWebhookIdentity(
+  client: pg.PoolClient,
+  provider: Provider,
+  externalEventId: string,
+  topic: string,
+  payloadSha256: string,
+): Promise<void> {
+  const existing = await client.query<{ topic: string; payload_sha256: string }>(
+    `SELECT topic, payload_sha256 FROM webhook_events
+     WHERE provider = $1 AND external_event_id = $2`,
+    [provider, externalEventId],
+  );
+  if (
+    !existing.rows[0] ||
+    existing.rows[0].topic !== topic ||
+    existing.rows[0].payload_sha256 !== payloadSha256
+  ) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
+  }
+}
+
+async function completeDeletionEvent(client: pg.PoolClient, id: string) {
+  await client.query(
+    `UPDATE webhook_events SET status = 'PROCESSED', processed_at = now(),
+       lease_expires_at = NULL WHERE id = $1`,
+    [id],
+  );
+}
+
+export async function processShopifyUninstallRecord(input: {
+  externalEventId: string;
+  payloadSha256: string;
+}) {
+  return withTransaction(async (client) => {
+    const eventId = await acquireDeletionEvent(
+      client,
+      "SHOPIFY",
+      input.externalEventId,
+      "APP_UNINSTALLED",
+      input.payloadSha256,
+    );
+    if (!eventId) return { duplicate: true };
+    const revoked = await client.query<{ id: string }>(
+      `UPDATE connections SET encrypted_credentials = '', status = 'REVOKED', updated_at = now()
+       WHERE provider = 'SHOPIFY' AND environment = $1 RETURNING id`,
+      [activeConnectorEnvironment("SHOPIFY")],
+    );
+    if (revoked.rows[0]) {
+      await writeAudit(client, {
+        actorType: "SYSTEM",
+        action: "PROVIDER_REVOKED",
+        eventClass: "CRITICAL",
+        entityType: "CONNECTION",
+        entityId: revoked.rows[0].id,
+        metadata: { provider: "SHOPIFY" },
+        requestId: `shopify-webhook:${input.externalEventId}`,
+      });
+    }
+    await completeDeletionEvent(client, eventId);
+    return { duplicate: false };
+  });
+}
+
+export async function processEbayDeletionRecord(input: {
+  externalEventId: string;
+  payloadSha256: string;
+  identifiers: unknown[];
+}) {
+  return withTransaction(async (client) => {
+    const eventId = await acquireDeletionEvent(
+      client,
+      "EBAY",
+      input.externalEventId,
+      "MARKETPLACE_ACCOUNT_DELETION",
+      input.payloadSha256,
+    );
+    if (!eventId) return { duplicate: true, deletedOrders: 0 };
+    const deletedOrders = await deleteUnissuedCustomerData(
+      client,
+      "EBAY",
+      deletionIdentifiers(input.identifiers),
+    );
+    await completeDeletionEvent(client, eventId);
+    return { duplicate: false, deletedOrders };
+  });
+}
+
+export async function processShopifyPrivacyRecord(input: {
+  externalEventId: string;
+  topic: string;
+  payloadSha256: string;
+  customerIds?: unknown[];
+}) {
+  return withTransaction(async (client) => {
+    const eventId = await acquireDeletionEvent(
+      client,
+      "SHOPIFY",
+      input.externalEventId,
+      input.topic,
+      input.payloadSha256,
+    );
+    if (!eventId) return { duplicate: true, deletedOrders: 0 };
+    let deletedOrders = 0;
+    if (input.topic === "CUSTOMERS_REDACT") {
+      deletedOrders = await deleteUnissuedCustomerData(
+        client,
+        "SHOPIFY",
+        deletionIdentifiers(input.customerIds ?? []),
+      );
+    }
+    if (input.topic === "SHOP_REDACT") {
+      const result = await client.query(
+        `DELETE FROM orders
+         WHERE provider = 'SHOPIFY'
+           AND (billing_case_id IS NULL OR billing_case_id IN (
+             SELECT id FROM billing_cases
+             WHERE status IN ('DRAFT', 'NEEDS_REVIEW', 'READY', 'DO_NOT_TRANSMIT')
+           ))`,
+      );
+      deletedOrders = result.rowCount ?? 0;
+      await client.query("DELETE FROM customer_source_records WHERE provider = 'SHOPIFY'");
+      await client.query(
+        `DELETE FROM billing_cases
+         WHERE status IN ('DRAFT', 'NEEDS_REVIEW', 'READY', 'DO_NOT_TRANSMIT')
+           AND NOT EXISTS (SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id)`,
+      );
+      await client.query(
+        `DELETE FROM customers WHERE NOT EXISTS (
+           SELECT 1 FROM orders WHERE orders.customer_id = customers.id
+         ) AND NOT EXISTS (
+           SELECT 1 FROM customer_source_records WHERE customer_source_records.customer_id = customers.id
+         )`,
+      );
+      await client.query(
+        `UPDATE connections SET encrypted_credentials = '', status = 'REVOKED', updated_at = now()
+         WHERE provider = 'SHOPIFY'`,
+      );
+    }
+    await completeDeletionEvent(client, eventId);
+    return { duplicate: false, deletedOrders };
+  });
+}

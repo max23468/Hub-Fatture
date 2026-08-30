@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3
+
+- Il runtime elimina definitivamente tabelle, colonne, facciate ed export del precedente percorso browser Aruba: API e import manuale restano gli unici proprietari delle rispettive capacità, con provenienza storica conservata soltanto per l’audit.
+- Connettori, import ordini, riconciliazione Aruba e documenti separano connessioni, job, webhook, materializzazione, approvazioni e archiviazione in moduli con dipendenze esplicite, senza mantenere barrel o compatibilità interne inutilizzate.
+- Impostazioni, fogli di stile e scenari di test sono partizionati per responsabilità; un ratchet blocca la ricomparsa di monoliti, moduli server orfani e percorsi legacy, mentre i controlli TypeScript rifiutano simboli e parametri inutilizzati.
+
 ## 0.5.2
 
 - Le tre modalità Aruba usano nomi espliciti e coerenti che distinguono la creazione del documento, la conferma prima dell’invio e l’invio automatico successivo all’approvazione, senza suggerire che l’approvazione possa essere automatica.

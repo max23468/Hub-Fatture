@@ -18,7 +18,7 @@ test(
       process.env.DATABASE_URL = clean.connectionString;
 
       const database = await import("./client.server.ts");
-      const orders = await import("./orders.server.ts");
+      const orders = await import("./order-import.server.ts");
       const search = await import("./search.server.ts");
       const profile = JSON.parse(
         await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"),

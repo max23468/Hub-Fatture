@@ -15,8 +15,11 @@ test("Dashboard e Attività espongono soltanto gli errori connettore ancora azio
   const client = await import("./client.server.ts");
   try {
     await runMigrations({ connectionString: database.connectionString });
-    const connectors = await import("./connectors.server.ts");
-    const orders = await import("./orders.server.ts");
+    const connectors = {
+      ...(await import("./connector-connections.server.ts")),
+      ...(await import("./connector-jobs.server.ts")),
+    };
+    const orders = await import("./order-queries.server.ts");
 
     await client.getPool().query(
       `INSERT INTO connections

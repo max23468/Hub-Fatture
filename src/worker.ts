@@ -7,13 +7,12 @@ import {
   claimJob,
   completeJob,
   failJob,
-  historyImportPending,
   jobLeaseCurrent,
-  markConnectionError,
   renewJobLease,
   scheduleDueSyncs,
   yieldJob,
-} from "./db/connectors.server.ts";
+} from "./db/connector-jobs.server.ts";
+import { historyImportPending, markConnectionError } from "./db/connector-connections.server.ts";
 import {
   importEbayHistory,
   previewEbayHistory,

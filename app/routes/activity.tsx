@@ -8,13 +8,21 @@ import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
 import { privateRouteMeta } from "../metadata";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
-import { actionableConnectorFailures, retryFailedJob } from "../../src/db/connectors.server.ts";
+import {
+  completeShopifyDataRequest,
+  pendingShopifyDataRequests,
+} from "../../src/db/connector-webhooks.server.ts";
+import { actionableConnectorFailures, retryFailedJob } from "../../src/db/connector-jobs.server.ts";
 import { readForm } from "../../src/http.server.ts";
-import { listAuditHistory, listOpenActivities } from "../../src/db/orders.server.ts";
-import type { AuditHistorySortKey, OpenActivitySortKey } from "../../src/db/orders.server.ts";
+import {
+  listAuditHistory,
+  listOpenActivities,
+  type AuditHistorySortKey,
+  type OpenActivitySortKey,
+} from "../../src/db/order-queries.server.ts";
 import { pageNumber } from "../../src/orders.ts";
 import { publicError } from "../../src/errors.ts";
-import { listRemoteDocuments } from "../../src/db/aruba-inbound.server.ts";
+import { listRemoteDocuments } from "../../src/db/aruba-inventory-queries.server.ts";
 import { dateTime } from "../format";
 import { parseSort } from "../table-sort";
 
@@ -44,7 +52,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     ["attivita", "elemento", "autore", "quando"] as const,
     { key: "quando" as AuditHistorySortKey, direction: "desc" },
   );
-  const [open, history, failedJobs, arubaAttention] = await Promise.all([
+  const [open, history, failedJobs, arubaAttention, privacyRequests] = await Promise.all([
     view === "gestire"
       ? listOpenActivities(page, activityKind, openSort)
       : Promise.resolve(emptyPage),
@@ -60,6 +68,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     view === "gestire" && !activityKind
       ? listRemoteDocuments({ blockingOnly: true })
       : Promise.resolve([]),
+    view === "gestire" && !activityKind ? pendingShopifyDataRequests() : Promise.resolve([]),
   ]);
   return {
     username: user.username,
@@ -76,7 +85,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     history,
     failedJobs,
     arubaAttention,
+    privacyRequests,
     jobRetried: url.searchParams.get("job") === "riavviato",
+    privacyRequestCompleted: url.searchParams.get("privacy") === "completata",
   };
 }
 
@@ -92,6 +103,13 @@ export async function action({ request }: Route.ActionArgs) {
         requestId: requestId(request),
       });
       return redirect("/attivita?job=riavviato");
+    }
+    if (form.get("intent") === "complete-shopify-data-request") {
+      await completeShopifyDataRequest(form.get("externalEventId"), form.get("privacyHandled"), {
+        id: user.id,
+        requestId: requestId(request),
+      });
+      return redirect("/attivita?privacy=completata");
     }
     throw new Response("Azione non supportata", { status: 400 });
   } catch (error) {
@@ -117,7 +135,9 @@ export default function Activity() {
     history,
     failedJobs,
     arubaAttention,
+    privacyRequests,
     jobRetried,
+    privacyRequestCompleted,
   } = useLoaderData<typeof loader>();
   const actionError = useActionData() as { message: string } | undefined;
   return (
@@ -146,6 +166,11 @@ export default function Activity() {
           {copy.activity.jobRetried}
         </p>
       ) : null}
+      {privacyRequestCompleted ? (
+        <p className="notice" role="status">
+          {copy.activity.privacyRequestCompleted}
+        </p>
+      ) : null}
       {actionError ? (
         <p className="error" role="alert">
           {actionError.message}
@@ -164,6 +189,7 @@ export default function Activity() {
             csrfToken={csrfToken}
             failedJobs={failedJobs}
             open={open}
+            privacyRequests={privacyRequests}
             sort={openSort}
           />
           {arubaAttention.length ? (

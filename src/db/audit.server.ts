@@ -118,12 +118,7 @@ export async function writeAudit(
       documentCount: number;
       arubaMode: "DOCUMENT_ONLY" | "CONTEXTUAL_CONFIRMATION" | "AUTOMATIC_AFTER_APPROVAL";
       fileKind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
-      dataClass:
-        | "SOURCE_PAYLOADS"
-        | "OPERATIONAL_JOBS"
-        | "OPERATIONAL_AUDIT"
-        | "CUSTOMER_EMAIL"
-        | "ARUBA_CREDENTIALS";
+      dataClass: "SOURCE_PAYLOADS" | "OPERATIONAL_JOBS" | "OPERATIONAL_AUDIT" | "CUSTOMER_EMAIL";
       affectedCount: number;
       environment: "MOCK" | "PRODUCTION";
       deviceIdSuffix: string;

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { documentInputSchema, fiscalProfileSchema } from "../documents.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { AppError } from "../errors.ts";
-import { getArubaInventoryHealth } from "./aruba-inbound.server.ts";
+import { getArubaInventoryHealth } from "./aruba-inventory-health.server.ts";
 import { getArubaSettings } from "./aruba.server.ts";
 import { getPool } from "./client.server.ts";
 import { customerEmailPreview } from "./email.server.ts";

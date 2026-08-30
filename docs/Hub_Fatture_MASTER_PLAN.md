@@ -509,12 +509,12 @@ HF:
 - prepara batch e manifest immutabili;
 - raccoglie l'approvazione;
 - numera solo secondo le regole verificate;
-- guida l'helper locale nel caricamento e, quando autorizzato, nell'invio;
-- riconcilia e archivia gli esiti letti o scaricati dal pannello Aruba.
+- usa le API Aruba per dry-run, caricamento e invio soltanto quando autorizzato;
+- riconcilia e archivia gli esiti API o i file ufficiali acquisiti con il fallback manuale.
 
 ### 6.3 Responsabilità di Aruba
 
-Aruba, tramite il pannello web dell'account Base:
+Aruba, tramite le API documentate e il pannello web dell'account Base:
 
 - riceve l'XML completo;
 - effettua controlli formali ed extraschema secondo il servizio disponibile;
@@ -749,7 +749,7 @@ Se Aruba o SdI scartano:
 - assicurare che il retry tecnico dello stesso XML non generi duplicati;
 - distinguere errore di rete, rifiuto Aruba, scarto SdI e stato incerto.
 
-Se l'esito dell'upload o dell'invio è incerto, non ritentare automaticamente. L'helper deve prima cercare il documento nel pannello per numero, data, destinatario e totale e, quando possibile, scaricare l'XML per confrontarne l'hash. Soltanto un esito certo può consentire un nuovo tentativo esplicitamente autorizzato.
+Se l'esito dell'upload o dell'invio è incerto, non ritentare automaticamente. HF esegue prima il readback API per numero, data, destinatario, totale e file ufficiale; se il canale non è disponibile, il titolare completa lo stesso controllo dal pannello e importa l’evidenza ufficiale. Soltanto un esito certo può consentire un nuovo tentativo esplicitamente autorizzato.
 
 ### 7.10 Rimborsi prima dell'emissione
 
@@ -978,13 +978,12 @@ M11. Non sono istruzioni operative né descrivono codice eseguibile presente nel
 ciclo corrente usa inventario API dal 1° luglio 2026, polling ogni 15 minuti, rilettura mirata dei
 non terminali e scansione completa periodica sullo stesso orizzonte.
 
-L'inventario provider-first delle fatture e TD04 presenti nell'account, anche quando sono nati fuori da HF, usa il preferito `Sincronizza Aruba`. La prima configurazione consiste nel trascinare il pulsante nella barra dei preferiti di Safari, Chrome o Edge su computer; non richiede installer, estensioni, firma, Node.js, npm o Terminale. Per ogni aggiornamento il titolare sceglie **Apri Aruba** in HF, completa personalmente login ed eventuali challenge, poi usa il preferito da qualunque pagina autenticata del pannello, compresa la Home. Dalla Home il preferito chiede di selezionare personalmente `Fatture inviate`, perché il menu ExtJS richiede un'interazione nativa; arma la cattura sull'interazione stessa, ignora il traffico concorrente e attende la stabilità della griglia prima di leggere. La prima lettura percorre integralmente gli anni fiscali richiesti dal manifest, dal corrente fino al più remoto ordine ancora riconciliabile. Le letture successive sono incrementali: rileggono almeno gli ultimi sette giorni, estendono la finestra fino al più vecchio documento non terminale e terminano soltanto dopo una pagina interamente precedente al limite. Una nuova stream, un cursore mancante o una scansione completa più vecchia di trenta giorni forza una nuova lettura integrale. Il filtro data Aruba resta inattivo finché il suo comportamento Production non è qualificato. Poiché Aruba non espone un cursore di pagina immutabile, dopo un'interruzione il nuovo tentativo riparte dall'inizio della finestra corrente in una sessione pulita; l'ingest idempotente evita duplicazioni e una sola scansione può essere attiva per account e ambiente.
-
-Il preferito non contiene token, credenziali o identità persistenti e resta riutilizzabile senza rigenerazione. Apre un ponte HF autenticato in una finestra separata; il ponte verifica l'origine Aruba esatta, crea automaticamente a ogni avvio una nuova sessione casuale temporanea di sola lettura e conserva il bearer nella propria memoria senza inviarlo alla pagina Aruba. Il ponte inoltra manifest, heartbeat, prova account, pagine inventario, completamento/fallimento, preflight e la sola importazione degli XML ufficiali richiesti dall'ingest tramite allowlist esatta. La sessione non può leggere manifest di upload, caricare XML nel pannello o inviare documenti. Il server non riceve cookie, local storage o sessione Aruba. La finestra Aruba invia a HF soltanto righe visibili e sanitizzate; quando il server richiede l'XML di un candidato, il lettore intercetta i byte prodotti dal controllo ufficiale della riga ancora visibile, applica origine e limite di dimensione e li trasferisce al ponte con structured clone. Il ponte aggiunge il bearer e li inoltra all'endpoint interno esistente, senza esporre il token alla pagina Aruba. Il preferito non acquisisce P7M, PDF o notifiche: restano evidenza mancante nei gate che li richiedono. L'XML importato viene validato come fonte autorevole e fa rieseguire immediatamente il matching; un candidato rilevante senza XML forza una sola scansione completa finché il file non viene acquisito.
-
-La normalizzazione degli stati conserva nella pagina inventario anche la dicitura sorgente sanitizzata, senza includerla nell'identità fiscale o nel digest dei metadati. Le diciture elettroniche osservate nel pannello reale sono coperte da regressioni dedicate; una pagina sufficientemente popolata in cui almeno metà dei documenti resta `UNKNOWN` viene rifiutata prima dell'ingest e rende la sessione fallita, così un cambiamento massivo del DOM o del vocabolario Aruba non può produrre un falso allineamento riuscito. La versione del mapper viene registrata sui cursori Aruba: un suo avanzamento forza una sola scansione completa di riallineamento, poi le letture tornano incrementali fino alla normale scadenza mensile.
-
-I documenti esterni non generano `aruba_submissions` fittizie. HF conserva inventario, osservazioni append-only e collegamenti separati, riusa gli stati comuni `SUBMITTED`, `SDI_PROCESSING`, `DELIVERED`, `NOT_DELIVERED` e `REJECTED`, aggiorna gli esiti senza regressioni e materializza un documento storico `ARUBA_HISTORY` soltanto dopo XML ufficiale valido, match univoco e stato `DELIVERED` o `NOT_DELIVERED`. Negli stati intermedi, scartati o incerti XML e notifiche restano di proprietà del remote document senza creare una riga `documents`, perché `ARUBA_HISTORY` rappresenta documenti approvati e partecipa all'unicità fiscale. Soltanto `DELIVERED` e `NOT_DELIVERED` confermano l'emissione e consumano l'unicità della fattura o il residuo dei rimborsi coperti da una TD04: gli stati intermedi sospendono il caso senza chiuderlo, mentre `REJECTED` conserva il tentativo ma lascia possibile la revisione/riedizione e non genera note di credito. Una TD04 esterna emessa collega atomicamente tutti e soli i rimborsi completati che copre, impostando il loro `credit_document_id` sotto lo stesso lock usato dal processo di generazione, così nessun rimborso può essere riaccreditato. Gli stati di preparazione/upload restano esclusivi dei tentativi partiti da HF; etichette remote non riconosciute o terminali incompatibili aprono uno stato incerto. Gli altri casi restano in `Documenti → Da collegare` o `Da verificare`. Il piano esecutivo è in [docs/plans/aruba-inbound-reconciliation.md](plans/aruba-inbound-reconciliation.md).
+Il percorso M5 usava un preferito presidiato, un ponte autenticato e sessioni temporanee di
+sola lettura per acquisire pagine e file ufficiali dal pannello Aruba. La transizione M11 ha
+rimosso endpoint, helper, token e stato browser; le migrazioni conservano soltanto la
+provenienza `HELPER` delle sessioni storiche necessaria all’audit. Architettura, limiti,
+qualifica reale e motivi del ritiro sono archiviati in
+[docs/evidence/aruba-helper.md](evidence/aruba-helper.md); non costituiscono contratto runtime.
 
 Per le fatture TD01 la sincronizzazione dell'inventario è indipendente dalla preparazione. Dashboard e Impostazioni mostrano freschezza, avanzamento ed eventuale azione correttiva; la preparazione consuma lo stesso stato globale senza avviare scansioni o readback specifici. Una lettura completata da non più di 30 minuti non aggiunge rumore; fra 30 minuti e quattro ore compare un avviso non bloccante. Inventario mai letto, lettura oltre quattro ore, fallimento non risolto, match ambiguo, conflitto o stato remoto incerto bloccano server-side approvazione e numerazione. La correzione avviene sempre da Dashboard o Impostazioni e poi si torna alla preparazione aggiornata. Il preflight API on-demand delle TD04 resta separato e monouso.
 
@@ -1047,7 +1046,7 @@ Scaricare e verificare il PDF restituito dalle API Aruba. Un PDF generato localm
 
 Il download XML da HF, il caricamento manuale nel pannello e l'import successivo di XML/PDF/P7M/notifiche costituiscono un percorso completo e sempre disponibile. È il fallback ufficiale in caso di API indisponibile, credenziale revocata, limite tecnico degli endpoint o recovery.
 
-La preparazione TD01 non offre fallback o override Aruba specifici. Se lo stato globale blocca l'approvazione, il titolare completa o sostituisce la sincronizzazione dalla Dashboard o dalle Impostazioni. Il readback manuale specifico resta disponibile soltanto per i flussi che richiedono ancora un preflight on-demand, come le TD04, finché non saranno riprogettati separatamente.
+La preparazione TD01 non offre fallback o override Aruba specifici. Se lo stato globale blocca l'approvazione, il titolare completa o sostituisce la sincronizzazione dalla Dashboard o dalle Impostazioni. Le TD04 usano un preflight API mirato e monouso; in caso di indisponibilità del canale, il recovery resta il readback manuale completo dell’inventario dalle Impostazioni, mai un override specifico della ricevuta.
 
 Per la sincronizzazione in entrata, “completo” comprende anche la sostituzione verificabile di una scansione fallita. HF apre una sessione guidata sulla stessa finestra e presenta gli stream obbligatori per anno/tipo, il limite temporale, i precedenti non terminali e gli errori da risolvere. Il titolare percorre manualmente in Aruba tutte le pagine di ogni stream e acquisisce in HF ogni riga con i metadati canonici dell’inventario, oppure importa un export ufficiale completo dell’intero stream; registra inoltre filtri, ordinali, conteggi, estremi tecnici e pagina terminale e importa i file ufficiali necessari per documenti nuovi, cambiati, candidati o incompleti. Il server verifica che tutte le righe attese siano presenti una sola volta e rifiuta buchi, duplicati, stream mancanti, conteggi/estremi incoerenti ed errori documentali o stati incerti ancora aperti. Quantità, estremi o attestazioni senza il contenuto integrale delle righe non completano il readback.
 
@@ -1148,11 +1147,10 @@ del pannello, callback e invio reale, che richiedono autorizzazioni proprie.
 ### 11.5 Materiali e output delle milestone
 
 - credenziale API disponibile tramite il confine segreti approvato, senza stamparla o copiarla;
-- accesso controllato al pannello Aruba per il solo fallback e confronto transitorio;
+- accesso controllato al pannello Aruba per il solo fallback manuale presidiato;
 - XML originale di una fattura accettata;
 - PDF corrispondente;
 - se disponibile, XML/PDF di una nota di credito;
-- Chrome o Edge installato soltanto finché l'helper outbound resta transitorio;
 - conferma del commercialista per i valori fiscali non deducibili dai documenti.
 
 M4-M5 conservano il contratto browser preesistente; M8-M11 aggiornano specifica, contratti e ADR con:
@@ -1162,7 +1160,7 @@ M4-M5 conservano il contratto browser preesistente; M8-M11 aggiornano specifica,
 - mapping stati;
 - esempio XML anonimizzato usato come fixture;
 - contratto API tipizzato, limiti, errori stabili e arresti;
-- dossier separati di parità inbound e outbound e decisione di Massimo su ciascun helper;
+- dossier separati di parità inbound e outbound e decisione registrata di ritiro degli helper;
 - differenze fra mock, API Production, pannello transitorio e fallback manuale;
 - elenco dei dubbi ancora bloccanti.
 
@@ -1256,7 +1254,7 @@ La navigazione resta a un solo livello. Una destinazione compare soltanto quando
 - `Ordini`: Tutti, Da fatturare, Da verificare, In attesa e Annullati.
 - `Documenti`: Tutti, Fatture, Note di credito e viste per stato di trasmissione.
 - `Attività`: Da gestire e Cronologia; richieste privacy e job falliti restano azioni operative, non impostazioni.
-- `Impostazioni`: pagina unica con navigazione interna a Profilo e sicurezza, Fatturazione, Profilo fiscale, Connessioni, Aruba e helper, E-mail al cliente e Sistema.
+- `Impostazioni`: pagina unica con navigazione interna a Profilo e sicurezza, Fatturazione, Profilo fiscale, Connessioni, Aruba, E-mail al cliente e Sistema.
 
 Il menu rapido del profilo mostra identità, capacità operative, tema e uscita. Il collegamento `Profilo e sicurezza` porta alla relativa sezione di `Impostazioni`, che ripropone lo stesso riepilogo prima dei controlli completi dell’account.
 
@@ -1387,7 +1385,7 @@ La vista `Da gestire` riunisce errori, verifiche richieste, scarti, documenti Ar
 - Connessione Aruba: identità verificata, stato iniziale `In pausa`, attivazione della sincronizzazione, rotazione/revoca credenziale e due arresti indipendenti.
 - Modalità Aruba globale e rigida: `Crea solo il documento` come default, `Chiedi conferma prima dell’invio` o `Invio automatico dopo approvazione`.
 - Stato della sincronizzazione Aruba, backfill, ultimo inventario completo, checkpoint, limiti provider osservati e azione read-only **Sincronizza ora**.
-- `Fallback transitorio` owner-only, disabilitato di default e visibile soltanto finché il relativo helper non viene ritirato.
+- Readback manuale completo owner-only come recovery permanente quando le API non possono fornire inventario o file ufficiali sufficienti.
 - Trasporto SMTP scelto e stato, senza mostrare credenziali.
 - Sistema: ambiente e fuso orario; versione applicativa, backup e ripristino compaiono soltanto quando M7 fornisce dati e azioni reali.
 
@@ -1466,7 +1464,7 @@ invio e readback. Non ospita un browser e non automatizza il pannello.
 
 Gli ambienti sono separati logicamente:
 
-- `development`: database, token, storage e hostname propri; solo fixture o pagina Aruba sintetica locale;
+- `development`: database, token, storage e hostname propri; solo fixture e provider Aruba mock deterministico;
 - `production`: dati reali e credenziali Shopify/eBay/SMTP/Aruba/infrastruttura sulla VPS, cifrate o iniettate secondo il relativo confine;
 - nessun ambiente staging permanente nella 1.x, salvo necessità emersa durante l'integrazione Aruba.
 
@@ -1528,7 +1526,7 @@ Dipendenze di sviluppo dirette iniziali:
 | `@react-router/dev` | build e route type-safe |
 | `vite` | build del framework |
 | `typescript` | typecheck e compilazione worker |
-| `@playwright/test` | E2E, smoke browser e helper Aruba locale; non installato nell'immagine server Production |
+| `@playwright/test` | E2E e smoke browser dell’applicazione; non installato nell'immagine server Production |
 | `oxlint`, `oxfmt` | uniche toolchain lint/formato |
 | `react-doctor` | scansione React completa nel comando locale/CI canonico e configurazione condivisa con l'Action bloccante dai warning |
 | `@types/node`, `@types/react`, `@types/react-dom` | tipi piattaforma allineati al runtime |
@@ -1539,7 +1537,7 @@ Dipendenze di sviluppo dirette iniziali:
 Scelte native deliberate:
 
 - `node:crypto` (`scrypt`, `randomBytes`, `randomUUID`, SHA-256 e HMAC) per password, identificativi e hash; nessun wrapper crypto;
-- `fetch` nativo per eBay, Dynu e comunicazione HTTPS helper-HF; niente Axios o secondo client HTTP;
+- `fetch` nativo per Shopify, eBay, Aruba, Dynu e gli altri provider HTTP approvati; niente Axios o secondo client HTTP;
 - `Intl.DateTimeFormat` e `timestamptz` PostgreSQL per Europe/Rome; niente libreria date;
 - importi monetari in centesimi di euro interi, validati con `Number.isSafeInteger`; niente libreria decimale;
 - `node:test` come unico runner unitario e d'integrazione; Playwright resta il solo runner browser;
@@ -1698,7 +1696,7 @@ Collegamenti fra inventario remoto e documenti, ordini, preparazioni o rimborsi 
 
 #### `aruba_sync_runs`
 
-Lease dei giri API con account/ambiente, tipo `BACKFILL`, `INCREMENTAL`, `TARGETED`, `FULL` o `SHADOW`, finestre, pagine, checkpoint, watermark, conteggi sanitizzati ed errore stabile. Un vincolo o lock garantisce un solo giro canonico attivo per account e ambiente. Le sessioni browser preesistenti restano separate e vengono rimosse se il relativo helper viene ritirato.
+Lease dei giri API con account/ambiente, tipo `BACKFILL`, `INCREMENTAL`, `TARGETED` o `FULL`, finestre, pagine, checkpoint, watermark, conteggi sanitizzati ed errore stabile. Un vincolo o lock garantisce un solo giro canonico attivo per account e ambiente. Dei vecchi giri `SHADOW` e delle sessioni helper resta leggibile soltanto la provenienza storica necessaria all’audit.
 
 #### `webhook_events`
 
@@ -2200,8 +2198,9 @@ Mantenere `docs/runbooks/secret-inventory.md` con soli nomi logici, ambiente, de
 - Timeout espliciti e limiti di byte anche sulle risposte dei provider; `fetch` non resta mai privo di deadline e una risposta eccessiva viene trattata come errore stabile, non caricata integralmente in memoria.
 - Aggiornamenti di sicurezza del sistema operativo.
 - Chiamate API Aruba con host allowlisted, deadline, limiti risposta, budget rate e token bearer soltanto in memoria; autenticazione e refresh non usano query string.
-- Le migrazioni revocano fail-closed gli eventuali token helper e le sessioni del preferito storici;
-  nessuna superficie runtime può crearli o riattivarli.
+- Le migrazioni eliminano token, tabelle shadow e colonne tecniche del preferito; delle sessioni
+  storiche resta soltanto la provenienza `HELPER` necessaria all’audit e nessuna superficie runtime
+  può crearne o riattivarne lo stato browser.
 
 ### 17.4 Dati personali
 
@@ -2238,14 +2237,14 @@ Non registrare password, token o contenuto completo non necessario.
 Confini da trattare come non fidati:
 
 - browser e input dell'amministratore;
-- webhook Shopify/eBay, DOM Aruba e file importati;
-- helper locale, profilo browser e canale HTTPS helper-HF;
+- webhook Shopify/eBay, risposte API Aruba e file importati;
+- credenziale API Aruba, import manuali e sessione applicativa dell’amministratore;
 - file XML/PDF e percorsi di storage;
 - SMTP e risposte dei provider;
 - variabili d'ambiente, secret store e pipeline di deploy;
 - backup trasferiti fra VPS e Mac.
 
-Le minacce prioritarie della 1.x sono: invio o numerazione senza approvazione, helper su account o batch errato, furto della sessione browser, duplicazione di fatture/note, perdita o alterazione di documenti, stato remoto incerto, esposizione di dati fiscali nei log e deploy verso il target sbagliato. I controlli minimi sono validazione ai confini, transazioni e vincoli DB, manifest/hash immutabili, kill switch Production, allowlist degli host, profilo browser locale, redazione dei log, preflight del target e readback remoto.
+Le minacce prioritarie della 1.x sono: invio o numerazione senza approvazione, uso dell’account o del batch Aruba errato, furto della credenziale API o della sessione applicativa, duplicazione di fatture/note, perdita o alterazione di documenti, stato remoto incerto, esposizione di dati fiscali nei log e deploy verso il target sbagliato. I controlli minimi sono validazione ai confini, transazioni e vincoli DB, manifest/hash immutabili, kill switch Production, allowlist degli host, cifratura delle credenziali, redazione dei log, preflight del target e readback remoto.
 
 XML, PDF e risposte remote vengono accettati soltanto entro limiti espliciti di dimensione e tempo. Il parser XML rifiuta `DOCTYPE`, entità esterne e strutture oltre i limiti di profondità/numero elementi definiti dal contratto; la validazione XSD non sostituisce questi controlli. I byte firmati di un webhook vengono verificati prima del parsing e nessun parser o decoder riceve input non limitato.
 
@@ -2348,7 +2347,7 @@ Due soli ambienti:
 | Ambiente | Uso | Dati e provider |
 |---|---|---|
 | Development (`dev`) | sviluppo, integrazione e collaudo | fixture e contract test Shopify senza app remota, eBay Sandbox, pagina Aruba sintetica locale, SMTP di test e PoC OCI Email Delivery con destinatario controllato |
-| Production (`prod`) | uso reale del titolare | database, storage e credenziali Shopify/eBay/SMTP/Aruba/infrastruttura sulla VPS; credenziale Aruba cifrata, sessioni browser soltanto nel fallback transitorio |
+| Production (`prod`) | uso reale del titolare | database, storage e credenziali Shopify/eBay/SMTP/Aruba/infrastruttura sulla VPS; credenziale Aruba cifrata e fallback manuale senza acquisire la sessione del pannello |
 
 Non creare uno staging permanente finché un bisogno osservato non giustifica il costo di un terzo database, storage e set di segreti. Development e Production devono avere configurazioni, credenziali dei provider applicabili, database e storage separati; Shopify non ha più un'app Development remota e in locale usa soltanto fixture e contract test. Aruba Development usa fixture; Production usa la credenziale cifrata soltanto dopo il relativo gate. Il codice distribuito deriva dallo stesso commit verificato.
 
@@ -2819,7 +2818,7 @@ Stop point per rivalutare capacità o architettura, non trigger di migrazione au
 - Usare un solo dominio APM Always Free e un solo monitor HTTP; non abilitare funzioni APM aggiuntive senza un bisogno osservato.
 - Usare un solo bucket Object Storage privato per i backup cifrati, con lifecycle e soglia prudenziale; il preflight blocca configurazioni che escono dalla quota senza costo.
 - Il PoC OCI Email Delivery resta entro la quota senza costo verificata, usa soltanto messaggi sintetici e non abilita costi; quota e condizioni vanno riverificate prima di M6.
-- Shopify Partner/Dev, Codex/Claude Code e account Aruba Base delegato sono prerequisiti posseduti o gestiti separatamente dal titolare. Il forfait Aruba copre circa 500 fatture per mese solare e l'uso API previsto; Hub Fatture mostra avvisi non bloccanti a 400 e 475 e nessuna stima monetaria. Tier e contatori del Premium delegato restano fuori dal prodotto. Un browser supportato resta necessario per il fallback manuale e, durante la transizione, per gli helper.
+- Shopify Partner/Dev, Codex/Claude Code e account Aruba Base delegato sono prerequisiti posseduti o gestiti separatamente dal titolare. Il forfait Aruba copre circa 500 fatture per mese solare e l'uso API previsto; Hub Fatture mostra avvisi non bloccanti a 400 e 475 e nessuna stima monetaria. Tier e contatori del Premium delegato restano fuori dal prodotto. Un browser supportato resta necessario per l’applicazione e per il fallback manuale presidiato.
 - Se un limite gratuito o una condizione contrattuale cambia, fermarsi e proporre l'alternativa prima di attivare costi.
 
 ### 21.7 Politica delle dipendenze
@@ -2909,7 +2908,7 @@ Fixture sanificate per:
 - API Aruba: ricerca/dettaglio/download, dry-run positivo/negativo, upload/invio mock e stato incerto;
 - file XML/PDF/P7M e notifiche SdI scaricati, sanitizzati e importabili.
 
-Ogni connettore copre anche timeout, risposta oltre il limite, risposta non parsabile, schema inatteso, autenticazione scaduta e rate limit, verificando la traduzione nel codice errore stabile. Finché esistono, gli helper mantengono i test browser preesistenti come regressione transitoria. Le fixture rappresentano il payload o DOM minimo realmente osservato, ma sono sanificate e non vengono trattate come prova dello stato live.
+Ogni connettore copre anche timeout, risposta oltre il limite, risposta non parsabile, schema inatteso, autenticazione scaduta e rate limit, verificando la traduzione nel codice errore stabile. Le fixture rappresentano il payload minimo realmente osservato, ma sono sanificate e non vengono trattate come prova dello stato live; le fixture DOM del percorso Aruba ritirato restano soltanto nella storia Git e nelle evidenze storiche.
 
 ### 22.4 End-to-end
 
@@ -2931,7 +2930,7 @@ Il percorso critico verifica anche refresh durante un'azione, doppio click/submi
 Playwright è il runner E2E canonico:
 
 - sulle PR esegue Chromium soltanto su quattro flussi sintetici: login con entrambi gli account, import fixture, creazione della preparazione fattura e approvazione contro Aruba mock;
-- da M9 esegue configurazione connessione, backfill, salute, permessi, tre modalità, fallback manuale, stato SdI, e-mail e nota di credito contro mock deterministici; il confronto helper resta in una suite transitoria separata fino alla decisione M11;
+- esegue configurazione connessione, backfill, salute, permessi, tre modalità, fallback manuale, stato SdI, e-mail e nota di credito contro mock deterministici; il percorso browser Aruba ritirato non fa parte della matrice corrente;
 - usa locator accessibili e dati sintetici deterministici; nessuna credenziale o informazione reale entra in test, report o trace;
 - registra la trace soltanto al primo retry fallito, con retention CI breve di 7 giorni; niente video continui o snapshot visuali finché non esiste una regressione visiva concreta;
 - non traccia né automatizza il Canary Production e non aggiunge Firefox finché non emerge un bisogno reale.
@@ -2950,7 +2949,7 @@ Riferimenti da riverificare allo scaffold: [Playwright Trace Viewer](https://pla
 - path traversal nello storage.
 - log redaction.
 - segreti assenti dal bundle frontend.
-- `413` prima del parsing per form, webhook, richieste helper, XML e PDF oltre soglia, inclusi endpoint autenticati.
+- `413` prima del parsing per form, webhook, richieste inventario manuale, XML e PDF oltre soglia, inclusi endpoint autenticati.
 - timeout e limite byte sulle risposte remote.
 - rifiuto di XML con `DOCTYPE`, entità esterne, profondità o numero elementi oltre soglia.
 
@@ -2971,7 +2970,7 @@ Riferimenti da riverificare allo scaffold: [Playwright Trace Viewer](https://pla
 - Ordine reale di importo minimo per Shopify.
 - Ordine reale o sandbox eBay.
 - caricamento controllato di XML sintetico/anonimizzato nel pannello Aruba, con arresto prima dell'invio salvo autorizzazione separata.
-- helper provato contro la pagina sintetica locale su Windows e macOS con Chrome o Edge.
+- applicazione e fallback manuale verificati sui browser previsti dalla matrice Chromium/WebKit.
 - Nessun invio produzione finché il titolare non autorizza.
 - Confronto XML generato con XML Aruba accettato.
 - Verifica PDF.
@@ -3513,8 +3512,8 @@ Deve fermarsi e chiedere prima di:
 1. Leggere integralmente questo documento, `AGENTS.md` e le istruzioni del repository.
 2. Ispezionare lo stato reale del checkout senza sovrascrivere modifiche esistenti.
 3. Avviare M0-M1 localmente con fixture e mock; non attendere Aruba.
-4. Chiedere accessi solo nel momento in cui servono e far inserire nel secret store soltanto quelli gestiti da HF; l'accesso Aruba resta nel browser locale del titolare.
-5. Completare in M4 l'audit autenticato previsto in 11.1; in M5 sviluppare e verificare pagina sintetica, helper e controlli locali; in M8 eseguire la prova reale autorizzata di 11.4 come gate finale prima del Canary Production, senza effettuare invii.
+4. Chiedere accessi solo nel momento in cui servono e far inserire nel secret store soltanto quelli gestiti da HF; la credenziale API Aruba viene cifrata dall’applicazione e la sessione del pannello resta sempre sul browser locale del titolare.
+5. Conservare le prove M4-M8 come evidenza storica; per il ciclo corrente usare esclusivamente i gate API, il fallback manuale e le autorizzazioni Production definite dalle milestone M12-M14.
 6. Eseguire test, typecheck e build dopo ogni milestone.
 7. Fuori da una richiesta affermativa di pubblicazione, fermarsi per
    autorizzazione prima di deploy o release; fermarsi sempre prima di invii reali
@@ -3525,7 +3524,7 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 ### Materiali che arriveranno dal titolare
 
 - disponibilità del titolare per la sessione presidiata di audit del pannello Aruba prevista in 11.1;
-- computer Windows o macOS con Chrome o Edge per il collaudo dell'helper;
+- computer Windows o macOS con un browser supportato per l’applicazione e il fallback manuale;
 - XML e PDF di una fattura Aruba già accettata;
 - se disponibile, XML/PDF di una nota di credito;
 - accesso allo store Shopify e a un ordine reale con campo fiscale;
@@ -3701,8 +3700,8 @@ Vincoli che non puoi rilassare da solo:
 - nessun dato reale, segreto plaintext o credenziale in repository,
   test, log o fixture; l'unico blob sensibile ammesso è la key VPS
   cifrata in `ops/secrets/`;
-- API Aruba soltanto nella milestone corrente e nel manifesto autorizzato; gli helper browser
-  restano transitori fino alla decisione M11 e il percorso manuale resta disponibile;
+- API Aruba soltanto nella milestone corrente e nel manifesto autorizzato; nessun helper browser
+  può essere reintrodotto e il percorso manuale resta disponibile;
 - approvazione e numerazione richiedono `can_approve`
   e restano fuori dalla portata dell'account agente;
 - fuori da una richiesta affermativa di pubblicazione, fermati e chiedi prima di

@@ -14,7 +14,7 @@ test("le attività espongono i dati operativi e paginano molte righe", async () 
     process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
     process.env.DATABASE_URL = clean.connectionString;
 
-    const orders = await import("./orders.server.ts");
+    const orders = await import("./order-queries.server.ts");
     const database = await import("./client.server.ts");
     const billingCase = await database.getPool().query<{ id: string }>(
       `WITH customer AS (

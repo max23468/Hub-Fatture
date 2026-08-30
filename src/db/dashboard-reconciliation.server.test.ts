@@ -77,8 +77,11 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       [customer.rows[0]!.id, cases.rows[3]!.id],
     );
 
-    const orders = await import("./orders.server.ts");
-    const documents = await import("./documents.server.ts");
+    const orders = {
+      ...(await import("./billing-cases.server.ts")),
+      ...(await import("./order-queries.server.ts")),
+    };
+    const documents = await import("./document-mass-approval.server.ts");
     const initialSummary = await orders.dashboardSummary();
     assert.equal(initialSummary.ready_cases, "1");
     assert.equal(initialSummary.review_cases, "0");
