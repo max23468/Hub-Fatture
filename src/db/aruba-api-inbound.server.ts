@@ -373,6 +373,10 @@ async function persistCanonicalPageContents(
   const remoteDocumentIds = new Map(
     staged.resolvedDocuments?.map((document) => [document.remoteId, document.remoteDocumentId]),
   );
+  const officialFilesBlocked = new Set<string>();
+  for (const document of staged.resolvedDocuments ?? []) {
+    if (document.officialFilesBlocked) officialFilesBlocked.add(document.remoteId);
+  }
   if (remoteDocumentIds.size !== documents.length) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
@@ -394,6 +398,7 @@ async function persistCanonicalPageContents(
     });
   }
   for (const document of documents) {
+    if (officialFilesBlocked.has(document.remote.remoteId)) continue;
     const remoteDocumentId = remoteDocumentIds.get(document.remote.remoteId);
     const expectedInvoiceNumber = document.remote.providerInvoiceNumber;
     if (!remoteDocumentId || !expectedInvoiceNumber) {
@@ -476,7 +481,6 @@ async function advanceWindow(runId: string) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `aruba-read:${run.environment}:${run.account_reference}`,
     ]);
-    await upgradeCachedArubaMatcher(client, run.environment, run.account_reference);
     if (run.checkpoint_end >= run.window_end) return false;
     const nextStart = run.checkpoint_end;
     await client.query(
@@ -501,6 +505,10 @@ async function completeRun(runId: string) {
     );
     const run = result.rows[0];
     if (!run) throw new AppError("CONFLICT_REVISION", 409);
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `aruba-read:${run.environment}:${run.account_reference}`,
+    ]);
+    await upgradeCachedArubaMatcher(client, run.environment, run.account_reference);
     await client.query(
       `UPDATE connections SET last_synced_at = now(),
          last_full_sync_at = CASE WHEN $3 THEN now() ELSE last_full_sync_at END,

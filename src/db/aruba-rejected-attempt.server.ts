@@ -29,6 +29,30 @@ interface ArubaRemoteCollision {
   remote_id: string;
   remote_status: ArubaRemoteStatus;
   api: boolean;
+  document_type: string;
+  fiscal_year: number;
+  series: string | null;
+  fiscal_number: string | null;
+  document_date: string;
+  total_amount: number;
+  currency: string;
+  xml_sha256: string | null;
+}
+
+function sameImmutableFiscalEvidence(
+  collision: ArubaRemoteCollision,
+  remote: RemoteInventoryDocument,
+) {
+  return (
+    collision.document_type === remote.documentType &&
+    collision.fiscal_year === remote.fiscalYear &&
+    normalizedMatchText(collision.series) === normalizedMatchText(remote.series) &&
+    normalizedMatchText(collision.fiscal_number) === normalizedMatchText(remote.fiscalNumber) &&
+    collision.document_date === remote.documentDate &&
+    collision.total_amount === remote.totalAmount &&
+    collision.currency === remote.currency &&
+    (!collision.xml_sha256 || !remote.xmlSha256 || collision.xml_sha256 === remote.xmlSha256)
+  );
 }
 
 export async function findArubaRemoteCollision(
@@ -36,7 +60,9 @@ export async function findArubaRemoteCollision(
   input: ArubaRemoteCollisionInput,
 ) {
   const collision = await client.query<ArubaRemoteCollision>(
-    `SELECT id, remote_id, remote_status, automatic_source = 'API' AS api
+    `SELECT id, remote_id, remote_status, automatic_source = 'API' AS api,
+            document_type, fiscal_year, series, fiscal_number, document_date::text AS document_date,
+            total_amount, currency, xml_sha256
      FROM aruba_remote_documents
      WHERE environment = $1 AND account_reference = $2 AND (
        ($3::text IS NOT NULL AND $8::text <> 'REJECTED' AND remote_status <> 'REJECTED'
@@ -65,6 +91,28 @@ export async function consolidateArubaRemoteCollision(
   fullScan: boolean,
   metadataDigest: string,
 ) {
+  if (!sameImmutableFiscalEvidence(collision, remote)) {
+    await client.query(
+      `INSERT INTO aruba_document_matches
+         (remote_document_id, status, method, matcher_version, signals_json, candidates_json)
+       VALUES ($1, 'UNKNOWN_REMOTE_STATE', 'NONE', $2,
+         '{"deduplicationCollision":true,"immutableFiscalConflict":true}', '[]')
+       ON CONFLICT (remote_document_id) DO UPDATE SET
+         status = 'UNKNOWN_REMOTE_STATE', method = 'NONE', matcher_version = $2,
+         signals_json = '{"deduplicationCollision":true,"immutableFiscalConflict":true}',
+         candidates_json = '[]', updated_at = now()`,
+      [collision.id, ARUBA_MATCHER_VERSION],
+    );
+    return {
+      id: collision.id,
+      conflicted: true,
+      immutableConflict: true,
+      collisionKey:
+        collision.xml_sha256 && collision.xml_sha256 === remote.xmlSha256
+          ? ("XML_SHA256" as const)
+          : ("FISCAL_IDENTITY" as const),
+    };
+  }
   const transition = remoteStatusTransition(collision.remote_status, remote.status);
   if (transition === "CONFLICT") {
     await client.query(
@@ -75,7 +123,7 @@ export async function consolidateArubaRemoteCollision(
          status = 'UNKNOWN_REMOTE_STATE', method = 'NONE', updated_at = now()`,
       [collision.id, ARUBA_MATCHER_VERSION],
     );
-    return { id: collision.id, conflicted: true };
+    return { id: collision.id, conflicted: true, immutableConflict: false };
   }
   if (transition === "IGNORE_STALE") {
     await client.query(
@@ -86,7 +134,7 @@ export async function consolidateArubaRemoteCollision(
        WHERE id = $1`,
       [collision.id, remote.remoteId, remote.xmlSha256, fullScan],
     );
-    return { id: collision.id, conflicted: false };
+    return { id: collision.id, conflicted: false, immutableConflict: false };
   }
   await client.query(
     `UPDATE aruba_remote_documents SET remote_id = $2, document_type = $3,
@@ -120,7 +168,7 @@ export async function consolidateArubaRemoteCollision(
       metadataDigest,
     ],
   );
-  return { id: collision.id, conflicted: false };
+  return { id: collision.id, conflicted: false, immutableConflict: false };
 }
 
 export async function resolveRejectedAttemptIdentityConflicts(

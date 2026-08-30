@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.5
+
+- La sincronizzazione Aruba conserva il documento già archiviato quando il provider ripropone la stessa identità fiscale con totale o XML diversi, registra il conflitto fiscale immutabile e prosegue con le altre fatture senza attribuire i nuovi file al documento precedente.
+- La rivalutazione dei match memorizzati avviene una sola volta alla chiusura atomica del giro Aruba, dopo tutte le finestre acquisite e prima del ricalcolo delle pratiche.
+
 ## 0.5.4
 
 - I documenti Aruba già emessi con data e totale esatti restano disponibili per una verifica manuale motivata quando l’identità è parziale, senza trasformare un indizio in un collegamento automatico; i match memorizzati vengono rivalutati dopo una sincronizzazione o una correzione locale.

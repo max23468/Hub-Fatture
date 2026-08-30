@@ -113,6 +113,7 @@ export async function ingestParsedArubaPage(
   const resolvedDocuments: Array<{
     remoteId: string;
     remoteDocumentId: string;
+    officialFilesBlocked?: true;
   }> = [];
   const touchedRemoteDocumentIds: string[] = [];
   const apiSource = session.sourceKind === "API";
@@ -291,6 +292,30 @@ export async function ingestParsedArubaPage(
         );
         storedId = consolidation.id;
         conflicted = consolidation.conflicted;
+        if (consolidation.immutableConflict) {
+          await client.query(
+            apiSource
+              ? `INSERT INTO aruba_deduplication_conflicts
+                   (environment, account_reference, existing_remote_document_id,
+                    incoming_remote_id, collision_key, incoming_payload_digest, sync_run_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT DO NOTHING`
+              : `INSERT INTO aruba_deduplication_conflicts
+                   (environment, account_reference, existing_remote_document_id,
+                    incoming_remote_id, collision_key, incoming_payload_digest, sync_session_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT DO NOTHING`,
+            [
+              session.environment,
+              session.account_reference,
+              collided.id,
+              remote.remoteId,
+              consolidation.collisionKey,
+              metadataDigest,
+              session.id,
+            ],
+          );
+        }
       } else if (collided) {
         conflicted = true;
         storedId = collided.id;
@@ -403,6 +428,7 @@ export async function ingestParsedArubaPage(
       resolvedDocuments.push({
         remoteId: remote.remoteId,
         remoteDocumentId: storedId!,
+        ...(conflicted ? { officialFilesBlocked: true as const } : {}),
       });
     }
     touchedRemoteDocumentIds.push(storedId!);
