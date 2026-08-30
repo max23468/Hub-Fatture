@@ -96,16 +96,6 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       (await documents.listMassApprovalCandidates()).map(({ billing_case_id }) => billing_case_id),
       [cases.rows[0]!.id],
     );
-    assert.deepEqual(
-      (
-        await orders.listBillingCases({
-          statuses: ["READY"],
-          standardApprovalOnly: true,
-        })
-      ).rows.map(({ id }) => id),
-      [cases.rows[0]!.id],
-    );
-
     await client.getPool().query(
       `INSERT INTO aruba_batches
          (id, environment, mode, transport, account_reference, manifest_sha256,

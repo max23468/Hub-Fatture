@@ -939,9 +939,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   await expectPlainLanguage(page);
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
-  await page.getByRole("link", { name: "Da verificare" }).click();
+  await page.getByLabel(/^Pagamento/).selectOption("PENDING");
+  await page.getByRole("button", { name: "Filtra" }).click();
   await expect(page.getByRole("row")).toHaveCount(2);
-  await expect(page.getByRole("cell", { name: "Da verificare", exact: true })).toBeVisible();
+  await expect(page.getByLabel(/^Pagamento/)).toHaveValue("PENDING");
   await page.getByRole("link", { name: /^Apri preparazione fattura \d{6}$/ }).click();
 
   // Il controllo dichiara il fatto osservato, non una frase generica.

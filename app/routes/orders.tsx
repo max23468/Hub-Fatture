@@ -109,7 +109,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     caseStatusByView[view]
       ? listBillingCases({
           statuses: caseStatusByView[view],
-          standardApprovalOnly: view === "fatturare",
           excludePendingPayments: view === "verificare",
           page,
           sort: preparationSort,

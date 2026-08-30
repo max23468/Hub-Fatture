@@ -26,7 +26,6 @@ import {
   orderBillableSql,
   pendingPaymentSql,
   reactivationBlockerSql,
-  standardInvoiceApprovalCriteriaSql,
 } from "./billing-case-sql.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
@@ -557,7 +556,6 @@ const billingCaseListSortSql: Record<BillingCaseListSortKey, string> = {
 export async function listBillingCases(
   filters: {
     statuses?: string[];
-    standardApprovalOnly?: boolean;
     excludePendingPayments?: boolean;
     page?: unknown;
     sort?: { key: BillingCaseListSortKey; direction: SortDirection };
@@ -585,14 +583,7 @@ export async function listBillingCases(
      FROM billing_cases
      LEFT JOIN orders ON orders.billing_case_id = billing_cases.id
      WHERE ($1::text[] IS NULL OR billing_cases.status = ANY($1))
-       AND (NOT $3::boolean OR EXISTS (
-         SELECT 1
-         FROM documents
-         JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
-         WHERE documents.billing_case_id = billing_cases.id
-           AND ${standardInvoiceApprovalCriteriaSql()}
-       ))
-       AND (NOT $4::boolean OR NOT ${billingCasePendingPaymentSql()})
+       AND (NOT $3::boolean OR NOT ${billingCasePendingPaymentSql()})
      GROUP BY billing_cases.id
      ORDER BY ${orderBy} ${direction} NULLS LAST,
               billing_cases.local_order_date DESC, billing_cases.id DESC
@@ -600,7 +591,6 @@ export async function listBillingCases(
     [
       filters.statuses?.length ? filters.statuses : null,
       pageOffset(filters.page),
-      Boolean(filters.standardApprovalOnly),
       Boolean(filters.excludePendingPayments),
     ],
   );
