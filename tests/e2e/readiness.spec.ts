@@ -81,9 +81,7 @@ async function expectApprovalLabelsReadable(page: Page) {
   }
 }
 
-// Lo schema viene azzerato all'avvio del server, i dati a ogni worker: un retry riparte
-// da database vuoto invece di trovare gli account già creati e saltare il flusso di setup.
-test.beforeAll(async () => {
+async function resetReadinessState() {
   await rm(storageRoot, { recursive: true, force: true });
   await withResetE2eDatabase(databaseUrl, async (client) => {
     const profile = JSON.parse(
@@ -102,7 +100,7 @@ test.beforeAll(async () => {
        ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, version = 1`,
     );
   });
-});
+}
 
 test.afterAll(async () => {
   await rm(storageRoot, { recursive: true, force: true });
@@ -113,6 +111,10 @@ test.describe.configure({ mode: "serial" });
 
 test("configura i due account e accede con entrambi", async ({ page }) => {
   test.setTimeout(240_000);
+  // Questo test prepara lo stato condiviso dall'intera suite seriale. Il reset deve
+  // appartenere al test, non a beforeAll: Playwright riesegue il gruppo dopo un errore
+  // e ogni tentativo deve ripartire anche dalle fixture, non dai dati già modificati.
+  await resetReadinessState();
   await page.goto("/setup");
   await page.setViewportSize({ width: 320, height: 780 });
   await page.getByLabel("Codice di configurazione").fill("codice-di-configurazione-errato");

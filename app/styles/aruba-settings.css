@@ -522,7 +522,9 @@
 
 @media (max-width: 23rem) {
   .settings-transmission-section .settings-choice-card--compact {
-    padding: var(--space-2);
+    border: 0;
+    background: transparent;
+    padding: 0;
   }
 
   .settings-transmission-section .settings-choice-card--compact select {
