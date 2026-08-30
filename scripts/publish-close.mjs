@@ -117,7 +117,7 @@ if (run("git", ["status", "--porcelain"], { cwd: target })) {
 }
 
 const featureSha = run("git", ["rev-parse", `refs/heads/${branch}`], { cwd: root });
-run("git", ["fetch", remote, baseBranch, "--prune"], { cwd: root, stdio: "inherit" });
+run("git", ["fetch", remote, "--prune"], { cwd: root, stdio: "inherit" });
 const remoteBase = run("git", ["rev-parse", `${remote}/${baseBranch}`], { cwd: root });
 
 let pullRequests;
@@ -194,6 +194,7 @@ if (run("git", ["rev-parse", "HEAD"], { cwd: root }) !== remoteBase) {
 }
 
 if (remoteBranch) run("git", ["push", remote, "--delete", branch], { cwd: root, stdio: "inherit" });
+run("git", ["fetch", remote, "--prune"], { cwd: root, stdio: "inherit" });
 run("git", ["worktree", "remove", target], { cwd: root, stdio: "inherit" });
 run("git", ["branch", "-D", branch], { cwd: root, stdio: "inherit" });
 run("git", ["worktree", "prune"], { cwd: root });
@@ -203,6 +204,9 @@ if (succeeds("git", ["show-ref", "--verify", `refs/heads/${branch}`], { cwd: roo
 }
 if (run("git", ["ls-remote", "--heads", remote, `refs/heads/${branch}`], { cwd: root })) {
   fail("Il branch remoto temporaneo risulta ancora presente.");
+}
+if (succeeds("git", ["show-ref", "--verify", `refs/remotes/${remote}/${branch}`], { cwd: root })) {
+  fail("Il riferimento locale al branch remoto temporaneo risulta ancora presente.");
 }
 if (
   parseWorktrees(run("git", ["worktree", "list", "--porcelain"], { cwd: root })).some(
