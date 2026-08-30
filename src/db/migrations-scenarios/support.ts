@@ -55,6 +55,7 @@ const ARUBA_P7M_PARITY_NORMALIZATION = "039_aruba_p7m_parity_normalization.sql";
 const ARUBA_API_OUTBOUND = "040_aruba_api_outbound.sql";
 const RETIRE_ARUBA_BROWSER_STATE = "044_retire_aruba_browser_state.sql";
 const REMOVE_ARUBA_BROWSER_LEGACY = "045_remove_aruba_browser_legacy.sql";
+const EBAY_DELIVERY_DISCOUNT_REPLAY = "046_ebay_delivery_discount_replay.sql";
 const CURRENT_MIGRATIONS = sortedMigrationFileNames(readdirSync("migrations"));
 const outboundIndex = CURRENT_MIGRATIONS.indexOf(ARUBA_API_OUTBOUND);
 assert.notEqual(outboundIndex, -1, `${ARUBA_API_OUTBOUND} assente dal catalogo migrazioni`);
@@ -133,6 +134,7 @@ export {
   ARUBA_API_OUTBOUND,
   RETIRE_ARUBA_BROWSER_STATE,
   REMOVE_ARUBA_BROWSER_LEGACY,
+  EBAY_DELIVERY_DISCOUNT_REPLAY,
   CURRENT_MIGRATIONS,
   outboundIndex,
   MIGRATIONS_AFTER_ARUBA_API_OUTBOUND,

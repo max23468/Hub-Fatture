@@ -51,6 +51,7 @@ import {
   ARUBA_API_OUTBOUND,
   RETIRE_ARUBA_BROWSER_STATE,
   REMOVE_ARUBA_BROWSER_LEGACY,
+  EBAY_DELIVERY_DISCOUNT_REPLAY,
   MIGRATIONS_AFTER_ARUBA_API_OUTBOUND,
   copyMigrationSnapshot,
 } from "./support.ts";
@@ -126,6 +127,7 @@ test("la transizione conserva la provenienza helper e rimuove lo stato browser",
     await cp("migrations", beforeRetirement, { recursive: true });
     await rm(path.join(beforeRetirement, RETIRE_ARUBA_BROWSER_STATE));
     await rm(path.join(beforeRetirement, REMOVE_ARUBA_BROWSER_LEGACY));
+    await rm(path.join(beforeRetirement, EBAY_DELIVERY_DISCOUNT_REPLAY));
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeRetirement,
@@ -146,6 +148,7 @@ test("la transizione conserva la provenienza helper e rimuove lo stato browser",
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       RETIRE_ARUBA_BROWSER_STATE,
       REMOVE_ARUBA_BROWSER_LEGACY,
+      EBAY_DELIVERY_DISCOUNT_REPLAY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

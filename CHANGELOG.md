@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.7
+
+- Gli ordini eBay già importati vengono riletti una sola volta con il mapper che sottrae gli sconti di consegna, così righe, spedizione e totale tornano riconciliati anche per le preparazioni storiche.
+
 ## 0.5.6
 
 - Una pagina Aruba può consolidare più osservazioni sulla stessa identità locale soltanto quando il medesimo run registra un conflitto fiscale irrisolto; conteggi, completezza dei file e cardinalità delle osservazioni restano verificati prima del checkpoint.
