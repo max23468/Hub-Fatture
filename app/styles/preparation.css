@@ -499,3 +499,24 @@
     text-align: left;
   }
 }
+/* Il controllo Aruba conserva testo e azione come un'unica unità leggibile. */
+.preparation-check {
+  align-items: flex-start;
+}
+
+.preparation-check__copy {
+  display: grid;
+  min-width: min(100%, 20rem);
+  flex: 1 1 24rem;
+  gap: var(--space-1);
+}
+
+.preparation-check__action {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 48rem) {
+  .preparation-check__action {
+    width: 100%;
+  }
+}

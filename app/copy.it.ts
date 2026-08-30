@@ -511,6 +511,7 @@ export const copy = {
     sourceReviewNotRequested: "Nessun controllo richiesto",
     checksTitle: "Cose da controllare",
     checkFallback: "Controlla i dati della preparazione prima di proseguire.",
+    openArubaCandidates: "Collega fattura Aruba",
     customerRecord: "Dati cliente",
     customerRecordOriginal: "Ricevuti dal canale di vendita",
     activity: "Registro attività",
@@ -646,6 +647,9 @@ export const copy = {
       "Verifica manuale richiesta: l’XML è presente, ma l’identità non basta per un collegamento automatico.",
     matchReason: "Motivazione",
     confirmMatch: "Conferma collegamento",
+    focusedPreparationHelp:
+      "Sono mostrate soltanto le fatture Aruba candidate per questa preparazione.",
+    showAllCandidates: "Mostra tutte",
     noRemoteDocuments: "Nessun documento Aruba da collegare.",
     matchStatus: "Collegamento",
     remoteLastReadback: "Ultima lettura",

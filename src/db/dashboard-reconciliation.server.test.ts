@@ -197,6 +197,22 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.deepEqual(reviewableRemote?.candidates, [
       { id: order.rows[0]!.id, label: "Shopify #WEAK", guided: true },
     ]);
+    assert.deepEqual(
+      (
+        await inventoryQueries.listRemoteDocuments({
+          attentionOnly: true,
+          billingCaseId: cases.rows[2]!.id,
+        })
+      ).map((document) => document.remote_id),
+      ["weak-official-match"],
+    );
+    assert.deepEqual(
+      await inventoryQueries.listRemoteDocuments({
+        attentionOnly: true,
+        billingCaseId: cases.rows[0]!.id,
+      }),
+      [],
+    );
 
     await client.getPool().query(
       `UPDATE aruba_document_matches

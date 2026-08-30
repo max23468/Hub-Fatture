@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.8
+
+- Una preparazione con un possibile documento Aruba offre l’azione diretta `Collega fattura Aruba` e apre soltanto le fatture candidate pertinenti, mantenendo la conferma manuale motivata e senza forzare il collegamento.
+- La vista mobile dei documenti da collegare elimina l’intestazione vuota, rende sempre visibili le viste, presenta etichette e azioni in schede leggibili e conserva spazio sicuro sopra i controlli del browser.
+
 ## 0.5.7
 
 - Gli ordini eBay già importati vengono riletti una sola volta con il mapper che sottrae gli sconti di consegna, così righe, spedizione e totale tornano riconciliati anche per le preparazioni storiche.
