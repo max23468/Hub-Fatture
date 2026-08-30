@@ -603,6 +603,46 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       ).rows[0].authority_mode,
       "CANONICAL",
     );
+    const inventoryHealth = await import("./aruba-inventory-health.server.ts").then((module) =>
+      module.getArubaInventoryHealth(),
+    );
+    assert.notEqual(inventoryHealth.status, "NEVER");
+    assert.ok(inventoryHealth.lastCompletedAt);
+    const healthFixtures = await getPool().query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year,
+         document_date, total_amount, remote_status, remote_status_observed_at,
+         metadata_digest, xml_sha256, automatic_source, provider_group_id)
+       VALUES
+         ('MOCK', 'synthetic-aruba-account', 'before-inventory-floor', 'TD01', 2026,
+          '2026-06-30', 10000, 'DELIVERED', now(), repeat('c', 64), repeat('d', 64),
+          'API', 'before-inventory-floor'),
+         ('MOCK', 'synthetic-aruba-account', 'official-external-document', 'TD01', 2026,
+          '2026-07-01', 10000, 'DELIVERED', now(), repeat('e', 64), repeat('f', 64),
+          'API', 'official-external-document')
+       RETURNING id`,
+    );
+    await getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       SELECT id, 'UNMATCHED', 'NONE', 1,
+         '[{"candidateId":"1","probe":true,"potential":true,"compatible":false}]'::jsonb
+       FROM aruba_remote_documents
+       WHERE id = ANY($1::bigint[])`,
+      [healthFixtures.rows.map((row) => row.id)],
+    );
+    const healthWithOfficialExternal = await import("./aruba-inventory-health.server.ts").then(
+      (module) => module.getArubaInventoryHealth(),
+    );
+    assert.equal(healthWithOfficialExternal.remoteDocuments, inventoryHealth.remoteDocuments + 1);
+    assert.equal(
+      healthWithOfficialExternal.externalDocuments,
+      inventoryHealth.externalDocuments + 1,
+    );
+    assert.equal(healthWithOfficialExternal.potentialMatches, inventoryHealth.potentialMatches);
+    await getPool().query("DELETE FROM aruba_remote_documents WHERE id = ANY($1::bigint[])", [
+      healthFixtures.rows.map((row) => row.id),
+    ]);
     await getPool().query(
       `INSERT INTO aruba_remote_documents
         (environment, account_reference, remote_id, document_type, fiscal_year,

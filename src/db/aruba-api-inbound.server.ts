@@ -42,7 +42,6 @@ import type { ClaimedJob, JobType } from "./connectors.server.ts";
 const WINDOW_MS = ARUBA_API_POLICY.backfillWindowMs;
 const INCREMENTAL_OVERLAP_MS = 7 * 24 * 60 * 60_000;
 const REQUEST_LIMIT = ARUBA_API_POLICY.requestLimitPerRun;
-const INVENTORY_START = new Date("2026-07-01T00:00:00.000Z");
 
 const storedCredentialsSchema = z.object({
   apiEnvironment: z.enum(["DEMO", "PRODUCTION"]),
@@ -113,7 +112,7 @@ function inventoryEnvironment(): ArubaSyncRunRow["environment"] {
 }
 
 export function arubaApiInventoryFloor(): Date {
-  return new Date(INVENTORY_START);
+  return new Date(ARUBA_API_POLICY.inventoryStart);
 }
 
 function credentialsKey(): string {
