@@ -57,6 +57,11 @@ non richiedono immagine, deploy o release; più modifiche runtime correlate già
 assorbite in `main` vengono distribuite insieme una sola volta sul candidato
 finale.
 
+Il titolo della PR usa sempre il formato Conventional Commit accettato da
+Foundation (`tipo(scope)!: descrizione` oppure `tipo: descrizione`). Di default
+coincide con il subject Conventional dell'HEAD già validato; non sostituirlo con
+un titolo descrittivo privo del prefisso prima dell'apertura della PR.
+
 Quando una modifica runtime deve essere pubblicata, il bump di versione e la
 voce di changelog appartengono alla stessa PR dell'implementazione e devono
 essere completati prima del merge. Non fondere la modifica runtime per aprire
