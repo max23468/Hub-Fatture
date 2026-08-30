@@ -95,7 +95,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     .slice(readinessFiles.length)
     .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
   assert.equal(readinessTests.length, 9);
-  assert.equal(migrationTests.length, 17);
+  assert.equal(migrationTests.length, 18);
 });
 
 test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", async () => {

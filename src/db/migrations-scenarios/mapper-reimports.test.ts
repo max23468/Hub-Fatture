@@ -300,7 +300,7 @@ test("l'upgrade rilegge soltanto i destinatari Shopify già importati", async ()
   }
 });
 
-test("l'upgrade rilegge il mapper Shopify senza riavvolgere eBay", async () => {
+test("l'upgrade rilegge i mapper di spedizione dei rispettivi provider", async () => {
   const database = await temporaryDatabase("shopify_shipping_identity_replay");
   const beforeReplay = await mkdtemp(
     path.join(os.tmpdir(), "hub-fatture-before-shopify-shipping-identity-replay-"),
@@ -382,8 +382,8 @@ test("l'upgrade rilegge il mapper Shopify senza riavvolgere eBay", async () => {
         [
           {
             provider: "EBAY",
-            cursor: "ebay-recent",
-            overlap_from: "2026-08-14 10:00:00+00",
+            cursor: null,
+            overlap_from: "2026-08-12 09:55:00+00",
           },
           {
             provider: "SHOPIFY",
@@ -400,7 +400,7 @@ test("l'upgrade rilegge il mapper Shopify senza riavvolgere eBay", async () => {
           )
         ).rows,
         [
-          { provider: "EBAY", last_synced_at: "2026-08-14 12:00:00+00" },
+          { provider: "EBAY", last_synced_at: null },
           { provider: "SHOPIFY", last_synced_at: null },
         ],
       );
@@ -761,6 +761,75 @@ test("l'upgrade elimina la configurazione obsoleta della protezione per upload A
     });
   } finally {
     await rm(beforeRemoval, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
+test("l'upgrade rilegge gli ordini eBay con lo sconto di consegna", async () => {
+  const database = await temporaryDatabase("ebay_delivery_discount_replay");
+  const beforeReplay = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-ebay-delivery-discount-replay-"),
+  );
+  try {
+    await copyMigrationSnapshot(beforeReplay);
+    await runMigrations({ connectionString: database.connectionString, directory: beforeReplay });
+    await withClient(database.connectionString, async (client) => {
+      await client.query(
+        `INSERT INTO connections
+           (provider, environment, account_reference, encrypted_credentials, status,
+            last_synced_at)
+         VALUES ('EBAY', 'PRODUCTION', 'seller-replay', 'encrypted', 'CONNECTED',
+                 '2026-08-30T12:00:00Z')`,
+      );
+      await client.query(
+        `INSERT INTO sync_cursors (provider, stream, cursor, overlap_from)
+         VALUES
+           ('EBAY', 'history_import', 'complete', '2026-01-01T00:00:00Z'),
+           ('EBAY', 'orders', 'page-after-order', '2026-08-30T00:00:00Z')`,
+      );
+      const customerId = (
+        await client.query(
+          `INSERT INTO customers
+             (kind, match_key, display_name, billing_address_json, source_confidence,
+              review_required)
+           VALUES ('EU', 'ebay-delivery-replay', 'Cliente', '{}', 'AMBIGUOUS', true)
+           RETURNING id`,
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO orders
+           (provider, external_account_id, external_order_id, display_number,
+            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+            payment_status, fulfillment_status, trigger_status, customer_id,
+            raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('EBAY', 'seller-replay', 'discounted-delivery', 'E-1',
+                 '2026-08-24T09:00:00Z', '2026-08-24T10:00:00Z', '2026-08-24',
+                 'EUR', 9448, 'PAID', 'FULFILLED', 'NEEDS_REVIEW', $1, '{}', '{}')`,
+        [customerId],
+      );
+    });
+
+    const applied = await runMigrations({ connectionString: database.connectionString });
+    assert.ok(applied.includes("046_ebay_delivery_discount_replay.sql"));
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT cursor, overlap_from::text
+               FROM sync_cursors
+              WHERE provider = 'EBAY' AND stream = 'orders'`,
+          )
+        ).rows[0],
+        { cursor: null, overlap_from: "2026-08-24 09:55:00+00" },
+      );
+      assert.equal(
+        (await client.query("SELECT last_synced_at FROM connections WHERE provider = 'EBAY'"))
+          .rows[0].last_synced_at,
+        null,
+      );
+    });
+  } finally {
+    await rm(beforeReplay, { recursive: true, force: true });
     await database.drop();
   }
 });
