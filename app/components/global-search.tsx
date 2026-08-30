@@ -32,7 +32,13 @@ export function GlobalSearch() {
     : 0;
 
   useEffect(() => {
-    function onShortcut(event: KeyboardEvent) {
+    function onKeyDown(event: KeyboardEvent) {
+      if (open && event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeAndReturnFocus();
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setOpen(true);
@@ -42,10 +48,10 @@ export function GlobalSearch() {
     function onPointerDown(event: PointerEvent) {
       if (open && !rootRef.current?.contains(event.target as Node)) setOpen(false);
     }
-    document.addEventListener("keydown", onShortcut);
+    document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("pointerdown", onPointerDown);
     return () => {
-      document.removeEventListener("keydown", onShortcut);
+      document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("pointerdown", onPointerDown);
     };
   }, [open]);
@@ -60,7 +66,7 @@ export function GlobalSearch() {
 
   function closeAndReturnFocus() {
     setOpen(false);
-    triggerRef.current?.focus();
+    requestAnimationFrame(() => triggerRef.current?.focus());
   }
 
   return (
@@ -81,14 +87,7 @@ export function GlobalSearch() {
         <span>{copy.search.trigger}</span>
       </button>
       {open ? (
-        <dialog
-          open
-          aria-label={copy.search.title}
-          className="global-search__panel"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") closeAndReturnFocus();
-          }}
-        >
+        <dialog open aria-label={copy.search.title} className="global-search__panel">
           <div className="global-search__field">
             <Search aria-hidden="true" size={20} strokeWidth={1.9} />
             <label className="visually-hidden" htmlFor="ricerca-globale">
