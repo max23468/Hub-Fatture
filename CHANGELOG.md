@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.5
+
+- La validazione differita delle note di credito ignora una bozza transitoria già eliminata nella stessa transazione di riconciliazione Aruba, ma continua a bloccare ogni nota persistente che non quadra con ordini e rimborsi collegati.
+
 ## 0.4.4
 
 - La rilettura mirata Aruba congela l’elenco dei gruppi, consolida ciascun gruppo separatamente e riprende dal primo checkpoint non completato dopo un errore provider, senza rileggere né perdere le pratiche già acquisite e senza dipendere dal browser.
