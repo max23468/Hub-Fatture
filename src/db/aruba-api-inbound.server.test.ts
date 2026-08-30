@@ -379,6 +379,60 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         },
       ],
     };
+    const immutableConflictPage = {
+      ...stagedPage,
+      documents: [
+        {
+          ...stagedPage.documents[0]!,
+          remoteId: "atomic-immutable-conflict",
+          totalAmount: 12_400,
+          xmlSha256: "8".repeat(64),
+        },
+      ],
+    };
+    const diagnosticRollback = new Error("DIAGNOSTIC_ROLLBACK");
+    await assert.rejects(
+      withJoinedTransaction(async (client) => {
+        const staged = await apiStage.stageApiPage(
+          stagedRunId,
+          immutableConflictPage,
+          new Map([["atomic-immutable-conflict", "atomic-conflict-group"]]),
+          1,
+        );
+        assert.deepEqual(staged.resolvedDocuments, [
+          {
+            remoteId: "atomic-immutable-conflict",
+            remoteDocumentId: stagedApiDocument.rows[0]!.id,
+            officialFilesBlocked: true,
+          },
+        ]);
+        assert.deepEqual(
+          (
+            await client.query(
+              `SELECT remote_id, total_amount, provider_group_id,
+                      (SELECT status FROM aruba_document_matches
+                       WHERE remote_document_id = aruba_remote_documents.id) AS match_status,
+                      (SELECT signals_json FROM aruba_document_matches
+                       WHERE remote_document_id = aruba_remote_documents.id) AS signals,
+                      (SELECT count(*)::integer FROM aruba_deduplication_conflicts
+                       WHERE sync_run_id = $2) AS conflicts
+               FROM aruba_remote_documents WHERE id = $1`,
+              [stagedApiDocument.rows[0]!.id, stagedRunId],
+            )
+          ).rows[0],
+          {
+            remote_id: "api-atomic-stage",
+            total_amount: 12_300,
+            provider_group_id: "atomic-conflict-group",
+            match_status: "UNKNOWN_REMOTE_STATE",
+            signals: { deduplicationCollision: true, immutableFiscalConflict: true },
+            conflicts: 1,
+          },
+        );
+        throw diagnosticRollback;
+      }),
+      (error) => error === diagnosticRollback,
+    );
     await assert.rejects(
       withJoinedTransaction(async () => {
         const staged = await apiStage.stageApiPage(

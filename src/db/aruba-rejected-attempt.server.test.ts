@@ -6,6 +6,7 @@ import pg from "pg";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 import {
+  consolidateArubaRemoteCollision,
   findArubaRemoteCollision,
   resolveRejectedAttemptIdentityConflicts,
 } from "./aruba-rejected-attempt.server.ts";
@@ -57,22 +58,82 @@ test("un tentativo rifiutato non occupa l'identità fiscale del tentativo succes
          '99', '2026-08-27', 1000, 'NOT_DELIVERED', now(), repeat('3', 64))
        RETURNING id`,
     );
+    const collision = await findArubaRemoteCollision(client, {
+      environment: "MOCK",
+      accountReference: "synthetic-account",
+      series: "FPR",
+      fiscalYear: 2026,
+      fiscalNumber: "99",
+      documentType: "TD01",
+      xmlSha256: null,
+      remoteStatus: "DELIVERED",
+    });
+    assert.deepEqual(collision, {
+      id: replacement.rows[0]!.id,
+      remote_id: "replacement-attempt",
+      remote_status: "NOT_DELIVERED",
+      api: false,
+      document_type: "TD01",
+      fiscal_year: 2026,
+      series: "FPR",
+      fiscal_number: "99",
+      document_date: "2026-08-27",
+      total_amount: 1000,
+      currency: "EUR",
+      xml_sha256: null,
+    });
     assert.deepEqual(
-      await findArubaRemoteCollision(client, {
-        environment: "MOCK",
-        accountReference: "synthetic-account",
-        series: "FPR",
-        fiscalYear: 2026,
-        fiscalNumber: "99",
-        documentType: "TD01",
-        xmlSha256: null,
-        remoteStatus: "DELIVERED",
-      }),
+      await consolidateArubaRemoteCollision(
+        client,
+        collision!,
+        {
+          remoteId: "replacement-attempt-with-conflicting-total",
+          documentType: "TD01",
+          fiscalYear: 2026,
+          series: "FPR",
+          fiscalNumber: "99",
+          documentDate: "2026-08-27",
+          recipientName: "Destinatario sintetico",
+          recipientTaxId: null,
+          recipientTaxIdentifiers: [],
+          recipientCountryCode: "IT",
+          recipientAddress: null,
+          totalAmount: 2000,
+          currency: "EUR",
+          status: "DELIVERED",
+          providerStatusLabel: "Consegnata",
+          providerInvoiceNumber: "99",
+          providerObservedAt: "2026-08-27T12:00:00.000Z",
+          xmlSha256: null,
+          orderReferences: [],
+        },
+        false,
+        "6".repeat(64),
+      ),
       {
         id: replacement.rows[0]!.id,
+        conflicted: true,
+        immutableConflict: true,
+        collisionKey: "FISCAL_IDENTITY",
+      },
+    );
+    assert.deepEqual(
+      (
+        await client.query(
+          `SELECT remote_id, total_amount,
+                  (SELECT status FROM aruba_document_matches
+                   WHERE remote_document_id = aruba_remote_documents.id) AS match_status,
+                  (SELECT signals_json FROM aruba_document_matches
+                   WHERE remote_document_id = aruba_remote_documents.id) AS signals
+           FROM aruba_remote_documents WHERE id = $1`,
+          [replacement.rows[0]!.id],
+        )
+      ).rows[0],
+      {
         remote_id: "replacement-attempt",
-        remote_status: "NOT_DELIVERED",
-        api: false,
+        total_amount: 1000,
+        match_status: "UNKNOWN_REMOTE_STATE",
+        signals: { deduplicationCollision: true, immutableFiscalConflict: true },
       },
     );
     await assert.rejects(
