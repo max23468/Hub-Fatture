@@ -63,12 +63,14 @@ test("l’inbound API cifra la credenziale e completa un backfill shadow riprend
     await cp("migrations", beforeOutbound, { recursive: true });
     await rm(path.join(beforeOutbound, "040_aruba_api_outbound.sql"));
     await rm(path.join(beforeOutbound, "041_aruba_targeted_checkpoints.sql"));
+    await rm(path.join(beforeOutbound, "042_credit_note_deferred_validation.sql"));
     await getPool().query(
       `DELETE FROM schema_migrations
        WHERE name IN (
          '039_aruba_p7m_parity_normalization.sql',
          '040_aruba_api_outbound.sql',
-         '041_aruba_targeted_checkpoints.sql'
+         '041_aruba_targeted_checkpoints.sql',
+         '042_credit_note_deferred_validation.sql'
        )`,
     );
     assert.deepEqual(
