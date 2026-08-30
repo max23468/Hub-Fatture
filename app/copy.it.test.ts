@@ -15,6 +15,10 @@ test("le attività dei canali non espongono codici interni", () => {
 test("le Impostazioni distinguono i documenti esterni dalle verifiche Aruba", () => {
   assert.equal(copy.settings.arubaExternalDocuments, "Senza ordine Shopify/eBay");
   assert.equal(copy.settings.arubaUnresolved, "Da verificare");
+  assert.equal(
+    copy.dashboard.updatesMissingDetail,
+    "Uno o più collegamenti richiedono un aggiornamento o una verifica",
+  );
 });
 
 test("la connessione Aruba distingue le credenziali del pannello da credenziali API dedicate", () => {

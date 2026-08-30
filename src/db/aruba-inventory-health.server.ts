@@ -2,7 +2,7 @@ import type pg from "pg";
 
 import { ARUBA_API_POLICY } from "../aruba-api-policy.ts";
 import { getConfig } from "../config.server.ts";
-import { arubaUnresolvedCandidateSql } from "./billing-case-sql.server.ts";
+import { arubaActionableCandidateSql } from "./billing-case-sql.server.ts";
 import { getPool } from "./client.server.ts";
 
 function environment(): "MOCK" | "PRODUCTION" {
@@ -31,18 +31,25 @@ export interface ArubaInventoryHealth {
   blockingReason: "NEVER" | "STALE" | "FAILURE" | "CONFLICT" | null;
 }
 
+const arubaActionableCandidatesPredicate = `EXISTS (
+    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
+    WHERE ${arubaActionableCandidateSql("candidate", "remote")}
+  )`;
+
 export const arubaPotentialMatchPredicate = `(matches.status = 'UNMATCHED'
   AND matches.method <> 'MANUAL'
-  AND EXISTS (
-    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE ${arubaUnresolvedCandidateSql("candidate")}
-      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
-  )
-  AND (remote.xml_sha256 IS NULL OR EXISTS (
-    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE coalesce((candidate ->> 'compatible')::boolean, false)
-      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
-  )))`;
+  AND ${arubaActionableCandidatesPredicate})`;
+
+export const arubaAmbiguousMatchPredicate = `(matches.status = 'AMBIGUOUS'
+  AND matches.method <> 'MANUAL'
+  AND ${arubaActionableCandidatesPredicate})`;
+
+export const arubaConflictMatchPredicate = `(
+  (matches.status = 'PROFILE_CONFLICT'
+    AND matches.method <> 'MANUAL'
+    AND ${arubaActionableCandidatesPredicate})
+  OR matches.status IN ('ERROR', 'UNKNOWN_REMOTE_STATE')
+)`;
 
 export const arubaExternalDocumentPredicate = `(matches.status = 'UNMATCHED' AND (
   (matches.method = 'MANUAL' AND remote.origin = 'ARUBA_EXTERNAL')
@@ -51,7 +58,8 @@ export const arubaExternalDocumentPredicate = `(matches.status = 'UNMATCHED' AND
 
 export const arubaBlockingMatchPredicate = `(remote.remote_status <> 'REJECTED' AND (
   ${arubaPotentialMatchPredicate}
-  OR matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')
+  OR ${arubaAmbiguousMatchPredicate}
+  OR ${arubaConflictMatchPredicate}
 ))`;
 
 export async function getArubaInventoryHealth(
@@ -125,13 +133,14 @@ export async function getArubaInventoryHealth(
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
           AND remote.document_date >= $3::date
-          AND remote.remote_status <> 'REJECTED' AND matches.status = 'AMBIGUOUS') AS ambiguous,
+          AND remote.remote_status <> 'REJECTED'
+          AND ${arubaAmbiguousMatchPredicate}) AS ambiguous,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
           AND remote.document_date >= $3::date
           AND remote.remote_status <> 'REJECTED'
-          AND matches.status IN ('PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')) AS conflicts,
+          AND ${arubaConflictMatchPredicate}) AS conflicts,
        (SELECT count(*) FROM aruba_remote_documents
         WHERE environment = $1 AND account_reference = $2
           AND document_date >= $3::date) AS remote_documents`,

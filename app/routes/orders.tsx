@@ -102,11 +102,18 @@ export async function loader({ request }: Route.LoaderArgs) {
           status: filters.status || (view === "tutti" && !filters.query ? "ACTIVE" : undefined),
           localDate: filters.localDate || undefined,
           paymentStatus: filters.paymentStatus || undefined,
+          excludePendingPayments: view === "verificare",
           page,
           sort: orderSort,
         }),
     caseStatusByView[view]
-      ? listBillingCases({ statuses: caseStatusByView[view], page, sort: preparationSort })
+      ? listBillingCases({
+          statuses: caseStatusByView[view],
+          standardApprovalOnly: view === "fatturare",
+          excludePendingPayments: view === "verificare",
+          page,
+          sort: preparationSort,
+        })
       : Promise.resolve(emptyPage),
   ]);
   const approvalCandidates =

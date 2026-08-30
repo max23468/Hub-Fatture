@@ -10,7 +10,11 @@ import { getConfig } from "../config.server.ts";
 import { auditActions } from "./audit.server.ts";
 import { getPool } from "./client.server.ts";
 import { actionableConnectorFailures } from "./connectors.server.ts";
-import { pendingPaymentSql } from "./billing-case-sql.server.ts";
+import {
+  billingCasePendingPaymentSql,
+  pendingPaymentSql,
+  standardInvoiceApprovalCriteriaSql,
+} from "./billing-case-sql.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
 type SortDirection = "asc" | "desc";
@@ -145,6 +149,7 @@ export async function listOrders(filters: {
   status?: string;
   localDate?: string;
   paymentStatus?: string;
+  excludePendingPayments?: boolean;
   page?: unknown;
   sort?: { key: OrderListSortKey; direction: SortDirection };
 }) {
@@ -158,6 +163,7 @@ export async function listOrders(filters: {
     filters.localDate || null,
     filters.paymentStatus || null,
     pageOffset(filters.page),
+    Boolean(filters.excludePendingPayments),
   ];
   const sort = filters.sort ?? { key: "data", direction: "desc" };
   const orderBy = orderListSortSql[sort.key];
@@ -214,6 +220,7 @@ export async function listOrders(filters: {
        AND ($5::text IS NULL
             OR ($5 = 'PENDING' AND ${pendingPaymentSql()})
             OR ($5 <> 'PENDING' AND orders.payment_status = $5))
+       AND (NOT $7::boolean OR NOT ${pendingPaymentSql()})
      ORDER BY ${orderBy} ${direction} NULLS LAST,
               orders.local_order_date DESC, orders.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $6`,
@@ -314,17 +321,25 @@ export async function dashboardSummary() {
       shopify_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
       ebay_connection_status: "CONNECTED" | "REAUTH_REQUIRED" | "REVOKED" | "ERROR" | null;
       last_aruba_readback: string | null;
-      open_aruba_batches: string;
+      aruba_batches_requiring_attention: string;
       documents_today: string;
       documents_this_month: string;
       documents_last_seven_days: Array<{ date: string; count: number }>;
     }>(
       `SELECT
        (SELECT count(*) FROM orders)::text AS orders,
-       (SELECT count(*) FROM billing_cases WHERE status = 'READY')::text AS ready_cases,
-       ((SELECT count(*) FROM billing_cases WHERE status = 'NEEDS_REVIEW') +
+       (SELECT count(*)
+        FROM billing_cases
+        JOIN documents ON documents.billing_case_id = billing_cases.id
+        JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
+        WHERE ${standardInvoiceApprovalCriteriaSql()})::text AS ready_cases,
+       ((SELECT count(*) FROM billing_cases
+         WHERE status = 'NEEDS_REVIEW'
+           AND NOT ${billingCasePendingPaymentSql()}) +
         (SELECT count(*) FROM orders
-         WHERE billing_case_id IS NULL AND (
+         WHERE billing_case_id IS NULL
+           AND NOT ${pendingPaymentSql()}
+           AND (
            trigger_status = 'LEGACY_BILLING_REVIEW'
            OR (historical_reconciliation_outcome = 'ALREADY_INVOICED'
              AND NOT EXISTS (
@@ -353,7 +368,10 @@ export async function dashboardSummary() {
         WHERE provider = 'EBAY' AND environment = $2) AS ebay_connection_status,
        (SELECT max(last_readback_at)::text FROM aruba_batches) AS last_aruba_readback,
        (SELECT count(*) FROM aruba_batches
-        WHERE status NOT IN ('RECONCILED', 'CANCELLED'))::text AS open_aruba_batches,
+        WHERE status IN (
+          'DRY_RUN_FAILED', 'VALIDATION_FAILED',
+          'UNKNOWN_REMOTE_STATE', 'RECONCILIATION_REQUIRED'
+        ))::text AS aruba_batches_requiring_attention,
        (SELECT count(*) FROM documents
         WHERE origin = 'HUB' AND approved_at AT TIME ZONE 'Europe/Rome' >=
           date_trunc('day', now() AT TIME ZONE 'Europe/Rome'))::text AS documents_today,

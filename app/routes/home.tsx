@@ -17,6 +17,7 @@ import { AppShell } from "../components/app-shell";
 import { copy } from "../copy.it";
 import { dateTime } from "../format";
 import { privateRouteMeta } from "../metadata";
+import { dashboardConnectionFreshness } from "../../src/dashboard.ts";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 import { getArubaInventoryHealth } from "../../src/db/aruba-inbound.server.ts";
 import { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
@@ -67,7 +68,7 @@ export default function Home() {
   } = useLoaderData<typeof loader>();
   const workItems = [
     {
-      value: Number(summary.ready_cases),
+      value: arubaInventory.blocking ? 0 : Number(summary.ready_cases),
       label: copy.dashboard.readyPreparations,
       detail: copy.dashboard.readyDetail,
       to: "/ordini?vista=fatturare",
@@ -140,8 +141,8 @@ export default function Home() {
       label: "Shopify",
       value: summary.last_shopify_sync,
       connected: summary.shopify_connection_status === "CONNECTED",
-      requiresUpdate:
-        summary.shopify_connection_status !== "CONNECTED" || !summary.last_shopify_sync,
+      providerStatus: undefined,
+      requiresAttention: false,
       never: copy.dashboard.neverUpdated,
       to: "/impostazioni#connessioni",
       icon: ShoppingCart,
@@ -150,7 +151,8 @@ export default function Home() {
       label: "eBay",
       value: summary.last_ebay_sync,
       connected: summary.ebay_connection_status === "CONNECTED",
-      requiresUpdate: summary.ebay_connection_status !== "CONNECTED" || !summary.last_ebay_sync,
+      providerStatus: undefined,
+      requiresAttention: false,
       never: copy.dashboard.neverUpdated,
       to: "/impostazioni#connessioni",
       icon: Tag,
@@ -159,24 +161,29 @@ export default function Home() {
       label: "Aruba",
       value: arubaInventory.lastCompletedAt,
       connected: true,
-      requiresUpdate: arubaInventory.blocking || Number(summary.open_aruba_batches) > 0,
+      providerStatus: arubaInventory.status,
+      requiresAttention: Number(summary.aruba_batches_requiring_attention) > 0,
       never: copy.dashboard.neverRead,
       to: "/impostazioni#aruba",
       icon: Cloud,
     },
   ].map((connection) => {
-    const stale =
-      !connection.connected ||
-      (connection.value
-        ? new Date(currentTime).getTime() - new Date(connection.value).getTime() >
-          24 * 60 * 60 * 1000
-        : true);
-    return { ...connection, stale };
+    const freshness = dashboardConnectionFreshness({
+      connected: connection.connected,
+      lastUpdatedAt: connection.value,
+      now: currentTime,
+      providerStatus: connection.providerStatus,
+    });
+    return {
+      ...connection,
+      ...freshness,
+      blocking: freshness.blocking || Boolean(connection.requiresAttention),
+    };
   });
 
   const incidentCount = incidents.reduce((total, incident) => total + incident.value, 0);
   const hasMissingUpdates = connections.some(
-    (connection) => connection.requiresUpdate || connection.stale,
+    (connection) => connection.blocking || connection.stale,
   );
   const status = incidentCount
     ? {
