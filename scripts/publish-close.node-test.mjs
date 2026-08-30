@@ -73,6 +73,11 @@ async function fixture() {
 test("chiude soltanto il ciclo assorbito e preserva i worktree concorrenti", async () => {
   const value = await fixture();
   try {
+    git(value.remote, "update-ref", "-d", "refs/heads/codex/feature");
+    assert.equal(
+      git(value.primary, "rev-parse", "refs/remotes/origin/codex/feature"),
+      git(value.primary, "rev-parse", "refs/heads/codex/feature"),
+    );
     const output = execFileSync("node", [script, "codex/feature", value.feature], {
       cwd: value.primary,
       env: { ...process.env, PATH: `${value.fakeBin}:${process.env.PATH}` },
@@ -89,6 +94,12 @@ test("chiude soltanto il ciclo assorbito e preserva i worktree concorrenti", asy
     assert.equal(
       git(value.primary, "ls-remote", "--heads", "origin", "refs/heads/codex/feature"),
       "",
+    );
+    assert.notEqual(
+      spawnSync("git", ["show-ref", "--verify", "refs/remotes/origin/codex/feature"], {
+        cwd: value.primary,
+      }).status,
+      0,
     );
     assert.match(
       git(value.primary, "worktree", "list", "--porcelain"),
