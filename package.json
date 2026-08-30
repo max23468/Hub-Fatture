@@ -1,10 +1,11 @@
 {
   "name": "hub-fatture",
-  "version": "0.5.11",
+  "version": "0.5.12",
   "private": true,
   "type": "module",
   "scripts": {
     "audit": "npm audit --audit-level=high",
+    "benchmark:performance": "node scripts/with-test-database.mjs node scripts/performance-benchmark.ts",
     "aruba:api:probe": "node scripts/aruba-api-read-probe.ts",
     "aruba:api:probe:interactive": "sh scripts/aruba-api-read-probe.sh",
     "aruba:api:probe:keychain": "sh scripts/aruba-api-read-probe-keychain.sh",

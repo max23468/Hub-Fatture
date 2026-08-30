@@ -17,10 +17,10 @@ const customerListSortSql: Record<CustomerListSortKey, string> = {
   cliente: "lower(customers.display_name)",
   email: "lower(customers.email)",
   fiscale: "lower(customers.tax_id_normalized)",
-  canale: "array_to_string(coalesce(sources.providers, ARRAY[]::text[]), ' ')",
-  ultimoOrdine: "order_summary.last_order_date",
-  ordini: "coalesce(order_summary.order_count, 0)",
-  documenti: "coalesce(document_summary.document_count, 0)",
+  canale: "array_to_string(customers.providers, ' ')",
+  ultimoOrdine: "customers.last_order_date",
+  ordini: "customers.order_count",
+  documenti: "customers.document_count",
 };
 
 // Il flag persistito descrive la qualità dell'ultimo profilo sorgente, non basta da solo
@@ -101,36 +101,72 @@ export async function listCustomers(filters: {
     document_count: number;
     last_order_date: string | null;
   }>(
-    `SELECT customers.id, customers.kind, customers.display_name, customers.email,
+    `WITH source_summary AS (
+       SELECT customer_source_records.customer_id,
+              array_agg(DISTINCT customer_source_records.provider
+                        ORDER BY customer_source_records.provider) AS providers
+       FROM customer_source_records
+       GROUP BY customer_source_records.customer_id
+     ), order_summary AS (
+       SELECT orders.customer_id, count(*)::integer AS order_count,
+              max(orders.local_order_date) AS last_order_date
+       FROM orders
+       GROUP BY orders.customer_id
+     ), case_summary AS (
+       SELECT billing_cases.customer_id, count(*)::integer AS preparation_count
+       FROM billing_cases
+       GROUP BY billing_cases.customer_id
+     ), document_summary AS (
+       SELECT billing_cases.customer_id, count(documents.id)::integer AS document_count
+       FROM billing_cases
+       JOIN documents ON documents.billing_case_id = billing_cases.id
+       GROUP BY billing_cases.customer_id
+     ), actionable_reviews AS (
+       SELECT DISTINCT review_orders.customer_id
+       FROM orders AS review_orders
+       JOIN customers AS review_customers ON review_customers.id = review_orders.customer_id
+       LEFT JOIN billing_cases AS review_cases ON review_cases.id = review_orders.billing_case_id
+       WHERE coalesce(
+         (review_orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean,
+         review_customers.review_required
+       )
+       AND (
+         (
+           review_orders.billing_case_id IS NULL
+           AND review_orders.trigger_status IN ('NEEDS_REVIEW', 'LEGACY_BILLING_REVIEW')
+         )
+         OR (
+           review_cases.status = 'NEEDS_REVIEW'
+           AND coalesce(
+             (review_cases.customer_snapshot_json ->> 'reviewRequired')::boolean,
+             true
+           )
+         )
+       )
+     ), customers_with_summary AS (
+       SELECT customers.id, customers.kind, customers.display_name, customers.email,
+            customers.phone,
             customers.tax_id_type, customers.tax_id_normalized,
-            (${actionableCustomerReviewSql}) AS review_required,
+            actionable_reviews.customer_id IS NOT NULL AS review_required,
             customers.source_confidence, customers.updated_at::text,
-            coalesce(sources.providers, ARRAY[]::text[]) AS providers,
+            coalesce(source_summary.providers, ARRAY[]::text[]) AS providers,
             coalesce(order_summary.order_count, 0)::integer AS order_count,
             coalesce(case_summary.preparation_count, 0)::integer AS preparation_count,
             coalesce(document_summary.document_count, 0)::integer AS document_count,
             order_summary.last_order_date::text
-     FROM customers
-     LEFT JOIN LATERAL (
-       SELECT array_agg(DISTINCT customer_source_records.provider
-                        ORDER BY customer_source_records.provider) AS providers
-       FROM customer_source_records
-       WHERE customer_source_records.customer_id = customers.id
-     ) AS sources ON true
-     LEFT JOIN LATERAL (
-       SELECT count(*) AS order_count, max(orders.local_order_date) AS last_order_date
-       FROM orders WHERE orders.customer_id = customers.id
-     ) AS order_summary ON true
-     LEFT JOIN LATERAL (
-       SELECT count(*) AS preparation_count
-       FROM billing_cases WHERE billing_cases.customer_id = customers.id
-     ) AS case_summary ON true
-     LEFT JOIN LATERAL (
-       SELECT count(*) AS document_count
-       FROM documents
-       JOIN billing_cases ON billing_cases.id = documents.billing_case_id
-       WHERE billing_cases.customer_id = customers.id
-     ) AS document_summary ON true
+       FROM customers
+       LEFT JOIN source_summary ON source_summary.customer_id = customers.id
+       LEFT JOIN order_summary ON order_summary.customer_id = customers.id
+       LEFT JOIN case_summary ON case_summary.customer_id = customers.id
+       LEFT JOIN document_summary ON document_summary.customer_id = customers.id
+       LEFT JOIN actionable_reviews ON actionable_reviews.customer_id = customers.id
+     )
+     SELECT customers.id, customers.kind, customers.display_name, customers.email,
+            customers.tax_id_type, customers.tax_id_normalized, customers.review_required,
+            customers.source_confidence, customers.updated_at, customers.providers,
+            customers.order_count, customers.preparation_count, customers.document_count,
+            customers.last_order_date
+     FROM customers_with_summary AS customers
      WHERE ($1::text IS NULL OR customers.display_name ILIKE $1
             OR customers.email ILIKE $1 OR customers.phone ILIKE $1
             OR customers.tax_id_normalized ILIKE $1
@@ -139,9 +175,9 @@ export async function listCustomers(filters: {
               WHERE customer_source_records.customer_id = customers.id
                 AND customer_source_records.external_customer_id ILIKE $1
             ))
-       AND ($2::boolean IS NULL OR (${actionableCustomerReviewSql}) = $2)
+       AND ($2::boolean IS NULL OR customers.review_required = $2)
      ORDER BY ${orderBy} ${direction} NULLS LAST,
-              (${actionableCustomerReviewSql}) DESC,
+              customers.review_required DESC,
               customers.updated_at DESC, customers.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $3`,
     [

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.12
+
+- La directory clienti aggrega ordini, pratiche e documenti in un solo passaggio per tabella invece di ripetere le stesse scansioni per ogni cliente; sul benchmark sintetico ripetibile da 1.000 clienti il tempo mediano scende da 372,7 ms a 19,3-22,4 ms, mantenendo invariati filtri, conteggi e ordinamento.
+
 ## 0.5.11
 
 - La validazione dei file XML Aruba applica i limiti di profondità e numero elementi con uno scanner lineare pre-DOM che conta anche i nomi Unicode, impedendo strutture complesse oltre soglia senza alterare XML FatturaPA, namespace, commenti o CDATA legittimi.
