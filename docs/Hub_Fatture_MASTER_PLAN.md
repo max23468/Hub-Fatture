@@ -2369,6 +2369,10 @@ Per il repository pubblico e single-owner usare il flusso minimo:
 - niente push diretti intenzionali su `main`;
 - branch protection, base aggiornata, conversazioni risolte e gate richiesti applicati anche all'amministratore;
 - cancellazione esplicita dei soli branch temporanei dopo il merge;
+- chiusura locale fail-closed dal checkout pulito di `main`: il comando canonico
+  verifica che PR e HEAD del branch temporaneo coincidano e siano assorbiti in
+  `origin/main`, allinea la base, rimuove soltanto branch e worktree indicati e
+  inventaria stash, branch e worktree preservati da dichiarare nel riepilogo;
 - prima di aprire la PR di pubblicazione, completare i gate locali applicabili e
   presentare un HEAD coerente e già pronto alla review;
 - una richiesta affermativa e inequivocabile di pubblicazione autorizza deploy
@@ -3248,6 +3252,10 @@ Gate:
 - nessun upload, dry-run o invio Aruba reale.
 
 ### M10 - Outbound API senza invio reale
+
+**Stato: completata.** Il [dossier outbound](evidence/aruba-api-outbound.md) collega
+implementazione, qualifica Production monouso e checklist chiusa senza invio SdI;
+`dryRun=false` resta separato e non autorizzato.
 
 Output:
 

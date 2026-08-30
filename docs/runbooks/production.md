@@ -82,6 +82,28 @@ rilegge tag, asset unico e immutabilità; una ripetizione è un no-op soltanto s
 release e manifest esistenti coincidono byte per byte. Rollback, backup-only e
 deploy senza modifica runtime non pubblicano release.
 
+## Chiusura locale
+
+Dopo il merge e dopo gli eventuali readback Production e release, eseguire dal
+checkout pulito di `main`:
+
+```sh
+node scripts/publish-close.mjs <branch-temporaneo> <percorso-worktree-assoluto>
+```
+
+Il comando rilegge `origin/main` e la PR unita, richiede che l'HEAD locale del
+branch coincida con quello della PR e che il merge appartenga alla linea corrente
+di `main`. Soltanto dopo questi controlli allinea `main`, elimina il branch remoto
+se ancora presente, rimuove il worktree pulito e il branch locale indicati, quindi
+verifica l'assenza dei tre residui. Worktree, branch e stash estranei vengono
+preservati e stampati: il riepilogo finale li dichiara esplicitamente. Un errore o
+un inventario non riportato impediscono di definire conclusa la pubblicazione.
+
+Se il ciclo non ha creato un branch e un worktree temporanei, non forzare il
+comando con target estranei: rileggere manualmente `main`, `origin/main`,
+`git status`, `git worktree list`, branch locali/remoti e `git stash list`, quindi
+dichiarare che la rimozione non era applicabile e riportare i residui preservati.
+
 ## Rollback
 
 Il rollback è applicativo: un workflow manuale può scegliere un commit precedente già contenuto in `main`; soltanto se lo schema è rimasto invariato, il deploy ripristina insieme applicazione, Compose e Caddyfile e ripete il readback. Se la modalità e-mail globale è `DISABLED`, il workflow rifiuta anche un candidato precedente che non la supporta, perché il vecchio worker potrebbe altrimenti accodare o inviare nuove copie. Lo script applica inoltre lo stesso ripristino automatico del bundle precedente quando fallisce il deploy in corso. Se lo schema è avanzato, non è rilevabile o la modalità disattivata non è supportata dal target, il rollback è vietato e il candidato resta fermo sul percorso di forward-fix. La chiusura operativa ripete anche login, worker e kill switch. Non esistono down migration automatiche; un restore Production richiede autorizzazione separata.

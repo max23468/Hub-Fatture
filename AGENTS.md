@@ -57,6 +57,11 @@ non richiedono immagine, deploy o release; più modifiche runtime correlate già
 assorbite in `main` vengono distribuite insieme una sola volta sul candidato
 finale.
 
+Il titolo della PR usa sempre il formato Conventional Commit accettato da
+Foundation (`tipo(scope)!: descrizione` oppure `tipo: descrizione`). Di default
+coincide con il subject Conventional dell'HEAD già validato; non sostituirlo con
+un titolo descrittivo privo del prefisso prima dell'apertura della PR.
+
 Quando una modifica runtime deve essere pubblicata, il bump di versione e la
 voce di changelog appartengono alla stessa PR dell'implementazione e devono
 essere completati prima del merge. Non fondere la modifica runtime per aprire
@@ -65,15 +70,21 @@ elementi non sono pronti, la PR di implementazione non è pronta al merge. Una
 deroga richiede una richiesta esplicita del proprietario riferita al caso
 specifico.
 
-La pulizia finale rimuove soltanto branch e worktree temporanei creati nel ciclo
-corrente e già assorbiti; controlla stash e altri residui senza alterare elementi
-preesistenti o estranei alla pubblicazione. Se un passaggio non è applicabile, lo
-dichiara e prosegue con gli altri. La richiesta affermativa di pubblicazione
-vale come autorizzazione a PR, merge, deploy tecnico e release previsti dal
-ciclo, senza una seconda conferma. Non autorizza pubblicazione di temi Shopify
-live, submission Shopify App Store, billing o nuove attivazioni produttive,
-TestFlight o App Store, invii Aruba, email o scansioni reali, né aggiornamenti
+La pulizia finale si esegue dal checkout pulito di `main` con
+`node scripts/publish-close.mjs <branch-temporaneo> <percorso-worktree>`: il comando
+fallisce se la PR e l'HEAD del branch non risultano assorbiti, allinea `main`,
+rimuove soltanto il branch e il worktree indicati e inventaria stash, branch e
+worktree preservati. L'agente riporta quell'inventario nel riepilogo finale. Se
+non esiste un branch/worktree temporaneo, esegue comunque la rilettura manuale
+equivalente di `main`, branch, worktree e stash e ne dichiara l'esito. Se un
+passaggio non è applicabile, lo dichiara e prosegue con gli altri. La richiesta
+affermativa di pubblicazione vale come autorizzazione a PR, merge, deploy tecnico
+e release previsti dal ciclo, senza una seconda conferma. Non autorizza
+pubblicazione di temi Shopify live, submission Shopify App Store, billing o
+nuove attivazioni produttive, TestFlight o App Store, invii Aruba, email o
+scansioni reali, né aggiornamenti
 Notion: queste azioni richiedono una richiesta esplicita separata. Una richiesta
 riferita soltanto a una di queste azioni non avvia la pubblicazione della
 repository. Non dichiarare `pubblicato` finché il ciclo applicabile e la
-rilettura finale di PR, check, deploy, release e stato Git non sono completi.
+rilettura finale di PR, check, deploy, release e stato Git non sono completi;
+l'esecuzione riuscita del gate di chiusura applicabile è parte dello stato Git.
