@@ -10,7 +10,9 @@ import {
   remoteMetadataDigest,
   remoteMatchesPreflightSearches,
   remoteStatusTransition,
+  selectAutomaticAmbiguousInvoiceMatches,
   selectOrderMatch,
+  type AmbiguousInvoiceCandidate,
   type RemoteInventoryDocument,
 } from "./aruba-inbound.ts";
 
@@ -467,6 +469,108 @@ test("due candidati compatibili restano ambigui", () => {
       { ...candidate, id: "2" },
     ]).status,
     "AMBIGUOUS",
+  );
+});
+
+function ambiguousCandidate(
+  candidateId: string,
+  displayNumber: string,
+  localOrderDate: string,
+  sameDay: boolean,
+  nearDate = true,
+): AmbiguousInvoiceCandidate {
+  return {
+    candidateId,
+    displayNumber,
+    localOrderDate,
+    orderIds: [candidateId],
+    compatible: true,
+    potential: true,
+    probe: true,
+    signals: {
+      provider: true,
+      explicitReference: false,
+      date: true,
+      sameDay,
+      nearDate,
+      total: true,
+      recipient: true,
+      taxId: true,
+      address: false,
+    },
+  };
+}
+
+function ambiguousInvoice(
+  remoteId: string,
+  fiscalNumber: string,
+  candidates: AmbiguousInvoiceCandidate[],
+) {
+  return {
+    remoteId,
+    fiscalYear: 2026,
+    series: "FPR",
+    fiscalNumber,
+    documentDate: "2026-08-24",
+    totalAmount: 9_850,
+    recipientName: "Mario Rossi",
+    recipientTaxId: "RSSMRA80A01H501U",
+    candidates,
+  };
+}
+
+test("un’ambiguità isolata preferisce l’unico ordine dello stesso giorno", () => {
+  assert.deepEqual(
+    selectAutomaticAmbiguousInvoiceMatches([
+      ambiguousInvoice("1644", "1644", [
+        ambiguousCandidate("41", "62324", "2026-08-03", false, false),
+        ambiguousCandidate("408", "62367", "2026-08-24", true),
+      ]),
+    ]),
+    [{ remoteId: "1644", candidateId: "408" }],
+  );
+});
+
+test("una coorte omogenea associa in ordine numeri fiscali e ordini", () => {
+  const candidates = [
+    ambiguousCandidate("762", "62378", "2026-08-23", false),
+    ambiguousCandidate("778", "62379", "2026-08-24", true),
+  ];
+  assert.deepEqual(
+    selectAutomaticAmbiguousInvoiceMatches([
+      ambiguousInvoice("remote-1678", "1678", candidates),
+      ambiguousInvoice("remote-1676", "1676", candidates),
+    ]),
+    [
+      { remoteId: "remote-1676", candidateId: "762" },
+      { remoteId: "remote-1678", candidateId: "778" },
+    ],
+  );
+});
+
+test("una coorte incompleta resta ambigua", () => {
+  const first = ambiguousCandidate("762", "62378", "2026-08-23", false);
+  const second = ambiguousCandidate("778", "62379", "2026-08-24", true);
+  assert.deepEqual(
+    selectAutomaticAmbiguousInvoiceMatches([
+      ambiguousInvoice("remote-1676", "1676", [first, second]),
+      ambiguousInvoice("remote-1678", "1678", [second]),
+    ]),
+    [],
+  );
+});
+
+test("un riferimento esplicito impedisce la risoluzione cronologica", () => {
+  const referenced = ambiguousCandidate("762", "62378", "2026-08-23", false);
+  referenced.signals.explicitReference = true;
+  assert.deepEqual(
+    selectAutomaticAmbiguousInvoiceMatches([
+      ambiguousInvoice("remote-1676", "1676", [
+        referenced,
+        ambiguousCandidate("778", "62379", "2026-08-24", true),
+      ]),
+    ]),
+    [],
   );
 });
 
