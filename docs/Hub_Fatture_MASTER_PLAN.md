@@ -1273,7 +1273,10 @@ Mostrare:
 - upload falliti;
 - scarti SdI;
 - errori di sincronizzazione;
-- ultimo sync Shopify/eBay e ultimo readback Aruba, con indicazione di eventuale stato obsoleto;
+- stato dei collegamenti Shopify, eBay e Aruba con i rispettivi riferimenti temporali; nel riquadro
+  `Collegamenti` Aruba combina connessione e salute tecnica della sincronizzazione, segnalando
+  pausa, esecuzione, mancato aggiornamento o errore; i documenti acquisiti da riconciliare non
+  cambiano questo stato e appartengono al riquadro operativo;
 - stato dell'inventario Aruba, documenti da collegare o ambigui e azione `Sincronizza Aruba ora`; `Mai letto`, un readback bloccante o uno stato remoto incerto impediscono il riepilogo `Tutto sotto controllo`;
 - documenti emessi oggi/mese.
 

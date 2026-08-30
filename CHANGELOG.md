@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.9
+
+- La scheda Aruba in Dashboard distingue lo stato tecnico della connessione e della sincronizzazione dalle verifiche di riconciliazione: segnala pause, errori, sincronizzazioni ferme o mai eseguite, mentre le fatture da verificare restano nel riepilogo operativo dedicato.
+
 ## 0.5.8
 
 - Una preparazione con un possibile documento Aruba offre l’azione diretta `Collega fattura Aruba` e apre soltanto le fatture candidate pertinenti, mantenendo la conferma manuale motivata e senza forzare il collegamento.

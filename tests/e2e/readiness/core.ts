@@ -88,6 +88,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     await page.goto("/");
   }
   await expect(page.locator(".connection")).toHaveCount(3);
+  await expect(page.locator(".connection").filter({ hasText: "Aruba" })).toContainText(
+    "Non collegato",
+  );
   await expect(page.locator(".documents-chart__day")).toHaveCount(7);
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
   await expect(page.getByRole("link", { name: "Vai agli ordini" })).toBeVisible();
@@ -741,7 +744,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   await page.goto("/");
   const arubaConnection = page.locator(".connection").filter({ hasText: "Aruba" });
-  await expect(arubaConnection).toContainText("Mai letto");
+  await expect(arubaConnection).toContainText("Non collegato");
   await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Impostazioni" }).click();
   const arubaSync = page.locator(".aruba-sync-card");
