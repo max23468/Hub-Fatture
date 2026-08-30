@@ -14,7 +14,10 @@ import {
   remoteInventoryDocumentSchema,
   remoteMetadataDigest,
   remoteStatusTransition,
+  selectAutomaticAmbiguousInvoiceMatches,
   selectOrderMatch,
+  type AmbiguousInvoiceCandidate,
+  type AmbiguousInvoiceMatch,
   type ArubaOrderCandidate,
   type FiscalIdentity,
   type ArubaRemoteStatus,
@@ -968,7 +971,7 @@ async function materializeExternalInvoice(
     ...groupedCandidates,
   ]);
   const selectedEvaluation =
-    remote.match_method === "MANUAL"
+    remote.match_status === "MATCHED" && remote.order_id
       ? verified.evaluations.find(
           (candidate) => candidate.compatible && candidate.candidateId === remote.order_id,
         )
@@ -1009,7 +1012,11 @@ async function materializeExternalInvoice(
     throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   }
   const digest = createHash("sha256").update(xml).digest("hex");
-  const existing = await client.query<{ id: string; origin: string; xml_sha256: string }>(
+  const existing = await client.query<{
+    id: string;
+    origin: string;
+    xml_sha256: string;
+  }>(
     `SELECT id, origin, xml_sha256 FROM documents
      WHERE series = $1 AND fiscal_year = $2 AND fiscal_number = $3 FOR UPDATE`,
     [profile.profile.series, imported.year, imported.number],
@@ -1271,7 +1278,11 @@ async function materializeExternalCreditNote(
     throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   }
   const digest = createHash("sha256").update(xml).digest("hex");
-  const existing = await client.query<{ id: string; origin: string; xml_sha256: string }>(
+  const existing = await client.query<{
+    id: string;
+    origin: string;
+    xml_sha256: string;
+  }>(
     `SELECT id, origin, xml_sha256 FROM documents
      WHERE series = $1 AND fiscal_year = $2 AND fiscal_number = $3 FOR UPDATE`,
     [profile.profile.series, imported.year, imported.number],
@@ -1348,7 +1359,10 @@ async function materializeExternalCreditNote(
     );
   }
   if (shouldAdoptDraft) {
-    const linkedOrders = await client.query<{ order_id: string; amount: number }>(
+    const linkedOrders = await client.query<{
+      order_id: string;
+      amount: number;
+    }>(
       `SELECT order_id, amount FROM document_orders
        WHERE document_id = $1 AND document_kind = 'CREDIT_NOTE' FOR UPDATE`,
       [documentId],
@@ -1366,10 +1380,16 @@ async function materializeExternalCreditNote(
       kind: "CREDIT_NOTE",
       documentDate: imported.documentDate,
       recipient: sourceInvoice.recipient_snapshot_json,
-      lines: imported.lines.map((line) => ({ ...line, orderId: remote.order_id })),
+      lines: imported.lines.map((line) => ({
+        ...line,
+        orderId: remote.order_id,
+      })),
       paymentStatus: "PAID",
       paymentMethod: "MP05",
-      relatedInvoice: { number: invoiceLabel, date: sourceInvoice.document_date },
+      relatedInvoice: {
+        number: invoiceLabel,
+        date: sourceInvoice.document_date,
+      },
       sourceTotal: imported.totalAmount,
       total: imported.totalAmount,
       difference: 0,
@@ -1494,6 +1514,114 @@ async function materializeLatestOfficialXml(
   return documentId;
 }
 
+async function reconcileAutomaticAmbiguousInvoices(
+  client: pg.PoolClient,
+  touchedRemoteDocumentIds: string[],
+) {
+  if (!touchedRemoteDocumentIds.length) return [];
+  const result = await client.query<
+    Omit<AmbiguousInvoiceMatch, "candidates"> & {
+      candidates: AmbiguousInvoiceCandidate[];
+    }
+  >(
+    `SELECT remote.id::text AS "remoteId", remote.fiscal_year AS "fiscalYear",
+            remote.series, remote.fiscal_number AS "fiscalNumber",
+            remote.document_date::text AS "documentDate", remote.total_amount AS "totalAmount",
+            remote.recipient_name_normalized AS "recipientName",
+            remote.recipient_tax_id_normalized AS "recipientTaxId",
+            coalesce((
+              SELECT jsonb_agg(candidate || jsonb_build_object(
+                'displayNumber', orders.display_number,
+                'localOrderDate', orders.local_order_date::text
+              ) ORDER BY orders.local_order_date, orders.display_number, orders.id)
+              FROM jsonb_array_elements(matches.candidates_json) candidate
+              JOIN orders ON orders.id::text = candidate ->> 'candidateId'
+              WHERE coalesce((candidate ->> 'compatible')::boolean, false)
+                AND jsonb_array_length(coalesce(candidate -> 'orderIds', '[]')) = 1
+                AND NOT EXISTS (
+                  SELECT 1 FROM aruba_document_matches claimed
+                  WHERE claimed.status = 'MATCHED' AND claimed.order_id = orders.id
+                    AND claimed.remote_document_id <> remote.id
+                )
+            ), '[]') AS candidates
+     FROM aruba_document_matches matches
+     JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
+     WHERE matches.status = 'AMBIGUOUS' AND matches.method = 'NONE'
+       AND remote.document_type = 'TD01'
+       AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
+       AND remote.series IS NOT NULL AND remote.fiscal_number IS NOT NULL
+       AND remote.recipient_name_normalized IS NOT NULL
+       AND remote.recipient_tax_id_normalized IS NOT NULL
+       AND EXISTS (SELECT 1 FROM aruba_files files
+         WHERE files.remote_document_id = remote.id AND files.kind = 'ARUBA_XML')
+       AND NOT EXISTS (
+         SELECT 1
+         FROM aruba_document_matches sibling_matches
+         JOIN aruba_remote_documents sibling
+           ON sibling.id = sibling_matches.remote_document_id
+         WHERE sibling.id <> remote.id
+           AND sibling_matches.status = 'AMBIGUOUS' AND sibling_matches.method = 'NONE'
+           AND sibling.document_type = 'TD01'
+           AND sibling.fiscal_year = remote.fiscal_year
+           AND lower(btrim(sibling.series)) = lower(btrim(remote.series))
+           AND sibling.document_date = remote.document_date
+           AND sibling.total_amount = remote.total_amount
+           AND sibling.recipient_name_normalized = remote.recipient_name_normalized
+           AND sibling.recipient_tax_id_normalized = remote.recipient_tax_id_normalized
+           AND NOT EXISTS (SELECT 1 FROM aruba_files sibling_files
+             WHERE sibling_files.remote_document_id = sibling.id
+               AND sibling_files.kind = 'ARUBA_XML')
+       )`,
+  );
+  const touched = new Set(touchedRemoteDocumentIds);
+  const fingerprint = (entry: AmbiguousInvoiceMatch) =>
+    JSON.stringify([
+      entry.fiscalYear,
+      normalizedMatchText(entry.series),
+      entry.documentDate,
+      entry.totalAmount,
+      normalizedMatchText(entry.recipientName),
+      normalizedMatchText(entry.recipientTaxId),
+    ]);
+  const touchedFingerprints = new Set<string>();
+  for (const entry of result.rows) {
+    if (touched.has(entry.remoteId)) touchedFingerprints.add(fingerprint(entry));
+  }
+  const entries = result.rows.filter((entry) => touchedFingerprints.has(fingerprint(entry)));
+  const matches = selectAutomaticAmbiguousInvoiceMatches(entries);
+  const materialized: string[] = [];
+  for (const match of matches) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- La coorte viene riservata e materializzata sotto lo stesso lock inventario.
+    const updated = await client.query<{ id: string }>(
+      `UPDATE aruba_document_matches matches SET
+         status = 'MATCHED', method = 'AUTOMATIC', order_id = $2,
+         billing_case_id = (SELECT billing_case_id FROM orders WHERE id = $2),
+         signals_json = matches.signals_json || '{"automaticAmbiguousCohort":true}'::jsonb,
+         updated_at = now()
+       WHERE matches.remote_document_id = $1 AND matches.status = 'AMBIGUOUS'
+         AND matches.method = 'NONE'
+         AND EXISTS (
+           SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
+           WHERE candidate ->> 'candidateId' = $2
+             AND coalesce((candidate ->> 'compatible')::boolean, false)
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM aruba_document_matches claimed
+           WHERE claimed.status = 'MATCHED' AND claimed.order_id = $2
+             AND claimed.remote_document_id <> matches.remote_document_id
+         )
+       RETURNING matches.remote_document_id::text AS id`,
+      [match.remoteId, match.candidateId],
+    );
+    if (!updated.rows[0]) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Ogni XML ufficiale deve chiudere la propria transazione fiscale prima del successivo.
+    const documentId = await materializeLatestOfficialXml(client, match.remoteId, true);
+    if (!documentId) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    materialized.push(documentId);
+  }
+  return materialized;
+}
+
 async function importArubaRemoteOfficialFileAuthorized(
   authorization: ArubaReadActor | ArubaApiFileAuthorization,
   remoteReference: string,
@@ -1557,7 +1685,10 @@ async function importArubaRemoteOfficialFileAuthorized(
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
   } else if (kind.data === "SDI_NOTIFICATION") {
-    const expected = await database.query<{ remote_id: string; filename: string | null }>(
+    const expected = await database.query<{
+      remote_id: string;
+      filename: string | null;
+    }>(
       `SELECT remote.remote_id, submitted.filename
        FROM aruba_remote_documents AS remote
        LEFT JOIN LATERAL (
@@ -1603,6 +1734,7 @@ async function importArubaRemoteOfficialFileAuthorized(
           xml,
         );
         await reconcileRemoteDocument(client, remoteDocumentId, evidence, true);
+        await reconcileAutomaticAmbiguousInvoices(client, [remoteDocumentId]);
         return materializeMatchedExternalDocument(
           client,
           remoteDocumentId,
@@ -1635,7 +1767,10 @@ async function importArubaRemoteOfficialFileAuthorized(
         : session;
       if (!lockedSession) throw new AppError("ARUBA_READ_SESSION_INVALID", 401);
       await lockArubaInventory(client, lockedSession.environment, lockedSession.account_reference);
-      const remote = await client.query<{ id: string; xml_sha256: string | null }>(
+      const remote = await client.query<{
+        id: string;
+        xml_sha256: string | null;
+      }>(
         `SELECT id, xml_sha256 FROM aruba_remote_documents
          WHERE id = $1 AND environment = $2 AND account_reference = $3 FOR UPDATE`,
         [remoteDocumentId, lockedSession.environment, lockedSession.account_reference],
@@ -1686,6 +1821,7 @@ async function importArubaRemoteOfficialFileAuthorized(
           fiscalXml.xml,
         );
         await reconcileRemoteDocument(client, remoteDocumentId, evidence, true);
+        await reconcileAutomaticAmbiguousInvoices(client, [remoteDocumentId]);
         documentId =
           (await materializeMatchedExternalDocument(
             client,
@@ -1715,10 +1851,11 @@ async function importArubaRemoteOfficialFileAuthorized(
       }
       if (kind.data === "SDI_NOTIFICATION") {
         const status = notificationStatus(bytes.toString("utf8"));
-        const transition = await client.query<{ remote_status: ArubaRemoteStatus }>(
-          `SELECT remote_status FROM aruba_remote_documents WHERE id = $1 FOR UPDATE`,
-          [remoteDocumentId],
-        );
+        const transition = await client.query<{
+          remote_status: ArubaRemoteStatus;
+        }>(`SELECT remote_status FROM aruba_remote_documents WHERE id = $1 FOR UPDATE`, [
+          remoteDocumentId,
+        ]);
         const statusTransition = remoteStatusTransition(transition.rows[0]!.remote_status, status);
         if (statusTransition === "CONFLICT") {
           await client.query(
@@ -1762,12 +1899,19 @@ async function importArubaRemoteOfficialFileAuthorized(
           ? `aruba-api:${apiAuthorization.runId}`
           : actorAuthorization!.requestId,
       });
-      return { id: persisted.fileId, repeated: Boolean(concurrentDuplicate), documentId };
+      return {
+        id: persisted.fileId,
+        repeated: Boolean(concurrentDuplicate),
+        documentId,
+      };
     });
     await cleanupEvidence(database, {
       storedPath: stored.absolutePath,
       extracted: extractedXml
-        ? { absolutePath: extractedXml.absolutePath, relativePath: extractedXml.relativePath }
+        ? {
+            absolutePath: extractedXml.absolutePath,
+            relativePath: extractedXml.relativePath,
+          }
         : null,
       removeStored: outcome.repeated,
     });
@@ -1836,7 +1980,10 @@ async function restoreResolvedRejectedAttempts(
 ) {
   const remoteDocumentIds = await resolveRejectedAttemptIdentityConflicts(
     client,
-    { environment: session.environment, accountReference: session.account_reference },
+    {
+      environment: session.environment,
+      accountReference: session.account_reference,
+    },
     incomingRemoteId,
   );
   for (const remoteDocumentId of remoteDocumentIds) {
@@ -1864,7 +2011,11 @@ export async function ingestParsedArubaPage(
     remoteId: string;
     kind: "ARUBA_XML" | "ARUBA_P7M" | "ARUBA_PDF" | "SDI_NOTIFICATION";
   }> = [];
-  const resolvedDocuments: Array<{ remoteId: string; remoteDocumentId: string }> = [];
+  const resolvedDocuments: Array<{
+    remoteId: string;
+    remoteDocumentId: string;
+  }> = [];
+  const touchedRemoteDocumentIds: string[] = [];
   const apiSource = session.sourceKind === "API";
   const sessionMode = apiSource
     ? await client.query<{
@@ -1951,7 +2102,10 @@ export async function ingestParsedArubaPage(
             [session.environment, session.account_reference, remote.remoteId],
           );
       if (stored.rowCount !== 1) throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
-      resolvedDocuments.push({ remoteId: remote.remoteId, remoteDocumentId: stored.rows[0]!.id });
+      resolvedDocuments.push({
+        remoteId: remote.remoteId,
+        remoteDocumentId: stored.rows[0]!.id,
+      });
       const files = await client.query<{ kind: string }>(
         `SELECT kind FROM aruba_files WHERE remote_document_id = $1`,
         [stored.rows[0]!.id],
@@ -1967,7 +2121,10 @@ export async function ingestParsedArubaPage(
         if (!knownKinds.has(kind)) requestedFiles.push({ remoteId: remote.remoteId, kind });
       }
       if (!knownKinds.has("SDI_NOTIFICATION") || !isEmissionConfirmed(remote.status)) {
-        requestedFiles.push({ remoteId: remote.remoteId, kind: "SDI_NOTIFICATION" });
+        requestedFiles.push({
+          remoteId: remote.remoteId,
+          kind: "SDI_NOTIFICATION",
+        });
       }
     }
     return {
@@ -2144,8 +2301,12 @@ export async function ingestParsedArubaPage(
          WHERE id = $1`,
         [storedId, session.providerGroupIds?.get(remote.remoteId) ?? null],
       );
-      resolvedDocuments.push({ remoteId: remote.remoteId, remoteDocumentId: storedId! });
+      resolvedDocuments.push({
+        remoteId: remote.remoteId,
+        remoteDocumentId: storedId!,
+      });
     }
+    touchedRemoteDocumentIds.push(storedId!);
     if (!conflicted) {
       await restoreResolvedRejectedAttempts(client, session, remote.remoteId);
     }
@@ -2205,9 +2366,13 @@ export async function ingestParsedArubaPage(
       requestedFiles.push({ remoteId: remote.remoteId, kind: "ARUBA_PDF" });
     }
     if (!isEmissionConfirmed(remote.status) || changed) {
-      requestedFiles.push({ remoteId: remote.remoteId, kind: "SDI_NOTIFICATION" });
+      requestedFiles.push({
+        remoteId: remote.remoteId,
+        kind: "SDI_NOTIFICATION",
+      });
     }
   }
+  await reconcileAutomaticAmbiguousInvoices(client, touchedRemoteDocumentIds);
   const watermark = await client.query<{ value: string }>(
     `SELECT nextval('aruba_inventory_watermark_seq')::text AS value`,
   );
@@ -2501,11 +2666,18 @@ export async function requestArubaPreflight(
         sharedManifestSha256 ?? payloadDigest(manifest),
         watermark,
         actor.id,
-        JSON.stringify({ ...manifest, sharedManifestSha256: sharedManifestSha256 ?? null }),
+        JSON.stringify({
+          ...manifest,
+          sharedManifestSha256: sharedManifestSha256 ?? null,
+        }),
         syntheticPass,
       ],
     );
-    return { id, status: syntheticPass ? "PASSED" : "REQUESTED", documentId: document.id };
+    return {
+      id,
+      status: syntheticPass ? "PASSED" : "REQUESTED",
+      documentId: document.id,
+    };
   });
 }
 
@@ -3119,7 +3291,11 @@ export async function resolveArubaDocumentMatch(
       eventClass: "CRITICAL",
       entityType: "ARUBA_REMOTE_DOCUMENT",
       entityId: remoteDocumentId,
-      before: { status: current.status, method: current.method, orderId: current.order_id },
+      before: {
+        status: current.status,
+        method: current.method,
+        orderId: current.order_id,
+      },
       after: { status: "MATCHED", method: "MANUAL", orderId, documentId },
       reason: reason.data,
       requestId: actor.requestId,
@@ -3236,8 +3412,16 @@ export async function confirmArubaDocumentOutOfScope(
       eventClass: "CRITICAL",
       entityType: "ARUBA_REMOTE_DOCUMENT",
       entityId: remoteDocumentId,
-      before: { status: current.status, method: current.method, origin: current.origin },
-      after: { status: "UNMATCHED", method: "MANUAL", origin: "ARUBA_EXTERNAL" },
+      before: {
+        status: current.status,
+        method: current.method,
+        origin: current.origin,
+      },
+      after: {
+        status: "UNMATCHED",
+        method: "MANUAL",
+        origin: "ARUBA_EXTERNAL",
+      },
       reason: reason.data,
       requestId: actor.requestId,
     });

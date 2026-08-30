@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 3;
+export const ARUBA_MATCHER_VERSION = 4;
 
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",
@@ -267,6 +267,134 @@ export interface CandidateEvaluation {
     taxId: boolean;
     address: boolean;
   };
+}
+
+export interface AmbiguousInvoiceCandidate extends CandidateEvaluation {
+  displayNumber: string;
+  localOrderDate: string;
+}
+
+export interface AmbiguousInvoiceMatch {
+  remoteId: string;
+  fiscalYear: number;
+  series: string;
+  fiscalNumber: string;
+  documentDate: string;
+  totalAmount: number;
+  recipientName: string;
+  recipientTaxId: string;
+  candidates: AmbiguousInvoiceCandidate[];
+}
+
+function candidateIsStrong(candidate: AmbiguousInvoiceCandidate) {
+  return (
+    candidate.compatible &&
+    candidate.orderIds.length === 1 &&
+    candidate.signals.total &&
+    candidate.signals.recipient &&
+    candidate.signals.taxId &&
+    !candidate.signals.explicitReference
+  );
+}
+
+function numericText(value: string) {
+  return /^\d+$/u.test(value) ? BigInt(value) : null;
+}
+
+function compareNumericText(left: string, right: string) {
+  const leftNumber = numericText(left);
+  const rightNumber = numericText(right);
+  if (leftNumber !== null && rightNumber !== null) {
+    return leftNumber < rightNumber ? -1 : leftNumber > rightNumber ? 1 : 0;
+  }
+  return left.localeCompare(right, "it", { numeric: true, sensitivity: "base" });
+}
+
+/**
+ * Risolve soltanto ambiguità che diventano deterministiche come insieme:
+ * un candidato esatto nello stesso giorno oppure una coorte omogenea con una
+ * biiezione completa fra numeri fiscali e ordini, mantenendo l'ordine temporale.
+ */
+export function selectAutomaticAmbiguousInvoiceMatches(
+  entries: AmbiguousInvoiceMatch[],
+): Array<{ remoteId: string; candidateId: string }> {
+  const groups = new Map<string, AmbiguousInvoiceMatch[]>();
+  for (const entry of entries) {
+    const key = JSON.stringify([
+      entry.fiscalYear,
+      normalizedMatchText(entry.series),
+      entry.documentDate,
+      entry.totalAmount,
+      normalizedMatchText(entry.recipientName),
+      normalizedMatchText(entry.recipientTaxId),
+    ]);
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+
+  const resolved: Array<{ remoteId: string; candidateId: string }> = [];
+  for (const group of groups.values()) {
+    if (
+      group.some((entry) =>
+        entry.candidates.some(
+          (candidate) => candidate.compatible && candidate.signals.explicitReference,
+        ),
+      )
+    ) {
+      continue;
+    }
+    const strongByRemote = group.map((entry) => ({
+      entry,
+      candidates: entry.candidates.filter(candidateIsStrong),
+    }));
+    if (group.length === 1) {
+      const sameDay = strongByRemote[0]!.candidates.filter(
+        (candidate) => candidate.signals.sameDay,
+      );
+      if (sameDay.length === 1) {
+        resolved.push({ remoteId: group[0]!.remoteId, candidateId: sameDay[0]!.candidateId });
+      }
+      continue;
+    }
+
+    if (
+      strongByRemote.some(
+        ({ candidates }) =>
+          candidates.some((candidate) => !candidate.signals.nearDate) ||
+          candidates.length !== group.length,
+      )
+    ) {
+      continue;
+    }
+    const candidateIds = strongByRemote[0]!.candidates.map((candidate) => candidate.candidateId);
+    const candidateKey = candidateIds.toSorted(compareNumericText).join(":");
+    if (
+      new Set(candidateIds).size !== group.length ||
+      strongByRemote.some(
+        ({ candidates }) =>
+          candidates
+            .map((candidate) => candidate.candidateId)
+            .toSorted(compareNumericText)
+            .join(":") !== candidateKey,
+      )
+    ) {
+      continue;
+    }
+
+    const remoteOrder = group.toSorted((left, right) =>
+      compareNumericText(left.fiscalNumber, right.fiscalNumber),
+    );
+    if (new Set(remoteOrder.map((entry) => entry.fiscalNumber)).size !== group.length) continue;
+    const candidates = strongByRemote[0]!.candidates.toSorted(
+      (left, right) =>
+        left.localOrderDate.localeCompare(right.localOrderDate) ||
+        compareNumericText(left.displayNumber, right.displayNumber) ||
+        compareNumericText(left.candidateId, right.candidateId),
+    );
+    for (const [index, remote] of remoteOrder.entries()) {
+      resolved.push({ remoteId: remote.remoteId, candidateId: candidates[index]!.candidateId });
+    }
+  }
+  return resolved;
 }
 
 function daysAfter(documentDate: string, sourceDate: string): number {

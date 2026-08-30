@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.8
+
+- La riconciliazione Aruba collega automaticamente una singola TD01 quando esiste un solo ordine forte dello stesso giorno e risolve come coorte completa le fatture altrimenti indistinguibili, mantenendo l'associazione monotona fra progressivi fiscali e cronologia degli ordini.
+- Coorti incomplete, XML ufficiali mancanti, riferimenti espliciti, cardinalità non biunivoche e ordini già collegati restano fail-closed in `Da collegare` per la decisione manuale.
+
 ## 0.4.7
 
 - Il controllo salute riconosce il FULL API qualificato prima del cutover come baseline canonica dopo il passaggio all’autorità API, senza riscrivere la provenienza storica SHADOW; freschezza, errori e conflitti successivi restano fail-closed sui giri CANONICAL.

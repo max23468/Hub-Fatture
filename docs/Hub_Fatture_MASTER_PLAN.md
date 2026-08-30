@@ -1694,7 +1694,7 @@ Cronologia append-only delle osservazioni API, manuali e transitorie del browser
 
 #### `aruba_document_matches`
 
-Collegamenti fra inventario remoto e documenti, ordini, preparazioni o rimborsi locali, con stato `MATCHED`, `UNMATCHED`, `AMBIGUOUS`, `PROFILE_CONFLICT`, `ERROR` o `UNKNOWN_REMOTE_STATE`, segnali/versione del matcher e decisione automatica o manuale auditata. Un match automatico richiede unicità e XML ufficiale coerente; il solo totale non è mai sufficiente. Per le TD04 il collegamento identifica l'insieme esatto dei rimborsi coperti e aggiorna `credit_document_id` atomicamente soltanto dopo un esito che conferma l'emissione.
+Collegamenti fra inventario remoto e documenti, ordini, preparazioni o rimborsi locali, con stato `MATCHED`, `UNMATCHED`, `AMBIGUOUS`, `PROFILE_CONFLICT`, `ERROR` o `UNKNOWN_REMOTE_STATE`, segnali/versione del matcher e decisione automatica o manuale auditata. Un match automatico richiede unicità e XML ufficiale coerente; il solo totale non è mai sufficiente. Quando più TD01 e più ordini hanno identità fiscale, importo e finestra temporale forti ma risultano indistinguibili singolarmente, l'automazione può risolverli soltanto come coorte completa: stessa impronta di riconciliazione, biiezione senza candidati già rivendicati e associazione monotona fra progressivi fiscali e cronologia degli ordini. Una coorte incompleta, con riferimenti espliciti o non biunivoca resta `AMBIGUOUS`. Per le TD04 il collegamento identifica l'insieme esatto dei rimborsi coperti e aggiorna `credit_document_id` atomicamente soltanto dopo un esito che conferma l'emissione.
 
 #### `aruba_sync_runs`
 
