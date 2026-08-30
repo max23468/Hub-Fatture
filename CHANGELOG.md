@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+- La Dashboard conta separatamente ordini da verificare e pagamenti in attesa, esclude sovrapposizioni e falsi positivi già risolti, e mostra lo stato dei collegamenti in base alla freschezza dei dati realmente restituiti.
+- Shopify estrae P.IVA, codice fiscale e codice destinatario da ragioni sociali italiane soltanto quando sono etichettati esplicitamente e validi, conservando la priorità dei campi strutturati e lasciando invariati valori ambigui, esteri o non verificabili.
+- Su desktop ricerca globale e profilo tornano allineati al margine destro dell’intestazione senza alterare la navigazione mobile.
+
 ## 0.5.0
 
 - La transizione Aruba è chiusa sul treno corretto: API unica autorità automatica, fallback manuale presidiato e nessuna istruzione operativa per preferiti, bridge o helper nel runtime e nella documentazione corrente.
