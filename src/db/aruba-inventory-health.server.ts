@@ -1,5 +1,6 @@
 import type pg from "pg";
 
+import { ARUBA_API_POLICY } from "../aruba-api-policy.ts";
 import { getConfig } from "../config.server.ts";
 import { arubaUnresolvedCandidateSql } from "./billing-case-sql.server.ts";
 import { getPool } from "./client.server.ts";
@@ -36,15 +37,16 @@ export const arubaPotentialMatchPredicate = `(matches.status = 'UNMATCHED'
     SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
     WHERE ${arubaUnresolvedCandidateSql("candidate")}
       OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
-  ))`;
+  )
+  AND (remote.xml_sha256 IS NULL OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
+    WHERE coalesce((candidate ->> 'compatible')::boolean, false)
+      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
+  )))`;
 
 export const arubaExternalDocumentPredicate = `(matches.status = 'UNMATCHED' AND (
   (matches.method = 'MANUAL' AND remote.origin = 'ARUBA_EXTERNAL')
-  OR (matches.method <> 'MANUAL' AND NOT EXISTS (
-    SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
-    WHERE ${arubaUnresolvedCandidateSql("candidate")}
-      OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
-  ))
+  OR (matches.method <> 'MANUAL' AND NOT (${arubaPotentialMatchPredicate}))
 ))`;
 
 export const arubaBlockingMatchPredicate = `(remote.remote_status <> 'REJECTED' AND (
@@ -70,127 +72,70 @@ export async function getArubaInventoryHealth(
     conflicts: string;
     remote_documents: string;
   }>(
-    `WITH authority AS (
-       SELECT coalesce((SELECT automatic_authority FROM connections
-         WHERE provider = 'ARUBA'
-           AND environment = CASE WHEN $1 = 'PRODUCTION' THEN 'PRODUCTION' ELSE 'DEVELOPMENT' END
-           AND account_reference = $2), 'BROWSER') AS value
-     )
-     SELECT
-       CASE WHEN (SELECT value FROM authority) = 'API' THEN
-         (SELECT max(completed_at) FROM aruba_sync_runs
-          WHERE environment = $1 AND account_reference = $2 AND status = 'COMPLETED'
-            AND authority_mode = 'CANONICAL')
-       ELSE
-         (SELECT max(completed_at) FROM aruba_sync_sessions
-          WHERE environment = $1 AND account_reference = $2 AND completed_at IS NOT NULL)
-       END AS last_completed_at,
-       CASE WHEN (SELECT value FROM authority) = 'API' THEN
-         (SELECT max(full_scan_completed_at) FROM aruba_sync_runs
-          WHERE environment = $1 AND account_reference = $2
-            AND status = 'COMPLETED' AND authority_mode = 'CANONICAL'
-            AND full_scan_completed_at IS NOT NULL)
-       ELSE
-         (SELECT max(full_scan_completed_at) FROM aruba_sync_sessions
-          WHERE environment = $1 AND account_reference = $2
-            AND full_scan_completed_at IS NOT NULL)
-       END AS last_full_scan_completed_at,
-       CASE WHEN (SELECT value FROM authority) = 'API' THEN
-         EXISTS (SELECT 1 FROM aruba_sync_runs
-          WHERE environment = $1 AND account_reference = $2
-            AND status = 'RUNNING' AND authority_mode = 'CANONICAL'
-            AND lease_expires_at > now())
-       ELSE
-         EXISTS (SELECT 1 FROM aruba_sync_sessions
-          WHERE environment = $1 AND account_reference = $2
-            AND status IN ('ACTIVE', 'SCANNING') AND absolute_expires_at > now()
-            AND lease_expires_at > now() AND last_heartbeat_at > now() - interval '2 minutes')
-       END AS active_session,
-       CASE WHEN (SELECT value FROM authority) = 'BROWSER' THEN
-         (SELECT right(device_id, 6) FROM aruba_sync_sessions
-          WHERE environment = $1 AND account_reference = $2 AND status IN ('ACTIVE', 'SCANNING')
-            AND absolute_expires_at > now() AND lease_expires_at > now()
-            AND last_heartbeat_at > now() - interval '2 minutes'
-          ORDER BY started_at DESC LIMIT 1)
-       END AS active_device_suffix,
-       CASE WHEN (SELECT value FROM authority) = 'API' THEN
-         (SELECT lease_expires_at FROM aruba_sync_runs
-          WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
-            AND authority_mode = 'CANONICAL'
-          ORDER BY started_at DESC LIMIT 1)
-       ELSE
-         (SELECT absolute_expires_at FROM aruba_sync_sessions
-          WHERE environment = $1 AND account_reference = $2 AND status IN ('ACTIVE', 'SCANNING')
-            AND absolute_expires_at > now() AND lease_expires_at > now()
-            AND last_heartbeat_at > now() - interval '2 minutes'
-          ORDER BY started_at DESC LIMIT 1)
-       END AS active_session_expires_at,
-       CASE WHEN (SELECT value FROM authority) = 'API' THEN
-         (SELECT coalesce(completed_at, started_at) + interval '15 minutes'
-          FROM aruba_sync_runs WHERE environment = $1 AND account_reference = $2
-            AND authority_mode = 'CANONICAL'
-          ORDER BY started_at DESC LIMIT 1)
-       ELSE
-         (SELECT coalesce(completed_at, last_heartbeat_at, started_at) + interval '15 minutes'
-          FROM aruba_sync_sessions WHERE environment = $1 AND account_reference = $2
-          ORDER BY started_at DESC LIMIT 1)
-       END AS next_scheduled_at,
-       CASE WHEN (SELECT value FROM authority) = 'API' THEN
-         (SELECT last_error_code FROM aruba_sync_runs
-          WHERE environment = $1 AND account_reference = $2
-            AND authority_mode = 'CANONICAL' AND last_error_code IS NOT NULL
-            AND started_at > coalesce((SELECT max(completed_at) FROM aruba_sync_runs
-              WHERE environment = $1 AND account_reference = $2
-                AND status = 'COMPLETED' AND authority_mode = 'CANONICAL'), '-infinity')
-          ORDER BY started_at DESC LIMIT 1)
-       ELSE
-         (SELECT error_code FROM aruba_sync_sessions
-          WHERE environment = $1 AND account_reference = $2
-            AND status IN ('FAILED', 'INCOMPLETE') AND error_code IS NOT NULL
-            AND coalesce(failed_at, started_at) > coalesce((SELECT max(completed_at)
-              FROM aruba_sync_sessions WHERE environment = $1 AND account_reference = $2
-                AND completed_at IS NOT NULL), '-infinity')
-          ORDER BY started_at DESC LIMIT 1)
-       END AS last_error_code,
-       CASE WHEN (SELECT value FROM authority) = 'API' THEN
-         EXISTS (SELECT 1 FROM aruba_sync_runs AS failed
-          WHERE failed.environment = $1 AND failed.account_reference = $2
-            AND failed.authority_mode = 'CANONICAL'
-            AND (failed.status IN ('FAILED', 'INCOMPLETE')
-              OR (failed.status = 'RUNNING' AND failed.lease_expires_at <= now()
-                AND failed.last_error_code IS NOT NULL))
-            AND failed.started_at > coalesce((SELECT max(completed_at) FROM aruba_sync_runs
-              WHERE environment = $1 AND account_reference = $2
-                AND status = 'COMPLETED' AND authority_mode = 'CANONICAL'), '-infinity'))
-       ELSE
-         EXISTS (SELECT 1 FROM aruba_sync_sessions AS failed
-          WHERE failed.environment = $1 AND failed.account_reference = $2
-            AND failed.status IN ('FAILED', 'INCOMPLETE')
-            AND coalesce(failed.failed_at, failed.started_at) > coalesce((SELECT max(completed_at)
-              FROM aruba_sync_sessions WHERE environment = $1 AND account_reference = $2
-                AND completed_at IS NOT NULL), '-infinity'))
-       END AS unresolved_failure,
+    `SELECT
+       (SELECT max(completed_at) FROM aruba_sync_runs
+        WHERE environment = $1 AND account_reference = $2 AND status = 'COMPLETED'
+          AND authority_mode = 'CANONICAL') AS last_completed_at,
+       (SELECT max(full_scan_completed_at) FROM aruba_sync_runs
+        WHERE environment = $1 AND account_reference = $2
+          AND status = 'COMPLETED'
+          AND full_scan_completed_at IS NOT NULL) AS last_full_scan_completed_at,
+       EXISTS (SELECT 1 FROM aruba_sync_runs
+        WHERE environment = $1 AND account_reference = $2
+          AND status = 'RUNNING' AND authority_mode = 'CANONICAL'
+          AND lease_expires_at > now()) AS active_session,
+       NULL::text AS active_device_suffix,
+       (SELECT lease_expires_at FROM aruba_sync_runs
+        WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
+          AND authority_mode = 'CANONICAL'
+        ORDER BY started_at DESC LIMIT 1) AS active_session_expires_at,
+       (SELECT coalesce(completed_at, started_at) + interval '15 minutes'
+        FROM aruba_sync_runs WHERE environment = $1 AND account_reference = $2
+          AND authority_mode = 'CANONICAL'
+        ORDER BY started_at DESC LIMIT 1) AS next_scheduled_at,
+       (SELECT last_error_code FROM aruba_sync_runs
+        WHERE environment = $1 AND account_reference = $2
+          AND authority_mode = 'CANONICAL' AND last_error_code IS NOT NULL
+          AND started_at > coalesce((SELECT max(completed_at) FROM aruba_sync_runs
+            WHERE environment = $1 AND account_reference = $2
+              AND status = 'COMPLETED' AND authority_mode = 'CANONICAL'), '-infinity')
+        ORDER BY started_at DESC LIMIT 1) AS last_error_code,
+       EXISTS (SELECT 1 FROM aruba_sync_runs AS failed
+        WHERE failed.environment = $1 AND failed.account_reference = $2
+          AND failed.authority_mode = 'CANONICAL'
+          AND (failed.status IN ('FAILED', 'INCOMPLETE')
+            OR (failed.status = 'RUNNING' AND failed.lease_expires_at <= now()
+              AND failed.last_error_code IS NOT NULL))
+          AND failed.started_at > coalesce((SELECT max(completed_at) FROM aruba_sync_runs
+            WHERE environment = $1 AND account_reference = $2
+              AND status = 'COMPLETED' AND authority_mode = 'CANONICAL'), '-infinity'))
+       AS unresolved_failure,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
+          AND remote.document_date >= $3::date
           AND ${arubaExternalDocumentPredicate}) AS external_documents,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
+          AND remote.document_date >= $3::date
           AND remote.remote_status <> 'REJECTED'
           AND ${arubaPotentialMatchPredicate}) AS potential_matches,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
+          AND remote.document_date >= $3::date
           AND remote.remote_status <> 'REJECTED' AND matches.status = 'AMBIGUOUS') AS ambiguous,
        (SELECT count(*) FROM aruba_document_matches matches
         JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
         WHERE remote.environment = $1 AND remote.account_reference = $2
+          AND remote.document_date >= $3::date
           AND remote.remote_status <> 'REJECTED'
           AND matches.status IN ('PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE')) AS conflicts,
        (SELECT count(*) FROM aruba_remote_documents
-        WHERE environment = $1 AND account_reference = $2) AS remote_documents`,
-    [environment(), accountReference()],
+        WHERE environment = $1 AND account_reference = $2
+          AND document_date >= $3::date) AS remote_documents`,
+    [environment(), accountReference(), ARUBA_API_POLICY.inventoryStart],
   );
   const row = result.rows[0]!;
   const completed = row.last_full_scan_completed_at ? row.last_completed_at : null;

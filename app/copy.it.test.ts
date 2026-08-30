@@ -27,25 +27,20 @@ test("la connessione Aruba distingue le credenziali del pannello da credenziali 
   assert.match(copy.settings.arubaApiCredentialsConnected, /Collegamento verificato/);
 });
 
-test("la prima configurazione Aruba non richiede installazioni tecniche", () => {
-  assert.match(copy.settings.arubaBookmarkletHelp, /Non devi installare nulla/);
+test("la sincronizzazione Aruba è descritta come automatica e basata sulle API", () => {
+  assert.match(copy.settings.arubaHelp, /API Aruba/);
+  assert.match(copy.settings.arubaConnectionReadyHelp, /automaticamente tramite API/);
   assert.doesNotMatch(
-    `${copy.settings.arubaBookmarkletHelp} ${copy.settings.arubaBookmarkletSaveHelp}`,
-    /Node|npm|mise|Terminale|installer/i,
+    `${copy.settings.arubaHelp} ${copy.settings.arubaConnectionReadyHelp}`,
+    /preferit|bookmarklet|bridge|browser/i,
   );
-  assert.equal(copy.settings.arubaBookmarkletLabel, "Sincronizza Aruba");
-  assert.doesNotMatch(copy.settings.arubaBookmarkletLabel, /↻/);
-  assert.equal(copy.settings.arubaBookmarkletAccessibleLabel, "Sincronizza Aruba");
-  assert.match(copy.settings.arubaBookmarkletSaveHelp, /si aggiorna automaticamente/);
-  assert.match(copy.settings.arubaBookmarkletSaveHelp, /non salva credenziali Aruba/);
-  assert.match(copy.settings.arubaBookmarkletRunHelp, /Home.*seleziona Fatture inviate/);
   assert.equal(
     copy.settings.arubaDiagnosticValue("READ_SYNC_FAILED"),
     "La lettura si è interrotta prima del completamento",
   );
   assert.equal(
     copy.settings.arubaDiagnosticValue("DOM_UNRECOGNIZED"),
-    "La pagina Aruba non ha completato il caricamento previsto",
+    "Errore di sincronizzazione non disponibile",
   );
   assert.equal(
     copy.settings.arubaDiagnosticValue("ARUBA_ACCOUNT_MISMATCH"),

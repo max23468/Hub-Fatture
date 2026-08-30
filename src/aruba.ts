@@ -3,12 +3,10 @@ import { createHash } from "node:crypto";
 import { create } from "xmlbuilder2";
 import { z } from "zod";
 
-export { ARUBA_IMPORT_MAX_BYTES, ARUBA_PANEL_ORIGIN } from "./aruba-browser-constants.ts";
-import { ARUBA_IMPORT_MAX_BYTES, ARUBA_PANEL_ORIGIN } from "./aruba-browser-constants.ts";
+export const ARUBA_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
 
 export const ARUBA_UPLOAD_MAX_BYTES = 4_900_000;
 export const ARUBA_UPLOAD_MAX_BATCH_BYTES = 30_000_000;
-export const ARUBA_LOGIN_ORIGIN = "https://loginfatturazione.aruba.it";
 
 export const arubaModeSchema = z.enum([
   "DOCUMENT_ONLY",
@@ -28,35 +26,8 @@ export const arubaManifestDocumentSchema = z.object({
   totalAmount: z.number().int().nonnegative(),
 });
 
-export const arubaManifestSchema = z
-  .object({
-    batchId: z.uuid(),
-    environment: arubaEnvironmentSchema,
-    mode: arubaModeSchema,
-    operation: z.enum(["UPLOAD", "READBACK"]),
-    accountReference: z.string().trim().min(1).max(200),
-    manifestSha256: z.string().regex(/^[0-9a-f]{64}$/),
-    attemptNumber: z.number().int().positive(),
-    panelUrl: z.url(),
-    documents: z.array(arubaManifestDocumentSchema).min(1).max(300),
-  })
-  .superRefine((value, context) => {
-    if (
-      value.operation === "UPLOAD" &&
-      value.documents.reduce((total, document) => total + document.sizeBytes, 0) >
-        ARUBA_UPLOAD_MAX_BATCH_BYTES
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "Il caricamento Aruba supera 30 MB",
-        path: ["documents"],
-      });
-    }
-  });
-
 export type ArubaMode = z.infer<typeof arubaModeSchema>;
 export type ArubaEnvironment = z.infer<typeof arubaEnvironmentSchema>;
-export type ArubaManifest = z.infer<typeof arubaManifestSchema>;
 export type ArubaManifestDocument = z.infer<typeof arubaManifestDocumentSchema>;
 
 export function effectiveArubaMode(
@@ -82,126 +53,16 @@ export function arubaMonthlyTransmissionUsage(accepted: number) {
   };
 }
 
-export function manifestSha256(
-  value: Pick<
-    ArubaManifest,
-    "batchId" | "environment" | "mode" | "accountReference" | "attemptNumber" | "documents"
-  >,
-): string {
+export function manifestSha256(value: {
+  batchId: string;
+  environment: ArubaEnvironment;
+  mode: ArubaMode;
+  accountReference: string;
+  attemptNumber: number;
+  documents: ArubaManifestDocument[];
+}): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
-
-export function assertAllowedArubaTarget(url: string, environment: ArubaEnvironment): URL {
-  const target = new URL(url);
-  if (target.username || target.password) throw new Error("target");
-  if (environment === "PRODUCTION") {
-    if (
-      target.origin !== ARUBA_PANEL_ORIGIN ||
-      target.protocol !== "https:" ||
-      target.searchParams.size
-    ) {
-      throw new Error("target");
-    }
-    return target;
-  }
-  if (
-    target.protocol !== "http:" ||
-    !["localhost", "127.0.0.1", "::1"].includes(target.hostname) ||
-    target.pathname !== "/aruba-sintetica" ||
-    (target.search !== "" && target.search !== "?scenario=inventory")
-  ) {
-    throw new Error("target");
-  }
-  return target;
-}
-
-export function assertAllowedArubaNavigation(url: string, target: URL): URL {
-  const candidate = new URL(url);
-  if (candidate.username || candidate.password || candidate.origin !== target.origin) {
-    throw new Error("target");
-  }
-  return candidate;
-}
-
-export function assertAllowedArubaAuthenticationNavigation(url: string, target: URL): URL {
-  const candidate = new URL(url);
-  if (candidate.username || candidate.password) throw new Error("target");
-  if (candidate.origin === target.origin) return candidate;
-  if (target.origin === ARUBA_PANEL_ORIGIN && candidate.origin === ARUBA_LOGIN_ORIGIN) {
-    return candidate;
-  }
-  throw new Error("target");
-}
-
-export function assertAllowedArubaDownload(url: string, target: URL): URL {
-  const candidate = new URL(url);
-  if (candidate.protocol === "data:") return candidate;
-  return assertAllowedArubaNavigation(url, target);
-}
-
-export function assertAllowedHubUrl(url: string): URL {
-  const target = new URL(url);
-  const loopback = ["localhost", "127.0.0.1", "::1"].includes(target.hostname);
-  if (
-    target.username ||
-    target.password ||
-    target.search ||
-    (target.protocol !== "https:" && !(loopback && target.protocol === "http:"))
-  ) {
-    throw new Error("hub");
-  }
-  return target;
-}
-
-export const helperEventSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("HELPER_STARTED"),
-    browser: z.enum(["chrome", "msedge", "chromium"]),
-  }),
-  z.object({ type: z.literal("HELPER_HEARTBEAT") }),
-  z.object({
-    type: z.literal("VALIDATION"),
-    documents: z
-      .array(
-        z.object({
-          id: z.string().regex(/^\d+$/),
-          status: z.enum(["VALID", "INVALID"]),
-          message: z.string().trim().max(500).optional(),
-        }),
-      )
-      .min(1)
-      .max(300),
-  }),
-  z.object({ type: z.literal("ASSISTED_STOP") }),
-  z.object({ type: z.literal("SUBMITTED"), remoteIds: z.record(z.string(), z.string().max(200)) }),
-  z.object({
-    type: z.literal("RECONCILIATION_REQUIRED"),
-    reason: z.enum(["BROWSER_CLOSED", "NAVIGATION", "UNKNOWN_RESULT", "DOM_UNRECOGNIZED"]),
-  }),
-  z.object({
-    type: z.literal("READBACK"),
-    documents: z
-      .array(
-        z.object({
-          id: z.string().regex(/^\d+$/),
-          status: z.enum([
-            "UPLOADED",
-            "SUBMITTED",
-            "DELIVERED",
-            "NOT_DELIVERED",
-            "REJECTED",
-            "REMOVED",
-            "NOT_FOUND",
-          ]),
-          remoteId: z.string().trim().max(200).optional(),
-        }),
-      )
-      .min(1)
-      .max(300),
-  }),
-]);
-
-export type HelperEvent = z.infer<typeof helperEventSchema>;
 
 export const arubaFileKindSchema = z.enum([
   "ARUBA_XML",
@@ -432,16 +293,3 @@ export function notificationBelongsToDocument(
     (!expected.remoteId || remoteIds.length === 0 || remoteIdMatches)
   );
 }
-
-export const verifiedArubaPanelContract = {
-  limits: {
-    fileBytes: ARUBA_UPLOAD_MAX_BYTES,
-    batchBytes: ARUBA_UPLOAD_MAX_BATCH_BYTES,
-    files: 300,
-  },
-  upload: ["SELEZIONA DOCUMENTI", "Carica fattura"],
-  validationErrors: ["DETTAGLI ERRORI", "errori"],
-  finalSend: ["INVIA TUTTE", "INVIA"],
-  remove: ["SVUOTA PAGINA", "ELIMINA"],
-  forbiddenDraft: ["SALVA IN BOZZE"],
-} as const;

@@ -523,29 +523,6 @@ function BatchPanel({
             </details>
             <div aria-label={copy.documents.batchActions} className="document-batch-list__actions">
               {canApprove &&
-              batch.transport === "HELPER" &&
-              batch.status !== "CANCELLED" &&
-              !batch.can_retry ? (
-                <Form method="post">
-                  <input name="csrf" type="hidden" value={csrfToken} />
-                  <input name="intent" type="hidden" value="issue-helper-token" />
-                  <input name="batchId" type="hidden" value={batch.id} />
-                  <button className="button button--secondary" type="submit">
-                    {copy.documents.issueHelperCode}
-                  </button>
-                </Form>
-              ) : null}
-              {canApprove && batch.transport === "HELPER" && batch.can_retry ? (
-                <Form method="post">
-                  <input name="csrf" type="hidden" value={csrfToken} />
-                  <input name="intent" type="hidden" value="retry-aruba-batch" />
-                  <input name="batchId" type="hidden" value={batch.id} />
-                  <button className="button button--secondary" type="submit">
-                    {copy.documents.retryBatch}
-                  </button>
-                </Form>
-              ) : null}
-              {canApprove &&
               batch.transport === "API" &&
               batch.status === "AWAITING_CONFIRMATION" ? (
                 <Form method="post">

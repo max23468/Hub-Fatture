@@ -19,11 +19,10 @@ fallback manuale approvato e non mantiene due integrazioni automatiche permanent
 ## Conseguenze
 
 Il dominio provider-first, l'approvazione esplicita, i batch immutabili, i due arresti e la
-gestione dello stato incerto restano invarianti. Preferito e helper sono componenti transitori:
-ogni percorso browser viene ritirato separatamente solo dopo parità misurabile della capacità API
-corrispondente e prova del fallback approvato.
+gestione dello stato incerto restano invarianti. Preferito, bridge e helper erano componenti
+transitori e sono stati ritirati dopo la qualifica della capacità API corrispondente e del
+fallback manuale approvato.
 
-La parità tecnica o un periodo di shadow non rimuovono automaticamente alcun componente. Per
-inbound e outbound Codex presenta separatamente evidenze, divergenze e rischi residui; il ritiro
-di preferito, helper, UI e infrastruttura collegata richiede una decisione esplicita del
-proprietario riferita alla capacità esatta.
+La decisione di ritiro è registrata nel Master Plan. Audit, file canonici e provenienza storica
+restano conservati, ma nessun percorso browser costituisce autorità automatica o fallback
+operativo: l'unica alternativa alle API è il flusso manuale fail-closed.

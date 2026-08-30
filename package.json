@@ -1,6 +1,6 @@
 {
   "name": "hub-fatture",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,10 +8,6 @@
     "aruba:api:probe": "node scripts/aruba-api-read-probe.ts",
     "aruba:api:probe:interactive": "sh scripts/aruba-api-read-probe.sh",
     "aruba:api:probe:keychain": "sh scripts/aruba-api-read-probe-keychain.sh",
-    "aruba:closure-report": "npm run build:server && node build-server/operations/aruba-inbound-closure-report.js",
-    "aruba:parity:rebuild": "npm run build:server && node build-server/operations/aruba-inbound-rebuild-parity.js",
-    "aruba:helper": "node scripts/aruba-helper.ts",
-    "aruba:sync": "node scripts/aruba-read-runner.ts",
     "build": "react-router build",
     "build:server": "tsc -p tsconfig.server.json",
     "check": "npm run check:full",
@@ -39,7 +35,6 @@
     "test:db:direct": "node --test --test-concurrency=4 src/db/*.test.ts",
     "test:provider": "node --test src/integrations/*.test.ts",
     "test:unit": "node --test app/*.test.ts src/*.test.ts scripts/*.node-test.mjs scripts/*.test.mjs",
-    "test:aruba:platform": "node scripts/aruba-helper-platform-check.ts",
     "test:e2e": "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
     "test:e2e:chromium": "npm run build && node scripts/with-test-database.mjs npm run test:e2e:chromium:direct",
     "test:e2e:chromium:direct": "playwright test --project=chromium --workers=1",

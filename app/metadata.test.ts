@@ -29,7 +29,7 @@ function contentByProperty(meta: ReturnType<typeof privatePageMeta>, property: s
 }
 
 test("ogni pagina privata espone metadati completi e non indicizzabili", () => {
-  assert.equal(privatePageKeys.length, 16);
+  assert.equal(privatePageKeys.length, 15);
   for (const page of privatePageKeys) {
     const meta = privatePageMeta(page);
     const title = titleFrom(meta);

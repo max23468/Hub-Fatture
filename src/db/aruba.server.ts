@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 
@@ -6,24 +6,19 @@ import type pg from "pg";
 
 import {
   ARUBA_IMPORT_MAX_BYTES,
-  ARUBA_PANEL_ORIGIN,
   ARUBA_UPLOAD_MAX_BATCH_BYTES,
-  ARUBA_UPLOAD_MAX_BYTES,
   arubaFileKindSchema,
   arubaModeSchema,
   effectiveArubaMode,
-  helperEventSchema,
   manifestSha256,
   notificationBelongsToDocument,
   notificationStatus,
   validateOfficialFile,
   type ArubaFileKind,
-  type ArubaManifest,
   type ArubaManifestDocument,
   type ArubaMode,
 } from "../aruba.ts";
 import { getConfig } from "../config.server.ts";
-import { hashToken } from "../crypto.server.ts";
 import { AppError } from "../errors.ts";
 import { POSTGRES_INTEGER_MAX } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
@@ -32,10 +27,6 @@ import { getPool, registerJoinedTransactionFile, withTransaction } from "./clien
 import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
-const HELPER_TOKEN_TTL_MS = 15 * 60_000;
-const HELPER_TOKEN_MAX_LIFETIME_MS = 45 * 60_000;
-const HELPER_TOKEN_RECONCILIATION_GUARD_MS = 2 * 60_000;
-
 export interface ArubaActor {
   id: number;
   canApprove: boolean;
@@ -43,30 +34,6 @@ export interface ArubaActor {
 }
 
 export interface ApprovedDocumentForBatch extends ArubaManifestDocument {}
-
-interface BatchIdentity {
-  id: string;
-  environment: "MOCK" | "PRODUCTION";
-  mode: ArubaMode;
-  transport: "API" | "HELPER" | "MANUAL";
-  account_reference: string;
-  manifest_sha256: string;
-  document_count: number;
-  attempt_number: number;
-  status: string;
-  requires_reconciliation: boolean;
-}
-
-interface TokenContext extends BatchIdentity {
-  token_hash: string;
-  token_created_at: Date;
-}
-
-function panelUrl(environment: "MOCK" | "PRODUCTION"): string {
-  return environment === "PRODUCTION"
-    ? `${ARUBA_PANEL_ORIGIN}/`
-    : new URL("/aruba-sintetica", getConfig().APP_BASE_URL).toString();
-}
 
 function manifestPayload(
   batchId: string,
@@ -90,70 +57,11 @@ function integer(value: unknown): number {
 export async function getArubaSettings() {
   const config = getConfig();
   const environment = config.APP_ENV === "production" ? "PRODUCTION" : "MOCK";
-  const [result, helper] = await Promise.all([
-    getPool().query<{ key: string; value_json: unknown; version: number }>(
-      "SELECT key, value_json, version FROM settings WHERE key = 'aruba_mode'",
-    ),
-    getPool().query<{
-      helper_last_seen_at: Date | null;
-      helper_version: string | null;
-      browser_name: string | null;
-      last_readback_at: Date | null;
-    }>(
-      `WITH helper_contacts AS (
-         SELECT tokens.last_seen_at AS observed_at
-         FROM aruba_helper_tokens AS tokens
-         JOIN aruba_batches AS batches ON batches.id = tokens.batch_id
-         WHERE batches.environment = $1 AND batches.account_reference = $2
-           AND tokens.last_seen_at IS NOT NULL
-         UNION ALL
-         SELECT sessions.last_heartbeat_at AS observed_at
-         FROM aruba_sync_sessions AS sessions
-         WHERE sessions.environment = $1 AND sessions.account_reference = $2
-           AND sessions.last_heartbeat_at IS NOT NULL
-       ), helper_metadata AS (
-         SELECT sessions.last_heartbeat_at AS observed_at, sessions.helper_version,
-                sessions.browser_name
-         FROM aruba_sync_sessions AS sessions
-         WHERE sessions.environment = $1 AND sessions.account_reference = $2
-           AND sessions.last_heartbeat_at IS NOT NULL
-         UNION ALL
-         SELECT coalesce(submissions.last_checked_at, submissions.submitted_at) AS observed_at,
-                submissions.helper_version, submissions.browser_name
-         FROM aruba_submissions AS submissions
-         JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
-         WHERE batches.environment = $1 AND batches.account_reference = $2
-           AND (submissions.helper_version IS NOT NULL OR submissions.browser_name IS NOT NULL)
-       ), latest_metadata AS (
-         SELECT helper_version, browser_name
-         FROM helper_metadata
-         WHERE helper_version IS NOT NULL OR browser_name IS NOT NULL
-         ORDER BY observed_at DESC NULLS LAST
-         LIMIT 1
-       ), readbacks AS (
-         SELECT batches.last_readback_at AS observed_at
-         FROM aruba_batches AS batches
-         WHERE batches.environment = $1 AND batches.account_reference = $2
-           AND batches.last_readback_at IS NOT NULL
-         UNION ALL
-         SELECT sessions.completed_at AS observed_at
-         FROM aruba_sync_sessions AS sessions
-         WHERE sessions.environment = $1 AND sessions.account_reference = $2
-           AND sessions.is_full_scan AND sessions.completed_at IS NOT NULL
-       )
-       SELECT
-         (SELECT max(observed_at) FROM helper_contacts) AS helper_last_seen_at,
-         latest_metadata.helper_version,
-         latest_metadata.browser_name,
-         (SELECT max(observed_at) FROM readbacks) AS last_readback_at
-       FROM latest_metadata
-       RIGHT JOIN (SELECT 1) AS one ON true`,
-      [environment, config.ARUBA_ACCOUNT_REFERENCE],
-    ),
-  ]);
+  const result = await getPool().query<{ key: string; value_json: unknown; version: number }>(
+    "SELECT key, value_json, version FROM settings WHERE key = 'aruba_mode'",
+  );
   const settings = new Map(result.rows.map((row) => [row.key, row]));
   const mode = arubaModeSchema.parse(settings.get("aruba_mode")?.value_json ?? "DOCUMENT_ONLY");
-  const helperStatus = helper.rows[0];
   return {
     mode: {
       value: mode,
@@ -161,12 +69,6 @@ export async function getArubaSettings() {
     },
     effectiveMode: effectiveArubaMode(mode, environment, config.ARUBA_SUBMISSION_ENABLED),
     transmissionForcedDocumentOnly: !config.ARUBA_SUBMISSION_ENABLED,
-    helper: {
-      lastSeenAt: helperStatus?.helper_last_seen_at?.toISOString() ?? null,
-      version: helperStatus?.helper_version ?? null,
-      browser: helperStatus?.browser_name ?? null,
-      lastReadbackAt: helperStatus?.last_readback_at?.toISOString() ?? null,
-    },
   };
 }
 
@@ -378,209 +280,12 @@ export async function createBatchForDocuments(
   });
 }
 
-async function loadToken(client: pg.Pool | pg.PoolClient, token: string, lock = false) {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-  const result = await client.query<TokenContext>(
-    `SELECT tokens.token_hash, tokens.created_at AS token_created_at, batches.*
-     FROM aruba_helper_tokens AS tokens
-     JOIN aruba_batches AS batches ON batches.id = tokens.batch_id
-     WHERE tokens.token_hash = $1 AND tokens.revoked_at IS NULL AND tokens.expires_at > now()
-     ${lock ? "FOR UPDATE OF tokens, batches" : ""}`,
-    [hashToken(token)],
-  );
-  return result.rows[0] ?? null;
-}
-
-export function helperBearer(request: Request): string {
-  const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(request.headers.get("authorization") ?? "");
-  if (!match) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
-  return match[1]!;
-}
-
-export async function issueHelperToken(batchId: string, actor: ArubaActor) {
-  if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
-  if (!/^[0-9a-f-]{36}$/.test(batchId)) throw new AppError("ARUBA_BATCH_INVALID", 422);
-  return withTransaction(async (client) => {
-    const batch = await client.query<BatchIdentity>(
-      "SELECT * FROM aruba_batches WHERE id = $1 FOR UPDATE",
-      [batchId],
-    );
-    const current = batch.rows[0];
-    if (!current || current.transport !== "HELPER" || current.status === "CANCELLED") {
-      throw new AppError("ARUBA_BATCH_INVALID", 409);
-    }
-    if (current.status === "RECONCILED") {
-      const readbackNeeded = await client.query(
-        `SELECT 1 FROM aruba_submissions
-         WHERE batch_id = $1 AND status <> 'REMOVED' LIMIT 1`,
-        [batchId],
-      );
-      if (!readbackNeeded.rowCount) throw new AppError("ARUBA_BATCH_INVALID", 409);
-    }
-    const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + HELPER_TOKEN_TTL_MS);
-    await client.query(
-      "UPDATE aruba_helper_tokens SET revoked_at = now() WHERE batch_id = $1 AND revoked_at IS NULL",
-      [batchId],
-    );
-    await client.query(
-      `INSERT INTO aruba_helper_tokens (token_hash, batch_id, expires_at)
-       VALUES ($1, $2, $3)`,
-      [hashToken(token), batchId, expiresAt],
-    );
-    await writeAudit(client, {
-      actorType: "ADMIN",
-      actorId: String(actor.id),
-      action: "ARUBA_HELPER_TOKEN_CREATED",
-      eventClass: "CRITICAL",
-      entityType: "ARUBA_BATCH",
-      entityId: batchId,
-      metadata: { batchId, manifestSha256: current.manifest_sha256 },
-      requestId: actor.requestId,
-    });
-    return { token, expiresAt: expiresAt.toISOString() };
-  });
-}
-
-async function batchDocuments(
-  client: pg.Pool | pg.PoolClient,
-  batchId: string,
-): Promise<ArubaManifestDocument[]> {
-  const result = await client.query<{
-    id: string;
-    document_revision: number;
-    xml_sha256: string;
-    current_revision: number;
-    current_sha256: string;
-    filename: string;
-    size_bytes: number;
-    series: string;
-    fiscal_year: number;
-    fiscal_number: number;
-    document_date: string;
-    total_amount: number;
-  }>(
-    `SELECT documents.id, batch_documents.document_revision, batch_documents.xml_sha256,
-            documents.draft_version AS current_revision,
-            documents.xml_sha256 AS current_sha256,
-            batch_documents.filename, storage_objects.size_bytes, documents.series,
-            documents.fiscal_year, documents.fiscal_number, documents.document_date::text,
-            documents.total_amount
-     FROM aruba_batch_documents AS batch_documents
-     JOIN documents ON documents.id = batch_documents.document_id
-     JOIN storage_objects ON storage_objects.id = documents.storage_object_id
-     WHERE batch_documents.batch_id = $1
-     ORDER BY batch_documents.position`,
-    [batchId],
-  );
-  return result.rows.map((row) => {
-    if (row.current_revision !== row.document_revision || row.current_sha256 !== row.xml_sha256) {
-      throw new AppError("ARUBA_BATCH_INVALID", 409);
-    }
-    return {
-      id: row.id,
-      revision: row.document_revision,
-      sha256: row.xml_sha256,
-      filename: row.filename,
-      sizeBytes: row.size_bytes,
-      fiscalNumber: `${row.series} ${String(row.fiscal_number).padStart(4, "0")}/${String(row.fiscal_year).slice(-2)}`,
-      documentDate: row.document_date,
-      totalAmount: row.total_amount,
-    };
-  });
-}
-
-function verifyManifest(batch: BatchIdentity, documents: ArubaManifestDocument[]): void {
-  const digest = manifestSha256(
-    manifestPayload(
-      batch.id,
-      batch.environment,
-      batch.mode,
-      batch.account_reference,
-      batch.attempt_number,
-      documents,
-    ),
-  );
-  if (documents.length !== batch.document_count || digest !== batch.manifest_sha256) {
-    throw new AppError("ARUBA_BATCH_INVALID", 409);
-  }
-}
-
-export async function helperManifest(token: string): Promise<ArubaManifest> {
-  const context = await loadToken(getPool(), token);
-  if (!context) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
-  const documents = await batchDocuments(getPool(), context.id);
-  verifyManifest(context, documents);
-  await getPool().query(
-    "UPDATE aruba_helper_tokens SET last_seen_at = now() WHERE token_hash = $1",
-    [context.token_hash],
-  );
-  return {
-    ...manifestPayload(
-      context.id,
-      context.environment,
-      context.mode,
-      context.account_reference,
-      context.attempt_number,
-      documents,
-    ),
-    manifestSha256: context.manifest_sha256,
-    panelUrl: panelUrl(context.environment),
-    operation: context.status === "PREPARED" ? "UPLOAD" : "READBACK",
-  };
-}
-
 function safeStoragePath(relativePath: string): string {
   const root = path.resolve(getConfig().DOCUMENT_STORAGE_ROOT);
   const absolute = path.resolve(root, relativePath);
   if (!absolute.startsWith(`${root}${path.sep}`))
     throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
   return absolute;
-}
-
-export async function helperDocumentXml(token: string, documentId: string): Promise<Buffer> {
-  if (!isDatabaseId(documentId)) throw new AppError("ARUBA_BATCH_INVALID", 404);
-  const context = await loadToken(getPool(), token);
-  if (!context) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
-  const result = await getPool().query<{
-    relative_path: string;
-    sha256: string;
-    size_bytes: number;
-    manifest_sha256: string;
-  }>(
-    `SELECT storage_objects.relative_path, storage_objects.sha256, storage_objects.size_bytes,
-            batch_documents.xml_sha256 AS manifest_sha256
-     FROM aruba_batch_documents AS batch_documents
-     JOIN documents ON documents.id = batch_documents.document_id
-     JOIN storage_objects ON storage_objects.id = documents.storage_object_id
-     WHERE batch_documents.batch_id = $1 AND documents.id = $2`,
-    [context.id, documentId],
-  );
-  const row = result.rows[0];
-  if (!row || row.size_bytes > ARUBA_UPLOAD_MAX_BYTES || row.sha256 !== row.manifest_sha256) {
-    throw new AppError("ARUBA_BATCH_INVALID", 409);
-  }
-  const bytes = await readFile(safeStoragePath(row.relative_path));
-  if (
-    bytes.byteLength !== row.size_bytes ||
-    createHash("sha256").update(bytes).digest("hex") !== row.sha256
-  ) {
-    throw new AppError("DOCUMENT_STORAGE_FAILED", 500);
-  }
-  return bytes;
-}
-
-async function exactSubmissionDocuments(client: pg.PoolClient, batchId: string, ids: string[]) {
-  const expected = (
-    await client.query<{ document_id: string }>(
-      "SELECT document_id FROM aruba_submissions WHERE batch_id = $1 ORDER BY document_id",
-      [batchId],
-    )
-  ).rows.map((row) => row.document_id);
-  const received = [...new Set(ids)].sort((left, right) => Number(left) - Number(right));
-  if (expected.length !== received.length || expected.some((id, index) => id !== received[index])) {
-    throw new AppError("ARUBA_BATCH_INVALID", 409);
-  }
 }
 
 const stateRank: Record<string, number> = {
@@ -686,284 +391,6 @@ async function monotonicSubmission(
   return row.id;
 }
 
-async function requireReconciliation(
-  client: pg.PoolClient,
-  context: TokenContext,
-  reason: "BROWSER_CLOSED" | "NAVIGATION" | "UNKNOWN_RESULT" | "DOM_UNRECOGNIZED",
-) {
-  await client.query(
-    `UPDATE aruba_batches SET status = 'RECONCILIATION_REQUIRED',
-       requires_reconciliation = true, updated_at = now() WHERE id = $1`,
-    [context.id],
-  );
-  await client.query(
-    `UPDATE aruba_submissions SET
-       status = CASE WHEN status IN ('PENDING', 'VALIDATED', 'VALIDATION_FAILED', 'READY_TO_SEND')
-         THEN 'UNKNOWN' ELSE status END,
-       error_code = 'ARUBA_RECONCILIATION_REQUIRED',
-       error_message_sanitized = $2, last_checked_at = now() WHERE batch_id = $1`,
-    [context.id, reason],
-  );
-  await writeAudit(client, {
-    actorType: "SYSTEM",
-    action: "ARUBA_RECONCILIATION_REQUIRED",
-    eventClass: "CRITICAL",
-    entityType: "ARUBA_BATCH",
-    entityId: context.id,
-    metadata: { batchId: context.id, manifestSha256: context.manifest_sha256 },
-    requestId: `aruba-helper:${context.id}`,
-  });
-}
-
-export async function recordHelperEvent(token: string, rawEvent: unknown): Promise<void> {
-  const parsed = helperEventSchema.safeParse(rawEvent);
-  if (!parsed.success) throw new AppError("ARUBA_BATCH_INVALID", 422);
-  const event = parsed.data;
-  await withTransaction(async (client) => {
-    const context = await loadToken(client, token, true);
-    if (!context) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
-    if (event.type === "HELPER_HEARTBEAT") {
-      const maximumExpiry = context.token_created_at.getTime() + HELPER_TOKEN_MAX_LIFETIME_MS;
-      if (maximumExpiry - Date.now() <= HELPER_TOKEN_RECONCILIATION_GUARD_MS) {
-        await requireReconciliation(client, context, "UNKNOWN_RESULT");
-        await client.query(
-          "UPDATE aruba_helper_tokens SET last_seen_at = now(), revoked_at = now() WHERE token_hash = $1",
-          [context.token_hash],
-        );
-        return;
-      }
-      const expiresAt = new Date(Math.min(Date.now() + HELPER_TOKEN_TTL_MS, maximumExpiry));
-      await client.query(
-        `UPDATE aruba_helper_tokens SET last_seen_at = now(), expires_at = $2
-         WHERE token_hash = $1`,
-        [context.token_hash, expiresAt],
-      );
-      return;
-    }
-    await client.query(
-      "UPDATE aruba_helper_tokens SET last_seen_at = now() WHERE token_hash = $1",
-      [context.token_hash],
-    );
-    if (event.type === "HELPER_STARTED") {
-      if (context.status === "PREPARED") {
-        await client.query(
-          "UPDATE aruba_batches SET status = 'HELPER_ACTIVE', updated_at = now() WHERE id = $1",
-          [context.id],
-        );
-      }
-      await client.query(
-        `UPDATE aruba_submissions SET helper_version = '0.0.0', browser_name = $2
-         WHERE batch_id = $1`,
-        [context.id, event.browser],
-      );
-      return;
-    }
-    if (context.requires_reconciliation && event.type !== "READBACK") {
-      throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
-    }
-    if (event.type === "VALIDATION") {
-      if (!["HELPER_ACTIVE", "VALIDATION_FAILED"].includes(context.status)) {
-        throw new AppError("ARUBA_BATCH_INVALID", 409);
-      }
-      await exactSubmissionDocuments(
-        client,
-        context.id,
-        event.documents.map((item) => item.id),
-      );
-      const failed = event.documents.some((item) => item.status === "INVALID");
-      for (const item of event.documents) {
-        await client.query(
-          `UPDATE aruba_submissions SET status = $3, last_checked_at = now(),
-             validation_metadata_json = jsonb_build_object('status', $2::text),
-             error_code = CASE WHEN $2::text = 'INVALID' THEN 'ARUBA_VALIDATION_FAILED' END,
-             error_message_sanitized = $4
-           WHERE batch_id = $1 AND document_id = $5`,
-          [
-            context.id,
-            item.status,
-            item.status === "VALID" ? "VALIDATED" : "VALIDATION_FAILED",
-            item.message ?? null,
-            item.id,
-          ],
-        );
-      }
-      await client.query(
-        `UPDATE aruba_batches SET status = $2, updated_at = now()
-         WHERE id = $1`,
-        [context.id, failed ? "VALIDATION_FAILED" : "HELPER_ACTIVE"],
-      );
-      await writeAudit(client, {
-        actorType: "SYSTEM",
-        action: failed ? "ARUBA_VALIDATION_FAILED" : "ARUBA_UPLOAD_VALIDATED",
-        eventClass: "CRITICAL",
-        entityType: "ARUBA_BATCH",
-        entityId: context.id,
-        metadata: {
-          batchId: context.id,
-          manifestSha256: context.manifest_sha256,
-          documentCount: context.document_count,
-          arubaMode: context.mode,
-        },
-        requestId: `aruba-helper:${context.id}`,
-      });
-      return;
-    }
-    if (event.type === "ASSISTED_STOP") {
-      if (
-        context.mode === "AUTOMATIC_AFTER_APPROVAL" ||
-        context.requires_reconciliation ||
-        context.status !== "HELPER_ACTIVE"
-      ) {
-        throw new AppError("ARUBA_BATCH_INVALID", 409);
-      }
-      const invalid = await client.query(
-        "SELECT 1 FROM aruba_submissions WHERE batch_id = $1 AND status <> 'VALIDATED' LIMIT 1",
-        [context.id],
-      );
-      if (invalid.rowCount) throw new AppError("ARUBA_VALIDATION_FAILED", 409);
-      await client.query(
-        "UPDATE aruba_submissions SET status = 'READY_TO_SEND' WHERE batch_id = $1",
-        [context.id],
-      );
-      await client.query(
-        "UPDATE aruba_batches SET status = 'READY_ASSISTED', updated_at = now() WHERE id = $1",
-        [context.id],
-      );
-      await writeAudit(client, {
-        actorType: "SYSTEM",
-        action: "ARUBA_ASSISTED_STOPPED",
-        eventClass: "CRITICAL",
-        entityType: "ARUBA_BATCH",
-        entityId: context.id,
-        metadata: { batchId: context.id, manifestSha256: context.manifest_sha256 },
-        requestId: `aruba-helper:${context.id}`,
-      });
-      await client.query(
-        "UPDATE aruba_helper_tokens SET revoked_at = now() WHERE token_hash = $1",
-        [context.token_hash],
-      );
-      return;
-    }
-    if (event.type === "RECONCILIATION_REQUIRED") {
-      if (
-        !["HELPER_ACTIVE", "READY_ASSISTED", "READY_AUTOMATIC", "SUBMITTED"].includes(
-          context.status,
-        )
-      ) {
-        throw new AppError("ARUBA_BATCH_INVALID", 409);
-      }
-      await requireReconciliation(client, context, event.reason);
-      return;
-    }
-    if (event.type === "SUBMITTED") {
-      if (context.status !== "READY_AUTOMATIC") {
-        throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
-      }
-      await exactSubmissionDocuments(client, context.id, Object.keys(event.remoteIds));
-      await Promise.all(
-        Object.entries(event.remoteIds).map(([documentId, remoteId]) =>
-          monotonicSubmission(client, context.id, documentId, "SUBMITTED", remoteId),
-        ),
-      );
-      await client.query(
-        "UPDATE aruba_batches SET status = 'SUBMITTED', updated_at = now() WHERE id = $1",
-        [context.id],
-      );
-      return;
-    }
-    await exactSubmissionDocuments(
-      client,
-      context.id,
-      event.documents.map((item) => item.id),
-    );
-    const uncertain = event.documents.some((item) => item.status === "NOT_FOUND");
-    await Promise.all(
-      event.documents.map((item) =>
-        item.status === "NOT_FOUND"
-          ? undefined
-          : monotonicSubmission(client, context.id, item.id, item.status, item.remoteId),
-      ),
-    );
-    await client.query(
-      `UPDATE aruba_batches SET status = $2, requires_reconciliation = $3,
-         last_readback_at = now(), updated_at = now() WHERE id = $1`,
-      [context.id, uncertain ? "RECONCILIATION_REQUIRED" : "RECONCILED", uncertain],
-    );
-    if (!uncertain) {
-      await writeAudit(client, {
-        actorType: "SYSTEM",
-        action: "ARUBA_READBACK_RECONCILED",
-        eventClass: "CRITICAL",
-        entityType: "ARUBA_BATCH",
-        entityId: context.id,
-        metadata: { batchId: context.id, manifestSha256: context.manifest_sha256 },
-        requestId: `aruba-helper:${context.id}`,
-      });
-    }
-    await client.query("UPDATE aruba_helper_tokens SET revoked_at = now() WHERE token_hash = $1", [
-      context.token_hash,
-    ]);
-  });
-}
-
-export async function verifyArubaSendAuthorization(
-  token: string,
-  manifestDigest: unknown,
-): Promise<void> {
-  await withTransaction(async (client) => {
-    const context = await loadToken(client, token, true);
-    if (!context) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
-    if (
-      context.mode !== "AUTOMATIC_AFTER_APPROVAL" ||
-      context.requires_reconciliation ||
-      manifestDigest !== context.manifest_sha256 ||
-      (context.environment === "PRODUCTION" && !getConfig().ARUBA_SUBMISSION_ENABLED)
-    ) {
-      throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
-    }
-    const documents = await batchDocuments(client, context.id);
-    verifyManifest(context, documents);
-    if (context.status === "READY_AUTOMATIC") {
-      const inconsistent = await client.query(
-        "SELECT 1 FROM aruba_submissions WHERE batch_id = $1 AND status <> 'READY_TO_SEND' LIMIT 1",
-        [context.id],
-      );
-      if (inconsistent.rowCount) throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
-      return;
-    }
-    if (context.status !== "HELPER_ACTIVE") {
-      throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
-    }
-    const notValidated = await client.query(
-      "SELECT 1 FROM aruba_submissions WHERE batch_id = $1 AND status <> 'VALIDATED' LIMIT 1",
-      [context.id],
-    );
-    if (notValidated.rowCount) throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
-    await client.query(
-      "UPDATE aruba_batches SET status = 'READY_AUTOMATIC', updated_at = now() WHERE id = $1",
-      [context.id],
-    );
-    await client.query(
-      "UPDATE aruba_submissions SET status = 'READY_TO_SEND' WHERE batch_id = $1",
-      [context.id],
-    );
-    await writeAudit(client, {
-      actorType: "SYSTEM",
-      action: "ARUBA_SEND_AUTHORIZATION_VERIFIED",
-      eventClass: "CRITICAL",
-      entityType: "ARUBA_BATCH",
-      entityId: context.id,
-      metadata: {
-        batchId: context.id,
-        manifestSha256: context.manifest_sha256,
-        documentCount: context.document_count,
-        arubaMode: context.mode,
-      },
-      requestId: `aruba-helper:${context.id}`,
-    });
-  });
-}
-
 export async function listArubaBatches() {
   const result = await getPool().query<{
     id: string;
@@ -1022,45 +449,6 @@ export async function listArubaBatches() {
      ORDER BY batches.created_at DESC LIMIT 100`,
   );
   return result.rows;
-}
-
-export async function retryArubaBatch(batchId: string, actor: ArubaActor) {
-  if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
-  return withTransaction(async (client) => {
-    const batch = await client.query<BatchIdentity>(
-      "SELECT * FROM aruba_batches WHERE id = $1 FOR UPDATE",
-      [batchId],
-    );
-    const current = batch.rows[0];
-    if (
-      !current ||
-      current.transport !== "HELPER" ||
-      current.status !== "RECONCILED" ||
-      current.requires_reconciliation
-    ) {
-      throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
-    }
-    const unsafe = await client.query(
-      `SELECT 1 FROM aruba_submissions
-       WHERE batch_id = $1 AND status <> 'REMOVED' LIMIT 1`,
-      [batchId],
-    );
-    if (unsafe.rowCount) throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
-    const documents = await batchDocuments(client, batchId);
-    const retryBatchId = await createArubaBatch(
-      client,
-      documents,
-      actor,
-      undefined,
-      current.attempt_number + 1,
-      current.mode,
-    );
-    await client.query(
-      "UPDATE aruba_batches SET status = 'CANCELLED', updated_at = now() WHERE id = $1",
-      [batchId],
-    );
-    return retryBatchId;
-  });
 }
 
 export async function listUnbatchedApprovedDocuments() {
@@ -1122,21 +510,6 @@ export async function importOfficialArubaFile(
     actorType: "ADMIN",
     actorId: String(actor.id),
     requestId: actor.requestId,
-  });
-}
-
-export async function importOfficialArubaFileFromHelper(
-  token: string,
-  documentId: string,
-  rawKind: unknown,
-  bytes: Buffer,
-) {
-  const context = await loadToken(getPool(), token);
-  if (!context) throw new AppError("ARUBA_HELPER_TOKEN_INVALID", 401);
-  return importOfficialFile(documentId, rawKind, bytes, {
-    actorType: "SYSTEM",
-    requestId: `aruba-helper:${context.id}`,
-    batchId: context.id,
   });
 }
 
@@ -1250,12 +623,6 @@ async function importOfficialFile(
                  updated_at = now()
              WHERE id = $1`,
             [current.batch_id, requiresReconciliation],
-          );
-          await client.query(
-            `UPDATE aruba_helper_tokens
-             SET revoked_at = coalesce(revoked_at, now())
-             WHERE batch_id = $1`,
-            [current.batch_id],
           );
         }
       }

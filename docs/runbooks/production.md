@@ -67,28 +67,10 @@ Controlli conclusivi:
 - nessun container privilegiato, database non pubblicato e filesystem applicativo read-only;
 - connessioni non configurate restano fail-closed e nessun provider viene chiamato durante lo smoke.
 
-Per rileggere una volta sola la chiusura inbound Aruba senza contattare il provider né modificare il
-database, eseguire nel container web già attivo:
-
-```sh
-docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-web \
-  node build-server/operations/aruba-inbound-closure-report.js
-```
-
-Il JSON contiene soltanto commit, versione, schema, conteggi, gate e codici tecnici. `READY` non
-esegue il passaggio di autorità: attesta soltanto che può essere richiesta la decisione del titolare.
-
-Se una scansione browser completa era già terminata quando il backfill API si è chiuso, ricostruire
-il dossier sulla popolazione temporale comune senza contattare Aruba né riscaricare documenti:
-
-```sh
-docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-web \
-  node build-server/operations/aruba-inbound-rebuild-parity.js
-```
-
-L’operazione usa le identità fiscali persistite durante la scansione API, allinea la popolazione alla
-data della baseline browser e aggiorna in modo idempotente il dossier. Non recupera identità mancanti
-da una scansione precedente e non risolve automaticamente i conflitti browser.
+L’inbound Aruba non richiede operazioni di cutover o ricostruzione della parità: le API sono
+l’autorità automatica esclusiva. Il readback operativo usa stato connessione, ultimo giro canonico,
+checkpoint, freschezza inventario e conflitti correnti. Il fallback manuale è descritto nel runbook
+dedicato e non modifica l’autorità automatica.
 
 ## Release tecnica
 

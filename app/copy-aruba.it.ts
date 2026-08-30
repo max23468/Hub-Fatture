@@ -1,15 +1,14 @@
 export const arubaSettingsCopy = {
   arubaTitle: "Aruba",
   arubaHelp:
-    "Aggiorna documenti e stati dal pannello Aruba. Questa funzione non carica e non invia documenti.",
+    "Mantiene aggiornati documenti e stati tramite le API Aruba. Questa funzione non invia documenti.",
   arubaInventoryTitle: "Inventario",
   arubaExternalDocuments: "Senza ordine Shopify/eBay",
   arubaSyncTitle: "Sincronizzazione Aruba",
   arubaConnectionActive: "Sincronizzazione in corso",
-  arubaConnectionActiveHelp: "Tieni aperte le finestre Aruba e Hub Fatture fino al completamento.",
+  arubaConnectionActiveHelp: "La lettura API prosegue automaticamente in background.",
   arubaConnectionReady: "Pronto per l’aggiornamento",
-  arubaConnectionReadyHelp:
-    "Apri Aruba e avvia il preferito Sincronizza Aruba quando vuoi aggiornare l’inventario.",
+  arubaConnectionReadyHelp: "L’inventario viene mantenuto aggiornato automaticamente tramite API.",
   arubaConnectionAttention: "Aggiornamento necessario",
   arubaConnectionAttentionHelp:
     "L’inventario è vecchio o l’ultima lettura non è riuscita. Avvia una nuova sincronizzazione.",
@@ -17,8 +16,7 @@ export const arubaSettingsCopy = {
   arubaConnectionConflictHelp:
     "L’inventario è aggiornato. Alcuni documenti devono essere verificati prima delle operazioni fiscali.",
   arubaLastUpdate: (value: string) => `Ultimo aggiornamento: ${value}`,
-  arubaOpenPanel: "Apri Aruba",
-  arubaSyncOwnerOnly: "Solo il titolare può avviare la sincronizzazione Aruba.",
+  arubaSyncOwnerOnly: "Solo il titolare può richiedere una sincronizzazione immediata.",
   arubaApiTitle: "Lettura automatica da Aruba",
   arubaApiStatus: "Stato",
   arubaApiHelp:
@@ -54,15 +52,7 @@ export const arubaSettingsCopy = {
   arubaApiSaveControls: "Salva controlli API",
   arubaApiSyncNow: "Sincronizza ora",
   arubaApiAuthority: "Fonte dei dati in entrata",
-  arubaApiAuthorityBrowser: "Preferito nel browser",
   arubaApiAuthorityApi: "API Aruba",
-  arubaApiParity: "Confronto API–pannello",
-  arubaApiParityLabels: {
-    MATCHED: "Allineata",
-    DIVERGENT: "Divergenze da risolvere",
-    INCOMPLETE: "Confronto incompleto",
-  },
-  arubaApiNoParity: "Non ancora verificata",
   arubaApiLatestRun: "Ultima lettura API",
   arubaApiBackfill: "Copertura dello storico",
   arubaApiBackfillComplete: "Backfill completo",
@@ -124,70 +114,19 @@ export const arubaSettingsCopy = {
   arubaApiSafetyPause: "Pausa di sicurezza API",
   arubaApiSafetyPauseInactive: "Non attiva",
   arubaApiSafetyPauseUntil: (value: string) => `Attiva fino al ${value}`,
-  arubaApiCutoverReadiness: "Passaggio alla lettura API",
-  arubaApiCutoverReady: "Verifiche tecniche completate · attende conferma del titolare",
-  arubaApiCutoverPending: (completed: number, total: number) =>
-    `${completed}/${total} verifiche tecniche completate`,
-  arubaApiReconciliationPreview: "Riconciliazione dopo il backfill",
-  arubaApiReconciliationPreviewValue: (ready: number, total: number) =>
-    `${ready}/${total} documenti pronti per una rilettura mirata`,
-  arubaParityDossierSummary: (parity: {
-    apiDocuments: number;
-    browserDocuments: number;
-    matchedDocuments: number;
-    missingInApi: number;
-    missingInBrowser: number;
-    statusMismatches: number;
-    fileMismatches: number;
-    unresolvedBrowserConflicts: number;
-    apiFileCoverage: { xml: number; p7m: number; pdf: number; notifications: number };
-  }) =>
-    `Dossier di parità: ${parity.matchedDocuments}/${parity.apiDocuments} documenti API allineati; ` +
-    `${parity.browserDocuments} nel pannello, ${parity.missingInApi} mancanti nell’API, ` +
-    `${parity.missingInBrowser} mancanti nel pannello, ${parity.statusMismatches} stati e ` +
-    `${parity.fileMismatches} file divergenti, ${parity.unresolvedBrowserConflicts} conflitti browser. ` +
-    `Copertura API: ${parity.apiFileCoverage.xml} XML, ${parity.apiFileCoverage.p7m} P7M, ` +
-    `${parity.apiFileCoverage.pdf} PDF e ${parity.apiFileCoverage.notifications} notifiche.`,
   arubaDiagnosticValue: (code: string) =>
     code === "ARUBA_ACCOUNT_MISMATCH"
       ? "L’account Aruba aperto non coincide con quello già collegato"
       : code === "ARUBA_REMOTE_STATUS_UNRECOGNIZED"
         ? "Aruba mostra troppi stati non riconosciuti; la lettura è stata fermata"
-        : code === "DOM_UNRECOGNIZED"
-          ? "La pagina Aruba non ha completato il caricamento previsto"
-          : code === "READ_SYNC_FAILED"
-            ? "La lettura si è interrotta prima del completamento"
-            : code === "HUB_RESPONSE_TIMEOUT"
-              ? "Hub Fatture non ha risposto alla richiesta"
-              : code === "HUB_TIMEOUT"
-                ? "Il collegamento con Hub Fatture è scaduto"
-                : code === "HUB_BRIDGE_TIMEOUT"
-                  ? "La finestra Hub Fatture non ha completato il collegamento"
-                  : "Errore di sincronizzazione non disponibile",
-  arubaBookmarkletTitle: "Configura una volta il preferito",
-  arubaBookmarkletHelp:
-    "Non devi installare nulla. Funziona con Safari, Chrome o Edge su computer.",
-  arubaBookmarkletSaveTitle: "Trascina il pulsante nella barra dei preferiti",
-  arubaBookmarkletSaveHelp:
-    "Il preferito si aggiorna automaticamente e non salva credenziali Aruba né token.",
-  arubaBookmarkletLabel: "Sincronizza Aruba",
-  arubaBookmarkletAccessibleLabel: "Sincronizza Aruba",
-  arubaBookmarkletRunTitle: "Apri Aruba, accedi e usa il preferito",
-  arubaBookmarkletRunHelp:
-    "Puoi avviarlo anche dalla Home: quando richiesto seleziona Fatture inviate nel menu Aruba. La lettura mostra l’avanzamento e non invia documenti.",
+        : code === "READ_SYNC_FAILED"
+          ? "La lettura si è interrotta prima del completamento"
+          : "Errore di sincronizzazione non disponibile",
   arubaAdvancedRecovery: "Recupero avanzato",
   arubaAdvancedRecoveryHelp:
-    "Usa l’inserimento manuale soltanto se il preferito non riesce a completare la lettura.",
+    "Usa l’inserimento manuale soltanto quando l’API non può completare una lettura necessaria.",
   arubaOpenManualRecovery: "Avvia recupero manuale",
   arubaTransmissionTitle: "Trasmissione dei documenti",
   arubaTransmissionHelp:
     "Questa impostazione riguarda il caricamento e l’ultimo passaggio in Aruba, non la sincronizzazione dell’inventario.",
-  arubaBridgeTitle: "Sincronizzazione protetta",
-  arubaBridgeHelp:
-    "Questa finestra collega temporaneamente Aruba a Hub Fatture senza condividere le credenziali.",
-  arubaBridgeWaiting: "In attesa del comando dalla pagina Aruba…",
-  arubaBridgeActive: "Collegamento attivo. Non chiudere questa finestra.",
-  arubaBridgeMissingPanel: "Apri questa finestra usando il preferito dalla pagina Aruba.",
-  arubaBridgeFailed:
-    "Non è stato possibile avviare la sessione. Torna alle impostazioni e riprova.",
 } as const;

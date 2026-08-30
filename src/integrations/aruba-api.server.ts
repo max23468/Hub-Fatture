@@ -5,10 +5,8 @@ import {
   normalizeArubaRemoteStatusLabel,
   type ArubaRemoteStatus,
 } from "../aruba-inbound.ts";
-import { ARUBA_IMPORT_MAX_BYTES } from "../aruba-browser-constants.ts";
-import { ARUBA_UPLOAD_MAX_BYTES } from "../aruba.ts";
+import { ARUBA_IMPORT_MAX_BYTES, ARUBA_UPLOAD_MAX_BYTES } from "../aruba.ts";
 import { AppError } from "../errors.ts";
-import type { ArubaShadowDocument } from "../aruba-shadow-comparison.ts";
 import { providerJson } from "./provider-http.server.ts";
 
 export type ArubaApiEnvironment = "DEMO" | "PRODUCTION";
@@ -154,28 +152,6 @@ export const arubaApiInvoiceDetailSchema = z.object({
   pdfFile: base64FileSchema.nullish(),
   pddAvailable: z.boolean(),
 });
-
-export function arubaApiGroupsToShadowDocuments(value: unknown): ArubaShadowDocument[] {
-  const result = z.array(invoiceGroupSchema).max(100).safeParse(value);
-  if (!result.success) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
-  return result.data.flatMap((group) =>
-    group.invoices.flatMap((invoice) => {
-      if (invoice.documentType !== "TD01" && invoice.documentType !== "TD04") return [];
-      const documentDate = invoice.invoiceDate.slice(0, 10);
-      return [
-        {
-          remoteId: group.id,
-          documentType: invoice.documentType,
-          fiscalYear: Number(documentDate.slice(0, 4)),
-          series: null,
-          fiscalNumber: null,
-          documentDate,
-          status: normalizeArubaRemoteStatusLabel(invoice.status),
-        },
-      ];
-    }),
-  );
-}
 
 export const arubaApiNotificationListSchema = z
   .object({

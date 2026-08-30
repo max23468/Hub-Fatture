@@ -107,29 +107,6 @@ test("i connettori attivano contract test e corsia provider", () => {
   assert.equal(impact.e2eWebkit, false);
 });
 
-test("l'helper Aruba limita la matrice multipiattaforma ai cambi pertinenti", () => {
-  for (const file of [
-    "scripts/aruba-helper.ts",
-    "src/aruba-bookmarklet.ts",
-    "app/routes/aruba-browser-session.ts",
-    "scripts/aruba-read-helper.ts",
-    "scripts/aruba-read-runner.ts",
-    "scripts/aruba-download-limit.ts",
-    "src/aruba.ts",
-    "src/aruba-inbound.ts",
-  ]) {
-    const impact = classifyFiles([file]);
-    assert.equal(impact.arubaPlatform, true, file);
-    assert.equal(impact.provider, true, file);
-    if (file.startsWith("scripts/")) assert.equal(impact.e2e, true, file);
-  }
-});
-
-test("l'orchestrazione Aruba richiede sempre le ricevute multipiattaforma", () => {
-  const impact = classifyFiles([".github/workflows/aruba-platform.yml"]);
-  assert.equal(impact.arubaPlatform, true);
-});
-
 test("un percorso sconosciuto ricade fail-closed nel gate completo", () => {
   const impact = classifyFiles(["nuovo-sistema/config.custom"]);
   assert.equal(impact.failClosed, true);

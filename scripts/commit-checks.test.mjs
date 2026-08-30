@@ -60,7 +60,6 @@ test("il classificatore vincola al proprio commit tutti i gate che forza", () =>
   assert.equal(impact.database, true);
   assert.equal(impact.securityData, true);
   assert.equal(impact.provider, true);
-  assert.equal(impact.arubaPlatform, true);
   assert.equal(impact.e2e, true);
   assert.equal(impact.e2eWebkit, true);
   assert.equal(impact.image, true);
@@ -183,20 +182,6 @@ test("i commit con CI monolitica non richiedono job storici inesistenti", () => 
   assert.equal("Contract test provider" in targets, false);
   assert.equal("E2E Chromium" in targets, false);
   assert.equal("E2E WebKit" in targets, false);
-});
-
-test("richiede entrambe le piattaforme Aruba sull'ultimo commit applicabile", () => {
-  const aruba = "1".repeat(40);
-  const docs = "2".repeat(40);
-  const targets = selectCheckTargets(
-    [
-      { sha: aruba, impact: { standard: true, image: true, arubaPlatform: true } },
-      { sha: docs, impact: { standard: false, image: false, arubaPlatform: false } },
-    ],
-    docs,
-  );
-  assert.equal(targets["Helper Aruba (chrome / macos-latest)"], aruba);
-  assert.equal(targets["Helper Aruba (msedge / windows-latest)"], aruba);
 });
 
 test("un gate di superficie applicabile non può risultare saltato", () => {

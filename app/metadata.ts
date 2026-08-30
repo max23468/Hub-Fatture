@@ -19,7 +19,6 @@ const pages = {
   customer: { title: "Cliente", description: copy.customers.currentRecordHelp },
   activity: { title: copy.activity.title, description: copy.activity.intro },
   settings: { title: copy.settings.title, description: copy.settings.intro },
-  arubaSynthetic: { title: "Simulatore Aruba", description: copy.arubaSynthetic.intro },
   notFound: { title: copy.error.notFound, description: copy.error.notFoundHelp },
   unexpectedError: { title: "Errore", description: copy.error.unexpectedHelp },
 } as const;

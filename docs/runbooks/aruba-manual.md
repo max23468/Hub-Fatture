@@ -1,11 +1,10 @@
 # Procedura manuale Aruba
 
-Questa è la procedura permanente quando le API Aruba non sono disponibili o non sono autorizzate,
-oppure durante la transizione quando l’helper non è disponibile. Non dipende dalla presenza degli
-helper e resta valida dopo il loro eventuale ritiro.
+Questa è la procedura permanente quando le API Aruba non sono disponibili o non sono autorizzate.
+È l’unico fallback applicativo al canale API.
 
 1. In **Documenti**, verificare numero, data, destinatario e totale; quindi scaricare l’XML approvato.
-2. Aprire manualmente il pannello ufficiale Aruba e completare personalmente login e password. Se compare una challenge OTP, SMS o CAPTCHA inattesa, completarla senza comunicare questi dati a Hub Fatture o all’helper.
+2. Aprire manualmente il pannello ufficiale Aruba e completare personalmente login e password. Se compare una challenge OTP, SMS o CAPTCHA inattesa, completarla senza comunicare questi dati a Hub Fatture.
 3. Usare il caricamento XML del pannello. La configurazione corrente non richiede un SMS per ogni upload; se Aruba presenta comunque una verifica di sicurezza, completarla personalmente prima di proseguire. Non usare **Salva in bozze** e non modificare i dati del documento nel pannello.
 4. Leggere la validazione di ogni XML. Se anche un documento è invalido, non inviare: usare **SVUOTA PAGINA** per rimuovere tutti gli upload del batch e verificare nel pannello che non siano rimasti pendenti.
 5. Confrontare di nuovo numero, data, destinatario e totale. In una prova controllata fermarsi qui, prima di **INVIA TUTTE** o **INVIA**, usare **SVUOTA PAGINA** e fare readback.

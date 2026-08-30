@@ -111,7 +111,7 @@ test.afterAll(async () => {
 // I test condividono gli account creati dal primo: in serie un retry li ripete tutti dall'inizio.
 test.describe.configure({ mode: "serial" });
 
-test("configura i due account e accede con entrambi", async ({ page, browserName }) => {
+test("configura i due account e accede con entrambi", async ({ page }) => {
   test.setTimeout(240_000);
   await page.goto("/setup");
   await page.setViewportSize({ width: 320, height: 780 });
@@ -788,9 +788,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
       "L’inventario è vecchio o l’ultima lettura non è riuscita. Avvia una nuova sincronizzazione.",
     ),
   ).toBeVisible();
-  await expect(arubaSync.getByRole("link", { name: "Apri Aruba" })).toHaveCount(0);
-  await expect(arubaSync).toContainText("Solo il titolare può avviare la sincronizzazione Aruba.");
-  await expect(page.getByText("Configura una volta il preferito")).toHaveCount(0);
+  await expect(arubaSync).not.toContainText(/preferito|browser/i);
   expect(
     await page.evaluate(() => {
       const probe = document.createElement("div");
@@ -820,12 +818,14 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
   await connectionClient.query(
-    `INSERT INTO aruba_sync_sessions
-       (id, environment, account_reference, device_id, token_hash, status,
-        absolute_expires_at, completed_at, full_scan_completed_at, is_full_scan)
+    `INSERT INTO aruba_sync_runs
+       (id, environment, api_environment, account_reference, kind, authority_mode, status,
+        window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at,
+        completed_at, full_scan_completed_at)
      VALUES
-       ('00000000-0000-4000-8000-000000000072', 'MOCK', 'synthetic-aruba-account',
-        'synthetic-device-readiness', repeat('6', 64), 'COMPLETED', now(), now(), now(), true)`,
+       ('00000000-0000-4000-8000-000000000072', 'MOCK', 'DEMO',
+        'synthetic-aruba-account', 'FULL', 'CANONICAL', 'COMPLETED', now() - interval '2 days',
+        now(), now() - interval '2 days', now(), now(), now(), now())`,
   );
   await connectionClient.query(
     `INSERT INTO aruba_batches
@@ -1213,7 +1213,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const preparationLayoutClient = new pg.Client({ connectionString: databaseUrl });
   await preparationLayoutClient.connect();
   await preparationLayoutClient.query(
-    `UPDATE aruba_sync_sessions
+    `UPDATE aruba_sync_runs
      SET completed_at = now() - interval '2 hours',
          full_scan_completed_at = now() - interval '2 hours'
      WHERE environment = 'MOCK'
@@ -1363,7 +1363,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
 
   await page.getByRole("link", { name: "Impostazioni" }).click();
   const arubaApiSettings = page.locator("#aruba-api");
-  await expect(arubaApiSettings.locator(".aruba-api-facts > div")).toHaveCount(6);
+  await expect(arubaApiSettings.locator(".aruba-api-facts > div")).toHaveCount(5);
   await expect(arubaApiSettings.getByLabel("Nome utente del pannello Aruba")).toBeVisible();
   await expect(arubaApiSettings.getByLabel("Password del pannello Aruba")).toBeVisible();
   await expect(arubaApiSettings).toContainText("Non servono credenziali API separate");
@@ -1395,7 +1395,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   const arubaStackSpacing = await page.locator(".aruba-settings-stack").evaluate((stack) => {
     const panels = Array.from(stack.children).filter((element) =>
       element.matches(
-        ".aruba-api-card, .aruba-sync-card, .aruba-bookmarklet, .aruba-inventory-card, .aruba-monthly-usage-card, .settings-disclosure, .settings-transmission-section",
+        ".aruba-api-card, .aruba-sync-card, .aruba-inventory-card, .aruba-monthly-usage-card, .settings-disclosure, .settings-transmission-section",
       ),
     );
     const boxes = panels.map((panel) => panel.getBoundingClientRect());
@@ -1428,7 +1428,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
         api_paused, inbound_enabled, automatic_authority, last_checked_at,
         credentials_verified_at)
      VALUES ('ARUBA', 'DEVELOPMENT', 'synthetic-aruba-layout', $1,
-       'PAUSED', true, false, 'BROWSER', now(), now())
+       'PAUSED', true, false, 'API', now(), now())
      ON CONFLICT (provider, environment) DO UPDATE SET
        account_reference = EXCLUDED.account_reference,
        encrypted_credentials = EXCLUDED.encrypted_credentials,
@@ -1446,7 +1446,7 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
        window_start, window_end, checkpoint_start, checkpoint_end, checkpoint_page,
        page_count, request_count, lease_expires_at, started_at)
      VALUES ('30000000-0000-4000-8000-000000000001', 'MOCK', 'DEMO',
-       'synthetic-aruba-layout', 'BACKFILL', 'SHADOW', 'RUNNING',
+       'synthetic-aruba-layout', 'BACKFILL', 'CANONICAL', 'RUNNING',
        now() - interval '10 days', now(), now() - interval '6 days',
        now() - interval '4 days', 2, 12, 36, now() + interval '3 minutes',
        now() - interval '1 hour')`,
@@ -1457,11 +1457,6 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   ).toHaveAttribute("value", "40");
   await expect(arubaApiSettings).toContainText("Backfill in corso · 40%");
   await expect(arubaApiSettings).toContainText("finestre da 48 ore rimanenti");
-  await page.getByText("Dettagli sincronizzazione", { exact: true }).click();
-  await expect(page.getByText("Passaggio alla lettura API", { exact: true })).toBeVisible();
-  await expect(page.getByText(/\d+\/12 verifiche tecniche completate/)).toBeVisible();
-  await expect(page.getByText("Riconciliazione dopo il backfill", { exact: true })).toBeVisible();
-  await expect(page.getByText(/\d+\/\d+ documenti pronti per una rilettura mirata/)).toBeVisible();
   await expect(credentialForm).toHaveCount(0);
   const editCredentials = arubaApiSettings.getByRole("button", {
     name: "Aggiorna credenziali",
@@ -1517,197 +1512,6 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
   }
   expect(configuredControlLayout.controlsHeight).toBeLessThan(112);
   expect(configuredControlLayout.revokeHeight).toBeLessThan(96);
-  const ownerArubaSync = page.locator(".aruba-sync-card");
-  const openAruba = ownerArubaSync.getByRole("link", { name: "Apri Aruba" });
-  await expect(openAruba).toBeVisible();
-  await expect(openAruba).toHaveAttribute("href", /\/aruba-sintetica\?scenario=inventory$/);
-  const transmissionBox = page.locator(".settings-choice-card--compact");
-  const desktopTransmissionSize = await transmissionBox.boundingBox();
-  expect(desktopTransmissionSize?.width ?? 0).toBeLessThanOrEqual(736);
-  expect(desktopTransmissionSize?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(96);
-  const bookmarklet = page.locator(".aruba-bookmarklet");
-  await expect(
-    page.getByRole("heading", { name: "Configura una volta il preferito" }),
-  ).toBeVisible();
-  const bookmarkletButton = bookmarklet.getByRole("link", { name: "Sincronizza Aruba" });
-  await expect(bookmarkletButton).toHaveAttribute("href", /^javascript:/);
-  await expect(bookmarkletButton).toHaveText("Sincronizza Aruba");
-  await expect(bookmarkletButton).not.toContainText("↻");
-  const bookmarkletHref = await bookmarkletButton.getAttribute("href");
-  expect(bookmarkletHref).toBeTruthy();
-  await expect(bookmarklet).not.toContainText(/Node|npm|mise|Terminale|installer/i);
-  expect(await bookmarklet.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
-    true,
-  );
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expectViewportFits(page);
-  const mobileCredentialGaps = await credentialForm.evaluate((form) => {
-    const groups = Array.from(form.querySelectorAll<HTMLElement>(".field-with-help"));
-    const boxes = groups.map((group) => group.getBoundingClientRect());
-    return boxes.slice(1).map((box, index) => box.top - boxes[index]!.bottom);
-  });
-  for (const gap of mobileCredentialGaps) {
-    expect(gap).toBeGreaterThanOrEqual(23);
-    expect(gap).toBeLessThanOrEqual(25);
-  }
-  await arubaApiSettings.getByRole("button", { name: "Annulla" }).click();
-  await expect(credentialForm).toHaveCount(0);
-  await expect(editCredentials).toBeVisible();
-  await expect(configuredControls).toBeVisible();
-  await expect(revokeControls).toBeVisible();
-  for (const checkbox of await arubaApiSettings.locator("input[type='checkbox']").all()) {
-    const box = await checkbox.boundingBox();
-    expect(box?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(20);
-    expect(box?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(20);
-  }
-  expect(
-    await arubaApiSettings.evaluate((section) => section.scrollWidth <= section.clientWidth),
-  ).toBe(true);
-  expect(await bookmarklet.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
-    true,
-  );
-  for (const action of await bookmarklet.getByRole("link").all()) {
-    const box = await action.boundingBox();
-    const panel = await bookmarklet.boundingBox();
-    expect(box && panel && box.x >= panel.x && box.x + box.width <= panel.x + panel.width).toBe(
-      true,
-    );
-  }
-  const mobileTransmissionSize = await transmissionBox.boundingBox();
-  expect(mobileTransmissionSize?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(358);
-  expect(mobileTransmissionSize?.height ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(140);
-  await arubaApiUiClient.query(
-    "DELETE FROM aruba_sync_runs WHERE account_reference = 'synthetic-aruba-layout'",
-  );
-  await arubaApiUiClient.query(
-    "DELETE FROM connections WHERE provider = 'ARUBA' AND environment = 'DEVELOPMENT'",
-  );
-  await arubaApiUiClient.end();
-  await page.setViewportSize({ width: 1280, height: 720 });
-  const arubaPage = await page.context().newPage();
-  const arubaPanelHref = await openAruba.getAttribute("href");
-  expect(arubaPanelHref).toBeTruthy();
-  const arubaHomeHref = new URL(arubaPanelHref!);
-  arubaHomeHref.searchParams.set("scenario", "inventory-home");
-  await arubaPage.goto(arubaHomeHref.toString());
-  await expect(arubaPage.getByRole("heading", { name: "Home Aruba" })).toBeVisible();
-  await arubaPage.locator("body").evaluate((body, href) => {
-    const link = document.createElement("a");
-    link.id = "e2e-aruba-bookmarklet";
-    link.href = href;
-    link.textContent = "Esegui sincronizzazione";
-    body.append(link);
-  }, bookmarkletHref!);
-  const bridgePagePromise = page.context().waitForEvent("page", {
-    predicate: (candidate) => candidate.url().includes("/aruba-ponte"),
-  });
-  await arubaPage.locator("#e2e-aruba-bookmarklet").click();
-  const bridgePage = await bridgePagePromise;
-  await expect(bridgePage.getByRole("status")).toContainText("Collegamento attivo");
-  await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
-    "Seleziona Fatture inviate",
-  );
-  await arubaPage.evaluate(() => {
-    const runtime = window as typeof window & { __arubaConcurrentPolling?: number };
-    runtime.__arubaConcurrentPolling = window.setInterval(() => void fetch("/health"), 50);
-  });
-  await arubaPage.waitForTimeout(200);
-  await arubaPage.getByRole("menuitem", { name: "Fatture inviate" }).click();
-  await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
-    "Sincronizzazione completata",
-    { timeout: 30_000 },
-  );
-  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).toHaveAttribute(
-    "data-aruba-filter-revision",
-    "0",
-  );
-  await expect(arubaPage.locator('[data-aruba-state="inventory-ready"]')).toBeVisible();
-  await arubaPage.evaluate(() => {
-    const runtime = window as typeof window & { __arubaConcurrentPolling?: number };
-    window.clearInterval(runtime.__arubaConcurrentPolling);
-    delete runtime.__arubaConcurrentPolling;
-  });
-  await bridgePage.waitForEvent("close", { timeout: 10_000 });
-  expect(
-    await arubaPage.evaluate(
-      () =>
-        (window as typeof window & { __HUB_FATTURE_ARUBA_RUNTIME_ACTIVE__?: boolean })
-          .__HUB_FATTURE_ARUBA_RUNTIME_ACTIVE__,
-    ),
-  ).toBeUndefined();
-  const preflightDate = `${new Date().getUTCFullYear()}-01-03`;
-  const preflightClient = new pg.Client({ connectionString: databaseUrl });
-  await preflightClient.connect();
-  await preflightClient.query(
-    `INSERT INTO aruba_preflight_receipts
-       (id, environment, account_reference, draft_version, projection_sha256,
-        manifest_sha256, inventory_watermark, status, requested_by, request_json)
-     SELECT gen_random_uuid(), sessions.environment, sessions.account_reference, 1,
-            repeat('a', 64), repeat('b', 64), 0, 'REQUESTED', users.id, $1::jsonb
-     FROM aruba_sync_sessions AS sessions
-     CROSS JOIN LATERAL (SELECT id FROM users ORDER BY id LIMIT 1) AS users
-     WHERE sessions.helper_version = 'preferito-1'
-     ORDER BY sessions.started_at DESC LIMIT 1`,
-    [
-      JSON.stringify({
-        documentType: "TD01",
-        orderIds: [],
-        refundIds: [],
-        searches: [
-          {
-            displayNumber: "#PREFLIGHT-OLDER",
-            documentType: "TD01",
-            orderDate: preflightDate,
-          },
-        ],
-      }),
-    ],
-  );
-  await preflightClient.end();
-  const secondBridgePagePromise = page.context().waitForEvent("page", {
-    predicate: (candidate) => candidate.url().includes("/aruba-ponte"),
-  });
-  await arubaPage.locator("#e2e-aruba-bookmarklet").click();
-  const secondBridgePage = await secondBridgePagePromise;
-  await expect(secondBridgePage.getByRole("status")).toContainText("Collegamento attivo");
-  await expect(arubaPage.locator("[data-aruba-filter-from]")).toHaveValue("", {
-    timeout: 30_000,
-  });
-  await expect(arubaPage.locator("#hub-fatture-aruba-status")).toContainText(
-    "Sincronizzazione completata",
-    { timeout: 30_000 },
-  );
-  await secondBridgePage.waitForEvent("close", { timeout: 10_000 });
-  await arubaPage.close();
-  await page.reload();
-  await expect(page.locator(".aruba-inventory-card dd").first()).not.toHaveText("0");
-  const browserReadback = new pg.Client({ connectionString: databaseUrl });
-  await browserReadback.connect();
-  const detectedBrowser = await browserReadback.query<{ browser_name: string }>(
-    `SELECT browser_name FROM aruba_sync_sessions
-     WHERE helper_version = 'preferito-1'
-     ORDER BY started_at DESC LIMIT 1`,
-  );
-  const bookmarkletSessions = await browserReadback.query<{
-    status: string;
-    full_scan: boolean;
-  }>(
-    `SELECT sessions.status, bool_and(pages.full_scan) AS full_scan
-     FROM aruba_sync_sessions AS sessions
-     JOIN aruba_sync_pages AS pages ON pages.sync_session_id = sessions.id
-     WHERE sessions.helper_version = 'preferito-1'
-       AND pages.stream ~ '^(invoices|credit-notes):'
-     GROUP BY sessions.id, sessions.status, sessions.started_at
-     ORDER BY sessions.started_at DESC LIMIT 2`,
-  );
-  await browserReadback.end();
-  expect(detectedBrowser.rows[0]?.browser_name).toBe(
-    browserName === "webkit" ? "safari" : "chrome",
-  );
-  expect(bookmarkletSessions.rows).toEqual([
-    { status: "COMPLETED", full_scan: false },
-    { status: "COMPLETED", full_scan: true },
-  ]);
   await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC_AFTER_APPROVAL");
   const settingsResponse = page.waitForResponse(
     (response) =>
@@ -1902,11 +1706,6 @@ test("configura i due account e accede con entrambi", async ({ page, browserName
     transport: "API",
     status: "DOCUMENT_ONLY",
   });
-  await assert.rejects(
-    aruba.issueHelperToken(note.batch_id, actor),
-    (error: unknown) =>
-      error instanceof Error && "code" in error && error.code === "ARUBA_BATCH_INVALID",
-  );
   await aruba.importOfficialArubaFile(
     noteId!,
     "ARUBA_XML",

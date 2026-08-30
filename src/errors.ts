@@ -39,10 +39,6 @@ export const errorCatalog = {
   EMAIL_DELIVERY_TEMPORARY: "Il servizio e-mail è temporaneamente indisponibile.",
   EMAIL_DELIVERY_UNCERTAIN: "L’esito SMTP è incerto: verifica prima di autorizzare un nuovo invio.",
   ARUBA_BATCH_INVALID: "Il batch Aruba non coincide con i documenti approvati.",
-  ARUBA_HELPER_TOKEN_INVALID: "Il codice di avvio dell’helper non è valido o è scaduto.",
-  ARUBA_HOST_NOT_ALLOWED: "L’helper ha rilevato un indirizzo non autorizzato.",
-  ARUBA_AUTHENTICATION_REQUIRED: "Completa l’autenticazione nel browser e riprendi dall’helper.",
-  ARUBA_DOM_UNRECOGNIZED: "La pagina Aruba non corrisponde al contratto verificato.",
   ARUBA_VALIDATION_FAILED: "Aruba ha rifiutato almeno un documento del batch.",
   ARUBA_OPERATION_FORBIDDEN: "Solo il titolare può eseguire questa operazione Aruba.",
   ARUBA_SEND_NOT_AUTHORIZED:
@@ -55,7 +51,6 @@ export const errorCatalog = {
     "Lo stato remoto è incerto: completa il readback prima di un nuovo tentativo.",
   ARUBA_IMPORT_INVALID: "Il file Aruba non è riconosciuto o non coincide con il documento.",
   ARUBA_READ_SESSION_INVALID: "La sessione di sola lettura Aruba non è valida o è scaduta.",
-  ARUBA_READ_SESSION_ACTIVE: "Una sincronizzazione Aruba è già attiva per questo account.",
   ARUBA_READ_SESSION_FORBIDDEN: "Solo il titolare può revocare le sessioni Aruba.",
   ARUBA_ACCOUNT_MISMATCH: "L’account Aruba aperto non coincide con quello già collegato.",
   ARUBA_REMOTE_STATUS_UNRECOGNIZED:
@@ -71,8 +66,10 @@ export const errorCatalog = {
     "La sincronizzazione Aruba ha raggiunto il limite autorizzato di richieste.",
   ARUBA_API_COOLDOWN_ACTIVE:
     "La lettura Aruba è in pausa di sicurezza dopo una richiesta di rallentamento.",
+  ARUBA_API_AUTH_INTERVAL_ACTIVE:
+    "Una nuova autenticazione Aruba è già programmata al termine dell’intervallo di sicurezza.",
   ARUBA_PREFLIGHT_REQUIRED:
-    "È stato richiesto un controllo Aruba aggiornato. Attendi l’helper e riprova entro cinque minuti.",
+    "È richiesto un controllo Aruba aggiornato. Completa la verifica API e riprova entro cinque minuti.",
   INVALID_CONTENT_TYPE: "Formato della richiesta non supportato.",
   REQUEST_BODY_TOO_LARGE: "La richiesta supera il limite consentito.",
   REQUEST_ORIGIN_INVALID: "Origine della richiesta non valida.",

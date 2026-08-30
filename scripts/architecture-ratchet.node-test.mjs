@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -9,7 +9,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const legacySizeCaps = new Map([
   ["src/db/aruba-inbound.server.ts", 158_884],
   ["src/db/order-import.server.ts", 65_706],
-  ["src/db/aruba-inbound.server.test.ts", 94_835],
   ["src/db/orders.server.test.ts", 278_450],
   ["app/styles.css", 119_474],
   ["app/copy.it.ts", 59_800],
@@ -24,29 +23,34 @@ test("i file legacy sovradimensionati non crescono ulteriormente", async () => {
   assert.deepEqual(offenders, []);
 });
 
-test("le route e l'emissione della sessione Aruba usano i moduli estratti", async () => {
-  const [manifestRoute, completeRoute, settings, inbound, session, manifest, runner] =
-    await Promise.all([
-      readFile(path.join(root, "app/routes/aruba-sync-manifest.ts"), "utf8"),
-      readFile(path.join(root, "app/routes/aruba-sync-complete.ts"), "utf8"),
-      readFile(path.join(root, "app/routes/settings.server.ts"), "utf8"),
-      readFile(path.join(root, "src/db/aruba-inbound.server.ts"), "utf8"),
-      readFile(path.join(root, "src/db/aruba-read-session.server.ts"), "utf8"),
-      readFile(path.join(root, "package.json"), "utf8"),
-      readFile(path.join(root, "scripts/aruba-read-runner.ts"), "utf8"),
-    ]);
-  assert.match(manifestRoute, /arubaInventoryManifest/);
-  assert.doesNotMatch(manifestRoute, /\barubaReadManifest\b/);
-  assert.match(completeRoute, /completeStableArubaInventory/);
-  assert.doesNotMatch(completeRoute, /\bcompleteArubaInventory\b/);
-  assert.match(settings, /buildArubaBookmarklet/);
-  assert.doesNotMatch(settings, /approveArubaConnectorPairing/);
-  assert.doesNotMatch(settings, /issueStableArubaReadSession/);
-  assert.match(inbound, /freezeArubaInventorySnapshot/);
-  assert.doesNotMatch(inbound, /export async function arubaReadManifest/);
-  assert.doesNotMatch(inbound, /export async function completeArubaInventory/);
-  assert.match(session, /export async function loadArubaReadSession/);
-  assert.equal(JSON.parse(manifest).scripts["aruba:sync"], "node scripts/aruba-read-runner.ts");
-  assert.match(runner, /installBoundedArubaRequestGet/);
-  assert.match(runner, /chromium\.launchPersistentContext/);
+test("il runtime Aruba resta esclusivamente API o manuale", async () => {
+  const runtimeRoots = ["app", "src", "scripts", ".github"];
+  const runtimeFiles = (
+    await Promise.all(
+      runtimeRoots.map(async (directory) =>
+        (await readdir(path.join(root, directory), { recursive: true, withFileTypes: true }))
+          .filter((entry) => entry.isFile())
+          .map((entry) => path.join(entry.parentPath, entry.name)),
+      ),
+    )
+  ).flat();
+  const forbiddenFiles = runtimeFiles
+    .map((file) => path.relative(root, file))
+    .filter((file) =>
+      /aruba.*(?:bookmarklet|bridge|browser|helper|synthetic|shadow|parity)/i.test(file),
+    );
+  assert.deepEqual(forbiddenFiles, []);
+  const [routes, settings, inbound, manifest] = await Promise.all([
+    readFile(path.join(root, "app/routes.ts"), "utf8"),
+    readFile(path.join(root, "app/routes/settings.server.ts"), "utf8"),
+    readFile(path.join(root, "src/db/aruba-inbound.server.ts"), "utf8"),
+    readFile(path.join(root, "package.json"), "utf8"),
+  ]);
+  const executable = `${routes}\n${settings}\n${inbound}\n${manifest}`;
+  assert.doesNotMatch(executable, /aruba-(?:ponte|sintetica|bookmarklet)/i);
+  assert.doesNotMatch(executable, /api\/aruba\/(?:helper|sync)/i);
+  assert.doesNotMatch(executable, /issueArubaReadSession|loadArubaReadSession/);
+  assert.doesNotMatch(executable, /requestImmediateArubaSync/);
+  assert.equal(JSON.parse(manifest).scripts["aruba:sync"], undefined);
+  assert.equal(JSON.parse(manifest).scripts["aruba:helper"], undefined);
 });

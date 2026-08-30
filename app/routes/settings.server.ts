@@ -2,8 +2,6 @@ import { data, redirect } from "react-router";
 import type { Route } from "./+types/settings";
 
 import { parseArubaManualPagesJson } from "../aruba-manual-input.ts";
-import { buildArubaBookmarklet } from "../../src/aruba-bookmarklet.ts";
-import { ARUBA_PANEL_ORIGIN } from "../../src/aruba.ts";
 import { getConfig } from "../../src/config.server.ts";
 import {
   assertCsrf,
@@ -18,13 +16,11 @@ import {
   getArubaApiCredentialIdentity,
   getArubaApiConnectionStatus,
   getArubaBackfillReadiness,
-  getArubaInboundClosureReadiness,
   requestArubaApiSync,
   revokeArubaApiCredentials,
   saveArubaApiCredentials,
   setArubaApiControls,
 } from "../../src/db/aruba-api-inbound.server.ts";
-import { getArubaApiReconciliationPreview } from "../../src/db/aruba-api-reconciliation-preview.server.ts";
 import { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
 import {
   addArubaManualReadbackPages,
@@ -59,10 +55,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const requestedHistoryProvider = url.searchParams.get("historyProvider");
   const config = getConfig();
-  const arubaPanelUrl =
-    config.APP_ENV === "production"
-      ? `${ARUBA_PANEL_ORIGIN}/`
-      : new URL("/aruba-sintetica?scenario=inventory", config.APP_BASE_URL).toString();
   const [
     profile,
     trigger,
@@ -77,8 +69,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     arubaApi,
     arubaApiCredentialIdentity,
     arubaBackfillReadiness,
-    arubaClosureReadiness,
-    arubaReconciliationPreview,
     arubaMonthlyUsage,
   ] = await Promise.all([
     getAccountProfile(request, user),
@@ -100,8 +90,6 @@ export async function loader({ request }: Route.LoaderArgs) {
         })
       : Promise.resolve(null),
     getArubaBackfillReadiness(),
-    getArubaInboundClosureReadiness(),
-    getArubaApiReconciliationPreview(),
     getArubaMonthlyTransmissionUsage(),
   ]);
   return {
@@ -126,15 +114,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     arubaApi,
     arubaApiCredentialIdentity,
     arubaBackfillReadiness,
-    arubaClosureReadiness,
-    arubaReconciliationPreview,
     arubaMonthlyUsage,
     arubaApiNotice: url.searchParams.get("aruba-api"),
-    arubaPanelUrl,
-    arubaBookmarkletUrl: buildArubaBookmarklet({
-      hubOrigin: new URL(config.APP_BASE_URL).origin,
-      panelOrigin: new URL(arubaPanelUrl).origin,
-    }),
     arubaManualReadbackCompleted: url.searchParams.get("aruba-readback") === "completato",
     passwordChanged: url.searchParams.get("profilo") === "password",
     sessionsRevoked: url.searchParams.get("profilo") === "sessioni",
@@ -211,7 +192,7 @@ export async function action({ request }: Route.ActionArgs) {
         },
         { id: user.id, canApprove: user.canApprove, requestId: requestId(request) },
       );
-      return redirect("/impostazioni?aruba=salvata#aruba-helper");
+      return redirect("/impostazioni?aruba=salvata#aruba");
     }
     if (intent === "save-aruba-api" || intent === "rotate-aruba-api") {
       await saveArubaApiCredentials(
@@ -278,7 +259,7 @@ export async function action({ request }: Route.ActionArgs) {
         canApprove: user.canApprove,
         requestId: requestId(request),
       });
-      return redirect("/impostazioni?aruba-readback=completato#aruba-helper");
+      return redirect("/impostazioni?aruba-readback=completato#aruba");
     }
     if (intent === "preview-ebay" || intent === "import-ebay") {
       const start = historicalOrderWindow(form.get("historyStart"));

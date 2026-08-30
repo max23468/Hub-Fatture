@@ -591,7 +591,7 @@ export const copy = {
     confirmTotal: "Totale",
     confirmProfile: "Profilo fiscale",
     confirmPayment: "Pagamento",
-    confirmHelper: "Percorso Aruba",
+    confirmHelper: "Trasmissione Aruba",
     customerEmailTitle: "Copia e-mail al cliente",
     emailMode: "Modalità",
     emailAutomatic: "Automatica dopo l’esito SdI",
@@ -608,7 +608,7 @@ export const copy = {
     documentOnlyMode: "Crea e archivia il documento, senza trasmetterlo ad Aruba",
     contextualTransmissionMode:
       "Dopo la creazione potrai scegliere esplicitamente se avviare la trasmissione",
-    automaticHelperMode:
+    automaticApiMode:
       "Dopo l’approvazione viene preparata automaticamente la trasmissione API, solo con i controlli attivi",
     confirmArubaDowngrade: (configuredMode: string) =>
       `La modalità ${configuredMode === "AUTOMATIC_AFTER_APPROVAL" ? "automatica" : "con conferma"} non è disponibile: confermo di creare soltanto il documento, senza trasmissione Aruba.`,
@@ -710,7 +710,7 @@ export const copy = {
     transmissionState: {
       NOT_PREPARED: "Da preparare per Aruba",
       PREPARED: "Preparato per Aruba",
-      HELPER_ACTIVE: "Helper attivo",
+      HELPER_ACTIVE: "Percorso storico",
       VALIDATION_FAILED: "Validazione non riuscita",
       READY_ASSISTED: "Pronto per l’invio manuale",
       READY_AUTOMATIC: "Validato; invio automatico abilitato",
@@ -752,14 +752,10 @@ export const copy = {
       SDI_NOTIFICATION: "Notifica SdI",
     } as Record<string, string>,
     manualBatchTitle: "Prepara documenti già approvati",
-    manualBatchHelp:
-      "Crea un manifest per i documenti approvati prima dell’attivazione dell’helper.",
+    manualBatchHelp: "Crea un manifest per i documenti approvati che non hanno ancora un batch.",
     manualBatchCount: (count: number) =>
       `${count} ${count === 1 ? "documento da preparare" : "documenti da preparare"}`,
     createBatch: "Crea batch Aruba",
-    helperCodeTitle: "Codice di avvio helper",
-    helperCodeHelp: (expiresAt: string) =>
-      `Incollalo nel prompt dell’helper entro ${expiresAt}. Non salvarlo e non inserirlo nella riga di comando.`,
     batchesTitle: "Batch Aruba",
     batchesHelp:
       "Ogni batch resta legato ai documenti, alle revisioni e agli hash approvati. Uno stato incerto richiede readback.",
@@ -779,7 +775,6 @@ export const copy = {
       return `${count} ${count === 1 ? "documento" : "documenti"} · ${label}`;
     },
     lastReadback: (value: string) => `ultimo readback ${value}`,
-    issueHelperCode: "Genera codice di avvio",
     confirmApiTransmission: "Avvia verifica e trasmissione API",
     authorizeDryRunQualification: "Autorizza una verifica Production",
     confirmDryRunQualification:
@@ -793,7 +788,7 @@ export const copy = {
       DRY_RUN_VALIDATED: "Verifica Aruba superata",
       DRY_RUN_FAILED: "Verifica Aruba non superata",
       UNKNOWN_REMOTE_STATE: "Esito Aruba incerto; readback necessario",
-      HELPER_ACTIVE: "Helper attivo",
+      HELPER_ACTIVE: "Percorso storico",
       VALIDATION_FAILED: "Validazione non riuscita",
       READY_ASSISTED: "Validato; arrestato prima dell’invio",
       READY_AUTOMATIC: "Validato; invio automatico abilitato",
@@ -1146,46 +1141,6 @@ export const copy = {
     unexpectedHelp: "Si è verificato un problema inatteso durante l’apertura della pagina.",
     action: "Torna alla dashboard per continuare.",
     home: "Torna alla dashboard",
-  },
-  arubaSynthetic: {
-    eyebrow: "Simulatore locale",
-    title: "Carica fatture da inviare",
-    intro: "Ambiente sintetico: nessun documento viene trasmesso ad Aruba.",
-    account: (reference: string) => `Account ${reference}`,
-    uploadTitle: "Documenti da verificare",
-    uploadHelp: "Seleziona uno o più XML FatturaPA e controllane l’esito prima dell’invio.",
-    selectDocuments: "SELEZIONA DOCUMENTI",
-    browseDocuments: "Scegli XML",
-    noDocumentsSelected: "Nessun documento selezionato",
-    selectedDocuments: (count: number) =>
-      `${count} ${count === 1 ? "documento selezionato" : "documenti selezionati"}`,
-    uploadedDocuments: "Documenti caricati",
-    file: "File",
-    validation: "Validazione",
-    action: "Azione",
-    valid: "Documento valido",
-    invalid: "Dettagli errori",
-    sent: "Inviato · ID Aruba: MOCK-001",
-    download: "Scarica XML",
-    remove: "ELIMINA",
-    clearPage: "SVUOTA PAGINA",
-    invalidNotice: "Uno o più documenti contengono errori.",
-    acquired: "Documenti acquisiti · MOCK-001",
-    uncertain: "Stato non disponibile",
-    send: "INVIA",
-    sendAll: "INVIA TUTTE",
-    saveDrafts: "SALVA IN BOZZE",
-    loginTitle: "Accesso richiesto",
-    loginHelp: "Completa manualmente password, OTP o CAPTCHA. L’helper resta in pausa.",
-    loginAction: "Autenticazione completata",
-    unexpectedTitle: "Pagina non riconosciuta",
-    unexpectedHelp: "L’helper ha incontrato una schermata diversa da quelle previste.",
-    backToSimulator: "Torna al simulatore",
-    otpQuestion: "Vuoi disattivare la protezione OTP su Carica Fatture?",
-    continue: "Prosegui",
-    verificationTitle: "Verifica",
-    smsCode: "Inserisci il codice ricevuto per SMS",
-    verify: "Verifica",
   },
 } as const;
 

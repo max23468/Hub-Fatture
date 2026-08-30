@@ -415,7 +415,7 @@ function MassApprovalPanel({
         <p>
           <strong>Percorso Aruba:</strong>{" "}
           {arubaMode === "AUTOMATIC_AFTER_APPROVAL"
-            ? copy.document.automaticHelperMode
+            ? copy.document.automaticApiMode
             : arubaMode === "CONTEXTUAL_CONFIRMATION"
               ? copy.document.contextualTransmissionMode
               : copy.document.documentOnlyMode}

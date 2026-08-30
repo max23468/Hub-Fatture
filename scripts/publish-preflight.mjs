@@ -6,7 +6,7 @@ import { changelogSection } from "./prepare-production-release.mjs";
 
 const command = (script) => ["npm", "run", script];
 
-export function preflightPlan(impact, platform = process.platform) {
+export function preflightPlan(impact) {
   const core = [command("check:docs")];
   if (impact.standard) core.push(command("check:standard"));
 
@@ -18,12 +18,6 @@ export function preflightPlan(impact, platform = process.platform) {
   const browser = [];
   if (impact.e2e) browser.push(command("test:e2e:chromium"));
   if (impact.e2eWebkit) browser.push(command("test:e2e:webkit"));
-  if (impact.arubaPlatform && platform === "darwin") {
-    browser.push(["npm", "run", "test:aruba:platform", "--", "chrome"]);
-  } else if (impact.arubaPlatform && platform === "win32") {
-    browser.push(["npm", "run", "test:aruba:platform", "--", "msedge"]);
-  }
-
   return { browser, core, parallel };
 }
 

@@ -1,4 +1,5 @@
 export const ARUBA_API_POLICY = Object.freeze({
+  inventoryStart: "2026-07-01T00:00:00.000Z",
   authenticationIntervalMs: 60_100,
   invoiceReadIntervalMs: 6_100,
   notificationReadIntervalMs: 6_100,

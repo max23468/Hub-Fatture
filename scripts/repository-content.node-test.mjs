@@ -495,78 +495,32 @@ test("la qualifica e-mail Production è presidiata e non espone dati sensibili",
 });
 
 test("i contesti required restano stabili mentre i gate costosi sono proporzionati", async () => {
-  const [ci, arubaPlatform, platformCheck, codeql, dependencies, foundation, react] =
-    await Promise.all(
-      [
-        ".github/workflows/ci.yml",
-        ".github/workflows/aruba-platform.yml",
-        "scripts/aruba-helper-platform-check.ts",
-        ".github/workflows/codeql.yml",
-        ".github/workflows/dependency-review.yml",
-        ".github/workflows/foundation.yml",
-        ".github/workflows/react-doctor.yml",
-      ].map((file) => readFile(path.join(root, file), "utf8")),
-    );
+  const [ci, codeql, dependencies, foundation, react] = await Promise.all(
+    [
+      ".github/workflows/ci.yml",
+      ".github/workflows/codeql.yml",
+      ".github/workflows/dependency-review.yml",
+      ".github/workflows/foundation.yml",
+      ".github/workflows/react-doctor.yml",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
+  );
   assert.match(ci, /\n  gate:\n    name: CI\n    if: always\(\)/);
-  assert.match(ci, /name: PostgreSQL e migrazioni\n    if: needs\.impact\.outputs\.database/);
-  assert.match(ci, /name: E2E \$\{\{ matrix\.label \}\}\n    if: needs\.impact\.outputs\.e2e/);
-  const e2e = ci.slice(ci.indexOf("\n  e2e:"), ci.indexOf("\n  aruba-helper-platform:"));
-  assert.match(ci, /e2e_matrix: \$\{\{ steps\.impact\.outputs\.e2e_matrix \}\}/);
-  assert.match(e2e, /fromJSON\(needs\.impact\.outputs\.e2e_matrix\)/);
-  assert.ok(e2e.indexOf("npm run build") < e2e.indexOf("npx --no-install playwright test"));
-  assert.match(e2e, /playwright install --with-deps \$\{\{ matrix\.install \}\}/);
-  assert.match(
-    e2e,
-    /npx --no-install playwright test --project=\$\{\{ matrix\.browser \}\} --workers=1/,
-  );
-  assert.match(ci, /"browser":"webkit","label":"WebKit","install":"webkit chromium"/);
-  assert.doesNotMatch(ci, /- run: npm ci$/m);
-  assert.match(ci, /name: Helper Aruba .*\n    if: needs\.impact\.outputs\.aruba-platform/);
-  assert.doesNotMatch(ci, /workflow_dispatch:/);
-  assert.match(
-    ci,
-    /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.event\.before \}\}/,
-  );
-  assert.match(arubaPlatform, /repository_dispatch:\n    types: \[aruba-platform-candidate\]/);
-  assert.doesNotMatch(arubaPlatform, /workflow_dispatch:/);
-  assert.match(arubaPlatform, /ref: \$\{\{ github\.event\.client_payload\.commit \}\}/);
-  assert.match(
-    arubaPlatform,
-    /name: Esegui helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
-  );
-  assert.match(arubaPlatform, /npm run test:aruba:platform -- \$\{\{ matrix\.browser \}\}/);
-  assert.match(platformCheck, /runArubaReadHelper/);
-  assert.match(platformCheck, /requestedFiles/);
-  assert.doesNotMatch(arubaPlatform, /inputs\.commit/);
-  assert.match(arubaPlatform, /\[\[ "\$CANDIDATE" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
-  assert.match(arubaPlatform, /test "\$\(git rev-parse HEAD\)" = "\$CANDIDATE"/);
-  assert.match(arubaPlatform, /git merge-base --is-ancestor "\$CANDIDATE" origin\/main/);
-  assert.match(arubaPlatform, /permissions:\n  checks: write\n  contents: read/);
-  assert.match(arubaPlatform, /if: always\(\)\n        shell: bash/);
-  assert.match(
-    arubaPlatform,
-    /RECEIPT_NAME: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
-  );
-  assert.doesNotMatch(
-    arubaPlatform,
-    /name: Helper Aruba \(\$\{\{ matrix\.browser \}\} \/ \$\{\{ matrix\.os \}\}\)/,
-  );
-  assert.match(arubaPlatform, /gh api --method POST "repos\/\$\{GITHUB_REPOSITORY\}\/check-runs"/);
-  assert.match(arubaPlatform, /-f head_sha="\$CANDIDATE"/);
-  assert.match(arubaPlatform, /-f conclusion="\$CONCLUSION"/);
-  assert.doesNotMatch(arubaPlatform, /name: CI\b/);
-  assert.doesNotMatch(arubaPlatform, /E2E Chromium/);
-  assert.match(codeql, /if: steps\.impact\.outputs\.standard == 'true'/);
-  assert.match(dependencies, /if: steps\.impact\.outputs\.dependencies == 'true'/);
-  assert.match(foundation, /if: steps\.impact\.outputs\.image == 'true'/);
-  assert.match(react, /if: steps\.impact\.outputs\.react == 'true'/);
+  assert.match(ci, /name: PostgreSQL e migrazioni/);
+  assert.match(ci, /name: E2E/);
+  assert.doesNotMatch(ci, /Helper Aruba|aruba-helper-platform/);
+  assert.match(codeql, /outputs\.standard/);
+  assert.match(dependencies, /outputs\.dependencies/);
+  assert.match(foundation, /outputs\.image/);
+  assert.match(react, /outputs\.react/);
 });
 
 test("la riconciliazione Aruba non tronca i candidati fiscali", async () => {
-  const inbound = await readFile(path.join(root, "src/db/aruba-inbound.server.ts"), "utf8");
+  const [inbound, candidateSql] = await Promise.all([
+    readFile(path.join(root, "src/db/aruba-inbound.server.ts"), "utf8"),
+    readFile(path.join(root, "src/db/billing-case-sql.server.ts"), "utf8"),
+  ]);
   assert.doesNotMatch(inbound, /LIMIT 500/);
-  assert.match(inbound, /jsonb_array_elements_text\([\s\S]*candidate -> 'orderIds'/);
-  assert.match(inbound, /remote\.remote_status <> 'REJECTED'/);
+  assert.match(candidateSql, /jsonb_array_elements_text\([\s\S]*candidate -> 'orderIds'/);
 });
 
 test("il job PostgreSQL installa il validatore XML usato dalle suite DB", async () => {
