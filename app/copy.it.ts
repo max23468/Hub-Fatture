@@ -641,6 +641,11 @@ export const copy = {
     remoteDocumentsTitle: "Documenti rilevati in Aruba",
     remoteDocumentsHelp:
       "Fatture e note di credito lette dal pannello che richiedono ancora un collegamento certo.",
+    compatibleOrder: "Ordine candidato",
+    guidedCandidate:
+      "Verifica manuale richiesta: l’XML è presente, ma l’identità non basta per un collegamento automatico.",
+    matchReason: "Motivazione",
+    confirmMatch: "Conferma collegamento",
     noRemoteDocuments: "Nessun documento Aruba da collegare.",
     matchStatus: "Collegamento",
     remoteLastReadback: "Ultima lettura",

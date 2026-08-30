@@ -414,7 +414,9 @@ export async function reconcileRemoteDocument(
   const selected = compatibleIndex >= 0 ? evaluatedCandidates[compatibleIndex]!.source : null;
   const reviewCandidates = match.evaluations
     .map((evaluation, index) =>
-      evaluation.compatible || evaluation.potential ? evaluatedCandidates[index]!.source : null,
+      evaluation.compatible || evaluation.reviewable || evaluation.potential
+        ? evaluatedCandidates[index]!.source
+        : null,
     )
     .filter((candidate): candidate is (typeof evaluatedCandidates)[number]["source"] =>
       Boolean(candidate),
@@ -468,13 +470,16 @@ export async function reconcileRemoteDocument(
       orderIds?: string[];
       potential?: boolean;
       compatible?: boolean;
+      reviewable?: boolean;
     }>;
   }>(
     `SELECT method, status, billing_case_id::text, candidates_json
      FROM aruba_document_matches WHERE remote_document_id = $1 FOR UPDATE`,
     [remoteId],
   );
-  const compatibleCandidateObserved = match.evaluations.some((evaluation) => evaluation.compatible);
+  const actionableCandidateObserved = match.evaluations.some(
+    (evaluation) => evaluation.compatible || evaluation.reviewable,
+  );
   if (previous.rows[0]?.method === "MANUAL" && previous.rows[0].status === "MATCHED") {
     if (remote.status === "REJECTED" && previous.rows[0].billing_case_id) {
       await recomputeBillingCaseStatus(client, previous.rows[0].billing_case_id, true);
@@ -484,7 +489,7 @@ export async function reconcileRemoteDocument(
   if (
     (previous.rows[0]?.method === "MANUAL" &&
       previous.rows[0].status === "UNMATCHED" &&
-      !compatibleCandidateObserved) ||
+      !actionableCandidateObserved) ||
     previous.rows[0]?.status === "ERROR" ||
     (previous.rows[0]?.status === "UNKNOWN_REMOTE_STATE" && remote.status === "UNKNOWN")
   ) {
@@ -531,7 +536,7 @@ export async function reconcileRemoteDocument(
   ];
   const previousOrderIdSet = new Set<string>();
   for (const candidate of previous.rows[0]?.candidates_json ?? []) {
-    if (!candidate.potential && !candidate.compatible) continue;
+    if (!candidate.potential && !candidate.compatible && !candidate.reviewable) continue;
     if (candidate.candidateId) previousOrderIdSet.add(candidate.candidateId);
     for (const orderId of candidate.orderIds ?? []) previousOrderIdSet.add(orderId);
   }

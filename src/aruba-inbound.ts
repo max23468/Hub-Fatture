@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 4;
+export const ARUBA_MATCHER_VERSION = 5;
 
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",
@@ -245,6 +245,7 @@ export interface CandidateEvaluation {
   candidateId: string;
   orderIds: string[];
   compatible: boolean;
+  reviewable: boolean;
   potential: boolean;
   probe: boolean;
   signals: {
@@ -263,6 +264,12 @@ export interface CandidateEvaluation {
 export interface AmbiguousInvoiceCandidate extends CandidateEvaluation {
   displayNumber: string;
   localOrderDate: string;
+}
+
+export function canManuallyLinkCandidate(
+  candidate: Pick<CandidateEvaluation, "compatible" | "reviewable">,
+): boolean {
+  return candidate.compatible || candidate.reviewable;
 }
 
 export interface AmbiguousInvoiceMatch {
@@ -470,6 +477,7 @@ export function evaluateOrderCandidate(
       date &&
       total &&
       ((explicitReference && referencedRecipientIsCompatible) || inferredRecipientIsCompatible),
+    reviewable: provider && date && total && identitySignals >= 1,
     potential,
     probe,
     signals: {

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   ARUBA_MATCHER_VERSION,
+  canManuallyLinkCandidate,
   inventoryPageSchema,
   isEmissionConfirmed,
   normalizedMatchText,
@@ -53,6 +54,7 @@ async function needsOfficialXmlForReconciliation(client: pg.PoolClient, remoteDo
            coalesce((candidate ->> 'probe')::boolean, false)
            OR coalesce((candidate ->> 'potential')::boolean, false)
            OR coalesce((candidate ->> 'compatible')::boolean, false)
+           OR coalesce((candidate ->> 'reviewable')::boolean, false)
            OR coalesce((candidate -> 'signals' ->> 'explicitReference')::boolean, false)
          )
      ) AS needed`,
@@ -575,13 +577,18 @@ export async function resolveArubaDocumentMatch(
         candidateId?: string;
         orderIds?: string[];
         compatible?: boolean;
+        reviewable?: boolean;
         refundIds?: string[];
       }>;
       remote_status: ArubaRemoteStatus;
       document_type: "TD01" | "TD04";
+      has_xml: boolean;
     }>(
       `SELECT matches.status, matches.method, matches.order_id, matches.candidates_json,
-              remote.remote_status, remote.document_type
+              remote.remote_status, remote.document_type,
+              EXISTS (SELECT 1 FROM aruba_files
+                WHERE aruba_files.remote_document_id = remote.id
+                  AND aruba_files.kind = 'ARUBA_XML') AS has_xml
        FROM aruba_document_matches AS matches
        JOIN aruba_remote_documents AS remote ON remote.id = matches.remote_document_id
        WHERE matches.remote_document_id = $1
@@ -592,8 +599,15 @@ export async function resolveArubaDocumentMatch(
     const current = match.rows[0];
     if (
       !current ||
+      !current.has_xml ||
+      !isEmissionConfirmed(current.remote_status) ||
       !current.candidates_json.some(
-        (candidate) => candidate.candidateId === orderId && candidate.compatible,
+        (candidate) =>
+          candidate.candidateId === orderId &&
+          canManuallyLinkCandidate({
+            compatible: Boolean(candidate.compatible),
+            reviewable: Boolean(candidate.reviewable),
+          }),
       )
     ) {
       throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
@@ -609,7 +623,12 @@ export async function resolveArubaDocumentMatch(
           )
         : null;
     const selectedCandidate = current.candidates_json.find(
-      (candidate) => candidate.candidateId === orderId && candidate.compatible,
+      (candidate) =>
+        candidate.candidateId === orderId &&
+        canManuallyLinkCandidate({
+          compatible: Boolean(candidate.compatible),
+          reviewable: Boolean(candidate.reviewable),
+        }),
     );
     const candidateOrderIds = [
       ...new Set(
@@ -692,6 +711,7 @@ export async function confirmArubaDocumentOutOfScope(
         candidateId?: string;
         orderIds?: string[];
         compatible?: boolean;
+        reviewable?: boolean;
         potential?: boolean;
       }>;
       remote_status: ArubaRemoteStatus;
@@ -721,8 +741,11 @@ export async function confirmArubaDocumentOutOfScope(
       [remoteDocumentId, environment(), accountReference()],
     );
     const current = match.rows[0];
-    const hasCompatibleCandidate = current?.candidates_json.some(
-      (candidate) => candidate.compatible,
+    const hasActionableCandidate = current?.candidates_json.some((candidate) =>
+      canManuallyLinkCandidate({
+        compatible: Boolean(candidate.compatible),
+        reviewable: Boolean(candidate.reviewable),
+      }),
     );
     if (
       !current ||
@@ -731,7 +754,7 @@ export async function confirmArubaDocumentOutOfScope(
       !isEmissionConfirmed(current.remote_status) ||
       !current.has_xml ||
       current.has_hub_submission ||
-      hasCompatibleCandidate ||
+      hasActionableCandidate ||
       current.order_id ||
       current.billing_case_id ||
       current.document_id ||

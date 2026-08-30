@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   arubaIncrementalScanFrom,
+  canManuallyLinkCandidate,
   groupOrderCandidates,
   hasAnomalousUnknownArubaStatuses,
   inventoryPageSchema,
@@ -208,6 +209,26 @@ test("il totale da solo non produce mai un collegamento", () => {
     },
   ]);
   assert.equal(result.status, "UNMATCHED");
+  assert.equal(result.evaluations[0]?.reviewable, false);
+});
+
+test("data, importo e un'identità coerente espongono un candidato solo manuale", () => {
+  const result = selectOrderMatch(remote, [
+    {
+      id: "1",
+      provider: "SHOPIFY",
+      displayNumber: "1001",
+      localOrderDate: "2026-08-12",
+      billableAmount: 12_300,
+      recipientName: "Mario Rossi",
+      recipientTaxIdentifiers: [],
+      recipientAddress: "Indirizzo locale incompleto",
+    },
+  ]);
+  assert.equal(result.status, "UNMATCHED");
+  assert.equal(result.evaluations[0]?.compatible, false);
+  assert.equal(result.evaluations[0]?.reviewable, true);
+  assert.equal(canManuallyLinkCandidate(result.evaluations[0]!), true);
 });
 
 test("un candidato univoco richiede data, importo e identità coerenti", () => {
@@ -485,6 +506,7 @@ function ambiguousCandidate(
     localOrderDate,
     orderIds: [candidateId],
     compatible: true,
+    reviewable: true,
     potential: true,
     probe: true,
     signals: {

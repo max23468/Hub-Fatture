@@ -383,13 +383,15 @@ export default function Documents() {
                                 </button>
                               </Form>
                             ) : null}
-                            {remote.candidates.length ? (
+                            {remote.has_xml &&
+                            ["DELIVERED", "NOT_DELIVERED"].includes(remote.remote_status) &&
+                            remote.candidates.length ? (
                               <Form method="post">
                                 <input type="hidden" name="csrf" value={csrfToken} />
                                 <input type="hidden" name="intent" value="resolve-aruba-match" />
                                 <input type="hidden" name="remoteDocumentId" value={remote.id} />
                                 <label>
-                                  Ordine compatibile
+                                  {copy.documents.compatibleOrder}
                                   <select name="orderId" required>
                                     {remote.candidates.map((candidate) => (
                                       <option key={candidate.id} value={candidate.id}>
@@ -398,12 +400,15 @@ export default function Documents() {
                                     ))}
                                   </select>
                                 </label>
+                                {remote.candidates.some((candidate) => candidate.guided) ? (
+                                  <p className="field-help">{copy.documents.guidedCandidate}</p>
+                                ) : null}
                                 <label>
-                                  Motivazione
+                                  {copy.documents.matchReason}
                                   <input minLength={10} maxLength={500} name="reason" required />
                                 </label>
                                 <button className="button" type="submit">
-                                  Conferma collegamento
+                                  {copy.documents.confirmMatch}
                                 </button>
                               </Form>
                             ) : null}

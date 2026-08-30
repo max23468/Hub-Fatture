@@ -172,17 +172,107 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       .query("UPDATE aruba_remote_documents SET xml_sha256 = repeat('d', 64) WHERE id = $1", [
         remote.rows[0]!.id,
       ]);
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_set(candidates_json, '{0,reviewable}', 'true'::jsonb)
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
     const reconciliation = await client.getPool().connect();
     try {
       await reconciliation.query("BEGIN");
-      assert.equal(await status.recomputeOpenBillingCaseStatuses(reconciliation), 1);
+      assert.equal(await status.recomputeOpenBillingCaseStatuses(reconciliation), 0);
       await reconciliation.query("COMMIT");
     } finally {
       reconciliation.release();
     }
+    assert.deepEqual((await orders.getBillingCase(cases.rows[2]!.id))!.anomalies, [
+      "ARUBA_POTENTIAL_MATCH",
+    ]);
+    assert.equal((await inventory.getArubaInventoryHealth()).ambiguous, 1);
+    const inventoryQueries = await import("./aruba-inventory-queries.server.ts");
+    const reviewableRemote = (
+      await inventoryQueries.listRemoteDocuments({ attentionOnly: true })
+    ).find((document) => document.remote_id === "weak-official-match");
+    assert.deepEqual(reviewableRemote?.candidates, [
+      { id: order.rows[0]!.id, label: "Shopify #WEAK", guided: true },
+    ]);
+
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_set(candidates_json, '{0,reviewable}', 'false'::jsonb)
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
+    const resolved = await client.getPool().connect();
+    try {
+      await resolved.query("BEGIN");
+      assert.equal(await status.recomputeOpenBillingCaseStatuses(resolved), 1);
+      await resolved.query("COMMIT");
+    } finally {
+      resolved.release();
+    }
     assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "READY");
     assert.deepEqual((await orders.getBillingCase(cases.rows[2]!.id))!.anomalies, []);
     assert.equal((await inventory.getArubaInventoryHealth()).ambiguous, 0);
+
+    await client.getPool().query(
+      `UPDATE aruba_document_matches SET matcher_version = 4
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
+    await client.getPool().query(
+      `INSERT INTO aruba_sync_sessions
+         (id, environment, account_reference, status, absolute_expires_at,
+          completed_at, source, is_full_scan)
+       VALUES ('00000000-0000-4000-8000-000000000201', 'MOCK',
+         'synthetic-aruba-account', 'COMPLETED', now() + interval '1 hour',
+         now(), 'MANUAL', false)`,
+    );
+    await client.getPool().query(
+      `INSERT INTO aruba_remote_observations
+         (remote_document_id, sync_session_id, remote_status, stream,
+          scan_ordinal, page_ordinal, payload_digest, payload_json)
+       VALUES ($1, '00000000-0000-4000-8000-000000000201', 'DELIVERED',
+         'invoices:2026', 1, 1, repeat('e', 64), jsonb_build_object(
+           'remoteId', 'weak-official-match', 'documentType', 'TD01',
+           'fiscalYear', 2026, 'series', NULL, 'fiscalNumber', NULL,
+           'documentDate', to_char(CURRENT_DATE - 2, 'YYYY-MM-DD'),
+           'recipientName', 'Cliente sintetico', 'recipientTaxId', NULL,
+           'recipientTaxIdentifiers', '[]'::jsonb, 'recipientCountryCode', NULL,
+           'recipientAddress', NULL, 'totalAmount', 1000, 'currency', 'EUR',
+           'status', 'DELIVERED', 'providerObservedAt', NULL, 'xmlSha256', NULL,
+           'orderReferences', '[]'::jsonb
+         ))`,
+      [remote.rows[0]!.id],
+    );
+    const upgradeTransaction = await client.getPool().connect();
+    try {
+      await upgradeTransaction.query("BEGIN");
+      const matcherUpgrade = await import("./aruba-matcher-upgrade.server.ts");
+      assert.equal(
+        await matcherUpgrade.upgradeCachedArubaMatcher(
+          upgradeTransaction,
+          "MOCK",
+          "synthetic-aruba-account",
+        ),
+        1,
+      );
+      await upgradeTransaction.query("COMMIT");
+    } finally {
+      upgradeTransaction.release();
+    }
+    const upgraded = await client.getPool().query<{
+      matcher_version: number;
+      reviewable: boolean;
+    }>(
+      `SELECT matcher_version,
+              (candidates_json -> 0 ->> 'reviewable')::boolean AS reviewable
+       FROM aruba_document_matches WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
+    assert.deepEqual(upgraded.rows[0], { matcher_version: 5, reviewable: true });
+    assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "NEEDS_REVIEW");
   } finally {
     await client.closePool();
     await database.drop();
