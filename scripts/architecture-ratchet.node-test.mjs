@@ -40,17 +40,29 @@ test("il runtime Aruba resta esclusivamente API o manuale", async () => {
       /aruba.*(?:bookmarklet|bridge|browser|helper|synthetic|shadow|parity)/i.test(file),
     );
   assert.deepEqual(forbiddenFiles, []);
-  const [routes, settings, inbound, manifest] = await Promise.all([
+  const [routes, settings, inbound, manifest, readme, transition] = await Promise.all([
     readFile(path.join(root, "app/routes.ts"), "utf8"),
     readFile(path.join(root, "app/routes/settings.server.ts"), "utf8"),
     readFile(path.join(root, "src/db/aruba-inbound.server.ts"), "utf8"),
     readFile(path.join(root, "package.json"), "utf8"),
+    readFile(path.join(root, "README.md"), "utf8"),
+    readFile(path.join(root, "docs/evidence/aruba-api-transition.md"), "utf8"),
   ]);
   const executable = `${routes}\n${settings}\n${inbound}\n${manifest}`;
   assert.doesNotMatch(executable, /aruba-(?:ponte|sintetica|bookmarklet)/i);
   assert.doesNotMatch(executable, /api\/aruba\/(?:helper|sync)/i);
   assert.doesNotMatch(executable, /issueArubaReadSession|loadArubaReadSession/);
   assert.doesNotMatch(executable, /requestImmediateArubaSync/);
-  assert.equal(JSON.parse(manifest).scripts["aruba:sync"], undefined);
-  assert.equal(JSON.parse(manifest).scripts["aruba:helper"], undefined);
+  const packageJson = JSON.parse(manifest);
+  assert.equal(packageJson.scripts["aruba:sync"], undefined);
+  assert.equal(packageJson.scripts["aruba:helper"], undefined);
+  assert.doesNotMatch(readme, /aruba:helper|barra dei preferiti|ponte autenticato/i);
+  assert.match(readme, /API Aruba v2 sono l.unico canale automatico/);
+  assert.match(inbound, /request_json,\s*source, status,[\s\S]*'MANUAL'/);
+  assert.match(transition, /nuovi readback manuali usano origine `MANUAL`/);
+  const [major, minor] = packageJson.version.split(".").map(Number);
+  assert.ok(
+    major >= 1 || (major === 0 && minor >= 5),
+    `treno pre-transizione: ${packageJson.version}`,
+  );
 });

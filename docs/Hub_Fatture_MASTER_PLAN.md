@@ -3268,7 +3268,8 @@ Gate:
 
 ### M11 - Parità e transizione browser
 
-**Stato: completata.** Il titolare ha deciso il ritiro completo di preferito/bridge inbound e
+**Stato: completata.** La [verifica di transizione](evidence/aruba-api-transition.md) collega i
+dossier, la decisione e i ratchet correnti. Il titolare ha deciso il ritiro completo di preferito/bridge inbound e
 helper Playwright outbound. Il runtime usa esclusivamente API Aruba e fallback manuale; audit,
 file canonici, provenienza storica `HELPER` e storia Git restano preservati.
 

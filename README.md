@@ -62,22 +62,17 @@ mise exec -- npm run preflight:provider -- <provider-atteso> <account-atteso> <t
 
 Il comando non riceve né stampa credenziali.
 
-## Helper Aruba locale
+## Collegamento Aruba
 
-La sincronizzazione dell’inventario non richiede l’helper, un installer o un runtime locale. In
-**Impostazioni → Aruba** il titolare trascina una volta **Sincronizza Aruba** nella barra dei
-preferiti di Safari, Chrome o Edge. Per aggiornare sceglie **Apri Aruba**, completa personalmente login ed
-eventuali challenge e usa il preferito nella pagina Aruba. Il preferito non conserva credenziali o
-token: apre un ponte autenticato che crea a ogni uso una nuova sessione temporanea di sola lettura.
-La scansione parte soltanto su questa azione esplicita e non promette aggiornamenti in background.
+Le API Aruba v2 sono l’unico canale automatico per inventario, file, stati e operazioni outbound
+qualificate. In **Impostazioni → Aruba** il titolare collega l’account, verifica l’identità attesa e
+abilita separatamente la sincronizzazione in entrata; gli invii fiscali restano governati dal loro
+interruttore indipendente e dalle autorizzazioni previste.
 
-Dopo aver creato un batch in **Documenti**, genera il codice di avvio e passalo al prompt nascosto dell’unico helper per macOS e Windows:
-
-```sh
-mise exec -- npm run aruba:helper -- --hub https://indirizzo-hub --browser chrome
-```
-
-È supportato anche `--browser msedge`. Password, OTP, 2FA e CAPTCHA restano nel browser e non vengono automatizzati. L’invio automatico registra un successo soltanto dopo aver riletto identità, stato e identificativo remoto visibili; i file ufficiali scaricabili vengono importati nell’archivio locale. Il percorso completo e il fallback senza helper sono descritti nel [contratto](docs/contracts/aruba-helper.md) e nella [procedura manuale](docs/runbooks/aruba-manual.md).
+Se le API non consentono una lettura necessaria, resta disponibile il
+[fallback manuale](docs/runbooks/aruba-manual.md): esportazione del file approvato, operazione
+presidiata nel pannello Aruba e importazione dei file o degli esiti ufficiali. Non esistono helper,
+preferiti o automazioni del pannello nel runtime corrente.
 
 ## Licenza
 

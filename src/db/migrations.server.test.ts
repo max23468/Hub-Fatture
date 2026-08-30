@@ -53,6 +53,7 @@ const ARUBA_API_TRAFFIC_GUARD = "037_aruba_api_traffic_guard.sql";
 const ARUBA_API_AUTHORITY_CUTOVER = "038_aruba_api_authority_cutover.sql";
 const ARUBA_P7M_PARITY_NORMALIZATION = "039_aruba_p7m_parity_normalization.sql";
 const ARUBA_API_OUTBOUND = "040_aruba_api_outbound.sql";
+const RETIRE_ARUBA_BROWSER_STATE = "044_retire_aruba_browser_state.sql";
 const CURRENT_MIGRATIONS = sortedMigrationFileNames(readdirSync("migrations"));
 const outboundIndex = CURRENT_MIGRATIONS.indexOf(ARUBA_API_OUTBOUND);
 assert.notEqual(outboundIndex, -1, `${ARUBA_API_OUTBOUND} assente dal catalogo migrazioni`);
@@ -126,6 +127,63 @@ test("la migrazione rimuove i permessi Aruba e conserva lo stato pronto", async 
     });
   } finally {
     await rm(beforeRemoval, { recursive: true, force: true });
+    await database.drop();
+  }
+});
+
+test("la transizione conserva la provenienza helper senza inventarla nei readback manuali", async () => {
+  const database = await temporaryDatabase("retire_aruba_browser_state_upgrade");
+  const beforeRetirement = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-retire-aruba-browser-state-"),
+  );
+  try {
+    await cp("migrations", beforeRetirement, { recursive: true });
+    await rm(path.join(beforeRetirement, RETIRE_ARUBA_BROWSER_STATE));
+    await runMigrations({
+      connectionString: database.connectionString,
+      directory: beforeRetirement,
+    });
+    await withClient(database.connectionString, async (client) => {
+      await client.query(
+        `INSERT INTO aruba_sync_sessions
+          (id, environment, account_reference, device_id, token_hash, status, source,
+           absolute_expires_at, completed_at)
+         VALUES
+          ('10000000-0000-4000-8000-000000000044', 'MOCK', 'synthetic-account',
+           'manual-evidence-044', repeat('4', 64), 'COMPLETED', 'MANUAL', now(), now()),
+          ('20000000-0000-4000-8000-000000000044', 'MOCK', 'synthetic-account',
+           'historic-helper-044', repeat('5', 64), 'COMPLETED', 'HELPER', now(), now())`,
+      );
+    });
+
+    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
+      RETIRE_ARUBA_BROWSER_STATE,
+    ]);
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT source, device_id, token_hash FROM aruba_sync_sessions ORDER BY source`,
+          )
+        ).rows,
+        [
+          { source: "HELPER", device_id: "historic-helper-044", token_hash: "5".repeat(64) },
+          { source: "MANUAL", device_id: null, token_hash: null },
+        ],
+      );
+      await assert.rejects(
+        client.query(
+          `INSERT INTO aruba_sync_sessions
+            (id, environment, account_reference, device_id, token_hash, status, source,
+             absolute_expires_at, completed_at)
+           VALUES ('30000000-0000-4000-8000-000000000044', 'MOCK', 'synthetic-account',
+             'fake-manual-state-044', repeat('6', 64), 'COMPLETED', 'MANUAL', now(), now())`,
+        ),
+        /aruba_sync_sessions_source_runtime_check/,
+      );
+    });
+  } finally {
+    await rm(beforeRetirement, { recursive: true, force: true });
     await database.drop();
   }
 });
@@ -1240,6 +1298,35 @@ test("installazione vuota, checksum e guardie sull'ordine", { timeout: 30_000 },
           )
         ).rows[0].count,
         "0",
+      );
+      assert.deepEqual(
+        (
+          await cleanClient.query(
+            `SELECT column_default, is_nullable
+             FROM information_schema.columns
+             WHERE table_name = 'aruba_sync_sessions' AND column_name = 'device_id'`,
+          )
+        ).rows[0],
+        { column_default: null, is_nullable: "YES" },
+      );
+      assert.match(
+        (
+          await cleanClient.query<{ definition: string }>(
+            `SELECT pg_get_constraintdef(oid) AS definition
+             FROM pg_constraint
+             WHERE conname = 'aruba_sync_sessions_source_runtime_check'`,
+          )
+        ).rows[0]!.definition,
+        /source.*HELPER.*device_id IS NOT NULL.*source.*MANUAL.*device_id IS NULL/,
+      );
+      assert.match(
+        (
+          await cleanClient.query<{ column_default: string }>(
+            `SELECT column_default FROM information_schema.columns
+             WHERE table_name = 'aruba_preflight_receipts' AND column_name = 'source'`,
+          )
+        ).rows[0]!.column_default,
+        /MANUAL/,
       );
     } finally {
       await cleanClient.end();
