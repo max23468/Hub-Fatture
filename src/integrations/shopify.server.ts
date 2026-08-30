@@ -376,6 +376,97 @@ function fiscalIdentifierFromAddressLine(value: unknown, countryCode: string | u
   };
 }
 
+function fiscalDataFromCompany(value: unknown, countryCode: string | undefined) {
+  const original = text(value)?.normalize("NFKC");
+  if (!original || countryCode !== "IT") {
+    const companyName = shopifyCompanyName(original);
+    return {
+      companyName,
+      companyNameWithoutRecipientCode: companyName,
+      identifiers: [],
+      recipientCode: undefined,
+    };
+  }
+
+  const matches: {
+    start: number;
+    end: number;
+    type: "CODICE_FISCALE" | "PARTITA_IVA" | "RECIPIENT_CODE";
+    value: string;
+  }[] = [];
+  const patterns = [
+    {
+      type: "PARTITA_IVA" as const,
+      pattern:
+        /(?:PARTITA\s+IVA|P\.?\s*(?:I\.?|IVA)|PIVA)\s*[:=-]?\s*(?:IT\s*)?(\d{11})(?=$|[^A-Z0-9])/giu,
+      valid: hasValidItalianVatChecksum,
+    },
+    {
+      type: "CODICE_FISCALE" as const,
+      pattern:
+        /(?:CODICE\s+FISCALE|C\.?\s*F\.?)\s*[:=-]?\s*([A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z])(?=$|[^A-Z0-9])/giu,
+      valid: hasValidItalianFiscalCodeChecksum,
+    },
+  ];
+  for (const { type, pattern, valid } of patterns) {
+    for (const match of original.matchAll(pattern)) {
+      const candidate = match[1]!.toUpperCase();
+      if (valid(candidate)) {
+        matches.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          type,
+          value: candidate,
+        });
+      }
+    }
+  }
+  for (const match of original.matchAll(
+    /(?:CODICE\s+(?:DESTINATARIO|SDI)|SDI)\s*[:=-]?\s*([A-Z0-9]{7})(?=$|[^A-Z0-9])/giu,
+  )) {
+    matches.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      type: "RECIPIENT_CODE",
+      value: match[1]!.toUpperCase(),
+    });
+  }
+
+  const accepted = matches.filter((candidate) => {
+    const values = new Set(
+      matches.filter((match) => match.type === candidate.type).map((match) => match.value),
+    );
+    return values.size === 1;
+  });
+  const cleanedCompanyName = (consumed: typeof accepted) =>
+    shopifyCompanyName(
+      consumed
+        .sort((left, right) => right.start - left.start)
+        .reduce(
+          (remaining, match) => `${remaining.slice(0, match.start)}${remaining.slice(match.end)}`,
+          original,
+        )
+        .replace(/^[\s,;:./·—–-]+|[\s,;:./·—–-]+$/gu, "")
+        .replace(/\s{2,}/g, " ")
+        .trim(),
+    );
+  return {
+    companyName: cleanedCompanyName(accepted),
+    companyNameWithoutRecipientCode: cleanedCompanyName(
+      accepted.filter((match) => match.type === "RECIPIENT_CODE"),
+    ),
+    identifiers: accepted
+      .filter((match) => match.type !== "RECIPIENT_CODE")
+      .map((match) => ({
+        type: match.type as "CODICE_FISCALE" | "PARTITA_IVA",
+        value: match.value,
+        countryCode,
+        sourceField: "billingAddress.company",
+      })),
+    recipientCode: accepted.find((match) => match.type === "RECIPIENT_CODE")?.value,
+  };
+}
+
 function mapTaxIdentifiers(
   order: Record<string, unknown>,
   customer: Record<string, unknown>,
@@ -424,6 +515,10 @@ function mapTaxIdentifiers(
   }
   let billingAddressLine2 = text(billingAddress.address2);
   let shippingAddressLine2 = text(shippingAddress.address2);
+  const companyData = fiscalDataFromCompany(
+    billingAddress.company,
+    text(billingAddress.countryCodeV2),
+  );
   if (!identifiers.length) {
     const countryCode = text(billingAddress.countryCodeV2);
     const fallback = fiscalIdentifierFromAddressLine(billingAddress.address2, countryCode);
@@ -450,7 +545,17 @@ function mapTaxIdentifiers(
       shippingAddressLine2 = remainingAddressLine;
     }
   }
-  return { identifiers, billingAddressLine2, shippingAddressLine2 };
+  const usesCompanyIdentifiers = !identifiers.length;
+  if (usesCompanyIdentifiers) identifiers.push(...companyData.identifiers);
+  return {
+    identifiers,
+    billingAddressLine2,
+    shippingAddressLine2,
+    companyName: usesCompanyIdentifiers
+      ? companyData.companyName
+      : companyData.companyNameWithoutRecipientCode,
+    recipientCode: companyData.recipientCode,
+  };
 }
 
 function normalizedAddressPart(value: unknown) {
@@ -557,12 +662,12 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
   const shippingAddress = record(order.shippingAddress);
   const localizedFields = mapLocalizedFields(order);
   const countryCode = text(address.countryCodeV2);
-  const companyName = shopifyCompanyName(address.company);
   const lineItems = nodes(order.lineItems);
   const transactions = records(order.transactions).filter((transaction) =>
     ["SALE", "CAPTURE"].includes(text(transaction.kind) ?? ""),
   );
   const taxData = mapTaxIdentifiers(order, customer, address, shippingAddress);
+  const companyName = taxData.companyName;
   const refunds = records(order.refunds);
   const financialStatus = text(order.displayFinancialStatus) ?? "PENDING";
   return providerOrder({
@@ -607,6 +712,7 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
       email: text(order.email) ?? text(record(customer.defaultEmailAddress).emailAddress),
       certifiedEmail: localizedFields.find((field) => field.key.toUpperCase() === "TAX_EMAIL_IT")
         ?.value,
+      recipientCode: taxData.recipientCode,
       phone: text(record(customer.defaultPhoneNumber).phoneNumber) ?? text(address.phone),
       billingAddress: {
         ...mapAddress(address),

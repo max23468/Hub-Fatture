@@ -657,6 +657,7 @@ select:hover {
   position: relative;
   z-index: 30;
   display: flex;
+  margin-left: auto;
   align-items: flex-start;
   gap: var(--space-2);
 }
