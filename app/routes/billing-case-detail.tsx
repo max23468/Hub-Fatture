@@ -905,9 +905,19 @@ export default function BillingCaseDetail() {
           <h2 id="anomalie">{copy.preparation.checksTitle}</h2>
           <ul className="plain-list">
             {billingCase.anomalies.map((code) => (
-              <li key={code}>
-                <strong>{anomalyLabels[code]?.title ?? "Verifica richiesta"}</strong>
-                <span>{anomalyLabels[code]?.action ?? copy.preparation.checkFallback}</span>
+              <li className="preparation-check" key={code}>
+                <span className="preparation-check__copy">
+                  <strong>{anomalyLabels[code]?.title ?? "Verifica richiesta"}</strong>
+                  <span>{anomalyLabels[code]?.action ?? copy.preparation.checkFallback}</span>
+                </span>
+                {code === "ARUBA_POTENTIAL_MATCH" ? (
+                  <Link
+                    className="button button--secondary preparation-check__action"
+                    to={`/documenti?vista=da-collegare&preparazione=${billingCase.id}`}
+                  >
+                    {copy.preparation.openArubaCandidates}
+                  </Link>
+                ) : null}
               </li>
             ))}
           </ul>

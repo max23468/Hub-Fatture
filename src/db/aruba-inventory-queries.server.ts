@@ -7,8 +7,14 @@ import {
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 export async function listRemoteDocuments(
-  options: { attentionOnly?: boolean; blockingOnly?: boolean } = {},
+  options: { attentionOnly?: boolean; blockingOnly?: boolean; billingCaseId?: string } = {},
 ) {
+  const billingCaseId = options.billingCaseId
+    ? isDatabaseId(options.billingCaseId)
+      ? options.billingCaseId
+      : null
+    : null;
+  if (options.billingCaseId && !billingCaseId) return [];
   const result = await getPool().query<{
     id: string;
     remote_id: string;
@@ -65,6 +71,15 @@ export async function listRemoteDocuments(
                WHERE aruba_files.remote_document_id = remote.id
                  AND aruba_files.kind = 'ARUBA_XML'))
          )))
+       AND ($5::bigint IS NULL OR EXISTS (
+         SELECT 1
+         FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS focused_candidate
+         JOIN orders AS focused_order
+           ON focused_order.id::text = focused_candidate ->> 'candidateId'
+         WHERE focused_order.billing_case_id = $5
+           AND (coalesce((focused_candidate ->> 'compatible')::boolean, false)
+             OR coalesce((focused_candidate ->> 'reviewable')::boolean, false))
+       ))
      ORDER BY remote.last_observed_at DESC, remote.id DESC
      LIMIT 200`,
     [
@@ -72,6 +87,7 @@ export async function listRemoteDocuments(
       accountReference(),
       Boolean(options.attentionOnly || options.blockingOnly),
       Boolean(options.blockingOnly),
+      billingCaseId,
     ],
   );
   return result.rows;

@@ -32,3 +32,120 @@
   border-color: var(--color-primary);
   background: var(--color-primary);
 }
+
+.remote-documents-focus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: var(--space-4) 0;
+}
+
+.remote-documents-focus a {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.remote-documents-table .table-actions,
+.remote-document-action {
+  width: 100%;
+}
+
+.remote-documents-table {
+  table-layout: auto;
+}
+
+.remote-documents-table th:last-child,
+.remote-documents-table td:last-child {
+  width: 15rem;
+}
+
+.remote-documents-table .table-actions {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.remote-document-action {
+  min-width: 0;
+}
+
+.remote-document-action .field-help {
+  margin: 0;
+}
+
+@media (max-width: 48rem) {
+  .view-nav--grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    margin: calc(var(--space-2) * -1) 0 var(--space-6);
+    padding: 0;
+    mask-image: none;
+    scroll-snap-type: none;
+  }
+
+  .view-nav--grid .view-nav__item {
+    display: flex;
+    min-width: 0;
+    min-height: var(--control-height);
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-2) var(--space-3);
+    text-align: center;
+    white-space: normal;
+  }
+
+  .remote-documents-panel {
+    margin-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+
+  .remote-documents-table thead {
+    position: absolute;
+    display: block;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .remote-documents-table td {
+    align-items: start;
+    text-align: left;
+  }
+
+  .remote-documents-table td:last-child {
+    display: block;
+    width: auto;
+    border-top: 1px solid var(--color-border);
+    padding: var(--space-4);
+  }
+
+  .remote-documents-table td:last-child::before {
+    display: none;
+  }
+
+  .remote-document-action {
+    min-width: 0;
+  }
+
+  .remote-document-action .button {
+    width: 100%;
+    height: auto;
+    min-height: var(--control-height);
+    line-height: 1.25;
+  }
+
+  .remote-documents-focus {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+}
+
+@media (max-width: 23rem) {
+  .remote-documents-table td {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}

@@ -5,10 +5,12 @@ export function ViewNavigation({
   active,
   label,
   items,
+  mobileLayout = "scroll",
 }: {
   active: string;
   label: string;
   items: ReadonlyArray<{ label: string; to: string; value: string }>;
+  mobileLayout?: "scroll" | "grid";
 }) {
   const activeLink = useRef<HTMLAnchorElement>(null);
 
@@ -17,7 +19,10 @@ export function ViewNavigation({
   }, [active]);
 
   return (
-    <nav className="view-nav" aria-label={label}>
+    <nav
+      className={`view-nav${mobileLayout === "grid" ? " view-nav--grid" : ""}`}
+      aria-label={label}
+    >
       {items.map((item) => (
         <Link
           aria-current={active === item.value ? "page" : undefined}

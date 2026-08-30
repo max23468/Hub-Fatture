@@ -1,4 +1,4 @@
-import { data, Form, redirect, useActionData, useLoaderData } from "react-router";
+import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/documents";
 
 import { AppShell } from "../components/app-shell";
@@ -38,6 +38,7 @@ import {
 } from "../../src/db/aruba-inbound.server.ts";
 import { importArubaRemoteOfficialFileAsActor } from "../../src/db/aruba-official-file-import.server.ts";
 import { listRemoteDocuments } from "../../src/db/aruba-inventory-queries.server.ts";
+import { isDatabaseId } from "../../src/db/database-id.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
 import { parseSort } from "../table-sort";
@@ -93,6 +94,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     dateTo: parsedDateTo.success ? parsedDateTo.data : "",
   };
   const page = pageNumber(url.searchParams.get("pagina") ?? 1);
+  const requestedPreparation = url.searchParams.get("preparazione") ?? "";
+  const focusedPreparation = isDatabaseId(requestedPreparation) ? requestedPreparation : null;
   const sort = parseSort(
     url.searchParams.get("ordina"),
     url.searchParams.get("direzione"),
@@ -115,7 +118,12 @@ export async function loader({ request }: Route.LoaderArgs) {
       documentArchiveSummary(),
       listArubaBatches(),
       listUnbatchedApprovedDocuments(),
-      view === "da-collegare" ? listRemoteDocuments({ attentionOnly: true }) : Promise.resolve([]),
+      view === "da-collegare"
+        ? listRemoteDocuments({
+            attentionOnly: true,
+            billingCaseId: focusedPreparation ?? undefined,
+          })
+        : Promise.resolve([]),
       getArubaSettings(),
     ]);
   const documentIds = documents.rows.map((document) => document.id);
@@ -142,6 +150,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     sort,
     view,
     remoteDocuments,
+    focusedPreparation,
     batchCreated: url.searchParams.get("batch") === "creato",
     dryRunAuthorized: url.searchParams.get("batch") === "dry-run-autorizzato",
     fileImported: url.searchParams.get("file") === "importato",
@@ -257,6 +266,7 @@ export default function Documents() {
     dryRunAuthorized,
     fileImported,
     remoteDocuments,
+    focusedPreparation,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const error = actionData && "message" in actionData ? actionData.message : null;
@@ -299,6 +309,7 @@ export default function Documents() {
           },
         ]}
         label={copy.documents.viewsLabel}
+        mobileLayout="grid"
       />
       {batchCreated ? (
         <p className="notice" role="status">
@@ -321,12 +332,21 @@ export default function Documents() {
         </p>
       ) : null}
       {view === "da-collegare" ? (
-        <section className="dashboard-panel section-gap" aria-labelledby="remote-documents-title">
+        <section
+          className="dashboard-panel remote-documents-panel section-gap"
+          aria-labelledby="remote-documents-title"
+        >
           <h2 id="remote-documents-title">{copy.documents.remoteDocumentsTitle}</h2>
           <p>{copy.documents.remoteDocumentsHelp}</p>
+          {focusedPreparation ? (
+            <div className="notice remote-documents-focus" role="status">
+              <span>{copy.documents.focusedPreparationHelp}</span>
+              <Link to="/documenti?vista=da-collegare">{copy.documents.showAllCandidates}</Link>
+            </div>
+          ) : null}
           {remoteDocuments.length ? (
-            <div className="table-wrap">
-              <table className="data-table">
+            <div className="table-wrap remote-documents-table-wrap">
+              <table className="data-table remote-documents-table">
                 <thead>
                   <tr>
                     <th>{copy.documents.document}</th>
@@ -335,32 +355,38 @@ export default function Documents() {
                     <th>{copy.documents.arubaStatus}</th>
                     <th>{copy.documents.matchStatus}</th>
                     <th>{copy.documents.remoteLastReadback}</th>
-                    <th>Azioni</th>
+                    <th>{copy.documents.actions}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {remoteDocuments.map((remote) => (
-                    <tr key={remote.id}>
-                      <td>
+                    <tr id={`documento-aruba-${remote.id}`} key={remote.id}>
+                      <td data-label={copy.documents.document}>
                         {remote.document_type} {remote.series ?? ""}{" "}
                         {remote.fiscal_number ?? remote.remote_id}
                       </td>
-                      <td>{date(remote.document_date)}</td>
-                      <td>{euros(remote.total_amount)}</td>
-                      <td>
+                      <td data-label={copy.documents.date}>{date(remote.document_date)}</td>
+                      <td data-label={copy.documents.total}>{euros(remote.total_amount)}</td>
+                      <td data-label={copy.documents.arubaStatus}>
                         {copy.documents.remoteStatusLabels[remote.remote_status] ??
                           remote.remote_status}
                       </td>
-                      <td>
+                      <td data-label={copy.documents.matchStatus}>
                         {copy.documents.matchStatusLabels[remote.match_status] ??
                           remote.match_status}
                       </td>
-                      <td>{dateTime(remote.last_observed_at)}</td>
-                      <td>
+                      <td data-label={copy.documents.remoteLastReadback}>
+                        {dateTime(remote.last_observed_at)}
+                      </td>
+                      <td data-label={copy.documents.actions}>
                         {canApprove ? (
                           <div className="table-actions">
                             {!remote.has_xml ? (
-                              <Form method="post" encType="multipart/form-data">
+                              <Form
+                                className="remote-document-action"
+                                method="post"
+                                encType="multipart/form-data"
+                              >
                                 <input type="hidden" name="csrf" value={csrfToken} />
                                 <input
                                   type="hidden"
@@ -386,7 +412,7 @@ export default function Documents() {
                             {remote.has_xml &&
                             ["DELIVERED", "NOT_DELIVERED"].includes(remote.remote_status) &&
                             remote.candidates.length ? (
-                              <Form method="post">
+                              <Form className="remote-document-action" method="post">
                                 <input type="hidden" name="csrf" value={csrfToken} />
                                 <input type="hidden" name="intent" value="resolve-aruba-match" />
                                 <input type="hidden" name="remoteDocumentId" value={remote.id} />
@@ -418,7 +444,7 @@ export default function Documents() {
                             ) &&
                             !remote.candidates.length &&
                             ["DELIVERED", "NOT_DELIVERED"].includes(remote.remote_status) ? (
-                              <Form method="post">
+                              <Form className="remote-document-action" method="post">
                                 <input type="hidden" name="csrf" value={csrfToken} />
                                 <input
                                   type="hidden"
