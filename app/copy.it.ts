@@ -111,6 +111,7 @@ export const copy = {
       PRIVATE_IT: "Privato italiano",
       BUSINESS_IT: "Azienda o professionista italiano",
       EU: "Cliente dell’Unione europea",
+      NON_EU: "Cliente svizzero",
       UNKNOWN: "Tipologia da verificare",
     } as Record<string, string>,
     documentStatuses: {
@@ -189,6 +190,11 @@ export const copy = {
       STALE: "Da aggiornare",
       FAILED: "Sincronizzazione non riuscita",
       NEVER_SYNCED: "Mai sincronizzato",
+      NOT_CONNECTED: "Non collegato",
+    },
+    salesChannelConnectionStates: {
+      SYNC_FAILED: "Collegato · sincronizzazione non riuscita",
+      REAUTH_REQUIRED: "Collegamento da rinnovare",
       NOT_CONNECTED: "Non collegato",
     },
     neverUpdated: "Mai aggiornato",
@@ -1023,6 +1029,12 @@ export const copy = {
     historyReady: "Import iniziale completato. Gli aggiornamenti automatici sono attivi.",
     connected: "Collegato",
     notConnected: "Non collegato",
+    connectionStates: {
+      CONNECTED: "Collegato",
+      SYNC_FAILED: "Collegato",
+      REAUTH_REQUIRED: "Collegamento da rinnovare",
+      NOT_CONNECTED: "Non collegato",
+    },
     lastSync: "Ultima sincronizzazione",
     never: "Mai",
     previewResult: (provider: string, count: string, review: string) =>
@@ -1046,7 +1058,7 @@ export const copy = {
           : history.status === "FAILED"
             ? `${history.mode === "IMPORT" ? "L’import" : "L’anteprima"} eBay non è riuscita (${errorCodeLabel(history.errorCode)}).`
             : `${history.mode === "IMPORT" ? "Import" : "Anteprima"} eBay in elaborazione. Ricarica la pagina tra poco.`,
-    connectionError: (code: string) => `Ultimo errore: ${errorCodeLabel(code)}`,
+    connectionError: (code: string) => `Ultimo errore di sincronizzazione: ${errorCodeLabel(code)}`,
     customerEmailTitle: "E-mail al cliente",
     customerEmailHelp:
       "Un solo servizio e-mail invia la copia soltanto dopo un esito SdI che conferma l’emissione.",
@@ -1221,6 +1233,7 @@ export const customerKindLabels: Record<string, string> = {
   PRIVATE_IT: "Privato italiano",
   BUSINESS_IT: "Azienda italiana",
   EU: "Cliente UE",
+  NON_EU: "Cliente svizzero",
   UNKNOWN: "Tipo da verificare",
 };
 

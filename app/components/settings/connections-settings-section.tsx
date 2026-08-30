@@ -6,6 +6,10 @@ import type {
   latestEbayHistory,
 } from "../../../src/db/connector-connections.server.ts";
 import { defaultHistoricalStartDate } from "../../../src/orders.ts";
+import {
+  salesChannelConnectionState,
+  salesChannelIsConnected,
+} from "../../../src/sales-channel-connection.ts";
 import { copy } from "../../copy.it";
 import { dateTime } from "../../format";
 import { SettingsSectionHeader } from "../settings-controls";
@@ -74,6 +78,8 @@ export function ConnectionsSettingsSection({
       <div className="connection-grid">
         {(["SHOPIFY", "EBAY"] as const).map((provider) => {
           const connection = byProvider.get(provider);
+          const connectionState = salesChannelConnectionState(connection?.status);
+          const isConnected = salesChannelIsConnected(connectionState);
           const label = copy.settings.providerLabels[provider];
           const initialHistoryStart = connection
             ? ((historyProvider === provider ? historyStart : null) ??
@@ -88,14 +94,10 @@ export function ConnectionsSettingsSection({
                 </div>
                 <span
                   className={`settings-status ${
-                    connection?.status === "CONNECTED"
-                      ? "settings-status--success"
-                      : "settings-status--neutral"
+                    isConnected ? "settings-status--success" : "settings-status--neutral"
                   }`}
                 >
-                  {connection?.status === "CONNECTED"
-                    ? copy.settings.connected
-                    : copy.settings.notConnected}
+                  {copy.settings.connectionStates[connectionState]}
                 </span>
               </header>
               <dl className="facts connection-panel__facts">
@@ -153,7 +155,7 @@ export function ConnectionsSettingsSection({
                       : copy.settings.historyToComplete}
                   </span>
                 </header>
-                {connection?.status === "CONNECTED" && !connection.historyImported ? (
+                {isConnected && !connection?.historyImported ? (
                   <Form method="post" className="connection-history__form">
                     <input type="hidden" name="csrf" value={csrfToken} />
                     <label>

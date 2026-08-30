@@ -21,6 +21,15 @@ test("le Impostazioni distinguono i documenti esterni dalle verifiche Aruba", ()
   );
 });
 
+test("le Impostazioni distinguono il collegamento dal fallimento della sincronizzazione", () => {
+  assert.equal(copy.settings.connectionStates.SYNC_FAILED, "Collegato");
+  assert.equal(
+    copy.dashboard.salesChannelConnectionStates.SYNC_FAILED,
+    "Collegato · sincronizzazione non riuscita",
+  );
+  assert.match(copy.settings.connectionError("PROVIDER_RESPONSE_INVALID"), /sincronizzazione/i);
+});
+
 test("le modalità Aruba distinguono l’approvazione dall’invio", () => {
   assert.equal(copy.settings.arubaDocumentOnly, "Crea solo il documento");
   assert.equal(copy.settings.arubaContextualConfirmation, "Chiedi conferma prima dell’invio");

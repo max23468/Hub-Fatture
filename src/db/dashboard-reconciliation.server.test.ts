@@ -40,13 +40,13 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
          (customer_id, local_order_date, currency, status, customer_snapshot_json,
           fiscal_profile_version)
        VALUES
-         ($1, CURRENT_DATE, 'EUR', 'READY',
+         ($1, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date, 'EUR', 'READY',
           '{"reviewRequired":false,"canonicalProfile":{}}', 1),
-         ($1, CURRENT_DATE - 1, 'EUR', 'READY',
+         ($1, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date - 1, 'EUR', 'READY',
           '{"reviewRequired":false,"canonicalProfile":{}}', 1),
-         ($1, CURRENT_DATE - 2, 'EUR', 'READY',
+         ($1, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date - 2, 'EUR', 'READY',
           '{"reviewRequired":false,"canonicalProfile":{}}', 1),
-         ($1, CURRENT_DATE - 3, 'EUR', 'NEEDS_REVIEW',
+         ($1, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date - 3, 'EUR', 'NEEDS_REVIEW',
           '{"reviewRequired":false,"canonicalProfile":{}}', 1)
        RETURNING id`,
       [customer.rows[0]!.id],
@@ -57,9 +57,11 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
           fiscal_profile_version, currency, total_amount, source_total_amount,
           difference_amount, projection_sha256, payment_status)
        VALUES
-         ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', CURRENT_DATE,
+         ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR',
+          (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date,
           1, 'EUR', 1000, 1000, 0, repeat('a', 64), 'PAID'),
-         ($2, 'INVOICE', 'DRAFT', 'TD01', 'FPR', CURRENT_DATE - 1,
+         ($2, 'INVOICE', 'DRAFT', 'TD01', 'FPR',
+          (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date - 1,
           1, 'EUR', 1000, 1000, 0, repeat('b', 64), 'PAID')`,
       [cases.rows[0]!.id, cases.rows[1]!.id],
     );
@@ -71,7 +73,8 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
           raw_snapshot_json, normalized_snapshot_json)
        VALUES
          ('SHOPIFY', 'dashboard-test', 'pending-review', '#PENDING', now(), now(),
-          CURRENT_DATE - 3, 'EUR', 1000, 'PENDING', 'FULFILLED', 'NEEDS_REVIEW', $1, $2, '{}',
+          (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date - 3,
+          'EUR', 1000, 'PENDING', 'FULFILLED', 'NEEDS_REVIEW', $1, $2, '{}',
           '{"orderReviewRequired":true,"deferredReviewRequired":false,"totalsReconciled":true,
             "customerSnapshot":{"canonicalProfile":{}}}')`,
       [customer.rows[0]!.id, cases.rows[3]!.id],
@@ -121,7 +124,8 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
           raw_snapshot_json, normalized_snapshot_json)
        VALUES
          ('SHOPIFY', 'dashboard-test', 'weak-aruba-candidate', '#WEAK', now(), now(),
-          CURRENT_DATE - 2, 'EUR', 1000, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}',
+          (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date - 2,
+          'EUR', 1000, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}',
           '{"orderReviewRequired":false,"deferredReviewRequired":false,"totalsReconciled":true,
             "customerSnapshot":{"canonicalProfile":{}}}')
        RETURNING id`,
@@ -133,7 +137,8 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
           document_date, total_amount, remote_status, remote_status_observed_at,
           metadata_digest, automatic_source, provider_group_id)
        VALUES ('MOCK', 'synthetic-aruba-account', 'weak-official-match', 'TD01', 2026,
-               CURRENT_DATE - 2, 1000, 'DELIVERED', now(), repeat('c', 64),
+               (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date - 2,
+               1000, 'DELIVERED', now(), repeat('c', 64),
                'API', 'weak-official-match')
        RETURNING id`,
     );
@@ -253,7 +258,10 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
          'invoices:2026', 1, 1, repeat('e', 64), jsonb_build_object(
            'remoteId', 'weak-official-match', 'documentType', 'TD01',
            'fiscalYear', 2026, 'series', NULL, 'fiscalNumber', NULL,
-           'documentDate', to_char(CURRENT_DATE - 2, 'YYYY-MM-DD'),
+           'documentDate', to_char(
+             (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date - 2,
+             'YYYY-MM-DD'
+           ),
            'recipientName', 'Cliente sintetico', 'recipientTaxId', NULL,
            'recipientTaxIdentifiers', '[]'::jsonb, 'recipientCountryCode', NULL,
            'recipientAddress', NULL, 'totalAmount', 1000, 'currency', 'EUR',

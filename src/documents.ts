@@ -6,7 +6,9 @@ import { z } from "zod";
 import { fiscalNumberLabel } from "./fiscal-number.ts";
 import {
   containsNullByte,
+  customerKindFromCountry,
   decimalToCents,
+  isForeignCustomerKind,
   POSTGRES_INTEGER_MAX,
   postgresDateSchema,
 } from "./orders.ts";
@@ -334,12 +336,7 @@ function acceptedRecipient(source: ReturnType<typeof acceptedFiscalDocument>) {
   const countryCode = xmlValue(customerAddress.Nazione);
   const businessName = xmlOptional(name.Denominazione);
   return {
-    kind:
-      countryCode !== "IT"
-        ? ("EU" as const)
-        : businessName
-          ? ("BUSINESS_IT" as const)
-          : ("PRIVATE_IT" as const),
+    kind: customerKindFromCountry(countryCode, Boolean(businessName)),
     displayName: countryCode !== "IT" ? businessName : undefined,
     firstName: xmlOptional(name.Nome),
     lastName: xmlOptional(name.Cognome),
@@ -593,7 +590,7 @@ export const documentInputSchema = z
     kind: z.enum(["INVOICE", "CREDIT_NOTE"]),
     documentDate: postgresDateSchema,
     recipient: z.object({
-      kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU"]),
+      kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU", "NON_EU"]),
       displayName: text(1000).optional(),
       firstName: text(1000).optional(),
       lastName: text(1000).optional(),
@@ -632,7 +629,7 @@ export const documentInputSchema = z
   .refine((value) => !containsNullByte(value), "Il documento contiene byte NUL")
   .superRefine((value, context) => {
     const recipient = value.recipient;
-    if (recipient.kind !== "EU" && recipient.taxIdentifiers.length === 0) {
+    if (!isForeignCustomerKind(recipient.kind) && recipient.taxIdentifiers.length === 0) {
       context.addIssue({ code: "custom", path: ["recipient"], message: "Dato fiscale mancante" });
     }
     if (recipient.kind === "PRIVATE_IT" && (!recipient.firstName || !recipient.lastName)) {
@@ -646,7 +643,7 @@ export const documentInputSchema = z
       context.addIssue({ code: "custom", path: ["recipient"], message: "Denominazione mancante" });
     }
     if (
-      recipient.kind === "EU" &&
+      isForeignCustomerKind(recipient.kind) &&
       !recipient.displayName &&
       !recipient.businessName &&
       (!recipient.firstName || !recipient.lastName)
@@ -739,7 +736,7 @@ function taxId(recipient: DocumentInput["recipient"], type: string) {
 }
 
 function recipientCode(recipient: DocumentInput["recipient"]): string {
-  if (recipient.kind === "EU") return "XXXXXXX";
+  if (isForeignCustomerKind(recipient.kind)) return "XXXXXXX";
   return recipient.recipientCode ?? "0000000";
 }
 
@@ -798,7 +795,7 @@ export function generateFatturaXml(
   const customerData = customer.ele("DatiAnagrafici");
   const vat =
     taxId(input.recipient, "PARTITA_IVA") ??
-    (input.recipient.kind === "EU"
+    (isForeignCustomerKind(input.recipient.kind)
       ? options.legacyEuFirstTaxIdentifier
         ? (input.recipient.taxIdentifiers[0] ?? {
             countryCode: input.recipient.address.countryCode,

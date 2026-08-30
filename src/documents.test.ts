@@ -351,6 +351,30 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
   );
   assert.match(foreignXml, /<CAP>00000<\/CAP>/);
   assert.doesNotMatch(foreignXml, /1012 AB|Noord-Holland|undefined/);
+
+  const swiss = documentInputSchema.parse({
+    ...foreign,
+    recipient: {
+      ...foreign.recipient,
+      kind: "NON_EU",
+      displayName: "Cliente svizzero",
+      address: {
+        line1: "Via Svizzera 1",
+        postalCode: "6900",
+        city: "Lugano",
+        countryCode: "CH",
+      },
+    },
+  });
+  const swissXml = generateFatturaXml(syntheticFiscalProfile, swiss, {
+    year: 2026,
+    number: 6,
+  });
+  await validateFatturaXml(swissXml);
+  assert.match(swissXml, /<CodiceDestinatario>XXXXXXX<\/CodiceDestinatario>/);
+  assert.match(swissXml, /<IdPaese>CH<\/IdPaese>\s*<IdCodice>99999999999<\/IdCodice>/);
+  assert.match(swissXml, /<CAP>00000<\/CAP>/);
+  assert.doesNotMatch(swissXml, /<CAP>6900<\/CAP>/);
 });
 
 test("la bozza controlla gli identificativi e proietta pagamento, causale e note", async () => {

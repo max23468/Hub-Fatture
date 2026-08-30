@@ -6,13 +6,18 @@ import {
   dashboardConnectionFreshness,
   type DashboardArubaConnectionInput,
 } from "../../src/dashboard.ts";
+import {
+  salesChannelConnectionState,
+  salesChannelIsConnected,
+  type SalesChannelConnectionStatus,
+} from "../../src/sales-channel-connection.ts";
 import { copy } from "../copy.it";
 import { dateTime } from "../format";
 
 interface DashboardConnectionSources {
   currentTime: string;
-  shopify: { connected: boolean; lastSync: string | null };
-  ebay: { connected: boolean; lastSync: string | null };
+  shopify: { connectionStatus: SalesChannelConnectionStatus; lastSync: string | null };
+  ebay: { connectionStatus: SalesChannelConnectionStatus; lastSync: string | null };
   aruba: {
     configured: boolean;
     connectionStatus: DashboardArubaConnectionInput["connectionStatus"];
@@ -25,6 +30,8 @@ interface DashboardConnectionSources {
 }
 
 export function createDashboardConnections(sources: DashboardConnectionSources) {
+  const shopifyState = salesChannelConnectionState(sources.shopify.connectionStatus);
+  const ebayState = salesChannelConnectionState(sources.ebay.connectionStatus);
   const arubaStatus = dashboardArubaConnectionState({
     configured: sources.aruba.configured,
     connectionStatus: sources.aruba.connectionStatus,
@@ -39,11 +46,14 @@ export function createDashboardConnections(sources: DashboardConnectionSources) 
     {
       label: "Shopify",
       value: sources.shopify.lastSync,
-      connected: sources.shopify.connected,
-      state: "freshness" as const,
-      connectionLabel: undefined,
-      connectionAttention: false,
-      connectionBlocking: false,
+      connected: salesChannelIsConnected(shopifyState),
+      state: "sales-channel" as const,
+      connectionLabel:
+        shopifyState === "CONNECTED"
+          ? undefined
+          : copy.dashboard.salesChannelConnectionStates[shopifyState],
+      connectionAttention: shopifyState !== "CONNECTED",
+      connectionBlocking: shopifyState !== "CONNECTED",
       never: copy.dashboard.neverUpdated,
       to: "/impostazioni#connessioni",
       icon: ShoppingCart,
@@ -51,11 +61,14 @@ export function createDashboardConnections(sources: DashboardConnectionSources) 
     {
       label: "eBay",
       value: sources.ebay.lastSync,
-      connected: sources.ebay.connected,
-      state: "freshness" as const,
-      connectionLabel: undefined,
-      connectionAttention: false,
-      connectionBlocking: false,
+      connected: salesChannelIsConnected(ebayState),
+      state: "sales-channel" as const,
+      connectionLabel:
+        ebayState === "CONNECTED"
+          ? undefined
+          : copy.dashboard.salesChannelConnectionStates[ebayState],
+      connectionAttention: ebayState !== "CONNECTED",
+      connectionBlocking: ebayState !== "CONNECTED",
       never: copy.dashboard.neverUpdated,
       to: "/impostazioni#connessioni",
       icon: Tag,
@@ -74,7 +87,7 @@ export function createDashboardConnections(sources: DashboardConnectionSources) 
     },
   ].map((connection) => {
     const freshness =
-      connection.state === "connection"
+      connection.state === "connection" || connection.connectionAttention
         ? {
             stale: connection.connectionAttention,
             blocking: connection.connectionBlocking,
@@ -117,7 +130,7 @@ export function DashboardConnections({ connections }: { connections: DashboardCo
                     }
                   >
                     <span aria-hidden="true" />
-                    {state === "connection"
+                    {state === "connection" || connectionLabel
                       ? connectionLabel
                       : !connected
                         ? copy.settings.notConnected

@@ -142,11 +142,11 @@ export default function Home() {
   const connections = createDashboardConnections({
     currentTime,
     shopify: {
-      connected: summary.shopify_connection_status === "CONNECTED",
+      connectionStatus: summary.shopify_connection_status,
       lastSync: summary.last_shopify_sync,
     },
     ebay: {
-      connected: summary.ebay_connection_status === "CONNECTED",
+      connectionStatus: summary.ebay_connection_status,
       lastSync: summary.last_ebay_sync,
     },
     aruba: {

@@ -29,3 +29,13 @@ _Evita_: Match per data, Match per conteggio
 Esito in cui ogni documento dei due snapshot ha una correlazione univoca e le invarianti e lo stato
 canonico coincidono.
 _Evita_: Conteggi uguali, Date vicine
+
+**Cliente extra-UE supportato**:
+Cliente con Paese di fatturazione svizzero, distinto sia dal cliente UE sia dal destinatario con
+Paese non riconosciuto.
+_Evita_: Cliente UE, Paese non supportato
+
+**Collegamento del canale di vendita**:
+Relazione autenticata con Shopify o eBay. Un errore nell'importazione di un ordine riguarda la
+sincronizzazione e non rende falso il collegamento.
+_Evita_: Sincronizzazione, Ultimo aggiornamento

@@ -111,6 +111,35 @@ test("Shopify non interpreta il segnaposto privato come ragione sociale", async 
   assert.equal(realCompany.customer.companyName, "Privato Design SRL");
 });
 
+test("Shopify importa un cliente svizzero con consegna italiana", async () => {
+  const [payload] = await fixture("shopify-orders.json");
+  const swissOrder = structuredClone(payload) as {
+    localizedFields: { nodes: unknown[] };
+    customer: { taxSettings: { taxId: string | null } };
+    billingAddress: {
+      address2: string | null;
+      countryCodeV2: string;
+      provinceCode: string | null;
+      zip: string;
+    };
+    shippingAddress: { countryCodeV2: string };
+  };
+  swissOrder.localizedFields.nodes = [];
+  swissOrder.customer.taxSettings.taxId = null;
+  swissOrder.billingAddress.address2 = null;
+  swissOrder.billingAddress.countryCodeV2 = "CH";
+  swissOrder.billingAddress.provinceCode = null;
+  swissOrder.billingAddress.zip = "6900";
+  swissOrder.shippingAddress.countryCodeV2 = "IT";
+
+  const mapped = mapShopifyOrder(swissOrder, "shop.example.invalid");
+
+  assert.equal(mapped.customer.kind, "NON_EU");
+  assert.equal(mapped.customer.billingAddress.countryCode, "CH");
+  assert.equal(mapped.customer.shippingAddress.countryCode, "IT");
+  assert.equal(mapped.customer.taxIdentifiers.length, 0);
+});
+
 test("Shopify estrae i dati fiscali etichettati dalla ragione sociale senza falsi positivi", async () => {
   const [payload] = await fixture("shopify-orders.json");
   type ShopifyCompanyPayload = Record<string, unknown> & {
@@ -305,6 +334,16 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(refundedMapped.refunds[1]?.externalRefundId, "refund-reference-3");
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
+
+  const swissOrder = structuredClone(privateOrder) as {
+    buyer: { taxIdentifier: { issuingCountry: string } };
+    fulfillmentStartInstructions: Array<{
+      shippingStep: { shipTo: { contactAddress: { countryCode: string } } };
+    }>;
+  };
+  swissOrder.buyer.taxIdentifier.issuingCountry = "CH";
+  swissOrder.fulfillmentStartInstructions[0]!.shippingStep.shipTo.contactAddress.countryCode = "CH";
+  assert.equal(mapEbayOrder(swissOrder, "botCF").customer.kind, "NON_EU");
 
   const discountedDelivery = structuredClone(privateOrder) as {
     pricingSummary: Record<string, unknown>;

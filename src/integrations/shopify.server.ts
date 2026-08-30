@@ -25,6 +25,7 @@ import type { ClaimedJob, ConnectorActor } from "../db/connector-types.server.ts
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
 import {
+  customerKindFromCountry,
   defaultHistoricalStartDate,
   decimalToCents,
   historicalOrderWindow,
@@ -707,14 +708,7 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
     localizedFields,
     sourceSnapshot: order,
     customer: {
-      kind:
-        countryCode === "IT"
-          ? companyName
-            ? "BUSINESS_IT"
-            : "PRIVATE_IT"
-          : countryCode
-            ? "EU"
-            : "UNKNOWN",
+      kind: customerKindFromCountry(countryCode, Boolean(companyName)),
       displayName: text(customer.displayName) ?? text(address.name),
       firstName: text(customer.firstName),
       lastName: text(customer.lastName),

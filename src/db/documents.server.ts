@@ -16,6 +16,7 @@ import {
   type FiscalProfile,
 } from "../documents.ts";
 import { AppError } from "../errors.ts";
+import { isForeignCustomerKind } from "../orders.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { getConfig } from "../config.server.ts";
@@ -314,7 +315,7 @@ function recipientTaxes(value: DocumentInput["recipient"]): string {
 function projectedRecipientTaxes(value: DocumentInput["recipient"]): string {
   const vat =
     value.taxIdentifiers.find((identifier) => identifier.type === "PARTITA_IVA") ??
-    (value.kind === "EU"
+    (isForeignCustomerKind(value.kind)
       ? {
           countryCode: value.address.countryCode,
           type: "PARTITA_IVA" as const,
@@ -333,7 +334,9 @@ function projectedRecipientTaxes(value: DocumentInput["recipient"]): string {
 }
 
 export function recipientComparison(value: DocumentInput["recipient"]) {
-  const destinationCode = value.kind === "EU" ? "XXXXXXX" : (value.recipientCode ?? "0000000");
+  const destinationCode = isForeignCustomerKind(value.kind)
+    ? "XXXXXXX"
+    : (value.recipientCode ?? "0000000");
   return [
     {
       field: "identity" as const,
@@ -393,8 +396,9 @@ function money(cents: number): string {
 }
 
 function invoiceComparison(caseRow: CaseRow, input: DocumentInput, profile: FiscalProfile) {
-  const destinationCode =
-    input.recipient.kind === "EU" ? "XXXXXXX" : (input.recipient.recipientCode ?? "0000000");
+  const destinationCode = isForeignCustomerKind(input.recipient.kind)
+    ? "XXXXXXX"
+    : (input.recipient.recipientCode ?? "0000000");
   const sourceById = new Map(caseRow.orders.map((order) => [order.id, sourceLine(order)]));
   return {
     recipient: [
