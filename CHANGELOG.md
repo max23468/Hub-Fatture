@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.6
+
+- Una pagina Aruba può consolidare più osservazioni sulla stessa identità locale soltanto quando il medesimo run registra un conflitto fiscale irrisolto; conteggi, completezza dei file e cardinalità delle osservazioni restano verificati prima del checkpoint.
+
 ## 0.5.5
 
 - La sincronizzazione Aruba conserva il documento già archiviato quando il provider ripropone la stessa identità fiscale con totale o XML diversi, registra il conflitto fiscale immutabile e prosegue con le altre fatture senza attribuire i nuovi file al documento precedente.
