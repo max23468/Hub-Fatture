@@ -81,7 +81,7 @@ stato e file ufficiali; Hub Fatture conserva una proiezione locale datata e una 
 | Dipendenza commerciale   | Accordo forfettario approvato per circa 500 fatture per mese solare, comprensivo dell’uso API previsto |
 | Ambiente DEMO            | Non viene richiesto all’agenzia; si usano fixture e qualifiche Production limitate                     |
 | Callback                 | Rinviato; nessun codice prima di una garanzia scritta di isolamento della sola utenza Base             |
-| Modalità predefinita     | `Solo documento`                                                                                       |
+| Modalità predefinita     | `Crea solo il documento`                                                                               |
 | Modalità di trasmissione | Globali e rigide; nessun override per batch o documento                                                |
 | Freshness                | avviso dopo 30 minuti; blocco dopo 4 ore; conflitto o incertezza bloccano subito                       |
 | Backfill                 | dal 1° luglio 2026, progressivo e riprendibile                                                         |
@@ -211,10 +211,10 @@ vincolato a preparazione, revisione, rimborsi, hash e watermark; la ricevuta è 
 Le modalità sono configurate soltanto da Massimo e valgono rigidamente per tutte le approvazioni,
 singole o massive:
 
-1. **Solo documento** — approva, numera e crea il documento; `Trasmetti` è un’azione successiva.
-2. **Conferma contestuale** — dopo la creazione propone una seconda conferma `Trasmetti ora`; si può
+1. **Crea solo il documento** — approva, numera e crea il documento; `Trasmetti` è un’azione successiva.
+2. **Chiedi conferma prima dell’invio** — dopo la creazione propone una seconda conferma `Trasmetti ora`; si può
    rimandare.
-3. **Automatico dopo approvazione** — l’approvazione esplicita autorizza la creazione del job di
+3. **Invio automatico dopo approvazione** — l’approvazione esplicita autorizza la creazione del job di
    trasmissione senza una seconda conferma.
 
 L’approvazione non è mai automatica. Se la modalità richiede trasmissione ma il canale è disabilitato

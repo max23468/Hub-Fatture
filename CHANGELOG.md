@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- Le tre modalità Aruba usano nomi espliciti e coerenti che distinguono la creazione del documento, la conferma prima dell’invio e l’invio automatico successivo all’approvazione, senza suggerire che l’approvazione possa essere automatica.
+- Il controllo mobile delle modalità resta leggibile anche con metriche tipografiche diverse, mentre ogni retry E2E ricrea le proprie fixture per non ereditare lo stato del tentativo fallito.
+
 ## 0.5.1
 
 - La Dashboard conta separatamente ordini da verificare e pagamenti in attesa, esclude sovrapposizioni e falsi positivi già risolti, e mostra lo stato dei collegamenti in base alla freschezza dei dati realmente restituiti.

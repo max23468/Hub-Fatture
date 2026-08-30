@@ -768,10 +768,10 @@ export const copy = {
     batchSummary: (count: number, mode: string) => {
       const label =
         mode === "AUTOMATIC_AFTER_APPROVAL"
-          ? "Automatica dopo approvazione"
+          ? "Invio automatico dopo approvazione"
           : mode === "CONTEXTUAL_CONFIRMATION"
-            ? "Con conferma contestuale"
-            : "Solo documento";
+            ? "Chiedi conferma prima dell’invio"
+            : "Crea solo il documento";
       return `${count} ${count === 1 ? "documento" : "documenti"} · ${label}`;
     },
     lastReadback: (value: string) => `ultimo readback ${value}`,
@@ -1039,8 +1039,8 @@ export const copy = {
     } as Record<string, string>,
     arubaMode: "Modalità Aruba",
     arubaDocumentOnly: "Crea solo il documento",
-    arubaContextualConfirmation: "Chiedi se trasmettere dopo la creazione",
-    arubaAutomaticAfterApproval: "Trasmetti automaticamente dopo l’approvazione",
+    arubaContextualConfirmation: "Chiedi conferma prima dell’invio",
+    arubaAutomaticAfterApproval: "Invio automatico dopo approvazione",
     arubaSaved: "Impostazioni Aruba aggiornate.",
     arubaSave: "Salva integrazione Aruba",
     arubaOwnerOnly: "Solo il titolare può cambiare la modalità Aruba.",
