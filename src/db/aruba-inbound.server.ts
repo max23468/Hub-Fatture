@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -32,7 +32,6 @@ import {
   validateUntrustedXml,
 } from "../aruba.ts";
 import { getConfig } from "../config.server.ts";
-import { hashToken } from "../crypto.server.ts";
 import {
   acceptedCreditNoteFromXml,
   acceptedDocumentFiscalIdentity,
@@ -2650,8 +2649,8 @@ export async function requestArubaPreflight(
       `INSERT INTO aruba_preflight_receipts
       (id, environment, account_reference, billing_case_id, document_id, draft_version,
        projection_sha256, manifest_sha256, inventory_watermark, requested_by, request_json,
-       status, completed_at, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+       source, status, completed_at, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'MANUAL',
        CASE WHEN $12 THEN 'PASSED' ELSE 'REQUESTED' END,
        CASE WHEN $12 THEN now() ELSE NULL END,
        CASE WHEN $12 THEN now() + interval '5 minutes' ELSE NULL END)`,
@@ -2973,18 +2972,11 @@ export async function finalizeArubaManualReadback(readbackId: string, actor: Aru
     const sessionId = randomUUID();
     await client.query(
       `INSERT INTO aruba_sync_sessions
-        (id, environment, account_reference, device_id, token_hash, status,
-         absolute_expires_at, lease_expires_at, requested_by, source, is_full_scan)
-       VALUES ($1, $2, $3, $4, $5, 'SCANNING', now() + interval '5 minutes',
-         now() + interval '2 minutes', $6, 'MANUAL', true)`,
-      [
-        sessionId,
-        environment(),
-        accountReference(),
-        `manual-${readbackId.replaceAll("-", "")}`,
-        hashToken(randomBytes(32).toString("base64url")),
-        actor.id,
-      ],
+        (id, environment, account_reference, status, absolute_expires_at,
+         lease_expires_at, requested_by, source, is_full_scan)
+       VALUES ($1, $2, $3, 'SCANNING', now() + interval '5 minutes',
+         now() + interval '2 minutes', $4, 'MANUAL', true)`,
+      [sessionId, environment(), accountReference(), actor.id],
     );
     const session: ArubaPageIngestContext = {
       id: sessionId,
@@ -3088,18 +3080,11 @@ export async function completeManualArubaPreflight(
       const evidenceSessionId = randomUUID();
       await client.query(
         `INSERT INTO aruba_sync_sessions
-          (id, environment, account_reference, device_id, token_hash, status,
-           absolute_expires_at, lease_expires_at, requested_by, source, is_full_scan)
-         VALUES ($1, $2, $3, $4, $5, 'SCANNING', now() + interval '5 minutes',
-           now() + interval '2 minutes', $6, 'MANUAL', false)`,
-        [
-          evidenceSessionId,
-          environment(),
-          accountReference(),
-          `specific-${readbackId.replaceAll("-", "")}`,
-          hashToken(randomBytes(32).toString("base64url")),
-          actor.id,
-        ],
+          (id, environment, account_reference, status, absolute_expires_at,
+           lease_expires_at, requested_by, source, is_full_scan)
+         VALUES ($1, $2, $3, 'SCANNING', now() + interval '5 minutes',
+           now() + interval '2 minutes', $4, 'MANUAL', false)`,
+        [evidenceSessionId, environment(), accountReference(), actor.id],
       );
       const evidenceSession: ArubaPageIngestContext = {
         id: evidenceSessionId,

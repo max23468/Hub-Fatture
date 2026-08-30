@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- La transizione Aruba è chiusa sul treno corretto: API unica autorità automatica, fallback manuale presidiato e nessuna istruzione operativa per preferiti, bridge o helper nel runtime e nella documentazione corrente.
+- Il ratchet copre anche README, versione applicativa e origine dei nuovi readback manuali; le ricevute manuali non materializzano più token o identità dispositivo fittizie, mentre audit e provenienza storica `HELPER` restano consultabili.
+
 ## 0.4.9
 
 - Su mobile la barra inferiore viene sostituita da un menu laterale animato che mostra tutte e sei le sezioni, mantiene evidente la destinazione attiva e gestisce chiusura, focus e riduzione del movimento in modo coerente su Chromium e WebKit; la sidebar desktop resta invariata.

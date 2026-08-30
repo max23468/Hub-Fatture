@@ -20,11 +20,9 @@ test("un tentativo rifiutato non occupa l'identità fiscale del tentativo succes
     connected = true;
     await client.query(
       `INSERT INTO aruba_sync_sessions
-        (id, environment, account_reference, device_id, token_hash, status, source,
-         absolute_expires_at, completed_at)
+        (id, environment, account_reference, status, source, absolute_expires_at, completed_at)
        VALUES ('10000000-0000-4000-8000-000000000001', 'MOCK', 'synthetic-account',
-         'manual-evidence-01', repeat('1', 64), 'COMPLETED', 'MANUAL',
-         now() + interval '1 hour', now())`,
+         'COMPLETED', 'MANUAL', now() + interval '1 hour', now())`,
     );
     const rejected = await client.query<{ id: string }>(
       `INSERT INTO aruba_remote_documents
