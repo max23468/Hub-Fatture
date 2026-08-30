@@ -14,7 +14,7 @@ const optionalTextSchema = z
   .optional();
 
 const optionalEmailSchema = optionalTextSchema.pipe(z.email().optional());
-const supportedCountryCodes = [
+export const euCountryCodes = [
   "AT",
   "BE",
   "BG",
@@ -43,6 +43,31 @@ const supportedCountryCodes = [
   "SI",
   "SK",
 ] as const;
+export const supportedCountryCodes = [...euCountryCodes, "CH"] as const;
+export const customerKindSchema = z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU", "NON_EU", "UNKNOWN"]);
+export type CustomerKind = z.infer<typeof customerKindSchema>;
+
+export function isForeignCustomerKind(kind: unknown): kind is "EU" | "NON_EU" {
+  return kind === "EU" || kind === "NON_EU";
+}
+
+export function customerKindFromCountry(
+  countryCode: string,
+  hasBusinessName: boolean,
+): Exclude<CustomerKind, "UNKNOWN">;
+export function customerKindFromCountry(
+  countryCode: string | undefined,
+  hasBusinessName: boolean,
+): CustomerKind;
+export function customerKindFromCountry(
+  countryCode: string | undefined,
+  hasBusinessName: boolean,
+): CustomerKind {
+  if (!countryCode) return "UNKNOWN";
+  if (countryCode === "IT") return hasBusinessName ? "BUSINESS_IT" : "PRIVATE_IT";
+  return euCountryCodes.includes(countryCode as (typeof euCountryCodes)[number]) ? "EU" : "NON_EU";
+}
+
 const optionalCountryCodeSchema = optionalTextSchema.pipe(
   z
     .string()
@@ -94,7 +119,7 @@ const taxIdentifierSchema = z.object({
 });
 
 export const customerSchema = z.object({
-  kind: z.enum(["PRIVATE_IT", "BUSINESS_IT", "EU", "UNKNOWN"]),
+  kind: customerKindSchema,
   displayName: optionalTextSchema,
   firstName: optionalTextSchema,
   lastName: optionalTextSchema,
@@ -565,7 +590,7 @@ export function customerIdentity(input: CustomerContext): {
           ? identifier.type === "CODICE_FISCALE"
           : customerKind === "BUSINESS_IT"
             ? identifier.type === "PARTITA_IVA"
-            : customerKind === "EU";
+            : isForeignCustomerKind(customerKind);
       return {
         matchKey: `tax:${identifier.type}:${countryCode ?? ""}:${value}`,
         confidence: "TAX_ID",
@@ -590,7 +615,7 @@ export function customerIdentity(input: CustomerContext): {
     return {
       matchKey: `profile:${JSON.stringify(profile)}`,
       confidence: "EXACT_PROFILE",
-      reviewRequired: input.customer.kind !== "EU",
+      reviewRequired: !isForeignCustomerKind(input.customer.kind),
       primaryTaxId: null,
     };
   }

@@ -221,8 +221,8 @@ e quando un rimborso di prova produce correttamente:
 - Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive e identità canoniche di audit distinte; le sole transizioni fiscali irreversibili restano riservate a `Massimo`.
 - Ordini Shopify ed eBay, senza inserimento manuale di vendite.
 - Beni fisici spediti esclusivamente da un magazzino in Italia.
-- Vendite in Italia e negli altri Paesi UE.
-- Clienti privati prevalenti, con supporto anche ad aziende e professionisti italiani o UE.
+- Vendite in Italia, negli altri Paesi UE e in Svizzera.
+- Clienti privati prevalenti, con supporto anche ad aziende e professionisti italiani, UE o svizzeri.
 - Unica valuta ammessa: EUR.
 - Regime del margine per tutti gli articoli.
 - Profilo documentale fisso, derivato dalla configurazione Aruba e da XML reali.
@@ -543,6 +543,7 @@ HF deve distinguere, per completezza anagrafica e recapito del documento:
 - privato italiano;
 - azienda/professionista italiano;
 - cliente UE non stabilito in Italia;
+- cliente svizzero;
 - destinatario da verificare.
 
 Il profilo fiscale della vendita resta quello del margine: questa classificazione non deve attivare OSS, IVA estera o cessione intracomunitaria.
@@ -554,6 +555,7 @@ Controlli minimi prima dell'approvazione:
 | Privato italiano | nome, cognome, Codice Fiscale, indirizzo di fatturazione completo | `NEEDS_REVIEW` |
 | Azienda/professionista italiano | denominazione o nome, P.IVA, eventuale Codice Fiscale, indirizzo, codice SdI o PEC se comunicati | `NEEDS_REVIEW` |
 | Cliente UE | nome/denominazione, Paese, indirizzo completo, identificativo fiscale quando disponibile | `NEEDS_REVIEW` solo per dati obbligatori mancanti |
+| Cliente svizzero | nome/denominazione, Paese, indirizzo completo, identificativo fiscale quando disponibile | `NEEDS_REVIEW` solo per dati obbligatori mancanti |
 
 I valori convenzionali discussi sono `0000000` per destinatari italiani senza canale comunicato e `XXXXXXX` per destinatari esteri. Sono **ipotesi da verificare** nell'XML Aruba accettato e nella documentazione FatturaPA corrente prima di fissarli nel generatore.
 
@@ -810,6 +812,7 @@ Gli ordini annullati prima dell'emissione vengono conservati come raggruppamenti
 - Stato evasione e spedizioni parziali/completa.
 - Cliente, e-mail, telefono se necessario.
 - Indirizzo di fatturazione e spedizione.
+- Paese di fatturazione italiano, UE o svizzero, mantenendo distinta la classificazione extra-UE.
 - Totali in EUR.
 - Righe, quantità, sconti e spedizione per riconciliazione interna.
 - Transazioni e rimborsi.
@@ -1277,6 +1280,8 @@ Mostrare:
   `Collegamenti` Aruba combina connessione e salute tecnica della sincronizzazione, segnalando
   pausa, esecuzione, mancato aggiornamento o errore; i documenti acquisiti da riconciliare non
   cambiano questo stato e appartengono al riquadro operativo;
+- per Shopify ed eBay, un errore di importazione mantiene visibile il collegamento autenticato e
+  segnala separatamente la sincronizzazione non riuscita;
 - stato dell'inventario Aruba, documenti da collegare o ambigui e azione `Sincronizza Aruba ora`; `Mai letto`, un readback bloccante o uno stato remoto incerto impediscono il riepilogo `Tutto sotto controllo`;
 - documenti emessi oggi/mese.
 
@@ -1401,6 +1406,10 @@ La vista interna `Connessioni` mostra, per Shopify, eBay e il trasporto SMTP can
 - riconnetti;
 - verifica credenziali;
 - dettagli errore sanificati.
+
+Per Shopify ed eBay `Collegato` descrive la credenziale utilizzabile, non l'esito dell'ultimo job.
+Un ordine anomalo o un errore di parsing resta un errore di sincronizzazione con accesso diretto ad
+`Attività`; soltanto credenziale assente, revocata o da rinnovare cambia lo stato del collegamento.
 
 Per Aruba `verifica credenziali` esegue autenticazione e controllo dell'identità fiscale senza mostrare il segreto. La vista ordinaria distingue connessione, sincronizzazione e trasmissioni; mostra ultimo giro, copertura del backfill, conteggi `documenti`, `senza ordine Shopify/eBay` e `da verificare`, oltre agli avvisi non bloccanti a 400 e 475 trasmissioni nel mese solare. Massimo gestisce credenziale, modalità e arresti; Codex può soltanto consultare salute, errori, limiti tecnici osservati e contatore locale delle trasmissioni e richiedere `Sincronizza ora`. Tier e contatori del Premium delegato non vengono letti né mostrati.
 
@@ -2152,6 +2161,10 @@ Definire un registro chiuso di codici stabili, raggruppato almeno per `AUTH`, `V
 
 Timeout, errori di trasporto, risposta non JSON/XML, schema inatteso e `5xx` devono essere catturati e tradotti in codici stabili: non propagare stack trace o messaggi del provider all'utente. L'errore originale può essere conservato solo in forma sanitizzata e con retention breve.
 
+Per i canali di vendita, il registro distingue sempre validità del collegamento e risultato della
+sincronizzazione: un payload ordine non riconosciuto non equivale a revoca o scadenza della
+credenziale.
+
 Dashboard e `Attività → Da gestire` mostrano soltanto dead-letter ancora azionabili. Un job
 fallito resta conservato secondo retention e audit, ma passa allo storico operativo quando una
 sincronizzazione completa successiva dello stesso provider ne supera il tentativo; il webhook e
@@ -2901,6 +2914,7 @@ Fixture sanificate per:
 
 - Shopify ordine italiano privato;
 - Shopify azienda;
+- Shopify ordine svizzero con consegna italiana;
 - Shopify pagamento pendente;
 - Shopify Payments con fee effettiva e Shopify PayPal/manuale senza fee applicabile;
 - Shopify rimborso parziale;

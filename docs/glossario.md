@@ -6,6 +6,8 @@
 | Quando preparare le fatture        | `draft_trigger`               | Regola che avvia la preparazione dopo il pagamento o la spedizione                       | trigger                                     |
 | Ordini di esempio                  | fixture di sviluppo           | Ordini fittizi usati solo per provare l’app                                              | fixture, dati sintetici                     |
 | Canale di vendita                  | `provider`                    | Shopify oppure eBay, da cui arriva l’ordine                                              | provider, piattaforma                       |
+| Collegamento del canale            | connection status             | Credenziale utilizzabile con Shopify o eBay                                              | sincronizzazione, ultimo aggiornamento      |
+| Sincronizzazione del canale        | sync job                      | Lettura e importazione degli aggiornamenti dal canale                                    | collegamento                                |
 | Dati ricevuti                      | source snapshot               | Informazioni originali ricevute da Shopify o eBay                                        | dati sorgente                               |
 | Dati usati da Hub Fatture          | normalized snapshot           | Informazioni rese coerenti e usate per preparare la fattura                              | dati normalizzati                           |
 | Bozza                              | `draft`                       | Documento modificabile e non numerato                                                    | fattura emessa                              |
@@ -28,6 +30,7 @@
 | Pagamento pendente                 | `pending_payment`             | Incasso non ancora confermato                                                            | non pagato definitivamente                  |
 | Non trasmettere                    | `do_not_transmit`             | Bozza archiviata senza numero né invio                                                   | elimina                                     |
 | Shopify / eBay                     | provider sorgente             | Fonte autorevole dell’ordine                                                             | gestionale fiscale                          |
+| Cliente extra-UE                   | `NON_EU`                      | Cliente svizzero, distinto dai clienti UE e dai destinatari da verificare                | cliente UE                                  |
 | Aruba                              | provider fiscale              | Servizio ufficiale che acquisisce documenti e rende disponibili stati e file             | pannello, helper                            |
 | Connessione Aruba                  | `ARUBA` connection            | Account, delega e credenziale API configurati in Hub Fatture                             | account Aruba, helper                       |
 | Inventario Aruba                   | remote inventory              | Rappresentazione locale e datata dei documenti osservati in Aruba                        | sincronizzazione, elenco completo implicito |

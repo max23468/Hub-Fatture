@@ -7,7 +7,12 @@ import { z } from "zod";
 import { validateUntrustedXml } from "../aruba.ts";
 import { acceptedInvoiceFromXml, fiscalProfileSchema, type FiscalProfile } from "../documents.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
-import { draftTriggerSchema, triggerStatus, type OrderInput } from "../orders.ts";
+import {
+  draftTriggerSchema,
+  isForeignCustomerKind,
+  triggerStatus,
+  type OrderInput,
+} from "../orders.ts";
 import { preIssueRefund } from "../refunds.ts";
 import { writeAudit } from "./audit.server.ts";
 import { withTransaction } from "./client.server.ts";
@@ -738,9 +743,11 @@ function matchesRecipientWithoutTaxId(
   const customerKind = typeof customer.kind === "string" ? customer.kind.trim().toUpperCase() : "";
   const hasCustomerBusinessName = hasExplicitBusinessName(customer);
   const customerIsBusiness =
-    customerKind === "BUSINESS_IT" || (customerKind === "EU" && hasCustomerBusinessName);
+    customerKind === "BUSINESS_IT" ||
+    (isForeignCustomerKind(customerKind) && hasCustomerBusinessName);
   const customerIsPersonal =
-    customerKind === "PRIVATE_IT" || (customerKind === "EU" && !hasCustomerBusinessName);
+    customerKind === "PRIVATE_IT" ||
+    (isForeignCustomerKind(customerKind) && !hasCustomerBusinessName);
   if (
     (customerIsBusiness && !recipientBusinessName) ||
     (customerIsPersonal && recipientBusinessName)
@@ -771,7 +778,7 @@ function matchesManuallyReviewedRecipient(
   const customerKind = typeof customer.kind === "string" ? customer.kind.trim().toUpperCase() : "";
   const hasCustomerBusinessName = hasExplicitBusinessName(customer);
   const personalBusinessAlias =
-    customerKind === "EU" &&
+    isForeignCustomerKind(customerKind) &&
     !recipientBusinessName &&
     Boolean(recipientName) &&
     customerIdentityNames(customer, false).some(
@@ -783,7 +790,7 @@ function matchesManuallyReviewedRecipient(
     );
   const customerIsPersonal =
     customerKind === "PRIVATE_IT" ||
-    (customerKind === "EU" && (!hasCustomerBusinessName || personalBusinessAlias));
+    (isForeignCustomerKind(customerKind) && (!hasCustomerBusinessName || personalBusinessAlias));
   if (!customerIsPersonal || (customerKind === "PRIVATE_IT" && recipientBusinessName)) return false;
   if (matchesRecipientWithoutTaxId(customer, recipient)) return true;
   const billingAddress =

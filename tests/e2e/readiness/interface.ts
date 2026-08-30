@@ -373,7 +373,69 @@ test("l’archivio Documenti resta leggibile con decine di elementi", async ({ p
   }
 });
 
-test("la Dashboard non mostra come sano un collegamento revocato", async ({ page }) => {
+async function verifyFailedSynchronizationKeepsConnection(page: import("@playwright/test").Page) {
+  await page.goto("/setup");
+  const setupHeading = page.getByRole("heading", { name: "Configura gli accessi" });
+  if (await setupHeading.isVisible()) {
+    await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
+    await page.getByLabel("Password per Massimo").fill("password-massimo");
+    await page.getByLabel("Password per Codex").fill("password-codex");
+    await page.getByRole("button", { name: "Crea gli account" }).click();
+  }
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByLabel("Nome utente").fill("MASSIMO");
+  await page.getByLabel("Password").fill("password-massimo");
+  await page.getByRole("button", { name: "Accedi" }).click();
+  await expect(page).toHaveURL(/\/$/);
+
+  const client = new pg.Client({ connectionString: databaseUrl });
+  await client.connect();
+  const failed = await client.query(
+    `INSERT INTO connections
+       (provider, environment, account_reference, encrypted_credentials, status,
+        last_synced_at, last_checked_at, last_error_code, last_error_message_sanitized)
+     VALUES
+       ('SHOPIFY', 'DEVELOPMENT', 'shopify-synthetic', 'encrypted-synthetic', 'ERROR',
+        now(), now(), 'PROVIDER_RESPONSE_INVALID',
+        'Il canale di vendita ha restituito dati non riconosciuti.')
+     ON CONFLICT (provider, environment) DO UPDATE SET
+       status = excluded.status,
+       last_synced_at = excluded.last_synced_at,
+       last_checked_at = excluded.last_checked_at,
+       last_error_code = excluded.last_error_code,
+       last_error_message_sanitized = excluded.last_error_message_sanitized,
+       updated_at = now()`,
+  );
+  assert.equal(failed.rowCount, 1);
+
+  try {
+    await page.reload();
+
+    const dashboardConnection = page.locator(".connection").filter({ hasText: "Shopify" });
+    await expect(dashboardConnection).toContainText("Collegato · sincronizzazione non riuscita");
+    await expect(dashboardConnection).not.toContainText("Non collegato");
+
+    await page.goto("/impostazioni#connessioni");
+    const settingsConnection = page.locator(".connection-panel").filter({ hasText: "Shopify" });
+    await expect(settingsConnection.getByText("Collegato", { exact: true })).toBeVisible();
+    await expect(settingsConnection).toContainText("Ultimo errore di sincronizzazione");
+    await expect(settingsConnection).not.toContainText("Non collegato");
+  } finally {
+    await client.query(
+      `UPDATE connections
+       SET status = 'CONNECTED', last_error_code = NULL,
+           last_error_message_sanitized = NULL, updated_at = now()
+       WHERE provider = 'SHOPIFY' AND environment = 'DEVELOPMENT'`,
+    );
+    await client.end();
+  }
+}
+
+test("la Dashboard distingue sincronizzazione fallita e collegamento revocato", async ({
+  page,
+}) => {
+  await verifyFailedSynchronizationKeepsConnection(page);
+
   const client = new pg.Client({ connectionString: databaseUrl });
   await client.connect();
   const revoked = await client.query(
@@ -384,10 +446,7 @@ test("la Dashboard non mostra come sano un collegamento revocato", async ({ page
   assert.equal(revoked.rowCount, 1);
 
   try {
-    await page.goto("/login");
-    await page.getByLabel("Nome utente").fill("MASSIMO");
-    await page.getByLabel("Password").fill("password-massimo");
-    await page.getByRole("button", { name: "Accedi" }).click();
+    await page.goto("/");
 
     const shopifyConnection = page.locator(".connection").filter({ hasText: "Shopify" });
     await expect(shopifyConnection).toContainText("Non collegato");

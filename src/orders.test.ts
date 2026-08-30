@@ -5,6 +5,7 @@ import {
   canonicalTaxIdentifiers,
   customerDisplayName,
   customerIdentity,
+  customerKindFromCountry,
   decimalToCents,
   defaultHistoricalStartDate,
   effectiveOrderPaymentStatus,
@@ -16,6 +17,13 @@ import {
   presentationCustomer,
   triggerStatus,
 } from "./orders.ts";
+
+test("la Svizzera è un Paese supportato distinto dall'Unione europea", () => {
+  assert.equal(customerKindFromCountry("IT", false), "PRIVATE_IT");
+  assert.equal(customerKindFromCountry("IT", true), "BUSINESS_IT");
+  assert.equal(customerKindFromCountry("DE", false), "EU");
+  assert.equal(customerKindFromCountry("CH", false), "NON_EU");
+});
 
 const base = orderInputSchema.parse({
   provider: "SHOPIFY",

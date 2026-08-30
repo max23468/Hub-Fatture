@@ -18,6 +18,7 @@ import type { ClaimedJob, ConnectorActor } from "../db/connector-types.server.ts
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
 import {
+  customerKindFromCountry,
   decimalToCents,
   defaultHistoricalStartDate,
   historicalOrderWindow,
@@ -391,14 +392,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
     sourceReviewRequired: cancelled === "IN_PROGRESS",
     sourceSnapshot: order,
     customer: {
-      kind:
-        countryCode === "IT"
-          ? companyName
-            ? "BUSINESS_IT"
-            : "PRIVATE_IT"
-          : countryCode
-            ? "EU"
-            : "UNKNOWN",
+      kind: customerKindFromCountry(countryCode, Boolean(companyName)),
       displayName: companyName ?? fullName ?? buyerId,
       companyName,
       email: text(shipTo.email),

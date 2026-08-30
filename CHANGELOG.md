@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.10
+
+- Shopify ed eBay supportano gli ordini con cliente svizzero come destinatario extra-UE distinto dai clienti UE, riusando il profilo fiscale del margine e il tracciato estero FatturaPA già validato.
+- Dashboard e Impostazioni mantengono il canale visibilmente collegato quando fallisce l’importazione di un ordine, mostrano separatamente l’errore di sincronizzazione e riservano `Non collegato` alle credenziali assenti, revocate o da rinnovare.
+- L’upgrade riavvolge il cursore dal primo payload non riconosciuto e rende nuovamente schedulabili i canali bloccati, così gli ordini svizzeri precedentemente rifiutati vengono riletti.
+
 ## 0.5.9
 
 - La scheda Aruba in Dashboard distingue lo stato tecnico della connessione e della sincronizzazione dalle verifiche di riconciliazione: segnala pause, errori, sincronizzazioni ferme o mai eseguite, mentre le fatture da verificare restano nel riepilogo operativo dedicato.
