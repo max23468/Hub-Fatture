@@ -546,10 +546,6 @@ select:hover {
   background: rgb(255 255 255 / 8%);
 }
 
-.nav-more {
-  display: none;
-}
-
 .view-nav {
   display: flex;
   gap: var(--space-2);
@@ -5437,122 +5433,21 @@ tbody tr:last-child td {
   }
 
   .sidebar {
-    inset: auto 0 0;
-    z-index: 20;
-    width: auto;
-    border-top: 1px solid rgb(255 255 255 / 12%);
-    border-right: 0;
-    padding: var(--space-2);
-  }
-
-  .sidebar .brand-lockup {
     display: none;
-  }
-
-  .sidebar nav {
-    display: flex;
-    gap: var(--space-1);
-  }
-
-  .sidebar-toggle {
-    display: none;
-  }
-
-  .nav-item--mobile-more {
-    display: none;
-  }
-
-  .nav-more {
-    position: relative;
-    display: block;
-    min-width: 0;
-    flex: 1 1 0;
-  }
-
-  .nav-more--active {
-    flex: 0 0 auto;
-  }
-
-  .nav-more__summary {
-    width: 100%;
-    cursor: pointer;
-    list-style: none;
-  }
-
-  .nav-more__summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .nav-more__menu {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + var(--space-2));
-    display: grid;
-    width: min(16rem, calc(100vw - var(--space-4)));
-    gap: var(--space-1);
-    border: 1px solid rgb(255 255 255 / 16%);
-    border-radius: var(--radius-lg);
-    background: var(--color-brand-strong);
-    padding: var(--space-2);
-    box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 24%);
-  }
-
-  .nav-more__item {
-    display: flex;
-    min-height: var(--control-height);
-    align-items: center;
-    gap: var(--space-3);
-    border-radius: var(--radius-md);
-    color: #e9f6f8;
-    font-weight: 650;
-    padding: 0.625rem 0.75rem;
-    text-decoration: none;
-  }
-
-  .nav-more__item[aria-current="page"] {
-    background: #087b99;
-    color: #ffffff;
-  }
-
-  .nav-item {
-    position: relative;
-    min-height: 3.5rem;
-    min-width: 0;
-    flex: 1 1 0;
-    justify-content: center;
-    padding: var(--space-2);
-  }
-
-  .nav-item span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  .nav-item[aria-current="page"] {
-    flex: 0 0 auto;
-    padding-inline: var(--space-3);
-  }
-
-  .nav-item[aria-current="page"] span {
-    position: static;
-    width: auto;
-    height: auto;
-    overflow: visible;
-    clip-path: none;
-    white-space: nowrap;
   }
 
   .app-main {
     margin-left: 0;
-    padding: var(--space-6) var(--space-4) 6rem;
+    padding: var(--space-6) var(--space-4);
   }
 
   .page-header {
+    align-items: center;
     margin-bottom: var(--space-4);
+  }
+
+  .dashboard-title {
+    margin-top: 0;
   }
 
   .filters,

@@ -1262,7 +1262,7 @@ Il menu rapido del profilo mostra identità, capacità operative, tema e uscita.
 
 Su desktop la sidebar fissa può essere compressa dall'utente mantenendo visibili marchio, icone e destinazione attiva. I nomi restano accessibili e disponibili su hover o focus, la preferenza viene conservata nel browser e non esiste espansione automatica al passaggio del mouse. Al primo accesso parte aperta da 1024 px e compressa fra 769 e 1023 px; la scelta esplicita dell'utente prevale sul default responsive.
 
-Su mobile la navigazione principale resta una barra inferiore a cinque destinazioni: Dashboard, Ordini, Documenti, Clienti e `Altro`. `Altro` contiene Attività e Impostazioni. Le icone sono sempre visibili e accessibili, mentre soltanto la destinazione attiva espone anche l’etichetta su una riga. Il cambio pagina sposta etichetta ed evidenza sulla nuova destinazione senza scorrimento orizzontale.
+Su mobile la barra inferiore non viene mostrata. Un pulsante menu allineato a sinistra nell’intestazione apre un cassetto modale laterale con tutte e sei le destinazioni, ciascuna completa di icona ed etichetta. Il cassetto evidenzia la destinazione attiva, si chiude dopo la selezione, con il pulsante dedicato o tramite `Esc`, trattiene il focus mentre è aperto e impedisce l’interazione con il contenuto sottostante. Entrata, uscita, fondale e feedback dei controlli usano animazioni brevi e coerenti con la sidebar desktop; la preferenza di riduzione del movimento le disattiva.
 
 ### 13.2 Dashboard
 

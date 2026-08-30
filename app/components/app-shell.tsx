@@ -1,9 +1,9 @@
 import {
   ClipboardList,
-  Ellipsis,
   FileText,
   LayoutDashboard,
   LogOut,
+  Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -11,8 +11,9 @@ import {
   ShoppingBag,
   UserRound,
   UsersRound,
+  X,
 } from "lucide-react";
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Form, NavLink, useLocation } from "react-router";
 
 import { copy } from "../copy.it";
@@ -30,16 +31,31 @@ const links = [
     label: copy.navigation.activity,
     icon: ClipboardList,
     end: false,
-    mobileMore: true,
   },
   {
     to: "/impostazioni",
     label: copy.navigation.settings,
     icon: Settings,
     end: false,
-    mobileMore: true,
   },
 ];
+
+function NavigationLinks({ onNavigate }: { onNavigate?: () => void }) {
+  return links.map(({ to, label, icon: Icon, end }) => (
+    <NavLink
+      aria-label={label}
+      className="nav-item"
+      data-tooltip={label}
+      end={end}
+      key={to}
+      onClick={onNavigate}
+      to={to}
+    >
+      <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
+      <span className="nav-item__label">{label}</span>
+    </NavLink>
+  ));
+}
 
 const sidebarChangeEvent = "hub-fatture:sidebar-change";
 
@@ -66,7 +82,9 @@ export function AppShell({
   csrfToken: string;
 }) {
   const location = useLocation();
-  const moreActive = links.some((link) => link.mobileMore && location.pathname.startsWith(link.to));
+  const mobileNavigation = useRef<HTMLDialogElement>(null);
+  const mobileNavigationTrigger = useRef<HTMLButtonElement>(null);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const sidebarCollapsed = useSyncExternalStore(
     subscribeToSidebar,
     getSidebarCollapsed,
@@ -94,6 +112,22 @@ export function AppShell({
     () => true,
     () => false,
   );
+
+  function openMobileNavigation() {
+    mobileNavigation.current?.showModal();
+    setMobileNavigationOpen(true);
+  }
+
+  function closeMobileNavigation() {
+    mobileNavigation.current?.close();
+    setMobileNavigationOpen(false);
+  }
+
+  useEffect(() => {
+    if (mobileNavigation.current?.open) mobileNavigation.current.close();
+    setMobileNavigationOpen(false);
+  }, [location.pathname, location.search]);
+
   return (
     <div className="app-layout">
       <a className="skip-link" href="#contenuto-principale">
@@ -102,42 +136,7 @@ export function AppShell({
       <aside className="sidebar">
         <BrandLockup onDark />
         <nav aria-label={copy.navigation.mainLabel} id="navigazione-principale">
-          {links.map(({ to, label, icon: Icon, end, mobileMore }) => (
-            <NavLink
-              aria-label={label}
-              className={`nav-item${mobileMore ? " nav-item--mobile-more" : ""}`}
-              data-tooltip={label}
-              end={end}
-              key={to}
-              to={to}
-            >
-              <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
-              <span className="nav-item__label">{label}</span>
-            </NavLink>
-          ))}
-          <details
-            className={`nav-more${moreActive ? " nav-more--active" : ""}`}
-            key={location.pathname}
-          >
-            <summary
-              aria-current={moreActive ? "page" : undefined}
-              aria-label={copy.navigation.openMore}
-              className="nav-item nav-more__summary"
-            >
-              <Ellipsis aria-hidden="true" size={20} strokeWidth={1.8} />
-              <span>{copy.navigation.more}</span>
-            </summary>
-            <div className="nav-more__menu">
-              {links
-                .filter((link) => link.mobileMore)
-                .map(({ to, label, icon: Icon, end }) => (
-                  <NavLink className="nav-more__item" end={end} key={to} to={to}>
-                    <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
-                    <span>{label}</span>
-                  </NavLink>
-                ))}
-            </div>
-          </details>
+          <NavigationLinks />
         </nav>
         <button
           aria-controls="navigazione-principale"
@@ -152,9 +151,47 @@ export function AppShell({
           <span className="sidebar-toggle__label">{sidebarAction}</span>
         </button>
       </aside>
+      <dialog
+        aria-label={copy.navigation.mainLabel}
+        className="mobile-navigation"
+        id="navigazione-mobile"
+        onClose={() => {
+          setMobileNavigationOpen(false);
+          const focusDelay = window.matchMedia("(prefers-reduced-motion: no-preference)").matches
+            ? 200
+            : 0;
+          window.setTimeout(() => mobileNavigationTrigger.current?.focus(), focusDelay);
+        }}
+        ref={mobileNavigation}
+      >
+        <div className="mobile-navigation__header">
+          <BrandLockup onDark />
+          <button
+            aria-label={copy.navigation.closeMenu}
+            className="mobile-navigation__close"
+            onClick={closeMobileNavigation}
+            type="button"
+          >
+            <X aria-hidden="true" size={22} strokeWidth={1.8} />
+          </button>
+        </div>
+        <nav aria-label={copy.navigation.mainLabel}>
+          <NavigationLinks onNavigate={closeMobileNavigation} />
+        </nav>
+      </dialog>
       <main className="app-main" id="contenuto-principale">
         <header className="page-header">
-          <div />
+          <button
+            aria-controls="navigazione-mobile"
+            aria-expanded={mobileNavigationOpen}
+            aria-label={copy.navigation.openMenu}
+            className="mobile-navigation-toggle"
+            onClick={openMobileNavigation}
+            ref={mobileNavigationTrigger}
+            type="button"
+          >
+            <Menu aria-hidden="true" size={22} strokeWidth={1.8} />
+          </button>
           <div className="page-header__actions">
             <GlobalSearch />
             <details className="profile-menu" inert={!profileReady}>

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.9
+
+- Su mobile la barra inferiore viene sostituita da un menu laterale animato che mostra tutte e sei le sezioni, mantiene evidente la destinazione attiva e gestisce chiusura, focus e riduzione del movimento in modo coerente su Chromium e WebKit; la sidebar desktop resta invariata.
+- La ricerca globale intercetta `Esc` prima del comportamento nativo dei campi di ricerca WebKit, chiude sempre il pannello e restituisce il focus al comando di apertura anche dopo il passaggio al viewport mobile.
+
 ## 0.4.8
 
 - La riconciliazione Aruba collega automaticamente una singola TD01 quando esiste un solo ordine forte dello stesso giorno e risolve come coorte completa le fatture altrimenti indistinguibili, mantenendo l'associazione monotona fra progressivi fiscali e cronologia degli ordini.

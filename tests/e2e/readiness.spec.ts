@@ -447,6 +447,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Esc", exact: true })).toBeHidden();
   await expect(page.getByLabel("Cancella la ricerca")).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toHaveCount(0);
+  await expect(page.getByLabel("Apri la ricerca globale")).toBeFocused();
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await expectPlainLanguage(page);
@@ -549,15 +551,35 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Nessun cliente da verificare" })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 780 });
-  const mobileMore = page.getByLabel("Apri altre sezioni");
-  await expect(page.getByRole("link", { name: "Clienti", exact: true })).toBeVisible();
-  await mobileMore.click();
+  const initialMobileMenuTrigger = page.getByRole("button", {
+    name: "Apri il menu di navigazione",
+  });
+  const initialMobileMenu = page.getByRole("dialog", { name: "Navigazione principale" });
+  await expect(initialMobileMenuTrigger).toBeVisible();
+  await expect(initialMobileMenuTrigger).toHaveAttribute("aria-expanded", "false");
+  expect(
+    await initialMobileMenuTrigger.evaluate((trigger) => {
+      const center = trigger.getBoundingClientRect();
+      const topmost = document.elementFromPoint(
+        center.left + center.width / 2,
+        center.top + center.height / 2,
+      );
+      return topmost !== null && trigger.contains(topmost);
+    }),
+  ).toBe(true);
+  await initialMobileMenuTrigger.click();
+  await expect(initialMobileMenu).toBeVisible();
+  await expect(initialMobileMenu.getByRole("link")).toHaveCount(6);
   await expect(
-    page.locator(".nav-more__menu").getByRole("link", { name: "Attività", exact: true }),
+    initialMobileMenu.getByRole("link", { name: "Attività", exact: true }),
   ).toBeVisible();
   await expect(
-    page.locator(".nav-more__menu").getByRole("link", { name: "Impostazioni", exact: true }),
+    initialMobileMenu.getByRole("link", { name: "Impostazioni", exact: true }),
   ).toBeVisible();
+  await expect(initialMobileMenuTrigger).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Escape");
+  await expect(initialMobileMenu).not.toBeVisible();
+  await expect(initialMobileMenuTrigger).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
@@ -1146,15 +1168,23 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       .first()
       .evaluate((row) => row.getBoundingClientRect().height),
   ).toBeLessThan(240);
-  await page.getByRole("link", { name: "Clienti", exact: true }).click();
+  const mobileMenuTrigger = page.getByRole("button", { name: "Apri il menu di navigazione" });
+  const mobileMenu = page.getByRole("dialog", { name: "Navigazione principale" });
+  await mobileMenuTrigger.click();
+  await mobileMenu.getByRole("link", { name: "Clienti", exact: true }).click();
   await expect(page.locator(".customer-table tbody tr").first()).toBeVisible();
-  await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Clienti");
+  await expect(mobileMenu).not.toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
     ),
   ).toBe(true);
-  await page.getByRole("link", { name: "Ordini", exact: true }).click();
+  await mobileMenuTrigger.click();
+  await expect(mobileMenu.getByRole("link", { name: "Clienti", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await mobileMenu.getByRole("link", { name: "Ordini", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toBeVisible();
   const mobileOrderRow = page.locator(".orders-table tbody tr").first();
   await expect(mobileOrderRow).toHaveCSS("display", "grid");
@@ -1167,17 +1197,6 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       return action ? row.getBoundingClientRect().right - action.getBoundingClientRect().right : 0;
     }),
   ).toBeGreaterThanOrEqual(12);
-  await expect(page.locator('.nav-item[aria-current="page"]')).toHaveText("Ordini");
-  const mobileNavigation = await page.locator(".nav-item").evaluateAll((items) =>
-    items.map((item) => ({
-      current: item.getAttribute("aria-current"),
-      labelWidth: item.querySelector("span")?.getBoundingClientRect().width ?? 0,
-      right: item.getBoundingClientRect().right,
-    })),
-  );
-  expect(mobileNavigation.filter((item) => item.labelWidth > 1)).toHaveLength(1);
-  expect(mobileNavigation.find((item) => item.current === "page")?.labelWidth).toBeGreaterThan(1);
-  expect(mobileNavigation.every((item) => item.right <= 320)).toBe(true);
   const viewportFits = await page.evaluate(
     () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
   );
@@ -1192,8 +1211,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     await activeView.evaluate((item) => item.getBoundingClientRect().right),
   ).toBeLessThanOrEqual(320);
 
-  await page.getByLabel("Apri altre sezioni").click();
-  await page.getByRole("link", { name: "Impostazioni", exact: true }).click();
+  await mobileMenuTrigger.click();
+  await expect(mobileMenu.getByRole("link")).toHaveCount(6);
+  await mobileMenu.getByRole("link", { name: "Impostazioni", exact: true }).click();
   const sectionPicker = page.getByLabel("Vai alla sezione");
   await expect(sectionPicker).toBeVisible();
   await sectionPicker.selectOption("sistema");
@@ -1748,6 +1768,50 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       has: page.locator(`a[href='/documenti/${noteId}/nota']`),
     }),
   ).toContainText("Inviata");
+});
+
+test("il menu mobile anima e rende raggiungibili tutte le sezioni", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 780 });
+  await page.goto("/setup");
+  const setupHeading = page.getByRole("heading", { name: "Configura gli accessi" });
+  if (await setupHeading.isVisible()) {
+    await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
+    await page.getByLabel("Password per Massimo").fill("password-massimo");
+    await page.getByLabel("Password per Codex").fill("password-codex");
+    await page.getByRole("button", { name: "Crea gli account" }).click();
+  }
+
+  await page.goto("/login");
+  await page.getByLabel("Nome utente").fill("Massimo");
+  await page.getByLabel("Password").fill("password-massimo");
+  await page.getByRole("button", { name: "Accedi" }).click();
+
+  const trigger = page.getByRole("button", { name: "Apri il menu di navigazione" });
+  const menu = page.getByRole("dialog", { name: "Navigazione principale" });
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("link")).toHaveCount(6);
+  await expect(menu.getByRole("link", { name: "Dashboard", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  expect(
+    await menu.evaluate((element) =>
+      getComputedStyle(element)
+        .transitionDuration.split(",")
+        .some((duration) => Number.parseFloat(duration) > 0),
+    ),
+  ).toBe(true);
+  await expectViewportFits(page);
+
+  await page.keyboard.press("Escape");
+  await expect(menu).not.toBeVisible();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await menu.getByRole("link", { name: "Attività", exact: true }).click();
+  await expect(page).toHaveURL(/\/attivita$/);
+  await expect(menu).not.toBeVisible();
 });
 
 test("la qualifica Production richiede un consenso esplicito prima del dry run", async ({
