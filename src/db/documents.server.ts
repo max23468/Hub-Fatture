@@ -33,7 +33,10 @@ import {
   snapshotDocumentEmail,
 } from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
-import { pendingPaymentSql } from "./billing-case-sql.server.ts";
+import {
+  pendingPaymentSql,
+  standardInvoiceApprovalCriteriaSql,
+} from "./billing-case-sql.server.ts";
 import {
   ensureDocumentStoragePath,
   loadStoredDocuments,
@@ -1397,12 +1400,7 @@ export async function listMassApprovalCandidates() {
      FROM documents
      JOIN billing_cases ON billing_cases.id = documents.billing_case_id
      JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
-     WHERE documents.kind = 'INVOICE' AND documents.status = 'DRAFT'
-       AND documents.difference_amount = 0 AND documents.payment_status = 'PAID'
-       AND documents.projection_sha256 <> repeat('0', 64)
-       AND documents.document_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date
-       AND billing_cases.status = 'READY'
-       AND fiscal_profiles.status IN ('MOCK', 'AUDITED')
+     WHERE ${standardInvoiceApprovalCriteriaSql()}
      ORDER BY billing_cases.id
      LIMIT 100`,
     ),

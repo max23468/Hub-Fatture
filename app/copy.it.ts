@@ -164,7 +164,7 @@ export const copy = {
     allUnderControl: "Tutto sotto controllo",
     noCurrentIssues: "Nessuna criticità al momento",
     updatesMissing: "Aggiornamenti da completare",
-    updatesMissingDetail: "Uno o più collegamenti non hanno ancora restituito dati",
+    updatesMissingDetail: "Uno o più collegamenti richiedono un aggiornamento o una verifica",
     attentionNeeded: "Richiede attenzione",
     attentionNeededDetail: "Sono presenti criticità operative da gestire",
     noFailedUploads: "Nessun caricamento Aruba non riuscito",

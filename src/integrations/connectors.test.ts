@@ -111,6 +111,62 @@ test("Shopify non interpreta il segnaposto privato come ragione sociale", async 
   assert.equal(realCompany.customer.companyName, "Privato Design SRL");
 });
 
+test("Shopify estrae i dati fiscali etichettati dalla ragione sociale senza falsi positivi", async () => {
+  const [payload] = await fixture("shopify-orders.json");
+  type ShopifyCompanyPayload = Record<string, unknown> & {
+    localizedFields: { nodes: unknown[] };
+    customer: { taxSettings: { taxId: string | null } };
+    billingAddress: { company: string | null; countryCodeV2: string; address2: string | null };
+  };
+  const order = structuredClone(payload) as ShopifyCompanyPayload;
+  order.localizedFields.nodes = [];
+  order.customer.taxSettings.taxId = null;
+  order.billingAddress.address2 = null;
+  order.billingAddress.company = "accademia società cooperativa P.I. 02335110686 sdi M5UXCR1";
+
+  const mapped = mapShopifyOrder(order, "shop.example.invalid");
+
+  assert.equal(mapped.customer.companyName, "accademia società cooperativa");
+  assert.deepEqual(mapped.customer.taxIdentifiers, [
+    {
+      type: "PARTITA_IVA",
+      value: "02335110686",
+      countryCode: "IT",
+      sourceField: "billingAddress.company",
+    },
+  ]);
+  assert.equal(mapped.customer.recipientCode, "M5UXCR1");
+
+  order.billingAddress.company = "Azienda 02335110686 M5UXCR1";
+  const unlabeled = mapShopifyOrder(order, "shop.example.invalid");
+  assert.equal(unlabeled.customer.companyName, "Azienda 02335110686 M5UXCR1");
+  assert.equal(unlabeled.customer.taxIdentifiers.length, 0);
+  assert.equal(unlabeled.customer.recipientCode, undefined);
+
+  order.billingAddress.company = "Azienda P.IVA 12345678901 SDI M5UXCR1";
+  const invalidVat = mapShopifyOrder(order, "shop.example.invalid");
+  assert.equal(invalidVat.customer.companyName, "Azienda P.IVA 12345678901");
+  assert.equal(invalidVat.customer.taxIdentifiers.length, 0);
+  assert.equal(invalidVat.customer.recipientCode, "M5UXCR1");
+
+  order.customer.taxSettings.taxId = "IT10987654321";
+  const structuredPriority = mapShopifyOrder(order, "shop.example.invalid");
+  assert.equal(structuredPriority.customer.companyName, "Azienda P.IVA 12345678901");
+  assert.equal(
+    structuredPriority.customer.taxIdentifiers[0]?.sourceField,
+    "customer.taxSettings.taxId",
+  );
+  assert.equal(structuredPriority.customer.recipientCode, "M5UXCR1");
+  order.customer.taxSettings.taxId = null;
+
+  order.billingAddress.company = "Azienda P.IVA 02335110686 SDI M5UXCR1";
+  order.billingAddress.countryCodeV2 = "ES";
+  const foreign = mapShopifyOrder(order, "shop.example.invalid");
+  assert.equal(foreign.customer.companyName, "Azienda P.IVA 02335110686 SDI M5UXCR1");
+  assert.equal(foreign.customer.taxIdentifiers.length, 0);
+  assert.equal(foreign.customer.recipientCode, undefined);
+});
+
 test("Shopify usa Interno come ultimo fallback soltanto per un identificativo italiano valido", async () => {
   const [payload] = await fixture("shopify-orders.json");
   type ShopifyTaxPayload = Record<string, unknown> & {

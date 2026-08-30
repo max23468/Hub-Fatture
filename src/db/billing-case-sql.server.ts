@@ -32,6 +32,13 @@ export const pendingPaymentSql = (alias = "orders") =>
       WHERE paid_payment.order_id = ${alias}.id AND paid_payment.status = 'PAID'
     ), 0) < ${alias}.gross_amount)`;
 
+/** Le code Dashboard sono disgiunte: il pagamento pendente ha precedenza sulla revisione. */
+export const billingCasePendingPaymentSql = (alias = "billing_cases") => `EXISTS (
+  SELECT 1 FROM orders AS pending_case_order
+  WHERE pending_case_order.billing_case_id = ${alias}.id
+    AND ${pendingPaymentSql("pending_case_order")}
+)`;
+
 export const hasCaseOrdersSql = `EXISTS (
   SELECT 1 FROM orders WHERE orders.billing_case_id = billing_cases.id
 )`;
@@ -61,10 +68,37 @@ export const customerProfileMismatchSql = `(
       IS DISTINCT FROM billing_cases.customer_snapshot_json -> 'canonicalProfile'
 )`;
 
-export const arubaUnresolvedCandidateSql = (alias = "aruba_candidate") => `(
-  coalesce((${alias} ->> 'probe')::boolean, false)
-  OR coalesce((${alias} ->> 'potential')::boolean, false)
-  OR coalesce((${alias} ->> 'compatible')::boolean, false)
+/**
+ * Un segnale debole (data/importo/nome) serve soltanto finché non è disponibile
+ * l'XML ufficiale. Dopo il download del file, trattiene il caso esclusivamente
+ * una compatibilità fiscale reale o un riferimento ordine esplicito.
+ */
+export const arubaActionableCandidateSql = (
+  candidateAlias = "aruba_candidate",
+  remoteAlias = "aruba_remote",
+) => `(
+  coalesce((${candidateAlias} ->> 'compatible')::boolean, false)
+  OR coalesce((${candidateAlias} -> 'signals' ->> 'explicitReference')::boolean, false)
+  OR (${remoteAlias}.xml_sha256 IS NULL AND (
+    coalesce((${candidateAlias} ->> 'probe')::boolean, false)
+    OR coalesce((${candidateAlias} ->> 'potential')::boolean, false)
+  ))
+)`;
+
+export const standardInvoiceApprovalCriteriaSql = (
+  billingCaseAlias = "billing_cases",
+  documentAlias = "documents",
+  fiscalProfileAlias = "fiscal_profiles",
+) => `(
+  ${documentAlias}.kind = 'INVOICE'
+  AND ${documentAlias}.status = 'DRAFT'
+  AND ${documentAlias}.difference_amount = 0
+  AND ${documentAlias}.payment_status = 'PAID'
+  AND ${documentAlias}.projection_sha256 <> repeat('0', 64)
+  AND ${documentAlias}.document_date =
+    (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')::date
+  AND ${billingCaseAlias}.status = 'READY'
+  AND ${fiscalProfileAlias}.status IN ('MOCK', 'AUDITED')
 )`;
 
 /** Un possibile documento Aruba non ancora risolto trattiene la preparazione. */
@@ -78,14 +112,14 @@ export const arubaPotentialMatchSql = `EXISTS (
     AND (
       (aruba_matches.method <> 'MANUAL' AND (
         (aruba_matches.status = 'UNMATCHED'
-          AND ${arubaUnresolvedCandidateSql()})
+          AND ${arubaActionableCandidateSql()})
         OR (aruba_matches.status = 'AMBIGUOUS'
-          AND ${arubaUnresolvedCandidateSql()})
+          AND ${arubaActionableCandidateSql()})
         OR (aruba_matches.status = 'MATCHED'
           AND aruba_remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING')
           AND coalesce((aruba_candidate ->> 'compatible')::boolean, false))
         OR (aruba_matches.status = 'PROFILE_CONFLICT'
-          AND ${arubaUnresolvedCandidateSql()})
+          AND ${arubaActionableCandidateSql()})
       ))
       OR (aruba_matches.method = 'MANUAL'
         AND aruba_matches.status = 'MATCHED'

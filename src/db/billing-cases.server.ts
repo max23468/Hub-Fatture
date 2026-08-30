@@ -17,6 +17,7 @@ import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
 import {
   arubaPotentialMatchSql,
+  billingCasePendingPaymentSql,
   customerProfileMismatchSql,
   hasCaseOrdersSql,
   hasIncompatibleCaseOrdersSql,
@@ -555,6 +556,7 @@ const billingCaseListSortSql: Record<BillingCaseListSortKey, string> = {
 export async function listBillingCases(
   filters: {
     statuses?: string[];
+    excludePendingPayments?: boolean;
     page?: unknown;
     sort?: { key: BillingCaseListSortKey; direction: SortDirection };
   } = {},
@@ -580,12 +582,17 @@ export async function listBillingCases(
             count(orders.id)::text AS order_count, coalesce(sum(orders.billable_amount), 0)::text AS total_amount
      FROM billing_cases
      LEFT JOIN orders ON orders.billing_case_id = billing_cases.id
-     WHERE $1::text[] IS NULL OR billing_cases.status = ANY($1)
+     WHERE ($1::text[] IS NULL OR billing_cases.status = ANY($1))
+       AND (NOT $3::boolean OR NOT ${billingCasePendingPaymentSql()})
      GROUP BY billing_cases.id
      ORDER BY ${orderBy} ${direction} NULLS LAST,
               billing_cases.local_order_date DESC, billing_cases.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $2`,
-    [filters.statuses?.length ? filters.statuses : null, pageOffset(filters.page)],
+    [
+      filters.statuses?.length ? filters.statuses : null,
+      pageOffset(filters.page),
+      Boolean(filters.excludePendingPayments),
+    ],
   );
   return paginate(result.rows);
 }

@@ -25,7 +25,8 @@ import {
   type ArubaApiSession,
 } from "../integrations/aruba-api.server.ts";
 import { writeAudit } from "./audit.server.ts";
-import { arubaUnresolvedCandidateSql } from "./billing-case-sql.server.ts";
+import { arubaActionableCandidateSql } from "./billing-case-sql.server.ts";
+import { recomputeOpenBillingCaseStatuses } from "./billing-case-status.server.ts";
 import {
   assertArubaApiCooldownInactive,
   getArubaApiTrafficStatus,
@@ -1065,6 +1066,7 @@ async function completeRun(runId: string) {
         run.kind === "BACKFILL" || run.kind === "FULL",
       ],
     );
+    await recomputeOpenBillingCaseStatuses(client);
     return run;
   });
   return completed;
@@ -1090,13 +1092,16 @@ async function snapshotTargetedGroups(run: ArubaSyncRunRow) {
         `WITH unresolved AS (
            SELECT DISTINCT matches.remote_document_id
            FROM aruba_document_matches AS matches
+           JOIN aruba_remote_documents AS candidate_remote
+             ON candidate_remote.id = matches.remote_document_id
            LEFT JOIN LATERAL jsonb_array_elements(matches.candidates_json) AS candidate ON true
            WHERE (
              (matches.status = 'UNMATCHED' AND matches.method <> 'MANUAL'
-               AND ${arubaUnresolvedCandidateSql("candidate")})
-             OR matches.status IN (
-               'AMBIGUOUS', 'PROFILE_CONFLICT', 'ERROR', 'UNKNOWN_REMOTE_STATE'
-             )
+               AND ${arubaActionableCandidateSql("candidate", "candidate_remote")})
+             OR (matches.status IN ('AMBIGUOUS', 'PROFILE_CONFLICT')
+               AND matches.method <> 'MANUAL'
+               AND ${arubaActionableCandidateSql("candidate", "candidate_remote")})
+             OR matches.status IN ('ERROR', 'UNKNOWN_REMOTE_STATE')
            )
          )
          SELECT DISTINCT remote.provider_group_id
