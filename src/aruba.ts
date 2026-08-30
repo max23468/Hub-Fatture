@@ -226,22 +226,98 @@ export function arubaFiscalPayloadSha256(kind: "ARUBA_XML" | "ARUBA_P7M", bytes:
   return createHash("sha256").update(arubaFiscalPayload(kind, bytes)).digest("hex");
 }
 
+const XML_MAX_DEPTH = 64;
+const XML_MAX_ELEMENTS = 20_000;
+
+function isXmlWhitespace(character: string): boolean {
+  return character === " " || character === "\t" || character === "\r" || character === "\n";
+}
+
+function validateXmlComplexity(xml: string): void {
+  const openElements: string[] = [];
+  let cursor = 0;
+  let elements = 0;
+
+  while (cursor < xml.length) {
+    const markupStart = xml.indexOf("<", cursor);
+    if (markupStart === -1) break;
+
+    if (xml.startsWith("<!--", markupStart)) {
+      const commentEnd = xml.indexOf("-->", markupStart + 4);
+      if (commentEnd === -1) throw new Error("xml");
+      cursor = commentEnd + 3;
+      continue;
+    }
+    if (xml.startsWith("<![CDATA[", markupStart)) {
+      const cdataEnd = xml.indexOf("]]>", markupStart + 9);
+      if (cdataEnd === -1) throw new Error("xml");
+      cursor = cdataEnd + 3;
+      continue;
+    }
+    if (xml.startsWith("<?", markupStart)) {
+      const instructionEnd = xml.indexOf("?>", markupStart + 2);
+      if (instructionEnd === -1) throw new Error("xml");
+      cursor = instructionEnd + 2;
+      continue;
+    }
+    if (xml.startsWith("<!", markupStart)) throw new Error("xml");
+
+    const closing = xml[markupStart + 1] === "/";
+    const nameStart = markupStart + (closing ? 2 : 1);
+    let nameEnd = nameStart;
+    while (nameEnd < xml.length) {
+      const character = xml[nameEnd]!;
+      if (isXmlWhitespace(character) || character === "/" || character === ">") break;
+      nameEnd += 1;
+    }
+    if (nameEnd === nameStart) throw new Error("xml");
+    const name = xml.slice(nameStart, nameEnd);
+
+    let quote: '"' | "'" | null = null;
+    let markupEnd = -1;
+    for (let index = nameEnd; index < xml.length; index += 1) {
+      const character = xml[index]!;
+      if (quote) {
+        if (character === "<") throw new Error("xml");
+        if (character === quote) quote = null;
+        continue;
+      }
+      if (character === '"' || character === "'") quote = character;
+      else if (character === "<") throw new Error("xml");
+      else if (character === ">") {
+        markupEnd = index;
+        break;
+      }
+    }
+    if (quote || markupEnd === -1) throw new Error("xml");
+
+    if (closing) {
+      if (xml.slice(nameEnd, markupEnd).trim() || openElements.pop() !== name) {
+        throw new Error("xml");
+      }
+    } else {
+      elements += 1;
+      if (elements > XML_MAX_ELEMENTS) throw new Error("xml");
+      let finalCharacter = markupEnd - 1;
+      while (finalCharacter >= nameEnd && isXmlWhitespace(xml[finalCharacter]!)) {
+        finalCharacter -= 1;
+      }
+      if (xml[finalCharacter] !== "/") {
+        openElements.push(name);
+        if (openElements.length > XML_MAX_DEPTH) throw new Error("xml");
+      }
+    }
+    cursor = markupEnd + 1;
+  }
+
+  if (openElements.length || elements === 0) throw new Error("xml");
+}
+
 export function validateUntrustedXml(bytes: Buffer): string {
   if (bytes.byteLength > ARUBA_UPLOAD_MAX_BYTES) throw new Error("size");
   const xml = bytes.toString("utf8");
   if (xml.includes("\u0000") || /<!DOCTYPE|<!ENTITY/i.test(xml)) throw new Error("xml");
-  let depth = 0;
-  let elements = 0;
-  for (const match of xml.matchAll(/<\/?([A-Za-z_][\w:.-]*)(?:\s[^<>]*?)?\s*\/?>/g)) {
-    const tag = match[0];
-    if (tag.startsWith("</")) depth -= 1;
-    else {
-      elements += 1;
-      if (!tag.endsWith("/>")) depth += 1;
-    }
-    if (depth < 0 || depth > 64 || elements > 20_000) throw new Error("xml");
-  }
-  if (depth !== 0 || elements === 0) throw new Error("xml");
+  validateXmlComplexity(xml);
   create(xml).end({ format: "object" });
   return xml;
 }
