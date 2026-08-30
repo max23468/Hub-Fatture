@@ -129,6 +129,28 @@ export async function verifyConfiguredArubaApiUi(
     "0 documenti accettati",
   );
   await expect(page.getByText(/le approvazioni creano soltanto il documento/)).toBeVisible();
+  await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+  const arubaConnection = page.locator(".connection").filter({ hasText: "Aruba" });
+  await expect(arubaConnection).toContainText("Sincronizzazione in pausa");
+  await expect(arubaConnection).not.toContainText("Da aggiornare");
+  await arubaApiUiClient.query(
+    `UPDATE connections SET account_reference = 'synthetic-aruba-account',
+       status = 'CONNECTED', api_paused = false, inbound_enabled = true
+     WHERE provider = 'ARUBA' AND environment = 'DEVELOPMENT'`,
+  );
+  await arubaApiUiClient.query(
+    `INSERT INTO aruba_sync_runs
+       (id, environment, api_environment, account_reference, kind, authority_mode, status,
+        window_start, window_end, checkpoint_start, checkpoint_end, checkpoint_page,
+        lease_expires_at, started_at, completed_at, full_scan_completed_at)
+     VALUES ('30000000-0000-4000-8000-000000000002', 'MOCK', 'DEMO',
+       'synthetic-aruba-account', 'FULL', 'CANONICAL', 'COMPLETED', now() - interval '1 day',
+       now(), now() - interval '1 day', now(), 1, now(), now() - interval '1 minute',
+       now(), now())`,
+  );
+  await page.reload();
+  await expect(arubaConnection).toContainText("Collegato");
+  await expect(arubaConnection).not.toContainText("Da aggiornare");
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
   await expect(page.getByRole("button", { name: "Prepara nuovo tentativo" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Genera codice di avvio" })).toHaveCount(0);

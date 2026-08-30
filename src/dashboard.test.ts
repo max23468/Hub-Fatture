@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ARUBA_SYNC_WARNING_AGE_MS,
+  dashboardArubaConnectionState,
   dashboardConnectionFreshness,
   SALES_CHANNEL_BLOCKING_AGE_MS,
   SALES_CHANNEL_WARNING_AGE_MS,
@@ -36,36 +38,6 @@ test("la Dashboard applica le soglie 20/60 minuti ai canali di vendita", () => {
   );
 });
 
-test("lo stato Aruba deriva dalla salute dell'inventario, non dai batch documentali", () => {
-  assert.deepEqual(
-    dashboardConnectionFreshness({
-      connected: true,
-      lastUpdatedAt: "2026-08-30T09:45:00.000Z",
-      now,
-      providerStatus: "HEALTHY",
-    }),
-    { stale: false, blocking: false },
-  );
-  assert.deepEqual(
-    dashboardConnectionFreshness({
-      connected: true,
-      lastUpdatedAt: "2026-08-30T09:45:00.000Z",
-      now,
-      providerStatus: "WARNING",
-    }),
-    { stale: true, blocking: false },
-  );
-  assert.deepEqual(
-    dashboardConnectionFreshness({
-      connected: true,
-      lastUpdatedAt: "2026-08-30T09:45:00.000Z",
-      now,
-      providerStatus: "BLOCKED",
-    }),
-    { stale: true, blocking: true },
-  );
-});
-
 test("un collegamento assente o disconnesso richiede sempre attenzione", () => {
   assert.deepEqual(dashboardConnectionFreshness({ connected: false, lastUpdatedAt: now, now }), {
     stale: true,
@@ -75,4 +47,50 @@ test("un collegamento assente o disconnesso richiede sempre attenzione", () => {
     stale: true,
     blocking: true,
   });
+});
+
+test("Aruba resta collegata quando la sincronizzazione è fresca, senza dipendere dalle riconciliazioni", () => {
+  assert.deepEqual(
+    dashboardArubaConnectionState({
+      configured: true,
+      connectionStatus: "CONNECTED",
+      apiPaused: false,
+      inboundEnabled: true,
+      activeSync: false,
+      lastCompletedAt: new Date(Date.parse(now) - ARUBA_SYNC_WARNING_AGE_MS).toISOString(),
+      syncFailed: false,
+      now,
+    }),
+    { state: "CONNECTED", attention: false, blocking: false },
+  );
+});
+
+test("Aruba espone gli stati tecnici della sincronizzazione", () => {
+  const base = {
+    configured: true,
+    connectionStatus: "CONNECTED" as const,
+    apiPaused: false,
+    inboundEnabled: true,
+    activeSync: false,
+    lastCompletedAt: now,
+    syncFailed: false,
+    now,
+  };
+  assert.deepEqual(dashboardArubaConnectionState({ ...base, activeSync: true }), {
+    state: "SYNCING",
+    attention: false,
+    blocking: false,
+  });
+  assert.deepEqual(dashboardArubaConnectionState({ ...base, syncFailed: true }), {
+    state: "FAILED",
+    attention: true,
+    blocking: true,
+  });
+  assert.deepEqual(
+    dashboardArubaConnectionState({
+      ...base,
+      lastCompletedAt: new Date(Date.parse(now) - ARUBA_SYNC_WARNING_AGE_MS - 1).toISOString(),
+    }),
+    { state: "STALE", attention: true, blocking: false },
+  );
 });

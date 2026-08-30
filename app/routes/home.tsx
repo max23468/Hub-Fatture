@@ -4,21 +4,21 @@ import {
   CircleAlert,
   CircleCheck,
   ClipboardCheck,
-  Cloud,
   CreditCard,
   RefreshCw,
-  ShoppingCart,
-  Tag,
 } from "lucide-react";
 import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/home";
 
 import { AppShell } from "../components/app-shell";
+import {
+  createDashboardConnections,
+  DashboardConnections,
+} from "../components/dashboard-connections";
 import { copy } from "../copy.it";
-import { dateTime } from "../format";
 import { privateRouteMeta } from "../metadata";
-import { dashboardConnectionFreshness } from "../../src/dashboard.ts";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
+import { getArubaApiConnectionStatus } from "../../src/db/aruba-api-settings.server.ts";
 import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
 import { dashboardSummary } from "../../src/db/order-queries.server.ts";
@@ -36,8 +36,9 @@ function chartDate(value: string) {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
-  const [summary, arubaInventory, arubaMonthlyUsage] = await Promise.all([
+  const [summary, arubaConnection, arubaInventory, arubaMonthlyUsage] = await Promise.all([
     dashboardSummary(),
+    getArubaApiConnectionStatus(),
     getArubaInventoryHealth(),
     getArubaMonthlyTransmissionUsage(),
   ]);
@@ -47,6 +48,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     csrfToken: user.csrfToken,
     currentTime: new Date().toISOString(),
     summary,
+    arubaConnection,
     arubaInventory,
     arubaMonthlyUsage,
   };
@@ -63,6 +65,7 @@ export default function Home() {
     csrfToken,
     currentTime,
     summary,
+    arubaConnection,
     arubaInventory,
     arubaMonthlyUsage,
   } = useLoaderData<typeof loader>();
@@ -136,55 +139,31 @@ export default function Home() {
     },
   ];
 
-  const connections = [
-    {
-      label: "Shopify",
-      value: summary.last_shopify_sync,
+  const connections = createDashboardConnections({
+    currentTime,
+    shopify: {
       connected: summary.shopify_connection_status === "CONNECTED",
-      providerStatus: undefined,
-      requiresAttention: false,
-      never: copy.dashboard.neverUpdated,
-      to: "/impostazioni#connessioni",
-      icon: ShoppingCart,
+      lastSync: summary.last_shopify_sync,
     },
-    {
-      label: "eBay",
-      value: summary.last_ebay_sync,
+    ebay: {
       connected: summary.ebay_connection_status === "CONNECTED",
-      providerStatus: undefined,
-      requiresAttention: false,
-      never: copy.dashboard.neverUpdated,
-      to: "/impostazioni#connessioni",
-      icon: Tag,
+      lastSync: summary.last_ebay_sync,
     },
-    {
-      label: "Aruba",
-      value: arubaInventory.lastCompletedAt,
-      connected: true,
-      providerStatus: arubaInventory.status,
-      requiresAttention: Number(summary.aruba_batches_requiring_attention) > 0,
-      never: copy.dashboard.neverRead,
-      to: "/impostazioni#aruba",
-      icon: Cloud,
+    aruba: {
+      configured: arubaConnection.configured,
+      connectionStatus: arubaConnection.status,
+      apiPaused: arubaConnection.apiPaused,
+      inboundEnabled: arubaConnection.inboundEnabled,
+      activeSync: arubaInventory.activeSession,
+      lastCompletedAt: arubaInventory.lastCompletedAt,
+      syncFailed: arubaInventory.blockingReason === "FAILURE",
     },
-  ].map((connection) => {
-    const freshness = dashboardConnectionFreshness({
-      connected: connection.connected,
-      lastUpdatedAt: connection.value,
-      now: currentTime,
-      providerStatus: connection.providerStatus,
-    });
-    return {
-      ...connection,
-      ...freshness,
-      blocking: freshness.blocking || Boolean(connection.requiresAttention),
-    };
   });
 
   const incidentCount = incidents.reduce((total, incident) => total + incident.value, 0);
-  const hasMissingUpdates = connections.some(
-    (connection) => connection.blocking || connection.stale,
-  );
+  const hasMissingUpdates =
+    Number(summary.aruba_batches_requiring_attention) > 0 ||
+    connections.some((connection) => connection.blocking || connection.stale);
   const status = incidentCount
     ? {
         label: copy.dashboard.attentionNeeded,
@@ -275,42 +254,7 @@ export default function Home() {
         </section>
       </div>
 
-      <section
-        className="dashboard-panel connections-panel"
-        aria-labelledby="dashboard-connections-title"
-      >
-        <h2 id="dashboard-connections-title">{copy.dashboard.connections}</h2>
-        <div className="connection-list">
-          {connections.map(({ label, value, connected, never, to, icon: Icon, stale }) => (
-            <Link className="connection" key={label} to={to}>
-              <span className="dashboard-icon dashboard-icon--neutral" aria-hidden="true">
-                <Icon size={22} strokeWidth={1.7} />
-              </span>
-              <span className="connection__copy">
-                <span>
-                  <strong>{label}</strong>
-                  <span
-                    className={
-                      stale ? "connection__state connection__state--stale" : "connection__state"
-                    }
-                  >
-                    <span aria-hidden="true" />
-                    {!connected
-                      ? copy.settings.notConnected
-                      : value
-                        ? stale
-                          ? copy.dashboard.stale
-                          : copy.dashboard.updated
-                        : never}
-                  </span>
-                </span>
-                <span>{value ? dateTime(value) : copy.settings.never}</span>
-              </span>
-              <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
-            </Link>
-          ))}
-        </div>
-      </section>
+      <DashboardConnections connections={connections} />
 
       <section
         className="dashboard-panel documents-panel"
