@@ -116,14 +116,18 @@ test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
 });
 
 test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
-  const [agents, masterPlan, glossary] = await Promise.all(
-    ["AGENTS.md", "docs/Hub_Fatture_MASTER_PLAN.md", "docs/glossario.md"].map((file) =>
-      readFile(path.join(root, file), "utf8"),
-    ),
+  const [agents, masterPlan, glossary, production] = await Promise.all(
+    [
+      "AGENTS.md",
+      "docs/Hub_Fatture_MASTER_PLAN.md",
+      "docs/glossario.md",
+      "docs/runbooks/production.md",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
   );
-  assert.match(agents, /richiesta affermativa di pubblicazione/);
+  assert.match(agents, /richiesta\s+affermativa di pubblicazione/);
   assert.match(agents, /stessa PR dell'implementazione/);
   assert.match(agents, /Non fondere la modifica runtime per aprire[\s\S]*seconda PR/);
+  assert.match(agents, /node scripts\/publish-close\.mjs/);
   assert.match(masterPlan, /richiesta affermativa di pubblicazione autorizza (?:invece )?deploy/);
   assert.match(masterPlan, /stessa PR dell'implementazione/);
   assert.match(masterPlan, /Non aprire una seconda PR di sola versione, changelog o release/);
@@ -131,6 +135,7 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
   assert.doesNotMatch(masterPlan, /soltanto dopo l'approvazione richiesta/);
   assert.doesNotMatch(masterPlan, /richiede l'approvazione del titolare/);
   assert.match(glossary, /\| Pubblica\s+\| ciclo tecnico completo\s+\|/);
+  assert.match(production, /Un errore o[\s\S]*impediscono di definire conclusa la pubblicazione/);
 });
 
 test("la qualifica API e l'outbound senza invio precedono il Canary", async () => {
@@ -145,6 +150,10 @@ test("la qualifica API e l'outbound senza invio precedono il Canary", async () =
   assert.ok(goLive > canary);
   assert.match(masterPlan, /nessun invio SdI reale/);
   assert.match(masterPlan, /permesso monouso/);
+  assert.match(
+    masterPlan.slice(outbound, canary),
+    /\*\*Stato: completata\.\*\*[\s\S]*dossier outbound/,
+  );
 });
 
 test("la sigla interna non compare nella superficie utente", async () => {
