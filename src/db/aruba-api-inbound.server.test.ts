@@ -608,6 +608,23 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     );
     assert.notEqual(inventoryHealth.status, "NEVER");
     assert.ok(inventoryHealth.lastCompletedAt);
+    const completedFullRun = await getPool().query<{ id: string }>(
+      `SELECT id FROM aruba_sync_runs
+       WHERE kind IN ('BACKFILL', 'FULL') AND status = 'COMPLETED'
+         AND full_scan_completed_at IS NOT NULL
+       ORDER BY completed_at DESC LIMIT 1`,
+    );
+    await getPool().query("UPDATE aruba_sync_runs SET authority_mode = 'SHADOW' WHERE id = $1", [
+      completedFullRun.rows[0]!.id,
+    ]);
+    const healthAfterAuthorityCutover = await import("./aruba-inventory-health.server.ts").then(
+      (module) => module.getArubaInventoryHealth(),
+    );
+    assert.notEqual(healthAfterAuthorityCutover.status, "NEVER");
+    assert.equal(healthAfterAuthorityCutover.lastCompletedAt, inventoryHealth.lastCompletedAt);
+    await getPool().query("UPDATE aruba_sync_runs SET authority_mode = 'CANONICAL' WHERE id = $1", [
+      completedFullRun.rows[0]!.id,
+    ]);
     const healthFixtures = await getPool().query<{ id: string }>(
       `INSERT INTO aruba_remote_documents
         (environment, account_reference, remote_id, document_type, fiscal_year,

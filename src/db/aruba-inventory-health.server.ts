@@ -138,7 +138,12 @@ export async function getArubaInventoryHealth(
     [environment(), accountReference(), ARUBA_API_POLICY.inventoryStart],
   );
   const row = result.rows[0]!;
-  const completed = row.last_full_scan_completed_at ? row.last_completed_at : null;
+  // Il FULL API qualificato precede il cutover e conserva intenzionalmente la provenienza
+  // storica SHADOW. Dopo il passaggio atomico dell'autorità all'API è la baseline canonica;
+  // riscrivere authority_mode falsificherebbe invece l'audit dell'esecuzione originaria.
+  const completed = row.last_full_scan_completed_at
+    ? (row.last_completed_at ?? row.last_full_scan_completed_at)
+    : null;
   const ageMinutes = completed ? Math.max(0, (Date.now() - completed.getTime()) / 60_000) : null;
   const unresolved = Number(row.potential_matches) + Number(row.ambiguous) + Number(row.conflicts);
   const blockingReason = !completed

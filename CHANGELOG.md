@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.7
+
+- Il controllo salute riconosce il FULL API qualificato prima del cutover come baseline canonica dopo il passaggio all’autorità API, senza riscrivere la provenienza storica SHADOW; freschezza, errori e conflitti successivi restano fail-closed sui giri CANONICAL.
+- I nuovi worktree preparano automaticamente le dipendenze: riusano in sicurezza `node_modules` del checkout principale quando il lockfile coincide e installano un ambiente isolato con `npm ci` quando differisce.
+
 ## 0.4.6
 
 - Aruba usa esclusivamente le API come runtime automatico: preferito, bridge, helper, scansioni browser, endpoint, token, workflow e UI correlati vengono rimossi, conservando soltanto audit e provenienza storica e il fallback manuale sui file ufficiali.

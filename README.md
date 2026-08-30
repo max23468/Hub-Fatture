@@ -15,6 +15,17 @@ mise exec -- npm ci
 mise exec -- npx playwright install chromium
 ```
 
+Per un lavoro isolato, creare il worktree tramite il comando del repository:
+
+```sh
+mise exec -- npm run worktree:create -- codex/nome-intervento /percorso/del/worktree main
+```
+
+Se il lockfile coincide, il nuovo worktree riusa `node_modules` del checkout principale tramite un
+collegamento locale ignorato da Git. Se il lockfile differisce, installa invece dipendenze proprie
+con `npm ci`. Dopo modifiche a `package-lock.json`, riallineare con
+`mise exec -- npm run worktree:dependencies`.
+
 Il gate canonico esegue test d'integrazione ed E2E su PostgreSQL reale, quindi richiede il database di test avviato e `TEST_DATABASE_URL` esportata:
 
 ```sh

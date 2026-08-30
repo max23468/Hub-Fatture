@@ -1,6 +1,6 @@
 {
   "name": "hub-fatture",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -43,7 +43,9 @@
     "test:e2e:webkit": "npm run build && node scripts/with-test-database.mjs npm run test:e2e:webkit:direct",
     "test:e2e:webkit:direct": "playwright test --project=webkit --workers=1",
     "toolchain:check": "node scripts/toolchain-policy.mjs",
-    "typecheck": "react-router typegen && tsc --noEmit"
+    "typecheck": "react-router typegen && tsc --noEmit",
+    "worktree:create": "sh scripts/create-worktree.sh",
+    "worktree:dependencies": "sh scripts/worktree-dependencies.sh"
   },
   "dependencies": {
     "@react-router/node": "8.3.0",

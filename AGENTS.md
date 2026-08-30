@@ -20,6 +20,7 @@ In dubbio sulla sezione competente, leggi l'indice del documento invece di legge
 - Non sovrascrivere modifiche non tue.
 - Non mantenere retrocompatibilità o implementazioni legacy: non esistono consumatori esterni da preservare.
 - Se lo stesso problema ricorre due volte, correggine la causa condivisa e aggiungi il più piccolo controllo di regressione.
+- Crea i worktree con `scripts/create-worktree.sh <branch> <percorso> [base]`: il comando prepara anche le dipendenze. Dopo una modifica a `package-lock.json`, esegui `npm run worktree:dependencies` prima dei gate.
 - Decidi autonomamente naming, formattazione e default di routine entro i confini del Master Plan.
 - Chiedi prima di azioni distruttive, deploy o release non già autorizzati da
   una richiesta di pubblicazione, invii Aruba reali, decisioni fiscali o

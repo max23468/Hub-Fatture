@@ -15,6 +15,6 @@ build/
 build-server/
 .react-router/
 .playwright-cli/
-node_modules/
+node_modules
 playwright-report/
 test-results/
