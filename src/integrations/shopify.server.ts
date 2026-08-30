@@ -432,12 +432,13 @@ function fiscalDataFromCompany(value: unknown, countryCode: string | undefined) 
     });
   }
 
-  const accepted = matches.filter((candidate) => {
-    const values = new Set(
-      matches.filter((match) => match.type === candidate.type).map((match) => match.value),
-    );
-    return values.size === 1;
-  });
+  const valuesByType = new Map<(typeof matches)[number]["type"], Set<string>>();
+  for (const match of matches) {
+    const values = valuesByType.get(match.type) ?? new Set<string>();
+    values.add(match.value);
+    valuesByType.set(match.type, values);
+  }
+  const accepted = matches.filter((candidate) => valuesByType.get(candidate.type)?.size === 1);
   const cleanedCompanyName = (consumed: typeof accepted) =>
     shopifyCompanyName(
       consumed
@@ -450,19 +451,27 @@ function fiscalDataFromCompany(value: unknown, countryCode: string | undefined) 
         .replace(/\s{2,}/g, " ")
         .trim(),
     );
+  const identifiers: {
+    type: "CODICE_FISCALE" | "PARTITA_IVA";
+    value: string;
+    countryCode: string | undefined;
+    sourceField: "billingAddress.company";
+  }[] = [];
+  for (const match of accepted) {
+    if (match.type === "RECIPIENT_CODE") continue;
+    identifiers.push({
+      type: match.type,
+      value: match.value,
+      countryCode,
+      sourceField: "billingAddress.company",
+    });
+  }
   return {
     companyName: cleanedCompanyName(accepted),
     companyNameWithoutRecipientCode: cleanedCompanyName(
       accepted.filter((match) => match.type === "RECIPIENT_CODE"),
     ),
-    identifiers: accepted
-      .filter((match) => match.type !== "RECIPIENT_CODE")
-      .map((match) => ({
-        type: match.type as "CODICE_FISCALE" | "PARTITA_IVA",
-        value: match.value,
-        countryCode,
-        sourceField: "billingAddress.company",
-      })),
+    identifiers,
     recipientCode: accepted.find((match) => match.type === "RECIPIENT_CODE")?.value,
   };
 }
