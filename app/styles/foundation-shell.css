@@ -515,6 +515,23 @@ select:hover {
   flex: 0 0 auto;
 }
 
+.nav-item__badge {
+  display: inline-flex;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  border: 1px solid rgb(255 255 255 / 42%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 9%);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+  padding-inline: 0.35rem;
+}
+
 .nav-item[aria-current="page"] {
   background: #087b99;
   color: #ffffff;
@@ -606,6 +623,15 @@ select:hover {
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+
+  :root[data-sidebar="collapsed"] .nav-item__badge {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    min-width: 1.15rem;
+    height: 1.15rem;
+    font-size: 0.625rem;
   }
 
   :root[data-sidebar="collapsed"] .sidebar .brand-lockup {

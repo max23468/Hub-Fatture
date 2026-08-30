@@ -36,7 +36,6 @@ import { parseSort, type SortState } from "../table-sort";
 
 const caseStatusByView: Record<string, string[]> = {
   fatturare: ["READY"],
-  verificare: ["NEEDS_REVIEW"],
   annullati: ["DO_NOT_TRANSMIT"],
 };
 
@@ -58,7 +57,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
   const requestedView = url.searchParams.get("vista") ?? "tutti";
-  const view = ["tutti", "fatturare", "verificare", "attesa", "annullati"].includes(requestedView)
+  const view = ["tutti", "fatturare", "attesa", "annullati"].includes(requestedView)
     ? requestedView
     : "tutti";
   const requestedStatus = url.searchParams.get("stato") ?? "";
@@ -68,7 +67,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const parsedDate = postgresDateSchema.safeParse(requestedDate);
   const statusByView: Record<string, string | undefined> = {
     tutti: Object.hasOwn(orderStatusLabels, requestedStatus) ? requestedStatus : undefined,
-    verificare: "LEGACY_BILLING_REVIEW",
     attesa: "WAITING_FOR_TRIGGER",
     annullati: "NO_DOCUMENT",
   };
@@ -104,14 +102,12 @@ export async function loader({ request }: Route.LoaderArgs) {
           status: filters.status || (view === "tutti" && !filters.query ? "ACTIVE" : undefined),
           localDate: filters.localDate || undefined,
           paymentStatus: filters.paymentStatus || undefined,
-          excludePendingPayments: view === "verificare",
           page,
           sort: orderSort,
         }),
     caseStatusByView[view]
       ? listBillingCases({
           statuses: caseStatusByView[view],
-          excludePendingPayments: view === "verificare",
           page,
           sort: preparationSort,
         })
@@ -473,7 +469,7 @@ function PreparationList({
   if (!cases.rows.length) {
     return showsPreparations && ordersEmpty ? (
       <section className="empty-state">
-        <h2>{view === "verificare" ? copy.orders.noReviews : copy.orders.nothingToInvoice}</h2>
+        <h2>{copy.orders.nothingToInvoice}</h2>
         <p>{copy.orders.preparationEmptyHelp}</p>
       </section>
     ) : null;
@@ -644,11 +640,7 @@ function OrderList({
         </span>
         <span>
           <h2 id="orders-list-title">
-            {view === "annullati"
-              ? copy.orders.cancelledOrders
-              : view === "verificare"
-                ? copy.orders.historicalOrders
-                : copy.orders.orderListTitle}
+            {view === "annullati" ? copy.orders.cancelledOrders : copy.orders.orderListTitle}
           </h2>
           <p>{copy.orders.orderListHelp}</p>
         </span>
@@ -840,7 +832,7 @@ export default function Orders() {
     storagePending,
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
-  const showsPreparations = view === "fatturare" || view === "verificare";
+  const showsPreparations = view === "fatturare";
   const showsPreparationArchive = showsPreparations || view === "annullati";
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
@@ -859,11 +851,6 @@ export default function Orders() {
             value: "fatturare",
             label: copy.orders.views.toInvoice,
             to: "/ordini?vista=fatturare",
-          },
-          {
-            value: "verificare",
-            label: copy.orders.views.toReview,
-            to: "/ordini?vista=verificare",
           },
           {
             value: "attesa",
@@ -914,7 +901,7 @@ export default function Orders() {
         />
       ) : null}
 
-      {!showsPreparations || (view === "verificare" && orders.rows.length) ? (
+      {!showsPreparations ? (
         <OrderList
           csrfToken={csrfToken}
           filters={filters}

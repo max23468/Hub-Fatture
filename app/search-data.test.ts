@@ -11,7 +11,7 @@ const completeResponse = {
     invoices: 1,
     creditNotes: 0,
     customers: 1,
-    activities: 0,
+    controls: 0,
     history: 0,
     remoteDocuments: 0,
   },
@@ -19,7 +19,7 @@ const completeResponse = {
   invoices: [],
   creditNotes: [],
   customers: [],
-  activities: [],
+  controls: [],
   history: [],
   remoteDocuments: [],
 };

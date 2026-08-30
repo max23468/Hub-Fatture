@@ -1,4 +1,4 @@
-import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
+import { data, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/documents";
 
 import { AppShell } from "../components/app-shell";
@@ -32,16 +32,10 @@ import {
   authorizeArubaApiDryRunQualification,
   confirmArubaApiBatch,
 } from "../../src/db/aruba-api-outbound.server.ts";
-import {
-  confirmArubaDocumentOutOfScope,
-  resolveArubaDocumentMatch,
-} from "../../src/db/aruba-inbound.server.ts";
-import { importArubaRemoteOfficialFileAsActor } from "../../src/db/aruba-official-file-import.server.ts";
 import { listRemoteDocumentsPage } from "../../src/db/aruba-inventory-queries.server.ts";
-import { Pager } from "../components/pager";
-import { isDatabaseId } from "../../src/db/database-id.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
+import { Pager } from "../components/pager";
 import { parseSort } from "../table-sort";
 
 const documentSortKeys = ["documento", "cliente", "data", "totale", "stato", "email"] as const;
@@ -54,14 +48,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
   const requestedView = url.searchParams.get("vista") ?? "tutti";
-  const view = [
-    "tutti",
-    "fatture",
-    "note-credito",
-    "da-trasmettere",
-    "da-riconciliare",
-    "da-collegare",
-  ].includes(requestedView)
+  const view = ["tutti", "fatture", "note-credito", "da-trasmettere", "inventario-aruba"].includes(
+    requestedView,
+  )
     ? requestedView
     : "tutti";
   const requestedKind = url.searchParams.get("tipo") ?? "";
@@ -76,9 +65,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     fatture: "INVOICE",
     "note-credito": "CREDIT_NOTE",
   };
-  const transmissionByView: Record<string, "TO_SEND" | "RECONCILIATION_REQUIRED" | undefined> = {
+  const transmissionByView: Record<string, "TO_SEND" | undefined> = {
     "da-trasmettere": "TO_SEND",
-    "da-riconciliare": "RECONCILIATION_REQUIRED",
   };
   const transmission = transmissionByView[view];
   const filters = {
@@ -95,8 +83,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     dateTo: parsedDateTo.success ? parsedDateTo.data : "",
   };
   const page = pageNumber(url.searchParams.get("pagina") ?? 1);
-  const requestedPreparation = url.searchParams.get("preparazione") ?? "";
-  const focusedPreparation = isDatabaseId(requestedPreparation) ? requestedPreparation : null;
   const sort = parseSort(
     url.searchParams.get("ordina"),
     url.searchParams.get("direzione"),
@@ -119,13 +105,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       documentArchiveSummary(),
       listArubaBatches(),
       listUnbatchedApprovedDocuments(),
-      view === "da-collegare"
-        ? listRemoteDocumentsPage({
-            attentionOnly: true,
-            billingCaseId: focusedPreparation ?? undefined,
-            query: filters.query || undefined,
-            page,
-          })
+      view === "inventario-aruba"
+        ? listRemoteDocumentsPage({ query: filters.query || undefined, page })
         : Promise.resolve({ rows: [], hasNext: false, total: 0 }),
       getArubaSettings(),
     ]);
@@ -153,7 +134,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     sort,
     view,
     remoteDocuments,
-    focusedPreparation,
     batchCreated: url.searchParams.get("batch") === "creato",
     dryRunAuthorized: url.searchParams.get("batch") === "dry-run-autorizzato",
     fileImported: url.searchParams.get("file") === "importato",
@@ -175,15 +155,6 @@ export async function action({ request }: Route.ActionArgs) {
       assertCsrf(user, String(form.get("csrf") ?? ""));
       const file = form.get("file");
       if (!(file instanceof File)) throw new Response("File mancante", { status: 422 });
-      if (form.get("intent") === "import-aruba-remote-file") {
-        await importArubaRemoteOfficialFileAsActor(
-          String(form.get("remoteDocumentId") ?? ""),
-          form.get("fileKind"),
-          Buffer.from(await file.arrayBuffer()),
-          actor,
-        );
-        return redirect("/documenti?vista=da-collegare&file=importato");
-      }
       await importOfficialArubaFile(
         String(form.get("documentId") ?? ""),
         form.get("fileKind"),
@@ -222,23 +193,6 @@ export async function action({ request }: Route.ActionArgs) {
       );
       return redirect("/documenti?email=preparata");
     }
-    if (form.get("intent") === "resolve-aruba-match") {
-      await resolveArubaDocumentMatch(
-        form.get("remoteDocumentId") ?? "",
-        form.get("orderId") ?? "",
-        form.get("reason"),
-        actor,
-      );
-      return redirect("/documenti?vista=da-collegare&match=collegato");
-    }
-    if (form.get("intent") === "confirm-aruba-out-of-scope") {
-      await confirmArubaDocumentOutOfScope(
-        form.get("remoteDocumentId") ?? "",
-        form.get("reason"),
-        actor,
-      );
-      return redirect("/documenti?vista=da-collegare&match=esterno");
-    }
     throw new Response("Azione non riconosciuta", { status: 400 });
   } catch (error) {
     if (error instanceof Response) throw error;
@@ -269,7 +223,6 @@ export default function Documents() {
     dryRunAuthorized,
     fileImported,
     remoteDocuments,
-    focusedPreparation,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const error = actionData && "message" in actionData ? actionData.message : null;
@@ -301,14 +254,9 @@ export default function Documents() {
             value: "da-trasmettere",
           },
           {
-            label: copy.documents.toReconcile,
-            to: "/documenti?vista=da-riconciliare",
-            value: "da-riconciliare",
-          },
-          {
-            label: copy.documents.toLink,
-            to: "/documenti?vista=da-collegare",
-            value: "da-collegare",
+            label: copy.documents.arubaInventory,
+            to: "/documenti?vista=inventario-aruba",
+            value: "inventario-aruba",
           },
         ]}
         label={copy.documents.viewsLabel}
@@ -334,55 +282,16 @@ export default function Documents() {
           {error}
         </p>
       ) : null}
-      {view === "da-collegare" ? (
+      {view === "inventario-aruba" ? (
         <section
           className="dashboard-panel remote-documents-panel section-gap"
           aria-labelledby="remote-documents-title"
         >
           <h2 id="remote-documents-title">{copy.documents.remoteDocumentsTitle}</h2>
           <p>{copy.documents.remoteDocumentsHelp}</p>
-          <Form
-            aria-label={copy.documents.remoteSearchLabel}
-            className="filters remote-documents-filters"
-            method="get"
-            role="search"
-          >
-            <input name="vista" type="hidden" value="da-collegare" />
-            {focusedPreparation ? (
-              <input name="preparazione" type="hidden" value={focusedPreparation} />
-            ) : null}
-            <label>
-              {copy.documents.search}
-              <input
-                defaultValue={filters.query}
-                name="q"
-                placeholder={copy.documents.remoteSearchPlaceholder}
-              />
-            </label>
-            <button className="button button--secondary" type="submit">
-              {copy.documents.filter}
-            </button>
-            {filters.query ? (
-              <Link
-                to={
-                  focusedPreparation
-                    ? `/documenti?vista=da-collegare&preparazione=${focusedPreparation}`
-                    : "/documenti?vista=da-collegare"
-                }
-              >
-                {copy.documents.resetFilters}
-              </Link>
-            ) : null}
-          </Form>
           <p aria-live="polite" className="filter-summary">
             <span>{copy.documents.remoteResults(remoteDocuments.total)}</span>
           </p>
-          {focusedPreparation ? (
-            <div className="notice remote-documents-focus" role="status">
-              <span>{copy.documents.focusedPreparationHelp}</span>
-              <Link to="/documenti?vista=da-collegare">{copy.documents.showAllCandidates}</Link>
-            </div>
-          ) : null}
           {remoteDocuments.rows.length ? (
             <div className="table-wrap remote-documents-table-wrap">
               <table className="data-table remote-documents-table">
@@ -394,7 +303,7 @@ export default function Documents() {
                     <th>{copy.documents.arubaStatus}</th>
                     <th>{copy.documents.matchStatus}</th>
                     <th>{copy.documents.remoteLastReadback}</th>
-                    <th>{copy.documents.actions}</th>
+                    <th>{copy.documents.control}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -417,92 +326,16 @@ export default function Documents() {
                       <td data-label={copy.documents.remoteLastReadback}>
                         {dateTime(remote.last_observed_at)}
                       </td>
-                      <td data-label={copy.documents.actions}>
-                        {canApprove ? (
-                          <div className="table-actions">
-                            {!remote.has_xml ? (
-                              <Form
-                                className="remote-document-action"
-                                method="post"
-                                encType="multipart/form-data"
-                              >
-                                <input type="hidden" name="csrf" value={csrfToken} />
-                                <input
-                                  type="hidden"
-                                  name="intent"
-                                  value="import-aruba-remote-file"
-                                />
-                                <input type="hidden" name="remoteDocumentId" value={remote.id} />
-                                <input type="hidden" name="fileKind" value="ARUBA_XML" />
-                                <label>
-                                  XML ufficiale
-                                  <input
-                                    accept=".xml,application/xml"
-                                    name="file"
-                                    required
-                                    type="file"
-                                  />
-                                </label>
-                                <button className="button button--secondary" type="submit">
-                                  Importa XML
-                                </button>
-                              </Form>
-                            ) : null}
-                            {remote.has_xml &&
-                            ["DELIVERED", "NOT_DELIVERED"].includes(remote.remote_status) &&
-                            remote.candidates.length ? (
-                              <Form className="remote-document-action" method="post">
-                                <input type="hidden" name="csrf" value={csrfToken} />
-                                <input type="hidden" name="intent" value="resolve-aruba-match" />
-                                <input type="hidden" name="remoteDocumentId" value={remote.id} />
-                                <label>
-                                  {copy.documents.compatibleOrder}
-                                  <select name="orderId" required>
-                                    {remote.candidates.map((candidate) => (
-                                      <option key={candidate.id} value={candidate.id}>
-                                        {candidate.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                {remote.candidates.some((candidate) => candidate.guided) ? (
-                                  <p className="field-help">{copy.documents.guidedCandidate}</p>
-                                ) : null}
-                                <label>
-                                  {copy.documents.matchReason}
-                                  <input minLength={10} maxLength={500} name="reason" required />
-                                </label>
-                                <button className="button" type="submit">
-                                  {copy.documents.confirmMatch}
-                                </button>
-                              </Form>
-                            ) : null}
-                            {remote.has_xml &&
-                            ["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(
-                              remote.match_status,
-                            ) &&
-                            !remote.candidates.length &&
-                            ["DELIVERED", "NOT_DELIVERED"].includes(remote.remote_status) ? (
-                              <Form className="remote-document-action" method="post">
-                                <input type="hidden" name="csrf" value={csrfToken} />
-                                <input
-                                  type="hidden"
-                                  name="intent"
-                                  value="confirm-aruba-out-of-scope"
-                                />
-                                <input type="hidden" name="remoteDocumentId" value={remote.id} />
-                                <label>
-                                  Motivazione della verifica
-                                  <input minLength={20} maxLength={500} name="reason" required />
-                                </label>
-                                <button className="button button--secondary" type="submit">
-                                  Conferma fuori perimetro
-                                </button>
-                              </Form>
-                            ) : null}
-                          </div>
+                      <td data-label={copy.documents.control}>
+                        {remote.requires_control ? (
+                          <Link
+                            className="dashboard-row-link"
+                            to={`/controlli?id=${encodeURIComponent(`ARUBA_REMOTE:${remote.id}`)}`}
+                          >
+                            {copy.documents.openControl}
+                          </Link>
                         ) : (
-                          <span>{copy.common.unavailable}</span>
+                          <span>{copy.documents.inventoryOnly}</span>
                         )}
                       </td>
                     </tr>

@@ -108,7 +108,7 @@ export async function setupAccounts(input: {
 
     const result = await client.query<{ id: number }>(
       `INSERT INTO users (username, password_hash, can_approve)
-       VALUES ($1, $2, true), ($3, $4, false)
+       VALUES ($1, $2, true), ($3, $4, true)
        RETURNING id`,
       [OWNER_USERNAME, ownerHash, AGENT_USERNAME, agentHash],
     );

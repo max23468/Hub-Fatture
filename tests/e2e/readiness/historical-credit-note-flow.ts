@@ -40,8 +40,8 @@ export async function verifyHistoricalAndCreditNoteFlow(page: Page) {
     id: actor.id,
     requestId: "release-candidate-history",
   });
-  await page.goto("/ordini?vista=verificare");
-  await expect(page.getByRole("heading", { name: "Ordini storici da riconciliare" })).toBeVisible();
+  await page.goto("/ordini");
+  await expect(page.getByRole("heading", { name: "Ordini", exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Shopify #RC-HISTORY", exact: true }).click();
   const historicalInvoiceInput = page.getByLabel(
     "XML ufficiale della fattura Aruba, se già presente",
@@ -131,16 +131,9 @@ export async function verifyHistoricalAndCreditNoteFlow(page: Page) {
   );
   const noteId = await refunds.processRefund(refundId);
   expect(noteId).toBeTruthy();
-  await page.goto("/");
-  const creditNotesItem = page
-    .locator(".work-item")
-    .filter({ hasText: "Note di credito da approvare" });
-  await creditNotesItem.getByRole("link").click();
-  await expect(page).toHaveURL(/\/attivita\?tipo=note-credito$/);
-  const creditNoteLink = page.getByRole("link", {
-    name: "Nota di credito",
-    exact: true,
-  });
+  await page.goto("/documenti?vista=note-credito");
+  await expect(page).toHaveURL(/\/documenti\?vista=note-credito$/);
+  const creditNoteLink = page.locator(`a[href="/documenti/${noteId}/nota"]`).first();
   await expect(creditNoteLink).toHaveAttribute("href", `/documenti/${noteId}/nota`);
   await creditNoteLink.click();
   await expect(page.getByRole("heading", { name: "Comparatore fiscale" })).toBeVisible();

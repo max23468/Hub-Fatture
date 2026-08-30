@@ -1,6 +1,6 @@
 import {
   ArrowRight,
-  CircleAlert,
+  ClipboardCheck,
   Clock3,
   FileText,
   LoaderCircle,
@@ -90,6 +90,21 @@ export function GlobalSearchResults({
         onNavigate={onNavigate}
       />
       <SearchGroup
+        allHref={filteredHref("/controlli", normalizedQuery)}
+        icon={ClipboardCheck}
+        id="controlli"
+        label={copy.search.controls}
+        total={currentData.totals.controls}
+        items={currentData.controls.map((item) => ({
+          id: item.id,
+          href: item.href,
+          title: item.title,
+          detail: item.detail,
+          badge: copy.search.controlState[item.state],
+        }))}
+        onNavigate={onNavigate}
+      />
+      <SearchGroup
         allHref={filteredHref("/documenti", normalizedQuery, { vista: "fatture" })}
         icon={FileText}
         id="fatture"
@@ -137,25 +152,6 @@ export function GlobalSearchResults({
         onNavigate={onNavigate}
       />
       <SearchGroup
-        allHref={filteredHref("/attivita", normalizedQuery)}
-        icon={CircleAlert}
-        id="attivita"
-        label={copy.search.activities}
-        total={currentData.totals.activities}
-        items={currentData.activities.map((item) => ({
-          id: item.id,
-          href: item.href,
-          title: copy.activity.openActivityReasons[item.reason] ?? item.reason,
-          detail: [
-            copy.search.activitySubject(item.caseNumber ?? item.orderNumber),
-            item.customerName,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        }))}
-        onNavigate={onNavigate}
-      />
-      <SearchGroup
         allHref={filteredHref("/attivita", normalizedQuery, { vista: "cronologia" })}
         icon={Clock3}
         id="cronologia"
@@ -170,7 +166,7 @@ export function GlobalSearchResults({
         onNavigate={onNavigate}
       />
       <SearchGroup
-        allHref={filteredHref("/documenti", normalizedQuery, { vista: "da-collegare" })}
+        allHref={filteredHref("/documenti", normalizedQuery, { vista: "inventario-aruba" })}
         icon={FileText}
         id="documenti-aruba"
         label={copy.search.remoteDocuments}

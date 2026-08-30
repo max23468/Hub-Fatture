@@ -63,12 +63,13 @@ La navigazione desktop usa una sidebar fissa, comprimibile e a un solo livello. 
 2. Ordini
 3. Documenti
 4. Clienti
-5. Attività
-6. Impostazioni
+5. Controlli
+6. Attività
+7. Impostazioni
 
-`Ordini` comprende le viste Tutti, Da fatturare, Da verificare, In attesa e Annullati; il raggruppamento interno degli ordini si apre come `Preparazione fattura`, non come destinazione autonoma. `Documenti` distingue nella pagina Fatture, Note di credito e stati di trasmissione. `Attività` contiene Da gestire e Cronologia. `Impostazioni` contiene anche Connessioni. Una destinazione compare nella navigazione solo quando offre una superficie utilizzabile. Ricerca e profilo sono allineati in alto a destra nel page header, senza una barra superiore permanente.
+`Ordini` comprende le viste Tutti, Da fatturare, In attesa e Annullati; il raggruppamento interno degli ordini si apre come `Preparazione fattura`, non come destinazione autonoma. `Documenti` distingue Fatture, Note di credito, stato di trasmissione e Inventario Aruba. `Controlli` è l'unica coda operativa, con `Da risolvere` e `In attesa`; il badge mostra soltanto gli aperti. `Attività` contiene la cronologia immutabile. `Impostazioni` contiene anche Connessioni. Una destinazione compare nella navigazione solo quando offre una superficie utilizzabile. Ricerca e profilo sono allineati in alto a destra nel page header, senza una barra superiore permanente; la ricerca globale include anche i controlli e la pagina non introduce una seconda barra di ricerca.
 
-Su mobile la navigazione principale è inferiore e usa `Altro` per le destinazioni restanti. Le tabelle diventano righe verticali espandibili: stato, cliente, importo e azione primaria restano immediatamente disponibili, senza scorrimento orizzontale.
+Su mobile un pulsante nell'intestazione apre il cassetto modale con tutte le destinazioni; non esiste una barra inferiore né una voce `Altro`. Le tabelle diventano righe verticali espandibili: stato, cliente, importo e azione primaria restano immediatamente disponibili, senza scorrimento orizzontale.
 
 ## Componenti e pattern interni
 

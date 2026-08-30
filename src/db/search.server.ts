@@ -2,9 +2,8 @@ import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { escapeLike } from "../orders.ts";
 import { listRemoteDocumentsPage } from "./aruba-inventory-queries.server.ts";
 import { getPool } from "./client.server.ts";
-import { actionableConnectorFailures } from "./connector-jobs.server.ts";
-import { pendingShopifyDataRequests } from "./connector-webhooks.server.ts";
-import { listAuditHistory, listOpenActivities } from "./order-queries.server.ts";
+import { listAuditHistory } from "./order-queries.server.ts";
+import { refreshOperationalControls } from "./operational-controls.server.ts";
 
 const SEARCH_RESULT_LIMIT = 5;
 const MAX_SEARCH_LENGTH = 100;
@@ -16,7 +15,7 @@ export interface GlobalSearchResults {
     invoices: number;
     creditNotes: number;
     customers: number;
-    activities: number;
+    controls: number;
     history: number;
     remoteDocuments: number;
   };
@@ -56,14 +55,12 @@ export interface GlobalSearchResults {
     documentCount: number;
     href: string;
   }>;
-  activities: Array<{
+  controls: Array<{
     id: string;
-    kind: string;
-    reason: string;
-    caseNumber: string | null;
-    orderNumber: string | null;
-    provider: string | null;
-    customerName: string | null;
+    title: string;
+    detail: string;
+    severity: string;
+    state: string;
     href: string;
   }>;
   history: Array<{
@@ -94,7 +91,7 @@ export function emptyGlobalSearch(query = ""): GlobalSearchResults {
       invoices: 0,
       creditNotes: 0,
       customers: 0,
-      activities: 0,
+      controls: 0,
       history: 0,
       remoteDocuments: 0,
     },
@@ -103,7 +100,7 @@ export function emptyGlobalSearch(query = ""): GlobalSearchResults {
     documents: invoices,
     creditNotes: [],
     customers: [],
-    activities: [],
+    controls: [],
     history: [],
     remoteDocuments: [],
   };
@@ -123,18 +120,10 @@ function filteredHref(path: string, query: string, extra?: Record<string, string
 export async function searchGlobal(value: unknown): Promise<GlobalSearchResults> {
   const query = normalizedQuery(value);
   if (query.length < 2) return emptyGlobalSearch(query);
+  await refreshOperationalControls();
   const pattern = `%${escapeLike(query)}%`;
   const pool = getPool();
-  const [
-    orders,
-    documents,
-    customers,
-    activities,
-    history,
-    remoteDocuments,
-    connectorFailures,
-    privacyRequests,
-  ] = await Promise.all([
+  const [orders, documents, customers, controls, history, remoteDocuments] = await Promise.all([
     pool.query<{
       id: string;
       provider: "SHOPIFY" | "EBAY";
@@ -299,26 +288,30 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
        LIMIT ${SEARCH_RESULT_LIMIT}`,
       [pattern, query],
     ),
-    listOpenActivities({ query }),
+    pool.query<{
+      id: string;
+      title: string;
+      detail: string;
+      severity: string;
+      state: string;
+      total_count: number;
+    }>(
+      `SELECT id, title, detail, severity, state, count(*) OVER()::int AS total_count
+       FROM operational_controls
+       WHERE state IN ('OPEN', 'WAITING')
+         AND (title ILIKE $1 ESCAPE '\\'
+           OR detail ILIKE $1 ESCAPE '\\'
+           OR source_id ILIKE $1 ESCAPE '\\'
+           OR metadata_json::text ILIKE $1 ESCAPE '\\')
+       ORDER BY CASE state WHEN 'OPEN' THEN 0 ELSE 1 END,
+         CASE severity WHEN 'BLOCKING' THEN 0 WHEN 'IMPORTANT' THEN 1 ELSE 2 END,
+         opened_at, id
+       LIMIT ${SEARCH_RESULT_LIMIT}`,
+      [pattern],
+    ),
     listAuditHistory({ query }),
-    listRemoteDocumentsPage({ attentionOnly: true, query }),
-    actionableConnectorFailures(),
-    pendingShopifyDataRequests(),
+    listRemoteDocumentsPage({ query }),
   ]);
-
-  const queryLower = query.toLocaleLowerCase("it");
-  const includesQuery = (...values: Array<string | number | null | undefined>) =>
-    values.some((item) =>
-      String(item ?? "")
-        .toLocaleLowerCase("it")
-        .includes(queryLower),
-    );
-  const matchingConnectorFailures = connectorFailures.filter((failure) =>
-    includesQuery(failure.id, failure.type, failure.errorCode, failure.attempts),
-  );
-  const matchingPrivacyRequests = privacyRequests.filter((request) =>
-    includesQuery(request.externalEventId, ...request.customerIds, ...request.orderIds),
-  );
 
   const invoices = documents.rows.filter((row) => row.kind === "INVOICE");
   const creditNotes = documents.rows.filter((row) => row.kind === "CREDIT_NOTE");
@@ -327,8 +320,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
     invoices: invoices[0]?.total_count ?? 0,
     creditNotes: creditNotes[0]?.total_count ?? 0,
     customers: customers.rows[0]?.total_count ?? 0,
-    activities:
-      activities.total + matchingConnectorFailures.length + matchingPrivacyRequests.length,
+    controls: controls.rows[0]?.total_count ?? 0,
     history: history.total,
     remoteDocuments: remoteDocuments.total,
   };
@@ -379,42 +371,14 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
       documentCount: Number(row.document_count),
       href: `/clienti/${row.id}`,
     })),
-    activities: [
-      ...activities.rows.map((row) => ({
-        id: `${row.kind}:${row.id}`,
-        kind: row.kind,
-        reason: row.reason,
-        caseNumber: row.case_number,
-        orderNumber: row.order_number,
-        provider: row.provider,
-        customerName: row.customer_name,
-        href: row.href,
-      })),
-      ...matchingConnectorFailures.map((failure) => ({
-        id: `JOB:${failure.id}`,
-        kind: "CONNECTOR_JOB",
-        reason: "CONNECTOR_JOB_FAILURE",
-        caseNumber: null,
-        orderNumber: failure.id,
-        provider: failure.type.startsWith("shopify")
-          ? "SHOPIFY"
-          : failure.type.startsWith("ebay")
-            ? "EBAY"
-            : "ARUBA",
-        customerName: null,
-        href: filteredHref("/attivita", query),
-      })),
-      ...matchingPrivacyRequests.map((request) => ({
-        id: `PRIVACY:${request.externalEventId}`,
-        kind: "PRIVACY_REQUEST",
-        reason: "SHOPIFY_PRIVACY_REQUEST",
-        caseNumber: null,
-        orderNumber: request.externalEventId,
-        provider: "SHOPIFY",
-        customerName: null,
-        href: filteredHref("/attivita", query),
-      })),
-    ].slice(0, SEARCH_RESULT_LIMIT),
+    controls: controls.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      detail: row.detail,
+      severity: row.severity,
+      state: row.state,
+      href: `/controlli?id=${encodeURIComponent(row.id)}${row.state === "WAITING" ? "&vista=attesa" : ""}`,
+    })),
     history: history.rows.slice(0, SEARCH_RESULT_LIMIT).map((row) => ({
       id: row.id,
       action: row.action,
@@ -437,7 +401,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
       remoteId: row.remote_id,
       documentDate: row.document_date,
       matchStatus: row.match_status,
-      href: `${filteredHref("/documenti", query, { vista: "da-collegare" })}#documento-aruba-${row.id}`,
+      href: `${filteredHref("/documenti", query, { vista: "inventario-aruba" })}#documento-aruba-${row.id}`,
     })),
   };
 }

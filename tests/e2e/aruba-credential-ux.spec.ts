@@ -16,7 +16,7 @@ test.beforeAll(async () => {
     ]);
     await client.query(
       `INSERT INTO users (username, password_hash, can_approve)
-       VALUES ('Massimo', $1, true), ('Codex', $2, false)`,
+       VALUES ('Massimo', $1, true), ('Codex', $2, true)`,
       [ownerHash, agentHash],
     );
     const encryptedCredentials = encryptCredential(

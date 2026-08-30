@@ -1,8 +1,10 @@
-import { errorCatalog, type ErrorCode } from "../src/errors.ts";
+import { errorCodeLabel } from "../src/error-label.ts";
 import { arubaSettingsCopy } from "./copy-aruba.it.ts";
+import { controlsCopy } from "./copy-controls.it.ts";
 import { searchCopy } from "./copy-search.it.ts";
 
 export { auditActionLabel, auditActionLabels } from "./copy-audit.it.ts";
+export { errorCodeLabel } from "../src/error-label.ts";
 
 const euroFormatter = new Intl.NumberFormat("it-IT", {
   style: "currency",
@@ -21,12 +23,6 @@ const connectorJobLabels: Record<string, string> = {
   ebay_preview_history: "Storico ordini eBay",
 };
 
-export function errorCodeLabel(code: string | null): string {
-  return code && Object.hasOwn(errorCatalog, code)
-    ? errorCatalog[code as ErrorCode]
-    : "Errore non disponibile";
-}
-
 export const copy = {
   table: {
     sortControls: "Ordina la tabella",
@@ -43,6 +39,7 @@ export const copy = {
     orders: "Ordini",
     documents: "Documenti",
     customers: "Clienti",
+    controls: "Controlli",
     activity: "Attività",
     settings: "Impostazioni",
     collapseSidebar: "Comprimi navigazione",
@@ -52,10 +49,10 @@ export const copy = {
     mainLabel: "Navigazione principale",
     skipToContent: "Vai al contenuto principale",
     openProfile: (username: string) => `Apri il menu di ${username}`,
-    ownerRole: "Titolare",
-    operatorRole: "Operatore",
-    ownerPermission: "Può approvare, numerare e autorizzare gli invii.",
-    operatorPermission: "Non può eseguire operazioni fiscali irreversibili.",
+    ownerRole: "Amministratore",
+    operatorRole: "Amministratore",
+    ownerPermission: "Può gestire, approvare, numerare e autorizzare gli invii.",
+    operatorPermission: "Può gestire, approvare, numerare e autorizzare gli invii.",
     profileSettings: "Profilo e sicurezza",
     logout: "Esci",
   },
@@ -111,13 +108,13 @@ export const copy = {
   setup: {
     eyebrow: "Prima configurazione",
     title: "Configura gli accessi",
-    intro: "Crea i due account operativi. Ruoli e autorizzazioni resteranno separati.",
+    intro: "Crea i due account amministrativi con le stesse autorizzazioni operative.",
     code: "Codice di configurazione",
     codeHelp: "Usa il codice temporaneo ricevuto per inizializzare l’applicazione.",
-    ownerTitle: "Account titolare",
-    ownerHelp: "Può approvare, numerare e autorizzare gli invii.",
-    operatorTitle: "Account operatore",
-    operatorHelp: "Può preparare e verificare i dati, senza approvare documenti fiscali.",
+    ownerTitle: "Account Massimo",
+    ownerHelp: "Può gestire, approvare, numerare e autorizzare gli invii.",
+    operatorTitle: "Account Codex",
+    operatorHelp: "Può gestire, approvare, numerare e autorizzare gli invii.",
     passwordFor: (username: string) => `Password per ${username} (minimo 8 caratteri)`,
     submit: "Crea gli account",
   },
@@ -178,8 +175,21 @@ export const copy = {
     documentsInDay: (count: number, date: string) =>
       `${count} ${count === 1 ? "documento emesso" : "documenti emessi"} ${date}`,
     importedOrders: "Ordini importati",
-    readyPreparations: "Preparazioni pronte",
-    reviews: "Da verificare",
+    readyPreparations: "Preparazioni approvabili",
+    controlsToResolve: "Controlli da risolvere",
+    controlsDetail: (blocking: number, important: number, ordinary: number) =>
+      `${blocking} bloccanti · ${important} importanti · ${ordinary} ordinari`,
+    openControls: "Apri controlli",
+    noTechnicalErrors: "Nessun errore tecnico aperto",
+    technicalErrors: (count: number) =>
+      `${count} ${count === 1 ? "errore tecnico aperto" : "errori tecnici aperti"}`,
+    technicalHealthy: "Tutti i controlli automatici hanno esito regolare",
+    technicalAttention: "Una o più aree automatiche richiedono attenzione",
+    acquisition: "Acquisizione dati",
+    processing: "Elaborazioni",
+    documentGeneration: "Generazione documenti",
+    regular: "Regolare",
+    needsAttention: "Da verificare",
     waitingOrders: "Ordini non ancora pronti",
     pendingPayments: "Pagamenti in attesa",
     creditNotesToApprove: "Note di credito da approvare",
@@ -565,7 +575,7 @@ export const copy = {
     saveChangesBeforeApproval: "Hai modifiche non salvate. Salvale prima di approvare.",
     resaveAfterDateChange:
       "La data prevista è cambiata: apri Modifica dati fattura e salva le modifiche prima dell’approvazione.",
-    ownerOnly: "Solo Massimo può approvare e assegnare il numero fiscale.",
+    ownerOnly: "Serve un account amministrativo per approvare e assegnare il numero fiscale.",
     resolveChecksBeforeApproval:
       "Questa preparazione è Da verificare. Risolvi prima i controlli indicati nella pagina.",
     approvalTitle: "Approva fattura",
@@ -626,14 +636,17 @@ export const copy = {
     toSend: "Da trasmettere",
     toReconcile: "Da riconciliare",
     toLink: "Da collegare",
+    arubaInventory: "Inventario Aruba",
+    control: "Controllo",
+    openControl: "Apri controllo",
+    inventoryOnly: "Solo inventario",
     remoteDocumentsTitle: "Documenti rilevati in Aruba",
     remoteDocumentsHelp:
-      "Fatture e note di credito lette dal pannello che richiedono ancora un collegamento certo.",
-    remoteSearchLabel: "Cerca nei documenti Aruba da collegare",
-    remoteSearchPlaceholder: "Numero, cliente, dato fiscale o ordine candidato",
+      "Inventario neutro di fatture e note di credito rilevate in Aruba. Se serve una decisione, apri il controllo collegato.",
     remoteResults: (count: number) =>
       `${count} ${count === 1 ? "documento Aruba trovato" : "documenti Aruba trovati"}`,
-    noRemoteSearchResults: (query: string) => `Nessun documento Aruba corrisponde a “${query}”.`,
+    noRemoteSearchResults: (query: string) =>
+      `Nessun documento dell’inventario Aruba corrisponde a “${query}”.`,
     compatibleOrder: "Ordine candidato",
     guidedCandidate:
       "Verifica manuale richiesta: l’XML è presente, ma l’identità non basta per un collegamento automatico.",
@@ -642,7 +655,7 @@ export const copy = {
     focusedPreparationHelp:
       "Sono mostrate soltanto le fatture Aruba candidate per questa preparazione.",
     showAllCandidates: "Mostra tutte",
-    noRemoteDocuments: "Nessun documento Aruba da collegare.",
+    noRemoteDocuments: "Nessun documento rilevato nell’inventario Aruba.",
     matchStatus: "Collegamento",
     remoteLastReadback: "Ultima lettura",
     remoteStatusLabels: {
@@ -822,13 +835,14 @@ export const copy = {
     noResults: "Nessun documento corrisponde ai filtri",
     openOrders: "Vai agli ordini",
   },
+  controls: controlsCopy,
   activity: {
     arubaAttentionTitle: "Verifiche Aruba",
     arubaAttentionHelp: "Documenti non collegati, ambigui, discordanti o con stato remoto incerto.",
     openArubaDocuments: "Apri documenti da collegare",
-    eyebrow: "Controlli e cronologia",
+    eyebrow: "Registro operativo",
     title: "Attività",
-    intro: "Vedi subito cosa richiede attenzione e consulta le operazioni già registrate.",
+    intro: "Consulta la cronologia immutabile delle operazioni registrate.",
     viewsLabel: "Viste attività",
     toManage: "Da gestire",
     history: "Cronologia",
@@ -889,12 +903,8 @@ export const copy = {
       REFUND_REVIEW: "Rimborso da verificare",
       REFUND_JOB_FAILED: "Rimborso non elaborato",
       CREDIT_NOTE_APPROVAL: "Nota di credito da approvare",
-      CONNECTOR_JOB_FAILURE: "Operazione del canale non riuscita",
-      SHOPIFY_PRIVACY_REQUEST: "Richiesta dati Shopify da gestire",
     } as Record<string, string>,
     errorDetail: (code: string | null) => errorCodeLabel(code),
-    manageSearchLabel: "Cerca nelle attività da gestire",
-    manageSearchPlaceholder: "Ordine, preparazione, cliente, dato fiscale o errore",
     searchLabel: "Cerca nel registro",
     search: "Cerca",
     searchPlaceholder: "Numero ordine, preparazione o motivo",
@@ -997,6 +1007,7 @@ export const copy = {
     connectionAccount: "Account",
     lastCheck: "Ultimo controllo",
     openActivities: "Apri Attività",
+    openControls: "Apri Controlli",
     connect: "Collega",
     reconnect: "Ricollega",
     preview: "Controlla intervallo",

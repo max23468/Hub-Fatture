@@ -1,4 +1,5 @@
 import {
+  ClipboardCheck,
   ClipboardList,
   FileText,
   LayoutDashboard,
@@ -14,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Form, NavLink, useLocation } from "react-router";
+import { Form, NavLink, useFetcher, useLocation } from "react-router";
 
 import { copy } from "../copy.it";
 import { BrandLockup } from "./brand-lockup";
@@ -26,6 +27,12 @@ const links = [
   { to: "/ordini", label: copy.navigation.orders, icon: ShoppingBag, end: false },
   { to: "/documenti", label: copy.navigation.documents, icon: FileText, end: false },
   { to: "/clienti", label: copy.navigation.customers, icon: UsersRound, end: false },
+  {
+    to: "/controlli",
+    label: copy.navigation.controls,
+    icon: ClipboardCheck,
+    end: false,
+  },
   {
     to: "/attivita",
     label: copy.navigation.activity,
@@ -40,7 +47,13 @@ const links = [
   },
 ];
 
-function NavigationLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavigationLinks({
+  controlCount,
+  onNavigate,
+}: {
+  controlCount: number;
+  onNavigate?: () => void;
+}) {
   return links.map(({ to, label, icon: Icon, end }) => (
     <NavLink
       aria-label={label}
@@ -54,6 +67,14 @@ function NavigationLinks({ onNavigate }: { onNavigate?: () => void }) {
     >
       <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
       <span className="nav-item__label">{label}</span>
+      {to === "/controlli" && controlCount > 0 ? (
+        <span
+          className="nav-item__badge"
+          aria-label={`${controlCount} ${copy.navigation.controls.toLowerCase()} da risolvere`}
+        >
+          {controlCount > 99 ? "99+" : controlCount}
+        </span>
+      ) : null}
     </NavLink>
   ));
 }
@@ -83,6 +104,8 @@ export function AppShell({
   csrfToken: string;
 }) {
   const location = useLocation();
+  const controlSummary = useFetcher<{ open: number }>();
+  const loadControlSummary = controlSummary.load;
   const mobileNavigation = useRef<HTMLDialogElement>(null);
   const mobileNavigationTrigger = useRef<HTMLButtonElement>(null);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
@@ -129,6 +152,12 @@ export function AppShell({
     setMobileNavigationOpen(false);
   }, [location.pathname, location.search]);
 
+  useEffect(() => {
+    void loadControlSummary("/controlli/riepilogo");
+  }, [loadControlSummary, location.pathname, location.search]);
+
+  const controlCount = controlSummary.data?.open ?? 0;
+
   return (
     <div className="app-layout">
       <a className="skip-link" href="#contenuto-principale">
@@ -137,7 +166,7 @@ export function AppShell({
       <aside className="sidebar">
         <BrandLockup onDark />
         <nav aria-label={copy.navigation.mainLabel} id="navigazione-principale">
-          <NavigationLinks />
+          <NavigationLinks controlCount={controlCount} />
         </nav>
         <button
           aria-controls="navigazione-principale"
@@ -177,7 +206,7 @@ export function AppShell({
           </button>
         </div>
         <nav aria-label={copy.navigation.mainLabel}>
-          <NavigationLinks onNavigate={closeMobileNavigation} />
+          <NavigationLinks controlCount={controlCount} onNavigate={closeMobileNavigation} />
         </nav>
       </dialog>
       <main className="app-main" id="contenuto-principale">

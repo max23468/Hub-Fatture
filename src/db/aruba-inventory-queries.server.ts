@@ -30,6 +30,7 @@ export interface RemoteDocument {
   document_id: string | null;
   candidates: Array<{ id: string; label: string; guided: boolean }>;
   has_xml: boolean;
+  requires_control: boolean;
 }
 
 interface RemoteDocumentQueryRow extends RemoteDocument {
@@ -63,6 +64,12 @@ const remoteDocumentsSql = `
          EXISTS (SELECT 1 FROM aruba_files
            WHERE aruba_files.remote_document_id = remote.id
              AND aruba_files.kind = 'ARUBA_XML') AS has_xml,
+         ((${arubaBlockingMatchPredicate})
+           OR (matches.status = 'MATCHED'
+             AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
+             AND NOT EXISTS (SELECT 1 FROM aruba_files
+               WHERE aruba_files.remote_document_id = remote.id
+                 AND aruba_files.kind = 'ARUBA_XML'))) AS requires_control,
          coalesce((
            SELECT jsonb_agg(jsonb_build_object(
              'id', orders.id::text,
@@ -87,8 +94,7 @@ const remoteDocumentsSql = `
             WHERE aruba_files.remote_document_id = remote.id
               AND aruba_files.kind = 'ARUBA_XML'))
       )) OR (NOT $4::boolean AND (
-        (coalesce(matches.status, 'UNMATCHED') <> 'MATCHED'
-          AND NOT coalesce(matches.status = 'UNMATCHED' AND matches.method = 'MANUAL', false))
+        ${arubaBlockingMatchPredicate}
         OR (matches.status = 'MATCHED'
           AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
           AND NOT EXISTS (SELECT 1 FROM aruba_files

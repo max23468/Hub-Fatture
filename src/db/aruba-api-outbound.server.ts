@@ -799,7 +799,7 @@ async function failQueuedDryRun(job: ClaimedJob, errorCode: string) {
     await client.query(
       `UPDATE aruba_dry_run_qualifications
        SET status = CASE WHEN expires_at <= now() THEN 'EXPIRED' ELSE 'CANCELLED' END,
-           completed_at = now()
+           completed_at = greatest(clock_timestamp(), created_at)
        WHERE batch_id = $1 AND status = 'AUTHORIZED'`,
       [batchId],
     );

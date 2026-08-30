@@ -5,7 +5,6 @@ import type { Route } from "./+types/customers";
 import { AppShell } from "../components/app-shell";
 import { Pager } from "../components/pager";
 import { SortableHeaderLink, SortControlLink } from "../components/sortable-table";
-import { ViewNavigation } from "../components/view-navigation";
 import { customerKindLabels, copy } from "../copy.it";
 import { date } from "../format";
 import { privateRouteMeta } from "../metadata";
@@ -35,7 +34,6 @@ export function meta({ error }: Route.MetaArgs) {
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
   const url = new URL(request.url);
-  const view = url.searchParams.get("vista") === "verificare" ? "verificare" : "tutti";
   const query = url.searchParams.get("q") ?? "";
   const page = pageNumber(url.searchParams.get("pagina") ?? 1);
   const sort = parseSort(
@@ -48,7 +46,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     customerDirectorySummary(),
     listCustomers({
       query: query || undefined,
-      needsReview: view === "verificare" ? true : undefined,
       page,
       sort,
     }),
@@ -59,7 +56,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     csrfToken: user.csrfToken,
     summary,
     customers,
-    view,
     query,
     page,
     sort,
@@ -80,9 +76,9 @@ function activityAriaSort(sort: { key: CustomerListSortKey; direction: "asc" | "
 }
 
 export default function Customers() {
-  const { username, canApprove, csrfToken, summary, customers, view, query, page, sort } =
+  const { username, canApprove, csrfToken, summary, customers, query, page, sort } =
     useLoaderData<typeof loader>();
-  const resetTo = view === "verificare" ? "/clienti?vista=verificare" : "/clienti";
+  const resetTo = "/clienti";
 
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
@@ -91,19 +87,6 @@ export default function Customers() {
         <h1>{copy.customers.title}</h1>
         <p>{copy.customers.intro}</p>
       </div>
-
-      <ViewNavigation
-        active={view}
-        label={copy.customers.viewsLabel}
-        items={[
-          { value: "tutti", label: copy.customers.views.all, to: "/clienti" },
-          {
-            value: "verificare",
-            label: copy.customers.views.needsReview,
-            to: "/clienti?vista=verificare",
-          },
-        ]}
-      />
 
       <section
         aria-label={copy.customers.overviewLabel}
@@ -119,10 +102,6 @@ export default function Customers() {
           </span>
         </div>
         <dl className="customers-overview__counts">
-          <div>
-            <dt>{copy.customers.needsReviewCount}</dt>
-            <dd>{summary.needs_review}</dd>
-          </div>
           <div>
             <dt>{copy.customers.shopifyCount}</dt>
             <dd>{summary.shopify}</dd>
@@ -149,7 +128,6 @@ export default function Customers() {
             method="get"
             role="search"
           >
-            {view === "verificare" ? <input type="hidden" name="vista" value={view} /> : null}
             <label>
               <span>{copy.customers.search}</span>
               <input defaultValue={query} name="q" placeholder={copy.customers.searchPlaceholder} />
@@ -315,20 +293,8 @@ export default function Customers() {
               <CircleAlert size={22} strokeWidth={1.8} />
             </span>
             <span>
-              <h2>
-                {query
-                  ? copy.customers.noResults
-                  : view === "verificare"
-                    ? copy.customers.noCustomersToReview
-                    : copy.customers.noCustomers}
-              </h2>
-              <p>
-                {query
-                  ? copy.customers.noResultsHelp
-                  : view === "verificare"
-                    ? copy.customers.noCustomersToReviewHelp
-                    : copy.customers.noCustomersHelp}
-              </p>
+              <h2>{query ? copy.customers.noResults : copy.customers.noCustomers}</h2>
+              <p>{query ? copy.customers.noResultsHelp : copy.customers.noCustomersHelp}</p>
             </span>
           </div>
         )}
