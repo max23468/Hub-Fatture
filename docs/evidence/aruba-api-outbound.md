@@ -47,9 +47,22 @@ non condivide l’autorità di invio con il worker API.
 ## Evidenza eseguita e limiti
 
 La suite locale verifica migrazioni complete, dominio documenti e note di credito, permessi,
-idempotenza, storage, provider mock, build server/client e flussi browser. La qualifica Production
-del dry-run e qualunque upload reale non sono stati eseguiti: richiedono un’autorizzazione separata
-e devono chiudersi senza residui remoti. La prova SdI appartiene alle milestone successive.
+idempotenza, storage, provider mock, build server/client e flussi browser.
+
+Il 30 agosto 2026 la qualifica Production è stata eseguita su un solo TD01 legittimo già approvato,
+con autorizzazione specifica riferita al documento e al manifest esatti. La rilettura applicativa e
+diretta del database ha verificato:
+
+- un solo tentativo `DRY_RUN`, concluso `SUCCEEDED`, sullo stesso hash XML del manifest approvato;
+- batch e submission conclusi `DRY_RUN_VALIDATED`, senza stato remoto incerto;
+- permesso monouso consumato e concluso, nessun permesso o job outbound ancora attivo;
+- `submitted_at` non valorizzato, nessuna consegna e-mail e nessuna autorizzazione a `dryRun=false`;
+- modalità effettiva `DOCUMENT_ONLY` e `ARUBA_SUBMISSION_ENABLED=false` ancora attivi dopo la prova;
+- cicli inbound canonici ancora completati, senza job attivi o fallimenti non recuperati.
+
+La ricevuta conserva soltanto stati, cardinalità e corrispondenza degli hash: identificativi del
+batch, hash completi e dati del destinatario restano fuori dal repository. Nessun invio SdI o
+upload con `dryRun=false` è stato eseguito; la prova SdI appartiene alle milestone successive.
 
 Il backfill inbound non monopolizza più il worker: dopo ogni pagina consolidata restituisce il job
 alla coda senza incrementarne i tentativi. Una richiesta outbound può inserirsi fra due pagine e il
