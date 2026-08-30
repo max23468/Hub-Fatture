@@ -3224,6 +3224,10 @@ Gate:
 
 ### M9 - Inbound API primario
 
+**Stato: completata.** Evidenze ripetibili e readback Production sanitizzato:
+[inbound API Aruba](evidence/aruba-api-inbound.md). L’autorità automatica è esclusivamente API;
+il runtime browser è stato ritirato e il fallback manuale resta disponibile.
+
 Output:
 
 - credenziale Aruba cifrata, test d'identità, rotazione/revoca e connessione inizialmente in pausa;
@@ -3634,11 +3638,11 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 ### Checklist API M8-M14
 
 - [x] M8: manifesto read-only autorizzato, identità verificata, paginazione completa, gruppi/documenti, stati, forme di file/notifiche, limiti e accordo economico qualificati senza persistenza reale canonica; confronto iniziale fallback classificato e parità allineata assegnata a M9.
-- [ ] M9: credenziale cifrata e restore provati; connessione inizialmente in pausa; inventario dal 1° luglio 2026 completato; polling 15 minuti, non terminali e full mensile verificati.
-- [ ] M9: zero divergenze inbound inspiegate; switch di autorità atomico; decisione esplicita di Massimo sul preferito/bridge.
+- [x] M9: credenziale cifrata e restore provati; connessione inizialmente in pausa; inventario dal 1° luglio 2026 completato; polling 15 minuti, non terminali e full mensile verificati.
+- [x] M9: zero divergenze inbound inspiegate; switch di autorità atomico; decisione esplicita di Massimo sul preferito/bridge.
 - [ ] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; chiamata di upload con `dryRun=true` e stato incerto qualificati con autorizzazione specifica, senza autorizzare `dryRun=false`.
 - [ ] M10: pausa API e invii fiscali disabilitati riletti server-side; Codex respinto su configurazione e mutazioni, ma ammesso su salute e `Sincronizza ora`.
-- [ ] M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
+- [x] M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
 - [ ] M12: candidato esatto ricertificato con CI, audit, migrazioni, backup, restore, rollback, security e readiness; nessun P0/P1 o stato incerto.
 - [ ] M13: TD01 reale scelto da Massimo, autorizzazione specifica, permesso monouso legato a revisione/batch/hash e `ARUBA_SUBMISSION_ENABLED=false` prima e dopo.
 - [ ] M13: dry-run, invio, readback, file e stato conclusi senza duplicato o retry cieco; permesso consumato e ricevuta sanitizzata.
