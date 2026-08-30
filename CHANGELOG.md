@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.11
+
+- La validazione dei file XML Aruba applica i limiti di profondità e numero elementi con uno scanner lineare pre-DOM che conta anche i nomi Unicode, impedendo strutture complesse oltre soglia senza alterare XML FatturaPA, namespace, commenti o CDATA legittimi.
+
 ## 0.5.10
 
 - Shopify ed eBay supportano gli ordini con cliente svizzero come destinatario extra-UE distinto dai clienti UE, riusando il profilo fiscale del margine e il tracciato estero FatturaPA già validato.

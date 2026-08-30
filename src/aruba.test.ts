@@ -100,3 +100,22 @@ test("manifest API e parser dei file Aruba restano fail-closed", async () => {
   validateOfficialFile("ARUBA_P7M", signedDataBer);
   assert.throws(() => validateOfficialFile("ARUBA_P7M", Buffer.from([0x30, 0x00])));
 });
+
+test("i limiti XML contano anche elementi con nomi Unicode prima del DOM", () => {
+  const nestedXml = (depth: number) =>
+    `<root>${"<à>".repeat(depth)}contenuto${"</à>".repeat(depth)}</root>`;
+  assert.equal(validateUntrustedXml(Buffer.from(nestedXml(63))), nestedXml(63));
+  assert.throws(() => validateUntrustedXml(Buffer.from(nestedXml(64))), /xml/);
+
+  const maximumElements = `<root>${"<名/>".repeat(19_999)}</root>`;
+  assert.equal(validateUntrustedXml(Buffer.from(maximumElements)), maximumElements);
+  const excessiveElements = `<root>${"<名/>".repeat(20_000)}</root>`;
+  assert.throws(() => validateUntrustedXml(Buffer.from(excessiveElements)), /xml/);
+
+  const ignoredMarkup = "<root><!-- <à><à> --><![CDATA[<名><名>]]><?probe <à><名>?></root>";
+  assert.equal(validateUntrustedXml(Buffer.from(ignoredMarkup)), ignoredMarkup);
+
+  const namespacedInvoice =
+    '<?xml version="1.0"?><p:Fattura xmlns:p="urn:test"><p:Id>1</p:Id></p:Fattura>';
+  assert.equal(validateUntrustedXml(Buffer.from(namespacedInvoice)), namespacedInvoice);
+});
