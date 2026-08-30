@@ -615,18 +615,40 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     const acceptedInvoiceXml = await readFile(
       "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
     );
+    const conflictedStage = await apiStage.stageApiPage(
+      stagedRunId,
+      immutableConflictPage,
+      new Map([["atomic-immutable-conflict", "atomic-conflict-group"]]),
+      1,
+    );
+    assert.equal(conflictedStage.resolvedDocuments?.[0]?.officialFilesBlocked, true);
     await groupFile.importArubaApiGroupFile({
       runId: stagedRunId,
-      providerGroupId: "atomic-stage-group",
+      providerGroupId: "atomic-conflict-group",
       kind: "ARUBA_P7M",
       filename: "atomic-stage.xml.p7m",
       bytes: signedXml(acceptedInvoiceXml),
     });
+    const pageWithImmutableConflict = {
+      ...stagedPage,
+      documents: [...stagedPage.documents, ...immutableConflictPage.documents],
+    };
     assert.deepEqual(
-      await canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1, [
+      await canonicalPage.commitArubaApiInventoryPage(stagedRunId, pageWithImmutableConflict, 2, [
+        stagedApiDocument.rows[0]!.id,
         stagedApiDocument.rows[0]!.id,
       ]),
       { repeated: false },
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT group_count, document_count FROM aruba_sync_run_pages
+           WHERE sync_run_id = $1`,
+          [stagedRunId],
+        )
+      ).rows[0],
+      { group_count: 2, document_count: 2 },
     );
     await getPool().query("DELETE FROM aruba_remote_observations WHERE sync_run_id = $1", [
       stagedRunId,
@@ -642,6 +664,9 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       stagedRunId,
     ]);
     await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [stagedRunId]);
+    await getPool().query("DELETE FROM aruba_remote_documents WHERE id = $1", [
+      stagedApiDocument.rows[0]!.id,
+    ]);
     const canonicalRequest = await api.requestArubaApiSync(owner);
     assert.equal(canonicalRequest.queued, true);
     await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [canonicalRequest.jobId]);

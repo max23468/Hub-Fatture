@@ -24,9 +24,21 @@ export async function commitArubaApiInventoryPage(
     !parsed.success ||
     !parsedGroupCount.success ||
     !parsedRemoteDocumentIds.success ||
-    new Set(parsedRemoteDocumentIds.data).size !== parsed.data.documents.length
+    parsedRemoteDocumentIds.data.length !== parsed.data.documents.length
   ) {
     throw new AppError("ARUBA_INVENTORY_INVALID", 422);
+  }
+  const remoteDocumentCounts = new Map<string, number>();
+  for (const remoteDocumentId of parsedRemoteDocumentIds.data) {
+    remoteDocumentCounts.set(
+      remoteDocumentId,
+      (remoteDocumentCounts.get(remoteDocumentId) ?? 0) + 1,
+    );
+  }
+  const uniqueRemoteDocumentIds = [...remoteDocumentCounts.keys()];
+  const duplicateRemoteDocumentIds: string[] = [];
+  for (const [remoteDocumentId, count] of remoteDocumentCounts) {
+    if (count > 1) duplicateRemoteDocumentIds.push(remoteDocumentId);
   }
   return withTransaction(async (client) => {
     const run = await client.query<{
@@ -59,8 +71,14 @@ export async function commitArubaApiInventoryPage(
       }
       return { repeated: true };
     }
-    const staged = await client.query<{ count: number; incomplete_files: number }>(
-      `SELECT count(DISTINCT observations.remote_document_id)::integer AS count,
+    const staged = await client.query<{
+      unique_count: number;
+      observation_count: number;
+      incomplete_files: number;
+      conflicted_duplicates: number;
+    }>(
+      `SELECT count(DISTINCT observations.remote_document_id)::integer AS unique_count,
+         count(*)::integer AS observation_count,
          count(DISTINCT observations.remote_document_id) FILTER (WHERE
            NOT EXISTS (SELECT 1 FROM aruba_files files
              WHERE files.remote_document_id = observations.remote_document_id
@@ -69,16 +87,23 @@ export async function commitArubaApiInventoryPage(
              WHERE group_files.sync_run_id = observations.sync_run_id
                AND group_files.provider_group_id = remote.provider_group_id
                AND group_files.kind IN ('ARUBA_XML', 'ARUBA_P7M'))
-         )::integer AS incomplete_files
+         )::integer AS incomplete_files,
+         (SELECT count(DISTINCT conflicts.existing_remote_document_id)::integer
+          FROM aruba_deduplication_conflicts conflicts
+          WHERE conflicts.sync_run_id = $1
+            AND conflicts.existing_remote_document_id = ANY($4::bigint[])
+            AND conflicts.resolved_at IS NULL) AS conflicted_duplicates
        FROM aruba_remote_observations observations
        JOIN aruba_remote_documents remote ON remote.id = observations.remote_document_id
        WHERE observations.sync_run_id = $1 AND observations.page_ordinal = $2
          AND observations.remote_document_id = ANY($3::bigint[])`,
-      [id.data, parsed.data.pageOrdinal, parsedRemoteDocumentIds.data],
+      [id.data, parsed.data.pageOrdinal, uniqueRemoteDocumentIds, duplicateRemoteDocumentIds],
     );
     if (
-      staged.rows[0]?.count !== parsed.data.documents.length ||
-      staged.rows[0]?.incomplete_files !== 0
+      staged.rows[0]?.unique_count !== uniqueRemoteDocumentIds.length ||
+      staged.rows[0]?.observation_count !== parsed.data.documents.length ||
+      staged.rows[0]?.incomplete_files !== 0 ||
+      staged.rows[0]?.conflicted_duplicates !== duplicateRemoteDocumentIds.length
     ) {
       throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
     }
