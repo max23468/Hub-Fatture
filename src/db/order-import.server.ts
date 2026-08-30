@@ -628,7 +628,6 @@ export async function groupOrder(
       after: reconciliation?.after,
       requestId: actor.requestId,
     });
-    await refreshInvoiceDraftProjection(client, caseId);
   }
   await recomputeBillingCaseStatus(client, caseId);
   return caseId;
