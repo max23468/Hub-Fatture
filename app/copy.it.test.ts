@@ -21,6 +21,12 @@ test("le Impostazioni distinguono i documenti esterni dalle verifiche Aruba", ()
   );
 });
 
+test("le modalità Aruba distinguono l’approvazione dall’invio", () => {
+  assert.equal(copy.settings.arubaDocumentOnly, "Crea solo il documento");
+  assert.equal(copy.settings.arubaContextualConfirmation, "Chiedi conferma prima dell’invio");
+  assert.equal(copy.settings.arubaAutomaticAfterApproval, "Invio automatico dopo approvazione");
+});
+
 test("la connessione Aruba distingue le credenziali del pannello da credenziali API dedicate", () => {
   assert.equal(copy.settings.arubaApiUsername, "Nome utente del pannello Aruba");
   assert.equal(copy.settings.arubaApiPassword, "Password del pannello Aruba");

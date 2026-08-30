@@ -1432,6 +1432,41 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     expect(gap).toBeLessThanOrEqual(25);
   }
 
+  const arubaModeSelect = page.getByLabel("Modalità Aruba");
+  await expect(arubaModeSelect.locator("option")).toHaveText([
+    "Crea solo il documento",
+    "Chiedi conferma prima dell’invio",
+    "Invio automatico dopo approvazione",
+  ]);
+  await page.setViewportSize({ width: 320, height: 780 });
+  await arubaModeSelect.selectOption("AUTOMATIC_AFTER_APPROVAL");
+  const mobileTransmissionLayout = await page
+    .locator(".settings-transmission-section .settings-choice-card__field")
+    .evaluate((field) => {
+      const select = field.querySelector("select");
+      if (!(select instanceof HTMLSelectElement)) return null;
+      const fieldBox = field.getBoundingClientRect();
+      const selectBox = select.getBoundingClientRect();
+      const style = getComputedStyle(select);
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+      context.font = style.font;
+      const selectedLabel = select.selectedOptions[0]?.textContent?.trim() ?? "";
+      const horizontalPadding =
+        Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+      return {
+        columns: getComputedStyle(field).gridTemplateColumns.split(" ").filter(Boolean).length,
+        textFits:
+          context.measureText(selectedLabel).width + horizontalPadding <= select.clientWidth,
+        widthDelta: Math.abs(fieldBox.width - selectBox.width),
+      };
+    });
+  expect(mobileTransmissionLayout).toEqual({ columns: 1, textFits: true, widthDelta: 0 });
+  await expectViewportFits(page);
+  await arubaModeSelect.selectOption("DOCUMENT_ONLY");
+  await page.setViewportSize({ width: 1280, height: 720 });
+
   const arubaApiUiClient = new pg.Client({ connectionString: databaseUrl });
   await arubaApiUiClient.connect();
   const encryptedArubaCredentials = encryptCredential(

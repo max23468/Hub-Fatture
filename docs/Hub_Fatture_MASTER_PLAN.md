@@ -126,7 +126,7 @@ Il prodotto sarà:
 - limitato alle vendite soggette al regime del margine;
 - privo, nella 1.x, di OSS, multi-tenancy, billing, ruoli, vendite manuali e notifiche e-mail operative.
 
-Nessuna fattura o nota di credito viene mai trasmessa senza un'approvazione esplicita. Le modalità globali e rigide sono `Solo documento`, `Conferma contestuale` e `Automatico dopo approvazione`; nessuna rende automatica l'approvazione. Anche l'azione in blocco deve essere esplicita e conserva risultati per documento.
+Nessuna fattura o nota di credito viene mai trasmessa senza un'approvazione esplicita. Le modalità globali e rigide sono `Crea solo il documento`, `Chiedi conferma prima dell’invio` e `Invio automatico dopo approvazione`; nessuna rende automatica l'approvazione. Anche l'azione in blocco deve essere esplicita e conserva risultati per documento.
 
 ---
 
@@ -173,7 +173,7 @@ e quando un rimborso di prova produce correttamente:
 | HF-F07 | Conservare il dettaglio sorgente per riconciliazione senza riprodurlo 1:1 nel documento | Confermato |
 | HF-F08 | Permettere modifiche a cliente, descrizioni, quantità, importi, pagamenti, causali e ordini inclusi fino all'approvazione | Confermato |
 | HF-F09 | Consentire differenze rispetto al totale sorgente solo con avviso, seconda conferma e motivazione obbligatoria | Confermato |
-| HF-F10 | Richiedere sempre approvazione esplicita prima di numerare e preparare l'invio, anche nella modalità `Automatico dopo approvazione` | Confermato |
+| HF-F10 | Richiedere sempre approvazione esplicita prima di numerare e preparare l'invio, anche nella modalità `Invio automatico dopo approvazione` | Confermato |
 | HF-F11 | Consentire approvazione massiva soltanto per preparazioni prive di eccezioni | Confermato |
 | HF-F12 | Richiedere una conferma aggiuntiva per documenti con pagamento pendente | Confermato |
 | HF-F13 | Conservare bozze `Non trasmettere` con motivazione, senza numerarle o eliminarle | Confermato |
@@ -194,7 +194,7 @@ e quando un rimborso di prova produce correttamente:
 | HF-F29 | Definire una Brand Foundation leggera e versionata per nome, icona, favicon, palette minima, tipografia di sistema e tono UI | Confermato |
 | HF-F30 | Valutare OCI Email Delivery in Development e selezionare un solo trasporto SMTP canonico prima dell'uso Production | Confermato come PoC; adozione OCI condizionata |
 | HF-F31 | Eseguire la sincronizzazione del ciclo attivo tramite API Aruba v2 con credenziale cifrata, polling ogni 15 minuti e comando read-only `Sincronizza ora` | Confermato |
-| HF-F32 | Offrire in Impostazioni le modalità globali e rigide `Solo documento`, `Conferma contestuale` e `Automatico dopo approvazione`, con `Solo documento` come default | Confermato |
+| HF-F32 | Offrire in Impostazioni le modalità globali e rigide `Crea solo il documento`, `Chiedi conferma prima dell’invio` e `Invio automatico dopo approvazione`, con `Crea solo il documento` come default | Confermato |
 | HF-F33 | Inventariare dall'account Aruba fatture e TD04 anche quando non sono stati generati da HF, con inventario iniziale dal 1° luglio 2026, incrementali con sovrapposizione e scansione completa mensile sullo stesso orizzonte | Confermato |
 | HF-F34 | Collegare automaticamente un documento Aruba a ordini e documenti locali soltanto con corrispondenza univoca e XML ufficiale coerente; lasciare ambiguità, conflitti e documenti privi di ordine nelle code di verifica | Confermato |
 | HF-F35 | Per TD01 consumare lo stato globale dell'inventario: avviso oltre 30 minuti, blocco se mai completato o oltre 4 ore e blocco immediato per conflitto o stato remoto incerto | Confermato |
@@ -237,8 +237,8 @@ e quando un rimborso di prova produce correttamente:
 - I documenti nati fuori da Shopify ed eBay restano soltanto nell’inventario Aruba per prevenire doppie emissioni: se non presentano né un riferimento ordine esplicito né un match locale compatibile non diventano ordini, fatture da gestire o verifiche bloccanti.
 - Sincronizzazione API automatica ogni 15 minuti, inventario iniziale dal 1° luglio 2026 e
   comando read-only `Sincronizza ora`.
-- Modalità Aruba globali e rigide `Solo documento`, `Conferma contestuale` e `Automatico dopo
-  approvazione`, con `Solo documento` come default.
+- Modalità Aruba globali e rigide `Crea solo il documento`, `Chiedi conferma prima dell’invio` e
+  `Invio automatico dopo approvazione`, con `Crea solo il documento` come default.
 - Export XML e import dei file Aruba come fallback manuale sempre disponibile.
 - Pannello operativo e registro attività.
 - Brand Foundation leggera con asset minimi versionati, senza sito pubblico o design system separato.
@@ -313,7 +313,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Integrazione Aruba | Account Base con delega Web Service e API Aruba v2 documentate come unica autorità automatica; fallback manuale permanente | Elimina la dipendenza dal DOM mantenendo una via di recovery presidiata |
 | Sincronizzazione Aruba | Polling ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile; callback rinviato | Offre aggiornamento automatico senza dipendere da garanzie di isolamento callback non ancora disponibili |
 | Inventario Aruba | Cache provider-first dal 1° luglio 2026, indipendente dai batch HF, con osservazioni append-only | Rileva documenti creati fuori da HF, impedisce doppie emissioni nel periodo operativo e rende verificabile la freschezza |
-| Modalità Aruba | `Solo documento`, `Conferma contestuale` e `Automatico dopo approvazione`, globali e rigide | Separa approvazione, creazione e trasmissione senza consenso implicito |
+| Modalità Aruba | `Crea solo il documento`, `Chiedi conferma prima dell’invio` e `Invio automatico dopo approvazione`, globali e rigide | Separa approvazione, creazione e trasmissione senza consenso implicito |
 | Comparatore fiscale | Diff strutturato server-side fra sorgente, bozza e proiezione XML | Rende visibili trasformazioni, correzioni e arrotondamenti senza affidarsi a un fragile confronto testuale dell'XML |
 | Versionamento | `package.json` + SemVer/tag per le release Production | Collega codice e artefatto senza imporre bump alle modifiche locali o documentali |
 | Pubblicazione release | GitHub Release immutabile con note generate e manifest tecnico | Rende leggibile e non riscrivibile il legame fra versione, commit, immagine, schema e rollback |
@@ -990,9 +990,9 @@ Per le fatture TD01 la sincronizzazione dell'inventario è indipendente dalla pr
 
 ### 10.3 Modalità selezionabili in Impostazioni
 
-- **Solo documento**, default: approvazione, numerazione e XML; `Trasmetti` resta un'azione successiva.
-- **Conferma contestuale**: dopo la creazione propone una seconda conferma `Trasmetti ora`, che può essere rimandata.
-- **Automatico dopo approvazione**: l'approvazione esplicita autorizza anche la creazione del job di trasmissione, senza approvazioni automatiche.
+- **Crea solo il documento**, default: approvazione, numerazione e XML; `Trasmetti` resta un'azione successiva.
+- **Chiedi conferma prima dell’invio**: dopo la creazione propone una seconda conferma `Trasmetti ora`, che può essere rimandata.
+- **Invio automatico dopo approvazione**: l'approvazione esplicita autorizza anche la creazione del job di trasmissione, senza approvazioni automatiche.
 
 La scelta è globale e rigida per approvazioni singole e massive. La UI mostra l'effetto concreto ma non offre override locali. Se la modalità richiede invio e il canale non è disponibile, l'unico downgrade è la conferma esplicita `Approva e crea solo documento`.
 
@@ -1385,7 +1385,7 @@ La vista `Da gestire` riunisce errori, verifiche richieste, scarti, documenti Ar
 - Profilo fiscale: sola lettura dopo audit, con versione.
 - Numerazione/sezionale: protetta e configurata dopo audit.
 - Connessione Aruba: identità verificata, stato iniziale `In pausa`, attivazione della sincronizzazione, rotazione/revoca credenziale e due arresti indipendenti.
-- Modalità Aruba globale e rigida: `Solo documento` come default, `Conferma contestuale` o `Automatico dopo approvazione`.
+- Modalità Aruba globale e rigida: `Crea solo il documento` come default, `Chiedi conferma prima dell’invio` o `Invio automatico dopo approvazione`.
 - Stato della sincronizzazione Aruba, backfill, ultimo inventario completo, checkpoint, limiti provider osservati e azione read-only **Sincronizza ora**.
 - `Fallback transitorio` owner-only, disabilitato di default e visibile soltanto finché il relativo helper non viene ritirato.
 - Trasporto SMTP scelto e stato, senza mostrare credenziali.
@@ -3259,7 +3259,7 @@ implementazione, qualifica Production monouso e checklist chiusa senza invio SdI
 
 Output:
 
-- modalità globali e rigide `Solo documento`, `Conferma contestuale` e `Automatico dopo approvazione`;
+- modalità globali e rigide `Crea solo il documento`, `Chiedi conferma prima dell’invio` e `Invio automatico dopo approvazione`;
 - manifest immutabile, job per documento, dry-run sullo stesso hash, upload qualificato senza invio, readback e stato incerto;
 - risultati per documento nei batch massivi, due arresti e fallback manuale completo;
 - avvisi in-app a 400 e 475 trasmissioni nel mese solare;
