@@ -37,7 +37,8 @@ import {
   resolveArubaDocumentMatch,
 } from "../../src/db/aruba-inbound.server.ts";
 import { importArubaRemoteOfficialFileAsActor } from "../../src/db/aruba-official-file-import.server.ts";
-import { listRemoteDocuments } from "../../src/db/aruba-inventory-queries.server.ts";
+import { listRemoteDocumentsPage } from "../../src/db/aruba-inventory-queries.server.ts";
+import { Pager } from "../components/pager";
 import { isDatabaseId } from "../../src/db/database-id.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
@@ -119,11 +120,13 @@ export async function loader({ request }: Route.LoaderArgs) {
       listArubaBatches(),
       listUnbatchedApprovedDocuments(),
       view === "da-collegare"
-        ? listRemoteDocuments({
+        ? listRemoteDocumentsPage({
             attentionOnly: true,
             billingCaseId: focusedPreparation ?? undefined,
+            query: filters.query || undefined,
+            page,
           })
-        : Promise.resolve([]),
+        : Promise.resolve({ rows: [], hasNext: false, total: 0 }),
       getArubaSettings(),
     ]);
   const documentIds = documents.rows.map((document) => document.id);
@@ -338,13 +341,49 @@ export default function Documents() {
         >
           <h2 id="remote-documents-title">{copy.documents.remoteDocumentsTitle}</h2>
           <p>{copy.documents.remoteDocumentsHelp}</p>
+          <Form
+            aria-label={copy.documents.remoteSearchLabel}
+            className="filters remote-documents-filters"
+            method="get"
+            role="search"
+          >
+            <input name="vista" type="hidden" value="da-collegare" />
+            {focusedPreparation ? (
+              <input name="preparazione" type="hidden" value={focusedPreparation} />
+            ) : null}
+            <label>
+              {copy.documents.search}
+              <input
+                defaultValue={filters.query}
+                name="q"
+                placeholder={copy.documents.remoteSearchPlaceholder}
+              />
+            </label>
+            <button className="button button--secondary" type="submit">
+              {copy.documents.filter}
+            </button>
+            {filters.query ? (
+              <Link
+                to={
+                  focusedPreparation
+                    ? `/documenti?vista=da-collegare&preparazione=${focusedPreparation}`
+                    : "/documenti?vista=da-collegare"
+                }
+              >
+                {copy.documents.resetFilters}
+              </Link>
+            ) : null}
+          </Form>
+          <p aria-live="polite" className="filter-summary">
+            <span>{copy.documents.remoteResults(remoteDocuments.total)}</span>
+          </p>
           {focusedPreparation ? (
             <div className="notice remote-documents-focus" role="status">
               <span>{copy.documents.focusedPreparationHelp}</span>
               <Link to="/documenti?vista=da-collegare">{copy.documents.showAllCandidates}</Link>
             </div>
           ) : null}
-          {remoteDocuments.length ? (
+          {remoteDocuments.rows.length ? (
             <div className="table-wrap remote-documents-table-wrap">
               <table className="data-table remote-documents-table">
                 <thead>
@@ -359,7 +398,7 @@ export default function Documents() {
                   </tr>
                 </thead>
                 <tbody>
-                  {remoteDocuments.map((remote) => (
+                  {remoteDocuments.rows.map((remote) => (
                     <tr id={`documento-aruba-${remote.id}`} key={remote.id}>
                       <td data-label={copy.documents.document}>
                         {remote.document_type} {remote.series ?? ""}{" "}
@@ -472,8 +511,13 @@ export default function Documents() {
               </table>
             </div>
           ) : (
-            <p>{copy.documents.noRemoteDocuments}</p>
+            <p>
+              {filters.query
+                ? copy.documents.noRemoteSearchResults(filters.query)
+                : copy.documents.noRemoteDocuments}
+            </p>
           )}
+          <Pager basePath="/documenti" hasNext={remoteDocuments.hasNext} page={page} />
         </section>
       ) : (
         <DocumentsView

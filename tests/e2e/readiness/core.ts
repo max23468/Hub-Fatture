@@ -358,13 +358,16 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   });
   await page.getByLabel("Apri la ricerca globale").click();
   await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toBeVisible();
-  await page.getByLabel("Cerca ordini, fatture e clienti").fill("Mario Rossi");
+  await page.getByLabel("Cerca in ordini, documenti, clienti e attività").fill("Mario Rossi");
   const searchDialog = page.getByRole("dialog", { name: "Ricerca globale" });
   await expect(searchDialog.getByRole("heading", { name: "Ordini" })).toBeVisible();
   await expect(searchDialog.getByRole("heading", { name: "Clienti" })).toBeVisible();
   await expect.poll(() => searchRequests.length).toBe(1);
   await page.waitForTimeout(500);
   expect(searchRequests).toHaveLength(1);
+  await page.getByLabel("Cerca in ordini, documenti, clienti e attività").fill("000001");
+  await expect(searchDialog.getByRole("heading", { name: "Cronologia" })).toBeVisible();
+  await page.getByLabel("Cerca in ordini, documenti, clienti e attività").fill("Mario Rossi");
   await expect(page.getByRole("link", { name: /Mario Rossi/ }).last()).toBeVisible();
   await page
     .getByRole("link", { name: /Mario Rossi/ })
@@ -375,7 +378,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByText("mario.rossi@example.invalid")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ordini collegati" })).toBeVisible();
   await page.getByLabel("Apri la ricerca globale").click();
-  await page.getByLabel("Cerca ordini, fatture e clienti").fill("nessun risultato possibile");
+  await page
+    .getByLabel("Cerca in ordini, documenti, clienti e attività")
+    .fill("nessun risultato possibile");
   await expect(page.getByText("Nessun risultato", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toHaveCount(0);
@@ -500,16 +505,18 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   });
   await expect(initialMobileMenuTrigger).toBeVisible();
   await expect(initialMobileMenuTrigger).toHaveAttribute("aria-expanded", "false");
-  expect(
-    await initialMobileMenuTrigger.evaluate((trigger) => {
-      const center = trigger.getBoundingClientRect();
-      const topmost = document.elementFromPoint(
-        center.left + center.width / 2,
-        center.top + center.height / 2,
-      );
-      return topmost !== null && trigger.contains(topmost);
-    }),
-  ).toBe(true);
+  await expect
+    .poll(() =>
+      initialMobileMenuTrigger.evaluate((trigger) => {
+        const center = trigger.getBoundingClientRect();
+        const topmost = document.elementFromPoint(
+          center.left + center.width / 2,
+          center.top + center.height / 2,
+        );
+        return topmost !== null && trigger.contains(topmost);
+      }),
+    )
+    .toBe(true);
   await initialMobileMenuTrigger.click();
   await expect(initialMobileMenu).toBeVisible();
   await expect(initialMobileMenu.getByRole("link")).toHaveCount(6);

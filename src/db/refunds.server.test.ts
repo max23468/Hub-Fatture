@@ -1261,7 +1261,7 @@ test(
           (activity) => activity.kind === "REFUND_JOB" && activity.id === resolvedJob.rows[0]!.id,
         ),
       );
-      const creditNoteActivities = await orderQueries.listOpenActivities(undefined, "CREDIT_NOTE");
+      const creditNoteActivities = await orderQueries.listOpenActivities({ kind: "CREDIT_NOTE" });
       assert.ok(creditNoteActivities.rows.length > 0);
       assert.ok(creditNoteActivities.rows.every((activity) => activity.kind === "CREDIT_NOTE"));
       assert.ok(

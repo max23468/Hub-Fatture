@@ -1,5 +1,6 @@
 import { errorCatalog, type ErrorCode } from "../src/errors.ts";
 import { arubaSettingsCopy } from "./copy-aruba.it.ts";
+import { searchCopy } from "./copy-search.it.ts";
 
 export { auditActionLabel, auditActionLabels } from "./copy-audit.it.ts";
 
@@ -58,36 +59,7 @@ export const copy = {
     profileSettings: "Profilo e sicurezza",
     logout: "Esci",
   },
-  search: {
-    open: "Apri la ricerca globale",
-    trigger: "Cerca in Hub Fatture",
-    title: "Ricerca globale",
-    label: "Cerca ordini, fatture e clienti",
-    placeholder: "Ordine, fattura, cliente, e-mail o dato fiscale",
-    clear: "Cancella la ricerca",
-    startTitle: "Trova subito ciò che ti serve",
-    startHelp: "Cerca per numero, nome, e-mail, codice fiscale o partita IVA.",
-    loading: "Ricerca in corso…",
-    errorTitle: "Ricerca momentaneamente non disponibile",
-    errorHelp: "Riprova fra qualche istante.",
-    emptyTitle: "Nessun risultato",
-    emptyHelp: (query: string) =>
-      `Nessuna corrispondenza per “${query}”. Controlla il testo e riprova.`,
-    results: (count: number) =>
-      `${count} ${count === 1 ? "risultato trovato" : "risultati trovati"}`,
-    orders: "Ordini",
-    invoices: "Fatture",
-    customers: "Clienti",
-    order: (provider: string, number: string) =>
-      `Ordine ${provider === "SHOPIFY" ? "Shopify" : "eBay"} ${number}`,
-    invoice: (number: string) => `Fattura ${number}`,
-    invoicePreparation: (number: string) => `Preparazione fattura ${number}`,
-    issued: "Emessa",
-    draft: "In preparazione",
-    noContact: "Recapito non disponibile",
-    customerOrders: (count: number) => `${count} ${count === 1 ? "ordine" : "ordini"}`,
-    keyboardHelp: "Usa Tab per muoverti fra i risultati",
-  },
+  search: searchCopy,
   customer: {
     eyebrow: "Cliente",
     intro: (orders: number, documents: number) =>
@@ -657,6 +629,11 @@ export const copy = {
     remoteDocumentsTitle: "Documenti rilevati in Aruba",
     remoteDocumentsHelp:
       "Fatture e note di credito lette dal pannello che richiedono ancora un collegamento certo.",
+    remoteSearchLabel: "Cerca nei documenti Aruba da collegare",
+    remoteSearchPlaceholder: "Numero, cliente, dato fiscale o ordine candidato",
+    remoteResults: (count: number) =>
+      `${count} ${count === 1 ? "documento Aruba trovato" : "documenti Aruba trovati"}`,
+    noRemoteSearchResults: (query: string) => `Nessun documento Aruba corrisponde a “${query}”.`,
     compatibleOrder: "Ordine candidato",
     guidedCandidate:
       "Verifica manuale richiesta: l’XML è presente, ma l’identità non basta per un collegamento automatico.",
@@ -912,8 +889,12 @@ export const copy = {
       REFUND_REVIEW: "Rimborso da verificare",
       REFUND_JOB_FAILED: "Rimborso non elaborato",
       CREDIT_NOTE_APPROVAL: "Nota di credito da approvare",
+      CONNECTOR_JOB_FAILURE: "Operazione del canale non riuscita",
+      SHOPIFY_PRIVACY_REQUEST: "Richiesta dati Shopify da gestire",
     } as Record<string, string>,
     errorDetail: (code: string | null) => errorCodeLabel(code),
+    manageSearchLabel: "Cerca nelle attività da gestire",
+    manageSearchPlaceholder: "Ordine, preparazione, cliente, dato fiscale o errore",
     searchLabel: "Cerca nel registro",
     search: "Cerca",
     searchPlaceholder: "Numero ordine, preparazione o motivo",

@@ -76,7 +76,7 @@ test("le attività espongono i dati operativi e paginano molte righe", async () 
     );
 
     const firstPage = await orders.listOpenActivities();
-    const secondPage = await orders.listOpenActivities(2);
+    const secondPage = await orders.listOpenActivities({ page: 2 });
     const caseActivity = [...firstPage.rows, ...secondPage.rows].find(
       (activity) => activity.href === `/ordini/preparazione/${billingCase.rows[0]!.id}`,
     );
@@ -103,14 +103,16 @@ test("le attività espongono i dati operativi e paginano molte righe", async () 
       false,
     );
 
-    const oldestActivities = await orders.listOpenActivities(undefined, undefined, {
-      key: "data",
-      direction: "asc",
+    const oldestActivities = await orders.listOpenActivities({
+      sort: { key: "data", direction: "asc" },
     });
-    const newestActivities = await orders.listOpenActivities(undefined, undefined, {
-      key: "data",
-      direction: "desc",
+    const newestActivities = await orders.listOpenActivities({
+      sort: { key: "data", direction: "desc" },
     });
+    const filteredActivities = await orders.listOpenActivities({ query: "#ACT-03" });
+    assert.equal(filteredActivities.total, 1);
+    assert.equal(filteredActivities.rows[0]?.order_number, "#ACT-03");
+    assert.deepEqual((await orders.listOpenActivities({ query: "%_" })).rows, []);
     assert.equal(oldestActivities.rows[0]?.order_date, "2026-07-01");
     assert.equal(newestActivities.rows[0]?.order_date, "2026-07-28");
 

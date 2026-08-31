@@ -1254,6 +1254,8 @@ Interfaccia esclusivamente italiana. Codice, API, tabelle e nomi tecnici restano
 
 La navigazione resta a un solo livello. Una destinazione compare soltanto quando dispone di una superficie utilizzabile; le funzioni future non producono voci o contenitori vuoti. Le code e le prospettive sullo stesso oggetto sono viste interne, non nuove destinazioni.
 
+La ricerca globale copre ordini, fatture, note di credito, clienti, attività da gestire, cronologia e documenti Aruba da collegare. Ogni gruppo mostra un’anteprima limitata con il conteggio completo e, quando necessario, porta alla vista canonica già filtrata e paginata: il limite dell’anteprima non deve rendere irraggiungibili altri risultati.
+
 - `Ordini`: Tutti, Da fatturare, Da verificare, In attesa e Annullati.
 - `Documenti`: Tutti, Fatture, Note di credito e viste per stato di trasmissione.
 - `Attività`: Da gestire e Cronologia; richieste privacy e job falliti restano azioni operative, non impostazioni.
@@ -1368,6 +1370,8 @@ La sezione riunisce fatture, note di credito e documenti nei diversi stati di tr
 
 La vista interna `Da collegare` raccoglie i documenti osservati in Aruba senza un ordine o documento HF collegabile in modo univoco. Mostra origine, stato remoto, ultimo aggiornamento e anomalie senza creare ordini locali. Un documento senza riferimenti ordine espliciti né match Shopify/eBay compatibili resta visibile per l’anti-duplicazione ma non è una verifica bloccante; soltanto riferimenti espliciti incompatibili, match potenziali, ambiguità, conflitti ed errori alimentano anche `Da verificare` e `Attività`.
 
+L’archivio cerca anche per e-mail, telefono, identificativo fiscale e numero ordine collegato. `Da collegare` è ricercabile per identità Aruba, numero fiscale, destinatario, dato fiscale e ordine candidato, ed è paginata senza un tetto implicito sul numero totale dei documenti raggiungibili.
+
 Per le note di credito mostrare:
 
 - Fattura originaria.
@@ -1379,7 +1383,7 @@ Per le note di credito mostrare:
 
 ### 13.8 Attività
 
-La vista `Da gestire` riunisce errori, verifiche richieste, scarti, documenti Aruba da collegare o ambigui, conflitti di profilo, stati remoti incerti, richieste privacy Shopify e retry dei job falliti con la relativa azione. Dopo il cliente mostra l’identificativo fiscale senza etichettarne il tipo, usando lo snapshot autorevole dell’ordine, della preparazione o del documento e uno stato neutro quando assente. Questi elementi non compaiono in `Impostazioni`, che mostra soltanto stato e collegamento al dettaglio operativo. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
+La vista `Da gestire` riunisce errori, verifiche richieste, scarti, documenti Aruba da collegare o ambigui, conflitti di profilo, stati remoti incerti, richieste privacy Shopify e retry dei job falliti con la relativa azione. La ricerca opera sull’intera coda, comprese preparazioni, ordini, clienti, identificativi fiscali, errori, richieste privacy e documenti Aruba, senza limitarsi alle righe della pagina corrente. Dopo il cliente mostra l’identificativo fiscale senza etichettarne il tipo, usando lo snapshot autorevole dell’ordine, della preparazione o del documento e uno stato neutro quando assente. Questi elementi non compaiono in `Impostazioni`, che mostra soltanto stato e collegamento al dettaglio operativo. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
 
 ### 13.9 Impostazioni
 

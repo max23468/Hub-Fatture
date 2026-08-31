@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.15
+
+- La ricerca globale copre ordini, fatture, note di credito, clienti, attività da gestire, cronologia e documenti Aruba da collegare, con conteggi completi e collegamenti alle viste filtrate quando l’anteprima non contiene tutti i risultati.
+- `Attività → Da gestire` e `Documenti → Da collegare` diventano ricercabili sull’intera coda; i documenti Aruba sono paginati senza il precedente tetto implicito e restano visibili anche prima della creazione di una riga di match.
+- L’archivio Documenti trova anche e-mail, telefono, identificativi fiscali e ordini collegati; la Cronologia usa il formato temporale corretto senza interrompere il pannello di ricerca.
+
 ## 0.5.14
 
 - Production conserva come baseline ogni deployment già riuscito anche dopo la transizione automatica di GitHub a `inactive`, evitando riclassificazioni cumulative e backup pre/post non richiesti da migrazioni o modifiche allo storage.
