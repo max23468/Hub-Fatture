@@ -1043,6 +1043,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
        'PENDING')`,
     ["a".repeat(64)],
   );
+  await privacyClient.query(
+    "UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1",
+    [sourceReviewCaseId],
+  );
   await privacyClient.end();
   await page.getByRole("link", { name: "Controlli" }).click();
   await expect(page.getByRole("heading", { name: "Controlli", exact: true })).toBeVisible();
@@ -1106,12 +1110,12 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 780 });
   const preparationControl = page
     .locator(".control-row")
-    .filter({ hasText: "Dati della preparazione da verificare" });
+    .filter({ hasText: "Ordine aggiornato dopo la preparazione" });
   await preparationControl.scrollIntoViewIfNeeded();
   const mobileScrollBeforeSelection = await page.evaluate(() => window.scrollY);
   await preparationControl.evaluate((row) => (row as HTMLElement).click());
   await expect(page.locator(".control-row--selected")).toContainText(
-    "Dati della preparazione da verificare",
+    "Ordine aggiornato dopo la preparazione",
   );
   await expect
     .poll(async () =>
@@ -1129,6 +1133,13 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       Math.abs((await page.evaluate(() => window.scrollY)) - mobileScrollBeforeReturn),
     )
     .toBeLessThanOrEqual(16);
+  const resolvedPreparationClient = new pg.Client({ connectionString: databaseUrl });
+  await resolvedPreparationClient.connect();
+  await resolvedPreparationClient.query(
+    "UPDATE orders SET trigger_status = 'GROUPED' WHERE billing_case_id = $1",
+    [sourceReviewCaseId],
+  );
+  await resolvedPreparationClient.end();
   await page.setViewportSize({ width: 1280, height: 720 });
   await page
     .getByRole("checkbox", {

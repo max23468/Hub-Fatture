@@ -406,9 +406,14 @@ export default function Controls() {
     const scrollPosition = selectionScrollRef.current;
     selectionScrollRef.current = null;
     window.scrollTo(0, scrollPosition);
-    const frame = window.requestAnimationFrame(() => {
+    let frame = 0;
+    let remainingFrames = 3;
+    const restoreScroll = () => {
       window.scrollTo(0, scrollPosition);
-    });
+      remainingFrames -= 1;
+      if (remainingFrames > 0) frame = window.requestAnimationFrame(restoreScroll);
+    };
+    frame = window.requestAnimationFrame(restoreScroll);
     return () => window.cancelAnimationFrame(frame);
   }, [result.selected?.id]);
   const search = new URLSearchParams();

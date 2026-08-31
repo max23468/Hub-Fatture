@@ -138,6 +138,10 @@ test(
         ),
         ["Profilo da riconciliare"],
       );
+      assert.deepEqual(
+        (await customers.listActionableCustomerReviews()).map((customer) => customer.display_name),
+        ["Profilo da riconciliare"],
+      );
       assert.equal((await customers.getCustomer(ids["review-closed"]))?.review_required, false);
       assert.equal((await customers.getCustomer(ids["review-actionable"]))?.review_required, true);
       await database

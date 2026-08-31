@@ -1,11 +1,16 @@
 import { createHash } from "node:crypto";
 
 import { errorCodeLabel } from "../error-label.ts";
+import {
+  listOperationalBillingCaseAnomalies,
+  type OperationalBillingCaseAnomaly,
+} from "./billing-cases.server.ts";
 import { listOpenActivities } from "./order-queries.server.ts";
 import { actionableConnectorFailures } from "./connector-jobs.server.ts";
 import { pendingShopifyDataRequests } from "./connector-webhooks.server.ts";
 import { listRemoteDocuments } from "./aruba-inventory-queries.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
+import { listActionableCustomerReviews } from "./customers.server.ts";
 
 export type OperationalControlSeverity = "BLOCKING" | "IMPORTANT" | "ORDINARY";
 export type OperationalControlState = "OPEN" | "WAITING" | "RESOLVED";
@@ -116,13 +121,6 @@ function activityCandidate(
       area?: OperationalControlMetadata["area"];
     }
   > = {
-    BILLING_CASE_REVIEW: {
-      title: "Dati della preparazione da verificare",
-      consequence: "L’approvazione resta sospesa finché i dati non vengono confermati.",
-      severity: "IMPORTANT",
-      category: "DECISION",
-      primaryAction: "Apri preparazione",
-    },
     HISTORY_RECONCILIATION: {
       title: "Ordine storico da riconciliare",
       consequence: "La fatturazione resta bloccata per evitare una doppia emissione.",
@@ -195,6 +193,65 @@ function activityCandidate(
   } satisfies ControlCandidate;
 }
 
+function billingCaseAnomalyCandidate(
+  item: Awaited<ReturnType<typeof listOperationalBillingCaseAnomalies>>[number],
+) {
+  const definitions: Record<
+    OperationalBillingCaseAnomaly,
+    Pick<ControlCandidate, "title" | "consequence" | "primaryAction">
+  > = {
+    TOTALS_MISMATCH: {
+      title: "Totale dell’ordine da riconciliare",
+      consequence:
+        "La preparazione resta sospesa finché articoli, spedizione e pagamenti non ricostruiscono il totale ricevuto.",
+      primaryAction: "Apri preparazione",
+    },
+    CUSTOMER_MISMATCH: {
+      title: "Anagrafiche discordanti nella preparazione",
+      consequence:
+        "La preparazione resta sospesa finché l’anagrafica corretta non viene scelta o gli ordini incoerenti non vengono separati.",
+      primaryAction: "Apri preparazione",
+    },
+    SOURCE_CONFLICT: {
+      title: "Ordine aggiornato dopo la preparazione",
+      consequence:
+        "La preparazione resta sospesa finché le versioni dell’ordine non vengono confrontate.",
+      primaryAction: "Apri preparazione",
+    },
+    ORDER_NOT_BILLABLE: {
+      title: "Ordine non più fatturabile nella preparazione",
+      consequence:
+        "La preparazione resta sospesa finché l’ordine annullato o rimborsato non viene separato o archiviato.",
+      primaryAction: "Apri preparazione",
+    },
+  };
+  const definition = definitions[item.anomaly];
+  const subject = `Preparazione ${item.public_number}`;
+  return {
+    id: `${item.anomaly}:${item.id}`,
+    kind: item.anomaly,
+    category: "DECISION",
+    severity: "IMPORTANT",
+    sourceType: "BILLING_CASE",
+    sourceId: item.id,
+    origin: "ORDERS",
+    title: definition.title,
+    detail: subject,
+    consequence: definition.consequence,
+    href: `/ordini/preparazione/${item.id}`,
+    primaryAction: definition.primaryAction,
+    metadata: {
+      facts: [
+        { label: "Preparazione", value: item.public_number },
+        { label: "Cliente", value: item.customer_name },
+        { label: "Data ordine", value: item.local_order_date },
+      ],
+      sourceLabel: subject,
+    },
+    detectedAt: item.updated_at,
+  } satisfies ControlCandidate;
+}
+
 async function allOpenActivities() {
   const rows: Awaited<ReturnType<typeof listOpenActivities>>["rows"] = [];
   for (let page = 1; page <= 100; page += 1) {
@@ -207,16 +264,9 @@ async function allOpenActivities() {
 
 async function databaseCandidates(): Promise<ControlCandidate[]> {
   const pool = getPool();
-  const [customers, batches, submissions, emails] = await Promise.all([
-    pool.query<{
-      id: string;
-      display_name: string;
-      updated_at: string;
-    }>(
-      `SELECT id::text, display_name, updated_at::text
-       FROM customers WHERE review_required = true
-       ORDER BY updated_at, id`,
-    ),
+  const [customers, billingCases, batches, submissions, emails] = await Promise.all([
+    listActionableCustomerReviews(),
+    listOperationalBillingCaseAnomalies(),
     pool.query<{
       id: string;
       status: string;
@@ -271,7 +321,7 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
     ),
   ]);
   return [
-    ...customers.rows.map((row): ControlCandidate => ({
+    ...customers.map((row): ControlCandidate => ({
       id: `CUSTOMER_IDENTITY:${row.id}`,
       kind: "CUSTOMER_IDENTITY",
       category: "DECISION",
@@ -288,6 +338,7 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
       metadata: { facts: [{ label: "Cliente", value: row.display_name }] },
       detectedAt: row.updated_at,
     })),
+    ...billingCases.map(billingCaseAnomalyCandidate),
     ...batches.rows.map((row): ControlCandidate => ({
       id: `ARUBA_BATCH:${row.id}`,
       kind: "ARUBA_BATCH_RECONCILIATION",
@@ -387,8 +438,14 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
     listRemoteDocuments({ attentionOnly: true }),
     databaseCandidates(),
   ]);
+  const activityCandidates: ControlCandidate[] = [];
+  for (const activity of activities) {
+    if (activity.reason !== "BILLING_CASE_REVIEW") {
+      activityCandidates.push(activityCandidate(activity));
+    }
+  }
   const candidates: ControlCandidate[] = [
-    ...activities.map(activityCandidate),
+    ...activityCandidates,
     ...jobs.map((job) => ({
       id: `CONNECTOR_JOB:${job.id}`,
       kind: "CONNECTOR_JOB_FAILED",

@@ -22,6 +22,25 @@ test("il menu mobile anima e rende raggiungibili tutte le sezioni", async ({ pag
   await page.getByRole("button", { name: "Accedi" }).click();
   await expect(page).toHaveURL(/\/$/);
 
+  const controlsCard = page.locator(".work-item").filter({
+    hasText: "Controlli da risolvere",
+  });
+  await controlsCard.locator(".work-item__value").evaluate((value) => {
+    value.textContent = "144";
+  });
+  expect(
+    await controlsCard.evaluate((card) => {
+      const value = card.querySelector(".work-item__value")!.getBoundingClientRect();
+      const copy = card.querySelector(".work-item__copy")!.getBoundingClientRect();
+      const action = card.querySelector("a")!.getBoundingClientRect();
+      return {
+        valueBeforeCopy: value.right <= copy.left,
+        actionBelowSummary: action.top >= Math.max(value.bottom, copy.bottom),
+        fitsCard: card.scrollWidth <= card.clientWidth,
+      };
+    }),
+  ).toEqual({ valueBeforeCopy: true, actionBelowSummary: true, fitsCard: true });
+
   const trigger = page.getByRole("button", {
     name: "Apri il menu di navigazione",
   });

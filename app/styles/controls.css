@@ -520,6 +520,29 @@
 }
 
 @media (max-width: 48rem) {
+  .work-item,
+  .work-item:first-child,
+  .work-item:last-child {
+    grid-template-columns: 3rem max-content minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+
+  .work-item__value {
+    grid-column: 2;
+    grid-row: 1;
+    white-space: nowrap;
+  }
+
+  .work-item__copy {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .work-item > a {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
   .controls-overview {
     align-items: flex-start;
     flex-direction: column;

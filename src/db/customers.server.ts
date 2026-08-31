@@ -50,6 +50,20 @@ const actionableCustomerReviewSql = `customers.review_required AND EXISTS (
     )
 )`;
 
+export async function listActionableCustomerReviews() {
+  const result = await getPool().query<{
+    id: string;
+    display_name: string;
+    updated_at: string;
+  }>(
+    `SELECT customers.id::text, customers.display_name, customers.updated_at::text
+     FROM customers
+     WHERE ${actionableCustomerReviewSql}
+     ORDER BY customers.updated_at, customers.id`,
+  );
+  return result.rows;
+}
+
 export async function customerDirectorySummary() {
   const result = await getPool().query<{
     total: number;

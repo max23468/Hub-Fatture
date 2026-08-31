@@ -54,6 +54,27 @@ test(
       await database
         .getPool()
         .query("UPDATE customers SET review_required = true WHERE id = $1", [customer.id]);
+      await database.getPool().query(
+        `UPDATE orders
+         SET normalized_snapshot_json = jsonb_set(
+           normalized_snapshot_json,
+           '{customerReviewRequired}',
+           'true'::jsonb
+         )
+         WHERE customer_id = $1`,
+        [customer.id],
+      );
+      await database.getPool().query(
+        `UPDATE billing_cases
+         SET status = 'NEEDS_REVIEW',
+             customer_snapshot_json = jsonb_set(
+               customer_snapshot_json,
+               '{reviewRequired}',
+               'true'::jsonb
+             )
+         WHERE customer_id = $1`,
+        [customer.id],
+      );
       const byName = await search.searchGlobal(customer.display_name);
       assert.ok(byName.customers.some((item) => item.id === String(customer.id)));
       assert.ok(
@@ -224,6 +245,11 @@ test(
           [caseRow.id],
         )
       ).rows[0];
+      await database
+        .getPool()
+        .query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1", [
+          activityCase.id,
+        ]);
       const byActivity = await search.searchGlobal(activityCase.public_number);
       assert.ok(
         byActivity.controls.some((item) => item.detail.includes(activityCase.public_number)),
