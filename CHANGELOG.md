@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.16
+
+- Le schede già aperte durante un deploy continuano a ricevere il campo fatture atteso dal bundle precedente, evitando che una ricerca trasformi la pagina in un errore.
+- Il client valida il contratto completo della ricerca prima di renderizzarlo e mostra un errore controllato se server e bundle non coincidono, senza interrompere la Dashboard.
+
 ## 0.5.15
 
 - La ricerca globale copre ordini, fatture, note di credito, clienti, attività da gestire, cronologia e documenti Aruba da collegare, con conteggi completi e collegamenti alle viste filtrate quando l’anteprima non contiene tutti i risultati.

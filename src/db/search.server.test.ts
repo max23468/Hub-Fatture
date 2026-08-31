@@ -36,6 +36,7 @@ test(
 
       const orderResult = await search.searchGlobal("S-1001");
       assert.equal(orderResult.orders.length, 1);
+      assert.deepEqual(orderResult.documents, orderResult.invoices);
       assert.equal(orderResult.orders[0]!.provider, "SHOPIFY");
       assert.match(orderResult.orders[0]!.href, /^\/ordini\/\d+$/);
 
@@ -107,6 +108,7 @@ test(
       );
       const byPreparation = await search.searchGlobal(caseRow.public_number);
       assert.equal(byPreparation.invoices.length, 1);
+      assert.deepEqual(byPreparation.documents, byPreparation.invoices);
       assert.equal(byPreparation.invoices[0]!.caseNumber, caseRow.public_number);
 
       const storage = await database.getPool().query<{ id: string }>(

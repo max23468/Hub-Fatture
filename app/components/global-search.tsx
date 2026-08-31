@@ -2,11 +2,9 @@ import { Search, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 
-import type { loader } from "../routes/search";
 import { copy } from "../copy.it";
+import { isSearchData, type SearchData } from "../search-data";
 import { GlobalSearchResults } from "./global-search-results";
-
-type SearchData = Awaited<ReturnType<typeof loader>>["data"];
 
 export function GlobalSearch() {
   const fetcher = useFetcher<SearchData>();
@@ -19,7 +17,9 @@ export function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const normalizedQuery = query.trim();
-  const currentData = fetcher.data?.query === normalizedQuery ? fetcher.data : undefined;
+  const responseMatchesQuery = fetcher.data?.query === normalizedQuery;
+  const currentData = responseMatchesQuery && isSearchData(fetcher.data) ? fetcher.data : undefined;
+  const invalidResponse = responseMatchesQuery && !currentData;
 
   const openSearch = useCallback(() => {
     if (closeTimerRef.current !== undefined) window.clearTimeout(closeTimerRef.current);
@@ -146,6 +146,7 @@ export function GlobalSearch() {
             <div aria-live="polite" className="global-search__results">
               <GlobalSearchResults
                 currentData={currentData}
+                invalidResponse={invalidResponse}
                 loading={fetcher.state !== "idle"}
                 normalizedQuery={normalizedQuery}
                 onNavigate={() => dismissSearch()}

@@ -21,11 +21,13 @@ type SearchData = Awaited<ReturnType<typeof loader>>["data"];
 
 export function GlobalSearchResults({
   currentData,
+  invalidResponse,
   loading,
   normalizedQuery,
   onNavigate,
 }: {
   currentData: SearchData | undefined;
+  invalidResponse: boolean;
   loading: boolean;
   normalizedQuery: string;
   onNavigate: () => void;
@@ -36,6 +38,16 @@ export function GlobalSearchResults({
   if (normalizedQuery.length < 2) {
     return (
       <SearchMessage icon={Search} title={copy.search.startTitle} detail={copy.search.startHelp} />
+    );
+  }
+  if (invalidResponse) {
+    return (
+      <SearchMessage
+        detail={copy.search.errorHelp}
+        error
+        icon={SearchX}
+        title={copy.search.errorTitle}
+      />
     );
   }
   if (loading || !currentData) {
