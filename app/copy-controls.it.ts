@@ -69,4 +69,5 @@ export const controlsCopy = {
   emptyWaiting: "Nessun controllo in attesa",
   emptyWaitingHelp: "Le azioni avviate compariranno qui fino all’esito verificato.",
   noSelection: "Seleziona un controllo per vedere causa, conseguenza e azioni disponibili.",
+  backToList: "Torna ai controlli",
 };

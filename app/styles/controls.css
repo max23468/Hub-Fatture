@@ -119,6 +119,20 @@
   margin-bottom: var(--space-4);
 }
 
+.controls-mobile-detail-navigation {
+  display: none;
+}
+
+.controls-mobile-back {
+  min-height: var(--control-height);
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--color-link);
+  cursor: pointer;
+  padding: 0;
+}
+
 .controls-overview {
   display: flex;
   flex-wrap: wrap;
@@ -293,6 +307,10 @@
 .control-detail {
   min-width: 0;
   padding: var(--space-8);
+}
+
+.control-detail > h2:focus {
+  outline: none;
 }
 
 .control-detail--empty {
@@ -516,6 +534,35 @@
   .controls-queue {
     border-right: 0;
     border-bottom: 1px solid var(--color-border);
+  }
+
+  .controls-page--detail .controls-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .controls-page--detail .controls-overview,
+  .controls-page--detail .controls-toolbar {
+    display: none;
+  }
+
+  .controls-page--detail .controls-mobile-detail-navigation {
+    display: flex;
+    margin-bottom: var(--space-4);
+  }
+
+  .controls-workspace--list .control-detail,
+  .controls-workspace--detail .controls-queue {
+    display: none;
+  }
+
+  .controls-workspace--list .controls-queue,
+  .controls-workspace--detail .control-detail {
+    border-bottom: 0;
   }
 }
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.20
+
+- Su mobile, la selezione di un controllo apre subito una vista di dettaglio dedicata invece di lasciarla dopo l’intera coda; il ritorno alla lista conserva filtri, posizione di scorrimento e focus sul controllo scelto, mentre i collegamenti diretti mantengono una via di ritorno coerente.
+- Su desktop, coda e dettaglio restano affiancati e la selezione continua a preservare la posizione corrente.
+
 ## 0.5.19
 
 - Nella sidebar desktop compressa l’icona di `Controlli` torna sulla stessa colonna delle altre destinazioni; il badge del conteggio è più piccolo e resta ancorato in basso a destra senza modificare l’allineamento della voce.
