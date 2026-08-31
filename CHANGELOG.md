@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.14
+
+- Production conserva come baseline ogni deployment già riuscito anche dopo la transizione automatica di GitHub a `inactive`, evitando riclassificazioni cumulative e backup pre/post non richiesti da migrazioni o modifiche allo storage.
+- Gli allarmi prudenziali del monitor locale continuano a essere notificati e restano bloccanti nel timer, ma non retrocedono un deploy dopo che digest, servizi, health check e ricevuta sono già stati verificati.
+
 ## 0.5.13
 
 - L’interfaccia usa un sistema di movimento condiviso per navigazione, pannelli, tabelle, controlli e messaggi, con transizioni brevi che rendono più immediati stato attivo, pressione e cambio pagina senza modificare la gerarchia visiva Foundation.

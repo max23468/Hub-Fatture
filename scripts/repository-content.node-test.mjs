@@ -722,8 +722,30 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(workflow, /scripts\/prune-docker-images\.sh/);
   assert.match(
     workflow,
+    /deployments\/\$deployment\/statuses\?per_page=100.*any\(\.\[\]; \.state == "success"\)/s,
+  );
+  assert.doesNotMatch(
+    workflow,
+    /deployments\/\$deployment\/statuses\?per_page=1(?:["&])/,
+    "un deployment riuscito resta una baseline valida anche dopo lo stato inactive",
+  );
+  assert.match(
+    workflow,
     /if sudo test -f \/opt\/hub-fatture\/data\/operations\/rollback\.env; then sudo \/opt\/hub-fatture\/scripts\/prune-docker-images\.sh; fi/,
   );
+  assert.match(
+    workflow,
+    /name: Pubblica eventuali anomalie operative[\s\S]*monitor-local\.sh --report-only/,
+  );
+  assert.doesNotMatch(
+    workflow.match(
+      /name: Installa artefatti e distribuisci il digest[\s\S]*?(?=\n      - name:)/,
+    )?.[0] ?? "",
+    /sudo \/opt\/hub-fatture\/scripts\/monitor-local\.sh/,
+    "un allarme post-readback non deve trasformare il deploy verificato in un fallimento",
+  );
+  assert.match(monitor, /--report-only\) mode=report-only/);
+  assert.match(monitor, /\[ "\$mode" = report-only \] \|\| exit 1/);
   assert.ok(
     preDeployBackup >= 0 &&
       preDeployBackup < candidateDeploy &&
