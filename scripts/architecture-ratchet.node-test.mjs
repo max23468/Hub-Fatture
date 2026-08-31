@@ -30,6 +30,7 @@ const capabilitySizeCaps = new Map([
   ["app/components/settings/profile-settings-section.tsx", 8_000],
   ["app/components/settings/system-settings-section.tsx", 5_000],
   ["app/styles/foundation-shell.css", 21_000],
+  ["app/styles/motion.css", 12_000],
   ["app/styles/dashboard-orders.css", 17_000],
   ["app/styles/detail-workflows.css", 19_000],
   ["app/styles/settings.css", 12_000],
@@ -37,6 +38,7 @@ const capabilitySizeCaps = new Map([
   ["app/styles/customers-responsive.css", 41_000],
   ["tests/e2e/readiness/core.ts", 80_000],
   ["tests/e2e/readiness/interface.ts", 20_000],
+  ["tests/e2e/readiness/motion.ts", 8_000],
   ["tests/e2e/readiness/historical-credit-note-flow.ts", 11_000],
   ["tests/e2e/readiness/configured-aruba-api-ui.ts", 8_000],
   ["src/db/migrations-scenarios/legacy-upgrades.test.ts", 26_000],
@@ -68,6 +70,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
   const readinessFiles = [
     "tests/e2e/readiness/core.ts",
     "tests/e2e/readiness/interface.ts",
+    "tests/e2e/readiness/motion.ts",
     "tests/e2e/readiness/http.ts",
   ];
   const migrationFiles = [

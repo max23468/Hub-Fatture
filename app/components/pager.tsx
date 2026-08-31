@@ -24,13 +24,13 @@ export function Pager({
   return (
     <nav aria-label={copy.pager.label} className="pager">
       {page > 1 ? (
-        <Link className="button button--secondary" rel="prev" to={linkTo(page - 1)}>
+        <Link className="button button--secondary" rel="prev" to={linkTo(page - 1)} viewTransition>
           {copy.pager.previous}
         </Link>
       ) : null}
       <span>{copy.pager.current(page)}</span>
       {hasNext ? (
-        <Link className="button button--secondary" rel="next" to={linkTo(page + 1)}>
+        <Link className="button button--secondary" rel="next" to={linkTo(page + 1)} viewTransition>
           {copy.pager.next}
         </Link>
       ) : null}

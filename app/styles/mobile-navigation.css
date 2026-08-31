@@ -90,10 +90,10 @@
     opacity: 0;
     transform: translateX(-100%);
     transition:
-      display 180ms allow-discrete,
-      overlay 180ms allow-discrete,
-      opacity 150ms ease,
-      transform 180ms ease-out;
+      display var(--motion-duration-standard) allow-discrete,
+      overlay var(--motion-duration-standard) allow-discrete,
+      opacity var(--motion-duration-fast) var(--motion-ease-standard),
+      transform var(--motion-duration-standard) var(--motion-ease-emphasized);
   }
 
   .mobile-navigation[open] {
@@ -111,9 +111,9 @@
   .mobile-navigation::backdrop {
     opacity: 0;
     transition:
-      display 180ms allow-discrete,
-      overlay 180ms allow-discrete,
-      opacity 180ms ease;
+      display var(--motion-duration-standard) allow-discrete,
+      overlay var(--motion-duration-standard) allow-discrete,
+      opacity var(--motion-duration-standard) var(--motion-ease-standard);
   }
 
   .mobile-navigation[open]::backdrop {
@@ -133,9 +133,9 @@
 
   .mobile-navigation .nav-item {
     transition:
-      background-color 150ms ease,
-      color 150ms ease,
-      transform 150ms ease;
+      background-color var(--motion-duration-fast) var(--motion-ease-standard),
+      color var(--motion-duration-fast) var(--motion-ease-standard),
+      transform var(--motion-duration-fast) var(--motion-ease-emphasized);
   }
 
   .mobile-navigation .nav-item:active {

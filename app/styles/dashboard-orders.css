@@ -23,6 +23,9 @@
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   padding: var(--space-6);
+  transition:
+    background-color var(--motion-duration-standard) var(--motion-ease-standard),
+    border-color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .dashboard-panel h2,
@@ -141,11 +144,20 @@
   font-weight: 700;
   padding: 0.5rem 0.875rem;
   text-decoration: none;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-emphasized);
 }
 
 .dashboard-row-link:hover {
   border-color: var(--color-brand);
   background: var(--color-surface-muted);
+}
+
+.dashboard-row-link:active {
+  transform: translateY(1px) scale(0.99);
 }
 
 .status-lead {
@@ -192,6 +204,9 @@
   gap: var(--space-3);
   color: var(--color-text-muted);
   text-decoration: none;
+  transition:
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-emphasized);
 }
 
 .incident strong {
@@ -208,6 +223,10 @@
 
 .incident:hover span {
   color: var(--color-link);
+}
+
+.incident:hover {
+  transform: translateX(0.125rem);
 }
 
 .incident--warning {
@@ -240,6 +259,14 @@
   color: var(--color-text);
   padding: var(--space-2) var(--space-6) var(--space-2) 0;
   text-decoration: none;
+  transition:
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-emphasized);
+}
+
+.connection:hover {
+  color: var(--color-link);
+  transform: translateY(-0.125rem);
 }
 
 .connections-panel {
@@ -429,10 +456,23 @@
   border-left: 4px solid var(--color-success);
   background: var(--color-surface);
   padding: var(--space-3) var(--space-4);
+  animation: status-message-enter var(--motion-duration-standard) var(--motion-ease-emphasized) both;
 }
 
 .warning {
   border-left-color: var(--color-warning);
+}
+
+@keyframes status-message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .table-wrap {
@@ -440,6 +480,9 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
+  transition:
+    background-color var(--motion-duration-standard) var(--motion-ease-standard),
+    border-color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 table {
@@ -468,6 +511,9 @@ table {
   padding: 0;
   text-align: left;
   text-decoration: none;
+  transition:
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-emphasized);
 }
 
 .table-sort-button span {
@@ -480,6 +526,15 @@ table {
 
 .table-sort-button svg {
   flex: 0 0 auto;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-emphasized);
+}
+
+.table-sort-button:hover {
+  color: var(--color-link);
+}
+
+.table-sort-button:hover svg {
+  transform: translateY(-0.0625rem);
 }
 
 th[aria-sort="ascending"] .table-sort-button,
@@ -531,6 +586,14 @@ th {
 
 tbody tr:last-child td {
   border-bottom: 0;
+}
+
+.data-table tbody tr {
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.data-table tbody tr:hover {
+  background: var(--color-surface-muted);
 }
 
 .status {

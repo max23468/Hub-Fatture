@@ -117,7 +117,7 @@ export function DashboardConnections({ connections }: { connections: DashboardCo
       <div className="connection-list">
         {connections.map(
           ({ label, value, connected, state, never, to, icon: Icon, stale, connectionLabel }) => (
-            <Link className="connection" key={label} to={to}>
+            <Link className="connection" key={label} to={to} viewTransition>
               <span className="dashboard-icon dashboard-icon--neutral" aria-hidden="true">
                 <Icon size={22} strokeWidth={1.7} />
               </span>

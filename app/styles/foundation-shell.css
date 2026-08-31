@@ -916,9 +916,3 @@ select:hover {
     transform: rotate(360deg);
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .global-search__spinner {
-    animation: none;
-  }
-}
