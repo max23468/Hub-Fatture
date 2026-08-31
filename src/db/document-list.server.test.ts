@@ -68,6 +68,36 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
        JOIN customers ON customers.id = billing_cases.customer_id
        WHERE customers.match_key LIKE 'archive-customer-%'`,
     );
+    await database.getPool().query(
+      `WITH selected_customer AS (
+         UPDATE customers
+         SET email = 'archivio-univoco@example.invalid',
+             tax_id_normalized = 'RSSMRA80A01H501U'
+         WHERE id = (
+           SELECT id FROM customers WHERE match_key LIKE 'archive-customer-%' ORDER BY id LIMIT 1
+         )
+         RETURNING id
+       ), selected_case AS (
+         SELECT billing_cases.id, billing_cases.customer_id
+         FROM billing_cases JOIN selected_customer ON selected_customer.id = billing_cases.customer_id
+       ), selected_order AS (
+         INSERT INTO orders
+           (provider, external_account_id, external_order_id, display_number,
+            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+            payment_status, fulfillment_status, trigger_status, customer_id,
+            raw_snapshot_json, normalized_snapshot_json, billing_case_id)
+         SELECT 'SHOPIFY', 'archive-search', 'archive-external-order', '#ARCHIVIO-UNIVOCO',
+                now(), now(), '2026-01-01', 'EUR', 1000, 'PAID', 'FULFILLED', 'GROUPED',
+                customer_id, '{}', '{}', id
+         FROM selected_case
+         RETURNING id, billing_case_id
+       )
+       INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+       SELECT documents.id, documents.kind, selected_order.id, documents.total_amount
+       FROM selected_order
+       JOIN documents ON documents.billing_case_id = selected_order.billing_case_id
+       WHERE documents.kind = 'INVOICE'`,
+    );
 
     const approved = await database.getPool().query<{
       id: string;
@@ -180,6 +210,12 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
     assert.ok(invoices.rows.every((row) => row.kind === "INVOICE"));
     assert.equal((await documents.listDocuments({ kind: "CREDIT_NOTE" })).rows.length, 0);
     assert.equal((await documents.listDocuments({ query: "%_" })).rows.length, 1);
+    assert.equal(
+      (await documents.listDocuments({ query: "archivio-univoco@example.invalid" })).rows.length,
+      1,
+    );
+    assert.equal((await documents.listDocuments({ query: "RSSMRA80A01H501U" })).rows.length, 1);
+    assert.equal((await documents.listDocuments({ query: "#ARCHIVIO-UNIVOCO" })).rows.length, 1);
     assert.equal(
       (await documents.listDocuments({ dateFrom: "2026-01-07", dateTo: "2026-01-07" })).rows.length,
       1,

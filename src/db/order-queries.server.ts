@@ -406,17 +406,20 @@ export async function dashboardSummary() {
 
 /** Vista `Da gestire` di 13.8: cosa richiede un intervento e dove si interviene. */
 export async function listOpenActivities(
-  page?: unknown,
-  kind?: "CREDIT_NOTE",
-  sort: { key: OpenActivitySortKey; direction: SortDirection } = {
-    key: "aggiornamento",
-    direction: "desc",
-  },
+  filters: {
+    page?: unknown;
+    kind?: "CREDIT_NOTE";
+    query?: string;
+    sort?: { key: OpenActivitySortKey; direction: SortDirection };
+  } = {},
 ) {
+  const empty = { rows: [] as never[], hasNext: false, total: 0 };
+  if (containsNullByte(filters)) return empty;
+  const sort = filters.sort ?? { key: "aggiornamento" as const, direction: "desc" as const };
   const orderBy = openActivitySortSql[sort.key];
   const direction = sqlDirection(sort.direction);
   // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
-  // i valori della richiesta restano nei parametri $1-$2.
+  // i valori della richiesta restano nei parametri $1-$3.
   // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await getPool().query<{
     kind: string;
@@ -560,10 +563,33 @@ export async function listOpenActivities(
                 coalesce(identifier ->> 'value', identifier ->> 'normalizedValue')
        LIMIT 1
      ) AS customer_tax_id ON true
-     WHERE $2::text IS NULL OR activities.kind = $2
+     WHERE ($2::text IS NULL OR activities.kind = $2)
+       AND ($3::text IS NULL
+         OR activities.id ILIKE $3 ESCAPE '\\'
+         OR activities.reason ILIKE $3 ESCAPE '\\'
+         OR activities.case_number ILIKE $3 ESCAPE '\\'
+         OR activities.order_number ILIKE $3 ESCAPE '\\'
+         OR activities.customer_name ILIKE $3 ESCAPE '\\'
+         OR coalesce(invoice_customer.snapshot ->> 'displayName', '') ILIKE $3 ESCAPE '\\'
+         OR customer_tax_id.value ILIKE $3 ESCAPE '\\'
+         OR activities.error_code ILIKE $3 ESCAPE '\\'
+         OR CASE activities.reason
+              WHEN 'BILLING_CASE_REVIEW' THEN 'Preparazione da verificare'
+              WHEN 'HISTORY_RECONCILIATION' THEN 'Storico da riconciliare'
+              WHEN 'ARUBA_INVOICE_LINK' THEN 'Fattura Aruba da collegare'
+              WHEN 'ORDER_REVIEW' THEN 'Ordine da verificare'
+              WHEN 'REFUND_REVIEW' THEN 'Rimborso da verificare'
+              WHEN 'REFUND_JOB_FAILED' THEN 'Rimborso non elaborato'
+              WHEN 'CREDIT_NOTE_APPROVAL' THEN 'Nota di credito da approvare'
+              ELSE activities.reason
+            END ILIKE $3 ESCAPE '\\')
      ORDER BY ${orderBy} ${direction} NULLS LAST, activities.created_at DESC, activities.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $1`,
-    [pageOffset(page), kind ?? null],
+    [
+      pageOffset(filters.page),
+      filters.kind ?? null,
+      filters.query ? `%${escapeLike(filters.query)}%` : null,
+    ],
   );
   const total = result.rows[0]?.total_count ?? 0;
   const pageResult = paginate(result.rows);
@@ -584,7 +610,7 @@ export async function listAuditHistory(filters: {
   page?: unknown;
   sort?: { key: AuditHistorySortKey; direction: SortDirection };
 }) {
-  const empty = { rows: [] as never[], hasNext: false };
+  const empty = { rows: [] as never[], hasNext: false, total: 0 };
   if (containsNullByte(filters)) return empty;
   // L'allowlist copre ogni voce offerta dal filtro: un'azione ignota non deve valere "tutte".
   const action = auditActions.find((candidate) => candidate === filters.action) ?? null;
@@ -610,6 +636,7 @@ export async function listAuditHistory(filters: {
     reason: string | null;
     request_id: string;
     created_at: string;
+    total_count: number;
   }>(
     `SELECT audit_events.id, audit_events.action, audit_events.actor_id,
             audit_events.actor_type, users.username AS actor_username,
@@ -618,7 +645,8 @@ export async function listAuditHistory(filters: {
             coalesce(event_orders.display_number, event_refund_orders.display_number) AS order_number,
             event_cases.public_number AS case_number,
             event_refunds.order_id AS refund_order_id,
-            audit_events.request_id, audit_events.created_at
+            audit_events.request_id, audit_events.created_at,
+            count(*) OVER()::int AS total_count
      FROM audit_events
      LEFT JOIN users ON audit_events.actor_type = 'ADMIN'
        AND audit_events.actor_id ~ '^[0-9]+$'
@@ -643,5 +671,14 @@ export async function listAuditHistory(filters: {
      LIMIT ${PAGE_SIZE + 1} OFFSET $3`,
     [action, filters.query ? `%${escapeLike(filters.query)}%` : null, pageOffset(filters.page)],
   );
-  return paginate(result.rows);
+  const total = result.rows[0]?.total_count ?? 0;
+  const page = paginate(result.rows);
+  return {
+    rows: page.rows.map(({ total_count, ...row }) => {
+      void total_count;
+      return row;
+    }),
+    hasNext: page.hasNext,
+    total,
+  };
 }

@@ -1,4 +1,4 @@
-import { data, Link, redirect, useActionData, useLoaderData } from "react-router";
+import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/activity";
 
 import { AppShell } from "../components/app-shell";
@@ -52,9 +52,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     ["attivita", "elemento", "autore", "quando"] as const,
     { key: "quando" as AuditHistorySortKey, direction: "desc" },
   );
-  const [open, history, failedJobs, arubaAttention, privacyRequests] = await Promise.all([
+  const [open, history, rawFailedJobs, arubaAttention, rawPrivacyRequests] = await Promise.all([
     view === "gestire"
-      ? listOpenActivities(page, activityKind, openSort)
+      ? listOpenActivities({
+          page,
+          kind: activityKind,
+          query: query || undefined,
+          sort: openSort,
+        })
       : Promise.resolve(emptyPage),
     view === "cronologia"
       ? listAuditHistory({
@@ -66,10 +71,28 @@ export async function loader({ request }: Route.LoaderArgs) {
       : Promise.resolve(emptyPage),
     view === "gestire" && !activityKind ? actionableConnectorFailures() : Promise.resolve([]),
     view === "gestire" && !activityKind
-      ? listRemoteDocuments({ blockingOnly: true })
+      ? listRemoteDocuments({ blockingOnly: true, query: query || undefined })
       : Promise.resolve([]),
     view === "gestire" && !activityKind ? pendingShopifyDataRequests() : Promise.resolve([]),
   ]);
+  const normalizedQuery = query.trim().toLocaleLowerCase("it");
+  const includesQuery = (...values: Array<string | number | null | undefined>) =>
+    !normalizedQuery ||
+    values.some((value) =>
+      String(value ?? "")
+        .toLocaleLowerCase("it")
+        .includes(normalizedQuery),
+    );
+  const failedJobs = rawFailedJobs.filter((job) =>
+    includesQuery(job.id, job.type, job.errorCode, job.attempts),
+  );
+  const privacyRequests = rawPrivacyRequests.filter((privacyRequest) =>
+    includesQuery(
+      privacyRequest.externalEventId,
+      ...privacyRequest.customerIds,
+      ...privacyRequest.orderIds,
+    ),
+  );
   return {
     username: user.username,
     canApprove: user.canApprove,
@@ -179,6 +202,32 @@ export default function Activity() {
 
       {view === "gestire" ? (
         <>
+          <Form
+            aria-label={copy.activity.manageSearchLabel}
+            className="filters activity-filters section-gap"
+            method="get"
+            role="search"
+          >
+            {activityKind ? <input name="tipo" type="hidden" value="note-credito" /> : null}
+            <label>
+              {copy.activity.search}
+              <input
+                defaultValue={query}
+                name="q"
+                placeholder={copy.activity.manageSearchPlaceholder}
+              />
+            </label>
+            <span className="activity-filters__actions">
+              <button className="button button--secondary" type="submit">
+                {copy.activity.filter}
+              </button>
+              {query ? (
+                <Link to={activityKind ? "/attivita?tipo=note-credito" : "/attivita"}>
+                  {copy.activity.clearFilters}
+                </Link>
+              ) : null}
+            </span>
+          </Form>
           {activityKind ? (
             <p className="filter-summary section-gap">
               <span>{copy.activity.creditNotesFilter(open.total)}</span>

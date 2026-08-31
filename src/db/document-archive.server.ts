@@ -1,6 +1,7 @@
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { escapeLike, PAGE_SIZE, pageOffset, paginate } from "../orders.ts";
 import { getPool } from "./client.server.ts";
+import { documentArchiveSearchSql } from "./document-archive-search.server.ts";
 
 export interface DocumentListFilters {
   query?: string;
@@ -91,7 +92,8 @@ export async function listDocuments(filters: DocumentListFilters = {}) {
               OR public_number ILIKE $1 ESCAPE '\\'
               OR fiscal_number::text ILIKE $1 ESCAPE '\\'
               OR concat_ws(' ', series, lpad(fiscal_number::text, 4, '0'),
-                   right(fiscal_year::text, 2)) ILIKE $1 ESCAPE '\\')
+                   right(fiscal_year::text, 2)) ILIKE $1 ESCAPE '\\'
+              ${documentArchiveSearchSql})
        AND ($2::text IS NULL OR kind = $2)
        AND ($3::text IS NULL OR status = $3)
        AND ($4::text IS NULL OR aruba_status = $4

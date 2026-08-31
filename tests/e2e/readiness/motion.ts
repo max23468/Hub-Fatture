@@ -48,21 +48,29 @@ test("il sistema di movimento resta fluido, leggibile e riducibile", async ({ pa
   await page.setViewportSize({ width: 1280, height: 720 });
   const routeContent = page.locator(".route-content");
   await expect(routeContent).toBeVisible();
-  expect(
-    await routeContent.evaluate((element) =>
-      Number.parseFloat(getComputedStyle(element).animationDuration),
-    ),
-  ).toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      routeContent.evaluate((element) =>
+        getComputedStyle(element)
+          .animationDuration.split(",")
+          .some((duration) => Number.parseFloat(duration) > 0),
+      ),
+    )
+    .toBe(true);
 
   const searchTrigger = page.getByRole("button", { name: "Apri la ricerca globale" });
   const searchPanel = page.getByRole("dialog", { name: "Ricerca globale" });
   await searchTrigger.click();
   await expect(searchPanel).toHaveAttribute("data-state", "open");
-  expect(
-    await searchPanel.evaluate((element) =>
-      Number.parseFloat(getComputedStyle(element).animationDuration),
-    ),
-  ).toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      searchPanel.evaluate((element) =>
+        getComputedStyle(element)
+          .animationDuration.split(",")
+          .some((duration) => Number.parseFloat(duration) > 0),
+      ),
+    )
+    .toBe(true);
 
   await page.keyboard.press("Escape");
   await expect(searchPanel).toHaveAttribute("data-state", "closing");
