@@ -177,8 +177,11 @@ export const copy = {
     importedOrders: "Ordini importati",
     readyPreparations: "Preparazioni approvabili",
     controlsToResolve: "Controlli da risolvere",
-    controlsDetail: (blocking: number, important: number, ordinary: number) =>
-      `${blocking} bloccanti · ${important} importanti · ${ordinary} ordinari`,
+    controlsDetails: (blocking: number, important: number, ordinary: number) => [
+      `${blocking} bloccanti`,
+      `${important} importanti`,
+      `${ordinary} ordinari`,
+    ],
     openControls: "Apri controlli",
     noTechnicalErrors: "Nessun errore tecnico aperto",
     technicalErrors: (count: number) =>

@@ -538,6 +538,14 @@
     grid-row: 1;
   }
 
+  .work-item__details {
+    display: grid;
+  }
+
+  .work-item__details > span:not(:last-child)::after {
+    content: none;
+  }
+
   .work-item > a {
     grid-column: 2 / -1;
     grid-row: 2;

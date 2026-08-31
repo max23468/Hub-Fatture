@@ -81,7 +81,7 @@ export default function Home() {
     {
       value: controls.open,
       label: copy.dashboard.controlsToResolve,
-      detail: copy.dashboard.controlsDetail(
+      details: copy.dashboard.controlsDetails(
         controls.blocking,
         controls.important,
         controls.ordinary,
@@ -181,18 +181,32 @@ export default function Home() {
           {copy.dashboard.workNow}
         </h2>
         <div className="work-list">
-          {workItems.map(({ value, label, detail, to, action, icon: Icon, tone, primary }) => (
-            <div className="work-item" key={label}>
-              <span className={`dashboard-icon dashboard-icon--${tone}`} aria-hidden="true">
-                <Icon size={24} strokeWidth={1.8} />
+          {workItems.map((item) => (
+            <div className="work-item" key={item.label}>
+              <span className={`dashboard-icon dashboard-icon--${item.tone}`} aria-hidden="true">
+                <item.icon size={24} strokeWidth={1.8} />
               </span>
-              <strong className={`work-item__value work-item__value--${tone}`}>{value}</strong>
+              <strong className={`work-item__value work-item__value--${item.tone}`}>
+                {item.value}
+              </strong>
               <span className="work-item__copy">
-                <strong>{label}</strong>
-                <span>{detail}</span>
+                <strong>{item.label}</strong>
+                {"details" in item ? (
+                  <span className="work-item__details">
+                    {item.details.map((detail) => (
+                      <span key={detail}>{detail}</span>
+                    ))}
+                  </span>
+                ) : (
+                  <span>{item.detail}</span>
+                )}
               </span>
-              <Link className={primary ? "button" : "dashboard-row-link"} to={to} viewTransition>
-                <span>{action}</span>
+              <Link
+                className={item.primary ? "button" : "dashboard-row-link"}
+                to={item.to}
+                viewTransition
+              >
+                <span>{item.action}</span>
                 <ArrowRight aria-hidden="true" size={18} strokeWidth={1.8} />
               </Link>
             </div>
