@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.19
+
+- Nella sidebar desktop compressa l’icona di `Controlli` torna sulla stessa colonna delle altre destinazioni; il badge del conteggio è più piccolo e resta ancorato in basso a destra senza modificare l’allineamento della voce.
+
 ## 0.5.18
 
 - `Controlli` ricalcola le preparazioni e le anagrafiche sulle sole cause ancora azionabili, separa le anomalie concrete per totale, cliente, aggiornamento sorgente e fatturabilità e chiude i segnali generici o duplicati quando la fonte non richiede più un intervento, mantenendo bloccanti i casi Aruba incerti.
