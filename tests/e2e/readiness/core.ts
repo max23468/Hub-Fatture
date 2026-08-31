@@ -1149,16 +1149,39 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .toBeLessThanOrEqual(12);
   await expect(page.locator(".control-detail")).toContainText("gid://shopify/Customer/2001");
   await expect(page.locator(".control-detail")).toContainText("gid://shopify/Order/1001");
+  await expect(page.locator(".controls-queue")).toBeVisible();
+  expect(
+    await page
+      .locator(".controls-workspace")
+      .evaluate((workspace) => getComputedStyle(workspace).gridTemplateColumns.split(" ").length),
+  ).toBe(2);
   await page.setViewportSize({ width: 320, height: 780 });
+  const backToControls = page.getByRole("button", { name: "Torna ai controlli" });
+  await expect(backToControls).toBeVisible();
+  await expect(page.locator(".controls-queue")).toBeHidden();
+  await expect(page.locator("#control-detail-title")).toBeInViewport();
+  await backToControls.click();
+  await expect(page).toHaveURL(/\/controlli$/);
+  await expect(page.locator(".controls-queue")).toBeVisible();
+  await expect(page.locator(".control-detail")).toBeHidden();
   const preparationControl = page
     .locator(".control-row")
     .filter({ hasText: "Ordine aggiornato dopo la preparazione" });
   await preparationControl.scrollIntoViewIfNeeded();
   const mobileScrollBeforeSelection = await page.evaluate(() => window.scrollY);
+  // Il click DOM evita l'auto-scroll di Playwright: qui il contratto da verificare
+  // è la posizione che l'utente aveva prima di toccare una riga già visibile.
   await preparationControl.evaluate((row) => (row as HTMLElement).click());
-  await expect(page.locator(".control-row--selected")).toContainText(
+  await expect(page.locator(".controls-queue")).toBeHidden();
+  await expect(page.locator("#control-detail-title")).toHaveText(
     "Ordine aggiornato dopo la preparazione",
   );
+  await expect(page.locator("#control-detail-title")).toBeFocused();
+  await expect(page.locator("#control-detail-title")).toBeInViewport();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await backToControls.click();
+  await expect(page.locator(".controls-queue")).toBeVisible();
+  await expect(preparationControl).toBeFocused();
   await expect
     .poll(async () =>
       Math.abs((await page.evaluate(() => window.scrollY)) - mobileScrollBeforeSelection),
@@ -1170,11 +1193,27 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await mobilePrivacyControl.evaluate((row) => row.scrollIntoView({ block: "nearest" }));
   const mobileScrollBeforeReturn = await page.evaluate(() => window.scrollY);
   await mobilePrivacyControl.evaluate((row) => (row as HTMLElement).click());
+  await expect(page.locator(".controls-queue")).toBeHidden();
+  await expect(page.locator("#control-detail-title")).toBeFocused();
+  await backToControls.click();
+  await expect(mobilePrivacyControl).toBeFocused();
   await expect
     .poll(async () =>
       Math.abs((await page.evaluate(() => window.scrollY)) - mobileScrollBeforeReturn),
     )
     .toBeLessThanOrEqual(16);
+  await page.goto(
+    "/controlli?tipo=SHOPIFY_PRIVACY_REQUEST&id=SHOPIFY_PRIVACY%3Aprivacy-readiness-request",
+  );
+  await expect(page.locator(".controls-queue")).toBeHidden();
+  await expect(page.locator("#control-detail-title")).toHaveText(
+    "Richiesta dati cliente da completare",
+  );
+  await expect(page.locator("#control-detail-title")).toBeFocused();
+  await backToControls.click();
+  await expect(page).toHaveURL(/\/controlli\?tipo=SHOPIFY_PRIVACY_REQUEST$/);
+  await expect(page.locator(".controls-queue")).toBeVisible();
+  await expect(page.locator(".control-detail")).toBeHidden();
   const resolvedPreparationClient = new pg.Client({ connectionString: databaseUrl });
   await resolvedPreparationClient.connect();
   await resolvedPreparationClient.query(
