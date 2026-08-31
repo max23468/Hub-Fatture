@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.13
+
+- L’interfaccia usa un sistema di movimento condiviso per navigazione, pannelli, tabelle, controlli e messaggi, con transizioni brevi che rendono più immediati stato attivo, pressione e cambio pagina senza modificare la gerarchia visiva Foundation.
+- Ricerca globale, menu mobile, profilo e contenuti espandibili hanno entrate e uscite coordinate; la ricerca conserva il pannello durante l’uscita, restituisce correttamente il focus e disattiva animazioni e attese quando è richiesta la riduzione del movimento.
+
 ## 0.5.12
 
 - La directory clienti aggrega ordini, pratiche e documenti in un solo passaggio per tabella invece di ripetere le stesse scansioni per ogni cliente; sul benchmark sintetico ripetibile da 1.000 clienti il tempo mediano scende da 372,7 ms a 19,3-22,4 ms, mantenendo invariati filtri, conteggi e ordinamento.

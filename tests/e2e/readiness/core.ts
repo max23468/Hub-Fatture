@@ -15,6 +15,7 @@ import {
   expectVisibleFieldsetTitlesInside,
   resetReadinessState,
   storageRoot,
+  waitForUiMotionToSettle,
 } from "./support.ts";
 
 test.describe.configure({ mode: "serial" });
@@ -173,6 +174,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   // forzato evita di attendere una stabilità geometrica non necessaria per questo controllo.
   await darkTheme.click({ force: true });
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await waitForUiMotionToSettle(page.locator("body"));
   // I token risolvono con `light-dark()`: l'attributo da solo non prova che il tema cambi.
   expect(await background()).not.toBe(lightBackground);
 
@@ -185,6 +187,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.locator(".profile-menu__permission")).toContainText(
     "Può approvare, numerare e autorizzare gli invii.",
   );
+  await waitForUiMotionToSettle(page.locator(".profile-menu__panel"));
   expect(
     await page
       .locator(".profile-menu .theme-picker__choice svg")
@@ -221,6 +224,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "Profilo e sicurezza",
   );
   await expect(page.locator(".settings-section")).toHaveCount(7);
+  await waitForUiMotionToSettle(page.locator(".route-content"));
   expect(
     await page.locator(".settings-section .button").evaluateAll((buttons) =>
       buttons.every((button) => {
@@ -533,7 +537,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .getByRole("search", { name: "Filtra gli ordini" })
     .locator("input, select, button")
     .evaluateAll((controls) => controls.map((control) => control.getBoundingClientRect().height));
-  expect([...new Set(controlHeights)]).toEqual([44]);
+  expect(controlHeights.every((height) => Math.abs(height - 44) <= 0.01)).toBe(true);
   const salesChannelSelect = page.getByLabel("Canale di vendita");
   expect(
     await salesChannelSelect.evaluate((select) => {

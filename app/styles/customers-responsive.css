@@ -1936,35 +1936,3 @@
     text-align: left;
   }
 }
-
-@media (prefers-reduced-motion: no-preference) {
-  button,
-  input,
-  summary,
-  a {
-    transition:
-      background-color 150ms ease,
-      border-color 150ms ease,
-      color 150ms ease;
-  }
-}
-
-@media (min-width: 48.0625rem) and (prefers-reduced-motion: no-preference) {
-  .sidebar,
-  .app-main {
-    transition:
-      width 150ms ease,
-      margin-left 150ms ease,
-      padding 150ms ease;
-  }
-
-  .sidebar .brand-lockup {
-    transition: gap 150ms ease;
-  }
-
-  .sidebar .brand-lockup__name {
-    transition:
-      max-width 150ms ease,
-      opacity 100ms ease;
-  }
-}

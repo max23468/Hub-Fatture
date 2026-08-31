@@ -218,7 +218,7 @@ export default function Home() {
                   <strong>{label}</strong>
                   <span>{detail}</span>
                 </span>
-                <Link className={primary ? "button" : "dashboard-row-link"} to={to}>
+                <Link className={primary ? "button" : "dashboard-row-link"} to={to} viewTransition>
                   <span>{action}</span>
                   <ArrowRight aria-hidden="true" size={18} strokeWidth={1.8} />
                 </Link>
@@ -244,6 +244,7 @@ export default function Home() {
                 className={value > 0 ? "incident incident--warning" : "incident"}
                 key={to + emptyLabel}
                 to={to}
+                viewTransition
               >
                 <strong>{value}</strong>
                 <span>{value > 0 ? countLabel(value) : emptyLabel}</span>
@@ -263,11 +264,11 @@ export default function Home() {
         <div className="documents-summary">
           <h2 id="dashboard-documents-title">{copy.dashboard.documents}</h2>
           <div>
-            <Link to="/documenti">
+            <Link to="/documenti" viewTransition>
               <strong>{summary.documents_today}</strong>
               <span>{copy.dashboard.issuedToday}</span>
             </Link>
-            <Link to="/documenti">
+            <Link to="/documenti" viewTransition>
               <strong>{summary.documents_this_month}</strong>
               <span>{copy.dashboard.issuedThisMonth}</span>
             </Link>

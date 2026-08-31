@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 
@@ -23,6 +23,23 @@ export async function expectViewportFits(page: Page) {
       () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
     ),
   ).toBe(true);
+}
+
+export async function waitForUiMotionToSettle(locator: Locator) {
+  await locator.evaluate(async (element) => {
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    await Promise.all(
+      element.getAnimations({ subtree: true }).map(async (animation) => {
+        try {
+          await animation.finished;
+        } catch {
+          // Una transizione sostituita da un nuovo stato è già conclusa per la misura corrente.
+        }
+      }),
+    );
+  });
 }
 
 export async function expectVisibleFieldsetTitlesInside(page: Page) {

@@ -50,6 +50,7 @@ function NavigationLinks({ onNavigate }: { onNavigate?: () => void }) {
       key={to}
       onClick={onNavigate}
       to={to}
+      viewTransition
     >
       <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
       <span className="nav-item__label">{label}</span>
@@ -236,7 +237,9 @@ export function AppShell({
             </details>
           </div>
         </header>
-        {children}
+        <div className="route-content" key={`${location.pathname}${location.search}`}>
+          {children}
+        </div>
       </main>
     </div>
   );
