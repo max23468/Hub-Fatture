@@ -69,16 +69,25 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expectViewportFits(page);
   await page.getByRole("link", { name: "Torna alla dashboard" }).click();
   await page.setViewportSize({ width: 1280, height: 720 });
-  await expect(page.getByText("Note di credito da approvare")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Da fare ora" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Stato operativo" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Collegamenti" })).toBeVisible();
-  await expect(page.locator(".work-item")).toHaveCount(4);
+  await expect(page.locator(".work-item")).toHaveCount(3);
+  const dashboardActionBoxes = await page.locator(".work-item > a").evaluateAll((links) =>
+    links.map((link) => {
+      const box = link.getBoundingClientRect();
+      return { height: box.height, top: box.top };
+    }),
+  );
+  expect(
+    Math.max(...dashboardActionBoxes.map(({ top }) => top)) -
+      Math.min(...dashboardActionBoxes.map(({ top }) => top)),
+  ).toBeLessThanOrEqual(1);
+  expect(new Set(dashboardActionBoxes.map(({ height }) => height)).size).toBe(1);
   const dashboardDestinations = [
-    ["Preparazioni pronte", "/ordini?vista=fatturare", "Ordini"],
-    ["Da verificare", "/ordini?vista=verificare", "Ordini"],
+    ["Preparazioni approvabili", "/ordini?vista=fatturare", "Ordini"],
+    ["Controlli da risolvere", "/controlli", "Controlli"],
     ["Pagamenti in attesa", "/ordini?pagamento=PENDING", "Ordini"],
-    ["Note di credito da approvare", "/attivita?tipo=note-credito", "Attività"],
   ] as const;
   for (const [label, destination, heading] of dashboardDestinations) {
     const link = page.locator(".work-item").filter({ hasText: label }).getByRole("link");
@@ -96,8 +105,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "Documenti", exact: true }).click();
   await expect(page.getByRole("link", { name: "Vai agli ordini" })).toBeVisible();
   await page.getByRole("link", { name: "Attività", exact: true }).click();
-  await expect(page.getByRole("link", { name: "Apri la cronologia" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Controlla le connessioni" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Registro attività" })).toBeVisible();
   await page.getByRole("link", { name: "Dashboard", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   const skipLink = page.getByRole("link", {
@@ -183,9 +191,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(await background()).not.toBe(lightBackground);
   await page.getByLabel("Apri il menu di Massimo").click();
   await expect(page.locator(".profile-menu__identity")).toContainText("Massimo");
-  await expect(page.locator(".profile-menu__identity")).toContainText("Titolare");
+  await expect(page.locator(".profile-menu__identity")).toContainText("Amministratore");
   await expect(page.locator(".profile-menu__permission")).toContainText(
-    "Può approvare, numerare e autorizzare gli invii.",
+    "Può gestire, approvare, numerare e autorizzare gli invii.",
   );
   await waitForUiMotionToSettle(page.locator(".profile-menu__panel"));
   expect(
@@ -292,7 +300,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await denseSessionsClient.query(
     `INSERT INTO sessions (id_hash, user_id, csrf_token_hash, expires_at, created_at, last_seen_at)
      SELECT 'dense-session-' || value,
-            (SELECT id FROM users WHERE can_approve = true),
+            (SELECT id FROM users WHERE username = 'Massimo'),
             'synthetic-csrf-' || value,
             now() + interval '8 hours',
             now() - (value * interval '1 day'),
@@ -342,7 +350,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("button", { name: "Accedi" }).click();
   await page.getByLabel("Apri il menu di Codex").click();
   await expect(page.locator(".profile-menu__identity")).toContainText("Codex");
-  await expect(page.locator(".profile-menu__identity")).toContainText("Operatore");
+  await expect(page.locator(".profile-menu__identity")).toContainText("Amministratore");
+  await expect(page.locator(".profile-menu__permission")).toContainText(
+    "Può gestire, approvare, numerare e autorizzare gli invii.",
+  );
 
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("button", { name: "Carica ordini di esempio" }).click();
@@ -358,16 +369,22 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   });
   await page.getByLabel("Apri la ricerca globale").click();
   await expect(page.getByRole("dialog", { name: "Ricerca globale" })).toBeVisible();
-  await page.getByLabel("Cerca in ordini, documenti, clienti e attività").fill("Mario Rossi");
+  await page
+    .getByLabel("Cerca in ordini, documenti, clienti, controlli e cronologia")
+    .fill("Mario Rossi");
   const searchDialog = page.getByRole("dialog", { name: "Ricerca globale" });
   await expect(searchDialog.getByRole("heading", { name: "Ordini" })).toBeVisible();
   await expect(searchDialog.getByRole("heading", { name: "Clienti" })).toBeVisible();
   await expect.poll(() => searchRequests.length).toBe(1);
   await page.waitForTimeout(500);
   expect(searchRequests).toHaveLength(1);
-  await page.getByLabel("Cerca in ordini, documenti, clienti e attività").fill("000001");
+  await page
+    .getByLabel("Cerca in ordini, documenti, clienti, controlli e cronologia")
+    .fill("000001");
   await expect(searchDialog.getByRole("heading", { name: "Cronologia" })).toBeVisible();
-  await page.getByLabel("Cerca in ordini, documenti, clienti e attività").fill("Mario Rossi");
+  await page
+    .getByLabel("Cerca in ordini, documenti, clienti, controlli e cronologia")
+    .fill("Mario Rossi");
   await expect(page.getByRole("link", { name: /Mario Rossi/ }).last()).toBeVisible();
   await page
     .getByRole("link", { name: /Mario Rossi/ })
@@ -379,7 +396,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Ordini collegati" })).toBeVisible();
   await page.getByLabel("Apri la ricerca globale").click();
   await page
-    .getByLabel("Cerca in ordini, documenti, clienti e attività")
+    .getByLabel("Cerca in ordini, documenti, clienti, controlli e cronologia")
     .fill("nessun risultato possibile");
   await expect(page.getByText("Nessun risultato", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
@@ -492,9 +509,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     page.locator("#customer-orders-title").locator("xpath=ancestor::section").locator("li"),
   ).toHaveCount(2);
   await customerBackLink.click();
-  await page.getByRole("link", { name: "Da verificare", exact: true }).click();
-  await expect(customerRows).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Nessun cliente da verificare" })).toBeVisible();
+  await expect(page).toHaveURL(/\/clienti$/);
+  await expect(page.getByRole("heading", { name: "Clienti", exact: true })).toBeVisible();
+  await expect(customerRows).toHaveCount(2);
 
   await page.setViewportSize({ width: 320, height: 780 });
   const initialMobileMenuTrigger = page.getByRole("button", {
@@ -519,7 +536,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .toBe(true);
   await initialMobileMenuTrigger.click();
   await expect(initialMobileMenu).toBeVisible();
-  await expect(initialMobileMenu.getByRole("link")).toHaveCount(6);
+  await expect(initialMobileMenu.getByRole("link")).toHaveCount(7);
+  await expect(
+    initialMobileMenu.getByRole("link", { name: "Controlli", exact: true }),
+  ).toBeVisible();
   await expect(
     initialMobileMenu.getByRole("link", { name: "Attività", exact: true }),
   ).toBeVisible();
@@ -815,7 +835,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   await page.reload();
   await expect(arubaConnection).not.toContainText("Mai letto");
-  await expect(page.getByText("Aggiornamenti da completare", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 errore tecnico aperto", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".work-item").filter({ hasText: "Controlli da risolvere" }),
+  ).toContainText("1");
   await connectionClient.query(
     "DELETE FROM aruba_batches WHERE id = '00000000-0000-4000-8000-000000000073'",
   );
@@ -849,31 +872,33 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       return history.getBoundingClientRect().top - actions.getBoundingClientRect().bottom;
     }),
   ).toBeGreaterThanOrEqual(16);
-  expect(
-    await page.locator(".connection-panel").evaluateAll((panels) => {
-      const rects = panels.map((panel) => panel.getBoundingClientRect());
-      const alignedTops = [
-        "header",
-        ".connection-panel__facts",
-        ".connection-panel__actions",
-        ".connection-history",
-      ].every((selector) => {
-        const tops = panels.map(
-          (panel) => panel.querySelector(selector)!.getBoundingClientRect().top,
-        );
-        return Math.max(...tops) - Math.min(...tops) <= 1;
-      });
-      return {
-        alignedTops,
-        heightDelta:
-          Math.max(...rects.map(({ height }) => height)) -
-          Math.min(...rects.map(({ height }) => height)),
-        widthDelta:
-          Math.max(...rects.map(({ width }) => width)) -
-          Math.min(...rects.map(({ width }) => width)),
-      };
-    }),
-  ).toEqual({ alignedTops: true, heightDelta: 0, widthDelta: 0 });
+  await expect
+    .poll(() =>
+      page.locator(".connection-panel").evaluateAll((panels) => {
+        const rects = panels.map((panel) => panel.getBoundingClientRect());
+        const alignedTops = [
+          "header",
+          ".connection-panel__facts",
+          ".connection-panel__actions",
+          ".connection-history",
+        ].every((selector) => {
+          const tops = panels.map(
+            (panel) => panel.querySelector(selector)!.getBoundingClientRect().top,
+          );
+          return Math.max(...tops) - Math.min(...tops) <= 1;
+        });
+        return {
+          alignedTops,
+          heightDelta:
+            Math.max(...rects.map(({ height }) => height)) -
+            Math.min(...rects.map(({ height }) => height)),
+          widthDelta:
+            Math.max(...rects.map(({ width }) => width)) -
+            Math.min(...rects.map(({ width }) => width)),
+        };
+      }),
+    )
+    .toEqual({ alignedTops: true, heightDelta: 0, widthDelta: 0 });
   await page.getByLabel("Prepara la fattura").selectOption("FULFILLED");
   await page.getByRole("button", { name: "Salva regola di preparazione fattura" }).click();
   await expect(page.getByRole("status")).toContainText("Impostazione aggiornata");
@@ -1019,134 +1044,114 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     ["a".repeat(64)],
   );
   await privacyClient.end();
-  await page.getByRole("link", { name: "Attività" }).click();
-  await expect(page.locator(".activity-overview")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Richieste dati Shopify" })).toBeVisible();
-  await expect(page.locator(".activity-overview")).toContainText("Richieste privacy");
-  await expect(page.locator(".activity-list")).toContainText("privacy-readiness-request");
-  await expect(page.locator(".activity-list")).toContainText("gid://shopify/Customer/2001");
-  await expect(page.locator(".activity-list")).toContainText("gid://shopify/Order/1001");
+  await page.getByRole("link", { name: "Controlli" }).click();
+  await expect(page.getByRole("heading", { name: "Controlli", exact: true })).toBeVisible();
+  await expect(page.locator(".controls-queue")).toContainText("Richiesta dati cliente");
+  const controlsOverviewLayout = await page.locator(".controls-overview").evaluate((overview) => {
+    const navigation = overview.querySelector<HTMLElement>(".view-nav")!;
+    const summary = overview.querySelector<HTMLElement>(".controls-severity-summary")!;
+    const introduction = document.querySelector<HTMLElement>(".controls-title p:last-child")!;
+    const lastSummaryItem = summary.lastElementChild as HTMLElement;
+    const navigationBox = navigation.getBoundingClientRect();
+    const summaryBox = summary.getBoundingClientRect();
+    return {
+      compactSummary:
+        Math.abs(summaryBox.right - lastSummaryItem.getBoundingClientRect().right) <= 1,
+      aligned:
+        Math.abs(
+          navigationBox.top + navigationBox.height / 2 - (summaryBox.top + summaryBox.height / 2),
+        ) <= 1,
+      introductionGap:
+        Math.min(navigationBox.top, summaryBox.top) - introduction.getBoundingClientRect().bottom,
+      matchingHeight: Math.abs(navigationBox.height - summaryBox.height) <= 1,
+      sameRow: navigationBox.right + 12 <= summaryBox.left,
+      summaryHeight: summaryBox.height,
+    };
+  });
+  expect(controlsOverviewLayout).toMatchObject({
+    compactSummary: true,
+    aligned: true,
+    introductionGap: expect.any(Number),
+    matchingHeight: true,
+    sameRow: true,
+  });
+  expect(controlsOverviewLayout.summaryHeight).toBeCloseTo(44, 3);
+  expect(controlsOverviewLayout.introductionGap).toBeGreaterThanOrEqual(12);
+  const selectedControlDecoration = await page
+    .locator(".control-row--selected")
+    .evaluate((row) => ({
+      leadingDecoration: getComputedStyle(row, "::before").content,
+      selectionShadow: getComputedStyle(row).boxShadow,
+    }));
+  expect(selectedControlDecoration).toEqual({
+    leadingDecoration: "none",
+    selectionShadow: "none",
+  });
+  const filtersButtonFits = await page
+    .locator(".controls-filters button")
+    .evaluate((applyFilters) => applyFilters.scrollWidth <= applyFilters.clientWidth);
+  expect(filtersButtonFits).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, 260));
+  const privacyControl = page.locator(".control-row").filter({ hasText: "Richiesta dati cliente" });
+  await privacyControl.scrollIntoViewIfNeeded();
+  const controlsScrollBeforeSelection = await page.evaluate(() => window.scrollY);
+  await privacyControl.click();
+  await expect
+    .poll(async () =>
+      Math.abs((await page.evaluate(() => window.scrollY)) - controlsScrollBeforeSelection),
+    )
+    .toBeLessThanOrEqual(12);
+  await expect(page.locator(".control-detail")).toContainText("gid://shopify/Customer/2001");
+  await expect(page.locator(".control-detail")).toContainText("gid://shopify/Order/1001");
+  await page.setViewportSize({ width: 320, height: 780 });
+  const preparationControl = page
+    .locator(".control-row")
+    .filter({ hasText: "Dati della preparazione da verificare" });
+  await preparationControl.scrollIntoViewIfNeeded();
+  const mobileScrollBeforeSelection = await page.evaluate(() => window.scrollY);
+  await preparationControl.evaluate((row) => (row as HTMLElement).click());
+  await expect(page.locator(".control-row--selected")).toContainText(
+    "Dati della preparazione da verificare",
+  );
+  await expect
+    .poll(async () =>
+      Math.abs((await page.evaluate(() => window.scrollY)) - mobileScrollBeforeSelection),
+    )
+    .toBeLessThanOrEqual(16);
+  const mobilePrivacyControl = page
+    .locator(".control-row")
+    .filter({ hasText: "Richiesta dati cliente" });
+  await mobilePrivacyControl.evaluate((row) => row.scrollIntoView({ block: "nearest" }));
+  const mobileScrollBeforeReturn = await page.evaluate(() => window.scrollY);
+  await mobilePrivacyControl.evaluate((row) => (row as HTMLElement).click());
+  await expect
+    .poll(async () =>
+      Math.abs((await page.evaluate(() => window.scrollY)) - mobileScrollBeforeReturn),
+    )
+    .toBeLessThanOrEqual(16);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page
     .getByRole("checkbox", {
       name: "Confermo di avere evaso la richiesta privacy",
     })
     .check();
-  await page.getByRole("button", { name: "Segna come completata" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "Richiesta privacy registrata come completata",
-  );
-  await expect(page.getByRole("heading", { name: "Richieste dati Shopify" })).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "Verifiche su ordini e documenti" }),
-  ).toBeVisible();
-  await expect(page.locator(".activity-table thead")).toContainText("Cliente");
-  await expect(page.locator(".activity-table thead")).toContainText("Identificativo fiscale");
-  await expect(page.locator(".activity-table thead")).toContainText("Canale / tipo");
-  await expect(page.locator(".activity-table thead")).toContainText("Data ordine");
-  await expect(page.locator(".activity-table thead")).toContainText("Ultimo aggiornamento");
-  await expect(page.getByRole("link", { name: /^Preparazione \d{6}$/ })).toBeVisible();
-  await expect(page.locator('td[data-label="Identificativo fiscale"]')).toContainText(
-    "Non disponibile",
-  );
-  await page.setViewportSize({ width: 900, height: 800 });
-  await expect(page.locator(".activity-table thead")).toHaveCSS("position", "static");
-  await expect(page.locator(".activity-table tbody tr").first()).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
+  await page.getByRole("button", { name: "Conferma completamento" }).click();
+  await expect(page.getByRole("status")).toContainText("Azione completata");
+  await expect(page.locator(".controls-queue")).not.toContainText("Richiesta dati cliente");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator(".activity-table tbody tr").first()).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
-  expect(
-    await page
-      .locator('td[data-label="Identificativo fiscale"]')
-      .first()
-      .evaluate((cell) => {
-        const value = cell.querySelector("strong");
-        return value ? value.getBoundingClientRect().left - cell.getBoundingClientRect().left : 0;
-      }),
-  ).toBeGreaterThanOrEqual(150);
-  expect(
-    await page
-      .locator(".activity-table tbody tr")
-      .first()
-      .evaluate((row) => row.getBoundingClientRect().height),
-  ).toBeLessThan(380);
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await expect(page.locator(".activity-table thead")).toHaveCSS("position", "static");
-  expect(
-    await page
-      .locator(".activity-table .table-sort-button span")
-      .evaluateAll((labels) =>
-        labels.every(
-          (label) =>
-            getComputedStyle(label).textOverflow === "clip" &&
-            label.scrollWidth <= label.clientWidth,
-        ),
-      ),
-  ).toBe(true);
-  const firstActivityRow = page.locator(".activity-table tbody tr").first();
-  expect(
-    await firstActivityRow.evaluate((row) => {
-      const variableValues = row.querySelectorAll<HTMLElement>(
-        "td:first-child a, td:nth-child(2) strong, td:nth-child(4) strong",
-      );
-      const identifier = row.querySelector<HTMLElement>("td:nth-child(3) strong");
-      const action = row.querySelector<HTMLElement>(".activity-table__action a");
-      return {
-        actionFits: action ? action.scrollWidth <= action.clientWidth : false,
-        identifierFits: identifier ? identifier.scrollWidth <= identifier.clientWidth : false,
-        variableValuesUseAtMostTwoLines: Array.from(variableValues).every(
-          (value) =>
-            value.getBoundingClientRect().height <=
-            Number.parseFloat(getComputedStyle(value).lineHeight) * 2 + 1,
-        ),
-      };
-    }),
-  ).toEqual({
-    actionFits: true,
-    identifierFits: true,
-    variableValuesUseAtMostTwoLines: true,
-  });
-  expect(
-    await page
-      .locator(".activity-table__action")
-      .first()
-      .evaluate((cell) => {
-        const button = cell.querySelector(".dashboard-row-link");
-        if (!button) return 0;
-        return cell.getBoundingClientRect().right - button.getBoundingClientRect().right;
-      }),
-  ).toBeGreaterThanOrEqual(12);
-  const activityActionSpacing = await firstActivityRow
-    .locator(".activity-table__action .dashboard-row-link")
-    .evaluate((action) => {
-      const label = action.querySelector<HTMLElement>("span");
-      const icon = action.querySelector<SVGElement>("svg");
-      if (!label || !icon) return null;
-      const actionBox = action.getBoundingClientRect();
-      return {
-        left: label.getBoundingClientRect().left - actionBox.left,
-        right: actionBox.right - icon.getBoundingClientRect().right,
-      };
-    });
-  expect(activityActionSpacing).not.toBeNull();
-  expect(Math.abs(activityActionSpacing!.left - activityActionSpacing!.right)).toBeLessThanOrEqual(
-    2,
-  );
-  await page.getByRole("link", { name: "Cronologia" }).click();
+  await expectViewportFits(page);
+  await page.getByRole("button", { name: "Apri il menu di navigazione" }).click();
+  await page
+    .getByRole("dialog", { name: "Navigazione principale" })
+    .getByRole("link", { name: "Attività", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { name: "Registro attività" })).toBeVisible();
   await page.getByLabel("Tipo di attività").selectOption("CUSTOMER_CORRECTED");
   await page.getByRole("button", { name: "Filtra" }).click();
   // Il filtro applica davvero l'azione scelta e l'audit distingue i due account.
   await expect(page.getByRole("row")).toHaveCount(2);
   await expect(page.getByRole("cell", { name: "Anagrafica cliente corretta" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Codex", exact: true })).toBeVisible();
+  await expect(page.locator('td[data-label="Autore"]')).toHaveText(/Codex$/);
   await expect(page.getByRole("link", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText(/^Motivo: Dati confermati dal cliente$/)).toBeVisible();
 
@@ -1206,7 +1211,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toBeLessThanOrEqual(320);
 
   await mobileMenuTrigger.click();
-  await expect(mobileMenu.getByRole("link")).toHaveCount(6);
+  await expect(mobileMenu.getByRole("link")).toHaveCount(7);
   await mobileMenu.getByRole("link", { name: "Impostazioni", exact: true }).click();
   const sectionPicker = page.getByLabel("Vai alla sezione");
   await expect(sectionPicker).toBeVisible();
@@ -1221,7 +1226,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByLabel("Apri il menu di Codex").click();
   await page.locator(".profile-menu").getByRole("button", { name: "Esci" }).click();
-  await page.getByLabel("Nome utente").fill("MASSIMO");
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByLabel("Nome utente", { exact: true }).fill("MASSIMO");
   await page.getByLabel("Password").fill("password-massimo");
   await page.getByRole("button", { name: "Accedi" }).click();
   const preparationLayoutClient = new pg.Client({

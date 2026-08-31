@@ -97,7 +97,7 @@ function DocumentFilters({
   filters: DocumentFiltersValue;
   view: string;
 }) {
-  const hasImplicitTransmission = ["da-trasmettere", "da-riconciliare"].includes(view);
+  const hasImplicitTransmission = view === "da-trasmettere";
   const activeFilters = [
     filters.query,
     view === "tutti" ? filters.kind : "",

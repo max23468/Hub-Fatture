@@ -130,7 +130,7 @@ export function ConnectionsSettingsSection({
                 {connection?.lastErrorCode ? (
                   <p className="error">
                     {copy.settings.connectionError(connection.lastErrorCode)}{" "}
-                    <a href="/attivita">{copy.settings.openActivities}</a>
+                    <a href="/controlli?origine=CONNECTIONS">{copy.settings.openControls}</a>
                   </p>
                 ) : null}
               </div>

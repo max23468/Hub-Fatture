@@ -5,7 +5,7 @@ import { PAGE_SIZE } from "../orders.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 
-test("i documenti Aruba da collegare sono ricercabili e paginati senza il limite di 200", async () => {
+test("l’inventario Aruba è ricercabile e paginato senza creare controlli per i documenti esterni", async () => {
   const clean = await temporaryDatabase("aruba_documents_search");
   process.env.APP_ENV = "test";
   process.env.APP_BASE_URL = "http://localhost:8080";
@@ -35,8 +35,8 @@ test("i documenti Aruba da collegare sono ricercabili e paginati senza il limite
     );
 
     const inventory = await import("./aruba-inventory-queries.server.ts");
-    const firstPage = await inventory.listRemoteDocumentsPage({ attentionOnly: true });
-    const secondPage = await inventory.listRemoteDocumentsPage({ attentionOnly: true, page: 2 });
+    const firstPage = await inventory.listRemoteDocumentsPage();
+    const secondPage = await inventory.listRemoteDocumentsPage({ page: 2 });
     assert.equal(firstPage.rows.length, PAGE_SIZE);
     assert.equal(firstPage.hasNext, true);
     assert.equal(firstPage.total, PAGE_SIZE + 7);
@@ -48,15 +48,20 @@ test("i documenti Aruba da collegare sono ricercabili e paginati senza il limite
     );
 
     const byRemoteId = await inventory.listRemoteDocumentsPage({
-      attentionOnly: true,
       query: "documento-remoto-057",
     });
     assert.equal(byRemoteId.total, 1);
     assert.equal(byRemoteId.rows[0]?.remote_id, "documento-remoto-057");
-    assert.deepEqual(
-      await inventory.listRemoteDocumentsPage({ attentionOnly: true, query: "%_" }),
-      { rows: [], hasNext: false, total: 0 },
-    );
+    assert.deepEqual(await inventory.listRemoteDocumentsPage({ query: "%_" }), {
+      rows: [],
+      hasNext: false,
+      total: 0,
+    });
+    assert.deepEqual(await inventory.listRemoteDocumentsPage({ attentionOnly: true }), {
+      rows: [],
+      hasNext: false,
+      total: 0,
+    });
   } finally {
     await database.closePool();
     await clean.drop();

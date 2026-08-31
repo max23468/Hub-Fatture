@@ -7,7 +7,7 @@ const resultKeys = [
   "invoices",
   "creditNotes",
   "customers",
-  "activities",
+  "controls",
   "history",
   "remoteDocuments",
 ] as const;

@@ -1,451 +1,13 @@
-import { ArrowRight, CircleAlert, Clock3, RefreshCw, ShieldCheck } from "lucide-react";
+import { Clock3 } from "lucide-react";
 import { Form, Link } from "react-router";
 
-import { auditActionLabel, auditActionLabels, copy } from "../copy.it";
-import { compactDate, compactDateTime, dateTime, isoDateTime } from "../format";
 import { SortableHeaderLink } from "./sortable-table";
+import { auditActionLabel, auditActionLabels, copy } from "../copy.it";
+import { dateTime, isoDateTime } from "../format";
 import type { SortState } from "../table-sort";
+import type { AuditHistorySortKey, listAuditHistory } from "../../src/db/order-queries.server.ts";
 
-type OpenActivitySortKey =
-  | "elemento"
-  | "cliente"
-  | "identificativo"
-  | "tipo"
-  | "data"
-  | "aggiornamento";
-type AuditHistorySortKey = "attivita" | "elemento" | "autore" | "quando";
-
-interface OpenActivity {
-  kind: string;
-  id: string;
-  reason: string;
-  case_number: string | null;
-  order_number: string | null;
-  provider: string | null;
-  customer_name: string | null;
-  customer_tax_id: string | null;
-  error_code: string | null;
-  order_date: string | null;
-  href: string;
-  created_at: string;
-}
-
-interface OpenActivityPage {
-  rows: OpenActivity[];
-  hasNext: boolean;
-  total: number;
-}
-
-interface FailedJob {
-  id: string;
-  type: string;
-  attempts: number;
-  errorCode: string | null;
-  failedAt: string;
-}
-
-interface PrivacyDataRequest {
-  externalEventId: string;
-  receivedAt: string;
-  customerIds: string[];
-  orderIds: string[];
-}
-
-interface HistoryEvent {
-  id: string;
-  action: string;
-  actor_type: string;
-  actor_username: string | null;
-  entity_type: string;
-  entity_id: string | null;
-  order_provider: string | null;
-  order_number: string | null;
-  case_number: string | null;
-  refund_order_id: string | null;
-  reason: string | null;
-  created_at: string;
-}
-
-function ActivityOverview({
-  failedJobs,
-  open,
-  privacyRequests,
-}: {
-  failedJobs: number;
-  open: OpenActivityPage;
-  privacyRequests: number;
-}) {
-  const total = open.total + failedJobs + privacyRequests;
-  return (
-    <section
-      className="dashboard-panel activity-overview section-gap"
-      aria-label={copy.activity.overviewLabel}
-    >
-      <div className="activity-overview__lead">
-        <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
-          <CircleAlert size={24} strokeWidth={1.9} />
-        </span>
-        <span>
-          <strong>{copy.activity.attentionCount(total)}</strong>
-          <span>{copy.activity.attentionHelp}</span>
-        </span>
-      </div>
-      <dl className="activity-overview__counts">
-        <div>
-          <dt>{copy.activity.reviewsCount}</dt>
-          <dd>{open.total}</dd>
-        </div>
-        <div>
-          <dt>{copy.activity.failedJobsCount}</dt>
-          <dd>{failedJobs}</dd>
-        </div>
-        <div>
-          <dt>{copy.activity.privacyRequestsCount}</dt>
-          <dd>{privacyRequests}</dd>
-        </div>
-      </dl>
-    </section>
-  );
-}
-
-function PrivacyDataRequestsPanel({
-  csrfToken,
-  requests,
-}: {
-  csrfToken: string;
-  requests: PrivacyDataRequest[];
-}) {
-  if (!requests.length) return null;
-  return (
-    <section className="dashboard-panel activity-panel" aria-labelledby="activity-privacy-title">
-      <header className="activity-panel__header">
-        <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
-          <ShieldCheck size={22} strokeWidth={1.8} />
-        </span>
-        <span>
-          <h2 id="activity-privacy-title">{copy.activity.privacyRequestsTitle}</h2>
-          <p>{copy.activity.privacyRequestsHelp}</p>
-        </span>
-        <strong className="activity-panel__count">{requests.length}</strong>
-      </header>
-      <ul className="activity-list">
-        {requests.map((privacyRequest) => (
-          <li className="activity-row" key={privacyRequest.externalEventId}>
-            <span className="activity-row__main">
-              <small className="activity-row__reason">{copy.activity.privacyRequestsTitle}</small>
-              <strong>{copy.activity.privacyRequestTitle}</strong>
-              <span className="activity-row__context">
-                {copy.activity.privacyRequestIdentifier}: {privacyRequest.externalEventId}
-              </span>
-            </span>
-            <span className="activity-row__facts">
-              <span>
-                <small>{copy.activity.privacyRequestReceivedAt}</small>
-                <time dateTime={isoDateTime(privacyRequest.receivedAt)}>
-                  {dateTime(privacyRequest.receivedAt)}
-                </time>
-              </span>
-              <span>
-                <small>{copy.activity.privacyRequestCustomers}</small>
-                <strong>
-                  {privacyRequest.customerIds.join(", ") || copy.activity.privacyRequestNoCustomers}
-                </strong>
-              </span>
-              <span>
-                <small>{copy.activity.privacyRequestOrders}</small>
-                <strong>
-                  {privacyRequest.orderIds.join(", ") || copy.activity.privacyRequestNoOrders}
-                </strong>
-              </span>
-            </span>
-            <Form method="post">
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="complete-shopify-data-request" />
-              <input type="hidden" name="externalEventId" value={privacyRequest.externalEventId} />
-              <label>
-                <input type="checkbox" name="privacyHandled" value="confirmed" required />{" "}
-                {copy.activity.privacyRequestConfirmation}
-              </label>
-              <button className="button button--secondary" type="submit">
-                {copy.activity.completePrivacyRequest}
-              </button>
-            </Form>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function ReviewActivitiesPanel({
-  open,
-  sort,
-}: {
-  open: OpenActivityPage;
-  sort: SortState<OpenActivitySortKey>;
-}) {
-  if (!open.rows.length) return null;
-  return (
-    <section className="dashboard-panel activity-panel" aria-labelledby="activity-review-title">
-      <header className="activity-panel__header">
-        <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
-          <CircleAlert size={22} strokeWidth={1.8} />
-        </span>
-        <span>
-          <h2 id="activity-review-title">{copy.activity.reviewTitle}</h2>
-          <p>{copy.activity.reviewHelp}</p>
-        </span>
-        <strong className="activity-panel__count">{open.total}</strong>
-      </header>
-      <div className="table-wrap activity-table-wrap">
-        <table className="activity-table data-table">
-          <colgroup>
-            <col className="activity-table__item-column" />
-            <col className="activity-table__customer-column" />
-            <col className="activity-table__tax-id-column" />
-            <col className="activity-table__channel-column" />
-            <col className="activity-table__order-date-column" />
-            <col className="activity-table__updated-column" />
-            <col className="activity-table__action-column" />
-          </colgroup>
-          <thead>
-            <tr>
-              <SortableHeaderLink
-                directionParam="gestisciDirezione"
-                keyParam="gestisciOrdina"
-                label={copy.activity.item}
-                sort={sort}
-                sortKey="elemento"
-              />
-              <SortableHeaderLink
-                directionParam="gestisciDirezione"
-                keyParam="gestisciOrdina"
-                label={copy.activity.customer}
-                sort={sort}
-                sortKey="cliente"
-              />
-              <SortableHeaderLink
-                directionParam="gestisciDirezione"
-                keyParam="gestisciOrdina"
-                label={copy.activity.taxIdentifier}
-                sort={sort}
-                sortKey="identificativo"
-              />
-              <SortableHeaderLink
-                directionParam="gestisciDirezione"
-                keyParam="gestisciOrdina"
-                label={copy.activity.channelOrType}
-                sort={sort}
-                sortKey="tipo"
-              />
-              <SortableHeaderLink
-                directionParam="gestisciDirezione"
-                keyParam="gestisciOrdina"
-                label={copy.activity.orderDate}
-                sort={sort}
-                sortKey="data"
-              />
-              <SortableHeaderLink
-                directionParam="gestisciDirezione"
-                keyParam="gestisciOrdina"
-                label={copy.activity.lastUpdated}
-                sort={sort}
-                sortKey="aggiornamento"
-              />
-              <th>
-                <span className="activity-table__action-label">{copy.activity.actions}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {open.rows.map((activity) => {
-              const provider =
-                activity.provider === "SHOPIFY"
-                  ? "Shopify"
-                  : activity.provider === "EBAY"
-                    ? "eBay"
-                    : null;
-              const subject =
-                activity.kind === "CREDIT_NOTE"
-                  ? copy.activity.creditNoteKind
-                  : activity.case_number
-                    ? copy.activity.preparationShort(activity.case_number)
-                    : activity.kind === "REFUND" || activity.kind === "REFUND_JOB"
-                      ? copy.activity.refund(provider ?? "—", activity.order_number ?? activity.id)
-                      : copy.activity.order(provider ?? "—", activity.order_number ?? activity.id);
-              const context =
-                activity.reason === "HISTORY_RECONCILIATION" ||
-                activity.reason === "ARUBA_INVOICE_LINK" ||
-                activity.reason === "REFUND_JOB_FAILED"
-                  ? copy.activity.openActivityReasons[activity.reason]
-                  : null;
-              const channelOrType = activity.error_code
-                ? copy.activity.errorDetail(activity.error_code)
-                : activity.kind === "CREDIT_NOTE"
-                  ? copy.activity.creditNoteKind
-                  : (provider ?? copy.activity.preparationKind);
-              return (
-                <tr key={`${activity.kind}:${activity.id}`}>
-                  <td data-label={copy.activity.item}>
-                    <span className="activity-row__main">
-                      <Link to={activity.href}>{subject}</Link>
-                      {context ? <small className="activity-row__context">{context}</small> : null}
-                    </span>
-                  </td>
-                  <td data-label={copy.activity.customer}>
-                    <strong
-                      className="activity-table__truncate"
-                      title={activity.customer_name ?? copy.activity.customerToVerify}
-                    >
-                      {activity.customer_name ?? copy.activity.customerToVerify}
-                    </strong>
-                  </td>
-                  <td data-label={copy.activity.taxIdentifier}>
-                    <strong
-                      className="activity-table__truncate"
-                      title={activity.customer_tax_id ?? copy.common.unavailable}
-                    >
-                      {activity.customer_tax_id ?? copy.common.unavailable}
-                    </strong>
-                  </td>
-                  <td
-                    data-label={
-                      activity.error_code ? copy.activity.error : copy.activity.channelOrType
-                    }
-                  >
-                    <strong className="activity-table__truncate" title={channelOrType}>
-                      {channelOrType}
-                    </strong>
-                  </td>
-                  <td data-label={copy.activity.orderDate}>
-                    {activity.order_date ? (
-                      <time dateTime={activity.order_date}>{compactDate(activity.order_date)}</time>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td data-label={copy.activity.lastUpdated}>
-                    <time dateTime={isoDateTime(activity.created_at)}>
-                      {compactDateTime(activity.created_at)}
-                    </time>
-                  </td>
-                  <td data-label={copy.activity.actions} className="activity-table__action">
-                    <Link className="dashboard-row-link" to={activity.href}>
-                      <span>{copy.activity.openItem}</span>
-                      <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
-                    </Link>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function FailedJobsPanel({ csrfToken, jobs }: { csrfToken: string; jobs: FailedJob[] }) {
-  if (!jobs.length) return null;
-  return (
-    <section className="dashboard-panel activity-panel" aria-labelledby="activity-jobs-title">
-      <header className="activity-panel__header">
-        <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
-          <RefreshCw size={22} strokeWidth={1.8} />
-        </span>
-        <span>
-          <h2 id="activity-jobs-title">{copy.activity.failedJobsTitle}</h2>
-          <p>{copy.activity.failedJobsHelp}</p>
-        </span>
-        <strong className="activity-panel__count">{jobs.length}</strong>
-      </header>
-      <ul className="activity-list">
-        {jobs.map((job) => (
-          <li className="activity-row" key={job.id}>
-            <span className="activity-row__main">
-              <small className="activity-row__reason">{copy.activity.failedJobsTitle}</small>
-              <strong>{copy.activity.failedJobTitle(job.type)}</strong>
-            </span>
-            <span className="activity-row__facts">
-              <span>
-                <small>{copy.activity.error}</small>
-                <strong>{copy.activity.errorDetail(job.errorCode)}</strong>
-              </span>
-              <span>
-                <small>{copy.activity.attempts}</small>
-                <strong>{job.attempts}</strong>
-              </span>
-              <span>
-                <small>{copy.activity.failedAt}</small>
-                <time dateTime={isoDateTime(job.failedAt)}>{dateTime(job.failedAt)}</time>
-              </span>
-            </span>
-            <Form method="post">
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="retry-connector-job" />
-              <input type="hidden" name="jobId" value={job.id} />
-              <button className="button button--secondary" type="submit">
-                {copy.activity.retryJob}
-              </button>
-            </Form>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function ActivityEmpty() {
-  return (
-    <section className="dashboard-panel activity-empty section-gap">
-      <span className="dashboard-icon dashboard-icon--success" aria-hidden="true">
-        <ShieldCheck size={24} strokeWidth={1.9} />
-      </span>
-      <span>
-        <h2>{copy.activity.nothingToManage}</h2>
-        <p>{copy.activity.nothingToManageHelp}</p>
-      </span>
-      <div className="empty-state__actions">
-        <Link className="button button--secondary" to="/attivita?vista=cronologia">
-          {copy.activity.openHistory}
-        </Link>
-        <Link className="button button--secondary" to="/impostazioni#connessioni">
-          {copy.activity.openConnections}
-        </Link>
-      </div>
-    </section>
-  );
-}
-
-export function ManageActivityView({
-  csrfToken,
-  failedJobs,
-  open,
-  privacyRequests,
-  sort,
-}: {
-  csrfToken: string;
-  failedJobs: FailedJob[];
-  open: OpenActivityPage;
-  privacyRequests: PrivacyDataRequest[];
-  sort: SortState<OpenActivitySortKey>;
-}) {
-  if (!open.total && !failedJobs.length && !privacyRequests.length) return <ActivityEmpty />;
-  return (
-    <>
-      <ActivityOverview
-        failedJobs={failedJobs.length}
-        open={open}
-        privacyRequests={privacyRequests.length}
-      />
-      <div className="activity-stack">
-        <ReviewActivitiesPanel open={open} sort={sort} />
-        <FailedJobsPanel csrfToken={csrfToken} jobs={failedJobs} />
-        <PrivacyDataRequestsPanel csrfToken={csrfToken} requests={privacyRequests} />
-      </div>
-    </>
-  );
-}
+type HistoryEvent = Awaited<ReturnType<typeof listAuditHistory>>["rows"][number];
 
 function HistorySubject({ event }: { event: HistoryEvent }) {
   if (event.entity_type === "BILLING_CASE" && event.entity_id && event.case_number) {
@@ -514,7 +76,6 @@ export function ActivityHistoryView({
         role="search"
         aria-label={copy.activity.searchLabel}
       >
-        <input type="hidden" name="vista" value="cronologia" />
         <label>
           {copy.activity.search}
           <input name="q" defaultValue={query} placeholder={copy.activity.searchPlaceholder} />
@@ -535,7 +96,7 @@ export function ActivityHistoryView({
             {copy.activity.filter}
           </button>
           {hasFilters ? (
-            <Link className="dashboard-row-link" to="/attivita?vista=cronologia">
+            <Link className="dashboard-row-link" to="/attivita">
               {copy.activity.clearFilters}
             </Link>
           ) : null}
@@ -553,29 +114,29 @@ export function ActivityHistoryView({
             <thead>
               <tr>
                 <SortableHeaderLink
-                  directionParam="cronologiaDirezione"
-                  keyParam="cronologiaOrdina"
+                  directionParam="direzione"
+                  keyParam="ordina"
                   label={copy.activity.activity}
                   sort={sort}
                   sortKey="attivita"
                 />
                 <SortableHeaderLink
-                  directionParam="cronologiaDirezione"
-                  keyParam="cronologiaOrdina"
+                  directionParam="direzione"
+                  keyParam="ordina"
                   label={copy.activity.subject}
                   sort={sort}
                   sortKey="elemento"
                 />
                 <SortableHeaderLink
-                  directionParam="cronologiaDirezione"
-                  keyParam="cronologiaOrdina"
+                  directionParam="direzione"
+                  keyParam="ordina"
                   label={copy.activity.author}
                   sort={sort}
                   sortKey="autore"
                 />
                 <SortableHeaderLink
-                  directionParam="cronologiaDirezione"
-                  keyParam="cronologiaOrdina"
+                  directionParam="direzione"
+                  keyParam="ordina"
                   label={copy.activity.when}
                   sort={sort}
                   sortKey="quando"

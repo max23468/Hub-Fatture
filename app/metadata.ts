@@ -17,6 +17,7 @@ const pages = {
   creditNote: { title: copy.creditNote.title, description: copy.creditNote.approvalHelp },
   customers: { title: copy.customers.title, description: copy.customers.intro },
   customer: { title: "Cliente", description: copy.customers.currentRecordHelp },
+  controls: { title: copy.controls.title, description: copy.controls.intro },
   activity: { title: copy.activity.title, description: copy.activity.intro },
   settings: { title: copy.settings.title, description: copy.settings.intro },
   notFound: { title: copy.error.notFound, description: copy.error.notFoundHelp },

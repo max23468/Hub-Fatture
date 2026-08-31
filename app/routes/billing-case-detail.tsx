@@ -913,7 +913,7 @@ export default function BillingCaseDetail() {
                 {code === "ARUBA_POTENTIAL_MATCH" ? (
                   <Link
                     className="button button--secondary preparation-check__action"
-                    to={`/documenti?vista=da-collegare&preparazione=${billingCase.id}`}
+                    to="/controlli?origine=DOCUMENTS"
                   >
                     {copy.preparation.openArubaCandidates}
                   </Link>

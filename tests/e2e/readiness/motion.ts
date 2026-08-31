@@ -22,7 +22,8 @@ test("il sistema di movimento resta fluido, leggibile e riducibile", async ({ pa
   const menu = page.getByRole("dialog", { name: "Navigazione principale" });
   await trigger.click();
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole("link")).toHaveCount(6);
+  await expect(menu.getByRole("link")).toHaveCount(7);
+  await expect(menu.getByRole("link", { name: "Controlli", exact: true })).toBeVisible();
   await expect(menu.getByRole("link", { name: "Dashboard", exact: true })).toHaveAttribute(
     "aria-current",
     "page",

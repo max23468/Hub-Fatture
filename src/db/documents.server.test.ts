@@ -1194,13 +1194,10 @@ test(
         database.getPool().query("UPDATE documents SET total_amount = total_amount + 1"),
         /immutabile/,
       );
-      await assert.rejects(
-        database
-          .getPool()
-          .query(
-            "INSERT INTO users (username, password_hash, can_approve) VALUES ('Codex', 'x', true)",
-          ),
-        /users_approval_identity_check/,
+      assert.ok(
+        (
+          await database.getPool().query<{ can_approve: boolean }>("SELECT can_approve FROM users")
+        ).rows.every((user) => user.can_approve),
       );
       const directOrder = structuredClone(fixture[0]);
       directOrder.externalOrderId = "shop-order-documents-direct-approval";

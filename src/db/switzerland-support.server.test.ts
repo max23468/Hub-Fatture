@@ -10,6 +10,7 @@ import {
   temporaryDatabase,
   withClient,
   SWITZERLAND_CUSTOMER_SUPPORT,
+  OPERATIONAL_CONTROLS,
 } from "./migrations-scenarios/support.ts";
 
 test("l'upgrade abilita i clienti svizzeri e riprende il canale bloccato", async () => {
@@ -20,6 +21,7 @@ test("l'upgrade abilita i clienti svizzeri e riprende il canale bloccato", async
   try {
     await cp("migrations", beforeSupport, { recursive: true });
     await rm(path.join(beforeSupport, SWITZERLAND_CUSTOMER_SUPPORT));
+    await rm(path.join(beforeSupport, OPERATIONAL_CONTROLS));
     await runMigrations({ connectionString: database.connectionString, directory: beforeSupport });
     await withClient(database.connectionString, async (client) => {
       await client.query(
@@ -46,6 +48,7 @@ test("l'upgrade abilita i clienti svizzeri e riprende il canale bloccato", async
 
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       SWITZERLAND_CUSTOMER_SUPPORT,
+      OPERATIONAL_CONTROLS,
     ]);
     await withClient(database.connectionString, async (client) => {
       const inserted = await client.query(

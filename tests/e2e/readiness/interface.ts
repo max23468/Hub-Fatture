@@ -82,12 +82,15 @@ test("titoli e metadati identificano le pagine senza renderle indicizzabili", as
   await page.getByRole("button", { name: "Accedi" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+  await expect(page).toHaveTitle("Dashboard · Hub Fatture");
+  await expect(page.locator('meta[name="description"]')).toHaveCount(1);
+  await page.waitForLoadState("networkidle");
 
   const pages = [
-    ["/", "Dashboard · Hub Fatture"],
     ["/ordini", "Ordini · Hub Fatture"],
     ["/documenti", "Documenti · Hub Fatture"],
     ["/clienti", "Clienti · Hub Fatture"],
+    ["/controlli", "Controlli · Hub Fatture"],
     ["/attivita", "Attività · Hub Fatture"],
     ["/impostazioni", "Impostazioni · Hub Fatture"],
   ] as const;

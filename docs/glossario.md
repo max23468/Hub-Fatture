@@ -11,7 +11,7 @@
 | Dati ricevuti                      | source snapshot               | Informazioni originali ricevute da Shopify o eBay                                        | dati sorgente                               |
 | Dati usati da Hub Fatture          | normalized snapshot           | Informazioni rese coerenti e usate per preparare la fattura                              | dati normalizzati                           |
 | Bozza                              | `draft`                       | Documento modificabile e non numerato                                                    | fattura emessa                              |
-| Approvazione                       | `approval`                    | Conferma fiscale esplicita di Massimo riferita al documento esatto                       | approvazione automatica, invio              |
+| Approvazione                       | `approval`                    | Conferma fiscale esplicita di un amministratore riferita al documento esatto             | approvazione automatica, invio              |
 | Numerazione                        | `numbering`                   | Assegnazione irreversibile del numero fiscale verificato                                 | salvataggio                                 |
 | Trasmissione                       | `submission`                  | Operazione che consegna ad Aruba un documento già approvato                              | approvazione, validazione                   |
 | Crea solo il documento             | modalità di trasmissione      | L’approvazione crea e numera il documento; la trasmissione richiede un’azione successiva | assistita                                   |

@@ -51,8 +51,16 @@ test(
        ORDER BY customers.id LIMIT 1`,
         )
       ).rows[0];
+      await database
+        .getPool()
+        .query("UPDATE customers SET review_required = true WHERE id = $1", [customer.id]);
       const byName = await search.searchGlobal(customer.display_name);
       assert.ok(byName.customers.some((item) => item.id === String(customer.id)));
+      assert.ok(
+        byName.controls.some(
+          (item) => item.href === `/controlli?id=CUSTOMER_IDENTITY%3A${customer.id}`,
+        ),
+      );
       const byEmail = await search.searchGlobal(customer.email);
       assert.ok(byEmail.customers.some((item) => item.id === String(customer.id)));
       const byTaxId = await search.searchGlobal(customer.tax_id);
@@ -218,7 +226,7 @@ test(
       ).rows[0];
       const byActivity = await search.searchGlobal(activityCase.public_number);
       assert.ok(
-        byActivity.activities.some((item) => item.caseNumber === activityCase.public_number),
+        byActivity.controls.some((item) => item.detail.includes(activityCase.public_number)),
       );
 
       await database.getPool().query(
@@ -243,7 +251,7 @@ test(
       );
       const byRemoteDocument = await search.searchGlobal("ricerca-remota-univoca");
       assert.equal(byRemoteDocument.remoteDocuments.length, 1);
-      assert.match(byRemoteDocument.remoteDocuments[0]!.href, /vista=da-collegare/);
+      assert.match(byRemoteDocument.remoteDocuments[0]!.href, /vista=inventario-aruba/);
 
       await database.getPool().query(
         `INSERT INTO customers

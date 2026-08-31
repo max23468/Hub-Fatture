@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.17
+
+- La nuova sezione `Controlli` concentra in una sola coda canonica conflitti, duplicati e riconciliazioni che richiedono una decisione: ogni elemento espone gravità, causa, conseguenza, evidenze e azione diretta, mentre Dashboard, ricerca globale e pagine di dominio rimandano allo stesso controllo senza creare conteggi concorrenti.
+- La Dashboard distingue il lavoro da svolgere dallo stato tecnico, allinea preparazioni approvabili, controlli da risolvere e pagamenti in attesa e mantiene il riepilogo operativo leggibile anche nel viewport mobile, senza sovrapposizioni o bordi di gravità invasivi.
+- La ricerca globale conserva la copertura completa introdotta nelle versioni precedenti ma instrada i problemi azionabili soltanto in `Controlli`; l’inventario Aruba resta neutro, ricercabile e paginato, e le risposte incompatibili durante un deploy degradano a un errore controllato.
+- I gate PostgreSQL ed end-to-end usano un database sintetico distinto per worktree e serializzano le esecuzioni dello stesso checkout, eliminando i reset di schema causati da suite concorrenti e trasformando le cadute della connessione in errori diagnostici espliciti.
+
 ## 0.5.16
 
 - Le schede già aperte durante un deploy continuano a ricevere il campo fatture atteso dal bundle precedente, evitando che una ricerca trasformi la pagina in un errore.

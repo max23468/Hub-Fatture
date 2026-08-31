@@ -318,19 +318,19 @@ test("la migrazione rende canonici e case-insensitive i due account", async () =
       assert.deepEqual(
         (await client.query("SELECT username, can_approve FROM users ORDER BY username")).rows,
         [
-          { username: "Codex", can_approve: false },
+          { username: "Codex", can_approve: true },
           { username: "Massimo", can_approve: true },
         ],
       );
       await assert.rejects(
-        client.query("UPDATE users SET can_approve = true WHERE username = 'Codex'"),
+        client.query("UPDATE users SET can_approve = false WHERE username = 'Codex'"),
         /users_approval_identity_check/,
       );
       await client.query("BEGIN");
       await client.query("ALTER TABLE users DROP CONSTRAINT users_username_canonical_check");
       await assert.rejects(
         client.query(
-          "INSERT INTO users (username, password_hash, can_approve) VALUES ('MASSIMO', 'x', false)",
+          "INSERT INTO users (username, password_hash, can_approve) VALUES ('MASSIMO', 'x', true)",
         ),
         /users_username_case_insensitive_idx/,
       );

@@ -218,7 +218,7 @@ e quando un rimborso di prova produce correttamente:
 - Account Aruba Base collegato mediante delega a un account Aruba abilitato ai Web Services; API
   v2 documentate come canale primario del solo ciclo attivo dopo i gate tecnici previsti. L'accordo
   forfettario per circa 500 fatture per mese solare comprende l'uso API pianificato.
-- Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive e identità canoniche di audit distinte; le sole transizioni fiscali irreversibili restano riservate a `Massimo`.
+- Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive, identità canoniche di audit distinte e pari capacità operative, incluse le transizioni fiscali irreversibili.
 - Ordini Shopify ed eBay, senza inserimento manuale di vendite.
 - Beni fisici spediti esclusivamente da un magazzino in Italia.
 - Vendite in Italia, negli altri Paesi UE e in Svizzera.
@@ -233,7 +233,7 @@ e quando un rimborso di prova produce correttamente:
 - Copia leggibile della fattura via e-mail.
 - Comparatore fiscale visuale prima dell'approvazione di fatture e note di credito.
 - Sincronizzazione di notifiche ed esiti.
-- Inventario in sola lettura di fatture e TD04 presenti in Aruba, inclusi i documenti nati fuori da HF, con riconciliazione continuativa e coda `Documenti → Da collegare`.
+- Inventario in sola lettura di fatture e TD04 presenti in Aruba, inclusi i documenti nati fuori da HF, con riconciliazione continuativa; l'inventario resta in `Documenti`, mentre ogni decisione necessaria confluisce nella coda canonica `Controlli`.
 - I documenti nati fuori da Shopify ed eBay restano soltanto nell’inventario Aruba per prevenire doppie emissioni: se non presentano né un riferimento ordine esplicito né un match locale compatibile non diventano ordini, fatture da gestire o verifiche bloccanti.
 - Sincronizzazione API automatica ogni 15 minuti, inventario iniziale dal 1° luglio 2026 e
   comando read-only `Sincronizza ora`.
@@ -296,7 +296,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Area | Decisione | Motivazione |
 |---|---|---|
 | Modello operativo | Pannello web autonomo | Shopify, eBay e Aruba hanno pari importanza; l'app non deve dipendere dall'Admin Shopify |
-| Utenza | Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive; approvazione e numerazione riservate a `Massimo` | È un'app privata e non servono ruoli, registrazione o onboarding; l'unico privilegio distinto è quello che rende irreversibile un documento fiscale |
+| Utenza | Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive e pari capacità operative | È un'app privata e non servono ruoli, registrazione o onboarding; le identità restano distinte nell'audit, non nelle autorizzazioni |
 | Hosting | VPS OCI Ampere A1 | È già disponibile, gratuita entro i limiti e compatibile con Node/PostgreSQL |
 | Hostname | Dynu | Hostname gratuito stabile senza acquisto di dominio |
 | HTTPS | Caddy | Configurazione e rinnovo certificati semplici |
@@ -1053,7 +1053,7 @@ La preparazione TD01 non offre fallback o override Aruba specifici. Se lo stato 
 
 Per la sincronizzazione in entrata, “completo” comprende anche la sostituzione verificabile di una scansione fallita. HF apre una sessione guidata sulla stessa finestra e presenta gli stream obbligatori per anno/tipo, il limite temporale, i precedenti non terminali e gli errori da risolvere. Il titolare percorre manualmente in Aruba tutte le pagine di ogni stream e acquisisce in HF ogni riga con i metadati canonici dell’inventario, oppure importa un export ufficiale completo dell’intero stream; registra inoltre filtri, ordinali, conteggi, estremi tecnici e pagina terminale e importa i file ufficiali necessari per documenti nuovi, cambiati, candidati o incompleti. Il server verifica che tutte le righe attese siano presenti una sola volta e rifiuta buchi, duplicati, stream mancanti, conteggi/estremi incoerenti ed errori documentali o stati incerti ancora aperti. Quantità, estremi o attestazioni senza il contenuto integrale delle righe non completano il readback.
 
-La ricevuta può essere finalizzata soltanto da `Massimo` con `can_approve`, perché rende di nuovo possibili approvazione e numerazione. La finalizzazione marca l'inventario completo con provenienza `MANUAL` e chiude l'errore operativo sostituito senza cancellare la sessione automatica fallita; non è un override di collisioni, parsing/file invalidi, match possibili o ambigui, conflitti di profilo o stati remoti incerti. Conservare finestra, copertura, conteggi sanitizzati, hash dei file, autore e timestamp, mai dati cliente duplicati nella ricevuta.
+La ricevuta può essere finalizzata soltanto da uno dei due account amministrativi con `can_approve`, perché rende di nuovo possibili approvazione e numerazione. La finalizzazione marca l'inventario completo con provenienza `MANUAL` e chiude l'errore operativo sostituito senza cancellare la sessione automatica fallita; non è un override di collisioni, parsing/file invalidi, match possibili o ambigui, conflitti di profilo o stati remoti incerti. Conservare finestra, copertura, conteggi sanitizzati, hash dei file, autore e timestamp, mai dati cliente duplicati nella ricevuta.
 
 ---
 
@@ -1249,49 +1249,43 @@ Interfaccia esclusivamente italiana. Codice, API, tabelle e nomi tecnici restano
 2. Ordini
 3. Documenti
 4. Clienti
-5. Attività
-6. Impostazioni
+5. Controlli
+6. Attività
+7. Impostazioni
 
 La navigazione resta a un solo livello. Una destinazione compare soltanto quando dispone di una superficie utilizzabile; le funzioni future non producono voci o contenitori vuoti. Le code e le prospettive sullo stesso oggetto sono viste interne, non nuove destinazioni.
 
-La ricerca globale copre ordini, fatture, note di credito, clienti, attività da gestire, cronologia e documenti Aruba da collegare. Ogni gruppo mostra un’anteprima limitata con il conteggio completo e, quando necessario, porta alla vista canonica già filtrata e paginata: il limite dell’anteprima non deve rendere irraggiungibili altri risultati.
+La ricerca globale copre ordini, fatture, note di credito, clienti, controlli, cronologia e inventario Aruba. Ogni gruppo mostra un’anteprima limitata con il conteggio completo e, quando necessario, porta alla vista canonica già filtrata e paginata: il limite dell’anteprima non deve rendere irraggiungibili altri risultati. I problemi azionabili compaiono soltanto nel gruppo `Controlli`; la cronologia e l’inventario Aruba restano superfici informative, non code concorrenti.
 
-- `Ordini`: Tutti, Da fatturare, Da verificare, In attesa e Annullati.
-- `Documenti`: Tutti, Fatture, Note di credito e viste per stato di trasmissione.
-- `Attività`: Da gestire e Cronologia; richieste privacy e job falliti restano azioni operative, non impostazioni.
+- `Ordini`: Tutti, Da fatturare, In attesa e Annullati; le anomalie contestuali possono essere indicate nella riga o nel dettaglio, ma non formano una coda concorrente.
+- `Documenti`: Tutti, Fatture, Note di credito, Da trasmettere e Inventario Aruba; l'inventario è neutro e rimanda al relativo controllo quando serve una decisione.
+- `Clienti`: elenco e dettaglio dell'anagrafica; le identità da verificare compaiono in `Controlli`, non in una vista dedicata.
+- `Controlli`: unica coda delle decisioni e dei problemi azionabili, con viste `Da risolvere` e `In attesa`.
+- `Attività`: sola cronologia immutabile delle operazioni concluse o registrate.
 - `Impostazioni`: pagina unica con navigazione interna a Profilo e sicurezza, Fatturazione, Profilo fiscale, Connessioni, Aruba, E-mail al cliente e Sistema.
 
 Il menu rapido del profilo mostra identità, capacità operative, tema e uscita. Il collegamento `Profilo e sicurezza` porta alla relativa sezione di `Impostazioni`, che ripropone lo stesso riepilogo prima dei controlli completi dell’account.
 
 Su desktop la sidebar fissa può essere compressa dall'utente mantenendo visibili marchio, icone e destinazione attiva. I nomi restano accessibili e disponibili su hover o focus, la preferenza viene conservata nel browser e non esiste espansione automatica al passaggio del mouse. Al primo accesso parte aperta da 1024 px e compressa fra 769 e 1023 px; la scelta esplicita dell'utente prevale sul default responsive.
 
-Su mobile la barra inferiore non viene mostrata. Un pulsante menu allineato a sinistra nell’intestazione apre un cassetto modale laterale con tutte e sei le destinazioni, ciascuna completa di icona ed etichetta. Il cassetto evidenzia la destinazione attiva, si chiude dopo la selezione, con il pulsante dedicato o tramite `Esc`, trattiene il focus mentre è aperto e impedisce l’interazione con il contenuto sottostante. Entrata, uscita, fondale e feedback dei controlli usano animazioni brevi e coerenti con la sidebar desktop; la preferenza di riduzione del movimento le disattiva.
+Su mobile la barra inferiore non viene mostrata. Un pulsante menu allineato a sinistra nell’intestazione apre un cassetto modale laterale con tutte e sette le destinazioni, ciascuna completa di icona ed etichetta. Il cassetto evidenzia la destinazione attiva, si chiude dopo la selezione, con il pulsante dedicato o tramite `Esc`, trattiene il focus mentre è aperto e impedisce l’interazione con il contenuto sottostante. Entrata, uscita, fondale e feedback dei controlli usano animazioni brevi e coerenti con la sidebar desktop; la preferenza di riduzione del movimento le disattiva.
 
 ### 13.2 Dashboard
 
-Mostrare:
+La Dashboard non è una seconda coda. Mostra soltanto tre metriche principali, basate sugli stessi predicati delle pagine di destinazione: preparazioni realmente approvabili, controlli aperti da risolvere e pagamenti pendenti. Il conteggio `Controlli` è unico e apre la coda canonica.
 
-- preparazioni pronte da approvare;
-- da verificare;
-- pagamenti pendenti;
-- note di credito da approvare;
-- upload falliti;
-- scarti SdI;
-- errori di sincronizzazione;
-- stato dei collegamenti Shopify, eBay e Aruba con i rispettivi riferimenti temporali; nel riquadro
-  `Collegamenti` Aruba combina connessione e salute tecnica della sincronizzazione, segnalando
-  pausa, esecuzione, mancato aggiornamento o errore; i documenti acquisiti da riconciliare non
-  cambiano questo stato e appartengono al riquadro operativo;
-- per Shopify ed eBay, un errore di importazione mantiene visibile il collegamento autenticato e
-  segnala separatamente la sincronizzazione non riuscita;
-- stato dell'inventario Aruba, documenti da collegare o ambigui e azione `Sincronizza Aruba ora`; `Mai letto`, un readback bloccante o uno stato remoto incerto impediscono il riepilogo `Tutto sotto controllo`;
-- documenti emessi oggi/mese.
+Il box `Stato operativo` riassume lo stato tecnico automatico e usa tre domini: `Acquisizione dati`, `Elaborazioni` e `Generazione documenti`. Non mostra ultimo o prossimo controllo. Il box `Collegamenti` sottostante conserva il dettaglio di Shopify, eBay e Aruba, compresa la freschezza; il riepilogo superiore non introduce un quarto dominio `Servizi esterni`. Restano visibili i documenti emessi oggi/mese e il grafico degli ultimi sette giorni.
 
-Nessuna e-mail operativa nella 1.x: gli avvisi critici devono essere evidenti qui.
+Per Shopify ed eBay, un errore di importazione mantiene visibile il collegamento autenticato e
+segnala separatamente la sincronizzazione non riuscita.
+
+Nel riquadro `Collegamenti`, Aruba combina connessione e salute tecnica della sincronizzazione,
+segnalando pausa, esecuzione, mancato aggiornamento o errore. I documenti acquisiti da
+riconciliare non cambiano questo stato e appartengono alla coda `Controlli`.
 
 ### 13.3 Ordini
 
-- Viste Tutti, Da fatturare, Da verificare, In attesa e Annullati.
+- Viste Tutti, Da fatturare, In attesa e Annullati.
 - Filtri per piattaforma, stato, data, trigger, pagamento.
 - Ricerca per ID ordine, cliente, e-mail, codice fiscale/P.IVA.
 - Vista del dato originale e normalizzato.
@@ -1307,17 +1301,17 @@ Nessuna e-mail operativa nella 1.x: gli avvisi critici devono essere evidenti qu
 
 La sezione espone l’anagrafica corrente riconciliata dai canali senza sostituire gli snapshot storici di ordini, preparazioni o documenti.
 
-- Viste `Tutti` e `Da verificare`.
+- Vista unica ricercabile e filtrabile; nessuna coda `Da verificare` locale.
 - Ricerca per nome, e-mail, telefono, codice fiscale, partita IVA o riferimento cliente del canale.
 - Elenco con tipo cliente, e-mail, identificativo fiscale senza etichettarne il tipo, canali collegati, ultimo ordine e conteggi operativi; quando assente mostra uno stato neutro.
 - Dettaglio con anagrafica corrente, origine Shopify/eBay, ordini, preparazioni fattura e documenti collegati.
 - Le correzioni fiscali continuano ad avvenire nella Preparazione fattura: valgono per il relativo documento, restano auditate e non riscrivono ordini già importati o dati del provider.
 
-Una stessa identità fiscale riconciliata fra Shopify ed eBay compare una sola volta; un’identità ambigua resta separata e visibile in `Da verificare`. La pagina non introduce modifica massiva, propagazione verso i provider o cancellazione dei dati.
+Una stessa identità fiscale riconciliata fra Shopify ed eBay compare una sola volta; un’identità ambigua resta separata nell'elenco e produce un controllo canonico con causa, conseguenza e collegamento al cliente. La pagina non introduce modifica massiva, propagazione verso i provider o cancellazione dei dati.
 
 ### 13.5 Preparazione fattura
 
-È la pagina di lavoro aperta dalle viste Da fatturare e Da verificare di Ordini. Non è una destinazione della navigazione principale e il nome tecnico `billing_case` non compare nel frontend.
+È la pagina di lavoro aperta da Ordini o dal controllo collegato. Non è una destinazione della navigazione principale e il nome tecnico `billing_case` non compare nel frontend.
 
 - Riepilogo con stato, cliente, data, ordini, totale e anomalie.
 - Timeline e audit.
@@ -1362,15 +1356,13 @@ Azioni:
 
 Il pulsante `Approva fattura` è la conferma esplicita dell'azione descritta nel riepilogo finale: non aggiungere una checkbox generica che ripeta lo stesso consenso. Restano obbligatorie e distinte le sole conferme eccezionali, per pagamento pendente o differenza d'importo motivata.
 
-Il server blocca approvazione e numerazione se l'inventario Aruba non è mai stato completato, ha più di quattro ore o presenta un conflitto o stato incerto rilevante; dopo 30 minuti mostra un avviso. La preparazione TD01 non offre override o sincronizzazioni specifiche: la correzione avviene dalla Dashboard o dalle Impostazioni e poi si torna alla pagina aggiornata. Se la modalità globale richiede trasmissione ma gli invii non sono disponibili, il downgrade a sola creazione richiede una conferma esplicita.
+Il server blocca approvazione e numerazione se l'inventario Aruba non è mai stato completato, ha più di quattro ore o presenta un conflitto o stato incerto rilevante; dopo 30 minuti mostra un avviso. La preparazione TD01 non offre override o sincronizzazioni specifiche: la decisione operativa avviene in `Controlli`, la configurazione e la sincronizzazione in `Impostazioni`, poi si torna alla pagina aggiornata. Se la modalità globale richiede trasmissione ma gli invii non sono disponibili, il downgrade a sola creazione richiede una conferma esplicita.
 
 ### 13.7 Documenti
 
 La sezione riunisce fatture, note di credito e documenti nei diversi stati di trasmissione. Le viste interne evitano tre archivi separati e mantengono filtri coerenti per tipo, stato, cliente e data.
 
-La vista interna `Da collegare` raccoglie i documenti osservati in Aruba senza un ordine o documento HF collegabile in modo univoco. Mostra origine, stato remoto, ultimo aggiornamento e anomalie senza creare ordini locali. Un documento senza riferimenti ordine espliciti né match Shopify/eBay compatibili resta visibile per l’anti-duplicazione ma non è una verifica bloccante; soltanto riferimenti espliciti incompatibili, match potenziali, ambiguità, conflitti ed errori alimentano anche `Da verificare` e `Attività`.
-
-L’archivio cerca anche per e-mail, telefono, identificativo fiscale e numero ordine collegato. `Da collegare` è ricercabile per identità Aruba, numero fiscale, destinatario, dato fiscale e ordine candidato, ed è paginata senza un tetto implicito sul numero totale dei documenti raggiungibili.
+La vista interna `Inventario Aruba` mostra in modo neutro i documenti osservati, con origine, stato remoto, ultimo aggiornamento e stato del collegamento, senza creare ordini locali. Un documento senza riferimenti ordine espliciti né match Shopify/eBay compatibili resta visibile per l’anti-duplicazione ma non è una verifica bloccante. Riferimenti incompatibili, match potenziali, ambiguità, conflitti, file ufficiali mancanti ed errori generano un solo controllo e la riga dell'inventario rimanda a quello.
 
 Per le note di credito mostrare:
 
@@ -1381,13 +1373,23 @@ Per le note di credito mostrare:
 - Anomalie di riconciliazione.
 - Anteprima e approvazione separata.
 
-### 13.8 Attività
+### 13.8 Controlli
 
-La vista `Da gestire` riunisce errori, verifiche richieste, scarti, documenti Aruba da collegare o ambigui, conflitti di profilo, stati remoti incerti, richieste privacy Shopify e retry dei job falliti con la relativa azione. La ricerca opera sull’intera coda, comprese preparazioni, ordini, clienti, identificativi fiscali, errori, richieste privacy e documenti Aruba, senza limitarsi alle righe della pagina corrente. Dopo il cliente mostra l’identificativo fiscale senza etichettarne il tipo, usando lo snapshot autorevole dell’ordine, della preparazione o del documento e uno stato neutro quando assente. Questi elementi non compaiono in `Impostazioni`, che mostra soltanto stato e collegamento al dettaglio operativo. La vista `Cronologia` espone il registro attività ricercabile e non modificabile. La Dashboard può riepilogare i conteggi critici, ma non duplica il dettaglio.
+È l'unica coda operativa. Ogni riga rappresenta una sola decisione umana o un solo problema azionabile e mostra gravità, causa leggibile, conseguenza, origine, anzianità ed evidenze. L'ordinamento è prima per impatto (`Bloccante`, `Importante`, `Ordinario`) e poi per anzianità. Le viste sono `Da risolvere` e `In attesa`; i filtri per gravità, tipo e origine restano a destra e non esiste una seconda barra di ricerca locale.
 
-### 13.9 Impostazioni
+Il pannello di dettaglio offre l'azione risolutiva quando può essere eseguita in sicurezza nell'app: retry tipizzato, conferma privacy, import del file ufficiale Aruba, scelta del match o conferma fuori perimetro. Le azioni non sicure o troppo contestuali aprono il dettaglio sorgente. Una nota è facoltativa. Le azioni massive sono ammesse soltanto quando la precondizione e l'esito sono identici e verificabili per ogni elemento.
 
-- Pagina unica con navigazione interna; nessuna destinazione di primo livello aggiuntiva.
+Dopo un'azione asincrona il controllo passa a `In attesa`; si chiude soltanto dopo un esito verificato o dopo la scomparsa della causa. Un fallimento verificato lo riapre. ID stabile, fingerprint della causa e vincolo sorgente-tipo impediscono duplicati fra webhook, job, ordine, documento e proiezioni della Dashboard.
+
+La ricerca globale include titolo, dettaglio, sorgente ed evidenze sanificate dei controlli e apre direttamente il relativo dettaglio. Il badge nella navigazione mostra soltanto i controlli `Da risolvere`, non quelli in attesa.
+
+### 13.9 Attività
+
+Espone soltanto il registro attività ricercabile e non modificabile. Non contiene retry, decisioni o una vista `Da gestire`: tali elementi appartengono a `Controlli` e, una volta conclusi, restano osservabili qui tramite audit.
+
+### 13.10 Impostazioni
+
+- Pagina unica con navigazione interna; configurazioni e salute dei servizi restano separate dalla coda `Controlli`.
 - Profilo e sicurezza: stesso riepilogo del menu rapido, tema, cambio password, sessioni attive, revoca delle altre sessioni e uscita.
 - Trigger globale bozza: pagamento/evasione completa.
 - Modalità invio copia: automatica/manuale.
@@ -1415,7 +1417,7 @@ Per Shopify ed eBay `Collegato` descrive la credenziale utilizzabile, non l'esit
 Un ordine anomalo o un errore di parsing resta un errore di sincronizzazione con accesso diretto ad
 `Attività`; soltanto credenziale assente, revocata o da rinnovare cambia lo stato del collegamento.
 
-Per Aruba `verifica credenziali` esegue autenticazione e controllo dell'identità fiscale senza mostrare il segreto. La vista ordinaria distingue connessione, sincronizzazione e trasmissioni; mostra ultimo giro, copertura del backfill, conteggi `documenti`, `senza ordine Shopify/eBay` e `da verificare`, oltre agli avvisi non bloccanti a 400 e 475 trasmissioni nel mese solare. Massimo gestisce credenziale, modalità e arresti; Codex può soltanto consultare salute, errori, limiti tecnici osservati e contatore locale delle trasmissioni e richiedere `Sincronizza ora`. Tier e contatori del Premium delegato non vengono letti né mostrati.
+Per Aruba `verifica credenziali` esegue autenticazione e controllo dell'identità fiscale senza mostrare il segreto. La vista ordinaria distingue connessione, sincronizzazione e trasmissioni; mostra ultimo giro, copertura del backfill, conteggi `documenti`, `senza ordine Shopify/eBay` e `da verificare`, oltre agli avvisi non bloccanti a 400 e 475 trasmissioni nel mese solare. Entrambi gli account amministrativi possono gestire credenziale, modalità, arresti, salute, errori, limiti tecnici osservati, contatore locale delle trasmissioni e `Sincronizza ora`. Tier e contatori del Premium delegato non vengono letti né mostrati.
 
 Il readback manuale completo non compare nella vista ordinaria: resta raggiungibile dal recupero avanzato soltanto quando esiste un errore bloccante e solo per il titolare.
 
@@ -1640,7 +1642,7 @@ Per convenzione, ogni colonna `*_amount` è un `integer` in centesimi di euro; v
 - `created_at`
 - `last_login_at`
 
-Sono ammesse operativamente soltanto le due righe con username canonici `Massimo` e `Codex`. Il login è case-insensitive, ma database, interfaccia e audit conservano e mostrano sempre la forma canonica. `can_approve` è vero soltanto per `Massimo` e autorizza le sole transizioni fiscali irreversibili descritte in 17.1; la colonna nasce nella migrazione M4.
+Sono ammesse operativamente soltanto le due righe con username canonici `Massimo` e `Codex`. Il login è case-insensitive, ma database, interfaccia e audit conservano e mostrano sempre la forma canonica. `can_approve` è vero per entrambi: le capacità operative sono equivalenti, mentre l'autore di ogni azione resta distinguibile nell'audit. La colonna nasce nella migrazione M4 e resta il gate server-side delle transizioni irreversibili.
 
 #### `sessions`
 
@@ -2060,6 +2062,32 @@ Percorsi relativi e root configurabile. Mai path forniti dall'utente senza valid
 
 Un worker può recuperare un job `running` soltanto dopo la scadenza della lease. Il job trasporta identificativi e parametri minimi validati, non copie integrali di webhook, XML o credenziali.
 
+#### `operational_controls`
+
+- `id` stabile derivato dal tipo di causa e dalla sorgente
+- `kind`
+- `category` (`DECISION`, `TECHNICAL`, `COMPLIANCE`)
+- `severity` (`BLOCKING`, `IMPORTANT`, `ORDINARY`)
+- `state` (`OPEN`, `WAITING`, `RESOLVED`)
+- `source_type`
+- `source_id`
+- `origin`
+- `title`
+- `detail`
+- `consequence`
+- `href`
+- `primary_action`
+- `fingerprint`
+- `metadata_json`
+- `opened_at`
+- `updated_at`
+- `waiting_at` opzionale
+- `resolved_at` opzionale
+- `resolution_code` opzionale
+- `resolution_note` opzionale
+
+La tabella è una proiezione operativa persistente delle fonti autorevoli, non una seconda fonte fiscale. L'upsert usa ID stabile e fingerprint della causa, conserva `WAITING` finché la stessa causa è in corso, riapre quando un esito fallisce o cambia e risolve quando la causa scompare o il readback la verifica. Il vincolo unico su sorgente, identificativo e tipo impedisce la duplicazione della stessa decisione.
+
 #### `audit_events`
 
 - `id`
@@ -2169,11 +2197,7 @@ Per i canali di vendita, il registro distingue sempre validità del collegamento
 sincronizzazione: un payload ordine non riconosciuto non equivale a revoca o scadenza della
 credenziale.
 
-Dashboard e `Attività → Da gestire` mostrano soltanto dead-letter ancora azionabili. Un job
-fallito resta conservato secondo retention e audit, ma passa allo storico operativo quando una
-sincronizzazione completa successiva dello stesso provider ne supera il tentativo; il webhook e
-il job derivato rappresentano una sola criticità e non vengono sommati due volte. Un retry manuale
-fallito dopo l'ultimo readback riuscito torna invece immediatamente azionabile.
+`Controlli` proietta soltanto dead-letter e decisioni ancora azionabili; la Dashboard ne mostra il solo conteggio canonico e `Attività` conserva la cronologia. Un job fallito resta conservato secondo retention e audit, ma il relativo controllo passa allo storico operativo quando una sincronizzazione completa successiva dello stesso provider ne supera il tentativo; webhook e job derivato rappresentano una sola criticità e non vengono sommati due volte. Un retry manuale passa a `WAITING`, viene risolto dopo esito verificato e, se fallisce, torna immediatamente `OPEN`.
 
 ---
 
@@ -2182,8 +2206,8 @@ fallito dopo l'ultimo readback riuscito torna invece immediatamente azionabile.
 ### 17.1 Autenticazione
 
 - Due account amministrativi fissi, `Massimo` e `Codex`, con login case-insensitive e identità canoniche di audit distinte.
-- I due account condividono le letture operative, ma soltanto Massimo può configurare/testare/ruotare/revocare la credenziale Aruba, cambiare modalità, attivare o fermare la sincronizzazione, abilitare gli invii e compiere transizioni fiscali. Codex può consultare salute, errori, limiti tecnici osservati e contatore locale delle trasmissioni e richiedere `Sincronizza ora` in lettura; Tier e contatori del Premium delegato restano fuori dal prodotto. Approvazione, numerazione, trasmissione, finalizzazione di un readback manuale e risoluzione manuale di un match con effetti fiscali richiedono `can_approve`, valorizzato soltanto per `Massimo`. Il controllo è server-side su ogni endpoint e job; nascondere il pulsante non è una protezione.
-- `can_approve` è una colonna booleana sui due account fissi, non un sistema di ruoli, e nasce nella migrazione M4 che introduce l'approvazione.
+- I due account hanno pari capacità operative: possono configurare e verificare Aruba, cambiare modalità, gestire sincronizzazione e invii, approvare, numerare, finalizzare readback manuali e risolvere match con effetti fiscali. Tutte queste azioni richiedono `can_approve=true`, verificato server-side su ogni endpoint e job; nascondere il pulsante non è una protezione. Tier e contatori del Premium delegato restano fuori dal prodotto.
+- `can_approve` è una colonna booleana obbligatoriamente vera sui due account fissi, non un sistema di ruoli, e nasce nella migrazione M4 che introduce l'approvazione.
 - Username e password, senza secondo fattore applicativo.
 - Password di almeno 8 e non oltre 128 caratteri, hashate con `node:crypto.scrypt` e verificate con confronto constant-time.
 - Bootstrap unico e atomico: entrambi gli account vengono creati insieme oppure non viene creato nessuno dei due.
@@ -2898,7 +2922,7 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - Webhook/job rimasto `processing` dopo crash e riacquisito soltanto a lease scaduta.
 - storage e checksum.
 - autenticazione username/password, sessioni e separazione dell'identità di audit dei due account.
-- l'account privo di `can_approve` non può approvare, numerare, finalizzare un readback manuale o confermare un match manuale con effetti fiscali, nemmeno chiamando direttamente l'endpoint.
+- un attore sintetico o una sessione corrotta priva di `can_approve` non può approvare, numerare, finalizzare un readback manuale o confermare un match manuale con effetti fiscali, nemmeno chiamando direttamente l'endpoint; entrambi gli account reali possiedono il permesso.
 - impossibilità di preparare o autorizzare un invio senza approvazione e snapshot immutabile.
 - import storico non approvabile prima della riconciliazione Aruba.
 - riconciliazione Shopify Payments sul totale fatturabile al netto della fee effettiva quando la regola è attiva; PayPal, metodi manuali ed eBay restano al lordo.
@@ -2934,17 +2958,19 @@ Ogni connettore copre anche timeout, risposta oltre il limite, risposta non pars
 ### 22.4 End-to-end
 
 1. Login case-insensitive con `Massimo` e con `Codex`, verificando la forma canonica in interfaccia e audit.
-2. Import ordine.
-3. Correzione cliente.
-4. Raggruppamento di due ordini.
-5. Comparazione sorgente/bozza/proiezione XML.
-6. Validazione.
-7. Approvazione.
-8. Tre modalità Aruba globali contro il provider mock, incluso downgrade esplicito.
-9. Backfill, sincronizzazione, dry-run e stato Aruba/SdI tramite readback.
-10. E-mail tramite il trasporto canonico scelto.
-11. Rimborso.
-12. Comparazione e nota di credito.
+2. Import ordine e generazione di un controllo deduplicato quando serve una decisione.
+3. Ricerca globale e apertura diretta del controllo.
+4. Risoluzione o avvio dell'azione, passaggio a `In attesa` ed esito verificato.
+5. Correzione cliente.
+6. Raggruppamento di due ordini.
+7. Comparazione sorgente/bozza/proiezione XML.
+8. Validazione.
+9. Approvazione da entrambi gli account amministrativi.
+10. Tre modalità Aruba globali contro il provider mock, incluso downgrade esplicito.
+11. Backfill, sincronizzazione, dry-run e stato Aruba/SdI tramite readback.
+12. E-mail tramite il trasporto canonico scelto.
+13. Rimborso.
+14. Comparazione e nota di credito.
 
 Il percorso critico verifica anche refresh durante un'azione, doppio click/submit, caricamento specifico, conflitto fra due schede e conseguenza dichiarata nella conferma finale. Lo stato mostrato dopo ogni passaggio proviene dalla fonte autorevole o da un'esplicita condizione di riconciliazione.
 
@@ -3508,7 +3534,7 @@ Deve fermarsi e chiedere prima di:
 | Comparatore non allineato alla bozza approvata | L'utente vede una proiezione diversa dal documento trasmesso | Stesso generatore server-side, revisione/hash e rigenerazione atomica al submit |
 | Il design system interno cresce in un pacchetto separato | Ritardo e manutenzione senza valore operativo | Un documento, token CSS, componenti locali, un SVG canonico e soli asset richiesti; niente sito, webfont, Storybook o libreria proprietaria |
 | Stato upload/invio incerto | Doppio invio | Manifest/hash, ricerca nel pannello, confronto del file scaricato e nessun retry automatico |
-| L'agente completa una transizione fiscale irreversibile | Emissione o riconciliazione fiscale senza decisione umana | `can_approve` soltanto su `Massimo`, controllo server-side su approvazione, numerazione, permessi, readback manuale e match manuali fiscali, verificato chiamando gli endpoint direttamente |
+| L'agente completa una transizione fiscale irreversibile | Emissione o riconciliazione fiscale senza decisione umana | `can_approve` su entrambi gli account applicativi non sostituisce il consenso umano: approvazione, numerazione, permessi, readback manuale e match fiscali restano controllati server-side e richiedono la decisione esplicita prevista dal flusso |
 | Canary lascia aperti gli invii | Trasmissione fiscale non autorizzata | Kill switch globale sempre `false`, nessun batch di scrittura e verifica live del flag |
 | Target provider o VPS errato | Scrittura o deploy sull'ambiente sbagliato | Preflight con identità, account, risorsa e readback obbligatori |
 | Documentazione o runbook in drift | Operazioni eseguite con istruzioni obsolete | Fonte canonica, controllo link/comandi e aggiornamento nella stessa PR |
@@ -3640,7 +3666,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [ ] TD04 esterna `DELIVERED`/`NOT_DELIVERED` collega atomicamente tutti e soli i rimborsi coperti e una corsa concorrente non può creare una seconda nota per gli stessi rimborsi.
 - [ ] Documento esterno `REJECTED` conserva XML, match e audit ma non chiude l'ordine come fatturato, non consuma il residuo e consente la revisione/riedizione prevista.
 - [ ] `REJECTED`, `SUBMITTED`, `SDI_PROCESSING` e stati incerti non creano righe `documents`/`ARUBA_HISTORY`; XML e notifiche restano collegati al remote document fino a un esito emesso.
-- [ ] Account `Codex` non può finalizzare il readback manuale né confermare un match manuale che chiude ordini o collega rimborsi, anche chiamando direttamente gli endpoint.
+- [ ] Entrambi gli account amministrativi possono finalizzare il readback manuale e confermare un match manuale; l'identità dell'autore, la motivazione e l'esito restano nell'audit.
 - [ ] Nessun ordine storico approvabile senza verifica.
 - [x] Account Aruba confermato senza 2FA e con protezione OTP su **Carica Fatture** disattivata; l'helper non presume un SMS ordinario e resta fail-closed davanti a challenge inattese.
 - [x] Autorizzazione specifica ottenuta per la sola prova controllata.
@@ -3670,7 +3696,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [x] M9: credenziale cifrata e restore provati; connessione inizialmente in pausa; inventario dal 1° luglio 2026 completato; polling 15 minuti, non terminali e full mensile verificati.
 - [x] M9: zero divergenze inbound inspiegate; switch di autorità atomico; decisione esplicita di Massimo sul preferito/bridge.
 - [x] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; chiamata di upload con `dryRun=true` e stato incerto qualificati con autorizzazione specifica, senza autorizzare `dryRun=false`.
-- [x] M10: pausa API e invii fiscali disabilitati riletti server-side; Codex respinto su configurazione e mutazioni, ma ammesso su salute e `Sincronizza ora`.
+- [x] M10: pausa API e invii fiscali disabilitati riletti server-side; configurazione e mutazioni protette da `can_approve`, salute e `Sincronizza ora` osservabili.
 - [x] M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
 - [ ] M12: candidato esatto ricertificato con CI, audit, migrazioni, backup, restore, rollback, security e readiness; nessun P0/P1 o stato incerto.
 - [ ] M13: TD01 reale scelto da Massimo, autorizzazione specifica, permesso monouso legato a revisione/batch/hash e `ARUBA_SUBMISSION_ENABLED=false` prima e dopo.

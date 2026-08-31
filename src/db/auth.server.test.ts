@@ -201,7 +201,7 @@ test(
           .find((value) => value.startsWith("csrf="))!
           .split("=", 2)[1]!
           .split(";", 1)[0]!,
-        canApprove: false,
+        canApprove: true,
       });
 
       const attacco = [];

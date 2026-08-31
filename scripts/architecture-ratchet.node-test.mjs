@@ -39,6 +39,7 @@ const capabilitySizeCaps = new Map([
   ["tests/e2e/readiness/core.ts", 80_000],
   ["tests/e2e/readiness/interface.ts", 20_000],
   ["tests/e2e/readiness/motion.ts", 8_000],
+  ["tests/e2e/readiness/mobile-interface.ts", 5_000],
   ["tests/e2e/readiness/historical-credit-note-flow.ts", 11_000],
   ["tests/e2e/readiness/configured-aruba-api-ui.ts", 8_000],
   ["src/db/migrations-scenarios/legacy-upgrades.test.ts", 26_000],
@@ -71,6 +72,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     "tests/e2e/readiness/core.ts",
     "tests/e2e/readiness/interface.ts",
     "tests/e2e/readiness/motion.ts",
+    "tests/e2e/readiness/mobile-interface.ts",
     "tests/e2e/readiness/http.ts",
   ];
   const migrationFiles = [
@@ -97,7 +99,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
   const migrationTests = sources
     .slice(readinessFiles.length)
     .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
-  assert.equal(readinessTests.length, 9);
+  assert.equal(readinessTests.length, 10);
   assert.equal(migrationTests.length, 18);
 });
 
@@ -145,14 +147,19 @@ test("i percorsi legacy rimossi non restano esportabili né tornano come default
 });
 
 test("privacy e documentazione non regrediscono verso superfici indistinguibili o helper correnti", async () => {
-  const [activity, masterPlan, retention] = await Promise.all([
+  const [activity, controls, operationalControls, masterPlan, retention] = await Promise.all([
     readFile(path.join(root, "app/components/activity-view.tsx"), "utf8"),
+    readFile(path.join(root, "app/routes/controls.tsx"), "utf8"),
+    readFile(path.join(root, "src/db/operational-controls.server.ts"), "utf8"),
     readFile(path.join(root, "docs/Hub_Fatture_MASTER_PLAN.md"), "utf8"),
     readFile(path.join(root, "docs/contracts/retention-deletion.md"), "utf8"),
   ]);
-  assert.match(activity, /privacyRequest\.externalEventId/);
-  assert.match(activity, /privacyRequest\.customerIds\.join/);
-  assert.match(activity, /privacyRequest\.orderIds\.join/);
+  assert.doesNotMatch(activity, /privacyRequest/);
+  assert.match(operationalControls, /privacy\.externalEventId/);
+  assert.match(operationalControls, /privacy\.customerIds\.join/);
+  assert.match(operationalControls, /privacy\.orderIds\.join/);
+  assert.match(controls, /metadata\.privacyEventId/);
+  assert.match(controls, /name="externalEventId"/);
   assert.doesNotMatch(
     masterPlan,
     /guida l'helper locale|pagina unica con navigazione interna[^\n]*Aruba e helper|`Fallback transitorio`|comunicazione HTTPS helper-HF|helper su account o batch errato/,

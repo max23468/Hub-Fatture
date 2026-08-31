@@ -1,12 +1,4 @@
-import {
-  ArrowRight,
-  BadgeEuro,
-  CircleAlert,
-  CircleCheck,
-  ClipboardCheck,
-  CreditCard,
-  RefreshCw,
-} from "lucide-react";
+import { ArrowRight, CircleAlert, CircleCheck, ClipboardCheck, CreditCard } from "lucide-react";
 import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/home";
 
@@ -22,6 +14,7 @@ import { getArubaApiConnectionStatus } from "../../src/db/aruba-api-settings.ser
 import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
 import { dashboardSummary } from "../../src/db/order-queries.server.ts";
+import { getOperationalControlSummary } from "../../src/db/operational-controls.server.ts";
 
 const chartDateFormatter = new Intl.DateTimeFormat("it-IT", {
   weekday: "short",
@@ -36,12 +29,15 @@ function chartDate(value: string) {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireSessionUser(request);
-  const [summary, arubaConnection, arubaInventory, arubaMonthlyUsage] = await Promise.all([
-    dashboardSummary(),
-    getArubaApiConnectionStatus(),
-    getArubaInventoryHealth(),
-    getArubaMonthlyTransmissionUsage(),
-  ]);
+  const [summary, arubaConnection, arubaInventory, arubaMonthlyUsage, controls] = await Promise.all(
+    [
+      dashboardSummary(),
+      getArubaApiConnectionStatus(),
+      getArubaInventoryHealth(),
+      getArubaMonthlyTransmissionUsage(),
+      getOperationalControlSummary(),
+    ],
+  );
   return {
     username: user.username,
     canApprove: user.canApprove,
@@ -51,6 +47,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     arubaConnection,
     arubaInventory,
     arubaMonthlyUsage,
+    controls,
   };
 }
 
@@ -68,6 +65,7 @@ export default function Home() {
     arubaConnection,
     arubaInventory,
     arubaMonthlyUsage,
+    controls,
   } = useLoaderData<typeof loader>();
   const workItems = [
     {
@@ -81,11 +79,15 @@ export default function Home() {
       primary: true,
     },
     {
-      value: Number(summary.review_cases),
-      label: copy.dashboard.reviews,
-      detail: copy.dashboard.reviewDetail,
-      to: "/ordini?vista=verificare",
-      action: copy.dashboard.openOrders,
+      value: controls.open,
+      label: copy.dashboard.controlsToResolve,
+      detail: copy.dashboard.controlsDetail(
+        controls.blocking,
+        controls.important,
+        controls.ordinary,
+      ),
+      to: "/controlli",
+      action: copy.dashboard.openControls,
       icon: CircleAlert,
       tone: "warning",
       primary: false,
@@ -100,44 +102,7 @@ export default function Home() {
       tone: "accent",
       primary: false,
     },
-    {
-      value: Number(summary.credit_notes_to_approve),
-      label: copy.dashboard.creditNotesToApprove,
-      detail: copy.dashboard.creditNoteDetail,
-      to: "/attivita?tipo=note-credito",
-      action: copy.dashboard.openActivity,
-      icon: BadgeEuro,
-      tone: "accent",
-      primary: false,
-    },
   ] as const;
-
-  const incidents = [
-    {
-      value: Number(summary.failed_uploads),
-      emptyLabel: copy.dashboard.noFailedUploads,
-      countLabel: copy.dashboard.failedUploadsCount,
-      to: "/documenti",
-    },
-    {
-      value: Number(summary.rejected_by_sdi),
-      emptyLabel: copy.dashboard.noRejectedDocuments,
-      countLabel: copy.dashboard.rejectedDocumentsCount,
-      to: "/documenti",
-    },
-    {
-      value: Number(summary.sync_errors),
-      emptyLabel: copy.dashboard.noSyncErrors,
-      countLabel: copy.dashboard.syncErrorsCount,
-      to: "/attivita",
-    },
-    {
-      value: arubaInventory.potentialMatches + arubaInventory.ambiguous + arubaInventory.conflicts,
-      emptyLabel: copy.dashboard.noArubaConflicts,
-      countLabel: copy.dashboard.arubaConflictsCount,
-      to: "/attivita",
-    },
-  ];
 
   const connections = createDashboardConnections({
     currentTime,
@@ -160,30 +125,34 @@ export default function Home() {
     },
   });
 
-  const incidentCount = incidents.reduce((total, incident) => total + incident.value, 0);
   const hasMissingUpdates =
     Number(summary.aruba_batches_requiring_attention) > 0 ||
     connections.some((connection) => connection.blocking || connection.stale);
-  const status = incidentCount
+  const requiresTechnicalAttention = controls.technical > 0 || hasMissingUpdates;
+  const status = requiresTechnicalAttention
     ? {
-        label: copy.dashboard.attentionNeeded,
-        detail: copy.dashboard.attentionNeededDetail,
+        label:
+          controls.technical > 0
+            ? copy.dashboard.technicalErrors(controls.technical)
+            : copy.dashboard.updatesMissing,
+        detail: copy.dashboard.technicalAttention,
         tone: "warning",
         icon: CircleAlert,
       }
-    : hasMissingUpdates
-      ? {
-          label: copy.dashboard.updatesMissing,
-          detail: copy.dashboard.updatesMissingDetail,
-          tone: "accent",
-          icon: RefreshCw,
-        }
-      : {
-          label: copy.dashboard.allUnderControl,
-          detail: copy.dashboard.noCurrentIssues,
-          tone: "success",
-          icon: CircleCheck,
-        };
+    : {
+        label: copy.dashboard.noTechnicalErrors,
+        detail: copy.dashboard.technicalHealthy,
+        tone: "success",
+        icon: CircleCheck,
+      };
+  const technicalAreas = [
+    {
+      label: copy.dashboard.acquisition,
+      healthy: controls.acquisition === 0 && !hasMissingUpdates,
+    },
+    { label: copy.dashboard.processing, healthy: controls.processing === 0 },
+    { label: copy.dashboard.documentGeneration, healthy: controls.document_generation === 0 },
+  ];
   const StatusIcon = status.icon;
   const maxDocuments = Math.max(1, ...summary.documents_last_seven_days.map((day) => day.count));
 
@@ -204,56 +173,70 @@ export default function Home() {
         </p>
       ) : null}
 
-      <div className="dashboard-grid">
-        <section className="dashboard-panel work-panel" aria-labelledby="dashboard-work-title">
-          <h2 id="dashboard-work-title">{copy.dashboard.workNow}</h2>
-          <div className="work-list">
-            {workItems.map(({ value, label, detail, to, action, icon: Icon, tone, primary }) => (
-              <div className="work-item" key={label}>
-                <span className={`dashboard-icon dashboard-icon--${tone}`} aria-hidden="true">
-                  <Icon size={24} strokeWidth={1.8} />
-                </span>
-                <strong className={`work-item__value work-item__value--${tone}`}>{value}</strong>
-                <span className="work-item__copy">
-                  <strong>{label}</strong>
-                  <span>{detail}</span>
-                </span>
-                <Link className={primary ? "button" : "dashboard-row-link"} to={to} viewTransition>
-                  <span>{action}</span>
-                  <ArrowRight aria-hidden="true" size={18} strokeWidth={1.8} />
-                </Link>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="dashboard-panel status-panel" aria-labelledby="dashboard-status-title">
-          <h2 id="dashboard-status-title">{copy.dashboard.operationalStatus}</h2>
-          <div className={`status-lead status-lead--${status.tone}`}>
-            <span className={`dashboard-icon dashboard-icon--${status.tone}`} aria-hidden="true">
-              <StatusIcon size={24} strokeWidth={1.9} />
-            </span>
-            <span>
-              <strong>{status.label}</strong>
-              <span>{status.detail}</span>
-            </span>
-          </div>
-          <div className="incident-list">
-            {incidents.map(({ value, emptyLabel, countLabel, to }) => (
-              <Link
-                className={value > 0 ? "incident incident--warning" : "incident"}
-                key={to + emptyLabel}
-                to={to}
-                viewTransition
-              >
-                <strong>{value}</strong>
-                <span>{value > 0 ? countLabel(value) : emptyLabel}</span>
-                <ArrowRight aria-hidden="true" size={16} strokeWidth={1.8} />
+      <section
+        className="dashboard-panel work-panel work-panel--primary"
+        aria-labelledby="dashboard-work-title"
+      >
+        <h2 className="visually-hidden" id="dashboard-work-title">
+          {copy.dashboard.workNow}
+        </h2>
+        <div className="work-list">
+          {workItems.map(({ value, label, detail, to, action, icon: Icon, tone, primary }) => (
+            <div className="work-item" key={label}>
+              <span className={`dashboard-icon dashboard-icon--${tone}`} aria-hidden="true">
+                <Icon size={24} strokeWidth={1.8} />
+              </span>
+              <strong className={`work-item__value work-item__value--${tone}`}>{value}</strong>
+              <span className="work-item__copy">
+                <strong>{label}</strong>
+                <span>{detail}</span>
+              </span>
+              <Link className={primary ? "button" : "dashboard-row-link"} to={to} viewTransition>
+                <span>{action}</span>
+                <ArrowRight aria-hidden="true" size={18} strokeWidth={1.8} />
               </Link>
-            ))}
-          </div>
-        </section>
-      </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section
+        className="dashboard-panel status-panel status-panel--wide"
+        aria-labelledby="dashboard-status-title"
+      >
+        <div className={`status-lead status-lead--${status.tone}`}>
+          <span className={`dashboard-icon dashboard-icon--${status.tone}`} aria-hidden="true">
+            <StatusIcon size={24} strokeWidth={1.9} />
+          </span>
+          <span>
+            <h2 className="status-lead__title" id="dashboard-status-title">
+              {copy.dashboard.operationalStatus}
+            </h2>
+            <strong>{status.label}</strong>
+            <span>{status.detail}</span>
+          </span>
+        </div>
+        <div className="technical-areas">
+          {technicalAreas.map((area) => (
+            <span
+              className={area.healthy ? "technical-area" : "technical-area technical-area--warning"}
+              key={area.label}
+            >
+              {area.healthy ? (
+                <CircleCheck aria-hidden="true" size={20} />
+              ) : (
+                <CircleAlert aria-hidden="true" size={20} />
+              )}
+              <span>
+                <strong>{area.label}</strong>
+                <small>
+                  {area.healthy ? copy.dashboard.regular : copy.dashboard.needsAttention}
+                </small>
+              </span>
+            </span>
+          ))}
+        </div>
+      </section>
 
       <DashboardConnections connections={connections} />
 
