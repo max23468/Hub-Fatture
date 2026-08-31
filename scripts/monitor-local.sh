@@ -1,6 +1,13 @@
 #!/bin/sh
 set -eu
 
+mode=blocking
+case "${1:-}" in
+  "") ;;
+  --report-only) mode=report-only ;;
+  *) echo "Uso: monitor-local.sh [--report-only]" >&2; exit 2 ;;
+esac
+
 root=${HUB_FATTURE_ROOT:-/opt/hub-fatture}
 cd "$root"
 # shellcheck disable=SC1091
@@ -89,6 +96,8 @@ fi
 
 if [ -n "$problem" ]; then
   echo "$problem" >&2
-  exit 1
+  [ "$mode" = report-only ] || exit 1
+  echo "Monitor locale con anomalie già notificate; il readback del deploy resta valido."
+  exit 0
 fi
 echo "Monitor locale sano."
