@@ -602,7 +602,7 @@ select:hover {
 
 @media (min-width: 48.0625rem) {
   :root[data-sidebar="collapsed"] {
-    --sidebar-width: 5rem;
+    --sidebar-width: 4.5rem;
   }
 
   :root[data-sidebar="collapsed"] .sidebar {
@@ -613,11 +613,6 @@ select:hover {
   :root[data-sidebar="collapsed"] .nav-item,
   :root[data-sidebar="collapsed"] .sidebar-toggle {
     justify-content: center;
-  }
-
-  :root[data-sidebar="collapsed"] .nav-item {
-    gap: 0.125rem;
-    padding-inline: 0;
   }
 
   :root[data-sidebar="collapsed"] .nav-item__label,
@@ -631,12 +626,13 @@ select:hover {
   }
 
   :root[data-sidebar="collapsed"] .nav-item__badge {
-    position: static;
-    flex: 0 0 auto;
-    min-width: 1.15rem;
-    height: 1.15rem;
+    position: absolute;
+    right: 0.125rem;
+    bottom: 0.1875rem;
+    min-width: 0.95rem;
+    height: 0.95rem;
     margin-left: 0;
-    font-size: 0.625rem;
+    font-size: 0.5rem;
     padding-inline: 0.125rem;
   }
 

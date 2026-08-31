@@ -130,8 +130,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "aria-expanded",
     "false",
   );
-  await expect(sidebar).toHaveCSS("width", "80px");
-  await expect(appMain).toHaveCSS("margin-left", "80px");
+  await expect(sidebar).toHaveCSS("width", "72px");
+  await expect(appMain).toHaveCSS("margin-left", "72px");
   const controlsNavigation = page.getByRole("link", { name: "Controlli", exact: true }).first();
   await controlsNavigation.evaluate((element) => {
     const badge = document.createElement("span");
@@ -146,6 +146,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       const icon = element.querySelector("svg")!.getBoundingClientRect();
       const badge = element.querySelector<HTMLElement>(".nav-item__badge")!;
       const badgeBounds = badge.getBoundingClientRect();
+      const navigationIcons = Array.from(
+        element.closest("nav")!.querySelectorAll<SVGElement>(".nav-item > svg"),
+      ).map((navigationIcon) => navigationIcon.getBoundingClientRect());
+      const iconCenter = icon.left + icon.width / 2;
       return {
         badgeFits: badge.scrollWidth <= badge.clientWidth,
         contained:
@@ -153,10 +157,23 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
           badgeBounds.right <= navigation.right &&
           badgeBounds.top >= navigation.top &&
           badgeBounds.bottom <= navigation.bottom,
-        separated: icon.right <= badgeBounds.left,
+        iconAligned: navigationIcons.every(
+          (navigationIcon) =>
+            Math.abs(navigationIcon.left + navigationIcon.width / 2 - iconCenter) <= 0.5,
+        ),
+        smallerThanIcon: badgeBounds.height < icon.height,
+        bottomRight:
+          badgeBounds.left + badgeBounds.width / 2 > iconCenter &&
+          badgeBounds.top + badgeBounds.height / 2 > icon.top + icon.height / 2,
       };
     }),
-  ).toEqual({ badgeFits: true, contained: true, separated: true });
+  ).toEqual({
+    badgeFits: true,
+    contained: true,
+    iconAligned: true,
+    smallerThanIcon: true,
+    bottomRight: true,
+  });
   const settingsNavigation = page.getByRole("link", { name: "Impostazioni", exact: true }).first();
   await settingsNavigation.hover();
   expect(
@@ -168,7 +185,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(await page.evaluate(() => localStorage.getItem("sidebar"))).toBe("collapsed");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
-  await expect(sidebar).toHaveCSS("width", "80px");
+  await expect(sidebar).toHaveCSS("width", "72px");
   const expandSidebar = page.getByRole("button", {
     name: "Espandi navigazione",
   });
