@@ -108,6 +108,68 @@ function billingCaseAnomalies(
   return [...anomalies];
 }
 
+export type OperationalBillingCaseAnomaly =
+  | "TOTALS_MISMATCH"
+  | "CUSTOMER_MISMATCH"
+  | "SOURCE_CONFLICT"
+  | "ORDER_NOT_BILLABLE";
+
+/**
+ * Espone soltanto le cause della preparazione che non hanno già una propria identità
+ * operativa. Cliente, inventario Aruba e pagamento restano rispettivamente nei controlli
+ * anagrafici/documentali e nel contatore dedicato della Dashboard.
+ */
+export async function listOperationalBillingCaseAnomalies() {
+  const result = await getPool().query<{
+    id: string;
+    public_number: string;
+    customer_name: string;
+    local_order_date: string;
+    anomaly: OperationalBillingCaseAnomaly;
+    updated_at: string;
+  }>(
+    `SELECT billing_cases.id::text, billing_cases.public_number,
+            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
+            billing_cases.local_order_date::text, anomalies.anomaly,
+            billing_cases.updated_at::text
+     FROM billing_cases
+     CROSS JOIN LATERAL (VALUES
+       ('TOTALS_MISMATCH', EXISTS (
+         SELECT 1 FROM orders
+         WHERE orders.billing_case_id = billing_cases.id
+           AND NOT coalesce(
+             (orders.normalized_snapshot_json ->> 'totalsReconciled')::boolean,
+             false
+           )
+       )),
+       ('CUSTOMER_MISMATCH', EXISTS (
+         SELECT 1 FROM orders
+         WHERE orders.billing_case_id = billing_cases.id
+           AND ${customerProfileMismatchSql}
+       )),
+       ('SOURCE_CONFLICT', EXISTS (
+         SELECT 1 FROM orders
+         WHERE orders.billing_case_id = billing_cases.id
+           AND (
+             orders.trigger_status = 'NEEDS_REVIEW'
+             OR coalesce(
+               (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
+               false
+             )
+           )
+       )),
+       ('ORDER_NOT_BILLABLE', EXISTS (
+         SELECT 1 FROM orders
+         WHERE orders.billing_case_id = billing_cases.id
+           AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
+       ))
+     ) AS anomalies(anomaly, active)
+     WHERE billing_cases.status = 'NEEDS_REVIEW' AND anomalies.active
+     ORDER BY billing_cases.updated_at, billing_cases.id, anomalies.anomaly`,
+  );
+  return result.rows;
+}
+
 interface BillingCaseDetailRow {
   id: string;
   public_number: string;

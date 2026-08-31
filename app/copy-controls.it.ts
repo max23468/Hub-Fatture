@@ -26,7 +26,10 @@ export const controlsCopy = {
     PRIVACY: "Privacy",
   } as Record<string, string>,
   kinds: {
-    BILLING_CASE_REVIEW: "Preparazioni",
+    TOTALS_MISMATCH: "Totali ordine",
+    CUSTOMER_MISMATCH: "Anagrafiche discordanti",
+    SOURCE_CONFLICT: "Aggiornamenti ordine",
+    ORDER_NOT_BILLABLE: "Ordini non fatturabili",
     HISTORY_RECONCILIATION: "Storico",
     ARUBA_INVOICE_LINK: "Fatture Aruba da collegare",
     ORDER_REVIEW: "Ordini",

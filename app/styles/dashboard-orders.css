@@ -132,6 +132,16 @@
   color: var(--color-text-muted);
 }
 
+.work-item__details {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.work-item__details > span:not(:last-child)::after {
+  content: " · ";
+  white-space: pre;
+}
+
 .dashboard-row-link {
   display: inline-flex;
   min-height: var(--control-height);

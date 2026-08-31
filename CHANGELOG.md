@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.18
+
+- `Controlli` ricalcola le preparazioni e le anagrafiche sulle sole cause ancora azionabili, separa le anomalie concrete per totale, cliente, aggiornamento sorgente e fatturabilità e chiude i segnali generici o duplicati quando la fonte non richiede più un intervento, mantenendo bloccanti i casi Aruba incerti.
+- La selezione di un controllo conserva la posizione di scorrimento anche in WebKit; Dashboard, ricerca globale e dettagli continuano a usare la stessa identità operativa e portano direttamente alla sede in cui risolvere la causa.
+- La Dashboard mobile presenta bloccanti, importanti e ordinari su righe separate e mantiene il valore complessivo leggibile anche a tre cifre; la sidebar desktop compressa riserva spazio sufficiente al badge `99+`, senza sovrapporlo all’icona di Controlli.
+
 ## 0.5.17
 
 - La nuova sezione `Controlli` concentra in una sola coda canonica conflitti, duplicati e riconciliazioni che richiedono una decisione: ogni elemento espone gravità, causa, conseguenza, evidenze e azione diretta, mentre Dashboard, ricerca globale e pagine di dominio rimandano allo stesso controllo senza creare conteggi concorrenti.

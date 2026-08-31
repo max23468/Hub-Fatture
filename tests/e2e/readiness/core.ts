@@ -130,8 +130,33 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "aria-expanded",
     "false",
   );
-  await expect(sidebar).toHaveCSS("width", "72px");
-  await expect(appMain).toHaveCSS("margin-left", "72px");
+  await expect(sidebar).toHaveCSS("width", "80px");
+  await expect(appMain).toHaveCSS("margin-left", "80px");
+  const controlsNavigation = page.getByRole("link", { name: "Controlli", exact: true }).first();
+  await controlsNavigation.evaluate((element) => {
+    const badge = document.createElement("span");
+    badge.className = "nav-item__badge";
+    badge.ariaHidden = "true";
+    badge.textContent = "99+";
+    element.append(badge);
+  });
+  expect(
+    await controlsNavigation.evaluate((element) => {
+      const navigation = element.getBoundingClientRect();
+      const icon = element.querySelector("svg")!.getBoundingClientRect();
+      const badge = element.querySelector<HTMLElement>(".nav-item__badge")!;
+      const badgeBounds = badge.getBoundingClientRect();
+      return {
+        badgeFits: badge.scrollWidth <= badge.clientWidth,
+        contained:
+          icon.left >= navigation.left &&
+          badgeBounds.right <= navigation.right &&
+          badgeBounds.top >= navigation.top &&
+          badgeBounds.bottom <= navigation.bottom,
+        separated: icon.right <= badgeBounds.left,
+      };
+    }),
+  ).toEqual({ badgeFits: true, contained: true, separated: true });
   const settingsNavigation = page.getByRole("link", { name: "Impostazioni", exact: true }).first();
   await settingsNavigation.hover();
   expect(
@@ -143,7 +168,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(await page.evaluate(() => localStorage.getItem("sidebar"))).toBe("collapsed");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
-  await expect(sidebar).toHaveCSS("width", "72px");
+  await expect(sidebar).toHaveCSS("width", "80px");
   const expandSidebar = page.getByRole("button", {
     name: "Espandi navigazione",
   });
@@ -1043,6 +1068,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
        'PENDING')`,
     ["a".repeat(64)],
   );
+  await privacyClient.query(
+    "UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1",
+    [sourceReviewCaseId],
+  );
   await privacyClient.end();
   await page.getByRole("link", { name: "Controlli" }).click();
   await expect(page.getByRole("heading", { name: "Controlli", exact: true })).toBeVisible();
@@ -1106,12 +1135,12 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 780 });
   const preparationControl = page
     .locator(".control-row")
-    .filter({ hasText: "Dati della preparazione da verificare" });
+    .filter({ hasText: "Ordine aggiornato dopo la preparazione" });
   await preparationControl.scrollIntoViewIfNeeded();
   const mobileScrollBeforeSelection = await page.evaluate(() => window.scrollY);
   await preparationControl.evaluate((row) => (row as HTMLElement).click());
   await expect(page.locator(".control-row--selected")).toContainText(
-    "Dati della preparazione da verificare",
+    "Ordine aggiornato dopo la preparazione",
   );
   await expect
     .poll(async () =>
@@ -1129,6 +1158,13 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       Math.abs((await page.evaluate(() => window.scrollY)) - mobileScrollBeforeReturn),
     )
     .toBeLessThanOrEqual(16);
+  const resolvedPreparationClient = new pg.Client({ connectionString: databaseUrl });
+  await resolvedPreparationClient.connect();
+  await resolvedPreparationClient.query(
+    "UPDATE orders SET trigger_status = 'GROUPED' WHERE billing_case_id = $1",
+    [sourceReviewCaseId],
+  );
+  await resolvedPreparationClient.end();
   await page.setViewportSize({ width: 1280, height: 720 });
   await page
     .getByRole("checkbox", {

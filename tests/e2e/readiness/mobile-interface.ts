@@ -22,6 +22,41 @@ test("il menu mobile anima e rende raggiungibili tutte le sezioni", async ({ pag
   await page.getByRole("button", { name: "Accedi" }).click();
   await expect(page).toHaveURL(/\/$/);
 
+  const controlsCard = page.locator(".work-item").filter({
+    hasText: "Controlli da risolvere",
+  });
+  await controlsCard.locator(".work-item__value").evaluate((value) => {
+    value.textContent = "144";
+  });
+  const severityLines = controlsCard.locator(".work-item__details > span");
+  await expect(severityLines).toHaveText([/^\d+ bloccanti$/, /^\d+ importanti$/, /^\d+ ordinari$/]);
+  expect(
+    await controlsCard.evaluate((card) => {
+      const value = card.querySelector(".work-item__value")!.getBoundingClientRect();
+      const copy = card.querySelector(".work-item__copy")!.getBoundingClientRect();
+      const action = card.querySelector("a")!.getBoundingClientRect();
+      const severityTops = [...card.querySelectorAll(".work-item__details > span")].map((detail) =>
+        Math.round(detail.getBoundingClientRect().top),
+      );
+      const separatorsHidden = [
+        ...card.querySelectorAll(".work-item__details > span:not(:last-child)"),
+      ].every((detail) => getComputedStyle(detail, "::after").content === "none");
+      return {
+        valueBeforeCopy: value.right <= copy.left,
+        actionBelowSummary: action.top >= Math.max(value.bottom, copy.bottom),
+        fitsCard: card.scrollWidth <= card.clientWidth,
+        severityRows: new Set(severityTops).size,
+        separatorsHidden,
+      };
+    }),
+  ).toEqual({
+    valueBeforeCopy: true,
+    actionBelowSummary: true,
+    fitsCard: true,
+    severityRows: 3,
+    separatorsHidden: true,
+  });
+
   const trigger = page.getByRole("button", {
     name: "Apri il menu di navigazione",
   });
