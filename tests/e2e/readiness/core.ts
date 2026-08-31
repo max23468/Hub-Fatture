@@ -130,8 +130,33 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "aria-expanded",
     "false",
   );
-  await expect(sidebar).toHaveCSS("width", "72px");
-  await expect(appMain).toHaveCSS("margin-left", "72px");
+  await expect(sidebar).toHaveCSS("width", "80px");
+  await expect(appMain).toHaveCSS("margin-left", "80px");
+  const controlsNavigation = page.getByRole("link", { name: "Controlli", exact: true }).first();
+  await controlsNavigation.evaluate((element) => {
+    const badge = document.createElement("span");
+    badge.className = "nav-item__badge";
+    badge.ariaHidden = "true";
+    badge.textContent = "99+";
+    element.append(badge);
+  });
+  expect(
+    await controlsNavigation.evaluate((element) => {
+      const navigation = element.getBoundingClientRect();
+      const icon = element.querySelector("svg")!.getBoundingClientRect();
+      const badge = element.querySelector<HTMLElement>(".nav-item__badge")!;
+      const badgeBounds = badge.getBoundingClientRect();
+      return {
+        badgeFits: badge.scrollWidth <= badge.clientWidth,
+        contained:
+          icon.left >= navigation.left &&
+          badgeBounds.right <= navigation.right &&
+          badgeBounds.top >= navigation.top &&
+          badgeBounds.bottom <= navigation.bottom,
+        separated: icon.right <= badgeBounds.left,
+      };
+    }),
+  ).toEqual({ badgeFits: true, contained: true, separated: true });
   const settingsNavigation = page.getByRole("link", { name: "Impostazioni", exact: true }).first();
   await settingsNavigation.hover();
   expect(
@@ -143,7 +168,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   expect(await page.evaluate(() => localStorage.getItem("sidebar"))).toBe("collapsed");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-sidebar", "collapsed");
-  await expect(sidebar).toHaveCSS("width", "72px");
+  await expect(sidebar).toHaveCSS("width", "80px");
   const expandSidebar = page.getByRole("button", {
     name: "Espandi navigazione",
   });

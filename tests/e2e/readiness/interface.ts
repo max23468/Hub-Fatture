@@ -33,7 +33,8 @@ test("la qualifica Production richiede un consenso esplicito prima del dry run",
     await page.getByLabel("Nome utente").fill("Massimo");
     await page.getByLabel("Password").fill("password-massimo");
     await page.getByRole("button", { name: "Accedi" }).click();
-    await expect(page).toHaveURL(/\/$/);
+    await page.waitForURL("/");
+    await page.waitForLoadState("networkidle");
     await page.goto("/documenti");
 
     const dryRunConfirmation = page.getByRole("checkbox", {

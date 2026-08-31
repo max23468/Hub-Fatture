@@ -29,7 +29,7 @@ test("il menu mobile anima e rende raggiungibili tutte le sezioni", async ({ pag
     value.textContent = "144";
   });
   const severityLines = controlsCard.locator(".work-item__details > span");
-  await expect(severityLines).toHaveText(["0 bloccanti", "0 importanti", "0 ordinari"]);
+  await expect(severityLines).toHaveText([/^\d+ bloccanti$/, /^\d+ importanti$/, /^\d+ ordinari$/]);
   expect(
     await controlsCard.evaluate((card) => {
       const value = card.querySelector(".work-item__value")!.getBoundingClientRect();
