@@ -505,16 +505,18 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   });
   await expect(initialMobileMenuTrigger).toBeVisible();
   await expect(initialMobileMenuTrigger).toHaveAttribute("aria-expanded", "false");
-  expect(
-    await initialMobileMenuTrigger.evaluate((trigger) => {
-      const center = trigger.getBoundingClientRect();
-      const topmost = document.elementFromPoint(
-        center.left + center.width / 2,
-        center.top + center.height / 2,
-      );
-      return topmost !== null && trigger.contains(topmost);
-    }),
-  ).toBe(true);
+  await expect
+    .poll(() =>
+      initialMobileMenuTrigger.evaluate((trigger) => {
+        const center = trigger.getBoundingClientRect();
+        const topmost = document.elementFromPoint(
+          center.left + center.width / 2,
+          center.top + center.height / 2,
+        );
+        return topmost !== null && trigger.contains(topmost);
+      }),
+    )
+    .toBe(true);
   await initialMobileMenuTrigger.click();
   await expect(initialMobileMenu).toBeVisible();
   await expect(initialMobileMenu.getByRole("link")).toHaveCount(6);
