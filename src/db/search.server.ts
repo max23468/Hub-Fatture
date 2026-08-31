@@ -37,6 +37,8 @@ export interface GlobalSearchResults {
     status: string;
     href: string;
   }>;
+  /** Contratto additivo per le schede aperte durante un deploy applicativo. */
+  documents: GlobalSearchResults["invoices"];
   creditNotes: Array<{
     id: string;
     fiscalLabel: string | null;
@@ -84,6 +86,7 @@ export interface GlobalSearchResults {
 }
 
 export function emptyGlobalSearch(query = ""): GlobalSearchResults {
+  const invoices: GlobalSearchResults["invoices"] = [];
   return {
     query,
     totals: {
@@ -96,7 +99,8 @@ export function emptyGlobalSearch(query = ""): GlobalSearchResults {
       remoteDocuments: 0,
     },
     orders: [],
-    invoices: [],
+    invoices,
+    documents: invoices,
     creditNotes: [],
     customers: [],
     activities: [],
@@ -329,6 +333,19 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
     remoteDocuments: remoteDocuments.total,
   };
 
+  const invoiceResults: GlobalSearchResults["invoices"] = invoices.map((row) => ({
+    id: row.id,
+    fiscalLabel:
+      row.fiscal_year && row.fiscal_number
+        ? fiscalNumberLabel(row.series, row.fiscal_year, row.fiscal_number)
+        : null,
+    caseNumber: row.case_number,
+    customerName: row.customer_name,
+    documentDate: row.document_date,
+    status: row.status,
+    href: `/ordini/preparazione/${row.billing_case_id}`,
+  }));
+
   return {
     query,
     totals,
@@ -340,18 +357,8 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
       localOrderDate: row.local_order_date,
       href: `/ordini/${row.id}`,
     })),
-    invoices: invoices.map((row) => ({
-      id: row.id,
-      fiscalLabel:
-        row.fiscal_year && row.fiscal_number
-          ? fiscalNumberLabel(row.series, row.fiscal_year, row.fiscal_number)
-          : null,
-      caseNumber: row.case_number,
-      customerName: row.customer_name,
-      documentDate: row.document_date,
-      status: row.status,
-      href: `/ordini/preparazione/${row.billing_case_id}`,
-    })),
+    invoices: invoiceResults,
+    documents: invoiceResults,
     creditNotes: creditNotes.map((row) => ({
       id: row.id,
       fiscalLabel:
