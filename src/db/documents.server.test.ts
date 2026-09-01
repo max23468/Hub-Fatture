@@ -36,6 +36,7 @@ test(
       const orders = {
         ...(await import("./billing-cases.server.ts")),
         ...(await import("./order-import.server.ts")),
+        ...(await import("./order-queries.server.ts")),
       };
       const database = await import("./client.server.ts");
       await database
@@ -142,6 +143,19 @@ test(
       ).rows;
       assert.equal(cases.length, 3);
       assert.ok(cases.every((billingCase) => billingCase.status === "READY"));
+      const unsavedCandidates = await documents.listMassApprovalCandidates();
+      assert.deepEqual(
+        unsavedCandidates.map(({ billing_case_id, draft_version }) => ({
+          billing_case_id,
+          draft_version,
+        })),
+        cases.map(({ id }) => ({ billing_case_id: id, draft_version: 0 })),
+      );
+      assert.equal(
+        (await database.getPool().query("SELECT count(*) FROM documents")).rows[0].count,
+        "0",
+      );
+      assert.equal((await orders.dashboardSummary()).ready_cases, "3");
       const save = async (caseId: string) => {
         const projection = await documents.getInvoiceProjection(caseId);
         assert.ok(projection && !projection.profileMissing && "lines" in projection);
@@ -1230,22 +1244,25 @@ test(
         ).rows[0].count,
         "0",
       );
-      const directApproval = await documents.approveInvoice(
-        directCase.id,
-        {
-          caseRevision: directProjection.caseRevision,
-          draftVersion: directProjection.draftVersion,
-          projectionSha256: directProjection.projectionSha256,
-          confirmPending: false,
-          confirmDifference: false,
-          arubaMode: directProjection.arubaMode,
-          confirmArubaDowngrade: true,
-          emailChoice: "SKIP",
-          emailModeVersion: directProjection.customerEmail.version,
-        },
-        { id: 1, canApprove: true, requestId: "documents-direct-approval" },
+      const directCandidate = (await documents.listMassApprovalCandidates()).find(
+        ({ billing_case_id }) => billing_case_id === directCase.id,
       );
-      assert.match(directApproval!.fiscalNumber, /^FPR \d{4}\/\d{2}$/);
+      assert.ok(directCandidate);
+      assert.equal(directCandidate.draft_version, 0);
+      assert.deepEqual(
+        await documents.approveInvoices(
+          [
+            `${directCandidate.billing_case_id}:${directCandidate.case_revision}:${directCandidate.draft_version}:${directCandidate.projection_sha256}`,
+          ],
+          { id: 1, canApprove: true, requestId: "documents-mass-direct-approval" },
+          true,
+          directProjection.arubaMode,
+          { [directCase.id]: "SKIP" },
+          directProjection.customerEmail.version,
+          true,
+        ),
+        { approved: 1, failed: 0, storagePending: 0 },
+      );
       assert.deepEqual(
         (
           await database.getPool().query(

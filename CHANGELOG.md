@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.23
+
+- La Dashboard e l’approvazione massiva includono le preparazioni `READY` con proposta server-side valida anche quando non è stata salvata una bozza invariata; pagamenti pendenti, differenze, proiezioni obsolete e inventario Aruba non sano restano esclusi o bloccanti.
+
 ## 0.5.22
 
 - Il riallineamento eBay considera una differenza limitata all’e-mail anche quando il provider rappresenta lo stesso recapito assente come campo omesso oppure `null`, chiudendo il falso mismatch senza alterare dati fiscali, anagrafici o correzioni manuali.

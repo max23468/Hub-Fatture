@@ -2,13 +2,13 @@ import { arubaModeSchema } from "../aruba.ts";
 import { AppError } from "../errors.ts";
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
-import { standardInvoiceApprovalCriteriaSql } from "./billing-case-sql.server.ts";
+import { standardInvoiceApprovalCandidateSql } from "./billing-case-sql.server.ts";
 import {
   customerEmailChoiceSchema,
   customerEmailPreview,
   getCustomerEmailSettings,
 } from "./email.server.ts";
-import { approveInvoice } from "./documents.server.ts";
+import { approveInvoice, getStandardInvoiceApprovalProjection } from "./documents.server.ts";
 
 interface FiscalActor {
   id: number;
@@ -24,37 +24,68 @@ function integer(value: unknown): number {
   return parsed;
 }
 
+async function mapWithConcurrency<T, Result>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<Result>,
+) {
+  const mapped: Result[] = [];
+  for (let index = 0; index < values.length; index += concurrency) {
+    mapped.push(...(await Promise.all(values.slice(index, index + concurrency).map(mapper))));
+  }
+  return mapped;
+}
+
 export async function listMassApprovalCandidates() {
   const [result, emailSettings] = await Promise.all([
     getPool().query<{
       billing_case_id: string;
       case_revision: number;
-      draft_version: number;
-      projection_sha256: string;
+      draft_version: number | null;
+      projection_sha256: string | null;
       public_number: string;
       customer_name: string;
-      total_amount: number;
-      fiscal_profile_version: number;
+      total_amount: number | null;
+      fiscal_profile_version: number | null;
     }>(
       `SELECT billing_cases.id AS billing_case_id, billing_cases.revision AS case_revision,
             documents.draft_version, documents.projection_sha256, billing_cases.public_number,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             documents.total_amount, documents.fiscal_profile_version
-     FROM documents
-     JOIN billing_cases ON billing_cases.id = documents.billing_case_id
-     JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
-     WHERE ${standardInvoiceApprovalCriteriaSql()}
+     FROM billing_cases
+     LEFT JOIN documents ON documents.billing_case_id = billing_cases.id
+       AND documents.kind = 'INVOICE'
+     LEFT JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
+     WHERE ${standardInvoiceApprovalCandidateSql()}
      ORDER BY billing_cases.id
      LIMIT 100`,
     ),
     getCustomerEmailSettings(),
   ]);
-  return Promise.all(
-    result.rows.map(async (row) => ({
-      ...row,
+  const candidates = await mapWithConcurrency(result.rows, 4, async (row) => {
+    const projection = row.projection_sha256
+      ? {
+          caseRevision: row.case_revision,
+          draftVersion: row.draft_version!,
+          projectionSha256: row.projection_sha256,
+          totalAmount: row.total_amount!,
+          fiscalProfileVersion: row.fiscal_profile_version!,
+        }
+      : await getStandardInvoiceApprovalProjection(row.billing_case_id);
+    if (!projection) return null;
+    return {
+      billing_case_id: row.billing_case_id,
+      case_revision: projection.caseRevision,
+      draft_version: projection.draftVersion,
+      projection_sha256: projection.projectionSha256,
+      public_number: row.public_number,
+      customer_name: row.customer_name,
+      total_amount: projection.totalAmount,
+      fiscal_profile_version: projection.fiscalProfileVersion,
       customerEmail: await customerEmailPreview(row.billing_case_id, emailSettings),
-    })),
-  );
+    };
+  });
+  return candidates.filter((candidate) => candidate !== null);
 }
 
 function approvalCandidate(value: string) {
@@ -96,34 +127,6 @@ export async function approveInvoices(
     if (!emailChoice.success) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
     return { ...candidate, emailChoice: emailChoice.data };
   });
-  const currentCandidates = await getPool().query<{
-    billing_case_id: string;
-    draft_version: number;
-    projection_sha256: string;
-  }>(
-    `SELECT billing_cases.id AS billing_case_id, documents.draft_version,
-            documents.projection_sha256
-     FROM billing_cases
-     JOIN documents ON documents.billing_case_id = billing_cases.id
-       AND documents.kind = 'INVOICE' AND documents.status = 'DRAFT'
-     WHERE billing_cases.id = ANY($1::bigint[]) AND billing_cases.status = 'READY'`,
-    [candidates.map((candidate) => candidate.caseId)],
-  );
-  const currentByCase = new Map(
-    currentCandidates.rows.map((candidate) => [candidate.billing_case_id, candidate]),
-  );
-  if (
-    candidates.some((candidate) => {
-      const current = currentByCase.get(candidate.caseId);
-      return (
-        !current ||
-        current.draft_version !== candidate.draftVersion ||
-        current.projection_sha256 !== candidate.projectionSha256
-      );
-    })
-  ) {
-    return { approved: 0, failed: candidates.length, storagePending: 0 };
-  }
   const outcomes = await Promise.all(
     candidates.map(async (candidate) => {
       try {
