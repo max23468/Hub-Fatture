@@ -98,6 +98,17 @@ test("migrazioni e storage attivano DB, sicurezza e backup aggiuntivo", () => {
   assert.equal(impact.e2eWebkit, false);
 });
 
+test("gli script di backup e restore attivano davvero backup aggiuntivo e deploy", () => {
+  for (const file of ["scripts/backup.sh", "scripts/restore.sh"]) {
+    const impact = classifyFiles([file]);
+    assert.equal(impact.lane, "deploy", file);
+    assert.equal(impact.migrationStorage, true, file);
+    assert.equal(impact.deploy, true, file);
+  }
+  assert.equal(classifyFiles(["scripts/monitor-local.sh"]).deploy, true);
+  assert.equal(classifyFiles(["scripts/read-env.sh"]).deploy, true);
+});
+
 test("i connettori attivano contract test e corsia provider", () => {
   const impact = classifyFiles(["src/integrations/shopify.server.ts"]);
   assert.equal(impact.lane, "provider");
