@@ -224,6 +224,7 @@ test("il proxy locale resta accessibile soltanto dal Mac", async () => {
   const compose = await readFile(path.join(root, "compose.yaml"), "utf8");
   assert.match(compose, /"127\.0\.0\.1:8080:80"/);
   assert.match(compose, /"127\.0\.0\.1:5432:5432"/);
+  assert.match(compose, /  postgres-test:\n(?:    .*\n){0,3}    init: true\n/);
 });
 
 test("Development non può riconfigurare l'app Shopify Production", async () => {

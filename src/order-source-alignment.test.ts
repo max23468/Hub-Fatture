@@ -5,6 +5,7 @@ import {
   isEbayCustomerEmailOnlyMismatch,
   isEbayEmailAndMapperOnlyChange,
   isEbayEmailOnlyChange,
+  isEbayRefundMapperOnlyChange,
   isShopifyFulfillmentOnlyChange,
 } from "./order-source-alignment.ts";
 
@@ -49,6 +50,50 @@ test("riconosce come sicura soltanto una variazione dell'e-mail eBay", () => {
       { ...snapshot("prima@example.invalid"), provider: "SHOPIFY" },
       { ...snapshot("dopo@example.invalid"), provider: "SHOPIFY" },
     ),
+    false,
+  );
+});
+
+test("riconosce soltanto il completamento deterministico di un rimborso eBay ambiguo", () => {
+  const previous = {
+    ...snapshot("cliente@example.invalid"),
+    refunds: [
+      {
+        externalRefundId: "refund-1",
+        status: "AMBIGUOUS",
+        amount: null,
+        completedAt: "2026-06-24T05:33:15.341Z",
+        raw: { amount: { value: "7.98", currency: "EUR" } },
+      },
+    ],
+    orderReviewRequired: true,
+    sourceConflictRequired: false,
+  };
+  const current = {
+    ...previous,
+    refunds: [
+      {
+        ...previous.refunds[0],
+        status: "COMPLETED",
+        amount: "9.00",
+      },
+    ],
+    reviewFingerprint: "dopo",
+    sourceConflictRequired: true,
+  };
+  assert.equal(isEbayRefundMapperOnlyChange(previous, current), true);
+  assert.equal(
+    isEbayRefundMapperOnlyChange(previous, {
+      ...current,
+      totalAmount: 1_001,
+    }),
+    false,
+  );
+  assert.equal(
+    isEbayRefundMapperOnlyChange(previous, {
+      ...current,
+      refunds: [{ ...current.refunds[0], raw: { amount: { value: "8.00" } } }],
+    }),
     false,
   );
 });
