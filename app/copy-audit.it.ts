@@ -33,6 +33,7 @@ export const auditActionLabels = {
   BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
   BILLING_CASE_REACTIVATED: "Preparazione riattivata",
   CUSTOMER_CORRECTED: "Anagrafica cliente corretta",
+  CUSTOMER_IDENTITY_EXCEPTION_ACCEPTED: "Deroga anagrafica cliente accettata",
   CUSTOMER_EMAIL_FAILED: "Invio e-mail non riuscito",
   CUSTOMER_EMAIL_QUEUED: "Invio e-mail preparato",
   CUSTOMER_EMAIL_REQUEUED: "Reinvio e-mail preparato",

@@ -924,6 +924,14 @@ righe, pagamenti e rimborsi, riallinea automaticamente ordine e preparazione non
 correzione manuale già applicata resta prevalente; ogni altra differenza continua a richiedere
 revisione.
 
+Per un privato italiano eBay con CF formalmente valido ma intestazione non controverificabile,
+un amministratore può accettare una deroga sul dettaglio cliente. La deroga è legata
+all'impronta esatta di provider, riferimento cliente, intestazione e CF, conserva nome e cognome
+proposti e avvia subito il normale import idempotente per riallineare ordine, preparazione e bozza
+non emessa. Non si applica a documenti approvati, non viene propagata a eBay e una variazione
+dell'identità sorgente riapre la verifica invece di ereditare l'eccezione. Dati e identificativi
+reali restano nel database Production e non vengono codificati nel repository.
+
 ---
 
 ## 10. Integrazione Aruba e SdI
@@ -1771,6 +1779,20 @@ I dati corretti in HF non sovrascrivono i valori storici degli ordini.
 - `external_customer_id`
 - `raw_snapshot_json`
 - `imported_at`
+
+#### `customer_identity_exceptions`
+
+- `provider`
+- `external_customer_id`
+- `source_identity_sha256`
+- `first_name`
+- `last_name`
+- `accepted_by`
+- `accepted_at`
+
+La riga rappresenta una decisione amministrativa puntuale, non una regola fiscale generale. La
+chiave della sorgente e l'impronta dell'identità impediscono che la deroga migri a un altro
+cliente o sopravviva a una variazione di intestazione o CF.
 
 #### `orders`
 

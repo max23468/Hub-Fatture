@@ -1,6 +1,6 @@
 {
   "name": "hub-fatture",
-  "version": "0.5.23",
+  "version": "0.5.24",
   "private": true,
   "type": "module",
   "scripts": {
@@ -33,7 +33,7 @@
     "start:worker": "node build-server/worker.js",
     "test": "node --test",
     "test:db": "node scripts/with-test-database.mjs npm run test:db:direct",
-    "test:db:direct": "node --test --test-concurrency=4 src/db/*.test.ts",
+    "test:db:direct": "node --test --test-concurrency=1 src/db/*.test.ts",
     "test:provider": "node --test src/integrations/*.test.ts",
     "test:unit": "node --test app/*.test.ts src/*.test.ts scripts/*.node-test.mjs scripts/*.test.mjs",
     "test:e2e": "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",

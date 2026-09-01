@@ -3,7 +3,7 @@ import { runHistoricalMatchingScenario } from "./orders-history-matching.scenari
 import { runPaymentsCoreScenario } from "./orders-payments-core.scenario.test.ts";
 import type { OrdersTestContext } from "./orders-test-support.test.ts";
 
-export async function runPaymentsAndHistoryScenario(context: OrdersTestContext) {
+export async function run(context: OrdersTestContext) {
   const core = await runPaymentsCoreScenario(context);
   const matching = await runHistoricalMatchingScenario(context, core);
   await runExtendedHistoricalScenario(context, core, matching);

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.24
+
+- Il dettaglio dei privati italiani eBay consente a un amministratore di accettare una deroga anagrafica quando nome e cognome non sono controverificabili in modo univoco dal Codice Fiscale; l'eccezione è vincolata all'identità sorgente esatta, riallinea automaticamente soltanto ordini e preparazioni non emessi, conserva immutati i dati grezzi del provider e riapre la verifica se intestazione o identificativo fiscale cambiano.
+- Il gate PostgreSQL locale esegue le suite dello stesso worktree in serie, evitando esaurimenti di memoria e timeout da contesa sul database sintetico senza ridurre la copertura dei 54 scenari.
+
 ## 0.5.23
 
 - La Dashboard e l’approvazione massiva includono le preparazioni `READY` con proposta server-side valida anche quando non è stata salvata una bozza invariata; pagamenti pendenti, differenze, proiezioni obsolete e inventario Aruba non sano restano esclusi o bloccanti.

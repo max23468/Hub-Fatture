@@ -60,6 +60,7 @@ const scenarioSizeCaps = new Map([
   ["src/db/orders-scenarios/orders-history-extended.scenario.test.ts", 80_000],
   ["src/db/orders-scenarios/orders-refunds-concurrency.scenario.test.ts", 45_000],
   ["src/db/orders-scenarios/orders-source-alignment.scenario.test.ts", 9_000],
+  ["src/db/orders-scenarios/orders-customer-identity-exception.scenario.test.ts", 6_000],
 ]);
 
 test("le capacità estratte non tornano a crescere in monoliti", async () => {
@@ -119,6 +120,7 @@ test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", asy
     "mutazioni, raggruppamento e identità cliente",
     "pagamenti, riconciliazione storica e casi complessi",
     "allineamento automatico delle sorgenti",
+    "deroga esplicita dell’identità cliente",
     "rimborsi, concorrenza e proiezioni finali",
   ]);
   const offenders = [];

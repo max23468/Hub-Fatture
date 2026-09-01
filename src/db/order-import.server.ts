@@ -14,6 +14,7 @@ import {
 import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob, HistoryImportResult, Provider } from "./connector-types.server.ts";
 import { AppError } from "../errors.ts";
+import { applyCustomerIdentityException } from "../customer-identity-exception.ts";
 import {
   isEbayCustomerEmailOnlyMismatch,
   isEbayEmailAndMapperOnlyChange,
@@ -306,6 +307,7 @@ async function upsertCustomer(
   client: pg.PoolClient,
   input: OrderInput,
   identity: ReturnType<typeof customerIdentity>,
+  sourceCustomer: OrderInput["customer"],
 ) {
   const presentation = presentationCustomer(input.customer);
   const customer = await client.query<{ id: string }>(
@@ -357,7 +359,7 @@ async function upsertCustomer(
        SET customer_id = EXCLUDED.customer_id,
            raw_snapshot_json = EXCLUDED.raw_snapshot_json,
            imported_at = now()`,
-      [customerId, input.provider, input.externalCustomerId, JSON.stringify(input.customer)],
+      [customerId, input.provider, input.externalCustomerId, JSON.stringify(sourceCustomer)],
     );
   }
   return customerId;
@@ -365,11 +367,34 @@ async function upsertCustomer(
 
 async function importOne(
   client: pg.PoolClient,
-  input: OrderInput,
+  sourceInput: OrderInput,
   trigger: DraftTrigger,
   shopifyPaymentFeeMode: ShopifyPaymentFeeMode,
   actor: Actor,
 ) {
+  const identityException = sourceInput.externalCustomerId
+    ? await client.query<{
+        source_identity_sha256: string;
+        first_name: string;
+        last_name: string;
+      }>(
+        `SELECT source_identity_sha256, first_name, last_name
+         FROM customer_identity_exceptions
+         WHERE provider = $1 AND external_customer_id = $2`,
+        [sourceInput.provider, sourceInput.externalCustomerId],
+      )
+    : null;
+  const exception = identityException?.rows[0];
+  const input = applyCustomerIdentityException(
+    sourceInput,
+    exception
+      ? {
+          sourceIdentitySha256: exception.source_identity_sha256,
+          firstName: exception.first_name,
+          lastName: exception.last_name,
+        }
+      : null,
+  );
   const {
     grossAmount,
     lineAmounts,
@@ -433,7 +458,7 @@ async function importOne(
   // Una preparazione già emessa non riscrive l'anagrafica: l'ordine resta sul suo cliente.
   const customerId = invoiced
     ? oldOrder!.customer_id
-    : await upsertCustomer(client, input, identity);
+    : await upsertCustomer(client, input, identity, sourceInput.customer);
   const normalizedSnapshot = {
     ...input,
     historical,
@@ -523,7 +548,7 @@ async function importOne(
       input.fulfillmentStatus,
       status,
       customerId,
-      JSON.stringify(input),
+      JSON.stringify(sourceInput),
       JSON.stringify(normalizedSnapshot),
       input.cancelledAt,
       documentIssued,
