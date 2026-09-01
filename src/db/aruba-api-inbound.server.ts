@@ -54,7 +54,7 @@ async function runnableConnection() {
     !current.credentials_verified_at ||
     current.api_paused ||
     !current.inbound_enabled ||
-    current.status !== "CONNECTED"
+    !["CONNECTED", "ERROR"].includes(current.status)
   ) {
     throw new AppError("PROVIDER_NOT_CONFIGURED", 503);
   }
@@ -65,7 +65,7 @@ async function runMayContinue(run: ArubaSyncRunRow): Promise<boolean> {
   const active = await getPool().query(
     `SELECT 1 FROM connections
      WHERE provider = 'ARUBA' AND environment = $1 AND account_reference = $2
-       AND status = 'CONNECTED' AND encrypted_credentials IS NOT NULL
+       AND status IN ('CONNECTED', 'ERROR') AND encrypted_credentials IS NOT NULL
        AND credentials_verified_at IS NOT NULL AND inbound_enabled AND NOT api_paused`,
     [connectionEnvironment(), run.account_reference],
   );

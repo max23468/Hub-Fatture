@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.33
+
+- I retry Aruba espliciti possono ripartire con credenziali verificate anche quando il tentativo precedente ha lasciato la connessione in errore; connessioni in pausa, revocate o da riautenticare restano bloccate e lo stato torna collegato soltanto dopo un completamento riuscito.
+
 ## 0.5.32
 
 - La verifica finale delle fatture Aruba conserva il Paese del destinatario: i privati esteri con placeholder `99999999999`, nome, data e totale coincidenti vengono collegati deterministicamente anche quando l’indirizzo è traslitterato o Aruba usa quello di spedizione; i conflitti di profilo già falliti vengono ritentati, mentre identificativi reali e Paesi discordanti restano bloccati.

@@ -9,3 +9,4 @@ import "./migrations-scenarios/shopify-identity-fulfillment-replay.test.ts";
 import "./migrations-scenarios/approved-invoice-memberships.test.ts";
 import "./migrations-scenarios/automatic-identity-exceptions.test.ts";
 import "./migrations-scenarios/aruba-foreign-consumer-replay.test.ts";
+import "./migrations-scenarios/aruba-error-retry.test.ts";
