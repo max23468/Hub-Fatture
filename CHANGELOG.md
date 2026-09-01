@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.28
+
+- La sincronizzazione incrementale Aruba e la rilettura dei documenti non terminali si alternano in base al flusso rimasto più indietro, impedendo che un singolo documento in elaborazione blocchi indefinitamente l'acquisizione delle nuove fatture.
+
 ## 0.5.27
 
 - In `Ordini → Da fatturare`, l’elenco delle preparazioni precede l’approvazione in blocco, così la selezione dei documenti resta contestualizzata dal lavoro disponibile; i tooltip della sidebar desktop compressa rimangono interamente visibili sopra il contenuto della pagina.
