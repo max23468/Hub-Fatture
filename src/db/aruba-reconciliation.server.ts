@@ -23,6 +23,7 @@ interface InboundOrderCandidateRow {
   billable_amount: number;
   recipient_name: string | null;
   recipient_tax_identifiers: FiscalIdentity[];
+  recipient_country_code: string | null;
   recipient_address: string | null;
   billing_case_id: string | null;
   invoice_document_id: string | null;
@@ -81,6 +82,9 @@ export async function arubaOrderCandidates(client: pg.PoolClient, remote: Remote
                       FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id),
               '[]')
               AS recipient_tax_identifiers,
+            coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,countryCode}',
+              orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}')
+              AS recipient_country_code,
             concat_ws(' ',
               coalesce(billing_cases.customer_snapshot_json #>> '{billingAddress,line1}',
                 orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}'),
@@ -128,6 +132,8 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
                         'value', order_tax_identifiers.normalized_value))
                       FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '[]')
               AS recipient_tax_identifiers,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'
+              AS recipient_country_code,
             concat_ws(' ',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',
@@ -185,6 +191,8 @@ async function submittedCreditNoteCandidates(client: pg.PoolClient, documentId: 
                         'value', order_tax_identifiers.normalized_value))
                       FROM order_tax_identifiers WHERE order_tax_identifiers.order_id = orders.id), '[]')
               AS recipient_tax_identifiers,
+            orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,countryCode}'
+              AS recipient_country_code,
             concat_ws(' ',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,line1}',
               orders.normalized_snapshot_json #>> '{customerSnapshot,billingAddress,postalCode}',
@@ -312,6 +320,7 @@ export async function reconcileRemoteDocument(
       billableAmount: candidate.match_amount,
       recipientName: candidate.recipient_name,
       recipientTaxIdentifiers: candidate.recipient_tax_identifiers,
+      recipientCountryCode: candidate.recipient_country_code,
       recipientAddress: candidate.recipient_address,
     },
   }));
@@ -379,6 +388,7 @@ export async function reconcileRemoteDocument(
           billableAmount: selectedAmount,
           recipientName: candidate.recipient_name,
           recipientTaxIdentifiers: candidate.recipient_tax_identifiers,
+          recipientCountryCode: candidate.recipient_country_code,
           recipientAddress: candidate.recipient_address,
         });
       }

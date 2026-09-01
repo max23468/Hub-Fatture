@@ -332,11 +332,14 @@ export async function run(context: OrdersTestContext) {
   const beforeCorrection = await orders.getBillingCase(correctionCaseId);
   assert.equal(beforeCorrection!.status, "NEEDS_REVIEW");
   assert.ok(beforeCorrection!.anomalies.includes("CUSTOMER_INCOMPLETE"));
-  await database
-    .getPool()
-    .query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1", [
-      correctionCaseId,
-    ]);
+  await database.getPool().query(
+    `UPDATE orders
+       SET trigger_status = 'NEEDS_REVIEW',
+           normalized_snapshot_json = jsonb_set(
+             normalized_snapshot_json, '{sourceConflictRequired}', 'true'::jsonb)
+       WHERE billing_case_id = $1`,
+    [correctionCaseId],
+  );
   const correction = {
     kind: "BUSINESS_IT",
     displayName: "Rossi Srl",

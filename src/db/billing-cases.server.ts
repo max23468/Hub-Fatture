@@ -66,6 +66,7 @@ interface CaseOrder {
   trigger_status: string;
   cancelled_at: string | null;
   deferred_review_required: boolean;
+  source_conflict_required: boolean;
   totals_reconciled: boolean;
   has_unsettled_payment: boolean;
   customer_profile_mismatch: boolean;
@@ -98,7 +99,7 @@ function billingCaseAnomalies(
     }
     if (!order.totals_reconciled) anomalies.add("TOTALS_MISMATCH");
     if (order.customer_profile_mismatch) anomalies.add("CUSTOMER_MISMATCH");
-    if (order.trigger_status === "NEEDS_REVIEW" || order.deferred_review_required) {
+    if (order.source_conflict_required || order.deferred_review_required) {
       anomalies.add("SOURCE_CONFLICT");
     }
     if (order.cancelled_at || order.payment_status === "REFUNDED") {
@@ -151,7 +152,10 @@ export async function listOperationalBillingCaseAnomalies() {
          SELECT 1 FROM orders
          WHERE orders.billing_case_id = billing_cases.id
            AND (
-             orders.trigger_status = 'NEEDS_REVIEW'
+             coalesce(
+               (orders.normalized_snapshot_json ->> 'sourceConflictRequired')::boolean,
+               false
+             )
              OR coalesce(
                (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
                false
@@ -341,6 +345,7 @@ export async function reviewBillingCaseSourceChanges(
       id: string;
       trigger_status: string;
       deferred_review_required: boolean;
+      source_conflict_required: boolean;
       revision_id: string | null;
     }>(
       `SELECT orders.id, orders.trigger_status,
@@ -348,6 +353,10 @@ export async function reviewBillingCaseSourceChanges(
                 (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
                 false
               ) AS deferred_review_required,
+              coalesce(
+                (orders.normalized_snapshot_json ->> 'sourceConflictRequired')::boolean,
+                false
+              ) AS source_conflict_required,
               (
                 SELECT order_source_revisions.id::text
                 FROM order_source_revisions
@@ -358,7 +367,10 @@ export async function reviewBillingCaseSourceChanges(
        FROM orders
        WHERE orders.billing_case_id = $1
          AND (
-           orders.trigger_status = 'NEEDS_REVIEW'
+           coalesce(
+             (orders.normalized_snapshot_json ->> 'sourceConflictRequired')::boolean,
+             false
+           )
            OR coalesce(
              (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
              false
@@ -375,8 +387,12 @@ export async function reviewBillingCaseSourceChanges(
              ELSE trigger_status
            END,
            normalized_snapshot_json = jsonb_set(
-             normalized_snapshot_json,
-             '{deferredReviewRequired}',
+             jsonb_set(
+               normalized_snapshot_json,
+               '{deferredReviewRequired}',
+               'false'::jsonb
+             ),
+             '{sourceConflictRequired}',
              'false'::jsonb
            )
        WHERE id = ANY($1::bigint[])`,
@@ -405,11 +421,13 @@ export async function reviewBillingCaseSourceChanges(
         before: {
           triggerStatus: order.trigger_status,
           deferredReviewRequired: order.deferred_review_required,
+          sourceConflictRequired: order.source_conflict_required,
           ...(reconciliation ? { invoiceDraft: reconciliation.before } : {}),
         },
         after: {
           triggerStatus: order.trigger_status === "NEEDS_REVIEW" ? "GROUPED" : order.trigger_status,
           deferredReviewRequired: false,
+          sourceConflictRequired: false,
           ...(reconciliation ? { invoiceDraft: reconciliation.after } : {}),
         },
         requestId: actor.requestId,
@@ -698,6 +716,9 @@ export async function getBillingCase(id: string) {
                        coalesce(
                          (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
                          false) AS deferred_review_required,
+                       coalesce(
+                         (orders.normalized_snapshot_json ->> 'sourceConflictRequired')::boolean,
+                         false) AS source_conflict_required,
                        coalesce(
                          (orders.normalized_snapshot_json ->> 'totalsReconciled')::boolean,
                          false) AS totals_reconciled,

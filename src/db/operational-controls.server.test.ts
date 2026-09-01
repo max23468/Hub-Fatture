@@ -6,7 +6,7 @@ import { runMigrations } from "./migrations.server.ts";
 
 test(
   "i controlli operativi restano stabili, deduplicati e si chiudono con la causa",
-  { timeout: 30_000 },
+  { timeout: 45_000 },
   async () => {
     const clean = await temporaryDatabase("operational_controls");
     try {
@@ -103,6 +103,13 @@ test(
         .query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1", [
           billingCase.rows[0]!.id,
         ]);
+      assert.equal((await controls.listOperationalControls({ origin: "ORDERS" })).total, 0);
+      await database.getPool().query(
+        `UPDATE orders SET normalized_snapshot_json = jsonb_set(
+           normalized_snapshot_json, '{sourceConflictRequired}', 'true'::jsonb)
+         WHERE billing_case_id = $1`,
+        [billingCase.rows[0]!.id],
+      );
       const preparationCauses = await controls.listOperationalControls({ origin: "ORDERS" });
       assert.deepEqual(
         preparationCauses.rows.map(({ kind }) => kind),
@@ -116,13 +123,65 @@ test(
       await database.getPool().query(
         `UPDATE orders SET trigger_status = 'GROUPED',
            normalized_snapshot_json = jsonb_set(
-             normalized_snapshot_json, '{deferredReviewRequired}', 'false'::jsonb
+             jsonb_set(
+               normalized_snapshot_json, '{deferredReviewRequired}', 'false'::jsonb),
+             '{sourceConflictRequired}', 'false'::jsonb
            )
          WHERE billing_case_id = $1`,
         [billingCase.rows[0]!.id],
       );
       await controls.refreshOperationalControls();
       assert.equal((await controls.listOperationalControls({ origin: "ORDERS" })).total, 0);
+
+      await database
+        .getPool()
+        .query(
+          "INSERT INTO fiscal_profiles (version, status, profile_json) VALUES (1, 'MOCK', '{}')",
+        );
+      await database.getPool().query(
+        `WITH issued_case AS (
+           INSERT INTO billing_cases
+             (customer_id, local_order_date, currency, status, customer_snapshot_json,
+              fiscal_profile_version)
+           VALUES ($1, '2026-08-31', 'EUR', 'CLOSED', '{}', 1)
+           RETURNING id
+         ), stored AS (
+           INSERT INTO storage_objects
+             (kind, relative_path, sha256, size_bytes, content_type)
+           VALUES ('ARUBA_XML', 'aruba/history/customer-control.xml', repeat('a', 64),
+                   100, 'application/xml')
+           RETURNING id
+         ), issued AS (
+           INSERT INTO documents
+             (billing_case_id, kind, status, document_type, series, fiscal_year,
+              fiscal_number, document_date, fiscal_profile_version, currency,
+              total_amount, source_total_amount, difference_amount, projection_sha256,
+              approved_at, xml_sha256, immutable_snapshot_json,
+              fiscal_profile_snapshot_json, storage_object_id, payment_status,
+              payment_method, recipient_snapshot_json, origin)
+           SELECT issued_case.id, 'INVOICE', 'APPROVED', 'TD01', 'FPR', 2026, 4061,
+                  '2026-08-31', 1, 'EUR', 1000, 1000, 0, repeat('b', 64), now(),
+                  repeat('b', 64), '{}', '{}', stored.id, 'PAID', 'MP08', '{}',
+                  'ARUBA_HISTORY'
+           FROM issued_case, stored
+           RETURNING id
+         )
+         INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+         SELECT issued.id, 'INVOICE', orders.id, 1000
+         FROM issued, orders
+         WHERE orders.external_order_id = 'actionable-customer'`,
+        [customer.rows[0]!.id],
+      );
+      await controls.refreshOperationalControls();
+      assert.equal((await controls.listOperationalControls({ origin: "CUSTOMERS" })).total, 0);
+      assert.equal(
+        (
+          await database
+            .getPool()
+            .query("SELECT state FROM operational_controls WHERE id = $1", [first.rows[0]!.id])
+        ).rows[0].state,
+        "RESOLVED",
+      );
     } finally {
       const database = await import("./client.server.ts");
       await database.closePool();

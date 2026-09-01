@@ -23,6 +23,7 @@ export async function reconcileMapperCustomerCorrection(
     customerSnapshot: Record<string, unknown>;
     requestId: string;
     provider: Provider;
+    reason?: string;
   },
 ) {
   const previousCustomer = input.previousSnapshot.customerSnapshot as
@@ -70,7 +71,9 @@ export async function reconcileMapperCustomerCorrection(
     metadata: { billingCaseId: input.caseId, provider: input.provider },
     before: previousCustomer,
     after: input.customerSnapshot,
-    reason: `Rilettura dello stesso payload con il mapper ${input.provider === "SHOPIFY" ? "Shopify" : "eBay"} corretto`,
+    reason:
+      input.reason ??
+      `Rilettura dello stesso payload con il mapper ${input.provider === "SHOPIFY" ? "Shopify" : "eBay"} corretto`,
     requestId: input.requestId,
   });
   await client.query(
@@ -140,7 +143,9 @@ export async function reconcileEbayEmailUpdate(
        SET trigger_status = CASE WHEN trigger_status = 'NEEDS_REVIEW' THEN 'GROUPED'
                                  ELSE trigger_status END,
            normalized_snapshot_json = jsonb_set(
-             normalized_snapshot_json, '{deferredReviewRequired}', 'false'::jsonb)
+             jsonb_set(
+               normalized_snapshot_json, '{deferredReviewRequired}', 'false'::jsonb),
+             '{sourceConflictRequired}', 'false'::jsonb)
        WHERE id = $1`,
       [input.orderId],
     );

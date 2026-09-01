@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import type { OrdersTestContext } from "./orders-test-support.test.ts";
 import { runStaleEmailAlignmentScenario } from "./orders-stale-email-alignment.scenario.test.ts";
+import { run as runShopifyAlignment } from "./orders-shopify-alignment.scenario.test.ts";
 
 export async function run(context: OrdersTestContext) {
   const { orders, database, fixture } = context;
@@ -195,4 +196,5 @@ export async function run(context: OrdersTestContext) {
     },
   );
   await runStaleEmailAlignmentScenario(context);
+  await runShopifyAlignment(context);
 }

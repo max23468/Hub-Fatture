@@ -99,6 +99,39 @@ function netDeliveryAmount(pricing: Record<string, unknown>, currency: string): 
   }
 }
 
+function refundId(refund: Record<string, unknown>): string | undefined {
+  return text(refund.refundId) ?? text(refund.refundReferenceId);
+}
+
+function exactShippingRefundIds(
+  paymentRefunds: Record<string, unknown>[],
+  lineRefunds: Record<string, unknown>[],
+  shippingAmount: string,
+  currency: string,
+): Set<string> {
+  const shippingCents = decimalToCents(shippingAmount);
+  if (shippingCents <= 0) return new Set();
+
+  return new Set(
+    paymentRefunds.flatMap((paymentRefund) => {
+      const id = refundId(paymentRefund);
+      if (!id || paymentRefund.refundStatus !== "REFUNDED") return [];
+      const matchingLineRefunds = lineRefunds.filter((lineRefund) => refundId(lineRefund) === id);
+      if (!matchingLineRefunds.length) return [];
+      try {
+        const lineRefundCents = matchingLineRefunds.reduce((sum, lineRefund) => {
+          const amount = money(lineRefund.amount);
+          if (!amount || amount.currency !== currency) throw new Error("Importo riga assente");
+          return sum + decimalToCents(amount.value);
+        }, 0);
+        return lineRefundCents === shippingCents ? [id] : [];
+      } catch {
+        return [];
+      }
+    }),
+  );
+}
+
 function setBounded<K, V>(map: Map<K, V>, key: K, value: V, limit: number): void {
   if (!map.has(key) && map.size >= limit) map.delete(map.keys().next().value!);
   map.set(key, value);
@@ -357,10 +390,15 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
   const payments = records(record(order.paymentSummary).payments);
   const paymentRefunds = records(record(order.paymentSummary).refunds);
   const lineRefunds = lineItems.flatMap((line) => records(line.refunds));
+  const shippingAmount = netDeliveryAmount(pricing, total.currency);
+  const resolvedShippingRefundIds = exactShippingRefundIds(
+    paymentRefunds,
+    lineRefunds,
+    shippingAmount,
+    total.currency,
+  );
   const paymentRefundIds = new Set(
-    paymentRefunds
-      .map((refund) => text(refund.refundId) ?? text(refund.refundReferenceId))
-      .filter((refundId): refundId is string => Boolean(refundId)),
+    paymentRefunds.map(refundId).filter((refundId): refundId is string => Boolean(refundId)),
   );
   // eBay può ripetere lo stesso rimborso sulle righe senza ID o data, oltre al record
   // autorevole nel riepilogo pagamento. Conserviamo però un eventuale record di riga
@@ -369,8 +407,8 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
     ...paymentRefunds,
     ...lineRefunds.filter((refund) => {
       if (!paymentRefunds.length) return true;
-      const refundId = text(refund.refundId) ?? text(refund.refundReferenceId);
-      return Boolean(refundId && !paymentRefundIds.has(refundId));
+      const id = refundId(refund);
+      return Boolean(id && !paymentRefundIds.has(id));
     }),
   ];
   const cancelled = text(record(order.cancelStatus).cancelState);
@@ -385,7 +423,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
     updatedAt,
     currency: total.currency,
     total: total.value,
-    shippingAmount: netDeliveryAmount(pricing, total.currency),
+    shippingAmount,
     paymentStatus: ["FULLY_REFUNDED", "REFUNDED"].includes(paymentStatus)
       ? "REFUNDED"
       : paymentStatus === "PAID"
@@ -449,16 +487,20 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
       amount: money(payment.amount)?.value ?? "0.00",
       paidAt: text(payment.paymentDate) ?? null,
     })),
-    // eBay dichiara che l'importo Fulfillment è netto venditore e può escludere imposte:
-    // non è un importo cliente fiscalmente utilizzabile senza una fonte aggiuntiva.
-    refunds: refunds.map((refund, index) => ({
-      externalRefundId:
-        text(refund.refundId) ?? text(refund.refundReferenceId) ?? `${orderId}-refund-${index + 1}`,
-      status: "AMBIGUOUS",
-      amount: null,
-      completedAt: text(refund.refundDate) ?? null,
-      raw: refund,
-    })),
+    refunds: refunds.map((refund, index) => {
+      const id = refundId(refund);
+      const resolvedShippingRefund = Boolean(id && resolvedShippingRefundIds.has(id));
+      return {
+        externalRefundId: id ?? `${orderId}-refund-${index + 1}`,
+        // L'importo nel riepilogo eBay è il netto venditore. Diventa fiscalmente
+        // utilizzabile solo quando le quote cliente sulle righe ricostruiscono
+        // esattamente l'intera spedizione netta dell'ordine.
+        status: resolvedShippingRefund ? ("COMPLETED" as const) : ("AMBIGUOUS" as const),
+        amount: resolvedShippingRefund ? shippingAmount : null,
+        completedAt: text(refund.refundDate) ?? null,
+        raw: refund,
+      };
+    }),
   });
 }
 

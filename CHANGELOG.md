@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.30
+
+- I bonifici Shopify pagati con un arrotondamento positivo massimo di due centesimi restano riconciliati al totale ordine senza aumentare l’importo fatturabile; eccedenze superiori, sottopagamenti e altri metodi continuano a richiedere verifica.
+- I rimborsi eBay che restituiscono esattamente una seconda spedizione pagata per errore vengono ricostruiti dalle quote di consegna delle righe, mentre i casi non univoci restano bloccati; le fatture Aruba già approvate impediscono inoltre la riapertura di controlli duplicati sugli stessi ordini.
+- L’avanzamento ordinario dell’evasione Shopify non genera più un conflitto quando dati economici e anagrafici sono invariati; per i clienti italiani privi di identificativo, il replay può recuperare l’unico CF o la P.IVA disponibile da un altro ordine con lo stesso cliente sorgente e profilo coincidente, senza usare valori discordanti.
+- La riconciliazione Aruba interpreta `99999999999` come placeholder convenzionale per i privati esteri e non come una vera partita IVA, mantenendo obbligatoria l’identità fiscale quando il documento dichiara un identificativo reale.
+
 ## 0.5.29
 
 - La sincronizzazione Aruba riconosce in ogni scansione sovrapposta un conflitto fiscale immutabile già registrato soltanto quando coincide l’impronta del payload corrente, evitando che la deduplicazione globale interrompa i giri successivi senza allentare i controlli su collisioni nuove o mutate.

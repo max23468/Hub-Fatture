@@ -404,6 +404,71 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
     false,
   );
 
+  const shippingRefund = structuredClone(privateOrder) as {
+    pricingSummary: Record<string, unknown>;
+    lineItems: Array<Record<string, unknown>>;
+    paymentSummary: {
+      payments: Array<Record<string, unknown>>;
+      refunds: Array<Record<string, unknown>>;
+    };
+  };
+  shippingRefund.pricingSummary = {
+    total: { value: "36.98", currency: "EUR" },
+    deliveryCost: { value: "17.00", currency: "EUR" },
+    deliveryDiscount: { value: "-8.00", currency: "EUR" },
+  };
+  shippingRefund.lineItems = [
+    {
+      lineItemId: "line-shipping-refund-1",
+      title: "Primo articolo",
+      quantity: 1,
+      lineItemCost: { value: "12.99", currency: "EUR" },
+      discountedLineItemCost: { value: "12.99", currency: "EUR" },
+      refunds: [
+        {
+          refundId: "shipping-refund",
+          amount: { value: "5.24", currency: "EUR" },
+        },
+      ],
+    },
+    {
+      lineItemId: "line-shipping-refund-2",
+      title: "Secondo articolo",
+      quantity: 1,
+      lineItemCost: { value: "14.99", currency: "EUR" },
+      discountedLineItemCost: { value: "14.99", currency: "EUR" },
+      refunds: [
+        {
+          refundId: "shipping-refund",
+          amount: { value: "3.76", currency: "EUR" },
+        },
+      ],
+    },
+  ];
+  shippingRefund.paymentSummary.payments[0]!.amount = { value: "36.98", currency: "EUR" };
+  shippingRefund.paymentSummary.refunds = [
+    {
+      refundId: "shipping-refund",
+      refundStatus: "REFUNDED",
+      refundDate: "2026-08-04T10:00:00.000Z",
+      // È il netto venditore: non deve essere usato come importo cliente.
+      amount: { value: "7.98", currency: "EUR" },
+    },
+  ];
+  const shippingRefundMapped = mapEbayOrder(shippingRefund, "botCF");
+  assert.equal(shippingRefundMapped.shippingAmount, "9.00");
+  assert.equal(shippingRefundMapped.refunds[0]?.status, "COMPLETED");
+  assert.equal(shippingRefundMapped.refunds[0]?.amount, "9.00");
+
+  const incompleteShippingRefund = structuredClone(shippingRefund);
+  const secondLineRefunds = incompleteShippingRefund.lineItems[1]!.refunds as Array<{
+    amount: { value: string; currency: string };
+  }>;
+  secondLineRefunds[0]!.amount.value = "3.75";
+  const incompleteShippingRefundMapped = mapEbayOrder(incompleteShippingRefund, "botCF");
+  assert.equal(incompleteShippingRefundMapped.refunds[0]?.status, "AMBIGUOUS");
+  assert.equal(incompleteShippingRefundMapped.refunds[0]?.amount, null);
+
   const duplicatedLineRefund = structuredClone(refundedOrder) as {
     lineItems: Array<{ refunds: unknown[] }>;
   };

@@ -5,6 +5,7 @@ import {
   isEbayCustomerEmailOnlyMismatch,
   isEbayEmailAndMapperOnlyChange,
   isEbayEmailOnlyChange,
+  isShopifyFulfillmentOnlyChange,
 } from "./order-source-alignment.ts";
 
 function snapshot(email: string, total = 1_000) {
@@ -95,6 +96,38 @@ test("riconosce una preparazione eBay rimasta indietro soltanto sull’e-mail", 
       ...current,
       displayName: "Mario Bianchi",
     }),
+    false,
+  );
+});
+
+test("l'avanzamento dell'evasione Shopify non è un conflitto fiscale", () => {
+  const previous = {
+    provider: "SHOPIFY",
+    fulfillmentStatus: "UNFULFILLED",
+    paymentStatus: "PAID",
+    totalAmount: 10_00,
+    customerSnapshot: { displayName: "Mario Rossi", email: undefined },
+    updatedAt: "2026-08-17T14:57:48Z",
+    sourceSnapshot: { displayFulfillmentStatus: "UNFULFILLED" },
+    reviewFingerprint: "prima",
+    sourceConflictRequired: false,
+  };
+  const current = {
+    ...previous,
+    fulfillmentStatus: "FULFILLED",
+    updatedAt: "2026-09-01T13:28:25Z",
+    customerSnapshot: { displayName: "Mario Rossi" },
+    sourceSnapshot: { displayFulfillmentStatus: "FULFILLED", transactions: [{ enriched: true }] },
+    reviewFingerprint: "dopo",
+  };
+  assert.equal(isShopifyFulfillmentOnlyChange(previous, current), true);
+  assert.equal(isShopifyFulfillmentOnlyChange(previous, { ...current, totalAmount: 10_01 }), false);
+  assert.equal(isShopifyFulfillmentOnlyChange(current, previous), false);
+  assert.equal(
+    isShopifyFulfillmentOnlyChange(
+      { ...previous, provider: "EBAY" },
+      { ...current, provider: "EBAY" },
+    ),
     false,
   );
 });
