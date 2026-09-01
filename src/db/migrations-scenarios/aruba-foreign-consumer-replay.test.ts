@@ -13,6 +13,7 @@ import {
   ARUBA_FOREIGN_CONSUMER_MATCH_REPLAY,
   ARUBA_ERROR_RETRY,
   SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
+  ARUBA_IDENTITY_EVIDENCE_REPLAY,
 } from "./support.ts";
 
 test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
@@ -38,6 +39,7 @@ test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
       ARUBA_FOREIGN_CONSUMER_MATCH_REPLAY,
       ARUBA_ERROR_RETRY,
       SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
+      ARUBA_IDENTITY_EVIDENCE_REPLAY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

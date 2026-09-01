@@ -235,6 +235,58 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.deepEqual((await orders.getBillingCase(cases.rows[2]!.id))!.anomalies, []);
     assert.equal((await inventory.getArubaInventoryHealth()).ambiguous, 0);
 
+    await client
+      .getPool()
+      .query("UPDATE aruba_remote_documents SET xml_sha256 = NULL WHERE id = $1", [
+        remote.rows[0]!.id,
+      ]);
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET status = 'UNMATCHED',
+           candidates_json = jsonb_build_array(jsonb_build_object(
+             'candidateId', $2::text, 'probe', false, 'potential', false,
+             'compatible', false, 'reviewable', false,
+             'signals', jsonb_build_object(
+               'nearDate', true, 'recipient', true, 'total', false)))
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id, order.rows[0]!.id],
+    );
+    const identityEvidence = await client.getPool().connect();
+    try {
+      await identityEvidence.query("BEGIN");
+      assert.equal(await status.recomputeOpenBillingCaseStatuses(identityEvidence), 1);
+      await identityEvidence.query("COMMIT");
+    } finally {
+      identityEvidence.release();
+    }
+    assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "NEEDS_REVIEW");
+    assert.equal((await inventory.getArubaInventoryHealth()).potentialMatches, 1);
+    const identityRemote = (
+      await inventoryQueries.listRemoteDocuments({
+        attentionOnly: true,
+        billingCaseId: cases.rows[2]!.id,
+      })
+    ).find((document) => document.remote_id === "weak-official-match");
+    assert.deepEqual(identityRemote?.candidates, [
+      { id: order.rows[0]!.id, label: "Shopify #WEAK", guided: true },
+    ]);
+
+    await client
+      .getPool()
+      .query("UPDATE aruba_remote_documents SET xml_sha256 = repeat('d', 64) WHERE id = $1", [
+        remote.rows[0]!.id,
+      ]);
+    const officialEvidence = await client.getPool().connect();
+    try {
+      await officialEvidence.query("BEGIN");
+      assert.equal(await status.recomputeOpenBillingCaseStatuses(officialEvidence), 1);
+      await officialEvidence.query("COMMIT");
+    } finally {
+      officialEvidence.release();
+    }
+    assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "READY");
+    assert.equal((await inventory.getArubaInventoryHealth()).potentialMatches, 0);
+
     await client.getPool().query(
       `UPDATE aruba_document_matches SET matcher_version = 4
        WHERE remote_document_id = $1`,

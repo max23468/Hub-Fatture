@@ -11,3 +11,4 @@ import "./migrations-scenarios/automatic-identity-exceptions.test.ts";
 import "./migrations-scenarios/aruba-foreign-consumer-replay.test.ts";
 import "./migrations-scenarios/aruba-error-retry.test.ts";
 import "./migrations-scenarios/shopify-private-recipient-replay.test.ts";
+import "./migrations-scenarios/aruba-identity-evidence-replay.test.ts";
