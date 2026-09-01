@@ -212,6 +212,7 @@ export function remoteMetadataDigest(document: RemoteInventoryDocument): string 
   const {
     recipientTaxIdentifiers: _officialRecipientTaxIdentifiers,
     providerStatusLabel: _providerStatusLabel,
+    providerObservedAt: _providerObservedAt,
     ...inventoryEvidence
   } = document;
   return createHash("sha256")
@@ -257,6 +258,7 @@ export interface CandidateEvaluation {
     total: boolean;
     recipient: boolean;
     taxId: boolean;
+    fiscalCode: boolean;
     address: boolean;
   };
 }
@@ -448,6 +450,15 @@ export function evaluateOrderCandidate(
   const remoteTaxIds = remote.recipientTaxIdentifiers.map(canonicalFiscalIdentity);
   const candidateTaxIds = new Set(candidate.recipientTaxIdentifiers.map(canonicalFiscalIdentity));
   const taxId = Boolean(remoteTaxIds.some((remoteTaxId) => candidateTaxIds.has(remoteTaxId)));
+  const remoteFiscalCodes = remote.recipientTaxIdentifiers.flatMap((identifier) =>
+    identifier.type === "CODICE_FISCALE" ? [canonicalFiscalIdentity(identifier)] : [],
+  );
+  const candidateFiscalCodes = new Set(
+    candidate.recipientTaxIdentifiers.flatMap((identifier) =>
+      identifier.type === "CODICE_FISCALE" ? [canonicalFiscalIdentity(identifier)] : [],
+    ),
+  );
+  const fiscalCode = remoteFiscalCodes.some((value) => candidateFiscalCodes.has(value));
   const remoteAddress = normalizedMatchText(remote.recipientAddress);
   const candidateAddress = normalizedMatchText(candidate.recipientAddress);
   const address = Boolean(
@@ -465,7 +476,7 @@ export function evaluateOrderCandidate(
     ? taxId
     : declaredIdentitySignals === 0 || identitySignals >= 1;
   const inferredRecipientIsCompatible = remoteTaxIds.length
-    ? taxId && identitySignals >= 2
+    ? taxId && (fiscalCode || identitySignals >= 2)
     : identitySignals >= 2;
   const probe = provider && nearDate && total;
   const potential = probe && recipient && hasSpecificRecipientName(remote.recipientName);
@@ -489,6 +500,7 @@ export function evaluateOrderCandidate(
       total,
       recipient,
       taxId,
+      fiscalCode,
       address,
     },
   };

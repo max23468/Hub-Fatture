@@ -34,7 +34,7 @@ import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.ser
 import {
   confirmArubaDocumentOutOfScope,
   resolveArubaDocumentMatch,
-} from "../../src/db/aruba-inbound.server.ts";
+} from "../../src/db/aruba-manual-decisions.server.ts";
 import { importArubaRemoteOfficialFileAsActor } from "../../src/db/aruba-official-file-import.server.ts";
 import { retryFailedJob } from "../../src/db/connector-jobs.server.ts";
 import { completeShopifyDataRequest } from "../../src/db/connector-webhooks.server.ts";
@@ -146,6 +146,7 @@ export async function action({ request }: Route.ActionArgs) {
       await confirmArubaDocumentOutOfScope(
         form.get("remoteDocumentId") ?? "",
         form.get("reason"),
+        form.get("candidateRejection"),
         actor,
       );
       await resolveOperationalControl(controlId, "ARUBA_OUT_OF_SCOPE", note);
@@ -278,8 +279,7 @@ function ControlActions({
     const canConfirmOutOfScope =
       metadata.hasXml &&
       ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
-      ["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(metadata.matchStatus ?? "") &&
-      !metadata.candidates?.length;
+      ["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(metadata.matchStatus ?? "");
     return (
       <div className="control-actions-grid">
         {canLink ? (
@@ -316,6 +316,12 @@ function ControlActions({
             <input type="hidden" name="intent" value="confirm-aruba-out-of-scope" />
             <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
             <input type="hidden" name="reason" value={copy.controls.outOfScopeReason} />
+            {metadata.candidates?.length ? (
+              <label className="control-action-form__confirmation">
+                <input type="checkbox" name="candidateRejection" value="confirmed" required />
+                {copy.controls.confirmCandidateRejection}
+              </label>
+            ) : null}
             <OptionalNote />
             <button className="button button--secondary" type="submit">
               <ShieldCheck aria-hidden="true" size={17} />

@@ -64,7 +64,14 @@ export async function scheduleDueSyncs() {
              THEN 'PRODUCTION' ELSE 'MOCK' END
              AND account_reference = connections.account_reference
              AND automatic_source = 'API' AND provider_group_id IS NOT NULL
-             AND remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+             AND (
+               remote_status IN ('SUBMITTED', 'SDI_PROCESSING', 'UNKNOWN')
+               OR EXISTS (
+                 SELECT 1 FROM aruba_document_matches
+                 WHERE aruba_document_matches.remote_document_id = aruba_remote_documents.id
+                   AND aruba_document_matches.status = 'UNKNOWN_REMOTE_STATE'
+               )
+             )
          )) AND NOT EXISTS (
            SELECT 1 FROM jobs
            WHERE type = 'aruba_refresh_nonterminal'

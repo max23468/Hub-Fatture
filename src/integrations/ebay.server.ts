@@ -17,6 +17,7 @@ import { processEbayDeletionRecord } from "../db/connector-webhooks.server.ts";
 import type { ClaimedJob, ConnectorActor } from "../db/connector-types.server.ts";
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
+import { splitTwoPartNameUsingFiscalCode } from "../italian-fiscal-code.ts";
 import {
   customerKindFromCountry,
   decimalToCents,
@@ -343,6 +344,14 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
       : [];
   const companyName = text(shipTo.companyName);
   const fullName = text(shipTo.fullName);
+  const privateItalianName =
+    !companyName &&
+    fullName &&
+    declaredTaxType === "CODICE_FISCALE" &&
+    countryCode === "IT" &&
+    taxpayerId
+      ? splitTwoPartNameUsingFiscalCode(fullName, taxpayerId)
+      : null;
   const buyerId = text(buyer.username) ?? text(buyer.userId);
   const lineItems = records(order.lineItems);
   const payments = records(record(order.paymentSummary).payments);
@@ -394,6 +403,8 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
     customer: {
       kind: customerKindFromCountry(countryCode, Boolean(companyName)),
       displayName: companyName ?? fullName ?? buyerId,
+      firstName: privateItalianName?.firstName,
+      lastName: privateItalianName?.lastName,
       companyName,
       email: text(shipTo.email),
       phone: text(shipTo.primaryPhone?.toString()),

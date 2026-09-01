@@ -1089,6 +1089,39 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     "UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1",
     [sourceReviewCaseId],
   );
+  const manualChoiceStorageId = (
+    await privacyClient.query<{ id: string }>(
+      `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('ARUBA_XML', 'e2e/manual-choice.xml', repeat('8', 64), 10,
+               'application/xml') RETURNING id`,
+    )
+  ).rows[0]!.id;
+  const manualChoiceRemoteId = (
+    await privacyClient.query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year,
+         document_date, total_amount, remote_status, remote_status_observed_at,
+         metadata_digest)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'e2e-manual-choice', 'TD01', 2026,
+         '2026-08-20', 1000, 'DELIVERED', now(), repeat('9', 64)) RETURNING id`,
+    )
+  ).rows[0]!.id;
+  await privacyClient.query(
+    `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+     VALUES ($1, $2, 'ARUBA_XML')`,
+    [manualChoiceRemoteId, manualChoiceStorageId],
+  );
+  await privacyClient.query(
+    `INSERT INTO aruba_document_matches
+      (remote_document_id, status, method, matcher_version, candidates_json)
+     SELECT $1, 'UNMATCHED', 'NONE', 1,
+            jsonb_build_array(jsonb_build_object(
+              'candidateId', orders.id::text, 'orderIds', jsonb_build_array(orders.id::text),
+              'potential', true, 'reviewable', true, 'compatible', false
+            ))
+     FROM orders WHERE billing_case_id = $2 ORDER BY id LIMIT 1`,
+    [manualChoiceRemoteId, sourceReviewCaseId],
+  );
   await privacyClient.end();
   await page.getByRole("link", { name: "Controlli" }).click();
   await expect(page.getByRole("heading", { name: "Controlli", exact: true })).toBeVisible();
@@ -1137,6 +1170,35 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .locator(".controls-filters button")
     .evaluate((applyFilters) => applyFilters.scrollWidth <= applyFilters.clientWidth);
   expect(filtersButtonFits).toBe(true);
+  await page.goto(`/controlli?id=ARUBA_REMOTE%3A${manualChoiceRemoteId}`);
+  await expect(page.getByRole("button", { name: "Collega documento Aruba" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Nessun candidato è corretto" })).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Confermo di avere confrontato il documento Aruba con tutti i candidati proposti",
+    }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 780 });
+  await expectViewportFits(page);
+  await expect(page.getByRole("button", { name: "Collega documento Aruba" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Nessun candidato è corretto" })).toBeVisible();
+  const manualChoiceCleanup = new pg.Client({ connectionString: databaseUrl });
+  await manualChoiceCleanup.connect();
+  await manualChoiceCleanup.query("DELETE FROM operational_controls WHERE source_id = $1", [
+    manualChoiceRemoteId,
+  ]);
+  await manualChoiceCleanup.query("DELETE FROM aruba_files WHERE remote_document_id = $1", [
+    manualChoiceRemoteId,
+  ]);
+  await manualChoiceCleanup.query("DELETE FROM aruba_remote_documents WHERE id = $1", [
+    manualChoiceRemoteId,
+  ]);
+  await manualChoiceCleanup.query("DELETE FROM storage_objects WHERE id = $1", [
+    manualChoiceStorageId,
+  ]);
+  await manualChoiceCleanup.end();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/controlli");
   await page.evaluate(() => window.scrollTo(0, 260));
   const privacyControl = page.locator(".control-row").filter({ hasText: "Richiesta dati cliente" });
   await privacyControl.scrollIntoViewIfNeeded();

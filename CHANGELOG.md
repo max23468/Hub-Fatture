@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.21
+
+- La riconciliazione Aruba collega automaticamente una sola TD01 quando codice fiscale italiano, data e totale fatturabile identificano un unico ordine, mantenendo ambigui i casi con collisioni e richiedendo un secondo segnale per la sola P.IVA; i metadati equivalenti non generano più divergenze artificiali e i casi incerti restano fail-closed.
+- La rilettura eBay riallinea automaticamente le variazioni limitate all’e-mail su preparazioni non emesse e completa nome e cognome soltanto quando un Codice Fiscale valido orienta univocamente le due parti, conservando correzioni manuali, audit e revisione per ogni altra differenza.
+- In `Controlli` è possibile dichiarare che nessun candidato Aruba è corretto anche quando esistono proposte, con attestazione esplicita e registrazione dei candidati scartati; collegamento e rifiuto restano decisioni singole, senza azioni massive.
+
 ## 0.5.20
 
 - Su mobile, la selezione di un controllo apre subito una vista di dettaglio dedicata invece di lasciarla dopo l’intera coda; il ritorno alla lista conserva filtri, posizione di scorrimento e focus sul controllo scelto, mentre i collegamenti diretti mantengono una via di ritorno coerente.
