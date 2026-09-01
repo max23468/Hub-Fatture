@@ -14,6 +14,7 @@ import {
   fiscalDocumentEnvelopesFromXml,
   generateFatturaXml,
   projectFatturaXml,
+  recipientFromCustomerSnapshot,
   type DocumentInput,
   fiscalProfileSchema,
   fiscalProfileFromAcceptedInvoiceXml,
@@ -49,6 +50,27 @@ const invoice: DocumentInput = {
   paymentStatus: "PAID",
   paymentMethod: "MP08",
 };
+
+test("un destinatario privato non eredita una ragione sociale dal campo Shopify", () => {
+  const recipient = recipientFromCustomerSnapshot({
+    kind: "PRIVATE_IT",
+    displayName: "Mario Rossi",
+    firstName: "Mario",
+    lastName: "Rossi",
+    companyName: "Testo non fiscale",
+    taxIdentifiers: [{ type: "CODICE_FISCALE", value: "RSSMRA80A01H501U", countryCode: "IT" }],
+    billingAddress: {
+      line1: "Via Cliente 2",
+      postalCode: "00100",
+      city: "Roma",
+      province: "RM",
+      countryCode: "IT",
+    },
+  });
+
+  assert.equal(recipient.businessName, undefined);
+  assert.equal(documentInputSchema.safeParse({ ...invoice, recipient }).success, true);
+});
 
 test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   const invoiceXml = generateFatturaXml(syntheticFiscalProfile, invoice, {

@@ -98,6 +98,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     "src/db/migrations-scenarios/automatic-identity-exceptions.test.ts",
     "src/db/migrations-scenarios/aruba-foreign-consumer-replay.test.ts",
     "src/db/migrations-scenarios/aruba-error-retry.test.ts",
+    "src/db/migrations-scenarios/aruba-identity-evidence-replay.test.ts",
   ];
   const [readinessEntry, migrationEntry, ...sources] = await Promise.all([
     readFile(path.join(root, "tests/e2e/readiness.spec.ts"), "utf8"),
@@ -119,7 +120,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     .slice(readinessFiles.length)
     .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
   assert.equal(readinessTests.length, 10);
-  assert.equal(migrationTests.length, 28);
+  assert.equal(migrationTests.length, 29);
 });
 
 test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", async () => {

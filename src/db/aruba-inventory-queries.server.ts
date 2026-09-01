@@ -1,5 +1,6 @@
 import type { ArubaRemoteStatus } from "../aruba-inbound.ts";
 import { arubaBlockingMatchPredicate } from "./aruba-inventory-health.server.ts";
+import { arubaActionableCandidateSql } from "./billing-case-sql.server.ts";
 import {
   arubaAccountReference as accountReference,
   arubaRuntimeEnvironment as environment,
@@ -75,13 +76,12 @@ const remoteDocumentsSql = `
              'id', orders.id::text,
              'label', CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify ' ELSE 'eBay ' END
                || orders.display_number,
-             'guided', coalesce((candidate ->> 'reviewable')::boolean, false)
+             'guided', ${arubaActionableCandidateSql("candidate", "remote")}
                AND NOT coalesce((candidate ->> 'compatible')::boolean, false)
            ) ORDER BY orders.id)
            FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS candidate
            JOIN orders ON orders.id::text = candidate ->> 'candidateId'
-           WHERE coalesce((candidate ->> 'compatible')::boolean, false)
-              OR coalesce((candidate ->> 'reviewable')::boolean, false)
+           WHERE ${arubaActionableCandidateSql("candidate", "remote")}
          ), '[]') AS candidates
   FROM aruba_remote_documents AS remote
   LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
@@ -107,8 +107,7 @@ const remoteDocumentsSql = `
       JOIN orders AS focused_order
         ON focused_order.id::text = focused_candidate ->> 'candidateId'
       WHERE focused_order.billing_case_id = $5
-        AND (coalesce((focused_candidate ->> 'compatible')::boolean, false)
-          OR coalesce((focused_candidate ->> 'reviewable')::boolean, false))
+        AND ${arubaActionableCandidateSql("focused_candidate", "remote")}
     ))
     AND ($6::text IS NULL
       OR remote.remote_id ILIKE $6 ESCAPE '\\'

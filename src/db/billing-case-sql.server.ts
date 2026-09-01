@@ -92,6 +92,9 @@ export const customerProfileMismatchSql = `(
  * l'XML ufficiale. Dopo il download del file, trattiene il caso anche quando
  * data, importo e almeno un'identità coincidono: il collegamento resta manuale,
  * ma il documento non deve sparire dalla coda prima della decisione.
+ * Anche data vicina e destinatario coincidente, senza totale coerente, sono
+ * sufficienti a bloccare l'emissione finché manca il file ufficiale: possono
+ * indicare una fattura già emessa con una diversa composizione dell'importo.
  */
 export const arubaActionableCandidateSql = (
   candidateAlias = "aruba_candidate",
@@ -103,6 +106,10 @@ export const arubaActionableCandidateSql = (
   OR (${remoteAlias}.xml_sha256 IS NULL AND (
     coalesce((${candidateAlias} ->> 'probe')::boolean, false)
     OR coalesce((${candidateAlias} ->> 'potential')::boolean, false)
+    OR (
+      coalesce((${candidateAlias} -> 'signals' ->> 'nearDate')::boolean, false)
+      AND coalesce((${candidateAlias} -> 'signals' ->> 'recipient')::boolean, false)
+    )
   ))
 )`;
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.35
+
+- Una fattura Aruba priva di file ufficiale, vicina per data e riferibile allo stesso destinatario, blocca la preparazione anche quando il totale differisce: il sistema non presume la causa dello scarto, non collega automaticamente il documento e richiede la verifica dalla coda `Controlli`; l’upgrade riallinea con audit i casi già approvabili.
+- Il riallineamento fiscale recupera dai dati Shopify l’identità completa dei privati italiani classificati come azienda per un campo società descrittivo, rilegge soltanto la finestra interessata e completa i dati anagrafici mancanti senza sovrascrivere valori fiscali già presenti o correzioni manuali.
+
 ## 0.5.34
 
 - Il readback del candidato riconosce come conclusa la qualifica Production `dryRun=true` soltanto quando documento, batch, submission, permesso monouso, tentativo, job, manifest e hash costituiscono una prova terminale integra e priva di invio o artefatti remoti; qualsiasi divergenza resta bloccante senza riscrivere o cancellare l’evidenza M10.

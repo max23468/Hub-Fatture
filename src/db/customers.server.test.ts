@@ -138,10 +138,19 @@ test(
         ),
         ["Profilo da riconciliare"],
       );
+      const actionableReviews = await customers.listActionableCustomerReviews();
       assert.deepEqual(
-        (await customers.listActionableCustomerReviews()).map((customer) => customer.display_name),
+        actionableReviews.map((customer) => customer.display_name),
         ["Profilo da riconciliare"],
       );
+      assert.equal(actionableReviews[0]!.target_type, "ORDER");
+      assert.deepEqual(actionableReviews[0]!.missing_fields, [
+        "Tipo cliente",
+        "Via",
+        "CAP",
+        "Città",
+        "Paese",
+      ]);
       assert.equal((await customers.getCustomer(ids["review-closed"]))?.review_required, false);
       assert.equal((await customers.getCustomer(ids["review-actionable"]))?.review_required, true);
       await database

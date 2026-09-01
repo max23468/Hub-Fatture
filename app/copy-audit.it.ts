@@ -33,6 +33,8 @@ export const auditActionLabels = {
   BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
   BILLING_CASE_INVOICED_ORDERS_RECONCILED:
     "Preparazione chiusa perché gli ordini risultano già fatturati",
+  BILLING_CASE_ARUBA_IDENTITY_EVIDENCE_RECONCILED:
+    "Preparazione riaperta per verificare un documento Aruba plausibile",
   BILLING_CASE_REACTIVATED: "Preparazione riattivata",
   CUSTOMER_CORRECTED: "Anagrafica cliente corretta",
   CUSTOMER_IDENTITY_EXCEPTION_ACCEPTED: "Deroga anagrafica cliente accettata",

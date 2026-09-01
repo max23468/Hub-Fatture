@@ -105,6 +105,11 @@ test("Shopify non interpreta il segnaposto privato come ragione sociale", async 
     "  PRIVATO  ",
   );
 
+  placeholder.billingAddress.company = "Testo aggiunto dal cliente";
+  const privateWithMisusedCompany = mapShopifyOrder(placeholder, "shop.example.invalid");
+  assert.equal(privateWithMisusedCompany.customer.kind, "PRIVATE_IT");
+  assert.equal(privateWithMisusedCompany.customer.companyName, undefined);
+
   placeholder.billingAddress.company = "Privato Design SRL";
   const realCompany = mapShopifyOrder(placeholder, "shop.example.invalid");
   assert.equal(realCompany.customer.kind, "BUSINESS_IT");
