@@ -57,9 +57,8 @@ import {
   reconcileEbayEmailUpdate,
   reconcileMapperCustomerCorrection,
 } from "./order-automatic-alignment.server.ts";
-import { reconcileExistingEbayRefundMapperConflict } from "./order-ebay-refund-alignment.server.ts";
 import { prepareCustomerInput } from "./order-customer-input.server.ts";
-import { reconcileShopifyFulfillmentChange } from "./order-shopify-fulfillment-alignment.server.ts";
+import { reconcileProviderOrderAlignment } from "./order-provider-alignment.server.ts";
 import { canonicalOrderTimestamp } from "./order-timestamp.ts";
 
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
@@ -661,22 +660,15 @@ async function importOne(
           alignment: existingEmailAndMapperConflict ? "EMAIL_AND_MAPPER" : "EMAIL_ONLY",
         })
       : false;
-  const refundMapperAlignmentApplied = await reconcileExistingEbayRefundMapperConflict(client, {
+  const providerAlignment = await reconcileProviderOrderAlignment(client, {
     provider: input.provider,
     documentIssued,
     oldOrder,
     fingerprint,
     orderId,
     requestId: actor.requestId,
-  });
-  const shopifyFulfillmentAlignmentApplied = await reconcileShopifyFulfillmentChange(client, {
-    oldOrder,
-    orderId,
     normalizedSnapshot,
-    fingerprint,
     fingerprintChanged,
-    documentIssued,
-    requestId: actor.requestId,
   });
   const mapperCorrectionApplied =
     mapperCorrectionCandidate && oldOrder?.billing_case_id
@@ -701,8 +693,8 @@ async function importOne(
     mapperCorrectionApplied ||
     mapperPaymentCorrectionCandidate ||
     emailOnlyAlignmentApplied ||
-    refundMapperAlignmentApplied ||
-    shopifyFulfillmentAlignmentApplied;
+    providerAlignment.refundMapper ||
+    providerAlignment.shopifyFulfillment;
   const sourceConflict =
     !staleIssuedMembership &&
     (becameHistorical || (fingerprintChanged && !mapperDerivedCorrectionApplied));
