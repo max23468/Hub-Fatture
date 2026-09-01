@@ -50,13 +50,9 @@ import {
   ARUBA_P7M_PARITY_NORMALIZATION,
   ARUBA_API_OUTBOUND,
   RETIRE_ARUBA_BROWSER_STATE,
-  REMOVE_ARUBA_BROWSER_LEGACY,
-  EBAY_DELIVERY_DISCOUNT_REPLAY,
-  SWITZERLAND_CUSTOMER_SUPPORT,
-  OPERATIONAL_CONTROLS,
-  EBAY_CONTROL_ALIGNMENT_REPLAY,
   MIGRATIONS_AFTER_ARUBA_API_OUTBOUND,
   copyMigrationSnapshot,
+  migrationsFrom,
   removeMigrationsFrom,
 } from "./support.ts";
 
@@ -147,14 +143,10 @@ test("la transizione conserva la provenienza helper e rimuove lo stato browser",
       );
     });
 
-    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
-      RETIRE_ARUBA_BROWSER_STATE,
-      REMOVE_ARUBA_BROWSER_LEGACY,
-      EBAY_DELIVERY_DISCOUNT_REPLAY,
-      SWITZERLAND_CUSTOMER_SUPPORT,
-      OPERATIONAL_CONTROLS,
-      EBAY_CONTROL_ALIGNMENT_REPLAY,
-    ]);
+    assert.deepEqual(
+      await runMigrations({ connectionString: database.connectionString }),
+      migrationsFrom(RETIRE_ARUBA_BROWSER_STATE),
+    );
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
         (await client.query(`SELECT source FROM aruba_sync_sessions ORDER BY source`)).rows,

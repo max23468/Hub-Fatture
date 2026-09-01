@@ -94,6 +94,6 @@ export function isEbayCustomerEmailOnlyMismatch(
   previous: Record<string, unknown>,
   current: Record<string, unknown>,
 ): boolean {
-  if (isDeepStrictEqual(customerEmail(previous), customerEmail(current))) return false;
+  if (isDeepStrictEqual(previous, current)) return false;
   return isDeepStrictEqual(withoutEmailEvidence(previous), withoutEmailEvidence(current));
 }

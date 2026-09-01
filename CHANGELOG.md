@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.22
+
+- Il riallineamento eBay considera una differenza limitata all’e-mail anche quando il provider rappresenta lo stesso recapito assente come campo omesso oppure `null`, chiudendo il falso mismatch senza alterare dati fiscali, anagrafici o correzioni manuali.
+
 ## 0.5.21
 
 - La riconciliazione Aruba collega automaticamente una sola TD01 quando codice fiscale italiano, data e totale fatturabile identificano un unico ordine, mantenendo ambigui i casi con collisioni e richiedendo un secondo segnale per la sola P.IVA; i metadati equivalenti non generano più divergenze artificiali e i casi incerti restano fail-closed.

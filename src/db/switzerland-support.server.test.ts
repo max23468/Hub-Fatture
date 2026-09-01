@@ -10,8 +10,7 @@ import {
   temporaryDatabase,
   withClient,
   SWITZERLAND_CUSTOMER_SUPPORT,
-  OPERATIONAL_CONTROLS,
-  EBAY_CONTROL_ALIGNMENT_REPLAY,
+  migrationsFrom,
   removeMigrationsFrom,
 } from "./migrations-scenarios/support.ts";
 
@@ -47,11 +46,10 @@ test("l'upgrade abilita i clienti svizzeri e riprende il canale bloccato", async
       );
     });
 
-    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
-      SWITZERLAND_CUSTOMER_SUPPORT,
-      OPERATIONAL_CONTROLS,
-      EBAY_CONTROL_ALIGNMENT_REPLAY,
-    ]);
+    assert.deepEqual(
+      await runMigrations({ connectionString: database.connectionString }),
+      migrationsFrom(SWITZERLAND_CUSTOMER_SUPPORT),
+    );
     await withClient(database.connectionString, async (client) => {
       const inserted = await client.query(
         `INSERT INTO customers
