@@ -16,6 +16,7 @@ import {
   EBAY_SHIPPING_REFUND_REPLAY,
   SHOPIFY_IDENTITY_FULFILLMENT_REPLAY,
   EBAY_REFUND_MAPPER_CONFLICT_REPLAY,
+  ARUBA_FOREIGN_CONSUMER_MATCH_REPLAY,
   removeMigrationsFrom,
 } from "./support.ts";
 
@@ -100,6 +101,7 @@ test("l'upgrade chiude le preparazioni ricreate sopra fatture approvate", async 
       EBAY_SHIPPING_REFUND_REPLAY,
       SHOPIFY_IDENTITY_FULFILLMENT_REPLAY,
       EBAY_REFUND_MAPPER_CONFLICT_REPLAY,
+      ARUBA_FOREIGN_CONSUMER_MATCH_REPLAY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

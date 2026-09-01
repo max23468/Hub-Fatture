@@ -16,6 +16,7 @@ import {
   type AmbiguousInvoiceMatch,
   type RemoteInventoryDocument,
 } from "../aruba-inbound.ts";
+import { arubaOrderCandidateFromSource } from "../aruba-order-candidate.ts";
 import { ARUBA_IMPORT_MAX_BYTES, validateUntrustedXml } from "../aruba.ts";
 import { getConfig } from "../config.server.ts";
 import {
@@ -241,17 +242,9 @@ async function materializeExternalInvoice(
     orderReferences: imported.references,
   };
   const candidates = await arubaOrderCandidates(client, evidenceRemote);
-  const individualCandidates = candidates.map((candidate) => ({
-    id: candidate.id,
-    billingCaseId: candidate.billing_case_id,
-    provider: candidate.provider,
-    displayNumber: candidate.display_number,
-    localOrderDate: candidate.local_order_date,
-    billableAmount: candidate.billable_amount,
-    recipientName: candidate.recipient_name,
-    recipientTaxIdentifiers: candidate.recipient_tax_identifiers,
-    recipientAddress: candidate.recipient_address,
-  }));
+  const individualCandidates = candidates.map((candidate) =>
+    arubaOrderCandidateFromSource(candidate),
+  );
   const groupedCandidates = groupOrderCandidates(individualCandidates).filter(
     (candidate) => (candidate.orderIds?.length ?? 1) > 1,
   );
