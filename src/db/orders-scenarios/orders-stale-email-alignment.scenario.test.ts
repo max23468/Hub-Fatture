@@ -2,19 +2,19 @@ import assert from "node:assert/strict";
 
 import type { OrdersTestContext } from "./orders-test-support.test.ts";
 
-function ebayEmailOrder(context: OrdersTestContext, suffix: string, email: string) {
+function ebayEmailOrder(context: OrdersTestContext, suffix: string, email?: string) {
   const input = structuredClone(context.fixture[0]);
   input.provider = "EBAY";
   input.externalOrderId = `ebay-stale-email-${suffix}`;
   input.externalCustomerId = `ebay-stale-email-customer-${suffix}`;
-  const day = suffix === "automatic" ? "27" : "28";
+  const day = suffix === "automatic" ? "27" : suffix === "manual" ? "28" : "29";
   input.createdAt = `2026-08-${day}T08:00:00Z`;
   input.updatedAt = `2026-08-${day}T09:00:00Z`;
   input.customer.taxIdentifiers[0].value = "RSSMRA80A01H501U";
   input.customer.email = email;
-  input.sourceSnapshot = {
-    fulfillmentStartInstructions: [{ shippingStep: { shipTo: { email } } }],
-  };
+  input.sourceSnapshot = email
+    ? { fulfillmentStartInstructions: [{ shippingStep: { shipTo: { email } } }] }
+    : { fulfillmentStartInstructions: [{ shippingStep: { shipTo: {} } }] };
   return input;
 }
 
@@ -109,5 +109,41 @@ export async function runStaleEmailAlignmentScenario(context: OrdersTestContext)
       )
     ).rows[0],
     { case_email: manualEmail, alignments: 0 },
+  );
+
+  const missing = ebayEmailOrder(context, "missing");
+  await context.orders.importOrders([missing], {
+    id: 1,
+    requestId: "test-ebay-missing-email-create",
+  });
+  await context.database.getPool().query(
+    `UPDATE billing_cases
+     SET customer_snapshot_json = jsonb_set(
+           customer_snapshot_json, '{canonicalProfile,email}', 'null'::jsonb, true)
+     WHERE id = (SELECT billing_case_id FROM orders WHERE external_order_id = $1)`,
+    [missing.externalOrderId],
+  );
+  await context.orders.importOrders([missing], {
+    id: 1,
+    requestId: "test-ebay-null-email-replay",
+  });
+  assert.deepEqual(
+    (
+      await context.database.getPool().query(
+        `SELECT billing_cases.customer_snapshot_json -> 'canonicalProfile'
+                  IS NOT DISTINCT FROM
+                orders.normalized_snapshot_json #> '{customerSnapshot,canonicalProfile}'
+                  AS profiles_equal,
+                (SELECT count(*)::integer FROM audit_events
+                 WHERE entity_type = 'ORDER' AND entity_id = orders.id::text
+                   AND action = 'ORDER_SOURCE_REVIEWED'
+                   AND metadata_json ->> 'automaticAlignment' = 'EMAIL_ONLY') AS alignments
+         FROM orders
+         JOIN billing_cases ON billing_cases.id = orders.billing_case_id
+         WHERE orders.external_order_id = $1`,
+        [missing.externalOrderId],
+      )
+    ).rows[0],
+    { profiles_equal: true, alignments: 1 },
   );
 }

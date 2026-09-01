@@ -76,6 +76,21 @@ test("riconosce una preparazione eBay rimasta indietro soltanto sull’e-mail", 
   const current = snapshot("dopo@example.invalid").customerSnapshot;
   assert.equal(isEbayCustomerEmailOnlyMismatch(previous, current), true);
   assert.equal(
+    isEbayCustomerEmailOnlyMismatch(
+      {
+        ...previous,
+        email: undefined,
+        canonicalProfile: { ...previous.canonicalProfile, email: null },
+      },
+      {
+        ...previous,
+        email: undefined,
+        canonicalProfile: { ...previous.canonicalProfile, email: undefined },
+      },
+    ),
+    true,
+  );
+  assert.equal(
     isEbayCustomerEmailOnlyMismatch(previous, {
       ...current,
       displayName: "Mario Bianchi",

@@ -9,6 +9,7 @@ import {
   temporaryDatabase,
   withClient,
   EBAY_CONTROL_ALIGNMENT_REPLAY,
+  EBAY_NULL_EMAIL_ALIGNMENT_REPLAY,
   copyMigrationSnapshot,
 } from "./support.ts";
 
@@ -56,6 +57,7 @@ test("l'upgrade rilegge gli ordini eBay per riallineare i controlli", async () =
 
     const applied = await runMigrations({ connectionString: database.connectionString });
     assert.ok(applied.includes(EBAY_CONTROL_ALIGNMENT_REPLAY));
+    assert.ok(applied.includes(EBAY_NULL_EMAIL_ALIGNMENT_REPLAY));
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
         (
