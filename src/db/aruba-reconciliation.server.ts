@@ -6,26 +6,19 @@ import {
   normalizedMatchText,
   selectOrderMatch,
   type ArubaOrderCandidate,
-  type FiscalIdentity,
   type RemoteInventoryDocument,
 } from "../aruba-inbound.ts";
+import {
+  arubaOrderCandidateFromSource,
+  type ArubaOrderCandidateSource,
+} from "../aruba-order-candidate.ts";
 import {
   arubaAccountReference as accountReference,
   arubaRuntimeEnvironment as environment,
 } from "./aruba-inventory-context.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 
-interface InboundOrderCandidateRow {
-  id: string;
-  provider: "SHOPIFY" | "EBAY";
-  display_number: string;
-  local_order_date: string;
-  billable_amount: number;
-  recipient_name: string | null;
-  recipient_tax_identifiers: FiscalIdentity[];
-  recipient_country_code: string | null;
-  recipient_address: string | null;
-  billing_case_id: string | null;
+interface InboundOrderCandidateRow extends ArubaOrderCandidateSource {
   invoice_document_id: string | null;
   refund_ids: string[];
   refund_amounts: number[];
@@ -311,18 +304,10 @@ export async function reconcileRemoteDocument(
     matchCandidate: ArubaOrderCandidate & { billingCaseId?: string | null };
   }> = individualCandidates.map((candidate) => ({
     source: candidate,
-    matchCandidate: {
-      id: candidate.id,
+    matchCandidate: arubaOrderCandidateFromSource(candidate, {
       billingCaseId: remote.documentType === "TD01" ? candidate.billing_case_id : null,
-      provider: candidate.provider,
-      displayNumber: candidate.display_number,
-      localOrderDate: candidate.local_order_date,
       billableAmount: candidate.match_amount,
-      recipientName: candidate.recipient_name,
-      recipientTaxIdentifiers: candidate.recipient_tax_identifiers,
-      recipientCountryCode: candidate.recipient_country_code,
-      recipientAddress: candidate.recipient_address,
-    },
+    }),
   }));
   for (const candidate of evaluatedCandidates) {
     if (candidate.source.selected_refund_date) {
@@ -375,22 +360,17 @@ export async function reconcileRemoteDocument(
       for (const candidate of invoiceCandidates) {
         const selectedAmount = selectedByOrder.get(candidate.id);
         if (selectedAmount === undefined) continue;
-        selectedCandidates.push({
-          id: candidate.id,
-          billingCaseId: candidate.invoice_document_id,
-          provider: candidate.provider,
-          displayNumber: candidate.display_number,
-          localOrderDate:
-            candidate.refund_dates
-              .filter((_, index) => selectedRefundIdSet.has(candidate.refund_ids[index]!))
-              .toSorted()
-              .at(-1) ?? candidate.local_order_date,
-          billableAmount: selectedAmount,
-          recipientName: candidate.recipient_name,
-          recipientTaxIdentifiers: candidate.recipient_tax_identifiers,
-          recipientCountryCode: candidate.recipient_country_code,
-          recipientAddress: candidate.recipient_address,
-        });
+        selectedCandidates.push(
+          arubaOrderCandidateFromSource(candidate, {
+            billingCaseId: candidate.invoice_document_id,
+            localOrderDate:
+              candidate.refund_dates
+                .filter((_, index) => selectedRefundIdSet.has(candidate.refund_ids[index]!))
+                .toSorted()
+                .at(-1) ?? candidate.local_order_date,
+            billableAmount: selectedAmount,
+          }),
+        );
       }
       const grouped = groupOrderCandidates(selectedCandidates)[0]!;
       const anchor = invoiceCandidates.find((candidate) => candidate.id === grouped.id)!;

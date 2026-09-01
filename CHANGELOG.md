@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.32
+
+- La verifica finale delle fatture Aruba conserva il Paese del destinatario: i privati esteri con placeholder `99999999999`, nome, data e totale coincidenti vengono collegati deterministicamente anche quando l’indirizzo è traslitterato o Aruba usa quello di spedizione; i conflitti di profilo già falliti vengono ritentati, mentre identificativi reali e Paesi discordanti restano bloccati.
+
 ## 0.5.31
 
 - I conflitti eBay già registrati vengono chiusi automaticamente quando lo stesso payload provider permette di ricostruire deterministicamente un rimborso prima ambiguo; qualsiasi variazione del dato grezzo, dell’identificativo o degli altri dati d’ordine resta bloccata.
