@@ -48,6 +48,7 @@ const capabilitySizeCaps = new Map([
   ["src/db/migrations-scenarios/mapper-reimports.test.ts", 35_000],
   ["src/db/migrations-scenarios/installation-upgrades.test.ts", 34_000],
   ["src/db/migrations-scenarios/control-replays.test.ts", 4_000],
+  ["src/db/migrations-scenarios/approved-invoice-memberships.test.ts", 7_000],
   ["app/copy.it.ts", 59_800],
 ]);
 
@@ -85,6 +86,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     "src/db/migrations-scenarios/mapper-reimports.test.ts",
     "src/db/migrations-scenarios/installation-upgrades.test.ts",
     "src/db/migrations-scenarios/control-replays.test.ts",
+    "src/db/migrations-scenarios/approved-invoice-memberships.test.ts",
   ];
   const [readinessEntry, migrationEntry, ...sources] = await Promise.all([
     readFile(path.join(root, "tests/e2e/readiness.spec.ts"), "utf8"),
@@ -106,7 +108,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     .slice(readinessFiles.length)
     .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
   assert.equal(readinessTests.length, 10);
-  assert.equal(migrationTests.length, 19);
+  assert.equal(migrationTests.length, 20);
 });
 
 test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", async () => {

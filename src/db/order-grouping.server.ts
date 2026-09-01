@@ -1,9 +1,10 @@
 import type pg from "pg";
 
+import { AppError } from "../errors.ts";
 import { preIssueRefund } from "../refunds.ts";
 import { writeAudit } from "./audit.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
-import { openBillingCaseSql } from "./billing-case-sql.server.ts";
+import { openBillingCaseSql, orderBillableSql } from "./billing-case-sql.server.ts";
 import { auditOrderActor, type OrderActor } from "./order-actor.server.ts";
 import {
   reconcileInvoiceDraft,
@@ -32,6 +33,18 @@ export async function groupOrder(
 ) {
   const lockKey = `billing-case:${order.customerId}:${order.localOrderDate}:${order.currency}`;
   await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey]);
+  if (!order.isolated) {
+    // Il punto unico di raggruppamento rilegge l'autorità fiscale sotto lock: né una UI
+    // obsoleta né un comando diretto possono reinserire un ordine già fatturato.
+    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
+    const groupable = await client.query(
+      `SELECT id FROM orders
+       WHERE id = $1 AND billing_case_id IS NULL AND ${orderBillableSql()}
+       FOR UPDATE`,
+      [order.id],
+    );
+    if (!groupable.rowCount) throw new AppError("ORDER_NOT_PREPARABLE", 409);
+  }
   let caseId: string | undefined;
   if (!order.isolated) {
     // Il frammento interpolato è una costante di billing-case-sql.server.ts; i dati

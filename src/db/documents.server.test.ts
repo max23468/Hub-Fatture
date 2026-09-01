@@ -35,6 +35,7 @@ test(
       const jobs = await import("./connector-jobs.server.ts");
       const orders = {
         ...(await import("./billing-cases.server.ts")),
+        ...(await import("./order-commands.server.ts")),
         ...(await import("./order-import.server.ts")),
         ...(await import("./order-queries.server.ts")),
       };
@@ -1274,6 +1275,79 @@ test(
           )
         ).rows[0],
         { status: "APPROVED", draft_version: 1, case_status: "APPROVED" },
+      );
+
+      const staleIssuedCase = await database.getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json,
+           fiscal_profile_version)
+         SELECT customer_id, local_order_date, currency, 'READY', customer_snapshot_json,
+                fiscal_profile_version
+         FROM billing_cases WHERE id = $1
+         RETURNING id`,
+        [directCase.id],
+      );
+      await database.getPool().query(
+        `UPDATE orders SET billing_case_id = $2, trigger_status = 'GROUPED'
+         WHERE external_order_id = $1`,
+        [directOrder.externalOrderId, staleIssuedCase.rows[0]!.id],
+      );
+      assert.equal(
+        (await documents.listMassApprovalCandidates()).some(
+          ({ billing_case_id }) => billing_case_id === staleIssuedCase.rows[0]!.id,
+        ),
+        false,
+      );
+      assert.equal(
+        await documents.getStandardInvoiceApprovalProjection(staleIssuedCase.rows[0]!.id),
+        null,
+      );
+
+      const reimportedIssuedOrder = structuredClone(directOrder);
+      reimportedIssuedOrder.updatedAt = "2026-08-13T10:00:00Z";
+      await orders.importOrders([reimportedIssuedOrder], {
+        id: 1,
+        requestId: "documents-reimport-already-invoiced",
+      });
+      assert.deepEqual(
+        (
+          await database.getPool().query(
+            `SELECT orders.billing_case_id, orders.trigger_status,
+                    stale_case.status AS stale_case_status,
+                    original_case.status AS original_case_status,
+                    count(audit_events.id)::integer AS reconciliation_events
+             FROM orders
+             JOIN billing_cases AS stale_case ON stale_case.id = $2
+             JOIN billing_cases AS original_case ON original_case.id = $3
+             LEFT JOIN audit_events
+               ON audit_events.entity_type = 'ORDER'
+              AND audit_events.entity_id = orders.id::text
+              AND audit_events.action = 'ORDER_ALREADY_INVOICED_RECONCILED'
+             WHERE orders.external_order_id = $1
+             GROUP BY orders.id, stale_case.status, original_case.status`,
+            [directOrder.externalOrderId, staleIssuedCase.rows[0]!.id, directCase.id],
+          )
+        ).rows[0],
+        {
+          billing_case_id: null,
+          trigger_status: "INVOICED",
+          stale_case_status: "CLOSED",
+          original_case_status: "APPROVED",
+          reconciliation_events: 1,
+        },
+      );
+      await assert.rejects(
+        orders.forcePrepareOrder(
+          (
+            await database
+              .getPool()
+              .query("SELECT id FROM orders WHERE external_order_id = $1", [
+                directOrder.externalOrderId,
+              ])
+          ).rows[0].id,
+          { id: 1, requestId: "documents-force-already-invoiced" },
+        ),
+        (error) => error instanceof AppError && error.code === "ORDER_NOT_PREPARABLE",
       );
 
       const blockedOrder = structuredClone(fixture[0]);

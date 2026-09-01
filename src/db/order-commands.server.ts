@@ -13,7 +13,7 @@ import type { OrderActor as Actor } from "./order-actor.server.ts";
 import { groupOrder } from "./order-grouping.server.ts";
 import { reconcileInvoiceDraft } from "./order-draft-reconciliation.server.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
-import { pendingPaymentSql } from "./billing-case-sql.server.ts";
+import { approvedInvoiceOrderLinkSql, pendingPaymentSql } from "./billing-case-sql.server.ts";
 
 export async function getDraftTrigger() {
   const result = await getPool().query<{
@@ -179,6 +179,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
       fulfillment_status: OrderInput["fulfillmentStatus"];
       cancelled_at: string | null;
       historical: boolean;
+      approved_invoice_linked: boolean;
       historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
     }>(
       `SELECT orders.id, orders.customer_id,
@@ -190,6 +191,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
               END AS payment_status,
               orders.fulfillment_status, orders.cancelled_at,
               orders.historical_reconciliation_outcome,
+              ${approvedInvoiceOrderLinkSql("orders")} AS approved_invoice_linked,
               coalesce((orders.normalized_snapshot_json ->> 'historical')::boolean, false)
                 AS historical
        FROM orders
@@ -197,6 +199,7 @@ export async function setDraftTrigger(value: unknown, expectedVersion: number, a
     );
     for (const order of ungrouped.rows) {
       const status =
+        order.approved_invoice_linked ||
         order.historical_reconciliation_outcome === "ALREADY_INVOICED"
           ? "INVOICED"
           : triggerStatus(

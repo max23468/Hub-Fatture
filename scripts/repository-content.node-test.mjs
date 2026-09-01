@@ -84,7 +84,10 @@ test("nessun riferimento a nomi storici del Master Plan", () => {
 });
 
 test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
-  const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const [manifest, playwrightConfig] = await Promise.all([
+    readFile(path.join(root, "package.json"), "utf8").then(JSON.parse),
+    readFile(path.join(root, "playwright.config.ts"), "utf8"),
+  ]);
   assert.equal(
     manifest.scripts["test:e2e"],
     "npm run build && node scripts/with-test-database.mjs npm run test:e2e:direct",
@@ -113,6 +116,8 @@ test("il candidato esegue Chromium e WebKit in ambienti isolati", async () => {
     manifest.scripts["test:e2e:webkit:direct"],
     "playwright test --project=webkit --workers=1",
   );
+  assert.match(playwrightConfig, /expect: \{ timeout: 30_000 \}/);
+  assert.match(playwrightConfig, /webServer:\s*\{[\s\S]*?timeout: 60_000,/);
 });
 
 test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
