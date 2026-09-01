@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type pg from "pg";
 
 import type { FiscalIdentity } from "../aruba-inbound.ts";
+import { arubaInventoryBlocksAllApprovals } from "../aruba-inventory.ts";
 import { AppError } from "../errors.ts";
 import {
   arubaBlockingMatchPredicate,
@@ -28,7 +29,7 @@ async function requestArubaPreflight(
   sharedManifestSha256?: string,
 ) {
   const health = await getArubaInventoryHealth();
-  if (health.blocking && health.blockingReason !== "STALE") {
+  if (arubaInventoryBlocksAllApprovals(health) && health.blockingReason !== "STALE") {
     throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   }
   const request = await getPool().query<{

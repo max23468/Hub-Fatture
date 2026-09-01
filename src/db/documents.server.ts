@@ -22,6 +22,7 @@ import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { getConfig } from "../config.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { writeAudit } from "./audit.server.ts";
+import { arubaInventoryBlocksAllApprovals } from "../aruba-inventory.ts";
 import {
   getArubaInventoryHealth,
   getLockedArubaInventoryHealth,
@@ -564,7 +565,10 @@ export async function getInvoiceProjection(caseId: string) {
     (sum, order) => sum + order.deducted_shopify_payments_fee_amount,
     0,
   );
-  const arubaSettings = await getArubaSettings();
+  const [arubaSettings, arubaInventory] = await Promise.all([
+    getArubaSettings(),
+    getArubaInventoryHealth(),
+  ]);
   return {
     caseRevision: caseRow.revision,
     profileMissing: false as const,
@@ -593,7 +597,8 @@ export async function getInvoiceProjection(caseId: string) {
     arubaMode: arubaSettings.effectiveMode,
     arubaConfiguredMode: arubaSettings.mode.value,
     arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
-    arubaInventory: await getArubaInventoryHealth(),
+    arubaInventory,
+    arubaApprovalBlocked: arubaInventoryBlocksAllApprovals(arubaInventory),
     customerEmail: await customerEmailPreview(caseId),
   };
 }
@@ -952,7 +957,9 @@ export async function approveInvoice(
         "SELECT pg_advisory_xact_lock_shared(hashtext('setting:shopify_payment_fee_mode'))",
       );
       const inventory = await getLockedArubaInventoryHealth(client);
-      if (inventory.blocking) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+      if (arubaInventoryBlocksAllApprovals(inventory)) {
+        throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+      }
       await serializeOrderMutations(client);
       await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
       const caseRow = await loadCase(client, caseId, true);

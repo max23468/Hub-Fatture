@@ -12,6 +12,7 @@ import { getPool } from "./client.server.ts";
 import { actionableConnectorFailures } from "./connector-jobs.server.ts";
 import {
   billingCasePendingPaymentSql,
+  openBillingCaseSql,
   pendingPaymentSql,
   standardInvoiceApprovalCandidateSql,
 } from "./billing-case-sql.server.ts";
@@ -312,7 +313,7 @@ export async function dashboardSummary() {
       ready_cases: string;
       review_cases: string;
       waiting_orders: string;
-      pending_payments: string;
+      pending_cases: string;
       credit_notes_to_approve: string;
       failed_uploads: string;
       rejected_by_sdi: string;
@@ -350,9 +351,9 @@ export async function dashboardSummary() {
                  AND documents.origin = 'ARUBA_HISTORY'
              )))))::text AS review_cases,
        (SELECT count(*) FROM orders WHERE trigger_status = 'WAITING_FOR_TRIGGER')::text AS waiting_orders,
-       (SELECT count(*) FROM orders
-        WHERE trigger_status NOT IN ('CANCELLED_NO_DOCUMENT', 'REFUNDED_BEFORE_ISSUE')
-          AND ${pendingPaymentSql()})::text AS pending_payments,
+       (SELECT count(*) FROM billing_cases
+        WHERE ${openBillingCaseSql()}
+          AND ${billingCasePendingPaymentSql()})::text AS pending_cases,
        (SELECT count(*) FROM documents
         WHERE kind = 'CREDIT_NOTE' AND status = 'DRAFT')::text AS credit_notes_to_approve,
        (SELECT count(*) FROM aruba_batches

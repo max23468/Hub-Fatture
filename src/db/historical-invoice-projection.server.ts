@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { arubaInventoryBlocksAllApprovals } from "../aruba-inventory.ts";
 import { documentInputSchema, fiscalProfileSchema } from "../documents.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { AppError } from "../errors.ts";
@@ -149,7 +150,10 @@ export async function getHistoricalInvoiceProjection(
     ],
   };
   const total = input.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
-  const arubaSettings = await getArubaSettings();
+  const [arubaSettings, arubaInventory] = await Promise.all([
+    getArubaSettings(),
+    getArubaInventoryHealth(),
+  ]);
   return {
     caseRevision: row.revision,
     profileMissing: false,
@@ -178,7 +182,8 @@ export async function getHistoricalInvoiceProjection(
     arubaMode: arubaSettings.effectiveMode,
     arubaConfiguredMode: arubaSettings.mode.value,
     arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
-    arubaInventory: await getArubaInventoryHealth(),
+    arubaInventory,
+    arubaApprovalBlocked: arubaInventoryBlocksAllApprovals(arubaInventory),
     customerEmail: await customerEmailPreview(caseId),
   };
 }

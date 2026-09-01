@@ -576,7 +576,7 @@ function InvoiceComparisonCard({ projection }: { projection: InvoiceProjection }
 function ArubaInventoryCard({ projection }: { projection: InvoiceProjection }) {
   return (
     <section
-      className={`card preparation-inventory preparation-inventory--${projection.arubaInventory.blocking ? "blocking" : "warning"}`}
+      className={`card preparation-inventory preparation-inventory--${projection.arubaApprovalBlocked ? "blocking" : "warning"}`}
       aria-labelledby="inventario-aruba"
     >
       <h2 id="inventario-aruba">{copy.document.arubaInventoryTitle}</h2>
@@ -588,7 +588,7 @@ function ArubaInventoryCard({ projection }: { projection: InvoiceProjection }) {
           : copy.document.arubaInventoryNever}
       </p>
       <p>
-        {projection.arubaInventory.blocking
+        {projection.arubaApprovalBlocked
           ? copy.document.arubaInventoryBlockingHelp
           : copy.document.arubaInventoryWarningHelp}
       </p>
@@ -634,7 +634,7 @@ function ApprovalCard({
         <p className="notice">{copy.document.resaveAfterDateChange}</p>
       ) : !canApprove ? (
         <p className="notice">{copy.document.ownerOnly}</p>
-      ) : projection.arubaInventory.blocking ? (
+      ) : projection.arubaApprovalBlocked ? (
         <p className="warning">{copy.document.arubaInventoryApprovalBlocked}</p>
       ) : null}
       {canShowApproval ? (
@@ -795,7 +795,7 @@ function InvoiceDocument({
     caseReady &&
     !hasUnsavedChanges &&
     !projection.requiresResave &&
-    !projection.arubaInventory.blocking;
+    !projection.arubaApprovalBlocked;
   const showInventory = !projection.approved && inventoryNeedsAttention;
   const showApproval = !projection.approved;
   const workflowLayout = projection.approved
@@ -863,8 +863,15 @@ function ActivityCard({
 }
 
 export default function BillingCaseDetail() {
-  const { username, canApprove, csrfToken, billingCase, projection, storagePending } =
-    useLoaderData<typeof loader>();
+  const {
+    username,
+    canApprove,
+    csrfToken,
+    billingCase,
+    operationalPool,
+    projection,
+    storagePending,
+  } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const [customerDirty, setCustomerDirty] = useState(false);
   const total = billingCase.orders.reduce((sum, order) => sum + order.billable_amount, 0);
@@ -890,9 +897,14 @@ export default function BillingCaseDetail() {
           {copy.document.storagePending}
         </p>
       ) : null}
-      {billingCase.status === "NEEDS_REVIEW" ? (
+      {operationalPool === "REQUIRES_ACTION" ? (
         <p className="warning" role="status">
           {copy.preparation.reviewWarning}
+        </p>
+      ) : null}
+      {operationalPool === "PENDING_PAYMENT" ? (
+        <p className="notice" role="status">
+          {copy.preparation.paymentPendingWarning}
         </p>
       ) : null}
       {billingCase.status === "DO_NOT_TRANSMIT" ? (
@@ -932,7 +944,12 @@ export default function BillingCaseDetail() {
           <dl className="facts preparation-overview__facts">
             <div>
               <dt>{copy.preparation.currentStatus}</dt>
-              <dd>{billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus}</dd>
+              <dd>
+                {operationalPool
+                  ? (copy.orders.preparationPoolLabels[operationalPool] ??
+                    copy.common.unknownStatus)
+                  : (billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus)}
+              </dd>
             </div>
             <div>
               <dt>{copy.preparation.currency}</dt>
@@ -1066,7 +1083,7 @@ export default function BillingCaseDetail() {
         <InvoiceDocument
           activity={<ActivityCard audit={billingCase.audit} />}
           canApprove={canApprove}
-          caseReady={billingCase.status === "READY"}
+          caseReady={operationalPool === "APPROVABLE"}
           customerDirty={customerDirty}
           csrfToken={csrfToken}
           projection={projection}

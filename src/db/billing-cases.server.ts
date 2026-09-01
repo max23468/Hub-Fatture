@@ -18,11 +18,13 @@ import { rematchCachedArubaDocumentsForBillingCase } from "./aruba-billing-case-
 import { writeAudit } from "./audit.server.ts";
 import {
   arubaPotentialMatchSql,
+  billingCaseApprovalCandidateSql,
   billingCasePendingPaymentSql,
   customerProfileMismatchSql,
   hasCaseOrdersSql,
   hasIncompatibleCaseOrdersSql,
   hasOtherOpenCaseSql,
+  openBillingCaseSql,
   OPEN_BILLING_CASE_STATUSES,
   orderBillableSql,
   pendingPaymentSql,
@@ -635,6 +637,18 @@ export type BillingCaseListSortKey =
   | "totale"
   | "stato";
 
+export type OpenBillingCasePool = "APPROVABLE" | "PENDING_PAYMENT" | "REQUIRES_ACTION";
+
+const openBillingCasePoolSql = (
+  approvalsGloballyBlockedSql: string,
+  billingCaseAlias = "billing_cases",
+) => `CASE
+  WHEN ${billingCasePendingPaymentSql(billingCaseAlias)} THEN 'PENDING_PAYMENT'
+  WHEN NOT ${approvalsGloballyBlockedSql}
+    AND ${billingCaseApprovalCandidateSql(billingCaseAlias)} THEN 'APPROVABLE'
+  ELSE 'REQUIRES_ACTION'
+END`;
+
 const billingCaseListSortSql: Record<BillingCaseListSortKey, string> = {
   preparazione: "billing_cases.public_number",
   cliente: "billing_cases.customer_snapshot_json ->> 'displayName'",
@@ -648,6 +662,8 @@ export async function listBillingCases(
   filters: {
     statuses?: string[];
     excludePendingPayments?: boolean;
+    operationalPool?: OpenBillingCasePool;
+    approvalsGloballyBlocked?: boolean;
     page?: unknown;
     sort?: { key: BillingCaseListSortKey; direction: SortDirection };
   } = {},
@@ -655,6 +671,7 @@ export async function listBillingCases(
   const sort = filters.sort ?? { key: "data", direction: "desc" };
   const orderBy = billingCaseListSortSql[sort.key];
   const direction = sort.direction === "asc" ? "ASC" : "DESC";
+  const operationalPoolSql = openBillingCasePoolSql("$4::boolean");
   // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
   // i valori della richiesta restano nei parametri $1-$2.
   // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
@@ -663,18 +680,23 @@ export async function listBillingCases(
     public_number: string;
     local_order_date: string;
     status: string;
+    operational_pool: OpenBillingCasePool;
     customer_name: string;
     order_count: string;
     total_amount: string;
   }>(
     `SELECT billing_cases.id, billing_cases.public_number, billing_cases.local_order_date::text,
-            billing_cases.status,
+            billing_cases.status, ${operationalPoolSql} AS operational_pool,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             count(orders.id)::text AS order_count, coalesce(sum(orders.billable_amount), 0)::text AS total_amount
      FROM billing_cases
      LEFT JOIN orders ON orders.billing_case_id = billing_cases.id
      WHERE ($1::text[] IS NULL OR billing_cases.status = ANY($1))
        AND (NOT $3::boolean OR NOT ${billingCasePendingPaymentSql()})
+       AND ($5::text IS NULL OR (
+         ${openBillingCaseSql()}
+         AND ${operationalPoolSql} = $5::text
+       ))
      GROUP BY billing_cases.id
      ORDER BY ${orderBy} ${direction} NULLS LAST,
               billing_cases.local_order_date DESC, billing_cases.id DESC
@@ -683,9 +705,25 @@ export async function listBillingCases(
       filters.statuses?.length ? filters.statuses : null,
       pageOffset(filters.page),
       Boolean(filters.excludePendingPayments),
+      Boolean(filters.approvalsGloballyBlocked),
+      filters.operationalPool ?? null,
     ],
   );
   return paginate(result.rows);
+}
+
+export async function getOpenBillingCasePool(
+  id: string,
+  approvalsGloballyBlocked: boolean,
+): Promise<OpenBillingCasePool | null> {
+  if (!isDatabaseId(id)) return null;
+  const result = await getPool().query<{ operational_pool: OpenBillingCasePool }>(
+    `SELECT ${openBillingCasePoolSql("$2::boolean")} AS operational_pool
+     FROM billing_cases
+     WHERE billing_cases.id = $1 AND ${openBillingCaseSql()}`,
+    [id, approvalsGloballyBlocked],
+  );
+  return result.rows[0]?.operational_pool ?? null;
 }
 
 export async function getBillingCase(id: string) {
