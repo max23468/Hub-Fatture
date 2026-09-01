@@ -330,12 +330,24 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
       sourceId: row.id,
       origin: "CUSTOMERS",
       title: "Identità cliente da verificare",
-      detail: row.display_name,
+      detail: row.missing_fields.length
+        ? `${row.display_name} · ${row.missing_fields.join(", ")}`
+        : row.display_name,
       consequence:
         "Le preparazioni collegate restano sospese finché l’identità non viene confermata.",
-      href: `/clienti/${row.id}`,
-      primaryAction: "Apri cliente",
-      metadata: { facts: [{ label: "Cliente", value: row.display_name }] },
+      href:
+        row.target_type === "PREPARATION"
+          ? `/ordini/preparazione/${row.target_id}#dati-destinatario`
+          : `/ordini/${row.target_id}`,
+      primaryAction: row.target_type === "PREPARATION" ? "Correggi destinatario" : "Apri ordine",
+      metadata: {
+        facts: [
+          { label: "Cliente", value: row.display_name },
+          ...(row.missing_fields.length
+            ? [{ label: "Da completare", value: row.missing_fields.join(", ") }]
+            : []),
+        ],
+      },
       detectedAt: row.updated_at,
     })),
     ...billingCases.map(billingCaseAnomalyCandidate),

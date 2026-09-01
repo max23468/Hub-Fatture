@@ -70,6 +70,7 @@ const SHOPIFY_IDENTITY_FULFILLMENT_REPLAY = "057_shopify_identity_and_fulfillmen
 const EBAY_REFUND_MAPPER_CONFLICT_REPLAY = "058_ebay_refund_mapper_conflict_replay.sql";
 const ARUBA_FOREIGN_CONSUMER_MATCH_REPLAY = "059_aruba_foreign_consumer_match_replay.sql";
 const ARUBA_ERROR_RETRY = "060_aruba_error_retry.sql";
+const SHOPIFY_PRIVATE_RECIPIENT_REPLAY = "061_shopify_private_recipient_replay.sql";
 const CURRENT_MIGRATIONS = sortedMigrationFileNames(readdirSync("migrations"));
 const outboundIndex = CURRENT_MIGRATIONS.indexOf(ARUBA_API_OUTBOUND);
 assert.notEqual(outboundIndex, -1, `${ARUBA_API_OUTBOUND} assente dal catalogo migrazioni`);
@@ -175,6 +176,7 @@ export {
   EBAY_REFUND_MAPPER_CONFLICT_REPLAY,
   ARUBA_FOREIGN_CONSUMER_MATCH_REPLAY,
   ARUBA_ERROR_RETRY,
+  SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
   CURRENT_MIGRATIONS,
   outboundIndex,
   MIGRATIONS_AFTER_ARUBA_API_OUTBOUND,

@@ -57,13 +57,100 @@ export async function listActionableCustomerReviews() {
     id: string;
     display_name: string;
     updated_at: string;
+    target_type: "PREPARATION" | "ORDER";
+    target_id: string;
+    customer_snapshot: Record<string, unknown>;
   }>(
-    `SELECT customers.id::text, customers.display_name, customers.updated_at::text
+    `SELECT customers.id::text, customers.display_name, customers.updated_at::text,
+            CASE WHEN target.billing_case_id IS NULL THEN 'ORDER' ELSE 'PREPARATION' END
+              AS target_type,
+            coalesce(target.billing_case_id, target.order_id) AS target_id,
+            target.customer_snapshot
      FROM customers
-     WHERE ${actionableCustomerReviewSql}
+     JOIN LATERAL (
+       SELECT review_orders.id::text AS order_id, review_cases.id::text AS billing_case_id,
+              coalesce(
+                review_cases.customer_snapshot_json,
+                review_orders.normalized_snapshot_json -> 'customerSnapshot',
+                '{}'::jsonb
+              ) AS customer_snapshot
+       FROM orders AS review_orders
+       LEFT JOIN billing_cases AS review_cases ON review_cases.id = review_orders.billing_case_id
+       WHERE review_orders.customer_id = customers.id
+         AND NOT ${approvedInvoiceOrderLinkSql("review_orders")}
+         AND coalesce(
+           (review_orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean,
+           customers.review_required
+         )
+         AND (
+           (
+             review_orders.billing_case_id IS NULL
+             AND review_orders.trigger_status IN ('NEEDS_REVIEW', 'LEGACY_BILLING_REVIEW')
+           )
+           OR (
+             review_cases.status = 'NEEDS_REVIEW'
+             AND coalesce(
+               (review_cases.customer_snapshot_json ->> 'reviewRequired')::boolean,
+               true
+             )
+           )
+         )
+       ORDER BY (review_cases.id IS NOT NULL) DESC, review_orders.updated_at_source DESC,
+                review_orders.id DESC
+       LIMIT 1
+     ) AS target ON true
+     WHERE customers.review_required
      ORDER BY customers.updated_at, customers.id`,
   );
-  return result.rows;
+  return result.rows.map((row) => {
+    const snapshot = row.customer_snapshot;
+    const address = (snapshot.billingAddress ?? {}) as Record<string, unknown>;
+    const missing = new Set<string>();
+    if (snapshot.kind === "UNKNOWN" || !snapshot.kind) missing.add("Tipo cliente");
+    if (snapshot.kind === "PRIVATE_IT") {
+      if (!snapshot.firstName) missing.add("Nome");
+      if (!snapshot.lastName) missing.add("Cognome");
+    }
+    if (
+      snapshot.kind === "BUSINESS_IT" &&
+      !snapshot.companyName &&
+      (!snapshot.firstName || !snapshot.lastName)
+    ) {
+      missing.add("Denominazione");
+    }
+    for (const [field, label] of [
+      ["line1", "Via"],
+      ["postalCode", "CAP"],
+      ["city", "Città"],
+      ["countryCode", "Paese"],
+    ] as const) {
+      if (!address[field]) missing.add(label);
+    }
+    const identifiers = Array.isArray(snapshot.taxIdentifiers) ? snapshot.taxIdentifiers : [];
+    if (
+      snapshot.kind === "PRIVATE_IT" &&
+      !identifiers.some(
+        (identifier) =>
+          identifier &&
+          typeof identifier === "object" &&
+          (identifier as Record<string, unknown>).type === "CODICE_FISCALE",
+      )
+    ) {
+      missing.add("Codice fiscale");
+    }
+    if (
+      snapshot.kind === "BUSINESS_IT" &&
+      !identifiers.some(
+        (identifier) =>
+          identifier &&
+          typeof identifier === "object" &&
+          (identifier as Record<string, unknown>).type === "PARTITA_IVA",
+      )
+    ) {
+      missing.add("Partita IVA");
+    }
+    return { ...row, missing_fields: [...missing] };
+  });
 }
 
 export async function customerDirectorySummary() {

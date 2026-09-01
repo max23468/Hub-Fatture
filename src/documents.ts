@@ -681,7 +681,7 @@ export function recipientFromCustomerSnapshot(
     displayName: snapshotString(snapshot.displayName),
     firstName: snapshotString(snapshot.firstName),
     lastName: snapshotString(snapshot.lastName),
-    businessName: snapshotString(snapshot.companyName),
+    businessName: snapshot.kind === "PRIVATE_IT" ? undefined : snapshotString(snapshot.companyName),
     certifiedEmail: snapshotString(snapshot.certifiedEmail),
     recipientCode: snapshotString(snapshot.recipientCode),
     taxIdentifiers: taxIdentifiers.flatMap((value) => {

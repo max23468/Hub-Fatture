@@ -84,6 +84,49 @@ function shopifyCompanyName(value: unknown): string | undefined {
     : companyName;
 }
 
+function hasItalianBusinessMarker(value: string | undefined) {
+  if (!value) return false;
+  const words = value
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLocaleUpperCase("it-IT")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  return /(?:^| )(?:S ?R ?L|S ?N ?C|S ?A ?S|S ?P ?A|S ?C ?A ?R ?L|SOCIETA|COOPERATIVA|DITTA|AZIENDA|IMPRESA|STUDIO)(?: |$)/u.test(
+    words,
+  );
+}
+
+function shopifyRecipientIdentity(input: {
+  countryCode: string | undefined;
+  companyName: string | undefined;
+  firstName: string | undefined;
+  lastName: string | undefined;
+  identifiers: Array<{ type: "CODICE_FISCALE" | "PARTITA_IVA" | "ALTRO" }>;
+}) {
+  if (input.countryCode !== "IT") {
+    return {
+      kind: customerKindFromCountry(input.countryCode, Boolean(input.companyName)),
+      companyName: input.companyName,
+    };
+  }
+  const hasVat = input.identifiers.some(({ type }) => type === "PARTITA_IVA");
+  const hasFiscalCode = input.identifiers.some(({ type }) => type === "CODICE_FISCALE");
+  const isUnambiguousPrivate = Boolean(
+    hasFiscalCode &&
+    input.firstName &&
+    input.lastName &&
+    !hasVat &&
+    !hasItalianBusinessMarker(input.companyName),
+  );
+  return isUnambiguousPrivate
+    ? { kind: "PRIVATE_IT" as const, companyName: undefined }
+    : {
+        kind: customerKindFromCountry(input.countryCode, Boolean(input.companyName)),
+        companyName: input.companyName,
+      };
+}
+
 function shopMoney(value: unknown) {
   const money = record(record(value).shopMoney);
   const amount = text(money.amount);
@@ -626,7 +669,15 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
     ["SALE", "CAPTURE"].includes(text(transaction.kind) ?? ""),
   );
   const taxData = mapTaxIdentifiers(order, customer, address, shippingAddress);
-  const companyName = taxData.companyName;
+  const firstName = text(customer.firstName);
+  const lastName = text(customer.lastName);
+  const recipientIdentity = shopifyRecipientIdentity({
+    countryCode,
+    companyName: taxData.companyName,
+    firstName,
+    lastName,
+    identifiers: taxData.identifiers,
+  });
   const refunds = records(order.refunds);
   const financialStatus = text(order.displayFinancialStatus) ?? "PENDING";
   return providerOrder({
@@ -656,11 +707,11 @@ export function mapShopifyOrder(payload: unknown, shop: string): OrderInput {
     localizedFields,
     sourceSnapshot: order,
     customer: {
-      kind: customerKindFromCountry(countryCode, Boolean(companyName)),
+      kind: recipientIdentity.kind,
       displayName: text(customer.displayName) ?? text(address.name),
-      firstName: text(customer.firstName),
-      lastName: text(customer.lastName),
-      companyName,
+      firstName,
+      lastName,
+      companyName: recipientIdentity.companyName,
       email: text(order.email) ?? text(record(customer.defaultEmailAddress).emailAddress),
       certifiedEmail: localizedFields.find((field) => field.key.toUpperCase() === "TAX_EMAIL_IT")
         ?.value,

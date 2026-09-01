@@ -91,7 +91,7 @@ function CustomerOverview({ customer }: { customer: CustomerDetail }) {
             className="dashboard-row-link"
             to={
               "public_number" in reviewTarget
-                ? `/ordini/preparazione/${reviewTarget.id}`
+                ? `/ordini/preparazione/${reviewTarget.id}#dati-destinatario`
                 : `/ordini/${reviewTarget.id}`
             }
           >

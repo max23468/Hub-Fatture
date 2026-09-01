@@ -58,6 +58,16 @@ test(
       assert.equal(first.total, 1);
       assert.equal(first.rows[0]!.id, `CUSTOMER_IDENTITY:${customer.rows[0]!.id}`);
       assert.equal(first.rows[0]!.state, "OPEN");
+      assert.equal(
+        first.rows[0]!.href,
+        `/ordini/preparazione/${billingCase.rows[0]!.id}#dati-destinatario`,
+      );
+      assert.equal(first.rows[0]!.primary_action, "Correggi destinatario");
+      assert.match(first.rows[0]!.detail, /Tipo cliente/);
+      assert.deepEqual(first.rows[0]!.metadata_json.facts, [
+        { label: "Cliente", value: "Cliente da verificare" },
+        { label: "Da completare", value: "Tipo cliente, Via, CAP, Città, Paese" },
+      ]);
 
       const repeated = await controls.listOperationalControls({ origin: "CUSTOMERS" });
       assert.equal(repeated.total, 1);
