@@ -27,6 +27,7 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
   let pauseAfterSearch: (() => Promise<void>) | null = null;
   let invalidTargetedGroupOnce: string | null = null;
   const targetedGroupRequests: string[] = [];
+  let historicalSearchRequests = 0;
   process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
   process.env.APP_BASE_URL = "http://localhost:8080";
   process.env.APP_ENV = "test";
@@ -44,6 +45,12 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         .toString("utf8")
         .replaceAll("2026-08-10", "2026-07-01")
         .replaceAll("123.45", "100.00"),
+    );
+    const historicalInvoiceXml = Buffer.from(
+      apiInvoiceXml
+        .toString("utf8")
+        .replaceAll("2026-07-01", "2026-06-23")
+        .replace("FPR 0001/26", "FPR 0099/26"),
     );
     globalThis.fetch = async (input) => {
       const url = new URL(String(input));
@@ -65,27 +72,36 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
           invalidTargetedGroupOnce = null;
           return response({ risposta: "non valida" });
         }
+        const historical = groupId === "historical-recovery-group";
         const secondCheckpoint = groupId === "checkpoint-b";
-        const detailXml = secondCheckpoint
-          ? Buffer.from(
-              apiInvoiceXml
-                .toString("utf8")
-                .replaceAll("2026-07-01", "2026-07-02")
-                .replace("FPR 0001/26", "FPR 0002/26")
-                .replaceAll("100.00", "200.00"),
-            )
-          : apiInvoiceXml;
+        const detailXml = historical
+          ? historicalInvoiceXml
+          : secondCheckpoint
+            ? Buffer.from(
+                apiInvoiceXml
+                  .toString("utf8")
+                  .replaceAll("2026-07-01", "2026-07-02")
+                  .replace("FPR 0001/26", "FPR 0002/26")
+                  .replaceAll("100.00", "200.00"),
+              )
+            : apiInvoiceXml;
         return response({
           channelGroup: 1,
           shopName: null,
           invoices: [
             {
-              invoiceDate: secondCheckpoint
-                ? "2026-07-02T02:30:00.000Z"
-                : "2026-07-01T02:30:00.000Z",
-              number: secondCheckpoint ? "FPR-TARGET-2" : "FPR-TARGET-1",
+              invoiceDate: historical
+                ? "2026-06-23T02:30:00.000Z"
+                : secondCheckpoint
+                  ? "2026-07-02T02:30:00.000Z"
+                  : "2026-07-01T02:30:00.000Z",
+              number: historical
+                ? "FPR 0099/26"
+                : secondCheckpoint
+                  ? "FPR-TARGET-2"
+                  : "FPR-TARGET-1",
               documentType: "TD01",
-              status: "Presa in carico",
+              status: historical ? "Non consegnata" : "Presa in carico",
               statusDescription: null,
               totalDocument: secondCheckpoint ? "200.00" : "100.00",
               totalVat: "22.00",
@@ -109,7 +125,11 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
           invoiceType: "FPR12",
           docType: "out",
           file: detailXml.toString("base64"),
-          filename: secondCheckpoint ? "IT00000000000_TARGET_2.xml" : "IT00000000000_TARGET.xml",
+          filename: historical
+            ? "IT00000000000_HISTORICAL.xml"
+            : secondCheckpoint
+              ? "IT00000000000_TARGET_2.xml"
+              : "IT00000000000_TARGET.xml",
           username: "utente-sintetico",
           creationDate: "2026-07-01T02:30:00.000Z",
           lastUpdate: "2026-07-01T02:31:00.000Z",
@@ -120,30 +140,76 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       }
       if (url.pathname === "/api/v2/invoices-out/notifications") {
         const groupId = url.searchParams.get("id");
+        const historical = groupId === "historical-recovery-group";
         const secondCheckpoint = groupId === "checkpoint-b";
         return response({
           count: 1,
           notifications: [
             {
-              date: secondCheckpoint ? "2026-07-02T02:32:00.000Z" : "2026-07-01T02:32:00.000Z",
-              docType: "RC",
-              filename: secondCheckpoint
-                ? "IT00000000000_TARGET_2_RC.xml"
-                : "IT00000000000_TARGET_RC.xml",
+              date: historical
+                ? "2026-06-23T02:32:00.000Z"
+                : secondCheckpoint
+                  ? "2026-07-02T02:32:00.000Z"
+                  : "2026-07-01T02:32:00.000Z",
+              docType: historical ? "MC" : "RC",
+              filename: historical
+                ? "IT00000000000_HISTORICAL_RC.xml"
+                : secondCheckpoint
+                  ? "IT00000000000_TARGET_2_RC.xml"
+                  : "IT00000000000_TARGET_RC.xml",
               invoiceId: groupId,
               notificationDate: "",
-              number: secondCheckpoint ? "FPR-TARGET-2" : "FPR-TARGET-1",
+              number: historical
+                ? "FPR 0099/26"
+                : secondCheckpoint
+                  ? "FPR-TARGET-2"
+                  : "FPR-TARGET-1",
               result: null,
               file: Buffer.from(
-                `<RicevutaConsegna><NomeFile>${
-                  secondCheckpoint ? "IT00000000000_TARGET_2.xml" : "IT00000000000_TARGET.xml"
-                }</NomeFile></RicevutaConsegna>`,
+                `<${historical ? "NotificaMancataConsegna" : "RicevutaConsegna"}><NomeFile>${
+                  historical
+                    ? "IT00000000000_HISTORICAL.xml"
+                    : secondCheckpoint
+                      ? "IT00000000000_TARGET_2.xml"
+                      : "IT00000000000_TARGET.xml"
+                }</NomeFile></${historical ? "NotificaMancataConsegna" : "RicevutaConsegna"}>`,
               ).toString("base64"),
             },
           ],
         });
       }
       assert.equal(url.pathname, "/api/v2/invoices-out");
+      if (url.searchParams.get("creationStartDate")?.startsWith("2026-06-22")) {
+        historicalSearchRequests += 1;
+        return response({
+          content: [
+            {
+              id: "historical-recovery-group",
+              invoices: [
+                {
+                  invoiceDate: "2026-06-23T02:30:00.000Z",
+                  number: "FPR 0099/26",
+                  documentType: "TD01",
+                  status: "Non consegnata",
+                },
+              ],
+              invoiceType: "FPR12",
+              docType: "out",
+              filename: "IT00000000000_HISTORICAL.xml",
+              idSdi: null,
+              pddAvailable: false,
+              file: null,
+            },
+          ],
+          first: true,
+          last: true,
+          number: 1,
+          numberOfElements: 1,
+          size: 10,
+          totalElements: 1,
+          totalPages: 1,
+        });
+      }
       const pause = pauseAfterSearch;
       pauseAfterSearch = null;
       if (pause) await pause();
@@ -824,11 +890,37 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
          ('MOCK', 'synthetic-aruba-account', 'checkpoint-b-document', 'TD01', 2026,
           '2026-07-01', 10000, 'SUBMITTED', now(), repeat('b', 64), 'API', 'checkpoint-b')`,
     );
-    invalidTargetedGroupOnce = "checkpoint-b";
-    const targetedJobId = await getPool().query<{ id: string }>(
-      `INSERT INTO jobs (type, status, payload_json, run_at)
-       VALUES ('aruba_refresh_nonterminal', 'PENDING', '{}', now()) RETURNING id`,
+    const historicalRemote = await getPool().query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+        (environment, account_reference, remote_id, document_type, fiscal_year, series,
+         fiscal_number, document_date, recipient_name_normalized,
+         recipient_tax_id_normalized, total_amount, remote_status, remote_status_observed_at,
+         metadata_digest, automatic_source)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'legacy-historical-document', 'TD01', 2026,
+         'FPR', '99', '2026-06-23', 'DESTINATARIO SINTETICO', '11111111111',
+         10000, 'NOT_DELIVERED', '2026-06-23T03:00:00Z', repeat('c', 64), 'BROWSER')
+       RETURNING id`,
     );
+    await getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, signals_json, candidates_json)
+       VALUES ($1, 'UNMATCHED', 'NONE', 1, '{}',
+         '[{"candidateId":"999999","signals":{"nearDate":true,"recipient":true}}]')`,
+      [historicalRemote.rows[0]!.id],
+    );
+    invalidTargetedGroupOnce = "checkpoint-b";
+    await getPool().query(
+      `UPDATE jobs SET run_at = now() - interval '16 minutes',
+         completed_at = CASE WHEN completed_at IS NULL THEN NULL ELSE now() - interval '16 minutes' END`,
+    );
+    await jobs.scheduleDueSyncs();
+    const targetedJobId = await getPool().query<{ id: string; type: string }>(
+      `SELECT id, type FROM jobs WHERE status = 'PENDING' ORDER BY id DESC LIMIT 1`,
+    );
+    assert.equal(targetedJobId.rows[0]!.type, "aruba_refresh_nonterminal");
+    await getPool().query(`UPDATE jobs SET run_at = now() WHERE id = $1`, [
+      targetedJobId.rows[0]!.id,
+    ]);
     const targetedJob = await jobs.claimJob("aruba-api-targeted-worker");
     await assert.rejects(
       api.runArubaApiInboundJob(targetedJob!, {
@@ -842,13 +934,13 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       (
         await getPool().query(
           `SELECT checkpoint_page, page_count, group_count,
-                  (SELECT count(*)::integer FROM aruba_api_targeted_run_groups groups
-                   WHERE groups.sync_run_id = runs.id) AS snapshotted_groups
+                  (SELECT count(*)::integer FROM aruba_api_targeted_run_targets targets
+                   WHERE targets.sync_run_id = runs.id) AS snapshotted_groups
            FROM aruba_sync_runs runs WHERE kind = 'TARGETED'
            ORDER BY started_at DESC LIMIT 1`,
         )
       ).rows[0],
-      { checkpoint_page: 2, page_count: 1, group_count: 1, snapshotted_groups: 2 },
+      { checkpoint_page: 3, page_count: 2, group_count: 2, snapshotted_groups: 3 },
     );
     await jobs.retryFailedJob(targetedJobId.rows[0]!.id, {
       type: "ADMIN",
@@ -864,12 +956,38 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       rateDelayMs: 0,
       now: new Date("2026-07-01T05:31:00.000Z"),
     });
-    assert.equal(targeted.documents, 2);
-    assert.deepEqual(targetedGroupRequests.slice(-3), [
+    assert.equal(targeted.documents, 3);
+    assert.equal(historicalSearchRequests, 1);
+    assert.deepEqual(targetedGroupRequests.slice(-4), [
+      "historical-recovery-group",
       "checkpoint-a",
       "checkpoint-b",
       "checkpoint-b",
     ]);
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT automatic_source, provider_group_id, historical_api_recovery_result,
+                  EXISTS (SELECT 1 FROM aruba_files
+                    WHERE remote_document_id = aruba_remote_documents.id
+                      AND kind = 'ARUBA_XML') AS has_xml,
+                  (SELECT status FROM aruba_document_matches
+                    WHERE remote_document_id = aruba_remote_documents.id) AS match_status,
+                  (SELECT signals_json FROM aruba_document_matches
+                    WHERE remote_document_id = aruba_remote_documents.id) AS signals
+           FROM aruba_remote_documents WHERE id = $1`,
+          [historicalRemote.rows[0]!.id],
+        )
+      ).rows[0],
+      {
+        automatic_source: "API",
+        provider_group_id: "historical-recovery-group",
+        historical_api_recovery_result: "RECOVERED",
+        has_xml: true,
+        match_status: "PROFILE_CONFLICT",
+        signals: {},
+      },
+    );
     assert.equal(await jobs.completeJob(resumedTargetedJob!, targeted), true);
     await getPool().query(
       `UPDATE aruba_remote_documents SET remote_status = 'DELIVERED'

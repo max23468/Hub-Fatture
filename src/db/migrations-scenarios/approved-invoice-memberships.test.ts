@@ -20,6 +20,7 @@ import {
   ARUBA_ERROR_RETRY,
   SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
   ARUBA_IDENTITY_EVIDENCE_REPLAY,
+  ARUBA_HISTORICAL_API_RECOVERY,
   removeMigrationsFrom,
 } from "./support.ts";
 
@@ -108,6 +109,7 @@ test("l'upgrade chiude le preparazioni ricreate sopra fatture approvate", async 
       ARUBA_ERROR_RETRY,
       SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
       ARUBA_IDENTITY_EVIDENCE_REPLAY,
+      ARUBA_HISTORICAL_API_RECOVERY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

@@ -8,6 +8,7 @@ import { AppError, type ErrorCode } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { activeConnectorEnvironment } from "./connector-environment.server.ts";
+import { arubaActionableCandidateSql } from "./billing-case-sql.server.ts";
 import type { ClaimedJob, ConnectorActor, JobType } from "./connector-types.server.ts";
 
 const manuallyRetryableJobTypes: JobType[] = [
@@ -58,7 +59,7 @@ export async function scheduleDueSyncs() {
          WHEN connections.last_full_sync_at IS NULL
            OR connections.last_full_sync_at <= now() - interval '30 days'
            THEN 'aruba_full_inventory'
-         WHEN (EXISTS (
+        WHEN ((EXISTS (
            SELECT 1 FROM aruba_remote_documents
            WHERE environment = CASE WHEN connections.environment = 'PRODUCTION'
              THEN 'PRODUCTION' ELSE 'MOCK' END
@@ -72,7 +73,24 @@ export async function scheduleDueSyncs() {
                    AND aruba_document_matches.status = 'UNKNOWN_REMOTE_STATE'
                )
              )
-         )) AND NOT EXISTS (
+         ) OR EXISTS (
+           SELECT 1
+           FROM aruba_remote_documents AS remote
+           JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
+           CROSS JOIN LATERAL jsonb_array_elements(matches.candidates_json) AS candidate
+           WHERE remote.environment = CASE WHEN connections.environment = 'PRODUCTION'
+             THEN 'PRODUCTION' ELSE 'MOCK' END
+             AND remote.account_reference = connections.account_reference
+             AND remote.remote_status <> 'REJECTED'
+             AND (remote.automatic_source <> 'API' OR remote.provider_group_id IS NULL)
+             AND NOT EXISTS (SELECT 1 FROM aruba_files files
+               WHERE files.remote_document_id = remote.id AND files.kind = 'ARUBA_XML')
+             AND matches.method <> 'MANUAL'
+             AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
+             AND ${arubaActionableCandidateSql("candidate", "remote")}
+             AND (remote.historical_api_recovery_checked_at IS NULL
+               OR remote.historical_api_recovery_checked_at <= now() - interval '30 days')
+         ))) AND NOT EXISTS (
            SELECT 1 FROM jobs
            WHERE type = 'aruba_refresh_nonterminal'
              AND coalesce(completed_at, run_at) > now() - interval '15 minutes'

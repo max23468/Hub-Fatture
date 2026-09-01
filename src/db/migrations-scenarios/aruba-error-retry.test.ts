@@ -13,6 +13,7 @@ import {
   ARUBA_ERROR_RETRY,
   SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
   ARUBA_IDENTITY_EVIDENCE_REPLAY,
+  ARUBA_HISTORICAL_API_RECOVERY,
 } from "./support.ts";
 
 test("l'upgrade riprende un retry Aruba con credenziali valide in stato di errore", async () => {
@@ -41,6 +42,7 @@ test("l'upgrade riprende un retry Aruba con credenziali valide in stato di error
       ARUBA_ERROR_RETRY,
       SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
       ARUBA_IDENTITY_EVIDENCE_REPLAY,
+      ARUBA_HISTORICAL_API_RECOVERY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
