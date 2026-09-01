@@ -76,7 +76,13 @@ export async function scheduleDueSyncs() {
            SELECT 1 FROM jobs
            WHERE type = 'aruba_refresh_nonterminal'
              AND coalesce(completed_at, run_at) > now() - interval '15 minutes'
-         ) THEN 'aruba_refresh_nonterminal'
+         ) AND coalesce((
+           SELECT max(coalesce(completed_at, run_at))
+           FROM jobs WHERE type = 'aruba_refresh_nonterminal'
+         ), '-infinity'::timestamptz) <= coalesce((
+           SELECT max(coalesce(completed_at, run_at))
+           FROM jobs WHERE type = 'aruba_sync_inventory'
+         ), '-infinity'::timestamptz) THEN 'aruba_refresh_nonterminal'
          ELSE 'aruba_sync_inventory'
        END,
        greatest(now(), connections.credentials_verified_at + interval '61 seconds')

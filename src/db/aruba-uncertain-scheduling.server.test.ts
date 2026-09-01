@@ -51,6 +51,29 @@ test("uno stato Aruba incerto conclusivo pianifica una rilettura mirata", async 
       (await getPool().query("SELECT type FROM jobs WHERE status = 'PENDING'")).rows,
       [{ type: "aruba_refresh_nonterminal" }],
     );
+    await getPool().query(
+      `UPDATE jobs SET status = 'COMPLETED', completed_at = now() - interval '16 minutes'
+       WHERE status = 'PENDING';
+       INSERT INTO jobs (type, status, run_at, completed_at)
+       VALUES ('aruba_sync_inventory', 'COMPLETED', now() - interval '2 hours',
+               now() - interval '2 hours')`,
+    );
+    await scheduleDueSyncs();
+    assert.deepEqual(
+      (await getPool().query("SELECT type FROM jobs WHERE status = 'PENDING'")).rows,
+      [{ type: "aruba_sync_inventory" }],
+    );
+    await getPool().query(
+      `UPDATE jobs SET status = 'COMPLETED', completed_at = now() - interval '16 minutes'
+       WHERE status = 'PENDING';
+       UPDATE jobs SET completed_at = now() - interval '1 hour'
+       WHERE type = 'aruba_refresh_nonterminal'`,
+    );
+    await scheduleDueSyncs();
+    assert.deepEqual(
+      (await getPool().query("SELECT type FROM jobs WHERE status = 'PENDING'")).rows,
+      [{ type: "aruba_refresh_nonterminal" }],
+    );
   } finally {
     await closePool();
     await fixture.drop();
