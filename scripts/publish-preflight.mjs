@@ -38,6 +38,7 @@ export function validateReleaseMetadata({
   baseVersion,
   changelog,
   lockVersion,
+  releaseTagExists = false,
   rootLockVersion,
   version,
 }) {
@@ -46,12 +47,13 @@ export function validateReleaseMetadata({
   if (lockVersion !== version || rootLockVersion !== version) {
     throw new Error(`Versione ${version} non allineata in package-lock.json`);
   }
-  if (
-    !current.some(
-      (part, index) =>
-        part > base[index] && current.slice(0, index).every((value, i) => value === base[i]),
-    )
-  ) {
+  const incrementsBase = current.some(
+    (part, index) =>
+      part > base[index] && current.slice(0, index).every((value, i) => value === base[i]),
+  );
+  const replacesUnpublishedCandidate =
+    version === "1.0.0" && baseVersion === "1.0.0" && !releaseTagExists;
+  if (!incrementsBase && !replacesUnpublishedCandidate) {
     throw new Error(`La versione runtime ${version} non incrementa ${baseVersion}`);
   }
   changelogSection(changelog, version);
@@ -95,10 +97,22 @@ async function main(argv = process.argv.slice(2)) {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
     const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
     const basePackage = JSON.parse(gitLines(["show", `${base}:package.json`]).join("\n"));
+    const releaseTag = `refs/tags/v${packageJson.version}`;
+    const remoteTag = spawnSync(
+      "git",
+      ["ls-remote", "--exit-code", "--tags", "origin", releaseTag],
+      {
+        encoding: "utf8",
+      },
+    );
+    if (![0, 2].includes(remoteTag.status ?? -1)) {
+      throw new Error(remoteTag.stderr.trim() || `Verifica tag remoto ${releaseTag} fallita`);
+    }
     validateReleaseMetadata({
       baseVersion: basePackage.version,
       changelog: readFileSync("CHANGELOG.md", "utf8"),
       lockVersion: packageLock.version,
+      releaseTagExists: remoteTag.status === 0,
       rootLockVersion: packageLock.packages?.[""]?.version,
       version: packageJson.version,
     });

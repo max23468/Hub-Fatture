@@ -69,3 +69,18 @@ test("i metadati release runtime devono essere completi prima dei gate", () => {
     /changelog 0\.3\.79 assente/,
   );
 });
+
+test("un candidato 1.0.0 può essere sostituito soltanto prima del tag definitivo", () => {
+  const candidate = {
+    baseVersion: "1.0.0",
+    changelog: "# Changelog\n\n## 1.0.0\n\n- Candidato sostitutivo.\n",
+    lockVersion: "1.0.0",
+    rootLockVersion: "1.0.0",
+    version: "1.0.0",
+  };
+  assert.doesNotThrow(() => validateReleaseMetadata(candidate));
+  assert.throws(
+    () => validateReleaseMetadata({ ...candidate, releaseTagExists: true }),
+    /non incrementa/,
+  );
+});

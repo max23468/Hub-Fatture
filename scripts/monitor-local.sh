@@ -61,11 +61,26 @@ case "$backup_warning_bytes" in
     ;;
 esac
 if [ -f data/operations/backup-receipt.json ]; then
-  completed=$(jq -r '.completedAt // empty' data/operations/backup-receipt.json)
-  if completed_epoch=$(date -u -d "$completed" +%s 2>/dev/null); then
+  if jq -e '
+    .status == "ok"
+    and .objectName == "hub-fatture/current/latest.tar.age"
+    and (.archiveObjectName | type == "string")
+    and .archiveKind == "DATABASE_JOURNAL"
+    and (.sha256 | test("^[0-9a-f]{64}$"))
+    and (.archiveSha256 | test("^[0-9a-f]{64}$"))
+    and (.sizeBytes > 0)
+    and (.archiveSizeBytes > 0)
+    and (.archiveSizeBytes < .sizeBytes)
+  ' data/operations/backup-receipt.json >/dev/null; then
+    completed=$(jq -r '.completedAt // empty' data/operations/backup-receipt.json)
+  else
+    completed=
+    add_problem "ricevuta backup non valida"
+  fi
+  if [ -n "$completed" ] && completed_epoch=$(date -u -d "$completed" +%s 2>/dev/null); then
     age_seconds=$(( $(date -u +%s) - completed_epoch ))
     [ "$age_seconds" -lt 129600 ] || add_problem "backup più vecchio di 36 ore"
-  else
+  elif [ -n "$completed" ]; then
     add_problem "ricevuta backup non valida"
   fi
 else
