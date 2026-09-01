@@ -353,18 +353,6 @@ export const copy = {
     sourceUpdated: "Aggiornato",
     statusLabel: "Stato dell’anagrafica",
     reviewHelp: "Controlla l’ordine o la preparazione collegata prima di approvare un documento.",
-    identityExceptionTitle: "Deroga anagrafica disponibile",
-    identityExceptionHelp:
-      "Puoi accettare questa intestazione soltanto per l’identità eBay corrente. L’ordine, la preparazione e la bozza verranno riletti automaticamente.",
-    identityExceptionFiscalBasis:
-      "Nome e cognome proposti sono l’unica porzione dell’intestazione compatibile con il Codice Fiscale.",
-    identityExceptionSourceBasis:
-      "Nome e cognome seguono l’intestazione dell’ordine anche se non coincidono con il Codice Fiscale.",
-    identityExceptionConfirm:
-      "Accetto il disallineamento tra intestazione e Codice Fiscale per questo cliente.",
-    identityExceptionAction: "Accetta deroga e allinea",
-    identityExceptionCompleted:
-      "Deroga registrata: ordine, preparazione e bozza sono stati riallineati.",
     ordersTitle: "Ordini collegati",
     preparationsTitle: "Preparazioni fattura",
     documentsTitle: "Documenti",

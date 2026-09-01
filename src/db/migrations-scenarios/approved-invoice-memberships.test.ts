@@ -10,6 +10,8 @@ import {
   temporaryDatabase,
   withClient,
   RECONCILE_APPROVED_INVOICE_MEMBERSHIPS,
+  AUTOMATIC_CUSTOMER_IDENTITY_EXCEPTIONS,
+  removeMigrationsFrom,
 } from "./support.ts";
 
 test("l'upgrade chiude le preparazioni ricreate sopra fatture approvate", async () => {
@@ -19,7 +21,7 @@ test("l'upgrade chiude le preparazioni ricreate sopra fatture approvate", async 
   );
   try {
     await cp("migrations", beforeReconciliation, { recursive: true });
-    await rm(path.join(beforeReconciliation, RECONCILE_APPROVED_INVOICE_MEMBERSHIPS));
+    await removeMigrationsFrom(beforeReconciliation, RECONCILE_APPROVED_INVOICE_MEMBERSHIPS);
     await runMigrations({
       connectionString: database.connectionString,
       directory: beforeReconciliation,
@@ -87,6 +89,7 @@ test("l'upgrade chiude le preparazioni ricreate sopra fatture approvate", async 
 
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       RECONCILE_APPROVED_INVOICE_MEMBERSHIPS,
+      AUTOMATIC_CUSTOMER_IDENTITY_EXCEPTIONS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

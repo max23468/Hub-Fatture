@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.26
+
+- I privati italiani eBay con Codice Fiscale formalmente valido, intestazione utilizzabile e indirizzo completo non restano più bloccati quando nome e CF non sono coerenti: Hub Fatture applica automaticamente una deroga anagrafica tracciata, conserva immutato lo snapshot del provider e rivaluta la decisione quando cambia l’identità sorgente.
+- La migrazione rilegge gli ordini eBay già presenti per applicare la stessa regola ai controlli esistenti; dati obbligatori mancanti e ogni altra anomalia continuano a richiedere revisione, mentre il test PostgreSQL seriale dispone di un timeout coerente con il carico reale senza ridurre le asserzioni.
+
 ## 0.5.25
 
 - Le preparazioni approvabili escludono in modo fail-closed qualsiasi ordine già collegato a una fattura approvata; il reimport conserva lo stato `INVOICED` e l’upgrade chiude con audit le preparazioni ricreate, senza modificare i documenti fiscali esistenti.

@@ -21,7 +21,7 @@ test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 120_000 
       paymentsHistory(context),
     );
     await t.test("allineamento automatico delle sorgenti", () => sourceAlignment(context));
-    await t.test("deroga esplicita dell’identità cliente", () => identityException(context));
+    await t.test("deroga automatica dell’identità cliente", () => identityException(context));
     await t.test("rimborsi, concorrenza e proiezioni finali", () => refundsConcurrency(context));
     await context.database.closePool();
   } finally {

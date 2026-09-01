@@ -39,3 +39,8 @@ _Evita_: Cliente UE, Paese non supportato
 Relazione autenticata con Shopify o eBay. Un errore nell'importazione di un ordine riguarda la
 sincronizzazione e non rende falso il collegamento.
 _Evita_: Sincronizzazione, Ultimo aggiornamento
+
+**Deroga anagrafica automatica**:
+Accettazione tracciata dell’intestazione dichiarata da un privato italiano eBay quando il Codice
+Fiscale è formalmente valido e tutti i dati obbligatori per fatturare sono presenti.
+_Evita_: Correzione del Codice Fiscale, Verifica anagrafica ufficiale

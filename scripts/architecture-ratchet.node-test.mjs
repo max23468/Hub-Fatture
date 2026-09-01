@@ -87,6 +87,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     "src/db/migrations-scenarios/installation-upgrades.test.ts",
     "src/db/migrations-scenarios/control-replays.test.ts",
     "src/db/migrations-scenarios/approved-invoice-memberships.test.ts",
+    "src/db/migrations-scenarios/automatic-identity-exceptions.test.ts",
   ];
   const [readinessEntry, migrationEntry, ...sources] = await Promise.all([
     readFile(path.join(root, "tests/e2e/readiness.spec.ts"), "utf8"),
@@ -108,7 +109,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     .slice(readinessFiles.length)
     .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
   assert.equal(readinessTests.length, 10);
-  assert.equal(migrationTests.length, 20);
+  assert.equal(migrationTests.length, 21);
 });
 
 test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", async () => {
@@ -122,7 +123,7 @@ test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", asy
     "mutazioni, raggruppamento e identità cliente",
     "pagamenti, riconciliazione storica e casi complessi",
     "allineamento automatico delle sorgenti",
-    "deroga esplicita dell’identità cliente",
+    "deroga automatica dell’identità cliente",
     "rimborsi, concorrenza e proiezioni finali",
   ]);
   const offenders = [];

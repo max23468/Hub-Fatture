@@ -72,3 +72,13 @@ export function applyCustomerIdentityException(
     },
   };
 }
+
+export function automaticCustomerIdentityException(input: OrderInput): {
+  input: OrderInput;
+  proposal: CustomerIdentityExceptionProposal | null;
+} {
+  const proposal = customerIdentityExceptionProposal(input);
+  if (!proposal) return { input, proposal: null };
+  const aligned = applyCustomerIdentityException(input, proposal);
+  return { input: aligned, proposal };
+}
