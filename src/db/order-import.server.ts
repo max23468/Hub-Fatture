@@ -18,7 +18,6 @@ import {
 import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob, HistoryImportResult, Provider } from "./connector-types.server.ts";
 import { AppError } from "../errors.ts";
-import { automaticCustomerIdentityException } from "../customer-identity-exception.ts";
 import {
   isEbayCustomerEmailOnlyMismatch,
   isEbayEmailAndMapperOnlyChange,
@@ -41,6 +40,7 @@ import {
   type ShopifyPaymentFeeMode,
 } from "../orders.ts";
 import { preIssueRefund } from "../refunds.ts";
+import { paymentsReconciled } from "../order-payment-reconciliation.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 import { refreshInvoiceDraftProjection } from "./invoice-draft-projection.server.ts";
 import {
@@ -57,6 +57,8 @@ import {
   reconcileEbayEmailUpdate,
   reconcileMapperCustomerCorrection,
 } from "./order-automatic-alignment.server.ts";
+import { prepareCustomerInput } from "./order-customer-input.server.ts";
+import { reconcileShopifyFulfillmentChange } from "./order-shopify-fulfillment-alignment.server.ts";
 import { canonicalOrderTimestamp } from "./order-timestamp.ts";
 
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
@@ -195,22 +197,14 @@ function orderAmounts(input: OrderInput) {
   // Nel Fulfillment API eBay gli importi del riepilogo pagamenti possono essere il
   // netto venditore. Lo stato PAID resta autorevole, ma quel netto non va confrontato
   // con il totale cliente; righe e spedizione continuano invece a doverlo ricostruire.
-  const paidPaymentAmount = input.payments.reduce(
-    (sum, payment, index) =>
-      payment.status === "PAID" ? sum + BigInt(paymentAmounts[index]!) : sum,
-    0n,
-  );
-  const observablePaymentAmount =
-    paidPaymentAmount >= BigInt(grossAmount)
-      ? paidPaymentAmount
-      : input.payments.reduce(
-          (sum, payment, index) =>
-            payment.status === "REFUNDED" ? sum : sum + BigInt(paymentAmounts[index]!),
-          0n,
-        );
-  const paymentsReconciled =
-    input.provider === "EBAY" || observablePaymentAmount === BigInt(grossAmount);
-  const totalsReconciled = linesReconciled && paymentsReconciled;
+  const totalsReconciled =
+    linesReconciled &&
+    paymentsReconciled({
+      provider: input.provider,
+      grossAmount,
+      payments: input.payments,
+      paymentAmounts,
+    });
   const shopifyPaymentsFeeAmount = shopifyPaymentsFeeAmounts.reduce(
     (sum, amount) => sum + amount,
     0,
@@ -242,6 +236,7 @@ interface PreviousOrderRow {
   billing_case_customer_corrected: boolean;
   billing_case_do_not_transmit_automatic: boolean;
   deferred_review_required: boolean;
+  source_conflict_required: boolean;
   order_review_required: boolean;
   customer_id: string;
   trigger_status: string;
@@ -294,6 +289,8 @@ async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
             ), false) AS billing_case_do_not_transmit_automatic,
             coalesce((orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean, false)
               AS deferred_review_required,
+            coalesce((orders.normalized_snapshot_json ->> 'sourceConflictRequired')::boolean, false)
+              AS source_conflict_required,
             coalesce((orders.normalized_snapshot_json ->> 'orderReviewRequired')::boolean, true)
               AS order_review_required
      FROM orders
@@ -421,14 +418,7 @@ async function importOne(
   shopifyPaymentFeeMode: ShopifyPaymentFeeMode,
   actor: Actor,
 ) {
-  const automaticException = automaticCustomerIdentityException(sourceInput);
-  const sourceIdentity = customerIdentity(sourceInput);
-  const proposedIdentity = customerIdentity(automaticException.input);
-  const exception =
-    sourceIdentity.reviewRequired && !proposedIdentity.reviewRequired
-      ? automaticException.proposal
-      : null;
-  const input = exception ? automaticException.input : sourceInput;
+  const { input, exception, taxRecovery } = await prepareCustomerInput(client, sourceInput);
   const {
     grossAmount,
     lineAmounts,
@@ -486,6 +476,7 @@ async function importOne(
           trigger,
         );
   const deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
+  const sourceConflictRequired = oldOrder?.source_conflict_required ?? false;
   const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
   const documentIssued =
     invoiced ||
@@ -517,6 +508,7 @@ async function importOne(
     customerReviewRequired: identity.reviewRequired,
     orderReviewRequired: orderReview,
     deferredReviewRequired,
+    sourceConflictRequired,
     totalsReconciled,
     reviewFingerprint: fingerprint,
   };
@@ -668,6 +660,15 @@ async function importOne(
           alignment: existingEmailAndMapperConflict ? "EMAIL_AND_MAPPER" : "EMAIL_ONLY",
         })
       : false;
+  const shopifyFulfillmentAlignmentApplied = await reconcileShopifyFulfillmentChange(client, {
+    oldOrder,
+    orderId,
+    normalizedSnapshot,
+    fingerprint,
+    fingerprintChanged,
+    documentIssued,
+    requestId: actor.requestId,
+  });
   const mapperCorrectionApplied =
     mapperCorrectionCandidate && oldOrder?.billing_case_id
       ? await reconcileMapperCustomerCorrection(client, {
@@ -679,10 +680,19 @@ async function importOne(
           customerSnapshot: normalizedSnapshot.customerSnapshot,
           requestId: actor.requestId,
           provider: input.provider,
+          ...(taxRecovery.recovered
+            ? {
+                reason:
+                  "Identificativo fiscale recuperato da un altro ordine dello stesso cliente sorgente con anagrafica coincidente",
+              }
+            : {}),
         })
       : false;
   const mapperDerivedCorrectionApplied =
-    mapperCorrectionApplied || mapperPaymentCorrectionCandidate || emailOnlyAlignmentApplied;
+    mapperCorrectionApplied ||
+    mapperPaymentCorrectionCandidate ||
+    emailOnlyAlignmentApplied ||
+    shopifyFulfillmentAlignmentApplied;
   const sourceConflict =
     !staleIssuedMembership &&
     (becameHistorical || (fingerprintChanged && !mapperDerivedCorrectionApplied));

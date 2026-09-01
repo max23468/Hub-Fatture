@@ -1,4 +1,5 @@
 import { containsNullByte, escapeLike, PAGE_SIZE, pageOffset, paginate } from "../orders.ts";
+import { approvedInvoiceOrderLinkSql } from "./billing-case-sql.server.ts";
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
@@ -31,6 +32,7 @@ const actionableCustomerReviewSql = `customers.review_required AND EXISTS (
   FROM orders AS review_orders
   LEFT JOIN billing_cases AS review_cases ON review_cases.id = review_orders.billing_case_id
   WHERE review_orders.customer_id = customers.id
+    AND NOT ${approvedInvoiceOrderLinkSql("review_orders")}
     AND coalesce(
       (review_orders.normalized_snapshot_json ->> 'customerReviewRequired')::boolean,
       customers.review_required

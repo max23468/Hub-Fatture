@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { ARUBA_MATCHER_VERSION } from "../aruba-inbound.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 
@@ -289,7 +290,10 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
        FROM aruba_document_matches WHERE remote_document_id = $1`,
       [remote.rows[0]!.id],
     );
-    assert.deepEqual(upgraded.rows[0], { matcher_version: 5, reviewable: true });
+    assert.deepEqual(upgraded.rows[0], {
+      matcher_version: ARUBA_MATCHER_VERSION,
+      reviewable: true,
+    });
     assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "NEEDS_REVIEW");
   } finally {
     await client.closePool();

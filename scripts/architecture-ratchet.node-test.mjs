@@ -61,6 +61,7 @@ const scenarioSizeCaps = new Map([
   ["src/db/orders-scenarios/orders-history-extended.scenario.test.ts", 80_000],
   ["src/db/orders-scenarios/orders-refunds-concurrency.scenario.test.ts", 45_000],
   ["src/db/orders-scenarios/orders-source-alignment.scenario.test.ts", 9_000],
+  ["src/db/orders-scenarios/orders-shopify-alignment.scenario.test.ts", 5_000],
   ["src/db/orders-scenarios/orders-customer-identity-exception.scenario.test.ts", 6_000],
 ]);
 
@@ -86,6 +87,10 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     "src/db/migrations-scenarios/mapper-reimports.test.ts",
     "src/db/migrations-scenarios/installation-upgrades.test.ts",
     "src/db/migrations-scenarios/control-replays.test.ts",
+    "src/db/migrations-scenarios/shopify-bank-transfer-rounding.test.ts",
+    "src/db/migrations-scenarios/source-conflict-marker-backfill.test.ts",
+    "src/db/migrations-scenarios/ebay-shipping-refund-replay.test.ts",
+    "src/db/migrations-scenarios/shopify-identity-fulfillment-replay.test.ts",
     "src/db/migrations-scenarios/approved-invoice-memberships.test.ts",
     "src/db/migrations-scenarios/automatic-identity-exceptions.test.ts",
   ];
@@ -109,7 +114,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     .slice(readinessFiles.length)
     .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
   assert.equal(readinessTests.length, 10);
-  assert.equal(migrationTests.length, 21);
+  assert.equal(migrationTests.length, 25);
 });
 
 test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", async () => {

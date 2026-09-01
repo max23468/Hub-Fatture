@@ -160,6 +160,63 @@ export async function runPaymentsCoreScenario(context: OrdersTestContext) {
     totals_reconciled: "false",
   });
 
+  const roundedBankTransfer = structuredClone(fixture[0]);
+  roundedBankTransfer.externalOrderId = "shop-order-rounded-bank-transfer";
+  roundedBankTransfer.externalCustomerId = "shop-customer-rounded-bank-transfer";
+  roundedBankTransfer.customer.taxIdentifiers[0].value = "RSSMRA80A01H501R";
+  roundedBankTransfer.createdAt = "2026-08-15T08:00:00Z";
+  roundedBankTransfer.updatedAt = "2026-08-15T09:00:00Z";
+  roundedBankTransfer.payments[0].method = "Bonifico Bancario";
+  roundedBankTransfer.payments[0].amount = "122.02";
+  await orders.importOrders([roundedBankTransfer], {
+    id: 1,
+    requestId: "test-rounded-bank-transfer",
+  });
+  assert.deepEqual(
+    (
+      await database.getPool().query(
+        `SELECT billing_cases.status,
+                orders.normalized_snapshot_json ->> 'totalsReconciled' AS totals_reconciled
+         FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+         WHERE orders.external_order_id = $1`,
+        [roundedBankTransfer.externalOrderId],
+      )
+    ).rows[0],
+    { status: "READY", totals_reconciled: "true" },
+  );
+
+  for (const [suffix, amount] of [
+    ["excessive", "122.03"],
+    ["underpaid", "121.98"],
+  ] as const) {
+    const invalidRounding = structuredClone(roundedBankTransfer);
+    invalidRounding.externalOrderId = `shop-order-bank-transfer-${suffix}`;
+    invalidRounding.externalCustomerId = `shop-customer-bank-transfer-${suffix}`;
+    invalidRounding.customer.taxIdentifiers[0].value =
+      suffix === "excessive" ? "RSSMRA80A01H502S" : "RSSMRA80A01H503T";
+    invalidRounding.createdAt =
+      suffix === "excessive" ? "2026-08-16T08:00:00Z" : "2026-08-17T08:00:00Z";
+    invalidRounding.updatedAt =
+      suffix === "excessive" ? "2026-08-16T09:00:00Z" : "2026-08-17T09:00:00Z";
+    invalidRounding.payments[0].amount = amount;
+    await orders.importOrders([invalidRounding], {
+      id: 1,
+      requestId: `test-bank-transfer-${suffix}`,
+    });
+    assert.deepEqual(
+      (
+        await database.getPool().query(
+          `SELECT billing_cases.status,
+                  orders.normalized_snapshot_json ->> 'totalsReconciled' AS totals_reconciled
+           FROM billing_cases JOIN orders ON orders.billing_case_id = billing_cases.id
+           WHERE orders.external_order_id = $1`,
+          [invalidRounding.externalOrderId],
+        )
+      ).rows[0],
+      { status: "NEEDS_REVIEW", totals_reconciled: "false" },
+    );
+  }
+
   const ebayNetPayment = structuredClone(fixture[0]);
   ebayNetPayment.provider = "EBAY";
   ebayNetPayment.externalAccountId = "connected-ebay";

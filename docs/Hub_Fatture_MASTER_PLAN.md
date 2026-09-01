@@ -644,6 +644,9 @@ Regole:
 - spedizione inclusa;
 - per una transazione Shopify Payments riuscita, commissione effettiva sottratta solo quando la relativa impostazione globale è `Sottrai`; la modalità predefinita è `Sottrai`;
 - PayPal, bonifico, PostePay, gateway manuali, altri metodi Shopify ed eBay restano sempre al totale ordine pieno;
+- un bonifico Shopify incassato può superare il totale ordine di uno o due centesimi per
+  arrotondamento del cliente: l'ordine resta riconciliato al totale pieno, senza aumentare
+  l'importo fatturabile; sottopagamenti, eccedenze superiori e altri metodi restano anomalie;
 - nessuna percentuale o quota fissa viene ricalcolata: l'unica fonte ammessa è l'importo `fees.amount` restituito da Shopify;
 - Natura e diciture secondo il profilo Aruba verificato;
 - totale documento uguale alla somma delle righe, salvo modifica manuale esplicitamente confermata.

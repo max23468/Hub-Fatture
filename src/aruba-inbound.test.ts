@@ -483,6 +483,49 @@ test("l’identità fiscale richiede stesso tipo, paese e valore", () => {
   );
 });
 
+test("il placeholder Aruba identifica un privato estero, non una partita IVA reale", () => {
+  const foreignRemote = {
+    ...remote,
+    recipientCountryCode: "DE",
+    recipientTaxId: "99999999999",
+    recipientTaxIdentifiers: [
+      { type: "PARTITA_IVA" as const, countryCode: "DE", value: "99999999999" },
+    ],
+    recipientAddress: null,
+  };
+  const candidate = {
+    id: "1",
+    provider: "SHOPIFY" as const,
+    displayNumber: "1001",
+    localOrderDate: "2026-08-12",
+    billableAmount: 12_300,
+    recipientName: "Mario Rossi",
+    recipientCountryCode: "DE",
+    recipientTaxIdentifiers: [],
+    recipientAddress: null,
+  };
+  assert.equal(selectOrderMatch(foreignRemote, [candidate]).status, "MATCHED");
+  assert.equal(
+    selectOrderMatch(foreignRemote, [{ ...candidate, recipientCountryCode: "ES" }]).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch(foreignRemote, [candidate, { ...candidate, id: "2" }]).status,
+    "AMBIGUOUS",
+  );
+  assert.equal(
+    selectOrderMatch(
+      {
+        ...foreignRemote,
+        recipientTaxId: "DE123456789",
+        recipientTaxIdentifiers: [{ type: "PARTITA_IVA", countryCode: "DE", value: "DE123456789" }],
+      },
+      [candidate],
+    ).status,
+    "UNMATCHED",
+  );
+});
+
 test("un riferimento esplicito non ignora un destinatario dichiarato incompatibile", () => {
   const result = selectOrderMatch({ ...remote, orderReferences: ["1001"] }, [
     {

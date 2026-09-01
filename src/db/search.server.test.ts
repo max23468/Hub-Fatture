@@ -245,11 +245,17 @@ test(
           [caseRow.id],
         )
       ).rows[0];
-      await database
-        .getPool()
-        .query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1", [
-          activityCase.id,
-        ]);
+      await database.getPool().query(
+        `UPDATE orders
+         SET trigger_status = 'NEEDS_REVIEW',
+             normalized_snapshot_json = jsonb_set(
+               normalized_snapshot_json,
+               '{sourceConflictRequired}',
+               'true'::jsonb
+             )
+         WHERE billing_case_id = $1`,
+        [activityCase.id],
+      );
       const byActivity = await search.searchGlobal(activityCase.public_number);
       assert.ok(
         byActivity.controls.some((item) => item.detail.includes(activityCase.public_number)),

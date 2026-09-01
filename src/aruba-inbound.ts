@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 5;
+export const ARUBA_MATCHER_VERSION = 6;
 
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",
@@ -239,6 +239,7 @@ export interface ArubaOrderCandidate {
   billableAmount: number;
   recipientName: string | null;
   recipientTaxIdentifiers: FiscalIdentity[];
+  recipientCountryCode?: string | null;
   recipientAddress: string | null;
 }
 
@@ -450,6 +451,16 @@ export function evaluateOrderCandidate(
   const remoteTaxIds = remote.recipientTaxIdentifiers.map(canonicalFiscalIdentity);
   const candidateTaxIds = new Set(candidate.recipientTaxIdentifiers.map(canonicalFiscalIdentity));
   const taxId = Boolean(remoteTaxIds.some((remoteTaxId) => candidateTaxIds.has(remoteTaxId)));
+  const foreignConsumerPlaceholder = Boolean(
+    remote.recipientCountryCode &&
+    remote.recipientCountryCode !== "IT" &&
+    remote.recipientCountryCode === candidate.recipientCountryCode &&
+    remote.recipientTaxIdentifiers.length === 1 &&
+    remote.recipientTaxIdentifiers[0]?.type === "PARTITA_IVA" &&
+    remote.recipientTaxIdentifiers[0]?.countryCode === remote.recipientCountryCode &&
+    remote.recipientTaxIdentifiers[0]?.value.replace(/[^0-9]/g, "") === "99999999999" &&
+    candidate.recipientTaxIdentifiers.length === 0,
+  );
   const remoteFiscalCodes = remote.recipientTaxIdentifiers.flatMap((identifier) =>
     identifier.type === "CODICE_FISCALE" ? [canonicalFiscalIdentity(identifier)] : [],
   );
@@ -476,7 +487,9 @@ export function evaluateOrderCandidate(
     ? taxId
     : declaredIdentitySignals === 0 || identitySignals >= 1;
   const inferredRecipientIsCompatible = remoteTaxIds.length
-    ? taxId && (fiscalCode || identitySignals >= 2)
+    ? foreignConsumerPlaceholder
+      ? sameDay && recipient
+      : taxId && (fiscalCode || identitySignals >= 2)
     : identitySignals >= 2;
   const probe = provider && nearDate && total;
   const potential = probe && recipient && hasSpecificRecipientName(remote.recipientName);

@@ -97,3 +97,39 @@ export function isEbayCustomerEmailOnlyMismatch(
   if (isDeepStrictEqual(previous, current)) return false;
   return isDeepStrictEqual(withoutEmailEvidence(previous), withoutEmailEvidence(current));
 }
+
+function withoutShopifyFulfillmentEvidence(snapshot: Record<string, unknown>): unknown {
+  const ignored = new Set([
+    "fulfillmentStatus",
+    "reviewFingerprint",
+    "sourceConflictRequired",
+    "sourceSnapshot",
+    "updatedAt",
+  ]);
+  return JSON.parse(
+    JSON.stringify(
+      Object.fromEntries(Object.entries(snapshot).filter(([key]) => !ignored.has(key))),
+    ),
+  );
+}
+
+/**
+ * L'evasione Shopify è un avanzamento operativo e non fiscale. Il riallineamento è
+ * automatico solo in avanti e solo quando ogni altro dato normalizzato coincide.
+ */
+export function isShopifyFulfillmentOnlyChange(
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  if (previous.provider !== "SHOPIFY" || current.provider !== "SHOPIFY") return false;
+  const rank: Record<string, number> = { UNFULFILLED: 0, PARTIAL: 1, FULFILLED: 2 };
+  const previousRank = rank[String(previous.fulfillmentStatus)] ?? -1;
+  const currentRank = rank[String(current.fulfillmentStatus)] ?? -1;
+  return (
+    currentRank > previousRank &&
+    isDeepStrictEqual(
+      withoutShopifyFulfillmentEvidence(previous),
+      withoutShopifyFulfillmentEvidence(current),
+    )
+  );
+}

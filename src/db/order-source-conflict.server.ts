@@ -45,9 +45,14 @@ export async function applySourceConflict(
         ? ("REFUNDED" as const)
         : null;
   if (!reason && !invoiced) {
-    await client.query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE id = $1", [
-      orderId,
-    ]);
+    await client.query(
+      `UPDATE orders
+       SET trigger_status = 'NEEDS_REVIEW',
+           normalized_snapshot_json = jsonb_set(
+             normalized_snapshot_json, '{sourceConflictRequired}', 'true'::jsonb)
+       WHERE id = $1`,
+      [orderId],
+    );
   }
   // I frammenti interpolati sono costanti di modulo di billing-case-sql.server.ts:
   // nessun valore della richiesta entra nel testo SQL, i dati restano in $1, $2, ...

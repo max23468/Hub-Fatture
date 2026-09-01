@@ -1039,7 +1039,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     [sourceReviewCaseId],
   );
   await sourceReviewClient.query(
-    "UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1",
+    `UPDATE orders
+     SET trigger_status = 'NEEDS_REVIEW',
+         normalized_snapshot_json = jsonb_set(
+           normalized_snapshot_json, '{sourceConflictRequired}', 'true'::jsonb)
+     WHERE billing_case_id = $1`,
     [sourceReviewCaseId],
   );
   await sourceReviewClient.query(
@@ -1087,7 +1091,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     ["a".repeat(64)],
   );
   await privacyClient.query(
-    "UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1",
+    `UPDATE orders
+     SET trigger_status = 'NEEDS_REVIEW',
+         normalized_snapshot_json = jsonb_set(
+           normalized_snapshot_json, '{sourceConflictRequired}', 'true'::jsonb)
+     WHERE billing_case_id = $1`,
     [sourceReviewCaseId],
   );
   const manualChoiceStorageId = (

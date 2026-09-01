@@ -11,6 +11,10 @@ import {
   withClient,
   RECONCILE_APPROVED_INVOICE_MEMBERSHIPS,
   AUTOMATIC_CUSTOMER_IDENTITY_EXCEPTIONS,
+  SHOPIFY_BANK_TRANSFER_ROUNDING_REPLAY,
+  SOURCE_CONFLICT_MARKER_BACKFILL,
+  EBAY_SHIPPING_REFUND_REPLAY,
+  SHOPIFY_IDENTITY_FULFILLMENT_REPLAY,
   removeMigrationsFrom,
 } from "./support.ts";
 
@@ -90,6 +94,10 @@ test("l'upgrade chiude le preparazioni ricreate sopra fatture approvate", async 
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       RECONCILE_APPROVED_INVOICE_MEMBERSHIPS,
       AUTOMATIC_CUSTOMER_IDENTITY_EXCEPTIONS,
+      SHOPIFY_BANK_TRANSFER_ROUNDING_REPLAY,
+      SOURCE_CONFLICT_MARKER_BACKFILL,
+      EBAY_SHIPPING_REFUND_REPLAY,
+      SHOPIFY_IDENTITY_FULFILLMENT_REPLAY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
