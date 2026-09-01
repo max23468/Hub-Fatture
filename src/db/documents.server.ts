@@ -508,17 +508,44 @@ function invoiceComparison(caseRow: CaseRow, input: DocumentInput, profile: Fisc
   };
 }
 
-export async function getInvoiceProjection(caseId: string) {
+async function loadInvoiceProjectionContext(caseId: string) {
   if (!isDatabaseId(caseId)) return null;
   const caseRow = await loadCase(getPool(), caseId);
   if (!caseRow) return null;
   const draft = await loadDraft(getPool(), caseId);
   const profile = await loadProfile(getPool(), draft?.fiscal_profile_version);
-  if (!profile) {
-    return { caseRevision: caseRow.revision, profileMissing: true as const };
-  }
+  if (!profile) return { caseRow, draft, projection: null };
   const input = documentInput(caseRow, draft, profile.profile_json);
   const projected = projectFatturaXml(profile.profile_json, input);
+  const sourceTotal = caseRow.orders.reduce((sum, order) => sum + order.billable_amount, 0);
+  const total = input.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
+  return {
+    caseRow,
+    draft,
+    projection: {
+      profile,
+      input,
+      projected,
+      sourceTotal,
+      total,
+      requiresResave: Boolean(
+        draft &&
+        draft.status === "DRAFT" &&
+        (draft.document_date !== input.documentDate ||
+          draft.projection_sha256 !== projected.sha256),
+      ),
+    },
+  };
+}
+
+export async function getInvoiceProjection(caseId: string) {
+  const context = await loadInvoiceProjectionContext(caseId);
+  if (!context) return null;
+  const { caseRow, draft, projection: current } = context;
+  if (!current) {
+    return { caseRevision: caseRow.revision, profileMissing: true as const };
+  }
+  const { input, profile, projected, requiresResave, sourceTotal, total } = current;
   const approvedXml = draft?.status === "APPROVED" ? await readDocumentXml(draft.id) : null;
   const projection = approvedXml
     ? {
@@ -532,8 +559,6 @@ export async function getInvoiceProjection(caseId: string) {
     (sum, order) => sum + order.deducted_shopify_payments_fee_amount,
     0,
   );
-  const sourceTotal = caseRow.orders.reduce((sum, order) => sum + order.billable_amount, 0);
-  const total = input.lines.reduce((sum, line) => sum + line.quantity * line.unitAmount, 0);
   const arubaSettings = await getArubaSettings();
   return {
     caseRevision: caseRow.revision,
@@ -555,11 +580,7 @@ export async function getInvoiceProjection(caseId: string) {
     causale: input.causale ?? "",
     notes: input.notes ?? "",
     paymentPending: input.paymentStatus === "PENDING",
-    requiresResave: Boolean(
-      draft &&
-      draft.status === "DRAFT" &&
-      (draft.document_date !== input.documentDate || draft.projection_sha256 !== projected.sha256),
-    ),
+    requiresResave,
     projectionSha256: projection.sha256,
     xml: projection.xml,
     comparison: invoiceComparison(caseRow, input, profile.profile_json),
@@ -569,6 +590,24 @@ export async function getInvoiceProjection(caseId: string) {
     arubaDowngradeRequired: arubaSettings.mode.value !== arubaSettings.effectiveMode,
     arubaInventory: await getArubaInventoryHealth(),
     customerEmail: await customerEmailPreview(caseId),
+  };
+}
+
+export async function getStandardInvoiceApprovalProjection(caseId: string) {
+  const context = await loadInvoiceProjectionContext(caseId);
+  if (!context || context.caseRow.status !== "READY" || !context.projection) return null;
+  const { caseRow, draft, projection } = context;
+  if (draft?.status === "APPROVED") return null;
+  const { input, profile, projected, requiresResave, sourceTotal, total } = projection;
+  if (getConfig().APP_ENV === "production" && profile.status !== "AUDITED") return null;
+  await validateFatturaXml(projected.xml);
+  if (input.paymentStatus !== "PAID" || total !== sourceTotal || requiresResave) return null;
+  return {
+    caseRevision: caseRow.revision,
+    draftVersion: draft?.draft_version ?? 0,
+    projectionSha256: projected.sha256,
+    totalAmount: total,
+    fiscalProfileVersion: profile.version,
   };
 }
 

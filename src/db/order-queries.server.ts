@@ -13,7 +13,7 @@ import { actionableConnectorFailures } from "./connector-jobs.server.ts";
 import {
   billingCasePendingPaymentSql,
   pendingPaymentSql,
-  standardInvoiceApprovalCriteriaSql,
+  standardInvoiceApprovalCandidateSql,
 } from "./billing-case-sql.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
@@ -330,9 +330,10 @@ export async function dashboardSummary() {
        (SELECT count(*) FROM orders)::text AS orders,
        (SELECT count(*)
         FROM billing_cases
-        JOIN documents ON documents.billing_case_id = billing_cases.id
-        JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
-        WHERE ${standardInvoiceApprovalCriteriaSql()})::text AS ready_cases,
+        LEFT JOIN documents ON documents.billing_case_id = billing_cases.id
+          AND documents.kind = 'INVOICE'
+        LEFT JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
+        WHERE ${standardInvoiceApprovalCandidateSql()})::text AS ready_cases,
        ((SELECT count(*) FROM billing_cases
          WHERE status = 'NEEDS_REVIEW'
            AND NOT ${billingCasePendingPaymentSql()}) +

@@ -103,6 +103,34 @@ export const standardInvoiceApprovalCriteriaSql = (
   AND ${fiscalProfileAlias}.status IN ('MOCK', 'AUDITED')
 )`;
 
+/**
+ * La proposta server-side di una preparazione READY è approvabile senza un salvataggio
+ * preventivo. Una bozza già materializzata conserva invece i gate stretti su data, hash,
+ * pagamento e differenza usati dall'approvazione massiva.
+ */
+export const standardInvoiceApprovalCandidateSql = (
+  billingCaseAlias = "billing_cases",
+  documentAlias = "documents",
+  fiscalProfileAlias = "fiscal_profiles",
+) => `(
+  ${billingCaseAlias}.status = 'READY'
+  AND NOT ${billingCasePendingPaymentSql(billingCaseAlias)}
+  AND (
+    (
+      ${documentAlias}.id IS NULL
+      AND EXISTS (
+        SELECT 1 FROM orders AS approval_order
+        WHERE approval_order.billing_case_id = ${billingCaseAlias}.id
+      )
+      AND EXISTS (
+        SELECT 1 FROM fiscal_profiles AS active_approval_profile
+        WHERE active_approval_profile.status IN ('MOCK', 'AUDITED')
+      )
+    )
+    OR ${standardInvoiceApprovalCriteriaSql(billingCaseAlias, documentAlias, fiscalProfileAlias)}
+  )
+)`;
+
 /** Un possibile documento Aruba non ancora risolto trattiene la preparazione. */
 export const arubaPotentialMatchSql = `EXISTS (
   SELECT 1
