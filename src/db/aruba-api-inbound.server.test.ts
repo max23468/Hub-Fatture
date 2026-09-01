@@ -855,6 +855,10 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       id: codex.id,
       requestId: codex.requestId,
     });
+    await getPool().query(
+      `UPDATE connections SET status = 'ERROR', last_error_code = 'ARUBA_PROFILE_CONFLICT'
+       WHERE provider = 'ARUBA'`,
+    );
     const resumedTargetedJob = await jobs.claimJob("aruba-api-targeted-resume-worker");
     const targeted = await api.runArubaApiInboundJob(resumedTargetedJob!, {
       rateDelayMs: 0,
