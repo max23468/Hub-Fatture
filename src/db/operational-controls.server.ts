@@ -30,7 +30,14 @@ export interface ControlFact {
 export interface OperationalControlMetadata {
   area?: "ACQUISITION" | "PROCESSING" | "DOCUMENT_GENERATION";
   facts?: ControlFact[];
-  candidates?: Array<{ id: string; label: string; guided: boolean }>;
+  candidates?: Array<{
+    id: string;
+    label: string;
+    guided: boolean;
+    amountMismatch: boolean;
+    localAmount: number;
+    differenceAmount: number;
+  }>;
   remoteDocumentId?: string;
   remoteStatus?: string;
   matchStatus?: string;
@@ -513,9 +520,14 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
           .replaceAll(/\s+/g, " ")
           .trim();
       const needsFile = !remote.has_xml;
+      const amountMismatch = remote.amount_mismatch;
       return {
         id: `ARUBA_REMOTE:${remote.id}`,
-        kind: needsFile ? "ARUBA_OFFICIAL_FILE_REQUIRED" : "ARUBA_REMOTE_MATCH",
+        kind: needsFile
+          ? "ARUBA_OFFICIAL_FILE_REQUIRED"
+          : amountMismatch
+            ? "ARUBA_AMOUNT_MISMATCH"
+            : "ARUBA_REMOTE_MATCH",
         category: "DECISION" as const,
         severity: "BLOCKING" as const,
         sourceType: "ARUBA_REMOTE_DOCUMENT",
@@ -523,13 +535,21 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
         origin: "DOCUMENTS" as const,
         title: needsFile
           ? "File ufficiale Aruba da acquisire"
-          : "Possibile fattura già presente su Aruba",
+          : amountMismatch
+            ? "Importo Aruba da verificare"
+            : "Possibile fattura già presente su Aruba",
         detail: label,
         consequence: needsFile
           ? "La riconciliazione resta incompleta finché il file ufficiale non viene verificato."
-          : "L’approvazione è sospesa per evitare una doppia emissione.",
+          : amountMismatch
+            ? "La preparazione correlata resta sospesa finché la differenza non viene risolta."
+            : "L’approvazione è sospesa per evitare una doppia emissione.",
         href: `/documenti?vista=inventario-aruba#documento-aruba-${remote.id}`,
-        primaryAction: needsFile ? "Apri inventario Aruba" : "Collega documento Aruba",
+        primaryAction: needsFile
+          ? "Apri inventario Aruba"
+          : amountMismatch
+            ? "Verifica documento Aruba"
+            : "Collega documento Aruba",
         metadata: {
           remoteDocumentId: remote.id,
           remoteStatus: remote.remote_status,
@@ -541,8 +561,15 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
             { label: "Data", value: remote.document_date },
             {
               label: "Totale",
-              value: `${Number(remote.total_amount).toFixed(2).replace(".", ",")} €`,
+              value: `${(Number(remote.total_amount) / 100).toFixed(2).replace(".", ",")} €`,
             },
+            ...remote.candidates
+              .filter((candidate) => candidate.amountMismatch)
+              .map((candidate) => ({
+                label: candidate.label,
+                value: `${(candidate.localAmount / 100).toFixed(2).replace(".", ",")} €; scostamento Aruba ${candidate.differenceAmount >= 0 ? "+" : ""}${(candidate.differenceAmount / 100).toFixed(2).replace(".", ",")} €`,
+                tone: "warning" as const,
+              })),
             { label: "Stato collegamento", value: remote.match_status, tone: "warning" as const },
           ],
         },

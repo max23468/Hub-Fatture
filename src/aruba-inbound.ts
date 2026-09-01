@@ -275,6 +275,17 @@ export function canManuallyLinkCandidate(
   return candidate.compatible || candidate.reviewable;
 }
 
+export function isArubaAmountMismatchCandidate(candidate: {
+  signals: Partial<CandidateEvaluation["signals"]>;
+}): boolean {
+  return Boolean(
+    candidate.signals.provider &&
+    candidate.signals.nearDate &&
+    candidate.signals.recipient &&
+    !candidate.signals.total,
+  );
+}
+
 export interface AmbiguousInvoiceMatch {
   remoteId: string;
   fiscalYear: number;

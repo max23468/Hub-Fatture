@@ -271,8 +271,13 @@ function ControlActions({
       </Form>
     );
   }
-  if (control.kind === "ARUBA_REMOTE_MATCH" && metadata.remoteDocumentId && canApprove) {
+  if (
+    ["ARUBA_REMOTE_MATCH", "ARUBA_AMOUNT_MISMATCH"].includes(control.kind) &&
+    metadata.remoteDocumentId &&
+    canApprove
+  ) {
     const canLink =
+      control.kind === "ARUBA_REMOTE_MATCH" &&
       metadata.hasXml &&
       ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
       Boolean(metadata.candidates?.length);

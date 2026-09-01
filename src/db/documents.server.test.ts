@@ -1430,10 +1430,10 @@ test(
         `INSERT INTO aruba_remote_documents
           (environment, account_reference, remote_id, document_type, fiscal_year,
            document_date, total_amount, remote_status, remote_status_observed_at,
-           metadata_digest, automatic_source, provider_group_id)
+           metadata_digest, automatic_source, provider_group_id, xml_sha256)
          VALUES ('MOCK', 'synthetic-aruba-account', 'documents-correlated-conflict', 'TD01',
                  2026, '2026-08-14', 1000, 'DELIVERED', now(), repeat('e', 64),
-                 'API', 'documents-correlated-conflict')
+                 'API', 'documents-correlated-conflict', repeat('f', 64))
          RETURNING id`,
       );
       await database.getPool().query(
@@ -1441,8 +1441,10 @@ test(
           (remote_document_id, status, method, matcher_version, candidates_json)
          VALUES ($1, 'AMBIGUOUS', 'NONE', 1,
            jsonb_build_array(jsonb_build_object(
-             'candidateId', $2::text, 'probe', true, 'potential', true,
-             'compatible', false, 'signals', '{}'::jsonb)))`,
+             'candidateId', $2::text, 'probe', false, 'potential', false,
+             'compatible', false, 'reviewable', false,
+             'signals', jsonb_build_object(
+               'provider', true, 'nearDate', true, 'recipient', true, 'total', false))))`,
         [conflictingRemote.rows[0]!.id, blockedOrderId],
       );
       const correlatedProjection = await documents.getInvoiceProjection(blockedCase.id);
