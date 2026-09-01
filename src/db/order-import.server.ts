@@ -18,7 +18,7 @@ import {
 import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob, HistoryImportResult, Provider } from "./connector-types.server.ts";
 import { AppError } from "../errors.ts";
-import { applyCustomerIdentityException } from "../customer-identity-exception.ts";
+import { automaticCustomerIdentityException } from "../customer-identity-exception.ts";
 import {
   isEbayCustomerEmailOnlyMismatch,
   isEbayEmailAndMapperOnlyChange,
@@ -52,6 +52,7 @@ import { replaceOrderChildren } from "./order-children-persistence.server.ts";
 import { applySourceConflict } from "./order-source-conflict.server.ts";
 import { currentOrderSettings } from "./order-import-settings.server.ts";
 import { auditOrderActor, type OrderActor as Actor } from "./order-actor.server.ts";
+import { recordAutomaticCustomerIdentityException } from "./customer-identity-exceptions.server.ts";
 import {
   reconcileEbayEmailUpdate,
   reconcileMapperCustomerCorrection,
@@ -420,29 +421,14 @@ async function importOne(
   shopifyPaymentFeeMode: ShopifyPaymentFeeMode,
   actor: Actor,
 ) {
-  const identityException = sourceInput.externalCustomerId
-    ? await client.query<{
-        source_identity_sha256: string;
-        first_name: string;
-        last_name: string;
-      }>(
-        `SELECT source_identity_sha256, first_name, last_name
-         FROM customer_identity_exceptions
-         WHERE provider = $1 AND external_customer_id = $2`,
-        [sourceInput.provider, sourceInput.externalCustomerId],
-      )
-    : null;
-  const exception = identityException?.rows[0];
-  const input = applyCustomerIdentityException(
-    sourceInput,
-    exception
-      ? {
-          sourceIdentitySha256: exception.source_identity_sha256,
-          firstName: exception.first_name,
-          lastName: exception.last_name,
-        }
-      : null,
-  );
+  const automaticException = automaticCustomerIdentityException(sourceInput);
+  const sourceIdentity = customerIdentity(sourceInput);
+  const proposedIdentity = customerIdentity(automaticException.input);
+  const exception =
+    sourceIdentity.reviewRequired && !proposedIdentity.reviewRequired
+      ? automaticException.proposal
+      : null;
+  const input = exception ? automaticException.input : sourceInput;
   const {
     grossAmount,
     lineAmounts,
@@ -514,6 +500,9 @@ async function importOne(
   const customerId = documentIssued
     ? oldOrder!.customer_id
     : await upsertCustomer(client, input, identity, sourceInput.customer);
+  if (!documentIssued && exception) {
+    await recordAutomaticCustomerIdentityException(client, customerId, exception, actor.requestId);
+  }
   const normalizedSnapshot = {
     ...input,
     historical,

@@ -141,10 +141,9 @@ export interface ItalianPrivateNameExceptionProposal {
 }
 
 /**
- * Prepara una proposta che deve essere accettata esplicitamente da un amministratore. Prima
- * cerca una sola porzione del nome controverificata dal CF, così può ignorare etichette del
- * marketplace. Se il CF e il nome restano discordanti propone l'ordine naturale nome-cognome,
- * senza trasformare la proposta in un'autorizzazione automatica.
+ * Prepara l’intestazione dichiarata dal cliente. Prima cerca una sola porzione del nome
+ * controverificata dal CF, così può ignorare etichette del marketplace. Se il CF e il nome
+ * restano discordanti conserva l’ordine naturale nome-cognome della sorgente.
  */
 export function proposeItalianPrivateNameException(
   fullName: string,

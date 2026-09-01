@@ -924,13 +924,15 @@ righe, pagamenti e rimborsi, riallinea automaticamente ordine e preparazione non
 correzione manuale già applicata resta prevalente; ogni altra differenza continua a richiedere
 revisione.
 
-Per un privato italiano eBay con CF formalmente valido ma intestazione non controverificabile,
-un amministratore può accettare una deroga sul dettaglio cliente. La deroga è legata
-all'impronta esatta di provider, riferimento cliente, intestazione e CF, conserva nome e cognome
-proposti e avvia subito il normale import idempotente per riallineare ordine, preparazione e bozza
-non emessa. Non si applica a documenti approvati, non viene propagata a eBay e una variazione
-dell'identità sorgente riapre la verifica invece di ereditare l'eccezione. Dati e identificativi
-reali restano nel database Production e non vengono codificati nel repository.
+Per un privato italiano eBay con CF formalmente valido, indirizzo completo e intestazione di almeno
+due parti, il disallineamento fra nome e CF non blocca l’approvazione. HF applica automaticamente
+una deroga anagrafica tracciata, si fida dell’intestazione dichiarata dal cliente e usa il CF senza
+alterarlo. La deroga è legata all'impronta esatta di provider, riferimento cliente, intestazione e
+CF, conserva nome e cognome proposti e passa dal normale import idempotente per riallineare ordine,
+preparazione e bozza non emessa. Non supera dati obbligatori mancanti o altri errori, non si applica
+a documenti approvati, non viene propagata a eBay e una variazione dell'identità sorgente viene
+rivalutata senza ereditare l'eccezione precedente. Dati e identificativi reali restano nel database
+Production e non vengono codificati nel repository.
 
 ---
 
@@ -1787,12 +1789,14 @@ I dati corretti in HF non sovrascrivono i valori storici degli ordini.
 - `source_identity_sha256`
 - `first_name`
 - `last_name`
-- `accepted_by`
+- `decision_mode` (`AUTOMATIC` oppure `MANUAL` per le decisioni storiche)
+- `accepted_by` opzionale per le decisioni storiche manuali
 - `accepted_at`
 
-La riga rappresenta una decisione amministrativa puntuale, non una regola fiscale generale. La
-chiave della sorgente e l'impronta dell'identità impediscono che la deroga migri a un altro
-cliente o sopravviva a una variazione di intestazione o CF.
+La riga rappresenta l’applicazione tracciata della regola anagrafica, non una verifica ufficiale
+della corrispondenza fra persona e CF. La chiave della sorgente e l'impronta dell'identità
+impediscono che la deroga migri a un altro cliente o sopravviva senza rivalutazione a una variazione
+di intestazione o CF.
 
 #### `orders`
 

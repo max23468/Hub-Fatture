@@ -25,7 +25,6 @@ export async function createOrdersTestContext(connectionString: string) {
     ...(await import("../order-queries.server.ts")),
   };
   const refunds = await import("../refunds.server.ts");
-  const identityExceptions = await import("../customer-identity-exceptions.server.ts");
   const database = await import("../client.server.ts");
   const caseRevision = async (caseId: string | number) =>
     (
@@ -36,7 +35,7 @@ export async function createOrdersTestContext(connectionString: string) {
         ])
     ).rows[0]?.revision ?? 0;
   const fixture = JSON.parse(await readFile("tests/fixtures/orders/normalized.mock.json", "utf8"));
-  return { orders, refunds, identityExceptions, database, caseRevision, fixture, connectionString };
+  return { orders, refunds, database, caseRevision, fixture, connectionString };
 }
 
 export type OrdersTestContext = Awaited<ReturnType<typeof createOrdersTestContext>>;

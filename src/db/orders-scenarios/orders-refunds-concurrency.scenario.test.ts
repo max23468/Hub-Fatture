@@ -595,7 +595,7 @@ export async function run(context: OrdersTestContext) {
     ),
   );
   const history = await orders.listAuditHistory({ action: "CUSTOMER_CORRECTED" });
-  assert.equal(history.rows.length, 5);
+  assert.equal(history.rows.length, 4);
   assert.ok(history.rows.some((event) => event.reason === "Dati fiscali confermati dal cliente"));
   assert.ok(
     history.rows.some(

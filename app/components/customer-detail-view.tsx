@@ -5,9 +5,8 @@ import {
   FileText,
   ShoppingBag,
   UsersRound,
-  ShieldCheck,
 } from "lucide-react";
-import { Form, Link } from "react-router";
+import { Link } from "react-router";
 
 import {
   billingCaseStatusLabels,
@@ -20,7 +19,6 @@ import {
 import { address, date, dateTime, euros, isoDateTime } from "../format";
 import { fiscalNumberLabel } from "../../src/fiscal-number.ts";
 import type { CustomerDetail } from "../../src/db/customers.server.ts";
-import type { CustomerIdentityExceptionProposal } from "../../src/customer-identity-exception.ts";
 
 function providerLabel(provider: string) {
   return provider === "SHOPIFY" ? "Shopify" : provider === "EBAY" ? "eBay" : provider;
@@ -163,59 +161,6 @@ function CustomerRecord({ customer }: { customer: CustomerDetail }) {
           <dd>{dateTime(customer.updated_at)}</dd>
         </div>
       </dl>
-    </section>
-  );
-}
-
-function CustomerIdentityException({
-  canApprove,
-  csrfToken,
-  proposal,
-}: {
-  canApprove: boolean;
-  csrfToken: string;
-  proposal: CustomerIdentityExceptionProposal;
-}) {
-  if (!canApprove) return null;
-  return (
-    <section
-      className="card customer-identity-exception"
-      aria-labelledby="identity-exception-title"
-    >
-      <span className="dashboard-icon dashboard-icon--warning" aria-hidden="true">
-        <ShieldCheck size={22} strokeWidth={1.8} />
-      </span>
-      <div>
-        <h2 id="identity-exception-title">{copy.customers.identityExceptionTitle}</h2>
-        <p className="section-intro">{copy.customers.identityExceptionHelp}</p>
-        <dl className="facts customer-identity-exception__facts">
-          <div>
-            <dt>{copy.customers.firstName}</dt>
-            <dd>{proposal.firstName}</dd>
-          </div>
-          <div>
-            <dt>{copy.customers.lastName}</dt>
-            <dd>{proposal.lastName}</dd>
-          </div>
-        </dl>
-        <p className="muted-copy">
-          {proposal.basis === "FISCAL_CODE"
-            ? copy.customers.identityExceptionFiscalBasis
-            : copy.customers.identityExceptionSourceBasis}
-        </p>
-        <Form className="customer-identity-exception__form" method="post">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="accept-customer-identity-exception" />
-          <label>
-            <input name="confirmException" required type="checkbox" value="accepted" />
-            {copy.customers.identityExceptionConfirm}
-          </label>
-          <button className="button" type="submit">
-            <ShieldCheck aria-hidden="true" size={17} />
-            {copy.customers.identityExceptionAction}
-          </button>
-        </Form>
-      </div>
     </section>
   );
 }
@@ -432,27 +377,10 @@ function CustomerDocuments({ customer }: { customer: CustomerDetail }) {
   );
 }
 
-export function CustomerDetailView({
-  canApprove,
-  csrfToken,
-  customer,
-  identityException,
-}: {
-  canApprove: boolean;
-  csrfToken: string;
-  customer: CustomerDetail;
-  identityException: CustomerIdentityExceptionProposal | null;
-}) {
+export function CustomerDetailView({ customer }: { customer: CustomerDetail }) {
   return (
     <>
       <CustomerOverview customer={customer} />
-      {identityException ? (
-        <CustomerIdentityException
-          canApprove={canApprove}
-          csrfToken={csrfToken}
-          proposal={identityException}
-        />
-      ) : null}
       <div className="detail-grid customer-record-grid">
         <CustomerRecord customer={customer} />
         <CustomerSources customer={customer} />
