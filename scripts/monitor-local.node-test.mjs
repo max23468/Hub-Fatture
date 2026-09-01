@@ -30,7 +30,17 @@ test("la sola segnalazione conserva l'allarme senza retrocedere un deploy verifi
   writeFileSync(path.join(root, ".deploy.env"), "APP_VERSION=synthetic\n");
   writeFileSync(
     path.join(operations, "backup-receipt.json"),
-    `${JSON.stringify({ completedAt: new Date().toISOString() })}\n`,
+    `${JSON.stringify({
+      status: "ok",
+      completedAt: new Date().toISOString(),
+      objectName: "hub-fatture/current/latest.tar.age",
+      archiveObjectName: "hub-fatture/archive/synthetic-database.tar.age",
+      archiveKind: "DATABASE_JOURNAL",
+      sha256: "a".repeat(64),
+      archiveSha256: "b".repeat(64),
+      sizeBytes: 1_000,
+      archiveSizeBytes: 100,
+    })}\n`,
   );
   writeFileSync(
     path.join(bin, "docker"),

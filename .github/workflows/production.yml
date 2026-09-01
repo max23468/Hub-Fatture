@@ -420,11 +420,16 @@ jobs:
             and .commit == $commit
             and .version == $version
             and .schema == $schema
-            and (.objectName | contains($commit))
+            and .objectName == "hub-fatture/current/latest.tar.age"
             and (.imageDigest | test("^sha256:[0-9a-f]{64}$"))
             and .imageDigest == .deployedImageDigest
             and (.sha256 | test("^[0-9a-f]{64}$"))
             and (.sizeBytes > 0)
+            and (.archiveObjectName | contains($commit))
+            and .archiveKind == "DATABASE_JOURNAL"
+            and (.archiveSha256 | test("^[0-9a-f]{64}$"))
+            and (.archiveSizeBytes > 0)
+            and (.archiveSizeBytes < .sizeBytes)
           ' >/dev/null
           printf 'Ricevuta backup verificata: %s\n' "$backup"
       - name: Blocca rollback con schema divergente

@@ -2765,13 +2765,13 @@ scripts/backup.sh
 scripts/restore.sh
 ```
 
-`scripts/backup.sh` viene eseguito sulla VPS da un timer `systemd`: produce uno snapshot coerente, lo cifra in streaming con il solo destinatario pubblico `age`, carica l'archivio cifrato tramite OCI CLI e Instance Principal limitato al bucket e verifica oggetto, checksum e dimensione tramite readback. Nessun plaintext viene scritto su disco e nessuna credenziale Object Storage statica vive sulla VPS.
+`scripts/backup.sh` viene eseguito sulla VPS da un timer `systemd`: produce uno snapshot coerente e genera due oggetti cifrati in streaming con il solo destinatario pubblico `age`. Il giornale immutabile conserva dump PostgreSQL, manifest e ricevuta di deploy per la retention storica; la copia protetta `current` aggiunge l’intero storage documentale e resta un restore completo autonomo. Lo script carica entrambi tramite OCI CLI e Instance Principal limitato al bucket e ne verifica separatamente checksum e dimensione tramite readback. Nessun plaintext viene scritto su disco e nessuna credenziale Object Storage statica vive sulla VPS.
 
 Il Mac scarica periodicamente una copia già cifrata in `backups/` dentro il checkout locale canonico `/Users/Matteo/Progetti/Hub-Fatture`, usando una procedura breve nel runbook. La directory è accessibile soltanto al titolare ed è esclusa da Git: il repository versionato non contiene backup, dump, XML o PDF reali. Prima di eliminare, ricreare o pulire il checkout con opzioni che rimuovono i file ignorati, la copia locale deve essere verificata e trasferita in una posizione protetta.
 
 Cadenza operativa iniziale:
 
-- backup OCI giornaliero e backup aggiuntivo obbligatorio prima di ogni deploy Production con migrazioni o modifica dello storage;
+- giornale OCI giornaliero e backup aggiuntivo obbligatorio prima di ogni deploy Production con migrazioni o modifica dello storage; ogni esecuzione aggiorna anche la copia completa protetta `current`;
 - retention OCI breve tramite nomi immutabili e lifecycle del bucket; sul Mac si conserva una sola copia cifrata corrente, aggiornata dal runbook prima di deploy con migrazioni, modifiche distruttive o restore drill;
 - ricevuta con timestamp, versione applicativa, versione schema DB, checksum e dimensione;
 - allarme se il backup giornaliero manca, il readback fallisce o l'uso del bucket supera la soglia prudenziale definita nel runbook;
@@ -2781,11 +2781,9 @@ Il record di readiness dichiara l'RPO effettivamente osservato dal timer e dal m
 
 ### 20.2 Contenuto
 
-- dump PostgreSQL consistente;
-- XML;
-- PDF;
-- notifiche;
-- manifest con versione applicazione e checksum;
+- dump PostgreSQL consistente in ogni giornale e nella copia completa;
+- XML, P7M, PDF e notifiche nella copia completa protetta `current`;
+- manifest con versione applicazione, schema, commit e digest in entrambi gli oggetti;
 - configurazione non segreta necessaria;
 - segreti esclusi o inclusi solo se cifrati separatamente e richiesto;
 - riferimento al recovery kit separato necessario a decifrare i valori protetti; mai la chiave in chiaro nell'archivio.

@@ -429,7 +429,8 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /HUB_FATTURE_ROOT=\/opt\/hub-fatture '\$remote_script' readiness/);
   assert.match(workflow, /trap 'rm -f \\"\$remote_script\\"' EXIT/);
   assert.match(workflow, /deploy-receipt\.json.*= '\$CANDIDATE'.*'\$remote_script' readiness/s);
-  assert.match(workflow, /\.objectName \| contains\(\$commit\)/);
+  assert.match(workflow, /\.objectName == "hub-fatture\/current\/latest\.tar\.age"/);
+  assert.match(workflow, /\.archiveObjectName \| contains\(\$commit\)/);
   assert.match(workflow, /\.version == \$version/);
   assert.match(workflow, /\.schema == \$schema/);
   assert.match(workflow, /\.imageDigest == \.deployedImageDigest/);
@@ -631,6 +632,25 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(backup, /version:\$version/);
   assert.match(backup, /imageDigest:\$imageDigest/);
   assert.match(backup, /schema:\$schema/);
+  assert.match(backup, /hub-fatture-current\.tar\.age/);
+  assert.match(backup, /hub-fatture-database\.tar\.age/);
+  assert.match(backup, /archiveKind:"DATABASE_JOURNAL"/);
+  assert.match(backup, /archiveObjectName:\$archiveObjectName/);
+  assert.match(backup, /archiveSizeBytes:\$archiveSizeBytes/);
+  assert.match(backup, /data\/documents data\/operations\/deploy-receipt\.json/);
+  assert.match(backup, /database\.dump manifest\.json.*data\/operations\/deploy-receipt\.json/s);
+  const currentArchiveStart = backup.indexOf('current_archive="$tmp/hub-fatture-current.tar.age"');
+  const currentArchiveOutput = backup.indexOf('output "$current_archive"', currentArchiveStart);
+  const journalTarStart = backup.indexOf('\ntar -C "$tmp"', currentArchiveOutput);
+  const resumeAfterArchives = backup.indexOf("\nresume_writers\n", journalTarStart);
+  assert.ok(currentArchiveStart >= 0 && journalTarStart > currentArchiveOutput);
+  assert.match(
+    backup.slice(journalTarStart, resumeAfterArchives),
+    /database\.dump manifest\.json[\s\S]*data\/operations\/deploy-receipt\.json/,
+  );
+  assert.doesNotMatch(backup.slice(journalTarStart, resumeAfterArchives), /data\/documents/);
+  assert.match(monitor, /\.archiveKind == "DATABASE_JOURNAL"/);
+  assert.match(monitor, /\.archiveSizeBytes < \.sizeBytes/);
   assert.match(
     readinessQuery,
     /historical_reconciliation_outcome IS NULL\s+AND \(trigger_status <> 'LEGACY_BILLING_REVIEW'\s+OR historical_reconciled_at IS NOT NULL\s+OR billing_case_id IS NOT NULL\s+OR EXISTS \(\s+SELECT 1 FROM document_orders\s+WHERE document_orders\.order_id = orders\.id\)\)/,

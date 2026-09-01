@@ -95,38 +95,47 @@ jq -n --arg createdAt "$created_at" --arg commit "$APP_COMMIT_SHA" \
   '{createdAt:$createdAt,commit:$commit,version:$version,imageDigest:$imageDigest,schema:$schema,reason:$reason}' \
   >"$tmp/manifest.json"
 
-archive="$tmp/hub-fatture.tar.age"
+current_archive="$tmp/hub-fatture-current.tar.age"
+journal_archive="$tmp/hub-fatture-database.tar.age"
 tar -C "$tmp" -cf - database.dump manifest.json \
   -C "$root" data/documents data/operations/deploy-receipt.json \
-  | age --recipient "$age_recipient" --output "$archive"
+  | age --recipient "$age_recipient" --output "$current_archive"
+tar -C "$tmp" -cf - database.dump manifest.json \
+  -C "$root" data/operations/deploy-receipt.json \
+  | age --recipient "$age_recipient" --output "$journal_archive"
 resume_writers
-sha=$(sha256sum "$archive" | awk '{print $1}')
-size=$(stat -c %s "$archive")
-object="hub-fatture/archive/$(date -u +%Y/%m/%d)/$(date -u +%Y%m%dT%H%M%SZ)-$APP_COMMIT_SHA.tar.age"
+sha=$(sha256sum "$current_archive" | awk '{print $1}')
+size=$(stat -c %s "$current_archive")
+archive_sha=$(sha256sum "$journal_archive" | awk '{print $1}')
+archive_size=$(stat -c %s "$journal_archive")
+object="hub-fatture/archive/$(date -u +%Y/%m/%d)/$(date -u +%Y%m%dT%H%M%SZ)-$APP_COMMIT_SHA-database.tar.age"
 current="hub-fatture/current/latest.tar.age"
 
 oci os object put --auth instance_principal --namespace "$oci_namespace" \
-  --bucket-name "$backup_bucket" --name "$object" --file "$archive" --force \
-  --metadata "{\"sha256\":\"$sha\"}" >/dev/null
+  --bucket-name "$backup_bucket" --name "$object" --file "$journal_archive" --force \
+  --metadata "{\"sha256\":\"$archive_sha\",\"kind\":\"database-journal\"}" >/dev/null
 head=$(oci os object head --auth instance_principal --namespace "$oci_namespace" \
   --bucket-name "$backup_bucket" --name "$object")
-[ "$(printf '%s' "$head" | jq -r '."content-length" // empty')" = "$size" ] \
+[ "$(printf '%s' "$head" | jq -r '."content-length" // empty')" = "$archive_size" ] \
   || { echo "Dimensione backup riletta non valida" >&2; exit 1; }
-[ "$(printf '%s' "$head" | jq -r '."opc-meta-sha256" // empty')" = "$sha" ] \
+[ "$(printf '%s' "$head" | jq -r '."opc-meta-sha256" // empty')" = "$archive_sha" ] \
   || { echo "Checksum backup riletto non valido" >&2; exit 1; }
 oci os object put --auth instance_principal --namespace "$oci_namespace" \
-  --bucket-name "$backup_bucket" --name "$current" --file "$archive" --force \
+  --bucket-name "$backup_bucket" --name "$current" --file "$current_archive" --force \
   --metadata "{\"sha256\":\"$sha\",\"source\":\"$object\"}" >/dev/null
 current_head=$(oci os object head --auth instance_principal --namespace "$oci_namespace" \
   --bucket-name "$backup_bucket" --name "$current")
+[ "$(printf '%s' "$current_head" | jq -r '."content-length" // empty')" = "$size" ] \
+  || { echo "Dimensione copia protetta corrente non valida" >&2; exit 1; }
 [ "$(printf '%s' "$current_head" | jq -r '."opc-meta-sha256" // empty')" = "$sha" ] \
   || { echo "Copia protetta corrente non verificata" >&2; exit 1; }
 
-jq -n --arg completedAt "$created_at" --arg objectName "$object" --arg sha256 "$sha" \
+jq -n --arg completedAt "$created_at" --arg objectName "$current" --arg sha256 "$sha" \
   --arg commit "$APP_COMMIT_SHA" --arg version "$APP_VERSION" \
   --arg imageDigest "$APP_IMAGE_DIGEST" --arg schema "$schema" --arg reason "$reason" \
-  --argjson sizeBytes "$size" \
-  '{status:"ok",completedAt:$completedAt,objectName:$objectName,sha256:$sha256,sizeBytes:$sizeBytes,commit:$commit,version:$version,imageDigest:$imageDigest,schema:$schema,reason:$reason}' \
+  --arg archiveObjectName "$object" --arg archiveSha256 "$archive_sha" \
+  --argjson sizeBytes "$size" --argjson archiveSizeBytes "$archive_size" \
+  '{status:"ok",completedAt:$completedAt,objectName:$objectName,sha256:$sha256,sizeBytes:$sizeBytes,archiveObjectName:$archiveObjectName,archiveKind:"DATABASE_JOURNAL",archiveSha256:$archiveSha256,archiveSizeBytes:$archiveSizeBytes,commit:$commit,version:$version,imageDigest:$imageDigest,schema:$schema,reason:$reason}' \
   >data/operations/backup-receipt.json.next
 chmod 640 data/operations/backup-receipt.json.next
 chown 10001:10001 data/operations/backup-receipt.json.next
