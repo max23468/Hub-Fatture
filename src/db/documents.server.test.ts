@@ -1419,6 +1419,55 @@ test(
          SET completed_at = now(), full_scan_completed_at = now()
          WHERE id = '00000000-0000-4000-8000-000000000301'`,
       );
+      const blockedOrderId = (
+        await database
+          .getPool()
+          .query<{ id: string }>("SELECT id FROM orders WHERE external_order_id = $1", [
+            blockedOrder.externalOrderId,
+          ])
+      ).rows[0]!.id;
+      const conflictingRemote = await database.getPool().query<{ id: string }>(
+        `INSERT INTO aruba_remote_documents
+          (environment, account_reference, remote_id, document_type, fiscal_year,
+           document_date, total_amount, remote_status, remote_status_observed_at,
+           metadata_digest, automatic_source, provider_group_id)
+         VALUES ('MOCK', 'synthetic-aruba-account', 'documents-correlated-conflict', 'TD01',
+                 2026, '2026-08-14', 1000, 'DELIVERED', now(), repeat('e', 64),
+                 'API', 'documents-correlated-conflict')
+         RETURNING id`,
+      );
+      await database.getPool().query(
+        `INSERT INTO aruba_document_matches
+          (remote_document_id, status, method, matcher_version, candidates_json)
+         VALUES ($1, 'AMBIGUOUS', 'NONE', 1,
+           jsonb_build_array(jsonb_build_object(
+             'candidateId', $2::text, 'probe', true, 'potential', true,
+             'compatible', false, 'signals', '{}'::jsonb)))`,
+        [conflictingRemote.rows[0]!.id, blockedOrderId],
+      );
+      const correlatedProjection = await documents.getInvoiceProjection(blockedCase.id);
+      assert.ok(
+        correlatedProjection &&
+          !correlatedProjection.profileMissing &&
+          "lines" in correlatedProjection,
+      );
+      assert.equal(correlatedProjection.arubaApprovalBlocked, false);
+      await assert.rejects(
+        documents.approveInvoice(
+          blockedCase.id,
+          {
+            caseRevision: correlatedProjection.caseRevision,
+            draftVersion: correlatedProjection.draftVersion,
+            projectionSha256: correlatedProjection.projectionSha256,
+            confirmPending: false,
+            confirmDifference: false,
+            emailChoice: "SKIP",
+            emailModeVersion: correlatedProjection.customerEmail.version,
+          },
+          { id: 1, canApprove: true, requestId: "documents-correlated-aruba-conflict" },
+        ),
+        (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
+      );
       assert.equal(
         (
           await database

@@ -32,6 +32,7 @@ import { getArubaSettings } from "./aruba.server.ts";
 import { customerEmailPreview, snapshotDocumentEmail } from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import {
+  arubaPotentialMatchSql,
   billingCaseHasApprovedInvoiceOrderSql,
   pendingPaymentSql,
 } from "./billing-case-sql.server.ts";
@@ -70,6 +71,7 @@ interface CaseRow {
   currency: "EUR";
   customer_snapshot_json: Record<string, unknown>;
   has_approved_invoice_order: boolean;
+  aruba_potential_match: boolean;
   orders: CaseOrder[];
 }
 
@@ -139,6 +141,7 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
     `SELECT billing_cases.id, billing_cases.revision, billing_cases.status,
             billing_cases.currency, billing_cases.customer_snapshot_json,
             ${billingCaseHasApprovedInvoiceOrderSql()} AS has_approved_invoice_order,
+            ${arubaPotentialMatchSql} AS aruba_potential_match,
             coalesce(case_orders.orders, '[]') AS orders
      FROM billing_cases
      LEFT JOIN LATERAL (
@@ -964,6 +967,9 @@ export async function approveInvoice(
       await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
       const caseRow = await loadCase(client, caseId, true);
       if (!caseRow) return null;
+      if (caseRow.aruba_potential_match) {
+        throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+      }
       if (caseRow.status !== "READY") throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
       if (caseRow.has_approved_invoice_order) {
         throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
