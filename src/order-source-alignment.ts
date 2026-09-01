@@ -104,12 +104,23 @@ function refundRecord(value: unknown) {
   return candidate;
 }
 
+function normalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => (item === undefined ? null : normalizeJsonValue(item)));
+  }
+  const source = record(value);
+  if (!source) return value;
+  return Object.fromEntries(
+    Object.entries(source).flatMap(([key, item]) =>
+      item === undefined ? [] : [[key, normalizeJsonValue(item)]],
+    ),
+  );
+}
+
 function withoutEbayRefundMapperEvidence(snapshot: Record<string, unknown>): unknown {
   const ignored = new Set(["orderReviewRequired", "reviewFingerprint", "sourceConflictRequired"]);
-  return JSON.parse(
-    JSON.stringify(
-      Object.fromEntries(Object.entries(snapshot).filter(([key]) => !ignored.has(key))),
-    ),
+  return normalizeJsonValue(
+    Object.fromEntries(Object.entries(snapshot).filter(([key]) => !ignored.has(key))),
   );
 }
 
@@ -153,7 +164,10 @@ export function isEbayRefundMapperOnlyChange(
 
   return isDeepStrictEqual(
     withoutEbayRefundMapperEvidence(previous),
-    withoutEbayRefundMapperEvidence({ ...current, refunds: normalizedCurrentRefunds }),
+    withoutEbayRefundMapperEvidence({
+      ...current,
+      refunds: normalizedCurrentRefunds,
+    }),
   );
 }
 
@@ -165,10 +179,8 @@ function withoutShopifyFulfillmentEvidence(snapshot: Record<string, unknown>): u
     "sourceSnapshot",
     "updatedAt",
   ]);
-  return JSON.parse(
-    JSON.stringify(
-      Object.fromEntries(Object.entries(snapshot).filter(([key]) => !ignored.has(key))),
-    ),
+  return normalizeJsonValue(
+    Object.fromEntries(Object.entries(snapshot).filter(([key]) => !ignored.has(key))),
   );
 }
 

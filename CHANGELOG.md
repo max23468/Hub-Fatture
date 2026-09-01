@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0
+
+- Il candidato destinato alla prima release operativa viene congelato con invii Aruba ordinari disabilitati; gli allineamenti automatici eBay e Shopify evitano lavoro e clonazioni seriali superflue, ogni ingresso Production richiede l’autorizzazione esplicita prima di pubblicare la release e ricertificazione M12 e canary M13 restano vincolati allo stesso SHA e digest.
+
 ## 0.5.35
 
 - Una fattura Aruba priva di file ufficiale, vicina per data e riferibile allo stesso destinatario, blocca la preparazione anche quando il totale differisce: il sistema non presume la causa dello scarto, non collega automaticamente il documento e richiede la verifica dalla coda `Controlli`; l’upgrade riallinea con audit i casi già approvabili.

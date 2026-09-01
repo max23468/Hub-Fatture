@@ -13,9 +13,9 @@ on:
         default: false
         type: boolean
       publish_release:
-        description: Pubblica la GitHub Release immutabile dopo il readback Production
+        description: Pubblica la GitHub Release immutabile dopo il readback Production (autorizzazione esplicita)
         required: false
-        default: true
+        default: false
         type: boolean
 
 permissions:

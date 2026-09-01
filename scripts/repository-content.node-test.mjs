@@ -420,6 +420,10 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(workflow, /backup-receipt\.json/);
   assert.match(workflow, /backup_only:/);
   assert.match(workflow, /publish_release:/);
+  assert.match(
+    workflow,
+    /publish_release:\n\s+description:.*autorizzazione esplicita.*\n\s+required: false\n\s+default: false\n\s+type: boolean/,
+  );
   assert.match(workflow, /if: inputs\.backup_only/);
   assert.match(deploy, /scp scripts\/backup\.sh/);
   assert.match(workflow, /HUB_FATTURE_ROOT=\/opt\/hub-fatture '\$remote_script' readiness/);
