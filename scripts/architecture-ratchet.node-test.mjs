@@ -20,9 +20,11 @@ const capabilitySizeCaps = new Map([
   ["src/db/order-commands.server.ts", 13_000],
   ["src/db/historical-order-reconciliation.server.ts", 56_000],
   ["src/db/order-import.server.ts", 39_000],
+  ["src/db/order-automatic-alignment.server.ts", 7_000],
   ["src/db/order-grouping.server.ts", 6_000],
   ["src/db/order-children-persistence.server.ts", 10_000],
   ["src/db/order-source-conflict.server.ts", 8_000],
+  ["src/db/aruba-metadata-equivalence.server.ts", 2_000],
   ["app/routes/settings.tsx", 12_000],
   ["app/components/settings/aruba-settings-section.tsx", 31_000],
   ["app/components/settings/billing-settings-section.tsx", 5_000],
@@ -45,6 +47,7 @@ const capabilitySizeCaps = new Map([
   ["src/db/migrations-scenarios/legacy-upgrades.test.ts", 26_000],
   ["src/db/migrations-scenarios/mapper-reimports.test.ts", 35_000],
   ["src/db/migrations-scenarios/installation-upgrades.test.ts", 34_000],
+  ["src/db/migrations-scenarios/control-replays.test.ts", 4_000],
   ["app/copy.it.ts", 59_800],
 ]);
 
@@ -56,6 +59,7 @@ const scenarioSizeCaps = new Map([
   ["src/db/orders-scenarios/orders-history-matching.scenario.test.ts", 74_000],
   ["src/db/orders-scenarios/orders-history-extended.scenario.test.ts", 80_000],
   ["src/db/orders-scenarios/orders-refunds-concurrency.scenario.test.ts", 45_000],
+  ["src/db/orders-scenarios/orders-source-alignment.scenario.test.ts", 9_000],
 ]);
 
 test("le capacità estratte non tornano a crescere in monoliti", async () => {
@@ -79,6 +83,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     "src/db/migrations-scenarios/legacy-upgrades.test.ts",
     "src/db/migrations-scenarios/mapper-reimports.test.ts",
     "src/db/migrations-scenarios/installation-upgrades.test.ts",
+    "src/db/migrations-scenarios/control-replays.test.ts",
   ];
   const [readinessEntry, migrationEntry, ...sources] = await Promise.all([
     readFile(path.join(root, "tests/e2e/readiness.spec.ts"), "utf8"),
@@ -100,7 +105,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     .slice(readinessFiles.length)
     .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
   assert.equal(readinessTests.length, 10);
-  assert.equal(migrationTests.length, 18);
+  assert.equal(migrationTests.length, 19);
 });
 
 test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", async () => {
@@ -113,6 +118,7 @@ test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", asy
     "importazione, impostazioni e letture concorrenti",
     "mutazioni, raggruppamento e identità cliente",
     "pagamenti, riconciliazione storica e casi complessi",
+    "allineamento automatico delle sorgenti",
     "rimborsi, concorrenza e proiezioni finali",
   ]);
   const offenders = [];

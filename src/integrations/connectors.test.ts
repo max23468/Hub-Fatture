@@ -323,6 +323,8 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   const refundedMapped = mapEbayOrder(refundedOrder, "botCF");
 
   assert.equal(privateMapped.customer.taxIdentifiers[0]?.type, "CODICE_FISCALE");
+  assert.equal(privateMapped.customer.firstName, undefined);
+  assert.equal(privateMapped.customer.lastName, undefined);
   assert.equal(privateMapped.customer.shippingAddress.line1, "Via eBay 1");
   assert.deepEqual(privateMapped.sourceSnapshot, privateOrder);
   assert.equal(
@@ -334,6 +336,21 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(refundedMapped.refunds[1]?.externalRefundId, "refund-reference-3");
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
+
+  const twoPartName = structuredClone(privateOrder) as {
+    fulfillmentStartInstructions: Array<{
+      shippingStep: { shipTo: { fullName: string } };
+    }>;
+  };
+  twoPartName.fulfillmentStartInstructions[0]!.shippingStep.shipTo.fullName = "Rossi Mario";
+  const splitName = mapEbayOrder(twoPartName, "botCF");
+  assert.equal(splitName.customer.firstName, "Mario");
+  assert.equal(splitName.customer.lastName, "Rossi");
+
+  twoPartName.fulfillmentStartInstructions[0]!.shippingStep.shipTo.fullName = "Nome Discordante";
+  const unverifiedName = mapEbayOrder(twoPartName, "botCF");
+  assert.equal(unverifiedName.customer.firstName, undefined);
+  assert.equal(unverifiedName.customer.lastName, undefined);
 
   const swissOrder = structuredClone(privateOrder) as {
     buyer: { taxIdentifier: { issuingCountry: string } };

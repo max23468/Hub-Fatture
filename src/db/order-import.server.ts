@@ -14,7 +14,11 @@ import {
 import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob, HistoryImportResult, Provider } from "./connector-types.server.ts";
 import { AppError } from "../errors.ts";
-import { recipientFromCustomerSnapshot } from "../documents.ts";
+import {
+  isEbayCustomerEmailOnlyMismatch,
+  isEbayEmailAndMapperOnlyChange,
+  isEbayEmailOnlyChange,
+} from "../order-source-alignment.ts";
 import {
   canonicalCustomerProfile,
   customerIdentity,
@@ -40,6 +44,10 @@ import { replaceOrderChildren } from "./order-children-persistence.server.ts";
 import { applySourceConflict } from "./order-source-conflict.server.ts";
 import { currentOrderSettings } from "./order-import-settings.server.ts";
 import { auditOrderActor, type OrderActor as Actor } from "./order-actor.server.ts";
+import {
+  reconcileEbayEmailUpdate,
+  reconcileMapperCustomerCorrection,
+} from "./order-automatic-alignment.server.ts";
 import { canonicalOrderTimestamp } from "./order-timestamp.ts";
 
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
@@ -57,84 +65,6 @@ function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof cu
 
 function sameProviderSnapshot(previous: Record<string, unknown>, input: OrderInput) {
   return isDeepStrictEqual(previous.sourceSnapshot, input.sourceSnapshot);
-}
-
-/**
- * Un replay dello stesso payload può migliorare soltanto la sua interpretazione. Per una
- * preparazione singola ancora da verificare, riallinea cliente, destinatario e stato senza
- * trasformare la correzione del mapper in un falso conflitto della sorgente.
- */
-async function reconcileMapperCustomerCorrection(
-  client: pg.PoolClient,
-  input: {
-    caseId: string;
-    orderId: string;
-    oldCustomerId: string;
-    newCustomerId: string;
-    previousSnapshot: Record<string, unknown>;
-    customerSnapshot: Record<string, unknown>;
-    requestId: string;
-  },
-) {
-  const previousCustomer = input.previousSnapshot.customerSnapshot as
-    | Record<string, unknown>
-    | undefined;
-  if (
-    previousCustomer?.reviewRequired !== true ||
-    input.customerSnapshot.reviewRequired !== false
-  ) {
-    return false;
-  }
-  const updated = await client.query(
-    `UPDATE billing_cases
-     SET customer_id = $2, customer_snapshot_json = $3, customer_corrected_at = now(),
-         revision = revision + 1, updated_at = now()
-     WHERE id = $1 AND status = 'NEEDS_REVIEW' AND customer_corrected_at IS NULL
-       AND (SELECT count(*) FROM orders WHERE billing_case_id = billing_cases.id) = 1
-       AND NOT EXISTS (
-         SELECT 1 FROM billing_cases AS other
-         WHERE other.id <> billing_cases.id AND other.customer_id = $2
-           AND other.local_order_date = billing_cases.local_order_date
-           AND other.currency = billing_cases.currency
-           AND ${openBillingCaseSql("other")}
-       )`,
-    [input.caseId, input.newCustomerId, JSON.stringify(input.customerSnapshot)],
-  );
-  if (!updated.rowCount) return false;
-  await client.query("UPDATE orders SET customer_id = $2 WHERE id = $1", [
-    input.orderId,
-    input.newCustomerId,
-  ]);
-  await client.query(
-    `UPDATE documents
-     SET recipient_snapshot_json = $2, draft_version = draft_version + 1,
-         projection_sha256 = repeat('0', 64), updated_at = now()
-     WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'`,
-    [input.caseId, JSON.stringify(recipientFromCustomerSnapshot(input.customerSnapshot))],
-  );
-  await writeAudit(client, {
-    actorType: "SYSTEM",
-    action: "CUSTOMER_CORRECTED",
-    eventClass: "CRITICAL",
-    entityType: "BILLING_CASE",
-    entityId: input.caseId,
-    metadata: { billingCaseId: input.caseId, provider: "SHOPIFY" },
-    before: previousCustomer,
-    after: input.customerSnapshot,
-    reason: "Rilettura dello stesso payload con il mapper Shopify corretto",
-    requestId: input.requestId,
-  });
-  await client.query(
-    `DELETE FROM customers
-     WHERE id = $1
-       AND NOT EXISTS (SELECT 1 FROM orders WHERE customer_id = customers.id)
-       AND NOT EXISTS (SELECT 1 FROM billing_cases WHERE customer_id = customers.id)
-       AND NOT EXISTS (SELECT 1 FROM customer_source_records WHERE customer_id = customers.id)`,
-    [input.oldCustomerId],
-  );
-  await recomputeBillingCaseStatus(client, input.caseId);
-  await refreshInvoiceDraftProjection(client, input.caseId);
-  return true;
 }
 
 function cents(value: string): number {
@@ -298,6 +228,8 @@ interface PreviousOrderRow {
   last_observed_snapshot_json: Record<string, unknown>;
   is_stale: boolean;
   billing_case_status: string | null;
+  billing_case_customer_snapshot_json: Record<string, unknown> | null;
+  billing_case_customer_corrected: boolean;
   billing_case_do_not_transmit_automatic: boolean;
   deferred_review_required: boolean;
   order_review_required: boolean;
@@ -305,6 +237,9 @@ interface PreviousOrderRow {
   trigger_status: string;
   historical: boolean;
   historical_reconciliation_outcome: "ALREADY_INVOICED" | "NOT_INVOICED" | null;
+  latest_revision_id: string | null;
+  latest_revision_previous_snapshot_json: Record<string, unknown> | null;
+  latest_revision_current_snapshot_json: Record<string, unknown> | null;
 }
 
 /**
@@ -329,6 +264,11 @@ async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
               ELSE orders.normalized_snapshot_json
             END AS last_observed_snapshot_json,
             billing_cases.status AS billing_case_status,
+            billing_cases.customer_snapshot_json AS billing_case_customer_snapshot_json,
+            billing_cases.customer_corrected_at IS NOT NULL AS billing_case_customer_corrected,
+            latest_revision.id::text AS latest_revision_id,
+            latest_revision.previous_snapshot AS latest_revision_previous_snapshot_json,
+            latest_revision.snapshot AS latest_revision_current_snapshot_json,
             coalesce((
               SELECT actor_type = 'SYSTEM'
                 AND metadata_json ->> 'reason' IN ('CANCELLED', 'REFUNDED')
@@ -346,7 +286,8 @@ async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
      FROM orders
      LEFT JOIN billing_cases ON billing_cases.id = orders.billing_case_id
      LEFT JOIN LATERAL (
-       SELECT current_normalized_snapshot_json AS snapshot
+       SELECT id, previous_normalized_snapshot_json AS previous_snapshot,
+              current_normalized_snapshot_json AS snapshot
        FROM order_source_revisions
        WHERE order_id = orders.id
        ORDER BY id DESC
@@ -517,7 +458,7 @@ async function importOne(
     oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint,
   );
   const mapperCorrectionCandidate = Boolean(
-    input.provider === "SHOPIFY" &&
+    ["SHOPIFY", "EBAY"].includes(input.provider) &&
     fingerprintChanged &&
     oldOrder &&
     sameProviderSnapshot(oldOrder.last_observed_snapshot_json, input),
@@ -589,6 +530,73 @@ async function importOne(
     ],
   );
   const orderId = order.rows[0]!.id;
+  const newEmailOnlyUpdate = Boolean(
+    !documentIssued &&
+    fingerprintChanged &&
+    oldOrder?.billing_case_id &&
+    oldOrder &&
+    isEbayEmailOnlyChange(oldOrder.last_observed_snapshot_json, normalizedSnapshot),
+  );
+  const existingEmailOnlyConflict = Boolean(
+    !documentIssued &&
+    oldOrder?.billing_case_id &&
+    oldOrder.trigger_status === "NEEDS_REVIEW" &&
+    oldOrder.latest_revision_id &&
+    oldOrder.latest_revision_previous_snapshot_json &&
+    oldOrder.latest_revision_current_snapshot_json &&
+    oldOrder.latest_revision_current_snapshot_json.reviewFingerprint === fingerprint &&
+    isEbayEmailOnlyChange(
+      oldOrder.latest_revision_previous_snapshot_json,
+      oldOrder.latest_revision_current_snapshot_json,
+    ),
+  );
+  const existingEmailAndMapperConflict = Boolean(
+    !existingEmailOnlyConflict &&
+    !documentIssued &&
+    oldOrder?.billing_case_id &&
+    oldOrder.trigger_status === "NEEDS_REVIEW" &&
+    oldOrder.latest_revision_id &&
+    oldOrder.latest_revision_previous_snapshot_json &&
+    oldOrder.latest_revision_current_snapshot_json &&
+    oldOrder.latest_revision_current_snapshot_json.reviewFingerprint !== fingerprint &&
+    normalizedSnapshot.customerReviewRequired === false &&
+    sameProviderSnapshot(oldOrder.latest_revision_current_snapshot_json, input) &&
+    isEbayEmailAndMapperOnlyChange(
+      oldOrder.latest_revision_previous_snapshot_json,
+      oldOrder.latest_revision_current_snapshot_json,
+    ),
+  );
+  const existingBillingCaseEmailMismatch = Boolean(
+    !documentIssued &&
+    !fingerprintChanged &&
+    input.provider === "EBAY" &&
+    oldOrder?.billing_case_id &&
+    oldOrder.billing_case_customer_snapshot_json &&
+    !oldOrder.billing_case_customer_corrected &&
+    isEbayCustomerEmailOnlyMismatch(
+      oldOrder.billing_case_customer_snapshot_json,
+      normalizedSnapshot.customerSnapshot,
+    ),
+  );
+  const emailOnlyAlignmentApplied =
+    (newEmailOnlyUpdate ||
+      existingEmailOnlyConflict ||
+      existingEmailAndMapperConflict ||
+      existingBillingCaseEmailMismatch) &&
+    oldOrder?.billing_case_id
+      ? await reconcileEbayEmailUpdate(client, {
+          caseId: oldOrder.billing_case_id,
+          orderId,
+          customerId,
+          customerSnapshot: normalizedSnapshot.customerSnapshot,
+          requestId: actor.requestId,
+          ...(existingEmailOnlyConflict && oldOrder.latest_revision_id
+            ? { revisionId: oldOrder.latest_revision_id }
+            : {}),
+          clearExistingConflict: existingEmailOnlyConflict || existingEmailAndMapperConflict,
+          alignment: existingEmailAndMapperConflict ? "EMAIL_AND_MAPPER" : "EMAIL_ONLY",
+        })
+      : false;
   const mapperCorrectionApplied =
     mapperCorrectionCandidate && oldOrder?.billing_case_id
       ? await reconcileMapperCustomerCorrection(client, {
@@ -599,10 +607,11 @@ async function importOne(
           previousSnapshot: oldOrder.last_observed_snapshot_json,
           customerSnapshot: normalizedSnapshot.customerSnapshot,
           requestId: actor.requestId,
+          provider: input.provider,
         })
       : false;
   const mapperDerivedCorrectionApplied =
-    mapperCorrectionApplied || mapperPaymentCorrectionCandidate;
+    mapperCorrectionApplied || mapperPaymentCorrectionCandidate || emailOnlyAlignmentApplied;
   const sourceConflict =
     becameHistorical || (fingerprintChanged && !mapperDerivedCorrectionApplied);
   const revision = sourceConflict
@@ -832,7 +841,16 @@ async function importOne(
     eventClass: "OPERATIONAL",
     entityType: "ORDER",
     entityId: orderId,
-    metadata: { provider: input.provider },
+    metadata: {
+      provider: input.provider,
+      ...(emailOnlyAlignmentApplied
+        ? {
+            automaticAlignment: existingEmailAndMapperConflict
+              ? ("EMAIL_AND_MAPPER" as const)
+              : ("EMAIL_ONLY" as const),
+          }
+        : {}),
+    },
     requestId: actor.requestId,
   });
   return previous.rows[0] ? "updated" : "imported";

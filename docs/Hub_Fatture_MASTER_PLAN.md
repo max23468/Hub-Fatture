@@ -894,6 +894,12 @@ forma generica del buyer e omettere `taxIdentifier` anche per ordini `EBAY_IT`.
 
 Per venditori italiani il valore può rappresentare Codice Fiscale oppure P.IVA. Non dedurne il tipo soltanto dalla presenza: conservare il tipo dichiarato da eBay e validare il formato; i casi incoerenti restano da verificare.
 
+Per una persona fisica italiana, `shipTo.fullName` viene separato automaticamente soltanto
+quando contiene esattamente due parti e la composizione dei primi sei caratteri del Codice
+Fiscale valido orienta in modo univoco nome e cognome. La verifica è una controprova locale, non
+sostituisce il servizio anagrafico dell'Agenzia delle Entrate; nessuna o due disposizioni
+compatibili lasciano il nome da verificare.
+
 Conservare:
 
 - valore originale;
@@ -913,6 +919,10 @@ Alcuni importi eBay possono essere importi netti del venditore invece del totale
 ### 9.5 Correzioni
 
 Nessuna propagazione dei dati cliente verso eBay nella 1.x. Le correzioni restano in HF.
+Una variazione osservata limitata all'e-mail, a parità di payload fiscale, anagrafico, importi,
+righe, pagamenti e rimborsi, riallinea automaticamente ordine e preparazione non emessa. Una
+correzione manuale già applicata resta prevalente; ogni altra differenza continua a richiedere
+revisione.
 
 ---
 
@@ -1377,7 +1387,7 @@ Per le note di credito mostrare:
 
 È l'unica coda operativa. Ogni riga rappresenta una sola decisione umana o un solo problema azionabile e mostra gravità, causa leggibile, conseguenza, origine, anzianità ed evidenze. L'ordinamento è prima per impatto (`Bloccante`, `Importante`, `Ordinario`) e poi per anzianità. Le viste sono `Da risolvere` e `In attesa`; i filtri per gravità, tipo e origine restano a destra e non esiste una seconda barra di ricerca locale.
 
-Il pannello di dettaglio offre l'azione risolutiva quando può essere eseguita in sicurezza nell'app: retry tipizzato, conferma privacy, import del file ufficiale Aruba, scelta del match o conferma fuori perimetro. Le azioni non sicure o troppo contestuali aprono il dettaglio sorgente. Una nota è facoltativa. Le azioni massive sono ammesse soltanto quando la precondizione e l'esito sono identici e verificabili per ogni elemento.
+Il pannello di dettaglio offre l'azione risolutiva quando può essere eseguita in sicurezza nell'app: retry tipizzato, conferma privacy, import del file ufficiale Aruba, scelta del match o conferma fuori perimetro. La conferma fuori perimetro resta disponibile anche in presenza di candidati, ma richiede di attestare esplicitamente di averli confrontati e ne conserva gli ID nell'audit. Le azioni non sicure o troppo contestuali aprono il dettaglio sorgente. Una nota è facoltativa. Le azioni massive sono ammesse soltanto quando la precondizione e l'esito sono identici e verificabili per ogni elemento.
 
 Dopo un'azione asincrona il controllo passa a `In attesa`; si chiude soltanto dopo un esito verificato o dopo la scomparsa della causa. Un fallimento verificato lo riapre. ID stabile, fingerprint della causa e vincolo sorgente-tipo impediscono duplicati fra webhook, job, ordine, documento e proiezioni della Dashboard.
 
@@ -1710,7 +1720,7 @@ Cronologia append-only delle osservazioni API, manuali e transitorie del browser
 
 #### `aruba_document_matches`
 
-Collegamenti fra inventario remoto e documenti, ordini, preparazioni o rimborsi locali, con stato `MATCHED`, `UNMATCHED`, `AMBIGUOUS`, `PROFILE_CONFLICT`, `ERROR` o `UNKNOWN_REMOTE_STATE`, segnali/versione del matcher e decisione automatica o manuale auditata. Un match automatico richiede unicità e XML ufficiale coerente; il solo totale non è mai sufficiente. Quando più TD01 e più ordini hanno identità fiscale, importo e finestra temporale forti ma risultano indistinguibili singolarmente, l'automazione può risolverli soltanto come coorte completa: stessa impronta di riconciliazione, biiezione senza candidati già rivendicati e associazione monotona fra progressivi fiscali e cronologia degli ordini. Una coorte incompleta, con riferimenti espliciti o non biunivoca resta `AMBIGUOUS`. Per le TD04 il collegamento identifica l'insieme esatto dei rimborsi coperti e aggiorna `credit_document_id` atomicamente soltanto dopo un esito che conferma l'emissione.
+Collegamenti fra inventario remoto e documenti, ordini, preparazioni o rimborsi locali, con stato `MATCHED`, `UNMATCHED`, `AMBIGUOUS`, `PROFILE_CONFLICT`, `ERROR` o `UNKNOWN_REMOTE_STATE`, segnali/versione del matcher e decisione automatica o manuale auditata. Un match automatico richiede unicità e XML ufficiale coerente; il solo totale non è mai sufficiente. Per una TD01 senza riferimento esplicito, la coincidenza esatta di codice fiscale, data e totale fatturabile può identificare automaticamente l'unico ordine candidato anche se nome o indirizzo differiscono; le difformità restano nei segnali auditati e due candidati compatibili mantengono lo stato `AMBIGUOUS`. La sola P.IVA continua a richiedere almeno un secondo segnale anagrafico. Quando più TD01 e più ordini hanno identità fiscale, importo e finestra temporale forti ma risultano indistinguibili singolarmente, l'automazione può risolverli soltanto come coorte completa: stessa impronta di riconciliazione, biiezione senza candidati già rivendicati e associazione monotona fra progressivi fiscali e cronologia degli ordini. Una coorte incompleta, con riferimenti espliciti o non biunivoca resta `AMBIGUOUS`. Per le TD04 il collegamento identifica l'insieme esatto dei rimborsi coperti e aggiorna `credit_document_id` atomicamente soltanto dopo un esito che conferma l'emissione.
 
 #### `aruba_sync_runs`
 
@@ -3476,8 +3486,11 @@ Dopo l'audit Aruba, usare i dati disponibili:
 
 Se il matching non è univoco, richiedere conferma manuale. Non considerare il solo totale una prova.
 L'assenza del riferimento esplicito non impedisce il collegamento soltanto quando provider,
-data, destinatario e totale fatturabile individuano un unico ordine storico aperto; un marker
-di un marketplace diverso o qualsiasi collisione mantiene l'ordine non riconciliato.
+data, destinatario e totale fatturabile individuano un unico ordine storico aperto. La
+coincidenza esatta del codice fiscale vale come identità del destinatario anche se nome o
+indirizzo differiscono, ma non supera una collisione fra più ordini; la sola P.IVA richiede un
+secondo segnale anagrafico. Un marker di un marketplace diverso o qualsiasi collisione mantiene
+l'ordine non riconciliato.
 
 Per registrare l'esito “già fatturato”, acquisire anche l'XML ufficiale della fattura Aruba, verificarne profilo, numero e riferimento all'ordine quando presente oppure l'insieme univoco delle altre prove, quindi conservarlo come documento storico immutabile. La sola nota testuale non chiude il confronto quando esistono rimborsi post-emissione, perché la TD04 deve riferire la fattura originaria.
 

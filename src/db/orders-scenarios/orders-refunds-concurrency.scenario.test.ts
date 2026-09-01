@@ -595,11 +595,16 @@ export async function runRefundsAndConcurrencyScenario(context: OrdersTestContex
     ),
   );
   const history = await orders.listAuditHistory({ action: "CUSTOMER_CORRECTED" });
-  assert.equal(history.rows.length, 3);
+  assert.equal(history.rows.length, 4);
   assert.ok(history.rows.some((event) => event.reason === "Dati fiscali confermati dal cliente"));
   assert.ok(
     history.rows.some(
       (event) => event.reason === "Rilettura dello stesso payload con il mapper Shopify corretto",
+    ),
+  );
+  assert.ok(
+    history.rows.some(
+      (event) => event.reason === "Rilettura dello stesso payload con il mapper eBay corretto",
     ),
   );
   assert.match(history.rows[0]!.case_number ?? "", /^\d{6}$/);

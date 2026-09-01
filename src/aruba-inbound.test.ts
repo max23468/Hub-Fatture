@@ -138,6 +138,14 @@ test("la dicitura Aruba sorgente resta diagnostica e non cambia l’identità de
     remoteMetadataDigest({ ...remote, providerStatusLabel: "Emessa e consegnata" }),
     remoteMetadataDigest({ ...remote, providerStatusLabel: "EMESSA E CONSEGNATA" }),
   );
+  assert.equal(
+    remoteMetadataDigest({ ...remote, providerObservedAt: "2026-08-12T12:01:00+02:00" }),
+    remoteMetadataDigest({ ...remote, providerObservedAt: "2026-08-12T12:02:00+02:00" }),
+  );
+  assert.notEqual(
+    remoteMetadataDigest(remote),
+    remoteMetadataDigest({ ...remote, totalAmount: remote.totalAmount + 1 }),
+  );
 });
 
 test("le pagine inventario rispettano tipo e anno dichiarati dallo stream", () => {
@@ -247,6 +255,61 @@ test("un candidato univoco richiede data, importo e identità coerenti", () => {
     },
   ]);
   assert.equal(result.status, "MATCHED");
+});
+
+test("codice fiscale, data e importo univoci prevalgono su nome e indirizzo discordanti", () => {
+  const candidate = {
+    provider: "SHOPIFY" as const,
+    displayNumber: "1001",
+    localOrderDate: "2026-08-12",
+    billableAmount: 12_300,
+    recipientName: "Nome Discordante",
+    recipientTaxIdentifiers: [
+      { type: "CODICE_FISCALE" as const, countryCode: null, value: "RSSMRA80A01H501U" },
+    ],
+    recipientAddress: "Indirizzo discordante",
+  };
+  const matched = selectOrderMatch(remote, [{ ...candidate, id: "1" }]);
+  assert.equal(matched.status, "MATCHED");
+  assert.deepEqual(matched.evaluations[0]?.signals, {
+    provider: true,
+    explicitReference: false,
+    date: true,
+    sameDay: true,
+    nearDate: true,
+    total: true,
+    recipient: false,
+    taxId: true,
+    fiscalCode: true,
+    address: false,
+  });
+  assert.equal(
+    selectOrderMatch(remote, [
+      { ...candidate, id: "1" },
+      { ...candidate, id: "2", displayNumber: "1002" },
+    ]).status,
+    "AMBIGUOUS",
+  );
+
+  const vatRemote = {
+    ...remote,
+    recipientTaxId: "10987654321",
+    recipientTaxIdentifiers: [
+      { type: "PARTITA_IVA" as const, countryCode: "IT", value: "10987654321" },
+    ],
+  };
+  assert.equal(
+    selectOrderMatch(vatRemote, [
+      {
+        ...candidate,
+        id: "vat-1",
+        recipientTaxIdentifiers: [
+          { type: "PARTITA_IVA" as const, countryCode: "IT", value: "10987654321" },
+        ],
+      },
+    ]).status,
+    "UNMATCHED",
+  );
 });
 
 test("la griglia Aruba propone un nome specifico entro tre giorni e ignora i titoli", () => {
@@ -518,6 +581,7 @@ function ambiguousCandidate(
       total: true,
       recipient: true,
       taxId: true,
+      fiscalCode: true,
       address: false,
     },
   };

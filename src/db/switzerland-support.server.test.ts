@@ -11,6 +11,8 @@ import {
   withClient,
   SWITZERLAND_CUSTOMER_SUPPORT,
   OPERATIONAL_CONTROLS,
+  EBAY_CONTROL_ALIGNMENT_REPLAY,
+  removeMigrationsFrom,
 } from "./migrations-scenarios/support.ts";
 
 test("l'upgrade abilita i clienti svizzeri e riprende il canale bloccato", async () => {
@@ -20,8 +22,7 @@ test("l'upgrade abilita i clienti svizzeri e riprende il canale bloccato", async
   );
   try {
     await cp("migrations", beforeSupport, { recursive: true });
-    await rm(path.join(beforeSupport, SWITZERLAND_CUSTOMER_SUPPORT));
-    await rm(path.join(beforeSupport, OPERATIONAL_CONTROLS));
+    await removeMigrationsFrom(beforeSupport, SWITZERLAND_CUSTOMER_SUPPORT);
     await runMigrations({ connectionString: database.connectionString, directory: beforeSupport });
     await withClient(database.connectionString, async (client) => {
       await client.query(
@@ -49,6 +50,7 @@ test("l'upgrade abilita i clienti svizzeri e riprende il canale bloccato", async
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       SWITZERLAND_CUSTOMER_SUPPORT,
       OPERATIONAL_CONTROLS,
+      EBAY_CONTROL_ALIGNMENT_REPLAY,
     ]);
     await withClient(database.connectionString, async (client) => {
       const inserted = await client.query(

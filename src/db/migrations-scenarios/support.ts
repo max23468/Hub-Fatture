@@ -58,6 +58,7 @@ const REMOVE_ARUBA_BROWSER_LEGACY = "045_remove_aruba_browser_legacy.sql";
 const EBAY_DELIVERY_DISCOUNT_REPLAY = "046_ebay_delivery_discount_replay.sql";
 const SWITZERLAND_CUSTOMER_SUPPORT = "047_switzerland_customer_support.sql";
 const OPERATIONAL_CONTROLS = "048_operational_controls.sql";
+const EBAY_CONTROL_ALIGNMENT_REPLAY = "049_ebay_control_alignment_replay.sql";
 const CURRENT_MIGRATIONS = sortedMigrationFileNames(readdirSync("migrations"));
 const outboundIndex = CURRENT_MIGRATIONS.indexOf(ARUBA_API_OUTBOUND);
 assert.notEqual(outboundIndex, -1, `${ARUBA_API_OUTBOUND} assente dal catalogo migrazioni`);
@@ -74,6 +75,12 @@ async function copyMigrationSnapshot(directory: string) {
   await rm(path.join(directory, ARUBA_STATUS_MAPPER_VERSION));
   await rm(path.join(directory, ARUBA_API_INBOUND));
   await rm(path.join(directory, ARUBA_REJECTED_ATTEMPT_IDENTITY));
+}
+
+async function removeMigrationsFrom(directory: string, firstMigration: string) {
+  for (const migration of sortedMigrationFileNames(await readdir(directory))) {
+    if (migration >= firstMigration) await rm(path.join(directory, migration));
+  }
 }
 
 export {
@@ -139,8 +146,10 @@ export {
   EBAY_DELIVERY_DISCOUNT_REPLAY,
   SWITZERLAND_CUSTOMER_SUPPORT,
   OPERATIONAL_CONTROLS,
+  EBAY_CONTROL_ALIGNMENT_REPLAY,
   CURRENT_MIGRATIONS,
   outboundIndex,
   MIGRATIONS_AFTER_ARUBA_API_OUTBOUND,
   copyMigrationSnapshot,
+  removeMigrationsFrom,
 };

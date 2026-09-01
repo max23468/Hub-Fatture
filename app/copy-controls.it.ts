@@ -57,7 +57,9 @@ export const controlsCopy = {
   completePrivacy: "Conferma completamento",
   linkAruba: "Collega documento Aruba",
   candidateOrder: "Ordine da collegare",
-  confirmOutOfScope: "Conferma fuori perimetro",
+  confirmOutOfScope: "Nessun candidato è corretto",
+  confirmCandidateRejection:
+    "Confermo di avere confrontato il documento Aruba con tutti i candidati proposti",
   outOfScopeReason: "Documento non riferito a Shopify o eBay",
   officialXml: "XML ufficiale scaricato da Aruba",
   importOfficialXml: "Importa e verifica XML",
