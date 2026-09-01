@@ -11,6 +11,7 @@ import { copy } from "../copy.it";
 import { privateRouteMeta } from "../metadata";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 import { getArubaApiConnectionStatus } from "../../src/db/aruba-api-settings.server.ts";
+import { arubaInventoryBlocksAllApprovals } from "../../src/aruba-inventory.ts";
 import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
 import { dashboardSummary } from "../../src/db/order-queries.server.ts";
@@ -69,7 +70,7 @@ export default function Home() {
   } = useLoaderData<typeof loader>();
   const workItems = [
     {
-      value: arubaInventory.blocking ? 0 : Number(summary.ready_cases),
+      value: arubaInventoryBlocksAllApprovals(arubaInventory) ? 0 : Number(summary.ready_cases),
       label: copy.dashboard.readyPreparations,
       detail: copy.dashboard.readyDetail,
       to: "/ordini?vista=fatturare",
@@ -93,11 +94,11 @@ export default function Home() {
       primary: false,
     },
     {
-      value: Number(summary.pending_payments),
+      value: Number(summary.pending_cases),
       label: copy.dashboard.pendingPayments,
       detail: copy.dashboard.pendingDetail,
-      to: "/ordini?pagamento=PENDING",
-      action: copy.dashboard.openOrders,
+      to: "/ordini?vista=attesa",
+      action: copy.dashboard.openPreparations,
       icon: CreditCard,
       tone: "accent",
       primary: false,

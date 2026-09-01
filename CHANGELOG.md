@@ -4,6 +4,7 @@
 
 - Il candidato destinato alla prima release operativa viene congelato con invii Aruba ordinari disabilitati; gli allineamenti automatici eBay e Shopify evitano lavoro e clonazioni seriali superflue, ogni ingresso Production richiede l’autorizzazione esplicita prima di pubblicare la release e ricertificazione M12 e canary M13 restano vincolati allo stesso SHA e digest.
 - Il backup conserva una copia `current` completa e autonoma, ma registra i 35 giorni storici come giornali database cifrati e immutabili: checksum e dimensioni dei due oggetti vengono riletti separatamente, evitando di duplicare quotidianamente l’intero archivio documentale nel bucket OCI.
+- Dashboard, viste Ordini e dettaglio usano un’unica classificazione operativa esaustiva: ogni preparazione aperta è approvabile, in attesa del pagamento oppure nei controlli; i conflitti Aruba riferibili a una preparazione non azzerano più le altre candidate sane, mentre inventario assente, obsoleto, fallito o remoto incerto continua a bloccare globalmente le approvazioni.
 
 ## 0.5.35
 

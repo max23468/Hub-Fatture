@@ -125,7 +125,7 @@ export const copy = {
     workNow: "Da fare ora",
     readyDetail: "Pronte per l’approvazione",
     reviewDetail: "Richiede attenzione",
-    pendingDetail: "In attesa di gestione",
+    pendingDetail: "Preparazioni in attesa dell’incasso",
     creditNoteDetail: "Pronte per l’approvazione",
     openPreparations: "Apri preparazioni",
     openOrders: "Apri ordini",
@@ -243,8 +243,17 @@ export const copy = {
     preparation: "Preparazione fattura",
     preparationContext: "Preparazione",
     preparationListTitle: "Preparazioni fattura",
+    approvablePreparationListTitle: "Preparazioni approvabili",
+    pendingPreparationListTitle: "Preparazioni con pagamento in attesa",
     preparationListHelp:
       "Apri una preparazione per controllare dati, anomalie e passaggi successivi.",
+    pendingPreparationListHelp:
+      "Queste preparazioni passeranno automaticamente fra le approvabili o nei controlli quando il pagamento sarà acquisito.",
+    preparationPoolLabels: {
+      APPROVABLE: "Approvabile",
+      PENDING_PAYMENT: "Pagamento in attesa",
+      REQUIRES_ACTION: "Da risolvere",
+    } as Record<string, string>,
     customer: "Cliente",
     date: "Data",
     orders: "Ordini",
@@ -265,8 +274,13 @@ export const copy = {
     historicalOrders: "Ordini storici da riconciliare",
     noReviews: "Nessuna verifica richiesta",
     nothingToInvoice: "Niente da fatturare",
+    noPendingPreparations: "Nessun pagamento in attesa",
     preparationEmptyHelp:
-      "Le preparazioni compaiono qui quando gli ordini sono pronti per la fatturazione.",
+      "Qui compaiono soltanto le preparazioni che possono essere approvate adesso.",
+    pendingPreparationEmptyHelp:
+      "Non ci sono preparazioni sospese in attesa dell’acquisizione del pagamento.",
+    approvalsGloballyBlocked:
+      "Nessuna preparazione è approvabile finché il controllo globale dell’inventario Aruba non viene risolto.",
     cancelledOrders: "Ordini annullati o rimborsati",
     noCancelledOrders: "Nessun ordine annullato",
     noOrders: "Nessun ordine",
@@ -471,6 +485,8 @@ export const copy = {
     doNotTransmit: "Non trasmettere",
     reactivate: "Riattiva preparazione",
     reviewWarning: "Prima di proseguire, controlla i dati indicati come incompleti o modificati.",
+    paymentPendingWarning:
+      "Questa preparazione passerà automaticamente fra le approvabili o nei controlli quando il pagamento sarà acquisito.",
     notTransmittedDefault: "Questa preparazione non deve essere trasmessa.",
     changesTitle: "Aggiornamenti ricevuti",
     changesIntro: "I dati precedenti restano disponibili nel registro per il controllo.",

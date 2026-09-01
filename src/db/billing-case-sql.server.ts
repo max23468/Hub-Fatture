@@ -158,6 +158,23 @@ export const standardInvoiceApprovalCandidateSql = (
   )
 )`;
 
+/** Il candidato standard correlato a una preparazione, riusato da liste e contatori. */
+export const billingCaseApprovalCandidateSql = (billingCaseAlias = "billing_cases") => `EXISTS (
+  SELECT 1
+  FROM billing_cases AS approval_case
+  LEFT JOIN documents AS approval_document
+    ON approval_document.billing_case_id = approval_case.id
+   AND approval_document.kind = 'INVOICE'
+  LEFT JOIN fiscal_profiles AS approval_profile
+    ON approval_profile.version = approval_document.fiscal_profile_version
+  WHERE approval_case.id = ${billingCaseAlias}.id
+    AND ${standardInvoiceApprovalCandidateSql(
+      "approval_case",
+      "approval_document",
+      "approval_profile",
+    )}
+)`;
+
 /** Un possibile documento Aruba non ancora risolto trattiene la preparazione. */
 export const arubaPotentialMatchSql = `EXISTS (
   SELECT 1

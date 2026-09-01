@@ -88,15 +88,33 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     const initialSummary = await orders.dashboardSummary();
     assert.equal(initialSummary.ready_cases, "1");
     assert.equal(initialSummary.review_cases, "0");
-    assert.equal(initialSummary.pending_payments, "1");
+    assert.equal(initialSummary.pending_cases, "1");
     assert.deepEqual(
       (
         await orders.listBillingCases({
-          statuses: ["NEEDS_REVIEW"],
-          excludePendingPayments: true,
+          operationalPool: "PENDING_PAYMENT",
         })
-      ).rows,
-      [],
+      ).rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
+      [{ id: cases.rows[3]!.id, operational_pool: "PENDING_PAYMENT" }],
+    );
+    assert.deepEqual(
+      (
+        await orders.listBillingCases({
+          operationalPool: "APPROVABLE",
+        })
+      ).rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
+      [{ id: cases.rows[0]!.id, operational_pool: "APPROVABLE" }],
+    );
+    assert.deepEqual(
+      (
+        await orders.listBillingCases({
+          operationalPool: "REQUIRES_ACTION",
+        })
+      ).rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
+      [
+        { id: cases.rows[1]!.id, operational_pool: "REQUIRES_ACTION" },
+        { id: cases.rows[2]!.id, operational_pool: "REQUIRES_ACTION" },
+      ],
     );
     assert.deepEqual(
       (await documents.listMassApprovalCandidates()).map(({ billing_case_id }) => billing_case_id),
@@ -151,7 +169,23 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     );
 
     const inventory = await import("./aruba-inventory-health.server.ts");
-    assert.equal((await inventory.getArubaInventoryHealth()).ambiguous, 1);
+    const inventoryPolicy = await import("../aruba-inventory.ts");
+    const scopedConflictHealth = await inventory.getArubaInventoryHealth();
+    assert.equal(scopedConflictHealth.ambiguous, 1);
+    assert.equal(
+      inventoryPolicy.arubaInventoryBlocksAllApprovals({
+        blockingReason: "CONFLICT",
+        uncertainRemoteStates: scopedConflictHealth.uncertainRemoteStates,
+      }),
+      false,
+    );
+    assert.equal(
+      inventoryPolicy.arubaInventoryBlocksAllApprovals({
+        blockingReason: "CONFLICT",
+        uncertainRemoteStates: 1,
+      }),
+      true,
+    );
 
     const status = await import("./billing-case-status.server.ts");
     const transaction = await client.getPool().connect();
@@ -169,6 +203,10 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       "ARUBA_POTENTIAL_MATCH",
     ]);
     assert.equal((await orders.dashboardSummary()).review_cases, "1");
+    assert.equal(await orders.getOpenBillingCasePool(cases.rows[0]!.id, false), "APPROVABLE");
+    assert.equal(await orders.getOpenBillingCasePool(cases.rows[2]!.id, false), "REQUIRES_ACTION");
+    assert.equal(await orders.getOpenBillingCasePool(cases.rows[0]!.id, true), "REQUIRES_ACTION");
+    assert.equal(await orders.getOpenBillingCasePool(cases.rows[3]!.id, true), "PENDING_PAYMENT");
 
     await client
       .getPool()

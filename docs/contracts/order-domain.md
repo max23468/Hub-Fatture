@@ -30,6 +30,14 @@ Sono accettati soltanto importi decimali rappresentabili esattamente in centesim
 
 Lo stato di una preparazione modificabile è sempre derivato, mai accumulato: una sola espressione decide fra `READY` e `NEEDS_REVIEW` a partire dallo snapshot anagrafico della preparazione e dalle anomalie degli ordini collegati. Import, correzione, separazione, aggiunta e riattivazione riusano quella stessa espressione, quindi una verifica risolta libera davvero la preparazione.
 
+La classificazione operativa delle preparazioni aperte è distinta dallo stato persistito ed è
+sempre totale e mutuamente esclusiva. Una preparazione con almeno un pagamento non acquisito è
+`PENDING_PAYMENT`; in assenza di pagamenti pendenti è `APPROVABLE` soltanto se il comando di
+approvazione supererebbe tutti i gate correnti, altrimenti è `REQUIRES_ACTION` e deve esporre
+almeno una causa bloccante. I match Aruba riferibili a preparazioni precise bloccano soltanto le
+candidate; inventario assente o obsoleto, fallimenti di sincronizzazione e stati remoti incerti
+restano blocchi globali. Dashboard, liste, dettaglio e transazione finale riusano questi predicati.
+
 Le anomalie sono distinte per origine: quelle dell’ordine — pagamento non acquisito, totale non riconciliato, conflitto sorgente, ordine annullato o rimborsato — non sono correggibili dalla preparazione; quella anagrafica vive nello snapshot della preparazione ed è correggibile. La preparazione le espone singolarmente, ciascuna con l’azione che la chiude.
 
 L’anagrafica del destinatario è correggibile finché la preparazione è modificabile. La correzione scrive soltanto lo snapshot della preparazione: gli ordini conservano il valore importato e restano confrontabili. Da quel momento lo snapshot corretto è la fonte del destinatario e la discordanza con gli ordini non è più un’anomalia. La correzione riscrive l’insieme completo degli identificativi fiscali dichiarati, quindi il modulo di modifica li presenta tutti; l’audit conserva valore precedente, valore nuovo, autore, motivo e timestamp.

@@ -44,3 +44,18 @@ _Evita_: Sincronizzazione, Ultimo aggiornamento
 Accettazione tracciata dell’intestazione dichiarata da un privato italiano eBay quando il Codice
 Fiscale è formalmente valido e tutti i dati obbligatori per fatturare sono presenti.
 _Evita_: Correzione del Codice Fiscale, Verifica anagrafica ufficiale
+
+**Preparazione approvabile**:
+Preparazione aperta il cui pagamento è acquisito e che supera, nello stesso istante, tutti i
+controlli necessari all’approvazione.
+_Evita_: Preparazione pronta, READY
+
+**Preparazione con pagamento in attesa**:
+Preparazione aperta che contiene almeno un pagamento non ancora acquisito; questa condizione ha
+precedenza nella classificazione operativa anche quando esistono altri controlli.
+_Evita_: Ordine in attesa, Preparazione da verificare
+
+**Preparazione da risolvere**:
+Preparazione aperta senza pagamenti pendenti che non è approvabile e presenta almeno una causa
+bloccante visibile nella preparazione o nella coda Controlli.
+_Evita_: Preparazione pronta, Errore generico

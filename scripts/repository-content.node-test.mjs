@@ -951,7 +951,7 @@ test("le approvazioni rileggono l'inventario Aruba sotto lock prima degli ordini
   const invoiceEnd = documents.indexOf("export async function", invoiceStart + 1);
   const invoiceApproval = documents.slice(invoiceStart, invoiceEnd);
   assert.ok(invoiceApproval.indexOf("getLockedArubaInventoryHealth") >= 0);
-  assert.ok(invoiceApproval.indexOf("inventory.blocking") >= 0);
+  assert.ok(invoiceApproval.indexOf("arubaInventoryBlocksAllApprovals(inventory)") >= 0);
   assert.ok(
     invoiceApproval.indexOf("withTransaction") <
       invoiceApproval.indexOf("getLockedArubaInventoryHealth"),

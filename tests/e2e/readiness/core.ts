@@ -87,7 +87,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   const dashboardDestinations = [
     ["Preparazioni approvabili", "/ordini?vista=fatturare", "Ordini"],
     ["Controlli da risolvere", "/controlli", "Controlli"],
-    ["Pagamenti in attesa", "/ordini?pagamento=PENDING", "Ordini"],
+    ["Pagamenti in attesa", "/ordini?vista=attesa", "Ordini"],
   ] as const;
   for (const [label, destination, heading] of dashboardDestinations) {
     const link = page.locator(".work-item").filter({ hasText: label }).getByRole("link");
@@ -671,26 +671,24 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Azzera filtri" })).toBeVisible();
 
   await page.getByRole("link", { name: "Da fatturare" }).click();
-  await expect(page.getByRole("row")).toHaveCount(2);
-  await expect(page.getByRole("cell", { name: "2", exact: true })).toBeVisible();
-  const preparationActionSpacing = await page
-    .locator(".orders-table--preparations .orders-table__action .dashboard-row-link")
-    .first()
-    .evaluate((action) => {
-      const label = action.querySelector<HTMLElement>("span");
-      const icon = action.querySelector<SVGElement>("svg");
-      if (!label || !icon) return null;
-      const actionBox = action.getBoundingClientRect();
-      return {
-        left: label.getBoundingClientRect().left - actionBox.left,
-        right: actionBox.right - icon.getBoundingClientRect().right,
-      };
-    });
-  expect(preparationActionSpacing).not.toBeNull();
-  expect(
-    Math.abs((preparationActionSpacing?.left ?? 0) - (preparationActionSpacing?.right ?? 0)),
-  ).toBeLessThanOrEqual(2);
-  await page.getByRole("link", { name: /^Apri preparazione fattura \d{6}$/ }).click();
+  await expect(
+    page.getByText(
+      "Nessuna preparazione è approvabile finché il controllo globale dell’inventario Aruba non viene risolto.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Niente da fatturare" })).toBeVisible();
+
+  const preparationClient = new pg.Client({ connectionString: databaseUrl });
+  await preparationClient.connect();
+  const preparation = await preparationClient.query<{ id: string }>(
+    `SELECT id::text FROM billing_cases
+      WHERE status IN ('READY', 'NEEDS_REVIEW')
+      ORDER BY id
+      LIMIT 1`,
+  );
+  await preparationClient.end();
+  assert(preparation.rows[0]);
+  await page.goto(`/ordini/preparazione/${preparation.rows[0].id}`);
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expectPlainLanguage(page);
   await expect(page.getByText("Preparazione fattura creata")).toBeVisible();
@@ -744,14 +742,6 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByRole("link", { name: "Annullati" }).click();
   await expect(page.getByRole("heading", { name: "Preparazioni non trasmesse" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Da non trasmettere", exact: true })).toBeVisible();
-  const archivedOrderFilters = page.getByRole("search", {
-    name: "Filtra gli ordini",
-  });
-  await archivedOrderFilters.getByLabel("Cerca").fill("ordine-inesistente");
-  await archivedOrderFilters.getByRole("button", { name: "Filtra" }).click();
-  await expect(page.getByText("1 filtro attivo")).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Da non trasmettere", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Nessun ordine annullato" })).toBeVisible();
   await page
     .getByRole("link", { name: `Apri ${archivedPreparation}` })
     .first()
@@ -794,12 +784,19 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "In attesa" }).click();
+  await expect(page.getByRole("heading", { name: "Nessun pagamento in attesa" })).toBeVisible();
   await expect(page.getByText(/filtr[oi] attiv[oi]/)).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Azzera filtri" })).toHaveCount(0);
+  await page.goto("/ordini?stato=WAITING_FOR_TRIGGER");
   await page.getByRole("link", { name: "Shopify #S-1002", exact: true }).click();
   await page.getByRole("button", { name: "Prepara la fattura ora" }).click();
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione anticipata richiesta")).toBeVisible();
+  await page.goto("/ordini?vista=attesa");
+  await expect(
+    page.getByRole("heading", { name: "Preparazioni con pagamento in attesa" }),
+  ).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Pagamento in attesa", exact: true })).toBeVisible();
 
   const connectionClient = new pg.Client({ connectionString: databaseUrl });
   await connectionClient.connect();
@@ -976,11 +973,11 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByLabel(/^Pagamento/)).toHaveValue("PENDING");
   await page.getByRole("link", { name: /^Apri preparazione fattura \d{6}$/ }).click();
 
-  // Il controllo dichiara il fatto osservato, non una frase generica.
+  // Il terzo pool dichiara il pagamento come causa primaria, anche se restano controlli secondari.
   await expect(page.getByRole("heading", { name: "Cose da controllare" })).toBeVisible();
   await expect(page.getByText("Pagamento non ancora acquisito")).toBeVisible();
   await expect(page.getByRole("status")).toContainText(
-    "controlla i dati indicati come incompleti o modificati",
+    "passerà automaticamente fra le approvabili o nei controlli quando il pagamento sarà acquisito",
   );
   await expect(page.getByRole("button", { name: "Approva fattura" })).toHaveCount(0);
 

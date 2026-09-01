@@ -19,8 +19,11 @@ import { compactDate, euros } from "../format";
 import { privateRouteMeta } from "../metadata";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
+import { arubaInventoryBlocksAllApprovals } from "../../src/aruba-inventory.ts";
+import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import {
   listBillingCases,
+  type OpenBillingCasePool,
   type BillingCaseListSortKey,
 } from "../../src/db/billing-cases.server.ts";
 import { importOrders } from "../../src/db/order-import.server.ts";
@@ -34,9 +37,9 @@ import {
 import { getArubaSettings } from "../../src/db/aruba.server.ts";
 import { parseSort, type SortState } from "../table-sort";
 
-const caseStatusByView: Record<string, string[]> = {
-  fatturare: ["READY"],
-  annullati: ["DO_NOT_TRANSMIT"],
+const preparationPoolByView: Record<string, OpenBillingCasePool> = {
+  fatturare: "APPROVABLE",
+  attesa: "PENDING_PAYMENT",
 };
 
 const orderSortKeys = ["ordine", "cliente", "data", "totale", "stato", "preparazione"] as const;
@@ -93,28 +96,41 @@ export async function loader({ request }: Route.LoaderArgs) {
     { key: "data", direction: "desc" },
   );
   const emptyPage = { rows: [], hasNext: false };
+  const showsOpenPreparations = Object.hasOwn(preparationPoolByView, view);
+  const ordersPromise = showsOpenPreparations
+    ? Promise.resolve(emptyPage)
+    : listOrders({
+        query: filters.query || undefined,
+        provider: filters.provider || undefined,
+        status: filters.status || (view === "tutti" && !filters.query ? "ACTIVE" : undefined),
+        localDate: filters.localDate || undefined,
+        paymentStatus: filters.paymentStatus || undefined,
+        page,
+        sort: orderSort,
+      });
+  const arubaInventoryPromise =
+    view === "fatturare" ? getArubaInventoryHealth() : Promise.resolve(null);
+  const arubaInventory = await arubaInventoryPromise;
+  const approvalsGloballyBlocked = Boolean(
+    arubaInventory && arubaInventoryBlocksAllApprovals(arubaInventory),
+  );
   const [orders, cases] = await Promise.all([
-    view === "fatturare"
-      ? Promise.resolve(emptyPage)
-      : listOrders({
-          query: filters.query || undefined,
-          provider: filters.provider || undefined,
-          status: filters.status || (view === "tutti" && !filters.query ? "ACTIVE" : undefined),
-          localDate: filters.localDate || undefined,
-          paymentStatus: filters.paymentStatus || undefined,
-          page,
-          sort: orderSort,
-        }),
-    caseStatusByView[view]
+    ordersPromise,
+    preparationPoolByView[view]
       ? listBillingCases({
-          statuses: caseStatusByView[view],
+          operationalPool: preparationPoolByView[view],
+          approvalsGloballyBlocked,
           page,
           sort: preparationSort,
         })
-      : Promise.resolve(emptyPage),
+      : view === "annullati"
+        ? listBillingCases({ statuses: ["DO_NOT_TRANSMIT"], page, sort: preparationSort })
+        : Promise.resolve(emptyPage),
   ]);
   const approvalCandidates =
-    view === "fatturare" && user.canApprove ? await listMassApprovalCandidates() : [];
+    view === "fatturare" && user.canApprove && !approvalsGloballyBlocked
+      ? await listMassApprovalCandidates()
+      : [];
   const arubaSettings = approvalCandidates.length ? await getArubaSettings() : null;
   const arubaMode = arubaSettings?.effectiveMode ?? "DOCUMENT_ONLY";
   return {
@@ -135,6 +151,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     approvalCandidates,
     arubaMode,
     arubaConfiguredMode: arubaSettings?.mode.value ?? "DOCUMENT_ONLY",
+    approvalsGloballyBlocked,
     arubaDowngradeRequired: Boolean(
       arubaSettings && arubaSettings.mode.value !== arubaSettings.effectiveMode,
     ),
@@ -297,8 +314,10 @@ function orderStatusTone(status: string) {
 }
 
 function caseStatusTone(status: string) {
-  if (["NEEDS_REVIEW", "DO_NOT_TRANSMIT"].includes(status)) return "warning";
-  if (["APPROVED", "CLOSED"].includes(status)) return "success";
+  if (["PENDING_PAYMENT", "REQUIRES_ACTION", "NEEDS_REVIEW", "DO_NOT_TRANSMIT"].includes(status)) {
+    return "warning";
+  }
+  if (["APPROVABLE", "APPROVED", "CLOSED"].includes(status)) return "success";
   return "accent";
 }
 
@@ -469,8 +488,14 @@ function PreparationList({
   if (!cases.rows.length) {
     return showsPreparations && ordersEmpty ? (
       <section className="empty-state">
-        <h2>{copy.orders.nothingToInvoice}</h2>
-        <p>{copy.orders.preparationEmptyHelp}</p>
+        <h2>
+          {view === "attesa" ? copy.orders.noPendingPreparations : copy.orders.nothingToInvoice}
+        </h2>
+        <p>
+          {view === "attesa"
+            ? copy.orders.pendingPreparationEmptyHelp
+            : copy.orders.preparationEmptyHelp}
+        </p>
       </section>
     ) : null;
   }
@@ -488,9 +513,15 @@ function PreparationList({
           <h2 id="orders-preparations-title">
             {view === "annullati"
               ? copy.orders.noTransmittedPreparations
-              : copy.orders.preparationListTitle}
+              : view === "attesa"
+                ? copy.orders.pendingPreparationListTitle
+                : copy.orders.approvablePreparationListTitle}
           </h2>
-          <p>{copy.orders.preparationListHelp}</p>
+          <p>
+            {view === "attesa"
+              ? copy.orders.pendingPreparationListHelp
+              : copy.orders.preparationListHelp}
+          </p>
         </span>
         <strong className="orders-panel__count">{copy.orders.pageItems(cases.rows.length)}</strong>
       </header>
@@ -588,9 +619,14 @@ function PreparationList({
                 </td>
                 <td data-label={copy.orders.status}>
                   <span
-                    className={`orders-status orders-status--${caseStatusTone(billingCase.status)}`}
+                    className={`orders-status orders-status--${caseStatusTone(
+                      view === "annullati" ? billingCase.status : billingCase.operational_pool,
+                    )}`}
                   >
-                    {billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus}
+                    {view === "annullati"
+                      ? (billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus)
+                      : (copy.orders.preparationPoolLabels[billingCase.operational_pool] ??
+                        copy.common.unknownStatus)}
                   </span>
                 </td>
                 <td data-label={copy.orders.actions} className="orders-table__action">
@@ -826,13 +862,14 @@ export default function Orders() {
     approvalCandidates,
     arubaMode,
     arubaConfiguredMode,
+    approvalsGloballyBlocked,
     arubaDowngradeRequired,
     approved,
     approvalErrors,
     storagePending,
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
-  const showsPreparations = view === "fatturare";
+  const showsPreparations = view === "fatturare" || view === "attesa";
   const showsPreparationArchive = showsPreparations || view === "annullati";
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
@@ -880,6 +917,11 @@ export default function Orders() {
           {copy.orders.massApprovalResult(approved, approvalErrors ?? "0", storagePending ?? "0")}
         </p>
       ) : null}
+      {view === "fatturare" && approvalsGloballyBlocked ? (
+        <p className="warning" role="status">
+          {copy.orders.approvalsGloballyBlocked}
+        </p>
+      ) : null}
 
       {showsPreparationArchive ? (
         <PreparationList
@@ -891,7 +933,7 @@ export default function Orders() {
         />
       ) : null}
 
-      {showsPreparations && approvalCandidates.length > 1 ? (
+      {view === "fatturare" && approvalCandidates.length > 1 ? (
         <MassApprovalPanel
           approvalCandidates={approvalCandidates}
           arubaMode={arubaMode}
@@ -901,7 +943,7 @@ export default function Orders() {
         />
       ) : null}
 
-      {!showsPreparations ? (
+      {!showsPreparationArchive ? (
         <OrderList
           csrfToken={csrfToken}
           filters={filters}

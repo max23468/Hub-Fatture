@@ -13,10 +13,12 @@ import {
   addOrderToBillingCase,
   correctBillingCaseCustomer,
   getBillingCase,
+  getOpenBillingCasePool,
   reviewBillingCaseSourceChanges,
   separateOrderFromBillingCase,
   updateBillingCaseTransmission,
 } from "../../src/db/billing-cases.server.ts";
+import { arubaInventoryBlocksAllApprovals } from "../../src/aruba-inventory.ts";
 import { AppError } from "../../src/errors.ts";
 import { readArubaInventoryForm } from "../../src/http.server.ts";
 import { invoiceLinesFromForm } from "../invoice-lines.ts";
@@ -150,17 +152,26 @@ async function invoiceProjection(caseId: string) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const [user, billingCase] = await Promise.all([
+  const [user, billingCase, projection] = await Promise.all([
     requireSessionUser(request),
     getBillingCase(params.caseId),
+    invoiceProjection(params.caseId),
   ]);
   if (!billingCase) throw new Response("Preparazione non trovata", { status: 404 });
-  const projection = await invoiceProjection(params.caseId);
+  const arubaInventory =
+    projection && "lines" in projection && "arubaInventory" in projection
+      ? projection.arubaInventory
+      : undefined;
+  const approvalsGloballyBlocked = Boolean(
+    arubaInventory && arubaInventoryBlocksAllApprovals(arubaInventory),
+  );
+  const operationalPool = await getOpenBillingCasePool(params.caseId, approvalsGloballyBlocked);
   return {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     billingCase,
+    operationalPool,
     projection,
     storagePending: new URL(request.url).searchParams.get("archiviazione") === "pendente",
   };

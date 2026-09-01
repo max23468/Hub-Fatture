@@ -27,6 +27,7 @@ export interface ArubaInventoryHealth {
   potentialMatches: number;
   ambiguous: number;
   conflicts: number;
+  uncertainRemoteStates: number;
   remoteDocuments: number;
   blockingReason: "NEVER" | "STALE" | "FAILURE" | "CONFLICT" | null;
 }
@@ -78,6 +79,7 @@ export async function getArubaInventoryHealth(
     potential_matches: string;
     ambiguous: string;
     conflicts: string;
+    uncertain_remote_states: string;
     remote_documents: string;
   }>(
     `SELECT
@@ -141,6 +143,12 @@ export async function getArubaInventoryHealth(
           AND remote.document_date >= $3::date
           AND remote.remote_status <> 'REJECTED'
           AND ${arubaConflictMatchPredicate}) AS conflicts,
+       (SELECT count(*) FROM aruba_document_matches matches
+        JOIN aruba_remote_documents remote ON remote.id = matches.remote_document_id
+        WHERE remote.environment = $1 AND remote.account_reference = $2
+          AND remote.document_date >= $3::date
+          AND remote.remote_status <> 'REJECTED'
+          AND matches.status IN ('ERROR', 'UNKNOWN_REMOTE_STATE')) AS uncertain_remote_states,
        (SELECT count(*) FROM aruba_remote_documents
         WHERE environment = $1 AND account_reference = $2
           AND document_date >= $3::date) AS remote_documents`,
@@ -185,6 +193,7 @@ export async function getArubaInventoryHealth(
     potentialMatches: Number(row.potential_matches),
     ambiguous: Number(row.ambiguous),
     conflicts: Number(row.conflicts),
+    uncertainRemoteStates: Number(row.uncertain_remote_states),
     remoteDocuments: Number(row.remote_documents),
     blockingReason,
   };
