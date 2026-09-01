@@ -595,18 +595,29 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     const result = spawnSync("sh", ["-n", script], { cwd: root, encoding: "utf8" });
     assert.equal(result.status, 0, `${script}: ${result.stderr}`);
   }
-  const [backup, deploy, monitor, readback, candidateReadback, restore, workflow] =
-    await Promise.all(
-      [
-        "scripts/backup.sh",
-        "scripts/production-deploy.sh",
-        "scripts/monitor-local.sh",
-        "scripts/production-readback.sh",
-        "scripts/production-release-candidate-readback.sh",
-        "scripts/restore.sh",
-        ".github/workflows/production.yml",
-      ].map((file) => readFile(path.join(root, file), "utf8")),
-    );
+  const [
+    backup,
+    deploy,
+    monitor,
+    readback,
+    candidateReadback,
+    restore,
+    workflow,
+    readinessQuery,
+    readinessOperation,
+  ] = await Promise.all(
+    [
+      "scripts/backup.sh",
+      "scripts/production-deploy.sh",
+      "scripts/monitor-local.sh",
+      "scripts/production-readback.sh",
+      "scripts/production-release-candidate-readback.sh",
+      "scripts/restore.sh",
+      ".github/workflows/production.yml",
+      "src/db/release-candidate-readiness.server.ts",
+      "src/operations/release-candidate-readiness.ts",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
+  );
   assert.match(backup, /jq -r '\."content-length" \/\/ empty'/);
   assert.match(backup, /jq -r '\."opc-meta-sha256" \/\/ empty'/);
   assert.doesNotMatch(backup, /\.data\."(?:content-length|opc-meta-sha256)"/);
@@ -617,11 +628,11 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(backup, /imageDigest:\$imageDigest/);
   assert.match(backup, /schema:\$schema/);
   assert.match(
-    candidateReadback,
+    readinessQuery,
     /historical_reconciliation_outcome IS NULL\s+AND \(trigger_status <> 'LEGACY_BILLING_REVIEW'\s+OR historical_reconciled_at IS NOT NULL\s+OR billing_case_id IS NOT NULL\s+OR EXISTS \(\s+SELECT 1 FROM document_orders\s+WHERE document_orders\.order_id = orders\.id\)\)/,
   );
   assert.match(
-    candidateReadback,
+    readinessQuery,
     /historical_reconciliation_outcome = 'ALREADY_INVOICED'\s+AND NOT EXISTS \(\s+SELECT 1 FROM document_orders\s+JOIN documents ON documents\.id = document_orders\.document_id\s+WHERE document_orders\.order_id = orders\.id\s+AND documents\.origin = 'ARUBA_HISTORY'/,
   );
   assert.ok(
@@ -703,13 +714,26 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /--force-recreate/);
   assert.match(deploy, /production-readback\.sh >\/dev\/null/);
   assert.match(readback, /--retry-max-time 180 --retry-all-errors/);
-  assert.match(candidateReadback, /status = 'APPROVED'/);
-  assert.match(candidateReadback, /historical_reconciliation_outcome IS NULL/);
-  assert.match(candidateReadback, /VALUES \('SHOPIFY'\), \('EBAY'\)/);
-  assert.match(candidateReadback, /connections\.environment = 'PRODUCTION'/);
-  assert.match(candidateReadback, /connections\.status = 'CONNECTED'/);
-  assert.match(candidateReadback, /sync_cursors\.stream = 'history_import'/);
-  assert.match(candidateReadback, /status NOT IN \('RECONCILED', 'CANCELLED'\)/);
+  assert.match(candidateReadback, /node build-server\/operations\/release-candidate-readiness\.js/);
+  assert.match(candidateReadback, /\.unsafeApprovedDocuments/);
+  assert.match(candidateReadback, /\.completedDryRunQualifications/);
+  assert.match(candidateReadback, /\.openArubaBatches/);
+  assert.doesNotMatch(candidateReadback, /SELECT count/);
+  assert.match(readinessOperation, /READINESS_STATE_UNAVAILABLE/);
+  assert.match(readinessQuery, /documents\.status = 'APPROVED'/);
+  assert.match(readinessQuery, /batches\.environment = 'PRODUCTION'/);
+  assert.match(readinessQuery, /batches\.mode = 'DOCUMENT_ONLY'/);
+  assert.match(readinessQuery, /batches\.transport = 'API'/);
+  assert.match(readinessQuery, /batches\.status = 'DRY_RUN_VALIDATED'/);
+  assert.match(readinessQuery, /qualifications\.status = 'SUCCEEDED'/);
+  assert.match(readinessQuery, /attempts\.status = 'SUCCEEDED'/);
+  assert.match(readinessQuery, /submissions\.submitted_at IS NULL/);
+  assert.match(readinessQuery, /historical_reconciliation_outcome IS NULL/);
+  assert.match(readinessQuery, /VALUES \('SHOPIFY'\), \('EBAY'\)/);
+  assert.match(readinessQuery, /connections\.environment = 'PRODUCTION'/);
+  assert.match(readinessQuery, /connections\.status = 'CONNECTED'/);
+  assert.match(readinessQuery, /sync_cursors\.stream = 'history_import'/);
+  assert.match(readinessQuery, /status NOT IN \('RECONCILED', 'CANCELLED'\)/);
   assert.doesNotMatch(candidateReadback, /aruba_send_permits/);
   assert.match(workflow, /compose\.yaml\.next/);
   assert.match(workflow, /Caddyfile\.next/);
