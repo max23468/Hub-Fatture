@@ -61,6 +61,7 @@ const OPERATIONAL_CONTROLS = "048_operational_controls.sql";
 const EBAY_CONTROL_ALIGNMENT_REPLAY = "049_ebay_control_alignment_replay.sql";
 const EBAY_NULL_EMAIL_ALIGNMENT_REPLAY = "050_ebay_null_email_alignment_replay.sql";
 const CUSTOMER_IDENTITY_EXCEPTIONS = "051_customer_identity_exceptions.sql";
+const RECONCILE_APPROVED_INVOICE_MEMBERSHIPS = "052_reconcile_approved_invoice_memberships.sql";
 const CURRENT_MIGRATIONS = sortedMigrationFileNames(readdirSync("migrations"));
 const outboundIndex = CURRENT_MIGRATIONS.indexOf(ARUBA_API_OUTBOUND);
 assert.notEqual(outboundIndex, -1, `${ARUBA_API_OUTBOUND} assente dal catalogo migrazioni`);
@@ -157,6 +158,7 @@ export {
   EBAY_CONTROL_ALIGNMENT_REPLAY,
   EBAY_NULL_EMAIL_ALIGNMENT_REPLAY,
   CUSTOMER_IDENTITY_EXCEPTIONS,
+  RECONCILE_APPROVED_INVOICE_MEMBERSHIPS,
   CURRENT_MIGRATIONS,
   outboundIndex,
   MIGRATIONS_AFTER_ARUBA_API_OUTBOUND,

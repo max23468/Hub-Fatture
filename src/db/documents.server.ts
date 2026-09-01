@@ -30,7 +30,10 @@ import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
 import { getArubaSettings } from "./aruba.server.ts";
 import { customerEmailPreview, snapshotDocumentEmail } from "./email.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
-import { pendingPaymentSql } from "./billing-case-sql.server.ts";
+import {
+  billingCaseHasApprovedInvoiceOrderSql,
+  pendingPaymentSql,
+} from "./billing-case-sql.server.ts";
 import {
   ensureDocumentStoragePath,
   loadStoredDocuments,
@@ -65,6 +68,7 @@ interface CaseRow {
   status: string;
   currency: "EUR";
   customer_snapshot_json: Record<string, unknown>;
+  has_approved_invoice_order: boolean;
   orders: CaseOrder[];
 }
 
@@ -133,6 +137,7 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
   const result = await client.query<CaseRow>(
     `SELECT billing_cases.id, billing_cases.revision, billing_cases.status,
             billing_cases.currency, billing_cases.customer_snapshot_json,
+            ${billingCaseHasApprovedInvoiceOrderSql()} AS has_approved_invoice_order,
             coalesce(case_orders.orders, '[]') AS orders
      FROM billing_cases
      LEFT JOIN LATERAL (
@@ -595,7 +600,14 @@ export async function getInvoiceProjection(caseId: string) {
 
 export async function getStandardInvoiceApprovalProjection(caseId: string) {
   const context = await loadInvoiceProjectionContext(caseId);
-  if (!context || context.caseRow.status !== "READY" || !context.projection) return null;
+  if (
+    !context ||
+    context.caseRow.status !== "READY" ||
+    context.caseRow.has_approved_invoice_order ||
+    !context.projection
+  ) {
+    return null;
+  }
   const { caseRow, draft, projection } = context;
   if (draft?.status === "APPROVED") return null;
   const { input, profile, projected, requiresResave, sourceTotal, total } = projection;
@@ -675,6 +687,9 @@ export async function saveInvoiceDraft(
   return withTransaction(async (client) => {
     const caseRow = await loadCase(client, caseId, true);
     if (!caseRow) return null;
+    if (caseRow.has_approved_invoice_order) {
+      throw new AppError("BILLING_CASE_NOT_EDITABLE", 409);
+    }
     if (caseRow.revision !== caseRevision) throw new AppError("CONFLICT_REVISION", 409);
     if (!["DRAFT", "READY", "NEEDS_REVIEW"].includes(caseRow.status)) {
       throw new AppError("BILLING_CASE_NOT_EDITABLE", 409);
@@ -943,6 +958,9 @@ export async function approveInvoice(
       const caseRow = await loadCase(client, caseId, true);
       if (!caseRow) return null;
       if (caseRow.status !== "READY") throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
+      if (caseRow.has_approved_invoice_order) {
+        throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
+      }
       if (caseRow.revision !== caseRevision) throw new AppError("CONFLICT_REVISION", 409);
       let draft = await loadDraft(client, caseId, true);
       if (draft && (draft.status !== "DRAFT" || draft.draft_version !== draftVersion)) {

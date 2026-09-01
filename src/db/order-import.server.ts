@@ -5,7 +5,11 @@ import type pg from "pg";
 
 import { writeAudit } from "./audit.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
-import { openBillingCaseSql, pendingPaymentSql } from "./billing-case-sql.server.ts";
+import {
+  approvedInvoiceOrderLinkSql,
+  openBillingCaseSql,
+  pendingPaymentSql,
+} from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
 import {
   completeHistoryImportInTransaction,
@@ -39,7 +43,10 @@ import {
 import { preIssueRefund } from "../refunds.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 import { refreshInvoiceDraftProjection } from "./invoice-draft-projection.server.ts";
-import { reconcilePreIssueInvoiceAmount } from "./order-draft-reconciliation.server.ts";
+import {
+  reconcileInvoiceDraft,
+  reconcilePreIssueInvoiceAmount,
+} from "./order-draft-reconciliation.server.ts";
 import { groupOrder } from "./order-grouping.server.ts";
 import { replaceOrderChildren } from "./order-children-persistence.server.ts";
 import { applySourceConflict } from "./order-source-conflict.server.ts";
@@ -229,6 +236,7 @@ interface PreviousOrderRow {
   last_observed_snapshot_json: Record<string, unknown>;
   is_stale: boolean;
   billing_case_status: string | null;
+  approved_invoice_linked: boolean;
   billing_case_customer_snapshot_json: Record<string, unknown> | null;
   billing_case_customer_corrected: boolean;
   billing_case_do_not_transmit_automatic: boolean;
@@ -249,6 +257,8 @@ interface PreviousOrderRow {
  * snapshot dell'ordine: è quella la versione che il documento ha davvero emesso.
  */
 async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
+  // Il frammento interpolato è una costante interna senza dati della richiesta.
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   return client.query<PreviousOrderRow>(
     `SELECT orders.id, orders.billing_case_id, orders.customer_id, orders.trigger_status,
             orders.historical_reconciliation_outcome,
@@ -265,6 +275,7 @@ async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
               ELSE orders.normalized_snapshot_json
             END AS last_observed_snapshot_json,
             billing_cases.status AS billing_case_status,
+            ${approvedInvoiceOrderLinkSql("orders")} AS approved_invoice_linked,
             billing_cases.customer_snapshot_json AS billing_case_customer_snapshot_json,
             billing_cases.customer_corrected_at IS NOT NULL AS billing_case_customer_corrected,
             latest_revision.id::text AS latest_revision_id,
@@ -300,6 +311,43 @@ async function loadPreviousOrder(client: pg.PoolClient, input: OrderInput) {
      FOR UPDATE OF orders`,
     [input.provider, input.externalAccountId, input.externalOrderId, input.updatedAt],
   );
+}
+
+async function reconcileStaleIssuedMembership(
+  client: pg.PoolClient,
+  orderId: string,
+  caseId: string,
+  actor: Actor,
+) {
+  const remaining = await client.query<{ count: string }>(
+    "SELECT count(*)::text FROM orders WHERE billing_case_id = $1",
+    [caseId],
+  );
+  if (Number(remaining.rows[0]!.count) === 0) {
+    await client.query(
+      `DELETE FROM documents
+       WHERE billing_case_id = $1 AND kind = 'INVOICE' AND status = 'DRAFT'`,
+      [caseId],
+    );
+    await client.query(
+      `UPDATE billing_cases
+       SET status = 'CLOSED', revision = revision + 1, updated_at = now()
+       WHERE id = $1 AND ${openBillingCaseSql()}`,
+      [caseId],
+    );
+  } else {
+    await reconcileInvoiceDraft(client, caseId);
+    await recomputeBillingCaseStatus(client, caseId);
+  }
+  await writeAudit(client, {
+    ...auditOrderActor(actor),
+    action: "ORDER_ALREADY_INVOICED_RECONCILED",
+    eventClass: "CRITICAL",
+    entityType: "ORDER",
+    entityId: orderId,
+    metadata: { billingCaseId: caseId },
+    requestId: actor.requestId,
+  });
 }
 
 /** Anagrafica riconciliata sulla chiave di identità, più il legame con il record della sorgente. */
@@ -454,9 +502,16 @@ async function importOne(
   const deferredReviewRequired = oldOrder?.deferred_review_required ?? false;
   const invoiced = ["APPROVED", "CLOSED"].includes(oldOrder?.billing_case_status ?? "");
   const documentIssued =
-    invoiced || oldOrder?.historical_reconciliation_outcome === "ALREADY_INVOICED";
+    invoiced ||
+    Boolean(oldOrder?.approved_invoice_linked) ||
+    oldOrder?.historical_reconciliation_outcome === "ALREADY_INVOICED";
+  const staleIssuedMembership = Boolean(
+    oldOrder?.approved_invoice_linked &&
+    oldOrder.billing_case_id &&
+    ["DRAFT", "READY", "NEEDS_REVIEW"].includes(oldOrder.billing_case_status ?? ""),
+  );
   // Una preparazione già emessa non riscrive l'anagrafica: l'ordine resta sul suo cliente.
-  const customerId = invoiced
+  const customerId = documentIssued
     ? oldOrder!.customer_id
     : await upsertCustomer(client, input, identity, sourceInput.customer);
   const normalizedSnapshot = {
@@ -477,7 +532,7 @@ async function importOne(
     reviewFingerprint: fingerprint,
   };
   const becameHistorical = Boolean(
-    input.historical && oldOrder?.billing_case_id && !oldOrder.historical && !invoiced,
+    input.historical && oldOrder?.billing_case_id && !oldOrder.historical && !documentIssued,
   );
   const fingerprintChanged = Boolean(
     oldOrder?.billing_case_id && oldOrder.last_observed_review_fingerprint !== fingerprint,
@@ -490,7 +545,7 @@ async function importOne(
   );
   const mapperPaymentCorrectionCandidate = Boolean(
     mapperCorrectionCandidate &&
-    !invoiced &&
+    !documentIssued &&
     oldOrder?.order_review_required &&
     !orderReview &&
     effectiveOrderPaymentStatus(input, grossAmount) === "PAID",
@@ -518,7 +573,7 @@ async function importOne(
        payment_status = EXCLUDED.payment_status,
        fulfillment_status = EXCLUDED.fulfillment_status,
        trigger_status = CASE
-         WHEN orders.billing_case_id IS NOT NULL AND $19::boolean THEN 'INVOICED'
+         WHEN $19::boolean THEN 'INVOICED'
          WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.cancelled_at IS NOT NULL
            THEN 'CANCELLED_NO_DOCUMENT'
          WHEN orders.billing_case_id IS NOT NULL AND EXCLUDED.payment_status = 'REFUNDED'
@@ -526,6 +581,7 @@ async function importOne(
          WHEN orders.billing_case_id IS NOT NULL THEN orders.trigger_status
          ELSE EXCLUDED.trigger_status
        END,
+       billing_case_id = CASE WHEN $20::boolean THEN NULL ELSE orders.billing_case_id END,
        customer_id = CASE WHEN orders.billing_case_id IS NULL THEN EXCLUDED.customer_id ELSE orders.customer_id END,
        raw_snapshot_json = CASE WHEN $19::boolean THEN orders.raw_snapshot_json ELSE EXCLUDED.raw_snapshot_json END,
        normalized_snapshot_json = CASE WHEN $19::boolean THEN orders.normalized_snapshot_json ELSE EXCLUDED.normalized_snapshot_json END,
@@ -552,6 +608,7 @@ async function importOne(
       JSON.stringify(normalizedSnapshot),
       input.cancelledAt,
       documentIssued,
+      staleIssuedMembership,
     ],
   );
   const orderId = order.rows[0]!.id;
@@ -638,7 +695,8 @@ async function importOne(
   const mapperDerivedCorrectionApplied =
     mapperCorrectionApplied || mapperPaymentCorrectionCandidate || emailOnlyAlignmentApplied;
   const sourceConflict =
-    becameHistorical || (fingerprintChanged && !mapperDerivedCorrectionApplied);
+    !staleIssuedMembership &&
+    (becameHistorical || (fingerprintChanged && !mapperDerivedCorrectionApplied));
   const revision = sourceConflict
     ? await client.query<{ id: string }>(
         `INSERT INTO order_source_revisions
@@ -678,6 +736,9 @@ async function importOne(
     documentIssued,
     actor,
   );
+  if (staleIssuedMembership && oldOrder?.billing_case_id) {
+    await reconcileStaleIssuedMembership(client, orderId, oldOrder.billing_case_id, actor);
+  }
   if (mapperPaymentCorrectionCandidate && oldOrder?.billing_case_id) {
     // Il frammento interpolato è una costante interna che riceve soltanto l'alias SQL fisso.
     // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
@@ -699,6 +760,7 @@ async function importOne(
   }
   let effectiveBillingCaseId = currentBillingCaseId;
   if (
+    !documentIssued &&
     !historicalReconciliationPending &&
     !effectiveBillingCaseId &&
     (status === "ELIGIBLE" || (status !== "INVOICED" && refundEffect.state === "TOTAL"))

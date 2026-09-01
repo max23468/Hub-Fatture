@@ -31,6 +31,8 @@ export const auditActionLabels = {
   ARUBA_VALIDATION_FAILED: "Validazione Aruba non riuscita",
   BILLING_CASE_CREATED: "Preparazione fattura creata",
   BILLING_CASE_DO_NOT_TRANSMIT: "Preparazione chiusa senza trasmissione",
+  BILLING_CASE_INVOICED_ORDERS_RECONCILED:
+    "Preparazione chiusa perché gli ordini risultano già fatturati",
   BILLING_CASE_REACTIVATED: "Preparazione riattivata",
   CUSTOMER_CORRECTED: "Anagrafica cliente corretta",
   CUSTOMER_IDENTITY_EXCEPTION_ACCEPTED: "Deroga anagrafica cliente accettata",
@@ -55,6 +57,7 @@ export const auditActionLabels = {
   ORDER_GROUPED: "Ordine aggiunto alla preparazione",
   ORDER_GROUPING_FORCED: "Preparazione anticipata richiesta",
   ORDER_HISTORY_RECONCILED: "Storico confrontato con Aruba",
+  ORDER_ALREADY_INVOICED_RECONCILED: "Ordine già fatturato rimosso dalla preparazione",
   ORDER_IMPORTED: "Ordine importato",
   ORDER_SEPARATED: "Ordine separato dalla preparazione",
   ORDER_SOURCE_CONFLICT: "Aggiornamento dell’ordine da verificare",

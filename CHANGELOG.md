@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.25
+
+- Le preparazioni approvabili escludono in modo fail-closed qualsiasi ordine già collegato a una fattura approvata; il reimport conserva lo stato `INVOICED` e l’upgrade chiude con audit le preparazioni ricreate, senza modificare i documenti fiscali esistenti.
+
 ## 0.5.24
 
 - Il dettaglio dei privati italiani eBay consente a un amministratore di accettare una deroga anagrafica quando nome e cognome non sono controverificabili in modo univoco dal Codice Fiscale; l'eccezione è vincolata all'identità sorgente esatta, riallinea automaticamente soltanto ordini e preparazioni non emessi, conserva immutati i dati grezzi del provider e riapre la verifica se intestazione o identificativo fiscale cambiano.

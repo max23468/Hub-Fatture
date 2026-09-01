@@ -14,10 +14,10 @@ export const openBillingCaseSql = (alias = "billing_cases") =>
 
 /** Un ordine annullato, rimborsato o storico non riconciliato non entra in una preparazione. */
 export const orderBillableSql = (alias = "orders") =>
-  `${alias}.cancelled_at IS NULL AND ${alias}.payment_status <> 'REFUNDED' AND ${alias}.trigger_status NOT IN ('LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') AND (NOT coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) OR ${alias}.historical_reconciliation_outcome = 'NOT_INVOICED')`;
+  `${alias}.cancelled_at IS NULL AND ${alias}.payment_status <> 'REFUNDED' AND ${alias}.trigger_status NOT IN ('INVOICED', 'LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') AND NOT ${approvedInvoiceOrderLinkSql(alias)} AND (NOT coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) OR ${alias}.historical_reconciliation_outcome = 'NOT_INVOICED')`;
 
 export const orderNotBillableSql = (alias = "orders") =>
-  `(${alias}.cancelled_at IS NOT NULL OR ${alias}.payment_status = 'REFUNDED' OR ${alias}.trigger_status IN ('LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') OR (coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) AND ${alias}.historical_reconciliation_outcome IS DISTINCT FROM 'NOT_INVOICED'))`;
+  `(${alias}.cancelled_at IS NOT NULL OR ${alias}.payment_status = 'REFUNDED' OR ${alias}.trigger_status IN ('INVOICED', 'LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') OR ${approvedInvoiceOrderLinkSql(alias)} OR (coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) AND ${alias}.historical_reconciliation_outcome IS DISTINCT FROM 'NOT_INVOICED'))`;
 
 /**
  * Un tentativo pendente non rappresenta più un saldo aperto quando gli incassi riusciti
@@ -37,6 +37,25 @@ export const billingCasePendingPaymentSql = (alias = "billing_cases") => `EXISTS
   SELECT 1 FROM orders AS pending_case_order
   WHERE pending_case_order.billing_case_id = ${alias}.id
     AND ${pendingPaymentSql("pending_case_order")}
+)`;
+
+/** Un documento approvato collegato rende l'ordine definitivamente già fatturato. */
+export const approvedInvoiceOrderLinkSql = (orderAlias = "orders") => `EXISTS (
+  SELECT 1
+  FROM document_orders AS issued_document_orders
+  JOIN documents AS issued_documents
+    ON issued_documents.id = issued_document_orders.document_id
+  WHERE issued_document_orders.order_id = ${orderAlias}.id
+    AND issued_document_orders.document_kind = 'INVOICE'
+    AND issued_documents.status = 'APPROVED'
+)`;
+
+/** Una preparazione con almeno un ordine già fatturato resta fail-closed per intero. */
+export const billingCaseHasApprovedInvoiceOrderSql = (alias = "billing_cases") => `EXISTS (
+  SELECT 1
+  FROM orders AS issued_case_order
+  WHERE issued_case_order.billing_case_id = ${alias}.id
+    AND ${approvedInvoiceOrderLinkSql("issued_case_order")}
 )`;
 
 export const hasCaseOrdersSql = `EXISTS (
@@ -115,6 +134,7 @@ export const standardInvoiceApprovalCandidateSql = (
 ) => `(
   ${billingCaseAlias}.status = 'READY'
   AND NOT ${billingCasePendingPaymentSql(billingCaseAlias)}
+  AND NOT ${billingCaseHasApprovedInvoiceOrderSql(billingCaseAlias)}
   AND (
     (
       ${documentAlias}.id IS NULL

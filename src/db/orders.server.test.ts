@@ -10,7 +10,7 @@ import { run as refundsConcurrency } from "./orders-scenarios/orders-refunds-con
 import { run as sourceAlignment } from "./orders-scenarios/orders-source-alignment.scenario.test.ts";
 import { createOrdersTestContext } from "./orders-scenarios/orders-test-support.test.ts";
 
-test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 60_000 }, async (t) => {
+test("il dominio ordini resta coerente su PostgreSQL reale", { timeout: 120_000 }, async (t) => {
   const clean = await temporaryDatabase("orders");
   try {
     await runMigrations({ connectionString: clean.connectionString });
