@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.31
+
+- I conflitti eBay già registrati vengono chiusi automaticamente quando lo stesso payload provider permette di ricostruire deterministicamente un rimborso prima ambiguo; qualsiasi variazione del dato grezzo, dell’identificativo o degli altri dati d’ordine resta bloccata.
+- Il PostgreSQL sintetico usa un processo init dedicato, così le prove di backup e restore non possono più riavviare il database condiviso durante i gate locali.
+
 ## 0.5.30
 
 - I bonifici Shopify pagati con un arrotondamento positivo massimo di due centesimi restano riconciliati al totale ordine senza aumentare l’importo fatturabile; eccedenze superiori, sottopagamenti e altri metodi continuano a richiedere verifica.

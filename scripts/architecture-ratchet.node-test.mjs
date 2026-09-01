@@ -21,6 +21,7 @@ const capabilitySizeCaps = new Map([
   ["src/db/historical-order-reconciliation.server.ts", 56_000],
   ["src/db/order-import.server.ts", 39_000],
   ["src/db/order-automatic-alignment.server.ts", 7_000],
+  ["src/db/order-ebay-refund-alignment.server.ts", 5_000],
   ["src/db/order-grouping.server.ts", 6_000],
   ["src/db/order-children-persistence.server.ts", 10_000],
   ["src/db/order-source-conflict.server.ts", 8_000],
@@ -61,6 +62,7 @@ const scenarioSizeCaps = new Map([
   ["src/db/orders-scenarios/orders-history-extended.scenario.test.ts", 80_000],
   ["src/db/orders-scenarios/orders-refunds-concurrency.scenario.test.ts", 45_000],
   ["src/db/orders-scenarios/orders-source-alignment.scenario.test.ts", 9_000],
+  ["src/db/orders-scenarios/orders-ebay-refund-alignment.scenario.test.ts", 6_000],
   ["src/db/orders-scenarios/orders-shopify-alignment.scenario.test.ts", 5_000],
   ["src/db/orders-scenarios/orders-customer-identity-exception.scenario.test.ts", 6_000],
 ]);
@@ -114,7 +116,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
     .slice(readinessFiles.length)
     .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
   assert.equal(readinessTests.length, 10);
-  assert.equal(migrationTests.length, 25);
+  assert.equal(migrationTests.length, 26);
 });
 
 test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", async () => {

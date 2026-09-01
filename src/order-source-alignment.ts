@@ -98,6 +98,65 @@ export function isEbayCustomerEmailOnlyMismatch(
   return isDeepStrictEqual(withoutEmailEvidence(previous), withoutEmailEvidence(current));
 }
 
+function refundRecord(value: unknown) {
+  const candidate = record(value);
+  if (!candidate || typeof candidate.externalRefundId !== "string") return null;
+  return candidate;
+}
+
+function withoutEbayRefundMapperEvidence(snapshot: Record<string, unknown>): unknown {
+  const ignored = new Set(["orderReviewRequired", "reviewFingerprint", "sourceConflictRequired"]);
+  return JSON.parse(
+    JSON.stringify(
+      Object.fromEntries(Object.entries(snapshot).filter(([key]) => !ignored.has(key))),
+    ),
+  );
+}
+
+/**
+ * Riconosce il replay eBay che completa un rimborso prima ambiguo usando lo stesso
+ * payload provider. L'unica variazione ammessa è `AMBIGUOUS/null -> COMPLETED/importo`;
+ * identificativo, dato grezzo e istante del rimborso devono restare identici.
+ */
+export function isEbayRefundMapperOnlyChange(
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  if (previous.provider !== "EBAY" || current.provider !== "EBAY") return false;
+  if (!isDeepStrictEqual(previous.sourceSnapshot, current.sourceSnapshot)) return false;
+  const previousRefunds = Array.isArray(previous.refunds) ? previous.refunds : [];
+  const currentRefunds = Array.isArray(current.refunds) ? current.refunds : [];
+  if (previousRefunds.length === 0 || previousRefunds.length !== currentRefunds.length)
+    return false;
+
+  let completedAmbiguousRefund = false;
+  const normalizedCurrentRefunds = currentRefunds.map((value, index) => {
+    const before = refundRecord(previousRefunds[index]);
+    const after = refundRecord(value);
+    if (!before || !after || before.externalRefundId !== after.externalRefundId) return value;
+    if (isDeepStrictEqual(before, after)) return value;
+    if (
+      before.status !== "AMBIGUOUS" ||
+      before.amount !== null ||
+      after.status !== "COMPLETED" ||
+      typeof after.amount !== "string" ||
+      !/^\d+(?:\.\d{2})$/.test(after.amount) ||
+      !isDeepStrictEqual(before.raw, after.raw) ||
+      before.completedAt !== after.completedAt
+    ) {
+      return value;
+    }
+    completedAmbiguousRefund = true;
+    return before;
+  });
+  if (!completedAmbiguousRefund) return false;
+
+  return isDeepStrictEqual(
+    withoutEbayRefundMapperEvidence(previous),
+    withoutEbayRefundMapperEvidence({ ...current, refunds: normalizedCurrentRefunds }),
+  );
+}
+
 function withoutShopifyFulfillmentEvidence(snapshot: Record<string, unknown>): unknown {
   const ignored = new Set([
     "fulfillmentStatus",

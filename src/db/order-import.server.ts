@@ -57,6 +57,7 @@ import {
   reconcileEbayEmailUpdate,
   reconcileMapperCustomerCorrection,
 } from "./order-automatic-alignment.server.ts";
+import { reconcileExistingEbayRefundMapperConflict } from "./order-ebay-refund-alignment.server.ts";
 import { prepareCustomerInput } from "./order-customer-input.server.ts";
 import { reconcileShopifyFulfillmentChange } from "./order-shopify-fulfillment-alignment.server.ts";
 import { canonicalOrderTimestamp } from "./order-timestamp.ts";
@@ -617,7 +618,7 @@ async function importOne(
     !existingEmailOnlyConflict &&
     !documentIssued &&
     oldOrder?.billing_case_id &&
-    oldOrder.trigger_status === "NEEDS_REVIEW" &&
+    ["NEEDS_REVIEW", "GROUPED"].includes(oldOrder.trigger_status) &&
     oldOrder.latest_revision_id &&
     oldOrder.latest_revision_previous_snapshot_json &&
     oldOrder.latest_revision_current_snapshot_json &&
@@ -660,6 +661,14 @@ async function importOne(
           alignment: existingEmailAndMapperConflict ? "EMAIL_AND_MAPPER" : "EMAIL_ONLY",
         })
       : false;
+  const refundMapperAlignmentApplied = await reconcileExistingEbayRefundMapperConflict(client, {
+    provider: input.provider,
+    documentIssued,
+    oldOrder,
+    fingerprint,
+    orderId,
+    requestId: actor.requestId,
+  });
   const shopifyFulfillmentAlignmentApplied = await reconcileShopifyFulfillmentChange(client, {
     oldOrder,
     orderId,
@@ -692,6 +701,7 @@ async function importOne(
     mapperCorrectionApplied ||
     mapperPaymentCorrectionCandidate ||
     emailOnlyAlignmentApplied ||
+    refundMapperAlignmentApplied ||
     shopifyFulfillmentAlignmentApplied;
   const sourceConflict =
     !staleIssuedMembership &&
@@ -894,9 +904,7 @@ async function importOne(
       });
     }
   }
-  // Le correzioni del mapper possono cambiare un'anomalia derivata senza cambiare il
-  // fingerprint della sorgente. Il replay richiesto dalla migrazione deve quindi
-  // riallineare anche la preparazione già persistita, non soltanto il suo snapshot.
+  // Un replay del mapper riallinea anche l'anomalia già persistita.
   if (
     !documentIssued &&
     effectiveBillingCaseId &&
