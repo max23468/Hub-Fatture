@@ -98,14 +98,14 @@ export function classifyFiles(inputFiles) {
   const migrationStorage =
     failClosed ||
     files.some((file) =>
-      /^(?:migrations\/|compose\.production\.yaml$|scripts\/(?:backup|restore)|src\/db\/(?:document-storage|migrations|retention))/.test(
+      /^(?:migrations\/|compose\.production\.yaml$|scripts\/(?:backup|restore)\.sh$|src\/db\/(?:document-storage|migrations|retention))/.test(
         file,
       ),
     );
   const deploy =
     failClosed ||
     files.some((file) =>
-      /^(?:Dockerfile$|compose\.production\.yaml$|migrations\/|ops\/|scripts\/(?:backup|monitor-local|production-|read-env|restore))/.test(
+      /^(?:Dockerfile$|compose\.production\.yaml$|migrations\/|ops\/|scripts\/(?:backup|monitor-local|read-env|restore)\.sh$|scripts\/production-)/.test(
         file,
       ),
     );
