@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.27
+
+- In `Ordini → Da fatturare`, l’elenco delle preparazioni precede l’approvazione in blocco, così la selezione dei documenti resta contestualizzata dal lavoro disponibile; i tooltip della sidebar desktop compressa rimangono interamente visibili sopra il contenuto della pagina.
+
 ## 0.5.26
 
 - I privati italiani eBay con Codice Fiscale formalmente valido, intestazione utilizzabile e indirizzo completo non restano più bloccati quando nome e CF non sono coerenti: Hub Fatture applica automaticamente una deroga anagrafica tracciata, conserva immutato lo snapshot del provider e rivaluta la decisione quando cambia l’identità sorgente.

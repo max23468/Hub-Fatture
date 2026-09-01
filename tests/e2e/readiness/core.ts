@@ -132,6 +132,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   await expect(sidebar).toHaveCSS("width", "72px");
   await expect(appMain).toHaveCSS("margin-left", "72px");
+  await expect(sidebar).toHaveCSS("z-index", "40");
   const controlsNavigation = page.getByRole("link", { name: "Controlli", exact: true }).first();
   await controlsNavigation.evaluate((element) => {
     const badge = document.createElement("span");
