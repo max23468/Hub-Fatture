@@ -650,6 +650,76 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       ).rows[0],
       { group_count: 2, document_count: 2 },
     );
+    await getPool().query(
+      `UPDATE aruba_sync_runs SET status = 'COMPLETED', completed_at = now()
+       WHERE id = $1`,
+      [stagedRunId],
+    );
+    const repeatedConflictRunId = "30000000-0000-4000-8000-000000000100";
+    await getPool().query(
+      `INSERT INTO aruba_sync_runs
+        (id, environment, api_environment, account_reference, kind, authority_mode, status,
+         window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at)
+       VALUES ($1, 'MOCK', 'DEMO', 'synthetic-aruba-account', 'INCREMENTAL', 'CANONICAL',
+         'RUNNING', '2019-01-01', '2019-01-03', '2019-01-01', '2019-01-03',
+         now() + interval '3 minutes')`,
+      [repeatedConflictRunId],
+    );
+    const repeatedStage = await apiStage.stageApiPage(
+      repeatedConflictRunId,
+      pageWithImmutableConflict,
+      new Map([
+        ["atomic-stage-synthetic", "atomic-stage-group"],
+        ["atomic-immutable-conflict", "atomic-conflict-group"],
+      ]),
+      2,
+    );
+    assert.deepEqual(
+      repeatedStage.resolvedDocuments?.map((document) => document.remoteDocumentId),
+      [stagedApiDocument.rows[0]!.id, stagedApiDocument.rows[0]!.id],
+    );
+    await groupFile.importArubaApiGroupFile({
+      runId: repeatedConflictRunId,
+      providerGroupId: "atomic-conflict-group",
+      kind: "ARUBA_P7M",
+      filename: "atomic-stage.xml.p7m",
+      bytes: signedXml(acceptedInvoiceXml),
+    });
+    assert.deepEqual(
+      await canonicalPage.commitArubaApiInventoryPage(
+        repeatedConflictRunId,
+        pageWithImmutableConflict,
+        2,
+        [stagedApiDocument.rows[0]!.id, stagedApiDocument.rows[0]!.id],
+      ),
+      { repeated: false },
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT
+             (SELECT count(*)::integer FROM aruba_sync_run_pages
+               WHERE sync_run_id = $1) AS pages,
+             (SELECT count(*)::integer FROM aruba_deduplication_conflicts
+               WHERE sync_run_id = $1) AS new_conflicts`,
+          [repeatedConflictRunId],
+        )
+      ).rows[0],
+      { pages: 1, new_conflicts: 0 },
+    );
+    await getPool().query("DELETE FROM aruba_remote_observations WHERE sync_run_id = $1", [
+      repeatedConflictRunId,
+    ]);
+    await getPool().query(
+      `WITH removed AS (DELETE FROM aruba_api_group_files WHERE sync_run_id = $1
+         RETURNING storage_object_id)
+       DELETE FROM storage_objects WHERE id IN (SELECT storage_object_id FROM removed)`,
+      [repeatedConflictRunId],
+    );
+    await getPool().query("DELETE FROM aruba_sync_run_pages WHERE sync_run_id = $1", [
+      repeatedConflictRunId,
+    ]);
+    await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [repeatedConflictRunId]);
     await getPool().query("DELETE FROM aruba_remote_observations WHERE sync_run_id = $1", [
       stagedRunId,
     ]);

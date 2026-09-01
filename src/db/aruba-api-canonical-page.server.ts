@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-import { inventoryPageSchema } from "../aruba-inbound.ts";
+import { inventoryPageSchema, remoteMetadataDigest } from "../aruba-inbound.ts";
 import { AppError } from "../errors.ts";
 import { withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
@@ -40,6 +40,12 @@ export async function commitArubaApiInventoryPage(
   for (const [remoteDocumentId, count] of remoteDocumentCounts) {
     if (count > 1) duplicateRemoteDocumentIds.push(remoteDocumentId);
   }
+  const duplicateEvidence = parsed.data.documents.flatMap((document, index) => {
+    const remoteDocumentId = parsedRemoteDocumentIds.data[index]!;
+    return (remoteDocumentCounts.get(remoteDocumentId) ?? 0) > 1
+      ? [{ remoteDocumentId, payloadDigest: remoteMetadataDigest(document) }]
+      : [];
+  });
   return withTransaction(async (client) => {
     const run = await client.query<{
       environment: "MOCK" | "PRODUCTION";
@@ -88,16 +94,24 @@ export async function commitArubaApiInventoryPage(
                AND group_files.provider_group_id = remote.provider_group_id
                AND group_files.kind IN ('ARUBA_XML', 'ARUBA_P7M'))
          )::integer AS incomplete_files,
-         (SELECT count(DISTINCT conflicts.existing_remote_document_id)::integer
-          FROM aruba_deduplication_conflicts conflicts
-          WHERE conflicts.sync_run_id = $1
-            AND conflicts.existing_remote_document_id = ANY($4::bigint[])
-            AND conflicts.resolved_at IS NULL) AS conflicted_duplicates
+         (SELECT count(DISTINCT evidence.remote_document_id)::integer
+          FROM unnest($4::bigint[], $5::text[])
+            AS evidence(remote_document_id, payload_digest)
+          JOIN aruba_deduplication_conflicts conflicts
+            ON conflicts.existing_remote_document_id = evidence.remote_document_id
+           AND conflicts.incoming_payload_digest = evidence.payload_digest
+           AND conflicts.resolved_at IS NULL) AS conflicted_duplicates
        FROM aruba_remote_observations observations
        JOIN aruba_remote_documents remote ON remote.id = observations.remote_document_id
        WHERE observations.sync_run_id = $1 AND observations.page_ordinal = $2
          AND observations.remote_document_id = ANY($3::bigint[])`,
-      [id.data, parsed.data.pageOrdinal, uniqueRemoteDocumentIds, duplicateRemoteDocumentIds],
+      [
+        id.data,
+        parsed.data.pageOrdinal,
+        uniqueRemoteDocumentIds,
+        duplicateEvidence.map((evidence) => evidence.remoteDocumentId),
+        duplicateEvidence.map((evidence) => evidence.payloadDigest),
+      ],
     );
     if (
       staged.rows[0]?.unique_count !== uniqueRemoteDocumentIds.length ||

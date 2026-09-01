@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.29
+
+- La sincronizzazione Aruba riconosce in ogni scansione sovrapposta un conflitto fiscale immutabile già registrato soltanto quando coincide l’impronta del payload corrente, evitando che la deduplicazione globale interrompa i giri successivi senza allentare i controlli su collisioni nuove o mutate.
+
 ## 0.5.28
 
 - La sincronizzazione incrementale Aruba e la rilettura dei documenti non terminali si alternano in base al flusso rimasto più indietro, impedendo che un singolo documento in elaborazione blocchi indefinitamente l'acquisizione delle nuove fatture.
