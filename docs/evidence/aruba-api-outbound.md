@@ -60,6 +60,12 @@ diretta del database ha verificato:
 - modalità effettiva `DOCUMENT_ONLY` e `ARUBA_SUBMISSION_ENABLED=false` ancora attivi dopo la prova;
 - cicli inbound canonici ancora completati, senza job attivi o fallimenti non recuperati.
 
+Il readback del candidato riconosce questa catena come prova terminale soltanto quando tutte le
+cardinalità, gli hash, gli stati e le assenze di artefatti remoti sopra elencati coincidono. La prova
+resta quindi conservata nei suoi stati originali: non richiede di marcare il batch come
+`RECONCILED` o `CANCELLED` e torna bloccante se emerge un job attivo, un hash divergente, una
+marcatura di invio o uno stato remoto incerto.
+
 La ricevuta conserva soltanto stati, cardinalità e corrispondenza degli hash: identificativi del
 batch, hash completi e dati del destinatario restano fuori dal repository. Nessun invio SdI o
 upload con `dryRun=false` è stato eseguito; la prova SdI appartiene alle milestone successive.

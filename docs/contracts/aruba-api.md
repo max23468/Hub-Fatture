@@ -43,6 +43,14 @@ account e manifest, scade dopo quindici minuti e autorizza al massimo una richie
 `dryRun=true`. Il worker la consuma atomicamente prima della rete. Non abilita `dryRun=false` e non
 modifica l’interruttore globale.
 
+`DRY_RUN_VALIDATED` costituisce una prova terminale di qualifica, e non un invio da riconciliare,
+soltanto se l’intera catena resta integra: documento Hub approvato, batch Production
+`DOCUMENT_ONLY` via API con un solo documento e primo tentativo, submission e manifest allineati,
+qualifica monouso e tentativo `DRY_RUN` entrambi `SUCCEEDED`, hash XML coincidenti, job concluso,
+`submitted_at` e identificativo remoto assenti, nessun file Aruba e nessuna notifica SdI. Il gate
+del candidato conserva questa evidenza senza riscrivere gli stati fiscali. La mancanza di un solo
+vincolo rende nuovamente aperti sia il documento sia il batch.
+
 Ogni batch lega ambiente, account, modalità, tentativo e documenti allo SHA-256 del manifest.
 Timeout, risposta non interpretabile o esito remoto ambiguo producono `UNKNOWN_REMOTE_STATE`,
 bloccano il batch e non consentono retry automatici. I dry-run non incrementano il contatore

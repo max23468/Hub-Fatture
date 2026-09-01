@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.34
+
+- Il readback del candidato riconosce come conclusa la qualifica Production `dryRun=true` soltanto quando documento, batch, submission, permesso monouso, tentativo, job, manifest e hash costituiscono una prova terminale integra e priva di invio o artefatti remoti; qualsiasi divergenza resta bloccante senza riscrivere o cancellare l’evidenza M10.
+
 ## 0.5.33
 
 - I retry Aruba espliciti possono ripartire con credenziali verificate anche quando il tentativo precedente ha lasciato la connessione in errore; connessioni in pausa, revocate o da riautenticare restano bloccate e lo stato torna collegato soltanto dopo un completamento riuscito.

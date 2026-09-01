@@ -10,7 +10,7 @@ La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL n
 
 Deploy Hub Fatture e build/manutenzioni Docker Sequent condividono un lock host dedicato. Dopo un readback riuscito, la corsia Production elimina soltanto le immagini Hub Fatture che non corrispondono né al digest live né al rollback e che non sono usate da alcun container. La selezione usa il label OCI del repository, non tag generici o una pulizia Docker globale; un’identità protetta assente interrompe l’operazione.
 
-Per un candidato precedente al Canary tecnico Production, dopo il normale readback eseguire anche `scripts/production-release-candidate-readback.sh`: il controllo fallisce se trova documenti approvati, import iniziali non completati, ordini storici non riconciliati o batch Aruba aperti.
+Per un candidato precedente al Canary tecnico Production, dopo il normale readback eseguire anche `scripts/production-release-candidate-readback.sh`: il controllo fallisce se trova documenti Hub approvati privi di una prova terminale di qualifica, import iniziali non completati, ordini storici non riconciliati o batch Aruba aperti. Una catena Production `DOCUMENT_ONLY` conclusa correttamente con `dryRun=true` viene conteggiata separatamente come qualifica completata e non viene trasformata in invio, riconciliazione o cancellazione.
 
 ## Accesso SSH dal Mac
 
