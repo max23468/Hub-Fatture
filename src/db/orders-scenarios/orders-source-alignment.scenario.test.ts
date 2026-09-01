@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { OrdersTestContext } from "./orders-test-support.test.ts";
 import { runStaleEmailAlignmentScenario } from "./orders-stale-email-alignment.scenario.test.ts";
 
-export async function runSourceAlignmentScenario(context: OrdersTestContext) {
+export async function run(context: OrdersTestContext) {
   const { orders, database, fixture } = context;
   const ebayMapperCorrection = structuredClone(fixture[0]);
   ebayMapperCorrection.provider = "EBAY";

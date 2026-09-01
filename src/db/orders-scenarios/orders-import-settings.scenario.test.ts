@@ -7,7 +7,7 @@ import {
   type OrdersTestContext,
 } from "./orders-test-support.test.ts";
 
-export async function runImportAndSettingsScenario(context: OrdersTestContext) {
+export async function run(context: OrdersTestContext) {
   const { orders, database, fixture, connectionString } = context;
   await database.getPool().query(
     `INSERT INTO connections

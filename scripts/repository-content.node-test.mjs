@@ -547,7 +547,7 @@ test("il job PostgreSQL installa il validatore XML usato dalle suite DB", async 
   assert.match(database, /npm run test:db/);
   const scripts = JSON.parse(packageJson).scripts;
   assert.equal(scripts["test:db"], "node scripts/with-test-database.mjs npm run test:db:direct");
-  assert.equal(scripts["test:db:direct"], "node --test --test-concurrency=4 src/db/*.test.ts");
+  assert.equal(scripts["test:db:direct"], "node --test --test-concurrency=1 src/db/*.test.ts");
 });
 
 test("la modifica del classificatore forza i gate senza eseguirlo come autorità", async () => {

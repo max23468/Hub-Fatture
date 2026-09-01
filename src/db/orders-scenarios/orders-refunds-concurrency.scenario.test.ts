@@ -5,7 +5,7 @@ import { AppError } from "../../errors.ts";
 import { PAGE_SIZE } from "../../orders.ts";
 import type { OrdersTestContext } from "./orders-test-support.test.ts";
 
-export async function runRefundsAndConcurrencyScenario(context: OrdersTestContext) {
+export async function run(context: OrdersTestContext) {
   const { orders, database, caseRevision, fixture } = context;
   const historicalRefunded = structuredClone(fixture[0]);
   historicalRefunded.externalOrderId = "shop-order-historical-refunded";
@@ -595,7 +595,7 @@ export async function runRefundsAndConcurrencyScenario(context: OrdersTestContex
     ),
   );
   const history = await orders.listAuditHistory({ action: "CUSTOMER_CORRECTED" });
-  assert.equal(history.rows.length, 4);
+  assert.equal(history.rows.length, 5);
   assert.ok(history.rows.some((event) => event.reason === "Dati fiscali confermati dal cliente"));
   assert.ok(
     history.rows.some(

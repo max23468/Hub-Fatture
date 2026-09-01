@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { AppError } from "../../errors.ts";
 import type { OrdersTestContext } from "./orders-test-support.test.ts";
 
-export async function runMutationsAndGroupingScenario(context: OrdersTestContext) {
+export async function run(context: OrdersTestContext) {
   const { orders, database, caseRevision, fixture } = context;
   const approvedGroup = [structuredClone(fixture[0]), structuredClone(fixture[1])];
   approvedGroup[0].externalOrderId = "shop-order-approved-1";

@@ -8,6 +8,7 @@ export const auditActions = [
   "BILLING_CASE_DO_NOT_TRANSMIT",
   "BILLING_CASE_REACTIVATED",
   "CUSTOMER_CORRECTED",
+  "CUSTOMER_IDENTITY_EXCEPTION_ACCEPTED",
   "DRAFT_TRIGGER_CHANGED",
   "SHOPIFY_PAYMENT_FEE_MODE_CHANGED",
   "DOCUMENT_APPROVED",
@@ -97,7 +98,8 @@ export async function writeAudit(
       | "ARUBA_SUBMISSION_ATTEMPT"
       | "FISCAL_PROFILE"
       | "REFUND"
-      | "EMAIL_DELIVERY";
+      | "EMAIL_DELIVERY"
+      | "CUSTOMER";
     entityId?: string | null;
     metadata?: Partial<{
       billingCaseId: string;
