@@ -881,16 +881,6 @@ export default function Orders() {
         </p>
       ) : null}
 
-      {showsPreparations && approvalCandidates.length > 1 ? (
-        <MassApprovalPanel
-          approvalCandidates={approvalCandidates}
-          arubaMode={arubaMode}
-          arubaConfiguredMode={arubaConfiguredMode}
-          arubaDowngradeRequired={arubaDowngradeRequired}
-          csrfToken={csrfToken}
-        />
-      ) : null}
-
       {showsPreparationArchive ? (
         <PreparationList
           cases={cases}
@@ -898,6 +888,16 @@ export default function Orders() {
           showsPreparations={showsPreparations}
           sort={preparationSort}
           view={view}
+        />
+      ) : null}
+
+      {showsPreparations && approvalCandidates.length > 1 ? (
+        <MassApprovalPanel
+          approvalCandidates={approvalCandidates}
+          arubaMode={arubaMode}
+          arubaConfiguredMode={arubaConfiguredMode}
+          arubaDowngradeRequired={arubaDowngradeRequired}
+          csrfToken={csrfToken}
         />
       ) : null}
 
