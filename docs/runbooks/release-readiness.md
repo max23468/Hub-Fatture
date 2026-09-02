@@ -4,45 +4,44 @@ Questo è il record del candidato Production osservato. Un gate è chiuso soltan
 
 ## Stato del record
 
-La ricertificazione è chiusa per decisione del titolare e non viene ripetuta. Le prove del candidato
-identificato sotto restano il record osservato della milestone; la fase successiva collega
-separatamente i propri gate tecnici all’identità effettiva del candidato senza upload o invii reali
-e senza riaprire la ricertificazione.
+La ricertificazione e la qualifica tecnica sono chiuse e non vengono ripetute. Il titolare ha
+autorizzato separatamente la release `v1.0.0` e l’uso Production ordinario. Il go-live è stato
+completato sul candidato esatto, con modalità `CONTEXTUAL_CONFIRMATION` e kill switch attivo.
 
-La preparazione del go-live introduce una corsia operativa separata per il kill switch. Finché il
-nuovo candidato non è distribuito e qualificato, la release non è pubblicata e manca
-l’autorizzazione distinta all’uso ordinario, lo stato Production resta intenzionalmente `false`.
+Per decisione esplicita del titolare, la prima trasmissione reale e il monitoraggio rafforzato della
+prima giornata non sono gate di chiusura del go-live. L’automazione temporanea di monitoraggio è stata
+eliminata; nessun documento è stato creato, approvato, selezionato o inviato durante il go-live.
 
-## Identità candidata della qualifica tecnica
+## Identità finale del go-live
 
-| Campo                    | Stato osservato                                                                                                                                                                                                                                                                               |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Versione applicativa     | `1.0.0`, distribuita come candidata e non pubblicata                                                                                                                                                                                                                                          |
-| Commit runtime candidato | `bee4cfcc21d3a25653e6105949a5056c74d38872`                                                                                                                                                                                                                                                    |
-| Digest immagine          | `sha256:a371cae649b0c568a22f2b57c41cdcb8719e608fa601655b11349586aa1dafed`                                                                                                                                                                                                                     |
-| Schema candidato         | `063_aruba_historical_api_recovery.sql`                                                                                                                                                                                                                                                       |
-| Modifica runtime         | [PR #294](https://github.com/max23468/Hub-Fatture/pull/294), assorbita in `main`                                                                                                                                                                                                              |
-| CI e sicurezza           | [CI 33597088584](https://github.com/max23468/Hub-Fatture/actions/runs/33597088584), [Foundation 33597088494](https://github.com/max23468/Hub-Fatture/actions/runs/33597088494) e [CodeQL 33597088548](https://github.com/max23468/Hub-Fatture/actions/runs/33597088548) conclusi con successo |
-| Artefatto e attestazione | [Production artifact 33597088499](https://github.com/max23468/Hub-Fatture/actions/runs/33597088499), riusato dal deploy exact-SHA                                                                                                                                                             |
-| Workflow Production      | [deploy 33597127339](https://github.com/max23468/Hub-Fatture/actions/runs/33597127339), concluso con successo                                                                                                                                                                                 |
-| Release tecnica          | tag e GitHub Release `v1.0.0` assenti; la pubblicazione resta assegnata al go-live                                                                                                                                                                                                            |
-| Arresto invii            | `ARUBA_SUBMISSION_ENABLED=false` riletto nel runtime Production                                                                                                                                                                                                                               |
+| Campo                | Stato osservato                                                                                                                                                                                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Versione applicativa | `1.0.0`, pubblicata                                                                                                                                                                                                                                                           |
+| Commit runtime       | `ddf569fc119bd10c5dd0541406b81642539d3336`                                                                                                                                                                                                                                    |
+| Digest immagine      | `sha256:21a5418d7f17ae885ce0a6af922f279aecf6cce9a1f8b24589db6cb39cac04b7`                                                                                                                                                                                                     |
+| Schema               | `063_aruba_historical_api_recovery.sql`                                                                                                                                                                                                                                       |
+| Modifica runtime     | [PR #297](https://github.com/max23468/Hub-Fatture/pull/297), assorbita in `main`                                                                                                                                                                                              |
+| CI e sicurezza       | [CI 33613957404](https://github.com/max23468/Hub-Fatture/actions/runs/33613957404), [Foundation 33613957379](https://github.com/max23468/Hub-Fatture/actions/runs/33613957379) e [CodeQL 33613957465](https://github.com/max23468/Hub-Fatture/actions/runs/33613957465) verdi |
+| Artefatto e deploy   | artifact `33614208912` riusato dal [deploy exact-SHA 33614221291](https://github.com/max23468/Hub-Fatture/actions/runs/33614221291)                                                                                                                                           |
+| Release              | [GitHub Release immutabile `v1.0.0`](https://github.com/max23468/Hub-Fatture/releases/tag/v1.0.0), manifest unico collegato allo stesso commit, digest e schema                                                                                                               |
+| Uso ordinario        | [attivazione 33615525558](https://github.com/max23468/Hub-Fatture/actions/runs/33615525558) riuscita; `ARUBA_SUBMISSION_ENABLED=true` e modalità `CONTEXTUAL_CONFIRMATION` riletti in Production                                                                              |
 
-Il readback protetto del candidato, ripetuto dopo il deploy, collega commit, digest, versione e
-schema esatti. Restituisce `unsafeApprovedDocuments=0`, `unreconciledHistory=0`,
-`pendingHistoryImports=0`, `openArubaBatches=0` e `completedDryRunQualifications=1`. Non risultano
-finding P0/P1 o stati remoti incerti aperti; nessun upload o invio reale appartiene alla qualifica
-tecnica. La ricertificazione precedente resta chiusa e non viene ripetuta.
+Il readback protetto finale collega commit, digest, versione e schema esatti. Dopo l’attivazione
+restituisce `unsafeApprovedDocuments=0`, `unreconciledHistory=0`, `pendingHistoryImports=0`,
+`openArubaBatches=0` e `completedDryRunQualifications=1`. Non risultano finding P0/P1 o stati remoti
+incerti aperti. La modalità con conferma non rende automatica l’approvazione e richiede un’azione
+separata del titolare per ogni invio.
 
 ## Gate della qualifica tecnica
 
-| Gate exact-commit               | Stato  | Riferimento                                                                                                                                                      |
-| ------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CI, dipendenze e regressioni    | Chiuso | CI, Foundation e CodeQL verdi sul commit runtime esatto                                                                                                          |
-| Immagine, attestazione e deploy | Chiuso | artifact `33597088499`, digest esatto distribuito dal workflow Production `33597127339`                                                                          |
-| Schema e configurazione         | Chiuso | schema `063_aruba_historical_api_recovery.sql`, versione `1.0.0` e `ARUBA_SUBMISSION_ENABLED=false` riletti in Production                                        |
-| Readback operativo              | Chiuso | zero documenti approvati non qualificati, storici irriconciliati, import iniziali pendenti e batch Aruba aperti; una qualifica dry-run terminale                 |
-| Confine qualifica/go-live       | Chiuso | nessun tag/release `v1.0.0`, upload, invio Aruba o abilitazione ordinaria; il primo effetto fiscale reale resta assegnato al normale flusso operativo successivo |
+| Gate exact-commit               | Stato    | Riferimento                                                                                                                                                             |
+| ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI, dipendenze e regressioni    | Chiuso   | CI, Foundation e CodeQL verdi sul commit runtime esatto                                                                                                                 |
+| Immagine, attestazione e deploy | Chiuso   | artifact `33614208912`, digest esatto distribuito dal workflow Production `33614221291`                                                                                 |
+| Schema e configurazione         | Chiuso   | schema `063_aruba_historical_api_recovery.sql`, versione `1.0.0`, modalità `CONTEXTUAL_CONFIRMATION` e `ARUBA_SUBMISSION_ENABLED=true` riletti in Production            |
+| Readback operativo              | Chiuso   | zero documenti approvati non qualificati, storici irriconciliati, import iniziali pendenti e batch Aruba aperti; una qualifica dry-run terminale                        |
+| Release e autorizzazioni        | Chiuso   | release immutabile e autorizzazioni distinte del titolare per pubblicazione e uso ordinario                                                                             |
+| Prima trasmissione e monitor    | Non gate | esclusi dai criteri di chiusura del go-live per decisione esplicita del titolare; nessuna trasmissione effettuata durante il go-live e automazione temporanea eliminata |
 
 ### Evidenza backup e restore corrente
 
