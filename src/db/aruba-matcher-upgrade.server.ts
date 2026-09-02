@@ -12,6 +12,7 @@ import {
   officialEvidence,
   reconcileAutomaticAmbiguousInvoices,
 } from "./aruba-document-materialization.server.ts";
+import { arubaExternalEvidenceCandidateSql } from "./billing-case-sql.server.ts";
 import { reconcileRemoteDocument } from "./aruba-reconciliation.server.ts";
 
 export async function reconcileCachedArubaMatcherUpgrade(
@@ -48,6 +49,10 @@ export async function reconcileCachedArubaMatcherUpgrade(
        AND remote.remote_status <> 'REJECTED'
        AND matches.method <> 'MANUAL'
        AND matches.status NOT IN ('ERROR', 'UNKNOWN_REMOTE_STATE')
+       AND (remote.document_type <> 'TD01' OR EXISTS (
+         SELECT 1 FROM jsonb_array_elements(matches.candidates_json) external_candidate
+         WHERE ${arubaExternalEvidenceCandidateSql("external_candidate", "remote")}
+       ))
        AND (((remote.document_type = 'TD01' AND EXISTS (
          SELECT 1 FROM orders
          WHERE orders.trigger_status NOT IN (

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.15
+
+- La riconciliazione Aruba riconosce i nomi dei privati esteri traslitterati dal cirillico e tollera una sola vocale duplicata o omessa soltanto quando il nominativo ha più parti e il Paese coincide; il replay TD01 riallinea i documenti già valutati senza indebolire i controlli su data, importo, unicità e XML ufficiale.
+
 ## 1.0.14
 
 - Un documento Aruba con XML ufficiale, data e totale esattamente coincidenti può essere collegato manualmente a un ordine anche quando i dati del destinatario non coincidono, ma soltanto dopo una conferma esplicita e una motivazione che identifichi sia la fattura sia l’ordine; il collegamento non viene mai proposto come automatico e resta tracciato nell’audit come prova esterna.

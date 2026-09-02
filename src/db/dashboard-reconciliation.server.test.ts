@@ -505,6 +505,55 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.equal(externalEvidenceControl?.primary_action, "Registra conferma esterna");
 
     await client.getPool().query(
+      `UPDATE aruba_document_matches SET matcher_version = 11
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
+    await client.getPool().query(
+      `INSERT INTO aruba_sync_sessions
+         (id, environment, account_reference, status, absolute_expires_at,
+          completed_at, source, is_full_scan)
+       VALUES ('00000000-0000-4000-8000-000000000200', 'MOCK',
+         'synthetic-aruba-account', 'COMPLETED', now() + interval '1 hour',
+         now(), 'MANUAL', false)`,
+    );
+    await client.getPool().query(
+      `INSERT INTO aruba_remote_observations
+         (remote_document_id, sync_session_id, remote_status, stream,
+          scan_ordinal, page_ordinal, payload_digest, payload_json)
+       VALUES ($1, '00000000-0000-4000-8000-000000000200', 'DELIVERED',
+         'invoices:2026', 1, 1, repeat('e', 64), jsonb_build_object(
+           'remoteId', 'weak-official-match', 'documentType', 'TD01',
+           'fiscalYear', 2026, 'series', 'FPR', 'fiscalNumber', '100',
+           'documentDate', to_char(${romeTodaySql} - 2, 'YYYY-MM-DD'),
+           'recipientName', 'Cliente diverso', 'recipientTaxId', NULL,
+           'recipientTaxIdentifiers', '[]'::jsonb, 'recipientCountryCode', NULL,
+           'recipientAddress', NULL, 'totalAmount', 1000, 'currency', 'EUR',
+           'status', 'DELIVERED', 'providerObservedAt', NULL,
+           'xmlSha256', repeat('d', 64), 'orderReferences', '[]'::jsonb
+         ))`,
+      [remote.rows[0]!.id],
+    );
+    const selectedForReplay: string[] = [];
+    const replayTransaction = await client.getPool().connect();
+    try {
+      await replayTransaction.query("BEGIN");
+      const matcherUpgrade = await import("./aruba-matcher-upgrade.server.ts");
+      await matcherUpgrade.reconcileCachedArubaMatcherUpgrade(
+        replayTransaction,
+        "MOCK",
+        "synthetic-aruba-account",
+        async (remoteDocumentId) => {
+          selectedForReplay.push(remoteDocumentId);
+        },
+      );
+      await replayTransaction.query("ROLLBACK");
+    } finally {
+      replayTransaction.release();
+    }
+    assert.deepEqual(selectedForReplay, [remote.rows[0]!.id]);
+
+    await client.getPool().query(
       `UPDATE aruba_document_matches
        SET candidates_json = jsonb_set(
          jsonb_set(candidates_json, '{0,probe}', 'false'::jsonb),
@@ -554,7 +603,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     try {
       await upgradeTransaction.query("BEGIN");
       const matcherUpgrade = await import("./aruba-matcher-upgrade.server.ts");
-      assert.deepEqual([...ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES], ["TD04"]);
+      assert.deepEqual([...ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES], ["TD01", "TD04"]);
       assert.equal(
         await matcherUpgrade.upgradeCachedArubaMatcher(
           upgradeTransaction,
