@@ -295,6 +295,31 @@ export function isArubaAmountMismatchCandidate(candidate: {
   );
 }
 
+export function isArubaExternalEvidenceCandidate(candidate: {
+  probe?: boolean;
+  issuedInvoiceDocumentId?: string | null;
+  signals: Partial<CandidateEvaluation["signals"]>;
+}): boolean {
+  return Boolean(
+    !candidate.issuedInvoiceDocumentId &&
+    candidate.probe &&
+    candidate.signals.provider &&
+    candidate.signals.sameDay &&
+    candidate.signals.total &&
+    !candidate.signals.recipient &&
+    !candidate.signals.taxId &&
+    !candidate.signals.address,
+  );
+}
+
+export function canManuallyMaterializeCandidate(candidate: CandidateEvaluation): boolean {
+  return (
+    canManuallyLinkCandidate(candidate) ||
+    isArubaAmountMismatchCandidate(candidate) ||
+    isArubaExternalEvidenceCandidate(candidate)
+  );
+}
+
 export interface AmbiguousInvoiceMatch {
   remoteId: string;
   fiscalYear: number;

@@ -5,7 +5,7 @@ import path from "node:path";
 import type pg from "pg";
 
 import {
-  canManuallyLinkCandidate,
+  canManuallyMaterializeCandidate,
   groupOrderCandidates,
   isArubaAmountMismatchCandidate,
   isEmissionConfirmed,
@@ -301,9 +301,7 @@ async function materializeExternalInvoice(
           (candidate) =>
             candidate.candidateId === remote.order_id &&
             (candidate.compatible ||
-              (remote.match_method === "MANUAL" &&
-                (canManuallyLinkCandidate(candidate) ||
-                  isArubaAmountMismatchCandidate(candidate)))),
+              (remote.match_method === "MANUAL" && canManuallyMaterializeCandidate(candidate))),
         )
       : verified.status === "MATCHED"
         ? verified.evaluations.find((candidate) => candidate.compatible)

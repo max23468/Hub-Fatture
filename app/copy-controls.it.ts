@@ -41,6 +41,7 @@ export const controlsCopy = {
     SHOPIFY_PRIVACY_REQUEST: "Privacy",
     ARUBA_REMOTE_MATCH: "Inventario Aruba",
     ARUBA_AMOUNT_MISMATCH: "Importi Aruba discordanti",
+    ARUBA_EXTERNAL_EVIDENCE: "Conferme esterne",
     ARUBA_OFFICIAL_FILE_REQUIRED: "File Aruba",
     ARUBA_BATCH_RECONCILIATION: "Batch Aruba",
     ARUBA_SUBMISSION_ATTENTION: "Esiti Aruba",
@@ -63,6 +64,11 @@ export const controlsCopy = {
     "Descrivi perché il documento Aruba appartiene all’ordine nonostante l’importo diverso",
   confirmAmountMismatchLink:
     "Confermo che il documento Aruba appartiene all’ordine e che la differenza deve restare registrata",
+  externalEvidenceReason: "Prova esterna",
+  externalEvidenceReasonPlaceholder:
+    "Indica chi ha confermato e specifica numero del documento Aruba e ordine collegato",
+  confirmExternalEvidenceLink:
+    "Confermo che la prova esterna identifica espressamente questo documento Aruba e questo ordine",
   candidateOrder: "Ordine da collegare",
   confirmOutOfScope: "Nessun candidato è corretto",
   confirmCandidateRejection:

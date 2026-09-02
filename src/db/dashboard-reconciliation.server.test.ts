@@ -73,11 +73,15 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
           raw_snapshot_json, normalized_snapshot_json)
        VALUES
+         ('SHOPIFY', 'dashboard-test', 'approvable', '#APPROVABLE', now(), now(),
+          ${romeTodaySql}, 'EUR', 1000, 'PAID', 'FULFILLED', 'GROUPED', $1, $3, '{}',
+          '{"orderReviewRequired":false,"deferredReviewRequired":false,"totalsReconciled":true,
+            "customerSnapshot":{"canonicalProfile":{}}}'),
          ('SHOPIFY', 'dashboard-test', 'pending-review', '#PENDING', now(), now(),
           ${romeTodaySql} - 3, 'EUR', 1000, 'PENDING', 'FULFILLED', 'NEEDS_REVIEW', $1, $2, '{}',
           '{"orderReviewRequired":true,"deferredReviewRequired":false,"totalsReconciled":true,
             "customerSnapshot":{"canonicalProfile":{}}}')`,
-      [customer.rows[0]!.id, cases.rows[3]!.id],
+      [customer.rows[0]!.id, cases.rows[3]!.id, cases.rows[0]!.id],
     );
 
     const orders = {
@@ -97,14 +101,14 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       ).rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
       [{ id: cases.rows[3]!.id, operational_pool: "PENDING_PAYMENT" }],
     );
+    const approvableCases = await orders.listBillingCases({
+      operationalPool: "APPROVABLE",
+    });
     assert.deepEqual(
-      (
-        await orders.listBillingCases({
-          operationalPool: "APPROVABLE",
-        })
-      ).rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
+      approvableCases.rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
       [{ id: cases.rows[0]!.id, operational_pool: "APPROVABLE" }],
     );
+    assert.match(approvableCases.rows[0]!.first_order_created_at!, /^\d{4}-\d{2}-\d{2} /u);
     assert.deepEqual(
       (
         await orders.listBillingCases({
@@ -241,6 +245,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
         label: "Shopify #WEAK",
         guided: true,
         amountMismatch: false,
+        externalEvidence: false,
         localAmount: 1000,
         differenceAmount: 0,
       },
@@ -319,6 +324,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
         label: "Shopify #WEAK",
         guided: true,
         amountMismatch: false,
+        externalEvidence: false,
         localAmount: 1000,
         differenceAmount: -100,
       },
@@ -365,6 +371,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
         label: "Shopify #WEAK",
         guided: false,
         amountMismatch: true,
+        externalEvidence: false,
         localAmount: 1000,
         differenceAmount: -100,
       },
@@ -452,6 +459,59 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       disprovedCandidate.release();
     }
     assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "READY");
+
+    await client
+      .getPool()
+      .query(`UPDATE aruba_remote_documents SET total_amount = 1000 WHERE id = $1`, [
+        remote.rows[0]!.id,
+      ]);
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_build_array(jsonb_build_object(
+         'candidateId', $2::text, 'orderIds', jsonb_build_array($2::text),
+         'probe', true, 'potential', false, 'compatible', false, 'reviewable', false,
+         'signals', jsonb_build_object(
+           'provider', true, 'sameDay', true, 'nearDate', true, 'recipient', false,
+           'taxId', false, 'address', false, 'total', true, 'refundTimingClear', true)))
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id, order.rows[0]!.id],
+    );
+    const externalEvidenceRemote = (
+      await inventoryQueries.listRemoteDocuments({
+        attentionOnly: true,
+        billingCaseId: cases.rows[2]!.id,
+      })
+    ).find((document) => document.remote_id === "weak-official-match");
+    assert.equal(externalEvidenceRemote?.external_evidence, true);
+    assert.equal(externalEvidenceRemote?.requires_control, false);
+    assert.deepEqual(externalEvidenceRemote?.candidates, [
+      {
+        id: order.rows[0]!.id,
+        label: "Shopify #WEAK",
+        guided: false,
+        amountMismatch: false,
+        externalEvidence: true,
+        localAmount: 1000,
+        differenceAmount: 0,
+      },
+    ]);
+    assert.equal(await orders.getOpenBillingCasePool(cases.rows[2]!.id, false), "APPROVABLE");
+    await operationalControls.refreshOperationalControls();
+    const externalEvidenceControl = (
+      await operationalControls.readOperationalControls({ origin: "DOCUMENTS" })
+    ).rows.find((control) => control.source_id === remote.rows[0]!.id);
+    assert.equal(externalEvidenceControl?.kind, "ARUBA_EXTERNAL_EVIDENCE");
+    assert.equal(externalEvidenceControl?.severity, "IMPORTANT");
+    assert.equal(externalEvidenceControl?.primary_action, "Registra conferma esterna");
+
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_set(
+         jsonb_set(candidates_json, '{0,probe}', 'false'::jsonb),
+         '{0,signals,total}', 'false'::jsonb)
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
 
     await client
       .getPool()

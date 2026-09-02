@@ -222,7 +222,7 @@ test("un candidato Aruba può essere escluso solo dopo la conferma esplicita", a
   }
 });
 
-test("un importo discordante può essere collegato solo con conferma e resta registrato", async () => {
+test("le eccezioni manuali richiedono conferma e restano registrate", async () => {
   assert.ok(sharedDatabase);
   const database = sharedDatabase;
   process.env.APP_ENV = "test";
@@ -358,6 +358,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
         order.id,
         "Differenza verificata sul documento ufficiale",
         null,
+        null,
         owner,
       ),
       (error) => error instanceof AppError && error.code === "ARUBA_PROFILE_CONFLICT",
@@ -367,6 +368,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
       order.id,
       "Differenza verificata sul documento ufficiale",
       "confirmed",
+      null,
       owner,
     );
     assert.deepEqual(
@@ -399,6 +401,150 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
         refund_job: true,
         match_status: "MATCHED",
         match_method: "MANUAL",
+      },
+    );
+
+    const externalCustomer = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO customers
+          (kind, match_key, display_name, billing_address_json, source_confidence,
+           review_required)
+         VALUES ('EU', 'external-evidence', 'Cliente diverso', '{}', 'EXACT_PROFILE', false)
+         RETURNING id::text`,
+      )
+    ).rows[0]!;
+    const externalSnapshot = {
+      kind: "EU",
+      displayName: "Cliente diverso",
+      taxIdentifiers: [],
+      billingAddress: {
+        line1: "Via Differente 9",
+        postalCode: "20100",
+        city: "Milano",
+        countryCode: "IT",
+      },
+      canonicalProfile: {},
+    };
+    const externalCase = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json,
+           fiscal_profile_version)
+         VALUES ($1, '2026-08-10', 'EUR', 'READY', $2, 1) RETURNING id::text`,
+        [externalCustomer.id, JSON.stringify(externalSnapshot)],
+      )
+    ).rows[0]!;
+    const externalOrder = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO orders
+          (provider, external_account_id, external_order_id, display_number,
+           created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('SHOPIFY', 'manual-link', 'external-evidence', '#1002', now(), now(),
+           '2026-08-10', 'EUR', 12345, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}', $3)
+         RETURNING id::text`,
+        [
+          externalCustomer.id,
+          externalCase.id,
+          JSON.stringify({
+            orderReviewRequired: false,
+            deferredReviewRequired: false,
+            customerSnapshot: externalSnapshot,
+          }),
+        ],
+      )
+    ).rows[0]!;
+    const externalXml = xml.replace("FPR 0001/26", "FPR 0009/26");
+    const externalDigest = createHash("sha256").update(externalXml).digest("hex");
+    const externalPath = "aruba/manual/external-evidence.xml";
+    await writeFile(path.join(sharedStorageRoot, externalPath), externalXml, { mode: 0o600 });
+    const externalRemote = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO aruba_remote_documents
+          (environment, account_reference, remote_id, document_type, fiscal_year, series,
+           fiscal_number, document_date, total_amount, remote_status,
+           remote_status_observed_at, metadata_digest, xml_sha256)
+         VALUES ('MOCK', 'synthetic-aruba-account', 'external-evidence', 'TD01', 2026,
+           'FPR', '9', '2026-08-10', 12345, 'DELIVERED', now(), repeat('9', 64), $1)
+         RETURNING id::text`,
+        [externalDigest],
+      )
+    ).rows[0]!;
+    const externalStorage = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+         VALUES ('ARUBA_XML', $1, $2, $3, 'application/xml') RETURNING id::text`,
+        [externalPath, externalDigest, Buffer.byteLength(externalXml)],
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       VALUES ($1, $2, 'ARUBA_XML')`,
+      [externalRemote.id, externalStorage.id],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       VALUES ($1, 'UNMATCHED', 'NONE', $3,
+         jsonb_build_array(jsonb_build_object(
+           'candidateId', $2::text, 'orderIds', jsonb_build_array($2::text),
+           'probe', true, 'compatible', false, 'reviewable', false,
+           'signals', jsonb_build_object('provider', true, 'sameDay', true,
+             'nearDate', true, 'recipient', false, 'taxId', false, 'address', false,
+             'total', true, 'refundTimingClear', true))))`,
+      [externalRemote.id, externalOrder.id, ARUBA_MATCHER_VERSION],
+    );
+    await assert.rejects(
+      decisions.resolveArubaDocumentMatch(
+        externalRemote.id,
+        externalOrder.id,
+        "Conferma cliente riferita a documento e ordine",
+        null,
+        null,
+        owner,
+      ),
+      (error) => error instanceof AppError && error.code === "ARUBA_PROFILE_CONFLICT",
+    );
+    await assert.rejects(
+      decisions.resolveArubaDocumentMatch(
+        externalRemote.id,
+        externalOrder.id,
+        "Conferma cliente priva degli identificativi",
+        null,
+        "confirmed",
+        owner,
+      ),
+      (error) => error instanceof AppError && error.code === "ARUBA_PROFILE_CONFLICT",
+    );
+    await decisions.resolveArubaDocumentMatch(
+      externalRemote.id,
+      externalOrder.id,
+      "Conferma cliente: FPR 0009/26 riferita all’ordine Shopify #1002",
+      null,
+      "confirmed",
+      owner,
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT matches.status, matches.method, orders.trigger_status,
+                  audit.after_json ->> 'externalEvidence' AS external_evidence,
+                  matches.decision_reason
+           FROM aruba_document_matches matches
+           JOIN orders ON orders.id = matches.order_id
+           JOIN audit_events audit ON audit.entity_id = matches.remote_document_id::text
+             AND audit.action = 'ARUBA_DOCUMENT_MATCH_RESOLVED'
+           WHERE matches.remote_document_id = $1`,
+          [externalRemote.id],
+        )
+      ).rows[0],
+      {
+        status: "MATCHED",
+        method: "MANUAL",
+        trigger_status: "INVOICED",
+        external_evidence: "true",
+        decision_reason: "Conferma cliente: FPR 0009/26 riferita all’ordine Shopify #1002",
       },
     );
     assert.deepEqual(

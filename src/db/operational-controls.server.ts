@@ -521,6 +521,7 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
           .trim();
       const needsFile = !remote.has_xml;
       const amountMismatch = remote.amount_mismatch;
+      const externalEvidence = remote.external_evidence;
       const amountMismatchFacts = remote.candidates.reduce<ControlFact[]>((facts, candidate) => {
         if (candidate.amountMismatch) {
           facts.push({
@@ -537,9 +538,11 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
           ? "ARUBA_OFFICIAL_FILE_REQUIRED"
           : amountMismatch
             ? "ARUBA_AMOUNT_MISMATCH"
-            : "ARUBA_REMOTE_MATCH",
+            : externalEvidence
+              ? "ARUBA_EXTERNAL_EVIDENCE"
+              : "ARUBA_REMOTE_MATCH",
         category: "DECISION" as const,
-        severity: "BLOCKING" as const,
+        severity: externalEvidence ? ("IMPORTANT" as const) : ("BLOCKING" as const),
         sourceType: "ARUBA_REMOTE_DOCUMENT",
         sourceId: remote.id,
         origin: "DOCUMENTS" as const,
@@ -547,19 +550,25 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
           ? "File ufficiale Aruba da acquisire"
           : amountMismatch
             ? "Importo Aruba da verificare"
-            : "Possibile fattura già presente su Aruba",
+            : externalEvidence
+              ? "Conferma esterna da registrare"
+              : "Possibile fattura già presente su Aruba",
         detail: label,
         consequence: needsFile
           ? "La riconciliazione resta incompleta finché il file ufficiale non viene verificato."
           : amountMismatch
             ? "La preparazione correlata resta sospesa finché la differenza non viene risolta."
-            : "L’approvazione è sospesa per evitare una doppia emissione.",
+            : externalEvidence
+              ? "Collega soltanto se una prova esterna identifica espressamente documento e ordine."
+              : "L’approvazione è sospesa per evitare una doppia emissione.",
         href: `/documenti?vista=inventario-aruba#documento-aruba-${remote.id}`,
         primaryAction: needsFile
           ? "Apri inventario Aruba"
           : amountMismatch
             ? "Verifica documento Aruba"
-            : "Collega documento Aruba",
+            : externalEvidence
+              ? "Registra conferma esterna"
+              : "Collega documento Aruba",
         metadata: {
           remoteDocumentId: remote.id,
           remoteStatus: remote.remote_status,

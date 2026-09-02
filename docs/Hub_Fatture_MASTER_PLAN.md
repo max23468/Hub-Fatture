@@ -3513,6 +3513,10 @@ Dopo l'audit Aruba, usare i dati disponibili:
 - eventuale metadata.
 
 Se il matching non è univoco, richiedere conferma manuale. Non considerare il solo totale una prova.
+Una coincidenza limitata a stesso giorno e totale resta non bloccante e non produce mai un
+collegamento automatico. Se una prova esterna identifica espressamente sia il numero del documento
+Aruba sia l'ordine marketplace, il titolare può collegarli con motivazione e doppia conferma:
+l'eccezione, la prova dichiarata e gli identificativi tecnici restano nell'audit.
 L'assenza del riferimento esplicito non impedisce il collegamento soltanto quando provider,
 data, destinatario e totale fatturabile individuano un unico ordine storico aperto. La
 coincidenza esatta del codice fiscale vale come identità del destinatario anche se nome o

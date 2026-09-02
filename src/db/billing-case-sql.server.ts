@@ -131,6 +131,26 @@ export const arubaAmountMismatchCandidateSql = (
   AND NOT coalesce((${candidateAlias} -> 'signals' ->> 'total')::boolean, false)
 )`;
 
+/**
+ * Una prova esterna può identificare un documento con stesso giorno e totale anche
+ * quando l'anagrafica fiscale non coincide. Il segnale resta non automatico e non
+ * blocca da solo la preparazione: serve la doppia conferma esplicita del titolare.
+ */
+export const arubaExternalEvidenceCandidateSql = (
+  candidateAlias = "aruba_candidate",
+  remoteAlias = "aruba_remote",
+) => `(
+  ${remoteAlias}.xml_sha256 IS NOT NULL
+  AND ${candidateAlias} ->> 'issuedInvoiceDocumentId' IS NULL
+  AND coalesce((${candidateAlias} ->> 'probe')::boolean, false)
+  AND coalesce((${candidateAlias} -> 'signals' ->> 'provider')::boolean, false)
+  AND coalesce((${candidateAlias} -> 'signals' ->> 'sameDay')::boolean, false)
+  AND coalesce((${candidateAlias} -> 'signals' ->> 'total')::boolean, false)
+  AND NOT coalesce((${candidateAlias} -> 'signals' ->> 'recipient')::boolean, false)
+  AND NOT coalesce((${candidateAlias} -> 'signals' ->> 'taxId')::boolean, false)
+  AND NOT coalesce((${candidateAlias} -> 'signals' ->> 'address')::boolean, false)
+)`;
+
 /** Un candidato che richiede una decisione sulla singola preparazione. */
 export const arubaCaseCandidateSql = (
   candidateAlias = "aruba_candidate",
