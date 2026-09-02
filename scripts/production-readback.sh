@@ -29,6 +29,9 @@ schema=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env e
 kill_switch=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-web \
   sh -c 'printf %s "$ARUBA_SUBMISSION_ENABLED"')
 [ "$kill_switch" = "false" ] || { echo "Kill switch Aruba inatteso" >&2; exit 1; }
+canary_enabled=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-web \
+  sh -c 'printf %s "$ARUBA_CANARY_ENABLED"')
+[ "$canary_enabled" = "false" ] || { echo "Gate opzionale del canary reale inatteso" >&2; exit 1; }
 aruba_read_interval_ms=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-worker \
   sh -c 'printf %s "$ARUBA_API_READ_INTERVAL_MS"')
 printf '%s' "$aruba_read_interval_ms" | grep -Eq '^[0-9]+$' \
@@ -43,4 +46,4 @@ jq -n \
   --arg version "$APP_VERSION" \
   --arg schema "$schema" \
   --argjson arubaApiReadIntervalMs "$aruba_read_interval_ms" \
-  '{status:"ok",checkedAt:$checkedAt,commit:$commit,imageDigest:$digest,applicationVersion:$version,schema:$schema,arubaSubmissionEnabled:false,arubaApiReadIntervalMs:$arubaApiReadIntervalMs}'
+  '{status:"ok",checkedAt:$checkedAt,commit:$commit,imageDigest:$digest,applicationVersion:$version,schema:$schema,arubaCanaryEnabled:false,arubaSubmissionEnabled:false,arubaApiReadIntervalMs:$arubaApiReadIntervalMs}'

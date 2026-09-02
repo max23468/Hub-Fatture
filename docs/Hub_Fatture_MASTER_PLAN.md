@@ -66,7 +66,7 @@ Le evidenze vivono in `docs/evidence/`; i contratti tecnici riusabili in `docs/c
 
 - M1-M3 non dipendono da Aruba e usano soltanto fixture e dati sintetici.
 - M4 comprende audit autenticato read-only, analisi dell'XML accettato, profilo fiscale, numerazione, generatore definitivo e approvazione.
-- M5 conserva soltanto l’evidenza storica del percorso browser. M8-M10 hanno introdotto le API Aruba e M11 ha ritirato i componenti browser; M12 ricertifica il candidato, M13 esegue il canary TD01 monouso e M14 abilita l’uso ordinario. Ogni accesso Production reale richiede il manifesto e l’autorizzazione della milestone.
+- M5 conserva soltanto l’evidenza storica del percorso browser. M8-M10 hanno introdotto le API Aruba e M11 ha ritirato i componenti browser; M12 ricertifica il candidato, M13 chiude i gate tecnici senza richiedere invii reali e conserva il canary TD01 come prova opzionale, mentre M14 abilita l’uso ordinario. Ogni accesso Production reale richiede il manifesto e l’autorizzazione della milestone.
 - Modifiche all'account Aruba, upload reali e invii richiedono sempre
   l'autorizzazione specifica del titolare nel momento in cui vengono eseguiti.
   Una richiesta affermativa di pubblicazione autorizza invece deploy e release
@@ -329,7 +329,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Dominio funzionale | `billing_case` interno, esposto come "Preparazione fattura" | Il contenitore tecnico non è una destinazione di navigazione |
 | Generazione | Impostazione globale: pagamento o evasione completa | Un solo comportamento coerente per Shopify ed eBay |
 | Approvazione | Sempre esplicita | Nessun invio fiscale senza una conferma riferita ai documenti esatti |
-| Primo invio Aruba | Canary M13 di un TD01 reale con permesso monouso legato a documento, revisione, batch e hash; interruttore ordinario ancora disabilitato | Confina il primo effetto fiscale reale e impedisce che il canary abiliti l'uso ordinario |
+| Primo invio Aruba | Gate opzionale, disabilitato per impostazione predefinita; se richiesto in futuro usa un solo TD01 con permesso monouso legato a documento, revisione, batch e hash | Consente di chiudere il candidato senza produrre effetti fiscali reali e mantiene confinata un’eventuale prova successiva |
 | Fattura | Una riga semplificata per ordine | Non serve replicare il dettaglio commerciale delle piattaforme |
 | Sconti/spedizione | Assorbiti nell'importo netto della riga ordine | Il documento deve restare semplice; il dettaglio resta interno |
 | Commissioni Shopify Payments | Regola globale modificabile: per default sottrarre dal totale fatturabile esclusivamente le commissioni effettive restituite da `OrderTransaction.fees` per transazioni `shopify_payments` riuscite, convertite nella valuta negozio soltanto tramite il tasso di regolamento tipizzato della stessa transazione | Allinea il documento al comportamento Aruba osservato senza ricostruire percentuali o cambi esterni e senza applicare costi di altri gateway; PayPal, bonifico, PostePay, metodi manuali ed eBay restano sempre al totale pieno |
@@ -1082,7 +1082,7 @@ La ricevuta può essere finalizzata soltanto da uno dei due account amministrati
 
 ## 11. Qualifica Aruba nelle milestone M4-M13
 
-Questa attività non è una roadmap parallela che possa aggirare i gate. M4 ha incorporato le verifiche fiscali e documentali necessarie al generatore; M5 ha qualificato il percorso browser sintetico. M8 qualifica le API documentate in sola lettura, M9 introduce l'inbound canonico, M10 qualifica l'outbound senza invio reale, M11 chiude la transizione browser, M12 ricertifica il candidato e M13 esegue il solo canary TD01 autorizzato.
+Questa attività non è una roadmap parallela che possa aggirare i gate. M4 ha incorporato le verifiche fiscali e documentali necessarie al generatore; M5 ha qualificato il percorso browser sintetico. M8 qualifica le API documentate in sola lettura, M9 introduce l'inbound canonico, M10 qualifica l'outbound senza invio reale, M11 chiude la transizione browser, M12 ricertifica il candidato e M13 chiude i gate tecnici mantenendo opzionale il canary TD01 autorizzato.
 
 La raccolta dei materiali, però, non è implementazione e può iniziare durante M2 e M3. Sessione di audit, XML della fattura accettata, eventuale XML della nota di credito e conferma del commercialista dipendono dalla disponibilità di terzi e sono il percorso critico di tutto ciò che segue M3: attenderli fino all'apertura formale di M4 aggiunge attesa senza aggiungere sicurezza. Anticipare significa soltanto raccogliere e registrare evidenze in sola lettura. Restano vietati prima del rispettivo gate qualunque codice del generatore definitivo, la numerazione reale, il caricamento di XML nel pannello e ogni attività dell'helper.
 
@@ -1143,7 +1143,7 @@ Non implementare numerazione reale finché non sono stati verificati:
 - riuso o meno del numero;
 - eventuali automatismi Aruba.
 
-Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non fiscale. L'audit read-only ha definito una procedura candidata; dry-run e qualifica outbound M10 verificano l'ordine osservabile senza invio. Qualunque divergenza aggiorna procedura, generatore e test prima del canary M13.
+Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non fiscale. L'audit read-only ha definito una procedura candidata; dry-run e qualifica outbound M10 verificano l'ordine osservabile senza invio. Qualunque divergenza aggiorna procedura, generatore e test prima di chiudere i gate tecnici o di eseguire un eventuale canary reale.
 
 ### 11.4 M8-M10 - qualifiche API controllate
 
@@ -2025,8 +2025,9 @@ blocca quelli successivi finché il readback non prova l'esito.
 - `consumed_at`
 - `created_by`
 
-Il permesso esiste soltanto per M13, viene creato da Massimo e consumato atomicamente al primo
-tentativo autorizzato. Non abilita gli invii ordinari.
+Il permesso può esistere soltanto quando il gate opzionale M13 viene riattivato esplicitamente,
+viene creato da Massimo e consumato atomicamente al primo tentativo autorizzato. Non abilita gli
+invii ordinari; con `ARUBA_CANARY_ENABLED=false` non può essere creato né consumato.
 
 Per `aruba_files` e `sdi_notifications`, `submission_id` e `remote_document_id` sono owner di provenienza alternativi con vincolo “esattamente uno valorizzato”. Il collegamento opzionale a `documents` viene aggiunto dopo il match senza cambiare la provenienza e senza costruire una submission fittizia.
 
@@ -2704,7 +2705,7 @@ Classificazione minima:
 
 La Production ha due arresti indipendenti e fail-closed: `ARUBA_API_PAUSED=true` ferma nuovi polling, elaborazioni e mutazioni al successivo punto sicuro; `ARUBA_SUBMISSION_ENABLED=false` blocca dry-run, upload e invio lasciando disponibili lettura, riconciliazione, numerazione autorizzata, export, import e diagnosi. Entrambi sono auditati e riletti dal worker prima di ogni mutazione. La connessione appena verificata parte in pausa e gli invii restano disabilitati.
 
-Il canary M13 non abilita l'uso ordinario. Usa un permesso monouso legato a ambiente, account, TD01, revisione, batch e hash XML mentre `ARUBA_SUBMISSION_ENABLED=false` resta invariato. Il permesso viene consumato atomicamente e non è riaperto da timeout o stato incerto. L'abilitazione ordinaria appartiene a M14 e richiede autorizzazione separata.
+Il canary reale M13 è opzionale e disabilitato per impostazione predefinita tramite `ARUBA_CANARY_ENABLED=false`; la sua omissione non blocca la chiusura della milestone. Se il titolare decide in futuro di eseguirlo, usa un permesso monouso legato a ambiente, account, TD01, revisione, batch e hash XML mentre `ARUBA_SUBMISSION_ENABLED=false` resta invariato. Il permesso viene consumato atomicamente e non è riaperto da timeout o stato incerto. L'abilitazione ordinaria appartiene a M14 e richiede autorizzazione separata.
 
 Runbook P0:
 
@@ -3077,7 +3078,7 @@ Quando una prova live espone un difetto:
 
 ## 23. Milestone
 
-Le milestone applicative sono sequenziali. M1-M7 descrivono la fondazione già completata, incluso il percorso browser originario. M8-M11 qualificano e introducono le API Aruba e governano la transizione degli helper; M12 ricertifica il candidato, M13 esegue il canary TD01 e M14 chiude il go-live. Non esiste una corsia Aruba parallela e nessuna milestone autorizza implicitamente la successiva.
+Le milestone applicative sono sequenziali. M1-M7 descrivono la fondazione già completata, incluso il percorso browser originario. M8-M11 qualificano e introducono le API Aruba e governano la transizione degli helper; M12 ricertifica il candidato, M13 chiude i gate tecnici e conserva il canary TD01 come opzione, mentre M14 chiude il go-live. Non esiste una corsia Aruba parallela e nessuna milestone autorizza implicitamente la successiva.
 
 Brand Foundation leggera, comparatore fiscale e PoC/decisione OCI Email Delivery entrano nelle milestone che già possiedono i relativi contratti. Non nasce una milestone intermedia e non si aggiungono un pacchetto design system separato, una libreria di diff XML o due trasporti SMTP paralleli.
 
@@ -3384,8 +3385,8 @@ Gate:
 **Stato: completata.** Il candidato è stato ricertificato con CI, security scan, artifact, deploy,
 backup, restore isolato, rollback reale, rientro, monitor e readback coerenti. Le modifiche runtime
 e schema successive non riaprono formalmente M12 per decisione del titolare: M13 deve comunque
-collegare i propri gate tecnici, il deploy e il preflight allo SHA e al digest effettivamente usati
-dal canary, con invii ordinari e release `v1.0.0` ancora disabilitati.
+collegare i propri gate tecnici, il deploy e il preflight allo SHA e al digest finali, con canary e
+invii ordinari disabilitati e release `v1.0.0` ancora non pubblicata.
 
 Output:
 
@@ -3406,18 +3407,18 @@ Gate:
 
 Output:
 
-- corridoio runtime fail-closed e runbook operativo per il solo canary TD01;
-- un TD01 reale e legittimo scelto esplicitamente da Massimo al momento dell'esecuzione;
-- permesso monouso legato ad ambiente, account, documento, revisione, batch e hash XML;
-- dry-run, upload, invio, readback, file e stato osservati end-to-end;
-- ricevuta sanitizzata con permesso consumato e arresti finali.
+- gate tecnici, deploy e readback exact-SHA del candidato completati senza invii reali;
+- decisione del titolare registrata come `SKIPPED` nel report sanitizzato;
+- `ARUBA_CANARY_ENABLED=false` e `ARUBA_SUBMISSION_ENABLED=false` riletti in Production;
+- corridoio runtime fail-closed e runbook conservati come capacità opzionale, non come requisito di uscita;
+- se riattivato in futuro, un solo TD01 reale richiede selezione e autorizzazione specifiche, permesso monouso e readback completo.
 
 Gate:
 
 - gate tecnici applicabili, deploy e readback di identità riferiti allo SHA e al digest esatti;
-- autorizzazione specifica all'esecuzione reale;
-- nessun duplicato e nessun retry cieco;
-- stato remoto determinato oppure incidente fail-closed aperto senza nuovo tentativo;
+- nessun invio reale richiesto quando il report restituisce `state=SKIPPED` e zero permessi, tentativi o job di invio;
+- se il gate opzionale viene riattivato, autorizzazione specifica, nessun duplicato o retry cieco e stato remoto determinato oppure incidente fail-closed;
+- `ARUBA_CANARY_ENABLED=false` al termine della milestone;
 - `ARUBA_SUBMISSION_ENABLED=false` rimasto invariato;
 - TD04 non inclusa nel canary.
 
@@ -3425,13 +3426,13 @@ Gate:
 
 Output:
 
-- approvazione finale del titolare sulla ricevuta canary e sui rischi residui;
+- approvazione finale del titolare sulla readiness, sulla decisione di saltare il canary reale e sui rischi residui;
 - runbook operativo e readiness finalizzati;
 - tag e GitHub Release immutabile `v1.0.0` sul commit e digest qualificati;
 - abilitazione separata dell'uso Production ordinario;
 - monitoraggio rafforzato della prima giornata, inclusi inventario, stati incerti, coda `Da collegare` e soglie mensili.
 
-TD04 resta nel fallback manuale finché un rimborso reale legittimo non permette un canary separato. Release e uso Production ordinario richiedono autorizzazioni esplicite; il canary non le implica.
+TD04 resta nel fallback manuale finché una decisione futura non autorizza una prova separata. Release e uso Production ordinario richiedono autorizzazioni esplicite; saltare o completare il canary opzionale non le implica.
 
 ---
 
@@ -3481,7 +3482,7 @@ Ingest del rimborso completato, bozza TD04 cumulativa, residuo accreditabile, nu
 
 ### Produzione e continuità - M7/M12-M14
 
-Compose, hardening, deploy, monitoraggio, backup e restore sono fondazioni M7 già disponibili. M12 le ricertifica sul candidato esatto; M13 esegue il canary TD01 monouso; M14 pubblica e abilita l'uso ordinario soltanto con autorizzazioni distinte.
+Compose, hardening, deploy, monitoraggio, backup e restore sono fondazioni M7 già disponibili. M12 le ricertifica sul candidato esatto; M13 chiude i gate tecnici senza richiedere il canary reale; M14 pubblica e abilita l'uso ordinario soltanto con autorizzazioni distinte.
 
 ### API Aruba - M8/M11
 
@@ -3746,15 +3747,15 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [x] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; chiamata di upload con `dryRun=true` e stato incerto qualificati con autorizzazione specifica, senza autorizzare `dryRun=false`.
 - [x] M10: pausa API e invii fiscali disabilitati riletti server-side; configurazione e mutazioni protette da `can_approve`, salute e `Sincronizza ora` osservabili.
 - [x] M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
-- [ ] M12: il candidato precedente è stato ricertificato, ma le successive modifiche runtime e schema alla riconciliazione Aruba richiedono di ripetere CI, audit, migrazioni, backup, restore, rollback, security e readiness sul nuovo SHA e digest; nessun P0/P1 o stato incerto.
-- [ ] M13: TD01 reale scelto da Massimo, autorizzazione specifica, permesso monouso legato a revisione/batch/hash e `ARUBA_SUBMISSION_ENABLED=false` prima e dopo.
-- [ ] M13: dry-run, invio, readback, file e stato conclusi senza duplicato o retry cieco; permesso consumato e ricevuta sanitizzata.
+- [x] M12: ricertificazione chiusa; le modifiche successive non riaprono formalmente la milestone.
+- [ ] M13: gate tecnici, deploy e readback exact-SHA completati con `ARUBA_CANARY_ENABLED=false` e `ARUBA_SUBMISSION_ENABLED=false`.
+- [x] M13: invio reale dichiarato opzionale e saltato per decisione del titolare; nessun permesso, tentativo o job di invio richiesto.
 - [ ] M14: autorizzazioni separate a release e uso ordinario; decisioni helper registrate; TD04 mantenuta manuale fino al proprio canary legittimo.
 
 ### Prima del go-live
 
-- [ ] Il commit e il digest candidati non sono cambiati dopo il canary; altrimenti la prova interessata è stata ripetuta.
-- [ ] Record di readiness finalizzato con esito canary e rischi residui.
+- [ ] Il commit e il digest candidati coincidono con quelli dei gate tecnici finali; un eventuale canary successivo usa lo stesso candidato oppure ripete le prove interessate.
+- [ ] Record di readiness finalizzato con esito `SKIPPED` del canary reale e rischi residui.
 - [ ] Draft GitHub Release collegata al tag candidato, note confrontate con `CHANGELOG.md` e `release-manifest.json` sanitizzato allegato.
 - [ ] Immutabilità delle release confermata; nessun tag o asset pubblicato prima dell'autorizzazione.
 - [ ] Autorizzazione esplicita alla release `v1.0.0`.
@@ -3762,7 +3763,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 
 ### Record di readiness 1.0
 
-Prima del Canary Production creare `docs/runbooks/release-readiness.md` e finalizzarlo dopo il canary. Non è una copia delle checklist precedenti: è il record corrente che, per ogni gate bloccante di §23 e §28, collega la prova fresca che lo chiude.
+Prima di finalizzare M13 aggiornare `docs/runbooks/release-readiness.md` e registrare il canary reale come `SKIPPED` oppure, se separatamente autorizzato, con il proprio esito. Non è una copia delle checklist precedenti: è il record corrente che, per ogni gate bloccante di §23 e §28, collega la prova fresca che lo chiude.
 
 Ogni voce ha la stessa forma: gate, esito osservato, riferimento verificabile - commit, digest, hash, ID remoto, run CI o evidenza - e data. Un gate senza riferimento verificabile è aperto, non chiuso.
 
@@ -3852,8 +3853,8 @@ La 1.0 è conclusa quando ogni gate di §23, ogni checklist di §28 e ogni decis
 4. profilo fiscale, numerazione, XML fattura e TD04 derivano da fonti approvate e da golden test che falliscono se il profilo cambia involontariamente;
 5. nessun dato reale e nessun segreto plaintext compare in repository, cronologia, CI, log, fixture o documentazione; l'unico blob sensibile ammesso è la key VPS cifrata;
 6. codice, migrazioni, lockfile, documentazione e stato live descrivono lo stesso commit: `/version`, digest distribuito e ricevuta di deploy coincidono dopo uno smoke autenticato;
-7. il Canary Production M13 ha trasmesso un solo TD01 reale legittimo mediante permesso monouso, con dry-run, readback e stato determinato, interruttore ordinario invariato e nessun P0/P1 aperto;
-8. per il solo go-live iniziale, escluso dalla pubblicazione tecnica ordinaria perché costituisce una nuova attivazione produttiva, `v1.0.0` è pubblicata sullo stesso commit e digest superati dal canary M13, dopo autorizzazioni separate per deploy, release e uso Production ordinario;
+7. il Canary Production reale M13 è stato saltato per decisione del titolare con `ARUBA_CANARY_ENABLED=false`, zero permessi/tentativi/job di invio e nessun P0/P1 aperto; un’eventuale esecuzione futura resta opzionale e separatamente autorizzata;
+8. per il solo go-live iniziale, escluso dalla pubblicazione tecnica ordinaria perché costituisce una nuova attivazione produttiva, `v1.0.0` è pubblicata sullo stesso commit e digest dei gate tecnici finali, dopo autorizzazioni separate per deploy, release e uso Production ordinario;
 9. non restano P0/P1 aperti, decisioni bloccanti sospese, ordini storici approvabili senza riconciliazione o documenti Aruba ambigui che possano causare una doppia emissione;
 10. backup, recovery kit, restore drill e rollback applicativo sono stati eseguiti davvero, non soltanto documentati, e l'RPO dichiarato è quello osservato.
 
@@ -3867,4 +3868,4 @@ Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile
 
 La priorità non è costruire un motore fiscale generale, ma impedire errori operativi: dati mancanti, doppie fatture, doppi rimborsi, numerazione errata, invii non approvati e perdita di tracciabilità.
 
-Il prossimo lavoro concreto è completare il canary TD01 M13 sul candidato identificato dai suoi gate exact-SHA, quindi proseguire con il go-live M14. Ogni milestone mantiene confini di autorizzazione propri; nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è implicito nella pianificazione.
+Il prossimo lavoro concreto è chiudere i gate tecnici exact-SHA di M13 senza invii reali, registrare il canary opzionale come `SKIPPED` e quindi proseguire con il go-live M14. Ogni milestone mantiene confini di autorizzazione propri; nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è implicito nella pianificazione.

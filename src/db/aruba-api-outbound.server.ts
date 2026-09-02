@@ -332,7 +332,11 @@ export async function authorizeArubaApiCanary(
     throw new AppError("ARUBA_BATCH_INVALID", 422);
   }
   const config = getConfig();
-  if (config.APP_ENV !== "production" || config.ARUBA_SUBMISSION_ENABLED) {
+  if (
+    config.APP_ENV !== "production" ||
+    !config.ARUBA_CANARY_ENABLED ||
+    config.ARUBA_SUBMISSION_ENABLED
+  ) {
     throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
   }
   return withTransaction(async (client) => {
@@ -1092,7 +1096,11 @@ async function recoverInterruptedCanary(job: ClaimedJob) {
 async function loadCanaryPayload(job: ClaimedJob) {
   const submissionId = parsedSubmissionId(job);
   const config = getConfig();
-  if (config.APP_ENV !== "production" || config.ARUBA_SUBMISSION_ENABLED) {
+  if (
+    config.APP_ENV !== "production" ||
+    !config.ARUBA_CANARY_ENABLED ||
+    config.ARUBA_SUBMISSION_ENABLED
+  ) {
     throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
   }
   const result = await getPool().query<CanaryPayload & { environment: string }>(
@@ -1138,7 +1146,11 @@ async function prepareCanaryMutation(job: ClaimedJob, payload: CanaryPayload) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `aruba-read:PRODUCTION:${payload.accountReference}`,
     ]);
-    if (config.APP_ENV !== "production" || config.ARUBA_SUBMISSION_ENABLED) {
+    if (
+      config.APP_ENV !== "production" ||
+      !config.ARUBA_CANARY_ENABLED ||
+      config.ARUBA_SUBMISSION_ENABLED
+    ) {
       throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
     }
     const selected = await client.query<{

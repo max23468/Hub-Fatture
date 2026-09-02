@@ -1,9 +1,14 @@
 # Invio pilota TD01 Aruba
 
-Questa procedura governa un solo invio fiscale reale TD01. Non abilita l’uso ordinario, non
-comprende TD04 e non consente di creare un documento appositamente per la prova.
+Questa procedura governa un gate opzionale. La decisione corrente è non effettuare invii reali:
+`ARUBA_CANARY_ENABLED=false` deve restare invariato e il report di readiness deve restituire
+`state=SKIPPED`. Il percorso monouso seguente si applica soltanto dopo una nuova decisione esplicita.
 
 ## Condizioni di ingresso
+
+Prima di qualsiasi altra condizione, il titolare deve avere revocato la decisione di saltare la
+prova e autorizzato separatamente `ARUBA_CANARY_ENABLED=true`. In assenza, fermarsi senza scegliere
+un documento e usare la ricevuta `SKIPPED`.
 
 - il candidato `1.0.0` non è pubblicato e i gate tecnici applicabili sono verdi sullo SHA esatto;
 - l’immagine distribuita, lo schema e `/version` coincidono con il candidato;
@@ -57,9 +62,11 @@ node build-server/operations/aruba-canary-readiness.js
 ```
 
 Il report è sanitizzato: restituisce solo cardinalità, stati, presenza dei file e valore effettivo
-dell’interruttore. La chiusura richiede `state=COMPLETE`, un solo permesso consumato, un solo
-tentativo di invio, readback riuscito, almeno XML o P7M ufficiale, zero job attivi e
-`submissionEnabled=false`.
+degli interruttori. La decisione corrente chiude il gate con `state=SKIPPED`,
+`canaryEnabled=false`, zero permessi consumati, zero tentativi e zero job di invio. Se il titolare
+riattiva la prova, la chiusura richiede invece `state=COMPLETE`, un solo permesso consumato, un solo
+tentativo, readback riuscito, almeno XML o P7M ufficiale e il ritorno di entrambi gli interruttori a
+`false`.
 
 Conservare fuori dal repository gli identificativi completi, gli hash e i documenti reali. Nel
 record pubblico riportare soltanto commit, digest, schema, esito, cardinalità e riferimenti remoti

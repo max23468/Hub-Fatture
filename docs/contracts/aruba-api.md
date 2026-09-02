@@ -9,9 +9,10 @@ una seconda autorità automatica.
 
 Il contratto copre autenticazione, verifica dell’identità, ricerca paginata delle fatture inviate,
 dettaglio, file e notifiche. Per l’outbound copre manifest immutabile, qualifica con
-`POST /services/invoice/upload` e `dryRun=true` e un solo invio pilota TD01 con `dryRun=false`.
-La chiamata reale resta subordinata al permesso monouso e all’autorizzazione esplicita; callback e
-uso ordinario restano fuori da questo contratto operativo.
+`POST /services/invoice/upload` e `dryRun=true`. L’invio pilota TD01 con `dryRun=false` è una
+capacità opzionale, disabilitata per impostazione predefinita e non necessaria alla readiness. Una
+chiamata reale richiede `ARUBA_CANARY_ENABLED=true`, permesso monouso e autorizzazione esplicita;
+callback e uso ordinario restano fuori da questo contratto operativo.
 
 La fonte provider è la [documentazione ufficiale API v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html).
 Un cambiamento di forma, stati o limiti riapre la qualifica prima di estendere il canale Production.
@@ -59,7 +60,8 @@ mensile delle trasmissioni accettate.
 
 ## Invio pilota TD01
 
-Il percorso reale accetta esclusivamente un batch Production `DOCUMENT_ONLY` con una sola TD01,
+Il percorso reale è opzionale e con `ARUBA_CANARY_ENABLED=false` non espone il comando, non crea
+permessi e non esegue job di invio. Se viene riattivato esplicitamente, accetta esclusivamente un batch Production `DOCUMENT_ONLY` con una sola TD01,
 un dry-run `SUCCEEDED` sul medesimo XML e un permesso creato da `Massimo`. Il permesso lega
 ambiente, account, documento, revisione, batch, manifest e hash XML, scade dopo quindici minuti e
 non modifica `ARUBA_SUBMISSION_ENABLED=false`.
