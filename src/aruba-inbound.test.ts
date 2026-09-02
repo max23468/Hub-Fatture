@@ -256,6 +256,13 @@ test("data vicina e destinatario uguale con importo diverso richiedono una decis
   assert.equal(result.evaluations[0]?.reviewable, false);
   assert.equal(canManuallyLinkCandidate(result.evaluations[0]!), false);
   assert.equal(isArubaAmountMismatchCandidate(result.evaluations[0]!), true);
+  assert.equal(
+    isArubaAmountMismatchCandidate({
+      ...result.evaluations[0]!,
+      issuedInvoiceDocumentId: "documento-gia-approvato",
+    }),
+    false,
+  );
 });
 
 test("un candidato univoco richiede data, importo e identità coerenti", () => {

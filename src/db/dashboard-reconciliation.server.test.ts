@@ -388,7 +388,56 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
 
     await client.getPool().query(
       `UPDATE aruba_document_matches
-       SET candidates_json = jsonb_set(candidates_json, '{0,signals,recipient}', 'false'::jsonb)
+       SET candidates_json = jsonb_set(
+         candidates_json, '{0,issuedInvoiceDocumentId}', to_jsonb('42'::text))
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
+    assert.equal(
+      (
+        await inventoryQueries.listRemoteDocuments({
+          attentionOnly: true,
+          billingCaseId: cases.rows[2]!.id,
+        })
+      ).some((document) => document.remote_id === "weak-official-match"),
+      false,
+    );
+    const alreadyIssued = await client.getPool().connect();
+    try {
+      await alreadyIssued.query("BEGIN");
+      assert.equal(await status.recomputeOpenBillingCaseStatuses(alreadyIssued), 1);
+      await alreadyIssued.query("COMMIT");
+    } finally {
+      alreadyIssued.release();
+    }
+    assert.equal(await orders.getOpenBillingCasePool(cases.rows[2]!.id, false), "APPROVABLE");
+    assert.equal(
+      (await operationalControls.listOperationalControls({ origin: "DOCUMENTS" })).rows.some(
+        (control) => control.source_id === remote.rows[0]!.id,
+      ),
+      false,
+    );
+
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = candidates_json #- '{0,issuedInvoiceDocumentId}'
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
+    const restoredMismatch = await client.getPool().connect();
+    try {
+      await restoredMismatch.query("BEGIN");
+      assert.equal(await status.recomputeOpenBillingCaseStatuses(restoredMismatch), 1);
+      await restoredMismatch.query("COMMIT");
+    } finally {
+      restoredMismatch.release();
+    }
+    assert.equal(await orders.getOpenBillingCasePool(cases.rows[2]!.id, false), "REQUIRES_ACTION");
+
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_set(
+         candidates_json, '{0,signals,recipient}', 'false'::jsonb)
        WHERE remote_document_id = $1`,
       [remote.rows[0]!.id],
     );

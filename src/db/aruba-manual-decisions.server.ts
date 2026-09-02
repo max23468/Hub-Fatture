@@ -26,6 +26,7 @@ type ManualCandidate = {
   compatible?: boolean;
   reviewable?: boolean;
   potential?: boolean;
+  issuedInvoiceDocumentId?: string | null;
   refundIds?: string[];
   signals?: {
     provider?: boolean;

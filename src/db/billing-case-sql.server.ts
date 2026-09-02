@@ -123,6 +123,7 @@ export const arubaAmountMismatchCandidateSql = (
   remoteAlias = "aruba_remote",
 ) => `(
   ${remoteAlias}.xml_sha256 IS NOT NULL
+  AND ${candidateAlias} ->> 'issuedInvoiceDocumentId' IS NULL
   AND coalesce((${candidateAlias} -> 'signals' ->> 'provider')::boolean, false)
   AND coalesce((${candidateAlias} -> 'signals' ->> 'nearDate')::boolean, false)
   AND coalesce((${candidateAlias} -> 'signals' ->> 'recipient')::boolean, false)

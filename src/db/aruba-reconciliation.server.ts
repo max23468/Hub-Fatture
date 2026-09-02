@@ -409,7 +409,13 @@ export async function reconcileRemoteDocument(
       evaluation.compatible ||
       evaluation.reviewable ||
       evaluation.potential ||
-      isArubaAmountMismatchCandidate(evaluation)
+      isArubaAmountMismatchCandidate({
+        ...evaluation,
+        issuedInvoiceDocumentId:
+          remote.documentType === "TD01"
+            ? evaluatedCandidates[index]!.source.invoice_document_id
+            : null,
+      })
         ? evaluatedCandidates[index]!.source
         : null,
     )
@@ -466,6 +472,7 @@ export async function reconcileRemoteDocument(
       potential?: boolean;
       compatible?: boolean;
       reviewable?: boolean;
+      issuedInvoiceDocumentId?: string | null;
       signals?: Partial<CandidateEvaluation["signals"]>;
     }>;
   }>(
@@ -518,6 +525,10 @@ export async function reconcileRemoteDocument(
       JSON.stringify(
         match.evaluations.map((evaluation, index) => ({
           ...evaluation,
+          issuedInvoiceDocumentId:
+            remote.documentType === "TD01"
+              ? evaluatedCandidates[index]!.source.invoice_document_id
+              : null,
           refundIds: evaluatedCandidates[index]!.source.selected_refund_ids ?? [],
         })),
       ),
