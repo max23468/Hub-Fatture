@@ -15,6 +15,22 @@ import {
 import { arubaExternalEvidenceCandidateSql } from "./billing-case-sql.server.ts";
 import { reconcileRemoteDocument } from "./aruba-reconciliation.server.ts";
 
+const arubaTaxIdentityReplayCandidateSql = (
+  candidateAlias = "candidate",
+  remoteAlias = "remote",
+) => `(
+  EXISTS (
+    SELECT 1 FROM aruba_files replay_file
+    WHERE replay_file.remote_document_id = ${remoteAlias}.id
+      AND replay_file.kind = 'ARUBA_XML'
+  )
+  AND ${candidateAlias} ->> 'issuedInvoiceDocumentId' IS NULL
+  AND coalesce((${candidateAlias} -> 'signals' ->> 'provider')::boolean, false)
+  AND coalesce((${candidateAlias} -> 'signals' ->> 'nearDate')::boolean, false)
+  AND coalesce((${candidateAlias} -> 'signals' ->> 'address')::boolean, false)
+  AND NOT coalesce((${candidateAlias} -> 'signals' ->> 'total')::boolean, false)
+)`;
+
 export async function reconcileCachedArubaMatcherUpgrade(
   client: pg.PoolClient,
   environment: string,
@@ -52,6 +68,7 @@ export async function reconcileCachedArubaMatcherUpgrade(
        AND (remote.document_type <> 'TD01' OR EXISTS (
          SELECT 1 FROM jsonb_array_elements(matches.candidates_json) external_candidate
          WHERE ${arubaExternalEvidenceCandidateSql("external_candidate", "remote")}
+            OR ${arubaTaxIdentityReplayCandidateSql("external_candidate", "remote")}
        ))
        AND (((remote.document_type = 'TD01' AND EXISTS (
          SELECT 1 FROM orders
@@ -93,6 +110,7 @@ export async function reconcileCachedArubaMatcherUpgrade(
               AND coalesce((candidate -> 'signals' ->> 'recipient')::boolean, false)
               AND NOT coalesce((candidate -> 'signals' ->> 'total')::boolean, false)
             )
+            OR ${arubaTaxIdentityReplayCandidateSql("candidate", "remote")}
        ))
      ORDER BY remote.id`,
     [environment, account, ARUBA_MATCHER_VERSION, [...ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES]],

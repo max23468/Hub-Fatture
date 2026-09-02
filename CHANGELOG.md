@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.17
+
+- Il replay del matcher Aruba rivaluta anche i documenti storici con data vicina, importo diverso e indirizzo già coincidente, così una P.IVA italiana precedentemente esclusa per il Paese mancante viene ricontrollata senza collegamenti automatici.
+
 ## 1.0.16
 
 - Le preparazioni composte esclusivamente da ordini Shopify pagati con bonifico propongono `MP05`; una successiva transazione `manual` vale come conferma soltanto a parità d'importo e senza metodi concorrenti, mentre i casi misti o ambigui conservano il metodo predefinito.
