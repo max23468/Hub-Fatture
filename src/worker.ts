@@ -26,12 +26,41 @@ import {
   runArubaApiInboundJob,
 } from "./db/aruba-api-inbound.server.ts";
 import { runArubaApiOutboundJob } from "./db/aruba-api-outbound.server.ts";
+import { refreshOperationalControls } from "./db/operational-controls.server.ts";
 
 const workerId = randomUUID();
 let stopping = false;
+let controlsRefreshRequested = false;
+let controlsRefreshPromise: Promise<void> | null = null;
 
 process.once("SIGTERM", () => (stopping = true));
 process.once("SIGINT", () => (stopping = true));
+
+async function refreshOperationalControlsUntilCurrent() {
+  controlsRefreshRequested = false;
+  await refreshOperationalControls();
+  if (controlsRefreshRequested) await refreshOperationalControlsUntilCurrent();
+}
+
+function scheduleOperationalControlsRefresh() {
+  controlsRefreshRequested = true;
+  if (controlsRefreshPromise) return;
+  controlsRefreshPromise = refreshOperationalControlsUntilCurrent()
+    .catch(() => {
+      console.error(JSON.stringify({ event: "operational_controls_refresh_failed" }));
+    })
+    .finally(() => {
+      controlsRefreshPromise = null;
+      if (controlsRefreshRequested) scheduleOperationalControlsRefresh();
+    });
+}
+
+async function waitForOperationalControlsRefresh() {
+  const currentRefresh = controlsRefreshPromise;
+  if (!currentRefresh) return;
+  await currentRefresh;
+  if (controlsRefreshPromise) await waitForOperationalControlsRefresh();
+}
 
 async function runJob() {
   const job = await claimJob(workerId);
@@ -115,6 +144,7 @@ async function runJob() {
     );
   } finally {
     clearInterval(heartbeat);
+    scheduleOperationalControlsRefresh();
   }
   return true;
 }
@@ -124,4 +154,5 @@ while (!stopping) {
   if (!(await runJob())) await new Promise((resolve) => setTimeout(resolve, 5_000));
 }
 
+await waitForOperationalControlsRefresh();
 await closePool();

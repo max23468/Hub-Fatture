@@ -15,7 +15,7 @@ import { arubaInventoryBlocksAllApprovals } from "../../src/aruba-inventory.ts";
 import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
 import { dashboardSummary } from "../../src/db/order-queries.server.ts";
-import { getOperationalControlSummary } from "../../src/db/operational-controls.server.ts";
+import { readOperationalControlSummary } from "../../src/db/operational-controls.server.ts";
 
 const chartDateFormatter = new Intl.DateTimeFormat("it-IT", {
   weekday: "short",
@@ -36,7 +36,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       getArubaApiConnectionStatus(),
       getArubaInventoryHealth(),
       getArubaMonthlyTransmissionUsage(),
-      getOperationalControlSummary(),
+      readOperationalControlSummary(),
     ],
   );
   return {

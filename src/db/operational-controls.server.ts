@@ -702,11 +702,6 @@ export async function refreshOperationalControls() {
   return candidates.length;
 }
 
-export async function getOperationalControlSummary() {
-  await refreshOperationalControls();
-  return readOperationalControlSummary();
-}
-
 /** Legge la proiezione materializzata senza avviare una ricostruzione durante la navigazione. */
 export async function readOperationalControlSummary() {
   const result = await getPool().query<{

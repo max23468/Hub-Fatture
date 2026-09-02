@@ -152,8 +152,11 @@ try {
 
   const results = {
     dashboard: rounded(await measure("dashboard", () => orders.dashboardSummary())),
+    controlsRefresh: rounded(
+      await measure("ricostruzione controlli", () => controls.refreshOperationalControls()),
+    ),
     controlsSummary: rounded(
-      await measure("riepilogo controlli", () => controls.getOperationalControlSummary()),
+      await measure("lettura riepilogo controlli", () => controls.readOperationalControlSummary()),
     ),
     orders: rounded(await measure("lista ordini", () => orders.listOrders({ status: "ACTIVE" }))),
     customersSummary: rounded(
