@@ -1,6 +1,7 @@
 import type pg from "pg";
 
 import {
+  ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES,
   ARUBA_MATCHER_VERSION,
   remoteInventoryDocumentSchema,
   type RemoteInventoryDocument,
@@ -43,6 +44,7 @@ export async function reconcileCachedArubaMatcherUpgrade(
      ) latest ON true
      WHERE remote.environment = $1 AND remote.account_reference = $2
        AND matches.matcher_version < $3
+       AND remote.document_type = ANY($4::text[])
        AND remote.remote_status <> 'REJECTED'
        AND matches.method <> 'MANUAL'
        AND matches.status NOT IN ('ERROR', 'UNKNOWN_REMOTE_STATE')
@@ -60,9 +62,20 @@ export async function reconcileCachedArubaMatcherUpgrade(
            AND refunds.completed_at::date BETWEEN remote.document_date - 31
              AND remote.document_date + 31
            AND (refunds.credit_document_id IS NULL OR EXISTS (
-             SELECT 1 FROM documents
-             WHERE documents.id = refunds.credit_document_id
-               AND documents.status = 'DRAFT'
+             SELECT 1 FROM documents credit
+             WHERE credit.id = refunds.credit_document_id
+               AND credit.kind = 'CREDIT_NOTE' AND (
+                 credit.status = 'DRAFT' OR (
+                   credit.status = 'APPROVED' AND credit.document_type = 'TD04'
+                   AND credit.fiscal_year = remote.fiscal_year
+                   AND lower(btrim(credit.series)) = lower(btrim(remote.series))
+                   AND credit.fiscal_number = CASE
+                     WHEN remote.fiscal_number ~ '^[0-9]+$'
+                       THEN remote.fiscal_number::integer
+                   END
+                   AND credit.total_amount = remote.total_amount
+                 )
+               )
            ))
        ))) OR EXISTS (
        SELECT 1 FROM jsonb_array_elements(matches.candidates_json) candidate
@@ -77,7 +90,7 @@ export async function reconcileCachedArubaMatcherUpgrade(
             )
        ))
      ORDER BY remote.id`,
-    [environment, account, ARUBA_MATCHER_VERSION],
+    [environment, account, ARUBA_MATCHER_VERSION, [...ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES]],
   );
   const invalidIds: string[] = [];
   for (const row of cached.rows) {

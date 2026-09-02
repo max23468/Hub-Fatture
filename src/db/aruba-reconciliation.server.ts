@@ -176,14 +176,30 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
            refunds.credit_document_id IS NULL OR EXISTS (
              SELECT 1 FROM documents credit
              WHERE credit.id = refunds.credit_document_id
-               AND credit.kind = 'CREDIT_NOTE' AND credit.status = 'DRAFT'
+               AND credit.kind = 'CREDIT_NOTE' AND (
+                 credit.status = 'DRAFT' OR (
+                   credit.status = 'APPROVED' AND credit.document_type = 'TD04'
+                   AND credit.fiscal_year = $2
+                   AND lower(btrim(credit.series)) = lower(btrim($3))
+                   AND credit.fiscal_number = CASE
+                     WHEN $4 ~ '^[0-9]+$' THEN $4::integer
+                   END
+                   AND credit.total_amount = $5
+                 )
+               )
            )
          )
      ) AS refundable ON refundable.amount > 0
      WHERE coalesce(refundable.refund_date, invoice.document_date)
        BETWEEN $1::date - 31 AND $1::date + 31
      ORDER BY orders.id`,
-    [remote.documentDate],
+    [
+      remote.documentDate,
+      remote.fiscalYear,
+      remote.series,
+      remote.fiscalNumber,
+      remote.totalAmount,
+    ],
   );
   return result.rows;
 }
