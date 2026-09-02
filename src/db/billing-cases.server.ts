@@ -17,8 +17,15 @@ import { AppError } from "../errors.ts";
 import { rematchCachedArubaDocumentsForBillingCase } from "./aruba-billing-case-rematch.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import {
+  normalizeOpenBillingCaseProjection,
+  openBillingCasePoolSql,
+  openBillingCaseReasonCodesSql,
+  type OpenBillingCasePool,
+  type OpenBillingCaseProjection,
+  type OpenBillingCaseReasonCode,
+} from "./billing-case-operational-projection.server.ts";
+import {
   arubaPotentialMatchSql,
-  billingCaseApprovalCandidateSql,
   billingCasePendingPaymentSql,
   customerProfileMismatchSql,
   hasCaseOrdersSql,
@@ -133,45 +140,15 @@ export async function listOperationalBillingCaseAnomalies() {
   }>(
     `SELECT billing_cases.id::text, billing_cases.public_number,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
-            billing_cases.local_order_date::text, anomalies.anomaly,
+            billing_cases.local_order_date::text,
+            anomalies.anomaly::text AS anomaly,
             billing_cases.updated_at::text
      FROM billing_cases
-     CROSS JOIN LATERAL (VALUES
-       ('TOTALS_MISMATCH', EXISTS (
-         SELECT 1 FROM orders
-         WHERE orders.billing_case_id = billing_cases.id
-           AND NOT coalesce(
-             (orders.normalized_snapshot_json ->> 'totalsReconciled')::boolean,
-             false
-           )
-       )),
-       ('CUSTOMER_MISMATCH', EXISTS (
-         SELECT 1 FROM orders
-         WHERE orders.billing_case_id = billing_cases.id
-           AND ${customerProfileMismatchSql}
-       )),
-       ('SOURCE_CONFLICT', EXISTS (
-         SELECT 1 FROM orders
-         WHERE orders.billing_case_id = billing_cases.id
-           AND (
-             coalesce(
-               (orders.normalized_snapshot_json ->> 'sourceConflictRequired')::boolean,
-               false
-             )
-             OR coalesce(
-               (orders.normalized_snapshot_json ->> 'deferredReviewRequired')::boolean,
-               false
-             )
-           )
-       )),
-       ('ORDER_NOT_BILLABLE', EXISTS (
-         SELECT 1 FROM orders
-         WHERE orders.billing_case_id = billing_cases.id
-           AND (orders.cancelled_at IS NOT NULL OR orders.payment_status = 'REFUNDED')
-       ))
-     ) AS anomalies(anomaly, active)
-     WHERE billing_cases.status = 'NEEDS_REVIEW' AND anomalies.active
+     CROSS JOIN LATERAL unnest(${openBillingCaseReasonCodesSql("false")}) AS anomalies(anomaly)
+     WHERE ${openBillingCaseSql("billing_cases")}
+       AND anomalies.anomaly = ANY($1::text[])
      ORDER BY billing_cases.updated_at, billing_cases.id, anomalies.anomaly`,
+    [["TOTALS_MISMATCH", "CUSTOMER_MISMATCH", "SOURCE_CONFLICT", "ORDER_NOT_BILLABLE"]],
   );
   return result.rows;
 }
@@ -637,17 +614,7 @@ export type BillingCaseListSortKey =
   | "totale"
   | "stato";
 
-export type OpenBillingCasePool = "APPROVABLE" | "PENDING_PAYMENT" | "REQUIRES_ACTION";
-
-const openBillingCasePoolSql = (
-  approvalsGloballyBlockedSql: string,
-  billingCaseAlias = "billing_cases",
-) => `CASE
-  WHEN ${billingCasePendingPaymentSql(billingCaseAlias)} THEN 'PENDING_PAYMENT'
-  WHEN NOT ${approvalsGloballyBlockedSql}
-    AND ${billingCaseApprovalCandidateSql(billingCaseAlias)} THEN 'APPROVABLE'
-  ELSE 'REQUIRES_ACTION'
-END`;
+export type { OpenBillingCasePool, OpenBillingCaseProjection, OpenBillingCaseReasonCode };
 
 const billingCaseListSortSql: Record<BillingCaseListSortKey, string> = {
   preparazione: "billing_cases.public_number",
@@ -672,6 +639,7 @@ export async function listBillingCases(
   const orderBy = billingCaseListSortSql[sort.key];
   const direction = sort.direction === "asc" ? "ASC" : "DESC";
   const operationalPoolSql = openBillingCasePoolSql("$4::boolean");
+  const reasonCodesSql = openBillingCaseReasonCodesSql("$4::boolean");
   // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
   // i valori della richiesta restano nei parametri $1-$2.
   // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
@@ -682,6 +650,7 @@ export async function listBillingCases(
     first_order_created_at: string | null;
     status: string;
     operational_pool: OpenBillingCasePool;
+    reason_codes: OpenBillingCaseReasonCode[];
     customer_name: string;
     order_count: string;
     total_amount: string;
@@ -689,6 +658,7 @@ export async function listBillingCases(
     `SELECT billing_cases.id, billing_cases.public_number, billing_cases.local_order_date::text,
             min(orders.created_at_source)::text AS first_order_created_at,
             billing_cases.status, ${operationalPoolSql} AS operational_pool,
+            ${reasonCodesSql} AS reason_codes,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             count(orders.id)::text AS order_count, coalesce(sum(orders.billable_amount), 0)::text AS total_amount
      FROM billing_cases
@@ -711,21 +681,32 @@ export async function listBillingCases(
       filters.operationalPool ?? null,
     ],
   );
-  return paginate(result.rows);
+  const page = paginate(result.rows);
+  return {
+    ...page,
+    rows: page.rows.map((row) => ({
+      ...row,
+      ...normalizeOpenBillingCaseProjection(row),
+    })),
+  };
 }
 
-export async function getOpenBillingCasePool(
+export async function getOpenBillingCaseProjection(
   id: string,
   approvalsGloballyBlocked: boolean,
-): Promise<OpenBillingCasePool | null> {
+): Promise<OpenBillingCaseProjection | null> {
   if (!isDatabaseId(id)) return null;
-  const result = await getPool().query<{ operational_pool: OpenBillingCasePool }>(
-    `SELECT ${openBillingCasePoolSql("$2::boolean")} AS operational_pool
+  const result = await getPool().query<{
+    operational_pool: OpenBillingCasePool;
+    reason_codes: string[];
+  }>(
+    `SELECT ${openBillingCasePoolSql("$2::boolean")} AS operational_pool,
+            ${openBillingCaseReasonCodesSql("$2::boolean")} AS reason_codes
      FROM billing_cases
      WHERE billing_cases.id = $1 AND ${openBillingCaseSql()}`,
     [id, approvalsGloballyBlocked],
   );
-  return result.rows[0]?.operational_pool ?? null;
+  return result.rows[0] ? normalizeOpenBillingCaseProjection(result.rows[0]) : null;
 }
 
 export async function getBillingCase(id: string) {

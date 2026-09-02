@@ -11,6 +11,7 @@ import { getConfig } from "../config.server.ts";
 import { auditActions } from "./audit.server.ts";
 import { getPool } from "./client.server.ts";
 import { actionableConnectorFailures } from "./connector-jobs.server.ts";
+import { openBillingCasePoolSql } from "./billing-case-operational-projection.server.ts";
 import {
   billingCasePendingPaymentSql,
   openBillingCaseSql,
@@ -328,17 +329,33 @@ export async function dashboardSummary() {
       documents_this_month: string;
       documents_last_seven_days: Array<{ date: string; count: number }>;
     }>(
-      `SELECT
+      `WITH projected_open_cases AS MATERIALIZED (
+         SELECT billing_cases.id,
+                ${openBillingCasePoolSql(
+                  "false",
+                  "billing_cases",
+                  standardInvoiceApprovalCandidateSql(
+                    "billing_cases",
+                    "approval_document",
+                    "approval_profile",
+                  ),
+                )} AS operational_pool
+         FROM billing_cases
+         LEFT JOIN documents AS approval_document
+           ON approval_document.billing_case_id = billing_cases.id
+          AND approval_document.kind = 'INVOICE'
+         LEFT JOIN fiscal_profiles AS approval_profile
+           ON approval_profile.version = approval_document.fiscal_profile_version
+         WHERE ${openBillingCaseSql("billing_cases")}
+       ), open_case_counts AS (
+         SELECT count(*) FILTER (WHERE operational_pool = 'APPROVABLE') AS ready_cases,
+                count(*) FILTER (WHERE operational_pool = 'REQUIRES_ACTION') AS review_cases
+         FROM projected_open_cases
+       )
+       SELECT
        (SELECT count(*) FROM orders)::text AS orders,
-       (SELECT count(*)
-        FROM billing_cases
-        LEFT JOIN documents ON documents.billing_case_id = billing_cases.id
-          AND documents.kind = 'INVOICE'
-        LEFT JOIN fiscal_profiles ON fiscal_profiles.version = documents.fiscal_profile_version
-        WHERE ${standardInvoiceApprovalCandidateSql()})::text AS ready_cases,
-       ((SELECT count(*) FROM billing_cases
-         WHERE status = 'NEEDS_REVIEW'
-           AND NOT ${billingCasePendingPaymentSql()}) +
+       (SELECT ready_cases::text FROM open_case_counts) AS ready_cases,
+       ((SELECT review_cases FROM open_case_counts) +
         (SELECT count(*) FROM orders
          WHERE billing_case_id IS NULL
            AND NOT ${pendingPaymentSql()}

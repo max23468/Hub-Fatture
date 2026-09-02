@@ -36,6 +36,8 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `EMAIL_ATTACHMENT_MISSING`       | CONFLICT temporaneo   | no               | importare il PDF ufficiale            |
 | `EMAIL_DELIVERY_FAILED`          | NETWORK transitorio   | sì, con backoff  | attendere il retry o reinviare        |
 | `EMAIL_DELIVERY_UNCERTAIN`       | UNKNOWN               | no               | verificare prima del reinvio          |
+| `EMAIL_CONTENT_REDACTED`         | CONFLICT permanente   | no               | inserire un nuovo destinatario        |
+| `RETENTION_FAILED`               | DATA temporaneo       | sì, con backoff  | verificare backup e riprovare         |
 | `ARUBA_BATCH_INVALID`            | CONFLICT permanente   | no               | ricreare il batch dai documenti       |
 | `ARUBA_VALIDATION_FAILED`        | VALIDATION permanente | no               | rimuovere gli upload e correggere     |
 | `ARUBA_OPERATION_FORBIDDEN`      | AUTH permanente       | no               | usare l’account titolare              |

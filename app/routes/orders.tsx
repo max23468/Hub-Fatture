@@ -6,11 +6,13 @@ import type { Route } from "./+types/orders";
 import fixture from "../../tests/fixtures/orders/normalized.mock.json" with { type: "json" };
 import { actionResult } from "../action";
 import { AppShell } from "../components/app-shell";
+import { CustomerEmailApprovalFields } from "../components/customer-email-approval";
 import { Pager } from "../components/pager";
 import { SortableHeaderLink } from "../components/sortable-table";
 import { ViewNavigation } from "../components/view-navigation";
 import {
   billingCaseStatusLabels,
+  anomalyLabels,
   copy,
   orderListStatusLabels,
   orderStatusLabels,
@@ -346,77 +348,11 @@ function MassApprovalPanel({
                 </Link>
               </legend>
               <p>{`${candidate.customer_name} · ${euros(candidate.total_amount)} · profilo fiscale v${candidate.fiscal_profile_version} · pagamento registrato`}</p>
-              <dl className="facts facts--columns">
-                <div>
-                  <dt>{copy.document.emailMode}</dt>
-                  <dd>
-                    {candidate.customerEmail.mode === "AUTOMATIC"
-                      ? copy.document.emailAutomatic
-                      : candidate.customerEmail.mode === "DISABLED"
-                        ? copy.document.emailDisabled
-                        : copy.document.emailManual}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailSender}</dt>
-                  <dd>{candidate.customerEmail.sender}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailRecipient}</dt>
-                  <dd>{candidate.customerEmail.recipient ?? copy.common.unavailable}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailSubject}</dt>
-                  <dd>{candidate.customerEmail.subject}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailBody}</dt>
-                  <dd>{candidate.customerEmail.body}</dd>
-                </div>
-                <div>
-                  <dt>{copy.document.emailAttachment}</dt>
-                  <dd>{candidate.customerEmail.attachment}</dd>
-                </div>
-              </dl>
-              {candidate.customerEmail.mode === "DISABLED" ? (
-                <>
-                  <input
-                    name={`emailChoice:${candidate.billing_case_id}`}
-                    type="hidden"
-                    value="SKIP"
-                  />
-                  <p className="notice">{copy.document.emailDisabledHelp}</p>
-                </>
-              ) : (
-                <>
-                  <label className="checkbox-row">
-                    <input
-                      defaultChecked={
-                        candidate.customerEmail.mode === "AUTOMATIC" &&
-                        Boolean(candidate.customerEmail.recipient)
-                      }
-                      name={`emailChoice:${candidate.billing_case_id}`}
-                      required
-                      type="radio"
-                      value="SEND"
-                    />
-                    {copy.document.emailSend}
-                  </label>
-                  <label className="checkbox-row">
-                    <input
-                      defaultChecked={
-                        candidate.customerEmail.mode !== "AUTOMATIC" ||
-                        !candidate.customerEmail.recipient
-                      }
-                      name={`emailChoice:${candidate.billing_case_id}`}
-                      required
-                      type="radio"
-                      value="SKIP"
-                    />
-                    {copy.document.emailSkip}
-                  </label>
-                </>
-              )}
+              <CustomerEmailApprovalFields
+                choiceName={`emailChoice:${candidate.billing_case_id}`}
+                email={candidate.customerEmail}
+                required
+              />
             </fieldset>
           ))}
         </div>
@@ -653,6 +589,12 @@ function PreparationList({
                       : (copy.orders.preparationPoolLabels[billingCase.operational_pool] ??
                         copy.common.unknownStatus)}
                   </span>
+                  {view !== "annullati" && billingCase.reasonCodes[0] ? (
+                    <small className="orders-table__status-reason">
+                      {anomalyLabels[billingCase.reasonCodes[0]]?.title ??
+                        copy.orders.preparationPoolLabels[billingCase.operational_pool]}
+                    </small>
+                  ) : null}
                 </td>
                 <td data-label={copy.orders.actions} className="orders-table__action">
                   <Link

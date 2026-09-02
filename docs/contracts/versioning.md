@@ -1,21 +1,21 @@
 # Versioning di Hub Fatture
 
-Questo documento definisce la convenzione di versioning applicativa fino alla prima release stabile. La roadmap e i criteri di uscita restano quelli del Master Plan; questa policy assegna soltanto significato ai numeri di versione e non crea milestone aggiuntive.
+Questo documento definisce la convenzione di versioning applicativa. La roadmap e i criteri di uscita restano quelli del Master Plan; questa policy assegna soltanto significato ai numeri di versione e non crea milestone aggiuntive.
 
 ## Regole
 
 Hub Fatture usa versioni `MAJOR.MINOR.PATCH` senza suffissi prerelease.
 
-- `PATCH` identifica ogni nuova release runtime Production all'interno dello stesso treno di sviluppo. Correzioni, hardening, miglioramenti infrastrutturali e completamenti incrementali della stessa fase avanzano il patch.
-- `MINOR` cambia quando si entra in una nuova fase funzionale principale della roadmap pre-1.0. Non misura una percentuale di completamento.
-- `MAJOR` passa a `1` soltanto per il candidato destinato alla prima release operativa completa.
+- `PATCH` identifica ogni nuova release runtime Production compatibile all'interno della stessa tranche funzionale. Correzioni, hardening e miglioramenti incrementali avanzano il patch.
+- Prima della `1.0.0`, `MINOR` identificava i treni principali della roadmap. Dalla `1.0.0`, avanza per una tranche funzionale coerente e autorizzata dal titolare, senza implicare deploy o attivazioni Production.
+- `MAJOR` è `1` dalla prima release operativa completa; un incremento futuro richiede una decisione esplicita sul contratto di prodotto.
 - Modifiche esclusivamente documentali, di test o di governance non richiedono un bump applicativo.
 - Non si usano `alpha`, `beta`, `rc` o altri prerelease tag. Il commit e il digest identificano le iterazioni del candidato prima della pubblicazione definitiva.
 - Più correzioni runtime assorbite prima della pubblicazione possono completare lo stesso candidato
   già versionato finché il relativo tag `vMAJOR.MINOR.PATCH` non esiste; dopo il tag immutabile,
   qualunque nuova modifica runtime deve avanzare almeno il patch.
 
-## Treni fino alla 1.0
+## Treni storici fino alla 1.0
 
 | Fase della roadmap                 | Versione               | Significato                                                                                                                      |
 | ---------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -28,6 +28,10 @@ Hub Fatture usa versioni `MAJOR.MINOR.PATCH` senza suffissi prerelease.
 | Go-live                            | `1.0.0`                | Lo stesso artefatto validato viene promosso e pubblicato come release definitiva                                                 |
 
 Le serie `0.7.x`, `0.8.x` e `0.9.x` non fanno parte della roadmap corrente e non vanno introdotte per riempire artificialmente la distanza dalla `1.0.0`.
+
+## Serie stabile 1.x
+
+La `1.1.0` identifica la tranche operativa richiesta dal titolare dopo il go-live: proiezione unica delle code, Controlli paginati e assegnabili, retention osservabile e hardening e-mail/Aruba. Le correzioni successive che non ampliano questa tranche avanzano `1.1.x`; una nuova capacità di prodotto distinta richiede una nuova autorizzazione prima di scegliere `1.2.0`.
 
 ## Candidato 1.0.0
 

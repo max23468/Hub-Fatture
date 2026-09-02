@@ -62,6 +62,20 @@ export function SystemSettingsSection({
                   : copy.settings.backupPending}
               </dd>
             </div>
+            <div>
+              <dt>{copy.settings.retentionStatus}</dt>
+              <dd>
+                {system.retention
+                  ? copy.settings.retentionJobStatus(
+                      system.retention.status,
+                      dateTime(system.retention.completed_at ?? system.retention.updated_at),
+                    )
+                  : copy.settings.retentionPending}
+                {system.retention?.status === "COMPLETED" ? (
+                  <small>{copy.settings.retentionOutcome(system.retention.result_json)}</small>
+                ) : null}
+              </dd>
+            </div>
           </dl>
         </section>
         <section className="system-group settings-inset-card">

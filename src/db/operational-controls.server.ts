@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
 import { errorCodeLabel } from "../error-label.ts";
+import { AppError } from "../errors.ts";
+import { escapeLike, postgresDateSchema } from "../orders.ts";
 import {
   listOperationalBillingCaseAnomalies,
   type OperationalBillingCaseAnomaly,
@@ -66,6 +68,10 @@ export interface OperationalControl {
   updated_at: string;
   waiting_at: string | null;
   resolution_note: string | null;
+  waiting_reason: "PROVIDER" | "CUSTOMER" | "ACCOUNTING" | "TECHNICAL" | "FOLLOW_UP" | null;
+  due_at: string | null;
+  assignee_user_id: number | null;
+  assignee_username: string | null;
 }
 
 interface ControlCandidate {
@@ -90,6 +96,56 @@ const severityRank: Record<OperationalControlSeverity, number> = {
   IMPORTANT: 1,
   ORDINARY: 2,
 };
+
+const CONTROLS_PAGE_SIZE = 50;
+const waitingReasons = ["PROVIDER", "CUSTOMER", "ACCOUNTING", "TECHNICAL", "FOLLOW_UP"] as const;
+export type OperationalControlWaitingReason = (typeof waitingReasons)[number];
+
+interface OperationalControlCursor {
+  direction: "next" | "previous";
+  severityRank: number;
+  openedAt: string;
+  id: string;
+}
+
+function encodeControlCursor(
+  direction: OperationalControlCursor["direction"],
+  control: OperationalControl,
+) {
+  return Buffer.from(
+    JSON.stringify({
+      direction,
+      severityRank: severityRank[control.severity],
+      openedAt: new Date(control.opened_at).toISOString(),
+      id: control.id,
+    } satisfies OperationalControlCursor),
+  ).toString("base64url");
+}
+
+function decodeControlCursor(value: string | undefined): OperationalControlCursor | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as Partial<OperationalControlCursor>;
+    if (
+      (parsed.direction === "next" || parsed.direction === "previous") &&
+      Number.isInteger(parsed.severityRank) &&
+      Number(parsed.severityRank) >= 0 &&
+      Number(parsed.severityRank) <= 2 &&
+      typeof parsed.openedAt === "string" &&
+      Number.isFinite(new Date(parsed.openedAt).getTime()) &&
+      typeof parsed.id === "string" &&
+      parsed.id.length >= 3 &&
+      parsed.id.length <= 220
+    ) {
+      return parsed as OperationalControlCursor;
+    }
+  } catch {
+    // Un cursore URL alterato riparte dalla prima pagina senza cambiare i filtri.
+  }
+  return null;
+}
 
 function fingerprint(candidate: ControlCandidate) {
   return createHash("sha256")
@@ -271,7 +327,7 @@ async function allOpenActivities() {
 
 async function databaseCandidates(): Promise<ControlCandidate[]> {
   const pool = getPool();
-  const [customers, billingCases, batches, submissions, emails] = await Promise.all([
+  const [customers, billingCases, batches, submissions, emails, retention] = await Promise.all([
     listActionableCustomerReviews(),
     listOperationalBillingCaseAnomalies(),
     pool.query<{
@@ -324,7 +380,25 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
        JOIN documents ON documents.id = deliveries.document_id
        JOIN billing_cases ON billing_cases.id = documents.billing_case_id
        WHERE deliveries.status = 'FAILED'
-       ORDER BY deliveries.document_id, deliveries.updated_at DESC, deliveries.id DESC`,
+      ORDER BY deliveries.document_id, deliveries.updated_at DESC, deliveries.id DESC`,
+    ),
+    pool.query<{
+      id: string;
+      attempts: number;
+      last_error_code: string | null;
+      failed_at: string;
+    }>(
+      `SELECT failed.id::text, failed.attempts, failed.last_error_code,
+              coalesce(failed.locked_at, failed.run_at, failed.created_at)::text AS failed_at
+       FROM jobs AS failed
+       WHERE failed.type = 'maintenance_retention' AND failed.status = 'FAILED'
+         AND NOT EXISTS (
+           SELECT 1 FROM jobs AS completed
+           WHERE completed.type = 'maintenance_retention' AND completed.status = 'COMPLETED'
+             AND completed.completed_at > coalesce(failed.locked_at, failed.run_at, failed.created_at)
+         )
+       ORDER BY coalesce(failed.locked_at, failed.run_at, failed.created_at) DESC, failed.id DESC
+       LIMIT 1`,
     ),
   ]);
   return [
@@ -445,6 +519,30 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
         ],
       },
       detectedAt: row.updated_at,
+    })),
+    ...retention.rows.map((row): ControlCandidate => ({
+      id: `RETENTION_JOB:${row.id}`,
+      kind: "RETENTION_FAILED",
+      category: "TECHNICAL",
+      severity: "BLOCKING",
+      sourceType: "JOB",
+      sourceId: row.id,
+      origin: "CONNECTIONS",
+      title: "Conservazione tecnica non completata",
+      detail: errorCodeLabel(row.last_error_code),
+      consequence:
+        "Le scadenze di conservazione non risultano applicate finché il job non termina con una ricevuta verificabile.",
+      href: "/impostazioni#sistema",
+      primaryAction: "Riprova conservazione",
+      metadata: {
+        area: "PROCESSING",
+        jobId: row.id,
+        facts: [
+          { label: "Errore", value: errorCodeLabel(row.last_error_code), tone: "warning" },
+          { label: "Tentativi", value: String(row.attempts) },
+        ],
+      },
+      detectedAt: row.failed_at,
     })),
   ];
 }
@@ -649,6 +747,24 @@ export async function refreshOperationalControls() {
                THEN operational_controls.waiting_at
              ELSE NULL
            END,
+           waiting_reason = CASE
+             WHEN operational_controls.state = 'WAITING'
+               AND operational_controls.fingerprint = EXCLUDED.fingerprint
+               THEN operational_controls.waiting_reason
+             ELSE NULL
+           END,
+           due_at = CASE
+             WHEN operational_controls.state = 'WAITING'
+               AND operational_controls.fingerprint = EXCLUDED.fingerprint
+               THEN operational_controls.due_at
+             ELSE NULL
+           END,
+           assignee_user_id = CASE
+             WHEN operational_controls.state = 'WAITING'
+               AND operational_controls.fingerprint = EXCLUDED.fingerprint
+               THEN operational_controls.assignee_user_id
+             ELSE NULL
+           END,
            resolved_at = NULL,
            resolution_code = NULL,
            fingerprint = EXCLUDED.fingerprint,
@@ -679,6 +795,7 @@ export async function refreshOperationalControls() {
     await client.query(
       `UPDATE operational_controls
        SET state = 'RESOLVED', resolved_at = now(), waiting_at = NULL,
+           waiting_reason = NULL, due_at = NULL,
            resolution_code = 'SOURCE_CLEARED', updated_at = now()
        WHERE state = 'OPEN' AND NOT (id = ANY($1::text[]))`,
       [currentIds],
@@ -692,6 +809,10 @@ export async function refreshOperationalControls() {
            END,
            waiting_at = CASE WHEN jobs.status IN ('PENDING', 'RUNNING')
              THEN controls.waiting_at ELSE NULL END,
+           waiting_reason = CASE WHEN jobs.status IN ('PENDING', 'RUNNING')
+             THEN coalesce(controls.waiting_reason, 'TECHNICAL') ELSE NULL END,
+           due_at = CASE WHEN jobs.status IN ('PENDING', 'RUNNING')
+             THEN coalesce(controls.due_at, now() + interval '1 day') ELSE NULL END,
            resolved_at = CASE WHEN jobs.status = 'COMPLETED' THEN now() ELSE NULL END,
            resolution_code = CASE WHEN jobs.status = 'COMPLETED' THEN 'VERIFIED' ELSE NULL END,
            updated_at = now()
@@ -702,6 +823,7 @@ export async function refreshOperationalControls() {
     await client.query(
       `UPDATE operational_controls
        SET state = 'RESOLVED', resolved_at = now(), waiting_at = NULL,
+           waiting_reason = NULL, due_at = NULL,
            resolution_code = 'VERIFIED', updated_at = now()
        WHERE state = 'WAITING' AND source_type <> 'JOB'
          AND NOT (id = ANY($1::text[]))`,
@@ -749,54 +871,137 @@ export async function readOperationalControls(filters: {
   kind?: string;
   origin?: OperationalControlOrigin;
   selectedId?: string;
+  search?: string;
+  cursor?: string;
 }) {
   const state = filters.state ?? "OPEN";
-  const result = await getPool().query<OperationalControl & { total_count: number }>(
-    `SELECT controls.*, count(*) OVER()::int AS total_count
+  const search = filters.search?.trim() ?? "";
+  if (search.length > 100 || search.includes("\0")) throw new AppError("ORDER_INVALID_INPUT", 422);
+  const cursor = decodeControlCursor(filters.cursor);
+  const backwards = cursor?.direction === "previous";
+  const rankSql = `CASE controls.severity
+    WHEN 'BLOCKING' THEN 0 WHEN 'IMPORTANT' THEN 1 ELSE 2 END`;
+  const cursorSql = cursor
+    ? `AND (${rankSql}, controls.opened_at, controls.id) ${backwards ? "<" : ">"}
+         ($6::int, $7::timestamptz, $8::text)`
+    : "";
+  const orderSql = backwards
+    ? `${rankSql} DESC, controls.opened_at DESC, controls.id DESC`
+    : `${rankSql}, controls.opened_at, controls.id`;
+  const parameters = [
+    state,
+    filters.severity ?? null,
+    filters.kind ?? null,
+    filters.origin ?? null,
+    search ? `%${escapeLike(search)}%` : null,
+    cursor?.severityRank ?? null,
+    cursor?.openedAt ?? null,
+    cursor?.id ?? null,
+  ];
+  const pageParameters = cursor ? parameters : parameters.slice(0, 5);
+  const [pageResult, totalResult, summary] = await Promise.all([
+    getPool().query<OperationalControl>(
+      `SELECT controls.*, assignee.username AS assignee_username
      FROM operational_controls AS controls
+     LEFT JOIN users AS assignee ON assignee.id = controls.assignee_user_id
      WHERE controls.state = $1
        AND ($2::text IS NULL OR controls.severity = $2)
        AND ($3::text IS NULL OR controls.kind = $3)
        AND ($4::text IS NULL OR controls.origin = $4)
-     ORDER BY CASE controls.severity
-       WHEN 'BLOCKING' THEN 0 WHEN 'IMPORTANT' THEN 1 ELSE 2 END,
-       controls.opened_at, controls.id
-     LIMIT 100`,
-    [state, filters.severity ?? null, filters.kind ?? null, filters.origin ?? null],
-  );
-  const rows = result.rows.map(({ total_count, ...row }) => {
-    void total_count;
-    return row;
-  });
+       AND ($5::text IS NULL OR concat_ws(' ', controls.title, controls.detail,
+             controls.source_id, controls.metadata_json::text) ILIKE $5)
+       ${cursorSql}
+     ORDER BY ${orderSql}
+     LIMIT ${CONTROLS_PAGE_SIZE + 1}`,
+      pageParameters,
+    ),
+    getPool().query<{ total: number }>(
+      `SELECT count(*)::int AS total
+       FROM operational_controls AS controls
+       WHERE controls.state = $1
+         AND ($2::text IS NULL OR controls.severity = $2)
+         AND ($3::text IS NULL OR controls.kind = $3)
+         AND ($4::text IS NULL OR controls.origin = $4)
+         AND ($5::text IS NULL OR concat_ws(' ', controls.title, controls.detail,
+               controls.source_id, controls.metadata_json::text) ILIKE $5)`,
+      parameters.slice(0, 5),
+    ),
+    readOperationalControlSummary(),
+  ]);
+  const hasExtra = pageResult.rows.length > CONTROLS_PAGE_SIZE;
+  let rows = pageResult.rows.slice(0, CONTROLS_PAGE_SIZE);
+  if (backwards) rows = rows.reverse();
+  const hasPrevious = backwards ? hasExtra : Boolean(cursor);
+  const hasNext = backwards ? Boolean(cursor) : hasExtra;
   const selected =
     rows.find((row) => row.id === filters.selectedId) ??
     (filters.selectedId
       ? (
           await getPool().query<OperationalControl>(
-            "SELECT * FROM operational_controls WHERE id = $1 AND state = $2",
+            `SELECT controls.*, assignee.username AS assignee_username
+             FROM operational_controls AS controls
+             LEFT JOIN users AS assignee ON assignee.id = controls.assignee_user_id
+             WHERE controls.id = $1 AND controls.state = $2`,
             [filters.selectedId, state],
           )
         ).rows[0]
       : rows[0]);
-  const summary = await readOperationalControlSummary();
-  return { rows, total: result.rows[0]?.total_count ?? 0, selected: selected ?? null, summary };
+  return {
+    rows,
+    total: totalResult.rows[0]?.total ?? 0,
+    selected: selected ?? null,
+    summary,
+    previousCursor: hasPrevious && rows[0] ? encodeControlCursor("previous", rows[0]) : null,
+    nextCursor: hasNext && rows.at(-1) ? encodeControlCursor("next", rows.at(-1)!) : null,
+  };
 }
 
-export async function markOperationalControlWaiting(id: string, note?: string) {
-  await getPool().query(
-    `UPDATE operational_controls
+export async function markOperationalControlWaiting(
+  id: string,
+  input: {
+    reason: OperationalControlWaitingReason;
+    dueDate?: string;
+    assigneeUsername: "Massimo" | "Codex";
+    note?: string;
+  },
+) {
+  if (!waitingReasons.includes(input.reason)) throw new AppError("ORDER_INVALID_INPUT", 422);
+  if (input.dueDate && !postgresDateSchema.safeParse(input.dueDate).success) {
+    throw new AppError("ORDER_INVALID_INPUT", 422);
+  }
+  const result = await getPool().query(
+    `UPDATE operational_controls AS controls
      SET state = 'WAITING', waiting_at = now(), resolved_at = NULL,
-         resolution_code = 'ACTION_STARTED', resolution_note = nullif(btrim($2), ''),
+         waiting_reason = $2,
+         due_at = CASE WHEN $3::text IS NULL THEN now() + interval '1 day'
+           ELSE ($3::date + time '12:00') AT TIME ZONE 'Europe/Rome' END,
+         assignee_user_id = users.id,
+         resolution_code = 'ACTION_STARTED', resolution_note = nullif(btrim($5), ''),
          updated_at = now()
-     WHERE id = $1 AND state = 'OPEN'`,
-    [id, note ?? null],
+     FROM users
+     WHERE controls.id = $1 AND controls.state IN ('OPEN', 'WAITING')
+       AND users.username = $4`,
+    [id, input.reason, input.dueDate ?? null, input.assigneeUsername, input.note ?? null],
   );
+  if (result.rowCount !== 1) throw new AppError("CONFLICT_REVISION", 409);
+}
+
+export async function reopenOperationalControl(id: string) {
+  const result = await getPool().query(
+    `UPDATE operational_controls
+     SET state = 'OPEN', waiting_at = NULL, waiting_reason = NULL, due_at = NULL,
+         resolved_at = NULL, resolution_code = NULL, resolution_note = NULL, updated_at = now()
+     WHERE id = $1 AND state = 'WAITING'`,
+    [id],
+  );
+  if (result.rowCount !== 1) throw new AppError("CONFLICT_REVISION", 409);
 }
 
 export async function resolveOperationalControl(id: string, code: string, note?: string) {
   await getPool().query(
     `UPDATE operational_controls
-     SET state = 'RESOLVED', waiting_at = NULL, resolved_at = now(),
+     SET state = 'RESOLVED', waiting_at = NULL, waiting_reason = NULL, due_at = NULL,
+         resolved_at = now(),
          resolution_code = $2, resolution_note = nullif(btrim($3), ''), updated_at = now()
      WHERE id = $1 AND state IN ('OPEN', 'WAITING')`,
     [id, code, note ?? null],

@@ -10,7 +10,6 @@ import { isBackupReceiptCurrent, readBackupReceipt, type BackupReceipt } from ".
 export const LOGIN_ATTEMPT_WINDOW_MINUTES = 15;
 // La cadenza non supera la finestra: un `ip_hash` non deve sopravvivere alla durata dichiarata.
 const INTERVAL_MS = LOGIN_ATTEMPT_WINDOW_MINUTES * 60 * 1000;
-const POLICY_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export const retentionDataClasses = [
   "SOURCE_PAYLOADS",
@@ -224,7 +223,12 @@ export async function applyRetentionPolicy(): Promise<RetentionResult> {
           [documentIds],
         );
       }
-      result.CUSTOMER_EMAIL = deliveries.rowCount ?? 0;
+      const expiredMetadata = await client.query(
+        `DELETE FROM email_deliveries
+         WHERE content_redacted_at IS NOT NULL
+           AND coalesce(sent_at, updated_at, created_at) <= now() - interval '24 months'`,
+      );
+      result.CUSTOMER_EMAIL = (deliveries.rowCount ?? 0) + (expiredMetadata.rowCount ?? 0);
       await recordRetention(client, "CUSTOMER_EMAIL", result.CUSTOMER_EMAIL, requestId);
     }
 
@@ -232,14 +236,10 @@ export async function applyRetentionPolicy(): Promise<RetentionResult> {
   });
 }
 
-// Un timer di processo basta a un monolite a istanza singola; passare alla coda job
-// solo quando esisteranno più processi che se ne contendono l'esecuzione.
+// Le pulizie brevi legate all'autenticazione restano nel processo web. La policy completa,
+// che richiede ricevuta, retry e osservabilità, viene invece eseguita dal worker.
 export function startRetention(): void {
   const run = () => void pruneExpired().catch((error: unknown) => console.error(error));
-  const runPolicy = () =>
-    void applyRetentionPolicy().catch((error: unknown) => console.error(error));
   run();
-  runPolicy();
   setInterval(run, INTERVAL_MS).unref();
-  setInterval(runPolicy, POLICY_INTERVAL_MS).unref();
 }

@@ -6,6 +6,7 @@ import type { Route } from "./+types/billing-case-detail";
 import { AppShell } from "../components/app-shell";
 import { ComparisonTable } from "../components/comparison-table";
 import { CustomerEditor } from "../components/customer-editor";
+import { CustomerEmailApprovalFields } from "../components/customer-email-approval";
 import { DetailSectionHeader } from "../components/detail-section-header";
 import { SortableHeader, useSortableRows } from "../components/sortable-table";
 import {
@@ -599,6 +600,117 @@ function ArubaInventoryCard({ projection }: { projection: InvoiceProjection }) {
   );
 }
 
+function ApprovalStatusNotice({
+  canApprove,
+  caseReady,
+  hasUnsavedChanges,
+  projection,
+}: {
+  canApprove: boolean;
+  caseReady: boolean;
+  hasUnsavedChanges: boolean;
+  projection: InvoiceProjection;
+}) {
+  if (hasUnsavedChanges) return <p className="notice">{copy.document.saveChangesBeforeApproval}</p>;
+  if (!caseReady) return <p className="warning">{copy.document.resolveChecksBeforeApproval}</p>;
+  if (projection.requiresResave)
+    return <p className="notice">{copy.document.resaveAfterDateChange}</p>;
+  if (!canApprove) return <p className="notice">{copy.document.ownerOnly}</p>;
+  if (projection.arubaApprovalBlocked) {
+    return <p className="warning">{copy.document.arubaInventoryApprovalBlocked}</p>;
+  }
+  return null;
+}
+
+function ApprovalConfirmations({
+  projection,
+  publicNumber,
+}: {
+  projection: InvoiceProjection;
+  publicNumber: string;
+}) {
+  return (
+    <>
+      {projection.paymentPending ? (
+        <label className="checkbox-row">
+          <input name="confirmPending" required type="checkbox" value="yes" />
+          {copy.document.confirmPending}
+        </label>
+      ) : null}
+      {projection.difference !== 0 ? (
+        <label className="checkbox-row">
+          <input name="confirmDifference" required type="checkbox" value="yes" />
+          {copy.document.confirmDifference}
+        </label>
+      ) : null}
+      {projection.arubaDowngradeRequired ? (
+        <label className="checkbox-row">
+          <input name="confirmArubaDowngrade" required type="checkbox" value="yes" />
+          {copy.document.confirmArubaDowngrade(projection.arubaConfiguredMode)}
+        </label>
+      ) : null}
+      <fieldset className="preparation-approval__confirmation">
+        <legend>{copy.document.finalConfirmation}</legend>
+        <dl className="facts facts--columns">
+          <div>
+            <dt>{copy.document.confirmDocument}</dt>
+            <dd>{copy.preparation.title(publicNumber)}</dd>
+          </div>
+          <div>
+            <dt>{copy.document.confirmRecipient}</dt>
+            <dd>{projection.comparison.recipient[0]?.draft}</dd>
+          </div>
+          <div>
+            <dt>{copy.document.confirmTotal}</dt>
+            <dd>{euros(projection.total)}</dd>
+          </div>
+          <div>
+            <dt>{copy.document.confirmProfile}</dt>
+            <dd>RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}</dd>
+          </div>
+          <div>
+            <dt>{copy.document.confirmPayment}</dt>
+            <dd>
+              {paymentStatusLabels[projection.paymentStatus]} · {projection.paymentMethod}
+            </dd>
+          </div>
+        </dl>
+        <p className="warning">{copy.document.irreversibleNumbering}</p>
+      </fieldset>
+    </>
+  );
+}
+
+function ApprovalForm({
+  csrfToken,
+  projection,
+  publicNumber,
+}: {
+  csrfToken: string;
+  projection: InvoiceProjection;
+  publicNumber: string;
+}) {
+  return (
+    <Form method="post" className="preparation-approval__form">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="intent" value="approve-document" />
+      <input type="hidden" name="revision" value={projection.caseRevision} />
+      <input type="hidden" name="draftVersion" value={projection.draftVersion} />
+      <input type="hidden" name="projectionSha256" value={projection.projectionSha256} />
+      <input type="hidden" name="arubaMode" value={projection.arubaMode} />
+      <input type="hidden" name="emailModeVersion" value={projection.customerEmail.version} />
+      <fieldset>
+        <legend>{copy.document.customerEmailTitle}</legend>
+        <CustomerEmailApprovalFields choiceName="emailChoice" email={projection.customerEmail} />
+      </fieldset>
+      <ApprovalConfirmations projection={projection} publicNumber={publicNumber} />
+      <button className="button preparation-approval__submit" type="submit">
+        {copy.document.approve}
+      </button>
+    </Form>
+  );
+}
+
 function ApprovalCard({
   canApprove,
   canShowApproval,
@@ -626,144 +738,14 @@ function ApprovalCard({
         icon={<CircleCheck size={22} strokeWidth={1.8} />}
         title={copy.document.approvalTitle}
       />
-      {hasUnsavedChanges ? (
-        <p className="notice">{copy.document.saveChangesBeforeApproval}</p>
-      ) : !caseReady ? (
-        <p className="warning">{copy.document.resolveChecksBeforeApproval}</p>
-      ) : projection.requiresResave ? (
-        <p className="notice">{copy.document.resaveAfterDateChange}</p>
-      ) : !canApprove ? (
-        <p className="notice">{copy.document.ownerOnly}</p>
-      ) : projection.arubaApprovalBlocked ? (
-        <p className="warning">{copy.document.arubaInventoryApprovalBlocked}</p>
-      ) : null}
+      <ApprovalStatusNotice
+        canApprove={canApprove}
+        caseReady={caseReady}
+        hasUnsavedChanges={hasUnsavedChanges}
+        projection={projection}
+      />
       {canShowApproval ? (
-        <Form method="post" className="preparation-approval__form">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="approve-document" />
-          <input type="hidden" name="revision" value={projection.caseRevision} />
-          <input type="hidden" name="draftVersion" value={projection.draftVersion} />
-          <input type="hidden" name="projectionSha256" value={projection.projectionSha256} />
-          <input type="hidden" name="arubaMode" value={projection.arubaMode} />
-          <input type="hidden" name="emailModeVersion" value={projection.customerEmail.version} />
-          <fieldset>
-            <legend>{copy.document.customerEmailTitle}</legend>
-            <dl className="facts facts--columns">
-              <div>
-                <dt>{copy.document.emailMode}</dt>
-                <dd>
-                  {projection.customerEmail.mode === "AUTOMATIC"
-                    ? copy.document.emailAutomatic
-                    : projection.customerEmail.mode === "DISABLED"
-                      ? copy.document.emailDisabled
-                      : copy.document.emailManual}
-                </dd>
-              </div>
-              <div>
-                <dt>{copy.document.emailSender}</dt>
-                <dd>{projection.customerEmail.sender}</dd>
-              </div>
-              <div>
-                <dt>{copy.document.emailRecipient}</dt>
-                <dd>{projection.customerEmail.recipient ?? copy.common.unavailable}</dd>
-              </div>
-              <div>
-                <dt>{copy.document.emailSubject}</dt>
-                <dd>{projection.customerEmail.subject}</dd>
-              </div>
-              <div>
-                <dt>{copy.document.emailBody}</dt>
-                <dd>{projection.customerEmail.body}</dd>
-              </div>
-              <div>
-                <dt>{copy.document.emailAttachment}</dt>
-                <dd>{projection.customerEmail.attachment}</dd>
-              </div>
-            </dl>
-            {projection.customerEmail.mode === "DISABLED" ? (
-              <>
-                <input name="emailChoice" type="hidden" value="SKIP" />
-                <p className="notice">{copy.document.emailDisabledHelp}</p>
-              </>
-            ) : (
-              <>
-                <label className="checkbox-row">
-                  <input
-                    defaultChecked={
-                      projection.customerEmail.mode === "AUTOMATIC" &&
-                      Boolean(projection.customerEmail.recipient)
-                    }
-                    name="emailChoice"
-                    type="radio"
-                    value="SEND"
-                  />
-                  {copy.document.emailSend}
-                </label>
-                <label className="checkbox-row">
-                  <input
-                    defaultChecked={
-                      projection.customerEmail.mode !== "AUTOMATIC" ||
-                      !projection.customerEmail.recipient
-                    }
-                    name="emailChoice"
-                    type="radio"
-                    value="SKIP"
-                  />
-                  {copy.document.emailSkip}
-                </label>
-              </>
-            )}
-          </fieldset>
-          {projection.paymentPending ? (
-            <label className="checkbox-row">
-              <input name="confirmPending" required type="checkbox" value="yes" />
-              {copy.document.confirmPending}
-            </label>
-          ) : null}
-          {projection.difference !== 0 ? (
-            <label className="checkbox-row">
-              <input name="confirmDifference" required type="checkbox" value="yes" />
-              {copy.document.confirmDifference}
-            </label>
-          ) : null}
-          {projection.arubaDowngradeRequired ? (
-            <label className="checkbox-row">
-              <input name="confirmArubaDowngrade" required type="checkbox" value="yes" />
-              {copy.document.confirmArubaDowngrade(projection.arubaConfiguredMode)}
-            </label>
-          ) : null}
-          <fieldset className="preparation-approval__confirmation">
-            <legend>{copy.document.finalConfirmation}</legend>
-            <dl className="facts facts--columns">
-              <div>
-                <dt>{copy.document.confirmDocument}</dt>
-                <dd>{copy.preparation.title(publicNumber)}</dd>
-              </div>
-              <div>
-                <dt>{copy.document.confirmRecipient}</dt>
-                <dd>{projection.comparison.recipient[0]?.draft}</dd>
-              </div>
-              <div>
-                <dt>{copy.document.confirmTotal}</dt>
-                <dd>{euros(projection.total)}</dd>
-              </div>
-              <div>
-                <dt>{copy.document.confirmProfile}</dt>
-                <dd>RF14 · N5 · FPR · {copy.document.profileVersion(projection.profileVersion)}</dd>
-              </div>
-              <div>
-                <dt>{copy.document.confirmPayment}</dt>
-                <dd>
-                  {paymentStatusLabels[projection.paymentStatus]} · {projection.paymentMethod}
-                </dd>
-              </div>
-            </dl>
-            <p className="warning">{copy.document.irreversibleNumbering}</p>
-          </fieldset>
-          <button className="button preparation-approval__submit" type="submit">
-            {copy.document.approve}
-          </button>
-        </Form>
+        <ApprovalForm csrfToken={csrfToken} projection={projection} publicNumber={publicNumber} />
       ) : null}
     </section>
   );
@@ -862,34 +844,25 @@ function ActivityCard({
   );
 }
 
-export default function BillingCaseDetail() {
-  const {
-    username,
-    canApprove,
-    csrfToken,
-    billingCase,
-    operationalPool,
-    projection,
-    storagePending,
-  } = useLoaderData<typeof loader>();
-  const error = useActionData<typeof action>();
-  const [customerDirty, setCustomerDirty] = useState(false);
-  const total = billingCase.orders.reduce((sum, order) => sum + order.billable_amount, 0);
-  const editable = ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status);
-  const revisionField = <input type="hidden" name="revision" value={billingCase.revision} />;
-  const csrfField = <input type="hidden" name="csrf" value={csrfToken} />;
+type BillingCase = Awaited<ReturnType<typeof loader>>["billingCase"];
+type BillingProjection = Awaited<ReturnType<typeof loader>>["projection"];
+
+function PreparationNotices({
+  billingCase,
+  errorMessage,
+  operationalPool,
+  storagePending,
+}: {
+  billingCase: BillingCase;
+  errorMessage?: string;
+  operationalPool: string | null;
+  storagePending: boolean;
+}) {
   return (
-    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
-      <div className="title-block">
-        <p className="eyebrow">{copy.preparation.eyebrow}</p>
-        <h1>{copy.preparation.title(billingCase.public_number)}</h1>
-        <p>
-          {billingCase.customer_name} · {date(billingCase.local_order_date)} · {euros(total)}
-        </p>
-      </div>
-      {error ? (
+    <>
+      {errorMessage ? (
         <p className="error" role="alert">
-          {error.message}
+          {errorMessage}
         </p>
       ) : null}
       {storagePending ? (
@@ -912,160 +885,299 @@ export default function BillingCaseDetail() {
           {billingCase.do_not_transmit_reason ?? copy.preparation.notTransmittedDefault}
         </p>
       ) : null}
-      {billingCase.anomalies.length ? (
-        <section className="card section-gap" aria-labelledby="anomalie">
-          <h2 id="anomalie">{copy.preparation.checksTitle}</h2>
-          <ul className="plain-list">
-            {billingCase.anomalies.map((code) => (
-              <li className="preparation-check" key={code}>
-                <span className="preparation-check__copy">
-                  <strong>{anomalyLabels[code]?.title ?? "Verifica richiesta"}</strong>
-                  <span>{anomalyLabels[code]?.action ?? copy.preparation.checkFallback}</span>
-                </span>
-                {code === "ARUBA_POTENTIAL_MATCH" ? (
-                  <Link
-                    className="button button--secondary preparation-check__action"
-                    to="/controlli?origine=DOCUMENTS"
-                  >
-                    {copy.preparation.openArubaCandidates}
-                  </Link>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+    </>
+  );
+}
 
-      <div
-        className={`detail-grid preparation-overview${billingCase.anomalies.length ? " section-gap" : ""}`}
-      >
-        <section className="card preparation-overview__card">
-          <h2>{copy.preparation.summary}</h2>
-          <dl className="facts preparation-overview__facts">
-            <div>
-              <dt>{copy.preparation.currentStatus}</dt>
-              <dd>
-                {operationalPool
-                  ? (copy.orders.preparationPoolLabels[operationalPool] ??
-                    copy.common.unknownStatus)
-                  : (billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus)}
-              </dd>
-            </div>
-            <div>
-              <dt>{copy.preparation.currency}</dt>
-              <dd>{billingCase.currency}</dd>
-            </div>
-            <div>
-              <dt>{copy.preparation.orders}</dt>
-              <dd>{billingCase.orders.length}</dd>
-            </div>
-            <div>
-              <dt>{copy.preparation.customerRecord}</dt>
-              <dd>
-                {billingCase.customer_corrected_at
-                  ? `Corretta il ${dateTime(billingCase.customer_corrected_at)}`
-                  : copy.preparation.customerRecordOriginal}
-              </dd>
-            </div>
-          </dl>
-          <div className="preparation-overview__orders">
-            <h3>{copy.preparation.includedOrders}</h3>
-            <ul className="plain-list">
-              {billingCase.orders.map((order) => (
-                <li key={order.id}>
-                  <Link to={`/ordini/${order.id}`}>
-                    {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
-                  </Link>
-                  <span>
-                    {paymentStatusLabels[order.payment_status] ?? "Pagamento da verificare"} ·{" "}
-                    {euros(order.billable_amount)}
-                    {order.deducted_shopify_payments_fee_amount > 0
-                      ? ` · commissione Shopify Payments −${euros(order.deducted_shopify_payments_fee_amount)}`
-                      : ""}
-                  </span>
-                  {editable && billingCase.orders.length > 1 ? (
-                    <Form method="post">
-                      {csrfField}
-                      {revisionField}
-                      <input type="hidden" name="intent" value="separate-order" />
-                      <input type="hidden" name="orderId" value={order.id} />
-                      <button className="button button--secondary" type="submit">
-                        Separa dalla preparazione
-                      </button>
-                    </Form>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-            {editable && billingCase.addableOrders.length ? (
-              <Form method="post" className="inline-form section-gap">
-                {csrfField}
-                {revisionField}
-                <input type="hidden" name="intent" value="add-order" />
-                <label>
-                  Aggiungi un ordine compatibile
-                  <select name="orderId">
-                    {billingCase.addableOrders.map((order) => (
-                      <option key={order.id} value={order.id}>
-                        {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number} ·{" "}
-                        {euros(order.billable_amount)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+function PreparationAnomalies({ codes }: { codes: string[] }) {
+  if (!codes.length) return null;
+  return (
+    <section className="card section-gap" aria-labelledby="anomalie">
+      <h2 id="anomalie">{copy.preparation.checksTitle}</h2>
+      <ul className="plain-list">
+        {codes.map((code) => (
+          <li className="preparation-check" key={code}>
+            <span className="preparation-check__copy">
+              <strong>{anomalyLabels[code]?.title ?? "Verifica richiesta"}</strong>
+              <span>{anomalyLabels[code]?.action ?? copy.preparation.checkFallback}</span>
+            </span>
+            {code === "ARUBA_POTENTIAL_MATCH" ? (
+              <Link
+                className="button button--secondary preparation-check__action"
+                to="/controlli?origine=DOCUMENTS"
+              >
+                {copy.preparation.openArubaCandidates}
+              </Link>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function PreparationOrders({
+  billingCase,
+  csrfToken,
+  editable,
+}: {
+  billingCase: BillingCase;
+  csrfToken: string;
+  editable: boolean;
+}) {
+  return (
+    <div className="preparation-overview__orders">
+      <h3>{copy.preparation.includedOrders}</h3>
+      <ul className="plain-list">
+        {billingCase.orders.map((order) => (
+          <li key={order.id}>
+            <Link to={`/ordini/${order.id}`}>
+              {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number}
+            </Link>
+            <span>
+              {paymentStatusLabels[order.payment_status] ?? "Pagamento da verificare"} ·{" "}
+              {euros(order.billable_amount)}
+              {order.deducted_shopify_payments_fee_amount > 0
+                ? ` · commissione Shopify Payments −${euros(order.deducted_shopify_payments_fee_amount)}`
+                : ""}
+            </span>
+            {editable && billingCase.orders.length > 1 ? (
+              <Form method="post">
+                <input type="hidden" name="csrf" value={csrfToken} />
+                <input type="hidden" name="revision" value={billingCase.revision} />
+                <input type="hidden" name="intent" value="separate-order" />
+                <input type="hidden" name="orderId" value={order.id} />
                 <button className="button button--secondary" type="submit">
-                  Aggiungi
+                  Separa dalla preparazione
                 </button>
               </Form>
             ) : null}
+          </li>
+        ))}
+      </ul>
+      {editable && billingCase.addableOrders.length ? (
+        <Form method="post" className="inline-form section-gap">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="revision" value={billingCase.revision} />
+          <input type="hidden" name="intent" value="add-order" />
+          <label>
+            Aggiungi un ordine compatibile
+            <select name="orderId">
+              {billingCase.addableOrders.map((order) => (
+                <option key={order.id} value={order.id}>
+                  {order.provider === "SHOPIFY" ? "Shopify" : "eBay"} {order.display_number} ·{" "}
+                  {euros(order.billable_amount)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="button button--secondary" type="submit">
+            Aggiungi
+          </button>
+        </Form>
+      ) : null}
+    </div>
+  );
+}
+
+function PreparationTransmissionAction({
+  billingCase,
+  csrfToken,
+  editable,
+  errorMessage,
+}: {
+  billingCase: BillingCase;
+  csrfToken: string;
+  editable: boolean;
+  errorMessage?: string;
+}) {
+  if (billingCase.status === "DO_NOT_TRANSMIT" && !billingCase.reactivation_blocker) {
+    return (
+      <Form method="post" className="preparation-overview__action">
+        <input type="hidden" name="csrf" value={csrfToken} />
+        <input type="hidden" name="revision" value={billingCase.revision} />
+        <input type="hidden" name="intent" value="reactivate" />
+        <button className="button button--secondary" type="submit">
+          {copy.preparation.reactivate}
+        </button>
+      </Form>
+    );
+  }
+  if (billingCase.status === "DO_NOT_TRANSMIT") {
+    return (
+      <p className="notice preparation-overview__action">
+        {reactivationBlockerMessages[billingCase.reactivation_blocker ?? ""] ??
+          copy.preparation.archivedOnly}
+      </p>
+    );
+  }
+  if (!editable) return null;
+  return (
+    <Form method="post" className="preparation-overview__action preparation-overview__archive-form">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="revision" value={billingCase.revision} />
+      <input type="hidden" name="intent" value="do-not-transmit" />
+      <label className="preparation-overview__archive-field">
+        {copy.preparation.reason}
+        <input
+          aria-describedby={errorMessage ? "case-error reason-help" : "reason-help"}
+          aria-invalid={errorMessage ? true : undefined}
+          maxLength={500}
+          name="reason"
+          required
+        />
+      </label>
+      <small className="field-help preparation-overview__archive-help" id="reason-help">
+        {copy.preparation.reasonHelp}
+      </small>
+      {errorMessage ? (
+        <p className="error preparation-overview__archive-error" id="case-error">
+          {errorMessage}
+        </p>
+      ) : null}
+      <button className="button button--warning" type="submit">
+        {copy.preparation.doNotTransmit}
+      </button>
+    </Form>
+  );
+}
+
+function PreparationOverview({
+  billingCase,
+  csrfToken,
+  editable,
+  errorMessage,
+  hasAnomalies,
+  operationalPool,
+}: {
+  billingCase: BillingCase;
+  csrfToken: string;
+  editable: boolean;
+  errorMessage?: string;
+  hasAnomalies: boolean;
+  operationalPool: string | null;
+}) {
+  return (
+    <div className={`detail-grid preparation-overview${hasAnomalies ? " section-gap" : ""}`}>
+      <section className="card preparation-overview__card">
+        <h2>{copy.preparation.summary}</h2>
+        <dl className="facts preparation-overview__facts">
+          <div>
+            <dt>{copy.preparation.currentStatus}</dt>
+            <dd>
+              {operationalPool
+                ? (copy.orders.preparationPoolLabels[operationalPool] ?? copy.common.unknownStatus)
+                : (billingCaseStatusLabels[billingCase.status] ?? copy.common.unknownStatus)}
+            </dd>
           </div>
-          {billingCase.status === "DO_NOT_TRANSMIT" && !billingCase.reactivation_blocker ? (
-            <Form method="post" className="preparation-overview__action">
-              {csrfField}
-              {revisionField}
-              <input type="hidden" name="intent" value="reactivate" />
-              <button className="button button--secondary" type="submit">
-                {copy.preparation.reactivate}
-              </button>
-            </Form>
-          ) : billingCase.status === "DO_NOT_TRANSMIT" ? (
-            <p className="notice preparation-overview__action">
-              {reactivationBlockerMessages[billingCase.reactivation_blocker ?? ""] ??
-                copy.preparation.archivedOnly}
-            </p>
-          ) : editable ? (
-            <Form
-              method="post"
-              className="preparation-overview__action preparation-overview__archive-form"
-            >
-              {csrfField}
-              {revisionField}
-              <input type="hidden" name="intent" value="do-not-transmit" />
-              <label className="preparation-overview__archive-field">
-                {copy.preparation.reason}
-                <input
-                  aria-describedby={error ? "case-error reason-help" : "reason-help"}
-                  aria-invalid={error ? true : undefined}
-                  maxLength={500}
-                  name="reason"
-                  required
-                />
-              </label>
-              <small className="field-help preparation-overview__archive-help" id="reason-help">
-                {copy.preparation.reasonHelp}
-              </small>
-              {error ? (
-                <p className="error preparation-overview__archive-error" id="case-error">
-                  {error.message}
-                </p>
-              ) : null}
-              <button className="button button--warning" type="submit">
-                {copy.preparation.doNotTransmit}
-              </button>
-            </Form>
-          ) : null}
-        </section>
+          <div>
+            <dt>{copy.preparation.currency}</dt>
+            <dd>{billingCase.currency}</dd>
+          </div>
+          <div>
+            <dt>{copy.preparation.orders}</dt>
+            <dd>{billingCase.orders.length}</dd>
+          </div>
+          <div>
+            <dt>{copy.preparation.customerRecord}</dt>
+            <dd>
+              {billingCase.customer_corrected_at
+                ? `Corretta il ${dateTime(billingCase.customer_corrected_at)}`
+                : copy.preparation.customerRecordOriginal}
+            </dd>
+          </div>
+        </dl>
+        <PreparationOrders billingCase={billingCase} csrfToken={csrfToken} editable={editable} />
+        <PreparationTransmissionAction
+          billingCase={billingCase}
+          csrfToken={csrfToken}
+          editable={editable}
+          errorMessage={errorMessage}
+        />
+      </section>
+    </div>
+  );
+}
+
+function PreparationProjection({
+  billingCase,
+  canApprove,
+  csrfToken,
+  customerDirty,
+  operationalPool,
+  projection,
+}: {
+  billingCase: BillingCase;
+  canApprove: boolean;
+  csrfToken: string;
+  customerDirty: boolean;
+  operationalPool: string | null;
+  projection: BillingProjection;
+}) {
+  if (projection && "profileMissing" in projection && projection.profileMissing) {
+    return <p className="warning section-gap">{copy.document.profileMissing}</p>;
+  }
+  if (projection && "error" in projection)
+    return <p className="warning section-gap">{projection.error}</p>;
+  if (projection && "lines" in projection) {
+    return (
+      <InvoiceDocument
+        activity={<ActivityCard audit={billingCase.audit} />}
+        canApprove={canApprove}
+        caseReady={operationalPool === "APPROVABLE"}
+        customerDirty={customerDirty}
+        csrfToken={csrfToken}
+        projection={projection}
+        publicNumber={billingCase.public_number}
+      />
+    );
+  }
+  return null;
+}
+
+export default function BillingCaseDetail() {
+  const {
+    username,
+    canApprove,
+    csrfToken,
+    billingCase,
+    operationalPool,
+    operationalReasonCodes,
+    projection,
+    storagePending,
+  } = useLoaderData<typeof loader>();
+  const error = useActionData<typeof action>();
+  const [customerDirty, setCustomerDirty] = useState(false);
+  const total = billingCase.orders.reduce((sum, order) => sum + order.billable_amount, 0);
+  const editable = ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status);
+  const displayedAnomalies = operationalReasonCodes.length
+    ? operationalReasonCodes
+    : billingCase.anomalies;
+  return (
+    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
+      <div className="title-block">
+        <p className="eyebrow">{copy.preparation.eyebrow}</p>
+        <h1>{copy.preparation.title(billingCase.public_number)}</h1>
+        <p>
+          {billingCase.customer_name} · {date(billingCase.local_order_date)} · {euros(total)}
+        </p>
       </div>
+      <PreparationNotices
+        billingCase={billingCase}
+        errorMessage={error?.message}
+        operationalPool={operationalPool}
+        storagePending={storagePending}
+      />
+      <PreparationAnomalies codes={displayedAnomalies} />
+
+      <PreparationOverview
+        billingCase={billingCase}
+        csrfToken={csrfToken}
+        editable={editable}
+        errorMessage={error?.message}
+        hasAnomalies={Boolean(displayedAnomalies.length)}
+        operationalPool={operationalPool}
+      />
 
       {editable ? (
         <CustomerEditor
@@ -1075,21 +1187,14 @@ export default function BillingCaseDetail() {
           revision={billingCase.revision}
         />
       ) : null}
-      {projection && "profileMissing" in projection && projection.profileMissing ? (
-        <p className="warning section-gap">{copy.document.profileMissing}</p>
-      ) : projection && "error" in projection ? (
-        <p className="warning section-gap">{projection.error}</p>
-      ) : projection && "lines" in projection ? (
-        <InvoiceDocument
-          activity={<ActivityCard audit={billingCase.audit} />}
-          canApprove={canApprove}
-          caseReady={operationalPool === "APPROVABLE"}
-          customerDirty={customerDirty}
-          csrfToken={csrfToken}
-          projection={projection}
-          publicNumber={billingCase.public_number}
-        />
-      ) : null}
+      <PreparationProjection
+        billingCase={billingCase}
+        canApprove={canApprove}
+        csrfToken={csrfToken}
+        customerDirty={customerDirty}
+        operationalPool={operationalPool}
+        projection={projection}
+      />
       <SourceRevisionReview
         csrfToken={csrfToken}
         revision={billingCase.revision}

@@ -13,7 +13,7 @@ import {
   addOrderToBillingCase,
   correctBillingCaseCustomer,
   getBillingCase,
-  getOpenBillingCasePool,
+  getOpenBillingCaseProjection,
   reviewBillingCaseSourceChanges,
   separateOrderFromBillingCase,
   updateBillingCaseTransmission,
@@ -165,13 +165,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const approvalsGloballyBlocked = Boolean(
     arubaInventory && arubaInventoryBlocksAllApprovals(arubaInventory),
   );
-  const operationalPool = await getOpenBillingCasePool(params.caseId, approvalsGloballyBlocked);
+  const operationalProjection = await getOpenBillingCaseProjection(
+    params.caseId,
+    approvalsGloballyBlocked,
+  );
   return {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
     billingCase,
-    operationalPool,
+    operationalPool: operationalProjection?.operationalPool ?? null,
+    operationalReasonCodes: operationalProjection?.reasonCodes ?? [],
     projection,
     storagePending: new URL(request.url).searchParams.get("archiviazione") === "pendente",
   };

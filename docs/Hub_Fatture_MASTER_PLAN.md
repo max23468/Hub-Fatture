@@ -1402,7 +1402,7 @@ Per le note di credito mostrare:
 
 ### 13.8 Controlli
 
-È l'unica coda operativa. Ogni riga rappresenta una sola decisione umana o un solo problema azionabile e mostra gravità, causa leggibile, conseguenza, origine, anzianità ed evidenze. L'ordinamento è prima per impatto (`Bloccante`, `Importante`, `Ordinario`) e poi per anzianità. Le viste sono `Da risolvere` e `In attesa`; i filtri per gravità, tipo e origine restano a destra e non esiste una seconda barra di ricerca locale.
+È l'unica coda operativa. Ogni riga rappresenta una sola decisione umana o un solo problema azionabile e mostra gravità, causa leggibile, conseguenza, origine, anzianità ed evidenze. L'ordinamento è prima per impatto (`Bloccante`, `Importante`, `Ordinario`) e poi per anzianità. Le viste sono `Da risolvere` e `In attesa`; una ricerca locale e i filtri per gravità, tipo e origine restringono la stessa coda senza creare una destinazione operativa separata. Ricerca, filtri e posizione della pagina restano stabili durante l'apertura del dettaglio e le azioni sulla coda.
 
 Il pannello di dettaglio offre l'azione risolutiva quando può essere eseguita in sicurezza nell'app: retry tipizzato, conferma privacy, import del file ufficiale Aruba, scelta del match o conferma fuori perimetro. La conferma fuori perimetro resta disponibile anche in presenza di candidati, ma richiede di attestare esplicitamente di averli confrontati e ne conserva gli ID nell'audit. Le azioni non sicure o troppo contestuali aprono il dettaglio sorgente. Una nota è facoltativa. Le azioni massive sono ammesse soltanto quando la precondizione e l'esito sono identici e verificabili per ogni elemento.
 
@@ -2179,6 +2179,7 @@ Gli eventi `CRITICAL` — approvazione, numerazione, override importi, `Non tras
 - `process_refund`
 - `send_customer_email`
 - `cleanup_expired_sessions`
+- `maintenance_retention`
 
 ### 16.2 Retry
 
@@ -3792,6 +3793,18 @@ decisioni; RPO effettivamente osservato; rischi non bloccanti accettati e relati
 riapertura; autorizzazioni distinte ottenute.
 
 Un esito privo di link, hash, ID o risultati osservati non costituisce readiness.
+
+### Tranche funzionale 1.1
+
+La tranche `1.1.0`, richiesta esplicitamente dal titolare dopo la baseline 1.0, consolida il lavoro operativo senza ampliare il perimetro fiscale o i provider:
+
+- una proiezione derivata unica classifica ogni preparazione aperta in `Approvabile`, `Pagamento in attesa` o `Da risolvere` e ne espone le cause; Dashboard, Ordini, dettaglio, approvazione massiva e Controlli usano gli stessi predicati, mentre l’approvazione finale continua a rileggerli sotto lock;
+- `Controlli` espone totale, ricerca e paginazione keyset stabile e permette di registrare motivo dell’attesa, scadenza e assegnazione a `Massimo` o `Codex`, con evidenza dei termini superati;
+- la retention di policy è un job PostgreSQL giornaliero con lease, retry, ricevuta persistente, stato nelle Impostazioni e controllo bloccante in caso di fallimento; le pulizie brevi di autenticazione restano nel processo web;
+- il contenuto delle consegne e-mail viene redatto dopo 90 giorni, i metadati residui rimossi dopo 24 mesi e nessun reinvio implicito può riutilizzare dati già eliminati;
+- permutazioni deterministiche proteggono la convergenza degli stati Aruba, l’ordine dei candidati e le finestre dello storico; la proiezione operativa è estratta in un modulo proprietario e il ratchet dimensionale copre anche route UI, billing cases e Controlli.
+
+Questa tranche non autorizza deploy, release, invii Aruba, e-mail reali o nuove integrazioni.
 
 ---
 

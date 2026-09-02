@@ -47,7 +47,7 @@ export async function readBackupReceipt(): Promise<BackupReceipt | null> {
 }
 
 export async function getSystemStatus() {
-  const [schema, jobs, backup] = await Promise.all([
+  const [schema, jobs, retention, backup] = await Promise.all([
     getPool().query<{ count: string; latest: string | null }>(
       "SELECT count(*)::text AS count, max(name) AS latest FROM schema_migrations",
     ),
@@ -55,6 +55,21 @@ export async function getSystemStatus() {
       `SELECT count(*) FILTER (WHERE status IN ('PENDING', 'RUNNING'))::text AS active,
               count(*) FILTER (WHERE status = 'FAILED')::text AS failed
        FROM jobs`,
+    ),
+    getPool().query<{
+      status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+      completed_at: string | null;
+      updated_at: string;
+      last_error_code: string | null;
+      result_json: Record<string, number>;
+    }>(
+      `SELECT status, completed_at::text,
+              coalesce(completed_at, locked_at, run_at, created_at)::text AS updated_at,
+              last_error_code, result_json
+       FROM jobs
+       WHERE type = 'maintenance_retention'
+       ORDER BY coalesce(completed_at, locked_at, run_at, created_at) DESC, id DESC
+       LIMIT 1`,
     ),
     readBackupReceipt(),
   ]);
@@ -73,6 +88,7 @@ export async function getSystemStatus() {
       active: Number(jobs.rows[0]?.active ?? 0),
       failed: Number(jobs.rows[0]?.failed ?? 0),
     },
+    retention: retention.rows[0] ?? null,
     backup,
     arubaSubmissionEnabled: config.ARUBA_SUBMISSION_ENABLED,
   };

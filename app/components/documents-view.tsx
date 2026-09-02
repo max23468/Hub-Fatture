@@ -240,6 +240,247 @@ function stateTone(document: DocumentRowData) {
   return document.status === "APPROVED" ? "accent" : "neutral";
 }
 
+function DocumentRowGrid({
+  document,
+  emailLabel,
+  label,
+  target,
+}: {
+  document: DocumentRowData;
+  emailLabel: string;
+  label: string;
+  target: string | null;
+}) {
+  return (
+    <div className="document-row__grid">
+      <span className="document-row__main">
+        <small>{copy.documents.document}</small>
+        {target ? <Link to={target}>{label}</Link> : <strong>{label}</strong>}
+        <span>
+          {document.kind === "CREDIT_NOTE" ? copy.documents.creditNote : copy.documents.invoice}
+        </span>
+      </span>
+      <span className="document-row__customer" title={document.customer_name}>
+        <small>{copy.documents.customer}</small>
+        <strong>{document.customer_name}</strong>
+      </span>
+      <span className="document-row__facts">
+        <span>
+          <small>{copy.documents.date}</small>
+          <time dateTime={document.document_date}>{date(document.document_date)}</time>
+        </span>
+        <span>
+          <small>{copy.documents.total}</small>
+          <strong>{euros(document.total_amount)}</strong>
+        </span>
+      </span>
+      <span className="document-row__state">
+        <small>{copy.documents.status}</small>
+        <span className={`document-state document-state--${stateTone(document)}`}>
+          {document.status === "APPROVED" ? copy.documents.approved : copy.documents.draft}
+        </span>
+        <span>{transmissionLabel(document)}</span>
+      </span>
+      <span className="document-row__email">
+        <small>{copy.documents.email}</small>
+        <span>
+          <Mail aria-hidden="true" size={16} strokeWidth={1.8} />
+          {emailLabel}
+        </span>
+      </span>
+      {target ? (
+        <Link
+          aria-label={copy.documents.openDocumentLabel(label)}
+          className="dashboard-row-link document-row__action"
+          to={target}
+        >
+          <span>{copy.documents.openDocument}</span>
+          <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function DocumentFiles({
+  document,
+  fileCount,
+  officialFiles,
+}: {
+  document: DocumentRowData;
+  fileCount: number;
+  officialFiles: OfficialFile[];
+}) {
+  return (
+    <div className="document-file-list">
+      {document.xml_sha256 ? (
+        <a href={`/documenti/${document.id}/xml`}>
+          <FileCheck2 aria-hidden="true" size={17} strokeWidth={1.8} />
+          {copy.documents.downloadXml}
+        </a>
+      ) : null}
+      {officialFiles.map((file) => (
+        <a href={`/documenti/${document.id}/aruba/${file.id}`} key={file.id}>
+          <FileText aria-hidden="true" size={17} strokeWidth={1.8} />
+          <span>
+            {copy.documents.officialFileKind[file.kind]}
+            <small>{dateTime(file.imported_at)}</small>
+          </span>
+        </a>
+      ))}
+      {!fileCount ? <p>{copy.documents.noOfficialFiles}</p> : null}
+    </div>
+  );
+}
+
+function DocumentEmailActions({
+  canPrepareRedactedEmail,
+  canRetryEmail,
+  csrfToken,
+  documentId,
+  email,
+  emailRedacted,
+}: {
+  canPrepareRedactedEmail: boolean;
+  canRetryEmail: boolean;
+  csrfToken: string;
+  documentId: string;
+  email?: EmailDelivery;
+  emailRedacted: boolean;
+}) {
+  return (
+    <>
+      {email?.last_error_code === "EMAIL_DELIVERY_UNCERTAIN" ? (
+        <p className="warning">{copy.documents.emailUncertain}</p>
+      ) : null}
+      {canPrepareRedactedEmail ? (
+        <Form method="post">
+          <input name="csrf" type="hidden" value={csrfToken} />
+          <input name="intent" type="hidden" value="retry-customer-email" />
+          <input name="documentId" type="hidden" value={documentId} />
+          <label>
+            {copy.documents.newEmailRecipient}
+            <input name="newRecipient" type="email" maxLength={256} required />
+          </label>
+          <p className="field-help">{copy.documents.emailRedacted}</p>
+          <button className="button button--secondary" type="submit">
+            <RefreshCw aria-hidden="true" size={17} strokeWidth={1.8} />
+            {copy.documents.prepareNewDelivery}
+          </button>
+        </Form>
+      ) : emailRedacted ? (
+        <p className="field-help">{copy.documents.emailRedactedUnavailable}</p>
+      ) : null}
+      {canRetryEmail ? (
+        <Form method="post">
+          <input name="csrf" type="hidden" value={csrfToken} />
+          <input name="intent" type="hidden" value="retry-customer-email" />
+          <input name="documentId" type="hidden" value={documentId} />
+          {email?.last_error_code === "EMAIL_DELIVERY_UNCERTAIN" ? (
+            <label className="checkbox-row">
+              <input name="confirmUncertain" required type="checkbox" value="yes" />
+              {copy.documents.emailUncertainConfirmed}
+            </label>
+          ) : null}
+          <button className="button button--secondary" type="submit">
+            <RefreshCw aria-hidden="true" size={17} strokeWidth={1.8} />
+            {copy.documents.prepareResend}
+          </button>
+        </Form>
+      ) : null}
+    </>
+  );
+}
+
+function DocumentTools({
+  canImportFile,
+  canPrepareRedactedEmail,
+  canRetryEmail,
+  csrfToken,
+  document,
+  email,
+  emailRedacted,
+  fileCount,
+  officialFiles,
+}: {
+  canImportFile: boolean;
+  canPrepareRedactedEmail: boolean;
+  canRetryEmail: boolean;
+  csrfToken: string;
+  document: DocumentRowData;
+  email?: EmailDelivery;
+  emailRedacted: boolean;
+  fileCount: number;
+  officialFiles: OfficialFile[];
+}) {
+  return (
+    <details className="document-row__tools">
+      <summary>
+        <span>
+          <Download aria-hidden="true" size={17} strokeWidth={1.8} />
+          {copy.documents.filesAndActions}
+        </span>
+        <small>{copy.documents.availableFiles(fileCount)}</small>
+      </summary>
+      <div className="document-row__tools-content">
+        <DocumentFiles document={document} fileCount={fileCount} officialFiles={officialFiles} />
+        <div className="document-tool-actions">
+          {canImportFile ? <ImportForm csrfToken={csrfToken} documentId={document.id} /> : null}
+          <DocumentEmailActions
+            canPrepareRedactedEmail={canPrepareRedactedEmail}
+            canRetryEmail={canRetryEmail}
+            csrfToken={csrfToken}
+            documentId={document.id}
+            email={email}
+            emailRedacted={emailRedacted}
+          />
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function documentRowState({
+  canApprove,
+  document,
+  email,
+  emailEnabled,
+  officialFiles,
+}: {
+  canApprove: boolean;
+  document: DocumentRowData;
+  email?: EmailDelivery;
+  emailEnabled: boolean;
+  officialFiles: OfficialFile[];
+}) {
+  const emailRedacted = Boolean(email?.requires_explicit_recipient);
+  const canPrepareRedactedEmail = Boolean(emailRedacted && emailEnabled && canApprove);
+  const canRetryEmail = Boolean(
+    emailEnabled && email && email.status !== "PENDING" && !emailRedacted && canApprove,
+  );
+  const canImportFile = Boolean(canApprove && document.aruba_batch_id && document.xml_sha256);
+  const fileCount = Number(Boolean(document.xml_sha256)) + officialFiles.length;
+  return {
+    canImportFile,
+    canPrepareRedactedEmail,
+    canRetryEmail,
+    emailLabel: email
+      ? (copy.documents.emailStatus[email.status] ?? copy.common.unavailable)
+      : copy.documents.emailNotPrepared,
+    emailRedacted,
+    fileCount,
+    hasTools: Boolean(
+      document.xml_sha256 ||
+      officialFiles.length ||
+      canRetryEmail ||
+      canImportFile ||
+      emailRedacted,
+    ),
+    label: document.fiscal_label ?? copy.documents.draftLabel(document.public_number),
+    target: documentTarget(document),
+  };
+}
+
 function DocumentRow({
   canApprove,
   csrfToken,
@@ -255,120 +496,28 @@ function DocumentRow({
   emailEnabled: boolean;
   officialFiles: OfficialFile[];
 }) {
-  const label = document.fiscal_label ?? copy.documents.draftLabel(document.public_number);
-  const target = documentTarget(document);
-  const canRetryEmail = Boolean(emailEnabled && email && email.status !== "PENDING" && canApprove);
-  const canImportFile = Boolean(canApprove && document.aruba_batch_id && document.xml_sha256);
-  const hasTools = Boolean(
-    document.xml_sha256 || officialFiles.length || canRetryEmail || canImportFile,
-  );
-  const fileCount = Number(Boolean(document.xml_sha256)) + officialFiles.length;
-  const emailLabel = email
-    ? (copy.documents.emailStatus[email.status] ?? copy.common.unavailable)
-    : copy.documents.emailNotPrepared;
+  const state = documentRowState({ canApprove, document, email, emailEnabled, officialFiles });
 
   return (
     <li className="document-row">
-      <div className="document-row__grid">
-        <span className="document-row__main">
-          <small>{copy.documents.document}</small>
-          {target ? <Link to={target}>{label}</Link> : <strong>{label}</strong>}
-          <span>
-            {document.kind === "CREDIT_NOTE" ? copy.documents.creditNote : copy.documents.invoice}
-          </span>
-        </span>
-        <span className="document-row__customer" title={document.customer_name}>
-          <small>{copy.documents.customer}</small>
-          <strong>{document.customer_name}</strong>
-        </span>
-        <span className="document-row__facts">
-          <span>
-            <small>{copy.documents.date}</small>
-            <time dateTime={document.document_date}>{date(document.document_date)}</time>
-          </span>
-          <span>
-            <small>{copy.documents.total}</small>
-            <strong>{euros(document.total_amount)}</strong>
-          </span>
-        </span>
-        <span className="document-row__state">
-          <small>{copy.documents.status}</small>
-          <span className={`document-state document-state--${stateTone(document)}`}>
-            {document.status === "APPROVED" ? copy.documents.approved : copy.documents.draft}
-          </span>
-          <span>{transmissionLabel(document)}</span>
-        </span>
-        <span className="document-row__email">
-          <small>{copy.documents.email}</small>
-          <span>
-            <Mail aria-hidden="true" size={16} strokeWidth={1.8} />
-            {emailLabel}
-          </span>
-        </span>
-        {target ? (
-          <Link
-            aria-label={copy.documents.openDocumentLabel(label)}
-            className="dashboard-row-link document-row__action"
-            to={target}
-          >
-            <span>{copy.documents.openDocument}</span>
-            <ArrowRight aria-hidden="true" size={17} strokeWidth={1.8} />
-          </Link>
-        ) : null}
-      </div>
-      {hasTools ? (
-        <details className="document-row__tools">
-          <summary>
-            <span>
-              <Download aria-hidden="true" size={17} strokeWidth={1.8} />
-              {copy.documents.filesAndActions}
-            </span>
-            <small>{copy.documents.availableFiles(fileCount)}</small>
-          </summary>
-          <div className="document-row__tools-content">
-            <div className="document-file-list">
-              {document.xml_sha256 ? (
-                <a href={`/documenti/${document.id}/xml`}>
-                  <FileCheck2 aria-hidden="true" size={17} strokeWidth={1.8} />
-                  {copy.documents.downloadXml}
-                </a>
-              ) : null}
-              {officialFiles.map((file) => (
-                <a href={`/documenti/${document.id}/aruba/${file.id}`} key={file.id}>
-                  <FileText aria-hidden="true" size={17} strokeWidth={1.8} />
-                  <span>
-                    {copy.documents.officialFileKind[file.kind]}
-                    <small>{dateTime(file.imported_at)}</small>
-                  </span>
-                </a>
-              ))}
-              {!fileCount ? <p>{copy.documents.noOfficialFiles}</p> : null}
-            </div>
-            <div className="document-tool-actions">
-              {canImportFile ? <ImportForm csrfToken={csrfToken} documentId={document.id} /> : null}
-              {email?.last_error_code === "EMAIL_DELIVERY_UNCERTAIN" ? (
-                <p className="warning">{copy.documents.emailUncertain}</p>
-              ) : null}
-              {canRetryEmail ? (
-                <Form method="post">
-                  <input name="csrf" type="hidden" value={csrfToken} />
-                  <input name="intent" type="hidden" value="retry-customer-email" />
-                  <input name="documentId" type="hidden" value={document.id} />
-                  {email?.last_error_code === "EMAIL_DELIVERY_UNCERTAIN" ? (
-                    <label className="checkbox-row">
-                      <input name="confirmUncertain" required type="checkbox" value="yes" />
-                      {copy.documents.emailUncertainConfirmed}
-                    </label>
-                  ) : null}
-                  <button className="button button--secondary" type="submit">
-                    <RefreshCw aria-hidden="true" size={17} strokeWidth={1.8} />
-                    {copy.documents.prepareResend}
-                  </button>
-                </Form>
-              ) : null}
-            </div>
-          </div>
-        </details>
+      <DocumentRowGrid
+        document={document}
+        emailLabel={state.emailLabel}
+        label={state.label}
+        target={state.target}
+      />
+      {state.hasTools ? (
+        <DocumentTools
+          canImportFile={state.canImportFile}
+          canPrepareRedactedEmail={state.canPrepareRedactedEmail}
+          canRetryEmail={state.canRetryEmail}
+          csrfToken={csrfToken}
+          document={document}
+          email={email}
+          emailRedacted={state.emailRedacted}
+          fileCount={state.fileCount}
+          officialFiles={officialFiles}
+        />
       ) : null}
     </li>
   );

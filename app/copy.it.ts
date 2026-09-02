@@ -4,6 +4,7 @@ import { controlsCopy } from "./copy-controls.it.ts";
 import { searchCopy } from "./copy-search.it.ts";
 
 export { auditActionLabel, auditActionLabels } from "./copy-audit.it.ts";
+export { anomalyLabels } from "./copy-anomalies.it.ts";
 export { errorCodeLabel } from "../src/error-label.ts";
 
 const euroFormatter = new Intl.NumberFormat("it-IT", {
@@ -772,6 +773,12 @@ export const copy = {
     archivedOfficialFiles: "File ufficiali archiviati",
     emailUncertain: "Esito SMTP incerto: verifica la mancata consegna prima del reinvio.",
     emailUncertainConfirmed: "Ho verificato che il messaggio non è stato consegnato.",
+    emailRedacted:
+      "Contenuto e destinatario precedenti sono stati eliminati secondo la conservazione prevista. Il nuovo invio userà solo questo recapito.",
+    newEmailRecipient: "Nuovo destinatario e-mail",
+    prepareNewDelivery: "Prepara nuovo invio",
+    emailRedactedUnavailable:
+      "Contenuto e destinatario precedenti sono stati eliminati. Abilita gli invii e-mail per prepararne uno nuovo.",
     emailStatus: {
       PENDING: "In attesa",
       SENT: "Inviata",
@@ -1143,6 +1150,21 @@ export const copy = {
     backupStatus: (completedAt: string, sizeBytes: number) =>
       `${completedAt} · ${integerFormatter.format(sizeBytes)} byte`,
     backupPending: "Nessuna ricevuta valida disponibile",
+    retentionStatus: "Conservazione tecnica",
+    retentionPending: "Prima esecuzione in attesa",
+    retentionJobStatus: (status: string, updatedAt: string) => {
+      const label =
+        status === "COMPLETED"
+          ? "Completata"
+          : status === "FAILED"
+            ? "Non riuscita"
+            : status === "RUNNING"
+              ? "In corso"
+              : "Pianificata";
+      return `${label} · ${updatedAt}`;
+    },
+    retentionOutcome: (result: Record<string, number>) =>
+      `Dati sorgente ${result.SOURCE_PAYLOADS ?? 0}; job e audit ${(result.OPERATIONAL_JOBS ?? 0) + (result.OPERATIONAL_AUDIT ?? 0)}; e-mail ${result.CUSTOMER_EMAIL ?? 0}.`,
     systemOperationalHelp:
       "Questi valori sono riletti dall’applicazione, dal database e dalla ricevuta dell’ultimo backup.",
   },
@@ -1269,41 +1291,6 @@ export const billingCaseStatusLabels: Record<string, string> = {
   DO_NOT_TRANSMIT: "Da non trasmettere",
   APPROVED: "Approvata",
   CLOSED: "Chiusa",
-};
-
-/** Ogni anomalia dichiara il fatto osservato e l'azione che la chiude (13.10). */
-export const anomalyLabels: Record<string, { title: string; action: string }> = {
-  PENDING_PAYMENT: {
-    title: "Pagamento non ancora acquisito",
-    action:
-      "Attendi l’incasso oppure registralo nella bozza fiscale senza modificare il canale di vendita.",
-  },
-  TOTALS_MISMATCH: {
-    title: "Totale dell\u2019ordine non riconciliato",
-    action:
-      "Articoli, spedizione e pagamenti non ricostruiscono il totale ricevuto: verifica l’ordine sul canale di vendita.",
-  },
-  CUSTOMER_INCOMPLETE: {
-    title: "Anagrafica fiscale incompleta",
-    action: "Completa i dati del cliente in questa pagina.",
-  },
-  CUSTOMER_MISMATCH: {
-    title: "Anagrafiche discordanti fra gli ordini",
-    action: "Correggi l\u2019anagrafica della preparazione oppure separa l\u2019ordine incoerente.",
-  },
-  SOURCE_CONFLICT: {
-    title: "L’ordine è cambiato dopo la preparazione",
-    action: "Confronta le versioni conservate qui sotto prima di proseguire.",
-  },
-  ARUBA_POTENTIAL_MATCH: {
-    title: "Possibile fattura già presente su Aruba",
-    action:
-      "Apri Documenti → Da collegare e verifica il documento. Il collegamento definitivo richiede l’XML ufficiale.",
-  },
-  ORDER_NOT_BILLABLE: {
-    title: "Ordine annullato o rimborsato",
-    action: "Separa l\u2019ordine oppure archivia la preparazione con “Non trasmettere”.",
-  },
 };
 
 export const reactivationBlockerMessages: Record<string, string> = {

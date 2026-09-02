@@ -20,6 +20,7 @@ const manuallyRetryableJobTypes: JobType[] = [
   "aruba_sync_inventory",
   "aruba_refresh_nonterminal",
   "aruba_full_inventory",
+  "maintenance_retention",
 ];
 
 export async function scheduleDueSyncs() {
@@ -117,6 +118,27 @@ export async function scheduleDueSyncs() {
          )
        ON CONFLICT DO NOTHING`,
       [getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT"],
+    );
+  });
+}
+
+export async function scheduleRetention() {
+  await withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('maintenance:retention'))");
+    await client.query(
+      `INSERT INTO jobs (type, max_attempts)
+       SELECT 'maintenance_retention', 5
+       WHERE NOT EXISTS (
+         SELECT 1 FROM jobs
+         WHERE type = 'maintenance_retention'
+           AND (
+             status IN ('PENDING', 'RUNNING')
+             OR (status = 'COMPLETED' AND completed_at > now() - interval '24 hours')
+             OR (status = 'FAILED'
+               AND coalesce(locked_at, run_at, created_at) > now() - interval '24 hours')
+           )
+       )
+       ON CONFLICT DO NOTHING`,
     );
   });
 }
@@ -275,7 +297,8 @@ export async function failJob(job: ClaimedJob, code: ErrorCode) {
     code === "ARUBA_API_COOLDOWN_ACTIVE" ||
     code === "ARUBA_API_AUTH_INTERVAL_ACTIVE" ||
     code === "PROVIDER_UNAVAILABLE" ||
-    code === "EMAIL_DELIVERY_TEMPORARY";
+    code === "EMAIL_DELIVERY_TEMPORARY" ||
+    code === "RETENTION_FAILED";
   const terminal = budgetContinuation ? false : job.attempts >= job.maxAttempts || !retryable;
   const arubaProviderCooldown =
     job.type.startsWith("aruba_") &&
@@ -378,18 +401,27 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
       [jobId, manuallyRetryableJobTypes],
     );
     if (!unlocked.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
-    const provider = unlocked.rows[0].type.startsWith("shopify")
-      ? "SHOPIFY"
-      : unlocked.rows[0].type.startsWith("ebay")
-        ? "EBAY"
-        : "ARUBA";
+    const maintenance = unlocked.rows[0].type === "maintenance_retention";
+    const provider = maintenance
+      ? null
+      : unlocked.rows[0].type.startsWith("shopify")
+        ? "SHOPIFY"
+        : unlocked.rows[0].type.startsWith("ebay")
+          ? "EBAY"
+          : "ARUBA";
     const providerEnvironment =
-      provider === "ARUBA"
-        ? getConfig().APP_ENV === "production"
-          ? "PRODUCTION"
-          : "DEVELOPMENT"
-        : activeConnectorEnvironment(provider);
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:' || $1))", [provider]);
+      provider === null
+        ? null
+        : provider === "ARUBA"
+          ? getConfig().APP_ENV === "production"
+            ? "PRODUCTION"
+            : "DEVELOPMENT"
+          : activeConnectorEnvironment(provider);
+    if (provider) {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:' || $1))", [provider]);
+    } else {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('maintenance:retention'))");
+    }
     if (unlocked.rows[0].type === "ebay_preview_history") {
       await client.query("SELECT pg_advisory_xact_lock(hashtext('ebay_preview_history'))");
     }
@@ -441,7 +473,7 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
          LIMIT 1`,
       );
       if (activePreview.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
-    } else {
+    } else if (provider && providerEnvironment) {
       const runnable = await client.query(
         `SELECT 1 FROM connections
          WHERE provider = $1 AND environment = $2 AND status IN ('CONNECTED', 'ERROR')
@@ -453,7 +485,7 @@ export async function retryFailedJob(id: unknown, actor: ConnectorActor) {
       );
       if (!runnable.rows[0]) throw new AppError("CONFLICT_REVISION", 409);
     }
-    if (provider === "ARUBA") {
+    if (provider === "ARUBA" && providerEnvironment) {
       await client.query(
         `UPDATE connections SET status = 'CONNECTED', last_error_code = NULL,
            last_error_message_sanitized = NULL, updated_at = now()
