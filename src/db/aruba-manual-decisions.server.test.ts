@@ -10,6 +10,7 @@ import {
   fiscalProfileFromAcceptedInvoiceXml,
   generateFatturaXml,
 } from "../documents.ts";
+import { ARUBA_MATCHER_VERSION } from "../aruba-inbound.ts";
 import { AppError } from "../errors.ts";
 import { upgradeCachedArubaMatcher } from "./aruba-matcher-upgrade.server.ts";
 import { closePool, getPool, withTransaction } from "./client.server.ts";
@@ -413,7 +414,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
       {
         status: "UNMATCHED",
         method: "NONE",
-        matcher_version: 10,
+        matcher_version: ARUBA_MATCHER_VERSION,
         candidate_id: order.id,
         total_signal: "true",
       },
@@ -508,7 +509,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
     );
     await getPool().query(
       `UPDATE aruba_document_matches
-       SET status = 'PROFILE_CONFLICT', matcher_version = 9
+       SET status = 'PROFILE_CONFLICT', matcher_version = 10
        WHERE remote_document_id = $1`,
       [sharedCreditRemoteId],
     );
@@ -532,7 +533,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
       {
         match_status: "MATCHED",
         method: "AUTOMATIC",
-        matcher_version: 10,
+        matcher_version: ARUBA_MATCHER_VERSION,
         document_id: creditDraft.id,
         document_status: "APPROVED",
         origin: "ARUBA_HISTORY",
