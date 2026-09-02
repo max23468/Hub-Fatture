@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+- Dashboard, Ordini, dettaglio preparazione e Controlli condividono una proiezione operativa canonica con pool mutuamente esclusivi e cause osservabili; l’approvazione continua a rileggere i gate fiscali sotto lock.
+- `Controlli` usa ricerca e paginazione keyset, mostra il totale completo e consente di organizzare un’attesa con motivo, scadenza e assegnatario `Massimo` o `Codex`, evidenziando i casi scaduti.
+- La retention giornaliera passa nella coda PostgreSQL con lease, retry, ricevuta persistente, stato nelle Impostazioni e controllo bloccante quando fallisce; il contenuto e-mail viene redatto dopo 90 giorni e i metadati residui eliminati dopo 24 mesi.
+- Un’e-mail redatta non può essere reinviata implicitamente con dati eliminati: serve un nuovo destinatario esplicito nella preparazione.
+- Test deterministici su permutazioni di stati, candidati e finestre storiche proteggono convergenza Aruba e riconciliazione fail-closed; il ratchet architetturale include ora i moduli UI e billing più grandi e la proiezione operativa estratta.
+
 ## 1.0.17
 
 - Il replay del matcher Aruba rivaluta anche i documenti storici con data vicina, importo diverso e indirizzo già coincidente, così una P.IVA italiana precedentemente esclusa per il Paese mancante viene ricontrollata senza collegamenti automatici.

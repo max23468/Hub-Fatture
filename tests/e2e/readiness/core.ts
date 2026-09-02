@@ -10,6 +10,7 @@ import { verifyConfiguredArubaApiUi } from "./configured-aruba-api-ui.ts";
 import {
   databaseUrl,
   expectApprovalLabelsReadable,
+  expectDesktopContentOutsideSidebar,
   expectPlainLanguage,
   expectViewportFits,
   expectVisibleFieldsetTitlesInside,
@@ -797,7 +798,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Preparazioni con pagamento in attesa" }),
   ).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Pagamento in attesa", exact: true })).toBeVisible();
+  const pendingPaymentCell = page.getByRole("cell").filter({ hasText: "Pagamento in attesa" });
+  await expect(pendingPaymentCell).toBeVisible();
+  await expect(pendingPaymentCell).toContainText("Pagamento non ancora acquisito");
 
   const connectionClient = new pg.Client({ connectionString: databaseUrl });
   await connectionClient.connect();
@@ -1182,6 +1185,19 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .locator(".controls-filters button")
     .evaluate((applyFilters) => applyFilters.scrollWidth <= applyFilters.clientWidth);
   expect(filtersButtonFits).toBe(true);
+  await expect(page.getByRole("searchbox", { name: "Cerca" })).toBeVisible();
+  await expect(page.getByText("controlli trovati")).toBeVisible();
+  await page.getByLabel("Motivo dell’attesa").selectOption("PROVIDER");
+  await page.getByLabel("Assegnato a").selectOption("Codex");
+  await page.getByRole("button", { name: "Sposta in attesa" }).click();
+  await expect(page).toHaveURL(/\/controlli\?vista=attesa/);
+  await expect(page.getByText("Risposta del fornitore")).toBeVisible();
+  await expect(
+    page.locator(".control-waiting-facts").getByText("Codex", { exact: true }),
+  ).toBeVisible();
+  await expectDesktopContentOutsideSidebar(page);
+  await page.getByRole("button", { name: "Riporta da risolvere" }).click();
+  await expect(page.getByRole("status")).toContainText("di nuovo nella coda da risolvere");
   await page.goto(`/controlli?id=ARUBA_REMOTE%3A${manualChoiceRemoteId}`);
   await expect(page.getByRole("button", { name: "Collega come fattura già emessa" })).toBeVisible();
   await expect(page.getByLabel("Motivo della differenza")).toBeVisible();

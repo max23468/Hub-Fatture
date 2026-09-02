@@ -39,6 +39,10 @@ export const errorCatalog = {
   EMAIL_DELIVERY_FAILED: "L’invio e-mail non è riuscito. Correggi il problema prima del reinvio.",
   EMAIL_DELIVERY_TEMPORARY: "Il servizio e-mail è temporaneamente indisponibile.",
   EMAIL_DELIVERY_UNCERTAIN: "L’esito SMTP è incerto: verifica prima di autorizzare un nuovo invio.",
+  EMAIL_CONTENT_REDACTED:
+    "I dati della consegna sono stati redatti. Inserisci nuovamente il destinatario prima di un nuovo invio.",
+  RETENTION_FAILED:
+    "La conservazione tecnica non è stata completata. Verifica il backup e riprova.",
   ARUBA_BATCH_INVALID: "Il batch Aruba non coincide con i documenti approvati.",
   ARUBA_VALIDATION_FAILED: "Aruba ha rifiutato almeno un documento del batch.",
   ARUBA_OPERATION_FORBIDDEN: "Solo il titolare può eseguire questa operazione Aruba.",

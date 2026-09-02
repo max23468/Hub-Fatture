@@ -18,6 +18,11 @@ test(
 
       const database = await import("./client.server.ts");
       const controls = await import("./operational-controls.server.ts");
+      await database
+        .getPool()
+        .query(
+          "INSERT INTO users (username, password_hash, can_approve) VALUES ('Massimo', 'synthetic', true)",
+        );
       const customer = await database.getPool().query<{ id: string }>(
         `INSERT INTO customers
            (kind, match_key, display_name, billing_address_json,
@@ -196,6 +201,73 @@ test(
         ).rows[0].state,
         "RESOLVED",
       );
+
+      await database.getPool().query(
+        `INSERT INTO operational_controls
+           (id, kind, category, severity, state, source_type, source_id, origin, title,
+            detail, consequence, href, primary_action, fingerprint, opened_at)
+         SELECT 'BULK_CONTROL:' || sequence, 'ORDER_REVIEW', 'DECISION', 'ORDINARY',
+                'OPEN', 'ORDER', sequence::text, 'ORDERS',
+                'Controllo paginato ' || sequence,
+                CASE WHEN sequence = 144 THEN 'riferimento needle-144' ELSE 'dettaglio' END,
+                'Conseguenza sintetica', '/ordini', 'Apri ordini', repeat('f', 64),
+                '2026-01-01T00:00:00Z'::timestamptz + sequence * interval '1 minute'
+         FROM generate_series(1, 144) AS sequence`,
+      );
+      const firstPage = await controls.readOperationalControls({ origin: "ORDERS" });
+      assert.equal(firstPage.total, 144);
+      assert.equal(firstPage.rows.length, 50);
+      assert.equal(firstPage.previousCursor, null);
+      assert.ok(firstPage.nextCursor);
+      const secondPage = await controls.readOperationalControls({
+        origin: "ORDERS",
+        cursor: firstPage.nextCursor!,
+      });
+      assert.equal(secondPage.rows.length, 50);
+      assert.ok(secondPage.previousCursor);
+      assert.ok(secondPage.nextCursor);
+      const thirdPage = await controls.readOperationalControls({
+        origin: "ORDERS",
+        cursor: secondPage.nextCursor!,
+      });
+      assert.equal(thirdPage.rows.length, 44);
+      assert.equal(thirdPage.nextCursor, null);
+      const backToSecond = await controls.readOperationalControls({
+        origin: "ORDERS",
+        cursor: thirdPage.previousCursor!,
+      });
+      assert.deepEqual(
+        backToSecond.rows.map(({ id }) => id),
+        secondPage.rows.map(({ id }) => id),
+      );
+      const searched = await controls.readOperationalControls({ search: "needle-144" });
+      assert.equal(searched.total, 1);
+      assert.equal(searched.rows[0]!.id, "BULK_CONTROL:144");
+      assert.equal((await controls.readOperationalControls({ search: "%" })).total, 0);
+
+      await controls.markOperationalControlWaiting("BULK_CONTROL:144", {
+        reason: "FOLLOW_UP",
+        dueDate: "2099-12-31",
+        assigneeUsername: "Massimo",
+        note: "Verifica assegnata",
+      });
+      const waiting = await controls.readOperationalControls({ state: "WAITING" });
+      assert.equal(waiting.rows[0]!.waiting_reason, "FOLLOW_UP");
+      assert.equal(waiting.rows[0]!.assignee_username, "Massimo");
+      assert.equal(new Date(waiting.rows[0]!.due_at!).toISOString().slice(0, 10), "2099-12-31");
+      await controls.reopenOperationalControl("BULK_CONTROL:144");
+      assert.equal((await controls.readOperationalControls({ state: "WAITING" })).total, 0);
+
+      await database.getPool().query(
+        `INSERT INTO jobs (type, status, attempts, max_attempts, last_error_code)
+         VALUES ('maintenance_retention', 'FAILED', 5, 5, 'RETENTION_FAILED')`,
+      );
+      await controls.refreshOperationalControls();
+      const retentionFailure = await controls.readOperationalControls({ kind: "RETENTION_FAILED" });
+      assert.equal(retentionFailure.total, 1);
+      assert.equal(retentionFailure.rows[0]!.severity, "BLOCKING");
+      assert.equal(retentionFailure.rows[0]!.href, "/impostazioni#sistema");
+      assert.ok(retentionFailure.rows[0]!.metadata_json.jobId);
     } finally {
       const database = await import("./client.server.ts");
       await database.closePool();

@@ -190,6 +190,7 @@ export async function action({ request }: Route.ActionArgs) {
         form.get("documentId") ?? "",
         actor,
         form.get("confirmUncertain") === "yes",
+        form.get("newRecipient") ?? undefined,
       );
       return redirect("/documenti?email=preparata");
     }

@@ -42,6 +42,23 @@ export async function expectViewportFits(page: Page) {
   ).toBe(true);
 }
 
+export async function expectDesktopContentOutsideSidebar(page: Page) {
+  const shell = await page.evaluate(() => {
+    const sidebar = document.querySelector<HTMLElement>(".sidebar")!.getBoundingClientRect();
+    const main = document.querySelector<HTMLElement>(".app-main")!.getBoundingClientRect();
+    const content = document.querySelector<HTMLElement>(".controls-page")!.getBoundingClientRect();
+    return {
+      contentLeft: content.left,
+      mainLeft: main.left,
+      scrollX: window.scrollX,
+      sidebarRight: sidebar.right,
+    };
+  });
+  expect(shell.scrollX).toBe(0);
+  expect(shell.mainLeft).toBeCloseTo(shell.sidebarRight, 3);
+  expect(shell.contentLeft).toBeGreaterThan(shell.sidebarRight);
+}
+
 export async function waitForUiMotionToSettle(locator: Locator) {
   await locator.evaluate(async (element) => {
     await new Promise<void>((resolve) =>

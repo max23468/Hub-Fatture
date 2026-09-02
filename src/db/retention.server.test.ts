@@ -221,7 +221,7 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
 
     await client.query(
       `UPDATE retention_holds
-       SET released_at = now(), released_by = $1
+       SET released_at = greatest(clock_timestamp(), started_at), released_by = $1
        WHERE data_class = 'SOURCE_PAYLOADS' AND released_at IS NULL`,
       [userId],
     );
@@ -281,6 +281,62 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
         )
       ).rows[0]!.count,
       4,
+    );
+    const email = await import("./email.server.ts");
+    await assert.rejects(
+      email.retryCustomerEmail(document.rows[0]!.id, {
+        id: Number(userId),
+        canApprove: true,
+        requestId: "retention-redacted-retry",
+      }),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "EMAIL_CONTENT_REDACTED",
+    );
+    await assert.rejects(
+      email.retryCustomerEmail(
+        document.rows[0]!.id,
+        {
+          id: Number(userId),
+          canApprove: true,
+          requestId: "retention-explicit-recipient",
+        },
+        false,
+        "nuovo-destinatario@example.invalid",
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "EMAIL_ATTACHMENT_MISSING",
+    );
+    await client.query(
+      `UPDATE email_deliveries
+       SET sent_at = now() - interval '25 months',
+           created_at = now() - interval '25 months',
+           updated_at = now() - interval '25 months',
+           content_redacted_at = now() - interval '25 months'
+       WHERE document_id = $1`,
+      [document.rows[0]!.id],
+    );
+    const expiredEmail = await applyRetentionPolicy();
+    assert.equal(expiredEmail.CUSTOMER_EMAIL, 1);
+    assert.equal(
+      (
+        await client.query(
+          "SELECT count(*)::int AS count FROM email_deliveries WHERE document_id = $1",
+          [document.rows[0]!.id],
+        )
+      ).rows[0]!.count,
+      0,
+    );
+
+    const jobs = await import("./connector-jobs.server.ts");
+    await jobs.scheduleRetention();
+    await jobs.scheduleRetention();
+    assert.equal(
+      (
+        await client.query(
+          "SELECT count(*)::int AS count FROM jobs WHERE type = 'maintenance_retention'",
+        )
+      ).rows[0]!.count,
+      1,
     );
   } finally {
     await import("./client.server.ts").then(({ closePool }) => closePool());

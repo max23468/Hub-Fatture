@@ -869,6 +869,7 @@ export default function BillingCaseDetail() {
     csrfToken,
     billingCase,
     operationalPool,
+    operationalReasonCodes,
     projection,
     storagePending,
   } = useLoaderData<typeof loader>();
@@ -876,6 +877,9 @@ export default function BillingCaseDetail() {
   const [customerDirty, setCustomerDirty] = useState(false);
   const total = billingCase.orders.reduce((sum, order) => sum + order.billable_amount, 0);
   const editable = ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status);
+  const displayedAnomalies = operationalReasonCodes.length
+    ? operationalReasonCodes
+    : billingCase.anomalies;
   const revisionField = <input type="hidden" name="revision" value={billingCase.revision} />;
   const csrfField = <input type="hidden" name="csrf" value={csrfToken} />;
   return (
@@ -912,11 +916,11 @@ export default function BillingCaseDetail() {
           {billingCase.do_not_transmit_reason ?? copy.preparation.notTransmittedDefault}
         </p>
       ) : null}
-      {billingCase.anomalies.length ? (
+      {displayedAnomalies.length ? (
         <section className="card section-gap" aria-labelledby="anomalie">
           <h2 id="anomalie">{copy.preparation.checksTitle}</h2>
           <ul className="plain-list">
-            {billingCase.anomalies.map((code) => (
+            {displayedAnomalies.map((code) => (
               <li className="preparation-check" key={code}>
                 <span className="preparation-check__copy">
                   <strong>{anomalyLabels[code]?.title ?? "Verifica richiesta"}</strong>
@@ -937,7 +941,7 @@ export default function BillingCaseDetail() {
       ) : null}
 
       <div
-        className={`detail-grid preparation-overview${billingCase.anomalies.length ? " section-gap" : ""}`}
+        className={`detail-grid preparation-overview${displayedAnomalies.length ? " section-gap" : ""}`}
       >
         <section className="card preparation-overview__card">
           <h2>{copy.preparation.summary}</h2>

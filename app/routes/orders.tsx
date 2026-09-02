@@ -11,6 +11,7 @@ import { SortableHeaderLink } from "../components/sortable-table";
 import { ViewNavigation } from "../components/view-navigation";
 import {
   billingCaseStatusLabels,
+  anomalyLabels,
   copy,
   orderListStatusLabels,
   orderStatusLabels,
@@ -653,6 +654,12 @@ function PreparationList({
                       : (copy.orders.preparationPoolLabels[billingCase.operational_pool] ??
                         copy.common.unknownStatus)}
                   </span>
+                  {view !== "annullati" && billingCase.reasonCodes[0] ? (
+                    <small className="orders-table__status-reason">
+                      {anomalyLabels[billingCase.reasonCodes[0]]?.title ??
+                        copy.orders.preparationPoolLabels[billingCase.operational_pool]}
+                    </small>
+                  ) : null}
                 </td>
                 <td data-label={copy.orders.actions} className="orders-table__action">
                   <Link

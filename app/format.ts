@@ -22,6 +22,12 @@ const compactDateTimeFormatter = new Intl.DateTimeFormat("it-IT", {
   minute: "2-digit",
   timeZone: "Europe/Rome",
 });
+const romeIsoDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Rome",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 const regionFormatter = new Intl.DisplayNames("it", { type: "region" });
 
 type Address = Record<string, string | undefined>;
@@ -48,6 +54,19 @@ export function compactDateTime(value: string): string {
 
 export function isoDateTime(value: string | Date): string {
   return new Date(value).toISOString();
+}
+
+export function dateAfterInRome(days: number, reference = new Date()): string {
+  const current = Object.fromEntries(
+    romeIsoDateFormatter.formatToParts(reference).map((part) => [part.type, part.value]),
+  );
+  const target = new Date(
+    Date.UTC(Number(current.year), Number(current.month) - 1, Number(current.day) + days),
+  );
+  const result = Object.fromEntries(
+    romeIsoDateFormatter.formatToParts(target).map((part) => [part.type, part.value]),
+  );
+  return `${result.year}-${result.month}-${result.day}`;
 }
 
 export function address(value: Address): string {

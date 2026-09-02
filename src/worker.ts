@@ -10,6 +10,7 @@ import {
   jobLeaseCurrent,
   renewJobLease,
   scheduleDueSyncs,
+  scheduleRetention,
   yieldJob,
 } from "./db/connector-jobs.server.ts";
 import { historyImportPending, markConnectionError } from "./db/connector-connections.server.ts";
@@ -27,6 +28,7 @@ import {
 } from "./db/aruba-api-inbound.server.ts";
 import { runArubaApiOutboundJob } from "./db/aruba-api-outbound.server.ts";
 import { refreshOperationalControls } from "./db/operational-controls.server.ts";
+import { applyRetentionPolicy } from "./db/retention.server.ts";
 
 const workerId = randomUUID();
 let stopping = false;
@@ -94,6 +96,13 @@ async function runJob() {
     if (job.type === "process_refund") {
       await processRefund(String(job.payload.refundId ?? ""), job);
     }
+    if (job.type === "maintenance_retention") {
+      try {
+        result = await applyRetentionPolicy();
+      } catch {
+        throw new AppError("RETENTION_FAILED", 503);
+      }
+    }
     if (job.type === "send_customer_email") await sendCustomerEmail(job);
     if (job.type === "aruba_dry_run_submission") {
       result = await runArubaApiOutboundJob(job);
@@ -150,7 +159,7 @@ async function runJob() {
 }
 
 while (!stopping) {
-  await scheduleDueSyncs();
+  await Promise.all([scheduleDueSyncs(), scheduleRetention()]);
   if (!(await runJob())) await new Promise((resolve) => setTimeout(resolve, 5_000));
 }
 

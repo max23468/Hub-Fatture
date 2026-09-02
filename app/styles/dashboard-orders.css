@@ -854,6 +854,14 @@ tbody tr:last-child td {
   color: var(--color-text-muted);
 }
 
+.orders-table__status-reason {
+  display: block;
+  max-width: 16rem;
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  line-height: 1.35;
+}
+
 .orders-table td.orders-table__action,
 .orders-table th:last-child {
   padding-right: var(--space-4);

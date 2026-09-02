@@ -26,7 +26,7 @@ import type { Route } from "./+types/controls";
 import { AppShell } from "../components/app-shell";
 import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
-import { dateTime } from "../format";
+import { dateAfterInRome, dateTime } from "../format";
 import { privateRouteMeta } from "../metadata";
 import { ARUBA_IMPORT_MAX_BYTES } from "../../src/aruba.ts";
 import { publicError } from "../../src/errors.ts";
@@ -41,6 +41,7 @@ import { completeShopifyDataRequest } from "../../src/db/connector-webhooks.serv
 import {
   readOperationalControls,
   markOperationalControlWaiting,
+  reopenOperationalControl,
   resolveOperationalControl,
   type OperationalControl,
 } from "../../src/db/operational-controls.server.ts";
@@ -48,7 +49,7 @@ import { readForm, readMultipartForm } from "../../src/http.server.ts";
 
 const severities = ["BLOCKING", "IMPORTANT", "ORDINARY"] as const;
 const origins = ["ORDERS", "DOCUMENTS", "CUSTOMERS", "CONNECTIONS", "PRIVACY"] as const;
-
+const waitingReasons = ["PROVIDER", "CUSTOMER", "ACCOUNTING", "TECHNICAL", "FOLLOW_UP"] as const;
 export function meta({ error }: Route.MetaArgs) {
   return privateRouteMeta("controls", { error });
 }
@@ -61,6 +62,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const requestedOrigin = url.searchParams.get("origine");
   const requestedKind = url.searchParams.get("tipo")?.trim() ?? "";
   const selectedControlId = url.searchParams.get("id")?.trim() ?? "";
+  const search = url.searchParams.get("q")?.trim() ?? "";
+  const cursor = url.searchParams.get("cursore")?.trim() ?? "";
   const severity = severities.find((item) => item === requestedSeverity);
   const origin = origins.find((item) => item === requestedOrigin);
   const result = await readOperationalControls({
@@ -69,6 +72,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     origin,
     kind: Object.hasOwn(copy.controls.kinds, requestedKind) ? requestedKind : undefined,
     selectedId: selectedControlId || undefined,
+    search,
+    cursor: cursor || undefined,
   });
   return {
     username: user.username,
@@ -80,6 +85,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     kind: Object.hasOwn(copy.controls.kinds, requestedKind) ? requestedKind : "",
     result,
     selectedControlId,
+    search,
+    cursor,
+    defaultDueDate: dateAfterInRome(1),
+    today: dateAfterInRome(0),
     outcome: url.searchParams.get("esito") ?? "",
   };
 }
@@ -120,8 +129,31 @@ export async function action({ request }: Route.ActionArgs) {
     };
     if (intent === "retry-connector-job") {
       await retryFailedJob(form.get("jobId"), actor);
-      await markOperationalControlWaiting(controlId, note);
+      await markOperationalControlWaiting(controlId, {
+        reason: "TECHNICAL",
+        assigneeUsername: user.username === "Codex" ? "Codex" : "Massimo",
+        note,
+      });
       return redirect(`/controlli?vista=attesa&id=${encodeURIComponent(controlId)}&esito=attesa`);
+    }
+    if (intent === "wait-control") {
+      const reason = waitingReasons.find((value) => value === form.get("waitingReason"));
+      const assignee = ["Massimo", "Codex"].find((value) => value === form.get("assignee"));
+      if (!reason) throw new Response("Motivo di attesa non valido", { status: 422 });
+      if (assignee !== "Massimo" && assignee !== "Codex") {
+        throw new Response("Assegnatario non valido", { status: 422 });
+      }
+      await markOperationalControlWaiting(controlId, {
+        reason,
+        dueDate: form.get("dueDate") ?? undefined,
+        assigneeUsername: assignee,
+        note,
+      });
+      return redirect(`/controlli?vista=attesa&id=${encodeURIComponent(controlId)}&esito=attesa`);
+    }
+    if (intent === "reopen-control") {
+      await reopenOperationalControl(controlId);
+      return redirect(`/controlli?id=${encodeURIComponent(controlId)}&esito=riaperto`);
     }
     if (intent === "complete-shopify-data-request") {
       await completeShopifyDataRequest(
@@ -172,6 +204,15 @@ function controlLink(control: OperationalControl, search: URLSearchParams) {
 function controlsListLink(search: URLSearchParams) {
   const query = search.toString();
   return query ? `/controlli?${query}` : "/controlli";
+}
+
+function controlsPageLink(search: URLSearchParams, cursor: string) {
+  const next = new URLSearchParams(search);
+  next.delete("id");
+  next.delete("esito");
+  if (cursor) next.set("cursore", cursor);
+  else next.delete("cursore");
+  return controlsListLink(next);
 }
 
 function ControlRow({
@@ -384,13 +425,23 @@ function ControlActions({
   const metadata = control.metadata_json;
   if (control.state === "WAITING") {
     return (
-      <p className="control-detail__waiting">
-        <Clock3 aria-hidden="true" size={18} />
-        {copy.controls.actionWaiting}
-      </p>
+      <div className="control-action-form">
+        <p className="control-detail__waiting">
+          <Clock3 aria-hidden="true" size={18} />
+          {copy.controls.actionWaiting}
+        </p>
+        <Form method="post">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="controlId" value={control.id} />
+          <input type="hidden" name="intent" value="reopen-control" />
+          <button className="button button--secondary" type="submit">
+            {copy.controls.reopen}
+          </button>
+        </Form>
+      </div>
     );
   }
-  if (control.kind === "CONNECTOR_JOB_FAILED" && metadata.jobId) {
+  if (["CONNECTOR_JOB_FAILED", "RETENTION_FAILED"].includes(control.kind) && metadata.jobId) {
     return (
       <Form className="control-action-form" method="post">
         <input type="hidden" name="csrf" value={csrfToken} />
@@ -460,6 +511,54 @@ function ControlActions({
   );
 }
 
+function WaitingWorkflow({
+  control,
+  csrfToken,
+  username,
+  defaultDueDate,
+}: {
+  control: OperationalControl;
+  csrfToken: string;
+  username: string;
+  defaultDueDate: string;
+}) {
+  if (control.state !== "OPEN") return null;
+  return (
+    <Form className="control-action-form control-wait-form" method="post">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="controlId" value={control.id} />
+      <input type="hidden" name="intent" value="wait-control" />
+      <h3>{copy.controls.waitTitle}</h3>
+      <label>
+        {copy.controls.waitingReason}
+        <select name="waitingReason" defaultValue="FOLLOW_UP" required>
+          {waitingReasons.map((reason) => (
+            <option key={reason} value={reason}>
+              {copy.controls.waitingReasons[reason]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        {copy.controls.dueDate}
+        <input type="date" name="dueDate" defaultValue={defaultDueDate} required />
+      </label>
+      <label>
+        {copy.controls.assignee}
+        <select name="assignee" defaultValue={username === "Codex" ? "Codex" : "Massimo"}>
+          <option value="Massimo">Massimo</option>
+          <option value="Codex">Codex</option>
+        </select>
+      </label>
+      <OptionalNote />
+      <button className="button button--secondary" type="submit">
+        <Clock3 aria-hidden="true" size={17} />
+        {copy.controls.moveToWaiting}
+      </button>
+    </Form>
+  );
+}
+
 function OptionalNote() {
   return (
     <label className="control-note">
@@ -474,15 +573,23 @@ function ControlDetail({
   canApprove,
   csrfToken,
   headingRef,
+  username,
+  defaultDueDate,
+  today,
 }: {
   control: OperationalControl | null;
   canApprove: boolean;
   csrfToken: string;
   headingRef?: RefObject<HTMLHeadingElement | null>;
+  username: string;
+  defaultDueDate: string;
+  today: string;
 }) {
   if (!control)
     return <div className="control-detail control-detail--empty">{copy.controls.noSelection}</div>;
   const metadata = control.metadata_json;
+  const dueDate = control.due_at ? new Date(control.due_at) : null;
+  const overdue = Boolean(dueDate && dueDate.toISOString().slice(0, 10) < today);
   return (
     <article className="control-detail" aria-labelledby="control-detail-title">
       <span className={`control-severity control-severity--${control.severity.toLowerCase()}`}>
@@ -513,8 +620,33 @@ function ControlDetail({
           </dl>
         </section>
       ) : null}
+      {control.state === "WAITING" ? (
+        <dl className="control-waiting-facts">
+          <div>
+            <dt>{copy.controls.waitingReason}</dt>
+            <dd>{copy.controls.waitingReasons[control.waiting_reason ?? "FOLLOW_UP"]}</dd>
+          </div>
+          <div>
+            <dt>{copy.controls.dueDate}</dt>
+            <dd className={overdue ? "control-fact--warning" : undefined}>
+              {control.due_at ? dateTime(control.due_at) : copy.controls.notAssigned}
+              {overdue ? ` · ${copy.controls.overdue}` : ""}
+            </dd>
+          </div>
+          <div>
+            <dt>{copy.controls.assignee}</dt>
+            <dd>{control.assignee_username ?? copy.controls.notAssigned}</dd>
+          </div>
+        </dl>
+      ) : null}
       <div className="control-detail__actions">
         <ControlActions control={control} canApprove={canApprove} csrfToken={csrfToken} />
+        <WaitingWorkflow
+          control={control}
+          csrfToken={csrfToken}
+          username={username}
+          defaultDueDate={defaultDueDate}
+        />
         <Link className="dashboard-row-link" to={control.href}>
           <FileCheck2 aria-hidden="true" size={17} />
           {copy.controls.openSource}
@@ -536,6 +668,10 @@ export default function Controls() {
     result,
     selectedControlId,
     outcome,
+    search: searchTerm,
+    cursor,
+    defaultDueDate,
+    today,
   } = useLoaderData<typeof loader>();
   const actionError = useActionData<typeof action>();
   const location = useLocation();
@@ -607,6 +743,8 @@ export default function Controls() {
   if (severity) search.set("gravita", severity);
   if (origin) search.set("origine", origin);
   if (kind) search.set("tipo", kind);
+  if (searchTerm) search.set("q", searchTerm);
+  if (cursor) search.set("cursore", cursor);
   const listLink = controlsListLink(search);
   const cameFromControlsList = Boolean(
     (location.state as { fromControlsList?: boolean } | null)?.fromControlsList,
@@ -670,9 +808,11 @@ export default function Controls() {
           <p className="notice notice--success" role="status">
             {outcome === "attesa"
               ? copy.controls.actionWaiting
-              : outcome === "file-acquisito"
-                ? copy.controls.fileAcquired
-                : copy.controls.actionCompleted}
+              : outcome === "riaperto"
+                ? copy.controls.reopened
+                : outcome === "file-acquisito"
+                  ? copy.controls.fileAcquired
+                  : copy.controls.actionCompleted}
           </p>
         ) : null}
         {actionError && "message" in actionError ? (
@@ -683,6 +823,16 @@ export default function Controls() {
         <div className="controls-toolbar">
           <Form className="controls-filters" method="get">
             {state === "WAITING" ? <input type="hidden" name="vista" value="attesa" /> : null}
+            <label>
+              <span>{copy.controls.searchLabel}</span>
+              <input
+                type="search"
+                name="q"
+                defaultValue={searchTerm}
+                maxLength={100}
+                placeholder={copy.controls.searchPlaceholder}
+              />
+            </label>
             <label>
               <span>{copy.controls.severityLabel}</span>
               <select name="gravita" defaultValue={severity}>
@@ -721,6 +871,7 @@ export default function Controls() {
             </button>
           </Form>
         </div>
+        <p className="controls-results-count">{copy.controls.results(result.total)}</p>
         {result.rows.length ? (
           <div
             className={`controls-workspace controls-workspace--${hasExplicitSelection ? "detail" : "list"}`}
@@ -746,6 +897,9 @@ export default function Controls() {
               canApprove={canApprove}
               csrfToken={csrfToken}
               headingRef={detailHeadingRef}
+              username={username}
+              defaultDueDate={defaultDueDate}
+              today={today}
             />
           </div>
         ) : (
@@ -759,6 +913,30 @@ export default function Controls() {
             </span>
           </section>
         )}
+        {result.previousCursor || result.nextCursor ? (
+          <nav className="pagination" aria-label={copy.controls.paginationLabel}>
+            {result.previousCursor ? (
+              <Link
+                className="button button--secondary"
+                to={controlsPageLink(search, result.previousCursor)}
+              >
+                <ArrowLeft aria-hidden="true" size={17} />
+                {copy.controls.previousPage}
+              </Link>
+            ) : (
+              <span />
+            )}
+            {result.nextCursor ? (
+              <Link
+                className="button button--secondary"
+                to={controlsPageLink(search, result.nextCursor)}
+              >
+                {copy.controls.nextPage}
+                <ArrowRight aria-hidden="true" size={17} />
+              </Link>
+            ) : null}
+          </nav>
+        ) : null}
       </div>
     </AppShell>
   );

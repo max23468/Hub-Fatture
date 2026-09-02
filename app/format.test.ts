@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { address, compactDate, compactDateTime, dateTime, isoDateTime } from "./format.ts";
+import {
+  address,
+  compactDate,
+  compactDateTime,
+  dateAfterInRome,
+  dateTime,
+  isoDateTime,
+} from "./format.ts";
 
 test("formatta i timestamp nel fuso Europe/Rome", () => {
   assert.match(dateTime("2026-03-29T00:30:00Z"), /01:30/);
@@ -15,6 +22,11 @@ test("formatta date compatte senza perdere l'anno", () => {
 test("normalizza in ISO gli attributi datetime ricevuti dal loader", () => {
   assert.equal(isoDateTime("2026-08-12T12:23:00Z"), "2026-08-12T12:23:00.000Z");
   assert.equal(isoDateTime(new Date("2026-08-12T12:23:00Z")), "2026-08-12T12:23:00.000Z");
+});
+
+test("calcola le scadenze per giorni civili di Roma anche al cambio d’ora", () => {
+  assert.equal(dateAfterInRome(1, new Date("2026-10-24T23:30:00Z")), "2026-10-26");
+  assert.equal(dateAfterInRome(1, new Date("2026-03-28T23:30:00Z")), "2026-03-30");
 });
 
 test("rende l’indirizzo con il nome del Paese", () => {

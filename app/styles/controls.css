@@ -203,7 +203,7 @@
   display: grid;
   min-width: 0;
   flex: 1 1 40rem;
-  grid-template-columns: repeat(3, minmax(9rem, 1fr)) max-content;
+  grid-template-columns: minmax(13rem, 1.4fr) repeat(3, minmax(9rem, 1fr)) max-content;
   align-items: end;
   gap: var(--space-3);
 }
@@ -220,6 +220,12 @@
 
 .controls-filters .button {
   white-space: nowrap;
+}
+
+.controls-results-count {
+  margin: calc(var(--space-4) * -1) 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
 }
 
 .controls-workspace {
@@ -463,6 +469,48 @@
   font-weight: 700;
 }
 
+.control-wait-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.control-wait-form h3,
+.control-wait-form .control-note,
+.control-wait-form .button {
+  grid-column: 1 / -1;
+}
+
+.control-waiting-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-6) 0 0;
+}
+
+.control-waiting-facts > div {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.control-waiting-facts dt {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.control-waiting-facts dd {
+  margin: var(--space-1) 0 0;
+  font-weight: 650;
+}
+
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
 .controls-empty {
   display: flex;
   align-items: flex-start;
@@ -660,6 +708,11 @@
 
   .control-detail {
     padding: var(--space-6) var(--space-4);
+  }
+
+  .control-wait-form,
+  .control-waiting-facts {
+    grid-template-columns: 1fr;
   }
 }
 

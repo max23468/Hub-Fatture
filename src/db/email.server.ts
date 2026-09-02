@@ -195,7 +195,12 @@ export async function snapshotDocumentEmail(
   );
 }
 
-async function insertDelivery(client: pg.PoolClient, documentId: string, force = false) {
+async function insertDelivery(
+  client: pg.PoolClient,
+  documentId: string,
+  force = false,
+  explicitRecipient?: string,
+) {
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     `customer-email:${documentId}`,
   ]);
@@ -252,10 +257,10 @@ async function insertDelivery(client: pg.PoolClient, documentId: string, force =
       randomUUID(),
       documentId,
       config.SMTP_TRANSPORT,
-      row.sender,
-      row.recipient,
-      row.subject,
-      row.body,
+      explicitRecipient ? config.SMTP_FROM : row.sender,
+      explicitRecipient ?? row.recipient,
+      explicitRecipient ? subject : row.subject,
+      explicitRecipient ? body : row.body,
       row.attachment_id,
     ],
   );
@@ -528,12 +533,29 @@ export async function retryCustomerEmail(
   documentId: string,
   actor: { id: number; canApprove: boolean; requestId: string },
   confirmedUncertain = false,
+  explicitRecipient?: string,
 ) {
   if (!actor.canApprove) throw new AppError("EMAIL_DELIVERY_FORBIDDEN", 403);
   if (!isDatabaseId(documentId)) throw new AppError("EMAIL_DELIVERY_FAILED", 422);
   return withTransaction(async (client) => {
     if (await customerEmailIsDisabled(client)) {
       throw new AppError("EMAIL_DELIVERY_DISABLED", 409);
+    }
+    const retainedContent = await client.query<{ redacted: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM documents
+         WHERE id = $1 AND customer_email_redacted_at IS NOT NULL
+       ) OR EXISTS (
+         SELECT 1 FROM email_deliveries
+         WHERE document_id = $1 AND content_redacted_at IS NOT NULL
+       ) AS redacted`,
+      [documentId],
+    );
+    const redacted = retainedContent.rows[0]?.redacted ?? false;
+    const replacement = recipientSchema.safeParse(explicitRecipient?.trim());
+    if (redacted && !replacement.success) throw new AppError("EMAIL_CONTENT_REDACTED", 409);
+    if (!redacted && explicitRecipient !== undefined && !replacement.success) {
+      throw new AppError("EMAIL_RECIPIENT_MISSING", 422);
     }
     const pending = await client.query(
       `SELECT 1
@@ -556,7 +578,12 @@ export async function retryCustomerEmail(
     if (latest.rows[0]?.last_error_code === "EMAIL_DELIVERY_UNCERTAIN" && !confirmedUncertain) {
       throw new AppError("EMAIL_DELIVERY_UNCERTAIN", 409);
     }
-    const id = await insertDelivery(client, documentId, true);
+    const id = await insertDelivery(
+      client,
+      documentId,
+      true,
+      redacted ? replacement.data : undefined,
+    );
     if (!id) throw new AppError("EMAIL_ATTACHMENT_MISSING", 409);
     await writeAudit(client, {
       actorType: "ADMIN",
@@ -581,8 +608,10 @@ export async function listEmailDeliveries(documentIds: string[]) {
     attempt_count: number;
     sent_at: Date | null;
     last_error_code: string | null;
+    content_redacted_at: Date | null;
   }>(
-    `SELECT id, document_id, status, transport, attempt_count, sent_at, last_error_code
+    `SELECT id, document_id, status, transport, attempt_count, sent_at, last_error_code,
+            content_redacted_at
      FROM email_deliveries
      WHERE document_id = ANY($1::bigint[])
      ORDER BY created_at DESC, id DESC`,
@@ -591,5 +620,6 @@ export async function listEmailDeliveries(documentIds: string[]) {
   return result.rows.map((row) => ({
     ...row,
     sent_at: row.sent_at?.toISOString() ?? null,
+    content_redacted_at: row.content_redacted_at?.toISOString() ?? null,
   }));
 }

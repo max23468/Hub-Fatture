@@ -257,10 +257,14 @@ function DocumentRow({
 }) {
   const label = document.fiscal_label ?? copy.documents.draftLabel(document.public_number);
   const target = documentTarget(document);
-  const canRetryEmail = Boolean(emailEnabled && email && email.status !== "PENDING" && canApprove);
+  const emailRedacted = Boolean(email?.content_redacted_at);
+  const canPrepareRedactedEmail = Boolean(emailRedacted && emailEnabled && canApprove);
+  const canRetryEmail = Boolean(
+    emailEnabled && email && email.status !== "PENDING" && !emailRedacted && canApprove,
+  );
   const canImportFile = Boolean(canApprove && document.aruba_batch_id && document.xml_sha256);
   const hasTools = Boolean(
-    document.xml_sha256 || officialFiles.length || canRetryEmail || canImportFile,
+    document.xml_sha256 || officialFiles.length || canRetryEmail || canImportFile || emailRedacted,
   );
   const fileCount = Number(Boolean(document.xml_sha256)) + officialFiles.length;
   const emailLabel = email
@@ -348,6 +352,24 @@ function DocumentRow({
               {canImportFile ? <ImportForm csrfToken={csrfToken} documentId={document.id} /> : null}
               {email?.last_error_code === "EMAIL_DELIVERY_UNCERTAIN" ? (
                 <p className="warning">{copy.documents.emailUncertain}</p>
+              ) : null}
+              {canPrepareRedactedEmail ? (
+                <Form method="post">
+                  <input name="csrf" type="hidden" value={csrfToken} />
+                  <input name="intent" type="hidden" value="retry-customer-email" />
+                  <input name="documentId" type="hidden" value={document.id} />
+                  <label>
+                    {copy.documents.newEmailRecipient}
+                    <input name="newRecipient" type="email" maxLength={256} required />
+                  </label>
+                  <p className="field-help">{copy.documents.emailRedacted}</p>
+                  <button className="button button--secondary" type="submit">
+                    <RefreshCw aria-hidden="true" size={17} strokeWidth={1.8} />
+                    {copy.documents.prepareNewDelivery}
+                  </button>
+                </Form>
+              ) : emailRedacted ? (
+                <p className="field-help">{copy.documents.emailRedactedUnavailable}</p>
               ) : null}
               {canRetryEmail ? (
                 <Form method="post">
