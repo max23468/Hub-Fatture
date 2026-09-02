@@ -5,13 +5,50 @@ interface PaymentForReconciliation {
   status: string;
 }
 
-function isBankTransferMethod(method: string) {
-  const normalized = method
+interface PaymentForFiscalMethod extends PaymentForReconciliation {
+  amount: number;
+}
+
+interface OrderPaymentsForFiscalMethod {
+  provider: "SHOPIFY" | "EBAY";
+  payments: readonly PaymentForFiscalMethod[];
+}
+
+function normalizedPaymentMethod(method: string) {
+  return method
     .normalize("NFKC")
     .trim()
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/g, "_");
+}
+
+export function isBankTransferMethod(method: string) {
+  const normalized = normalizedPaymentMethod(method);
   return normalized.includes("bonifico") || normalized.includes("bank_transfer");
+}
+
+function isManualPaymentMethod(method: string) {
+  const normalized = normalizedPaymentMethod(method);
+  return normalized === "manual" || normalized === "manuale";
+}
+
+function isShopifyBankTransferOrder(order: OrderPaymentsForFiscalMethod) {
+  if (order.provider !== "SHOPIFY") return false;
+  const transfers = order.payments.filter((payment) => isBankTransferMethod(payment.method));
+  if (transfers.length === 0) return false;
+  return order.payments.every(
+    (payment) =>
+      isBankTransferMethod(payment.method) ||
+      (payment.status === "PAID" &&
+        isManualPaymentMethod(payment.method) &&
+        transfers.some((transfer) => transfer.amount === payment.amount)),
+  );
+}
+
+export function inferredInvoicePaymentMethod(
+  orders: readonly OrderPaymentsForFiscalMethod[],
+): "MP05" | null {
+  return orders.length > 0 && orders.every(isShopifyBankTransferOrder) ? "MP05" : null;
 }
 
 export function paymentsReconciled(input: {

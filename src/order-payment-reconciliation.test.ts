@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { paymentsReconciled } from "./order-payment-reconciliation.ts";
+import {
+  inferredInvoicePaymentMethod,
+  paymentsReconciled,
+} from "./order-payment-reconciliation.ts";
 
 function shopifyPayment(amount: number, method = "Bonifico Bancario") {
   return paymentsReconciled({
@@ -30,5 +33,92 @@ test("mantiene autorevole lo stato del pagamento eBay", () => {
       paymentAmounts: [8_500],
     }),
     true,
+  );
+});
+
+test("propone MP05 per il bonifico Shopify confermato manualmente", () => {
+  assert.equal(
+    inferredInvoicePaymentMethod([
+      {
+        provider: "SHOPIFY",
+        payments: [
+          { method: "Bonifico Bancario", status: "PENDING", amount: 2664 },
+          { method: "manual", status: "PAID", amount: 2664 },
+        ],
+      },
+    ]),
+    "MP05",
+  );
+  assert.equal(
+    inferredInvoicePaymentMethod([
+      {
+        provider: "SHOPIFY",
+        payments: [{ method: "Bonifico bancario", status: "PAID", amount: 4596 }],
+      },
+    ]),
+    "MP05",
+  );
+});
+
+test("non deduce il bonifico da conferme manuali ambigue o preparazioni miste", () => {
+  const bankTransfer = {
+    provider: "SHOPIFY" as const,
+    payments: [
+      { method: "Bonifico Bancario", status: "PENDING", amount: 2664 },
+      { method: "manual", status: "PAID", amount: 2664 },
+    ],
+  };
+  assert.equal(
+    inferredInvoicePaymentMethod([
+      {
+        provider: "SHOPIFY",
+        payments: [{ method: "manual", status: "PAID", amount: 2664 }],
+      },
+    ]),
+    null,
+  );
+  assert.equal(
+    inferredInvoicePaymentMethod([
+      {
+        provider: "SHOPIFY",
+        payments: [
+          { method: "Bonifico Bancario", status: "PENDING", amount: 2664 },
+          { method: "manual", status: "PAID", amount: 2500 },
+        ],
+      },
+    ]),
+    null,
+  );
+  assert.equal(
+    inferredInvoicePaymentMethod([
+      bankTransfer,
+      {
+        provider: "SHOPIFY",
+        payments: [{ method: "shopify_payments", status: "PAID", amount: 5000 }],
+      },
+    ]),
+    null,
+  );
+  assert.equal(
+    inferredInvoicePaymentMethod([
+      {
+        ...bankTransfer,
+        payments: [
+          ...bankTransfer.payments,
+          { method: "shopify_payments", status: "PENDING", amount: 2664 },
+        ],
+      },
+    ]),
+    null,
+  );
+  assert.equal(
+    inferredInvoicePaymentMethod([
+      bankTransfer,
+      {
+        provider: "EBAY",
+        payments: [{ method: "Bonifico bancario", status: "PAID", amount: 5000 }],
+      },
+    ]),
+    null,
   );
 });

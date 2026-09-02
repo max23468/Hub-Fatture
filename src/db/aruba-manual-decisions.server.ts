@@ -37,6 +37,7 @@ type ManualCandidate = {
     recipient?: boolean;
     total?: boolean;
     taxId?: boolean;
+    fiscalCode?: boolean;
     address?: boolean;
   };
 };

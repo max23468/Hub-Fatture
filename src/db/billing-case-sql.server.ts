@@ -127,7 +127,14 @@ export const arubaAmountMismatchCandidateSql = (
   AND ${candidateAlias} ->> 'issuedInvoiceDocumentId' IS NULL
   AND coalesce((${candidateAlias} -> 'signals' ->> 'provider')::boolean, false)
   AND coalesce((${candidateAlias} -> 'signals' ->> 'nearDate')::boolean, false)
-  AND coalesce((${candidateAlias} -> 'signals' ->> 'recipient')::boolean, false)
+  AND (
+    coalesce((${candidateAlias} -> 'signals' ->> 'recipient')::boolean, false)
+    OR coalesce((${candidateAlias} -> 'signals' ->> 'fiscalCode')::boolean, false)
+    OR (
+      coalesce((${candidateAlias} -> 'signals' ->> 'taxId')::boolean, false)
+      AND coalesce((${candidateAlias} -> 'signals' ->> 'address')::boolean, false)
+    )
+  )
   AND NOT coalesce((${candidateAlias} -> 'signals' ->> 'total')::boolean, false)
 )`;
 

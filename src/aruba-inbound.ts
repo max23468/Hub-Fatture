@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 12;
+export const ARUBA_MATCHER_VERSION = 13;
 export const ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES = ["TD01", "TD04"] as const;
 
 export const arubaRemoteStatusSchema = z.enum([
@@ -205,8 +205,14 @@ export function normalizedMatchText(value: string | null | undefined): string | 
   return normalized || null;
 }
 
-function canonicalFiscalIdentity(identifier: FiscalIdentity): string {
-  const countryCode = identifier.countryCode ?? (identifier.type === "CODICE_FISCALE" ? "IT" : "");
+function canonicalFiscalIdentity(
+  identifier: FiscalIdentity,
+  fallbackCountryCode?: string | null,
+): string {
+  const countryCode =
+    identifier.countryCode ??
+    fallbackCountryCode ??
+    (identifier.type === "CODICE_FISCALE" ? "IT" : "");
   return `${identifier.type}:${countryCode}:${normalizedMatchText(identifier.value) ?? ""}`;
 }
 
@@ -290,7 +296,9 @@ export function isArubaAmountMismatchCandidate(candidate: {
     !candidate.issuedInvoiceDocumentId &&
     candidate.signals.provider &&
     candidate.signals.nearDate &&
-    candidate.signals.recipient &&
+    (candidate.signals.recipient ||
+      candidate.signals.fiscalCode ||
+      (candidate.signals.taxId && candidate.signals.address)) &&
     !candidate.signals.total,
   );
 }
@@ -584,8 +592,14 @@ export function evaluateOrderCandidate(
     candidate.recipientName,
     sameForeignCountry,
   );
-  const remoteTaxIds = remote.recipientTaxIdentifiers.map(canonicalFiscalIdentity);
-  const candidateTaxIds = new Set(candidate.recipientTaxIdentifiers.map(canonicalFiscalIdentity));
+  const remoteTaxIds = remote.recipientTaxIdentifiers.map((identifier) =>
+    canonicalFiscalIdentity(identifier, remote.recipientCountryCode),
+  );
+  const candidateTaxIds = new Set(
+    candidate.recipientTaxIdentifiers.map((identifier) =>
+      canonicalFiscalIdentity(identifier, candidate.recipientCountryCode),
+    ),
+  );
   const taxId = Boolean(remoteTaxIds.some((remoteTaxId) => candidateTaxIds.has(remoteTaxId)));
   const foreignConsumerPlaceholder = Boolean(
     remote.recipientCountryCode &&
@@ -601,11 +615,15 @@ export function evaluateOrderCandidate(
     remote.paymentMethod === "MP05" && candidate.bankTransferPaidOnDocumentDate,
   );
   const remoteFiscalCodes = remote.recipientTaxIdentifiers.flatMap((identifier) =>
-    identifier.type === "CODICE_FISCALE" ? [canonicalFiscalIdentity(identifier)] : [],
+    identifier.type === "CODICE_FISCALE"
+      ? [canonicalFiscalIdentity(identifier, remote.recipientCountryCode)]
+      : [],
   );
   const candidateFiscalCodes = new Set(
     candidate.recipientTaxIdentifiers.flatMap((identifier) =>
-      identifier.type === "CODICE_FISCALE" ? [canonicalFiscalIdentity(identifier)] : [],
+      identifier.type === "CODICE_FISCALE"
+        ? [canonicalFiscalIdentity(identifier, candidate.recipientCountryCode)]
+        : [],
     ),
   );
   const fiscalCode = remoteFiscalCodes.some((value) => candidateFiscalCodes.has(value));
@@ -676,7 +694,10 @@ export function groupOrderCandidates<
     const recipientTaxIdentifiers = new Map<string, FiscalIdentity>();
     for (const item of items) {
       for (const identifier of item.recipientTaxIdentifiers) {
-        recipientTaxIdentifiers.set(canonicalFiscalIdentity(identifier), identifier);
+        recipientTaxIdentifiers.set(
+          canonicalFiscalIdentity(identifier, item.recipientCountryCode),
+          identifier,
+        );
       }
     }
     return {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.16
+
+- Le preparazioni composte esclusivamente da ordini Shopify pagati con bonifico propongono `MP05`; una successiva transazione `manual` vale come conferma soltanto a parità d'importo e senza metodi concorrenti, mentre i casi misti o ambigui conservano il metodo predefinito.
+- La riconciliazione Aruba completa il Paese mancante delle P.IVA italiane usando l'indirizzo e trattiene gli importi discordanti quando l'identità coincide per nome, codice fiscale oppure P.IVA e indirizzo; il replay rivaluta i documenti già acquisiti senza collegarli automaticamente.
+
 ## 1.0.15
 
 - La riconciliazione Aruba riconosce i nomi dei privati esteri traslitterati dal cirillico e tollera una sola vocale duplicata o omessa soltanto quando il nominativo ha più parti e il Paese coincide; il replay TD01 riallinea i documenti già valutati senza indebolire i controlli su data, importo, unicità e XML ufficiale.
