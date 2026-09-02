@@ -147,10 +147,14 @@ try {
 
   const customers = await import("../src/db/customers.server.ts");
   const documents = await import("../src/db/document-archive.server.ts");
+  const controls = await import("../src/db/operational-controls.server.ts");
   const orders = await import("../src/db/order-queries.server.ts");
 
   const results = {
     dashboard: rounded(await measure("dashboard", () => orders.dashboardSummary())),
+    controlsSummary: rounded(
+      await measure("riepilogo controlli", () => controls.getOperationalControlSummary()),
+    ),
     orders: rounded(await measure("lista ordini", () => orders.listOrders({ status: "ACTIVE" }))),
     customersSummary: rounded(
       await measure("riepilogo clienti", () => customers.customerDirectorySummary()),

@@ -116,6 +116,22 @@ select {
   transform: translateX(0.125rem);
 }
 
+.nav-item--pending {
+  cursor: progress;
+}
+
+.nav-item__pending-icon {
+  flex: 0 0 auto;
+  margin-left: auto;
+  animation: navigation-pending-spin 700ms linear infinite;
+}
+
+@keyframes navigation-pending-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
 .sidebar-toggle:active,
 .view-nav__item:active {
   transform: scale(0.97);
@@ -133,27 +149,6 @@ select {
 
 .route-content {
   min-width: 0;
-  view-transition-name: route-content;
-  animation: route-content-enter var(--motion-duration-slow) var(--motion-ease-emphasized) both;
-}
-
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
-  pointer-events: none;
-}
-
-::view-transition-old(route-content),
-::view-transition-new(route-content) {
-  pointer-events: none;
-}
-
-::view-transition-old(route-content) {
-  animation: route-content-exit var(--motion-duration-fast) ease-in both;
-}
-
-::view-transition-new(route-content) {
   animation: route-content-enter var(--motion-duration-slow) var(--motion-ease-emphasized) both;
 }
 
@@ -166,18 +161,6 @@ select {
   to {
     opacity: 1;
     transform: none;
-  }
-}
-
-@keyframes route-content-exit {
-  from {
-    opacity: 1;
-    transform: none;
-  }
-
-  to {
-    opacity: 0;
-    transform: translateY(-0.25rem);
   }
 }
 

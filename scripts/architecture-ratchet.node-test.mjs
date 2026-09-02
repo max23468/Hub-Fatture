@@ -77,6 +77,19 @@ test("le capacità estratte non tornano a crescere in monoliti", async () => {
   assert.deepEqual(offenders, []);
 });
 
+test("la navigazione resta interrompibile e il badge non ricostruisce i controlli", async () => {
+  const [shell, motion, summaryRoute] = await Promise.all([
+    readFile(path.join(root, "app/components/app-shell.tsx"), "utf8"),
+    readFile(path.join(root, "app/styles/motion.css"), "utf8"),
+    readFile(path.join(root, "app/routes/controls-summary.ts"), "utf8"),
+  ]);
+  assert.doesNotMatch(shell, /viewTransition/);
+  assert.doesNotMatch(motion, /view-transition/);
+  assert.match(shell, /aria-busy=\{pending \|\| undefined\}/);
+  assert.match(summaryRoute, /readOperationalControlSummary/);
+  assert.doesNotMatch(summaryRoute, /getOperationalControlSummary/);
+});
+
 test("readiness e migrazioni restano partizionate senza perdere scenari", async () => {
   const readinessFiles = [
     "tests/e2e/readiness/core.ts",

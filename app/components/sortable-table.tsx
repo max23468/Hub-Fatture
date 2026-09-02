@@ -107,7 +107,6 @@ export function SortControlLink<Key extends string>({
         sortKey,
         nextSortDirection(sort, sortKey),
       )}
-      viewTransition
     >
       <span>{label}</span>
       <SortIcon direction={direction} />
