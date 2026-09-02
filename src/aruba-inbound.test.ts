@@ -266,6 +266,55 @@ test("data vicina e destinatario uguale con importo diverso richiedono una decis
   );
 });
 
+test("P.IVA italiana e indirizzo trattengono un importo diverso anche con ragione sociale difforme", () => {
+  const vatRemote = {
+    ...remote,
+    recipientName: "ACCADEMIA SOCIETA COOPERATIVA A RESPONSABILITA LIMITATA",
+    recipientTaxId: "02335110686",
+    recipientTaxIdentifiers: [
+      { type: "PARTITA_IVA" as const, countryCode: "IT", value: "02335110686" },
+    ],
+    recipientAddress: "Piazza Ettore Troilo 18 65127 Pescara IT",
+    totalAmount: 15_500,
+  };
+  const result = selectOrderMatch(vatRemote, [
+    {
+      id: "shopify-4042",
+      provider: "SHOPIFY",
+      displayNumber: "#4042",
+      localOrderDate: "2026-08-09",
+      billableAmount: 16_372,
+      recipientName: "Alessandro Ferrara",
+      recipientTaxIdentifiers: [{ type: "PARTITA_IVA", countryCode: null, value: "02335110686" }],
+      recipientCountryCode: "IT",
+      recipientAddress: "Piazza Ettore Troilo 18 65127 Pescara IT",
+    },
+  ]);
+
+  assert.deepEqual(result.evaluations[0]?.signals, {
+    provider: true,
+    explicitReference: false,
+    date: true,
+    sameDay: false,
+    nearDate: true,
+    total: false,
+    recipient: false,
+    taxId: true,
+    fiscalCode: false,
+    address: true,
+    bankTransferPayment: false,
+    refundTimingClear: true,
+  });
+  assert.equal(isArubaAmountMismatchCandidate(result.evaluations[0]!), true);
+  assert.equal(
+    isArubaAmountMismatchCandidate({
+      ...result.evaluations[0]!,
+      signals: { ...result.evaluations[0]!.signals, address: false },
+    }),
+    false,
+  );
+});
+
 test("stesso giorno e importo con anagrafica diversa richiedono una prova esterna", () => {
   const result = selectOrderMatch(remote, [
     {

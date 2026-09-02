@@ -335,6 +335,17 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       .query("UPDATE aruba_remote_documents SET xml_sha256 = repeat('d', 64) WHERE id = $1", [
         remote.rows[0]!.id,
       ]);
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_build_array(jsonb_build_object(
+         'candidateId', $2::text, 'probe', false, 'potential', false,
+         'compatible', false, 'reviewable', false,
+         'signals', jsonb_build_object(
+           'provider', true, 'nearDate', true, 'recipient', false,
+           'fiscalCode', false, 'taxId', true, 'address', true, 'total', false)))
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id, order.rows[0]!.id],
+    );
     const officialStorage = await client.getPool().query<{ id: string }>(
       `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
        VALUES ('ARUBA_XML', 'synthetic/amount-mismatch.xml', repeat('d', 64), 10,
@@ -446,7 +457,8 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     await client.getPool().query(
       `UPDATE aruba_document_matches
        SET candidates_json = jsonb_set(
-         candidates_json, '{0,signals,recipient}', 'false'::jsonb)
+         jsonb_set(candidates_json, '{0,signals,recipient}', 'false'::jsonb),
+         '{0,signals,address}', 'false'::jsonb)
        WHERE remote_document_id = $1`,
       [remote.rows[0]!.id],
     );
