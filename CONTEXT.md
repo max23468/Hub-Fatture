@@ -59,3 +59,13 @@ _Evita_: Ordine in attesa, Preparazione da verificare
 Preparazione aperta senza pagamenti pendenti che non è approvabile e presenta almeno una causa
 bloccante visibile nella preparazione o nella coda Controlli.
 _Evita_: Preparazione pronta, Errore generico
+
+**Qualifica tecnica Production**:
+Insieme dei gate exact-SHA che verifica artefatto, configurazione e percorso outbound senza upload
+o invii fiscali reali.
+_Evita_: Canary fiscale, Primo invio
+
+**Uso Production ordinario**:
+Stato operativo autorizzato nel quale documenti già dovuti e approvati possono essere trasmessi ad
+Aruba secondo le modalità configurate. Non include documenti creati o scelti soltanto per collaudo.
+_Evita_: Canary, Invio di prova

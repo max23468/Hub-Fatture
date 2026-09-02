@@ -4,11 +4,10 @@ Questo è il record del candidato Production osservato. Un gate è chiuso soltan
 
 ## Stato del record
 
-Il candidato identificato sotto è stato ricertificato integralmente, ma è stato poi sostituito
-prima del canary dalle modifiche runtime e schema che recuperano i file Aruba storici e bloccano
-le preparazioni con importi discordanti. Le prove restano valide come evidenza storica del
-candidato osservato, non come readiness del prossimo artefatto: la ricertificazione deve essere
-ripetuta sul nuovo SHA, digest e schema prima di qualunque attività canary.
+La ricertificazione è chiusa per decisione del titolare e non viene ripetuta. Le prove del candidato
+identificato sotto restano il record osservato della milestone; la fase successiva collega
+separatamente i propri gate tecnici all’identità effettiva del candidato senza upload o invii reali
+e senza riaprire la ricertificazione.
 
 ## Identità candidata
 
@@ -25,7 +24,7 @@ ripetuta sul nuovo SHA, digest e schema prima di qualunque attività canary.
 | Kill switch              | `ARUBA_SUBMISSION_ENABLED=false` riletto dopo deploy, rollback e rientro                                                                                                                                                |
 | Health pubblico          | `GET https://fatture.opik.net/health` restituisce `{"status":"ok"}`                                                                                                                                                     |
 
-La ricertificazione era chiusa sul candidato esatto sopra. Le [PR #290](https://github.com/max23468/Hub-Fatture/pull/290), [#292](https://github.com/max23468/Hub-Fatture/pull/292) e [#293](https://github.com/max23468/Hub-Fatture/pull/293) collegano backup incrementale, classificazione dell’impatto e blocco dei conflitti Aruba correlati. Il readback finale conferma zero documenti approvati non qualificati, zero storici non riconciliati, zero import iniziali pendenti, zero batch Aruba aperti e una qualifica dry-run terminale. Queste prove non coprono il runtime e lo schema successivi. Nessun documento è stato caricato o inviato ad Aruba e nessuna e-mail è partita. Il canary richiede ancora una nuova ricertificazione, oltre alla scelta e all’autorizzazione specifica di un TD01 reale; go-live, release e uso Production ordinario conservano autorizzazioni separate.
+La ricertificazione era chiusa sul candidato esatto sopra. Le [PR #290](https://github.com/max23468/Hub-Fatture/pull/290), [#292](https://github.com/max23468/Hub-Fatture/pull/292) e [#293](https://github.com/max23468/Hub-Fatture/pull/293) collegano backup incrementale, classificazione dell’impatto e blocco dei conflitti Aruba correlati. Il readback finale conferma zero documenti approvati non qualificati, zero storici non riconciliati, zero import iniziali pendenti, zero batch Aruba aperti e una qualifica dry-run terminale. Nessun documento è stato caricato o inviato ad Aruba e nessuna e-mail è partita. Le modifiche successive non riaprono formalmente la ricertificazione; i gate tecnici successivi devono però riferirsi al proprio SHA e digest effettivi. Go-live, release e uso Production ordinario conservano autorizzazioni separate.
 
 ## Gate del candidato
 
@@ -39,7 +38,7 @@ La ricertificazione era chiusa sul candidato esatto sopra. Le [PR #290](https://
 | Retention OCI e monitor             | Chiuso          | rimossi, dopo autorizzazione specifica, 47 archivi completi legacy ridondanti; restano soltanto `current` e 11 giornali DB, per 1.286.716.368 byte; monitor locale sano                                                                                               |
 | Esercizio incidente e rollback      | Chiuso          | [rollback reale 33560669039](https://github.com/max23468/Hub-Fatture/actions/runs/33560669039) al digest precedente e [rientro 33561470039](https://github.com/max23468/Hub-Fatture/actions/runs/33561470039), con readback indipendenti verdi e senza down migration |
 | Readback e readiness finali         | Chiuso          | commit, digest, versione, schema, health e kill switch coincidono; `unsafeApprovedDocuments=0`, `unreconciledHistory=0`, `pendingHistoryImports=0`, `openArubaBatches=0`, `completedDryRunQualifications=1`                                                           |
-| Confine canary/go-live              | Chiuso          | nessun tag/release `v1.0.0`, nessun upload o invio Aruba e nessuna abilitazione ordinaria; candidato congelato per il successivo canary autorizzato                                                                                                                   |
+| Confine qualifica/go-live           | Chiuso          | nessun tag/release `v1.0.0`, nessun upload o invio Aruba e nessuna abilitazione ordinaria; il primo invio reale appartiene al normale flusso operativo successivo                                                                                                     |
 
 ### Evidenza backup e restore corrente
 
@@ -114,8 +113,8 @@ Il readback locale ha verificato firma `%PDF-`, checksum SHA-256 calcolato, stru
 - Il caricamento di qualunque XML nel pannello Aruba richiede l’autorizzazione esplicita del titolare riferita al file e al relativo hash. La prova si arresta tassativamente prima di `Invia`.
 - La prova e-mail sintetica autorizzata è conclusa; qualunque ulteriore invio e-mail reale richiede una nuova richiesta esplicita.
 - Restore distruttivi, deploy, release e modifiche provider richiedono la rispettiva autorizzazione; nessuno di questi è implicato dall’aggiornamento documentale.
-- Il Canary tecnico non richiede invii reali e non usa controlli monouso. L’eventuale attivazione dell’uso ordinario Aruba richiede una richiesta esplicita separata e resta governata dal kill switch persistente.
+- La qualifica tecnica non richiede invii reali né controlli monouso. L’attivazione dell’uso ordinario Aruba appartiene al go-live, richiede una richiesta esplicita separata e resta governata dal kill switch persistente.
 
 ## Runbook applicabili
 
-La procedura operativa riusa senza duplicarli [Produzione OCI](production.md), [Aruba manuale](aruba-manual.md), [Backup e ripristino](backup-restore.md), [Incidenti Production](incidents.md) e [PoC OCI Email Delivery](oci-email-delivery-poc.md). La correzione inventario è pubblicata, il readback non mostra verifiche irrisolte, il profilo Chrome persistente è riutilizzabile, il backup exact-commit è qualificato e il Canary tecnico resta privo di invii. La readiness è chiusa; questo record non autorizza l’uso Production ordinario Aruba successivo.
+La procedura operativa riusa senza duplicarli [Produzione OCI](production.md), [Aruba manuale](aruba-manual.md), [Backup e ripristino](backup-restore.md), [Incidenti Production](incidents.md) e [PoC OCI Email Delivery](oci-email-delivery-poc.md). La correzione inventario è pubblicata, il readback non mostra verifiche irrisolte, il profilo Chrome persistente è riutilizzabile e il backup exact-commit è qualificato. La ricertificazione è chiusa; la qualifica tecnica non prevede invii reali e questo record non autorizza l’uso Production ordinario successivo.

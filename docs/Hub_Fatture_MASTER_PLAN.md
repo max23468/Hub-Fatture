@@ -66,7 +66,7 @@ Le evidenze vivono in `docs/evidence/`; i contratti tecnici riusabili in `docs/c
 
 - M1-M3 non dipendono da Aruba e usano soltanto fixture e dati sintetici.
 - M4 comprende audit autenticato read-only, analisi dell'XML accettato, profilo fiscale, numerazione, generatore definitivo e approvazione.
-- M5 conserva soltanto l’evidenza storica del percorso browser. M8-M10 hanno introdotto le API Aruba e M11 ha ritirato i componenti browser; M12 ricertifica il candidato, M13 esegue il canary TD01 monouso e M14 abilita l’uso ordinario. Ogni accesso Production reale richiede il manifesto e l’autorizzazione della milestone.
+- M5 conserva soltanto l’evidenza storica del percorso browser. M8-M10 hanno introdotto le API Aruba e M11 ha ritirato i componenti browser; M12 ricertifica il candidato, M13 chiude la qualifica tecnica senza invii reali e M14 abilita l’uso ordinario. Ogni accesso Production reale richiede il manifesto e l’autorizzazione della milestone.
 - Modifiche all'account Aruba, upload reali e invii richiedono sempre
   l'autorizzazione specifica del titolare nel momento in cui vengono eseguiti.
   Una richiesta affermativa di pubblicazione autorizza invece deploy e release
@@ -329,7 +329,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Dominio funzionale | `billing_case` interno, esposto come "Preparazione fattura" | Il contenitore tecnico non è una destinazione di navigazione |
 | Generazione | Impostazione globale: pagamento o evasione completa | Un solo comportamento coerente per Shopify ed eBay |
 | Approvazione | Sempre esplicita | Nessun invio fiscale senza una conferma riferita ai documenti esatti |
-| Primo invio Aruba | Canary M13 di un TD01 reale con permesso monouso legato a documento, revisione, batch e hash; interruttore ordinario ancora disabilitato | Confina il primo effetto fiscale reale e impedisce che il canary abiliti l'uso ordinario |
+| Primo invio Aruba | Primo documento ordinario M14 già dovuto, approvato esplicitamente e trasmesso dopo l’abilitazione separata dell’uso Production | Evita documenti dedicati al collaudo senza rinunciare a un avvio graduale e osservabile |
 | Fattura | Una riga semplificata per ordine | Non serve replicare il dettaglio commerciale delle piattaforme |
 | Sconti/spedizione | Assorbiti nell'importo netto della riga ordine | Il documento deve restare semplice; il dettaglio resta interno |
 | Commissioni Shopify Payments | Regola globale modificabile: per default sottrarre dal totale fatturabile esclusivamente le commissioni effettive restituite da `OrderTransaction.fees` per transazioni `shopify_payments` riuscite, convertite nella valuta negozio soltanto tramite il tasso di regolamento tipizzato della stessa transazione | Allinea il documento al comportamento Aruba osservato senza ricostruire percentuali o cambi esterni e senza applicare costi di altri gateway; PayPal, bonifico, PostePay, metodi manuali ed eBay restano sempre al totale pieno |
@@ -1082,7 +1082,7 @@ La ricevuta può essere finalizzata soltanto da uno dei due account amministrati
 
 ## 11. Qualifica Aruba nelle milestone M4-M13
 
-Questa attività non è una roadmap parallela che possa aggirare i gate. M4 ha incorporato le verifiche fiscali e documentali necessarie al generatore; M5 ha qualificato il percorso browser sintetico. M8 qualifica le API documentate in sola lettura, M9 introduce l'inbound canonico, M10 qualifica l'outbound senza invio reale, M11 chiude la transizione browser, M12 ricertifica il candidato e M13 esegue il solo canary TD01 autorizzato.
+Questa attività non è una roadmap parallela che possa aggirare i gate. M4 ha incorporato le verifiche fiscali e documentali necessarie al generatore; M5 ha qualificato il percorso browser sintetico. M8 qualifica le API documentate in sola lettura, M9 introduce l'inbound canonico, M10 qualifica l'outbound senza invio reale, M11 chiude la transizione browser, M12 ricertifica il candidato e M13 chiude la qualifica tecnica senza invii reali.
 
 La raccolta dei materiali, però, non è implementazione e può iniziare durante M2 e M3. Sessione di audit, XML della fattura accettata, eventuale XML della nota di credito e conferma del commercialista dipendono dalla disponibilità di terzi e sono il percorso critico di tutto ciò che segue M3: attenderli fino all'apertura formale di M4 aggiunge attesa senza aggiungere sicurezza. Anticipare significa soltanto raccogliere e registrare evidenze in sola lettura. Restano vietati prima del rispettivo gate qualunque codice del generatore definitivo, la numerazione reale, il caricamento di XML nel pannello e ogni attività dell'helper.
 
@@ -1143,7 +1143,7 @@ Non implementare numerazione reale finché non sono stati verificati:
 - riuso o meno del numero;
 - eventuali automatismi Aruba.
 
-Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non fiscale. L'audit read-only ha definito una procedura candidata; dry-run e qualifica outbound M10 verificano l'ordine osservabile senza invio. Qualunque divergenza aggiorna procedura, generatore e test prima del canary M13.
+Durante lo sviluppo precedente a M4 usare una numerazione mock chiaramente non fiscale. L'audit read-only ha definito una procedura candidata; dry-run e qualifica outbound M10 verificano l'ordine osservabile senza invio. Qualunque divergenza aggiorna procedura, generatore e test prima della chiusura tecnica M13.
 
 ### 11.4 M8-M10 - qualifiche API controllate
 
@@ -2012,22 +2012,6 @@ Questa tabella registra esclusivamente tentativi di upload/invio originati da HF
 Ogni invio API è preceduto da un dry-run riuscito sul medesimo `xml_sha256`. Un tentativo ambiguo
 blocca quelli successivi finché il readback non prova l'esito.
 
-#### `aruba_canary_permits`
-
-- `id`
-- `environment`
-- `account_reference`
-- `document_id`
-- `document_revision`
-- `batch_id`
-- `xml_sha256`
-- `expires_at`
-- `consumed_at`
-- `created_by`
-
-Il permesso esiste soltanto per M13, viene creato da Massimo e consumato atomicamente al primo
-tentativo autorizzato. Non abilita gli invii ordinari.
-
 Per `aruba_files` e `sdi_notifications`, `submission_id` e `remote_document_id` sono owner di provenienza alternativi con vincolo “esattamente uno valorizzato”. Il collegamento opzionale a `documents` viene aggiunto dopo il match senza cambiare la provenienza e senza costruire una submission fittizia.
 
 #### `aruba_files`
@@ -2563,7 +2547,7 @@ L'artefatto Production segue una sola corsia:
 - tag SemVer e SHA sono riferimenti leggibili, ma il digest `sha256` è l'identità canonica usata da deploy, ricevuta e rollback;
 - l'immagine riceve un'attestazione GitHub di provenienza legata al digest; il deploy la verifica prima del pull;
 - nessun segreto o dato reale entra nell'immagine, nei build argument, nei layer o nei metadati;
-- l'immagine applicativa finale esegue come utente non-root, contiene soltanto runtime e file necessari e viene sottoposta a scansione delle vulnerabilità prima del canary; `@react-router/node` dichiara `typescript` come peer dependency opzionale, quindi `npm ci --omit=dev` lo installa insieme al binario nativo di piattaforma: il layer finale li rimuove e il gate immagine verifica che nell'artefatto non resti alcun compilatore TypeScript; finding critici/alti raggiungibili bloccano il candidato, gli altri richiedono motivazione e condizione di riapertura;
+- l'immagine applicativa finale esegue come utente non-root, contiene soltanto runtime e file necessari e viene sottoposta a scansione delle vulnerabilità prima del go-live; `@react-router/node` dichiara `typescript` come peer dependency opzionale, quindi `npm ci --omit=dev` lo installa insieme al binario nativo di piattaforma: il layer finale li rimuove e il gate immagine verifica che nell'artefatto non resti alcun compilatore TypeScript; finding critici/alti raggiungibili bloccano il candidato, gli altri richiedono motivazione e condizione di riapertura;
 - Action di build, push e attestazione sono fissate a commit completi e ricevono soltanto i permessi necessari;
 - la VPS non compila l'applicazione: esegue il pull del digest già verificato e avvia `web` e `worker` dallo stesso artefatto.
 
@@ -2704,7 +2688,7 @@ Classificazione minima:
 
 La Production ha due arresti indipendenti e fail-closed: `ARUBA_API_PAUSED=true` ferma nuovi polling, elaborazioni e mutazioni al successivo punto sicuro; `ARUBA_SUBMISSION_ENABLED=false` blocca dry-run, upload e invio lasciando disponibili lettura, riconciliazione, numerazione autorizzata, export, import e diagnosi. Entrambi sono auditati e riletti dal worker prima di ogni mutazione. La connessione appena verificata parte in pausa e gli invii restano disabilitati.
 
-Il canary M13 non abilita l'uso ordinario. Usa un permesso monouso legato a ambiente, account, TD01, revisione, batch e hash XML mentre `ARUBA_SUBMISSION_ENABLED=false` resta invariato. Il permesso viene consumato atomicamente e non è riaperto da timeout o stato incerto. L'abilitazione ordinaria appartiene a M14 e richiede autorizzazione separata.
+M13 mantiene `ARUBA_SUBMISSION_ENABLED=false` e non esegue upload o invii reali. L’abilitazione ordinaria appartiene a M14, richiede autorizzazione separata e non crea documenti dedicati al collaudo: il primo effetto fiscale riguarda un documento già dovuto e approvato nel normale flusso operativo.
 
 Runbook P0:
 
@@ -2733,7 +2717,7 @@ Usare le funzioni native OCI, senza introdurre un secondo stack di monitoraggio:
 - creare un solo Notifications Topic con sottoscrizione e-mail del titolare;
 - configurare inizialmente quattro allarmi: indisponibilità o assenza prolungata delle metriche dell'istanza, CPU oltre l'80% per 15 minuti, memoria oltre l'85% per 15 minuti e load average anomalo per 15 minuti;
 - lasciare lo spazio disco nel monitor locale; il timer backup pubblica l'errore sullo stesso Notifications Topic e il pannello segnala una ricevuta giornaliera mancante;
-- verificare consegna, risoluzione e assenza di notifiche ripetute prima del canary;
+- verificare consegna, risoluzione e assenza di notifiche ripetute prima del go-live;
 - ritarare le soglie soltanto usando dati osservati, registrando la modifica nel runbook.
 
 Le notifiche OCI sono allarmi infrastrutturali per il titolare e non sostituiscono né modificano le e-mail applicative ai clienti. Prima dell'attivazione verificare quote e condizioni correnti dell'account, senza abilitare servizi a pagamento. Riferimenti: [metriche Compute](https://docs.oracle.com/en-us/iaas/Content/Compute/References/computemetrics.htm) e [risorse Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm).
@@ -2745,7 +2729,7 @@ Creare un solo dominio APM Always Free e un solo monitor HTTP esterno:
 - richiesta `GET https://<hostname>/health` con cadenza configurata entro la quota senza costo verificata;
 - risposta `200` con corpo generico e stabile; il payload pubblico non espone versione, database, schema, code, provider o configurazione;
 - allarme dopo due esecuzioni consecutive fallite e notifica tramite il Notifications Topic già previsto;
-- prova controllata di errore e ripristino prima del canary, senza chiamare provider né usare credenziali o dati reali;
+- prova controllata di errore e ripristino prima del go-live, senza chiamare provider né usare credenziali o dati reali;
 - nessun browser monitor, Real User Monitoring, tracing distribuito o script sintetico finché un bisogno osservato non lo richiede.
 
 Questo controllo è outside-in: copre Dynu, DNS, TLS, Caddy e processo applicativo, mentre le metriche Compute coprono la VPS dall'interno. Verificare live quote e condizioni prima di M7. Riferimenti: [OCI Application Performance Monitoring](https://docs.oracle.com/en-us/iaas/application-performance-monitoring/doc/application-performance-monitoring.html) e [risorse Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm).
@@ -2970,7 +2954,7 @@ Usare `node:test` del runtime fissato come unico runner unitario e d'integrazion
 - evento fuori ordine non fa regredire uno stato provider già riconciliato.
 - audit critico assente provoca rollback della transazione, non una transizione priva di prova.
 - invio automatico rifiutato quando il kill switch è attivo o batch, manifest, documento, revisione, hash e validazione non coincidono.
-- dry-run e invio sul medesimo hash; consumo atomico del permesso canary e blocco dopo stato incerto.
+- dry-run e invio sul medesimo hash; nessun retry automatico dopo uno stato incerto.
 - migrazione da database vuoto e da snapshot della release precedente con dati sintetici rappresentativi.
 
 ### 22.3 Contract test
@@ -3017,7 +3001,7 @@ Playwright è il runner E2E canonico:
 - esegue configurazione connessione, backfill, salute, permessi, tre modalità, fallback manuale, stato SdI, e-mail e nota di credito contro mock deterministici; il percorso browser Aruba ritirato non fa parte della matrice corrente;
 - usa locator accessibili e dati sintetici deterministici; nessuna credenziale o informazione reale entra in test, report o trace;
 - registra la trace soltanto al primo retry fallito, con retention CI breve di 7 giorni; niente video continui o snapshot visuali finché non esiste una regressione visiva concreta;
-- non traccia né automatizza il Canary Production e non aggiunge Firefox finché non emerge un bisogno reale.
+- non traccia né automatizza invii Production reali e non aggiunge Firefox finché non emerge un bisogno reale.
 
 Riferimenti da riverificare allo scaffold: [Playwright Trace Viewer](https://playwright.dev/docs/trace-viewer) e [best practice Playwright](https://playwright.dev/docs/best-practices).
 
@@ -3028,7 +3012,7 @@ Riferimenti da riverificare allo scaffold: [Playwright Trace Viewer](https://pla
 - rate limit login.
 - webhook signature.
 - credenziale Aruba cifrata e non rileggibile, identità verificata prima del salvataggio, rate limit su autenticazione e redazione completa di token/password.
-- pausa API e interruttore invii riletti server-side dal worker; permesso canary monouso e confinato.
+- pausa API e interruttore invii riletti server-side dal worker prima di ogni mutazione.
 - OAuth state/PKCE dove applicabile.
 - path traversal nello storage.
 - log redaction.
@@ -3077,7 +3061,7 @@ Quando una prova live espone un difetto:
 
 ## 23. Milestone
 
-Le milestone applicative sono sequenziali. M1-M7 descrivono la fondazione già completata, incluso il percorso browser originario. M8-M11 qualificano e introducono le API Aruba e governano la transizione degli helper; M12 ricertifica il candidato, M13 esegue il canary TD01 e M14 chiude il go-live. Non esiste una corsia Aruba parallela e nessuna milestone autorizza implicitamente la successiva.
+Le milestone applicative sono sequenziali. M1-M7 descrivono la fondazione già completata, incluso il percorso browser originario. M8-M11 qualificano e introducono le API Aruba e governano la transizione degli helper; M12 ricertifica il candidato, M13 chiude la qualifica tecnica senza invii reali e M14 chiude il go-live con l’abilitazione ordinaria. Non esiste una corsia Aruba parallela e nessuna milestone autorizza implicitamente la successiva.
 
 Brand Foundation leggera, comparatore fiscale e PoC/decisione OCI Email Delivery entrano nelle milestone che già possiedono i relativi contratti. Non nasce una milestone intermedia e non si aggiungono un pacchetto design system separato, una libreria di diff XML o due trasporti SMTP paralleli.
 
@@ -3381,12 +3365,10 @@ Gate:
 
 ### M12 - Ricertificazione release candidate
 
-**Stato: da ripetere sul prossimo candidato.** Il candidato precedente è stato ricertificato con
-CI, security scan, artifact, deploy, backup, restore isolato, rollback reale, rientro,
-monitor e readback coerenti. Le successive modifiche runtime e schema alla riconciliazione Aruba
-lo hanno sostituito prima del canary: il record di [readiness](runbooks/release-readiness.md) ne
-conserva le prove storiche, ma M13 resta bloccata finché la stessa ricertificazione non viene
-ripetuta sul nuovo SHA e digest con invii Aruba e release `v1.0.0` ancora disabilitati.
+**Stato: completata.** Il candidato è stato ricertificato con CI, security scan, artifact, deploy,
+backup, restore isolato, rollback reale, rientro, monitor e readback coerenti. Le modifiche runtime
+e schema successive non riaprono formalmente M12 per decisione del titolare; M13 conserva comunque
+il vincolo di chiudere i propri gate tecnici con invii Aruba disabilitati.
 
 Output:
 
@@ -3403,34 +3385,33 @@ Gate:
 - commit, digest, schema, configurazione, backup e rollback riferiti allo stesso candidato;
 - assenza delle superfici browser Aruba confermata sul candidato esatto.
 
-### M13 - Canary Production TD01
+### M13 - Qualifica tecnica Production
 
 Output:
 
-- un TD01 reale e legittimo scelto esplicitamente da Massimo al momento dell'esecuzione;
-- permesso monouso legato ad ambiente, account, documento, revisione, batch e hash XML;
-- dry-run, upload, invio, readback, file e stato osservati end-to-end;
-- ricevuta sanitizzata con permesso consumato e arresti finali.
+- gate tecnici del candidato conclusi con prove osservabili e collegate;
+- identità di commit, digest, schema e configurazione verificata;
+- `ARUBA_SUBMISSION_ENABLED=false` riletto in Production;
+- report sanitizzato che registra l’assenza intenzionale di upload e invii reali.
 
 Gate:
 
-- autorizzazione specifica all'esecuzione reale;
-- nessun duplicato e nessun retry cieco;
-- stato remoto determinato oppure incidente fail-closed aperto senza nuovo tentativo;
-- `ARUBA_SUBMISSION_ENABLED=false` rimasto invariato;
-- TD04 non inclusa nel canary.
+- nessun P0/P1 o stato remoto incerto aperto;
+- nessun permesso, tentativo o job dedicato a un canary fiscale;
+- dry-run e controlli sintetici coprono la catena outbound senza effetti reali;
+- `ARUBA_SUBMISSION_ENABLED=false` rimasto invariato per tutta la milestone.
 
 ### M14 - Go-live e `1.0.0`
 
 Output:
 
-- approvazione finale del titolare sulla ricevuta canary e sui rischi residui;
+- approvazione finale del titolare sulla readiness e sui rischi residui;
 - runbook operativo e readiness finalizzati;
 - tag e GitHub Release immutabile `v1.0.0` sul commit e digest qualificati;
-- abilitazione separata dell'uso Production ordinario;
+- abilitazione separata dell'uso Production ordinario e prima trasmissione di un documento già dovuto, senza documento dedicato al collaudo;
 - monitoraggio rafforzato della prima giornata, inclusi inventario, stati incerti, coda `Da collegare` e soglie mensili.
 
-TD04 resta nel fallback manuale finché un rimborso reale legittimo non permette un canary separato. Release e uso Production ordinario richiedono autorizzazioni esplicite; il canary non le implica.
+TD04 resta nel fallback manuale finché un rimborso reale legittimo non permette una prova separatamente autorizzata. Release e uso Production ordinario richiedono autorizzazioni esplicite e distinte.
 
 ---
 
@@ -3480,7 +3461,7 @@ Ingest del rimborso completato, bozza TD04 cumulativa, residuo accreditabile, nu
 
 ### Produzione e continuità - M7/M12-M14
 
-Compose, hardening, deploy, monitoraggio, backup e restore sono fondazioni M7 già disponibili. M12 le ricertifica sul candidato esatto; M13 esegue il canary TD01 monouso; M14 pubblica e abilita l'uso ordinario soltanto con autorizzazioni distinte.
+Compose, hardening, deploy, monitoraggio, backup e restore sono fondazioni M7 già disponibili. M12 le ricertifica sul candidato esatto; M13 chiude la qualifica tecnica senza invii reali; M14 pubblica e abilita l'uso ordinario soltanto con autorizzazioni distinte.
 
 ### API Aruba - M8/M11
 
@@ -3582,7 +3563,7 @@ Deve fermarsi e chiedere prima di:
 | Il design system interno cresce in un pacchetto separato | Ritardo e manutenzione senza valore operativo | Un documento, token CSS, componenti locali, un SVG canonico e soli asset richiesti; niente sito, webfont, Storybook o libreria proprietaria |
 | Stato upload/invio incerto | Doppio invio | Manifest/hash, ricerca nel pannello, confronto del file scaricato e nessun retry automatico |
 | L'agente completa una transizione fiscale irreversibile | Emissione o riconciliazione fiscale senza decisione umana | `can_approve` su entrambi gli account applicativi non sostituisce il consenso umano: approvazione, numerazione, permessi, readback manuale e match fiscali restano controllati server-side e richiedono la decisione esplicita prevista dal flusso |
-| Canary lascia aperti gli invii | Trasmissione fiscale non autorizzata | Kill switch globale sempre `false`, nessun batch di scrittura e verifica live del flag |
+| Il go-live lascia aperti gli invii oltre l’autorizzazione | Trasmissione fiscale non autorizzata | Interruttore globale governato, approvazione per documento e verifica live della configurazione |
 | Target provider o VPS errato | Scrittura o deploy sull'ambiente sbagliato | Preflight con identità, account, risorsa e readback obbligatori |
 | Documentazione o runbook in drift | Operazioni eseguite con istruzioni obsolete | Fonte canonica, controllo link/comandi e aggiornamento nella stessa PR |
 | Backup presente ma non ripristinabile | Perdita dati prolungata | Checksum, manifest, restore drill trimestrale e prima dei cambi distruttivi |
@@ -3735,7 +3716,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [ ] Retention fiscale e tecnica approvata.
 - [ ] Record corrente `docs/runbooks/release-readiness.md` completo con prove fresche.
 - [ ] Runbook P0, rollback e restore drill verificati.
-- [ ] Candidato canary tecnico identificato da commit e digest, con `ARUBA_SUBMISSION_ENABLED=false` verificato e invio automatico testato contro flag disattivato, mismatch e stato non validato.
+- [ ] Candidato tecnico identificato da commit e digest, con `ARUBA_SUBMISSION_ENABLED=false` verificato e invio automatico testato contro flag disattivato, mismatch e stato non validato.
 
 ### Checklist API M8-M14
 
@@ -3745,15 +3726,15 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [x] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; chiamata di upload con `dryRun=true` e stato incerto qualificati con autorizzazione specifica, senza autorizzare `dryRun=false`.
 - [x] M10: pausa API e invii fiscali disabilitati riletti server-side; configurazione e mutazioni protette da `can_approve`, salute e `Sincronizza ora` osservabili.
 - [x] M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
-- [ ] M12: il candidato precedente è stato ricertificato, ma le successive modifiche runtime e schema alla riconciliazione Aruba richiedono di ripetere CI, audit, migrazioni, backup, restore, rollback, security e readiness sul nuovo SHA e digest; nessun P0/P1 o stato incerto.
-- [ ] M13: TD01 reale scelto da Massimo, autorizzazione specifica, permesso monouso legato a revisione/batch/hash e `ARUBA_SUBMISSION_ENABLED=false` prima e dopo.
-- [ ] M13: dry-run, invio, readback, file e stato conclusi senza duplicato o retry cieco; permesso consumato e ricevuta sanitizzata.
+- [x] M12: ricertificazione chiusa; le modifiche successive non riaprono formalmente la milestone.
+- [ ] M13: gate tecnici e identità del candidato conclusi con `ARUBA_SUBMISSION_ENABLED=false`, senza upload o invii reali.
+- [ ] M13: report sanitizzato aggiornato con prove fresche e assenza di P0/P1 o stati remoti incerti.
 - [ ] M14: autorizzazioni separate a release e uso ordinario; decisioni helper registrate; TD04 mantenuta manuale fino al proprio canary legittimo.
 
 ### Prima del go-live
 
-- [ ] Il commit e il digest candidati non sono cambiati dopo il canary; altrimenti la prova interessata è stata ripetuta.
-- [ ] Record di readiness finalizzato con esito canary e rischi residui.
+- [ ] Il commit e il digest candidati coincidono con quelli qualificati tecnicamente; altrimenti la prova interessata è stata ripetuta.
+- [ ] Record di readiness finalizzato con gate tecnici e rischi residui.
 - [ ] Draft GitHub Release collegata al tag candidato, note confrontate con `CHANGELOG.md` e `release-manifest.json` sanitizzato allegato.
 - [ ] Immutabilità delle release confermata; nessun tag o asset pubblicato prima dell'autorizzazione.
 - [ ] Autorizzazione esplicita alla release `v1.0.0`.
@@ -3761,7 +3742,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 
 ### Record di readiness 1.0
 
-Prima del Canary Production creare `docs/runbooks/release-readiness.md` e finalizzarlo dopo il canary. Non è una copia delle checklist precedenti: è il record corrente che, per ogni gate bloccante di §23 e §28, collega la prova fresca che lo chiude.
+Prima di finalizzare M13 aggiornare `docs/runbooks/release-readiness.md`. Non è una copia delle checklist precedenti: è il record corrente che, per ogni gate bloccante di §23 e §28, collega la prova fresca che lo chiude.
 
 Ogni voce ha la stessa forma: gate, esito osservato, riferimento verificabile - commit, digest, hash, ID remoto, run CI o evidenza - e data. Un gate senza riferimento verificabile è aperto, non chiuso.
 
@@ -3851,8 +3832,8 @@ La 1.0 è conclusa quando ogni gate di §23, ogni checklist di §28 e ogni decis
 4. profilo fiscale, numerazione, XML fattura e TD04 derivano da fonti approvate e da golden test che falliscono se il profilo cambia involontariamente;
 5. nessun dato reale e nessun segreto plaintext compare in repository, cronologia, CI, log, fixture o documentazione; l'unico blob sensibile ammesso è la key VPS cifrata;
 6. codice, migrazioni, lockfile, documentazione e stato live descrivono lo stesso commit: `/version`, digest distribuito e ricevuta di deploy coincidono dopo uno smoke autenticato;
-7. il Canary Production M13 ha trasmesso un solo TD01 reale legittimo mediante permesso monouso, con dry-run, readback e stato determinato, interruttore ordinario invariato e nessun P0/P1 aperto;
-8. per il solo go-live iniziale, escluso dalla pubblicazione tecnica ordinaria perché costituisce una nuova attivazione produttiva, `v1.0.0` è pubblicata sullo stesso commit e digest superati dal canary M13, dopo autorizzazioni separate per deploy, release e uso Production ordinario;
+7. M13 ha chiuso la qualifica tecnica senza upload o invii reali, con `ARUBA_SUBMISSION_ENABLED=false` e nessun P0/P1 aperto;
+8. per il solo go-live iniziale, escluso dalla pubblicazione tecnica ordinaria perché costituisce una nuova attivazione produttiva, `v1.0.0` è pubblicata sullo stesso commit e digest qualificati tecnicamente, dopo autorizzazioni separate per deploy, release e uso Production ordinario;
 9. non restano P0/P1 aperti, decisioni bloccanti sospese, ordini storici approvabili senza riconciliazione o documenti Aruba ambigui che possano causare una doppia emissione;
 10. backup, recovery kit, restore drill e rollback applicativo sono stati eseguiti davvero, non soltanto documentati, e l'RPO dichiarato è quello osservato.
 
@@ -3866,4 +3847,4 @@ Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile
 
 La priorità non è costruire un motore fiscale generale, ma impedire errori operativi: dati mancanti, doppie fatture, doppi rimborsi, numerazione errata, invii non approvati e perdita di tracciabilità.
 
-Il prossimo lavoro concreto è ripetere la ricertificazione M12 sul nuovo candidato, quindi proseguire con il canary TD01 M13 e il go-live M14. Ogni milestone mantiene confini di autorizzazione propri; nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è implicito nella pianificazione.
+Il prossimo lavoro concreto è chiudere la qualifica tecnica M13 senza invii reali e quindi proseguire con il go-live M14, nel quale inizieranno gli invii ordinari separatamente autorizzati. Ogni milestone mantiene confini di autorizzazione propri; nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è implicito nella pianificazione.

@@ -21,18 +21,18 @@ Hub Fatture usa versioni `MAJOR.MINOR.PATCH` senza suffissi prerelease.
 | Parità e transizione browser       | `0.5.x`                | `0.5.0` apre la fase in cui le API diventano la fonte automatica per le capacità qualificate e si decide il destino degli helper |
 | Stabilizzazione successiva         | `0.6.x`                | Hardening, pulizia e preparazione del candidato; non è una milestone aggiuntiva                                                  |
 | Ricertificazione release candidate | `1.0.0` non pubblicata | Il candidato assume già la versione definitiva e viene distribuito con invii ordinari disabilitati                               |
-| Canary Production TD01             | stesso `1.0.0`         | Il canary prova esattamente lo stesso SHA e digest del candidato ricertificato                                                   |
+| Qualifica tecnica Production       | stesso `1.0.0`         | I gate tecnici verificano il candidato con invii reali disabilitati                                                              |
 | Go-live                            | `1.0.0`                | Lo stesso artefatto validato viene promosso e pubblicato come release definitiva                                                 |
 
 Le serie `0.7.x`, `0.8.x` e `0.9.x` non fanno parte della roadmap corrente e non vanno introdotte per riempire artificialmente la distanza dalla `1.0.0`.
 
 ## Candidato 1.0.0
 
-Quando la fase di ricertificazione congela un candidato, `package.json` passa a `1.0.0`, ma la GitHub Release resta non pubblicata. Ricertificazione e canary devono usare lo stesso artefatto identificato da SHA e digest.
+Quando la fase di ricertificazione congela un candidato, `package.json` passa a `1.0.0`, ma la GitHub Release resta non pubblicata. La qualifica tecnica conserva l’identità dell’artefatto tramite SHA e digest senza richiedere invii reali.
 
-Se la ricertificazione o il canary richiedono una modifica al codice, il candidato precedente è scartato: si produce un nuovo SHA/digest mantenendo `1.0.0` non pubblicata e si ripete la ricertificazione prevista. Il go-live non introduce modifiche runtime; se una modifica si rende necessaria, si torna alla ricertificazione.
+Se la qualifica tecnica richiede una modifica al codice, si produce un nuovo SHA/digest mantenendo `1.0.0` non pubblicata e si ripetono i gate tecnici interessati. Il go-live non introduce modifiche runtime; se una modifica si rende necessaria, si torna ai gate exact-SHA applicabili senza riaprire formalmente la milestone di ricertificazione già chiusa.
 
-La pubblicazione della GitHub Release `1.0.0` avviene soltanto dopo il canary riuscito e l'approvazione finale prevista dalla roadmap.
+La pubblicazione della GitHub Release `1.0.0` avviene soltanto dopo la qualifica tecnica e l’approvazione finale previste dalla roadmap. L’abilitazione degli invii Production ordinari resta un’autorizzazione separata del go-live.
 
 ## Relazione con le release tecniche
 
