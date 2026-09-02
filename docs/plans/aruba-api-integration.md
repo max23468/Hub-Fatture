@@ -1,6 +1,6 @@
 # Piano esecutivo — integrazione API Aruba
 
-**Stato:** inbound API canonico e ritiro browser completati; restano ricertificazione, canary e go-live
+**Stato:** inbound API canonico, ritiro browser e ricertificazione completati; restano qualifica tecnica e go-live
 **Ambito:** API Aruba v2, solo ciclo attivo dell’utenza Base delegata
 **Fonte canonica:** Master Plan, ADR Aruba e glossario
 **Documentazione provider:** [API Aruba v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html) e [manuale account Premium](https://guide.pec.it/fatturazione-elettronica/manuale-account-premium.pdf)
@@ -87,7 +87,7 @@ stato e file ufficiali; Hub Fatture conserva una proiezione locale datata e una 
 | Backfill                 | dal 1° luglio 2026, progressivo e riprendibile                                                         |
 | Retry invio              | automatico soltanto quando è provata l’idempotenza o la mancata accettazione                           |
 | Helper                   | ritiro separato per inbound e outbound, deciso esplicitamente da Massimo dopo un dossier di parità     |
-| Canary                   | un TD01 reale legittimo, scelto da Massimo e protetto da permesso monouso                              |
+| Primo invio reale        | documento ordinario già dovuto e approvato; nessun documento dedicato al collaudo                      |
 | TD04                     | manuale finché non esiste un caso legittimo per un canary separato                                     |
 
 ## 4. Architettura di destinazione
@@ -129,7 +129,6 @@ ritentabili vivono nel worker.
 | `aruba_sync_runs`           | lease, cursori, finestre, pagine, conteggi, watermark ed esito del giro API  |
 | `aruba_submissions`         | tentativi originati da Hub Fatture, mai documenti remoti generici            |
 | `aruba_submission_attempts` | dry-run, upload, invio, readback e incertezza per tentativo                  |
-| `aruba_canary_permits`      | autorizzazione monouso del solo canary TD01                                  |
 | `jobs`                      | esecuzioni asincrone idempotenti e riprendibili                              |
 
 La migrazione estende la connessione Aruba per consentire credenziali cifrate. Il ciphertext entra
@@ -387,8 +386,8 @@ rimossi. Un ratchet di repository ne impedisce la reintroduzione accidentale.
 ### 14.2 Outbound API
 
 Il dossier confronta dry-run, upload, validazione, invio, readback, file, stati, manifest, arresti e
-recovery. TD01 può raggiungere la parità dopo il canary reale; TD04 non è dichiarato in parità finché
-non supera un canary legittimo separato.
+recovery. TD01 entra nell’uso Production ordinario soltanto al go-live; TD04 non è dichiarato in
+parità finché non supera una prova legittima separata.
 
 ### 14.3 Condizione permanente
 
@@ -404,21 +403,21 @@ invio. Il consenso vale per la fase e decade se il perimetro cambia.
 - Qualifica API: sole letture limitate; file minimi temporanei, validati e cancellati subito.
 - Inbound API: ingest canonico read-only e backfill autorizzato.
 - Outbound API: dry-run e qualifiche di upload senza invio, con autorizzazione specifica.
-- Canary Production: un solo invio TD01 reale mediante permesso monouso.
+- Qualifica tecnica Production: gate exact-SHA senza upload o invii reali.
+- Go-live: abilitazione ordinaria e primo invio di un documento già dovuto e approvato.
 
 Deploy, modifica dei permessi/delega nel pannello, callback, abilitazione ordinaria e ogni altro invio
 reale richiedono autorizzazioni distinte.
 
-## 16. Canary TD01 e TD04
+## 16. Primo invio ordinario e TD04
 
-Il canary Production usa un permesso monouso legato a ambiente, account, documento, revisione,
-batch, XML
-hash e scadenza breve. Viene consumato atomicamente al primo tentativo autorizzato. L’interruttore
-ordinario degli invii resta disabilitato; un esito incerto non riapre il permesso.
+La qualifica tecnica non esegue invii reali. Con il go-live, Massimo autorizza separatamente l’uso Production
+ordinario; il primo TD01 trasmesso deve essere già dovuto e approvato nel normale flusso, senza
+creare o scegliere un documento per finalità di collaudo. Il percorso applica gli stessi vincoli
+ordinari di manifest, revisione, hash, dry-run, inventario anti-duplicato e stato remoto determinato.
 
-Massimo sceglie al momento dell’esecuzione un TD01 reale, legittimo e già necessario. Nessun documento
-viene creato appositamente per il test. TD04 usa fixture e dry-run nella roadmap iniziale e resta nel
-fallback manuale finché un rimborso reale legittimo consente un canary separatamente autorizzato.
+TD04 usa fixture e dry-run nella roadmap iniziale e resta nel fallback manuale finché un rimborso
+reale legittimo consente una prova separatamente autorizzata.
 
 ## 17. Strategia di test
 
@@ -440,7 +439,7 @@ fallback manuale finché un rimborso reale legittimo consente un canary separata
 - deduplicazione e osservazioni append-only;
 - matching concorrente e materializzazione `ARUBA_HISTORY` controllata;
 - manifest immutabile e risultati per documento;
-- consumo atomico del permesso canary;
+- blocco server-side degli invii finché l’uso Production ordinario non è abilitato;
 - due arresti riletti dal worker;
 - retry sicuro e blocco dell’incertezza.
 
@@ -513,18 +512,19 @@ pronto, esclusa la prova reale.
 - readiness riferita a commit, digest, schema e configurazione esatti;
 - nessun P0/P1 e nessuna incertezza Aruba aperta.
 
-### Canary Production TD01
+### Qualifica tecnica Production
 
-- un TD01 reale legittimo scelto da Massimo;
-- permesso monouso e interruttore ordinario ancora disabilitato;
-- dry-run, invio, readback, file e stato osservati end-to-end;
-- ricevuta sanitizzata.
+- candidato identificato da commit e digest;
+- `ARUBA_SUBMISSION_ENABLED=false` riletto nel runtime;
+- dry-run e controlli sintetici osservati senza effetti reali;
+- nessun P0/P1 o stato remoto incerto aperto.
 
-**Gate:** nessun duplicato, nessun retry cieco, stato remoto determinato e permesso consumato.
+**Gate:** nessun upload, invio, permesso o job dedicato a un canary fiscale.
 
 ### Go-live e `1.0.0`
 
 - autorizzazione ordinaria separata;
+- primo invio riferito a un documento già dovuto e approvato;
 - monitoraggio rafforzato della prima giornata;
 - avvisi locali a 400/475 e salute operativi;
 - decisioni helper registrate;

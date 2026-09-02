@@ -10,7 +10,8 @@ una seconda autorità automatica.
 Il contratto copre autenticazione, verifica dell’identità, ricerca paginata delle fatture inviate,
 dettaglio, file e notifiche. Per l’outbound copre manifest immutabile e qualifica con
 `POST /services/invoice/upload` e `dryRun=true`. `dryRun=false`, trasmissione reale, callback e
-prova SdI restano subordinati ai rispettivi gate e alle autorizzazioni esplicite.
+prova SdI restano subordinati al go-live e alle relative autorizzazioni esplicite. La qualifica
+tecnica non include un invio reale dedicato.
 
 La fonte provider è la [documentazione ufficiale API v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html).
 Un cambiamento di forma, stati o limiti riapre la qualifica prima di estendere il canale Production.
@@ -55,6 +56,16 @@ Ogni batch lega ambiente, account, modalità, tentativo e documenti allo SHA-256
 Timeout, risposta non interpretabile o esito remoto ambiguo producono `UNKNOWN_REMOTE_STATE`,
 bloccano il batch e non consentono retry automatici. I dry-run non incrementano il contatore
 mensile delle trasmissioni accettate.
+
+## Uso Production ordinario
+
+Il primo `dryRun=false` appartiene al normale flusso operativo successivo al go-live: riguarda un
+documento già dovuto, approvato e immutabile, non un documento creato o selezionato per collaudare
+la qualifica tecnica.
+L’abilitazione di `ARUBA_SUBMISSION_ENABLED=true` richiede un’autorizzazione separata dal deploy e
+dalla release. Prima di ogni invio il worker rilegge configurazione, pausa API, approvazione,
+manifest, revisione, hash XML, dry-run riuscito e inventario anti-duplicato. Uno stato remoto
+incerto blocca ogni nuovo tentativo finché il readback canonico non determina l’esito.
 
 ## Gruppi, documenti e stati
 

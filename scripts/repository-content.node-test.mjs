@@ -145,20 +145,21 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
   assert.match(production, /Un errore o[\s\S]*impediscono di definire conclusa la pubblicazione/);
 });
 
-test("la qualifica API e l'outbound senza invio precedono il Canary", async () => {
+test("la qualifica API e l'outbound senza invio precedono la qualifica tecnica", async () => {
   const masterPlan = await readFile(path.join(root, "docs/Hub_Fatture_MASTER_PLAN.md"), "utf8");
   const qualification = masterPlan.indexOf(`### M${8} - Qualifica API e accordo`);
   const outbound = masterPlan.indexOf(`### M${10} - Outbound API senza invio reale`);
-  const canary = masterPlan.indexOf(`### M${13} - Canary Production TD01`);
+  const technicalQualification = masterPlan.indexOf(`### M${13} - Qualifica tecnica Production`);
   const goLive = masterPlan.indexOf(`### M${14} - Go-live e \`1.0.0\``);
   assert.ok(qualification >= 0);
   assert.ok(outbound > qualification);
-  assert.ok(canary > outbound);
-  assert.ok(goLive > canary);
+  assert.ok(technicalQualification > outbound);
+  assert.ok(goLive > technicalQualification);
   assert.match(masterPlan, /nessun invio SdI reale/);
-  assert.match(masterPlan, /permesso monouso/);
+  assert.match(masterPlan, /primo effetto fiscale riguarda un documento già dovuto e approvato/);
+  assert.doesNotMatch(masterPlan, /aruba_canary_permits/);
   assert.match(
-    masterPlan.slice(outbound, canary),
+    masterPlan.slice(outbound, technicalQualification),
     /\*\*Stato: completata\.\*\*[\s\S]*dossier outbound/,
   );
 });

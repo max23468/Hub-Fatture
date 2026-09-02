@@ -4,42 +4,41 @@ Questo è il record del candidato Production osservato. Un gate è chiuso soltan
 
 ## Stato del record
 
-Il candidato identificato sotto è stato ricertificato integralmente, ma è stato poi sostituito
-prima del canary dalle modifiche runtime e schema che recuperano i file Aruba storici e bloccano
-le preparazioni con importi discordanti. Le prove restano valide come evidenza storica del
-candidato osservato, non come readiness del prossimo artefatto: la ricertificazione deve essere
-ripetuta sul nuovo SHA, digest e schema prima di qualunque attività canary.
+La ricertificazione è chiusa per decisione del titolare e non viene ripetuta. Le prove del candidato
+identificato sotto restano il record osservato della milestone; la fase successiva collega
+separatamente i propri gate tecnici all’identità effettiva del candidato senza upload o invii reali
+e senza riaprire la ricertificazione.
 
-## Identità candidata
+## Identità candidata della qualifica tecnica
 
-| Campo                    | Stato osservato                                                                                                                                                                                                         |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Versione applicativa     | `1.0.0`, distribuita come candidata e non pubblicata                                                                                                                                                                    |
-| Commit runtime candidato | `9829fb1320a57c3a5a0d61c19b825a86afe87be7`                                                                                                                                                                              |
-| Digest immagine          | `sha256:64368c98c675476a8ab2272a5d48a5fa234bdab8d7f90ebd9992ad98fd776c56`                                                                                                                                               |
-| Schema candidato         | `062_reconcile_aruba_identity_evidence.sql`                                                                                                                                                                             |
-| Release tecnica          | tag e GitHub Release `v1.0.0` assenti; la pubblicazione resta assegnata al go-live                                                                                                                                      |
-| Workflow Production      | [deploy 33559941695](https://github.com/max23468/Hub-Fatture/actions/runs/33559941695) e [rientro finale 33561470039](https://github.com/max23468/Hub-Fatture/actions/runs/33561470039), entrambi conclusi con successo |
-| Artefatto e attestazione | [Production artifact 33559921987](https://github.com/max23468/Hub-Fatture/actions/runs/33559921987), riusato dal deploy exact-SHA                                                                                       |
-| Rollback tecnico         | commit `e20199ef2dc5b2d25e6e2fd0788625bbd45e05ff`, digest `sha256:a1fdc23695eb1ac6a43b0c7e4a84db7492f35c1f57fb0ef839ea342c402b9062`                                                                                     |
-| Kill switch              | `ARUBA_SUBMISSION_ENABLED=false` riletto dopo deploy, rollback e rientro                                                                                                                                                |
-| Health pubblico          | `GET https://fatture.opik.net/health` restituisce `{"status":"ok"}`                                                                                                                                                     |
+| Campo                    | Stato osservato                                                                                                                                                                                                                                                                               |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Versione applicativa     | `1.0.0`, distribuita come candidata e non pubblicata                                                                                                                                                                                                                                          |
+| Commit runtime candidato | `bee4cfcc21d3a25653e6105949a5056c74d38872`                                                                                                                                                                                                                                                    |
+| Digest immagine          | `sha256:a371cae649b0c568a22f2b57c41cdcb8719e608fa601655b11349586aa1dafed`                                                                                                                                                                                                                     |
+| Schema candidato         | `063_aruba_historical_api_recovery.sql`                                                                                                                                                                                                                                                       |
+| Modifica runtime         | [PR #294](https://github.com/max23468/Hub-Fatture/pull/294), assorbita in `main`                                                                                                                                                                                                              |
+| CI e sicurezza           | [CI 33597088584](https://github.com/max23468/Hub-Fatture/actions/runs/33597088584), [Foundation 33597088494](https://github.com/max23468/Hub-Fatture/actions/runs/33597088494) e [CodeQL 33597088548](https://github.com/max23468/Hub-Fatture/actions/runs/33597088548) conclusi con successo |
+| Artefatto e attestazione | [Production artifact 33597088499](https://github.com/max23468/Hub-Fatture/actions/runs/33597088499), riusato dal deploy exact-SHA                                                                                                                                                             |
+| Workflow Production      | [deploy 33597127339](https://github.com/max23468/Hub-Fatture/actions/runs/33597127339), concluso con successo                                                                                                                                                                                 |
+| Release tecnica          | tag e GitHub Release `v1.0.0` assenti; la pubblicazione resta assegnata al go-live                                                                                                                                                                                                            |
+| Arresto invii            | `ARUBA_SUBMISSION_ENABLED=false` riletto nel runtime Production                                                                                                                                                                                                                               |
 
-La ricertificazione era chiusa sul candidato esatto sopra. Le [PR #290](https://github.com/max23468/Hub-Fatture/pull/290), [#292](https://github.com/max23468/Hub-Fatture/pull/292) e [#293](https://github.com/max23468/Hub-Fatture/pull/293) collegano backup incrementale, classificazione dell’impatto e blocco dei conflitti Aruba correlati. Il readback finale conferma zero documenti approvati non qualificati, zero storici non riconciliati, zero import iniziali pendenti, zero batch Aruba aperti e una qualifica dry-run terminale. Queste prove non coprono il runtime e lo schema successivi. Nessun documento è stato caricato o inviato ad Aruba e nessuna e-mail è partita. Il canary richiede ancora una nuova ricertificazione, oltre alla scelta e all’autorizzazione specifica di un TD01 reale; go-live, release e uso Production ordinario conservano autorizzazioni separate.
+Il readback protetto del candidato, ripetuto dopo il deploy, collega commit, digest, versione e
+schema esatti. Restituisce `unsafeApprovedDocuments=0`, `unreconciledHistory=0`,
+`pendingHistoryImports=0`, `openArubaBatches=0` e `completedDryRunQualifications=1`. Non risultano
+finding P0/P1 o stati remoti incerti aperti; nessun upload o invio reale appartiene alla qualifica
+tecnica. La ricertificazione precedente resta chiusa e non viene ripetuta.
 
-## Gate del candidato
+## Gate della qualifica tecnica
 
-| Gate exact-commit                   | Stato candidato | Riferimento                                                                                                                                                                                                                                                           |
-| ----------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CI, dipendenze e regressioni        | Chiuso          | [CI exact-SHA 33559921976](https://github.com/max23468/Hub-Fatture/actions/runs/33559921976), Foundation, CodeQL, gate standard, PostgreSQL/migrazioni e 11 E2E Chromium verdi; `npm run publish:preflight` verde prima della PR finale                               |
-| Audit sicurezza trasversale         | Chiuso          | la scansione cumulativa `45129378-3ae4-4faa-81b7-04b71a7a0017` ha rilevato il bypass di approvazione diretta sul candidato precedente; la correzione è nella PR #293 e la scansione exact-diff `b5d159c9-7662-4985-80ca-9f839034ff42` termina con zero finding        |
-| Migrazioni e invarianti fiscali     | Chiuso          | schema `062_reconcile_aruba_identity_evidence.sql` riletto in Production e nel restore; approvazione diretta bloccata anche in presenza di un conflitto Aruba correlato                                                                                               |
-| Immagine, attestazione e deploy     | Chiuso          | artifact attestato `33559921987`, digest esatto distribuito da `33559941695` e riletto dopo il rientro `33561470039`                                                                                                                                                  |
-| Backup, copia Mac e restore isolato | Chiuso          | [backup-only 33560348777](https://github.com/max23468/Hub-Fatture/actions/runs/33560348777), checksum e dimensione coerenti fra OCI e Mac; restore completo descritto sotto                                                                                           |
-| Retention OCI e monitor             | Chiuso          | rimossi, dopo autorizzazione specifica, 47 archivi completi legacy ridondanti; restano soltanto `current` e 11 giornali DB, per 1.286.716.368 byte; monitor locale sano                                                                                               |
-| Esercizio incidente e rollback      | Chiuso          | [rollback reale 33560669039](https://github.com/max23468/Hub-Fatture/actions/runs/33560669039) al digest precedente e [rientro 33561470039](https://github.com/max23468/Hub-Fatture/actions/runs/33561470039), con readback indipendenti verdi e senza down migration |
-| Readback e readiness finali         | Chiuso          | commit, digest, versione, schema, health e kill switch coincidono; `unsafeApprovedDocuments=0`, `unreconciledHistory=0`, `pendingHistoryImports=0`, `openArubaBatches=0`, `completedDryRunQualifications=1`                                                           |
-| Confine canary/go-live              | Chiuso          | nessun tag/release `v1.0.0`, nessun upload o invio Aruba e nessuna abilitazione ordinaria; candidato congelato per il successivo canary autorizzato                                                                                                                   |
+| Gate exact-commit               | Stato  | Riferimento                                                                                                                                                      |
+| ------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI, dipendenze e regressioni    | Chiuso | CI, Foundation e CodeQL verdi sul commit runtime esatto                                                                                                          |
+| Immagine, attestazione e deploy | Chiuso | artifact `33597088499`, digest esatto distribuito dal workflow Production `33597127339`                                                                          |
+| Schema e configurazione         | Chiuso | schema `063_aruba_historical_api_recovery.sql`, versione `1.0.0` e `ARUBA_SUBMISSION_ENABLED=false` riletti in Production                                        |
+| Readback operativo              | Chiuso | zero documenti approvati non qualificati, storici irriconciliati, import iniziali pendenti e batch Aruba aperti; una qualifica dry-run terminale                 |
+| Confine qualifica/go-live       | Chiuso | nessun tag/release `v1.0.0`, upload, invio Aruba o abilitazione ordinaria; il primo effetto fiscale reale resta assegnato al normale flusso operativo successivo |
 
 ### Evidenza backup e restore corrente
 
@@ -114,8 +113,8 @@ Il readback locale ha verificato firma `%PDF-`, checksum SHA-256 calcolato, stru
 - Il caricamento di qualunque XML nel pannello Aruba richiede l’autorizzazione esplicita del titolare riferita al file e al relativo hash. La prova si arresta tassativamente prima di `Invia`.
 - La prova e-mail sintetica autorizzata è conclusa; qualunque ulteriore invio e-mail reale richiede una nuova richiesta esplicita.
 - Restore distruttivi, deploy, release e modifiche provider richiedono la rispettiva autorizzazione; nessuno di questi è implicato dall’aggiornamento documentale.
-- Il Canary tecnico non richiede invii reali e non usa controlli monouso. L’eventuale attivazione dell’uso ordinario Aruba richiede una richiesta esplicita separata e resta governata dal kill switch persistente.
+- La qualifica tecnica non richiede invii reali né controlli monouso. L’attivazione dell’uso ordinario Aruba appartiene al go-live, richiede una richiesta esplicita separata e resta governata dal kill switch persistente.
 
 ## Runbook applicabili
 
-La procedura operativa riusa senza duplicarli [Produzione OCI](production.md), [Aruba manuale](aruba-manual.md), [Backup e ripristino](backup-restore.md), [Incidenti Production](incidents.md) e [PoC OCI Email Delivery](oci-email-delivery-poc.md). La correzione inventario è pubblicata, il readback non mostra verifiche irrisolte, il profilo Chrome persistente è riutilizzabile, il backup exact-commit è qualificato e il Canary tecnico resta privo di invii. La readiness è chiusa; questo record non autorizza l’uso Production ordinario Aruba successivo.
+La procedura operativa riusa senza duplicarli [Produzione OCI](production.md), [Aruba manuale](aruba-manual.md), [Backup e ripristino](backup-restore.md), [Incidenti Production](incidents.md) e [PoC OCI Email Delivery](oci-email-delivery-poc.md). La correzione inventario è pubblicata, il readback non mostra verifiche irrisolte, il profilo Chrome persistente è riutilizzabile e il backup exact-commit è qualificato. La ricertificazione è chiusa; la qualifica tecnica non prevede invii reali e questo record non autorizza l’uso Production ordinario successivo.
