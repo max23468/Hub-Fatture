@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { ARUBA_MATCHER_VERSION } from "../aruba-inbound.ts";
+import { ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES } from "../aruba-inbound.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 
@@ -492,13 +492,14 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     try {
       await upgradeTransaction.query("BEGIN");
       const matcherUpgrade = await import("./aruba-matcher-upgrade.server.ts");
+      assert.deepEqual([...ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES], ["TD04"]);
       assert.equal(
         await matcherUpgrade.upgradeCachedArubaMatcher(
           upgradeTransaction,
           "MOCK",
           "synthetic-aruba-account",
         ),
-        1,
+        0,
       );
       await upgradeTransaction.query("COMMIT");
     } finally {
@@ -514,10 +515,10 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       [remote.rows[0]!.id],
     );
     assert.deepEqual(upgraded.rows[0], {
-      matcher_version: ARUBA_MATCHER_VERSION,
-      reviewable: true,
+      matcher_version: 4,
+      reviewable: false,
     });
-    assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "NEEDS_REVIEW");
+    assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "READY");
   } finally {
     await client.closePool();
     await database.drop();

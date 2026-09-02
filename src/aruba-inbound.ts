@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 export const ARUBA_MATCHER_VERSION = 11;
+export const ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES = ["TD04"] as const;
 
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",

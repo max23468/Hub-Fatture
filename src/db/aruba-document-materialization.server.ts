@@ -760,14 +760,16 @@ async function materializeExternalCreditNote(
     };
     await client.query(
       `UPDATE documents SET status = 'APPROVED', origin = 'ARUBA_HISTORY',
-         fiscal_year = $2, fiscal_number = $3, approved_at = now(), xml_sha256 = $4,
-         immutable_snapshot_json = $5, fiscal_profile_snapshot_json = $6,
-         storage_object_id = $7, payment_method = $8, updated_at = now()
+         fiscal_year = $2, fiscal_number = $3, document_date = $4,
+         approved_at = coalesce(approved_at, now()), xml_sha256 = $5,
+         immutable_snapshot_json = $6, fiscal_profile_snapshot_json = $7,
+         storage_object_id = $8, payment_method = $9, updated_at = now()
        WHERE id = $1`,
       [
         documentId,
         imported.year,
         imported.number,
+        imported.documentDate,
         digest,
         JSON.stringify(snapshot),
         JSON.stringify(profile.profile),

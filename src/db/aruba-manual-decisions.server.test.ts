@@ -437,7 +437,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
            fiscal_profile_version, currency, total_amount, source_total_amount,
            difference_amount, draft_version, projection_sha256, payment_status,
            payment_method, recipient_snapshot_json)
-         VALUES ($1, 'CREDIT_NOTE', 'DRAFT', 'TD04', 'FPR', '2026-08-11', 1,
+         VALUES ($1, 'CREDIT_NOTE', 'DRAFT', 'TD04', 'FPR', '2026-09-02', 1,
            'EUR', 345, 345, 0, 1, repeat('5', 64), 'PAID', 'MP05', $2)
          RETURNING id::text`,
           [invoiceDocument.billing_case_id, JSON.stringify(customerSnapshot)],
@@ -513,16 +513,73 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
        WHERE remote_document_id = $1`,
       [sharedCreditRemoteId],
     );
+    const unrelatedInvoice = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO aruba_remote_documents
+          (environment, account_reference, remote_id, document_type, fiscal_year, series,
+           fiscal_number, document_date, total_amount, remote_status,
+           remote_status_observed_at, metadata_digest)
+         VALUES ('MOCK', 'synthetic-aruba-account', 'unrelated-invoice-replay', 'TD01',
+           2026, 'FPR', '99', '2026-08-11', 345, 'DELIVERED', now(), repeat('6', 64))
+         RETURNING id::text`,
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, candidates_json)
+       VALUES ($1, 'UNMATCHED', 'NONE', 10,
+         '[{"potential":true,"compatible":false,"reviewable":false}]')`,
+      [unrelatedInvoice.id],
+    );
+    await getPool().query(
+      `INSERT INTO aruba_remote_observations
+        (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal,
+         page_ordinal, payload_digest, payload_json)
+       VALUES ($1, '00000000-0000-4000-8000-000000000222', 'DELIVERED',
+         'invoices:2026', 1, 1, repeat('7', 64), $2)`,
+      [
+        unrelatedInvoice.id,
+        JSON.stringify({
+          remoteId: "unrelated-invoice-replay",
+          documentType: "TD01",
+          fiscalYear: 2026,
+          series: "FPR",
+          fiscalNumber: "99",
+          documentDate: "2026-08-11",
+          recipientName: "Mario Rossi",
+          recipientTaxId: "RSSMRA80A01H501U",
+          recipientTaxIdentifiers: [],
+          recipientCountryCode: "IT",
+          recipientAddress: "Via Cliente 2 00100 Roma IT",
+          totalAmount: 345,
+          currency: "EUR",
+          status: "DELIVERED",
+          providerObservedAt: null,
+          xmlSha256: null,
+          orderReferences: [],
+        }),
+      ],
+    );
     const upgradedDocuments = await withTransaction(async (client) => {
       return upgradeCachedArubaMatcher(client, "MOCK", "synthetic-aruba-account");
     });
     assert.equal(upgradedDocuments, 1);
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT matcher_version FROM aruba_document_matches WHERE remote_document_id = $1`,
+          [unrelatedInvoice.id],
+        )
+      ).rows[0].matcher_version,
+      10,
+    );
     assert.deepEqual(
       (
         await getPool().query(
           `SELECT matches.status AS match_status, matches.method, matches.matcher_version,
                   matches.document_id::text, documents.status AS document_status,
                   documents.origin, documents.payment_method,
+                  documents.document_date::text,
                   documents.immutable_snapshot_json ->> 'paymentMethod' AS snapshot_payment_method
            FROM aruba_document_matches matches
            JOIN documents ON documents.id = matches.document_id
@@ -538,7 +595,33 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
         document_status: "APPROVED",
         origin: "ARUBA_HISTORY",
         payment_method: "MP08",
+        document_date: "2026-08-11",
         snapshot_payment_method: "MP08",
+      },
+    );
+    await getPool().query(
+      `UPDATE aruba_document_matches SET matcher_version = 10 WHERE remote_document_id = $1`,
+      [sharedCreditRemoteId],
+    );
+    assert.equal(
+      await withTransaction(async (client) => {
+        return upgradeCachedArubaMatcher(client, "MOCK", "synthetic-aruba-account");
+      }),
+      1,
+    );
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT status, method, matcher_version, document_id::text
+           FROM aruba_document_matches WHERE remote_document_id = $1`,
+          [sharedCreditRemoteId],
+        )
+      ).rows[0],
+      {
+        status: "MATCHED",
+        method: "AUTOMATIC",
+        matcher_version: ARUBA_MATCHER_VERSION,
+        document_id: creditDraft.id,
       },
     );
   } finally {
