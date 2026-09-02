@@ -137,6 +137,7 @@ export async function action({ request }: Route.ActionArgs) {
         form.get("remoteDocumentId") ?? "",
         form.get("orderId") ?? "",
         form.get("reason"),
+        form.get("amountMismatchConfirmation"),
         actor,
       );
       await resolveOperationalControl(controlId, "ARUBA_MATCHED", note);
@@ -228,7 +229,7 @@ function ArubaRemoteMatchActions({
 }) {
   const metadata = control.metadata_json;
   const canLink =
-    control.kind === "ARUBA_REMOTE_MATCH" &&
+    ["ARUBA_REMOTE_MATCH", "ARUBA_AMOUNT_MISMATCH"].includes(control.kind) &&
     metadata.hasXml &&
     ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
     Boolean(metadata.candidates?.length);
@@ -245,7 +246,9 @@ function ArubaRemoteMatchActions({
           <input type="hidden" name="controlId" value={control.id} />
           <input type="hidden" name="intent" value="resolve-aruba-match" />
           <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
-          <input type="hidden" name="reason" value="Collegamento confermato da Controlli" />
+          {control.kind === "ARUBA_AMOUNT_MISMATCH" ? null : (
+            <input type="hidden" name="reason" value="Collegamento confermato da Controlli" />
+          )}
           <label>
             {copy.controls.candidateOrder}
             <select name="orderId" required defaultValue="">
@@ -259,10 +262,36 @@ function ArubaRemoteMatchActions({
               ))}
             </select>
           </label>
+          {control.kind === "ARUBA_AMOUNT_MISMATCH" ? (
+            <>
+              <label className="control-note">
+                <span>{copy.controls.amountMismatchReason}</span>
+                <textarea
+                  name="reason"
+                  rows={3}
+                  minLength={10}
+                  maxLength={500}
+                  required
+                  placeholder={copy.controls.amountMismatchReasonPlaceholder}
+                />
+              </label>
+              <label className="control-action-form__confirmation">
+                <input
+                  type="checkbox"
+                  name="amountMismatchConfirmation"
+                  value="confirmed"
+                  required
+                />
+                {copy.controls.confirmAmountMismatchLink}
+              </label>
+            </>
+          ) : null}
           <OptionalNote />
           <button className="button" type="submit">
             <Link2 aria-hidden="true" size={17} />
-            {copy.controls.linkAruba}
+            {control.kind === "ARUBA_AMOUNT_MISMATCH"
+              ? copy.controls.linkArubaWithDifference
+              : copy.controls.linkAruba}
           </button>
         </Form>
       ) : null}

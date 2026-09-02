@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 7;
+export const ARUBA_MATCHER_VERSION = 8;
 
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",
@@ -54,6 +54,7 @@ export const remoteInventoryDocumentSchema = z.object({
     .nullable()
     .default(null),
   orderReferences: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
+  paymentMethod: z.enum(["MP01", "MP05", "MP08"]).nullable().optional(),
 });
 
 export const inventoryPageSchema = z
@@ -211,6 +212,7 @@ function canonicalFiscalIdentity(identifier: FiscalIdentity): string {
 export function remoteMetadataDigest(document: RemoteInventoryDocument): string {
   const {
     recipientTaxIdentifiers: _officialRecipientTaxIdentifiers,
+    paymentMethod: _officialPaymentMethod,
     providerStatusLabel: _providerStatusLabel,
     providerObservedAt: _providerObservedAt,
     ...inventoryEvidence
@@ -241,6 +243,8 @@ export interface ArubaOrderCandidate {
   recipientTaxIdentifiers: FiscalIdentity[];
   recipientCountryCode?: string | null;
   recipientAddress: string | null;
+  refundTimingAmbiguous?: boolean;
+  bankTransferPaidOnDocumentDate?: boolean;
 }
 
 export interface CandidateEvaluation {
@@ -261,6 +265,8 @@ export interface CandidateEvaluation {
     taxId: boolean;
     fiscalCode: boolean;
     address: boolean;
+    bankTransferPayment?: boolean;
+    refundTimingClear?: boolean;
   };
 }
 
@@ -474,6 +480,9 @@ export function evaluateOrderCandidate(
     remote.recipientTaxIdentifiers[0]?.value.replace(/[^0-9]/g, "") === "99999999999" &&
     candidate.recipientTaxIdentifiers.length === 0,
   );
+  const bankTransferPayment = Boolean(
+    remote.paymentMethod === "MP05" && candidate.bankTransferPaidOnDocumentDate,
+  );
   const remoteFiscalCodes = remote.recipientTaxIdentifiers.flatMap((identifier) =>
     identifier.type === "CODICE_FISCALE" ? [canonicalFiscalIdentity(identifier)] : [],
   );
@@ -501,10 +510,11 @@ export function evaluateOrderCandidate(
     : declaredIdentitySignals === 0 || identitySignals >= 1;
   const inferredRecipientIsCompatible = remoteTaxIds.length
     ? foreignConsumerPlaceholder
-      ? sameDay && recipient
+      ? (sameDay || bankTransferPayment) && recipient
       : taxId && (fiscalCode || identitySignals >= 2)
     : identitySignals >= 2;
-  const probe = provider && nearDate && total;
+  const refundTimingClear = !candidate.refundTimingAmbiguous;
+  const probe = provider && nearDate && total && refundTimingClear;
   const potential = probe && recipient && hasSpecificRecipientName(remote.recipientName);
   return {
     candidateId: candidate.id,
@@ -513,8 +523,9 @@ export function evaluateOrderCandidate(
       provider &&
       date &&
       total &&
+      refundTimingClear &&
       ((explicitReference && referencedRecipientIsCompatible) || inferredRecipientIsCompatible),
-    reviewable: provider && date && total && identitySignals >= 1,
+    reviewable: provider && date && total && identitySignals >= 1 && refundTimingClear,
     potential,
     probe,
     signals: {
@@ -528,6 +539,8 @@ export function evaluateOrderCandidate(
       taxId,
       fiscalCode,
       address,
+      bankTransferPayment,
+      refundTimingClear,
     },
   };
 }
@@ -557,6 +570,8 @@ export function groupOrderCandidates<
       billableAmount: items.reduce((sum, item) => sum + item.billableAmount, 0),
       localOrderDate: items.map((item) => item.localOrderDate).toSorted()[0]!,
       recipientTaxIdentifiers: [...recipientTaxIdentifiers.values()],
+      refundTimingAmbiguous: items.some((item) => item.refundTimingAmbiguous),
+      bankTransferPaidOnDocumentDate: items.some((item) => item.bankTransferPaidOnDocumentDate),
     };
   });
 }

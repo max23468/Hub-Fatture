@@ -17,6 +17,7 @@ export interface LockedRemoteMatch {
   xml_sha256: string | null;
   match_status: string;
   match_method: string;
+  decision_reason: string | null;
   order_id: string | null;
   billing_case_id: string | null;
   document_id: string | null;
@@ -45,6 +46,7 @@ export async function lockedRemoteMatch(client: pg.PoolClient, remoteDocumentId:
             remote.series, remote.fiscal_number, remote.document_date::text,
             remote.total_amount, remote.remote_status, remote.xml_sha256,
             matches.status AS match_status, matches.method AS match_method,
+            matches.decision_reason,
             matches.order_id, matches.billing_case_id::text, matches.document_id,
             matches.related_invoice_document_id, matches.refund_ids::text[],
             matches.candidates_json

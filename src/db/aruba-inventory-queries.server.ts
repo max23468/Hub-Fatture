@@ -120,7 +120,10 @@ const remoteDocumentsSql = `
                  SELECT sum(refunds.amount)
                  FROM refunds
                  WHERE refunds.order_id = candidate_order.id
-                   AND refunds.applied_before_issue
+                   AND refunds.status = 'COMPLETED' AND refunds.amount > 0
+                   AND refunds.completed_at IS NOT NULL
+                   AND (refunds.completed_at AT TIME ZONE 'Europe/Rome')::date
+                     < remote.document_date
                ), 0)
              ), 0)::integer AS local_amount
              FROM orders AS candidate_order

@@ -11,6 +11,8 @@ export interface ArubaOrderCandidateSource {
   recipient_country_code: string | null;
   recipient_address: string | null;
   billing_case_id: string | null;
+  refund_timing_ambiguous?: boolean;
+  bank_transfer_paid_on_document_date?: boolean;
 }
 
 export function arubaOrderCandidateFromSource(
@@ -33,5 +35,11 @@ export function arubaOrderCandidateFromSource(
     recipientTaxIdentifiers: source.recipient_tax_identifiers,
     recipientCountryCode: source.recipient_country_code,
     recipientAddress: source.recipient_address,
+    ...(source.refund_timing_ambiguous === undefined
+      ? {}
+      : { refundTimingAmbiguous: source.refund_timing_ambiguous }),
+    ...(source.bank_transfer_paid_on_document_date === undefined
+      ? {}
+      : { bankTransferPaidOnDocumentDate: source.bank_transfer_paid_on_document_date }),
   };
 }

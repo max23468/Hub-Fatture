@@ -308,6 +308,8 @@ test("codice fiscale, data e importo univoci prevalgono su nome e indirizzo disc
     taxId: true,
     fiscalCode: true,
     address: false,
+    bankTransferPayment: false,
+    refundTimingClear: true,
   });
   assert.equal(
     selectOrderMatch(remote, [
@@ -336,6 +338,56 @@ test("codice fiscale, data e importo univoci prevalgono su nome e indirizzo disc
     ]).status,
     "UNMATCHED",
   );
+});
+
+test("un rimborso temporalmente ambiguo non autorizza un collegamento", () => {
+  const result = selectOrderMatch(remote, [
+    {
+      id: "refund-same-day",
+      provider: "EBAY",
+      displayNumber: "62187",
+      localOrderDate: "2026-08-12",
+      billableAmount: 12_300,
+      recipientName: "Mario Rossi",
+      recipientTaxIdentifiers: [
+        { type: "CODICE_FISCALE", countryCode: null, value: "RSSMRA80A01H501U" },
+      ],
+      recipientAddress: "Via Roma 1 Milano",
+      refundTimingAmbiguous: true,
+    },
+  ]);
+  assert.equal(result.status, "UNMATCHED");
+  assert.equal(result.evaluations[0]?.reviewable, false);
+  assert.equal(result.evaluations[0]?.signals.refundTimingClear, false);
+});
+
+test("MP05 e bonifico incassato il giorno documento rafforzano il privato estero", () => {
+  const foreignRemote: RemoteInventoryDocument = {
+    ...remote,
+    documentDate: "2026-08-19",
+    recipientName: "Jan Kowalski",
+    recipientTaxId: "99999999999",
+    recipientTaxIdentifiers: [{ type: "PARTITA_IVA", countryCode: "PL", value: "99999999999" }],
+    recipientCountryCode: "PL",
+    recipientAddress: "Indirizzo ufficiale diverso PL",
+    paymentMethod: "MP05",
+  };
+  const result = selectOrderMatch(foreignRemote, [
+    {
+      id: "foreign-bank-transfer",
+      provider: "SHOPIFY",
+      displayNumber: "#4030",
+      localOrderDate: "2026-08-18",
+      billableAmount: remote.totalAmount,
+      recipientName: "Jan Kowalski",
+      recipientTaxIdentifiers: [],
+      recipientCountryCode: "PL",
+      recipientAddress: "Indirizzo ordine diverso PL",
+      bankTransferPaidOnDocumentDate: true,
+    },
+  ]);
+  assert.equal(result.status, "MATCHED");
+  assert.equal(result.evaluations[0]?.signals.bankTransferPayment, true);
 });
 
 test("la griglia Aruba propone un nome specifico entro tre giorni e ignora i titoli", () => {
