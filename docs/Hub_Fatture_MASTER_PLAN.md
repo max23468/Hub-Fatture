@@ -2,7 +2,7 @@
 
 ## Piano completo di prodotto, architettura, implementazione e handover
 
-**Stato:** specifica funzionale e operativa consolidata; sequenza e criteri di uscita sono definiti nella roadmap
+**Stato:** roadmap `1.0.0` completata; specifica funzionale e operativa consolidata per uso ordinario e manutenzione
 **Destinatari:** Codex, Claude Code e sviluppatori incaricati
 **Lingua dell'interfaccia:** italiano
 **Sigla interna:** HF, riservata a requisiti e discussione tecnica; non appare mai nel frontend o nei contenuti destinati all’utente
@@ -3387,6 +3387,9 @@ Gate:
 
 ### M13 - Qualifica tecnica Production
 
+**Stato: completata.** I gate tecnici e l’identità del candidato sono stati chiusi con invii
+ordinari disabilitati, senza upload o trasmissioni reali e senza riaprire la ricertificazione.
+
 Output:
 
 - gate tecnici del candidato conclusi con prove osservabili e collegate;
@@ -3424,7 +3427,10 @@ TD04 resta nel fallback manuale finché un rimborso reale legittimo non permette
 
 ## 24. Sequenza di implementazione
 
-Questa sezione dà soltanto l'ordine dei lavori dentro ciascuna milestone. Cosa produrre è nei deliverable e nei gate di §23; le condizioni da provare prima di ogni passaggio irreversibile sono nelle checklist di §28; il comportamento richiesto è nelle sezioni di merito. Non ripetere qui requisiti che vivono già altrove: un elenco parallelo entra in drift alla prima modifica.
+Questa sezione conserva l'ordine seguito dentro ciascuna milestone. Cosa è stato prodotto è nei
+deliverable e nei gate di §23; le condizioni permanenti per i passaggi irreversibili e il record di
+chiusura sono nella matrice consolidata di §28; il comportamento richiesto è nelle sezioni di merito.
+Non ripetere qui requisiti che vivono già altrove: un elenco parallelo entra in drift alla prima modifica.
 
 Ogni task lascia un check eseguibile. Evitare scaffolding non usato: una tabella, una rotta o un modulo nascono nella milestone che li usa davvero.
 
@@ -3589,21 +3595,40 @@ Deve fermarsi e chiedere prima di:
 
 ## 28. Checklist di handover
 
-### Sequenza operativa per il nuovo agente
+**Stato: consolidata e chiusa.** Le checklist preparatorie usate durante l’implementazione non sono
+più code di lavoro: le milestone M0-M14 sono completate e le relative prove vivono nei documenti di
+evidenza, nei contratti, nel record di readiness e nei readback collegati. I dettagli conservati
+sotto sono memoria operativa, non caselle ancora da soddisfare.
+
+### Matrice consolidata degli exit gate
+
+| Area | Stato | Fonte di chiusura |
+|---|---|---|
+| Repository, toolchain e fondazioni | Chiusa | [toolchain](evidence/toolchain-readiness.md), [fondazioni locali](evidence/local-foundations.md), gate Foundation e protezioni GitHub |
+| Dominio ordini e preparazioni | Chiusa | [dominio ordini](evidence/order-domain.md), contratto e suite PostgreSQL/E2E |
+| Shopify ed eBay | Chiusa | [connettori](evidence/connectors.md), contract test e riconciliazione storica fail-closed |
+| Profilo fiscale, numerazione e comparatore | Chiusa | [profilo FatturaPA](evidence/aruba-fatturapa-profile.md), golden test e profilo versionato |
+| Note di credito ed e-mail | Chiusa per la 1.0 | [evidenza dedicata](evidence/credit-notes-email.md); TD04 resta manuale secondo `HF-O13` |
+| Production, backup, restore e rollback | Chiusa | [Production OCI](evidence/production-oci.md) e [readiness finale](runbooks/release-readiness.md) |
+| API Aruba inbound/outbound e ritiro browser | Chiusa | [qualifica](evidence/aruba-api-qualification.md), [inbound](evidence/aruba-api-inbound.md), [outbound](evidence/aruba-api-outbound.md) e [transizione](evidence/aruba-api-transition.md) |
+| Qualifica tecnica e go-live | Chiusa | [readiness finale](runbooks/release-readiness.md), release immutabile `v1.0.0` e attivazione Production exact-SHA |
+| Decisioni rinviate | Non bloccanti | `HF-O11` e `HF-O13` restano fuori dalla 1.0 alle condizioni di §30 |
+
+### Sequenza operativa permanente
 
 1. Leggere integralmente questo documento, `AGENTS.md` e le istruzioni del repository.
 2. Ispezionare lo stato reale del checkout senza sovrascrivere modifiche esistenti.
-3. Avviare M0-M1 localmente con fixture e mock; non attendere Aruba.
+3. Trattare la roadmap completata come baseline e lavorare soltanto su richieste operative, manutenzione o nuove tranche esplicitamente approvate.
 4. Chiedere accessi solo nel momento in cui servono e far inserire nel secret store soltanto quelli gestiti da HF; la credenziale API Aruba viene cifrata dall’applicazione e la sessione del pannello resta sempre sul browser locale del titolare.
-5. Conservare le prove M4-M8 come evidenza storica; per il ciclo corrente usare esclusivamente i gate API, il fallback manuale e le autorizzazioni Production definite dalle milestone M12-M14.
-6. Eseguire test, typecheck e build dopo ogni milestone.
+5. Conservare le prove delle milestone come evidenza storica; per il ciclo corrente usare esclusivamente i gate API, il fallback manuale e le autorizzazioni Production correnti.
+6. Eseguire i gate proporzionati all’impatto di ogni modifica.
 7. Fuori da una richiesta affermativa di pubblicazione, fermarsi per
    autorizzazione prima di deploy o release; fermarsi sempre prima di invii reali
    o migrazioni distruttive.
 
 Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli d'implementazione entro la matrice 14.3 spettano all'implementatore. ORM, runner, builder XML, client SMTP, rappresentazione del denaro, logger, toolchain e immagini base non sono più scelte aperte. Se incontra due volte lo stesso problema, deve correggerne la causa condivisa e aggiungere il più piccolo test di regressione.
 
-### Materiali che arriveranno dal titolare
+### Materiali storicamente forniti dal titolare
 
 - disponibilità del titolare per la sessione presidiata di audit del pannello Aruba prevista in 11.1;
 - computer Windows o macOS con un browser supportato per l’applicazione e il fallback manuale;
@@ -3616,162 +3641,166 @@ Decisioni di naming, formattazione, struttura interna delle cartelle e dettagli 
 - accesso OCI, hostname Dynu e credenziali inseriti fuori dalla chat;
 - eventuale conferma del commercialista sui soli valori fiscali non ricavabili dai documenti.
 
-### Prima dello scaffolding
+### Prerequisiti storici dello scaffolding
 
-- [ ] Confermare `/Users/Matteo/Progetti/Hub-Fatture` come directory locale e decidere se inizializzare qui il repository o in una sottodirectory, senza cambiare il perimetro della key.
-- [ ] Confermare che non esista codice precedente da preservare.
-- [ ] Lasciare inizialmente `ssh-key-ampere-a1.key` al suo posto e invariata, aggiungere `*.key` a `.gitignore`, creare/verificare `ops/secrets/oci-vps-access.key.age` e confermare che soltanto il blob cifrato entri nell'indice.
-- [ ] Risolvere Node.js, npm e Docker stabili per lo stack 14.3 su ARM64; fissare Node/npm esatti in `mise.toml`, `engines` e `packageManager`.
-- [ ] Tradurre l'elenco dipendenze 14.3 nel manifest senza sostituzioni, generare il lockfile, verificare peer dependency e audit con `npm ci`.
-- [ ] Verificare i digest ARM64 di Node, PostgreSQL e Caddy e installare `xmllint`; verificare il tool `age` fissato dagli artefatti prima di cifrare backup o key.
-- [ ] Configurare Oxlint e Oxfmt come unica toolchain lint/formato e provarli nel comando canonico.
-- [ ] Creare/verificare repository GitHub pubblica e `main` come unico branch permanente.
-- [ ] Scansionare albero e intera cronologia prima del primo push pubblico; ruotare qualsiasi segreto già tracciato.
-- [ ] Creare `AGENTS.md`, `CLAUDE.md` minimale, README, CONTRIBUTING, `SECURITY.md` e `docs/INDEX.md` coerenti.
-- [ ] Pianificare in M1 la Brand Foundation e il design system interno leggero, senza pacchetto separato, sito o asset speculativi.
-- [ ] Dichiarare repository pubblica ma non open source; non aggiungere `LICENSE` senza decisione esplicita.
-- [ ] Configurare protezione `main`, template PR, vulnerabilità private, Dependabot e auto-merge degli aggiornamenti npm e GitHub Actions minor/patch senza auto-approvazione; lasciare disabilitati Issues, Discussions e Projects rivolti alla community.
-- [ ] Configurare Playwright con Chromium, smoke sintetico e trace soltanto al primo retry fallito.
-- [ ] Abilitare release immutabili e predisporre `.github/release.yml` senza pubblicare release.
-- [ ] Raccogliere documentazione ufficiale corrente Shopify/eBay e guide del pannello Aruba.
-- [ ] Non richiedere credenziali in chat.
+- Confermare `/Users/Matteo/Progetti/Hub-Fatture` come directory locale e decidere se inizializzare qui il repository o in una sottodirectory, senza cambiare il perimetro della key.
+- Confermare che non esista codice precedente da preservare.
+- Lasciare inizialmente `ssh-key-ampere-a1.key` al suo posto e invariata, aggiungere `*.key` a `.gitignore`, creare/verificare `ops/secrets/oci-vps-access.key.age` e confermare che soltanto il blob cifrato entri nell'indice.
+- Risolvere Node.js, npm e Docker stabili per lo stack 14.3 su ARM64; fissare Node/npm esatti in `mise.toml`, `engines` e `packageManager`.
+- Tradurre l'elenco dipendenze 14.3 nel manifest senza sostituzioni, generare il lockfile, verificare peer dependency e audit con `npm ci`.
+- Verificare i digest ARM64 di Node, PostgreSQL e Caddy e installare `xmllint`; verificare il tool `age` fissato dagli artefatti prima di cifrare backup o key.
+- Configurare Oxlint e Oxfmt come unica toolchain lint/formato e provarli nel comando canonico.
+- Creare/verificare repository GitHub pubblica e `main` come unico branch permanente.
+- Scansionare albero e intera cronologia prima del primo push pubblico; ruotare qualsiasi segreto già tracciato.
+- Creare `AGENTS.md`, `CLAUDE.md` minimale, README, CONTRIBUTING, `SECURITY.md` e `docs/INDEX.md` coerenti.
+- Pianificare in M1 la Brand Foundation e il design system interno leggero, senza pacchetto separato, sito o asset speculativi.
+- Dichiarare repository pubblica ma non open source; non aggiungere `LICENSE` senza decisione esplicita.
+- Configurare protezione `main`, template PR, vulnerabilità private, Dependabot e auto-merge degli aggiornamenti npm e GitHub Actions minor/patch senza auto-approvazione; lasciare disabilitati Issues, Discussions e Projects rivolti alla community.
+- Configurare Playwright con Chromium, smoke sintetico e trace soltanto al primo retry fallito.
+- Abilitare release immutabili e predisporre `.github/release.yml` senza pubblicare release.
+- Raccogliere documentazione ufficiale corrente Shopify/eBay e guide del pannello Aruba.
+- Non richiedere credenziali in chat.
 
-### Prima di completare i connettori
+### Prerequisiti storici dei connettori
 
-- [ ] App Shopify custom creata.
-- [ ] Versione GraphQL Shopify supportata, fine supporto e contract check fissati senza alias runtime `latest`.
-- [ ] Scope e protected customer data approvati.
-- [ ] Ordine Shopify reale con campo fiscale disponibile.
-- [ ] Credenziali eBay Sandbox.
-- [ ] Endpoint/versione eBay e deprecazioni applicabili registrati nel contratto.
-- [ ] Ordine eBay di esempio con tax identifier.
+- App Shopify custom creata.
+- Versione GraphQL Shopify supportata, fine supporto e contract check fissati senza alias runtime `latest`.
+- Scope e protected customer data approvati.
+- Ordine Shopify reale con campo fiscale disponibile.
+- Credenziali eBay Sandbox.
+- Endpoint/versione eBay e deprecazioni applicabili registrati nel contratto.
+- Ordine eBay di esempio con tax identifier.
 
-### Prima di completare M4
+### Prerequisiti storici del profilo fiscale
 
-- [ ] Audit autenticato read-only del pannello Aruba completato.
-- [ ] XML fattura accettata analizzato.
-- [ ] Profilo fiscale approvato.
-- [ ] Sezionali e progressivi verificati.
-- [ ] Procedura scarto verificata.
+- Audit autenticato read-only del pannello Aruba completato.
+- XML fattura accettata analizzato.
+- Profilo fiscale approvato.
+- Sezionali e progressivi verificati.
+- Procedura scarto verificata.
 
-### Prima di completare M5
+### Prerequisiti storici del percorso browser
 
-- [ ] M4 completata con XML candidato immutabile.
-- [ ] Pagina Aruba sintetica, fixture dei file ufficiali e contratto candidato derivati dall'audit read-only e dai documenti anonimizzati.
-- [ ] Percorso assistito, automatico e manuale verificato localmente, inclusi fail-closed, readback, pulizia e kill switch.
-- [ ] Gate reale assegnato esplicitamente a M8, con locatori ancora candidati e `ARUBA_SUBMISSION_ENABLED=false` obbligatorio in Production.
+- M4 completata con XML candidato immutabile.
+- Pagina Aruba sintetica, fixture dei file ufficiali e contratto candidato derivati dall'audit read-only e dai documenti anonimizzati.
+- Percorso assistito, automatico e manuale verificato localmente, inclusi fail-closed, readback, pulizia e kill switch.
+- Gate reale assegnato esplicitamente a M8, con locatori ancora candidati e `ARUBA_SUBMISSION_ENABLED=false` obbligatorio in Production.
 
-### Prima del deploy
+### Prerequisiti permanenti di ogni deploy
 
-- [ ] Autorizzazione esplicita del titolare.
-- [ ] Test verdi.
-- [ ] Nessun segreto plaintext nel repository; unico blob sensibile ammesso la key VPS cifrata e verificata in `ops/secrets/`.
-- [ ] Commit, versione, account OCI e risorsa target identificati dal preflight.
-- [ ] Stato GitHub e checkout locale coerenti; nessuna modifica concorrente sovrascritta.
-- [ ] Immagine `linux/arm64` pubblicata su GHCR, attestazione verificata e digest registrato; nessuna build prevista sulla VPS.
-- [ ] Immagine applicativa non-root e scansione vulnerabilità senza finding critici/alti raggiungibili aperti; Compose senza privilegi, DB non pubblicato e filesystem read-only salvo volumi espliciti.
-- [ ] GitHub Environment `Production` limita il job a `main`/tag, non aggiunge reviewer o timer al dispatch già autorizzato e non espone secret agli altri job.
-- [ ] Firewall configurato.
-- [ ] Dynu e TLS verificati.
-- [ ] Backup recente verificato e rollback identificato.
-- [ ] Restore collaudato da un ambiente privo dei segreti originari usando il recovery kit locale protetto sul Mac.
-- [ ] Migrazioni provate su database effimero e ricevuta deploy pronta.
-- [ ] Upgrade provato da snapshot rappresentativo della release Production precedente.
-- [ ] Workflow manuale serializzato sullo SHA/tag candidato; stesso digest previsto per `web` e `worker`.
-- [ ] Plugin OCI Compute Instance Monitoring attivo; topic, sottoscrizione e quattro allarmi iniziali collaudati.
-- [ ] Monitor HTTP OCI esterno attivo ogni 6 minuti; fallimento e ripristino controllati notificati senza dati reali.
-- [ ] Trasporto SMTP canonico deciso; se è OCI Email Delivery, regione, dominio, SPF/DKIM, approved sender, credenziali dedicate e suppression list sono verificati.
-- [ ] Backup OCI giornaliero, Instance Principal minimo, lifecycle, soglia quota e allarme verificati; copia cifrata periodica presente sul Mac.
+- Autorizzazione esplicita del titolare.
+- Test verdi.
+- Nessun segreto plaintext nel repository; unico blob sensibile ammesso la key VPS cifrata e verificata in `ops/secrets/`.
+- Commit, versione, account OCI e risorsa target identificati dal preflight.
+- Stato GitHub e checkout locale coerenti; nessuna modifica concorrente sovrascritta.
+- Immagine `linux/arm64` pubblicata su GHCR, attestazione verificata e digest registrato; nessuna build prevista sulla VPS.
+- Immagine applicativa non-root e scansione vulnerabilità senza finding critici/alti raggiungibili aperti; Compose senza privilegi, DB non pubblicato e filesystem read-only salvo volumi espliciti.
+- GitHub Environment `Production` limita il job a `main`/tag, non aggiunge reviewer o timer al dispatch già autorizzato e non espone secret agli altri job.
+- Firewall configurato.
+- Dynu e TLS verificati.
+- Backup recente verificato e rollback identificato.
+- Restore collaudato da un ambiente privo dei segreti originari usando il recovery kit locale protetto sul Mac.
+- Migrazioni provate su database effimero e ricevuta deploy pronta.
+- Upgrade provato da snapshot rappresentativo della release Production precedente.
+- Workflow manuale serializzato sullo SHA/tag candidato; stesso digest previsto per `web` e `worker`.
+- Plugin OCI Compute Instance Monitoring attivo; topic, sottoscrizione e quattro allarmi iniziali collaudati.
+- Monitor HTTP OCI esterno attivo ogni 6 minuti; fallimento e ripristino controllati notificati senza dati reali.
+- Trasporto SMTP canonico deciso; se è OCI Email Delivery, regione, dominio, SPF/DKIM, approved sender, credenziali dedicate e suppression list sono verificati.
+- Backup OCI giornaliero, Instance Principal minimo, lifecycle, soglia quota e allarme verificati; copia cifrata periodica presente sul Mac.
 
 ### Evidenza storica del percorso browser M5-M7
 
-La checklist seguente conserva lo stato osservato del percorso browser già qualificato e serve ai
+Il registro seguente conserva lo stato osservato del percorso browser già qualificato e serve ai
 dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazioni sul pannello.
 
-- [ ] Import storico di 7 giorni riconciliato con Aruba.
-- [ ] Inventario di fatture e TD04 Aruba dell'anno fiscale corrente completato e deduplicato, con cursore e overlap verificati.
-- [ ] Nuovo avvio dell'helper verificato su inventario già popolato: la finestra completa comprende ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, mentre i file invariati non vengono riscaricati.
-- [ ] Sessione helper di sola sincronizzazione, legata al dispositivo, revocabile e limitata a 8 ore verificata incapace di upload o invio; una sola scansione concorrente anche da due dispositivi.
-- [ ] Readback manuale completo verificato dopo helper indisponibile o scansione fallita: ogni riga di tutti gli stream/pagine o export ufficiale completo acquisiti, evidenze richieste importate, ricevuta `MANUAL` finalizzata dal solo titolare e sessione fallita conservata.
-- [ ] Dashboard, approvazione e numerazione TD01 rispettano `Mai letto`, avviso oltre 30 minuti e blocco oltre quattro ore/stato incerto; la preparazione non offre override e rimanda la correzione dello stato globale a Dashboard o Impostazioni.
-- [ ] Ogni approvazione TD01, anche massiva, rilegge lo stato globale dell'inventario; inventario assente, oltre quattro ore, fallito o con match, conflitti o stati incerti blocca la mutazione senza introdurre un passaggio Aruba nella preparazione. Il preflight on-demand TD04 resta verificato separatamente.
-- [ ] Deduplicazione confinata per account/ambiente, ownership esclusiva submission/remote document dei file/notifiche e mapping monotono degli stati verificati.
-- [ ] I documenti Aruba senza ordine Shopify/eBay restano visibili in `Documenti → Da collegare` senza creare ordini; soltanto riferimenti espliciti incompatibili, match potenziali, ambiguità, conflitti ed errori compaiono anche in `Da verificare` e `Attività`.
-- [ ] Match emesso su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.
-- [ ] TD04 esterna `DELIVERED`/`NOT_DELIVERED` collega atomicamente tutti e soli i rimborsi coperti e una corsa concorrente non può creare una seconda nota per gli stessi rimborsi.
-- [ ] Documento esterno `REJECTED` conserva XML, match e audit ma non chiude l'ordine come fatturato, non consuma il residuo e consente la revisione/riedizione prevista.
-- [ ] `REJECTED`, `SUBMITTED`, `SDI_PROCESSING` e stati incerti non creano righe `documents`/`ARUBA_HISTORY`; XML e notifiche restano collegati al remote document fino a un esito emesso.
-- [ ] Entrambi gli account amministrativi possono finalizzare il readback manuale e confermare un match manuale; l'identità dell'autore, la motivazione e l'esito restano nell'audit.
-- [ ] Nessun ordine storico approvabile senza verifica.
-- [x] Account Aruba confermato senza 2FA e con protezione OTP su **Carica Fatture** disattivata; l'helper non presume un SMS ordinario e resta fail-closed davanti a challenge inattese.
-- [x] Autorizzazione specifica ottenuta per la sola prova controllata.
-- [x] Fattura sintetica validata sulla pagina locale e caricamento controllato sul pannello reale completato.
-- [x] Validazione, riepilogo e controllo finale osservati; prova arrestata prima di `Invia`, upload rimosso e assenza confermata dal readback, con evidenza sanitizzata.
-- [x] Contratto dei locatori, helper e test aggiornati insieme per ogni divergenza del pannello reale; HF-O06 chiuso.
-- [x] Nota di credito sintetica validata sulla pagina locale; se non è disponibile un TD04 già accettato, TD04 valido dedicato caricato in modo controllato sul pannello reale, arrestato prima dell'ultimo clic e ripulito senza invio.
-- [ ] Pagamento pendente e differenza importo testati.
-- [ ] Comparatore fiscale verificato su fattura e TD04; modifica successiva e hash/revisione stale bloccano l'approvazione.
-- [ ] E-mail test ricevuta.
-- [ ] Upload/invio incerto, arresto fail-closed e riconciliazione prima di un nuovo tentativo testati.
-- [ ] Limiti body/risposta, `413`, timeout e rifiuto di XML con DTD/entità esterne o struttura eccessiva testati sul candidato.
-- [ ] Webhook/job stale riacquisiti dopo lease e readback Aruba fuori ordine riconciliati.
-- [ ] Conflitto fra due schede browser e doppio submit verificati.
-- [ ] Playwright verde per HF su Chromium/WebKit e per l'helper sintetico su Windows/macOS con Chrome o Edge; eventuali trace esaminate e nessun artefatto con dati reali conservato.
-- [ ] Audit critici verificati atomici con le transizioni fiscali.
-- [ ] Audit trasversale M8 completato sul commit candidato e collegato al record di readiness.
-- [ ] Nessun blocker aperto.
-- [ ] Retention fiscale e tecnica approvata.
-- [ ] Record corrente `docs/runbooks/release-readiness.md` completo con prove fresche.
-- [ ] Runbook P0, rollback e restore drill verificati.
-- [ ] Candidato tecnico identificato da commit e digest, con `ARUBA_SUBMISSION_ENABLED=false` verificato e invio automatico testato contro flag disattivato, mismatch e stato non validato.
+- Import storico di 7 giorni riconciliato con Aruba.
+- Inventario di fatture e TD04 Aruba dell'anno fiscale corrente completato e deduplicato, con cursore e overlap verificati.
+- Nuovo avvio dell'helper verificato su inventario già popolato: la finestra completa comprende ordini riconciliabili a cavallo d'anno e documenti precedenti non terminali, mentre i file invariati non vengono riscaricati.
+- Sessione helper di sola sincronizzazione, legata al dispositivo, revocabile e limitata a 8 ore verificata incapace di upload o invio; una sola scansione concorrente anche da due dispositivi.
+- Readback manuale completo verificato dopo helper indisponibile o scansione fallita: ogni riga di tutti gli stream/pagine o export ufficiale completo acquisiti, evidenze richieste importate, ricevuta `MANUAL` finalizzata dal solo titolare e sessione fallita conservata.
+- Dashboard, approvazione e numerazione TD01 rispettano `Mai letto`, avviso oltre 30 minuti e blocco oltre quattro ore/stato incerto; la preparazione non offre override e rimanda la correzione dello stato globale a Dashboard o Impostazioni.
+- Ogni approvazione TD01, anche massiva, rilegge lo stato globale dell'inventario; inventario assente, oltre quattro ore, fallito o con match, conflitti o stati incerti blocca la mutazione senza introdurre un passaggio Aruba nella preparazione. Il preflight on-demand TD04 resta verificato separatamente.
+- Deduplicazione confinata per account/ambiente, ownership esclusiva submission/remote document dei file/notifiche e mapping monotono degli stati verificati.
+- I documenti Aruba senza ordine Shopify/eBay restano visibili in `Documenti → Da collegare` senza creare ordini; soltanto riferimenti espliciti incompatibili, match potenziali, ambiguità, conflitti ed errori compaiono anche in `Da verificare` e `Attività`.
+- Match emesso su un solo ordine di una preparazione multi-ordine invalida la bozza corrente, esclude il solo ordine coperto e rigenera atomicamente i residui; un errore non lascia stati parziali.
+- TD04 esterna `DELIVERED`/`NOT_DELIVERED` collega atomicamente tutti e soli i rimborsi coperti e una corsa concorrente non può creare una seconda nota per gli stessi rimborsi.
+- Documento esterno `REJECTED` conserva XML, match e audit ma non chiude l'ordine come fatturato, non consuma il residuo e consente la revisione/riedizione prevista.
+- `REJECTED`, `SUBMITTED`, `SDI_PROCESSING` e stati incerti non creano righe `documents`/`ARUBA_HISTORY`; XML e notifiche restano collegati al remote document fino a un esito emesso.
+- Entrambi gli account amministrativi possono finalizzare il readback manuale e confermare un match manuale; l'identità dell'autore, la motivazione e l'esito restano nell'audit.
+- Nessun ordine storico approvabile senza verifica.
+- Account Aruba confermato senza 2FA e con protezione OTP su **Carica Fatture** disattivata; l'helper non presume un SMS ordinario e resta fail-closed davanti a challenge inattese.
+- Autorizzazione specifica ottenuta per la sola prova controllata.
+- Fattura sintetica validata sulla pagina locale e caricamento controllato sul pannello reale completato.
+- Validazione, riepilogo e controllo finale osservati; prova arrestata prima di `Invia`, upload rimosso e assenza confermata dal readback, con evidenza sanitizzata.
+- Contratto dei locatori, helper e test aggiornati insieme per ogni divergenza del pannello reale; HF-O06 chiuso.
+- Nota di credito sintetica validata sulla pagina locale; se non è disponibile un TD04 già accettato, TD04 valido dedicato caricato in modo controllato sul pannello reale, arrestato prima dell'ultimo clic e ripulito senza invio.
+- Pagamento pendente e differenza importo testati.
+- Comparatore fiscale verificato su fattura e TD04; modifica successiva e hash/revisione stale bloccano l'approvazione.
+- E-mail test ricevuta.
+- Upload/invio incerto, arresto fail-closed e riconciliazione prima di un nuovo tentativo testati.
+- Limiti body/risposta, `413`, timeout e rifiuto di XML con DTD/entità esterne o struttura eccessiva testati sul candidato.
+- Webhook/job stale riacquisiti dopo lease e readback Aruba fuori ordine riconciliati.
+- Conflitto fra due schede browser e doppio submit verificati.
+- Playwright verde per HF su Chromium/WebKit e per l'helper sintetico su Windows/macOS con Chrome o Edge; eventuali trace esaminate e nessun artefatto con dati reali conservato.
+- Audit critici verificati atomici con le transizioni fiscali.
+- Audit trasversale M8 completato sul commit candidato e collegato al record di readiness.
+- Nessun blocker aperto.
+- Retention fiscale e tecnica approvata.
+- Record corrente `docs/runbooks/release-readiness.md` completo con prove fresche.
+- Runbook P0, rollback e restore drill verificati.
+- Candidato tecnico identificato da commit e digest, con `ARUBA_SUBMISSION_ENABLED=false` verificato e invio automatico testato contro flag disattivato, mismatch e stato non validato.
 
-### Checklist API M8-M14
+### Esiti consolidati API e go-live
 
-- [x] M8: manifesto read-only autorizzato, identità verificata, paginazione completa, gruppi/documenti, stati, forme di file/notifiche, limiti e accordo economico qualificati senza persistenza reale canonica; confronto iniziale fallback classificato e parità allineata assegnata a M9.
-- [x] M9: credenziale cifrata e restore provati; connessione inizialmente in pausa; inventario dal 1° luglio 2026 completato; polling 15 minuti, non terminali e full mensile verificati.
-- [x] M9: zero divergenze inbound inspiegate; switch di autorità atomico; decisione esplicita di Massimo sul preferito/bridge.
-- [x] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; chiamata di upload con `dryRun=true` e stato incerto qualificati con autorizzazione specifica, senza autorizzare `dryRun=false`.
-- [x] M10: pausa API e invii fiscali disabilitati riletti server-side; configurazione e mutazioni protette da `can_approve`, salute e `Sincronizza ora` osservabili.
-- [x] M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
-- [x] M12: ricertificazione chiusa; le modifiche successive non riaprono formalmente la milestone.
-- [x] M13: gate tecnici e identità del candidato conclusi con `ARUBA_SUBMISSION_ENABLED=false`, senza upload o invii reali.
-- [x] M13: report sanitizzato aggiornato con prove fresche e assenza di P0/P1 o stati remoti incerti.
-- [x] M14: autorizzazioni separate a release e uso ordinario; modalità con conferma attiva; decisioni helper registrate; TD04 mantenuta manuale fino al proprio canary legittimo. La prima trasmissione reale e il monitoraggio rafforzato non sono gate per decisione del titolare.
+- M8: manifesto read-only autorizzato, identità verificata, paginazione completa, gruppi/documenti, stati, forme di file/notifiche, limiti e accordo economico qualificati senza persistenza reale canonica; confronto iniziale fallback classificato e parità allineata assegnata a M9.
+- M9: credenziale cifrata e restore provati; connessione inizialmente in pausa; inventario dal 1° luglio 2026 completato; polling 15 minuti, non terminali e full mensile verificati.
+- M9: zero divergenze inbound inspiegate; switch di autorità atomico; decisione esplicita di Massimo sul preferito/bridge.
+- M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; chiamata di upload con `dryRun=true` e stato incerto qualificati con autorizzazione specifica, senza autorizzare `dryRun=false`.
+- M10: pausa API e invii fiscali disabilitati riletti server-side; configurazione e mutazioni protette da `can_approve`, salute e `Sincronizza ora` osservabili.
+- M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
+- M12: ricertificazione chiusa; le modifiche successive non riaprono formalmente la milestone.
+- M13: gate tecnici e identità del candidato conclusi con `ARUBA_SUBMISSION_ENABLED=false`, senza upload o invii reali.
+- M13: report sanitizzato aggiornato con prove fresche e assenza di P0/P1 o stati remoti incerti.
+- M14: autorizzazioni separate a release e uso ordinario; modalità con conferma attiva; decisioni helper registrate; TD04 mantenuta manuale fino al proprio canary legittimo. La prima trasmissione reale e il monitoraggio rafforzato non sono gate per decisione del titolare.
 
-### Prima del go-live
+### Esito del go-live
 
-- [x] Il commit e il digest candidati coincidono con quelli qualificati tecnicamente; le prove interessate sono state ripetute sul candidato finale.
-- [x] Record di readiness finalizzato con gate tecnici e rischi residui.
-- [x] GitHub Release collegata al tag candidato, note confrontate con `CHANGELOG.md` e `release-manifest.json` sanitizzato allegato.
-- [x] Immutabilità della release confermata; nessun tag o asset è stato pubblicato prima dell'autorizzazione.
-- [x] Autorizzazione esplicita alla release `v1.0.0`.
-- [x] Autorizzazione separata all'uso Production ordinario.
+- Il commit e il digest candidati coincidono con quelli qualificati tecnicamente; le prove interessate sono state ripetute sul candidato finale.
+- Record di readiness finalizzato con gate tecnici e rischi residui.
+- GitHub Release collegata al tag candidato, note confrontate con `CHANGELOG.md` e `release-manifest.json` sanitizzato allegato.
+- Immutabilità della release confermata; nessun tag o asset è stato pubblicato prima dell'autorizzazione.
+- Autorizzazione esplicita alla release `v1.0.0`.
+- Autorizzazione separata all'uso Production ordinario.
 
 ### Record di readiness 1.0
 
-Prima di finalizzare M13 aggiornare `docs/runbooks/release-readiness.md`. Non è una copia delle checklist precedenti: è il record corrente che, per ogni gate bloccante di §23 e §28, collega la prova fresca che lo chiude.
+`docs/runbooks/release-readiness.md` è il record corrente che collega le prove finali dei gate di §23
+e della matrice consolidata di §28. Non è una copia delle checklist storiche.
 
 Ogni voce ha la stessa forma: gate, esito osservato, riferimento verificabile - commit, digest, hash, ID remoto, run CI o evidenza - e data. Un gate senza riferimento verificabile è aperto, non chiuso.
 
-Il record riporta inoltre ciò che nessuna checklist esprime: commit, tag e versione candidati; stato di `HF-O01`-`HF-O09`; RPO effettivamente osservato; rischi non bloccanti accettati con la condizione che li riapre; le autorizzazioni distinte già ottenute e quelle ancora mancanti.
+Il record riporta inoltre ciò che la matrice non esprime: commit, tag e versione; stato delle
+decisioni; RPO effettivamente osservato; rischi non bloccanti accettati e relativa condizione di
+riapertura; autorizzazioni distinte ottenute.
 
-Una checklist compilata senza link, hash, ID o risultati osservati non costituisce readiness.
+Un esito privo di link, hash, ID o risultati osservati non costituisce readiness.
 
 ---
 
 ## 29. Prompt operativo per Codex/Claude Code
 
-Il prompt non ripete i vincoli del piano: li richiama. Gli obiettivi sono quelli della prima milestone non completata in §23, non un elenco fissato qui che invecchia a ogni chiusura.
+Il prompt non ripete i vincoli del piano: li richiama. Poiché la roadmap M0-M14 è completata, gli
+obiettivi derivano dalla richiesta esplicita corrente e non da una milestone implicita.
 
 ```text
 Stai implementando Hub Fatture 1.x. Leggi integralmente
 "docs/Hub_Fatture_MASTER_PLAN.md" prima di agire e trattalo come
 fonte di verità. La directory locale è `/Users/Matteo/Progetti/Hub-Fatture`.
 
-Lavora sulla prima milestone non completata in §23: i suoi deliverable
-sono l'obiettivo, i suoi gate sono la condizione di chiusura. Non
-anticipare milestone successive e non iniziare da integrazioni reali,
-invii o deploy.
+Tratta M0-M14 come baseline completata. Lavora soltanto sulla richiesta
+esplicita corrente, senza inventare una nuova milestone o ampliare il
+perimetro. Non iniziare integrazioni reali, invii o deploy senza la
+relativa autorizzazione.
 
 Vincoli che non puoi rilassare da solo:
 - perimetro §3.1 e §3.2, matrice tecnica §14.3 e scelte native §14.3:
@@ -3807,23 +3836,27 @@ Metodo:
 
 ## 30. Registro delle decisioni rinviate
 
-Questi punti non sono dimenticanze. Sono sospesi intenzionalmente perché dipendono da dati reali, provider o approvazioni esterne. **Non resta aperta alcuna scelta di tool o dipendenza:** HF-O03 ha confermato il PDF ufficiale Aruba e ha escluso l'attivazione del fallback PDFKit; HF-O07 sceglie il provider SMTP, mentre l'adapter applicativo resta Nodemailer.
+Il registro conserva sia le decisioni chiuse durante la roadmap sia i due rinvii non bloccanti che
+dipendono ancora da dati reali o garanzie esterne. **Non resta aperta alcuna scelta di tool,
+dipendenza o gate della 1.0:** HF-O03 ha confermato il PDF ufficiale Aruba e ha escluso
+l'attivazione del fallback PDFKit; HF-O07 sceglie il provider SMTP, mentre l'adapter applicativo
+resta Nodemailer.
 
-| ID | Decisione aperta | Blocca | Fonte necessaria | Condizione di chiusura |
+| ID | Stato | Decisione | Blocca | Fonte o condizione |
 |---|---|---|---|---|
-| HF-O01 | `RegimeFiscale` esatto del cedente | profilo fiscale Production | XML Aruba accettato e/o commercialista | valore registrato nel profilo versionato e golden test verde |
-| HF-O02 | Numerazione, sezionali, cambio anno, ordini a cavallo d'anno e gestione scarti | numerazione e invii reali | audit Aruba, documenti reali e conferma fiscale | procedura atomica, caso di fine anno e casi di scarto approvati |
-| HF-O03 | PDF ufficiale Aruba — chiusa sul download ufficiale | copia cliente definitiva | download dal pannello Aruba reale | readback di un PDF ufficiale integro, leggibile e stabile; fallback PDFKit non attivato |
-| HF-O04 | Mapping campi fiscali Shopify | connettore Shopify completo | query su ordine reale e API corrente | contract fixture anonimizzata e mapper testato |
-| HF-O05 | Forma tax identifier e importi rimborso eBay | connettore eBay completo e TD04 | payload Sandbox/reali e API corrente | fixture, mapper e casi ambigui verificati |
-| HF-O06 | Contratto browser Aruba — chiusa come baseline transitoria | dossier M9-M11 | audit autenticato e prove già raccolte | helper, mapping, fallback manuale e recovery disponibili per il confronto di parità |
-| HF-O07 | Trasporto e limiti SMTP — chiusa su `OCI_EMAIL_DELIVERY` | invio copia cliente | PoC OCI nella regione di Milano e stima del titolare | dominio, SPF/DKIM, mittente, autenticazione, consegna, errore, hard bounce, suppression e reinvio verificati; volume massimo stimato di 500 copie mensili sotto il margine prudenziale di 2.500 |
-| HF-O08 | Retention fiscale e tecnica definitiva — chiusa | go-live | approvazione del titolare e del commercialista | durate, eccezioni e procedura di cancellazione approvate nel contratto corrente |
-| HF-O09 | Direzione visiva della Brand Foundation leggera | UI definitiva | due o tre proposte minime coerenti con uso privato e accessibilità | il titolare approva `docs/brand/brand-foundation.md`, SVG canonico e asset richiesti senza ampliare il perimetro |
-| HF-O10 | Semantica completa API Aruba: gruppi/documenti, file, stati, limiti tecnici, conteggi di risposta e idempotenza | M9-M10 | documentazione v2 e qualifiche Production M8 autorizzate | contratto tipizzato, fixture sanificate, limiti e codici errore chiusi senza divergenze inspiegate |
-| HF-O11 | Isolamento callback per la sola utenza Base | nessuna milestone corrente | garanzia scritta Aruba/agenzia su endpoint, dati e ciclo attivo | eventuale tranche futura approvata; fino ad allora nessun receiver o scaffolding |
-| HF-O12 | Destino di preferito/bridge e helper Playwright — chiusa con ritiro completo | M12 e 1.0 | decisione esplicita del titolare e gate M11 | nessun codice eseguibile, rotta, token, UI o runbook operativo browser; audit e provenienza storica preservati |
-| HF-O13 | Canary API TD04 | solo automazione TD04 | rimborso reale legittimo e autorizzazione specifica | canary monouso chiuso; fino ad allora TD04 resta manuale e non blocca la 1.0 |
+| HF-O01 | Chiusa | `RegimeFiscale` esatto del cedente | — | profilo versionato derivato da XML Aruba accettato e golden test verde |
+| HF-O02 | Chiusa | Numerazione, sezionali, cambio anno e gestione scarti | — | procedura atomica e casi fiscali approvati |
+| HF-O03 | Chiusa | PDF ufficiale Aruba | — | download e readback di un PDF ufficiale integro; fallback PDFKit non attivato |
+| HF-O04 | Chiusa | Mapping campi fiscali Shopify | — | fixture anonimizzata e mapper testato su API corrente |
+| HF-O05 | Chiusa | Tax identifier e importi rimborso eBay | — | fixture, mapper e casi ambigui verificati |
+| HF-O06 | Chiusa | Contratto browser Aruba come baseline transitoria | — | prove storiche preservate; helper ritirato dopo il confronto di parità |
+| HF-O07 | Chiusa | Trasporto e limiti SMTP | — | `OCI_EMAIL_DELIVERY` qualificato con volume sotto il margine prudenziale |
+| HF-O08 | Chiusa | Retention fiscale e tecnica definitiva | — | politica approvata dal titolare e dal commercialista |
+| HF-O09 | Chiusa | Direzione visiva della Brand Foundation | — | fondazione, SVG e asset approvati |
+| HF-O10 | Chiusa | Semantica completa API Aruba | — | contratto tipizzato, fixture sanificate, limiti e codici errore senza divergenze inspiegate |
+| HF-O11 | Rinviata, non bloccante | Isolamento callback per la sola utenza Base | nessuna milestone corrente | eventuale tranche futura dopo garanzia scritta Aruba/agenzia; fino ad allora nessun receiver o scaffolding |
+| HF-O12 | Chiusa | Destino di preferito/bridge e helper Playwright | — | ritiro completo verificato; audit e provenienza storica preservati |
+| HF-O13 | Rinviata, non bloccante | Canary API TD04 | solo automazione TD04 | eventuale rimborso reale legittimo e autorizzazione specifica; fino ad allora TD04 manuale |
 
 Qualsiasi altra scelta di routine entro i confini della matrice 14.3 è affidata all'implementatore e non richiede una nuova fase di analisi.
 
@@ -3831,20 +3864,24 @@ Qualsiasi altra scelta di routine entro i confini della matrice 14.3 è affidata
 
 ## 31. Definition of Done della 1.0
 
-La 1.0 è conclusa quando ogni gate di §23, ogni checklist di §28 e ogni decisione di §30 sono chiusi con prove osservate e collegate dal record corrente `docs/runbooks/release-readiness.md`. Questa sezione non ripete quelle condizioni: elenca soltanto ciò che nessuna singola milestone può dichiarare da sola.
+**Stato: completata.** I gate di §23, la matrice consolidata di §28 e le decisioni bloccanti di §30
+sono chiusi con prove osservate e collegate dal record corrente
+`docs/runbooks/release-readiness.md`. Questa sezione non ripete quelle condizioni: elenca soltanto
+ciò che nessuna singola milestone può dichiarare da sola.
 
 1. tutti i requisiti `HF-F01`-`HF-F40` ancora attivi sono implementati o esplicitamente riclassificati dal titolare;
 2. le decisioni bloccanti di `HF-O01`-`HF-O13` sono chiuse con la fonte e la condizione previste in §30; HF-O11 e HF-O13 restano rinvii non bloccanti finché callback e TD04 automatico restano fuori dall'uso ordinario;
 3. la catena completa - import, raggruppamento, modifiche, comparatore, approvazione, API Aruba TD01 con le tre modalità, fallback manuale, stati SdI, e-mail e note di credito manuali - è stata osservata end-to-end, non provata a pezzi;
 4. profilo fiscale, numerazione, XML fattura e TD04 derivano da fonti approvate e da golden test che falliscono se il profilo cambia involontariamente;
 5. nessun dato reale e nessun segreto plaintext compare in repository, cronologia, CI, log, fixture o documentazione; l'unico blob sensibile ammesso è la key VPS cifrata;
-6. codice, migrazioni, lockfile, documentazione e stato live descrivono lo stesso commit: `/version`, digest distribuito e ricevuta di deploy coincidono dopo uno smoke autenticato;
+6. codice runtime, migrazioni e lockfile distribuiti coincidono con `/version`, digest e ricevuta di deploy; eventuali commit successivi esclusivamente documentali descrivono quell’identità senza richiedere un nuovo deploy;
 7. M13 ha chiuso la qualifica tecnica senza upload o invii reali, con `ARUBA_SUBMISSION_ENABLED=false` e nessun P0/P1 aperto;
 8. per il solo go-live iniziale, escluso dalla pubblicazione tecnica ordinaria perché costituisce una nuova attivazione produttiva, `v1.0.0` è pubblicata sullo stesso commit e digest qualificati tecnicamente, dopo autorizzazioni separate per deploy, release e uso Production ordinario;
 9. non restano P0/P1 aperti, decisioni bloccanti sospese, ordini storici approvabili senza riconciliazione o documenti Aruba ambigui che possano causare una doppia emissione;
 10. backup, recovery kit, restore drill e rollback applicativo sono stati eseguiti davvero, non soltanto documentati, e l'RPO dichiarato è quello osservato.
 
-Una checklist compilata senza risultati osservati, ID o link alle evidenze non costituisce completamento.
+La matrice consolidata non sostituisce le prove: un esito privo di risultati osservati, ID o link
+resterebbe aperto. Il record corrente collega tali prove e non presenta gate bloccanti residui.
 
 ---
 
@@ -3854,4 +3891,7 @@ Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile
 
 La priorità non è costruire un motore fiscale generale, ma impedire errori operativi: dati mancanti, doppie fatture, doppi rimborsi, numerazione errata, invii non approvati e perdita di tracciabilità.
 
-Il prossimo lavoro concreto è chiudere la qualifica tecnica M13 senza invii reali e quindi proseguire con il go-live M14, nel quale inizieranno gli invii ordinari separatamente autorizzati. Ogni milestone mantiene confini di autorizzazione propri; nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è implicito nella pianificazione.
+La roadmap M0-M14 e la Definition of Done della `1.0.0` sono completate. Il prodotto entra in
+manutenzione e uso ordinario: nuove tranche richiedono una decisione esplicita e non riaprono le
+milestone concluse. Nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è
+implicito nella pianificazione o nella manutenzione.

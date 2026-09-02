@@ -16,8 +16,8 @@
 | [Audit Aruba e profilo FatturaPA](evidence/aruba-fatturapa-profile.md)                | Profilo fiscale, numerazione e prove anonimizzate         | Corrente    | No             |
 | [Attivazione profilo fiscale](runbooks/fiscal-profile.md)                             | Procedura sicura da XML accettato a profilo versionato    | Corrente    | Sì             |
 | [Contratto API Aruba](contracts/aruba-api.md)                                         | Autorità API, gruppi, documenti, stati, file e limiti v2  | Corrente    | Sì             |
-| [Probe API Aruba](runbooks/aruba-api-read-probe.md)                                   | Procedura read-only senza persistenza di credenziali      | Candidato   | Sì             |
-| [Qualifica API Aruba](evidence/aruba-api-qualification.md)                            | Stato delega, test locali e gate API ancora aperto        | In corso    | No             |
+| [Probe API Aruba](runbooks/aruba-api-read-probe.md)                                   | Procedura read-only senza persistenza di credenziali      | Corrente    | Sì             |
+| [Qualifica API Aruba](evidence/aruba-api-qualification.md)                            | Stato delega, test locali e gate API qualificati          | Verificato  | No             |
 | [Inbound API Aruba](evidence/aruba-api-inbound.md)                                    | Evidenze Production dell’inbound API canonico             | Storico     | No             |
 | [Outbound API Aruba](evidence/aruba-api-outbound.md)                                  | Dry-run, arresti, manifest ed esiti senza invio reale     | Corrente    | No             |
 | [Transizione API Aruba](evidence/aruba-api-transition.md)                             | Chiusura del ritiro browser e relativi ratchet            | Corrente    | No             |
@@ -30,10 +30,10 @@
 | [Piano integrazione API Aruba](plans/aruba-api-integration.md)                        | Architettura API, flussi, gate e milestone                | Approvato   | Sì             |
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                                   | Export, upload manuale, readback e import                 | Corrente    | Sì             |
 | [Integrazione Aruba locale](evidence/aruba-helper.md)                                 | Evidenza storica del percorso browser ritirato            | Storico     | No             |
-| [Note di credito ed e-mail](contracts/credit-notes-email.md)                          | Contratto TD04, trigger e trasporto cliente               | Candidato   | Sì             |
+| [Note di credito ed e-mail](contracts/credit-notes-email.md)                          | Contratto TD04, trigger e trasporto cliente               | Approvato   | Sì             |
 | [Conservazione e cancellazione](contracts/retention-deletion.md)                      | Durate, eccezioni e procedura di cancellazione            | Approvato   | Sì             |
 | [PoC OCI Email Delivery](runbooks/oci-email-delivery-poc.md)                          | Preflight e prova Development con stop gate               | Completato  | Sì             |
-| [Evidenza note ed e-mail](evidence/credit-notes-email.md)                             | Prove sintetiche e gate trasporto residuo                 | Corrente    | No             |
+| [Evidenza note ed e-mail](evidence/credit-notes-email.md)                             | Prove sintetiche e gate del trasporto                     | Verificato  | No             |
 | [Produzione OCI](runbooks/production.md)                                              | Deploy, readback, rollback e hardening                    | Corrente    | Sì             |
 | [Backup e ripristino](runbooks/backup-restore.md)                                     | Backup cifrato, copia Mac e restore drill                 | Corrente    | Sì             |
 | [Incidenti Production](runbooks/incidents.md)                                         | Triage P0-P2 e kill switch                                | Corrente    | Sì             |
