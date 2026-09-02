@@ -15,7 +15,7 @@ import {
   orderListStatusLabels,
   orderStatusLabels,
 } from "../copy.it";
-import { compactDate, euros } from "../format";
+import { compactDate, compactDateTime, euros } from "../format";
 import { privateRouteMeta } from "../metadata";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
@@ -624,8 +624,16 @@ function PreparationList({
                   </strong>
                 </td>
                 <td data-label={copy.orders.date}>
-                  <time dateTime={billingCase.local_order_date}>
-                    {compactDate(billingCase.local_order_date)}
+                  <time
+                    dateTime={
+                      view === "fatturare" && billingCase.first_order_created_at
+                        ? billingCase.first_order_created_at
+                        : billingCase.local_order_date
+                    }
+                  >
+                    {view === "fatturare" && billingCase.first_order_created_at
+                      ? compactDateTime(billingCase.first_order_created_at)
+                      : compactDate(billingCase.local_order_date)}
                   </time>
                 </td>
                 <td className="table-cell--numeric" data-label={copy.orders.orders}>

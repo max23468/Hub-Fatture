@@ -73,11 +73,15 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
           raw_snapshot_json, normalized_snapshot_json)
        VALUES
+         ('SHOPIFY', 'dashboard-test', 'approvable', '#APPROVABLE', now(), now(),
+          ${romeTodaySql}, 'EUR', 1000, 'PAID', 'FULFILLED', 'GROUPED', $1, $3, '{}',
+          '{"orderReviewRequired":false,"deferredReviewRequired":false,"totalsReconciled":true,
+            "customerSnapshot":{"canonicalProfile":{}}}'),
          ('SHOPIFY', 'dashboard-test', 'pending-review', '#PENDING', now(), now(),
           ${romeTodaySql} - 3, 'EUR', 1000, 'PENDING', 'FULFILLED', 'NEEDS_REVIEW', $1, $2, '{}',
           '{"orderReviewRequired":true,"deferredReviewRequired":false,"totalsReconciled":true,
             "customerSnapshot":{"canonicalProfile":{}}}')`,
-      [customer.rows[0]!.id, cases.rows[3]!.id],
+      [customer.rows[0]!.id, cases.rows[3]!.id, cases.rows[0]!.id],
     );
 
     const orders = {
@@ -97,14 +101,14 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       ).rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
       [{ id: cases.rows[3]!.id, operational_pool: "PENDING_PAYMENT" }],
     );
+    const approvableCases = await orders.listBillingCases({
+      operationalPool: "APPROVABLE",
+    });
     assert.deepEqual(
-      (
-        await orders.listBillingCases({
-          operationalPool: "APPROVABLE",
-        })
-      ).rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
+      approvableCases.rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
       [{ id: cases.rows[0]!.id, operational_pool: "APPROVABLE" }],
     );
+    assert.match(approvableCases.rows[0]!.first_order_created_at!, /^\d{4}-\d{2}-\d{2} /u);
     assert.deepEqual(
       (
         await orders.listBillingCases({

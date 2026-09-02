@@ -679,6 +679,7 @@ export async function listBillingCases(
     id: string;
     public_number: string;
     local_order_date: string;
+    first_order_created_at: string | null;
     status: string;
     operational_pool: OpenBillingCasePool;
     customer_name: string;
@@ -686,6 +687,7 @@ export async function listBillingCases(
     total_amount: string;
   }>(
     `SELECT billing_cases.id, billing_cases.public_number, billing_cases.local_order_date::text,
+            min(orders.created_at_source)::text AS first_order_created_at,
             billing_cases.status, ${operationalPoolSql} AS operational_pool,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
             count(orders.id)::text AS order_count, coalesce(sum(orders.billable_amount), 0)::text AS total_amount
