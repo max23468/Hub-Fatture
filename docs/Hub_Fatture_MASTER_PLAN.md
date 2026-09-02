@@ -3403,6 +3403,10 @@ Gate:
 
 ### M14 - Go-live e `1.0.0`
 
+**Stato: in corso.** La corsia di attivazione separata viene preparata e qualificata con il kill
+switch disabilitato; release e uso Production ordinario restano subordinati alle rispettive
+autorizzazioni esplicite.
+
 Output:
 
 - approvazione finale del titolare sulla readiness e sui rischi residui;

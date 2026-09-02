@@ -2,6 +2,7 @@
 
 ## 1.0.0
 
+- L’uso Production ordinario dispone di una corsia separata dal deploy e dalla release: resta disabilitato per default, richiede la release immutabile sul commit live esatto, verifica readiness e assenza di job outbound prima dell’attivazione, rilegge entrambi i container e ripristina automaticamente `false` se il cambio non è sano.
 - La sincronizzazione Aruba recupera via API i file ufficiali e le notifiche dei documenti storici privi dell'identificativo di gruppo, usando una ricerca limitata e univoca per tipo, data, numero e identità fiscale; risultati assenti, multipli o non attribuibili restano irrisolti e vengono ritentati senza collegamenti presunti.
 - Una preparazione non è più approvabile quando il documento Aruba correlato ha un totale diverso: `Controlli` espone importo locale, importo remoto e differenza, mentre collegamento automatico e decisione manuale positiva restano bloccati finché gli importi non coincidono.
 - Il comando server di approvazione rilegge sotto lock anche il possibile documento Aruba correlato alla preparazione: una richiesta diretta non può aggirare il blocco mostrato dall’interfaccia, mentre un conflitto riferito ad altri ordini non ferma le candidate sane.

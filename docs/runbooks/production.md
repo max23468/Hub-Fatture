@@ -6,7 +6,7 @@ La Production canonica è la VPS OCI `fatture-hub-vm` in `eu-milan-1`, raggiunta
 
 Caddy è il proxy pubblico condiviso dell’host. Oltre al virtual host Hub Fatture, importa i file regolari `*.caddy` `root:root:0644` dalla directory root-owned `/opt/shared-caddy/sites` `0755`, montata in sola lettura, e si collega alla rete Docker esterna `sequent-proxy`. I container applicativi Hub restano esclusi da quella rete. Il deploy fallisce prima di sostituire i container se directory, almeno un virtual host, proprietà, permessi o rete esterna non coincidono, così una rigenerazione di Compose e Caddyfile non può eliminare silenziosamente i virtual host degli altri servizi autorizzati.
 
-La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL non pubblica porte; Caddy è l’unico ingresso. `ARUBA_SUBMISSION_ENABLED=false` è fissato anche nel Compose e ogni readback deve confermarlo.
+La VPS non compila codice. Web e worker consumano lo stesso digest; PostgreSQL non pubblica porte; Caddy è l’unico ingresso. `ARUBA_SUBMISSION_ENABLED` assume `false` in assenza di un valore esplicito e ogni deploy ordinario richiede e rilegge `false`. L’eventuale passaggio a `true` usa soltanto la corsia separata descritta sotto.
 
 Deploy Hub Fatture e build/manutenzioni Docker Sequent condividono un lock host dedicato. Dopo un readback riuscito, la corsia Production elimina soltanto le immagini Hub Fatture che non corrispondono né al digest live né al rollback e che non sono usate da alcun container. La selezione usa il label OCI del repository, non tag generici o una pulizia Docker globale; un’identità protetta assente interrompe l’operazione.
 
@@ -81,6 +81,32 @@ usa `scripts/publish-github-release.sh`. Lo script crea la release Latest e
 rilegge tag, asset unico e immutabilità; una ripetizione è un no-op soltanto se
 release e manifest esistenti coincidono byte per byte. Rollback, backup-only e
 deploy senza modifica runtime non pubblicano release.
+
+## Attivazione degli invii Aruba
+
+L’abilitazione dell’uso Production ordinario è distinta dal deploy e dalla release. Prima si
+distribuisce il candidato con `ARUBA_SUBMISSION_ENABLED=false` e si pubblica la release immutabile
+`v1.0.0` sullo stesso commit. Soltanto dopo l’autorizzazione separata del titolare si esegue:
+
+```sh
+scripts/dispatch-production-submission.sh <sha-live> enable
+```
+
+Il dispatch rifiuta l’abilitazione se la release non è pubblicata, immutabile o riferita allo SHA
+esatto. La corsia Production rilegge commit, digest e versione dalla ricevuta live, richiede zero
+batch e job outbound aperti, modifica atomicamente il solo valore del kill switch, ricrea web e
+worker e conserva una ricevuta sanitizzata. Un errore ripristina `false` e ripete il readback.
+
+La corsia non crea, seleziona, approva o trasmette documenti. Il primo invio nasce dal normale
+flusso applicativo su un documento già dovuto e approvato dal titolare. In caso di arresto o
+incidente, la stessa corsia resta utilizzabile senza dipendere dalla release:
+
+```sh
+scripts/dispatch-production-submission.sh <sha-live> disable
+```
+
+Prima di qualunque deploy successivo si disabilitano gli invii e se ne verifica il readback; il
+normale preflight Production continua infatti a fallire chiuso quando trova `true`.
 
 ## Chiusura locale
 

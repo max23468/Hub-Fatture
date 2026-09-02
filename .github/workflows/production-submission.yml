@@ -1,0 +1,76 @@
+name: Production submission mode
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Commit 1.0.0 live autorizzato
+        required: true
+        type: string
+      mode:
+        description: Abilita o disabilita gli invii Aruba Production
+        required: true
+        type: choice
+        options:
+          - disable
+          - enable
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hub-fatture-production
+  cancel-in-progress: false
+
+jobs:
+  change:
+    name: Applica e rilegge il kill switch
+    runs-on: ubuntu-latest
+    environment:
+      name: Production
+      url: https://fatture.opik.net
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verifica candidato e autorizzazione release
+        env:
+          CANDIDATE: ${{ inputs.commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          printf '%s' "$CANDIDATE" | grep -Eq '^[0-9a-f]{40}$'
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$CANDIDATE" origin/main
+          test "$(git show "$CANDIDATE:package.json" | jq -r .version)" = "1.0.0"
+          if [ "$MODE" = enable ]; then
+            release=$(gh release view v1.0.0 --json isDraft,isImmutable,isPrerelease,targetCommitish)
+            printf '%s' "$release" | jq -e --arg commit "$CANDIDATE" '
+              .isDraft == false and .isImmutable == true and .isPrerelease == false and
+              .targetCommitish == $commit
+            ' >/dev/null
+          fi
+      - name: Prepara accesso SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_HOST_KEY: ${{ secrets.PRODUCTION_SSH_HOST_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Applica la modalità autorizzata
+        env:
+          CANDIDATE: ${{ inputs.commit }}
+          MODE: ${{ inputs.mode }}
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
+        run: |
+          # shellcheck disable=SC2029
+          ssh "$SSH_USER@$SSH_HOST" sudo /opt/hub-fatture/scripts/production-submission-mode.sh "$MODE" "$CANDIDATE"
+      - name: Ricevuta finale
+        env:
+          SSH_HOST: ${{ vars.PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ vars.PRODUCTION_SSH_USER }}
+        run: ssh "$SSH_USER@$SSH_HOST" "sudo cat /opt/hub-fatture/data/operations/aruba-submission-mode-receipt.json"
