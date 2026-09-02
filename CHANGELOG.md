@@ -2,6 +2,8 @@
 
 ## 1.0.0
 
+- La sincronizzazione Aruba recupera via API i file ufficiali e le notifiche dei documenti storici privi dell'identificativo di gruppo, usando una ricerca limitata e univoca per tipo, data, numero e identità fiscale; risultati assenti, multipli o non attribuibili restano irrisolti e vengono ritentati senza collegamenti presunti.
+- Una preparazione non è più approvabile quando il documento Aruba correlato ha un totale diverso: `Controlli` espone importo locale, importo remoto e differenza, mentre collegamento automatico e decisione manuale positiva restano bloccati finché gli importi non coincidono.
 - Il comando server di approvazione rilegge sotto lock anche il possibile documento Aruba correlato alla preparazione: una richiesta diretta non può aggirare il blocco mostrato dall’interfaccia, mentre un conflitto riferito ad altri ordini non ferma le candidate sane.
 - Il candidato destinato alla prima release operativa viene congelato con invii Aruba ordinari disabilitati; gli allineamenti automatici eBay e Shopify evitano lavoro e clonazioni seriali superflue, ogni ingresso Production richiede l’autorizzazione esplicita prima di pubblicare la release e ricertificazione M12 e canary M13 restano vincolati allo stesso SHA e digest.
 - Il backup conserva una copia `current` completa e autonoma, ma registra i 35 giorni storici come giornali database cifrati e immutabili: checksum e dimensioni dei due oggetti vengono riletti separatamente, evitando di duplicare quotidianamente l’intero archivio documentale nel bucket OCI.
