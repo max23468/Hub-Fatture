@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   canManuallyLinkCandidate,
+  isArubaAmountMismatchCandidate,
   isEmissionConfirmed,
   type ArubaRemoteStatus,
 } from "../aruba-inbound.ts";
@@ -26,6 +27,12 @@ type ManualCandidate = {
   reviewable?: boolean;
   potential?: boolean;
   refundIds?: string[];
+  signals?: {
+    provider?: boolean;
+    nearDate?: boolean;
+    recipient?: boolean;
+    total?: boolean;
+  };
 };
 
 function isActionable(candidate: ManualCandidate) {
@@ -35,10 +42,20 @@ function isActionable(candidate: ManualCandidate) {
   });
 }
 
-function candidateOrderIds(candidates: ManualCandidate[], potentialOnly = false) {
+function requiresManualDecision(candidate: ManualCandidate) {
+  return (
+    isActionable(candidate) ||
+    (candidate.signals ? isArubaAmountMismatchCandidate({ signals: candidate.signals }) : false)
+  );
+}
+
+function candidateOrderIds(
+  candidates: ManualCandidate[],
+  predicate: (candidate: ManualCandidate) => boolean = () => true,
+) {
   const ids = new Set<string>();
   for (const candidate of candidates) {
-    if (potentialOnly && !candidate.potential) continue;
+    if (!predicate(candidate)) continue;
     if (candidate.candidateId) ids.add(candidate.candidateId);
     for (const orderId of candidate.orderIds ?? []) ids.add(orderId);
   }
@@ -196,7 +213,7 @@ export async function confirmArubaDocumentOutOfScope(
       [remoteDocumentId, environment(), accountReference()],
     );
     const current = match.rows[0];
-    const actionableCandidates = current?.candidates_json.filter(isActionable) ?? [];
+    const actionableCandidates = current?.candidates_json.filter(requiresManualDecision) ?? [];
     if (
       !current ||
       !["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(current.status) ||
@@ -212,7 +229,7 @@ export async function confirmArubaDocumentOutOfScope(
     ) {
       throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
     }
-    const rejectedOrderIds = candidateOrderIds(current.candidates_json, true);
+    const rejectedOrderIds = candidateOrderIds(current.candidates_json, requiresManualDecision);
     const cases = await affectedCases(client, rejectedOrderIds);
     await client.query(
       `UPDATE aruba_document_matches SET status = 'UNMATCHED', method = 'MANUAL',

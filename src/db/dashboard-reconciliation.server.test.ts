@@ -236,7 +236,14 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       await inventoryQueries.listRemoteDocuments({ attentionOnly: true })
     ).find((document) => document.remote_id === "weak-official-match");
     assert.deepEqual(reviewableRemote?.candidates, [
-      { id: order.rows[0]!.id, label: "Shopify #WEAK", guided: true },
+      {
+        id: order.rows[0]!.id,
+        label: "Shopify #WEAK",
+        guided: true,
+        amountMismatch: false,
+        localAmount: 1000,
+        differenceAmount: 0,
+      },
     ]);
     assert.deepEqual(
       (
@@ -275,9 +282,10 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
 
     await client
       .getPool()
-      .query("UPDATE aruba_remote_documents SET xml_sha256 = NULL WHERE id = $1", [
-        remote.rows[0]!.id,
-      ]);
+      .query(
+        "UPDATE aruba_remote_documents SET xml_sha256 = NULL, total_amount = 900 WHERE id = $1",
+        [remote.rows[0]!.id],
+      );
     await client.getPool().query(
       `UPDATE aruba_document_matches
        SET status = 'UNMATCHED',
@@ -285,7 +293,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
              'candidateId', $2::text, 'probe', false, 'potential', false,
              'compatible', false, 'reviewable', false,
              'signals', jsonb_build_object(
-               'nearDate', true, 'recipient', true, 'total', false)))
+               'provider', true, 'nearDate', true, 'recipient', true, 'total', false)))
        WHERE remote_document_id = $1`,
       [remote.rows[0]!.id, order.rows[0]!.id],
     );
@@ -306,7 +314,14 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       })
     ).find((document) => document.remote_id === "weak-official-match");
     assert.deepEqual(identityRemote?.candidates, [
-      { id: order.rows[0]!.id, label: "Shopify #WEAK", guided: true },
+      {
+        id: order.rows[0]!.id,
+        label: "Shopify #WEAK",
+        guided: true,
+        amountMismatch: false,
+        localAmount: 1000,
+        differenceAmount: -100,
+      },
     ]);
 
     await client
@@ -314,16 +329,85 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       .query("UPDATE aruba_remote_documents SET xml_sha256 = repeat('d', 64) WHERE id = $1", [
         remote.rows[0]!.id,
       ]);
+    const officialStorage = await client.getPool().query<{ id: string }>(
+      `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('ARUBA_XML', 'synthetic/amount-mismatch.xml', repeat('d', 64), 10,
+               'application/xml')
+       RETURNING id`,
+    );
+    await client.getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       VALUES ($1, $2, 'ARUBA_XML')`,
+      [remote.rows[0]!.id, officialStorage.rows[0]!.id],
+    );
     const officialEvidence = await client.getPool().connect();
     try {
       await officialEvidence.query("BEGIN");
-      assert.equal(await status.recomputeOpenBillingCaseStatuses(officialEvidence), 1);
+      assert.equal(await status.recomputeOpenBillingCaseStatuses(officialEvidence), 0);
       await officialEvidence.query("COMMIT");
     } finally {
       officialEvidence.release();
     }
-    assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "READY");
+    assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "NEEDS_REVIEW");
     assert.equal((await inventory.getArubaInventoryHealth()).potentialMatches, 0);
+    assert.equal(await orders.getOpenBillingCasePool(cases.rows[0]!.id, false), "APPROVABLE");
+    assert.equal(await orders.getOpenBillingCasePool(cases.rows[2]!.id, false), "REQUIRES_ACTION");
+    const mismatchRemote = (
+      await inventoryQueries.listRemoteDocuments({
+        attentionOnly: true,
+        billingCaseId: cases.rows[2]!.id,
+      })
+    ).find((document) => document.remote_id === "weak-official-match");
+    assert.equal(mismatchRemote?.amount_mismatch, true);
+    assert.deepEqual(mismatchRemote?.candidates, [
+      {
+        id: order.rows[0]!.id,
+        label: "Shopify #WEAK",
+        guided: false,
+        amountMismatch: true,
+        localAmount: 1000,
+        differenceAmount: -100,
+      },
+    ]);
+    const operationalControls = await import("./operational-controls.server.ts");
+    const mismatchControl = (
+      await operationalControls.listOperationalControls({ origin: "DOCUMENTS" })
+    ).rows.find((control) => control.source_id === remote.rows[0]!.id);
+    assert.equal(mismatchControl?.kind, "ARUBA_AMOUNT_MISMATCH");
+    assert.equal(mismatchControl?.primary_action, "Verifica documento Aruba");
+    assert.ok(
+      mismatchControl?.metadata_json.facts?.some(
+        (fact) => fact.label === "Totale" && fact.value === "9,00 €",
+      ),
+    );
+    assert.ok(
+      mismatchControl?.metadata_json.facts?.some(
+        (fact) => fact.label === "Shopify #WEAK" && fact.value.includes("-1,00 €"),
+      ),
+    );
+
+    await client.getPool().query(
+      `UPDATE aruba_document_matches
+       SET candidates_json = jsonb_set(candidates_json, '{0,signals,recipient}', 'false'::jsonb)
+       WHERE remote_document_id = $1`,
+      [remote.rows[0]!.id],
+    );
+    const disprovedCandidate = await client.getPool().connect();
+    try {
+      await disprovedCandidate.query("BEGIN");
+      assert.equal(await status.recomputeOpenBillingCaseStatuses(disprovedCandidate), 1);
+      await disprovedCandidate.query("COMMIT");
+    } finally {
+      disprovedCandidate.release();
+    }
+    assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "READY");
+
+    await client
+      .getPool()
+      .query("DELETE FROM aruba_files WHERE remote_document_id = $1", [remote.rows[0]!.id]);
+    await client
+      .getPool()
+      .query("DELETE FROM storage_objects WHERE id = $1", [officialStorage.rows[0]!.id]);
 
     await client.getPool().query(
       `UPDATE aruba_document_matches SET matcher_version = 4

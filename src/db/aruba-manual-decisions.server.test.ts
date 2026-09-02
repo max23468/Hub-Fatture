@@ -44,12 +44,51 @@ test("un candidato Aruba può essere escluso solo dopo la conferma esplicita", a
        VALUES ($1, $2, 'ARUBA_XML')`,
       [remote.id, storage.id],
     );
+    const customer = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO customers
+          (kind, match_key, display_name, billing_address_json, source_confidence,
+           review_required)
+         VALUES ('PRIVATE_IT', 'manual-amount-mismatch', 'Cliente sintetico', '{}',
+                 'TAX_ID', false)
+         RETURNING id::text`,
+      )
+    ).rows[0]!;
+    const billingCase = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json)
+         VALUES ($1, '2026-08-28', 'EUR', 'NEEDS_REVIEW',
+                 '{"reviewRequired":false,"canonicalProfile":{}}')
+         RETURNING id::text`,
+        [customer.id],
+      )
+    ).rows[0]!;
+    const order = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO orders
+          (provider, external_account_id, external_order_id, display_number,
+           created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+           payment_status, fulfillment_status, trigger_status, customer_id, billing_case_id,
+           raw_snapshot_json, normalized_snapshot_json)
+         VALUES ('SHOPIFY', 'manual-decisions', 'amount-mismatch', '#MISMATCH', now(), now(),
+                 '2026-08-28', 'EUR', 1100, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}',
+                 '{"orderReviewRequired":false,"deferredReviewRequired":false,
+                   "customerSnapshot":{"canonicalProfile":{}}}')
+         RETURNING id::text`,
+        [customer.id, billingCase.id],
+      )
+    ).rows[0]!;
     await getPool().query(
       `INSERT INTO aruba_document_matches
         (remote_document_id, status, method, matcher_version, candidates_json)
        VALUES ($1, 'UNMATCHED', 'NONE', 1,
-         '[{"candidateId":"987654","orderIds":["987654"],"potential":true,"reviewable":true}]')`,
-      [remote.id],
+         jsonb_build_array(jsonb_build_object(
+           'candidateId', $2::text, 'orderIds', jsonb_build_array($2::text),
+           'potential', false, 'compatible', false, 'reviewable', false,
+           'signals', jsonb_build_object(
+             'provider', true, 'nearDate', true, 'recipient', true, 'total', false))))`,
+      [remote.id, order.id],
     );
     const decisions = await import("./aruba-manual-decisions.server.ts");
     const owner = { id: actor.id, canApprove: true, requestId: "manual-decision-test" };
@@ -90,8 +129,13 @@ test("un candidato Aruba può essere escluso solo dopo la conferma esplicita", a
         method: "MANUAL",
         origin: "ARUBA_EXTERNAL",
         candidate_count: "1",
-        rejected_order_ids: ["987654"],
+        rejected_order_ids: [order.id],
       },
+    );
+    assert.equal(
+      (await getPool().query("SELECT status FROM billing_cases WHERE id = $1", [billingCase.id]))
+        .rows[0].status,
+      "READY",
     );
   } finally {
     await closePool();

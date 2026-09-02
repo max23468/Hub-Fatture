@@ -6,6 +6,7 @@ import {
   canManuallyLinkCandidate,
   groupOrderCandidates,
   hasAnomalousUnknownArubaStatuses,
+  isArubaAmountMismatchCandidate,
   inventoryPageSchema,
   normalizeArubaRemoteStatusLabel,
   remoteMetadataDigest,
@@ -237,6 +238,24 @@ test("data, importo e un'identità coerente espongono un candidato solo manuale"
   assert.equal(result.evaluations[0]?.compatible, false);
   assert.equal(result.evaluations[0]?.reviewable, true);
   assert.equal(canManuallyLinkCandidate(result.evaluations[0]!), true);
+});
+
+test("data vicina e destinatario uguale con importo diverso richiedono una decisione", () => {
+  const result = selectOrderMatch(remote, [
+    {
+      id: "1",
+      provider: "SHOPIFY",
+      displayNumber: "1001",
+      localOrderDate: "2026-08-12",
+      billableAmount: 12_000,
+      recipientName: "Mario Rossi",
+      recipientTaxIdentifiers: [],
+      recipientAddress: "Indirizzo locale incompleto",
+    },
+  ]);
+  assert.equal(result.evaluations[0]?.reviewable, false);
+  assert.equal(canManuallyLinkCandidate(result.evaluations[0]!), false);
+  assert.equal(isArubaAmountMismatchCandidate(result.evaluations[0]!), true);
 });
 
 test("un candidato univoco richiede data, importo e identità coerenti", () => {

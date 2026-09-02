@@ -69,6 +69,12 @@ export async function reconcileCachedArubaMatcherUpgrade(
          WHERE coalesce((candidate ->> 'potential')::boolean, false)
             OR coalesce((candidate ->> 'compatible')::boolean, false)
             OR coalesce((candidate ->> 'reviewable')::boolean, false)
+            OR (
+              coalesce((candidate -> 'signals' ->> 'provider')::boolean, false)
+              AND coalesce((candidate -> 'signals' ->> 'nearDate')::boolean, false)
+              AND coalesce((candidate -> 'signals' ->> 'recipient')::boolean, false)
+              AND NOT coalesce((candidate -> 'signals' ->> 'total')::boolean, false)
+            )
        ))
      ORDER BY remote.id`,
     [environment, account, ARUBA_MATCHER_VERSION],

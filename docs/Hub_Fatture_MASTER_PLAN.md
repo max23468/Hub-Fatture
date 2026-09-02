@@ -3381,9 +3381,12 @@ Gate:
 
 ### M12 - Ricertificazione release candidate
 
-**Stato: completata.** Il record corrente di [readiness](runbooks/release-readiness.md) collega
+**Stato: da ripetere sul prossimo candidato.** Il candidato precedente è stato ricertificato con
 CI, security scan, artifact, deploy, backup, restore isolato, rollback reale, rientro,
-monitor e readback al candidato esatto, mantenendo invii Aruba e release `v1.0.0` disabilitati.
+monitor e readback coerenti. Le successive modifiche runtime e schema alla riconciliazione Aruba
+lo hanno sostituito prima del canary: il record di [readiness](runbooks/release-readiness.md) ne
+conserva le prove storiche, ma M13 resta bloccata finché la stessa ricertificazione non viene
+ripetuta sul nuovo SHA e digest con invii Aruba e release `v1.0.0` ancora disabilitati.
 
 Output:
 
@@ -3742,7 +3745,7 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [x] M10: tre modalità globali e rigide provate su singolo e massivo; downgrade esplicito; dry-run sullo stesso hash; chiamata di upload con `dryRun=true` e stato incerto qualificati con autorizzazione specifica, senza autorizzare `dryRun=false`.
 - [x] M10: pausa API e invii fiscali disabilitati riletti server-side; configurazione e mutazioni protette da `can_approve`, salute e `Sincronizza ora` osservabili.
 - [x] M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
-- [x] M12: candidato esatto ricertificato con CI, audit, migrazioni, backup, restore, rollback, security e readiness; nessun P0/P1 o stato incerto.
+- [ ] M12: il candidato precedente è stato ricertificato, ma le successive modifiche runtime e schema alla riconciliazione Aruba richiedono di ripetere CI, audit, migrazioni, backup, restore, rollback, security e readiness sul nuovo SHA e digest; nessun P0/P1 o stato incerto.
 - [ ] M13: TD01 reale scelto da Massimo, autorizzazione specifica, permesso monouso legato a revisione/batch/hash e `ARUBA_SUBMISSION_ENABLED=false` prima e dopo.
 - [ ] M13: dry-run, invio, readback, file e stato conclusi senza duplicato o retry cieco; permesso consumato e ricevuta sanitizzata.
 - [ ] M14: autorizzazioni separate a release e uso ordinario; decisioni helper registrate; TD04 mantenuta manuale fino al proprio canary legittimo.
@@ -3863,4 +3866,4 @@ Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile
 
 La priorità non è costruire un motore fiscale generale, ma impedire errori operativi: dati mancanti, doppie fatture, doppi rimborsi, numerazione errata, invii non approvati e perdita di tracciabilità.
 
-Il prossimo lavoro concreto è il canary TD01 M13, seguito dal go-live M14. Ogni milestone mantiene confini di autorizzazione propri; nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è implicito nella pianificazione.
+Il prossimo lavoro concreto è ripetere la ricertificazione M12 sul nuovo candidato, quindi proseguire con il canary TD01 M13 e il go-live M14. Ogni milestone mantiene confini di autorizzazione propri; nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è implicito nella pianificazione.

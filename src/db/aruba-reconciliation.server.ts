@@ -3,9 +3,11 @@ import type pg from "pg";
 import {
   ARUBA_MATCHER_VERSION,
   groupOrderCandidates,
+  isArubaAmountMismatchCandidate,
   normalizedMatchText,
   selectOrderMatch,
   type ArubaOrderCandidate,
+  type CandidateEvaluation,
   type RemoteInventoryDocument,
 } from "../aruba-inbound.ts";
 import {
@@ -404,7 +406,10 @@ export async function reconcileRemoteDocument(
   const selected = compatibleIndex >= 0 ? evaluatedCandidates[compatibleIndex]!.source : null;
   const reviewCandidates = match.evaluations
     .map((evaluation, index) =>
-      evaluation.compatible || evaluation.reviewable || evaluation.potential
+      evaluation.compatible ||
+      evaluation.reviewable ||
+      evaluation.potential ||
+      isArubaAmountMismatchCandidate(evaluation)
         ? evaluatedCandidates[index]!.source
         : null,
     )
@@ -461,6 +466,7 @@ export async function reconcileRemoteDocument(
       potential?: boolean;
       compatible?: boolean;
       reviewable?: boolean;
+      signals?: Partial<CandidateEvaluation["signals"]>;
     }>;
   }>(
     `SELECT method, status, billing_case_id::text, candidates_json
@@ -526,7 +532,13 @@ export async function reconcileRemoteDocument(
   ];
   const previousOrderIdSet = new Set<string>();
   for (const candidate of previous.rows[0]?.candidates_json ?? []) {
-    if (!candidate.potential && !candidate.compatible && !candidate.reviewable) continue;
+    if (
+      !candidate.potential &&
+      !candidate.compatible &&
+      !candidate.reviewable &&
+      !(candidate.signals && isArubaAmountMismatchCandidate({ signals: candidate.signals }))
+    )
+      continue;
     if (candidate.candidateId) previousOrderIdSet.add(candidate.candidateId);
     for (const orderId of candidate.orderIds ?? []) previousOrderIdSet.add(orderId);
   }

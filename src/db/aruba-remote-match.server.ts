@@ -1,6 +1,6 @@
 import type pg from "pg";
 
-import type { ArubaRemoteStatus } from "../aruba-inbound.ts";
+import { isArubaAmountMismatchCandidate, type ArubaRemoteStatus } from "../aruba-inbound.ts";
 import { getConfig } from "../config.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 
@@ -28,6 +28,12 @@ export interface LockedRemoteMatch {
     potential?: boolean;
     compatible?: boolean;
     reviewable?: boolean;
+    signals?: {
+      provider?: boolean;
+      nearDate?: boolean;
+      recipient?: boolean;
+      total?: boolean;
+    };
   }>;
 }
 
@@ -58,7 +64,13 @@ export async function markRemoteProfileConflict(client: pg.PoolClient, remote: L
   );
   const orderIds = new Set<string>();
   for (const candidate of remote.candidates_json) {
-    if (!candidate.potential && !candidate.compatible && !candidate.reviewable) continue;
+    if (
+      !candidate.potential &&
+      !candidate.compatible &&
+      !candidate.reviewable &&
+      !(candidate.signals && isArubaAmountMismatchCandidate({ signals: candidate.signals }))
+    )
+      continue;
     if (candidate.candidateId) orderIds.add(candidate.candidateId);
     for (const orderId of candidate.orderIds ?? []) orderIds.add(orderId);
   }

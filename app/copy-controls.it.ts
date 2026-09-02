@@ -40,6 +40,7 @@ export const controlsCopy = {
     CONNECTOR_JOB_FAILED: "Sincronizzazioni",
     SHOPIFY_PRIVACY_REQUEST: "Privacy",
     ARUBA_REMOTE_MATCH: "Inventario Aruba",
+    ARUBA_AMOUNT_MISMATCH: "Importi Aruba discordanti",
     ARUBA_OFFICIAL_FILE_REQUIRED: "File Aruba",
     ARUBA_BATCH_RECONCILIATION: "Batch Aruba",
     ARUBA_SUBMISSION_ATTENTION: "Esiti Aruba",

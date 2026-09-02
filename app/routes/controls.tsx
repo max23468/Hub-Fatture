@@ -219,6 +219,77 @@ function ControlRow({
   );
 }
 
+function ArubaRemoteMatchActions({
+  control,
+  csrfToken,
+}: {
+  control: OperationalControl;
+  csrfToken: string;
+}) {
+  const metadata = control.metadata_json;
+  const canLink =
+    control.kind === "ARUBA_REMOTE_MATCH" &&
+    metadata.hasXml &&
+    ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
+    Boolean(metadata.candidates?.length);
+  const canConfirmOutOfScope =
+    metadata.hasXml &&
+    ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
+    ["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(metadata.matchStatus ?? "");
+
+  return (
+    <div className="control-actions-grid">
+      {canLink ? (
+        <Form className="control-action-form" method="post">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="controlId" value={control.id} />
+          <input type="hidden" name="intent" value="resolve-aruba-match" />
+          <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
+          <input type="hidden" name="reason" value="Collegamento confermato da Controlli" />
+          <label>
+            {copy.controls.candidateOrder}
+            <select name="orderId" required defaultValue="">
+              <option value="" disabled>
+                {copy.controls.candidateOrder}
+              </option>
+              {metadata.candidates?.map((candidate) => (
+                <option value={candidate.id} key={candidate.id}>
+                  {candidate.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <OptionalNote />
+          <button className="button" type="submit">
+            <Link2 aria-hidden="true" size={17} />
+            {copy.controls.linkAruba}
+          </button>
+        </Form>
+      ) : null}
+      {canConfirmOutOfScope ? (
+        <Form className="control-action-form" method="post">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="controlId" value={control.id} />
+          <input type="hidden" name="intent" value="confirm-aruba-out-of-scope" />
+          <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
+          <input type="hidden" name="reason" value={copy.controls.outOfScopeReason} />
+          {metadata.candidates?.length ? (
+            <label className="control-action-form__confirmation">
+              <input type="checkbox" name="candidateRejection" value="confirmed" required />
+              {copy.controls.confirmCandidateRejection}
+            </label>
+          ) : null}
+          <OptionalNote />
+          <button className="button button--secondary" type="submit">
+            <ShieldCheck aria-hidden="true" size={17} />
+            {copy.controls.confirmOutOfScope}
+          </button>
+        </Form>
+      ) : null}
+    </div>
+  );
+}
+
 function ControlActions({
   control,
   canApprove,
@@ -271,66 +342,12 @@ function ControlActions({
       </Form>
     );
   }
-  if (control.kind === "ARUBA_REMOTE_MATCH" && metadata.remoteDocumentId && canApprove) {
-    const canLink =
-      metadata.hasXml &&
-      ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
-      Boolean(metadata.candidates?.length);
-    const canConfirmOutOfScope =
-      metadata.hasXml &&
-      ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
-      ["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(metadata.matchStatus ?? "");
-    return (
-      <div className="control-actions-grid">
-        {canLink ? (
-          <Form className="control-action-form" method="post">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="controlId" value={control.id} />
-            <input type="hidden" name="intent" value="resolve-aruba-match" />
-            <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
-            <input type="hidden" name="reason" value="Collegamento confermato da Controlli" />
-            <label>
-              {copy.controls.candidateOrder}
-              <select name="orderId" required defaultValue="">
-                <option value="" disabled>
-                  {copy.controls.candidateOrder}
-                </option>
-                {metadata.candidates?.map((candidate) => (
-                  <option value={candidate.id} key={candidate.id}>
-                    {candidate.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <OptionalNote />
-            <button className="button" type="submit">
-              <Link2 aria-hidden="true" size={17} />
-              {copy.controls.linkAruba}
-            </button>
-          </Form>
-        ) : null}
-        {canConfirmOutOfScope ? (
-          <Form className="control-action-form" method="post">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="controlId" value={control.id} />
-            <input type="hidden" name="intent" value="confirm-aruba-out-of-scope" />
-            <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
-            <input type="hidden" name="reason" value={copy.controls.outOfScopeReason} />
-            {metadata.candidates?.length ? (
-              <label className="control-action-form__confirmation">
-                <input type="checkbox" name="candidateRejection" value="confirmed" required />
-                {copy.controls.confirmCandidateRejection}
-              </label>
-            ) : null}
-            <OptionalNote />
-            <button className="button button--secondary" type="submit">
-              <ShieldCheck aria-hidden="true" size={17} />
-              {copy.controls.confirmOutOfScope}
-            </button>
-          </Form>
-        ) : null}
-      </div>
-    );
+  if (
+    ["ARUBA_REMOTE_MATCH", "ARUBA_AMOUNT_MISMATCH"].includes(control.kind) &&
+    metadata.remoteDocumentId &&
+    canApprove
+  ) {
+    return <ArubaRemoteMatchActions control={control} csrfToken={csrfToken} />;
   }
   if (control.kind === "ARUBA_OFFICIAL_FILE_REQUIRED" && metadata.remoteDocumentId && canApprove) {
     return (

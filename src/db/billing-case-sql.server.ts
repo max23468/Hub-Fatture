@@ -113,6 +113,31 @@ export const arubaActionableCandidateSql = (
   ))
 )`;
 
+/**
+ * L'XML ufficiale può confermare destinatario e prossimità temporale senza confermare
+ * il totale. Il candidato non è collegabile come fattura dell'ordine, ma deve restare
+ * visibile e trattenere soltanto la preparazione correlata fino alla decisione manuale.
+ */
+export const arubaAmountMismatchCandidateSql = (
+  candidateAlias = "aruba_candidate",
+  remoteAlias = "aruba_remote",
+) => `(
+  ${remoteAlias}.xml_sha256 IS NOT NULL
+  AND coalesce((${candidateAlias} -> 'signals' ->> 'provider')::boolean, false)
+  AND coalesce((${candidateAlias} -> 'signals' ->> 'nearDate')::boolean, false)
+  AND coalesce((${candidateAlias} -> 'signals' ->> 'recipient')::boolean, false)
+  AND NOT coalesce((${candidateAlias} -> 'signals' ->> 'total')::boolean, false)
+)`;
+
+/** Un candidato che richiede una decisione sulla singola preparazione. */
+export const arubaCaseCandidateSql = (
+  candidateAlias = "aruba_candidate",
+  remoteAlias = "aruba_remote",
+) => `(
+  ${arubaActionableCandidateSql(candidateAlias, remoteAlias)}
+  OR ${arubaAmountMismatchCandidateSql(candidateAlias, remoteAlias)}
+)`;
+
 export const standardInvoiceApprovalCriteriaSql = (
   billingCaseAlias = "billing_cases",
   documentAlias = "documents",
@@ -186,14 +211,14 @@ export const arubaPotentialMatchSql = `EXISTS (
     AND (
       (aruba_matches.method <> 'MANUAL' AND (
         (aruba_matches.status = 'UNMATCHED'
-          AND ${arubaActionableCandidateSql()})
+          AND ${arubaCaseCandidateSql()})
         OR (aruba_matches.status = 'AMBIGUOUS'
-          AND ${arubaActionableCandidateSql()})
+          AND ${arubaCaseCandidateSql()})
         OR (aruba_matches.status = 'MATCHED'
           AND aruba_remote.remote_status IN ('SUBMITTED', 'SDI_PROCESSING')
           AND coalesce((aruba_candidate ->> 'compatible')::boolean, false))
         OR (aruba_matches.status = 'PROFILE_CONFLICT'
-          AND ${arubaActionableCandidateSql()})
+          AND ${arubaCaseCandidateSql()})
       ))
       OR (aruba_matches.method = 'MANUAL'
         AND aruba_matches.status = 'MATCHED'
