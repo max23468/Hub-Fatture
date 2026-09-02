@@ -1,0 +1,31 @@
+export const controlOriginsCopy = {
+  ORDERS: "Ordini",
+  DOCUMENTS: "Documenti",
+  CUSTOMERS: "Clienti",
+  CONNECTIONS: "Collegamenti",
+  PRIVACY: "Privacy",
+} as const;
+
+export const controlKindsCopy = {
+  TOTALS_MISMATCH: "Totali ordine",
+  CUSTOMER_MISMATCH: "Anagrafiche discordanti",
+  SOURCE_CONFLICT: "Aggiornamenti ordine",
+  ORDER_NOT_BILLABLE: "Ordini non fatturabili",
+  HISTORY_RECONCILIATION: "Storico",
+  ARUBA_INVOICE_LINK: "Fatture Aruba da collegare",
+  ORDER_REVIEW: "Ordini",
+  REFUND_REVIEW: "Rimborsi da decidere",
+  REFUND_JOB_FAILED: "Rimborsi non elaborati",
+  CREDIT_NOTE_APPROVAL: "Note di credito",
+  CUSTOMER_IDENTITY: "Identità cliente",
+  CONNECTOR_JOB_FAILED: "Sincronizzazioni",
+  SHOPIFY_PRIVACY_REQUEST: "Privacy",
+  ARUBA_REMOTE_MATCH: "Inventario Aruba",
+  ARUBA_AMOUNT_MISMATCH: "Importi Aruba discordanti",
+  ARUBA_EXTERNAL_EVIDENCE: "Conferme esterne",
+  ARUBA_OFFICIAL_FILE_REQUIRED: "File Aruba",
+  ARUBA_BATCH_RECONCILIATION: "Batch Aruba",
+  ARUBA_SUBMISSION_ATTENTION: "Esiti Aruba",
+  CUSTOMER_EMAIL_FAILED: "E-mail cliente",
+  RETENTION_FAILED: "Conservazione tecnica",
+} as const;

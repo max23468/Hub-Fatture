@@ -346,6 +346,7 @@ export async function dashboardSummary() {
           AND approval_document.kind = 'INVOICE'
          LEFT JOIN fiscal_profiles AS approval_profile
            ON approval_profile.version = approval_document.fiscal_profile_version
+         WHERE ${openBillingCaseSql("billing_cases")}
        ), open_case_counts AS (
          SELECT count(*) FILTER (WHERE operational_pool = 'APPROVABLE') AS ready_cases,
                 count(*) FILTER (WHERE operational_pool = 'REQUIRES_ACTION') AS review_cases

@@ -257,7 +257,7 @@ function DocumentRow({
 }) {
   const label = document.fiscal_label ?? copy.documents.draftLabel(document.public_number);
   const target = documentTarget(document);
-  const emailRedacted = Boolean(email?.content_redacted_at);
+  const emailRedacted = Boolean(email?.requires_explicit_recipient);
   const canPrepareRedactedEmail = Boolean(emailRedacted && emailEnabled && canApprove);
   const canRetryEmail = Boolean(
     emailEnabled && email && email.status !== "PENDING" && !emailRedacted && canApprove,

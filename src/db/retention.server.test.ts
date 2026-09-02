@@ -292,6 +292,29 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "EMAIL_CONTENT_REDACTED",
     );
+    const newerDelivery = await client.query<{ id: string }>(
+      `INSERT INTO email_deliveries
+         (message_key, document_id, transport, sender, recipient, subject, body,
+          attachment_storage_object_id, status, message_id, sent_at)
+       VALUES ($1, $2, 'SYNTHETIC', 'contabilita@example.invalid',
+               'nuovo-destinatario@example.invalid', 'Nuova consegna sintetica',
+               'Nuovo contenuto sintetico', $3, 'SENT', 'synthetic-new-message', now())
+       RETURNING id`,
+      [randomUUID(), document.rows[0]!.id, storage.rows[0]!.id],
+    );
+    const deliveryHistory = await email.listEmailDeliveries([document.rows[0]!.id]);
+    assert.equal(deliveryHistory[0]!.id, newerDelivery.rows[0]!.id);
+    assert.equal(deliveryHistory[0]!.content_redacted_at, null);
+    assert.equal(deliveryHistory[0]!.requires_explicit_recipient, true);
+    await assert.rejects(
+      email.retryCustomerEmail(document.rows[0]!.id, {
+        id: Number(userId),
+        canApprove: true,
+        requestId: "retention-newer-delivery-still-redacted",
+      }),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "EMAIL_CONTENT_REDACTED",
+    );
     await assert.rejects(
       email.retryCustomerEmail(
         document.rows[0]!.id,
@@ -316,7 +339,7 @@ test("la retention applica durate e hold senza alterare l'evidenza fiscale", asy
       [document.rows[0]!.id],
     );
     const expiredEmail = await applyRetentionPolicy();
-    assert.equal(expiredEmail.CUSTOMER_EMAIL, 1);
+    assert.equal(expiredEmail.CUSTOMER_EMAIL, 2);
     assert.equal(
       (
         await client.query(

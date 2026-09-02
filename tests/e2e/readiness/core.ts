@@ -1325,7 +1325,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     .check();
   await page.getByRole("button", { name: "Conferma completamento" }).click();
   await expect(page.getByRole("status")).toContainText("Azione completata");
-  await expect(page.locator(".controls-queue")).not.toContainText("Richiesta dati cliente");
+  await expect(page).toHaveURL(/\/controlli\?tipo=SHOPIFY_PRIVACY_REQUEST&esito=completato$/);
+  await expect(page.getByRole("heading", { name: "Nessun controllo da risolvere" })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expectViewportFits(page);
   await page.getByRole("button", { name: "Apri il menu di navigazione" }).click();

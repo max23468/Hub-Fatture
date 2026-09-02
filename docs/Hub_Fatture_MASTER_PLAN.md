@@ -1402,7 +1402,7 @@ Per le note di credito mostrare:
 
 ### 13.8 Controlli
 
-È l'unica coda operativa. Ogni riga rappresenta una sola decisione umana o un solo problema azionabile e mostra gravità, causa leggibile, conseguenza, origine, anzianità ed evidenze. L'ordinamento è prima per impatto (`Bloccante`, `Importante`, `Ordinario`) e poi per anzianità. Le viste sono `Da risolvere` e `In attesa`; i filtri per gravità, tipo e origine restano a destra e non esiste una seconda barra di ricerca locale.
+È l'unica coda operativa. Ogni riga rappresenta una sola decisione umana o un solo problema azionabile e mostra gravità, causa leggibile, conseguenza, origine, anzianità ed evidenze. L'ordinamento è prima per impatto (`Bloccante`, `Importante`, `Ordinario`) e poi per anzianità. Le viste sono `Da risolvere` e `In attesa`; una ricerca locale e i filtri per gravità, tipo e origine restringono la stessa coda senza creare una destinazione operativa separata. Ricerca, filtri e posizione della pagina restano stabili durante l'apertura del dettaglio e le azioni sulla coda.
 
 Il pannello di dettaglio offre l'azione risolutiva quando può essere eseguita in sicurezza nell'app: retry tipizzato, conferma privacy, import del file ufficiale Aruba, scelta del match o conferma fuori perimetro. La conferma fuori perimetro resta disponibile anche in presenza di candidati, ma richiede di attestare esplicitamente di averli confrontati e ne conserva gli ID nell'audit. Le azioni non sicure o troppo contestuali aprono il dettaglio sorgente. Una nota è facoltativa. Le azioni massive sono ammesse soltanto quando la precondizione e l'esito sono identici e verificabili per ogni elemento.
 
@@ -2179,6 +2179,7 @@ Gli eventi `CRITICAL` — approvazione, numerazione, override importi, `Non tras
 - `process_refund`
 - `send_customer_email`
 - `cleanup_expired_sessions`
+- `maintenance_retention`
 
 ### 16.2 Retry
 

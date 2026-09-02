@@ -41,6 +41,23 @@ async function customerEmailIsDisabled(client: pg.PoolClient): Promise<boolean> 
   return customerEmailModeSchema.parse(result.rows[0]?.value_json ?? "AUTOMATIC") === "DISABLED";
 }
 
+async function customerEmailRequiresExplicitRecipient(
+  client: pg.PoolClient,
+  documentId: string,
+): Promise<boolean> {
+  const result = await client.query<{ redacted: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM documents
+       WHERE id = $1 AND customer_email_redacted_at IS NOT NULL
+     ) OR EXISTS (
+       SELECT 1 FROM email_deliveries
+       WHERE document_id = $1 AND content_redacted_at IS NOT NULL
+     ) AS redacted`,
+    [documentId],
+  );
+  return result.rows[0]?.redacted ?? false;
+}
+
 export function customerEmailTriggerStatus(status: string): boolean {
   return status === "DELIVERED" || status === "NOT_DELIVERED";
 }
@@ -541,17 +558,7 @@ export async function retryCustomerEmail(
     if (await customerEmailIsDisabled(client)) {
       throw new AppError("EMAIL_DELIVERY_DISABLED", 409);
     }
-    const retainedContent = await client.query<{ redacted: boolean }>(
-      `SELECT EXISTS (
-         SELECT 1 FROM documents
-         WHERE id = $1 AND customer_email_redacted_at IS NOT NULL
-       ) OR EXISTS (
-         SELECT 1 FROM email_deliveries
-         WHERE document_id = $1 AND content_redacted_at IS NOT NULL
-       ) AS redacted`,
-      [documentId],
-    );
-    const redacted = retainedContent.rows[0]?.redacted ?? false;
+    const redacted = await customerEmailRequiresExplicitRecipient(client, documentId);
     const replacement = recipientSchema.safeParse(explicitRecipient?.trim());
     if (redacted && !replacement.success) throw new AppError("EMAIL_CONTENT_REDACTED", 409);
     if (!redacted && explicitRecipient !== undefined && !replacement.success) {
@@ -609,12 +616,21 @@ export async function listEmailDeliveries(documentIds: string[]) {
     sent_at: Date | null;
     last_error_code: string | null;
     content_redacted_at: Date | null;
+    requires_explicit_recipient: boolean;
   }>(
-    `SELECT id, document_id, status, transport, attempt_count, sent_at, last_error_code,
-            content_redacted_at
+    `SELECT email_deliveries.id, email_deliveries.document_id, email_deliveries.status,
+            email_deliveries.transport, email_deliveries.attempt_count,
+            email_deliveries.sent_at, email_deliveries.last_error_code,
+            email_deliveries.content_redacted_at,
+            (documents.customer_email_redacted_at IS NOT NULL OR EXISTS (
+              SELECT 1 FROM email_deliveries AS retained_deliveries
+              WHERE retained_deliveries.document_id = email_deliveries.document_id
+                AND retained_deliveries.content_redacted_at IS NOT NULL
+            )) AS requires_explicit_recipient
      FROM email_deliveries
-     WHERE document_id = ANY($1::bigint[])
-     ORDER BY created_at DESC, id DESC`,
+     JOIN documents ON documents.id = email_deliveries.document_id
+     WHERE email_deliveries.document_id = ANY($1::bigint[])
+     ORDER BY email_deliveries.created_at DESC, email_deliveries.id DESC`,
     [documentIds],
   );
   return result.rows.map((row) => ({

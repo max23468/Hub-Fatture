@@ -50,6 +50,8 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
          ($1, ${romeTodaySql} - 2, 'EUR', 'READY',
           '{"reviewRequired":false,"canonicalProfile":{}}', 1),
          ($1, ${romeTodaySql} - 3, 'EUR', 'NEEDS_REVIEW',
+          '{"reviewRequired":false,"canonicalProfile":{}}', 1),
+         ($1, ${romeTodaySql} - 4, 'EUR', 'APPROVED',
           '{"reviewRequired":false,"canonicalProfile":{}}', 1)
        RETURNING id`,
       [customer.rows[0]!.id],
@@ -93,6 +95,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.equal(initialSummary.ready_cases, "1");
     assert.equal(initialSummary.review_cases, "2");
     assert.equal(initialSummary.pending_cases, "1");
+    assert.equal(await orders.getOpenBillingCaseProjection(cases.rows[4]!.id, false), null);
     assert.deepEqual(
       (
         await orders.listBillingCases({
@@ -531,7 +534,10 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
         differenceAmount: 0,
       },
     ]);
-    assert.equal(await orders.getOpenBillingCasePool(cases.rows[2]!.id, false), "APPROVABLE");
+    assert.equal(
+      (await orders.getOpenBillingCaseProjection(cases.rows[2]!.id, false))?.operationalPool,
+      "APPROVABLE",
+    );
     await operationalControls.refreshOperationalControls();
     const externalEvidenceControl = (
       await operationalControls.readOperationalControls({ origin: "DOCUMENTS" })

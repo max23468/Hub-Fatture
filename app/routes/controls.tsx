@@ -10,20 +10,18 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import { useLayoutEffect, useRef, type RefObject } from "react";
-import {
-  data,
-  Form,
-  Link,
-  redirect,
-  useActionData,
-  useLoaderData,
-  useLocation,
-  useNavigate,
-} from "react-router";
+import type { RefObject } from "react";
+import { data, Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/controls";
 
 import { AppShell } from "../components/app-shell";
+import {
+  controlLink,
+  controlsActionRedirect,
+  controlsListLink,
+  controlsPageLink,
+} from "../controls-navigation";
+import { useControlsSelection } from "../controls-selection";
 import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
 import { dateAfterInRome, dateTime } from "../format";
@@ -96,6 +94,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 export async function action({ request }: Route.ActionArgs) {
   try {
     const user = await requireSessionUser(request);
+    const actionRedirect = (options: Parameters<typeof controlsActionRedirect>[1]) =>
+      redirect(controlsActionRedirect(request.url, options));
     if (request.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) {
       const form = await readMultipartForm(request, {
         maxBytes: ARUBA_IMPORT_MAX_BYTES + 64 * 1024,
@@ -114,7 +114,11 @@ export async function action({ request }: Route.ActionArgs) {
           requestId: requestId(request),
         },
       );
-      return redirect(`/controlli?id=${encodeURIComponent(controlId)}&esito=file-acquisito`);
+      return actionRedirect({
+        outcome: "file-acquisito",
+        selectedControlId: controlId,
+        state: "OPEN",
+      });
     }
     const form = await readForm(request);
     assertCsrf(user, form.get("csrf") ?? "");
@@ -134,7 +138,11 @@ export async function action({ request }: Route.ActionArgs) {
         assigneeUsername: user.username === "Codex" ? "Codex" : "Massimo",
         note,
       });
-      return redirect(`/controlli?vista=attesa&id=${encodeURIComponent(controlId)}&esito=attesa`);
+      return actionRedirect({
+        outcome: "attesa",
+        selectedControlId: controlId,
+        state: "WAITING",
+      });
     }
     if (intent === "wait-control") {
       const reason = waitingReasons.find((value) => value === form.get("waitingReason"));
@@ -149,11 +157,19 @@ export async function action({ request }: Route.ActionArgs) {
         assigneeUsername: assignee,
         note,
       });
-      return redirect(`/controlli?vista=attesa&id=${encodeURIComponent(controlId)}&esito=attesa`);
+      return actionRedirect({
+        outcome: "attesa",
+        selectedControlId: controlId,
+        state: "WAITING",
+      });
     }
     if (intent === "reopen-control") {
       await reopenOperationalControl(controlId);
-      return redirect(`/controlli?id=${encodeURIComponent(controlId)}&esito=riaperto`);
+      return actionRedirect({
+        outcome: "riaperto",
+        selectedControlId: controlId,
+        state: "OPEN",
+      });
     }
     if (intent === "complete-shopify-data-request") {
       await completeShopifyDataRequest(
@@ -162,7 +178,7 @@ export async function action({ request }: Route.ActionArgs) {
         actor,
       );
       await resolveOperationalControl(controlId, "PRIVACY_COMPLETED", note);
-      return redirect("/controlli?esito=completato");
+      return actionRedirect({ outcome: "completato" });
     }
     if (intent === "resolve-aruba-match") {
       await resolveArubaDocumentMatch(
@@ -174,7 +190,7 @@ export async function action({ request }: Route.ActionArgs) {
         actor,
       );
       await resolveOperationalControl(controlId, "ARUBA_MATCHED", note);
-      return redirect("/controlli?esito=completato");
+      return actionRedirect({ outcome: "completato" });
     }
     if (intent === "confirm-aruba-out-of-scope") {
       await confirmArubaDocumentOutOfScope(
@@ -184,7 +200,7 @@ export async function action({ request }: Route.ActionArgs) {
         actor,
       );
       await resolveOperationalControl(controlId, "ARUBA_OUT_OF_SCOPE", note);
-      return redirect("/controlli?esito=completato");
+      return actionRedirect({ outcome: "completato" });
     }
     throw new Response("Azione non supportata", { status: 400 });
   } catch (error) {
@@ -192,27 +208,6 @@ export async function action({ request }: Route.ActionArgs) {
     const result = publicError(error);
     return data(result, { status: result.status });
   }
-}
-
-function controlLink(control: OperationalControl, search: URLSearchParams) {
-  const next = new URLSearchParams(search);
-  next.set("id", control.id);
-  next.delete("esito");
-  return `/controlli?${next.toString()}`;
-}
-
-function controlsListLink(search: URLSearchParams) {
-  const query = search.toString();
-  return query ? `/controlli?${query}` : "/controlli";
-}
-
-function controlsPageLink(search: URLSearchParams, cursor: string) {
-  const next = new URLSearchParams(search);
-  next.delete("id");
-  next.delete("esito");
-  if (cursor) next.set("cursore", cursor);
-  else next.delete("cursore");
-  return controlsListLink(next);
 }
 
 function ControlRow({
@@ -674,70 +669,8 @@ export default function Controls() {
     today,
   } = useLoaderData<typeof loader>();
   const actionError = useActionData<typeof action>();
-  const location = useLocation();
-  const navigate = useNavigate();
   const hasExplicitSelection =
     selectedControlId !== "" && result.selected?.id === selectedControlId;
-  const selectionScrollRef = useRef<number | null>(null);
-  const listScrollRef = useRef<number | null>(null);
-  const lastSelectedIdRef = useRef<string | null>(selectedControlId || null);
-  const detailWasOpenRef = useRef(false);
-  const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const detailHeadingRef = useRef<HTMLHeadingElement | null>(null);
-  useLayoutEffect(() => {
-    const compact = window.matchMedia("(max-width: 64rem)").matches;
-    if (!compact) {
-      if (selectionScrollRef.current === null) return;
-      const scrollPosition = selectionScrollRef.current;
-      selectionScrollRef.current = null;
-      window.scrollTo(0, scrollPosition);
-      let frame = 0;
-      let remainingFrames = 3;
-      const restoreScroll = () => {
-        window.scrollTo(0, scrollPosition);
-        remainingFrames -= 1;
-        if (remainingFrames > 0) frame = window.requestAnimationFrame(restoreScroll);
-      };
-      frame = window.requestAnimationFrame(restoreScroll);
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    if (hasExplicitSelection) {
-      detailWasOpenRef.current = true;
-      lastSelectedIdRef.current = selectedControlId;
-      selectionScrollRef.current = null;
-      window.scrollTo(0, 0);
-      const frame = window.requestAnimationFrame(() => {
-        window.scrollTo(0, 0);
-        detailHeadingRef.current?.focus({ preventScroll: true });
-      });
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    if (!detailWasOpenRef.current) return;
-    detailWasOpenRef.current = false;
-    selectionScrollRef.current = null;
-    const scrollPosition = listScrollRef.current;
-    listScrollRef.current = null;
-    const selectedId = lastSelectedIdRef.current;
-    let frame = 0;
-    let remainingFrames = scrollPosition === null ? 1 : 3;
-    const restoreScroll = () => {
-      if (scrollPosition !== null) window.scrollTo(0, scrollPosition);
-      remainingFrames -= 1;
-      if (remainingFrames > 0) {
-        frame = window.requestAnimationFrame(restoreScroll);
-        return;
-      }
-      if (!selectedId) return;
-      const row = workspaceRef.current?.querySelector<HTMLAnchorElement>(
-        `[data-control-id="${CSS.escape(selectedId)}"]`,
-      );
-      row?.focus({ preventScroll: scrollPosition !== null });
-    };
-    frame = window.requestAnimationFrame(restoreScroll);
-    return () => window.cancelAnimationFrame(frame);
-  }, [hasExplicitSelection, selectedControlId]);
   const search = new URLSearchParams();
   if (state === "WAITING") search.set("vista", "attesa");
   if (severity) search.set("gravita", severity);
@@ -746,16 +679,11 @@ export default function Controls() {
   if (searchTerm) search.set("q", searchTerm);
   if (cursor) search.set("cursore", cursor);
   const listLink = controlsListLink(search);
-  const cameFromControlsList = Boolean(
-    (location.state as { fromControlsList?: boolean } | null)?.fromControlsList,
-  );
-  const returnToList = () => {
-    if (cameFromControlsList) {
-      void navigate(-1);
-      return;
-    }
-    void navigate(listLink, { preventScrollReset: true, replace: true });
-  };
+  const { detailHeadingRef, rememberSelection, returnToList, workspaceRef } = useControlsSelection({
+    hasExplicitSelection,
+    selectedControlId,
+    listLink,
+  });
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
       <div className={`controls-page${hasExplicitSelection ? " controls-page--detail" : ""}`}>
@@ -882,11 +810,7 @@ export default function Controls() {
                 <ControlRow
                   key={control.id}
                   control={control}
-                  onSelect={() => {
-                    selectionScrollRef.current = window.scrollY;
-                    listScrollRef.current = window.scrollY;
-                    lastSelectedIdRef.current = control.id;
-                  }}
+                  onSelect={() => rememberSelection(control.id)}
                   selected={control.id === result.selected?.id}
                   search={search}
                 />
