@@ -28,7 +28,6 @@
 | [ADR base applicativa Debian 13](adr/0005-base-applicativa-debian-13-trixie-slim.md)  | Base container, aggiornamenti e rollback applicativo      | Approvato   | Sì             |
 | [Piano integrazione API Aruba](plans/aruba-api-integration.md)                        | Architettura API, flussi, gate e milestone                | Approvato   | Sì             |
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                                   | Export, upload manuale, readback e import                 | Corrente    | Sì             |
-| [Invio pilota TD01 Aruba](runbooks/aruba-td01-canary.md)                              | Permesso monouso, invio reale e readback fail-closed      | Corrente    | Sì             |
 | [Integrazione Aruba locale](evidence/aruba-helper.md)                                 | Evidenza storica del percorso browser ritirato            | Storico     | No             |
 | [Note di credito ed e-mail](contracts/credit-notes-email.md)                          | Contratto TD04, trigger e trasporto cliente               | Candidato   | Sì             |
 | [Conservazione e cancellazione](contracts/retention-deletion.md)                      | Durate, eccezioni e procedura di cancellazione            | Approvato   | Sì             |
@@ -42,6 +41,6 @@
 | [Recupero pubblicazione 0.3.63](evidence/release-0.3.63-recovery.md)                  | Deroga una tantum al flusso PR della release              | Storico     | No             |
 | [Finding tecnici attivi](audits/active-findings.md)                                   | Vista breve del debito tecnico ancora azionabile          | Corrente    | No             |
 | [Audit del release candidate](audits/release-candidate-review.md)                     | Registro storico delle verifiche e relative risoluzioni   | Storico     | No             |
-| [Readiness della release](runbooks/release-readiness.md)                              | Record storico e gate exact-SHA del pilota                | Corrente    | No             |
+| [Readiness della release](runbooks/release-readiness.md)                              | Record storico da ricertificare prima del nuovo canary    | Storico     | No             |
 
 Nuovi contratti, evidenze e runbook vengono creati soltanto quando esiste contenuto reale.

@@ -238,7 +238,7 @@ export interface ArubaApiInvoicePage {
   terminal: boolean;
 }
 
-export interface ArubaApiUploadResult {
+export interface ArubaApiDryRunResult {
   accepted: boolean;
   errorCode: string;
   errorDescription: string;
@@ -263,11 +263,10 @@ function bearer(token: string): HeadersInit {
   return { Accept: "application/json", Authorization: `Bearer ${token}` };
 }
 
-async function uploadArubaApiInvoice(
+export async function dryRunArubaApiInvoice(
   session: ArubaApiSession,
   xml: Buffer,
-  dryRun: boolean,
-): Promise<ArubaApiUploadResult> {
+): Promise<ArubaApiDryRunResult> {
   if (!xml.byteLength || xml.byteLength > ARUBA_UPLOAD_MAX_BYTES) {
     throw new AppError("ARUBA_BATCH_INVALID", 422);
   }
@@ -286,7 +285,7 @@ async function uploadArubaApiInvoice(
         domain: "",
         senderPIVA: "",
         skipExtraSchema: false,
-        dryRun,
+        dryRun: true,
       }),
     }),
   );
@@ -297,14 +296,6 @@ async function uploadArubaApiInvoice(
     errorDescription: result.errorDescription,
     uploadFileName: result.uploadFileName ?? null,
   };
-}
-
-export function dryRunArubaApiInvoice(session: ArubaApiSession, xml: Buffer) {
-  return uploadArubaApiInvoice(session, xml, true);
-}
-
-export function sendArubaApiInvoice(session: ArubaApiSession, xml: Buffer) {
-  return uploadArubaApiInvoice(session, xml, false);
 }
 
 export async function authenticateArubaApi(input: {

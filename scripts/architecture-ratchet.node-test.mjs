@@ -81,7 +81,6 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
   const readinessFiles = [
     "tests/e2e/readiness/core.ts",
     "tests/e2e/readiness/interface.ts",
-    "tests/e2e/readiness/canary.ts",
     "tests/e2e/readiness/motion.ts",
     "tests/e2e/readiness/mobile-interface.ts",
     "tests/e2e/readiness/http.ts",
@@ -120,7 +119,7 @@ test("readiness e migrazioni restano partizionate senza perdere scenari", async 
   const migrationTests = sources
     .slice(readinessFiles.length)
     .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
-  assert.equal(readinessTests.length, 11);
+  assert.equal(readinessTests.length, 10);
   assert.equal(migrationTests.length, 29);
 });
 

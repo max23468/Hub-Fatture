@@ -277,8 +277,6 @@ export async function listArubaBatches() {
     can_retry: boolean;
     qualification_status: string | null;
     can_authorize_dry_run: boolean;
-    can_authorize_canary: boolean;
-    canary_consumed: boolean;
     documents: Array<{
       id: string;
       fiscal_label: string;
@@ -303,26 +301,6 @@ export async function listArubaBatches() {
                 SELECT 1 FROM aruba_dry_run_qualifications AS qualifications
                 WHERE qualifications.batch_id = batches.id
               ) AS can_authorize_dry_run,
-            batches.environment = 'PRODUCTION' AND batches.transport = 'API'
-              AND batches.mode = 'DOCUMENT_ONLY' AND batches.status = 'DRY_RUN_VALIDATED'
-              AND batches.document_count = 1
-              AND bool_and(documents.document_type = 'TD01')
-              AND bool_and(submissions.status = 'DRY_RUN_VALIDATED')
-              AND EXISTS (
-                SELECT 1 FROM aruba_dry_run_qualifications AS qualifications
-                WHERE qualifications.batch_id = batches.id
-                  AND qualifications.status = 'SUCCEEDED'
-              )
-              AND NOT EXISTS (
-                SELECT 1 FROM aruba_canary_permits AS permits
-                WHERE permits.consumed_at IS NOT NULL
-                   OR (permits.consumed_at IS NULL AND permits.expired_at IS NULL
-                     AND permits.expires_at > now())
-              ) AS can_authorize_canary,
-            EXISTS (
-              SELECT 1 FROM aruba_canary_permits AS permits
-              WHERE permits.batch_id = batches.id AND permits.consumed_at IS NOT NULL
-            ) AS canary_consumed,
             coalesce(jsonb_agg(jsonb_build_object(
               'id', documents.id,
               'fiscal_label', documents.series || ' ' ||

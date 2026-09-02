@@ -15,7 +15,6 @@ import {
   SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
   ARUBA_IDENTITY_EVIDENCE_REPLAY,
   ARUBA_HISTORICAL_API_RECOVERY,
-  ARUBA_TD01_CANARY,
 } from "./support.ts";
 
 test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
@@ -43,7 +42,6 @@ test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
       SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
       ARUBA_IDENTITY_EVIDENCE_REPLAY,
       ARUBA_HISTORICAL_API_RECOVERY,
-      ARUBA_TD01_CANARY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

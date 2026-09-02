@@ -8,10 +8,9 @@ fallback permanente è l’importazione manuale presidiata di dati e file uffici
 una seconda autorità automatica.
 
 Il contratto copre autenticazione, verifica dell’identità, ricerca paginata delle fatture inviate,
-dettaglio, file e notifiche. Per l’outbound copre manifest immutabile, qualifica con
-`POST /services/invoice/upload` e `dryRun=true` e un solo invio pilota TD01 con `dryRun=false`.
-La chiamata reale resta subordinata al permesso monouso e all’autorizzazione esplicita; callback e
-uso ordinario restano fuori da questo contratto operativo.
+dettaglio, file e notifiche. Per l’outbound copre manifest immutabile e qualifica con
+`POST /services/invoice/upload` e `dryRun=true`. `dryRun=false`, trasmissione reale, callback e
+prova SdI restano subordinati ai rispettivi gate e alle autorizzazioni esplicite.
 
 La fonte provider è la [documentazione ufficiale API v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html).
 Un cambiamento di forma, stati o limiti riapre la qualifica prima di estendere il canale Production.
@@ -56,24 +55,6 @@ Ogni batch lega ambiente, account, modalità, tentativo e documenti allo SHA-256
 Timeout, risposta non interpretabile o esito remoto ambiguo producono `UNKNOWN_REMOTE_STATE`,
 bloccano il batch e non consentono retry automatici. I dry-run non incrementano il contatore
 mensile delle trasmissioni accettate.
-
-## Invio pilota TD01
-
-Il percorso reale accetta esclusivamente un batch Production `DOCUMENT_ONLY` con una sola TD01,
-un dry-run `SUCCEEDED` sul medesimo XML e un permesso creato da `Massimo`. Il permesso lega
-ambiente, account, documento, revisione, batch, manifest e hash XML, scade dopo quindici minuti e
-non modifica `ARUBA_SUBMISSION_ENABLED=false`.
-
-Il worker carica e verifica l’XML e autentica l’identità provider prima di consumare il permesso.
-Subito prima della chiamata rilegge sotto lock inventario, connessione, pausa API, documento,
-manifest, hash e assenza di duplicati. Il consumo è atomico e consente un solo tentativo `SEND`;
-non esiste una seconda chiamata automatica.
-
-Una risposta sincrona valida registra l’accettazione o il rifiuto. Timeout, risposta non valida,
-crash dopo il consumo o fallimento della persistenza producono `UNKNOWN_REMOTE_STATE` e avviano
-soltanto il readback canonico. La sincronizzazione collega la submission esclusivamente tramite
-ambiente, account e hash del file fiscale ufficiale, archivia i file disponibili e determina lo
-stato senza riaprire il permesso.
 
 ## Gruppi, documenti e stati
 

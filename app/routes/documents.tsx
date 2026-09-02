@@ -29,7 +29,6 @@ import {
 } from "../../src/db/email.server.ts";
 import { publicError } from "../../src/errors.ts";
 import {
-  authorizeArubaApiCanary,
   authorizeArubaApiDryRunQualification,
   confirmArubaApiBatch,
 } from "../../src/db/aruba-api-outbound.server.ts";
@@ -137,7 +136,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     remoteDocuments,
     batchCreated: url.searchParams.get("batch") === "creato",
     dryRunAuthorized: url.searchParams.get("batch") === "dry-run-autorizzato",
-    canaryAuthorized: url.searchParams.get("batch") === "invio-pilota-autorizzato",
     fileImported: url.searchParams.get("file") === "importato",
   };
 }
@@ -187,14 +185,6 @@ export async function action({ request }: Route.ActionArgs) {
       );
       return redirect("/documenti?batch=dry-run-autorizzato");
     }
-    if (form.get("intent") === "authorize-aruba-canary") {
-      await authorizeArubaApiCanary(
-        form.get("batchId") ?? "",
-        actor,
-        form.get("confirmCanary") === "yes",
-      );
-      return redirect("/documenti?batch=invio-pilota-autorizzato");
-    }
     if (form.get("intent") === "retry-customer-email") {
       await retryCustomerEmail(
         form.get("documentId") ?? "",
@@ -231,7 +221,6 @@ export default function Documents() {
     view,
     batchCreated,
     dryRunAuthorized,
-    canaryAuthorized,
     fileImported,
     remoteDocuments,
   } = useLoaderData<typeof loader>();
@@ -281,11 +270,6 @@ export default function Documents() {
       {dryRunAuthorized ? (
         <p className="notice notice--success" role="status">
           {copy.documents.dryRunQualificationAuthorized}
-        </p>
-      ) : null}
-      {canaryAuthorized ? (
-        <p className="notice notice--success" role="status">
-          {copy.documents.canaryAuthorized}
         </p>
       ) : null}
       {fileImported ? (

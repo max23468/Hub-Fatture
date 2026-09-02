@@ -27,7 +27,6 @@ import {
 import { recomputeOpenBillingCaseStatuses } from "./billing-case-status.server.ts";
 import { waitForArubaApiReadSlot } from "./aruba-api-traffic.server.ts";
 import { commitArubaApiInventoryPage } from "./aruba-api-canonical-page.server.ts";
-import { reconcileCanarySubmissionReadback } from "./aruba-canary-readback.server.ts";
 import { importArubaApiGroupFile } from "./aruba-api-group-file.server.ts";
 import { importArubaRemoteOfficialFileFromApi } from "./aruba-official-file-import.server.ts";
 import { upgradeCachedArubaMatcher } from "./aruba-matcher-upgrade.server.ts";
@@ -429,8 +428,6 @@ async function persistCanonicalPageContents(
         notificationId: file.kind === "SDI_NOTIFICATION" ? file.sha256 : undefined,
       });
     }
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il canary può essere riconciliato soltanto dopo che tutti i file ufficiali del documento sono durabili.
-    await withTransaction((client) => reconcileCanarySubmissionReadback(client, remoteDocumentId));
   }
   await withTransaction((client) =>
     client.query(

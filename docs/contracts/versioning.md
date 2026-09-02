@@ -30,7 +30,7 @@ Le serie `0.7.x`, `0.8.x` e `0.9.x` non fanno parte della roadmap corrente e non
 
 Quando la fase di ricertificazione congela un candidato, `package.json` passa a `1.0.0`, ma la GitHub Release resta non pubblicata. Ricertificazione e canary devono usare lo stesso artefatto identificato da SHA e digest.
 
-Se il canary richiede una modifica al codice, il candidato precedente è scartato e si produce un nuovo SHA/digest mantenendo `1.0.0` non pubblicata. Per decisione del titolare la ricertificazione già chiusa non viene riaperta come fase separata: il pilota ripete sul nuovo candidato i gate tecnici interessati, il deploy exact-SHA e il preflight immediatamente precedente all’invio. Il go-live non introduce modifiche runtime; se una modifica si rende necessaria, si torna ai gate exact-SHA interessati prima di procedere.
+Se la ricertificazione o il canary richiedono una modifica al codice, il candidato precedente è scartato: si produce un nuovo SHA/digest mantenendo `1.0.0` non pubblicata e si ripete la ricertificazione prevista. Il go-live non introduce modifiche runtime; se una modifica si rende necessaria, si torna alla ricertificazione.
 
 La pubblicazione della GitHub Release `1.0.0` avviene soltanto dopo il canary riuscito e l'approvazione finale prevista dalla roadmap.
 
