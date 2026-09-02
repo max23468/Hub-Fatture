@@ -44,7 +44,7 @@ export default function Setup() {
           title={copy.setup.title}
           titleId="setup-title"
         />
-        <Form className="public-form" method="post">
+        <Form className="public-form" method="post" reloadDocument>
           <div className="setup-code">
             <label>
               {copy.setup.code}

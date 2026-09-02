@@ -202,7 +202,11 @@ export default function Home() {
                   <span>{item.detail}</span>
                 )}
               </span>
-              <Link className={item.primary ? "button" : "dashboard-row-link"} to={item.to}>
+              <Link
+                className={item.primary ? "button" : "dashboard-row-link"}
+                reloadDocument
+                to={item.to}
+              >
                 <span>{item.action}</span>
                 <ArrowRight aria-hidden="true" size={18} strokeWidth={1.8} />
               </Link>
@@ -258,11 +262,11 @@ export default function Home() {
         <div className="documents-summary">
           <h2 id="dashboard-documents-title">{copy.dashboard.documents}</h2>
           <div>
-            <Link to="/documenti">
+            <Link reloadDocument to="/documenti">
               <strong>{summary.documents_today}</strong>
               <span>{copy.dashboard.issuedToday}</span>
             </Link>
-            <Link to="/documenti">
+            <Link reloadDocument to="/documenti">
               <strong>{summary.documents_this_month}</strong>
               <span>{copy.dashboard.issuedThisMonth}</span>
             </Link>

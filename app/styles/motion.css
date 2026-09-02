@@ -116,22 +116,6 @@ select {
   transform: translateX(0.125rem);
 }
 
-.nav-item--pending {
-  cursor: progress;
-}
-
-.nav-item__pending-icon {
-  flex: 0 0 auto;
-  margin-left: auto;
-  animation: navigation-pending-spin 700ms linear infinite;
-}
-
-@keyframes navigation-pending-spin {
-  to {
-    transform: rotate(1turn);
-  }
-}
-
 .sidebar-toggle:active,
 .view-nav__item:active {
   transform: scale(0.97);
