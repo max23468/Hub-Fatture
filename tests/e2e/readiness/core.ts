@@ -26,9 +26,7 @@ test.afterAll(async () => {
 
 test("configura i due account e accede con entrambi", async ({ page }) => {
   test.setTimeout(240_000);
-  // Questo test prepara lo stato condiviso dall'intera suite seriale. Il reset deve
-  // appartenere al test, non a beforeAll: Playwright riesegue il gruppo dopo un errore
-  // e ogni tentativo deve ripartire anche dalle fixture, non dai dati già modificati.
+  // Ogni retry seriale ricrea fixture e database dal test, non da beforeAll.
   await resetReadinessState();
   await page.goto("/setup");
   await page.setViewportSize({ width: 320, height: 780 });
@@ -39,6 +37,8 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("alert")).toBeVisible();
   await expectViewportFits(page);
   await page.getByLabel("Codice di configurazione").fill("synthetic-bootstrap-token-for-tests");
+  await page.getByLabel("Password per Massimo").fill("password-massimo");
+  await page.getByLabel("Password per Codex").fill("password-codex");
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Crea gli account" }).click();
 

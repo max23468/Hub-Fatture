@@ -77,15 +77,26 @@ test("le capacità estratte non tornano a crescere in monoliti", async () => {
   assert.deepEqual(offenders, []);
 });
 
-test("la navigazione resta interrompibile e il badge non ricostruisce i controlli", async () => {
-  const [shell, motion, summaryRoute] = await Promise.all([
-    readFile(path.join(root, "app/components/app-shell.tsx"), "utf8"),
-    readFile(path.join(root, "app/styles/motion.css"), "utf8"),
-    readFile(path.join(root, "app/routes/controls-summary.ts"), "utf8"),
-  ]);
+test("la navigazione primaria usa il documento e il badge non ricostruisce i controlli", async () => {
+  const [shell, home, dashboardConnections, login, setup, motion, summaryRoute] = await Promise.all(
+    [
+      readFile(path.join(root, "app/components/app-shell.tsx"), "utf8"),
+      readFile(path.join(root, "app/routes/home.tsx"), "utf8"),
+      readFile(path.join(root, "app/components/dashboard-connections.tsx"), "utf8"),
+      readFile(path.join(root, "app/routes/login.tsx"), "utf8"),
+      readFile(path.join(root, "app/routes/setup.tsx"), "utf8"),
+      readFile(path.join(root, "app/styles/motion.css"), "utf8"),
+      readFile(path.join(root, "app/routes/controls-summary.ts"), "utf8"),
+    ],
+  );
   assert.doesNotMatch(shell, /viewTransition/);
   assert.doesNotMatch(motion, /view-transition/);
-  assert.match(shell, /aria-busy=\{pending \|\| undefined\}/);
+  assert.match(shell, /<NavLink[\s\S]*?reloadDocument[\s\S]*?to=\{to\}/);
+  assert.doesNotMatch(shell, /useNavigation|aria-busy|nav-item--pending/);
+  assert.match(home, /<Link[\s\S]*?reloadDocument[\s\S]*?to=\{item\.to\}/);
+  assert.match(dashboardConnections, /<Link[^>]*reloadDocument[^>]*to=\{to\}/);
+  assert.match(login, /<Form[^>]*method="post"[^>]*reloadDocument/);
+  assert.match(setup, /<Form[^>]*method="post"[^>]*reloadDocument/);
   assert.match(summaryRoute, /readOperationalControlSummary/);
   assert.doesNotMatch(summaryRoute, /getOperationalControlSummary/);
 });

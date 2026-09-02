@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.9
+
+- La navigazione principale e le azioni della Dashboard aprono direttamente la pagina richiesta anche quando Safari iPhone sospende una navigazione dati in corso; Dashboard, Controlli e Preparazioni non restano più dietro al cassetto mobile o a un indicatore di caricamento bloccato.
+
 ## 1.0.8
 
 - I conflitti Aruba già valutati prima della correzione dei riepiloghi fiscali nulli vengono rigiocati automaticamente anche quando il documento è fuori dalla finestra incrementale corrente.

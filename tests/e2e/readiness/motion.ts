@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test";
 
 import { expectViewportFits } from "./support.ts";
 
-test("il sistema di movimento resta fluido, leggibile e riducibile", async ({ page }) => {
+test("movimento e navigazione primaria restano fluidi, leggibili e affidabili", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/setup");
   const setupHeading = page.getByRole("heading", { name: "Configura gli accessi" });
@@ -17,18 +19,6 @@ test("il sistema di movimento resta fluido, leggibile e riducibile", async ({ pa
   await page.getByLabel("Nome utente").fill("Massimo");
   await page.getByLabel("Password").fill("password-massimo");
   await page.getByRole("button", { name: "Accedi" }).click();
-  await page.evaluate(() => {
-    const original = document.startViewTransition?.bind(document);
-    const testWindow = window as Window & { __navigationViewTransitions?: number };
-    testWindow.__navigationViewTransitions = 0;
-    if (original) {
-      document.startViewTransition = (callback) => {
-        testWindow.__navigationViewTransitions = (testWindow.__navigationViewTransitions ?? 0) + 1;
-        return original(callback);
-      };
-    }
-  });
-
   const trigger = page.getByRole("button", { name: "Apri il menu di navigazione" });
   const menu = page.getByRole("dialog", { name: "Navigazione principale" });
   await trigger.click();
@@ -57,26 +47,53 @@ test("il sistema di movimento resta fluido, leggibile e riducibile", async ({ pa
   await expect(page).toHaveURL(/\/attivita$/);
   await expect(menu).not.toBeVisible();
 
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.route(
-    "**/_.data*",
-    async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      await route.continue();
-    },
-    { times: 1 },
+  const clientDataRequests: string[] = [];
+  await page.route("**/_.data*", async (route) => {
+    clientDataRequests.push(route.request().url());
+    await route.abort();
+  });
+
+  async function clickWithDocumentNavigation(pathname: string, click: () => Promise<void>) {
+    const [request] = await Promise.all([
+      page.waitForRequest((candidate) => {
+        const url = new URL(candidate.url());
+        return candidate.isNavigationRequest() && url.pathname === pathname;
+      }),
+      click(),
+    ]);
+    expect(request.resourceType()).toBe("document");
+  }
+
+  await trigger.click();
+  await clickWithDocumentNavigation("/", () =>
+    menu.getByRole("link", { name: "Dashboard", exact: true }).click(),
   );
-  const dashboardLink = page.getByRole("link", { name: "Dashboard", exact: true }).first();
-  await dashboardLink.click();
-  await expect(dashboardLink).toHaveAttribute("aria-busy", "true");
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
-  expect(
-    await page.evaluate(
-      () =>
-        (window as Window & { __navigationViewTransitions?: number }).__navigationViewTransitions,
-    ),
-  ).toBe(0);
+
+  await clickWithDocumentNavigation("/controlli", () =>
+    page.getByRole("link", { name: "Apri controlli", exact: true }).click(),
+  );
+  await expect(page).toHaveURL(/\/controlli$/);
+  await expect(page.getByRole("heading", { name: "Controlli", exact: true })).toBeVisible();
+
+  await trigger.click();
+  await clickWithDocumentNavigation("/", () =>
+    menu.getByRole("link", { name: "Dashboard", exact: true }).click(),
+  );
+  await clickWithDocumentNavigation("/ordini", () =>
+    page.getByRole("link", { name: "Apri preparazioni", exact: true }).first().click(),
+  );
+  await expect(page).toHaveURL(/\/ordini\?vista=fatturare$/);
+  await expect(page.getByRole("heading", { name: "Ordini", exact: true })).toBeVisible();
+  expect(clientDataRequests).toEqual([]);
+
+  await trigger.click();
+  await clickWithDocumentNavigation("/", () =>
+    menu.getByRole("link", { name: "Dashboard", exact: true }).click(),
+  );
+
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   const routeContent = page.locator(".route-content");
   await expect(routeContent).toBeVisible();

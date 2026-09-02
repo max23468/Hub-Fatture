@@ -45,7 +45,7 @@ export default function Login() {
           title={copy.login.title}
           titleId="login-title"
         />
-        <Form className="public-form" method="post">
+        <Form className="public-form" method="post" reloadDocument>
           <label>
             {copy.login.username}
             <input

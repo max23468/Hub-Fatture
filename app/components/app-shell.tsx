@@ -3,7 +3,6 @@ import {
   ClipboardList,
   FileText,
   LayoutDashboard,
-  LoaderCircle,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -16,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Form, NavLink, useFetcher, useLocation, useNavigation } from "react-router";
+import { Form, NavLink, useFetcher, useLocation } from "react-router";
 
 import { copy } from "../copy.it";
 import { BrandLockup } from "./brand-lockup";
@@ -55,48 +54,29 @@ function NavigationLinks({
   controlCount: number;
   onNavigate?: () => void;
 }) {
-  const navigation = useNavigation();
-  return links.map(({ to, label, icon: Icon, end }) => {
-    const destination = navigation.location?.pathname;
-    const pending =
-      navigation.state !== "idle" &&
-      (to === "/" ? destination === "/" : destination === to || destination?.startsWith(`${to}/`));
-    return (
-      <NavLink
-        aria-busy={pending || undefined}
-        aria-label={label}
-        className={pending ? "nav-item nav-item--pending" : "nav-item"}
-        data-tooltip={label}
-        end={end}
-        key={to}
-        onClick={onNavigate}
-        to={to}
-      >
-        <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
-        <span className="nav-item__label">{label}</span>
-        {pending ? (
-          <>
-            <LoaderCircle
-              aria-hidden="true"
-              className="nav-item__pending-icon"
-              size={17}
-              strokeWidth={2}
-            />
-            <span aria-live="polite" className="visually-hidden">
-              {copy.navigation.loading(label)}
-            </span>
-          </>
-        ) : to === "/controlli" && controlCount > 0 ? (
-          <span
-            className="nav-item__badge"
-            aria-label={`${controlCount} ${copy.navigation.controls.toLowerCase()} da risolvere`}
-          >
-            {controlCount > 99 ? "99+" : controlCount}
-          </span>
-        ) : null}
-      </NavLink>
-    );
-  });
+  return links.map(({ to, label, icon: Icon, end }) => (
+    <NavLink
+      aria-label={label}
+      className="nav-item"
+      data-tooltip={label}
+      end={end}
+      key={to}
+      onClick={onNavigate}
+      reloadDocument
+      to={to}
+    >
+      <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
+      <span className="nav-item__label">{label}</span>
+      {to === "/controlli" && controlCount > 0 ? (
+        <span
+          className="nav-item__badge"
+          aria-label={`${controlCount} ${copy.navigation.controls.toLowerCase()} da risolvere`}
+        >
+          {controlCount > 99 ? "99+" : controlCount}
+        </span>
+      ) : null}
+    </NavLink>
+  ));
 }
 
 const sidebarChangeEvent = "hub-fatture:sidebar-change";
