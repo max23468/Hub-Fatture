@@ -221,7 +221,108 @@ function ControlRow({
   );
 }
 
-function ArubaRemoteMatchActions({
+function canLinkArubaRemoteDocument(control: OperationalControl) {
+  const metadata = control.metadata_json;
+  return (
+    ["ARUBA_REMOTE_MATCH", "ARUBA_AMOUNT_MISMATCH", "ARUBA_EXTERNAL_EVIDENCE"].includes(
+      control.kind,
+    ) &&
+    metadata.hasXml &&
+    ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
+    Boolean(metadata.candidates?.length)
+  );
+}
+
+function canConfirmArubaOutOfScope(control: OperationalControl) {
+  const metadata = control.metadata_json;
+  return (
+    metadata.hasXml &&
+    ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
+    ["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(metadata.matchStatus ?? "")
+  );
+}
+
+function ArubaExceptionalEvidenceFields({ kind }: { kind: string }) {
+  if (kind === "ARUBA_AMOUNT_MISMATCH") {
+    return (
+      <>
+        <label className="control-note">
+          <span>{copy.controls.amountMismatchReason}</span>
+          <textarea
+            name="reason"
+            rows={3}
+            minLength={10}
+            maxLength={500}
+            required
+            placeholder={copy.controls.amountMismatchReasonPlaceholder}
+          />
+        </label>
+        <label className="control-action-form__confirmation">
+          <input type="checkbox" name="amountMismatchConfirmation" value="confirmed" required />
+          {copy.controls.confirmAmountMismatchLink}
+        </label>
+      </>
+    );
+  }
+  if (kind === "ARUBA_EXTERNAL_EVIDENCE") {
+    return (
+      <>
+        <label className="control-note">
+          <span>{copy.controls.externalEvidenceReason}</span>
+          <textarea
+            name="reason"
+            rows={3}
+            minLength={10}
+            maxLength={500}
+            required
+            placeholder={copy.controls.externalEvidenceReasonPlaceholder}
+          />
+        </label>
+        <label className="control-action-form__confirmation">
+          <input type="checkbox" name="externalEvidenceConfirmation" value="confirmed" required />
+          {copy.controls.confirmExternalEvidenceLink}
+        </label>
+      </>
+    );
+  }
+  return <input type="hidden" name="reason" value="Collegamento confermato da Controlli" />;
+}
+
+function ArubaLinkForm({ control, csrfToken }: { control: OperationalControl; csrfToken: string }) {
+  const metadata = control.metadata_json;
+  const exceptionalLink = ["ARUBA_AMOUNT_MISMATCH", "ARUBA_EXTERNAL_EVIDENCE"].includes(
+    control.kind,
+  );
+  return (
+    <Form className="control-action-form" method="post">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="controlId" value={control.id} />
+      <input type="hidden" name="intent" value="resolve-aruba-match" />
+      <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
+      <label>
+        {copy.controls.candidateOrder}
+        <select name="orderId" required defaultValue="">
+          <option value="" disabled>
+            {copy.controls.candidateOrder}
+          </option>
+          {metadata.candidates?.map((candidate) => (
+            <option value={candidate.id} key={candidate.id}>
+              {candidate.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <ArubaExceptionalEvidenceFields kind={control.kind} />
+      <OptionalNote />
+      <button className="button" type="submit">
+        <Link2 aria-hidden="true" size={17} />
+        {exceptionalLink ? copy.controls.linkArubaWithDifference : copy.controls.linkAruba}
+      </button>
+    </Form>
+  );
+}
+
+function ArubaOutOfScopeForm({
   control,
   csrfToken,
 }: {
@@ -229,120 +330,43 @@ function ArubaRemoteMatchActions({
   csrfToken: string;
 }) {
   const metadata = control.metadata_json;
-  const canLink =
-    ["ARUBA_REMOTE_MATCH", "ARUBA_AMOUNT_MISMATCH", "ARUBA_EXTERNAL_EVIDENCE"].includes(
-      control.kind,
-    ) &&
-    metadata.hasXml &&
-    ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
-    Boolean(metadata.candidates?.length);
-  const canConfirmOutOfScope =
-    metadata.hasXml &&
-    ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
-    ["PROFILE_CONFLICT", "UNMATCHED", "AMBIGUOUS"].includes(metadata.matchStatus ?? "");
+  return (
+    <Form className="control-action-form" method="post">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="controlId" value={control.id} />
+      <input type="hidden" name="intent" value="confirm-aruba-out-of-scope" />
+      <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
+      <input type="hidden" name="reason" value={copy.controls.outOfScopeReason} />
+      {metadata.candidates?.length ? (
+        <label className="control-action-form__confirmation">
+          <input type="checkbox" name="candidateRejection" value="confirmed" required />
+          {copy.controls.confirmCandidateRejection}
+        </label>
+      ) : null}
+      <OptionalNote />
+      <button className="button button--secondary" type="submit">
+        <ShieldCheck aria-hidden="true" size={17} />
+        {copy.controls.confirmOutOfScope}
+      </button>
+    </Form>
+  );
+}
+
+function ArubaRemoteMatchActions({
+  control,
+  csrfToken,
+}: {
+  control: OperationalControl;
+  csrfToken: string;
+}) {
+  const canLink = canLinkArubaRemoteDocument(control);
+  const canConfirmOutOfScope = canConfirmArubaOutOfScope(control);
 
   return (
     <div className="control-actions-grid">
-      {canLink ? (
-        <Form className="control-action-form" method="post">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="controlId" value={control.id} />
-          <input type="hidden" name="intent" value="resolve-aruba-match" />
-          <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
-          {["ARUBA_AMOUNT_MISMATCH", "ARUBA_EXTERNAL_EVIDENCE"].includes(control.kind) ? null : (
-            <input type="hidden" name="reason" value="Collegamento confermato da Controlli" />
-          )}
-          <label>
-            {copy.controls.candidateOrder}
-            <select name="orderId" required defaultValue="">
-              <option value="" disabled>
-                {copy.controls.candidateOrder}
-              </option>
-              {metadata.candidates?.map((candidate) => (
-                <option value={candidate.id} key={candidate.id}>
-                  {candidate.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {control.kind === "ARUBA_AMOUNT_MISMATCH" ? (
-            <>
-              <label className="control-note">
-                <span>{copy.controls.amountMismatchReason}</span>
-                <textarea
-                  name="reason"
-                  rows={3}
-                  minLength={10}
-                  maxLength={500}
-                  required
-                  placeholder={copy.controls.amountMismatchReasonPlaceholder}
-                />
-              </label>
-              <label className="control-action-form__confirmation">
-                <input
-                  type="checkbox"
-                  name="amountMismatchConfirmation"
-                  value="confirmed"
-                  required
-                />
-                {copy.controls.confirmAmountMismatchLink}
-              </label>
-            </>
-          ) : null}
-          {control.kind === "ARUBA_EXTERNAL_EVIDENCE" ? (
-            <>
-              <label className="control-note">
-                <span>{copy.controls.externalEvidenceReason}</span>
-                <textarea
-                  name="reason"
-                  rows={3}
-                  minLength={10}
-                  maxLength={500}
-                  required
-                  placeholder={copy.controls.externalEvidenceReasonPlaceholder}
-                />
-              </label>
-              <label className="control-action-form__confirmation">
-                <input
-                  type="checkbox"
-                  name="externalEvidenceConfirmation"
-                  value="confirmed"
-                  required
-                />
-                {copy.controls.confirmExternalEvidenceLink}
-              </label>
-            </>
-          ) : null}
-          <OptionalNote />
-          <button className="button" type="submit">
-            <Link2 aria-hidden="true" size={17} />
-            {control.kind === "ARUBA_AMOUNT_MISMATCH"
-              ? copy.controls.linkArubaWithDifference
-              : control.kind === "ARUBA_EXTERNAL_EVIDENCE"
-                ? copy.controls.linkArubaWithDifference
-                : copy.controls.linkAruba}
-          </button>
-        </Form>
-      ) : null}
+      {canLink ? <ArubaLinkForm control={control} csrfToken={csrfToken} /> : null}
       {canConfirmOutOfScope ? (
-        <Form className="control-action-form" method="post">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="controlId" value={control.id} />
-          <input type="hidden" name="intent" value="confirm-aruba-out-of-scope" />
-          <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
-          <input type="hidden" name="reason" value={copy.controls.outOfScopeReason} />
-          {metadata.candidates?.length ? (
-            <label className="control-action-form__confirmation">
-              <input type="checkbox" name="candidateRejection" value="confirmed" required />
-              {copy.controls.confirmCandidateRejection}
-            </label>
-          ) : null}
-          <OptionalNote />
-          <button className="button button--secondary" type="submit">
-            <ShieldCheck aria-hidden="true" size={17} />
-            {copy.controls.confirmOutOfScope}
-          </button>
-        </Form>
+        <ArubaOutOfScopeForm control={control} csrfToken={csrfToken} />
       ) : null}
     </div>
   );
