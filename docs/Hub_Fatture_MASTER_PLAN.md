@@ -647,6 +647,10 @@ Regole:
 - un bonifico Shopify incassato può superare il totale ordine di uno o due centesimi per
   arrotondamento del cliente: l'ordine resta riconciliato al totale pieno, senza aumentare
   l'importo fatturabile; sottopagamenti, eccedenze superiori e altri metodi restano anomalie;
+- una preparazione composta esclusivamente da ordini Shopify con bonifico propone `MP05`;
+  la successiva transazione Shopify `manual` vale come conferma del bonifico soltanto quando
+  ha lo stesso importo e non sono presenti altri metodi concorrenti; preparazioni miste o
+  ambigue conservano il metodo predefinito del profilo fiscale;
 - nessuna percentuale o quota fissa viene ricalcolata: l'unica fonte ammessa è l'importo `fees.amount` restituito da Shopify;
 - Natura e diciture secondo il profilo Aruba verificato;
 - totale documento uguale alla somma delle righe, salvo modifica manuale esplicitamente confermata.

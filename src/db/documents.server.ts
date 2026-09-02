@@ -17,6 +17,7 @@ import {
 } from "../documents.ts";
 import { AppError } from "../errors.ts";
 import { isForeignCustomerKind } from "../orders.ts";
+import { inferredInvoicePaymentMethod } from "../order-payment-reconciliation.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { getConfig } from "../config.server.ts";
@@ -61,6 +62,7 @@ interface CaseOrder {
   billable_amount: number;
   payment_status: string;
   payment_method: string | null;
+  payments: Array<{ method: string; status: string; amount: number }>;
   customer_snapshot_json: Record<string, unknown>;
 }
 
@@ -130,6 +132,10 @@ function casePaymentStatus(caseRow: CaseRow): "PAID" | "PENDING" {
   return caseRow.orders.some((order) => order.payment_status === "PENDING") ? "PENDING" : "PAID";
 }
 
+function casePaymentMethod(caseRow: CaseRow, profile: FiscalProfile): "MP05" | "MP08" {
+  return inferredInvoicePaymentMethod(caseRow.orders) ?? profile.payment.invoiceMethod;
+}
+
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -169,6 +175,14 @@ async function loadCase(client: pg.Pool | pg.PoolClient, id: string, lock = fals
            WHERE payments.order_id = orders.id
            ORDER BY payments.paid_at DESC NULLS LAST, payments.id DESC LIMIT 1
          ),
+         'payments', coalesce((
+           SELECT jsonb_agg(jsonb_build_object(
+             'method', payments.method,
+             'status', payments.status,
+             'amount', payments.amount
+           ) ORDER BY payments.paid_at, payments.id)
+           FROM payments WHERE payments.order_id = orders.id
+         ), '[]'::jsonb),
          'customer_snapshot_json', orders.normalized_snapshot_json -> 'customer'
        ) ORDER BY orders.id) AS orders
        FROM orders WHERE orders.billing_case_id = billing_cases.id
@@ -265,7 +279,7 @@ function documentInput(
         unitAmount: line.unit_amount,
       })) ?? caseRow.orders.map(sourceLine),
     paymentStatus: draft?.payment_status ?? sourcePaymentStatus,
-    paymentMethod: draft?.payment_method ?? profile.payment.invoiceMethod,
+    paymentMethod: draft?.payment_method ?? casePaymentMethod(caseRow, profile),
     causale: draft?.causale ?? undefined,
     notes: draft?.notes ?? undefined,
   });
@@ -666,7 +680,7 @@ function sourceAuditSnapshot(caseRow: CaseRow, profile: FiscalProfile): Record<s
     })),
     lines: caseRow.orders.map(sourceLine),
     paymentStatus: casePaymentStatus(caseRow),
-    paymentMethod: profile.payment.invoiceMethod,
+    paymentMethod: casePaymentMethod(caseRow, profile),
     causale: null,
     notes: null,
   };

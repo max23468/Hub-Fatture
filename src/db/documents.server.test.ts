@@ -144,6 +144,53 @@ test(
       ).rows;
       assert.equal(cases.length, 3);
       assert.ok(cases.every((billingCase) => billingCase.status === "READY"));
+      const transferOrders = await database
+        .getPool()
+        .query<{ id: string; gross_amount: number }>(
+          "SELECT id::text, gross_amount FROM orders WHERE billing_case_id = $1 ORDER BY id",
+          [cases[0]!.id],
+        );
+      await database
+        .getPool()
+        .query("DELETE FROM payments WHERE order_id = ANY($1::bigint[])", [
+          transferOrders.rows.map(({ id }) => id),
+        ]);
+      for (const order of transferOrders.rows) {
+        await database.getPool().query(
+          `INSERT INTO payments
+             (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
+           VALUES
+             ($1, $2, 'Bonifico Bancario', 'PENDING', $4, now() - interval '1 hour', '{}'),
+             ($1, $3, 'manual', 'PAID', $4, now(), '{}')`,
+          [
+            order.id,
+            `bank-transfer-${order.id}`,
+            `manual-confirmation-${order.id}`,
+            order.gross_amount,
+          ],
+        );
+      }
+      const bankTransferProjection = await documents.getInvoiceProjection(cases[0]!.id);
+      assert.ok(
+        bankTransferProjection &&
+          !bankTransferProjection.profileMissing &&
+          "lines" in bankTransferProjection,
+      );
+      assert.equal(bankTransferProjection.paymentMethod, "MP05");
+      assert.match(bankTransferProjection.comparison.payment[0]!.projected, /TP02 · MP05/);
+      await database
+        .getPool()
+        .query("DELETE FROM payments WHERE order_id = ANY($1::bigint[])", [
+          transferOrders.rows.map(({ id }) => id),
+        ]);
+      for (const order of transferOrders.rows) {
+        await database.getPool().query(
+          `INSERT INTO payments
+             (order_id, external_payment_id, method, status, amount, paid_at, raw_json)
+           VALUES ($1, $2, 'Carta di pagamento', 'PAID', $3, now(), '{}')`,
+          [order.id, `card-${order.id}`, order.gross_amount],
+        );
+      }
       const unsavedCandidates = await documents.listMassApprovalCandidates();
       assert.deepEqual(
         unsavedCandidates.map(({ billing_case_id, draft_version }) => ({
