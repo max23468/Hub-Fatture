@@ -47,6 +47,7 @@ export const copy = {
     openMenu: "Apri il menu di navigazione",
     closeMenu: "Chiudi il menu di navigazione",
     mainLabel: "Navigazione principale",
+    loading: (label: string) => `Caricamento ${label}`,
     skipToContent: "Vai al contenuto principale",
     openProfile: (username: string) => `Apri il menu di ${username}`,
     ownerRole: "Amministratore",

@@ -17,6 +17,17 @@ test("il sistema di movimento resta fluido, leggibile e riducibile", async ({ pa
   await page.getByLabel("Nome utente").fill("Massimo");
   await page.getByLabel("Password").fill("password-massimo");
   await page.getByRole("button", { name: "Accedi" }).click();
+  await page.evaluate(() => {
+    const original = document.startViewTransition?.bind(document);
+    const testWindow = window as Window & { __navigationViewTransitions?: number };
+    testWindow.__navigationViewTransitions = 0;
+    if (original) {
+      document.startViewTransition = (callback) => {
+        testWindow.__navigationViewTransitions = (testWindow.__navigationViewTransitions ?? 0) + 1;
+        return original(callback);
+      };
+    }
+  });
 
   const trigger = page.getByRole("button", { name: "Apri il menu di navigazione" });
   const menu = page.getByRole("dialog", { name: "Navigazione principale" });
@@ -47,6 +58,26 @@ test("il sistema di movimento resta fluido, leggibile e riducibile", async ({ pa
   await expect(menu).not.toBeVisible();
 
   await page.setViewportSize({ width: 1280, height: 720 });
+  await page.route(
+    "**/_.data*",
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const dashboardLink = page.getByRole("link", { name: "Dashboard", exact: true }).first();
+  await dashboardLink.click();
+  await expect(dashboardLink).toHaveAttribute("aria-busy", "true");
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __navigationViewTransitions?: number }).__navigationViewTransitions,
+    ),
+  ).toBe(0);
+
   const routeContent = page.locator(".route-content");
   await expect(routeContent).toBeVisible();
   await expect
@@ -79,6 +110,9 @@ test("il sistema di movimento resta fluido, leggibile e riducibile", async ({ pa
   await expect(searchTrigger).toBeFocused();
 
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("link", { name: "Attività", exact: true }).first().click();
+  await expect(page).toHaveURL(/\/attivita$/);
+  await expect(page.locator(".route-content")).toHaveCSS("animation-name", "none");
   await searchTrigger.click();
   await expect(searchPanel).toBeVisible();
   await expect

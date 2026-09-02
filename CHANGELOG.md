@@ -1,8 +1,12 @@
 # Changelog
 
-## 1.0.6
+## 1.0.7
 
 - Gli XML Aruba con un riepilogo IVA accessorio interamente a zero vengono riconciliati usando i soli riepiloghi fiscalmente effettivi; qualunque blocco con imponibile o imposta non nulli continua a partecipare al controllo univoco di natura e riferimento normativo.
+
+## 1.0.6
+
+- Il ritorno alla Dashboard dalla navigazione laterale resta immediatamente interrompibile e mostra la destinazione in caricamento senza serializzare i clic nelle View Transition native; il badge `Controlli` legge la proiezione già materializzata, mentre la ricostruzione esplicita aggiorna i controlli in batch evitando lavoro duplicato durante ogni cambio pagina.
 
 ## 1.0.5
 
