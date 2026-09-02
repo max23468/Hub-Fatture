@@ -58,9 +58,9 @@ test("i metadati release runtime devono essere completi prima dei gate", () => {
     () =>
       validateReleaseMetadata({
         ...valid,
-        lockVersion: "0.3.78",
-        rootLockVersion: "0.3.78",
-        version: "0.3.78",
+        lockVersion: "0.3.77",
+        rootLockVersion: "0.3.77",
+        version: "0.3.77",
       }),
     /non incrementa/,
   );
@@ -70,17 +70,17 @@ test("i metadati release runtime devono essere completi prima dei gate", () => {
   );
 });
 
-test("un candidato 1.0.0 può essere sostituito soltanto prima del tag definitivo", () => {
+test("un candidato runtime può essere sostituito soltanto prima del tag definitivo", () => {
   const candidate = {
-    baseVersion: "1.0.0",
-    changelog: "# Changelog\n\n## 1.0.0\n\n- Candidato sostitutivo.\n",
-    lockVersion: "1.0.0",
-    rootLockVersion: "1.0.0",
-    version: "1.0.0",
+    baseVersion: "1.0.1",
+    changelog: "# Changelog\n\n## 1.0.1\n\n- Candidato sostitutivo.\n",
+    lockVersion: "1.0.1",
+    rootLockVersion: "1.0.1",
+    version: "1.0.1",
   };
   assert.doesNotThrow(() => validateReleaseMetadata(candidate));
   assert.throws(
     () => validateReleaseMetadata({ ...candidate, releaseTagExists: true }),
-    /non incrementa/,
+    /già pubblicata/,
   );
 });

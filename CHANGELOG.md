@@ -3,6 +3,7 @@
 ## 1.0.1
 
 - I documenti Aruba con importo discordante non riaprono controlli verso ordini già fatturati e collegati a un altro documento approvato; il matcher conserva quegli ordini per riconciliare la loro fattura corretta, mentre le preparazioni ancora prive di documento restano bloccate quando destinatario e data indicano un possibile duplicato.
+- I deploy ordinari mantengono e rileggono la modalità invii Aruba già autorizzata; soltanto una transizione effettiva da disabilitata ad abilitata resta nella corsia Production separata.
 
 ## 1.0.0
 

@@ -51,8 +51,10 @@ export function validateReleaseMetadata({
     (part, index) =>
       part > base[index] && current.slice(0, index).every((value, i) => value === base[i]),
   );
-  const replacesUnpublishedCandidate =
-    version === "1.0.0" && baseVersion === "1.0.0" && !releaseTagExists;
+  if (releaseTagExists) {
+    throw new Error(`La versione runtime ${version} è già pubblicata`);
+  }
+  const replacesUnpublishedCandidate = version === baseVersion;
   if (!incrementsBase && !replacesUnpublishedCandidate) {
     throw new Error(`La versione runtime ${version} non incrementa ${baseVersion}`);
   }

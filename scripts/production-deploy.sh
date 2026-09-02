@@ -49,7 +49,16 @@ docker network inspect sequent-proxy >/dev/null 2>&1 \
 [ -x "$candidate_dir/production-readback.sh" ] \
   || { echo "Readback candidato assente" >&2; exit 1; }
 
-"$candidate_dir/production-preflight.sh"
+submission_line_count=$(grep -c '^ARUBA_SUBMISSION_ENABLED=' .env || true)
+[ "$submission_line_count" = "1" ] \
+  || { echo "ARUBA_SUBMISSION_ENABLED deve comparire una sola volta" >&2; exit 1; }
+expected_submission=$(sed -n 's/^ARUBA_SUBMISSION_ENABLED=//p' .env)
+case "$expected_submission" in
+  true | false) ;;
+  *) echo "Valore ARUBA_SUBMISSION_ENABLED non valido" >&2; exit 1 ;;
+esac
+
+"$candidate_dir/production-preflight.sh" "$expected_submission"
 docker pull "$image"
 docker image inspect "$image" >/dev/null
 
@@ -101,7 +110,7 @@ rollback() {
     cp "$previous_compose" compose.yaml
     cp "$previous_caddy" Caddyfile
     docker compose -f compose.yaml --env-file .env --env-file .deploy.env up -d --wait --force-recreate
-    ./scripts/production-readback.sh >/dev/null
+    ./scripts/production-readback.sh "$expected_submission" >/dev/null
   else
     if ! docker compose -f compose.yaml --env-file .env --env-file .deploy.env down; then
       echo "Arresto del primo deploy fallito" >&2
@@ -112,7 +121,8 @@ rollback() {
 }
 
 if ! docker compose -f compose.yaml --env-file .env --env-file .deploy.env up -d --wait --force-recreate \
-  || ! "$candidate_dir/production-readback.sh" >data/operations/deploy-receipt.json.next; then
+  || ! "$candidate_dir/production-readback.sh" "$expected_submission" \
+    >data/operations/deploy-receipt.json.next; then
   if rollback; then
     echo "Deploy non riuscito; rollback applicativo verificato" >&2
   else
