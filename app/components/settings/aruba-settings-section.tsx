@@ -359,6 +359,207 @@ function ArubaApiCredentials({
   );
 }
 
+type ArubaApiStatus = Awaited<ReturnType<typeof getArubaApiConnectionStatus>>;
+
+function arubaApiStatusLabel(api: ArubaApiStatus) {
+  if (!api.configured) return copy.settings.arubaApiNotConfigured;
+  if (api.apiPaused) return copy.settings.arubaApiPaused;
+  if (api.status === "CONNECTED") return copy.settings.arubaApiRunning;
+  if (api.status === "REAUTH_REQUIRED") return copy.settings.arubaApiAttention;
+  return copy.settings.arubaApiBlocked;
+}
+
+function ArubaApiFacts({ api }: { api: ArubaApiStatus }) {
+  return (
+    <dl className="settings-facts-grid settings-facts-grid--three aruba-api-facts">
+      <div>
+        <dt>{copy.settings.arubaApiStatus}</dt>
+        <dd className="aruba-api-fact">
+          <span>{arubaApiStatusLabel(api)}</span>
+          <small>
+            {api.credentialsVerifiedAt
+              ? `${copy.settings.arubaApiIdentityVerified}: ${dateTime(api.credentialsVerifiedAt)}`
+              : copy.settings.arubaApiIdentityNotVerified}
+          </small>
+        </dd>
+      </div>
+      <div>
+        <dt>{copy.settings.arubaApiAuthority}</dt>
+        <dd>{copy.settings.arubaApiAuthorityApi}</dd>
+      </div>
+      <div>
+        <dt>{copy.settings.arubaApiBackfill}</dt>
+        <dd className="aruba-api-fact">
+          <span>
+            {api.lastFullSyncAt
+              ? copy.settings.arubaApiBackfillComplete
+              : api.latestRun?.progress
+                ? copy.settings.arubaApiBackfillRunning(api.latestRun.progress.percent)
+                : copy.settings.arubaApiBackfillPending}
+          </span>
+          {api.latestRun?.progress ? (
+            <>
+              <progress
+                aria-label={copy.settings.arubaApiBackfillProgressLabel}
+                className="aruba-api-progress"
+                max={100}
+                value={api.latestRun.progress.percent}
+              />
+              <small>
+                {copy.settings.arubaApiBackfillCoveredThrough(
+                  dateTime(api.latestRun.progress.coveredThrough),
+                )}
+              </small>
+              <small>
+                {copy.settings.arubaApiBackfillRemaining(
+                  api.latestRun.progress.remainingWindows,
+                  api.latestRun.progress.estimatedRemainingMinutes,
+                )}
+              </small>
+            </>
+          ) : null}
+        </dd>
+      </div>
+      <div>
+        <dt>{copy.settings.arubaApiLatestRun}</dt>
+        <dd className="aruba-api-fact">
+          {api.latestRun ? (
+            <>
+              <span>
+                {copy.settings.arubaApiRunKinds[api.latestRun.kind]} ·{" "}
+                {copy.settings.arubaApiRunStatuses[api.latestRun.status]}
+              </span>
+              <small>
+                {copy.settings.arubaApiRunCounts(
+                  api.latestRun.documents,
+                  api.latestRun.files,
+                  api.latestRun.notifications,
+                )}
+              </small>
+              <small>
+                {copy.settings.arubaApiRunRequests(
+                  api.latestRun.requests,
+                  api.latestRun.requestLimit,
+                )}
+              </small>
+              <small>
+                {copy.settings.arubaApiCheckpoint}:{" "}
+                {copy.settings.arubaApiCheckpointValue(
+                  dateTime(api.latestRun.checkpointEnd),
+                  api.latestRun.checkpointPage,
+                )}
+              </small>
+            </>
+          ) : (
+            <>
+              <span>{copy.settings.never}</span>
+              <small>
+                {copy.settings.arubaApiCheckpoint}: {copy.settings.never}
+              </small>
+            </>
+          )}
+        </dd>
+      </div>
+      <div>
+        <dt>{copy.settings.arubaApiLimits}</dt>
+        <dd>
+          {copy.settings.arubaApiLimitValue(
+            api.limits.inventoryRequestsPerMinute,
+            api.limits.notificationRequestsPerMinute,
+          )}
+          {api.limits.cooldownUntil ? (
+            <small className="aruba-api-limit-warning">
+              {copy.settings.arubaApiSafetyPauseUntil(dateTime(api.limits.cooldownUntil))}
+            </small>
+          ) : null}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function ArubaApiControls({
+  api,
+  canApprove,
+  csrfToken,
+}: {
+  api: ArubaApiStatus;
+  canApprove: boolean;
+  csrfToken: string;
+}) {
+  const syncEnabled = api.configured && api.inboundEnabled && !api.apiPaused;
+  return (
+    <>
+      {api.configured && canApprove ? (
+        <Form method="post" className="aruba-api-controls">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="controls-aruba-api" />
+          <div className="aruba-api-controls__options">
+            <label className="aruba-api-toggle">
+              <input
+                defaultChecked={api.apiPaused}
+                name="arubaApiPaused"
+                type="checkbox"
+                value="true"
+              />
+              <span>{copy.settings.arubaApiPauseControl}</span>
+            </label>
+            <label className="aruba-api-toggle">
+              <input
+                defaultChecked={api.inboundEnabled}
+                name="arubaApiInboundEnabled"
+                type="checkbox"
+                value="true"
+              />
+              <span>{copy.settings.arubaApiInboundControl}</span>
+            </label>
+          </div>
+          <input name="arubaApiPaused" type="hidden" value="false" />
+          <input name="arubaApiInboundEnabled" type="hidden" value="false" />
+          <div className="aruba-api-controls__actions">
+            <button className="button button--secondary" type="submit">
+              {copy.settings.arubaApiSaveControls}
+            </button>
+            {syncEnabled ? (
+              <button className="button" form="aruba-api-sync-form" type="submit">
+                {copy.settings.arubaApiSyncNow}
+              </button>
+            ) : null}
+          </div>
+        </Form>
+      ) : null}
+      {syncEnabled ? (
+        <Form
+          method="post"
+          className={canApprove ? "aruba-api-sync-form" : "aruba-api-sync-action"}
+          id="aruba-api-sync-form"
+        >
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="sync-aruba-api" />
+          {!canApprove ? (
+            <button className="button" type="submit">
+              {copy.settings.arubaApiSyncNow}
+            </button>
+          ) : null}
+        </Form>
+      ) : null}
+      {api.configured && canApprove ? (
+        <Form method="post" className="aruba-api-revoke">
+          <input type="hidden" name="csrf" value={csrfToken} />
+          <input type="hidden" name="intent" value="revoke-aruba-api" />
+          <label className="aruba-api-toggle aruba-api-toggle--revoke">
+            <input name="confirmRevoke" required type="checkbox" value="yes" />
+            <span>{copy.settings.arubaApiRevokeConfirmation}</span>
+          </label>
+          <button className="button button--warning" type="submit">
+            {copy.settings.arubaApiRevoke}
+          </button>
+        </Form>
+      ) : null}
+    </>
+  );
+}
+
 function ArubaApiSettingsCard({
   api,
   credentialIdentity,
@@ -397,120 +598,7 @@ function ArubaApiSettingsCard({
           {copy.settings.arubaApiSavedNotice}
         </p>
       ) : null}
-      <dl className="settings-facts-grid settings-facts-grid--three aruba-api-facts">
-        <div>
-          <dt>{copy.settings.arubaApiStatus}</dt>
-          <dd className="aruba-api-fact">
-            <span>
-              {api.configured
-                ? api.apiPaused
-                  ? copy.settings.arubaApiPaused
-                  : api.status === "CONNECTED"
-                    ? copy.settings.arubaApiRunning
-                    : api.status === "REAUTH_REQUIRED"
-                      ? copy.settings.arubaApiAttention
-                      : copy.settings.arubaApiBlocked
-                : copy.settings.arubaApiNotConfigured}
-            </span>
-            <small>
-              {api.credentialsVerifiedAt
-                ? `${copy.settings.arubaApiIdentityVerified}: ${dateTime(api.credentialsVerifiedAt)}`
-                : copy.settings.arubaApiIdentityNotVerified}
-            </small>
-          </dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaApiAuthority}</dt>
-          <dd>{copy.settings.arubaApiAuthorityApi}</dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaApiBackfill}</dt>
-          <dd className="aruba-api-fact">
-            <span>
-              {api.lastFullSyncAt
-                ? copy.settings.arubaApiBackfillComplete
-                : api.latestRun?.progress
-                  ? copy.settings.arubaApiBackfillRunning(api.latestRun.progress.percent)
-                  : copy.settings.arubaApiBackfillPending}
-            </span>
-            {api.latestRun?.progress ? (
-              <>
-                <progress
-                  aria-label={copy.settings.arubaApiBackfillProgressLabel}
-                  className="aruba-api-progress"
-                  max={100}
-                  value={api.latestRun.progress.percent}
-                />
-                <small>
-                  {copy.settings.arubaApiBackfillCoveredThrough(
-                    dateTime(api.latestRun.progress.coveredThrough),
-                  )}
-                </small>
-                <small>
-                  {copy.settings.arubaApiBackfillRemaining(
-                    api.latestRun.progress.remainingWindows,
-                    api.latestRun.progress.estimatedRemainingMinutes,
-                  )}
-                </small>
-              </>
-            ) : null}
-          </dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaApiLatestRun}</dt>
-          <dd className="aruba-api-fact">
-            {api.latestRun ? (
-              <>
-                <span>
-                  {copy.settings.arubaApiRunKinds[api.latestRun.kind]} ·{" "}
-                  {copy.settings.arubaApiRunStatuses[api.latestRun.status]}
-                </span>
-                <small>
-                  {copy.settings.arubaApiRunCounts(
-                    api.latestRun.documents,
-                    api.latestRun.files,
-                    api.latestRun.notifications,
-                  )}
-                </small>
-                <small>
-                  {copy.settings.arubaApiRunRequests(
-                    api.latestRun.requests,
-                    api.latestRun.requestLimit,
-                  )}
-                </small>
-                <small>
-                  {copy.settings.arubaApiCheckpoint}:{" "}
-                  {copy.settings.arubaApiCheckpointValue(
-                    dateTime(api.latestRun.checkpointEnd),
-                    api.latestRun.checkpointPage,
-                  )}
-                </small>
-              </>
-            ) : (
-              <>
-                <span>{copy.settings.never}</span>
-                <small>
-                  {copy.settings.arubaApiCheckpoint}: {copy.settings.never}
-                </small>
-              </>
-            )}
-          </dd>
-        </div>
-        <div>
-          <dt>{copy.settings.arubaApiLimits}</dt>
-          <dd>
-            {copy.settings.arubaApiLimitValue(
-              api.limits.inventoryRequestsPerMinute,
-              api.limits.notificationRequestsPerMinute,
-            )}
-            {api.limits.cooldownUntil ? (
-              <small className="aruba-api-limit-warning">
-                {copy.settings.arubaApiSafetyPauseUntil(dateTime(api.limits.cooldownUntil))}
-              </small>
-            ) : null}
-          </dd>
-        </div>
-      </dl>
+      <ArubaApiFacts api={api} />
       <ArubaApiCredentials
         canApprove={canApprove}
         configured={api.configured}
@@ -518,78 +606,180 @@ function ArubaApiSettingsCard({
         csrfToken={csrfToken}
         hasError={Boolean(credentialsError)}
       />
-      {api.configured && canApprove ? (
-        <Form method="post" className="aruba-api-controls">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="controls-aruba-api" />
-          <div className="aruba-api-controls__options">
-            <label className="aruba-api-toggle">
-              <input
-                defaultChecked={api.apiPaused}
-                name="arubaApiPaused"
-                type="checkbox"
-                value="true"
-              />
-              <span>{copy.settings.arubaApiPauseControl}</span>
-            </label>
-            <label className="aruba-api-toggle">
-              <input
-                defaultChecked={api.inboundEnabled}
-                name="arubaApiInboundEnabled"
-                type="checkbox"
-                value="true"
-              />
-              <span>{copy.settings.arubaApiInboundControl}</span>
-            </label>
-          </div>
-          <input name="arubaApiPaused" type="hidden" value="false" />
-          <input name="arubaApiInboundEnabled" type="hidden" value="false" />
-          <div className="aruba-api-controls__actions">
-            <button className="button button--secondary" type="submit">
-              {copy.settings.arubaApiSaveControls}
-            </button>
-            {api.inboundEnabled && !api.apiPaused ? (
-              <button className="button" form="aruba-api-sync-form" type="submit">
-                {copy.settings.arubaApiSyncNow}
-              </button>
-            ) : null}
-          </div>
-        </Form>
-      ) : null}
-      {api.configured && api.inboundEnabled && !api.apiPaused ? (
-        <Form
-          method="post"
-          className={canApprove ? "aruba-api-sync-form" : "aruba-api-sync-action"}
-          id="aruba-api-sync-form"
-        >
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="sync-aruba-api" />
-          {!canApprove ? (
-            <button className="button" type="submit">
-              {copy.settings.arubaApiSyncNow}
-            </button>
-          ) : null}
-        </Form>
-      ) : null}
-      {api.configured && canApprove ? (
-        <Form method="post" className="aruba-api-revoke">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="revoke-aruba-api" />
-          <label className="aruba-api-toggle aruba-api-toggle--revoke">
-            <input name="confirmRevoke" required type="checkbox" value="yes" />
-            <span>{copy.settings.arubaApiRevokeConfirmation}</span>
-          </label>
-          <button className="button button--warning" type="submit">
-            {copy.settings.arubaApiRevoke}
-          </button>
-        </Form>
-      ) : null}
+      <ArubaApiControls api={api} canApprove={canApprove} csrfToken={csrfToken} />
       {apiError ? (
         <p className="error" role="alert">
           {apiError}
         </p>
       ) : null}
     </section>
+  );
+}
+
+type ArubaSettings = Awaited<ReturnType<typeof getArubaSettings>>;
+type ArubaInventory = Awaited<ReturnType<typeof getArubaInventoryHealth>>;
+type ArubaMonthlyUsage = Awaited<ReturnType<typeof getArubaMonthlyTransmissionUsage>>;
+
+function arubaConnectionPresentation(inventory: ArubaInventory) {
+  const state = inventory.activeSession
+    ? "ACTIVE"
+    : inventory.blockingReason === "CONFLICT"
+      ? "CONFLICT"
+      : inventory.blocking
+        ? "ATTENTION"
+        : "READY";
+  const text = {
+    ACTIVE: {
+      title: copy.settings.arubaConnectionActive,
+      description: copy.settings.arubaConnectionActiveHelp,
+    },
+    READY: {
+      title: copy.settings.arubaConnectionReady,
+      description: copy.settings.arubaConnectionReadyHelp,
+    },
+    ATTENTION: {
+      title: copy.settings.arubaConnectionAttention,
+      description: copy.settings.arubaConnectionAttentionHelp,
+    },
+    CONFLICT: {
+      title: copy.settings.arubaConnectionConflict,
+      description: copy.settings.arubaConnectionConflictHelp,
+    },
+  }[state];
+  return {
+    Icon: state === "ATTENTION" || state === "CONFLICT" ? AlertTriangle : CircleCheck,
+    state,
+    ...text,
+  };
+}
+
+function ArubaSettingsNotices({
+  aruba,
+  arubaSaved,
+  manualReadbackCompleted,
+}: {
+  aruba: ArubaSettings;
+  arubaSaved: boolean;
+  manualReadbackCompleted: boolean;
+}) {
+  return (
+    <>
+      {arubaSaved ? (
+        <p className="notice" role="status">
+          {copy.settings.arubaSaved}
+        </p>
+      ) : null}
+      {manualReadbackCompleted ? (
+        <p className="notice" role="status">
+          Readback manuale completo acquisito e inventario Aruba aggiornato.
+        </p>
+      ) : null}
+      {aruba.transmissionForcedDocumentOnly ? (
+        <p className="warning">{copy.settings.arubaKillSwitch}</p>
+      ) : null}
+    </>
+  );
+}
+
+function ArubaSyncStatus({ inventory }: { inventory: ArubaInventory }) {
+  const { Icon, state, title, description } = arubaConnectionPresentation(inventory);
+  return (
+    <section className="aruba-sync-card" aria-labelledby="aruba-sync-status-title">
+      <div className="aruba-sync-card__status">
+        <span className={`aruba-sync-card__icon aruba-sync-card__icon--${state.toLowerCase()}`}>
+          <Icon aria-hidden="true" size={22} strokeWidth={1.8} />
+        </span>
+        <div>
+          <p className="aruba-sync-card__eyebrow">{copy.settings.arubaSyncTitle}</p>
+          <h3 id="aruba-sync-status-title">{title}</h3>
+          <p>{description}</p>
+          <p className="aruba-sync-card__updated">
+            {copy.settings.arubaLastUpdate(
+              inventory.lastCompletedAt ? dateTime(inventory.lastCompletedAt) : copy.settings.never,
+            )}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ArubaMonthlyUsageCard({ usage }: { usage: ArubaMonthlyUsage }) {
+  return (
+    <section
+      className="settings-inset-card aruba-monthly-usage-card"
+      aria-labelledby="aruba-monthly-usage-title"
+    >
+      <h3 id="aruba-monthly-usage-title">{copy.settings.arubaMonthlyUsageTitle}</h3>
+      <p>{copy.settings.arubaMonthlyUsage(usage.accepted)}</p>
+      {usage.warning ? (
+        <p className="warning" role="status">
+          {copy.settings.arubaMonthlyWarning(usage.warning, usage.remaining)}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ArubaTransmissionSettings({
+  aruba,
+  canApprove,
+  csrfToken,
+  errorFor,
+}: {
+  aruba: ArubaSettings;
+  canApprove: boolean;
+  csrfToken: string;
+  errorFor: ErrorFor;
+}) {
+  const error = errorFor("save-aruba");
+  return (
+    <>
+      {canApprove ? (
+        <section
+          className="settings-transmission-section"
+          aria-labelledby="aruba-transmission-title"
+        >
+          <header>
+            <h3 id="aruba-transmission-title">{copy.settings.arubaTransmissionTitle}</h3>
+            <p>{copy.settings.arubaTransmissionHelp}</p>
+          </header>
+          <SettingsForm
+            accessibleSubmitLabel={copy.settings.arubaSave}
+            className="settings-choice-card settings-choice-card--compact"
+            key={aruba.mode.version}
+            submitLabel={copy.settings.saveShort}
+          >
+            <input type="hidden" name="csrf" value={csrfToken} />
+            <input type="hidden" name="intent" value="save-aruba" />
+            <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
+            <label className="settings-choice-card__field">
+              <span>{copy.settings.arubaMode}</span>
+              <SettingsSelect
+                data-initial={aruba.mode.value}
+                defaultValue={aruba.mode.value}
+                name="arubaMode"
+              >
+                <option value="DOCUMENT_ONLY">{copy.settings.arubaDocumentOnly}</option>
+                <option value="CONTEXTUAL_CONFIRMATION">
+                  {copy.settings.arubaContextualConfirmation}
+                </option>
+                <option value="AUTOMATIC_AFTER_APPROVAL">
+                  {copy.settings.arubaAutomaticAfterApproval}
+                </option>
+              </SettingsSelect>
+            </label>
+          </SettingsForm>
+        </section>
+      ) : (
+        <p>{copy.settings.arubaOwnerOnly}</p>
+      )}
+      {error ? (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -622,33 +812,6 @@ export function ArubaSettingsSection({
   arubaBackfillReadiness: Awaited<ReturnType<typeof getArubaBackfillReadiness>>;
   arubaMonthlyUsage: Awaited<ReturnType<typeof getArubaMonthlyTransmissionUsage>>;
 }) {
-  const connectionState = inventory.activeSession
-    ? "ACTIVE"
-    : inventory.blockingReason === "CONFLICT"
-      ? "CONFLICT"
-      : inventory.blocking
-        ? "ATTENTION"
-        : "READY";
-  const connectionCopy = {
-    ACTIVE: {
-      title: copy.settings.arubaConnectionActive,
-      description: copy.settings.arubaConnectionActiveHelp,
-    },
-    READY: {
-      title: copy.settings.arubaConnectionReady,
-      description: copy.settings.arubaConnectionReadyHelp,
-    },
-    ATTENTION: {
-      title: copy.settings.arubaConnectionAttention,
-      description: copy.settings.arubaConnectionAttentionHelp,
-    },
-    CONFLICT: {
-      title: copy.settings.arubaConnectionConflict,
-      description: copy.settings.arubaConnectionConflictHelp,
-    },
-  }[connectionState];
-  const ConnectionIcon =
-    connectionState === "ATTENTION" || connectionState === "CONFLICT" ? AlertTriangle : CircleCheck;
   return (
     <section className="settings-section" id="aruba" aria-labelledby="aruba-title">
       <SettingsSectionHeader
@@ -657,19 +820,11 @@ export function ArubaSettingsSection({
         title={copy.settings.arubaTitle}
         intro={copy.settings.arubaHelp}
       />
-      {arubaSaved ? (
-        <p className="notice" role="status">
-          {copy.settings.arubaSaved}
-        </p>
-      ) : null}
-      {manualReadbackCompleted ? (
-        <p className="notice" role="status">
-          Readback manuale completo acquisito e inventario Aruba aggiornato.
-        </p>
-      ) : null}
-      {aruba.transmissionForcedDocumentOnly ? (
-        <p className="warning">{copy.settings.arubaKillSwitch}</p>
-      ) : null}
+      <ArubaSettingsNotices
+        aruba={aruba}
+        arubaSaved={arubaSaved}
+        manualReadbackCompleted={manualReadbackCompleted}
+      />
       <div className="aruba-settings-stack">
         <ArubaApiSettingsCard
           api={arubaApi}
@@ -679,48 +834,14 @@ export function ArubaSettingsSection({
           errorFor={errorFor}
           notice={arubaApiNotice}
         />
-        <section className="aruba-sync-card" aria-labelledby="aruba-sync-status-title">
-          <div className="aruba-sync-card__status">
-            <span
-              className={`aruba-sync-card__icon aruba-sync-card__icon--${connectionState.toLowerCase()}`}
-            >
-              <ConnectionIcon aria-hidden="true" size={22} strokeWidth={1.8} />
-            </span>
-            <div>
-              <p className="aruba-sync-card__eyebrow">{copy.settings.arubaSyncTitle}</p>
-              <h3 id="aruba-sync-status-title">{connectionCopy.title}</h3>
-              <p>{connectionCopy.description}</p>
-              <p className="aruba-sync-card__updated">
-                {copy.settings.arubaLastUpdate(
-                  inventory.lastCompletedAt
-                    ? dateTime(inventory.lastCompletedAt)
-                    : copy.settings.never,
-                )}
-              </p>
-            </div>
-          </div>
-        </section>
+        <ArubaSyncStatus inventory={inventory} />
         <ArubaInventoryCard inventory={inventory} />
         <ArubaConnectionDetails
           api={arubaApi}
           inventory={inventory}
           readiness={arubaBackfillReadiness}
         />
-        <section
-          className="settings-inset-card aruba-monthly-usage-card"
-          aria-labelledby="aruba-monthly-usage-title"
-        >
-          <h3 id="aruba-monthly-usage-title">{copy.settings.arubaMonthlyUsageTitle}</h3>
-          <p>{copy.settings.arubaMonthlyUsage(arubaMonthlyUsage.accepted)}</p>
-          {arubaMonthlyUsage.warning ? (
-            <p className="warning" role="status">
-              {copy.settings.arubaMonthlyWarning(
-                arubaMonthlyUsage.warning,
-                arubaMonthlyUsage.remaining,
-              )}
-            </p>
-          ) : null}
-        </section>
+        <ArubaMonthlyUsageCard usage={arubaMonthlyUsage} />
         {canApprove && inventory.blocking ? (
           <ArubaManualRecovery
             csrfToken={csrfToken}
@@ -728,50 +849,12 @@ export function ArubaSettingsSection({
             manualReadback={manualReadback}
           />
         ) : null}
-        {canApprove ? (
-          <section
-            className="settings-transmission-section"
-            aria-labelledby="aruba-transmission-title"
-          >
-            <header>
-              <h3 id="aruba-transmission-title">{copy.settings.arubaTransmissionTitle}</h3>
-              <p>{copy.settings.arubaTransmissionHelp}</p>
-            </header>
-            <SettingsForm
-              accessibleSubmitLabel={copy.settings.arubaSave}
-              className="settings-choice-card settings-choice-card--compact"
-              key={aruba.mode.version}
-              submitLabel={copy.settings.saveShort}
-            >
-              <input type="hidden" name="csrf" value={csrfToken} />
-              <input type="hidden" name="intent" value="save-aruba" />
-              <input type="hidden" name="arubaModeVersion" value={aruba.mode.version} />
-              <label className="settings-choice-card__field">
-                <span>{copy.settings.arubaMode}</span>
-                <SettingsSelect
-                  data-initial={aruba.mode.value}
-                  defaultValue={aruba.mode.value}
-                  name="arubaMode"
-                >
-                  <option value="DOCUMENT_ONLY">{copy.settings.arubaDocumentOnly}</option>
-                  <option value="CONTEXTUAL_CONFIRMATION">
-                    {copy.settings.arubaContextualConfirmation}
-                  </option>
-                  <option value="AUTOMATIC_AFTER_APPROVAL">
-                    {copy.settings.arubaAutomaticAfterApproval}
-                  </option>
-                </SettingsSelect>
-              </label>
-            </SettingsForm>
-          </section>
-        ) : (
-          <p>{copy.settings.arubaOwnerOnly}</p>
-        )}
-        {errorFor("save-aruba") ? (
-          <p className="error" role="alert">
-            {errorFor("save-aruba")}
-          </p>
-        ) : null}
+        <ArubaTransmissionSettings
+          aruba={aruba}
+          canApprove={canApprove}
+          csrfToken={csrfToken}
+          errorFor={errorFor}
+        />
       </div>
     </section>
   );

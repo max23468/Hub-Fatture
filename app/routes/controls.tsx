@@ -48,6 +48,7 @@ import { readForm, readMultipartForm } from "../../src/http.server.ts";
 const severities = ["BLOCKING", "IMPORTANT", "ORDINARY"] as const;
 const origins = ["ORDERS", "DOCUMENTS", "CUSTOMERS", "CONNECTIONS", "PRIVACY"] as const;
 const waitingReasons = ["PROVIDER", "CUSTOMER", "ACCOUNTING", "TECHNICAL", "FOLLOW_UP"] as const;
+type ControlsResult = Awaited<ReturnType<typeof readOperationalControls>>;
 export function meta({ error }: Route.MetaArgs) {
   return privateRouteMeta("controls", { error });
 }
@@ -651,6 +652,234 @@ function ControlDetail({
   );
 }
 
+function ControlsOverview({ state, result }: { state: string; result: ControlsResult }) {
+  return (
+    <div className="controls-overview">
+      <ViewNavigation
+        active={state === "OPEN" ? "aperti" : "attesa"}
+        label={copy.controls.viewsLabel}
+        items={[
+          {
+            value: "aperti",
+            label: `${copy.controls.open} ${result.summary.open}`,
+            to: "/controlli",
+          },
+          {
+            value: "attesa",
+            label: `${copy.controls.waiting} ${result.summary.waiting}`,
+            to: "/controlli?vista=attesa",
+          },
+        ]}
+      />
+      <dl className="controls-severity-summary" aria-label={copy.controls.severityLabel}>
+        <div className="controls-severity-summary__blocking">
+          <dt>{copy.controls.blocking}</dt>
+          <dd>{result.summary.blocking}</dd>
+        </div>
+        <div className="controls-severity-summary__important">
+          <dt>{copy.controls.important}</dt>
+          <dd>{result.summary.important}</dd>
+        </div>
+        <div>
+          <dt>{copy.controls.ordinary}</dt>
+          <dd>{result.summary.ordinary}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+function ControlsFeedback({ outcome, errorMessage }: { outcome: string; errorMessage?: string }) {
+  const outcomeMessage =
+    outcome === "attesa"
+      ? copy.controls.actionWaiting
+      : outcome === "riaperto"
+        ? copy.controls.reopened
+        : outcome === "file-acquisito"
+          ? copy.controls.fileAcquired
+          : copy.controls.actionCompleted;
+  return (
+    <>
+      {outcome ? (
+        <p className="notice notice--success" role="status">
+          {outcomeMessage}
+        </p>
+      ) : null}
+      {errorMessage ? (
+        <p className="error" role="alert">
+          {errorMessage}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function ControlsFilters({
+  kind,
+  origin,
+  searchTerm,
+  severity,
+  state,
+}: {
+  kind: string;
+  origin: string;
+  searchTerm: string;
+  severity: string;
+  state: string;
+}) {
+  return (
+    <div className="controls-toolbar">
+      <Form className="controls-filters" method="get">
+        {state === "WAITING" ? <input type="hidden" name="vista" value="attesa" /> : null}
+        <label>
+          <span>{copy.controls.searchLabel}</span>
+          <input
+            type="search"
+            name="q"
+            defaultValue={searchTerm}
+            maxLength={100}
+            placeholder={copy.controls.searchPlaceholder}
+          />
+        </label>
+        <label>
+          <span>{copy.controls.severityLabel}</span>
+          <select name="gravita" defaultValue={severity}>
+            <option value="">{copy.controls.all}</option>
+            {severities.map((value) => (
+              <option key={value} value={value}>
+                {copy.controls.severity[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>{copy.controls.kindLabel}</span>
+          <select name="tipo" defaultValue={kind}>
+            <option value="">{copy.controls.all}</option>
+            {Object.entries(copy.controls.kinds).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>{copy.controls.originLabel}</span>
+          <select name="origine" defaultValue={origin}>
+            <option value="">{copy.controls.all}</option>
+            {origins.map((value) => (
+              <option key={value} value={value}>
+                {copy.controls.origins[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="button button--secondary" type="submit">
+          {copy.controls.applyFilters}
+        </button>
+      </Form>
+    </div>
+  );
+}
+
+function ControlsWorkspace({
+  canApprove,
+  csrfToken,
+  defaultDueDate,
+  detailHeadingRef,
+  hasExplicitSelection,
+  rememberSelection,
+  result,
+  search,
+  state,
+  today,
+  username,
+  workspaceRef,
+}: {
+  canApprove: boolean;
+  csrfToken: string;
+  defaultDueDate: string;
+  detailHeadingRef: RefObject<HTMLHeadingElement | null>;
+  hasExplicitSelection: boolean;
+  rememberSelection: (controlId: string) => void;
+  result: ControlsResult;
+  search: URLSearchParams;
+  state: string;
+  today: string;
+  username: string;
+  workspaceRef: RefObject<HTMLDivElement | null>;
+}) {
+  if (!result.rows.length) {
+    return (
+      <section className="dashboard-panel controls-empty">
+        <CheckCircle2 aria-hidden="true" size={28} strokeWidth={1.8} />
+        <span>
+          <h2>{state === "OPEN" ? copy.controls.emptyOpen : copy.controls.emptyWaiting}</h2>
+          <p>{state === "OPEN" ? copy.controls.emptyOpenHelp : copy.controls.emptyWaitingHelp}</p>
+        </span>
+      </section>
+    );
+  }
+  return (
+    <div
+      className={`controls-workspace controls-workspace--${hasExplicitSelection ? "detail" : "list"}`}
+      ref={workspaceRef}
+    >
+      <section className="controls-queue" aria-label={copy.controls.title}>
+        {result.rows.map((control) => (
+          <ControlRow
+            key={control.id}
+            control={control}
+            onSelect={() => rememberSelection(control.id)}
+            selected={control.id === result.selected?.id}
+            search={search}
+          />
+        ))}
+      </section>
+      <ControlDetail
+        control={result.selected}
+        canApprove={canApprove}
+        csrfToken={csrfToken}
+        headingRef={detailHeadingRef}
+        username={username}
+        defaultDueDate={defaultDueDate}
+        today={today}
+      />
+    </div>
+  );
+}
+
+function ControlsPagination({
+  result,
+  search,
+}: {
+  result: ControlsResult;
+  search: URLSearchParams;
+}) {
+  if (!result.previousCursor && !result.nextCursor) return null;
+  return (
+    <nav className="pagination" aria-label={copy.controls.paginationLabel}>
+      {result.previousCursor ? (
+        <Link
+          className="button button--secondary"
+          to={controlsPageLink(search, result.previousCursor)}
+        >
+          <ArrowLeft aria-hidden="true" size={17} />
+          {copy.controls.previousPage}
+        </Link>
+      ) : (
+        <span />
+      )}
+      {result.nextCursor ? (
+        <Link className="button button--secondary" to={controlsPageLink(search, result.nextCursor)}>
+          {copy.controls.nextPage}
+          <ArrowRight aria-hidden="true" size={17} />
+        </Link>
+      ) : null}
+    </nav>
+  );
+}
+
 export default function Controls() {
   const {
     username,
@@ -700,167 +929,34 @@ export default function Controls() {
             </button>
           </nav>
         ) : null}
-        <div className="controls-overview">
-          <ViewNavigation
-            active={state === "OPEN" ? "aperti" : "attesa"}
-            label={copy.controls.viewsLabel}
-            items={[
-              {
-                value: "aperti",
-                label: `${copy.controls.open} ${result.summary.open}`,
-                to: "/controlli",
-              },
-              {
-                value: "attesa",
-                label: `${copy.controls.waiting} ${result.summary.waiting}`,
-                to: "/controlli?vista=attesa",
-              },
-            ]}
-          />
-          <dl className="controls-severity-summary" aria-label={copy.controls.severityLabel}>
-            <div className="controls-severity-summary__blocking">
-              <dt>{copy.controls.blocking}</dt>
-              <dd>{result.summary.blocking}</dd>
-            </div>
-            <div className="controls-severity-summary__important">
-              <dt>{copy.controls.important}</dt>
-              <dd>{result.summary.important}</dd>
-            </div>
-            <div>
-              <dt>{copy.controls.ordinary}</dt>
-              <dd>{result.summary.ordinary}</dd>
-            </div>
-          </dl>
-        </div>
-        {outcome ? (
-          <p className="notice notice--success" role="status">
-            {outcome === "attesa"
-              ? copy.controls.actionWaiting
-              : outcome === "riaperto"
-                ? copy.controls.reopened
-                : outcome === "file-acquisito"
-                  ? copy.controls.fileAcquired
-                  : copy.controls.actionCompleted}
-          </p>
-        ) : null}
-        {actionError && "message" in actionError ? (
-          <p className="error" role="alert">
-            {actionError.message}
-          </p>
-        ) : null}
-        <div className="controls-toolbar">
-          <Form className="controls-filters" method="get">
-            {state === "WAITING" ? <input type="hidden" name="vista" value="attesa" /> : null}
-            <label>
-              <span>{copy.controls.searchLabel}</span>
-              <input
-                type="search"
-                name="q"
-                defaultValue={searchTerm}
-                maxLength={100}
-                placeholder={copy.controls.searchPlaceholder}
-              />
-            </label>
-            <label>
-              <span>{copy.controls.severityLabel}</span>
-              <select name="gravita" defaultValue={severity}>
-                <option value="">{copy.controls.all}</option>
-                {severities.map((value) => (
-                  <option key={value} value={value}>
-                    {copy.controls.severity[value]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>{copy.controls.kindLabel}</span>
-              <select name="tipo" defaultValue={kind}>
-                <option value="">{copy.controls.all}</option>
-                {Object.entries(copy.controls.kinds).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>{copy.controls.originLabel}</span>
-              <select name="origine" defaultValue={origin}>
-                <option value="">{copy.controls.all}</option>
-                {origins.map((value) => (
-                  <option key={value} value={value}>
-                    {copy.controls.origins[value]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button className="button button--secondary" type="submit">
-              {copy.controls.applyFilters}
-            </button>
-          </Form>
-        </div>
+        <ControlsOverview state={state} result={result} />
+        <ControlsFeedback
+          outcome={outcome}
+          errorMessage={actionError && "message" in actionError ? actionError.message : undefined}
+        />
+        <ControlsFilters
+          kind={kind}
+          origin={origin}
+          searchTerm={searchTerm}
+          severity={severity}
+          state={state}
+        />
         <p className="controls-results-count">{copy.controls.results(result.total)}</p>
-        {result.rows.length ? (
-          <div
-            className={`controls-workspace controls-workspace--${hasExplicitSelection ? "detail" : "list"}`}
-            ref={workspaceRef}
-          >
-            <section className="controls-queue" aria-label={copy.controls.title}>
-              {result.rows.map((control) => (
-                <ControlRow
-                  key={control.id}
-                  control={control}
-                  onSelect={() => rememberSelection(control.id)}
-                  selected={control.id === result.selected?.id}
-                  search={search}
-                />
-              ))}
-            </section>
-            <ControlDetail
-              control={result.selected}
-              canApprove={canApprove}
-              csrfToken={csrfToken}
-              headingRef={detailHeadingRef}
-              username={username}
-              defaultDueDate={defaultDueDate}
-              today={today}
-            />
-          </div>
-        ) : (
-          <section className="dashboard-panel controls-empty">
-            <CheckCircle2 aria-hidden="true" size={28} strokeWidth={1.8} />
-            <span>
-              <h2>{state === "OPEN" ? copy.controls.emptyOpen : copy.controls.emptyWaiting}</h2>
-              <p>
-                {state === "OPEN" ? copy.controls.emptyOpenHelp : copy.controls.emptyWaitingHelp}
-              </p>
-            </span>
-          </section>
-        )}
-        {result.previousCursor || result.nextCursor ? (
-          <nav className="pagination" aria-label={copy.controls.paginationLabel}>
-            {result.previousCursor ? (
-              <Link
-                className="button button--secondary"
-                to={controlsPageLink(search, result.previousCursor)}
-              >
-                <ArrowLeft aria-hidden="true" size={17} />
-                {copy.controls.previousPage}
-              </Link>
-            ) : (
-              <span />
-            )}
-            {result.nextCursor ? (
-              <Link
-                className="button button--secondary"
-                to={controlsPageLink(search, result.nextCursor)}
-              >
-                {copy.controls.nextPage}
-                <ArrowRight aria-hidden="true" size={17} />
-              </Link>
-            ) : null}
-          </nav>
-        ) : null}
+        <ControlsWorkspace
+          canApprove={canApprove}
+          csrfToken={csrfToken}
+          defaultDueDate={defaultDueDate}
+          detailHeadingRef={detailHeadingRef}
+          hasExplicitSelection={hasExplicitSelection}
+          rememberSelection={rememberSelection}
+          result={result}
+          search={search}
+          state={state}
+          today={today}
+          username={username}
+          workspaceRef={workspaceRef}
+        />
+        <ControlsPagination result={result} search={search} />
       </div>
     </AppShell>
   );

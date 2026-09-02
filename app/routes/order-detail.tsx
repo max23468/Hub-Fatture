@@ -29,6 +29,8 @@ import { getOrder } from "../../src/db/order-queries.server.ts";
 import { listOrderRemoteDocuments } from "../../src/db/aruba-inventory-queries.server.ts";
 
 type OrderLine = NonNullable<Awaited<ReturnType<typeof getOrder>>>["lines"][number];
+type Order = NonNullable<Awaited<ReturnType<typeof getOrder>>>;
+type RemoteDocument = Awaited<ReturnType<typeof listOrderRemoteDocuments>>[number];
 type OrderLineSortKey = "description" | "quantity" | "gross_amount" | "discount_amount";
 
 function orderLineValue(line: OrderLine, key: OrderLineSortKey): SortValue {
@@ -103,101 +105,129 @@ function OrderStatusActions({
   canApprove,
   csrfToken,
 }: {
-  order: NonNullable<Awaited<ReturnType<typeof getOrder>>>;
+  order: Order;
   canApprove: boolean;
   csrfToken: string;
 }) {
-  const [historicalOutcome, setHistoricalOutcome] = useState("");
   const needsInvoiceAttachment =
     order.historical_reconciliation_outcome === "ALREADY_INVOICED" && !order.historical_invoice_id;
+  const needsHistoricalReview =
+    !order.billing_case_id &&
+    (order.trigger_status === "LEGACY_BILLING_REVIEW" || needsInvoiceAttachment);
+  const canPrepare =
+    !order.billing_case_id &&
+    !["CANCELLED_NO_DOCUMENT", "REFUNDED_BEFORE_ISSUE", "INVOICED"].includes(order.trigger_status);
   return (
     <>
-      {!order.billing_case_id &&
-      (order.trigger_status === "LEGACY_BILLING_REVIEW" || needsInvoiceAttachment) ? (
-        canApprove ? (
-          <Form method="post" encType="multipart/form-data" className="section-gap">
-            <input type="hidden" name="csrf" value={csrfToken} />
-            <input type="hidden" name="intent" value="reconcile-history" />
-            <div className="notice">
-              <strong>{copy.orderDetail.historyTitle}</strong>
-              <p>{copy.orderDetail.historyHelp}</p>
-            </div>
-            {needsInvoiceAttachment ? (
-              <input type="hidden" name="outcome" value="ALREADY_INVOICED" />
-            ) : (
-              <label>
-                {copy.orderDetail.historyOutcome}
-                <select
-                  name="outcome"
-                  required
-                  value={historicalOutcome}
-                  onChange={(event) => setHistoricalOutcome(event.currentTarget.value)}
-                >
-                  <option value="" disabled>
-                    Seleziona un esito
-                  </option>
-                  <option value="ALREADY_INVOICED">{copy.orderDetail.alreadyInvoiced}</option>
-                  <option value="NOT_INVOICED">{copy.orderDetail.notInvoiced}</option>
-                </select>
-              </label>
-            )}
-            <label>
-              {copy.orderDetail.historyReference}
-              <textarea
-                name="reference"
-                required
-                minLength={10}
-                maxLength={500}
-                defaultValue={
-                  needsInvoiceAttachment ? (order.historical_reconciliation_reference ?? "") : ""
-                }
-              />
-            </label>
-            <label>
-              {copy.orderDetail.historyInvoiceXml}
-              <input
-                name="invoiceXml"
-                type="file"
-                accept="application/xml,text/xml,.xml"
-                required={needsInvoiceAttachment || historicalOutcome === "ALREADY_INVOICED"}
-              />
-            </label>
-            {needsInvoiceAttachment || historicalOutcome === "ALREADY_INVOICED" ? (
-              <label className="checkbox-row">
-                <input name="manualReviewApproved" type="checkbox" />
-                <span>{copy.orderDetail.manualReviewApproved}</span>
-              </label>
-            ) : null}
-            <button className="button" type="submit">
-              {copy.orderDetail.reconcileHistory}
-            </button>
-          </Form>
-        ) : null
-      ) : !order.billing_case_id &&
-        !["CANCELLED_NO_DOCUMENT", "REFUNDED_BEFORE_ISSUE", "INVOICED"].includes(
-          order.trigger_status,
-        ) ? (
-        <Form method="post" className="section-gap">
-          <input type="hidden" name="csrf" value={csrfToken} />
-          <input type="hidden" name="intent" value="prepare" />
-          <button className="button" type="submit">
-            {copy.orderDetail.prepareNow}
-          </button>
-        </Form>
+      {needsHistoricalReview && canApprove ? (
+        <HistoricalReconciliationForm
+          csrfToken={csrfToken}
+          needsInvoiceAttachment={needsInvoiceAttachment}
+          reference={order.historical_reconciliation_reference}
+        />
+      ) : canPrepare && !needsHistoricalReview ? (
+        <PrepareOrderForm csrfToken={csrfToken} />
       ) : null}
-      {order.historical_reconciliation_outcome ? (
-        <div className="notice section-gap">
-          <strong>{copy.orderDetail.historyCompleted}</strong>
-          <p>
-            {order.historical_reconciliation_outcome === "ALREADY_INVOICED"
-              ? copy.orderDetail.alreadyInvoiced
-              : copy.orderDetail.notInvoiced}
-            {order.historical_reconciled_at ? ` · ${dateTime(order.historical_reconciled_at)}` : ""}
-          </p>
-          <p>{order.historical_reconciliation_reference}</p>
-        </div>
-      ) : null}
+      <HistoricalReconciliationResult order={order} />
     </>
+  );
+}
+
+function HistoricalReconciliationForm({
+  csrfToken,
+  needsInvoiceAttachment,
+  reference,
+}: {
+  csrfToken: string;
+  needsInvoiceAttachment: boolean;
+  reference: string | null;
+}) {
+  const [historicalOutcome, setHistoricalOutcome] = useState("");
+  const needsManualReview = needsInvoiceAttachment || historicalOutcome === "ALREADY_INVOICED";
+  return (
+    <Form method="post" encType="multipart/form-data" className="section-gap">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="intent" value="reconcile-history" />
+      <div className="notice">
+        <strong>{copy.orderDetail.historyTitle}</strong>
+        <p>{copy.orderDetail.historyHelp}</p>
+      </div>
+      {needsInvoiceAttachment ? (
+        <input type="hidden" name="outcome" value="ALREADY_INVOICED" />
+      ) : (
+        <label>
+          {copy.orderDetail.historyOutcome}
+          <select
+            name="outcome"
+            required
+            value={historicalOutcome}
+            onChange={(event) => setHistoricalOutcome(event.currentTarget.value)}
+          >
+            <option value="" disabled>
+              Seleziona un esito
+            </option>
+            <option value="ALREADY_INVOICED">{copy.orderDetail.alreadyInvoiced}</option>
+            <option value="NOT_INVOICED">{copy.orderDetail.notInvoiced}</option>
+          </select>
+        </label>
+      )}
+      <label>
+        {copy.orderDetail.historyReference}
+        <textarea
+          name="reference"
+          required
+          minLength={10}
+          maxLength={500}
+          defaultValue={needsInvoiceAttachment ? (reference ?? "") : ""}
+        />
+      </label>
+      <label>
+        {copy.orderDetail.historyInvoiceXml}
+        <input
+          name="invoiceXml"
+          type="file"
+          accept="application/xml,text/xml,.xml"
+          required={needsManualReview}
+        />
+      </label>
+      {needsManualReview ? (
+        <label className="checkbox-row">
+          <input name="manualReviewApproved" type="checkbox" />
+          <span>{copy.orderDetail.manualReviewApproved}</span>
+        </label>
+      ) : null}
+      <button className="button" type="submit">
+        {copy.orderDetail.reconcileHistory}
+      </button>
+    </Form>
+  );
+}
+
+function PrepareOrderForm({ csrfToken }: { csrfToken: string }) {
+  return (
+    <Form method="post" className="section-gap">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="intent" value="prepare" />
+      <button className="button" type="submit">
+        {copy.orderDetail.prepareNow}
+      </button>
+    </Form>
+  );
+}
+
+function HistoricalReconciliationResult({ order }: { order: Order }) {
+  if (!order.historical_reconciliation_outcome) return null;
+  return (
+    <div className="notice section-gap">
+      <strong>{copy.orderDetail.historyCompleted}</strong>
+      <p>
+        {order.historical_reconciliation_outcome === "ALREADY_INVOICED"
+          ? copy.orderDetail.alreadyInvoiced
+          : copy.orderDetail.notInvoiced}
+        {order.historical_reconciled_at ? ` · ${dateTime(order.historical_reconciled_at)}` : ""}
+      </p>
+      <p>{order.historical_reconciliation_reference}</p>
+    </div>
   );
 }
 
@@ -282,21 +312,262 @@ function OrderItemsPanel({ lines }: { lines: OrderLine[] }) {
   );
 }
 
+function OrderStatusFacts({ order }: { order: Order }) {
+  return (
+    <dl className="facts order-status-facts">
+      <div>
+        <dt>{copy.orderDetail.payment}</dt>
+        <dd>{paymentStatusLabels[order.payment_status] ?? copy.common.unknownStatus}</dd>
+      </div>
+      <div>
+        <dt>{copy.orderDetail.shipping}</dt>
+        <dd>{fulfillmentStatusLabels[order.fulfillment_status] ?? copy.common.unknownStatus}</dd>
+      </div>
+      <div>
+        <dt>{copy.orderDetail.invoicing}</dt>
+        <dd>{orderStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}</dd>
+      </div>
+      <div>
+        <dt>{copy.orderDetail.orderTotal}</dt>
+        <dd>{euros(order.gross_amount)}</dd>
+      </div>
+      <div>
+        <dt>{copy.orderDetail.shopifyPaymentsFee}</dt>
+        <dd>{euros(order.deducted_shopify_payments_fee_amount)}</dd>
+      </div>
+      <div>
+        <dt>{copy.orderDetail.billableTotal}</dt>
+        <dd>{euros(order.billable_amount)}</dd>
+      </div>
+      <div>
+        <dt>{copy.orderDetail.preparation}</dt>
+        <dd>
+          {order.billing_case_id ? (
+            <Link
+              aria-label={copy.orders.openPreparation(order.case_number!)}
+              to={`/ordini/preparazione/${order.billing_case_id}`}
+            >
+              {order.case_number}
+            </Link>
+          ) : (
+            copy.orderDetail.notStarted
+          )}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function RemoteDocumentsNotice({ documents }: { documents: RemoteDocument[] }) {
+  if (!documents.length) return null;
+  return (
+    <div className="notice section-gap">
+      <strong>{copy.orderDetail.arubaDocuments}</strong>
+      <ul className="plain-list">
+        {documents.map((remote) => (
+          <li key={remote.remote_id}>
+            <span>
+              {remote.document_type} {remote.series ?? ""}{" "}
+              {remote.fiscal_number ?? remote.remote_id}
+            </span>
+            <span>
+              {copy.documents.remoteStatusLabels[remote.remote_status] ?? remote.remote_status} ·{" "}
+              {dateTime(remote.last_observed_at)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function OrderPayments({ order }: { order: Order }) {
+  return (
+    <div className="detail-subsection">
+      <h3 className="detail-subsection__title">
+        <CreditCard aria-hidden="true" size={19} strokeWidth={1.8} />
+        {copy.orderDetail.payments}
+      </h3>
+      {order.payments.length ? (
+        <ul className="plain-list">
+          {order.payments.map((payment) => (
+            <li key={payment.id}>
+              <span>
+                {payment.method} ·{" "}
+                {paymentStatusLabels[payment.status] ?? copy.common.unknownStatus}
+                {payment.recorded_manually ? ` · ${copy.orderDetail.manuallyRecorded}` : ""}
+              </span>
+              <span>
+                {euros(payment.amount)}
+                {payment.shopify_payments_fee_amount > 0
+                  ? ` · commissione Shopify Payments ${euros(payment.shopify_payments_fee_amount)}`
+                  : ""}
+                {payment.paid_at ? ` · ${dateTime(payment.paid_at)}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>{copy.orderDetail.noPayments}</p>
+      )}
+    </div>
+  );
+}
+
+function OrderRefunds({ order }: { order: Order }) {
+  return (
+    <div className="detail-subsection">
+      <h3 className="detail-subsection__title">
+        <ReceiptText aria-hidden="true" size={19} strokeWidth={1.8} />
+        {copy.orderDetail.refunds}
+      </h3>
+      {order.refunds.length ? (
+        <ul className="plain-list">
+          {order.refunds.map((refund) => (
+            <li key={refund.id}>
+              <span>
+                {refund.provider === "SHOPIFY" ? "Shopify" : "eBay"} · profilo{" "}
+                {refund.external_account_id}
+                {` · ordine ${refund.external_order_id} · rimborso ${refund.external_refund_id}`}
+              </span>
+              <span>
+                {refund.amount === null ? copy.orderDetail.refundNeedsReview : euros(refund.amount)}
+                {` · ${refundStatusLabels[refund.status] ?? copy.common.unknownStatus}`}
+                {refund.completed_at ? ` · ${dateTime(refund.completed_at)}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>{copy.orderDetail.noRefunds}</p>
+      )}
+    </div>
+  );
+}
+
+function HubCustomerData({ order }: { order: Order }) {
+  return (
+    <div className="customer-comparison__section">
+      <h3>{copy.orderDetail.hubCustomerData}</h3>
+      <dl className="facts">
+        <div>
+          <dt>{copy.orderDetail.customerType}</dt>
+          <dd>{customerKindLabels[order.customer_kind] ?? copy.common.unknownType}</dd>
+        </div>
+        <div>
+          <dt>{copy.orderDetail.email}</dt>
+          <dd>{order.customer_email ?? copy.common.unavailable}</dd>
+        </div>
+        <div>
+          <dt>{copy.orderDetail.address}</dt>
+          <dd>{address(order.billing_address_json) || copy.common.unavailable}</dd>
+        </div>
+        <div>
+          <dt>{copy.orderDetail.recognizedBy}</dt>
+          <dd>{customerMatchLabels[order.source_confidence] ?? copy.common.unknownStatus}</dd>
+        </div>
+        <div>
+          <dt>{copy.orderDetail.manualCheck}</dt>
+          <dd>
+            {order.review_required ? copy.orderDetail.required : copy.orderDetail.notRequired}
+          </dd>
+        </div>
+      </dl>
+      <h4>{copy.orderDetail.taxData}</h4>
+      {order.taxIdentifiers.length ? (
+        <ul>
+          {order.taxIdentifiers.map((identifier) => (
+            <li key={identifier.id}>
+              {taxIdentifierLabels[identifier.type] ?? copy.orderDetail.taxData}
+              {identifier.country_code ? ` (${identifier.country_code})` : ""}:{" "}
+              {identifier.raw_value}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>{copy.common.unavailablePlural}.</p>
+      )}
+    </div>
+  );
+}
+
+function SourceCustomerData({ order, provider }: { order: Order; provider: string }) {
+  const customer = order.raw_snapshot_json.customer ?? {};
+  const name =
+    customer.displayName ||
+    customer.companyName ||
+    [customer.firstName, customer.lastName].filter(Boolean).join(" ");
+  return (
+    <div className="customer-comparison__section">
+      <h3>{copy.orderDetail.receivedCustomerData(provider)}</h3>
+      <dl className="facts">
+        <div>
+          <dt>{copy.orderDetail.customerType}</dt>
+          <dd>{customerKindLabels[customer.kind ?? ""] ?? copy.common.unknownType}</dd>
+        </div>
+        <div>
+          <dt>{copy.orderDetail.name}</dt>
+          <dd>{name || copy.common.unavailable}</dd>
+        </div>
+        <div>
+          <dt>{copy.orderDetail.email}</dt>
+          <dd>{customer.email || copy.common.unavailable}</dd>
+        </div>
+        <div>
+          <dt>{copy.orderDetail.certifiedEmail}</dt>
+          <dd>{customer.certifiedEmail || copy.common.unavailable}</dd>
+        </div>
+        <div>
+          <dt>{copy.orderDetail.address}</dt>
+          <dd>{address(customer.billingAddress ?? {}) || copy.common.unavailable}</dd>
+        </div>
+        <div>
+          <dt>{copy.orderDetail.shippingAddress}</dt>
+          <dd>{address(customer.shippingAddress ?? {}) || copy.common.unavailable}</dd>
+        </div>
+      </dl>
+      <h4>{copy.orderDetail.receivedTaxData}</h4>
+      {customer.taxIdentifiers?.length ? (
+        <ul>
+          {customer.taxIdentifiers.map((identifier) => (
+            <li key={`${identifier.sourceField ?? "origine"}:${identifier.value ?? ""}`}>
+              {taxIdentifierLabels[identifier.type ?? ""] ?? copy.orderDetail.taxData}:{" "}
+              {identifier.value}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>{copy.common.unavailablePlural}.</p>
+      )}
+    </div>
+  );
+}
+
+function PossibleCustomerMatches({ order }: { order: Order }) {
+  if (!order.possibleMatches.length) return null;
+  return (
+    <div className="notice section-gap">
+      <strong>{copy.orderDetail.possibleMatchTitle}</strong>
+      <p>{copy.orderDetail.possibleMatchHelp}</p>
+      <ul>
+        {order.possibleMatches.map((candidate) => (
+          <li key={candidate.id}>
+            {candidate.display_name}
+            {candidate.email ? ` · ${candidate.email}` : ""}
+            {candidate.tax_id_normalized
+              ? ` · ${taxIdentifierLabels[candidate.tax_id_type ?? ""] ?? copy.orderDetail.taxIdentifier} ${candidate.tax_id_normalized}`
+              : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function OrderDetail() {
   const { username, canApprove, csrfToken, order, remoteDocuments } =
     useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
-  const sourceSnapshot = order.raw_snapshot_json;
-  const sourceCustomer = sourceSnapshot.customer ?? {};
-  const sourceAddress = sourceCustomer.billingAddress ?? {};
-  const sourceShippingAddress = sourceCustomer.shippingAddress ?? {};
-  const sourceName =
-    sourceCustomer.displayName ||
-    sourceCustomer.companyName ||
-    [sourceCustomer.firstName, sourceCustomer.lastName].filter(Boolean).join(" ");
-  const sourceAddressText = address(sourceAddress);
-  const sourceShippingAddressText = address(sourceShippingAddress);
-  const addressText = address(order.billing_address_json);
   const provider = order.provider === "SHOPIFY" ? "Shopify" : "eBay";
   return (
     <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
@@ -319,126 +590,11 @@ export default function OrderDetail() {
             icon={<PackageCheck size={22} strokeWidth={1.8} />}
             title={copy.orderDetail.orderStatus}
           />
-          <dl className="facts order-status-facts">
-            <div>
-              <dt>{copy.orderDetail.payment}</dt>
-              <dd>{paymentStatusLabels[order.payment_status] ?? copy.common.unknownStatus}</dd>
-            </div>
-            <div>
-              <dt>{copy.orderDetail.shipping}</dt>
-              <dd>
-                {fulfillmentStatusLabels[order.fulfillment_status] ?? copy.common.unknownStatus}
-              </dd>
-            </div>
-            <div>
-              <dt>{copy.orderDetail.invoicing}</dt>
-              <dd>{orderStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}</dd>
-            </div>
-            <div>
-              <dt>{copy.orderDetail.orderTotal}</dt>
-              <dd>{euros(order.gross_amount)}</dd>
-            </div>
-            <div>
-              <dt>{copy.orderDetail.shopifyPaymentsFee}</dt>
-              <dd>{euros(order.deducted_shopify_payments_fee_amount)}</dd>
-            </div>
-            <div>
-              <dt>{copy.orderDetail.billableTotal}</dt>
-              <dd>{euros(order.billable_amount)}</dd>
-            </div>
-            <div>
-              <dt>{copy.orderDetail.preparation}</dt>
-              <dd>
-                {order.billing_case_id ? (
-                  <Link
-                    aria-label={copy.orders.openPreparation(order.case_number!)}
-                    to={`/ordini/preparazione/${order.billing_case_id}`}
-                  >
-                    {order.case_number}
-                  </Link>
-                ) : (
-                  copy.orderDetail.notStarted
-                )}
-              </dd>
-            </div>
-          </dl>
+          <OrderStatusFacts order={order} />
           <OrderStatusActions order={order} canApprove={canApprove} csrfToken={csrfToken} />
-          {remoteDocuments.length ? (
-            <div className="notice section-gap">
-              <strong>{copy.orderDetail.arubaDocuments}</strong>
-              <ul className="plain-list">
-                {remoteDocuments.map((remote) => (
-                  <li key={remote.remote_id}>
-                    <span>
-                      {remote.document_type} {remote.series ?? ""}{" "}
-                      {remote.fiscal_number ?? remote.remote_id}
-                    </span>
-                    <span>
-                      {copy.documents.remoteStatusLabels[remote.remote_status] ??
-                        remote.remote_status}{" "}
-                      · {dateTime(remote.last_observed_at)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <div className="detail-subsection">
-            <h3 className="detail-subsection__title">
-              <CreditCard aria-hidden="true" size={19} strokeWidth={1.8} />
-              {copy.orderDetail.payments}
-            </h3>
-            {order.payments.length ? (
-              <ul className="plain-list">
-                {order.payments.map((payment) => (
-                  <li key={payment.id}>
-                    <span>
-                      {payment.method} ·{" "}
-                      {paymentStatusLabels[payment.status] ?? copy.common.unknownStatus}
-                      {payment.recorded_manually ? ` · ${copy.orderDetail.manuallyRecorded}` : ""}
-                    </span>
-                    <span>
-                      {euros(payment.amount)}
-                      {payment.shopify_payments_fee_amount > 0
-                        ? ` · commissione Shopify Payments ${euros(payment.shopify_payments_fee_amount)}`
-                        : ""}
-                      {payment.paid_at ? ` · ${dateTime(payment.paid_at)}` : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>{copy.orderDetail.noPayments}</p>
-            )}
-          </div>
-          <div className="detail-subsection">
-            <h3 className="detail-subsection__title">
-              <ReceiptText aria-hidden="true" size={19} strokeWidth={1.8} />
-              {copy.orderDetail.refunds}
-            </h3>
-            {order.refunds.length ? (
-              <ul className="plain-list">
-                {order.refunds.map((refund) => (
-                  <li key={refund.id}>
-                    <span>
-                      {refund.provider === "SHOPIFY" ? "Shopify" : "eBay"} · profilo{" "}
-                      {refund.external_account_id}
-                      {` · ordine ${refund.external_order_id} · rimborso ${refund.external_refund_id}`}
-                    </span>
-                    <span>
-                      {refund.amount === null
-                        ? copy.orderDetail.refundNeedsReview
-                        : euros(refund.amount)}
-                      {` · ${refundStatusLabels[refund.status] ?? copy.common.unknownStatus}`}
-                      {refund.completed_at ? ` · ${dateTime(refund.completed_at)}` : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>{copy.orderDetail.noRefunds}</p>
-            )}
-          </div>
+          <RemoteDocumentsNotice documents={remoteDocuments} />
+          <OrderPayments order={order} />
+          <OrderRefunds order={order} />
         </section>
         <section className="dashboard-panel order-detail-panel order-customer-panel">
           <DetailSectionHeader
@@ -447,113 +603,10 @@ export default function OrderDetail() {
             title={copy.orderDetail.customerData}
           />
           <div className="customer-comparison">
-            <div className="customer-comparison__section">
-              <h3>{copy.orderDetail.hubCustomerData}</h3>
-              <dl className="facts">
-                <div>
-                  <dt>{copy.orderDetail.customerType}</dt>
-                  <dd>{customerKindLabels[order.customer_kind] ?? copy.common.unknownType}</dd>
-                </div>
-                <div>
-                  <dt>{copy.orderDetail.email}</dt>
-                  <dd>{order.customer_email ?? copy.common.unavailable}</dd>
-                </div>
-                <div>
-                  <dt>{copy.orderDetail.address}</dt>
-                  <dd>{addressText || copy.common.unavailable}</dd>
-                </div>
-                <div>
-                  <dt>{copy.orderDetail.recognizedBy}</dt>
-                  <dd>
-                    {customerMatchLabels[order.source_confidence] ?? copy.common.unknownStatus}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{copy.orderDetail.manualCheck}</dt>
-                  <dd>
-                    {order.review_required
-                      ? copy.orderDetail.required
-                      : copy.orderDetail.notRequired}
-                  </dd>
-                </div>
-              </dl>
-              <h4>{copy.orderDetail.taxData}</h4>
-              {order.taxIdentifiers.length ? (
-                <ul>
-                  {order.taxIdentifiers.map((identifier) => (
-                    <li key={identifier.id}>
-                      {taxIdentifierLabels[identifier.type] ?? copy.orderDetail.taxData}
-                      {identifier.country_code ? ` (${identifier.country_code})` : ""}:{" "}
-                      {identifier.raw_value}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>{copy.common.unavailablePlural}.</p>
-              )}
-            </div>
-            <div className="customer-comparison__section">
-              <h3>{copy.orderDetail.receivedCustomerData(provider)}</h3>
-              <dl className="facts">
-                <div>
-                  <dt>{copy.orderDetail.customerType}</dt>
-                  <dd>
-                    {customerKindLabels[sourceCustomer.kind ?? ""] ?? copy.common.unknownType}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{copy.orderDetail.name}</dt>
-                  <dd>{sourceName || copy.common.unavailable}</dd>
-                </div>
-                <div>
-                  <dt>{copy.orderDetail.email}</dt>
-                  <dd>{sourceCustomer.email || copy.common.unavailable}</dd>
-                </div>
-                <div>
-                  <dt>{copy.orderDetail.certifiedEmail}</dt>
-                  <dd>{sourceCustomer.certifiedEmail || copy.common.unavailable}</dd>
-                </div>
-                <div>
-                  <dt>{copy.orderDetail.address}</dt>
-                  <dd>{sourceAddressText || copy.common.unavailable}</dd>
-                </div>
-                <div>
-                  <dt>{copy.orderDetail.shippingAddress}</dt>
-                  <dd>{sourceShippingAddressText || copy.common.unavailable}</dd>
-                </div>
-              </dl>
-              <h4>{copy.orderDetail.receivedTaxData}</h4>
-              {sourceCustomer.taxIdentifiers?.length ? (
-                <ul>
-                  {sourceCustomer.taxIdentifiers.map((identifier) => (
-                    <li key={`${identifier.sourceField ?? "origine"}:${identifier.value ?? ""}`}>
-                      {taxIdentifierLabels[identifier.type ?? ""] ?? copy.orderDetail.taxData}:{" "}
-                      {identifier.value}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>{copy.common.unavailablePlural}.</p>
-              )}
-            </div>
+            <HubCustomerData order={order} />
+            <SourceCustomerData order={order} provider={provider} />
           </div>
-          {order.possibleMatches.length ? (
-            <div className="notice section-gap">
-              <strong>{copy.orderDetail.possibleMatchTitle}</strong>
-              <p>{copy.orderDetail.possibleMatchHelp}</p>
-              <ul>
-                {order.possibleMatches.map((candidate) => (
-                  <li key={candidate.id}>
-                    {candidate.display_name}
-                    {candidate.email ? ` · ${candidate.email}` : ""}
-                    {candidate.tax_id_normalized
-                      ? ` · ${taxIdentifierLabels[candidate.tax_id_type ?? ""] ?? copy.orderDetail.taxIdentifier} ${candidate.tax_id_normalized}`
-                      : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
+          <PossibleCustomerMatches order={order} />
         </section>
       </div>
       <OrderItemsPanel lines={order.lines} />
