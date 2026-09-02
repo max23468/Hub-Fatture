@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.14
+
+- Un documento Aruba con XML ufficiale, data e totale esattamente coincidenti può essere collegato manualmente a un ordine anche quando i dati del destinatario non coincidono, ma soltanto dopo una conferma esplicita e una motivazione che identifichi sia la fattura sia l’ordine; il collegamento non viene mai proposto come automatico e resta tracciato nell’audit come prova esterna.
+- La vista “Preparazioni approvabili” mostra anche l’orario del primo ordine di ciascuna preparazione, usando sempre il fuso orario italiano; le altre viste continuano a mostrare la sola data fiscale.
+
 ## 1.0.13
 
 - La vista “Preparazioni approvabili” mostra subito l’elenco richiesto e carica in secondo piano le proiezioni fiscali necessarie all’approvazione multipla: l’apertura dalla Dashboard non resta più serializzata dietro la preparazione di ogni candidato.
