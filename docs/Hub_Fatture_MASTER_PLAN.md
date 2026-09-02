@@ -3403,17 +3403,20 @@ Gate:
 
 ### M14 - Go-live e `1.0.0`
 
-**Stato: in corso.** La corsia di attivazione separata viene preparata e qualificata con il kill
-switch disabilitato; release e uso Production ordinario restano subordinati alle rispettive
-autorizzazioni esplicite.
+**Stato: completata.** Il titolare ha autorizzato separatamente release e uso Production ordinario;
+la release immutabile è stata pubblicata e la modalità `Chiedi conferma prima dell’invio` è stata
+attivata con readback coerente sul candidato esatto.
 
 Output:
 
 - approvazione finale del titolare sulla readiness e sui rischi residui;
 - runbook operativo e readiness finalizzati;
 - tag e GitHub Release immutabile `v1.0.0` sul commit e digest qualificati;
-- abilitazione separata dell'uso Production ordinario e prima trasmissione di un documento già dovuto, senza documento dedicato al collaudo;
-- monitoraggio rafforzato della prima giornata, inclusi inventario, stati incerti, coda `Da collegare` e soglie mensili.
+- abilitazione separata dell'uso Production ordinario in modalità `Chiedi conferma prima dell’invio`.
+
+Per decisione esplicita del titolare, la prima trasmissione reale e il monitoraggio rafforzato della
+prima giornata non sono gate di chiusura di M14. Restano normali attività operative, senza documenti
+dedicati al collaudo e senza automazioni di monitoraggio associate alla milestone.
 
 TD04 resta nel fallback manuale finché un rimborso reale legittimo non permette una prova separatamente autorizzata. Release e uso Production ordinario richiedono autorizzazioni esplicite e distinte.
 
@@ -3733,16 +3736,16 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [x] M12: ricertificazione chiusa; le modifiche successive non riaprono formalmente la milestone.
 - [x] M13: gate tecnici e identità del candidato conclusi con `ARUBA_SUBMISSION_ENABLED=false`, senza upload o invii reali.
 - [x] M13: report sanitizzato aggiornato con prove fresche e assenza di P0/P1 o stati remoti incerti.
-- [ ] M14: autorizzazioni separate a release e uso ordinario; decisioni helper registrate; TD04 mantenuta manuale fino al proprio canary legittimo.
+- [x] M14: autorizzazioni separate a release e uso ordinario; modalità con conferma attiva; decisioni helper registrate; TD04 mantenuta manuale fino al proprio canary legittimo. La prima trasmissione reale e il monitoraggio rafforzato non sono gate per decisione del titolare.
 
 ### Prima del go-live
 
-- [ ] Il commit e il digest candidati coincidono con quelli qualificati tecnicamente; altrimenti la prova interessata è stata ripetuta.
-- [ ] Record di readiness finalizzato con gate tecnici e rischi residui.
-- [ ] Draft GitHub Release collegata al tag candidato, note confrontate con `CHANGELOG.md` e `release-manifest.json` sanitizzato allegato.
-- [ ] Immutabilità delle release confermata; nessun tag o asset pubblicato prima dell'autorizzazione.
-- [ ] Autorizzazione esplicita alla release `v1.0.0`.
-- [ ] Autorizzazione separata all'uso Production ordinario.
+- [x] Il commit e il digest candidati coincidono con quelli qualificati tecnicamente; le prove interessate sono state ripetute sul candidato finale.
+- [x] Record di readiness finalizzato con gate tecnici e rischi residui.
+- [x] GitHub Release collegata al tag candidato, note confrontate con `CHANGELOG.md` e `release-manifest.json` sanitizzato allegato.
+- [x] Immutabilità della release confermata; nessun tag o asset è stato pubblicato prima dell'autorizzazione.
+- [x] Autorizzazione esplicita alla release `v1.0.0`.
+- [x] Autorizzazione separata all'uso Production ordinario.
 
 ### Record di readiness 1.0
 
