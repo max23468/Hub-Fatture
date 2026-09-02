@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.8
+
+- I conflitti Aruba già valutati prima della correzione dei riepiloghi fiscali nulli vengono rigiocati automaticamente anche quando il documento è fuori dalla finestra incrementale corrente.
+
 ## 1.0.7
 
 - Gli XML Aruba con un riepilogo IVA accessorio interamente a zero vengono riconciliati usando i soli riepiloghi fiscalmente effettivi; qualunque blocco con imponibile o imposta non nulli continua a partecipare al controllo univoco di natura e riferimento normativo.
