@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.6
+
+- Il ritorno alla Dashboard dalla navigazione laterale resta immediatamente interrompibile e mostra la destinazione in caricamento senza serializzare i clic nelle View Transition native; il badge `Controlli` legge la proiezione già materializzata, mentre la ricostruzione esplicita aggiorna i controlli in batch evitando lavoro duplicato durante ogni cambio pagina.
+
 ## 1.0.5
 
 - Una nota di credito Aruba storica priva di `DatiFattureCollegate` può adottare la fattura individuata dal matcher soltanto quando ordine, destinatario, importo e insieme dei rimborsi producono una relazione automatica univoca; un riferimento esplicito discordante continua a bloccare la riconciliazione.

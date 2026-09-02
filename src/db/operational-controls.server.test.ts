@@ -53,6 +53,7 @@ test(
         [customer.rows[0]!.id, billingCase.rows[0]!.id],
       );
 
+      assert.equal((await controls.readOperationalControlSummary()).open, 0);
       const first = await controls.listOperationalControls({ origin: "CUSTOMERS" });
       assert.equal(first.rows.length, 1);
       assert.equal(first.total, 1);
@@ -88,7 +89,7 @@ test(
           billingCase.rows[0]!.id,
         ]);
       await controls.refreshOperationalControls();
-      assert.equal((await controls.getOperationalControlSummary()).open, 0);
+      assert.equal((await controls.readOperationalControlSummary()).open, 0);
       assert.equal(
         (
           await database

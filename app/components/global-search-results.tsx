@@ -245,13 +245,7 @@ function SearchGroup({
       </h2>
       <div>
         {items.map((item) => (
-          <Link
-            className="global-search__result"
-            key={item.id}
-            onClick={onNavigate}
-            to={item.href}
-            viewTransition
-          >
+          <Link className="global-search__result" key={item.id} onClick={onNavigate} to={item.href}>
             <span className="global-search__result-icon" aria-hidden="true">
               <Icon size={19} strokeWidth={1.8} />
             </span>
@@ -265,7 +259,7 @@ function SearchGroup({
         ))}
       </div>
       {total > items.length ? (
-        <Link className="global-search__all" onClick={onNavigate} to={allHref} viewTransition>
+        <Link className="global-search__all" onClick={onNavigate} to={allHref}>
           {copy.search.viewAll(label, total)}
           <ArrowRight aria-hidden="true" size={16} strokeWidth={1.8} />
         </Link>

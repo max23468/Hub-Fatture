@@ -262,7 +262,7 @@ function billingCaseAnomalyCandidate(
 async function allOpenActivities() {
   const rows: Awaited<ReturnType<typeof listOpenActivities>>["rows"] = [];
   for (let page = 1; page <= 100; page += 1) {
-    const result = await listOpenActivities({ page });
+    const result = await listOpenActivities({ page, pageSize: 5_000 });
     rows.push(...result.rows);
     if (!result.hasNext) break;
   }
@@ -596,15 +596,21 @@ export async function refreshOperationalControls() {
   const candidates = await collectCandidates();
   await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock($1)", [1_214_606_390]);
-    for (const candidate of candidates) {
-      const sourceFingerprint = fingerprint(candidate);
-      await client.query(
-        `INSERT INTO operational_controls
+    await client.query(
+      `INSERT INTO operational_controls
           (id, kind, category, severity, state, source_type, source_id, origin, title,
            detail, consequence, href, primary_action, fingerprint, metadata_json,
            opened_at, updated_at)
-         VALUES ($1, $2, $3, $4, 'OPEN', $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                 $14, $15, now())
+       SELECT candidate.id, candidate.kind, candidate.category, candidate.severity,
+              'OPEN', candidate.source_type, candidate.source_id, candidate.origin,
+              candidate.title, candidate.detail, candidate.consequence, candidate.href,
+              candidate.primary_action, candidate.fingerprint, candidate.metadata_json,
+              candidate.opened_at, now()
+       FROM jsonb_to_recordset($1::jsonb) AS candidate(
+         id text, kind text, category text, severity text, source_type text, source_id text,
+         origin text, title text, detail text, consequence text, href text,
+         primary_action text, fingerprint text, metadata_json jsonb, opened_at timestamptz
+       )
          ON CONFLICT (id) DO UPDATE SET
            kind = EXCLUDED.kind,
            category = EXCLUDED.category,
@@ -638,25 +644,28 @@ export async function refreshOperationalControls() {
            resolution_code = NULL,
            fingerprint = EXCLUDED.fingerprint,
            updated_at = now()`,
-        [
-          candidate.id,
-          candidate.kind,
-          candidate.category,
-          candidate.severity,
-          candidate.sourceType,
-          candidate.sourceId,
-          candidate.origin,
-          candidate.title,
-          candidate.detail,
-          candidate.consequence,
-          candidate.href,
-          candidate.primaryAction,
-          sourceFingerprint,
-          JSON.stringify(candidate.metadata),
-          candidate.detectedAt,
-        ],
-      );
-    }
+      [
+        JSON.stringify(
+          candidates.map((candidate) => ({
+            id: candidate.id,
+            kind: candidate.kind,
+            category: candidate.category,
+            severity: candidate.severity,
+            source_type: candidate.sourceType,
+            source_id: candidate.sourceId,
+            origin: candidate.origin,
+            title: candidate.title,
+            detail: candidate.detail,
+            consequence: candidate.consequence,
+            href: candidate.href,
+            primary_action: candidate.primaryAction,
+            fingerprint: fingerprint(candidate),
+            metadata_json: candidate.metadata,
+            opened_at: candidate.detectedAt,
+          })),
+        ),
+      ],
+    );
     const currentIds = candidates.map((candidate) => candidate.id);
     await client.query(
       `UPDATE operational_controls
@@ -695,6 +704,11 @@ export async function refreshOperationalControls() {
 
 export async function getOperationalControlSummary() {
   await refreshOperationalControls();
+  return readOperationalControlSummary();
+}
+
+/** Legge la proiezione materializzata senza avviare una ricostruzione durante la navigazione. */
+export async function readOperationalControlSummary() {
   const result = await getPool().query<{
     open: number;
     waiting: number;
@@ -760,26 +774,8 @@ export async function listOperationalControls(filters: {
           )
         ).rows[0]
       : rows[0]);
-  const summary = await getOperationalControlSummaryWithoutRefresh();
+  const summary = await readOperationalControlSummary();
   return { rows, total: result.rows[0]?.total_count ?? 0, selected: selected ?? null, summary };
-}
-
-async function getOperationalControlSummaryWithoutRefresh() {
-  const result = await getPool().query<{
-    open: number;
-    waiting: number;
-    blocking: number;
-    important: number;
-    ordinary: number;
-  }>(
-    `SELECT count(*) FILTER (WHERE state = 'OPEN')::int AS open,
-            count(*) FILTER (WHERE state = 'WAITING')::int AS waiting,
-            count(*) FILTER (WHERE state = 'OPEN' AND severity = 'BLOCKING')::int AS blocking,
-            count(*) FILTER (WHERE state = 'OPEN' AND severity = 'IMPORTANT')::int AS important,
-            count(*) FILTER (WHERE state = 'OPEN' AND severity = 'ORDINARY')::int AS ordinary
-     FROM operational_controls`,
-  );
-  return result.rows[0]!;
 }
 
 export async function markOperationalControlWaiting(id: string, note?: string) {

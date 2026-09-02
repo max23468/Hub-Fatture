@@ -4,6 +4,7 @@ import {
   PAGE_SIZE,
   pageOffset,
   paginate,
+  POSTGRES_INTEGER_MAX,
   postgresDateSchema,
 } from "../orders.ts";
 import { getConfig } from "../config.server.ts";
@@ -410,6 +411,7 @@ export async function dashboardSummary() {
 export async function listOpenActivities(
   filters: {
     page?: unknown;
+    pageSize?: number;
     kind?: "CREDIT_NOTE";
     query?: string;
     sort?: { key: OpenActivitySortKey; direction: SortDirection };
@@ -417,11 +419,19 @@ export async function listOpenActivities(
 ) {
   const empty = { rows: [] as never[], hasNext: false, total: 0 };
   if (containsNullByte(filters)) return empty;
+  const pageSize =
+    Number.isSafeInteger(filters.pageSize) && filters.pageSize! >= 1 && filters.pageSize! <= 5_000
+      ? filters.pageSize!
+      : PAGE_SIZE;
+  const requestedPage = Number(filters.page);
+  const page = Number.isSafeInteger(requestedPage) && requestedPage >= 1 ? requestedPage : 1;
+  const offset = (page - 1) * pageSize;
+  if (!Number.isSafeInteger(offset) || offset > POSTGRES_INTEGER_MAX) return empty;
   const sort = filters.sort ?? { key: "aggiornamento" as const, direction: "desc" as const };
   const orderBy = openActivitySortSql[sort.key];
   const direction = sqlDirection(sort.direction);
   // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
-  // i valori della richiesta restano nei parametri $1-$3.
+  // i valori della richiesta restano nei parametri $1-$4.
   // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await getPool().query<{
     kind: string;
@@ -586,21 +596,21 @@ export async function listOpenActivities(
               ELSE activities.reason
             END ILIKE $3 ESCAPE '\\')
      ORDER BY ${orderBy} ${direction} NULLS LAST, activities.created_at DESC, activities.id DESC
-     LIMIT ${PAGE_SIZE + 1} OFFSET $1`,
+     LIMIT $4 OFFSET $1`,
     [
-      pageOffset(filters.page),
+      offset,
       filters.kind ?? null,
       filters.query ? `%${escapeLike(filters.query)}%` : null,
+      pageSize + 1,
     ],
   );
   const total = result.rows[0]?.total_count ?? 0;
-  const pageResult = paginate(result.rows);
   return {
-    rows: pageResult.rows.map(({ total_count, ...row }) => {
+    rows: result.rows.slice(0, pageSize).map(({ total_count, ...row }) => {
       void total_count;
       return row;
     }),
-    hasNext: pageResult.hasNext,
+    hasNext: result.rows.length > pageSize,
     total,
   };
 }

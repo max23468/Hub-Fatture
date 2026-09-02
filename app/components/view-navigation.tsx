@@ -30,7 +30,6 @@ export function ViewNavigation({
           key={item.value}
           ref={active === item.value ? activeLink : undefined}
           to={item.to}
-          viewTransition
         >
           {item.label}
         </Link>
