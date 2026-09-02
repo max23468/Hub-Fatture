@@ -729,8 +729,9 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /docker network inspect sequent-proxy/);
   assert.doesNotMatch(deploy, /deploy\.lock/);
   assert.match(deploy, /HUB_FATTURE_CANDIDATE_DIR/);
-  assert.match(deploy, /"\$candidate_dir\/production-preflight\.sh"/);
-  assert.match(deploy, /"\$candidate_dir\/production-readback\.sh"/);
+  assert.match(deploy, /"\$candidate_dir\/production-preflight\.sh" "\$expected_submission"/);
+  assert.match(deploy, /"\$candidate_dir\/production-readback\.sh" "\$expected_submission"/);
+  assert.match(deploy, /ARUBA_SUBMISSION_ENABLED deve comparire una sola volta/);
   assert.match(deploy, /current_schema.*previous_schema/);
   assert.match(deploy, /rollback automatico vietato.*forward-fix/);
   assert.match(deploy, /cp "\$previous_compose" compose\.yaml/);
@@ -739,7 +740,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /if ! docker compose .* down; then/);
   assert.match(deploy, /return 1/);
   assert.match(deploy, /--force-recreate/);
-  assert.match(deploy, /production-readback\.sh >\/dev\/null/);
+  assert.match(deploy, /production-readback\.sh "\$expected_submission" >\/dev\/null/);
   assert.match(readback, /--retry-max-time 180 --retry-all-errors/);
   assert.match(readback, /expected_submission=\$\{1:-false\}/);
   assert.match(readback, /--argjson arubaSubmissionEnabled "\$kill_switch"/);
@@ -850,6 +851,8 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(preflight, /OCI_NOTIFICATIONS_TOPIC_OCID/);
   assert.match(preflight, /\^ocid1\\\.onstopic\\\.oc1\\\./);
   assert.match(preflight, /dns_ip.*expected_public_ip/);
+  assert.match(preflight, /Uso: \$0 <true\|false>/);
+  assert.match(preflight, /ARUBA_SUBMISSION_ENABLED\)" = "\$expected_submission"/);
   assert.doesNotMatch(preflight, /^\.\s+(?:\.\/)?\.env(?:\s|$)/m);
   assert.doesNotMatch(preflight, /\beval\b/);
   for (const file of ["scripts/backup.sh", "scripts/monitor-local.sh"]) {
@@ -875,17 +878,19 @@ test("l'abilitazione Aruba Production è una corsia separata, exact-commit e rev
   );
   assert.match(compose, /ARUBA_SUBMISSION_ENABLED: \$\{ARUBA_SUBMISSION_ENABLED:-false\}/);
   assert.match(script, /live_commit.*expected_commit/);
-  assert.match(script, /live_version.*1\.0\.0/);
+  assert.match(script, /live_version.*release stabile/s);
   assert.match(script, /\.openArubaBatches == 0/);
   assert.match(script, /aruba_dry_run_submission/);
   assert.match(script, /cp "\$previous" \.env/);
   assert.match(script, /production-readback\.sh "\$target"/);
   assert.match(script, /aruba-submission-mode-receipt\.json/);
   assert.doesNotMatch(script, /echo.*ARUBA_SUBMISSION_ENABLED=/);
-  assert.match(dispatch, /gh release view v1\.0\.0/);
+  assert.match(dispatch, /contents\/package\.json\?ref=\$commit/);
+  assert.match(dispatch, /gh release view "v\$version"/);
   assert.match(dispatch, /\.isImmutable == true/);
   assert.match(dispatch, /workflow run "Production submission mode"/);
   assert.match(workflow, /environment:\n\s+name: Production/);
+  assert.match(workflow, /gh release view "v\$version"/);
   assert.match(workflow, /\.targetCommitish == \$commit/);
   assert.match(workflow, /production-submission-mode\.sh "\$MODE" "\$CANDIDATE"/);
   assert.match(production, /production-submission-mode\.sh/);

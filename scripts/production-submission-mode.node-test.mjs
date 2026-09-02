@@ -23,11 +23,11 @@ async function fixture() {
   const operations = path.join(root, "data", "operations");
   await Promise.all([mkdir(bin), mkdir(scripts), mkdir(operations, { recursive: true })]);
   await writeFile(path.join(root, ".env"), "ARUBA_SUBMISSION_ENABLED=false\n", { mode: 0o600 });
-  await writeFile(path.join(root, ".deploy.env"), "APP_VERSION=1.0.0\n", { mode: 0o600 });
+  await writeFile(path.join(root, ".deploy.env"), "APP_VERSION=1.0.1\n", { mode: 0o600 });
   await writeFile(path.join(root, "compose.yaml"), "services: {}\n");
   await writeFile(
     path.join(operations, "deploy-receipt.json"),
-    JSON.stringify({ commit, imageDigest: digest, applicationVersion: "1.0.0" }),
+    JSON.stringify({ commit, imageDigest: digest, applicationVersion: "1.0.1" }),
   );
   await executable(
     path.join(bin, "docker"),
@@ -51,7 +51,7 @@ current=$(sed -n 's/^ARUBA_SUBMISSION_ENABLED=//p' .env)
 if [ "\${FAIL_TRUE:-0}" = 1 ] && [ "$expected" = true ]; then exit 1; fi
 [ "$current" = "$expected" ] || exit 1
 jq -n --arg commit '${commit}' --arg digest '${digest}' --argjson enabled "$current" \
-  '{status:"ok",commit:$commit,imageDigest:$digest,applicationVersion:"1.0.0",schema:"063_example.sql",arubaSubmissionEnabled:$enabled}'
+  '{status:"ok",commit:$commit,imageDigest:$digest,applicationVersion:"1.0.1",schema:"063_example.sql",arubaSubmissionEnabled:$enabled}'
 `,
   );
   await chmod(source, 0o755);

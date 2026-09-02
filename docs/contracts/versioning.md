@@ -11,6 +11,9 @@ Hub Fatture usa versioni `MAJOR.MINOR.PATCH` senza suffissi prerelease.
 - `MAJOR` passa a `1` soltanto per il candidato destinato alla prima release operativa completa.
 - Modifiche esclusivamente documentali, di test o di governance non richiedono un bump applicativo.
 - Non si usano `alpha`, `beta`, `rc` o altri prerelease tag. Il commit e il digest identificano le iterazioni del candidato prima della pubblicazione definitiva.
+- Più correzioni runtime assorbite prima della pubblicazione possono completare lo stesso candidato
+  già versionato finché il relativo tag `vMAJOR.MINOR.PATCH` non esiste; dopo il tag immutabile,
+  qualunque nuova modifica runtime deve avanzare almeno il patch.
 
 ## Treni fino alla 1.0
 

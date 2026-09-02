@@ -16,12 +16,16 @@ remote_commit=$(gh api "repos/$repository/commits/$commit" --jq .sha)
 [ "$remote_commit" = "$commit" ] || { echo "Commit remoto inatteso" >&2; exit 1; }
 
 if [ "$mode" = enable ]; then
-  release=$(gh release view v1.0.0 --repo "$repository" \
+  version=$(gh api "repos/$repository/contents/package.json?ref=$commit" \
+    --jq .content | base64 --decode | jq -er .version)
+  printf '%s' "$version" | grep -Eq '^[1-9][0-9]*\.[0-9]+\.[0-9]+$' \
+    || { echo "L'uso ordinario richiede una release stabile" >&2; exit 1; }
+  release=$(gh release view "v$version" --repo "$repository" \
     --json isDraft,isImmutable,isPrerelease,targetCommitish)
   printf '%s' "$release" | jq -e --arg commit "$commit" '
     .isDraft == false and .isImmutable == true and .isPrerelease == false and
     .targetCommitish == $commit
-  ' >/dev/null || { echo "Release v1.0.0 immutabile non conforme al candidato" >&2; exit 1; }
+  ' >/dev/null || { echo "Release immutabile non conforme al candidato" >&2; exit 1; }
 fi
 
 gh workflow run "Production submission mode" \

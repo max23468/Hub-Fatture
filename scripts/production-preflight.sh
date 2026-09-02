@@ -2,6 +2,11 @@
 set -eu
 
 root=${HUB_FATTURE_ROOT:-/opt/hub-fatture}
+expected_submission=${1:-}
+case "$expected_submission" in
+  true | false) ;;
+  *) echo "Uso: $0 <true|false>" >&2; exit 2 ;;
+esac
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 expected_hostname=${EXPECTED_HOSTNAME:-fatture-hub-vm}
 expected_region=${OCI_REGION:-eu-milan-1}
@@ -46,8 +51,8 @@ dns_ip=$(getent ahostsv4 fatture.opik.net | awk 'NR == 1 { print $1 }')
 [ "$dns_ip" = "$expected_public_ip" ] || fail "Dynu non punta all’IP OCI atteso"
 printf '%s' "$notifications_topic" | grep -Eq '^ocid1\.onstopic\.oc1\.' \
   || fail "Notifications Topic OCI non valido"
-[ "$(env_value "$root/.env" ARUBA_SUBMISSION_ENABLED)" = "false" ] \
-  || fail "kill switch Aruba non disabilitato"
+[ "$(env_value "$root/.env" ARUBA_SUBMISSION_ENABLED)" = "$expected_submission" ] \
+  || fail "modalità invii Aruba diversa dallo stato da preservare"
 [ "$(env_value "$root/.env" ARUBA_ACCOUNT_IDENTITY)" != "synthetic-aruba-account" ] \
   || fail "identità Aruba non qualificata"
 case "$(printf '%s' "$smtp_from" | tr '[:upper:]' '[:lower:]')" in

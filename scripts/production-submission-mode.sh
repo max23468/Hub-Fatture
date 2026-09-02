@@ -21,7 +21,8 @@ live_commit=$(jq -er .commit data/operations/deploy-receipt.json)
 live_digest=$(jq -er .imageDigest data/operations/deploy-receipt.json)
 live_version=$(jq -er .applicationVersion data/operations/deploy-receipt.json)
 [ "$live_commit" = "$expected_commit" ] || { echo "Commit Production diverso dal candidato autorizzato" >&2; exit 1; }
-[ "$live_version" = "1.0.0" ] || { echo "L'uso ordinario richiede la versione 1.0.0" >&2; exit 1; }
+printf '%s' "$live_version" | grep -Eq '^[1-9][0-9]*\.[0-9]+\.[0-9]+$' \
+  || { echo "L'uso ordinario richiede una release stabile" >&2; exit 1; }
 printf '%s' "$live_digest" | grep -Eq '^sha256:[0-9a-f]{64}$' \
   || { echo "Digest Production non valido" >&2; exit 1; }
 
