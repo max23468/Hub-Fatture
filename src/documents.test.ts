@@ -134,6 +134,24 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     totalAmount: 12345,
   });
   assert.throws(() => acceptedDocumentFiscalIdentity(mixedTaxSummary), /Campo XML obbligatorio/);
+  const zeroValueTaxSummary = invoiceXml.replace(
+    summaryBlock,
+    `${summaryBlock}${summaryBlock
+      .replace("<AliquotaIVA>0.00</AliquotaIVA>", "<AliquotaIVA>22.00</AliquotaIVA>")
+      .replace(
+        "<ImponibileImporto>123.45</ImponibileImporto>",
+        "<ImponibileImporto>0.00</ImponibileImporto>",
+      )
+      .replace(/\s*<Natura>N5<\/Natura>/, "")
+      .replace(/\s*<RiferimentoNormativo>[^<]+<\/RiferimentoNormativo>/, "")}`,
+  );
+  await validateFatturaXml(zeroValueTaxSummary);
+  assert.equal(acceptedDocumentFiscalIdentity(zeroValueTaxSummary).taxNature, "N5");
+  assert.equal(
+    acceptedInvoiceFromXml(zeroValueTaxSummary, syntheticFiscalProfile.numbering.approvedAt).profile
+      .legalReference,
+    syntheticFiscalProfile.legalReference,
+  );
   const withoutPayment = invoiceXml.replace(
     /\s*<DatiPagamento xmlns="">[\s\S]*?<\/DatiPagamento>/,
     "",

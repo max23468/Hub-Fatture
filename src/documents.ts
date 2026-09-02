@@ -315,7 +315,11 @@ function acceptedLineTotal(body: Record<string, unknown>): number {
 }
 
 function acceptedTaxSummary(goods: Record<string, unknown>) {
-  const summaries = xmlArray(goods.DatiRiepilogo);
+  const summaries = xmlArray(goods.DatiRiepilogo).filter(
+    (summary) =>
+      decimalToCents(xmlValue(summary.ImponibileImporto)) !== 0 ||
+      decimalToCents(xmlValue(summary.Imposta)) !== 0,
+  );
   const taxNatures = [...new Set(summaries.map((summary) => xmlValue(summary.Natura)))];
   const legalReferences = [
     ...new Set(summaries.map((summary) => xmlValue(summary.RiferimentoNormativo))),
