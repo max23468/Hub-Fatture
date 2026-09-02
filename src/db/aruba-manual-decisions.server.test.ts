@@ -11,12 +11,7 @@ import {
   generateFatturaXml,
 } from "../documents.ts";
 import { AppError } from "../errors.ts";
-import {
-  latestObservedRemote,
-  materializeLatestOfficialXml,
-  officialEvidence,
-} from "./aruba-document-materialization.server.ts";
-import { reconcileRemoteDocument } from "./aruba-reconciliation.server.ts";
+import { upgradeCachedArubaMatcher } from "./aruba-matcher-upgrade.server.ts";
 import { closePool, getPool, withTransaction } from "./client.server.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
@@ -418,7 +413,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
       {
         status: "UNMATCHED",
         method: "NONE",
-        matcher_version: 8,
+        matcher_version: 9,
         candidate_id: order.id,
         total_signal: "true",
       },
@@ -498,19 +493,20 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
        VALUES ($1, $2, 'ARUBA_XML')`,
       [sharedCreditRemoteId, creditStorage.id],
     );
-    const adoptedCreditDocumentId = await withTransaction(async (client) => {
-      const evidence = officialEvidence(
-        await latestObservedRemote(client, sharedCreditRemoteId!),
-        creditXml,
-      );
-      await reconcileRemoteDocument(client, sharedCreditRemoteId!, evidence, true);
-      return materializeLatestOfficialXml(client, sharedCreditRemoteId!, true);
+    await getPool().query(
+      `UPDATE aruba_document_matches
+       SET status = 'PROFILE_CONFLICT', matcher_version = 8
+       WHERE remote_document_id = $1`,
+      [sharedCreditRemoteId],
+    );
+    const upgradedDocuments = await withTransaction(async (client) => {
+      return upgradeCachedArubaMatcher(client, "MOCK", "synthetic-aruba-account");
     });
-    assert.equal(adoptedCreditDocumentId, creditDraft.id);
+    assert.equal(upgradedDocuments, 1);
     assert.deepEqual(
       (
         await getPool().query(
-          `SELECT matches.status AS match_status, matches.method,
+          `SELECT matches.status AS match_status, matches.method, matches.matcher_version,
                   matches.document_id::text, documents.status AS document_status,
                   documents.origin, documents.payment_method,
                   documents.immutable_snapshot_json ->> 'paymentMethod' AS snapshot_payment_method
@@ -523,6 +519,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
       {
         match_status: "MATCHED",
         method: "AUTOMATIC",
+        matcher_version: 9,
         document_id: creditDraft.id,
         document_status: "APPROVED",
         origin: "ARUBA_HISTORY",

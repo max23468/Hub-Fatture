@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4
+
+- Il matcher Aruba rigioca anche i conflitti TD04 già valutati prima della correzione dei metodi di pagamento storici, così la nota ufficiale viene riconciliata automaticamente senza attendere un cambiamento del provider.
+
 ## 1.0.3
 
 - Le note di credito storiche recuperate da Aruba conservano il metodo di pagamento dell’XML ufficiale anche quando differisce dal default corrente; identità fiscale, riferimento alla fattura e rimborsi devono comunque coincidere prima che una bozza locale venga adottata.

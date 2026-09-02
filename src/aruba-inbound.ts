@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 8;
+export const ARUBA_MATCHER_VERSION = 9;
 
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",
