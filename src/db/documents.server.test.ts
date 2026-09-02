@@ -917,16 +917,13 @@ test(
       const originalArubaRuntime = {
         APP_ENV: runtimeConfig.APP_ENV,
         ARUBA_ACCOUNT_REFERENCE: runtimeConfig.ARUBA_ACCOUNT_REFERENCE,
-        ARUBA_CANARY_ENABLED: runtimeConfig.ARUBA_CANARY_ENABLED,
         ARUBA_SUBMISSION_ENABLED: runtimeConfig.ARUBA_SUBMISSION_ENABLED,
       };
       Object.assign(runtimeConfig, {
         APP_ENV: "production",
         ARUBA_ACCOUNT_REFERENCE: "qualified-production-account",
-        ARUBA_CANARY_ENABLED: false,
         ARUBA_SUBMISSION_ENABLED: false,
       });
-      assert.equal((await canaryReadiness.arubaCanaryReadinessState()).state, "SKIPPED");
       await assert.rejects(
         database.withTransaction((client) =>
           arubaOutbound.createArubaApiBatch(client, mixedDocuments, owner, "DOCUMENT_ONLY"),
@@ -1130,7 +1127,6 @@ test(
            repeat('a', 64), $2, 'SUCCEEDED', now(), now())`,
         [canarySubmission.id, canarySubmission.xml_sha256],
       );
-      Object.assign(runtimeConfig, { ARUBA_CANARY_ENABLED: true });
       await assert.rejects(
         arubaOutbound.authorizeArubaApiCanary(
           canaryBatchId,
@@ -1281,7 +1277,6 @@ test(
       await database
         .getPool()
         .query("DELETE FROM jobs WHERE type = 'aruba_sync_inventory' AND status = 'PENDING'");
-      Object.assign(runtimeConfig, { ARUBA_CANARY_ENABLED: false });
       assert.equal((await canaryReadiness.arubaCanaryReadinessState()).state, "COMPLETE");
       const cancelledBatchId = await database.withTransaction((client) =>
         arubaOutbound.createArubaApiBatch(

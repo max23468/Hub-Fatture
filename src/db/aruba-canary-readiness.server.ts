@@ -66,13 +66,10 @@ export async function arubaCanaryReadinessState() {
      ORDER BY max(permits.created_at) DESC LIMIT 1`,
   );
   const current = result.rows[0];
-  const config = getConfig();
-  const canaryEnabled = config.ARUBA_CANARY_ENABLED;
-  const submissionEnabled = config.ARUBA_SUBMISSION_ENABLED;
+  const submissionEnabled = getConfig().ARUBA_SUBMISSION_ENABLED;
   if (!current) {
     return {
-      state: canaryEnabled ? ("NOT_AUTHORIZED" as const) : ("SKIPPED" as const),
-      canaryEnabled,
+      state: "NOT_AUTHORIZED" as const,
       submissionEnabled,
       permitCount: 0,
       consumedPermits: 0,
@@ -93,20 +90,9 @@ export async function arubaCanaryReadinessState() {
     current.readback_succeeded === 1 &&
     current.xml_or_p7m_files >= 1 &&
     current.active_jobs === 0 &&
-    !canaryEnabled &&
     !submissionEnabled;
-  const skipped =
-    !canaryEnabled &&
-    current.consumed_permits === 0 &&
-    current.active_permits === 0 &&
-    current.send_attempts === 0;
   return {
-    state: complete
-      ? ("COMPLETE" as const)
-      : skipped
-        ? ("SKIPPED" as const)
-        : ("INCOMPLETE" as const),
-    canaryEnabled,
+    state: complete ? ("COMPLETE" as const) : ("INCOMPLETE" as const),
     submissionEnabled,
     permitCount: current.permit_count,
     consumedPermits: current.consumed_permits,

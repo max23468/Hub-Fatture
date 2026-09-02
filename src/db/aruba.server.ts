@@ -303,7 +303,7 @@ export async function listArubaBatches() {
                 SELECT 1 FROM aruba_dry_run_qualifications AS qualifications
                 WHERE qualifications.batch_id = batches.id
               ) AS can_authorize_dry_run,
-            $1::boolean AND batches.environment = 'PRODUCTION' AND batches.transport = 'API'
+            batches.environment = 'PRODUCTION' AND batches.transport = 'API'
               AND batches.mode = 'DOCUMENT_ONLY' AND batches.status = 'DRY_RUN_VALIDATED'
               AND batches.document_count = 1
               AND bool_and(documents.document_type = 'TD01')
@@ -341,7 +341,6 @@ export async function listArubaBatches() {
       AND submissions.attempt_number = batches.attempt_number
      GROUP BY batches.id
      ORDER BY batches.created_at DESC LIMIT 100`,
-    [getConfig().ARUBA_CANARY_ENABLED],
   );
   return result.rows;
 }

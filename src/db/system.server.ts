@@ -74,7 +74,6 @@ export async function getSystemStatus() {
       failed: Number(jobs.rows[0]?.failed ?? 0),
     },
     backup,
-    arubaCanaryEnabled: config.ARUBA_CANARY_ENABLED,
     arubaSubmissionEnabled: config.ARUBA_SUBMISSION_ENABLED,
   };
 }

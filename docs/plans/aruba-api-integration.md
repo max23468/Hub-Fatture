@@ -1,6 +1,6 @@
 # Piano esecutivo — integrazione API Aruba
 
-**Stato:** inbound API canonico e ritiro browser completati; restano gate tecnici finali e go-live, mentre il canary reale è opzionale
+**Stato:** inbound API canonico e ritiro browser completati; restano ricertificazione, canary e go-live
 **Ambito:** API Aruba v2, solo ciclo attivo dell’utenza Base delegata
 **Fonte canonica:** Master Plan, ADR Aruba e glossario
 **Documentazione provider:** [API Aruba v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html) e [manuale account Premium](https://guide.pec.it/fatturazione-elettronica/manuale-account-premium.pdf)
@@ -75,20 +75,20 @@ stato e file ufficiali; Hub Fatture conserva una proiezione locale datata e una 
 
 ## 3. Decisioni consolidate
 
-| Tema                     | Decisione                                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------------------------- |
-| Canale finale            | API Aruba v2 primaria; pannello/helper soltanto transitori                                              |
-| Dipendenza commerciale   | Accordo forfettario approvato per circa 500 fatture per mese solare, comprensivo dell’uso API previsto  |
-| Ambiente DEMO            | Non viene richiesto all’agenzia; si usano fixture e qualifiche Production limitate                      |
-| Callback                 | Rinviato; nessun codice prima di una garanzia scritta di isolamento della sola utenza Base              |
-| Modalità predefinita     | `Crea solo il documento`                                                                                |
-| Modalità di trasmissione | Globali e rigide; nessun override per batch o documento                                                 |
-| Freshness                | avviso dopo 30 minuti; blocco dopo 4 ore; conflitto o incertezza bloccano subito                        |
-| Backfill                 | dal 1° luglio 2026, progressivo e riprendibile                                                          |
-| Retry invio              | automatico soltanto quando è provata l’idempotenza o la mancata accettazione                            |
-| Helper                   | ritiro separato per inbound e outbound, deciso esplicitamente da Massimo dopo un dossier di parità      |
-| Canary                   | opzionale e disabilitato per default; se riattivato usa un TD01 scelto da Massimo e un permesso monouso |
-| TD04                     | manuale finché non esiste un caso legittimo per un canary separato                                      |
+| Tema                     | Decisione                                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Canale finale            | API Aruba v2 primaria; pannello/helper soltanto transitori                                             |
+| Dipendenza commerciale   | Accordo forfettario approvato per circa 500 fatture per mese solare, comprensivo dell’uso API previsto |
+| Ambiente DEMO            | Non viene richiesto all’agenzia; si usano fixture e qualifiche Production limitate                     |
+| Callback                 | Rinviato; nessun codice prima di una garanzia scritta di isolamento della sola utenza Base             |
+| Modalità predefinita     | `Crea solo il documento`                                                                               |
+| Modalità di trasmissione | Globali e rigide; nessun override per batch o documento                                                |
+| Freshness                | avviso dopo 30 minuti; blocco dopo 4 ore; conflitto o incertezza bloccano subito                       |
+| Backfill                 | dal 1° luglio 2026, progressivo e riprendibile                                                         |
+| Retry invio              | automatico soltanto quando è provata l’idempotenza o la mancata accettazione                           |
+| Helper                   | ritiro separato per inbound e outbound, deciso esplicitamente da Massimo dopo un dossier di parità     |
+| Canary                   | un TD01 reale legittimo, scelto da Massimo e protetto da permesso monouso                              |
+| TD04                     | manuale finché non esiste un caso legittimo per un canary separato                                     |
 
 ## 4. Architettura di destinazione
 
@@ -387,9 +387,8 @@ rimossi. Un ratchet di repository ne impedisce la reintroduzione accidentale.
 ### 14.2 Outbound API
 
 Il dossier confronta dry-run, upload, validazione, invio, readback, file, stati, manifest, arresti e
-recovery. TD01 raggiunge la parità tecnica tramite contratto, dry-run e readback sintetico; il canary
-reale aggiunge evidenza operativa ma non è bloccante. TD04 resta manuale finché non viene autorizzata
-una qualificazione separata.
+recovery. TD01 può raggiungere la parità dopo il canary reale; TD04 non è dichiarato in parità finché
+non supera un canary legittimo separato.
 
 ### 14.3 Condizione permanente
 
@@ -405,20 +404,19 @@ invio. Il consenso vale per la fase e decade se il perimetro cambia.
 - Qualifica API: sole letture limitate; file minimi temporanei, validati e cancellati subito.
 - Inbound API: ingest canonico read-only e backfill autorizzato.
 - Outbound API: dry-run e qualifiche di upload senza invio, con autorizzazione specifica.
-- Canary Production: gate opzionale disabilitato per default; se riattivato, un solo invio TD01 reale mediante permesso monouso.
+- Canary Production: un solo invio TD01 reale mediante permesso monouso.
 
 Deploy, modifica dei permessi/delega nel pannello, callback, abilitazione ordinaria e ogni altro invio
 reale richiedono autorizzazioni distinte.
 
 ## 16. Canary TD01 e TD04
 
-Il canary Production reale è opzionale. Con `ARUBA_CANARY_ENABLED=false` non espone comandi, non
-crea permessi e non blocca il passaggio successivo. Se riattivato, usa un permesso monouso legato a ambiente, account, documento, revisione,
+Il canary Production usa un permesso monouso legato a ambiente, account, documento, revisione,
 batch, XML
 hash e scadenza breve. Viene consumato atomicamente al primo tentativo autorizzato. L’interruttore
 ordinario degli invii resta disabilitato; un esito incerto non riapre il permesso.
 
-Solo dopo una nuova decisione esplicita Massimo sceglie al momento dell’esecuzione un TD01 reale, legittimo e già necessario. Nessun documento
+Massimo sceglie al momento dell’esecuzione un TD01 reale, legittimo e già necessario. Nessun documento
 viene creato appositamente per il test. TD04 usa fixture e dry-run nella roadmap iniziale e resta nel
 fallback manuale finché un rimborso reale legittimo consente un canary separatamente autorizzato.
 
@@ -517,13 +515,12 @@ pronto, esclusa la prova reale.
 
 ### Canary Production TD01
 
-- decisione corrente registrata come `SKIPPED`, senza invii reali;
-- `ARUBA_CANARY_ENABLED=false`, zero permessi, tentativi e job di invio;
-- se riattivato: un TD01 scelto da Massimo, permesso monouso, dry-run, invio e readback end-to-end;
-- ricevuta sanitizzata in entrambi i percorsi.
+- un TD01 reale legittimo scelto da Massimo;
+- permesso monouso e interruttore ordinario ancora disabilitato;
+- dry-run, invio, readback, file e stato osservati end-to-end;
+- ricevuta sanitizzata.
 
-**Gate:** `SKIPPED` è sufficiente quando il canary è disabilitato e non esiste attività reale; se
-eseguito, nessun duplicato, nessun retry cieco, stato remoto determinato e permesso consumato.
+**Gate:** nessun duplicato, nessun retry cieco, stato remoto determinato e permesso consumato.
 
 ### Go-live e `1.0.0`
 

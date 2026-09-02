@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import { expectViewportFits } from "./support.ts";
 
-test("il gate opzionale disabilitato non espone comandi di invio reale", async ({
+test("l’invio pilota mostra una conferma fiscale esplicita e resta disabilitato fino al consenso", async ({
   page,
 }, testInfo) => {
   const database = await import("../../../src/db/client.server.ts");
@@ -64,31 +64,30 @@ test("il gate opzionale disabilitato non espone comandi di invio reale", async (
     await page.waitForURL("/");
     await page.goto("/documenti");
 
+    const confirmation = page.getByRole("checkbox", {
+      name: /Confermo l’invio fiscale reale di .* tramite una sola chiamata Aruba con dryRun=false/,
+    });
     const authorization = page.getByRole("button", {
       name: "Autorizza un solo invio reale",
     });
-    const qualifiedBatch = page
-      .locator(".document-batch-list")
-      .getByText("Verifica Aruba superata", { exact: true });
-    await expect(qualifiedBatch).toBeVisible();
-    await expect(authorization).toHaveCount(0);
-    await expect(page.getByText(/Confermo l’invio fiscale reale/)).toHaveCount(0);
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation).toHaveAttribute("aria-checked", "false");
+    await expect(authorization).toBeDisabled();
     await expectViewportFits(page);
-    await qualifiedBatch.scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: testInfo.outputPath("canary-skipped-desktop.png"),
-      fullPage: false,
-    });
+    await confirmation.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("canary-desktop.png"), fullPage: false });
+
+    await confirmation.press("Space");
+    await expect(confirmation).toHaveAttribute("aria-checked", "true");
+    await expect(authorization).toBeEnabled();
+    await expect(page.locator('input[name="confirmCanary"]')).toHaveValue("yes");
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(qualifiedBatch).toBeVisible();
-    await expect(authorization).toHaveCount(0);
+    await expect(confirmation).toBeVisible();
+    await expect(authorization).toBeVisible();
     await expectViewportFits(page);
-    await qualifiedBatch.scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: testInfo.outputPath("canary-skipped-mobile.png"),
-      fullPage: false,
-    });
+    await confirmation.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("canary-mobile.png"), fullPage: false });
   } finally {
     await pool.query("DELETE FROM aruba_dry_run_qualifications WHERE id = $1", [qualificationId]);
     await pool.query("UPDATE aruba_submissions SET environment = $2, status = $3 WHERE id = $1", [

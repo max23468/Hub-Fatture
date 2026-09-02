@@ -48,8 +48,6 @@ printf '%s' "$notifications_topic" | grep -Eq '^ocid1\.onstopic\.oc1\.' \
   || fail "Notifications Topic OCI non valido"
 [ "$(env_value "$root/.env" ARUBA_SUBMISSION_ENABLED)" = "false" ] \
   || fail "kill switch Aruba non disabilitato"
-[ "$(env_value "$root/.env" ARUBA_CANARY_ENABLED)" = "false" ] \
-  || fail "gate opzionale del canary reale non disabilitato"
 [ "$(env_value "$root/.env" ARUBA_ACCOUNT_IDENTITY)" != "synthetic-aruba-account" ] \
   || fail "identità Aruba non qualificata"
 case "$(printf '%s' "$smtp_from" | tr '[:upper:]' '[:lower:]')" in

@@ -6,7 +6,6 @@ x-app-environment: &app-environment
   APP_ENV: development
   ARUBA_ACCOUNT_REFERENCE: ${ARUBA_ACCOUNT_REFERENCE:-synthetic-aruba-account}
   ARUBA_API_READ_INTERVAL_MS: ${ARUBA_API_READ_INTERVAL_MS:-6100}
-  ARUBA_CANARY_ENABLED: "false"
   ARUBA_SUBMISSION_ENABLED: "false"
   CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY:-}
   DATABASE_URL: postgres://hub_fatture:hub_fatture_local@postgres:5432/hub_fatture

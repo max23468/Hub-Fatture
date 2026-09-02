@@ -2,7 +2,7 @@
 
 ## 1.0.0
 
-- Il pilota reale TD01 diventa un gate opzionale e disabilitato per impostazione predefinita: il candidato può chiudere la readiness senza invii, mentre un’eventuale prova futura richiede la riattivazione esplicita, un permesso monouso vincolato agli hash esatti e il readback ufficiale Aruba.
+- Il pilota M13 consente a Massimo di autorizzare un solo invio reale TD01 già qualificato in Production: il permesso monouso è vincolato a documento, revisione, manifest e XML esatti, non riattiva gli invii ordinari e qualsiasi esito remoto ambiguo blocca i retry fino alla riconciliazione tramite file ufficiali Aruba.
 - La sincronizzazione Aruba recupera via API i file ufficiali e le notifiche dei documenti storici privi dell'identificativo di gruppo, usando una ricerca limitata e univoca per tipo, data, numero e identità fiscale; risultati assenti, multipli o non attribuibili restano irrisolti e vengono ritentati senza collegamenti presunti.
 - Una preparazione non è più approvabile quando il documento Aruba correlato ha un totale diverso: `Controlli` espone importo locale, importo remoto e differenza, mentre collegamento automatico e decisione manuale positiva restano bloccati finché gli importi non coincidono.
 - Il comando server di approvazione rilegge sotto lock anche il possibile documento Aruba correlato alla preparazione: una richiesta diretta non può aggirare il blocco mostrato dall’interfaccia, mentre un conflitto riferito ad altri ordini non ferma le candidate sane.

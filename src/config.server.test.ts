@@ -22,8 +22,6 @@ test("la configurazione applica i vincoli operativi", () => {
     "https://app.example.invalid",
   );
   assert.equal(parseConfig(base).EBAY_ENVIRONMENT, "sandbox");
-  assert.equal(parseConfig(base).ARUBA_CANARY_ENABLED, false);
-  assert.equal(parseConfig({ ...base, ARUBA_CANARY_ENABLED: "true" }).ARUBA_CANARY_ENABLED, true);
   assert.equal(parseConfig(base).ARUBA_API_READ_INTERVAL_MS, 6_100);
   assert.equal(
     parseConfig({ ...base, ARUBA_API_READ_INTERVAL_MS: "5200" }).ARUBA_API_READ_INTERVAL_MS,

@@ -288,7 +288,6 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(postgres, /read_only: true/);
   assert.match(postgres, /no-new-privileges:true/);
   assert.match(compose, /ARUBA_SUBMISSION_ENABLED: "false"/);
-  assert.match(compose, /ARUBA_CANARY_ENABLED: "false"/);
   assert.match(compose, /app-worker:[\s\S]*stop_grace_period: 3m/);
   assert.match(compose, /read_only: true/);
   assert.match(compose, /cap_drop: \[ALL\]/);
