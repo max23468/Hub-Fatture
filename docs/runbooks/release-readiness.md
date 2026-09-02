@@ -2,6 +2,14 @@
 
 Questo è il record del candidato Production osservato. Un gate è chiuso soltanto quando la colonna **Riferimento** collega una prova osservata sul commit e digest esatti. Le capacità già implementate ma non esercitate nell’ambiente richiesto restano aperte.
 
+## Stato del record
+
+Il candidato identificato sotto è stato ricertificato integralmente, ma è stato poi sostituito
+prima del canary dalle modifiche runtime e schema che recuperano i file Aruba storici e bloccano
+le preparazioni con importi discordanti. Le prove restano valide come evidenza storica del
+candidato osservato, non come readiness del prossimo artefatto: la ricertificazione deve essere
+ripetuta sul nuovo SHA, digest e schema prima di qualunque attività canary.
+
 ## Identità candidata
 
 | Campo                    | Stato osservato                                                                                                                                                                                                         |
@@ -17,7 +25,7 @@ Questo è il record del candidato Production osservato. Un gate è chiuso soltan
 | Kill switch              | `ARUBA_SUBMISSION_ENABLED=false` riletto dopo deploy, rollback e rientro                                                                                                                                                |
 | Health pubblico          | `GET https://fatture.opik.net/health` restituisce `{"status":"ok"}`                                                                                                                                                     |
 
-La ricertificazione è chiusa sul candidato esatto sopra. Le [PR #290](https://github.com/max23468/Hub-Fatture/pull/290), [#292](https://github.com/max23468/Hub-Fatture/pull/292) e [#293](https://github.com/max23468/Hub-Fatture/pull/293) collegano backup incrementale, classificazione dell’impatto e blocco dei conflitti Aruba correlati. Il readback finale conferma zero documenti approvati non qualificati, zero storici non riconciliati, zero import iniziali pendenti, zero batch Aruba aperti e una qualifica dry-run terminale. Nessun documento è stato caricato o inviato ad Aruba e nessuna e-mail è partita. Il canary richiede ancora la scelta e l’autorizzazione specifica di un TD01 reale; go-live, release e uso Production ordinario conservano autorizzazioni separate.
+La ricertificazione era chiusa sul candidato esatto sopra. Le [PR #290](https://github.com/max23468/Hub-Fatture/pull/290), [#292](https://github.com/max23468/Hub-Fatture/pull/292) e [#293](https://github.com/max23468/Hub-Fatture/pull/293) collegano backup incrementale, classificazione dell’impatto e blocco dei conflitti Aruba correlati. Il readback finale conferma zero documenti approvati non qualificati, zero storici non riconciliati, zero import iniziali pendenti, zero batch Aruba aperti e una qualifica dry-run terminale. Queste prove non coprono il runtime e lo schema successivi. Nessun documento è stato caricato o inviato ad Aruba e nessuna e-mail è partita. Il canary richiede ancora una nuova ricertificazione, oltre alla scelta e all’autorizzazione specifica di un TD01 reale; go-live, release e uso Production ordinario conservano autorizzazioni separate.
 
 ## Gate del candidato
 
