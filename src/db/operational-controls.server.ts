@@ -521,6 +521,16 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
           .trim();
       const needsFile = !remote.has_xml;
       const amountMismatch = remote.amount_mismatch;
+      const amountMismatchFacts = remote.candidates.reduce<ControlFact[]>((facts, candidate) => {
+        if (candidate.amountMismatch) {
+          facts.push({
+            label: candidate.label,
+            value: `${(candidate.localAmount / 100).toFixed(2).replace(".", ",")} €; scostamento Aruba ${candidate.differenceAmount >= 0 ? "+" : ""}${(candidate.differenceAmount / 100).toFixed(2).replace(".", ",")} €`,
+            tone: "warning",
+          });
+        }
+        return facts;
+      }, []);
       return {
         id: `ARUBA_REMOTE:${remote.id}`,
         kind: needsFile
@@ -563,13 +573,7 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
               label: "Totale",
               value: `${(Number(remote.total_amount) / 100).toFixed(2).replace(".", ",")} €`,
             },
-            ...remote.candidates
-              .filter((candidate) => candidate.amountMismatch)
-              .map((candidate) => ({
-                label: candidate.label,
-                value: `${(candidate.localAmount / 100).toFixed(2).replace(".", ",")} €; scostamento Aruba ${candidate.differenceAmount >= 0 ? "+" : ""}${(candidate.differenceAmount / 100).toFixed(2).replace(".", ",")} €`,
-                tone: "warning" as const,
-              })),
+            ...amountMismatchFacts,
             { label: "Stato collegamento", value: remote.match_status, tone: "warning" as const },
           ],
         },
