@@ -78,6 +78,7 @@ export async function resolveArubaDocumentMatch(
   remoteDocumentId: string,
   orderId: string,
   rawReason: unknown,
+  rawAmountMismatchConfirmation: unknown,
   actor: ArubaReadActor,
 ) {
   const reason = z.string().trim().min(10).max(500).safeParse(rawReason);
@@ -109,14 +110,32 @@ export async function resolveArubaDocumentMatch(
       [remoteDocumentId, environment(), accountReference()],
     );
     const current = match.rows[0];
-    const selectedCandidate = current?.candidates_json.find(
-      (candidate) => candidate.candidateId === orderId && isActionable(candidate),
+    const selectedCandidate = current?.candidates_json.find((candidate) => {
+      if (candidate.candidateId !== orderId) return false;
+      return (
+        isActionable(candidate) ||
+        (candidate.signals
+          ? isArubaAmountMismatchCandidate({
+              ...candidate,
+              signals: candidate.signals,
+            })
+          : false)
+      );
+    });
+    const amountMismatch = Boolean(
+      selectedCandidate?.signals &&
+      isArubaAmountMismatchCandidate({
+        ...selectedCandidate,
+        signals: selectedCandidate.signals,
+      }),
     );
     if (
       !current ||
       !current.has_xml ||
       !isEmissionConfirmed(current.remote_status) ||
-      !selectedCandidate
+      !selectedCandidate ||
+      (amountMismatch &&
+        (current.document_type !== "TD01" || rawAmountMismatchConfirmation !== "confirmed"))
     ) {
       throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
     }
@@ -158,7 +177,13 @@ export async function resolveArubaDocumentMatch(
       entityType: "ARUBA_REMOTE_DOCUMENT",
       entityId: remoteDocumentId,
       before: { status: current.status, method: current.method, orderId: current.order_id },
-      after: { status: "MATCHED", method: "MANUAL", orderId, documentId },
+      after: {
+        status: "MATCHED",
+        method: "MANUAL",
+        orderId,
+        documentId,
+        amountMismatch,
+      },
       reason: reason.data,
       requestId: actor.requestId,
     });

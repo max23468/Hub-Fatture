@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- I rimborsi incidono sul confronto con una fattura Aruba in base alla loro data effettiva rispetto alla data fiscale: prima riducono il totale, dopo restano da riconciliare con una TD04 e nello stesso giorno mantengono il caso bloccato se la sequenza non è provata.
+- Un documento Aruba con destinatario e data coerenti ma importo diverso può essere collegato dal titolare come fattura già emessa soltanto con conferma e motivazione esplicite; il documento storico conserva totale remoto, totale locale, differenza e motivo senza creare o inviare una nuova fattura.
+- Per i privati esteri, il metodo ufficiale `MP05` e un bonifico incassato nella data del documento rafforzano l’evidenza temporale del candidato senza rendere automatici i collegamenti con importi discordanti.
+
 ## 1.0.1
 
 - I documenti Aruba con importo discordante non riaprono controlli verso ordini già fatturati e collegati a un altro documento approvato; il matcher conserva quegli ordini per riconciliare la loro fattura corretta, mentre le preparazioni ancora prive di documento restano bloccate quando destinatario e data indicano un possibile duplicato.

@@ -115,8 +115,9 @@ export const arubaActionableCandidateSql = (
 
 /**
  * L'XML ufficiale può confermare destinatario e prossimità temporale senza confermare
- * il totale. Il candidato non è collegabile come fattura dell'ordine, ma deve restare
- * visibile e trattenere soltanto la preparazione correlata fino alla decisione manuale.
+ * il totale. Il candidato non è collegabile automaticamente: resta visibile e trattiene
+ * soltanto la preparazione correlata finché il proprietario non conferma esplicitamente
+ * il collegamento con differenza oppure lo esclude dal perimetro.
  */
 export const arubaAmountMismatchCandidateSql = (
   candidateAlias = "aruba_candidate",

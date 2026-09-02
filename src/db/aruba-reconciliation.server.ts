@@ -64,8 +64,25 @@ export async function arubaOrderCandidates(client: pg.PoolClient, remote: Remote
             '{}'::text[] AS refund_dates,
             (orders.gross_amount - orders.deducted_shopify_payments_fee_amount - coalesce((
               SELECT sum(refunds.amount) FROM refunds
-              WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
+              WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
+                AND refunds.amount > 0 AND refunds.completed_at IS NOT NULL
+                AND (refunds.completed_at AT TIME ZONE 'Europe/Rome')::date < $1::date
             ), 0))::integer AS billable_amount,
+            EXISTS (
+              SELECT 1 FROM refunds
+              WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
+                AND refunds.amount > 0 AND (
+                  refunds.completed_at IS NULL OR
+                  (refunds.completed_at AT TIME ZONE 'Europe/Rome')::date = $1::date
+                )
+            ) AS refund_timing_ambiguous,
+            EXISTS (
+              SELECT 1 FROM payments
+              WHERE payments.order_id = orders.id AND payments.status = 'PAID'
+                AND (payments.paid_at AT TIME ZONE 'Europe/Rome')::date = $1::date
+                AND (lower(payments.method) LIKE '%bonifico%'
+                  OR lower(payments.method) LIKE '%bank%transfer%')
+            ) AS bank_transfer_paid_on_document_date,
             coalesce(nullif(billing_cases.customer_snapshot_json ->> 'displayName', ''),
               customers.display_name) AS recipient_name,
             coalesce(billing_cases.customer_snapshot_json -> 'taxIdentifiers',
@@ -119,6 +136,8 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
             orders.billing_case_id, invoice.document_id::text AS invoice_document_id,
             refundable.amount::integer AS billable_amount, refundable.refund_ids,
             refundable.refund_amounts, refundable.refund_dates,
+            false AS refund_timing_ambiguous,
+            false AS bank_transfer_paid_on_document_date,
             customers.display_name AS recipient_name,
             coalesce((SELECT jsonb_agg(jsonb_build_object(
                         'type', order_tax_identifiers.type,
@@ -178,6 +197,8 @@ async function submittedCreditNoteCandidates(client: pg.PoolClient, documentId: 
             array_agg(refunds.id::text ORDER BY refunds.id) AS refund_ids,
             array_agg(refunds.amount::integer ORDER BY refunds.id) AS refund_amounts,
             array_agg(refunds.completed_at::date::text ORDER BY refunds.id) AS refund_dates,
+            false AS refund_timing_ambiguous,
+            false AS bank_transfer_paid_on_document_date,
             customers.display_name AS recipient_name,
             coalesce((SELECT jsonb_agg(jsonb_build_object(
                         'type', order_tax_identifiers.type,

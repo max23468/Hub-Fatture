@@ -7,6 +7,7 @@ import type pg from "pg";
 import {
   canManuallyLinkCandidate,
   groupOrderCandidates,
+  isArubaAmountMismatchCandidate,
   isEmissionConfirmed,
   normalizedMatchText,
   remoteInventoryDocumentSchema,
@@ -31,6 +32,7 @@ import { AppError } from "../errors.ts";
 import { refreshInvoiceDraftProjection } from "./invoice-draft-projection.server.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 import { arubaOrderCandidates } from "./aruba-reconciliation.server.ts";
+import { reconcileRemoteDocument } from "./aruba-reconciliation.server.ts";
 import {
   lockedRemoteMatch,
   markRemoteProfileConflict,
@@ -164,6 +166,7 @@ export function officialEvidence(
       ...authoritativeRecipient,
       xmlSha256: createHash("sha256").update(xml).digest("hex"),
       orderReferences: evidence.orderReferences,
+      paymentMethod: evidence.paymentMethod,
     };
   }
   return {
@@ -171,6 +174,7 @@ export function officialEvidence(
     ...authoritativeRecipient,
     xmlSha256: createHash("sha256").update(xml).digest("hex"),
     orderReferences: evidence.orderReferences,
+    paymentMethod: evidence.paymentMethod,
   };
 }
 
@@ -194,6 +198,45 @@ async function regenerateResidualInvoiceDraft(client: pg.PoolClient, caseId: str
     [caseId],
   );
   if (updated.rows[0]) await refreshInvoiceDraftProjection(client, caseId);
+}
+
+async function rematchPostIssueCreditNotes(client: pg.PoolClient, orderIds: string[]) {
+  const candidates = await client.query<{ id: string }>(
+    `SELECT DISTINCT remote.id::text
+     FROM aruba_remote_documents AS remote
+     JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
+     WHERE remote.environment = $2 AND remote.account_reference = $3
+       AND remote.document_type = 'TD04' AND remote.remote_status <> 'REJECTED'
+       AND matches.method <> 'MANUAL'
+       AND matches.status NOT IN ('ERROR', 'UNKNOWN_REMOTE_STATE')
+       AND EXISTS (
+         SELECT 1 FROM refunds
+         WHERE refunds.order_id = ANY($1::bigint[]) AND refunds.status = 'COMPLETED'
+           AND refunds.amount > 0 AND NOT refunds.applied_before_issue
+           AND refunds.completed_at IS NOT NULL
+           AND (refunds.completed_at AT TIME ZONE 'Europe/Rome')::date
+             BETWEEN remote.document_date - 31 AND remote.document_date
+       )
+     ORDER BY remote.id::text`,
+    [
+      orderIds,
+      getConfig().APP_ENV === "production" ? "PRODUCTION" : "MOCK",
+      getConfig().ARUBA_ACCOUNT_REFERENCE,
+    ],
+  );
+  for (const remote of candidates.rows) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Le TD04 condividono il lock inventario e dipendono dalla fattura appena materializzata.
+    const observed = await latestObservedRemote(client, remote.id);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Ogni documento usa il proprio XML ufficiale quando disponibile.
+    const official = await loadLatestOfficialXml(client, remote.id);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Il ricalcolo seriale evita candidati obsoleti dopo la riclassificazione dei rimborsi.
+    await reconcileRemoteDocument(
+      client,
+      remote.id,
+      official ? officialEvidence(observed, official.xml) : observed,
+      Boolean(official),
+    );
+  }
 }
 
 async function materializeExternalInvoice(
@@ -240,6 +283,7 @@ async function materializeExternalInvoice(
     providerObservedAt: null,
     xmlSha256: createHash("sha256").update(xml).digest("hex"),
     orderReferences: imported.references,
+    paymentMethod: imported.input.paymentMethod,
   };
   const candidates = await arubaOrderCandidates(client, evidenceRemote);
   const individualCandidates = candidates.map((candidate) =>
@@ -258,7 +302,9 @@ async function materializeExternalInvoice(
           (candidate) =>
             candidate.candidateId === remote.order_id &&
             (candidate.compatible ||
-              (remote.match_method === "MANUAL" && canManuallyLinkCandidate(candidate))),
+              (remote.match_method === "MANUAL" &&
+                (canManuallyLinkCandidate(candidate) ||
+                  isArubaAmountMismatchCandidate(candidate)))),
         )
       : verified.status === "MATCHED"
         ? verified.evaluations.find((candidate) => candidate.compatible)
@@ -279,18 +325,27 @@ async function materializeExternalInvoice(
     `SELECT orders.id, orders.customer_id, orders.billing_case_id,
             (orders.gross_amount - orders.deducted_shopify_payments_fee_amount - coalesce((
               SELECT sum(refunds.amount) FROM refunds
-              WHERE refunds.order_id = orders.id AND refunds.applied_before_issue
+              WHERE refunds.order_id = orders.id AND refunds.status = 'COMPLETED'
+                AND refunds.amount > 0 AND refunds.completed_at IS NOT NULL
+                AND (refunds.completed_at AT TIME ZONE 'Europe/Rome')::date < $2::date
             ), 0))::integer AS canonical_billable_amount,
             orders.normalized_snapshot_json -> 'customerSnapshot' AS customer_snapshot
      FROM orders WHERE orders.id = ANY($1::bigint[]) ORDER BY orders.id FOR UPDATE`,
-    [matchedOrderIds],
+    [matchedOrderIds, imported.documentDate],
   );
+  const manualAmountMismatch =
+    remote.match_method === "MANUAL" && isArubaAmountMismatchCandidate(selectedEvaluation);
+  const sourceTotalAmount = order.rows.reduce(
+    (sum, item) => sum + item.canonical_billable_amount,
+    0,
+  );
+  const differenceAmount = imported.totalAmount - sourceTotalAmount;
   const currentOrder = order.rows[0];
   if (
     !currentOrder ||
     order.rows.length !== matchedOrderIds.length ||
-    order.rows.reduce((sum, item) => sum + item.canonical_billable_amount, 0) !==
-      imported.totalAmount ||
+    (!manualAmountMismatch && sourceTotalAmount !== imported.totalAmount) ||
+    (manualAmountMismatch && sourceTotalAmount === imported.totalAmount) ||
     new Set(order.rows.map((item) => item.customer_id)).size !== 1 ||
     new Set(order.rows.map((item) => item.billing_case_id)).size !== 1
   ) {
@@ -362,20 +417,20 @@ async function materializeExternalInvoice(
     const snapshot = {
       generatorVersion: 2,
       ...imported.input,
-      sourceTotal: imported.totalAmount,
+      sourceTotal: sourceTotalAmount,
       total: imported.totalAmount,
-      difference: 0,
-      differenceReason: null,
+      difference: differenceAmount,
+      differenceReason: manualAmountMismatch ? remote.decision_reason : null,
     };
     const document = await client.query<{ id: string }>(
       `INSERT INTO documents
         (billing_case_id, kind, status, document_type, series, fiscal_year, fiscal_number,
          document_date, fiscal_profile_version, currency, total_amount, source_total_amount,
-         difference_amount, projection_sha256, approved_at, xml_sha256,
+         difference_amount, difference_reason, projection_sha256, approved_at, xml_sha256,
          immutable_snapshot_json, fiscal_profile_snapshot_json, storage_object_id,
          payment_status, payment_method, recipient_snapshot_json, origin)
        VALUES ($1, 'INVOICE', 'APPROVED', 'TD01', $2, $3, $4, $5, $6, 'EUR',
-         $7, $7, 0, $8, now(), $8, $9, $10, $11, 'PAID', $12, $13, 'ARUBA_HISTORY')
+         $7, $8, $9, $10, $11, now(), $11, $12, $13, $14, 'PAID', $15, $16, 'ARUBA_HISTORY')
        RETURNING id`,
       [
         historicalCase.rows[0]!.id,
@@ -385,6 +440,9 @@ async function materializeExternalInvoice(
         imported.documentDate,
         profile.version,
         imported.totalAmount,
+        sourceTotalAmount,
+        differenceAmount,
+        manualAmountMismatch ? remote.decision_reason : null,
         digest,
         JSON.stringify(snapshot),
         JSON.stringify(imported.profile),
@@ -411,6 +469,24 @@ async function materializeExternalInvoice(
     [matchedOrderIds],
   );
   await client.query(
+    `UPDATE refunds SET applied_before_issue =
+       ((completed_at AT TIME ZONE 'Europe/Rome')::date < $2::date), updated_at = now()
+     WHERE order_id = ANY($1::bigint[]) AND status = 'COMPLETED' AND amount > 0
+       AND completed_at IS NOT NULL
+       AND (completed_at AT TIME ZONE 'Europe/Rome')::date <> $2::date`,
+    [matchedOrderIds, imported.documentDate],
+  );
+  await client.query(
+    `INSERT INTO jobs (type, payload_json)
+     SELECT 'process_refund', jsonb_build_object('refundId', refunds.id::text)
+     FROM refunds
+     WHERE refunds.order_id = ANY($1::bigint[]) AND refunds.status = 'COMPLETED'
+       AND refunds.amount > 0 AND NOT refunds.applied_before_issue
+       AND refunds.credit_document_id IS NULL
+     ON CONFLICT DO NOTHING`,
+    [matchedOrderIds],
+  );
+  await client.query(
     `DELETE FROM document_orders
      WHERE order_id = ANY($1::bigint[]) AND document_kind = 'INVOICE'
        AND document_id IN (SELECT id FROM documents WHERE status = 'DRAFT')`,
@@ -427,6 +503,7 @@ async function materializeExternalInvoice(
       order.rows.map((item) => item.canonical_billable_amount),
     ],
   );
+  await rematchPostIssueCreditNotes(client, matchedOrderIds);
   const previousCaseId = currentOrder.billing_case_id;
   await client.query(
     `UPDATE orders SET trigger_status = 'INVOICED', billing_case_id = NULL

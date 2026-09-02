@@ -57,6 +57,12 @@ export const controlsCopy = {
   confirmPrivacy: "Confermo di avere evaso la richiesta privacy",
   completePrivacy: "Conferma completamento",
   linkAruba: "Collega documento Aruba",
+  linkArubaWithDifference: "Collega come fattura già emessa",
+  amountMismatchReason: "Motivo della differenza",
+  amountMismatchReasonPlaceholder:
+    "Descrivi perché il documento Aruba appartiene all’ordine nonostante l’importo diverso",
+  confirmAmountMismatchLink:
+    "Confermo che il documento Aruba appartiene all’ordine e che la differenza deve restare registrata",
   candidateOrder: "Ordine da collegare",
   confirmOutOfScope: "Nessun candidato è corretto",
   confirmCandidateRejection:

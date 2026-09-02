@@ -442,6 +442,7 @@ export function acceptedFiscalDocumentEvidenceFromXml(
     },
     recipient: acceptedRecipient(source),
     orderReferences: fiscalDocumentReferences(source),
+    paymentMethod: acceptedPayment(source.body, source.type as "TD01" | "TD04").method,
   };
 }
 
