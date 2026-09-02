@@ -3727,8 +3727,8 @@ dossier di parità. Non è il gate corrente di M8 e non autorizza nuove operazio
 - [x] M10: pausa API e invii fiscali disabilitati riletti server-side; configurazione e mutazioni protette da `can_approve`, salute e `Sincronizza ora` osservabili.
 - [x] M11: dossier inbound/outbound completi, fallback manuale end-to-end e decisione separata di Massimo su ciascun helper; nessuna doppia autorità automatica.
 - [x] M12: ricertificazione chiusa; le modifiche successive non riaprono formalmente la milestone.
-- [ ] M13: gate tecnici e identità del candidato conclusi con `ARUBA_SUBMISSION_ENABLED=false`, senza upload o invii reali.
-- [ ] M13: report sanitizzato aggiornato con prove fresche e assenza di P0/P1 o stati remoti incerti.
+- [x] M13: gate tecnici e identità del candidato conclusi con `ARUBA_SUBMISSION_ENABLED=false`, senza upload o invii reali.
+- [x] M13: report sanitizzato aggiornato con prove fresche e assenza di P0/P1 o stati remoti incerti.
 - [ ] M14: autorizzazioni separate a release e uso ordinario; decisioni helper registrate; TD04 mantenuta manuale fino al proprio canary legittimo.
 
 ### Prima del go-live
