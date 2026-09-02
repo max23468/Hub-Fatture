@@ -9,6 +9,7 @@ import {
   useRouteError,
 } from "react-router";
 import type { MetaFunction } from "react-router";
+import type { Route } from "./+types/root";
 
 import { PublicCardHeader, PublicPage } from "./components/public-page";
 import { copy } from "./copy.it";
@@ -17,6 +18,8 @@ import { WEB_MANIFEST_PATH } from "./web-manifest";
 import favicon from "../docs/brand/assets/favicon.svg?url";
 import appIcon from "../docs/brand/assets/shopify-app-icon.png?url";
 import maskIcon from "../docs/brand/assets/shopify-navigation-icon.svg?url";
+import { getSessionUser } from "../src/db/auth.server.ts";
+import { readOperationalControlSummary } from "../src/db/operational-controls.server.ts";
 import "./styles.css";
 import "./styles/aruba-settings.css";
 import "./styles/documents.css";
@@ -24,6 +27,13 @@ import "./styles/mobile-navigation.css";
 import "./styles/preparation.css";
 
 const uiBootstrap = `try{const t=localStorage.getItem("tema");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;const s=localStorage.getItem("sidebar");const n=matchMedia("(min-width:48.0625rem) and (max-width:63.999rem)").matches;document.documentElement.dataset.sidebar=s==="collapsed"||(s!=="expanded"&&n)?"collapsed":"expanded"}catch{}`;
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const user = await getSessionUser(request);
+  return {
+    navigationControlCount: user ? (await readOperationalControlSummary()).open : 0,
+  };
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (

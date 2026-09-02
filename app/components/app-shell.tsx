@@ -15,7 +15,8 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Form, NavLink, useFetcher, useLocation } from "react-router";
+import { Form, NavLink, useLocation, useRouteLoaderData } from "react-router";
+import type { loader as rootLoader } from "../root";
 
 import { copy } from "../copy.it";
 import { BrandLockup } from "./brand-lockup";
@@ -104,8 +105,7 @@ export function AppShell({
   csrfToken: string;
 }) {
   const location = useLocation();
-  const controlSummary = useFetcher<{ open: number }>();
-  const loadControlSummary = controlSummary.load;
+  const rootData = useRouteLoaderData<typeof rootLoader>("root");
   const mobileNavigation = useRef<HTMLDialogElement>(null);
   const mobileNavigationTrigger = useRef<HTMLButtonElement>(null);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
@@ -152,11 +152,7 @@ export function AppShell({
     setMobileNavigationOpen(false);
   }, [location.pathname, location.search]);
 
-  useEffect(() => {
-    void loadControlSummary("/controlli/riepilogo");
-  }, [loadControlSummary, location.pathname, location.search]);
-
-  const controlCount = controlSummary.data?.open ?? 0;
+  const controlCount = rootData?.navigationControlCount ?? 0;
 
   return (
     <div className="app-layout">

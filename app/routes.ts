@@ -23,7 +23,6 @@ export default [
   route("clienti", "routes/customers.tsx"),
   route("clienti/:customerId", "routes/customer-detail.tsx"),
   route("controlli", "routes/controls.tsx"),
-  route("controlli/riepilogo", "routes/controls-summary.ts"),
   route("attivita", "routes/activity.tsx"),
   route("ricerca", "routes/search.ts"),
   route("impostazioni", "routes/settings.tsx"),

@@ -77,28 +77,39 @@ test("le capacità estratte non tornano a crescere in monoliti", async () => {
   assert.deepEqual(offenders, []);
 });
 
-test("la navigazione primaria usa il documento e il badge non ricostruisce i controlli", async () => {
-  const [shell, home, dashboardConnections, login, setup, motion, summaryRoute] = await Promise.all(
-    [
+test("la navigazione primaria legge la proiezione e il worker la aggiorna fuori dalla richiesta", async () => {
+  const [shell, rootRoute, routes, home, dashboardConnections, login, setup, motion, worker] =
+    await Promise.all([
       readFile(path.join(root, "app/components/app-shell.tsx"), "utf8"),
+      readFile(path.join(root, "app/root.tsx"), "utf8"),
+      readFile(path.join(root, "app/routes.ts"), "utf8"),
       readFile(path.join(root, "app/routes/home.tsx"), "utf8"),
       readFile(path.join(root, "app/components/dashboard-connections.tsx"), "utf8"),
       readFile(path.join(root, "app/routes/login.tsx"), "utf8"),
       readFile(path.join(root, "app/routes/setup.tsx"), "utf8"),
       readFile(path.join(root, "app/styles/motion.css"), "utf8"),
-      readFile(path.join(root, "app/routes/controls-summary.ts"), "utf8"),
-    ],
-  );
+      readFile(path.join(root, "src/worker.ts"), "utf8"),
+    ]);
   assert.doesNotMatch(shell, /viewTransition/);
   assert.doesNotMatch(motion, /view-transition/);
   assert.match(shell, /<NavLink[\s\S]*?reloadDocument[\s\S]*?to=\{to\}/);
   assert.doesNotMatch(shell, /useNavigation|aria-busy|nav-item--pending/);
+  assert.doesNotMatch(shell, /useFetcher|\/controlli\/riepilogo/);
+  assert.match(shell, /useRouteLoaderData<typeof rootLoader>\("root"\)/);
+  assert.match(rootRoute, /readOperationalControlSummary/);
+  assert.doesNotMatch(rootRoute, /refreshOperationalControls/);
+  assert.doesNotMatch(routes, /controlli\/riepilogo|controls-summary/);
   assert.match(home, /<Link[\s\S]*?reloadDocument[\s\S]*?to=\{item\.to\}/);
+  assert.match(home, /readOperationalControlSummary/);
+  assert.doesNotMatch(home, /getOperationalControlSummary/);
+  assert.doesNotMatch(home, /refreshOperationalControls/);
+  assert.doesNotMatch(home, /\/controlli\/riepilogo\?refresh=1/);
   assert.match(dashboardConnections, /<Link[^>]*reloadDocument[^>]*to=\{to\}/);
   assert.match(login, /<Form[^>]*method="post"[^>]*reloadDocument/);
   assert.match(setup, /<Form[^>]*method="post"[^>]*reloadDocument/);
-  assert.match(summaryRoute, /readOperationalControlSummary/);
-  assert.doesNotMatch(summaryRoute, /getOperationalControlSummary/);
+  assert.match(worker, /scheduleOperationalControlsRefresh\(\)/);
+  assert.match(worker, /await refreshOperationalControls\(\)/);
+  assert.match(worker, /await waitForOperationalControlsRefresh\(\)/);
 });
 
 test("readiness e migrazioni restano partizionate senza perdere scenari", async () => {
