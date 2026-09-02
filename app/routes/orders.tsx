@@ -30,12 +30,9 @@ import { importOrders } from "../../src/db/order-import.server.ts";
 import { listOrders, type OrderListSortKey } from "../../src/db/order-queries.server.ts";
 import { readForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
-import {
-  approveInvoices,
-  listMassApprovalCandidates,
-} from "../../src/db/document-mass-approval.server.ts";
-import { getArubaSettings } from "../../src/db/aruba.server.ts";
+import { approveInvoices } from "../../src/db/document-mass-approval.server.ts";
 import { parseSort, type SortState } from "../table-sort";
+import type { MassApprovalData } from "./order-approval-candidates";
 
 const preparationPoolByView: Record<string, OpenBillingCasePool> = {
   fatturare: "APPROVABLE",
@@ -127,12 +124,6 @@ export async function loader({ request }: Route.LoaderArgs) {
         ? listBillingCases({ statuses: ["DO_NOT_TRANSMIT"], page, sort: preparationSort })
         : Promise.resolve(emptyPage),
   ]);
-  const approvalCandidates =
-    view === "fatturare" && user.canApprove && !approvalsGloballyBlocked
-      ? await listMassApprovalCandidates()
-      : [];
-  const arubaSettings = approvalCandidates.length ? await getArubaSettings() : null;
-  const arubaMode = arubaSettings?.effectiveMode ?? "DOCUMENT_ONLY";
   return {
     username: user.username,
     canApprove: user.canApprove,
@@ -148,13 +139,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     filters,
     orderSort,
     preparationSort,
-    approvalCandidates,
-    arubaMode,
-    arubaConfiguredMode: arubaSettings?.mode.value ?? "DOCUMENT_ONLY",
     approvalsGloballyBlocked,
-    arubaDowngradeRequired: Boolean(
-      arubaSettings && arubaSettings.mode.value !== arubaSettings.effectiveMode,
-    ),
     approved: url.searchParams.get("approvati"),
     approvalErrors: url.searchParams.get("errori"),
     storagePending: url.searchParams.get("archiviazione"),
@@ -205,7 +190,7 @@ export async function action({ request }: Route.ActionArgs) {
   });
 }
 
-type ApprovalCandidates = Awaited<ReturnType<typeof loader>>["approvalCandidates"];
+type ApprovalCandidates = MassApprovalData["approvalCandidates"];
 type OrderFiltersValue = Awaited<ReturnType<typeof loader>>["filters"];
 
 function OrderFilters({
@@ -467,6 +452,38 @@ function MassApprovalPanel({
         </button>
       </Form>
     </section>
+  );
+}
+
+function MassApprovalSection({ csrfToken }: { csrfToken: string }) {
+  const [data, setData] = useState<MassApprovalData>();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/ordini/candidati-approvazione", {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("MASS_APPROVAL_LOAD_FAILED");
+        return (await response.json()) as MassApprovalData;
+      })
+      .then(setData)
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setData(undefined);
+      });
+    return () => controller.abort();
+  }, []);
+
+  if (!data || data.approvalCandidates.length <= 1) return null;
+  return (
+    <MassApprovalPanel
+      approvalCandidates={data.approvalCandidates}
+      arubaMode={data.arubaMode}
+      arubaConfiguredMode={data.arubaConfiguredMode}
+      arubaDowngradeRequired={data.arubaDowngradeRequired}
+      csrfToken={csrfToken}
+    />
   );
 }
 
@@ -843,36 +860,96 @@ function OrderList({
   );
 }
 
-export default function Orders() {
+function OrdersNotices({ data }: { data: OrdersPageData }) {
+  const error = useActionData<typeof action>();
   const {
-    username,
-    canApprove,
-    csrfToken,
-    orders,
-    cases,
-    view,
-    page,
-    fixtureEnabled,
     imported,
     updated,
     ignored,
-    filters,
-    orderSort,
-    preparationSort,
-    approvalCandidates,
-    arubaMode,
-    arubaConfiguredMode,
-    approvalsGloballyBlocked,
-    arubaDowngradeRequired,
     approved,
     approvalErrors,
     storagePending,
-  } = useLoaderData<typeof loader>();
-  const error = useActionData<typeof action>();
+    view,
+    approvalsGloballyBlocked,
+  } = data;
+  return (
+    <>
+      {imported !== null ? (
+        <p className="notice" role="status">
+          {copy.orders.examplesLoaded(imported, updated, ignored)}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="error" role="alert">
+          {error.message}
+        </p>
+      ) : null}
+      {approved !== null ? (
+        <p className="notice" role="status">
+          {copy.orders.massApprovalResult(approved, approvalErrors ?? "0", storagePending ?? "0")}
+        </p>
+      ) : null}
+      {view === "fatturare" && approvalsGloballyBlocked ? (
+        <p className="warning" role="status">
+          {copy.orders.approvalsGloballyBlocked}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function OrdersResults({ data }: { data: OrdersPageData }) {
+  const {
+    approvalsGloballyBlocked,
+    canApprove,
+    cases,
+    csrfToken,
+    filters,
+    fixtureEnabled,
+    orderSort,
+    orders,
+    page,
+    preparationSort,
+    view,
+  } = data;
   const showsPreparations = view === "fatturare" || view === "attesa";
   const showsPreparationArchive = showsPreparations || view === "annullati";
   return (
-    <AppShell username={username} canApprove={canApprove} csrfToken={csrfToken}>
+    <>
+      {showsPreparationArchive ? (
+        <PreparationList
+          cases={cases}
+          ordersEmpty={!orders.rows.length}
+          showsPreparations={showsPreparations}
+          sort={preparationSort}
+          view={view}
+        />
+      ) : null}
+
+      {view === "fatturare" && canApprove && !approvalsGloballyBlocked ? (
+        <MassApprovalSection csrfToken={csrfToken} />
+      ) : null}
+
+      {!showsPreparationArchive ? (
+        <OrderList
+          csrfToken={csrfToken}
+          filters={filters}
+          fixtureEnabled={fixtureEnabled}
+          orders={orders}
+          showsPreparations={showsPreparations}
+          sort={orderSort}
+          view={view}
+        />
+      ) : null}
+      <Pager basePath="/ordini" hasNext={orders.hasNext || cases.hasNext} page={page} />
+    </>
+  );
+}
+
+export default function Orders() {
+  const data = useLoaderData<typeof loader>();
+  return (
+    <AppShell username={data.username} canApprove={data.canApprove} csrfToken={data.csrfToken}>
       <div className="title-block">
         <p className="eyebrow">{copy.orders.eyebrow}</p>
         <h1>{copy.orders.title}</h1>
@@ -880,7 +957,7 @@ export default function Orders() {
       </div>
 
       <ViewNavigation
-        active={view}
+        active={data.view}
         label={copy.orders.viewsLabel}
         items={[
           { value: "tutti", label: copy.orders.views.all, to: "/ordini" },
@@ -902,59 +979,8 @@ export default function Orders() {
         ]}
       />
 
-      {imported !== null ? (
-        <p className="notice" role="status">
-          {copy.orders.examplesLoaded(imported, updated, ignored)}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="error" role="alert">
-          {error.message}
-        </p>
-      ) : null}
-      {approved !== null ? (
-        <p className="notice" role="status">
-          {copy.orders.massApprovalResult(approved, approvalErrors ?? "0", storagePending ?? "0")}
-        </p>
-      ) : null}
-      {view === "fatturare" && approvalsGloballyBlocked ? (
-        <p className="warning" role="status">
-          {copy.orders.approvalsGloballyBlocked}
-        </p>
-      ) : null}
-
-      {showsPreparationArchive ? (
-        <PreparationList
-          cases={cases}
-          ordersEmpty={!orders.rows.length}
-          showsPreparations={showsPreparations}
-          sort={preparationSort}
-          view={view}
-        />
-      ) : null}
-
-      {view === "fatturare" && approvalCandidates.length > 1 ? (
-        <MassApprovalPanel
-          approvalCandidates={approvalCandidates}
-          arubaMode={arubaMode}
-          arubaConfiguredMode={arubaConfiguredMode}
-          arubaDowngradeRequired={arubaDowngradeRequired}
-          csrfToken={csrfToken}
-        />
-      ) : null}
-
-      {!showsPreparationArchive ? (
-        <OrderList
-          csrfToken={csrfToken}
-          filters={filters}
-          fixtureEnabled={fixtureEnabled}
-          orders={orders}
-          showsPreparations={showsPreparations}
-          sort={orderSort}
-          view={view}
-        />
-      ) : null}
-      <Pager basePath="/ordini" hasNext={orders.hasNext || cases.hasNext} page={page} />
+      <OrdersNotices data={data} />
+      <OrdersResults data={data} />
     </AppShell>
   );
 }

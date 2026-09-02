@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.13
+
+- La vista “Preparazioni approvabili” mostra subito l’elenco richiesto e carica in secondo piano le proiezioni fiscali necessarie all’approvazione multipla: l’apertura dalla Dashboard non resta più serializzata dietro la preparazione di ogni candidato.
+- La verifica WebKit e Chromium mantiene la navigazione documentale affidabile su mobile e impedisce al caricamento secondario delle azioni multiple di ritardare il titolo e il contenuto della pagina Ordini.
+
 ## 1.0.12
 
 - La pagina `Controlli` e la ricerca globale leggono la coda operativa già materializzata senza ricostruirla durante la richiesta: “Apri Controlli”, i link della Dashboard e la ricerca non restano più in attesa della scansione completa, che continua nel worker dopo gli aggiornamenti del dominio.
