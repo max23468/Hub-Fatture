@@ -288,7 +288,7 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(postgres, /cap_drop: \[ALL\]/);
   assert.match(postgres, /read_only: true/);
   assert.match(postgres, /no-new-privileges:true/);
-  assert.match(compose, /ARUBA_SUBMISSION_ENABLED: "false"/);
+  assert.match(compose, /ARUBA_SUBMISSION_ENABLED: \$\{ARUBA_SUBMISSION_ENABLED:-false\}/);
   assert.match(compose, /app-worker:[\s\S]*stop_grace_period: 3m/);
   assert.match(compose, /read_only: true/);
   assert.match(compose, /cap_drop: \[ALL\]/);
@@ -591,6 +591,8 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     "scripts/production-preflight.sh",
     "scripts/production-readback.sh",
     "scripts/production-release-candidate-readback.sh",
+    "scripts/production-submission-mode.sh",
+    "scripts/dispatch-production-submission.sh",
     "scripts/dispatch-production.sh",
     "scripts/publish-github-release.sh",
     "scripts/read-env.sh",
@@ -739,6 +741,8 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(deploy, /--force-recreate/);
   assert.match(deploy, /production-readback\.sh >\/dev\/null/);
   assert.match(readback, /--retry-max-time 180 --retry-all-errors/);
+  assert.match(readback, /expected_submission=\$\{1:-false\}/);
+  assert.match(readback, /--argjson arubaSubmissionEnabled "\$kill_switch"/);
   assert.match(candidateReadback, /node build-server\/operations\/release-candidate-readiness\.js/);
   assert.match(candidateReadback, /\.unsafeApprovedDocuments/);
   assert.match(candidateReadback, /\.completedDryRunQualifications/);
@@ -857,6 +861,34 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     await readFile(path.join(root, "ops/provision-production.sh"), "utf8"),
     /mask rpcbind\.socket rpcbind\.service/,
   );
+});
+
+test("l'abilitazione Aruba Production è una corsia separata, exact-commit e reversibile", async () => {
+  const [compose, script, dispatch, workflow, production] = await Promise.all(
+    [
+      "compose.production.yaml",
+      "scripts/production-submission-mode.sh",
+      "scripts/dispatch-production-submission.sh",
+      ".github/workflows/production-submission.yml",
+      ".github/workflows/production.yml",
+    ].map((file) => readFile(path.join(root, file), "utf8")),
+  );
+  assert.match(compose, /ARUBA_SUBMISSION_ENABLED: \$\{ARUBA_SUBMISSION_ENABLED:-false\}/);
+  assert.match(script, /live_commit.*expected_commit/);
+  assert.match(script, /live_version.*1\.0\.0/);
+  assert.match(script, /\.openArubaBatches == 0/);
+  assert.match(script, /aruba_dry_run_submission/);
+  assert.match(script, /cp "\$previous" \.env/);
+  assert.match(script, /production-readback\.sh "\$target"/);
+  assert.match(script, /aruba-submission-mode-receipt\.json/);
+  assert.doesNotMatch(script, /echo.*ARUBA_SUBMISSION_ENABLED=/);
+  assert.match(dispatch, /gh release view v1\.0\.0/);
+  assert.match(dispatch, /\.isImmutable == true/);
+  assert.match(dispatch, /workflow run "Production submission mode"/);
+  assert.match(workflow, /environment:\n\s+name: Production/);
+  assert.match(workflow, /\.targetCommitish == \$commit/);
+  assert.match(workflow, /production-submission-mode\.sh "\$MODE" "\$CANDIDATE"/);
+  assert.match(production, /production-submission-mode\.sh/);
 });
 
 test("il dispatch Production richiede una decisione esplicita per 1.0.0", async () => {

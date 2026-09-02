@@ -9,6 +9,10 @@ identificato sotto restano il record osservato della milestone; la fase successi
 separatamente i propri gate tecnici all’identità effettiva del candidato senza upload o invii reali
 e senza riaprire la ricertificazione.
 
+La preparazione del go-live introduce una corsia operativa separata per il kill switch. Finché il
+nuovo candidato non è distribuito e qualificato, la release non è pubblicata e manca
+l’autorizzazione distinta all’uso ordinario, lo stato Production resta intenzionalmente `false`.
+
 ## Identità candidata della qualifica tecnica
 
 | Campo                    | Stato osservato                                                                                                                                                                                                                                                                               |

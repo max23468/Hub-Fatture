@@ -2,6 +2,11 @@
 set -eu
 
 root=${HUB_FATTURE_ROOT:-/opt/hub-fatture}
+expected_submission=${1:-false}
+case "$expected_submission" in
+  true | false) ;;
+  *) echo "Stato invii Aruba atteso non valido" >&2; exit 2 ;;
+esac
 cd "$root"
 
 [ -f .deploy.env ] || { echo "Ricevuta deploy assente" >&2; exit 1; }
@@ -28,7 +33,7 @@ schema=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env e
 
 kill_switch=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-web \
   sh -c 'printf %s "$ARUBA_SUBMISSION_ENABLED"')
-[ "$kill_switch" = "false" ] || { echo "Kill switch Aruba inatteso" >&2; exit 1; }
+[ "$kill_switch" = "$expected_submission" ] || { echo "Kill switch Aruba inatteso" >&2; exit 1; }
 aruba_read_interval_ms=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-worker \
   sh -c 'printf %s "$ARUBA_API_READ_INTERVAL_MS"')
 printf '%s' "$aruba_read_interval_ms" | grep -Eq '^[0-9]+$' \
@@ -42,5 +47,6 @@ jq -n \
   --arg digest "$APP_IMAGE_DIGEST" \
   --arg version "$APP_VERSION" \
   --arg schema "$schema" \
+  --argjson arubaSubmissionEnabled "$kill_switch" \
   --argjson arubaApiReadIntervalMs "$aruba_read_interval_ms" \
-  '{status:"ok",checkedAt:$checkedAt,commit:$commit,imageDigest:$digest,applicationVersion:$version,schema:$schema,arubaSubmissionEnabled:false,arubaApiReadIntervalMs:$arubaApiReadIntervalMs}'
+  '{status:"ok",checkedAt:$checkedAt,commit:$commit,imageDigest:$digest,applicationVersion:$version,schema:$schema,arubaSubmissionEnabled:$arubaSubmissionEnabled,arubaApiReadIntervalMs:$arubaApiReadIntervalMs}'
