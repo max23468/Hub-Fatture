@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   canManuallyLinkCandidate,
   isArubaAmountMismatchCandidate,
+  isArubaExternalEvidenceCandidate,
   isEmissionConfirmed,
   type ArubaRemoteStatus,
 } from "../aruba-inbound.ts";
@@ -26,13 +27,17 @@ type ManualCandidate = {
   compatible?: boolean;
   reviewable?: boolean;
   potential?: boolean;
+  probe?: boolean;
   issuedInvoiceDocumentId?: string | null;
   refundIds?: string[];
   signals?: {
     provider?: boolean;
+    sameDay?: boolean;
     nearDate?: boolean;
     recipient?: boolean;
     total?: boolean;
+    taxId?: boolean;
+    address?: boolean;
   };
 };
 
@@ -46,7 +51,10 @@ function isActionable(candidate: ManualCandidate) {
 function requiresManualDecision(candidate: ManualCandidate) {
   return (
     isActionable(candidate) ||
-    (candidate.signals ? isArubaAmountMismatchCandidate({ signals: candidate.signals }) : false)
+    (candidate.signals ? isArubaAmountMismatchCandidate({ signals: candidate.signals }) : false) ||
+    (candidate.signals
+      ? isArubaExternalEvidenceCandidate({ ...candidate, signals: candidate.signals })
+      : false)
   );
 }
 
@@ -61,6 +69,28 @@ function candidateOrderIds(
     for (const orderId of candidate.orderIds ?? []) ids.add(orderId);
   }
   return [...ids];
+}
+
+function reasonIncludesIdentifier(reason: string, identifier: string) {
+  const expected = identifier
+    .normalize("NFKC")
+    .toUpperCase()
+    .replace(/^[#\s]+/u, "")
+    .replace(/[^A-Z0-9]/gu, "");
+  const tokens: string[] =
+    reason
+      .normalize("NFKC")
+      .toUpperCase()
+      .match(/[A-Z0-9]+/gu) ?? [];
+  if (/^\d+$/u.test(expected)) {
+    const numeric = BigInt(expected);
+    return tokens.some((token) => /^\d+$/u.test(token) && BigInt(token) === numeric);
+  }
+  return reason
+    .normalize("NFKC")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/gu, "")
+    .includes(expected);
 }
 
 async function affectedCases(client: pg.PoolClient, orderIds: string[]) {
@@ -79,6 +109,7 @@ export async function resolveArubaDocumentMatch(
   orderId: string,
   rawReason: unknown,
   rawAmountMismatchConfirmation: unknown,
+  rawExternalEvidenceConfirmation: unknown,
   actor: ArubaReadActor,
 ) {
   const reason = z.string().trim().min(10).max(500).safeParse(rawReason);
@@ -95,10 +126,11 @@ export async function resolveArubaDocumentMatch(
       candidates_json: ManualCandidate[];
       remote_status: ArubaRemoteStatus;
       document_type: "TD01" | "TD04";
+      fiscal_number: string | null;
       has_xml: boolean;
     }>(
       `SELECT matches.status, matches.method, matches.order_id, matches.candidates_json,
-              remote.remote_status, remote.document_type,
+              remote.remote_status, remote.document_type, remote.fiscal_number,
               EXISTS (SELECT 1 FROM aruba_files
                 WHERE aruba_files.remote_document_id = remote.id
                   AND aruba_files.kind = 'ARUBA_XML') AS has_xml
@@ -110,18 +142,9 @@ export async function resolveArubaDocumentMatch(
       [remoteDocumentId, environment(), accountReference()],
     );
     const current = match.rows[0];
-    const selectedCandidate = current?.candidates_json.find((candidate) => {
-      if (candidate.candidateId !== orderId) return false;
-      return (
-        isActionable(candidate) ||
-        (candidate.signals
-          ? isArubaAmountMismatchCandidate({
-              ...candidate,
-              signals: candidate.signals,
-            })
-          : false)
-      );
-    });
+    const selectedCandidate = current?.candidates_json.find(
+      (candidate) => candidate.candidateId === orderId,
+    );
     const amountMismatch = Boolean(
       selectedCandidate?.signals &&
       isArubaAmountMismatchCandidate({
@@ -129,13 +152,42 @@ export async function resolveArubaDocumentMatch(
         signals: selectedCandidate.signals,
       }),
     );
+    const externalEvidence = Boolean(
+      selectedCandidate?.signals &&
+      isArubaExternalEvidenceCandidate({
+        ...selectedCandidate,
+        signals: selectedCandidate.signals,
+      }),
+    );
+    const actionable = Boolean(selectedCandidate && isActionable(selectedCandidate));
+    const externalEvidenceOrder = externalEvidence
+      ? await client.query<{ display_number: string }>(
+          "SELECT display_number FROM orders WHERE id = $1",
+          [orderId],
+        )
+      : null;
+    const externalEvidenceIdentified = Boolean(
+      externalEvidence &&
+      current?.fiscal_number &&
+      externalEvidenceOrder?.rows[0]?.display_number &&
+      reasonIncludesIdentifier(reason.success ? reason.data : "", current.fiscal_number) &&
+      reasonIncludesIdentifier(
+        reason.success ? reason.data : "",
+        externalEvidenceOrder.rows[0].display_number,
+      ),
+    );
     if (
       !current ||
       !current.has_xml ||
       !isEmissionConfirmed(current.remote_status) ||
       !selectedCandidate ||
+      (!actionable && !amountMismatch && !externalEvidence) ||
       (amountMismatch &&
-        (current.document_type !== "TD01" || rawAmountMismatchConfirmation !== "confirmed"))
+        (current.document_type !== "TD01" || rawAmountMismatchConfirmation !== "confirmed")) ||
+      (externalEvidence &&
+        (current.document_type !== "TD01" ||
+          rawExternalEvidenceConfirmation !== "confirmed" ||
+          !externalEvidenceIdentified))
     ) {
       throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
     }
@@ -183,6 +235,7 @@ export async function resolveArubaDocumentMatch(
         orderId,
         documentId,
         amountMismatch,
+        externalEvidence,
       },
       reason: reason.data,
       requestId: actor.requestId,

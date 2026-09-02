@@ -4,6 +4,7 @@ import {
   arubaActionableCandidateSql,
   arubaAmountMismatchCandidateSql,
   arubaCaseCandidateSql,
+  arubaExternalEvidenceCandidateSql,
 } from "./billing-case-sql.server.ts";
 import {
   arubaAccountReference as accountReference,
@@ -38,11 +39,13 @@ export interface RemoteDocument {
     label: string;
     guided: boolean;
     amountMismatch: boolean;
+    externalEvidence: boolean;
     localAmount: number;
     differenceAmount: number;
   }>;
   has_xml: boolean;
   amount_mismatch: boolean;
+  external_evidence: boolean;
   requires_control: boolean;
 }
 
@@ -85,6 +88,14 @@ const remoteDocumentsSql = `
              FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS mismatch_candidate
              WHERE ${arubaAmountMismatchCandidateSql("mismatch_candidate", "remote")}
            )) AS amount_mismatch,
+         (matches.method <> 'MANUAL'
+           AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
+           AND remote.remote_status <> 'REJECTED'
+           AND EXISTS (
+             SELECT 1
+             FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS evidence_candidate
+             WHERE ${arubaExternalEvidenceCandidateSql("evidence_candidate", "remote")}
+           )) AS external_evidence,
          ((${arubaBlockingMatchPredicate})
            OR (matches.method <> 'MANUAL'
              AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
@@ -107,6 +118,7 @@ const remoteDocumentsSql = `
              'guided', ${arubaActionableCandidateSql("candidate", "remote")}
                AND NOT coalesce((candidate ->> 'compatible')::boolean, false),
              'amountMismatch', ${arubaAmountMismatchCandidateSql("candidate", "remote")},
+             'externalEvidence', ${arubaExternalEvidenceCandidateSql("candidate", "remote")},
              'localAmount', candidate_totals.local_amount,
              'differenceAmount', remote.total_amount - candidate_totals.local_amount
            ) ORDER BY orders.id)
@@ -138,7 +150,8 @@ const remoteDocumentsSql = `
                ) AS candidate_order_ids(candidate_order_id)
              )
            ) AS candidate_totals ON true
-           WHERE ${arubaCaseCandidateSql("candidate", "remote")}
+           WHERE (${arubaCaseCandidateSql("candidate", "remote")}
+             OR ${arubaExternalEvidenceCandidateSql("candidate", "remote")})
          ), '[]') AS candidates
   FROM aruba_remote_documents AS remote
   LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
@@ -160,6 +173,14 @@ const remoteDocumentsSql = `
             FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS mismatch_candidate
             WHERE ${arubaAmountMismatchCandidateSql("mismatch_candidate", "remote")}
           ))
+        OR (matches.method <> 'MANUAL'
+          AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
+          AND remote.remote_status <> 'REJECTED'
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS evidence_candidate
+            WHERE ${arubaExternalEvidenceCandidateSql("evidence_candidate", "remote")}
+          ))
         OR (matches.status = 'MATCHED'
           AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
           AND NOT EXISTS (SELECT 1 FROM aruba_files
@@ -172,7 +193,8 @@ const remoteDocumentsSql = `
       JOIN orders AS focused_order
         ON focused_order.id::text = focused_candidate ->> 'candidateId'
       WHERE focused_order.billing_case_id = $5
-        AND ${arubaCaseCandidateSql("focused_candidate", "remote")}
+        AND (${arubaCaseCandidateSql("focused_candidate", "remote")}
+          OR ${arubaExternalEvidenceCandidateSql("focused_candidate", "remote")})
     ))
     AND ($6::text IS NULL
       OR remote.remote_id ILIKE $6 ESCAPE '\\'

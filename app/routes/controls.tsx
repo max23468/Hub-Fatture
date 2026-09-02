@@ -138,6 +138,7 @@ export async function action({ request }: Route.ActionArgs) {
         form.get("orderId") ?? "",
         form.get("reason"),
         form.get("amountMismatchConfirmation"),
+        form.get("externalEvidenceConfirmation"),
         actor,
       );
       await resolveOperationalControl(controlId, "ARUBA_MATCHED", note);
@@ -229,7 +230,9 @@ function ArubaRemoteMatchActions({
 }) {
   const metadata = control.metadata_json;
   const canLink =
-    ["ARUBA_REMOTE_MATCH", "ARUBA_AMOUNT_MISMATCH"].includes(control.kind) &&
+    ["ARUBA_REMOTE_MATCH", "ARUBA_AMOUNT_MISMATCH", "ARUBA_EXTERNAL_EVIDENCE"].includes(
+      control.kind,
+    ) &&
     metadata.hasXml &&
     ["DELIVERED", "NOT_DELIVERED"].includes(metadata.remoteStatus ?? "") &&
     Boolean(metadata.candidates?.length);
@@ -246,7 +249,7 @@ function ArubaRemoteMatchActions({
           <input type="hidden" name="controlId" value={control.id} />
           <input type="hidden" name="intent" value="resolve-aruba-match" />
           <input type="hidden" name="remoteDocumentId" value={metadata.remoteDocumentId} />
-          {control.kind === "ARUBA_AMOUNT_MISMATCH" ? null : (
+          {["ARUBA_AMOUNT_MISMATCH", "ARUBA_EXTERNAL_EVIDENCE"].includes(control.kind) ? null : (
             <input type="hidden" name="reason" value="Collegamento confermato da Controlli" />
           )}
           <label>
@@ -286,12 +289,38 @@ function ArubaRemoteMatchActions({
               </label>
             </>
           ) : null}
+          {control.kind === "ARUBA_EXTERNAL_EVIDENCE" ? (
+            <>
+              <label className="control-note">
+                <span>{copy.controls.externalEvidenceReason}</span>
+                <textarea
+                  name="reason"
+                  rows={3}
+                  minLength={10}
+                  maxLength={500}
+                  required
+                  placeholder={copy.controls.externalEvidenceReasonPlaceholder}
+                />
+              </label>
+              <label className="control-action-form__confirmation">
+                <input
+                  type="checkbox"
+                  name="externalEvidenceConfirmation"
+                  value="confirmed"
+                  required
+                />
+                {copy.controls.confirmExternalEvidenceLink}
+              </label>
+            </>
+          ) : null}
           <OptionalNote />
           <button className="button" type="submit">
             <Link2 aria-hidden="true" size={17} />
             {control.kind === "ARUBA_AMOUNT_MISMATCH"
               ? copy.controls.linkArubaWithDifference
-              : copy.controls.linkAruba}
+              : control.kind === "ARUBA_EXTERNAL_EVIDENCE"
+                ? copy.controls.linkArubaWithDifference
+                : copy.controls.linkAruba}
           </button>
         </Form>
       ) : null}
@@ -372,7 +401,9 @@ function ControlActions({
     );
   }
   if (
-    ["ARUBA_REMOTE_MATCH", "ARUBA_AMOUNT_MISMATCH"].includes(control.kind) &&
+    ["ARUBA_REMOTE_MATCH", "ARUBA_AMOUNT_MISMATCH", "ARUBA_EXTERNAL_EVIDENCE"].includes(
+      control.kind,
+    ) &&
     metadata.remoteDocumentId &&
     canApprove
   ) {

@@ -7,6 +7,7 @@ import {
   groupOrderCandidates,
   hasAnomalousUnknownArubaStatuses,
   isArubaAmountMismatchCandidate,
+  isArubaExternalEvidenceCandidate,
   inventoryPageSchema,
   normalizeArubaRemoteStatusLabel,
   remoteMetadataDigest,
@@ -258,6 +259,32 @@ test("data vicina e destinatario uguale con importo diverso richiedono una decis
   assert.equal(isArubaAmountMismatchCandidate(result.evaluations[0]!), true);
   assert.equal(
     isArubaAmountMismatchCandidate({
+      ...result.evaluations[0]!,
+      issuedInvoiceDocumentId: "documento-gia-approvato",
+    }),
+    false,
+  );
+});
+
+test("stesso giorno e importo con anagrafica diversa richiedono una prova esterna", () => {
+  const result = selectOrderMatch(remote, [
+    {
+      id: "1",
+      provider: "SHOPIFY",
+      displayNumber: "1001",
+      localOrderDate: "2026-08-12",
+      billableAmount: 12_300,
+      recipientName: "Cliente differente",
+      recipientTaxIdentifiers: [],
+      recipientAddress: "Via Differente 9 Roma",
+    },
+  ]);
+  assert.equal(result.evaluations[0]?.probe, true);
+  assert.equal(result.evaluations[0]?.reviewable, false);
+  assert.equal(canManuallyLinkCandidate(result.evaluations[0]!), false);
+  assert.equal(isArubaExternalEvidenceCandidate(result.evaluations[0]!), true);
+  assert.equal(
+    isArubaExternalEvidenceCandidate({
       ...result.evaluations[0]!,
       issuedInvoiceDocumentId: "documento-gia-approvato",
     }),
