@@ -27,7 +27,7 @@ test(
          RETURNING id::text`,
       );
 
-      const historicalFlag = await controls.listOperationalControls({ origin: "CUSTOMERS" });
+      const historicalFlag = await controls.readOperationalControls({ origin: "CUSTOMERS" });
       assert.equal(historicalFlag.total, 0);
 
       const billingCase = await database.getPool().query<{ id: string }>(
@@ -54,7 +54,8 @@ test(
       );
 
       assert.equal((await controls.readOperationalControlSummary()).open, 0);
-      const first = await controls.listOperationalControls({ origin: "CUSTOMERS" });
+      await controls.refreshOperationalControls();
+      const first = await controls.readOperationalControls({ origin: "CUSTOMERS" });
       assert.equal(first.rows.length, 1);
       assert.equal(first.total, 1);
       assert.equal(first.rows[0]!.id, `CUSTOMER_IDENTITY:${customer.rows[0]!.id}`);
@@ -70,7 +71,7 @@ test(
         { label: "Da completare", value: "Tipo cliente, Via, CAP, Città, Paese" },
       ]);
 
-      const repeated = await controls.listOperationalControls({ origin: "CUSTOMERS" });
+      const repeated = await controls.readOperationalControls({ origin: "CUSTOMERS" });
       assert.equal(repeated.total, 1);
       assert.equal(repeated.rows[0]!.id, first.rows[0]!.id);
       assert.equal(String(repeated.rows[0]!.opened_at), String(first.rows[0]!.opened_at));
@@ -104,7 +105,8 @@ test(
         .query("UPDATE billing_cases SET status = 'NEEDS_REVIEW' WHERE id = $1", [
           billingCase.rows[0]!.id,
         ]);
-      const reopened = await controls.listOperationalControls({ origin: "CUSTOMERS" });
+      await controls.refreshOperationalControls();
+      const reopened = await controls.readOperationalControls({ origin: "CUSTOMERS" });
       assert.equal(reopened.total, 1);
       assert.equal(reopened.rows[0]!.id, first.rows[0]!.id);
       assert.equal(reopened.rows[0]!.state, "OPEN");
@@ -114,14 +116,15 @@ test(
         .query("UPDATE orders SET trigger_status = 'NEEDS_REVIEW' WHERE billing_case_id = $1", [
           billingCase.rows[0]!.id,
         ]);
-      assert.equal((await controls.listOperationalControls({ origin: "ORDERS" })).total, 0);
+      assert.equal((await controls.readOperationalControls({ origin: "ORDERS" })).total, 0);
       await database.getPool().query(
         `UPDATE orders SET normalized_snapshot_json = jsonb_set(
            normalized_snapshot_json, '{sourceConflictRequired}', 'true'::jsonb)
          WHERE billing_case_id = $1`,
         [billingCase.rows[0]!.id],
       );
-      const preparationCauses = await controls.listOperationalControls({ origin: "ORDERS" });
+      await controls.refreshOperationalControls();
+      const preparationCauses = await controls.readOperationalControls({ origin: "ORDERS" });
       assert.deepEqual(
         preparationCauses.rows.map(({ kind }) => kind),
         ["SOURCE_CONFLICT"],
@@ -142,7 +145,7 @@ test(
         [billingCase.rows[0]!.id],
       );
       await controls.refreshOperationalControls();
-      assert.equal((await controls.listOperationalControls({ origin: "ORDERS" })).total, 0);
+      assert.equal((await controls.readOperationalControls({ origin: "ORDERS" })).total, 0);
 
       await database
         .getPool()
@@ -184,7 +187,7 @@ test(
         [customer.rows[0]!.id],
       );
       await controls.refreshOperationalControls();
-      assert.equal((await controls.listOperationalControls({ origin: "CUSTOMERS" })).total, 0);
+      assert.equal((await controls.readOperationalControls({ origin: "CUSTOMERS" })).total, 0);
       assert.equal(
         (
           await database

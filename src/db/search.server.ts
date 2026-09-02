@@ -3,7 +3,6 @@ import { escapeLike } from "../orders.ts";
 import { listRemoteDocumentsPage } from "./aruba-inventory-queries.server.ts";
 import { getPool } from "./client.server.ts";
 import { listAuditHistory } from "./order-queries.server.ts";
-import { refreshOperationalControls } from "./operational-controls.server.ts";
 
 const SEARCH_RESULT_LIMIT = 5;
 const MAX_SEARCH_LENGTH = 100;
@@ -120,7 +119,6 @@ function filteredHref(path: string, query: string, extra?: Record<string, string
 export async function searchGlobal(value: unknown): Promise<GlobalSearchResults> {
   const query = normalizedQuery(value);
   if (query.length < 2) return emptyGlobalSearch(query);
-  await refreshOperationalControls();
   const pattern = `%${escapeLike(query)}%`;
   const pool = getPool();
   const [orders, documents, customers, controls, history, remoteDocuments] = await Promise.all([

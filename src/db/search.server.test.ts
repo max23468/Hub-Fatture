@@ -19,6 +19,7 @@ test(
 
       const database = await import("./client.server.ts");
       const orders = await import("./order-import.server.ts");
+      const controls = await import("./operational-controls.server.ts");
       const search = await import("./search.server.ts");
       const profile = JSON.parse(
         await readFile("tests/fixtures/fatturapa/profile.mock.json", "utf8"),
@@ -75,6 +76,7 @@ test(
          WHERE customer_id = $1`,
         [customer.id],
       );
+      await controls.refreshOperationalControls();
       const byName = await search.searchGlobal(customer.display_name);
       assert.ok(byName.customers.some((item) => item.id === String(customer.id)));
       assert.ok(
@@ -256,6 +258,7 @@ test(
          WHERE billing_case_id = $1`,
         [activityCase.id],
       );
+      await controls.refreshOperationalControls();
       const byActivity = await search.searchGlobal(activityCase.public_number);
       assert.ok(
         byActivity.controls.some((item) => item.detail.includes(activityCase.public_number)),

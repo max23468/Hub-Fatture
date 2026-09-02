@@ -13,6 +13,7 @@ import {
   expectPlainLanguage,
   expectViewportFits,
   expectVisibleFieldsetTitlesInside,
+  refreshOperationalControlsProjection,
   resetReadinessState,
   storageRoot,
   waitForUiMotionToSettle,
@@ -873,7 +874,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
         'RECONCILIATION_REQUIRED', true, (SELECT id FROM users ORDER BY id LIMIT 1), now())`,
     ["7".repeat(64)],
   );
-  await page.goto("/controlli");
+  await refreshOperationalControlsProjection();
   await page.goto("/");
   await expect(arubaConnection).not.toContainText("Mai letto");
   await expect(page.getByText("1 errore tecnico aperto", { exact: true })).toBeVisible();
@@ -1133,6 +1134,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     [manualChoiceRemoteId, sourceReviewCaseId],
   );
   await privacyClient.end();
+  await refreshOperationalControlsProjection();
   await page.getByRole("link", { name: "Controlli" }).click();
   await expect(page.getByRole("heading", { name: "Controlli", exact: true })).toBeVisible();
   await expect(page.locator(".controls-queue")).toContainText("Richiesta dati cliente");
