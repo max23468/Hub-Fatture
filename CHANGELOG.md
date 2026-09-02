@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.6
+
+- Gli XML Aruba con un riepilogo IVA accessorio interamente a zero vengono riconciliati usando i soli riepiloghi fiscalmente effettivi; qualunque blocco con imponibile o imposta non nulli continua a partecipare al controllo univoco di natura e riferimento normativo.
+
 ## 1.0.5
 
 - Una nota di credito Aruba storica priva di `DatiFattureCollegate` può adottare la fattura individuata dal matcher soltanto quando ordine, destinatario, importo e insieme dei rimborsi producono una relazione automatica univoca; un riferimento esplicito discordante continua a bloccare la riconciliazione.
