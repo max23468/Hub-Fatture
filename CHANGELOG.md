@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.5
+
+- Una nota di credito Aruba storica priva di `DatiFattureCollegate` può adottare la fattura individuata dal matcher soltanto quando ordine, destinatario, importo e insieme dei rimborsi producono una relazione automatica univoca; un riferimento esplicito discordante continua a bloccare la riconciliazione.
+
 ## 1.0.4
 
 - Il matcher Aruba rigioca anche i conflitti TD04 già valutati prima della correzione dei metodi di pagamento storici, così la nota ufficiale viene riconciliata automaticamente senza attendere un cambiamento del provider.

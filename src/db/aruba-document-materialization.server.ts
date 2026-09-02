@@ -587,6 +587,7 @@ async function materializeExternalCreditNote(
   if (!sourceInvoice) throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   const invoiceLabel = `${sourceInvoice.series} ${String(sourceInvoice.fiscal_number).padStart(4, "0")}/${String(sourceInvoice.fiscal_year).slice(-2)}`;
   if (
+    imported.linkedInvoices.length > 0 &&
     !imported.linkedInvoices.some(
       (linked) =>
         linked.number === invoiceLabel &&

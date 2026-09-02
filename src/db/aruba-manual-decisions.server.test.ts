@@ -413,7 +413,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
       {
         status: "UNMATCHED",
         method: "NONE",
-        matcher_version: 9,
+        matcher_version: 10,
         candidate_id: order.id,
         total_signal: "true",
       },
@@ -478,14 +478,27 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
       },
       { year: 2026, number: 2 },
     );
-    const creditDigest = createHash("sha256").update(creditXml).digest("hex");
+    const creditXmlWithoutInvoiceReference = creditXml.replace(
+      /<DatiFattureCollegate>[\s\S]*?<\/DatiFattureCollegate>/,
+      "",
+    );
+    assert.doesNotMatch(creditXmlWithoutInvoiceReference, /DatiFattureCollegate/);
+    const creditDigest = createHash("sha256")
+      .update(creditXmlWithoutInvoiceReference)
+      .digest("hex");
     const creditRelativePath = "aruba/manual/accepted-credit-note-mp08.xml";
-    await writeFile(path.join(sharedStorageRoot, creditRelativePath), creditXml, { mode: 0o600 });
+    await writeFile(
+      path.join(sharedStorageRoot, creditRelativePath),
+      creditXmlWithoutInvoiceReference,
+      {
+        mode: 0o600,
+      },
+    );
     const creditStorage = (
       await getPool().query<{ id: string }>(
         `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
          VALUES ('ARUBA_XML', $1, $2, $3, 'application/xml') RETURNING id::text`,
-        [creditRelativePath, creditDigest, Buffer.byteLength(creditXml)],
+        [creditRelativePath, creditDigest, Buffer.byteLength(creditXmlWithoutInvoiceReference)],
       )
     ).rows[0]!;
     await getPool().query(
@@ -495,7 +508,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
     );
     await getPool().query(
       `UPDATE aruba_document_matches
-       SET status = 'PROFILE_CONFLICT', matcher_version = 8
+       SET status = 'PROFILE_CONFLICT', matcher_version = 9
        WHERE remote_document_id = $1`,
       [sharedCreditRemoteId],
     );
@@ -519,7 +532,7 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
       {
         match_status: "MATCHED",
         method: "AUTOMATIC",
-        matcher_version: 9,
+        matcher_version: 10,
         document_id: creditDraft.id,
         document_status: "APPROVED",
         origin: "ARUBA_HISTORY",
