@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 11;
-export const ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES = ["TD04"] as const;
+export const ARUBA_MATCHER_VERSION = 12;
+export const ARUBA_MATCHER_REPLAY_DOCUMENT_TYPES = ["TD01", "TD04"] as const;
 
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",
@@ -453,17 +453,101 @@ function hasSpecificRecipientName(value: string | null | undefined): boolean {
   return (normalizedMatchText(value)?.length ?? 0) >= 2;
 }
 
-function normalizedRecipientName(value: string | null | undefined): string | null {
+const cyrillicToLatin = new Map(
+  Object.entries({
+    А: "A",
+    Б: "B",
+    В: "V",
+    Г: "G",
+    Д: "D",
+    Е: "E",
+    Ё: "E",
+    Ж: "ZH",
+    З: "Z",
+    И: "I",
+    Й: "Y",
+    К: "K",
+    Л: "L",
+    М: "M",
+    Н: "N",
+    О: "O",
+    П: "P",
+    Р: "R",
+    С: "S",
+    Т: "T",
+    У: "U",
+    Ф: "F",
+    Х: "H",
+    Ц: "TS",
+    Ч: "CH",
+    Ш: "SH",
+    Щ: "SHT",
+    Ъ: "A",
+    Ы: "Y",
+    Ь: "",
+    Э: "E",
+    Ю: "YU",
+    Я: "YA",
+    Є: "YE",
+    І: "I",
+    Ї: "YI",
+    Ґ: "G",
+  }),
+);
+
+function transliterateCyrillic(value: string) {
+  return [...value]
+    .map((character) => cyrillicToLatin.get(character.toUpperCase()) ?? character)
+    .join("");
+}
+
+function normalizedRecipientNameTokens(value: string | null | undefined): string[] {
   const titles = new Set(["DOTT", "DOTTORE", "DOTTORESSA", "DR", "SIG", "SIGNOR", "SIGNORA"]);
-  const withoutTitles = value
+  return transliterateCyrillic(value ?? "")
     ?.normalize("NFKD")
     .replace(/\p{Diacritic}/gu, "")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .split(/\s+/)
     .filter((token) => !titles.has(token.toUpperCase()))
-    .join(" ");
-  return normalizedMatchText(withoutTitles);
+    .map(normalizedMatchText)
+    .filter((token): token is string => Boolean(token));
+}
+
+function normalizedRecipientName(value: string | null | undefined): string | null {
+  return normalizedMatchText(normalizedRecipientNameTokens(value).join(" "));
+}
+
+function differsByOneRepeatedVowel(left: string, right: string) {
+  const [longer, shorter] = left.length > right.length ? [left, right] : [right, left];
+  if (longer.length !== shorter.length + 1 || shorter.length < 4) return false;
+  for (let index = 0; index < longer.length; index += 1) {
+    const character = longer[index]!;
+    if (
+      "AEIOUY".includes(character) &&
+      (longer[index - 1] === character || longer[index + 1] === character) &&
+      longer.slice(0, index) + longer.slice(index + 1) === shorter
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function sameRecipientName(
+  remoteName: string | null | undefined,
+  candidateName: string | null | undefined,
+  sameForeignCountry: boolean,
+) {
+  const remoteTokens = normalizedRecipientNameTokens(remoteName);
+  const candidateTokens = normalizedRecipientNameTokens(candidateName);
+  if (!remoteTokens.length || remoteTokens.length !== candidateTokens.length) return false;
+  if (remoteTokens.every((token, index) => token === candidateTokens[index])) return true;
+  if (!sameForeignCountry || remoteTokens.length < 2) return false;
+  const differences = remoteTokens.flatMap((token, index) =>
+    token === candidateTokens[index] ? [] : [[token, candidateTokens[index]!] as const],
+  );
+  return differences.length === 1 && differsByOneRepeatedVowel(...differences[0]!);
 }
 
 export function evaluateOrderCandidate(
@@ -490,8 +574,15 @@ export function evaluateOrderCandidate(
   const nearDate = elapsedDays >= 0 && elapsedDays <= 3;
   const total = remote.totalAmount === candidate.billableAmount;
   const remoteName = normalizedRecipientName(remote.recipientName);
-  const recipient = Boolean(
-    remoteName && remoteName === normalizedRecipientName(candidate.recipientName),
+  const sameForeignCountry = Boolean(
+    remote.recipientCountryCode &&
+    remote.recipientCountryCode !== "IT" &&
+    remote.recipientCountryCode === candidate.recipientCountryCode,
+  );
+  const recipient = sameRecipientName(
+    remote.recipientName,
+    candidate.recipientName,
+    sameForeignCountry,
   );
   const remoteTaxIds = remote.recipientTaxIdentifiers.map(canonicalFiscalIdentity);
   const candidateTaxIds = new Set(candidate.recipientTaxIdentifiers.map(canonicalFiscalIdentity));

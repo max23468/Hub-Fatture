@@ -417,6 +417,94 @@ test("MP05 e bonifico incassato il giorno documento rafforzano il privato estero
   assert.equal(result.evaluations[0]?.signals.bankTransferPayment, true);
 });
 
+test("i privati esteri riconoscono traslitterazione cirillica e una sola vocale ripetuta", () => {
+  const foreignRemote: RemoteInventoryDocument = {
+    ...remote,
+    documentDate: "2026-08-20",
+    recipientName: "VALENTIN RADEV",
+    recipientTaxId: "99999999999",
+    recipientTaxIdentifiers: [{ type: "PARTITA_IVA", countryCode: "BG", value: "99999999999" }],
+    recipientCountryCode: "BG",
+    recipientAddress: null,
+  };
+  const transliterated = selectOrderMatch(foreignRemote, [
+    {
+      id: "foreign-cyrillic",
+      provider: "SHOPIFY",
+      displayNumber: "#4037",
+      localOrderDate: "2026-08-20",
+      billableAmount: remote.totalAmount,
+      recipientName: "Валентин Радев",
+      recipientTaxIdentifiers: [],
+      recipientCountryCode: "BG",
+      recipientAddress: null,
+    },
+  ]);
+  assert.equal(transliterated.status, "MATCHED");
+  assert.equal(transliterated.evaluations[0]?.signals.recipient, true);
+
+  const repeatedVowel = selectOrderMatch(
+    {
+      ...foreignRemote,
+      recipientName: "LILIA PART",
+      recipientCountryCode: "EE",
+      recipientTaxIdentifiers: [{ type: "PARTITA_IVA", countryCode: "EE", value: "99999999999" }],
+    },
+    [
+      {
+        id: "foreign-repeated-vowel",
+        provider: "EBAY",
+        displayNumber: "62413",
+        localOrderDate: "2026-08-20",
+        billableAmount: remote.totalAmount,
+        recipientName: "Liilia Pärt",
+        recipientTaxIdentifiers: [],
+        recipientCountryCode: "EE",
+        recipientAddress: null,
+      },
+    ],
+  );
+  assert.equal(repeatedVowel.status, "MATCHED");
+  assert.equal(repeatedVowel.evaluations[0]?.signals.recipient, true);
+});
+
+test("la tolleranza estera non confonde consonanti duplicate, mononimi o Paesi diversi", () => {
+  const foreignRemote: RemoteInventoryDocument = {
+    ...remote,
+    documentDate: "2026-08-20",
+    recipientName: "ANA ROSSI",
+    recipientTaxId: "99999999999",
+    recipientTaxIdentifiers: [{ type: "PARTITA_IVA", countryCode: "ES", value: "99999999999" }],
+    recipientCountryCode: "ES",
+    recipientAddress: null,
+  };
+  const candidate = {
+    id: "foreign-near-name",
+    provider: "SHOPIFY" as const,
+    displayNumber: "#4040",
+    localOrderDate: "2026-08-20",
+    billableAmount: remote.totalAmount,
+    recipientName: "Anna Rossi",
+    recipientTaxIdentifiers: [],
+    recipientCountryCode: "ES",
+    recipientAddress: null,
+  };
+  assert.equal(selectOrderMatch(foreignRemote, [candidate]).status, "UNMATCHED");
+  assert.equal(
+    selectOrderMatch(
+      { ...foreignRemote, recipientName: "LILIA PART", recipientCountryCode: "LV" },
+      [{ ...candidate, recipientName: "Liilia Pärt", recipientCountryCode: "EE" }],
+    ).status,
+    "UNMATCHED",
+  );
+  assert.equal(
+    selectOrderMatch({ ...foreignRemote, recipientName: "LILIA", recipientCountryCode: "EE" }, [
+      { ...candidate, recipientName: "Liilia", recipientCountryCode: "EE" },
+    ]).status,
+    "UNMATCHED",
+  );
+});
+
 test("la griglia Aruba propone un nome specifico entro tre giorni e ignora i titoli", () => {
   const inventoryOnly = {
     ...remote,
