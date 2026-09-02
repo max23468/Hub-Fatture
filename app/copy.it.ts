@@ -1,5 +1,6 @@
 import { errorCodeLabel } from "../src/error-label.ts";
 import { arubaSettingsCopy } from "./copy-aruba.it.ts";
+import { arubaCanaryCopy } from "./copy-aruba-canary.it.ts";
 import { controlsCopy } from "./copy-controls.it.ts";
 import { searchCopy } from "./copy-search.it.ts";
 
@@ -764,6 +765,7 @@ export const copy = {
     batchCreated: "Batch Aruba creato con manifest immutabile.",
     dryRunQualificationAuthorized:
       "Una sola verifica API Production è stata autorizzata per questo manifest.",
+    ...arubaCanaryCopy,
     fileImported: "File ufficiale importato e verificato.",
     importOfficial: "Importa file ufficiale",
     fileType: "Tipo di file",

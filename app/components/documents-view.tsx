@@ -466,6 +466,53 @@ function DryRunQualificationForm({ batchId, csrfToken }: { batchId: string; csrf
   );
 }
 
+function CanaryAuthorizationForm({
+  batchId,
+  csrfToken,
+  fiscalLabel,
+}: {
+  batchId: string;
+  csrfToken: string;
+  fiscalLabel: string;
+}) {
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
+  const [confirmed, setConfirmed] = useState(false);
+
+  return (
+    <Form method="post">
+      <input name="csrf" type="hidden" value={csrfToken} />
+      <input name="intent" type="hidden" value="authorize-aruba-canary" />
+      <input name="batchId" type="hidden" value={batchId} />
+      {confirmed ? <input name="confirmCanary" type="hidden" value="yes" /> : null}
+      <button
+        aria-checked={confirmed}
+        className="checkbox-row dry-run-consent"
+        disabled={!hydrated}
+        onKeyDown={(event) => {
+          if (event.key !== " " && event.key !== "Enter") return;
+          event.preventDefault();
+          setConfirmed(true);
+        }}
+        onPointerUp={() => setConfirmed(true)}
+        role="checkbox"
+        type="button"
+      >
+        <span aria-hidden="true" className="dry-run-consent__control">
+          {confirmed ? <Check size={14} strokeWidth={3} /> : null}
+        </span>
+        <span>{copy.documents.confirmCanary(fiscalLabel)}</span>
+      </button>
+      <button className="button" disabled={!hydrated || !confirmed} type="submit">
+        {copy.documents.authorizeCanary}
+      </button>
+    </Form>
+  );
+}
+
 function BatchPanel({
   batches,
   canApprove,
@@ -539,6 +586,13 @@ function BatchPanel({
               ) : null}
               {canApprove && batch.can_authorize_dry_run ? (
                 <DryRunQualificationForm batchId={batch.id} csrfToken={csrfToken} />
+              ) : null}
+              {canApprove && batch.can_authorize_canary ? (
+                <CanaryAuthorizationForm
+                  batchId={batch.id}
+                  csrfToken={csrfToken}
+                  fiscalLabel={batch.documents[0]?.fiscal_label ?? copy.common.unavailable}
+                />
               ) : null}
             </div>
           </li>

@@ -12,6 +12,7 @@ import {
   readArubaApiInvoicePage,
   readArubaApiNotifications,
   runArubaApiReadProbe,
+  sendArubaApiInvoice,
 } from "./aruba-api.server.ts";
 
 test("il dry-run invia lo stesso XML con i controlli extraschema e senza trasmettere a SdI", async () => {
@@ -73,6 +74,44 @@ test("il dry-run restituisce un rifiuto sincrono senza trasformarlo in successo"
     assert.equal(result.accepted, false);
     assert.equal(result.errorCode, "0096");
     assert.equal(result.uploadFileName, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("l’invio pilota usa una sola chiamata esplicitamente reale", async () => {
+  const originalFetch = globalThis.fetch;
+  const xml = Buffer.from("<FatturaElettronica>canary sintetico</FatturaElettronica>");
+  let requests = 0;
+  try {
+    globalThis.fetch = async (input, init = {}) => {
+      requests += 1;
+      assert.equal(
+        String(input),
+        "https://ws.fatturazioneelettronica.aruba.it/services/invoice/upload",
+      );
+      assert.equal(init.method, "POST");
+      assert.deepEqual(JSON.parse(String(init.body)), {
+        dataFile: xml.toString("base64"),
+        credential: "",
+        domain: "",
+        senderPIVA: "",
+        skipExtraSchema: false,
+        dryRun: false,
+      });
+      return response({
+        errorCode: "0000",
+        errorDescription: "Operazione effettuata",
+        uploadFileName: "IT00000000000_canary.xml.p7m",
+      });
+    };
+    const result = await sendArubaApiInvoice(
+      { environment: "PRODUCTION", accessToken: "token", expiresAt: Date.now() + 60_000 },
+      xml,
+    );
+    assert.equal(result.accepted, true);
+    assert.equal(result.uploadFileName, "IT00000000000_canary.xml.p7m");
+    assert.equal(requests, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

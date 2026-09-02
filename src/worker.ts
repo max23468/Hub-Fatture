@@ -66,7 +66,7 @@ async function runJob() {
       await processRefund(String(job.payload.refundId ?? ""), job);
     }
     if (job.type === "send_customer_email") await sendCustomerEmail(job);
-    if (job.type === "aruba_dry_run_submission") {
+    if (job.type === "aruba_dry_run_submission" || job.type === "aruba_send_submission") {
       result = await runArubaApiOutboundJob(job);
     } else if (job.type.startsWith("aruba_")) {
       result = await runArubaApiInboundJob(job);

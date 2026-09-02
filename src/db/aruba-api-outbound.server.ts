@@ -13,11 +13,13 @@ import {
   type ArubaManifestDocument,
   type ArubaMode,
 } from "../aruba.ts";
+import { arubaInventoryBlocksAllApprovals } from "../aruba-inventory.ts";
 import { getConfig } from "../config.server.ts";
 import { AppError } from "../errors.ts";
-import { dryRunArubaApiInvoice } from "../integrations/aruba-api.server.ts";
+import { dryRunArubaApiInvoice, sendArubaApiInvoice } from "../integrations/aruba-api.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import { authenticateConfiguredArubaApiForOutbound } from "./aruba-api-connection.server.ts";
+import { getArubaInventoryHealth } from "./aruba-inventory-health.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { assertJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob } from "./connector-types.server.ts";
@@ -270,6 +272,198 @@ export async function authorizeArubaApiDryRunQualification(
       requestId: actor.requestId,
     });
     return { qualificationId, queued: 1 };
+  });
+}
+
+async function assertNoCanaryDuplicate(
+  client: pg.PoolClient,
+  input: {
+    documentId: string;
+    environment: string;
+    accountReference: string;
+    xmlSha256: string;
+    documentType: string;
+    fiscalYear: number;
+    series: string;
+    fiscalNumber: number;
+  },
+) {
+  const duplicate = await client.query(
+    `SELECT 1
+     FROM aruba_remote_documents AS remote
+     WHERE remote.environment = $1 AND remote.account_reference = $2
+       AND remote.remote_status <> 'REJECTED'
+       AND (
+         remote.xml_sha256 = $3
+         OR (remote.document_type = $4 AND remote.fiscal_year = $5
+           AND upper(remote.series) = upper($6)
+           AND remote.fiscal_number = $7::text)
+       )
+     UNION ALL
+     SELECT 1
+     FROM aruba_submissions AS submissions
+     WHERE submissions.document_id = $8
+       AND submissions.status IN (
+         'SUBMITTED', 'SDI_PROCESSING', 'DELIVERED', 'NOT_DELIVERED',
+         'UNKNOWN', 'UNKNOWN_REMOTE_STATE', 'RECONCILIATION_REQUIRED'
+       )
+     LIMIT 1`,
+    [
+      input.environment,
+      input.accountReference,
+      input.xmlSha256,
+      input.documentType,
+      input.fiscalYear,
+      input.series,
+      input.fiscalNumber,
+      input.documentId,
+    ],
+  );
+  if (duplicate.rows[0]) throw new AppError("ARUBA_RECONCILIATION_REQUIRED", 409);
+}
+
+export async function authorizeArubaApiCanary(
+  batchId: string,
+  actor: ArubaOutboundActor,
+  confirmed: boolean,
+) {
+  if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
+  if (!confirmed || !z.uuid().safeParse(batchId).success) {
+    throw new AppError("ARUBA_BATCH_INVALID", 422);
+  }
+  const config = getConfig();
+  if (config.APP_ENV !== "production" || config.ARUBA_SUBMISSION_ENABLED) {
+    throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
+  }
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba-td01-canary'))");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `aruba-read:PRODUCTION:${config.ARUBA_ACCOUNT_REFERENCE}`,
+    ]);
+    await client.query(
+      `UPDATE aruba_canary_permits SET expired_at = now()
+       WHERE consumed_at IS NULL AND expired_at IS NULL AND expires_at <= now()`,
+    );
+    const selected = await client.query<{
+      submission_id: string;
+      document_id: string;
+      document_revision: number;
+      xml_sha256: string;
+      manifest_sha256: string;
+      environment: string;
+      account_reference: string;
+      document_type: string;
+      fiscal_year: number;
+      series: string;
+      fiscal_number: number;
+      actor_username: string;
+    }>(
+      `SELECT submissions.id AS submission_id, documents.id AS document_id,
+              batch_documents.document_revision, batch_documents.xml_sha256,
+              batches.manifest_sha256, batches.environment, batches.account_reference,
+              documents.document_type, documents.fiscal_year, documents.series,
+              documents.fiscal_number, users.username AS actor_username
+       FROM aruba_batches AS batches
+       JOIN aruba_batch_documents AS batch_documents ON batch_documents.batch_id = batches.id
+       JOIN documents ON documents.id = batch_documents.document_id
+       JOIN aruba_submissions AS submissions
+         ON submissions.batch_id = batches.id
+        AND submissions.document_id = documents.id
+        AND submissions.attempt_number = batches.attempt_number
+       JOIN aruba_dry_run_qualifications AS qualifications
+         ON qualifications.batch_id = batches.id
+       JOIN users ON users.id = $2
+       WHERE batches.id = $1 AND batches.environment = 'PRODUCTION'
+         AND batches.account_reference = $3 AND batches.transport = 'API'
+         AND batches.mode = 'DOCUMENT_ONLY' AND batches.status = 'DRY_RUN_VALIDATED'
+         AND batches.document_count = 1 AND submissions.status = 'DRY_RUN_VALIDATED'
+         AND documents.status = 'APPROVED' AND documents.origin = 'HUB'
+         AND documents.document_type = 'TD01'
+         AND documents.draft_version = batch_documents.document_revision
+         AND documents.xml_sha256 = batch_documents.xml_sha256
+         AND qualifications.status = 'SUCCEEDED'
+         AND EXISTS (
+           SELECT 1 FROM aruba_submission_attempts AS attempts
+           WHERE attempts.submission_id = submissions.id AND attempts.operation = 'DRY_RUN'
+             AND attempts.status = 'SUCCEEDED'
+             AND attempts.xml_sha256 = batch_documents.xml_sha256
+         )
+       FOR UPDATE OF batches, submissions, documents`,
+      [batchId, actor.id, config.ARUBA_ACCOUNT_REFERENCE],
+    );
+    const current = selected.rows[0];
+    if (!current || current.actor_username !== "Massimo") {
+      throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
+    }
+    if (!(await outboundConnectionReady(client, "PRODUCTION", current.account_reference))) {
+      throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
+    }
+    const inventory = await getArubaInventoryHealth(client);
+    if (inventory.activeSession || arubaInventoryBlocksAllApprovals(inventory)) {
+      throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+    }
+    await assertBatchManifestCurrent(client, batchId);
+    await assertNoCanaryDuplicate(client, {
+      documentId: current.document_id,
+      environment: current.environment,
+      accountReference: current.account_reference,
+      xmlSha256: current.xml_sha256,
+      documentType: current.document_type,
+      fiscalYear: current.fiscal_year,
+      series: current.series,
+      fiscalNumber: current.fiscal_number,
+    });
+    const priorCanary = await client.query(
+      `SELECT 1 FROM aruba_canary_permits
+       WHERE consumed_at IS NOT NULL OR (consumed_at IS NULL AND expired_at IS NULL)
+       LIMIT 1`,
+    );
+    if (priorCanary.rows[0]) throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
+    const permitId = randomUUID();
+    await client.query(
+      `INSERT INTO aruba_canary_permits
+        (id, environment, account_reference, document_id, document_revision,
+         batch_id, manifest_sha256, xml_sha256, expires_at, created_by)
+       VALUES ($1, 'PRODUCTION', $2, $3, $4, $5, $6, $7,
+         now() + interval '15 minutes', $8)`,
+      [
+        permitId,
+        current.account_reference,
+        current.document_id,
+        current.document_revision,
+        batchId,
+        current.manifest_sha256,
+        current.xml_sha256,
+        actor.id,
+      ],
+    );
+    await client.query(
+      `UPDATE aruba_submissions SET status = 'READY_TO_SEND'
+       WHERE id = $1 AND status = 'DRY_RUN_VALIDATED'`,
+      [current.submission_id],
+    );
+    await client.query(
+      `INSERT INTO jobs (type, payload_json, max_attempts)
+       VALUES ('aruba_send_submission', jsonb_build_object('submissionId', $1::text), 1)`,
+      [current.submission_id],
+    );
+    await writeAudit(client, {
+      actorType: "ADMIN",
+      actorId: String(actor.id),
+      action: "ARUBA_API_CANARY_AUTHORIZED",
+      eventClass: "CRITICAL",
+      entityType: "ARUBA_BATCH",
+      entityId: batchId,
+      metadata: {
+        batchId,
+        manifestSha256: current.manifest_sha256,
+        environment: "PRODUCTION",
+        endpoint: "/services/invoice/upload",
+        requestLimit: 1,
+      },
+      requestId: actor.requestId,
+    });
+    return { permitId, queued: 1 };
   });
 }
 
@@ -818,7 +1012,428 @@ async function failQueuedDryRun(job: ClaimedJob, errorCode: string) {
   });
 }
 
+interface CanaryPayload {
+  submissionId: string;
+  batchId: string;
+  accountReference: string;
+  xmlSha256: string;
+  manifestSha256: string;
+  relativePath: string;
+  sizeBytes: number;
+  permitId: string;
+}
+
+function parsedSubmissionId(job: ClaimedJob) {
+  const parsed = z.string().regex(/^\d+$/).safeParse(job.payload.submissionId);
+  if (!parsed.success) throw new AppError("ARUBA_BATCH_INVALID", 422);
+  return parsed.data;
+}
+
+async function recoverInterruptedCanary(job: ClaimedJob) {
+  const submissionId = parsedSubmissionId(job);
+  return withTransaction(async (client) => {
+    await assertJobLease(client, job);
+    const interrupted = await client.query<{
+      attempt_id: string;
+      batch_id: string;
+    }>(
+      `SELECT attempts.id AS attempt_id, submissions.batch_id
+       FROM aruba_submission_attempts AS attempts
+       JOIN aruba_submissions AS submissions ON submissions.id = attempts.submission_id
+       JOIN aruba_canary_permits AS permits ON permits.batch_id = submissions.batch_id
+       WHERE submissions.id = $1 AND attempts.operation = 'SEND'
+         AND attempts.status = 'RUNNING' AND submissions.status = 'READY_TO_SEND'
+         AND permits.consumed_at IS NOT NULL
+       FOR UPDATE OF attempts, submissions`,
+      [submissionId],
+    );
+    const current = interrupted.rows[0];
+    if (!current) return null;
+    await client.query(
+      `UPDATE aruba_submission_attempts SET status = 'UNKNOWN_REMOTE_STATE',
+         error_code = 'ARUBA_SUBMISSION_UNKNOWN',
+         error_message_sanitized = 'Esecuzione interrotta dopo il consumo del permesso',
+         completed_at = now()
+       WHERE id = $1 AND status = 'RUNNING'`,
+      [current.attempt_id],
+    );
+    await client.query(
+      `UPDATE aruba_submissions SET status = 'UNKNOWN_REMOTE_STATE',
+         error_code = 'ARUBA_SUBMISSION_UNKNOWN',
+         error_message_sanitized = 'Esito remoto non confermato dopo il riavvio',
+         last_checked_at = now()
+       WHERE id = $1 AND status = 'READY_TO_SEND'`,
+      [submissionId],
+    );
+    await client.query(
+      `UPDATE aruba_batches SET status = 'UNKNOWN_REMOTE_STATE',
+         requires_reconciliation = true, updated_at = now()
+       WHERE id = $1`,
+      [current.batch_id],
+    );
+    await client.query(
+      `INSERT INTO jobs (type, payload_json)
+       VALUES ('aruba_sync_inventory', '{}'::jsonb)
+       ON CONFLICT DO NOTHING`,
+    );
+    await writeAudit(client, {
+      actorType: "SYSTEM",
+      action: "ARUBA_API_CANARY_UNKNOWN",
+      eventClass: "CRITICAL",
+      entityType: "ARUBA_SUBMISSION_ATTEMPT",
+      entityId: current.attempt_id,
+      metadata: { batchId: current.batch_id, provider: "ARUBA", recoveredAfterRestart: true },
+      requestId: `aruba-canary-recovery:${job.id}`,
+    });
+    return { submissionId, batchId: current.batch_id };
+  });
+}
+
+async function loadCanaryPayload(job: ClaimedJob) {
+  const submissionId = parsedSubmissionId(job);
+  const config = getConfig();
+  if (config.APP_ENV !== "production" || config.ARUBA_SUBMISSION_ENABLED) {
+    throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
+  }
+  const result = await getPool().query<CanaryPayload & { environment: string }>(
+    `SELECT submissions.id AS "submissionId", submissions.batch_id AS "batchId",
+            batches.account_reference AS "accountReference",
+            submissions.xml_sha256 AS "xmlSha256",
+            batches.manifest_sha256 AS "manifestSha256",
+            storage.relative_path AS "relativePath", storage.size_bytes AS "sizeBytes",
+            permits.id AS "permitId", batches.environment
+     FROM aruba_submissions AS submissions
+     JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
+     JOIN documents ON documents.id = submissions.document_id
+     JOIN storage_objects AS storage ON storage.id = documents.storage_object_id
+     JOIN aruba_canary_permits AS permits ON permits.batch_id = batches.id
+     WHERE submissions.id = $1 AND submissions.status = 'READY_TO_SEND'
+       AND batches.status = 'DRY_RUN_VALIDATED' AND batches.environment = 'PRODUCTION'
+       AND batches.mode = 'DOCUMENT_ONLY' AND batches.transport = 'API'
+       AND batches.account_reference = $2 AND documents.document_type = 'TD01'
+       AND permits.consumed_at IS NULL AND permits.expired_at IS NULL
+       AND permits.expires_at > now()`,
+    [submissionId, config.ARUBA_ACCOUNT_REFERENCE],
+  );
+  const current = result.rows[0];
+  if (!current) throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
+  const xml = await readVerifiedStorageObject({
+    relativePath: current.relativePath,
+    sha256: current.xmlSha256,
+    sizeBytes: current.sizeBytes,
+  });
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- Verifica l’artefatto locale prima di aprire qualsiasi sessione Aruba.
+  const authenticated = await authenticateConfiguredArubaApiForOutbound();
+  if (authenticated.accountReference !== current.accountReference) {
+    throw new AppError("ARUBA_ACCOUNT_MISMATCH", 409);
+  }
+  return { current, xml, session: authenticated.session };
+}
+
+async function prepareCanaryMutation(job: ClaimedJob, payload: CanaryPayload) {
+  const config = getConfig();
+  return withTransaction(async (client) => {
+    await assertJobLease(client, job);
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba-td01-canary'))");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `aruba-read:PRODUCTION:${payload.accountReference}`,
+    ]);
+    if (config.APP_ENV !== "production" || config.ARUBA_SUBMISSION_ENABLED) {
+      throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
+    }
+    const selected = await client.query<{
+      permit_id: string;
+      batch_id: string;
+      document_id: string;
+      document_revision: number;
+      current_revision: number;
+      xml_sha256: string;
+      current_xml_sha256: string;
+      manifest_sha256: string;
+      environment: string;
+      account_reference: string;
+      document_type: string;
+      fiscal_year: number;
+      series: string;
+      fiscal_number: number;
+      api_paused: boolean;
+    }>(
+      `SELECT permits.id AS permit_id, batches.id AS batch_id,
+              documents.id AS document_id, permits.document_revision,
+              documents.draft_version AS current_revision, permits.xml_sha256,
+              documents.xml_sha256 AS current_xml_sha256, permits.manifest_sha256,
+              permits.environment, permits.account_reference, documents.document_type,
+              documents.fiscal_year, documents.series, documents.fiscal_number,
+              connections.api_paused
+       FROM aruba_canary_permits AS permits
+       JOIN aruba_batches AS batches ON batches.id = permits.batch_id
+       JOIN aruba_submissions AS submissions
+         ON submissions.batch_id = batches.id AND submissions.document_id = permits.document_id
+       JOIN documents ON documents.id = submissions.document_id
+       JOIN connections ON connections.provider = 'ARUBA'
+         AND connections.environment = 'PRODUCTION'
+         AND connections.account_reference = permits.account_reference
+       WHERE permits.id = $1 AND submissions.id = $2
+         AND permits.consumed_at IS NULL AND permits.expired_at IS NULL
+         AND permits.expires_at > now() AND submissions.status = 'READY_TO_SEND'
+         AND batches.status = 'DRY_RUN_VALIDATED' AND batches.document_count = 1
+         AND batches.environment = permits.environment
+         AND batches.account_reference = permits.account_reference
+         AND batches.manifest_sha256 = permits.manifest_sha256
+         AND submissions.xml_sha256 = permits.xml_sha256
+         AND documents.status = 'APPROVED' AND documents.origin = 'HUB'
+         AND documents.document_type = 'TD01'
+         AND connections.status = 'CONNECTED'
+         AND connections.encrypted_credentials IS NOT NULL
+         AND connections.credentials_verified_at IS NOT NULL
+       FOR UPDATE OF permits, batches, submissions, documents`,
+      [payload.permitId, payload.submissionId],
+    );
+    const current = selected.rows[0];
+    if (
+      !current ||
+      current.api_paused ||
+      current.environment !== "PRODUCTION" ||
+      current.account_reference !== config.ARUBA_ACCOUNT_REFERENCE ||
+      current.document_revision !== current.current_revision ||
+      current.xml_sha256 !== current.current_xml_sha256 ||
+      current.manifest_sha256 !== payload.manifestSha256
+    ) {
+      throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
+    }
+    const inventory = await getArubaInventoryHealth(client);
+    if (inventory.activeSession || arubaInventoryBlocksAllApprovals(inventory)) {
+      throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+    }
+    await assertBatchManifestCurrent(client, current.batch_id);
+    await assertNoCanaryDuplicate(client, {
+      documentId: current.document_id,
+      environment: current.environment,
+      accountReference: current.account_reference,
+      xmlSha256: current.xml_sha256,
+      documentType: current.document_type,
+      fiscalYear: current.fiscal_year,
+      series: current.series,
+      fiscalNumber: current.fiscal_number,
+    });
+    const consumed = await client.query(
+      `UPDATE aruba_canary_permits SET consumed_at = now()
+       WHERE id = $1 AND consumed_at IS NULL AND expired_at IS NULL AND expires_at > now()`,
+      [current.permit_id],
+    );
+    if (consumed.rowCount !== 1) throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
+    const attemptId = randomUUID();
+    const fingerprint = createHash("sha256")
+      .update(`SEND:${payload.submissionId}:${payload.manifestSha256}:${payload.xmlSha256}`)
+      .digest("hex");
+    await client.query(
+      `INSERT INTO aruba_submission_attempts
+        (id, submission_id, operation, attempt_number, request_fingerprint, xml_sha256,
+         status, started_at)
+       VALUES ($1, $2, 'SEND', 1, $3, $4, 'RUNNING', now())`,
+      [attemptId, payload.submissionId, fingerprint, payload.xmlSha256],
+    );
+    await writeAudit(client, {
+      actorType: "SYSTEM",
+      action: "ARUBA_API_CANARY_STARTED",
+      eventClass: "CRITICAL",
+      entityType: "ARUBA_SUBMISSION_ATTEMPT",
+      entityId: attemptId,
+      metadata: {
+        batchId: payload.batchId,
+        manifestSha256: payload.manifestSha256,
+        provider: "ARUBA",
+        environment: "PRODUCTION",
+        endpoint: "/services/invoice/upload",
+        requestLimit: 1,
+      },
+      requestId: `aruba-canary:${job.id}`,
+    });
+    return { attemptId };
+  });
+}
+
+async function expireQueuedCanary(job: ClaimedJob, errorCode: string) {
+  const submissionId = parsedSubmissionId(job);
+  return withTransaction(async (client) => {
+    await assertJobLease(client, job);
+    const expired = await client.query<{ batch_id: string }>(
+      `UPDATE aruba_canary_permits AS permits SET expired_at = now()
+       FROM aruba_submissions AS submissions
+       WHERE submissions.id = $1 AND submissions.batch_id = permits.batch_id
+         AND permits.consumed_at IS NULL AND permits.expired_at IS NULL
+       RETURNING permits.batch_id`,
+      [submissionId],
+    );
+    const batchId = expired.rows[0]?.batch_id;
+    if (!batchId) return null;
+    await client.query(
+      `UPDATE aruba_submissions SET status = 'DRY_RUN_VALIDATED', error_code = $2,
+         error_message_sanitized = 'Prerequisiti del canary non più validi'
+       WHERE id = $1 AND status = 'READY_TO_SEND'`,
+      [submissionId, errorCode],
+    );
+    await writeAudit(client, {
+      actorType: "SYSTEM",
+      action: "ARUBA_API_CANARY_FAILED",
+      eventClass: "CRITICAL",
+      entityType: "ARUBA_BATCH",
+      entityId: batchId,
+      metadata: { batchId, provider: "ARUBA" },
+      reason: errorCode,
+      requestId: `aruba-canary-preflight:${job.id}`,
+    });
+    return { submissionId, batchId };
+  });
+}
+
+async function finishCanary(
+  payload: CanaryPayload,
+  attemptId: string,
+  result: Awaited<ReturnType<typeof sendArubaApiInvoice>>,
+) {
+  return withTransaction(async (client) => {
+    const attemptStatus = result.accepted ? "SUCCEEDED" : "FAILED";
+    const submissionStatus = result.accepted ? "SUBMITTED" : "VALIDATION_FAILED";
+    const attempt = await client.query(
+      `UPDATE aruba_submission_attempts SET status = $2, provider_reference = $3,
+         response_metadata_json = jsonb_build_object('errorCode', $4::text),
+         error_code = CASE WHEN $2 = 'FAILED' THEN $4 ELSE NULL END,
+         error_message_sanitized = CASE WHEN $2 = 'FAILED' THEN $5 ELSE NULL END,
+         completed_at = now()
+       WHERE id = $1 AND status = 'RUNNING'`,
+      [attemptId, attemptStatus, result.uploadFileName, result.errorCode, result.errorDescription],
+    );
+    const submission = await client.query(
+      `UPDATE aruba_submissions SET status = $2,
+         submitted_at = CASE WHEN $2 = 'SUBMITTED' THEN now() ELSE submitted_at END,
+         last_checked_at = now(),
+         validation_metadata_json = validation_metadata_json || jsonb_build_object(
+           'sendErrorCode', $3::text, 'uploadFileName', $4::text),
+         error_code = CASE WHEN $2 = 'VALIDATION_FAILED' THEN $3 ELSE NULL END,
+         error_message_sanitized = CASE WHEN $2 = 'VALIDATION_FAILED' THEN $5 ELSE NULL END
+       WHERE id = $1 AND status = 'READY_TO_SEND'`,
+      [
+        payload.submissionId,
+        submissionStatus,
+        result.errorCode,
+        result.uploadFileName,
+        result.errorDescription,
+      ],
+    );
+    if (attempt.rowCount !== 1 || submission.rowCount !== 1) {
+      throw new AppError("ARUBA_BATCH_INVALID", 409);
+    }
+    await client.query(
+      `UPDATE aruba_batches SET status = $2, requires_reconciliation = false, updated_at = now()
+       WHERE id = $1 AND status = 'DRY_RUN_VALIDATED'`,
+      [payload.batchId, result.accepted ? "SUBMITTED" : "VALIDATION_FAILED"],
+    );
+    if (result.accepted) {
+      const readbackFingerprint = createHash("sha256")
+        .update(`READBACK:${payload.submissionId}:${payload.manifestSha256}:${payload.xmlSha256}`)
+        .digest("hex");
+      await client.query(
+        `INSERT INTO aruba_submission_attempts
+          (id, submission_id, operation, attempt_number, request_fingerprint, xml_sha256, status)
+         VALUES ($1, $2, 'READBACK', 1, $3, $4, 'PENDING')`,
+        [randomUUID(), payload.submissionId, readbackFingerprint, payload.xmlSha256],
+      );
+      await client.query(
+        `INSERT INTO jobs (type, payload_json)
+         VALUES ('aruba_sync_inventory', '{}'::jsonb)
+         ON CONFLICT DO NOTHING`,
+      );
+    }
+    await writeAudit(client, {
+      actorType: "SYSTEM",
+      action: result.accepted ? "ARUBA_API_CANARY_SUBMITTED" : "ARUBA_API_CANARY_FAILED",
+      eventClass: "CRITICAL",
+      entityType: "ARUBA_SUBMISSION_ATTEMPT",
+      entityId: attemptId,
+      metadata: { batchId: payload.batchId, provider: "ARUBA" },
+      reason: result.accepted ? null : result.errorCode,
+      requestId: `aruba-canary:${attemptId}`,
+    });
+    return { accepted: result.accepted, submissionId: payload.submissionId };
+  });
+}
+
+async function markCanaryUnknown(payload: CanaryPayload, attemptId: string) {
+  await withTransaction(async (client) => {
+    await client.query(
+      `UPDATE aruba_submission_attempts SET status = 'UNKNOWN_REMOTE_STATE',
+         error_code = 'ARUBA_SUBMISSION_UNKNOWN',
+         error_message_sanitized = 'Esito remoto non confermato', completed_at = now()
+       WHERE id = $1 AND status = 'RUNNING'`,
+      [attemptId],
+    );
+    await client.query(
+      `UPDATE aruba_submissions SET status = 'UNKNOWN_REMOTE_STATE',
+         error_code = 'ARUBA_SUBMISSION_UNKNOWN',
+         error_message_sanitized = 'Esito remoto non confermato', last_checked_at = now()
+       WHERE id = $1 AND status = 'READY_TO_SEND'`,
+      [payload.submissionId],
+    );
+    await client.query(
+      `UPDATE aruba_batches SET status = 'UNKNOWN_REMOTE_STATE',
+         requires_reconciliation = true, updated_at = now() WHERE id = $1`,
+      [payload.batchId],
+    );
+    await client.query(
+      `INSERT INTO jobs (type, payload_json)
+       VALUES ('aruba_sync_inventory', '{}'::jsonb)
+       ON CONFLICT DO NOTHING`,
+    );
+    await writeAudit(client, {
+      actorType: "SYSTEM",
+      action: "ARUBA_API_CANARY_UNKNOWN",
+      eventClass: "CRITICAL",
+      entityType: "ARUBA_SUBMISSION_ATTEMPT",
+      entityId: attemptId,
+      metadata: { batchId: payload.batchId, provider: "ARUBA" },
+      requestId: `aruba-canary:${attemptId}`,
+    });
+  });
+}
+
+async function runArubaApiCanaryJob(job: ClaimedJob) {
+  const interrupted = await recoverInterruptedCanary(job);
+  if (interrupted) return { accepted: false, unknownRemoteState: true, ...interrupted };
+  let loaded: Awaited<ReturnType<typeof loadCanaryPayload>>;
+  try {
+    loaded = await loadCanaryPayload(job);
+  } catch (error) {
+    const errorCode = error instanceof AppError ? error.code : "UNKNOWN";
+    const failed = await expireQueuedCanary(job, errorCode);
+    if (failed) return { accepted: false, errorCode, ...failed };
+    throw error;
+  }
+  let prepared: Awaited<ReturnType<typeof prepareCanaryMutation>>;
+  try {
+    prepared = await prepareCanaryMutation(job, loaded.current);
+  } catch (error) {
+    const errorCode = error instanceof AppError ? error.code : "UNKNOWN";
+    const failed = await expireQueuedCanary(job, errorCode);
+    if (failed) return { accepted: false, errorCode, ...failed };
+    throw error;
+  }
+  try {
+    const result = await sendArubaApiInvoice(loaded.session, loaded.xml);
+    return await finishCanary(loaded.current, prepared.attemptId, result);
+  } catch (error) {
+    await markCanaryUnknown(loaded.current, prepared.attemptId);
+    return {
+      accepted: false,
+      submissionId: loaded.current.submissionId,
+      unknownRemoteState: true,
+      errorCode: error instanceof AppError ? error.code : "UNKNOWN",
+    };
+  }
+}
+
 export async function runArubaApiOutboundJob(job: ClaimedJob) {
+  if (job.type === "aruba_send_submission") return runArubaApiCanaryJob(job);
   if (job.type !== "aruba_dry_run_submission") {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
   }

@@ -21,6 +21,7 @@ import {
   SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
   ARUBA_IDENTITY_EVIDENCE_REPLAY,
   ARUBA_HISTORICAL_API_RECOVERY,
+  ARUBA_TD01_CANARY,
   removeMigrationsFrom,
 } from "./support.ts";
 
@@ -110,6 +111,7 @@ test("l'upgrade chiude le preparazioni ricreate sopra fatture approvate", async 
       SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
       ARUBA_IDENTITY_EVIDENCE_REPLAY,
       ARUBA_HISTORICAL_API_RECOVERY,
+      ARUBA_TD01_CANARY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

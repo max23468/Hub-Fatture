@@ -3381,12 +3381,11 @@ Gate:
 
 ### M12 - Ricertificazione release candidate
 
-**Stato: da ripetere sul prossimo candidato.** Il candidato precedente è stato ricertificato con
-CI, security scan, artifact, deploy, backup, restore isolato, rollback reale, rientro,
-monitor e readback coerenti. Le successive modifiche runtime e schema alla riconciliazione Aruba
-lo hanno sostituito prima del canary: il record di [readiness](runbooks/release-readiness.md) ne
-conserva le prove storiche, ma M13 resta bloccata finché la stessa ricertificazione non viene
-ripetuta sul nuovo SHA e digest con invii Aruba e release `v1.0.0` ancora disabilitati.
+**Stato: completata.** Il candidato è stato ricertificato con CI, security scan, artifact, deploy,
+backup, restore isolato, rollback reale, rientro, monitor e readback coerenti. Le modifiche runtime
+e schema successive non riaprono formalmente M12 per decisione del titolare: M13 deve comunque
+collegare i propri gate tecnici, il deploy e il preflight allo SHA e al digest effettivamente usati
+dal canary, con invii ordinari e release `v1.0.0` ancora disabilitati.
 
 Output:
 
@@ -3407,6 +3406,7 @@ Gate:
 
 Output:
 
+- corridoio runtime fail-closed e runbook operativo per il solo canary TD01;
 - un TD01 reale e legittimo scelto esplicitamente da Massimo al momento dell'esecuzione;
 - permesso monouso legato ad ambiente, account, documento, revisione, batch e hash XML;
 - dry-run, upload, invio, readback, file e stato osservati end-to-end;
@@ -3414,6 +3414,7 @@ Output:
 
 Gate:
 
+- gate tecnici applicabili, deploy e readback di identità riferiti allo SHA e al digest esatti;
 - autorizzazione specifica all'esecuzione reale;
 - nessun duplicato e nessun retry cieco;
 - stato remoto determinato oppure incidente fail-closed aperto senza nuovo tentativo;
@@ -3866,4 +3867,4 @@ Hub Fatture 1.x deve restare un'applicazione piccola, affidabile e comprensibile
 
 La priorità non è costruire un motore fiscale generale, ma impedire errori operativi: dati mancanti, doppie fatture, doppi rimborsi, numerazione errata, invii non approvati e perdita di tracciabilità.
 
-Il prossimo lavoro concreto è ripetere la ricertificazione M12 sul nuovo candidato, quindi proseguire con il canary TD01 M13 e il go-live M14. Ogni milestone mantiene confini di autorizzazione propri; nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è implicito nella pianificazione.
+Il prossimo lavoro concreto è completare il canary TD01 M13 sul candidato identificato dai suoi gate exact-SHA, quindi proseguire con il go-live M14. Ogni milestone mantiene confini di autorizzazione propri; nessun dry-run Production, upload, invio, deploy o cambiamento nel pannello è implicito nella pianificazione.
