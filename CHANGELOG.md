@@ -3,6 +3,7 @@
 ## 1.0.10
 
 - La riconciliazione Aruba conserva l’abbinamento di una nota di credito storica già adottata quando lo stesso documento viene osservato di nuovo; il replay del matcher resta limitato ai tipi fiscali interessati dalla modifica, evitando di riesaminare documenti estranei e di interrompere la sincronizzazione finale.
+- Le dipendenze transitive `fast-uri` e `qs` recepiscono le correzioni di sicurezza pubblicate durante la preparazione del candidato.
 
 ## 1.0.9
 
