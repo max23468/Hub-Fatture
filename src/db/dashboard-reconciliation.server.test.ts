@@ -370,8 +370,9 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       },
     ]);
     const operationalControls = await import("./operational-controls.server.ts");
+    await operationalControls.refreshOperationalControls();
     const mismatchControl = (
-      await operationalControls.listOperationalControls({ origin: "DOCUMENTS" })
+      await operationalControls.readOperationalControls({ origin: "DOCUMENTS" })
     ).rows.find((control) => control.source_id === remote.rows[0]!.id);
     assert.equal(mismatchControl?.kind, "ARUBA_AMOUNT_MISMATCH");
     assert.equal(mismatchControl?.primary_action, "Verifica documento Aruba");
@@ -411,8 +412,9 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       alreadyIssued.release();
     }
     assert.equal(await orders.getOpenBillingCasePool(cases.rows[2]!.id, false), "APPROVABLE");
+    await operationalControls.refreshOperationalControls();
     assert.equal(
-      (await operationalControls.listOperationalControls({ origin: "DOCUMENTS" })).rows.some(
+      (await operationalControls.readOperationalControls({ origin: "DOCUMENTS" })).rows.some(
         (control) => control.source_id === remote.rows[0]!.id,
       ),
       false,

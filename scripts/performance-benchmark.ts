@@ -155,6 +155,9 @@ try {
     controlsRefresh: rounded(
       await measure("ricostruzione controlli", () => controls.refreshOperationalControls()),
     ),
+    controlsList: rounded(
+      await measure("lista controlli", () => controls.readOperationalControls({})),
+    ),
     controlsSummary: rounded(
       await measure("lettura riepilogo controlli", () => controls.readOperationalControlSummary()),
     ),

@@ -39,7 +39,7 @@ import { importArubaRemoteOfficialFileAsActor } from "../../src/db/aruba-officia
 import { retryFailedJob } from "../../src/db/connector-jobs.server.ts";
 import { completeShopifyDataRequest } from "../../src/db/connector-webhooks.server.ts";
 import {
-  listOperationalControls,
+  readOperationalControls,
   markOperationalControlWaiting,
   resolveOperationalControl,
   type OperationalControl,
@@ -63,7 +63,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const selectedControlId = url.searchParams.get("id")?.trim() ?? "";
   const severity = severities.find((item) => item === requestedSeverity);
   const origin = origins.find((item) => item === requestedOrigin);
-  const result = await listOperationalControls({
+  const result = await readOperationalControls({
     state,
     severity,
     origin,

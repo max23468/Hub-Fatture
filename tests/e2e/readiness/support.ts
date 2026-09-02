@@ -11,6 +11,23 @@ export const appBaseUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4
 export const storageRoot = path.resolve("storage/e2e-documents");
 export const credentialsEncryptionKey = Buffer.alloc(32, 9).toString("base64url");
 
+export async function refreshOperationalControlsProjection() {
+  process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
+  process.env.APP_BASE_URL = appBaseUrl;
+  process.env.APP_ENV = "test";
+  process.env.CREDENTIALS_ENCRYPTION_KEY = credentialsEncryptionKey;
+  process.env.DATABASE_URL = databaseUrl;
+  const [controls, database] = await Promise.all([
+    import("../../../src/db/operational-controls.server.ts"),
+    import("../../../src/db/client.server.ts"),
+  ]);
+  try {
+    await controls.refreshOperationalControls();
+  } finally {
+    await database.closePool();
+  }
+}
+
 export async function expectPlainLanguage(page: Page) {
   await expect(page.locator("body")).not.toContainText(
     /\b(?:trigger|fixture|sandbox)\b|sorgente|normalizzat/i,

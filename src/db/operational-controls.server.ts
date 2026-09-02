@@ -733,14 +733,14 @@ export async function readOperationalControlSummary() {
   return result.rows[0]!;
 }
 
-export async function listOperationalControls(filters: {
+/** Legge la coda materializzata senza ricostruirla durante una richiesta HTTP. */
+export async function readOperationalControls(filters: {
   state?: "OPEN" | "WAITING";
   severity?: OperationalControlSeverity;
   kind?: string;
   origin?: OperationalControlOrigin;
   selectedId?: string;
 }) {
-  await refreshOperationalControls();
   const state = filters.state ?? "OPEN";
   const result = await getPool().query<OperationalControl & { total_count: number }>(
     `SELECT controls.*, count(*) OVER()::int AS total_count

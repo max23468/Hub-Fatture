@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.12
+
+- La pagina `Controlli` e la ricerca globale leggono la coda operativa già materializzata senza ricostruirla durante la richiesta: “Apri Controlli”, i link della Dashboard e la ricerca non restano più in attesa della scansione completa, che continua nel worker dopo gli aggiornamenti del dominio.
+- Un ratchet esteso all’intero runtime impedisce alle route di reintrodurre la ricostruzione sincrona; il benchmark separa inoltre il costo della lettura della coda dal suo aggiornamento asincrono.
+
 ## 1.0.11
 
 - Il passaggio alla Dashboard legge soltanto il riepilogo dei controlli già materializzato, mentre il worker ne accorpa la ricostruzione fuori dalla richiesta: la navigazione non attende più la scansione completa dei dati operativi.
