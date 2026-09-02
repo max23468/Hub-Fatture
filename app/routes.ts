@@ -14,6 +14,7 @@ export default [
   route("login", "routes/login.tsx"),
   route("logout", "routes/logout.ts"),
   route("ordini", "routes/orders.tsx"),
+  route("ordini/candidati-approvazione", "routes/order-approval-candidates.ts"),
   route("ordini/preparazione/:caseId", "routes/billing-case-detail.tsx"),
   route("ordini/:orderId", "routes/order-detail.tsx"),
   route("documenti", "routes/documents.tsx"),

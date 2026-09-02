@@ -81,11 +81,27 @@ test("movimento e navigazione primaria restano fluidi, leggibili e affidabili", 
   await clickWithDocumentNavigation("/", () =>
     menu.getByRole("link", { name: "Dashboard", exact: true }).click(),
   );
+  const approvalCandidatesRequested = Promise.withResolvers<void>();
+  const approvalCandidatesResponse = Promise.withResolvers<void>();
+  await page.route("**/ordini/candidati-approvazione", async (route) => {
+    approvalCandidatesRequested.resolve();
+    await approvalCandidatesResponse.promise;
+    await route.fulfill({
+      json: {
+        approvalCandidates: [],
+        arubaMode: "DOCUMENT_ONLY",
+        arubaConfiguredMode: "DOCUMENT_ONLY",
+        arubaDowngradeRequired: false,
+      },
+    });
+  });
   await clickWithDocumentNavigation("/ordini", () =>
     page.getByRole("link", { name: "Apri preparazioni", exact: true }).first().click(),
   );
   await expect(page).toHaveURL(/\/ordini\?vista=fatturare$/);
   await expect(page.getByRole("heading", { name: "Ordini", exact: true })).toBeVisible();
+  await approvalCandidatesRequested.promise;
+  approvalCandidatesResponse.resolve();
   expect(clientDataRequests).toEqual([]);
 
   await trigger.click();
