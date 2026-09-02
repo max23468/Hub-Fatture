@@ -53,8 +53,7 @@ function acceptedProfileMatches(
     profile.seller.taxRegime === identity.seller.taxRegime &&
     profile.taxNature === identity.taxNature &&
     profile.legalReference === identity.legalReference &&
-    profile.payment.condition === identity.payment.condition &&
-    (identity.type === "TD01" || profile.payment.creditNoteMethod === identity.payment.method)
+    profile.payment.condition === identity.payment.condition
   );
 }
 
@@ -689,7 +688,7 @@ async function materializeExternalCreditNote(
          difference_amount, draft_version, projection_sha256, payment_status,
          payment_method, recipient_snapshot_json)
        VALUES ($1, 'CREDIT_NOTE', 'DRAFT', 'TD04', $2, $3, $4, 'EUR', $5, $5,
-         0, 1, $6, 'PAID', 'MP05', $7) RETURNING id`,
+         0, 1, $6, 'PAID', $7, $8) RETURNING id`,
       [
         sourceInvoice.billing_case_id,
         profile.profile.series,
@@ -697,6 +696,7 @@ async function materializeExternalCreditNote(
         profile.version,
         imported.totalAmount,
         digest,
+        identity.payment.method,
         JSON.stringify(sourceInvoice.recipient_snapshot_json),
       ],
     );
@@ -747,7 +747,7 @@ async function materializeExternalCreditNote(
         orderId: remote.order_id,
       })),
       paymentStatus: "PAID",
-      paymentMethod: "MP05",
+      paymentMethod: identity.payment.method,
       relatedInvoice: {
         number: invoiceLabel,
         date: sourceInvoice.document_date,
@@ -761,7 +761,7 @@ async function materializeExternalCreditNote(
       `UPDATE documents SET status = 'APPROVED', origin = 'ARUBA_HISTORY',
          fiscal_year = $2, fiscal_number = $3, approved_at = now(), xml_sha256 = $4,
          immutable_snapshot_json = $5, fiscal_profile_snapshot_json = $6,
-         storage_object_id = $7, updated_at = now()
+         storage_object_id = $7, payment_method = $8, updated_at = now()
        WHERE id = $1`,
       [
         documentId,
@@ -771,6 +771,7 @@ async function materializeExternalCreditNote(
         JSON.stringify(snapshot),
         JSON.stringify(profile.profile),
         storageObjectId,
+        identity.payment.method,
       ],
     );
   }

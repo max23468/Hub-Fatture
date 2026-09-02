@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Le note di credito storiche recuperate da Aruba conservano il metodo di pagamento dell’XML ufficiale anche quando differisce dal default corrente; identità fiscale, riferimento alla fattura e rimborsi devono comunque coincidere prima che una bozza locale venga adottata.
+
 ## 1.0.2
 
 - I rimborsi incidono sul confronto con una fattura Aruba in base alla loro data effettiva rispetto alla data fiscale: prima riducono il totale, dopo restano da riconciliare con una TD04 e nello stesso giorno mantengono il caso bloccato se la sequenza non è provata.

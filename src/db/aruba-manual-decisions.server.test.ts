@@ -5,9 +5,19 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { fiscalProfileFromAcceptedInvoiceXml } from "../documents.ts";
+import {
+  acceptedInvoiceFromXml,
+  fiscalProfileFromAcceptedInvoiceXml,
+  generateFatturaXml,
+} from "../documents.ts";
 import { AppError } from "../errors.ts";
-import { closePool, getPool } from "./client.server.ts";
+import {
+  latestObservedRemote,
+  materializeLatestOfficialXml,
+  officialEvidence,
+} from "./aruba-document-materialization.server.ts";
+import { reconcileRemoteDocument } from "./aruba-reconciliation.server.ts";
+import { closePool, getPool, withTransaction } from "./client.server.ts";
 import { temporaryDatabase } from "./database-fixture.ts";
 import { runMigrations } from "./migrations.server.ts";
 
@@ -411,6 +421,113 @@ test("un importo discordante può essere collegato solo con conferma e resta reg
         matcher_version: 8,
         candidate_id: order.id,
         total_signal: "true",
+      },
+    );
+
+    const invoiceDocument = (
+      await getPool().query<{ id: string; billing_case_id: string }>(
+        `SELECT documents.id::text, documents.billing_case_id::text
+         FROM aruba_document_matches matches
+         JOIN documents ON documents.id = matches.document_id
+         WHERE matches.remote_document_id = $1`,
+        [remote.id],
+      )
+    ).rows[0]!;
+    const creditDraft = await withTransaction(async (client) => {
+      const created = (
+        await client.query<{ id: string }>(
+          `INSERT INTO documents
+          (billing_case_id, kind, status, document_type, series, document_date,
+           fiscal_profile_version, currency, total_amount, source_total_amount,
+           difference_amount, draft_version, projection_sha256, payment_status,
+           payment_method, recipient_snapshot_json)
+         VALUES ($1, 'CREDIT_NOTE', 'DRAFT', 'TD04', 'FPR', '2026-08-11', 1,
+           'EUR', 345, 345, 0, 1, repeat('5', 64), 'PAID', 'MP05', $2)
+         RETURNING id::text`,
+          [invoiceDocument.billing_case_id, JSON.stringify(customerSnapshot)],
+        )
+      ).rows[0]!;
+      await client.query(
+        `INSERT INTO document_links (document_id, related_document_id, relation_type)
+         VALUES ($1, $2, 'CREDIT_NOTE_FOR_INVOICE')`,
+        [created.id, invoiceDocument.id],
+      );
+      await client.query(
+        `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+         VALUES ($1, 'CREDIT_NOTE', $2, 345)`,
+        [created.id, order.id],
+      );
+      await client.query(`UPDATE refunds SET credit_document_id = $1 WHERE order_id = $2`, [
+        created.id,
+        order.id,
+      ]);
+      return created;
+    });
+    const importedInvoice = acceptedInvoiceFromXml(xml, profile.numbering.approvedAt);
+    const creditXml = generateFatturaXml(
+      profile,
+      {
+        ...importedInvoice.input,
+        kind: "CREDIT_NOTE",
+        documentDate: "2026-08-11",
+        paymentMethod: "MP08",
+        lines: [
+          {
+            orderId: order.id,
+            description: "Rimborso beni usati - Ordine Shopify #1001",
+            quantity: 1,
+            unitAmount: 345,
+          },
+        ],
+        relatedInvoice: { number: "FPR 0001/26", date: "2026-08-10" },
+      },
+      { year: 2026, number: 2 },
+    );
+    const creditDigest = createHash("sha256").update(creditXml).digest("hex");
+    const creditRelativePath = "aruba/manual/accepted-credit-note-mp08.xml";
+    await writeFile(path.join(sharedStorageRoot, creditRelativePath), creditXml, { mode: 0o600 });
+    const creditStorage = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+         VALUES ('ARUBA_XML', $1, $2, $3, 'application/xml') RETURNING id::text`,
+        [creditRelativePath, creditDigest, Buffer.byteLength(creditXml)],
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       VALUES ($1, $2, 'ARUBA_XML')`,
+      [sharedCreditRemoteId, creditStorage.id],
+    );
+    const adoptedCreditDocumentId = await withTransaction(async (client) => {
+      const evidence = officialEvidence(
+        await latestObservedRemote(client, sharedCreditRemoteId!),
+        creditXml,
+      );
+      await reconcileRemoteDocument(client, sharedCreditRemoteId!, evidence, true);
+      return materializeLatestOfficialXml(client, sharedCreditRemoteId!, true);
+    });
+    assert.equal(adoptedCreditDocumentId, creditDraft.id);
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT matches.status AS match_status, matches.method,
+                  matches.document_id::text, documents.status AS document_status,
+                  documents.origin, documents.payment_method,
+                  documents.immutable_snapshot_json ->> 'paymentMethod' AS snapshot_payment_method
+           FROM aruba_document_matches matches
+           JOIN documents ON documents.id = matches.document_id
+           WHERE matches.remote_document_id = $1`,
+          [sharedCreditRemoteId],
+        )
+      ).rows[0],
+      {
+        match_status: "MATCHED",
+        method: "AUTOMATIC",
+        document_id: creditDraft.id,
+        document_status: "APPROVED",
+        origin: "ARUBA_HISTORY",
+        payment_method: "MP08",
+        snapshot_payment_method: "MP08",
       },
     );
   } finally {
