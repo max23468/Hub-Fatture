@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-export const ARUBA_MATCHER_VERSION = 6;
+export const ARUBA_MATCHER_VERSION = 7;
 
 export const arubaRemoteStatusSchema = z.enum([
   "SUBMITTED",
@@ -276,9 +276,11 @@ export function canManuallyLinkCandidate(
 }
 
 export function isArubaAmountMismatchCandidate(candidate: {
+  issuedInvoiceDocumentId?: string | null;
   signals: Partial<CandidateEvaluation["signals"]>;
 }): boolean {
   return Boolean(
+    !candidate.issuedInvoiceDocumentId &&
     candidate.signals.provider &&
     candidate.signals.nearDate &&
     candidate.signals.recipient &&

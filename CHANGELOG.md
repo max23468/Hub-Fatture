@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- I documenti Aruba con importo discordante non riaprono controlli verso ordini già fatturati e collegati a un altro documento approvato; il matcher conserva quegli ordini per riconciliare la loro fattura corretta, mentre le preparazioni ancora prive di documento restano bloccate quando destinatario e data indicano un possibile duplicato.
+
 ## 1.0.0
 
 - L’uso Production ordinario dispone di una corsia separata dal deploy e dalla release: resta disabilitato per default, richiede la release immutabile sul commit live esatto, verifica readiness e assenza di job outbound prima dell’attivazione, rilegge entrambi i container e ripristina automaticamente `false` se il cambio non è sano.

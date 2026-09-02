@@ -28,6 +28,7 @@ export interface LockedRemoteMatch {
     potential?: boolean;
     compatible?: boolean;
     reviewable?: boolean;
+    issuedInvoiceDocumentId?: string | null;
     signals?: {
       provider?: boolean;
       nearDate?: boolean;
