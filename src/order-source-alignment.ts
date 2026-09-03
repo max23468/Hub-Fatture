@@ -1,9 +1,114 @@
 import { isDeepStrictEqual } from "node:util";
 
+import { splitEbayCareOfRecipient } from "./ebay-recipient.ts";
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function ebayCareOfSource(snapshot: Record<string, unknown>) {
+  const source = record(snapshot.sourceSnapshot);
+  const instructions = Array.isArray(source?.fulfillmentStartInstructions)
+    ? source.fulfillmentStartInstructions
+    : [];
+  const instruction = record(instructions[0]);
+  const shippingStep = record(instruction?.shippingStep);
+  const shipTo = record(shippingStep?.shipTo);
+  const address = record(shipTo?.contactAddress);
+  return splitEbayCareOfRecipient(shipTo?.fullName, address?.addressLine2).careOf;
+}
+
+function customerWithoutCareOfProjection(value: unknown): unknown {
+  const customer = record(value);
+  if (!customer) return value;
+  const addressWithoutLine2 = (candidate: unknown) => {
+    const address = record(candidate);
+    if (!address) return candidate;
+    return Object.fromEntries(Object.entries(address).filter(([key]) => key !== "line2"));
+  };
+  return normalizeJsonValue({
+    ...Object.fromEntries(
+      Object.entries(customer).filter(
+        ([key]) => !["displayName", "firstName", "lastName", "canonicalProfile"].includes(key),
+      ),
+    ),
+    billingAddress: addressWithoutLine2(customer.billingAddress),
+    shippingAddress: addressWithoutLine2(customer.shippingAddress),
+  });
+}
+
+function customerLine2(value: unknown, addressKey: "billingAddress" | "shippingAddress") {
+  const customer = record(value);
+  const address = record(customer?.[addressKey]);
+  return address?.line2;
+}
+
+function samePresentationText(value: unknown, expected: string) {
+  return (
+    typeof value === "string" &&
+    value.normalize("NFKC").toLocaleLowerCase("it-IT").replace(/\s+/g, " ").trim() ===
+      expected.normalize("NFKC").toLocaleLowerCase("it-IT").replace(/\s+/g, " ").trim()
+  );
+}
+
+/**
+ * Riconosce esclusivamente la nuova interpretazione del medesimo destinatario eBay:
+ * la parte che segue `c/o` lascia il nome e diventa la seconda riga dell'indirizzo.
+ */
+export function isEbayCareOfAddressMapperOnlyChange(
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  if (previous.provider !== "EBAY" || current.provider !== "EBAY") return false;
+  if (!isDeepStrictEqual(previous.sourceSnapshot, current.sourceSnapshot)) return false;
+  const careOf = ebayCareOfSource(current);
+  if (!careOf) return false;
+  const previousCustomer = record(previous.customer);
+  const currentCustomer = record(current.customer);
+  const previousSnapshot = record(previous.customerSnapshot);
+  const currentSnapshot = record(current.customerSnapshot);
+  if (!previousCustomer || !currentCustomer || !previousSnapshot || !currentSnapshot) return false;
+
+  const companyName =
+    typeof currentCustomer.companyName === "string" && currentCustomer.companyName.trim()
+      ? currentCustomer.companyName
+      : undefined;
+  if (
+    previousCustomer.displayName !== (companyName ?? careOf.originalName) ||
+    currentCustomer.displayName !== (companyName ?? careOf.recipientName) ||
+    !samePresentationText(previousSnapshot.displayName, companyName ?? careOf.originalName) ||
+    !samePresentationText(currentSnapshot.displayName, companyName ?? careOf.recipientName)
+  ) {
+    return false;
+  }
+  for (const addressKey of ["billingAddress", "shippingAddress"] as const) {
+    if (
+      customerLine2(previousCustomer, addressKey) !== careOf.previousLine2 ||
+      customerLine2(currentCustomer, addressKey) !== careOf.currentLine2 ||
+      customerLine2(previousSnapshot, addressKey) !== careOf.previousLine2 ||
+      customerLine2(currentSnapshot, addressKey) !== careOf.currentLine2
+    ) {
+      return false;
+    }
+  }
+  if (
+    !isDeepStrictEqual(
+      customerWithoutCareOfProjection(previousCustomer),
+      customerWithoutCareOfProjection(currentCustomer),
+    ) ||
+    !isDeepStrictEqual(
+      customerWithoutCareOfProjection(previousSnapshot),
+      customerWithoutCareOfProjection(currentSnapshot),
+    )
+  ) {
+    return false;
+  }
+  return isDeepStrictEqual(
+    withoutProviderAndMapperEvidence(previous),
+    withoutProviderAndMapperEvidence(current),
+  );
 }
 
 function canonicalEmail(snapshot: Record<string, unknown>): unknown {
@@ -114,6 +219,145 @@ function normalizeJsonValue(value: unknown): unknown {
     Object.entries(source).flatMap(([key, item]) =>
       item === undefined ? [] : [[key, normalizeJsonValue(item)]],
     ),
+  );
+}
+
+function sameInstant(left: unknown, right: unknown) {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+  return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime === rightTime;
+}
+
+function romeCalendarDate(value: unknown) {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Rome",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
+function bankTransferMethod(value: unknown) {
+  return typeof value === "string" && /bonifico|bank\s*transfer/i.test(value);
+}
+
+function withoutPaymentTimestamps(snapshot: Record<string, unknown>) {
+  const payments = Array.isArray(snapshot.payments) ? snapshot.payments : [];
+  return normalizeJsonValue({
+    ...Object.fromEntries(
+      Object.entries(snapshot).filter(
+        ([key]) =>
+          ![
+            "payments",
+            "reviewFingerprint",
+            "sourceConflictRequired",
+            "sourceSnapshot",
+            "updatedAt",
+          ].includes(key),
+      ),
+    ),
+    payments: payments.map((value) => {
+      const payment = record(value);
+      return payment
+        ? Object.fromEntries(Object.entries(payment).filter(([key]) => key !== "paidAt"))
+        : value;
+    }),
+  });
+}
+
+function ebaySourceWithoutPaymentTimestamps(value: unknown) {
+  const source = record(value);
+  if (!source) return value;
+  const summary = record(source.paymentSummary);
+  const payments = Array.isArray(summary?.payments) ? summary.payments : [];
+  return normalizeJsonValue({
+    ...Object.fromEntries(Object.entries(source).filter(([key]) => key !== "lastModifiedDate")),
+    ...(summary
+      ? {
+          paymentSummary: {
+            ...summary,
+            payments: payments.map((value) => {
+              const payment = record(value);
+              return payment
+                ? Object.fromEntries(
+                    Object.entries(payment).filter(([key]) => key !== "paymentDate"),
+                  )
+                : value;
+            }),
+          },
+        }
+      : {}),
+  });
+}
+
+/**
+ * eBay può rettificare `paymentDate` lasciando invariato il pagamento.
+ * La variazione non è fiscale soltanto se resta nello stesso giorno di Roma, non riguarda
+ * un bonifico e ogni altro dato normalizzato e grezzo coincide esattamente.
+ */
+export function isEbayPaymentTimestampOnlyChange(
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  if (previous.provider !== "EBAY" || current.provider !== "EBAY") return false;
+  const previousPayments = Array.isArray(previous.payments) ? previous.payments : [];
+  const currentPayments = Array.isArray(current.payments) ? current.payments : [];
+  if (!previousPayments.length || previousPayments.length !== currentPayments.length) return false;
+
+  let timestampChanged = false;
+  for (let index = 0; index < previousPayments.length; index += 1) {
+    const before = record(previousPayments[index]);
+    const after = record(currentPayments[index]);
+    if (!before || !after || bankTransferMethod(after.method)) return false;
+    if (isDeepStrictEqual(before.paidAt, after.paidAt)) continue;
+    const beforeDate = romeCalendarDate(before.paidAt);
+    const afterDate = romeCalendarDate(after.paidAt);
+    if (!beforeDate || beforeDate !== afterDate) return false;
+    timestampChanged = true;
+  }
+  if (!timestampChanged) return false;
+
+  const previousSource = record(previous.sourceSnapshot);
+  const currentSource = record(current.sourceSnapshot);
+  const previousSourcePayments = Array.isArray(record(previousSource?.paymentSummary)?.payments)
+    ? (record(previousSource?.paymentSummary)!.payments as unknown[])
+    : [];
+  const currentSourcePayments = Array.isArray(record(currentSource?.paymentSummary)?.payments)
+    ? (record(currentSource?.paymentSummary)!.payments as unknown[])
+    : [];
+  if (
+    previousSourcePayments.length !== previousPayments.length ||
+    currentSourcePayments.length !== currentPayments.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < previousPayments.length; index += 1) {
+    const beforeSourcePayment = record(previousSourcePayments[index]);
+    const afterSourcePayment = record(currentSourcePayments[index]);
+    const beforePayment = record(previousPayments[index]);
+    const afterPayment = record(currentPayments[index]);
+    if (
+      !beforeSourcePayment ||
+      !afterSourcePayment ||
+      !beforePayment ||
+      !afterPayment ||
+      !sameInstant(beforeSourcePayment.paymentDate, beforePayment.paidAt) ||
+      !sameInstant(afterSourcePayment.paymentDate, afterPayment.paidAt)
+    ) {
+      return false;
+    }
+  }
+
+  return (
+    isDeepStrictEqual(withoutPaymentTimestamps(previous), withoutPaymentTimestamps(current)) &&
+    isDeepStrictEqual(
+      ebaySourceWithoutPaymentTimestamps(previous.sourceSnapshot),
+      ebaySourceWithoutPaymentTimestamps(current.sourceSnapshot),
+    ) &&
+    sameInstant(previous.updatedAt, previousSource?.lastModifiedDate) &&
+    sameInstant(current.updatedAt, currentSource?.lastModifiedDate)
   );
 }
 

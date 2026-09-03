@@ -53,11 +53,9 @@ import { applySourceConflict } from "./order-source-conflict.server.ts";
 import { currentOrderSettings } from "./order-import-settings.server.ts";
 import { auditOrderActor, type OrderActor as Actor } from "./order-actor.server.ts";
 import { recordAutomaticCustomerIdentityException } from "./customer-identity-exceptions.server.ts";
-import {
-  reconcileEbayEmailUpdate,
-  reconcileMapperCustomerCorrection,
-} from "./order-automatic-alignment.server.ts";
+import { reconcileMapperCustomerCorrection } from "./order-automatic-alignment.server.ts";
 import { prepareCustomerInput } from "./order-customer-input.server.ts";
+import { reconcileEbayCustomerAlignment } from "./order-ebay-customer-alignment.server.ts";
 import { reconcileProviderOrderAlignment } from "./order-provider-alignment.server.ts";
 import { canonicalOrderTimestamp } from "./order-timestamp.ts";
 
@@ -647,7 +645,7 @@ async function importOne(
       existingEmailAndMapperConflict ||
       existingBillingCaseEmailMismatch) &&
     oldOrder?.billing_case_id
-      ? await reconcileEbayEmailUpdate(client, {
+      ? await reconcileEbayCustomerAlignment(client, {
           caseId: oldOrder.billing_case_id,
           orderId,
           customerId,
@@ -666,6 +664,7 @@ async function importOne(
     oldOrder,
     fingerprint,
     orderId,
+    customerId,
     requestId: actor.requestId,
     normalizedSnapshot,
     fingerprintChanged,
@@ -694,6 +693,8 @@ async function importOne(
     mapperPaymentCorrectionCandidate ||
     emailOnlyAlignmentApplied ||
     providerAlignment.refundMapper ||
+    providerAlignment.careOfAddress ||
+    providerAlignment.paymentTimestamp ||
     providerAlignment.shopifyFulfillment;
   const sourceConflict =
     !staleIssuedMembership &&

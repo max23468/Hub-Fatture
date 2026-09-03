@@ -17,6 +17,8 @@ import {
   ARUBA_HISTORICAL_API_RECOVERY,
   OPERATIONAL_WORKFLOW_1_1,
   INVOICE_SOURCE_PREPARATIONS,
+  EBAY_CARE_OF_ADDRESS_REPLAY,
+  EBAY_PAYMENT_TIMESTAMP_REPLAY,
 } from "./support.ts";
 
 test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
@@ -46,6 +48,8 @@ test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
       ARUBA_HISTORICAL_API_RECOVERY,
       OPERATIONAL_WORKFLOW_1_1,
       INVOICE_SOURCE_PREPARATIONS,
+      EBAY_CARE_OF_ADDRESS_REPLAY,
+      EBAY_PAYMENT_TIMESTAMP_REPLAY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

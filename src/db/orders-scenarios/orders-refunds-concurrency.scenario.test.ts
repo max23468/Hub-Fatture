@@ -598,7 +598,7 @@ export async function run(context: OrdersTestContext) {
     ),
   );
   const history = await orders.listAuditHistory({ action: "CUSTOMER_CORRECTED" });
-  assert.equal(history.rows.length, 4);
+  assert.equal(history.rows.length, 5);
   assert.ok(history.rows.some((event) => event.reason === "Dati fiscali confermati dal cliente"));
   assert.ok(
     history.rows.some(
@@ -608,6 +608,13 @@ export async function run(context: OrdersTestContext) {
   assert.ok(
     history.rows.some(
       (event) => event.reason === "Rilettura dello stesso payload con il mapper eBay corretto",
+    ),
+  );
+  assert.ok(
+    history.rows.some(
+      (event) =>
+        event.reason ===
+        "Riferimento c/o eBay spostato automaticamente dal nome alla seconda riga dell’indirizzo",
     ),
   );
   assert.match(history.rows[0]!.case_number ?? "", /^\d{6}$/);

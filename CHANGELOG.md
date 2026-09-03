@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.2
+
+- I destinatari eBay che includono un riferimento `c/o` conservano nel nome soltanto l’intestatario e spostano il riferimento nella seconda riga dell’indirizzo, senza sovrascrivere un valore già presente; il replay riallinea automaticamente le preparazioni non corrette manualmente.
+- Le rettifiche eBay limitate al timestamp di un pagamento non generano più falsi conflitti quando identificativo, importo, metodo, stato e giorno italiano restano invariati; bonifici, cambi di giorno e qualsiasi altra differenza continuano a richiedere verifica.
+
 ## 1.2.1
 
 - Le fatture Aruba riconciliate conservano la preparazione originaria: archivio Documenti, ricerca globale e dettaglio della preparazione chiusa permettono di risalire in entrambe le direzioni fra ordine, documento fiscale e preparazioni.

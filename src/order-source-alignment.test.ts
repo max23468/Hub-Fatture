@@ -5,9 +5,69 @@ import {
   isEbayCustomerEmailOnlyMismatch,
   isEbayEmailAndMapperOnlyChange,
   isEbayEmailOnlyChange,
+  isEbayPaymentTimestampOnlyChange,
   isEbayRefundMapperOnlyChange,
   isShopifyFulfillmentOnlyChange,
 } from "./order-source-alignment.ts";
+
+function paymentTimestampSnapshot(paidAt: string, method = "EBAY") {
+  const lastModifiedDate = paidAt;
+  return {
+    provider: "EBAY",
+    updatedAt: lastModifiedDate,
+    totalAmount: 1_000,
+    paymentStatus: "PAID",
+    payments: [
+      {
+        externalPaymentId: "payment-1",
+        method,
+        status: "PAID",
+        amount: 1_000,
+        paidAt,
+      },
+    ],
+    sourceSnapshot: {
+      lastModifiedDate,
+      paymentSummary: {
+        payments: [
+          {
+            paymentReferenceId: "payment-1",
+            paymentMethod: method,
+            paymentStatus: "PAID",
+            amount: { value: "10.00", currency: "EUR" },
+            paymentDate: paidAt,
+          },
+        ],
+      },
+    },
+    reviewFingerprint: paidAt,
+    sourceConflictRequired: false,
+  };
+}
+
+test("ignora soltanto lo slittamento eBay del pagamento nello stesso giorno", () => {
+  const before = paymentTimestampSnapshot("2026-09-03T08:07:14Z");
+  const after = paymentTimestampSnapshot("2026-09-03T08:07:15Z");
+  assert.equal(isEbayPaymentTimestampOnlyChange(before, after), true);
+  assert.equal(
+    isEbayPaymentTimestampOnlyChange(before, paymentTimestampSnapshot("2026-09-03T22:07:15Z")),
+    false,
+  );
+  assert.equal(
+    isEbayPaymentTimestampOnlyChange(
+      paymentTimestampSnapshot("2026-09-03T08:07:14Z", "Bonifico bancario"),
+      paymentTimestampSnapshot("2026-09-03T08:07:15Z", "Bonifico bancario"),
+    ),
+    false,
+  );
+  assert.equal(
+    isEbayPaymentTimestampOnlyChange(before, {
+      ...after,
+      totalAmount: 1_001,
+    }),
+    false,
+  );
+});
 
 function snapshot(email: string, total = 1_000) {
   return {
