@@ -115,6 +115,7 @@ export async function writeAudit(
         | "EMAIL_ONLY"
         | "EMAIL_AND_MAPPER"
         | "CARE_OF_ADDRESS"
+        | "PAYMENT_TIMESTAMP_ONLY"
         | "FULFILLMENT_ONLY"
         | "REFUND_MAPPER";
       credentialOperation: "CONFIGURED" | "ROTATED" | "REVOKED";

@@ -13,3 +13,4 @@ import "./migrations-scenarios/aruba-error-retry.test.ts";
 import "./migrations-scenarios/shopify-private-recipient-replay.test.ts";
 import "./migrations-scenarios/aruba-identity-evidence-replay.test.ts";
 import "./migrations-scenarios/ebay-care-of-address-replay.test.ts";
+import "./migrations-scenarios/ebay-payment-timestamp-replay.test.ts";

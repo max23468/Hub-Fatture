@@ -222,6 +222,145 @@ function normalizeJsonValue(value: unknown): unknown {
   );
 }
 
+function sameInstant(left: unknown, right: unknown) {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+  return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime === rightTime;
+}
+
+function romeCalendarDate(value: unknown) {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Rome",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+}
+
+function bankTransferMethod(value: unknown) {
+  return typeof value === "string" && /bonifico|bank\s*transfer/i.test(value);
+}
+
+function withoutPaymentTimestamps(snapshot: Record<string, unknown>) {
+  const payments = Array.isArray(snapshot.payments) ? snapshot.payments : [];
+  return normalizeJsonValue({
+    ...Object.fromEntries(
+      Object.entries(snapshot).filter(
+        ([key]) =>
+          ![
+            "payments",
+            "reviewFingerprint",
+            "sourceConflictRequired",
+            "sourceSnapshot",
+            "updatedAt",
+          ].includes(key),
+      ),
+    ),
+    payments: payments.map((value) => {
+      const payment = record(value);
+      return payment
+        ? Object.fromEntries(Object.entries(payment).filter(([key]) => key !== "paidAt"))
+        : value;
+    }),
+  });
+}
+
+function ebaySourceWithoutPaymentTimestamps(value: unknown) {
+  const source = record(value);
+  if (!source) return value;
+  const summary = record(source.paymentSummary);
+  const payments = Array.isArray(summary?.payments) ? summary.payments : [];
+  return normalizeJsonValue({
+    ...Object.fromEntries(Object.entries(source).filter(([key]) => key !== "lastModifiedDate")),
+    ...(summary
+      ? {
+          paymentSummary: {
+            ...summary,
+            payments: payments.map((value) => {
+              const payment = record(value);
+              return payment
+                ? Object.fromEntries(
+                    Object.entries(payment).filter(([key]) => key !== "paymentDate"),
+                  )
+                : value;
+            }),
+          },
+        }
+      : {}),
+  });
+}
+
+/**
+ * eBay può rettificare `paymentDate` lasciando invariato il pagamento.
+ * La variazione non è fiscale soltanto se resta nello stesso giorno di Roma, non riguarda
+ * un bonifico e ogni altro dato normalizzato e grezzo coincide esattamente.
+ */
+export function isEbayPaymentTimestampOnlyChange(
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  if (previous.provider !== "EBAY" || current.provider !== "EBAY") return false;
+  const previousPayments = Array.isArray(previous.payments) ? previous.payments : [];
+  const currentPayments = Array.isArray(current.payments) ? current.payments : [];
+  if (!previousPayments.length || previousPayments.length !== currentPayments.length) return false;
+
+  let timestampChanged = false;
+  for (let index = 0; index < previousPayments.length; index += 1) {
+    const before = record(previousPayments[index]);
+    const after = record(currentPayments[index]);
+    if (!before || !after || bankTransferMethod(after.method)) return false;
+    if (isDeepStrictEqual(before.paidAt, after.paidAt)) continue;
+    const beforeDate = romeCalendarDate(before.paidAt);
+    const afterDate = romeCalendarDate(after.paidAt);
+    if (!beforeDate || beforeDate !== afterDate) return false;
+    timestampChanged = true;
+  }
+  if (!timestampChanged) return false;
+
+  const previousSource = record(previous.sourceSnapshot);
+  const currentSource = record(current.sourceSnapshot);
+  const previousSourcePayments = Array.isArray(record(previousSource?.paymentSummary)?.payments)
+    ? (record(previousSource?.paymentSummary)!.payments as unknown[])
+    : [];
+  const currentSourcePayments = Array.isArray(record(currentSource?.paymentSummary)?.payments)
+    ? (record(currentSource?.paymentSummary)!.payments as unknown[])
+    : [];
+  if (
+    previousSourcePayments.length !== previousPayments.length ||
+    currentSourcePayments.length !== currentPayments.length
+  ) {
+    return false;
+  }
+  for (let index = 0; index < previousPayments.length; index += 1) {
+    const beforeSourcePayment = record(previousSourcePayments[index]);
+    const afterSourcePayment = record(currentSourcePayments[index]);
+    const beforePayment = record(previousPayments[index]);
+    const afterPayment = record(currentPayments[index]);
+    if (
+      !beforeSourcePayment ||
+      !afterSourcePayment ||
+      !beforePayment ||
+      !afterPayment ||
+      !sameInstant(beforeSourcePayment.paymentDate, beforePayment.paidAt) ||
+      !sameInstant(afterSourcePayment.paymentDate, afterPayment.paidAt)
+    ) {
+      return false;
+    }
+  }
+
+  return (
+    isDeepStrictEqual(withoutPaymentTimestamps(previous), withoutPaymentTimestamps(current)) &&
+    isDeepStrictEqual(
+      ebaySourceWithoutPaymentTimestamps(previous.sourceSnapshot),
+      ebaySourceWithoutPaymentTimestamps(current.sourceSnapshot),
+    ) &&
+    sameInstant(previous.updatedAt, previousSource?.lastModifiedDate) &&
+    sameInstant(current.updatedAt, currentSource?.lastModifiedDate)
+  );
+}
+
 function withoutEbayRefundMapperEvidence(snapshot: Record<string, unknown>): unknown {
   const ignored = new Set(["orderReviewRequired", "reviewFingerprint", "sourceConflictRequired"]);
   return normalizeJsonValue(

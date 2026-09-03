@@ -694,6 +694,7 @@ async function importOne(
     emailOnlyAlignmentApplied ||
     providerAlignment.refundMapper ||
     providerAlignment.careOfAddress ||
+    providerAlignment.paymentTimestamp ||
     providerAlignment.shopifyFulfillment;
   const sourceConflict =
     !staleIssuedMembership &&

@@ -17,6 +17,7 @@ import {
   OPERATIONAL_WORKFLOW_1_1,
   INVOICE_SOURCE_PREPARATIONS,
   EBAY_CARE_OF_ADDRESS_REPLAY,
+  EBAY_PAYMENT_TIMESTAMP_REPLAY,
 } from "./support.ts";
 
 test("l'upgrade riprende un retry Aruba con credenziali valide in stato di errore", async () => {
@@ -49,6 +50,7 @@ test("l'upgrade riprende un retry Aruba con credenziali valide in stato di error
       OPERATIONAL_WORKFLOW_1_1,
       INVOICE_SOURCE_PREPARATIONS,
       EBAY_CARE_OF_ADDRESS_REPLAY,
+      EBAY_PAYMENT_TIMESTAMP_REPLAY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

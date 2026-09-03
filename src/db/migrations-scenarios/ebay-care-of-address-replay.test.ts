@@ -2,6 +2,7 @@ import {
   assert,
   cp,
   EBAY_CARE_OF_ADDRESS_REPLAY,
+  EBAY_PAYMENT_TIMESTAMP_REPLAY,
   mkdtemp,
   os,
   path,
@@ -64,6 +65,7 @@ test("l'upgrade rilegge soltanto i c/o eBay non corretti manualmente", async () 
 
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       EBAY_CARE_OF_ADDRESS_REPLAY,
+      EBAY_PAYMENT_TIMESTAMP_REPLAY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

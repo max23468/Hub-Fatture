@@ -76,6 +76,7 @@ const ARUBA_HISTORICAL_API_RECOVERY = "063_aruba_historical_api_recovery.sql";
 const OPERATIONAL_WORKFLOW_1_1 = "064_operational_workflow_1_1.sql";
 const INVOICE_SOURCE_PREPARATIONS = "065_invoice_source_preparations.sql";
 const EBAY_CARE_OF_ADDRESS_REPLAY = "066_ebay_care_of_address_replay.sql";
+const EBAY_PAYMENT_TIMESTAMP_REPLAY = "067_ebay_payment_timestamp_replay.sql";
 const CURRENT_MIGRATIONS = sortedMigrationFileNames(readdirSync("migrations"));
 const outboundIndex = CURRENT_MIGRATIONS.indexOf(ARUBA_API_OUTBOUND);
 assert.notEqual(outboundIndex, -1, `${ARUBA_API_OUTBOUND} assente dal catalogo migrazioni`);
@@ -187,6 +188,7 @@ export {
   OPERATIONAL_WORKFLOW_1_1,
   INVOICE_SOURCE_PREPARATIONS,
   EBAY_CARE_OF_ADDRESS_REPLAY,
+  EBAY_PAYMENT_TIMESTAMP_REPLAY,
   CURRENT_MIGRATIONS,
   outboundIndex,
   MIGRATIONS_AFTER_ARUBA_API_OUTBOUND,

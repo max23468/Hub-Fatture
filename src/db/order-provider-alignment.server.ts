@@ -2,6 +2,7 @@ import type pg from "pg";
 
 import { isEbayCareOfAddressMapperOnlyChange } from "../order-source-alignment.ts";
 import { reconcileEbayCustomerAlignment } from "./order-ebay-customer-alignment.server.ts";
+import { reconcileEbayPaymentTimestampChange } from "./order-ebay-payment-alignment.server.ts";
 import { reconcileExistingEbayRefundMapperConflict } from "./order-ebay-refund-alignment.server.ts";
 import { reconcileShopifyFulfillmentChange } from "./order-shopify-fulfillment-alignment.server.ts";
 
@@ -53,6 +54,7 @@ export async function reconcileProviderOrderAlignment(
     return {
       refundMapper: await reconcileExistingEbayRefundMapperConflict(client, input),
       careOfAddress,
+      paymentTimestamp: await reconcileEbayPaymentTimestampChange(client, input),
       shopifyFulfillment: false,
     };
   }
@@ -60,8 +62,14 @@ export async function reconcileProviderOrderAlignment(
     return {
       refundMapper: false,
       careOfAddress: false,
+      paymentTimestamp: false,
       shopifyFulfillment: await reconcileShopifyFulfillmentChange(client, input),
     };
   }
-  return { refundMapper: false, careOfAddress: false, shopifyFulfillment: false };
+  return {
+    refundMapper: false,
+    careOfAddress: false,
+    paymentTimestamp: false,
+    shopifyFulfillment: false,
+  };
 }
