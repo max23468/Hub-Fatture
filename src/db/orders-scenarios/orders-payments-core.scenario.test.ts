@@ -6,7 +6,7 @@ import type { OrdersTestContext } from "./orders-test-support.test.ts";
 
 export async function runPaymentsCoreScenario(context: OrdersTestContext) {
   const { orders, database, caseRevision, fixture } = context;
-  const pendingPaymentsBefore = Number((await orders.dashboardSummary()).pending_cases);
+  const pendingPaymentsBefore = Number((await orders.dashboardSummary()).pending_payments);
   const pendingPayment = structuredClone(fixture[0]);
   pendingPayment.externalOrderId = "shop-order-pending-payment";
   pendingPayment.externalCustomerId = "shop-customer-pending-payment";
@@ -36,7 +36,7 @@ export async function runPaymentsCoreScenario(context: OrdersTestContext) {
   ).rows[0];
   assert.equal(settledPaymentCase.status, "READY");
   const invoiceDocuments = await import("../documents.server.ts");
-  assert.equal(Number((await orders.dashboardSummary()).pending_cases), pendingPaymentsBefore);
+  assert.equal(Number((await orders.dashboardSummary()).pending_payments), pendingPaymentsBefore);
   assert.ok(
     !(await orders.listOrders({ status: "ACTIVE", paymentStatus: "PENDING" })).rows.some(
       (order) => order.display_number === pendingPayment.displayNumber,

@@ -1,17 +1,95 @@
 import {
   assert,
+  cp,
   copyMigrationSnapshot,
+  EBAY_PARTIAL_REFUND_PAYMENT_STATUS,
   EBAY_SHIPPING_REFUND_REPLAY,
   EBAY_REFUND_MAPPER_CONFLICT_REPLAY,
+  migrationsFrom,
   mkdtemp,
   os,
   path,
+  removeMigrationsFrom,
   rm,
   runMigrations,
   temporaryDatabase,
   test,
   withClient,
 } from "./support.ts";
+
+test("l'upgrade non confonde il rimborso parziale eBay con un pagamento pendente", async () => {
+  const database = await temporaryDatabase("ebay_partial_refund_payment_status");
+  const beforeFix = await mkdtemp(
+    path.join(os.tmpdir(), "hub-fatture-before-ebay-partial-refund-"),
+  );
+  try {
+    await cp("migrations", beforeFix, { recursive: true });
+    await removeMigrationsFrom(beforeFix, EBAY_PARTIAL_REFUND_PAYMENT_STATUS);
+    await runMigrations({ connectionString: database.connectionString, directory: beforeFix });
+    await withClient(database.connectionString, async (client) => {
+      const customerId = (
+        await client.query(
+          `INSERT INTO customers
+             (kind, match_key, display_name, billing_address_json, source_confidence,
+              review_required)
+           VALUES ('EU', 'ebay-partial-refund', 'Cliente', '{}', 'EXACT_PROFILE', false)
+           RETURNING id`,
+        )
+      ).rows[0].id;
+      await client.query(
+        `INSERT INTO orders
+           (provider, external_account_id, external_order_id, display_number,
+            created_at_source, updated_at_source, local_order_date, currency, gross_amount,
+            payment_status, fulfillment_status, trigger_status, customer_id,
+            raw_snapshot_json, normalized_snapshot_json)
+         VALUES
+           ('EBAY', 'seller', 'partial-refund', '62187', now(), now(), current_date,
+            'EUR', 3698, 'PENDING', 'FULFILLED', 'INVOICED', $1,
+            '{"paymentStatus":"PENDING","sourceSnapshot":{"orderPaymentStatus":"PARTIALLY_REFUNDED"}}',
+            '{"paymentStatus":"PENDING"}'),
+           ('EBAY', 'seller', 'pending', '62188', now(), now(), current_date,
+            'EUR', 3698, 'PENDING', 'UNFULFILLED', 'WAITING_FOR_TRIGGER', $1,
+            '{"paymentStatus":"PENDING","sourceSnapshot":{"orderPaymentStatus":"PENDING"}}',
+            '{"paymentStatus":"PENDING"}')`,
+        [customerId],
+      );
+    });
+
+    assert.deepEqual(
+      await runMigrations({ connectionString: database.connectionString }),
+      migrationsFrom(EBAY_PARTIAL_REFUND_PAYMENT_STATUS),
+    );
+    await withClient(database.connectionString, async (client) => {
+      assert.deepEqual(
+        (
+          await client.query(
+            `SELECT external_order_id, payment_status,
+                    raw_snapshot_json ->> 'paymentStatus' AS raw_payment_status,
+                    normalized_snapshot_json ->> 'paymentStatus' AS normalized_payment_status
+             FROM orders ORDER BY external_order_id`,
+          )
+        ).rows,
+        [
+          {
+            external_order_id: "partial-refund",
+            payment_status: "PAID",
+            raw_payment_status: "PAID",
+            normalized_payment_status: "PAID",
+          },
+          {
+            external_order_id: "pending",
+            payment_status: "PENDING",
+            raw_payment_status: "PENDING",
+            normalized_payment_status: "PENDING",
+          },
+        ],
+      );
+    });
+  } finally {
+    await rm(beforeFix, { recursive: true, force: true });
+    await database.drop();
+  }
+});
 
 test("l'upgrade rilegge i rimborsi eBay ancora senza importo cliente", async () => {
   const database = await temporaryDatabase("ebay_shipping_refund_replay");

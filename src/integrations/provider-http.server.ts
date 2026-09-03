@@ -3,11 +3,11 @@ import { AppError } from "../errors.ts";
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 8_000;
 
-export async function providerJson(
+export async function providerText(
   url: string,
   init: RequestInit = {},
   { maxBytes = DEFAULT_MAX_BYTES, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
-): Promise<Record<string, unknown>> {
+): Promise<string> {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -46,11 +46,20 @@ export async function providerJson(
     if (error instanceof AppError) throw error;
     throw new AppError("PROVIDER_UNAVAILABLE", 503);
   }
+  return Buffer.concat(chunks, size).toString("utf8");
+}
+
+export async function providerJson(
+  url: string,
+  init: RequestInit = {},
+  limits: { maxBytes?: number; timeoutMs?: number } = {},
+): Promise<Record<string, unknown>> {
   try {
-    const parsed: unknown = JSON.parse(Buffer.concat(chunks, size).toString("utf8"));
+    const parsed: unknown = JSON.parse(await providerText(url, init, limits));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
     return parsed as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    if (error instanceof AppError) throw error;
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
 }

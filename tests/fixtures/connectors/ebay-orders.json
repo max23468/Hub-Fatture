@@ -21,6 +21,7 @@
     "lineItems": [
       {
         "lineItemId": "line-1",
+        "legacyItemId": "item-1",
         "title": "Oggetto eBay sintetico",
         "quantity": 1,
         "lineItemCost": { "value": "100.00", "currency": "EUR" },
@@ -81,6 +82,7 @@
     "lineItems": [
       {
         "lineItemId": "line-2",
+        "legacyItemId": "item-2",
         "title": "Oggetto eBay aziendale",
         "quantity": 1,
         "lineItemCost": { "value": "200.00", "currency": "EUR" },

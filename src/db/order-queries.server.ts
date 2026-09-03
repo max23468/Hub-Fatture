@@ -17,6 +17,7 @@ import {
   openBillingCaseSql,
   pendingPaymentSql,
   standardInvoiceApprovalCandidateSql,
+  unpreparedPendingPaymentSql,
 } from "./billing-case-sql.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 
@@ -153,6 +154,7 @@ export async function listOrders(filters: {
   localDate?: string;
   paymentStatus?: string;
   excludePendingPayments?: boolean;
+  unpreparedPendingPayments?: boolean;
   page?: unknown;
   sort?: { key: OrderListSortKey; direction: SortDirection };
 }) {
@@ -167,12 +169,13 @@ export async function listOrders(filters: {
     filters.paymentStatus || null,
     pageOffset(filters.page),
     Boolean(filters.excludePendingPayments),
+    Boolean(filters.unpreparedPendingPayments),
   ];
   const sort = filters.sort ?? { key: "data", direction: "desc" };
   const orderBy = orderListSortSql[sort.key];
   const direction = sqlDirection(sort.direction);
   // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
-  // i valori della richiesta restano nei parametri $1-$6.
+  // i valori della richiesta restano nei parametri $1-$8.
   // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await getPool().query<{
     id: string;
@@ -224,6 +227,7 @@ export async function listOrders(filters: {
             OR ($5 = 'PENDING' AND ${pendingPaymentSql()})
             OR ($5 <> 'PENDING' AND orders.payment_status = $5))
        AND (NOT $7::boolean OR NOT ${pendingPaymentSql()})
+       AND (NOT $8::boolean OR ${unpreparedPendingPaymentSql()})
      ORDER BY ${orderBy} ${direction} NULLS LAST,
               orders.local_order_date DESC, orders.id DESC
      LIMIT ${PAGE_SIZE + 1} OFFSET $6`,
@@ -315,7 +319,7 @@ export async function dashboardSummary() {
       ready_cases: string;
       review_cases: string;
       waiting_orders: string;
-      pending_cases: string;
+      pending_payments: string;
       credit_notes_to_approve: string;
       failed_uploads: string;
       rejected_by_sdi: string;
@@ -369,9 +373,11 @@ export async function dashboardSummary() {
                  AND documents.origin = 'ARUBA_HISTORY'
              )))))::text AS review_cases,
        (SELECT count(*) FROM orders WHERE trigger_status = 'WAITING_FOR_TRIGGER')::text AS waiting_orders,
-       (SELECT count(*) FROM billing_cases
-        WHERE ${openBillingCaseSql()}
-          AND ${billingCasePendingPaymentSql()})::text AS pending_cases,
+       ((SELECT count(*) FROM billing_cases
+         WHERE ${openBillingCaseSql()}
+           AND ${billingCasePendingPaymentSql()}) +
+        (SELECT count(*) FROM orders
+         WHERE ${unpreparedPendingPaymentSql()}))::text AS pending_payments,
        (SELECT count(*) FROM documents
         WHERE kind = 'CREDIT_NOTE' AND status = 'DRAFT')::text AS credit_notes_to_approve,
        (SELECT count(*) FROM aruba_batches

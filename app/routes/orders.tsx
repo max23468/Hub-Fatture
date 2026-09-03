@@ -69,7 +69,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const parsedDate = postgresDateSchema.safeParse(requestedDate);
   const statusByView: Record<string, string | undefined> = {
     tutti: Object.hasOwn(orderStatusLabels, requestedStatus) ? requestedStatus : undefined,
-    attesa: "WAITING_FOR_TRIGGER",
     annullati: "NO_DOCUMENT",
   };
   const filters = {
@@ -95,18 +94,19 @@ export async function loader({ request }: Route.LoaderArgs) {
     { key: "data", direction: "desc" },
   );
   const emptyPage = { rows: [], hasNext: false };
-  const showsOpenPreparations = Object.hasOwn(preparationPoolByView, view);
-  const ordersPromise = showsOpenPreparations
-    ? Promise.resolve(emptyPage)
-    : listOrders({
-        query: filters.query || undefined,
-        provider: filters.provider || undefined,
-        status: filters.status || (view === "tutti" && !filters.query ? "ACTIVE" : undefined),
-        localDate: filters.localDate || undefined,
-        paymentStatus: filters.paymentStatus || undefined,
-        page,
-        sort: orderSort,
-      });
+  const ordersPromise =
+    view === "fatturare"
+      ? Promise.resolve(emptyPage)
+      : listOrders({
+          query: filters.query || undefined,
+          provider: filters.provider || undefined,
+          status: filters.status || (view === "tutti" && !filters.query ? "ACTIVE" : undefined),
+          localDate: filters.localDate || undefined,
+          paymentStatus: filters.paymentStatus || undefined,
+          unpreparedPendingPayments: view === "attesa",
+          page,
+          sort: orderSort,
+        });
   const arubaInventoryPromise =
     view === "fatturare" ? getArubaInventoryHealth() : Promise.resolve(null);
   const arubaInventory = await arubaInventoryPromise;
@@ -643,9 +643,13 @@ function OrderList({
         </span>
         <span>
           <h2 id="orders-list-title">
-            {view === "annullati" ? copy.orders.cancelledOrders : copy.orders.orderListTitle}
+            {view === "annullati"
+              ? copy.orders.cancelledOrders
+              : view === "attesa"
+                ? copy.orders.pendingOrderListTitle
+                : copy.orders.orderListTitle}
           </h2>
-          <p>{copy.orders.orderListHelp}</p>
+          {view !== "attesa" ? <p>{copy.orders.orderListHelp}</p> : null}
         </span>
         <strong className="orders-panel__count">{copy.orders.pageItems(orders.rows.length)}</strong>
       </header>
@@ -751,7 +755,10 @@ function OrderList({
                       className={`orders-status orders-status--${orderStatusTone(order.trigger_status)}`}
                       title={orderStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}
                     >
-                      {orderListStatusLabels[order.trigger_status] ?? copy.common.unknownStatus}
+                      {view === "attesa"
+                        ? copy.orders.preparationPoolLabels.PENDING_PAYMENT
+                        : (orderListStatusLabels[order.trigger_status] ??
+                          copy.common.unknownStatus)}
                     </span>
                   </td>
                   <td data-label={copy.orders.preparation}>
@@ -880,7 +887,7 @@ function OrdersResults({ data }: { data: OrdersPageData }) {
         <MassApprovalSection csrfToken={csrfToken} />
       ) : null}
 
-      {!showsPreparationArchive ? (
+      {!showsPreparationArchive || (view === "attesa" && orders.rows.length) ? (
         <OrderList
           csrfToken={csrfToken}
           filters={filters}

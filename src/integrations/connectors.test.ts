@@ -6,11 +6,20 @@ import { AppError } from "../errors.ts";
 import { decimalToCents, orderReviewRequired } from "../orders.ts";
 import {
   EBAY_SCOPE,
+  EBAY_TRADING_API_COMPATIBILITY_LEVEL,
   ebayAccountReference,
   ebayFulfillmentHeaders,
   ebayListingMarketplaceId,
   ebayNextUrl,
+  ebayTradingModificationWindows,
+  ebayTradingOrderIsImportable,
+  ebayTradingOrderIsActive,
+  ebayTradingPendingLineId,
+  ebayTradingHeaders,
   mapEbayOrder,
+  mapEbayTradingOrder,
+  mergeEbayOrderObservations,
+  parseEbayTradingResponse,
   parseEbaySyncContinuation,
 } from "./ebay.server.ts";
 import {
@@ -22,6 +31,26 @@ import {
   shopifyGraphqlError,
   shopifyUpdatedAtQuery,
 } from "./shopify.server.ts";
+
+const tradingActiveOrderXml = `<?xml version="1.0" encoding="utf-8"?>
+<GetOrdersResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Ack>Success</Ack>
+  <HasMoreOrders>false</HasMoreOrders>
+  <OrderArray><Order>
+    <OrderID>temporary-order-id</OrderID>
+    <OrderStatus>Active</OrderStatus>
+    <CreatedTime>2026-09-03T08:00:00.000Z</CreatedTime>
+    <CheckoutStatus><Status>Incomplete</Status><eBayPaymentStatus>PaymentInProcess</eBayPaymentStatus><LastModifiedTime>2026-09-03T08:01:00.000Z</LastModifiedTime></CheckoutStatus>
+    <BuyerUserID>buyer-test</BuyerUserID>
+    <Total currencyID="EUR">31.00</Total>
+    <ShippingServiceSelected><ShippingServiceCost currencyID="EUR">5.00</ShippingServiceCost></ShippingServiceSelected>
+    <ShippingAddress><Name>Mario Rossi</Name><Street1>Via Test 1</Street1><CityName>Roma</CityName><StateOrProvince>RM</StateOrProvince><PostalCode>00100</PostalCode><Country>IT</Country></ShippingAddress>
+    <TransactionArray>
+      <Transaction><OrderLineItemID>item-1-transaction-1</OrderLineItemID><CreatedDate>2026-09-03T08:00:00.000Z</CreatedDate><QuantityPurchased>2</QuantityPurchased><TransactionPrice currencyID="EUR">10.00</TransactionPrice><Item><Title>Moneta uno</Title></Item></Transaction>
+      <Transaction><OrderLineItemID>item-2-transaction-2</OrderLineItemID><CreatedDate>2026-09-03T08:00:00.000Z</CreatedDate><QuantityPurchased>1</QuantityPurchased><TransactionPrice currencyID="EUR">6.00</TransactionPrice><Item><Title>Moneta due</Title></Item></Transaction>
+    </TransactionArray>
+  </Order></OrderArray>
+</GetOrdersResponse>`;
 
 async function fixture(name: string) {
   return JSON.parse(
@@ -86,6 +115,26 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
   assert.equal(
     orderReviewRequired(businessMapped, true, decimalToCents(businessMapped.total)),
     false,
+  );
+  assert.equal(ebayTradingOrderIsImportable({ OrderStatus: "Cancelled" }), true);
+  assert.equal(ebayTradingOrderIsImportable({ OrderStatus: "Completed" }), false);
+});
+
+test("eBay Trading non ignora una transazione pendente priva di identità stabile", () => {
+  const pendingStatus = {
+    Status: {
+      CheckoutStatus: "CheckoutIncomplete",
+      CompleteStatus: "Incomplete",
+      eBayPaymentStatus: "PaymentInProcess",
+    },
+  };
+  assert.equal(
+    ebayTradingPendingLineId({ ...pendingStatus, OrderLineItemID: "item-1-transaction-1" }),
+    "item-1-transaction-1",
+  );
+  assert.throws(
+    () => ebayTradingPendingLineId(pendingStatus),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
   );
 });
 
@@ -332,6 +381,7 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(privateMapped.customer.lastName, undefined);
   assert.equal(privateMapped.customer.shippingAddress.line1, "Via eBay 1");
   assert.deepEqual(privateMapped.sourceSnapshot, privateOrder);
+  assert.deepEqual(privateMapped.sourceIdentityIds, ["item-1-line-1"]);
   assert.equal(
     privateMapped.customer.taxIdentifiers[0]?.sourceField,
     "buyer.taxIdentifier.CODICE_FISCALE",
@@ -341,6 +391,12 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(refundedMapped.refunds[1]?.externalRefundId, "refund-reference-3");
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
+
+  const partiallyRefunded = structuredClone(privateOrder) as {
+    orderPaymentStatus: string;
+  };
+  partiallyRefunded.orderPaymentStatus = "PARTIALLY_REFUNDED";
+  assert.equal(mapEbayOrder(partiallyRefunded, "botCF").paymentStatus, "PAID");
 
   const twoPartName = structuredClone(privateOrder) as {
     fulfillmentStartInstructions: Array<{
@@ -403,6 +459,7 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   discountedDelivery.lineItems = [
     {
       lineItemId: "line-discounted-delivery",
+      legacyItemId: "item-discounted-delivery",
       title: "Articoli con spedizione scontata",
       quantity: 1,
       lineItemCost: { value: "85.48", currency: "EUR" },
@@ -448,6 +505,7 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   shippingRefund.lineItems = [
     {
       lineItemId: "line-shipping-refund-1",
+      legacyItemId: "item-shipping-refund-1",
       title: "Primo articolo",
       quantity: 1,
       lineItemCost: { value: "12.99", currency: "EUR" },
@@ -461,6 +519,7 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
     },
     {
       lineItemId: "line-shipping-refund-2",
+      legacyItemId: "item-shipping-refund-2",
       title: "Secondo articolo",
       quantity: 1,
       lineItemCost: { value: "14.99", currency: "EUR" },
@@ -574,6 +633,100 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(parseEbaySyncContinuation("2026-08-10T12:34:56.000Z"), null);
   assert.throws(
     () => ebayNextUrl("sandbox", "https://attacker.example.invalid/steal"),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+});
+
+test("eBay Trading importa l’acquisto attivo con identità di riga stabile", () => {
+  for (const scope of EBAY_SCOPE.split(" ")) {
+    assert.notEqual(new URL(scope).pathname, "/oauth/api_scope");
+  }
+  assert.equal(EBAY_TRADING_API_COMPATIBILITY_LEVEL, "1475");
+  assert.deepEqual(ebayTradingHeaders("GetOrders", "token-test"), {
+    "Content-Type": "text/xml; charset=utf-8",
+    "X-EBAY-API-CALL-NAME": "GetOrders",
+    "X-EBAY-API-COMPATIBILITY-LEVEL": "1475",
+    "X-EBAY-API-SITEID": "101",
+    "X-EBAY-API-IAF-TOKEN": "token-test",
+  });
+  const response = parseEbayTradingResponse("GetOrders", tradingActiveOrderXml);
+  const mapped = mapEbayTradingOrder((response.OrderArray as { Order: unknown }).Order, "botCF");
+  assert.equal(mapped.externalOrderId, "temporary-order-id");
+  assert.equal(mapped.paymentStatus, "PENDING");
+  assert.equal(mapped.sourceReviewRequired, true);
+  assert.deepEqual(
+    mapped.lines.map((line) => [line.externalLineId, line.grossAmount]),
+    [
+      ["item-1-transaction-1", "20.00"],
+      ["item-2-transaction-2", "6.00"],
+    ],
+  );
+  assert.equal(mapped.shippingAmount, "5.00");
+  assert.equal(mapped.customer.shippingAddress.city, "Roma");
+  assert.equal(mapped.sourceSnapshot.sourceApi, "EBAY_TRADING");
+  assert.equal(ebayTradingOrderIsActive({ OrderStatus: "Active" }), true);
+  assert.equal(
+    ebayTradingOrderIsActive({
+      OrderStatus: "Cancelled",
+      CheckoutStatus: { Status: "Incomplete", eBayPaymentStatus: "NoPaymentFailure" },
+    }),
+    false,
+  );
+  const cancelledOrder = structuredClone(
+    (response.OrderArray as { Order: Record<string, unknown> }).Order,
+  );
+  cancelledOrder.OrderStatus = "Cancelled";
+  const cancelledMapped = mapEbayTradingOrder(cancelledOrder, "botCF");
+  assert.equal(cancelledMapped.cancelledAt, cancelledMapped.updatedAt);
+  assert.equal(cancelledMapped.sourceReviewRequired, false);
+  assert.throws(
+    () =>
+      parseEbayTradingResponse(
+        "GetOrders",
+        '<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><GetOrdersResponse><Ack>Success</Ack></GetOrdersResponse>',
+      ),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+});
+
+test("eBay Trading suddivide le riletture modificate nel limite di trenta giorni", () => {
+  assert.deepEqual(
+    ebayTradingModificationWindows("2026-06-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z"),
+    [
+      { start: "2026-06-01T00:00:00.000Z", end: "2026-07-01T00:00:00.000Z" },
+      { start: "2026-07-01T00:00:00.000Z", end: "2026-07-31T00:00:00.000Z" },
+      { start: "2026-07-31T00:00:00.000Z", end: "2026-08-01T00:00:00.000Z" },
+    ],
+  );
+  assert.throws(
+    () => ebayTradingModificationWindows("2026-08-02T00:00:00.000Z", "2026-08-01T00:00:00.000Z"),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+});
+
+test("eBay sopprime l’osservazione Trading usando l’identità stabile completa", async () => {
+  const response = parseEbayTradingResponse("GetOrders", tradingActiveOrderXml);
+  const provisional = mapEbayTradingOrder(
+    (response.OrderArray as { Order: unknown }).Order,
+    "botCF",
+  );
+  const [payload] = await fixture("ebay-orders.json");
+  const canonical = mapEbayOrder(payload, "botCF");
+  canonical.sourceIdentityIds = [...provisional.sourceIdentityIds];
+  canonical.lines = provisional.lines.map((_, index) => ({
+    ...canonical.lines[0]!,
+    externalLineId: `fulfillment-line-${index + 1}`,
+  }));
+
+  assert.deepEqual(mergeEbayOrderObservations([provisional], [canonical]), {
+    orders: [canonical],
+    provisionalOrders: [],
+  });
+
+  const partial = structuredClone(canonical);
+  partial.sourceIdentityIds[1] = "item-unrelated-transaction-unrelated";
+  assert.throws(
+    () => mergeEbayOrderObservations([provisional], [partial]),
     (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
   );
 });

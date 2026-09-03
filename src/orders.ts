@@ -162,6 +162,7 @@ export const orderInputSchema = z
     fulfillmentStatus: z.enum(["UNFULFILLED", "PARTIAL", "FULFILLED"]),
     cancelledAt: postgresTimestampSchema.nullable().default(null),
     sourceReviewRequired: z.boolean().default(false),
+    sourceIdentityIds: z.array(z.string().trim().min(1)).default([]),
     localizedFields: z.array(localizedFieldSchema).default([]),
     sourceSnapshot: z.record(z.string(), z.unknown()).default({}),
     customer: customerSchema,
@@ -203,6 +204,7 @@ export const orderInputSchema = z
       context.addIssue({ code: "custom", message: "I testi non possono contenere byte NUL" });
     }
     const collections = [
+      ["sourceIdentityIds", order.sourceIdentityIds],
       ["lines", order.lines.map((line) => line.externalLineId)],
       ["payments", order.payments.map((payment) => payment.externalPaymentId)],
       ["refunds", order.refunds.map((refund) => refund.externalRefundId)],
@@ -218,6 +220,13 @@ export const orderInputSchema = z
           });
         }
         seen.add(identifier);
+      });
+    }
+    if (order.sourceIdentityIds.length && order.sourceIdentityIds.length !== order.lines.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["sourceIdentityIds"],
+        message: "Ogni riga deve avere una sola identità sorgente stabile",
       });
     }
   });

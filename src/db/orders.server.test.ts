@@ -6,7 +6,7 @@ import { run as identityException } from "./orders-scenarios/orders-customer-ide
 import { run as importSettings } from "./orders-scenarios/orders-import-settings.scenario.test.ts";
 import { run as mutationsGrouping } from "./orders-scenarios/orders-mutations-grouping.scenario.test.ts";
 import { run as paymentsHistory } from "./orders-scenarios/orders-payments-history.scenario.test.ts";
-import { run as refundsConcurrency } from "./orders-scenarios/orders-refunds-concurrency.scenario.test.ts";
+import { run as refundsConcurrency } from "./orders-scenarios/orders-refunds-and-ebay-identity.scenario.test.ts";
 import { run as sourceAlignment } from "./orders-scenarios/orders-source-alignment.scenario.test.ts";
 import { createOrdersTestContext } from "./orders-scenarios/orders-test-support.test.ts";
 

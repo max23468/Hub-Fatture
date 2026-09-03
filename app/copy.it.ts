@@ -126,7 +126,7 @@ export const copy = {
     workNow: "Da fare ora",
     readyDetail: "Pronte per l’approvazione",
     reviewDetail: "Richiede attenzione",
-    pendingDetail: "Preparazioni in attesa dell’incasso",
+    pendingDetail: "Ordini e preparazioni in attesa dell’incasso",
     creditNoteDetail: "Pronte per l’approvazione",
     openPreparations: "Apri preparazioni",
     openOrders: "Apri ordini",
@@ -246,6 +246,7 @@ export const copy = {
     preparationListTitle: "Preparazioni fattura",
     approvablePreparationListTitle: "Preparazioni approvabili",
     pendingPreparationListTitle: "Preparazioni con pagamento in attesa",
+    pendingOrderListTitle: "Ordini con pagamento in attesa",
     preparationListHelp:
       "Apri una preparazione per controllare dati, anomalie e passaggi successivi.",
     pendingPreparationListHelp:
@@ -278,8 +279,7 @@ export const copy = {
     noPendingPreparations: "Nessun pagamento in attesa",
     preparationEmptyHelp:
       "Qui compaiono soltanto le preparazioni che possono essere approvate adesso.",
-    pendingPreparationEmptyHelp:
-      "Non ci sono preparazioni sospese in attesa dell’acquisizione del pagamento.",
+    pendingPreparationEmptyHelp: "Nessun ordine o preparazione è in attesa.",
     approvalsGloballyBlocked:
       "Nessuna preparazione è approvabile finché il controllo globale dell’inventario Aruba non viene risolto.",
     cancelledOrders: "Ordini annullati o rimborsati",

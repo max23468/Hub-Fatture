@@ -5,19 +5,13 @@ import {
   os,
   path,
   removeMigrationsFrom,
+  migrationsFrom,
   rm,
   runMigrations,
   temporaryDatabase,
   test,
   withClient,
   ARUBA_ERROR_RETRY,
-  SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
-  ARUBA_IDENTITY_EVIDENCE_REPLAY,
-  ARUBA_HISTORICAL_API_RECOVERY,
-  OPERATIONAL_WORKFLOW_1_1,
-  INVOICE_SOURCE_PREPARATIONS,
-  EBAY_CARE_OF_ADDRESS_REPLAY,
-  EBAY_PAYMENT_TIMESTAMP_REPLAY,
 } from "./support.ts";
 
 test("l'upgrade riprende un retry Aruba con credenziali valide in stato di errore", async () => {
@@ -42,16 +36,10 @@ test("l'upgrade riprende un retry Aruba con credenziali valide in stato di error
       );
     });
 
-    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
-      ARUBA_ERROR_RETRY,
-      SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
-      ARUBA_IDENTITY_EVIDENCE_REPLAY,
-      ARUBA_HISTORICAL_API_RECOVERY,
-      OPERATIONAL_WORKFLOW_1_1,
-      INVOICE_SOURCE_PREPARATIONS,
-      EBAY_CARE_OF_ADDRESS_REPLAY,
-      EBAY_PAYMENT_TIMESTAMP_REPLAY,
-    ]);
+    assert.deepEqual(
+      await runMigrations({ connectionString: database.connectionString }),
+      migrationsFrom(ARUBA_ERROR_RETRY),
+    );
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
         (

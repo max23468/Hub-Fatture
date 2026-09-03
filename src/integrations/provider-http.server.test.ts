@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AppError, type ErrorCode } from "../errors.ts";
-import { providerJson } from "./provider-http.server.ts";
+import { providerJson, providerText } from "./provider-http.server.ts";
 
 async function errorCode(promise: Promise<unknown>): Promise<ErrorCode> {
   try {
@@ -42,6 +42,9 @@ test("le risposte provider non affidabili usano i codici stabili", async () => {
       await errorCode(providerJson("https://provider.invalid")),
       "PROVIDER_RESPONSE_INVALID",
     );
+
+    globalThis.fetch = async () => new Response("risposta testuale");
+    assert.equal(await providerText("https://provider.invalid"), "risposta testuale");
 
     globalThis.fetch = async () => {
       throw new Error("timeout");

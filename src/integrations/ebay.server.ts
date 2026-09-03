@@ -1,5 +1,6 @@
 import { createHash, createHmac, createVerify, timingSafeEqual } from "node:crypto";
 
+import { create } from "xmlbuilder2";
 import { z } from "zod";
 
 import { getConfig } from "../config.server.ts";
@@ -27,10 +28,11 @@ import {
   markHistoricalOrders,
   type OrderInput,
 } from "../orders.ts";
-import { providerJson } from "./provider-http.server.ts";
+import { providerJson, providerText } from "./provider-http.server.ts";
 import { providerOrder } from "./provider-order.ts";
 
 export const EBAY_FULFILLMENT_API_VERSION = "v1";
+export const EBAY_TRADING_API_COMPATIBILITY_LEVEL = "1475";
 export const EBAY_SCOPE = [
   "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
   "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
@@ -43,6 +45,13 @@ const EBAY_PUBLIC_KEY_CACHE_LIMIT = 256;
 const EBAY_PUBLIC_KEY_FAILURE_TTL_MS = 60_000;
 const EBAY_PUBLIC_KEY_MAX_IN_FLIGHT = 4;
 const EBAY_PUBLIC_KEY_REQUESTS_PER_WINDOW = 30;
+const EBAY_TRADING_SITE_ID = "101";
+const EBAY_TRADING_MAX_PAGES = 20;
+const EBAY_TRADING_PAGE_SIZE = 100;
+const EBAY_TRADING_MAX_MOD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const EBAY_TRADING_XML_MAX_BYTES = 2 * 1024 * 1024;
+const EBAY_TRADING_XML_MAX_DEPTH = 64;
+const EBAY_TRADING_XML_MAX_ELEMENTS = 20_000;
 
 interface EbayCredentials {
   refreshToken: string;
@@ -81,6 +90,154 @@ function text(value: unknown): string | undefined {
 
 function money(value: unknown): { value: string; currency: string } | null {
   return moneySchema.safeParse(value).data ?? null;
+}
+
+function xmlValues(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : value === undefined ? [] : [value];
+}
+
+function xmlText(value: unknown): string | undefined {
+  if (typeof value === "string" || typeof value === "number") return text(String(value));
+  return text(record(value)["#"]);
+}
+
+function xmlMoney(value: unknown): { value: string; currency: string } | null {
+  const node = record(value);
+  const amount = xmlText(value);
+  const currency = text(node["@currencyID"]);
+  return amount && currency ? { value: amount, currency } : null;
+}
+
+function validateEbayTradingXml(xml: string) {
+  if (
+    Buffer.byteLength(xml) > EBAY_TRADING_XML_MAX_BYTES ||
+    xml.includes("\u0000") ||
+    /<!DOCTYPE|<!ENTITY/i.test(xml)
+  ) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  const openElements: string[] = [];
+  let cursor = 0;
+  let elements = 0;
+  while (cursor < xml.length) {
+    const start = xml.indexOf("<", cursor);
+    if (start === -1) break;
+    if (xml.startsWith("<!--", start)) {
+      const end = xml.indexOf("-->", start + 4);
+      if (end === -1) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      cursor = end + 3;
+      continue;
+    }
+    if (xml.startsWith("<![CDATA[", start)) {
+      const end = xml.indexOf("]]>", start + 9);
+      if (end === -1) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      cursor = end + 3;
+      continue;
+    }
+    if (xml.startsWith("<?", start)) {
+      const end = xml.indexOf("?>", start + 2);
+      if (end === -1) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      cursor = end + 2;
+      continue;
+    }
+    if (xml.startsWith("<!", start)) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    const closing = xml[start + 1] === "/";
+    const nameStart = start + (closing ? 2 : 1);
+    let nameEnd = nameStart;
+    while (nameEnd < xml.length && !/[\s/>]/.test(xml[nameEnd]!)) nameEnd += 1;
+    const name = xml.slice(nameStart, nameEnd);
+    if (!name) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    let quote: "'" | '"' | null = null;
+    let end = -1;
+    for (let index = nameEnd; index < xml.length; index += 1) {
+      const character = xml[index]!;
+      if (quote) {
+        if (character === "<") throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+        if (character === quote) quote = null;
+      } else if (character === "'" || character === '"') quote = character;
+      else if (character === "<") throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      else if (character === ">") {
+        end = index;
+        break;
+      }
+    }
+    if (quote || end === -1) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    if (closing) {
+      if (xml.slice(nameEnd, end).trim() || openElements.pop() !== name) {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      }
+    } else {
+      elements += 1;
+      if (elements > EBAY_TRADING_XML_MAX_ELEMENTS) {
+        throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+      }
+      if (xml.slice(nameEnd, end).trimEnd().at(-1) !== "/") {
+        openElements.push(name);
+        if (openElements.length > EBAY_TRADING_XML_MAX_DEPTH) {
+          throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+        }
+      }
+    }
+    cursor = end + 1;
+  }
+  if (openElements.length || elements === 0) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+}
+
+export function parseEbayTradingResponse(call: "GetOrders" | "GetSellerTransactions", xml: string) {
+  validateEbayTradingXml(xml);
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = create(xml).end({ format: "object" }) as Record<string, unknown>;
+  } catch {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  const response = record(parsed[`${call}Response`]);
+  const acknowledgement = xmlText(response.Ack);
+  if (!response || !["Success", "Warning"].includes(acknowledgement ?? "")) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  return response;
+}
+
+export function ebayTradingHeaders(call: "GetOrders" | "GetSellerTransactions", token: string) {
+  return {
+    "Content-Type": "text/xml; charset=utf-8",
+    "X-EBAY-API-CALL-NAME": call,
+    "X-EBAY-API-COMPATIBILITY-LEVEL": EBAY_TRADING_API_COMPATIBILITY_LEVEL,
+    "X-EBAY-API-SITEID": EBAY_TRADING_SITE_ID,
+    "X-EBAY-API-IAF-TOKEN": token,
+  };
+}
+
+function tradingRequest(
+  call: "GetOrders" | "GetSellerTransactions",
+  fields: Record<string, unknown>,
+) {
+  return create({ version: "1.0", encoding: "utf-8" })
+    .ele({ [`${call}Request`]: { "@xmlns": "urn:ebay:apis:eBLBaseComponents", ...fields } })
+    .end({ prettyPrint: false });
+}
+
+function tradingEndpoint(environment: "sandbox" | "production") {
+  return environment === "sandbox"
+    ? "https://api.sandbox.ebay.com/ws/api.dll"
+    : "https://api.ebay.com/ws/api.dll";
+}
+
+async function ebayTradingCall(
+  environment: "sandbox" | "production",
+  token: string,
+  call: "GetOrders" | "GetSellerTransactions",
+  fields: Record<string, unknown>,
+) {
+  const xml = await providerText(tradingEndpoint(environment), {
+    method: "POST",
+    headers: ebayTradingHeaders(call, token),
+    body: tradingRequest(call, fields),
+  });
+  return parseEbayTradingResponse(call, xml);
 }
 
 function netDeliveryAmount(pricing: Record<string, unknown>, currency: string): string {
@@ -389,6 +546,12 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
       : null;
   const buyerId = text(buyer.username) ?? text(buyer.userId);
   const lineItems = records(order.lineItems);
+  const sourceIdentityIds = lineItems.map((line) => {
+    const lineItemId = text(line.lineItemId);
+    const legacyItemId = text(line.legacyItemId);
+    if (!lineItemId || !legacyItemId) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    return `${legacyItemId}-${lineItemId}`;
+  });
   const payments = records(record(order.paymentSummary).payments);
   const paymentRefunds = records(record(order.paymentSummary).refunds);
   const lineRefunds = lineItems.flatMap((line) => records(line.refunds));
@@ -428,7 +591,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
     shippingAmount,
     paymentStatus: ["FULLY_REFUNDED", "REFUNDED"].includes(paymentStatus)
       ? "REFUNDED"
-      : paymentStatus === "PAID"
+      : ["PAID", "PARTIALLY_REFUNDED"].includes(paymentStatus)
         ? "PAID"
         : "PENDING",
     fulfillmentStatus:
@@ -439,6 +602,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
           : "UNFULFILLED",
     cancelledAt: cancelled === "CANCELED" ? updatedAt : null,
     sourceReviewRequired: cancelled === "IN_PROGRESS",
+    sourceIdentityIds,
     sourceSnapshot: order,
     customer: {
       kind: customerKindFromCountry(countryCode, Boolean(companyName)),
@@ -466,16 +630,18 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
       },
       taxIdentifiers,
     },
-    lines: lineItems.map((line, index) => {
+    lines: lineItems.map((line) => {
       const gross = money(line.lineItemCost);
       const discounted = money(line.discountedLineItemCost) ?? gross;
-      if (!gross || !discounted) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      if (!gross || !discounted) {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      }
       const discount = Math.max(
         0,
         Math.round((Number(gross.value) - Number(discounted.value)) * 100),
       );
       return {
-        externalLineId: text(line.lineItemId) ?? `${orderId}-${index + 1}`,
+        externalLineId: text(line.lineItemId)!,
         description: text(line.title) ?? "Articolo eBay",
         quantity: Number(line.quantity ?? 1),
         grossAmount: gross.value,
@@ -521,6 +687,267 @@ export function ebayListingMarketplaceId(payload: unknown): string {
   return marketplace;
 }
 
+export function ebayTradingOrderIsActive(payload: unknown) {
+  return xmlText(record(payload).OrderStatus) === "Active";
+}
+
+function ebayTradingOrderIsCancelled(payload: unknown) {
+  return xmlText(record(payload).OrderStatus) === "Cancelled";
+}
+
+export function ebayTradingOrderIsImportable(payload: unknown) {
+  return ebayTradingOrderIsActive(payload) || ebayTradingOrderIsCancelled(payload);
+}
+
+export function ebayTradingModificationWindows(start: string, end: string) {
+  const startTime = Date.parse(start);
+  const endTime = Date.parse(end);
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime > endTime) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  const windows: Array<{ start: string; end: string }> = [];
+  let windowStart = startTime;
+  while (windowStart <= endTime) {
+    const windowEnd = Math.min(windowStart + EBAY_TRADING_MAX_MOD_WINDOW_MS, endTime);
+    windows.push({
+      start: new Date(windowStart).toISOString(),
+      end: new Date(windowEnd).toISOString(),
+    });
+    if (windowEnd === endTime) break;
+    windowStart = windowEnd;
+  }
+  return windows;
+}
+
+function tradingTransactionPending(transaction: Record<string, unknown>) {
+  const status = record(transaction.Status);
+  return !(
+    xmlText(status.CheckoutStatus) === "CheckoutComplete" &&
+    xmlText(status.CompleteStatus) === "Complete" &&
+    xmlText(status.eBayPaymentStatus) === "NoPaymentFailure"
+  );
+}
+
+export function ebayTradingPendingLineId(payload: unknown) {
+  const transaction = record(payload);
+  if (!tradingTransactionPending(transaction)) return null;
+  const lineId = xmlText(transaction.OrderLineItemID);
+  if (!lineId) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  return lineId;
+}
+
+function tradingOrders(response: Record<string, unknown>) {
+  return xmlValues(record(response.OrderArray).Order).flatMap((value) => {
+    const order = record(value);
+    return ebayTradingOrderIsActive(order) ? [order] : [];
+  });
+}
+
+function tradingTransactions(response: Record<string, unknown>) {
+  return xmlValues(record(response.TransactionArray).Transaction).map(record);
+}
+
+export function mapEbayTradingOrder(payload: unknown, accountReference: string): OrderInput {
+  const order = record(payload);
+  const orderStatus = xmlText(order.OrderStatus);
+  const orderId = xmlText(order.OrderID) ?? xmlText(order.ExtendedOrderID);
+  const transactions = xmlValues(record(order.TransactionArray).Transaction).map(record);
+  const total = xmlMoney(order.Total);
+  const createdAt =
+    xmlText(order.CreatedTime) ??
+    transactions.map((item) => xmlText(item.CreatedDate)).find(Boolean);
+  const updatedAt = xmlText(record(order.CheckoutStatus).LastModifiedTime) ?? createdAt;
+  if (
+    !orderId ||
+    !transactions.length ||
+    !total ||
+    !createdAt ||
+    !updatedAt ||
+    !["Active", "Cancelled"].includes(orderStatus ?? "")
+  ) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  const shipping = xmlMoney(record(order.ShippingServiceSelected).ShippingServiceCost);
+  if (shipping && shipping.currency !== total.currency) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  const address = record(order.ShippingAddress);
+  const buyerId = xmlText(order.BuyerUserID);
+  const companyName = xmlText(address.CompanyName);
+  const fullName = xmlText(address.Name);
+  const countryCode = xmlText(address.Country);
+  const sourceIdentityIds = transactions.map((transaction) => {
+    const lineItemId = xmlText(transaction.OrderLineItemID);
+    if (!lineItemId) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    return lineItemId;
+  });
+  return providerOrder({
+    provider: "EBAY",
+    externalAccountId: accountReference,
+    externalOrderId: orderId,
+    externalCustomerId: buyerId,
+    displayNumber: orderId,
+    createdAt,
+    updatedAt,
+    currency: total.currency,
+    total: total.value,
+    shippingAmount: shipping?.value ?? "0.00",
+    paymentStatus: "PENDING",
+    fulfillmentStatus: "UNFULFILLED",
+    cancelledAt: orderStatus === "Cancelled" ? updatedAt : null,
+    sourceReviewRequired: orderStatus === "Active",
+    sourceIdentityIds,
+    sourceSnapshot: { sourceApi: "EBAY_TRADING", call: "GetOrders", payload: order },
+    customer: {
+      kind: customerKindFromCountry(countryCode, Boolean(companyName)),
+      displayName: companyName ?? fullName ?? buyerId,
+      companyName,
+      billingAddress: {
+        line1: xmlText(address.Street1),
+        line2: xmlText(address.Street2),
+        postalCode: xmlText(address.PostalCode),
+        city: xmlText(address.CityName),
+        province: xmlText(address.StateOrProvince),
+        countryCode,
+      },
+      shippingAddress: {
+        line1: xmlText(address.Street1),
+        line2: xmlText(address.Street2),
+        postalCode: xmlText(address.PostalCode),
+        city: xmlText(address.CityName),
+        province: xmlText(address.StateOrProvince),
+        countryCode,
+      },
+      taxIdentifiers: [],
+    },
+    lines: transactions.map((transaction, index) => {
+      const quantity = Number(xmlText(transaction.QuantityPurchased) ?? "1");
+      const unitPrice = xmlMoney(transaction.TransactionPrice);
+      if (
+        !Number.isInteger(quantity) ||
+        quantity <= 0 ||
+        !unitPrice ||
+        unitPrice.currency !== total.currency
+      ) {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      }
+      let grossAmount: string;
+      try {
+        grossAmount = ((decimalToCents(unitPrice.value) * quantity) / 100).toFixed(2);
+      } catch {
+        throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+      }
+      return {
+        externalLineId: sourceIdentityIds[index]!,
+        description: xmlText(record(transaction.Item).Title) ?? "Articolo eBay",
+        quantity,
+        grossAmount,
+        discountAmount: "0.00",
+      };
+    }),
+    payments: [],
+    refunds: [],
+  });
+}
+
+async function fetchEbayTradingPendingOrders(
+  environment: "sandbox" | "production",
+  token: string,
+  accountReference: string,
+  start: string,
+  end: string,
+) {
+  const observed = new Map<string, OrderInput>();
+  const activeLineIds = new Set<string>();
+  for (let page = 1; page <= EBAY_TRADING_MAX_PAGES; page += 1) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    const response = await ebayTradingCall(environment, token, "GetOrders", {
+      DetailLevel: "ReturnAll",
+      OrderRole: "Seller",
+      OrderStatus: "Active",
+      NumberOfDays: "30",
+      Pagination: { EntriesPerPage: String(EBAY_TRADING_PAGE_SIZE), PageNumber: String(page) },
+    });
+    const orders = tradingOrders(response).map((order) =>
+      mapEbayTradingOrder(order, accountReference),
+    );
+    for (const order of orders) {
+      observed.set(order.externalOrderId, order);
+      for (const line of order.lines) activeLineIds.add(line.externalLineId);
+    }
+    if (xmlText(response.HasMoreOrders) !== "true") break;
+    if (page === EBAY_TRADING_MAX_PAGES) {
+      throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+    }
+  }
+
+  const missingLineIds = new Set<string>();
+  for (const modificationWindow of ebayTradingModificationWindows(start, end)) {
+    for (let page = 1; page <= EBAY_TRADING_MAX_PAGES; page += 1) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      const response = await ebayTradingCall(environment, token, "GetSellerTransactions", {
+        DetailLevel: "ReturnAll",
+        IncludeContainingOrder: "true",
+        ModTimeFrom: modificationWindow.start,
+        ModTimeTo: modificationWindow.end,
+        Pagination: { EntriesPerPage: String(EBAY_TRADING_PAGE_SIZE), PageNumber: String(page) },
+      });
+      for (const transaction of tradingTransactions(response)) {
+        const lineId = ebayTradingPendingLineId(transaction);
+        if (lineId && !activeLineIds.has(lineId)) missingLineIds.add(lineId);
+      }
+      if (xmlText(response.HasMoreTransactions) !== "true") break;
+      if (page === EBAY_TRADING_MAX_PAGES) {
+        throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+      }
+    }
+  }
+
+  const missing = [...missingLineIds];
+  for (let offset = 0; offset < missing.length; offset += 20) {
+    const requested = missing.slice(offset, offset + 20);
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop
+    const response = await ebayTradingCall(environment, token, "GetOrders", {
+      DetailLevel: "ReturnAll",
+      OrderRole: "Seller",
+      OrderIDArray: { OrderID: requested },
+    });
+    const targetedOrders = xmlValues(record(response.OrderArray).Order).map(record);
+    for (const targeted of targetedOrders) {
+      for (const transaction of xmlValues(record(targeted.TransactionArray).Transaction).map(
+        record,
+      )) {
+        const lineId = xmlText(transaction.OrderLineItemID);
+        if (lineId) missingLineIds.delete(lineId);
+      }
+      if (!ebayTradingOrderIsImportable(targeted)) continue;
+      const order = mapEbayTradingOrder(targeted, accountReference);
+      observed.set(order.externalOrderId, order);
+    }
+  }
+  if (missingLineIds.size) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  return [...observed.values()];
+}
+
+export function mergeEbayOrderObservations(
+  tradingOrders: OrderInput[],
+  fulfillmentOrders: OrderInput[],
+) {
+  const canonicalIdentityIds = new Set(
+    fulfillmentOrders.flatMap((order) => order.sourceIdentityIds),
+  );
+  const provisionalOrders = tradingOrders.filter((order) => {
+    const matchedIdentities = order.sourceIdentityIds.filter((identity) =>
+      canonicalIdentityIds.has(identity),
+    ).length;
+    if (matchedIdentities > 0 && matchedIdentities !== order.sourceIdentityIds.length) {
+      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    }
+    return matchedIdentities === 0;
+  });
+  return { orders: [...provisionalOrders, ...fulfillmentOrders], provisionalOrders };
+}
+
 export function ebayFulfillmentHeaders(token: string, marketplaceId?: string) {
   return {
     Authorization: `Bearer ${token}`,
@@ -558,12 +985,25 @@ export function parseEbaySyncContinuation(value: string | null) {
   }
 }
 
-async function fetchOrdersBatch(start: string, continuation: EbaySyncContinuation | null = null) {
+async function fetchOrdersBatch(
+  start: string,
+  continuation: EbaySyncContinuation | null = null,
+  includeTrading = true,
+) {
   const connection = await loadConnection<EbayCredentials>("EBAY");
   const environment = connection.environment === "SANDBOX" ? "sandbox" : "production";
   const token = await accessToken(environment, connection.credentials.refreshToken);
   const end = continuation?.end ?? new Date().toISOString();
-  const orders: OrderInput[] = [];
+  const fulfillmentOrders: OrderInput[] = [];
+  const tradingOrders = includeTrading
+    ? await fetchEbayTradingPendingOrders(
+        environment,
+        token,
+        connection.accountReference,
+        start,
+        end,
+      )
+    : [];
   let url: string | null = continuation
     ? ebayNextUrl(environment, continuation.next)
     : `${environmentBase(environment)}/sell/fulfillment/${EBAY_FULFILLMENT_API_VERSION}/order?` +
@@ -583,20 +1023,22 @@ async function fetchOrdersBatch(start: string, continuation: EbaySyncContinuatio
       // Tax identifier is contractually present only on getOrder; la sequenza evita burst di 50 richieste.
       // react-doctor-disable-next-line react-doctor/async-await-in-loop
       const detail = await fetchOrder(environment, token, orderId, marketplaceId);
-      orders.push(mapEbayOrder(detail, connection.accountReference));
+      fulfillmentOrders.push(mapEbayOrder(detail, connection.accountReference));
     }
     url = ebayNextUrl(environment, response.next);
   }
+  const merged = mergeEbayOrderObservations(tradingOrders, fulfillmentOrders);
   return {
     connection,
     end,
-    orders,
+    orders: merged.orders,
+    pendingCount: merged.provisionalOrders.length,
     continuation: url ? { kind: "EBAY_ORDERS_PAGE" as const, end, next: url } : null,
   };
 }
 
 async function fetchOrdersSince(start: string) {
-  const result = await fetchOrdersBatch(start);
+  const result = await fetchOrdersBatch(start, null, false);
   if (result.continuation) throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
   return result;
 }
@@ -605,9 +1047,11 @@ export async function syncEbayOrders(job?: ClaimedJob) {
   if (await historyImportPending("EBAY")) throw new AppError("CONFLICT_REVISION", 409);
   const cursor = await readCursor("EBAY");
   const start = cursor.overlapFrom ?? new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const { end, orders, continuation } = await fetchOrdersBatch(
+  const currentContinuation = parseEbaySyncContinuation(cursor.cursor);
+  const { end, orders, pendingCount, continuation } = await fetchOrdersBatch(
     start,
-    parseEbaySyncContinuation(cursor.cursor),
+    currentContinuation,
+    !currentContinuation,
   );
   if (job && !(await jobLeaseCurrent(job))) throw new AppError("CONFLICT_REVISION", 409);
   if (orders.length) {
@@ -620,7 +1064,13 @@ export async function syncEbayOrders(job?: ClaimedJob) {
     job,
   );
   if (!continuation) await markConnectionSynced("EBAY", job);
-  return { count: orders.length, from: start, to: end, hasMore: Boolean(continuation) };
+  return {
+    count: orders.length,
+    pendingCount,
+    from: start,
+    to: end,
+    hasMore: Boolean(continuation),
+  };
 }
 
 async function ebayHistory(value: unknown) {

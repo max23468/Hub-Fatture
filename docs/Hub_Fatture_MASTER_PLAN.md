@@ -878,11 +878,16 @@ Non fissare i nomi dei topic senza verifica sulla versione API corrente.
 - Recupero del dettaglio di ogni nuovo ordine.
 - Polling periodico affidabile; webhook/notifiche solo se disponibili e utili.
 - Conservazione del cursore e sovrapposizione temporale per non perdere aggiornamenti.
-- Considerare che la Fulfillment API restituisce ordini che hanno completato il checkout: alcuni acquisti con pagamento anticipato ancora pendente possono non comparire in `getOrders` finché non completano quella fase. HF può applicare il flusso `Pagamento pendente` soltanto a ordini effettivamente esposti e importati.
+- La Fulfillment API resta la sorgente canonica dopo il completamento del checkout, ma non espone tutti gli acquisti con pagamento anticipato ancora pendente.
+- Ogni sincronizzazione ordinaria interroga anche la Trading API `GetOrders` con `OrderStatus=Active` e importa questi acquisti come osservazioni provvisorie `PENDING`, `UNFULFILLED` e da non fatturare.
+- La Trading API `GetSellerTransactions`, limitata alla stessa finestra incrementale con sovrapposizione e suddivisa in intervalli non superiori ai 30 giorni ammessi dal provider, riconcilia le righe modificate: se segnala una riga con checkout incompleto assente dall'inventario `Active`, una rilettura `GetOrders` mirata tramite `OrderLineItemID` deve recuperare l'ordine; in caso contrario la sincronizzazione fallisce chiusa. Se la rilettura restituisce `Cancelled`, la stessa osservazione provvisoria viene aggiornata come annullata e scompare dai pagamenti in attesa.
+- `OrderLineItemID` è l'identità stabile tra la fase Trading e la fase Fulfillment e viene usata anche per eliminare dal batch un'osservazione Trading già coperta dalla risposta canonica. Il passaggio all'ID ordine definitivo aggiorna la stessa entità soltanto se tutte le righe puntano a un unico ordine provvisorio non fatturato; corrispondenze parziali, collisioni, unioni ambigue o identità già usate da ordini diversi bloccano l'import.
+- Le API Trading vengono chiamate con lo stesso token utente già limitato agli scope REST in sola lettura: il probe Production ha verificato `GetOrders` senza ampliare i consensi. Se eBay cambiasse questo contratto, la sincronizzazione deve fallire chiusa e richiedere una nuova connessione esplicita, mai aggiungere permessi silenziosamente.
 
 ### 9.2 Dati da importare
 
 - ID ordine e riferimento leggibile.
+- Identità stabile `OrderLineItemID` e provenienza Trading o Fulfillment.
 - Date e stato.
 - Buyer e indirizzi.
 - Totali EUR.
@@ -1301,7 +1306,7 @@ Su mobile la barra inferiore non viene mostrata. Un pulsante menu allineato a si
 
 ### 13.2 Dashboard
 
-La Dashboard non è una seconda coda. Mostra soltanto tre metriche principali, basate sugli stessi predicati delle pagine di destinazione: preparazioni realmente approvabili, controlli aperti da risolvere e preparazioni con pagamento pendente. Il conteggio `Controlli` è unico e apre la coda canonica. Ogni preparazione aperta appartiene a un solo pool operativo: il pagamento pendente ha precedenza; senza pagamenti pendenti, la preparazione è approvabile soltanto se supera tutti i gate correnti, altrimenti deve avere almeno una causa visibile nella preparazione o nei `Controlli`. Match Aruba riferibili a candidate precise non azzerano le preparazioni sane; soltanto un problema d’inventario globale sospende tutte le approvazioni.
+La Dashboard non è una seconda coda. Mostra soltanto tre metriche principali, basate sugli stessi predicati delle pagine di destinazione: preparazioni realmente approvabili, controlli aperti da risolvere e pagamenti pendenti. Quest’ultima metrica comprende sia le preparazioni sospese sia gli ordini ancora fatturabili senza preparazione e con incasso aperto: conta una voce per preparazione e una per ogni ordine non ancora rappresentato da una preparazione. Il conteggio `Controlli` è unico e apre la coda canonica. Ogni preparazione aperta appartiene a un solo pool operativo: il pagamento pendente ha precedenza; senza pagamenti pendenti, la preparazione è approvabile soltanto se supera tutti i gate correnti, altrimenti deve avere almeno una causa visibile nella preparazione o nei `Controlli`. Match Aruba riferibili a candidate precise non azzerano le preparazioni sane; soltanto un problema d’inventario globale sospende tutte le approvazioni.
 
 Il box `Stato operativo` riassume lo stato tecnico automatico e usa tre domini: `Acquisizione dati`, `Elaborazioni` e `Generazione documenti`. Non mostra ultimo o prossimo controllo. Il box `Collegamenti` sottostante conserva il dettaglio di Shopify, eBay e Aruba, compresa la freschezza; il riepilogo superiore non introduce un quarto dominio `Servizi esterni`. Restano visibili i documenti emessi oggi/mese e il grafico degli ultimi sette giorni.
 
@@ -1314,7 +1319,7 @@ riconciliare non cambiano questo stato e appartengono alla coda `Controlli`.
 
 ### 13.3 Ordini
 
-- Viste Tutti, Da fatturare, In attesa e Annullati. `Da fatturare` mostra soltanto preparazioni realmente approvabili; `In attesa` mostra preparazioni con pagamento non ancora acquisito; le altre preparazioni aperte sono raggiungibili dai `Controlli` che ne spiegano il blocco.
+- Viste Tutti, Da fatturare, In attesa e Annullati. `Da fatturare` mostra soltanto preparazioni realmente approvabili; `In attesa` mostra sia gli ordini ancora fatturabili con pagamento non acquisito e senza preparazione, sia le preparazioni sospese per lo stesso motivo, in gruppi distinti e senza duplicati; le altre preparazioni aperte sono raggiungibili dai `Controlli` che ne spiegano il blocco.
 - Filtri per piattaforma, stato, data, trigger, pagamento.
 - Ricerca per ID ordine, cliente, e-mail, codice fiscale/P.IVA.
 - Vista del dato originale e normalizzato.
