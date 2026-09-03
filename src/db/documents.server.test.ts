@@ -81,11 +81,57 @@ test(
         id: 1,
         requestId: "documents-import",
       });
-      await documents.activateFiscalProfile(syntheticFiscalProfile, "a".repeat(64), {
-        id: 1,
-        canApprove: true,
-        requestId: "documents-profile",
-      });
+      const profileActivation = await documents.activateFiscalProfile(
+        syntheticFiscalProfile,
+        "a".repeat(64),
+        0,
+        {
+          id: 1,
+          canApprove: true,
+          requestId: "documents-profile",
+        },
+      );
+      assert.deepEqual(
+        { version: profileActivation.version, created: profileActivation.created },
+        { version: 1, created: true },
+      );
+      const repeatedProfileActivation = await documents.activateFiscalProfile(
+        {
+          ...syntheticFiscalProfile,
+          numbering: {
+            ...syntheticFiscalProfile.numbering,
+            approvedAt: "2026-08-12T10:00:00.000Z",
+          },
+        },
+        "a".repeat(64),
+        0,
+        { id: 1, canApprove: true, requestId: "documents-profile-retry" },
+      );
+      assert.deepEqual(
+        { version: repeatedProfileActivation.version, created: repeatedProfileActivation.created },
+        { version: 1, created: false },
+      );
+      assert.equal(
+        Number(
+          (
+            await database
+              .getPool()
+              .query<{ count: string }>(
+                "SELECT count(*) AS count FROM audit_events WHERE action = 'FISCAL_PROFILE_ACTIVATED'",
+              )
+          ).rows[0]!.count,
+        ),
+        1,
+      );
+      await assert.rejects(
+        documents.activateFiscalProfile(
+          { ...syntheticFiscalProfile, legalReference: "Regime del margine Art. 36 41/95" },
+          "b".repeat(64),
+          0,
+          { id: 1, canApprove: true, requestId: "documents-profile-conflict" },
+        ),
+        (error) => error instanceof AppError && error.code === "CONFLICT_REVISION",
+      );
       const importedXml = await readFile(
         "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
         "utf8",
@@ -133,6 +179,7 @@ test(
             },
           },
           "b".repeat(64),
+          1,
           { id: 1, canApprove: true, requestId: "documents-profile-stale" },
         ),
         (error) => error instanceof AppError && error.code === "DOCUMENT_INVALID",

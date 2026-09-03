@@ -1,28 +1,29 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 
-import { fiscalProfileFromAcceptedInvoiceXml } from "../src/documents.ts";
-import { validateFatturaXml } from "../src/fatturapa.server.ts";
-import { activateFiscalProfile } from "../src/db/documents.server.ts";
 import { closePool, getPool } from "../src/db/client.server.ts";
+import { getFiscalProfileSettings } from "../src/db/documents.server.ts";
+import {
+  activateFiscalProfileFromAcceptedXml,
+  FISCAL_PROFILE_XML_MAX_BYTES,
+} from "../src/operations/fiscal-profile-activation.ts";
 
 const sourcePath = process.argv[2];
 if (!sourcePath) throw new Error("Indica il percorso dell’XML TD01 accettato");
-if ((await stat(sourcePath)).size > 4_900_000) throw new Error("XML oltre il limite consentito");
-
-const xml = await readFile(sourcePath, "utf8");
-await validateFatturaXml(xml);
 const latestDocumentPath = process.argv[3];
-if (latestDocumentPath && (await stat(latestDocumentPath)).size > 4_900_000) {
-  throw new Error("XML del progressivo oltre il limite consentito");
+
+async function readXml(path: string) {
+  const details = await stat(path);
+  if (!details.isFile() || details.size === 0 || details.size > FISCAL_PROFILE_XML_MAX_BYTES) {
+    throw new Error(`L’XML ${path} è vuoto, non è un file regolare o supera 4,9 MB`);
+  }
+  return readFile(path);
 }
-const latestDocumentXml = latestDocumentPath ? await readFile(latestDocumentPath, "utf8") : xml;
-if (latestDocumentPath) await validateFatturaXml(latestDocumentXml);
-const profile = fiscalProfileFromAcceptedInvoiceXml(
-  xml,
-  new Date().toISOString(),
-  latestDocumentXml,
-);
+
+const [profileXml, latestDocumentXml] = await Promise.all([
+  readXml(sourcePath),
+  latestDocumentPath ? readXml(latestDocumentPath) : undefined,
+]);
 
 try {
   const owner = (
@@ -31,16 +32,20 @@ try {
     )
   ).rows[0];
   if (!owner?.can_approve) throw new Error("L’account del titolare non è configurato");
-  const version = await activateFiscalProfile(
-    profile,
-    createHash("sha256").update(xml).digest("hex"),
+  const currentProfile = await getFiscalProfileSettings();
+  const activation = await activateFiscalProfileFromAcceptedXml(
+    { profileXml, latestDocumentXml, expectedVersion: currentProfile?.version ?? 0 },
     {
       id: owner.id,
       canApprove: owner.can_approve,
       requestId: randomUUID(),
     },
   );
-  process.stdout.write(`Profilo fiscale attivato: versione ${version}.\n`);
+  process.stdout.write(
+    activation.created
+      ? `Profilo fiscale attivato: versione ${activation.version}.\n`
+      : `Profilo fiscale già attivo: versione ${activation.version}.\n`,
+  );
 } finally {
   await closePool();
 }

@@ -15,6 +15,7 @@
 | [Connettori Shopify ed eBay](evidence/connectors.md)                                  | Contratti API, fixture e gate dei provider                | Corrente    | No             |
 | [Audit Aruba e profilo FatturaPA](evidence/aruba-fatturapa-profile.md)                | Profilo fiscale, numerazione e prove anonimizzate         | Corrente    | No             |
 | [Attivazione profilo fiscale](runbooks/fiscal-profile.md)                             | Procedura sicura da XML accettato a profilo versionato    | Corrente    | Sì             |
+| [API profilo fiscale](contracts/fiscal-profile-api.md)                                | Lettura e attivazione controllata del profilo applicativo | Corrente    | Sì             |
 | [Contratto API Aruba](contracts/aruba-api.md)                                         | Autorità API, gruppi, documenti, stati, file e limiti v2  | Corrente    | Sì             |
 | [Probe API Aruba](runbooks/aruba-api-read-probe.md)                                   | Procedura read-only senza persistenza di credenziali      | Corrente    | Sì             |
 | [Qualifica API Aruba](evidence/aruba-api-qualification.md)                            | Stato delega, test locali e gate API qualificati          | Verificato  | No             |

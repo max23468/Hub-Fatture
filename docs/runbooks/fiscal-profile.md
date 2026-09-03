@@ -21,6 +21,20 @@ npm run fiscal-profile:activate -- /percorso/riservato/td01.xml /percorso/riserv
 
 Il secondo percorso è facoltativo soltanto quando la TD01 del profilo è già l'ultimo documento accettato. Il comando valida entrambi gli XML contro lo schema FatturaPA offline, estrae il profilo del cedente e il progressivo FPR più recente tra TD01 e TD04, salva nel database una nuova versione `AUDITED`, ritira la versione attiva precedente e registra l’audit critico. La numerazione applicativa parte dal progressivo successivo, considerando anche gli eventuali documenti già approvati nel database; un’attivazione con un progressivo osservato inferiore a quello attivo viene rifiutata. In output compare soltanto il numero di versione; dati fiscali, progressivo e hash non vengono stampati.
 
+La stessa operazione è disponibile tramite l’endpoint interno autenticato
+`POST /api/profilo-fiscale`. Usa gli stessi XML e attraversa il medesimo servizio condiviso dal
+comando; non accetta un profilo JSON costruito manualmente. Campi, conferma esplicita, risposte e
+limiti sono definiti nel [contratto API](../contracts/fiscal-profile-api.md). Il chiamante legge
+prima la versione corrente, la invia come `expectedVersion` e può ripetere la stessa richiesta dopo
+un timeout senza creare una nuova versione o un secondo audit. Il readback
+`GET /api/profilo-fiscale` restituisce soltanto il riepilogo non sensibile della versione attiva.
+
+L’API modifica esclusivamente il profilo applicativo versionato di Hub Fatture. Qualunque modifica
+del profilo remoto Aruba resta un’operazione separata nel pannello ufficiale e richiede
+autorizzazione specifica. La conferma API attesta la provenienza degli XML ma non può ricavare dal
+solo file la prova dell’accettazione SdI: usare esclusivamente il download ufficiale o un readback
+già riconciliato.
+
 Dopo il readback della versione attiva, rimuovere in modo sicuro l’eventuale copia temporanea dell’XML. Non attivare il profilo da una fattura scartata, da un PDF o da un file modificato manualmente.
 
 Lo storage dei documenti approvati usa `DOCUMENT_STORAGE_ROOT`; il valore predefinito Development è `storage/documents`, già escluso da Git. In Production deve puntare al volume persistente previsto dal deployment.

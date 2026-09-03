@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import type pg from "pg";
 
@@ -1250,21 +1251,60 @@ export async function approveInvoice(
 export async function activateFiscalProfile(
   rawProfile: unknown,
   sourceXmlSha256: string,
+  expectedVersion: number,
   actor: FiscalActor,
 ) {
   if (!actor.canApprove) throw new AppError("DOCUMENT_APPROVAL_FORBIDDEN", 403);
   const profile = fiscalProfileSchema.safeParse(rawProfile);
-  if (!profile.success || !/^[0-9a-f]{64}$/.test(sourceXmlSha256)) {
+  if (
+    !profile.success ||
+    !/^[0-9a-f]{64}$/.test(sourceXmlSha256) ||
+    !Number.isInteger(expectedVersion) ||
+    expectedVersion < 0
+  ) {
     throw new AppError("DOCUMENT_INVALID", 422);
   }
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");
     const active = (
-      await client.query<{ profile_json: unknown }>(
-        "SELECT profile_json FROM fiscal_profiles WHERE status IN ('MOCK', 'AUDITED')",
+      await client.query<{
+        version: number;
+        status: "MOCK" | "AUDITED";
+        profile_json: unknown;
+        source_xml_sha256: string | null;
+        audited_at: Date | null;
+      }>(
+        `SELECT version, status, profile_json, source_xml_sha256, audited_at
+         FROM fiscal_profiles WHERE status IN ('MOCK', 'AUDITED')`,
       )
     ).rows[0];
     const previous = fiscalProfileSchema.safeParse(active?.profile_json);
+    if (
+      active?.status === "AUDITED" &&
+      active.source_xml_sha256 === sourceXmlSha256 &&
+      active.audited_at &&
+      previous.success
+    ) {
+      const { approvedAt: _previousApprovedAt, ...previousNumbering } = previous.data.numbering;
+      const { approvedAt: _nextApprovedAt, ...nextNumbering } = profile.data.numbering;
+      if (
+        isDeepStrictEqual(
+          { ...previous.data, numbering: previousNumbering },
+          { ...profile.data, numbering: nextNumbering },
+        )
+      ) {
+        return {
+          version: active.version,
+          status: active.status,
+          auditedAt: active.audited_at.toISOString(),
+          profile: previous.data,
+          created: false,
+        } as const;
+      }
+    }
+    if ((active?.version ?? 0) !== expectedVersion) {
+      throw new AppError("CONFLICT_REVISION", 409);
+    }
     if (
       previous.success &&
       previous.data.series === profile.data.series &&
@@ -1284,10 +1324,10 @@ export async function activateFiscalProfile(
         )
       ).rows[0]!.version,
     );
-    const inserted = await client.query<{ id: string }>(
+    const inserted = await client.query<{ id: string; audited_at: Date }>(
       `INSERT INTO fiscal_profiles
         (version, status, profile_json, source_xml_sha256, audited_at)
-       VALUES ($1, 'AUDITED', $2, $3, now()) RETURNING id`,
+       VALUES ($1, 'AUDITED', $2, $3, now()) RETURNING id, audited_at`,
       [version, JSON.stringify(profile.data), sourceXmlSha256],
     );
     await writeAudit(client, {
@@ -1304,6 +1344,12 @@ export async function activateFiscalProfile(
       },
       requestId: actor.requestId,
     });
-    return version;
+    return {
+      version,
+      status: "AUDITED",
+      auditedAt: inserted.rows[0]!.audited_at.toISOString(),
+      profile: profile.data,
+      created: true,
+    } as const;
   });
 }

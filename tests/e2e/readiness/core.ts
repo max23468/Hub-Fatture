@@ -7,6 +7,7 @@ import { SESSION_TTL_SECONDS } from "../../../src/config.server.ts";
 import { latestMigrationFileName } from "../../../src/migration-files.ts";
 import { verifyHistoricalAndCreditNoteFlow } from "./historical-credit-note-flow.ts";
 import { verifyConfiguredArubaApiUi } from "./configured-aruba-api-ui.ts";
+import { verifyFiscalProfileApi } from "./fiscal-profile-api.ts";
 import {
   databaseUrl,
   expectApprovalLabelsReadable,
@@ -382,6 +383,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await saveCustomerEmailMode.click();
   await expect(saveCustomerEmailMode).toBeDisabled();
   await expect(page.getByLabel("Modalità invio copia")).toHaveValue("AUTOMATIC");
+
+  await verifyFiscalProfileApi(page);
+
   await page.getByLabel("Apri il menu di Massimo").click();
   await page.locator(".profile-menu").getByRole("button", { name: "Esci" }).click();
   await expect(page).toHaveURL(/\/login$/);

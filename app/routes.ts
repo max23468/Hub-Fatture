@@ -5,6 +5,7 @@ export default [
   route("robots.txt", "routes/robots.ts"),
   route("manifest.webmanifest", "routes/manifest.ts"),
   route("health", "routes/health.ts"),
+  route("api/profilo-fiscale", "routes/fiscal-profile-api.ts"),
   route("integrations/shopify/auth", "routes/shopify-auth.ts"),
   route("integrations/shopify/callback", "routes/shopify-callback.ts"),
   route("integrations/ebay/auth", "routes/ebay-auth.ts"),
