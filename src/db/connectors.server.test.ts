@@ -793,13 +793,26 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     const retriedJob = await connectors.claimJob("worker-manual-retry");
     assert.equal(retriedJob?.id, terminalJob.id);
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input) =>
-      new Response(
-        String(input).includes("/identity/v1/oauth2/token")
-          ? JSON.stringify({ access_token: "token-retry-sintetico", expires_in: 3600 })
-          : JSON.stringify({ orders: [] }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+    globalThis.fetch = async (input, init) => {
+      if (String(input).includes("/identity/v1/oauth2/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "token-retry-sintetico", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      const call = new Headers(init?.headers).get("X-EBAY-API-CALL-NAME");
+      if (call) {
+        const more = call === "GetOrders" ? "HasMoreOrders" : "HasMoreTransactions";
+        return new Response(
+          `<?xml version="1.0"?><${call}Response><Ack>Success</Ack><${more}>false</${more}></${call}Response>`,
+          { status: 200, headers: { "Content-Type": "text/xml" } },
+        );
+      }
+      return new Response(JSON.stringify({ orders: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    };
     try {
       assert.equal((await syncEbayOrders(retriedJob!)).count, 0);
       assert.equal(await connectors.completeJob(retriedJob!), true);

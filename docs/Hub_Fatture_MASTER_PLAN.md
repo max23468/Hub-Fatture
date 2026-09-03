@@ -878,11 +878,16 @@ Non fissare i nomi dei topic senza verifica sulla versione API corrente.
 - Recupero del dettaglio di ogni nuovo ordine.
 - Polling periodico affidabile; webhook/notifiche solo se disponibili e utili.
 - Conservazione del cursore e sovrapposizione temporale per non perdere aggiornamenti.
-- Considerare che la Fulfillment API restituisce ordini che hanno completato il checkout: alcuni acquisti con pagamento anticipato ancora pendente possono non comparire in `getOrders` finché non completano quella fase. HF può applicare il flusso `Pagamento pendente` soltanto a ordini effettivamente esposti e importati.
+- La Fulfillment API resta la sorgente canonica dopo il completamento del checkout, ma non espone tutti gli acquisti con pagamento anticipato ancora pendente.
+- Ogni sincronizzazione ordinaria interroga anche la Trading API `GetOrders` con `OrderStatus=Active` e importa questi acquisti come osservazioni provvisorie `PENDING`, `UNFULFILLED` e da non fatturare.
+- La Trading API `GetSellerTransactions`, limitata alla stessa finestra incrementale con sovrapposizione, riconcilia le righe modificate: se segnala una riga con checkout incompleto assente dall'inventario `Active`, una rilettura `GetOrders` mirata tramite `OrderLineItemID` deve recuperare l'ordine; in caso contrario la sincronizzazione fallisce chiusa.
+- `OrderLineItemID` è l'identità stabile tra la fase Trading e la fase Fulfillment. Il passaggio all'ID ordine definitivo aggiorna la stessa entità soltanto se tutte le righe puntano a un unico ordine provvisorio non fatturato; collisioni, unioni ambigue o identità già usate da ordini diversi bloccano l'import.
+- Le API Trading vengono chiamate con lo stesso token utente già limitato agli scope REST in sola lettura: il probe Production ha verificato `GetOrders` senza ampliare i consensi. Se eBay cambiasse questo contratto, la sincronizzazione deve fallire chiusa e richiedere una nuova connessione esplicita, mai aggiungere permessi silenziosamente.
 
 ### 9.2 Dati da importare
 
 - ID ordine e riferimento leggibile.
+- Identità stabile `OrderLineItemID` e provenienza Trading o Fulfillment.
 - Date e stato.
 - Buyer e indirizzi.
 - Totali EUR.

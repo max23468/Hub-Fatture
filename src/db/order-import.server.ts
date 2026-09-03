@@ -58,6 +58,10 @@ import { prepareCustomerInput } from "./order-customer-input.server.ts";
 import { reconcileEbayCustomerAlignment } from "./order-ebay-customer-alignment.server.ts";
 import { reconcileProviderOrderAlignment } from "./order-provider-alignment.server.ts";
 import { canonicalOrderTimestamp } from "./order-timestamp.ts";
+import {
+  persistEbayOrderIdentities,
+  reconcileEbayOrderIdentity,
+} from "./order-source-identity.server.ts";
 
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
   const canonicalProfile = canonicalCustomerProfile(input);
@@ -416,6 +420,7 @@ async function importOne(
   shopifyPaymentFeeMode: ShopifyPaymentFeeMode,
   actor: Actor,
 ) {
+  await reconcileEbayOrderIdentity(client, sourceInput);
   const { input, exception, taxRecovery } = await prepareCustomerInput(client, sourceInput);
   const {
     grossAmount,
@@ -591,6 +596,7 @@ async function importOne(
     ],
   );
   const orderId = order.rows[0]!.id;
+  await persistEbayOrderIdentities(client, input, orderId);
   const newEmailOnlyUpdate = Boolean(
     !documentIssued &&
     fingerprintChanged &&

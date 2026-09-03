@@ -56,6 +56,7 @@ test("l'upgrade non confonde il rimborso parziale eBay con un pagamento pendente
 
     assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
       EBAY_PARTIAL_REFUND_PAYMENT_STATUS,
+      "067_ebay_order_line_identity.sql",
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
