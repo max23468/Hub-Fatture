@@ -1,9 +1,114 @@
 import { isDeepStrictEqual } from "node:util";
 
+import { splitEbayCareOfRecipient } from "./ebay-recipient.ts";
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function ebayCareOfSource(snapshot: Record<string, unknown>) {
+  const source = record(snapshot.sourceSnapshot);
+  const instructions = Array.isArray(source?.fulfillmentStartInstructions)
+    ? source.fulfillmentStartInstructions
+    : [];
+  const instruction = record(instructions[0]);
+  const shippingStep = record(instruction?.shippingStep);
+  const shipTo = record(shippingStep?.shipTo);
+  const address = record(shipTo?.contactAddress);
+  return splitEbayCareOfRecipient(shipTo?.fullName, address?.addressLine2).careOf;
+}
+
+function customerWithoutCareOfProjection(value: unknown): unknown {
+  const customer = record(value);
+  if (!customer) return value;
+  const addressWithoutLine2 = (candidate: unknown) => {
+    const address = record(candidate);
+    if (!address) return candidate;
+    return Object.fromEntries(Object.entries(address).filter(([key]) => key !== "line2"));
+  };
+  return normalizeJsonValue({
+    ...Object.fromEntries(
+      Object.entries(customer).filter(
+        ([key]) => !["displayName", "firstName", "lastName", "canonicalProfile"].includes(key),
+      ),
+    ),
+    billingAddress: addressWithoutLine2(customer.billingAddress),
+    shippingAddress: addressWithoutLine2(customer.shippingAddress),
+  });
+}
+
+function customerLine2(value: unknown, addressKey: "billingAddress" | "shippingAddress") {
+  const customer = record(value);
+  const address = record(customer?.[addressKey]);
+  return address?.line2;
+}
+
+function samePresentationText(value: unknown, expected: string) {
+  return (
+    typeof value === "string" &&
+    value.normalize("NFKC").toLocaleLowerCase("it-IT").replace(/\s+/g, " ").trim() ===
+      expected.normalize("NFKC").toLocaleLowerCase("it-IT").replace(/\s+/g, " ").trim()
+  );
+}
+
+/**
+ * Riconosce esclusivamente la nuova interpretazione del medesimo destinatario eBay:
+ * la parte che segue `c/o` lascia il nome e diventa la seconda riga dell'indirizzo.
+ */
+export function isEbayCareOfAddressMapperOnlyChange(
+  previous: Record<string, unknown>,
+  current: Record<string, unknown>,
+): boolean {
+  if (previous.provider !== "EBAY" || current.provider !== "EBAY") return false;
+  if (!isDeepStrictEqual(previous.sourceSnapshot, current.sourceSnapshot)) return false;
+  const careOf = ebayCareOfSource(current);
+  if (!careOf) return false;
+  const previousCustomer = record(previous.customer);
+  const currentCustomer = record(current.customer);
+  const previousSnapshot = record(previous.customerSnapshot);
+  const currentSnapshot = record(current.customerSnapshot);
+  if (!previousCustomer || !currentCustomer || !previousSnapshot || !currentSnapshot) return false;
+
+  const companyName =
+    typeof currentCustomer.companyName === "string" && currentCustomer.companyName.trim()
+      ? currentCustomer.companyName
+      : undefined;
+  if (
+    previousCustomer.displayName !== (companyName ?? careOf.originalName) ||
+    currentCustomer.displayName !== (companyName ?? careOf.recipientName) ||
+    !samePresentationText(previousSnapshot.displayName, companyName ?? careOf.originalName) ||
+    !samePresentationText(currentSnapshot.displayName, companyName ?? careOf.recipientName)
+  ) {
+    return false;
+  }
+  for (const addressKey of ["billingAddress", "shippingAddress"] as const) {
+    if (
+      customerLine2(previousCustomer, addressKey) !== careOf.previousLine2 ||
+      customerLine2(currentCustomer, addressKey) !== careOf.currentLine2 ||
+      customerLine2(previousSnapshot, addressKey) !== careOf.previousLine2 ||
+      customerLine2(currentSnapshot, addressKey) !== careOf.currentLine2
+    ) {
+      return false;
+    }
+  }
+  if (
+    !isDeepStrictEqual(
+      customerWithoutCareOfProjection(previousCustomer),
+      customerWithoutCareOfProjection(currentCustomer),
+    ) ||
+    !isDeepStrictEqual(
+      customerWithoutCareOfProjection(previousSnapshot),
+      customerWithoutCareOfProjection(currentSnapshot),
+    )
+  ) {
+    return false;
+  }
+  return isDeepStrictEqual(
+    withoutProviderAndMapperEvidence(previous),
+    withoutProviderAndMapperEvidence(current),
+  );
 }
 
 function canonicalEmail(snapshot: Record<string, unknown>): unknown {

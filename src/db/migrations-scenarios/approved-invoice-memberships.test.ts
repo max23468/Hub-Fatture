@@ -23,6 +23,7 @@ import {
   ARUBA_HISTORICAL_API_RECOVERY,
   OPERATIONAL_WORKFLOW_1_1,
   INVOICE_SOURCE_PREPARATIONS,
+  EBAY_CARE_OF_ADDRESS_REPLAY,
   removeMigrationsFrom,
 } from "./support.ts";
 
@@ -114,6 +115,7 @@ test("l'upgrade chiude le preparazioni ricreate sopra fatture approvate", async 
       ARUBA_HISTORICAL_API_RECOVERY,
       OPERATIONAL_WORKFLOW_1_1,
       INVOICE_SOURCE_PREPARATIONS,
+      EBAY_CARE_OF_ADDRESS_REPLAY,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

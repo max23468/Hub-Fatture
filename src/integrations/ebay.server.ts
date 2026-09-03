@@ -18,6 +18,7 @@ import type { ClaimedJob, ConnectorActor } from "../db/connector-types.server.ts
 import { importOrders } from "../db/order-import.server.ts";
 import { AppError } from "../errors.ts";
 import { splitTwoPartNameUsingFiscalCode } from "../italian-fiscal-code.ts";
+import { splitEbayCareOfRecipient } from "../ebay-recipient.ts";
 import {
   customerKindFromCountry,
   decimalToCents,
@@ -376,7 +377,8 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
         ]
       : [];
   const companyName = text(shipTo.companyName);
-  const fullName = text(shipTo.fullName);
+  const recipient = splitEbayCareOfRecipient(shipTo.fullName, address.addressLine2);
+  const fullName = recipient.fullName;
   const privateItalianName =
     !companyName &&
     fullName &&
@@ -448,7 +450,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
       phone: text(shipTo.primaryPhone?.toString()),
       billingAddress: {
         line1: text(address.addressLine1),
-        line2: text(address.addressLine2),
+        line2: recipient.addressLine2,
         postalCode: text(address.postalCode),
         city: text(address.city),
         province: text(address.stateOrProvince),
@@ -456,7 +458,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
       },
       shippingAddress: {
         line1: text(address.addressLine1),
-        line2: text(address.addressLine2),
+        line2: recipient.addressLine2,
         postalCode: text(address.postalCode),
         city: text(address.city),
         province: text(address.stateOrProvince),

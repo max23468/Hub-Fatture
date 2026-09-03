@@ -111,7 +111,12 @@ export async function writeAudit(
       reason: string;
       reviewRequired: boolean;
       provider: "SHOPIFY" | "EBAY" | "ARUBA";
-      automaticAlignment: "EMAIL_ONLY" | "EMAIL_AND_MAPPER" | "FULFILLMENT_ONLY" | "REFUND_MAPPER";
+      automaticAlignment:
+        | "EMAIL_ONLY"
+        | "EMAIL_AND_MAPPER"
+        | "CARE_OF_ADDRESS"
+        | "FULFILLMENT_ONLY"
+        | "REFUND_MAPPER";
       credentialOperation: "CONFIGURED" | "ROTATED" | "REVOKED";
       scope: string;
       value: "PAID" | "FULFILLED";

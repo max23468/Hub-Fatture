@@ -357,6 +357,29 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(unverifiedName.customer.firstName, undefined);
   assert.equal(unverifiedName.customer.lastName, undefined);
 
+  const careOf = structuredClone(privateOrder) as {
+    fulfillmentStartInstructions: Array<{
+      shippingStep: {
+        shipTo: {
+          fullName: string;
+          contactAddress: { addressLine2?: string };
+        };
+      };
+    }>;
+  };
+  careOf.fulfillmentStartInstructions[0]!.shippingStep.shipTo.fullName =
+    "Mario Rossi C / O Anna Bianchi";
+  const careOfWithoutExistingLine = mapEbayOrder(careOf, "botCF");
+  assert.equal(careOfWithoutExistingLine.customer.displayName, "Mario Rossi");
+  assert.equal(careOfWithoutExistingLine.customer.billingAddress.line2, "c/o Anna Bianchi");
+  assert.equal(careOfWithoutExistingLine.customer.shippingAddress.line2, "c/o Anna Bianchi");
+
+  careOf.fulfillmentStartInstructions[0]!.shippingStep.shipTo.contactAddress.addressLine2 =
+    "Scala A";
+  const careOfWithExistingLine = mapEbayOrder(careOf, "botCF");
+  assert.equal(careOfWithExistingLine.customer.billingAddress.line2, "Scala A · c/o Anna Bianchi");
+  assert.equal(careOfWithExistingLine.customer.shippingAddress.line2, "Scala A · c/o Anna Bianchi");
+
   const swissOrder = structuredClone(privateOrder) as {
     buyer: { taxIdentifier: { issuingCountry: string } };
     fulfillmentStartInstructions: Array<{
