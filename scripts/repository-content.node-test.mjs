@@ -130,11 +130,15 @@ test("la policy Pubblica resta coerente nelle fonti canoniche", async () => {
     ].map((file) => readFile(path.join(root, file), "utf8")),
   );
   assert.match(agents, /richiesta\s+affermativa di pubblicazione/);
+  assert.match(agents, /serie stabile `1\.x`/);
+  assert.doesNotMatch(agents, /versioni applicative fino alla `1\.0\.0`/);
+  assert.match(agents, /Definition of Done[\s\S]*baseline completata/);
   assert.match(agents, /stessa PR dell'implementazione/);
   assert.match(agents, /Non fondere la modifica runtime per aprire[\s\S]*seconda PR/);
   assert.match(agents, /node scripts\/publish-close\.mjs/);
   assert.match(agents, /titolo della PR usa sempre il formato Conventional Commit/);
   assert.match(agents, /coincide con il subject Conventional dell'HEAD/);
+  assert.match(agents, /passaggio da disabilitata ad abilitata/);
   assert.match(masterPlan, /richiesta affermativa di pubblicazione autorizza (?:invece )?deploy/);
   assert.match(masterPlan, /stessa PR dell'implementazione/);
   assert.match(masterPlan, /Non aprire una seconda PR di sola versione, changelog o release/);
