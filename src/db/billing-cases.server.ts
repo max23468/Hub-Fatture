@@ -118,41 +118,6 @@ function billingCaseAnomalies(
   return [...anomalies];
 }
 
-export type OperationalBillingCaseAnomaly =
-  | "TOTALS_MISMATCH"
-  | "CUSTOMER_MISMATCH"
-  | "SOURCE_CONFLICT"
-  | "ORDER_NOT_BILLABLE";
-
-/**
- * Espone soltanto le cause della preparazione che non hanno già una propria identità
- * operativa. Cliente, inventario Aruba e pagamento restano rispettivamente nei controlli
- * anagrafici/documentali e nel contatore dedicato della Dashboard.
- */
-export async function listOperationalBillingCaseAnomalies() {
-  const result = await getPool().query<{
-    id: string;
-    public_number: string;
-    customer_name: string;
-    local_order_date: string;
-    anomaly: OperationalBillingCaseAnomaly;
-    updated_at: string;
-  }>(
-    `SELECT billing_cases.id::text, billing_cases.public_number,
-            billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
-            billing_cases.local_order_date::text,
-            anomalies.anomaly::text AS anomaly,
-            billing_cases.updated_at::text
-     FROM billing_cases
-     CROSS JOIN LATERAL unnest(${openBillingCaseReasonCodesSql("false")}) AS anomalies(anomaly)
-     WHERE ${openBillingCaseSql("billing_cases")}
-       AND anomalies.anomaly = ANY($1::text[])
-     ORDER BY billing_cases.updated_at, billing_cases.id, anomalies.anomaly`,
-    [["TOTALS_MISMATCH", "CUSTOMER_MISMATCH", "SOURCE_CONFLICT", "ORDER_NOT_BILLABLE"]],
-  );
-  return result.rows;
-}
-
 interface BillingCaseDetailRow {
   id: string;
   public_number: string;
@@ -652,6 +617,7 @@ export async function listBillingCases(
     operational_pool: OpenBillingCasePool;
     reason_codes: OpenBillingCaseReasonCode[];
     customer_name: string;
+    order_references: string | null;
     order_count: string;
     total_amount: string;
   }>(
@@ -660,6 +626,11 @@ export async function listBillingCases(
             billing_cases.status, ${operationalPoolSql} AS operational_pool,
             ${reasonCodesSql} AS reason_codes,
             billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
+            string_agg(
+              orders.display_number || ' ' ||
+                CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END,
+              ' · ' ORDER BY orders.id
+            ) AS order_references,
             count(orders.id)::text AS order_count, coalesce(sum(orders.billable_amount), 0)::text AS total_amount
      FROM billing_cases
      LEFT JOIN orders ON orders.billing_case_id = billing_cases.id

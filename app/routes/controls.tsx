@@ -243,7 +243,14 @@ function ControlRow({
       </span>
       <span className="control-row__copy">
         <strong>{control.title}</strong>
-        <span>{control.detail}</span>
+        <span>
+          {control.detail}
+          {control.metadata_json.orderReferences?.length ? (
+            <strong className="control-row__order-reference">
+              {` · ${control.metadata_json.orderReferences.join(" · ")}`}
+            </strong>
+          ) : null}
+        </span>
       </span>
       <span className="control-row__age">
         <small>

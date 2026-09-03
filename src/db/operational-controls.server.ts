@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 
 import { errorCodeLabel } from "../error-label.ts";
 import { AppError } from "../errors.ts";
+import { orderReferenceLabel } from "../order-reference.ts";
 import { escapeLike, postgresDateSchema } from "../orders.ts";
 import {
   listOperationalBillingCaseAnomalies,
   type OperationalBillingCaseAnomaly,
-} from "./billing-cases.server.ts";
+} from "./operational-billing-case-controls.server.ts";
 import { listOpenActivities } from "./order-queries.server.ts";
 import { actionableConnectorFailures } from "./connector-jobs.server.ts";
 import { pendingShopifyDataRequests } from "./connector-webhooks.server.ts";
@@ -47,6 +48,7 @@ export interface OperationalControlMetadata {
   jobId?: string;
   privacyEventId?: string;
   sourceLabel?: string;
+  orderReferences?: string[];
 }
 
 export interface OperationalControl {
@@ -164,17 +166,13 @@ function fingerprint(candidate: ControlCandidate) {
     .digest("hex");
 }
 
-function providerLabel(provider: string | null) {
-  return provider === "SHOPIFY" ? "Shopify" : provider === "EBAY" ? "eBay" : "Canale";
-}
-
 function activityCandidate(
   activity: Awaited<ReturnType<typeof listOpenActivities>>["rows"][number],
 ) {
   const subject = activity.case_number
     ? `Preparazione ${activity.case_number}`
     : activity.order_number
-      ? `${providerLabel(activity.provider)} ${activity.order_number}`
+      ? orderReferenceLabel(activity.provider ?? "", activity.order_number)
       : activity.kind === "CREDIT_NOTE"
         ? "Nota di credito"
         : `Elemento ${activity.id}`;
@@ -251,7 +249,11 @@ function activityCandidate(
     consequence: definition.consequence,
     href: activity.href,
     primaryAction: definition.primaryAction,
-    metadata: { area: definition.area, facts, sourceLabel: subject },
+    metadata: {
+      area: definition.area,
+      facts,
+      sourceLabel: subject,
+    },
     detectedAt: activity.created_at,
   } satisfies ControlCandidate;
 }
@@ -310,6 +312,7 @@ function billingCaseAnomalyCandidate(
         { label: "Data ordine", value: item.local_order_date },
       ],
       sourceLabel: subject,
+      orderReferences: item.order_references,
     },
     detectedAt: item.updated_at,
   } satisfies ControlCandidate;
@@ -428,6 +431,7 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
             ? [{ label: "Da completare", value: row.missing_fields.join(", ") }]
             : []),
         ],
+        orderReferences: row.order_references,
       },
       detectedAt: row.updated_at,
     })),
@@ -673,6 +677,7 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
           matchStatus: remote.match_status,
           hasXml: remote.has_xml,
           candidates: remote.candidates,
+          orderReferences: remote.candidates.map((candidate) => candidate.label),
           facts: [
             { label: "Documento Aruba", value: label },
             { label: "Data", value: remote.document_date },

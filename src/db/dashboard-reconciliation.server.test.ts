@@ -128,6 +128,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       [{ id: cases.rows[0]!.id, operational_pool: "APPROVABLE" }],
     );
     assert.match(approvableCases.rows[0]!.first_order_created_at!, /^\d{4}-\d{2}-\d{2} /u);
+    assert.equal(approvableCases.rows[0]!.order_references, "#APPROVABLE Shopify");
     assert.deepEqual(
       (
         await orders.listBillingCases({
@@ -273,7 +274,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.deepEqual(reviewableRemote?.candidates, [
       {
         id: order.rows[0]!.id,
-        label: "Shopify #WEAK",
+        label: "#WEAK Shopify",
         guided: true,
         amountMismatch: false,
         externalEvidence: false,
@@ -352,7 +353,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.deepEqual(identityRemote?.candidates, [
       {
         id: order.rows[0]!.id,
-        label: "Shopify #WEAK",
+        label: "#WEAK Shopify",
         guided: true,
         amountMismatch: false,
         externalEvidence: false,
@@ -416,7 +417,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.deepEqual(mismatchRemote?.candidates, [
       {
         id: order.rows[0]!.id,
-        label: "Shopify #WEAK",
+        label: "#WEAK Shopify",
         guided: false,
         amountMismatch: true,
         externalEvidence: false,
@@ -438,7 +439,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     );
     assert.ok(
       mismatchControl?.metadata_json.facts?.some(
-        (fact) => fact.label === "Shopify #WEAK" && fact.value.includes("-1,00 €"),
+        (fact) => fact.label === "#WEAK Shopify" && fact.value.includes("-1,00 €"),
       ),
     );
 
@@ -542,7 +543,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.deepEqual(externalEvidenceRemote?.candidates, [
       {
         id: order.rows[0]!.id,
-        label: "Shopify #WEAK",
+        label: "#WEAK Shopify",
         guided: false,
         amountMismatch: false,
         externalEvidence: true,

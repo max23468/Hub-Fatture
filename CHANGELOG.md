@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.4
+
+- Le preparazioni mostrano direttamente il numero nativo dell’ordine e il canale di vendita nelle tabelle Ordini e Controlli, distinguendo Shopify ed eBay anche quando una preparazione raggruppa più ordini.
+
 ## 1.2.3
 
 - Dashboard, Ordini e dettaglio preparazione mostrano come pagamenti in attesa tutti gli ordini ancora fatturabili con saldo aperto, indipendentemente dal canale e dalla presenza di una preparazione; rimborsi parziali eBay già incassati restano correttamente pagati.

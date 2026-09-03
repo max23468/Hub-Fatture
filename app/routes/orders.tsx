@@ -551,7 +551,7 @@ function PreparationList({
                     >
                       {billingCase.public_number}
                     </Link>
-                    <small>{copy.orders.preparationContext}</small>
+                    <small>{billingCase.order_references ?? copy.orders.preparationContext}</small>
                   </span>
                 </td>
                 <td data-label={copy.orders.customer}>

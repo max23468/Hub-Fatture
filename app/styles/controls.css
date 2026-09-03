@@ -306,6 +306,11 @@
   white-space: nowrap;
 }
 
+.control-row__order-reference {
+  color: var(--color-text);
+  font-weight: 650;
+}
+
 .control-row__age {
   text-align: right;
 }
