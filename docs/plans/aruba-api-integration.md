@@ -9,6 +9,12 @@ Questo piano ha sostituito integralmente il precedente percorso browser-centrico
 destinazione API, i gate e la sequenza di delivery. Non autorizza deploy, modifiche nel pannello
 Aruba, callback, upload, dry-run Production o invii fiscali reali.
 
+L’estensione successiva per refresh token, informazioni account, ricerca avanzata, invio reale TD01
+e monitoraggio SdI è descritta nel
+[piano invio reale e monitoraggio Aruba](aruba-outbound-monitoring.md). Questo documento resta la
+baseline architetturale e storica dell’integrazione; il piano dedicato definisce il nuovo lavoro
+senza duplicare inbound, fallback e decisioni già consolidate.
+
 ## 0. Baseline osservata
 
 - delega dall'utenza Base all'account abilitato attiva;
