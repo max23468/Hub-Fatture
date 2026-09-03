@@ -1,6 +1,6 @@
 # Istruzioni per gli agenti
 
-`docs/Hub_Fatture_MASTER_PLAN.md` è la fonte canonica per prodotto, UX, brand, architettura, modello commerciale, test, distribuzione e roadmap. `docs/contracts/versioning.md` è la fonte canonica per la convenzione delle versioni applicative fino alla `1.0.0`. Prima di agire leggi la sezione 0 (come leggere la specifica) e le sezioni che il tuo intervento tocca:
+`docs/Hub_Fatture_MASTER_PLAN.md` è la fonte canonica per prodotto, UX, brand, architettura, modello commerciale, test, distribuzione e roadmap. `docs/contracts/versioning.md` è la fonte canonica per il versioning applicativo, incluse la serie stabile `1.x` e le tranche successive. Prima di agire leggi la sezione 0 (come leggere la specifica) e le sezioni che il tuo intervento tocca:
 
 | Intervento                                   | Sezioni      |
 | -------------------------------------------- | ------------ |
@@ -14,7 +14,9 @@
 | Test e criteri di uscita                     | 22, 31       |
 | Roadmap, milestone, decisioni rinviate       | 23, 24, 30   |
 
-In dubbio sulla sezione competente, leggi l'indice del documento invece di leggerlo tutto. Il perimetro confermato (3) e le decisioni consolidate (4) valgono sempre: verificali quando una richiesta sembra uscirne.
+In dubbio sulla sezione competente, leggi l'indice del documento invece di leggerlo tutto. Il perimetro confermato (3) e le decisioni consolidate (4) valgono sempre: verificali quando una richiesta sembra uscirne. Per procedure operative usa il runbook corrente individuato tramite `docs/INDEX.md`; per il ciclo Aruba consulta anche `docs/plans/aruba-api-integration.md` e, quando l'intervento riguarda trasmissione reale o monitoraggio SdI, `docs/plans/aruba-outbound-monitoring.md`.
+
+La roadmap M0-M14 e la Definition of Done della `1.0.0` sono una baseline completata. Le attività correnti sono manutenzione o tranche esplicitamente approvate: non inventare nuove milestone, non riaprire quelle concluse e non dedurre lavoro dalla sola cronologia della roadmap.
 
 - Rispondi sempre in italiano, con accenti e apostrofi corretti.
 - Non sovrascrivere modifiche non tue.
@@ -23,10 +25,11 @@ In dubbio sulla sezione competente, leggi l'indice del documento invece di legge
 - Crea i worktree con `scripts/create-worktree.sh <branch> <percorso> [base]`: il comando prepara anche le dipendenze. Dopo una modifica a `package-lock.json`, esegui `npm run worktree:dependencies` prima dei gate.
 - Decidi autonomamente naming, formattazione e default di routine entro i confini del Master Plan.
 - Chiedi prima di azioni distruttive, deploy o release non già autorizzati da
-  una richiesta di pubblicazione, invii Aruba reali, decisioni fiscali o
-  modifiche materiali allo scope.
+  una richiesta di pubblicazione, attivazione degli invii Production, upload o
+  invii Aruba reali, e-mail reali, modifiche all'account del provider, decisioni
+  fiscali o modifiche materiali allo scope.
 - Non aggiungere dipendenze, servizi o tool non approvati dal Master Plan.
-- Applica `docs/contracts/versioning.md` a ogni bump: fino alla 1.0 non introdurre treni, prerelease o salti di minor non previsti dalla policy.
+- Applica `docs/contracts/versioning.md` a ogni bump: non prenotare versioni, non introdurre prerelease e distingui una patch compatibile da una nuova tranche `MINOR` esplicitamente autorizzata e da una nuova generazione `MAJOR`.
 - Fuori dalla roadmap del Master Plan, descrivi capacità e gate osservabili senza duplicare date, branch, conteggi di test o sigle di milestone; lo stato corrente deriva dall’HEAD e dalla CI.
 - La sigla `HF` è interna: non deve comparire nel frontend o in contenuti destinati all’utente.
 - La repository è pubblica ma proprietaria: non aggiungere `LICENSE`, dati reali, segreti o configurazioni sensibili.
@@ -79,12 +82,13 @@ non esiste un branch/worktree temporaneo, esegue comunque la rilettura manuale
 equivalente di `main`, branch, worktree e stash e ne dichiara l'esito. Se un
 passaggio non è applicabile, lo dichiara e prosegue con gli altri. La richiesta
 affermativa di pubblicazione vale come autorizzazione a PR, merge, deploy tecnico
-e release previsti dal ciclo, senza una seconda conferma. Non autorizza
-pubblicazione di temi Shopify live, submission Shopify App Store, billing o
-nuove attivazioni produttive, TestFlight o App Store, invii Aruba, email o
-scansioni reali, né aggiornamenti
-Notion: queste azioni richiedono una richiesta esplicita separata. Una richiesta
-riferita soltanto a una di queste azioni non avvia la pubblicazione della
-repository. Non dichiarare `pubblicato` finché il ciclo applicabile e la
-rilettura finale di PR, check, deploy, release e stato Git non sono completi;
-l'esecuzione riuscita del gate di chiusura applicabile è parte dello stato Git.
+e release previsti dal ciclo, senza una seconda conferma. Un deploy ordinario
+preserva la modalità invii Production già autorizzata, ma `Pubblica` non
+autorizza il passaggio da disabilitata ad abilitata, upload o invii Aruba reali,
+e-mail reali, modifiche all'account Aruba, restore o eliminazioni distruttive,
+né decisioni fiscali: queste azioni richiedono una richiesta esplicita separata.
+Una richiesta riferita soltanto a una di queste azioni non avvia la
+pubblicazione della repository. Non dichiarare `pubblicato` finché il ciclo
+applicabile e la rilettura finale di PR, check, deploy, release e stato Git non
+sono completi; l'esecuzione riuscita del gate di chiusura applicabile è parte
+dello stato Git.
