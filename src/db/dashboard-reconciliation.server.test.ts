@@ -82,6 +82,11 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
          ('SHOPIFY', 'dashboard-test', 'pending-review', '#PENDING', now(), now(),
           ${romeTodaySql} - 3, 'EUR', 1000, 'PENDING', 'FULFILLED', 'NEEDS_REVIEW', $1, $2, '{}',
           '{"orderReviewRequired":true,"deferredReviewRequired":false,"totalsReconciled":true,
+            "customerSnapshot":{"canonicalProfile":{}}}'),
+         ('SHOPIFY', 'dashboard-test', 'pending-unprepared', '#PENDING-UNPREPARED', now(), now(),
+          ${romeTodaySql} - 4, 'EUR', 1000, 'PENDING', 'UNFULFILLED', 'WAITING_FOR_TRIGGER',
+          $1, NULL, '{}',
+          '{"orderReviewRequired":false,"deferredReviewRequired":false,"totalsReconciled":true,
             "customerSnapshot":{"canonicalProfile":{}}}')`,
       [customer.rows[0]!.id, cases.rows[3]!.id, cases.rows[0]!.id],
     );
@@ -94,7 +99,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     const initialSummary = await orders.dashboardSummary();
     assert.equal(initialSummary.ready_cases, "1");
     assert.equal(initialSummary.review_cases, "2");
-    assert.equal(initialSummary.pending_cases, "1");
+    assert.equal(initialSummary.pending_payments, "2");
     assert.equal(await orders.getOpenBillingCaseProjection(cases.rows[4]!.id, false), null);
     assert.deepEqual(
       (
@@ -103,6 +108,17 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
         })
       ).rows.map(({ id, operational_pool }) => ({ id, operational_pool })),
       [{ id: cases.rows[3]!.id, operational_pool: "PENDING_PAYMENT" }],
+    );
+    assert.deepEqual(
+      (
+        await orders.listOrders({
+          unpreparedPendingPayments: true,
+        })
+      ).rows.map(({ display_number, billing_case_id }) => ({
+        display_number,
+        billing_case_id,
+      })),
+      [{ display_number: "#PENDING-UNPREPARED", billing_case_id: null }],
     );
     const approvableCases = await orders.listBillingCases({
       operationalPool: "APPROVABLE",

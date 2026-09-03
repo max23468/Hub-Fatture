@@ -342,6 +342,12 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
   assert.equal(refundedMapped.refunds[0]?.status, "AMBIGUOUS");
   assert.equal(refundedMapped.refunds[0]?.amount, null);
 
+  const partiallyRefunded = structuredClone(privateOrder) as {
+    orderPaymentStatus: string;
+  };
+  partiallyRefunded.orderPaymentStatus = "PARTIALLY_REFUNDED";
+  assert.equal(mapEbayOrder(partiallyRefunded, "botCF").paymentStatus, "PAID");
+
   const twoPartName = structuredClone(privateOrder) as {
     fulfillmentStartInstructions: Array<{
       shippingStep: { shipTo: { fullName: string } };

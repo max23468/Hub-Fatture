@@ -428,7 +428,7 @@ export function mapEbayOrder(payload: unknown, accountReference: string): OrderI
     shippingAmount,
     paymentStatus: ["FULLY_REFUNDED", "REFUNDED"].includes(paymentStatus)
       ? "REFUNDED"
-      : paymentStatus === "PAID"
+      : ["PAID", "PARTIALLY_REFUNDED"].includes(paymentStatus)
         ? "PAID"
         : "PENDING",
     fulfillmentStatus:

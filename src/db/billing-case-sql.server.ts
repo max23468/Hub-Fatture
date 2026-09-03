@@ -32,6 +32,10 @@ export const pendingPaymentSql = (alias = "orders") =>
       WHERE paid_payment.order_id = ${alias}.id AND paid_payment.status = 'PAID'
     ), 0) < ${alias}.gross_amount)`;
 
+/** Ordini ancora fatturabili con incasso aperto e senza una preparazione che li rappresenti. */
+export const unpreparedPendingPaymentSql = (alias = "orders") =>
+  `${alias}.billing_case_id IS NULL AND ${orderBillableSql(alias)} AND ${pendingPaymentSql(alias)}`;
+
 /** Le code Dashboard sono disgiunte: il pagamento pendente ha precedenza sulla revisione. */
 export const billingCasePendingPaymentSql = (alias = "billing_cases") => `EXISTS (
   SELECT 1 FROM orders AS pending_case_order

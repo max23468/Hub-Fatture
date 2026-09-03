@@ -5,20 +5,13 @@ import {
   os,
   path,
   removeMigrationsFrom,
+  migrationsFrom,
   rm,
   runMigrations,
   temporaryDatabase,
   test,
   withClient,
   ARUBA_FOREIGN_CONSUMER_MATCH_REPLAY,
-  ARUBA_ERROR_RETRY,
-  SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
-  ARUBA_IDENTITY_EVIDENCE_REPLAY,
-  ARUBA_HISTORICAL_API_RECOVERY,
-  OPERATIONAL_WORKFLOW_1_1,
-  INVOICE_SOURCE_PREPARATIONS,
-  EBAY_CARE_OF_ADDRESS_REPLAY,
-  EBAY_PAYMENT_TIMESTAMP_REPLAY,
 } from "./support.ts";
 
 test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
@@ -40,17 +33,10 @@ test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
       );
     });
 
-    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
-      ARUBA_FOREIGN_CONSUMER_MATCH_REPLAY,
-      ARUBA_ERROR_RETRY,
-      SHOPIFY_PRIVATE_RECIPIENT_REPLAY,
-      ARUBA_IDENTITY_EVIDENCE_REPLAY,
-      ARUBA_HISTORICAL_API_RECOVERY,
-      OPERATIONAL_WORKFLOW_1_1,
-      INVOICE_SOURCE_PREPARATIONS,
-      EBAY_CARE_OF_ADDRESS_REPLAY,
-      EBAY_PAYMENT_TIMESTAMP_REPLAY,
-    ]);
+    assert.deepEqual(
+      await runMigrations({ connectionString: database.connectionString }),
+      migrationsFrom(ARUBA_FOREIGN_CONSUMER_MATCH_REPLAY),
+    );
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
         (

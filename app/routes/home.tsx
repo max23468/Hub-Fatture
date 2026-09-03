@@ -94,7 +94,7 @@ export default function Home() {
       primary: false,
     },
     {
-      value: Number(summary.pending_cases),
+      value: Number(summary.pending_payments),
       label: copy.dashboard.pendingPayments,
       detail: copy.dashboard.pendingDetail,
       to: "/ordini?vista=attesa",

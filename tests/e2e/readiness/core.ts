@@ -8,6 +8,7 @@ import { latestMigrationFileName } from "../../../src/migration-files.ts";
 import { verifyHistoricalAndCreditNoteFlow } from "./historical-credit-note-flow.ts";
 import { verifyConfiguredArubaApiUi } from "./configured-aruba-api-ui.ts";
 import { verifyFiscalProfileApi } from "./fiscal-profile-api.ts";
+import { expectPreparedPendingOrder, expectUnpreparedPendingOrder } from "./pending-payments.ts";
 import {
   databaseUrl,
   expectApprovalLabelsReadable,
@@ -790,21 +791,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "In attesa" }).click();
-  await expect(page.getByRole("heading", { name: "Nessun pagamento in attesa" })).toBeVisible();
-  await expect(page.getByText(/filtr[oi] attiv[oi]/)).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Azzera filtri" })).toHaveCount(0);
+  await expectUnpreparedPendingOrder(page);
   await page.goto("/ordini?stato=WAITING_FOR_TRIGGER");
   await page.getByRole("link", { name: "Shopify #S-1002", exact: true }).click();
   await page.getByRole("button", { name: "Prepara la fattura ora" }).click();
   await expect(page.getByRole("heading", { name: /^Preparazione fattura \d{6}$/ })).toBeVisible();
   await expect(page.getByText("Preparazione anticipata richiesta")).toBeVisible();
   await page.goto("/ordini?vista=attesa");
-  await expect(
-    page.getByRole("heading", { name: "Preparazioni con pagamento in attesa" }),
-  ).toBeVisible();
-  const pendingPaymentCell = page.getByRole("cell").filter({ hasText: "Pagamento in attesa" });
-  await expect(pendingPaymentCell).toBeVisible();
-  await expect(pendingPaymentCell).toContainText("Pagamento non ancora acquisito");
+  await expectPreparedPendingOrder(page);
 
   const connectionClient = new pg.Client({ connectionString: databaseUrl });
   await connectionClient.connect();

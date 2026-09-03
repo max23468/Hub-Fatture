@@ -344,9 +344,9 @@ export async function run(context: OrdersTestContext) {
   const cancelled = structuredClone(fixture[2]);
   cancelled.externalOrderId = "shop-order-cancelled";
   cancelled.cancelledAt = "2026-08-08T11:00:00Z";
-  const pendingBeforeCancelled = (await orders.dashboardSummary()).pending_cases;
+  const pendingBeforeCancelled = (await orders.dashboardSummary()).pending_payments;
   await orders.importOrders([cancelled], { id: 1, requestId: "test-cancelled" });
-  assert.equal((await orders.dashboardSummary()).pending_cases, pendingBeforeCancelled);
+  assert.equal((await orders.dashboardSummary()).pending_payments, pendingBeforeCancelled);
   const cancelledId = (
     await database
       .getPool()
