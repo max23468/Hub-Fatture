@@ -48,6 +48,7 @@ const EBAY_PUBLIC_KEY_REQUESTS_PER_WINDOW = 30;
 const EBAY_TRADING_SITE_ID = "101";
 const EBAY_TRADING_MAX_PAGES = 20;
 const EBAY_TRADING_PAGE_SIZE = 100;
+const EBAY_TRADING_MAX_MOD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const EBAY_TRADING_XML_MAX_BYTES = 2 * 1024 * 1024;
 const EBAY_TRADING_XML_MAX_DEPTH = 64;
 const EBAY_TRADING_XML_MAX_ELEMENTS = 20_000;
@@ -690,6 +691,34 @@ export function ebayTradingOrderIsActive(payload: unknown) {
   return xmlText(record(payload).OrderStatus) === "Active";
 }
 
+function ebayTradingOrderIsCancelled(payload: unknown) {
+  return xmlText(record(payload).OrderStatus) === "Cancelled";
+}
+
+export function ebayTradingOrderIsImportable(payload: unknown) {
+  return ebayTradingOrderIsActive(payload) || ebayTradingOrderIsCancelled(payload);
+}
+
+export function ebayTradingModificationWindows(start: string, end: string) {
+  const startTime = Date.parse(start);
+  const endTime = Date.parse(end);
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime > endTime) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  const windows: Array<{ start: string; end: string }> = [];
+  let windowStart = startTime;
+  while (windowStart <= endTime) {
+    const windowEnd = Math.min(windowStart + EBAY_TRADING_MAX_MOD_WINDOW_MS, endTime);
+    windows.push({
+      start: new Date(windowStart).toISOString(),
+      end: new Date(windowEnd).toISOString(),
+    });
+    if (windowEnd === endTime) break;
+    windowStart = windowEnd;
+  }
+  return windows;
+}
+
 function tradingTransactionPending(transaction: Record<string, unknown>) {
   const status = record(transaction.Status);
   return !(
@@ -699,8 +728,19 @@ function tradingTransactionPending(transaction: Record<string, unknown>) {
   );
 }
 
+export function ebayTradingPendingLineId(payload: unknown) {
+  const transaction = record(payload);
+  if (!tradingTransactionPending(transaction)) return null;
+  const lineId = xmlText(transaction.OrderLineItemID);
+  if (!lineId) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  return lineId;
+}
+
 function tradingOrders(response: Record<string, unknown>) {
-  return xmlValues(record(response.OrderArray).Order).map(record).filter(ebayTradingOrderIsActive);
+  return xmlValues(record(response.OrderArray).Order).flatMap((value) => {
+    const order = record(value);
+    return ebayTradingOrderIsActive(order) ? [order] : [];
+  });
 }
 
 function tradingTransactions(response: Record<string, unknown>) {
@@ -709,6 +749,7 @@ function tradingTransactions(response: Record<string, unknown>) {
 
 export function mapEbayTradingOrder(payload: unknown, accountReference: string): OrderInput {
   const order = record(payload);
+  const orderStatus = xmlText(order.OrderStatus);
   const orderId = xmlText(order.OrderID) ?? xmlText(order.ExtendedOrderID);
   const transactions = xmlValues(record(order.TransactionArray).Transaction).map(record);
   const total = xmlMoney(order.Total);
@@ -716,7 +757,14 @@ export function mapEbayTradingOrder(payload: unknown, accountReference: string):
     xmlText(order.CreatedTime) ??
     transactions.map((item) => xmlText(item.CreatedDate)).find(Boolean);
   const updatedAt = xmlText(record(order.CheckoutStatus).LastModifiedTime) ?? createdAt;
-  if (!orderId || !transactions.length || !total || !createdAt || !updatedAt) {
+  if (
+    !orderId ||
+    !transactions.length ||
+    !total ||
+    !createdAt ||
+    !updatedAt ||
+    !["Active", "Cancelled"].includes(orderStatus ?? "")
+  ) {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   }
   const shipping = xmlMoney(record(order.ShippingServiceSelected).ShippingServiceCost);
@@ -746,8 +794,8 @@ export function mapEbayTradingOrder(payload: unknown, accountReference: string):
     shippingAmount: shipping?.value ?? "0.00",
     paymentStatus: "PENDING",
     fulfillmentStatus: "UNFULFILLED",
-    cancelledAt: null,
-    sourceReviewRequired: true,
+    cancelledAt: orderStatus === "Cancelled" ? updatedAt : null,
+    sourceReviewRequired: orderStatus === "Active",
     sourceIdentityIds,
     sourceSnapshot: { sourceApi: "EBAY_TRADING", call: "GetOrders", payload: order },
     customer: {
@@ -834,24 +882,24 @@ async function fetchEbayTradingPendingOrders(
   }
 
   const missingLineIds = new Set<string>();
-  for (let page = 1; page <= EBAY_TRADING_MAX_PAGES; page += 1) {
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop
-    const response = await ebayTradingCall(environment, token, "GetSellerTransactions", {
-      DetailLevel: "ReturnAll",
-      IncludeContainingOrder: "true",
-      ModTimeFrom: start,
-      ModTimeTo: end,
-      Pagination: { EntriesPerPage: String(EBAY_TRADING_PAGE_SIZE), PageNumber: String(page) },
-    });
-    for (const transaction of tradingTransactions(response)) {
-      const lineId = xmlText(transaction.OrderLineItemID);
-      if (tradingTransactionPending(transaction) && lineId && !activeLineIds.has(lineId)) {
-        missingLineIds.add(lineId);
+  for (const modificationWindow of ebayTradingModificationWindows(start, end)) {
+    for (let page = 1; page <= EBAY_TRADING_MAX_PAGES; page += 1) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
+      const response = await ebayTradingCall(environment, token, "GetSellerTransactions", {
+        DetailLevel: "ReturnAll",
+        IncludeContainingOrder: "true",
+        ModTimeFrom: modificationWindow.start,
+        ModTimeTo: modificationWindow.end,
+        Pagination: { EntriesPerPage: String(EBAY_TRADING_PAGE_SIZE), PageNumber: String(page) },
+      });
+      for (const transaction of tradingTransactions(response)) {
+        const lineId = ebayTradingPendingLineId(transaction);
+        if (lineId && !activeLineIds.has(lineId)) missingLineIds.add(lineId);
       }
-    }
-    if (xmlText(response.HasMoreTransactions) !== "true") break;
-    if (page === EBAY_TRADING_MAX_PAGES) {
-      throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+      if (xmlText(response.HasMoreTransactions) !== "true") break;
+      if (page === EBAY_TRADING_MAX_PAGES) {
+        throw new AppError("PROVIDER_RESPONSE_TOO_LARGE", 502);
+      }
     }
   }
 
@@ -872,15 +920,32 @@ async function fetchEbayTradingPendingOrders(
         const lineId = xmlText(transaction.OrderLineItemID);
         if (lineId) missingLineIds.delete(lineId);
       }
-    }
-    for (const order of targetedOrders
-      .filter(ebayTradingOrderIsActive)
-      .map((item) => mapEbayTradingOrder(item, accountReference))) {
+      if (!ebayTradingOrderIsImportable(targeted)) continue;
+      const order = mapEbayTradingOrder(targeted, accountReference);
       observed.set(order.externalOrderId, order);
     }
   }
   if (missingLineIds.size) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
   return [...observed.values()];
+}
+
+export function mergeEbayOrderObservations(
+  tradingOrders: OrderInput[],
+  fulfillmentOrders: OrderInput[],
+) {
+  const canonicalIdentityIds = new Set(
+    fulfillmentOrders.flatMap((order) => order.sourceIdentityIds),
+  );
+  const provisionalOrders = tradingOrders.filter((order) => {
+    const matchedIdentities = order.sourceIdentityIds.filter((identity) =>
+      canonicalIdentityIds.has(identity),
+    ).length;
+    if (matchedIdentities > 0 && matchedIdentities !== order.sourceIdentityIds.length) {
+      throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+    }
+    return matchedIdentities === 0;
+  });
+  return { orders: [...provisionalOrders, ...fulfillmentOrders], provisionalOrders };
 }
 
 export function ebayFulfillmentHeaders(token: string, marketplaceId?: string) {
@@ -962,17 +1027,12 @@ async function fetchOrdersBatch(
     }
     url = ebayNextUrl(environment, response.next);
   }
-  const canonicalLineIds = new Set(
-    fulfillmentOrders.flatMap((order) => order.lines.map((line) => line.externalLineId)),
-  );
-  const provisionalOrders = tradingOrders.filter(
-    (order) => !order.lines.some((line) => canonicalLineIds.has(line.externalLineId)),
-  );
+  const merged = mergeEbayOrderObservations(tradingOrders, fulfillmentOrders);
   return {
     connection,
     end,
-    orders: [...provisionalOrders, ...fulfillmentOrders],
-    pendingCount: provisionalOrders.length,
+    orders: merged.orders,
+    pendingCount: merged.provisionalOrders.length,
     continuation: url ? { kind: "EBAY_ORDERS_PAGE" as const, end, next: url } : null,
   };
 }
@@ -987,9 +1047,11 @@ export async function syncEbayOrders(job?: ClaimedJob) {
   if (await historyImportPending("EBAY")) throw new AppError("CONFLICT_REVISION", 409);
   const cursor = await readCursor("EBAY");
   const start = cursor.overlapFrom ?? new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const currentContinuation = parseEbaySyncContinuation(cursor.cursor);
   const { end, orders, pendingCount, continuation } = await fetchOrdersBatch(
     start,
-    parseEbaySyncContinuation(cursor.cursor),
+    currentContinuation,
+    !currentContinuation,
   );
   if (job && !(await jobLeaseCurrent(job))) throw new AppError("CONFLICT_REVISION", 409);
   if (orders.length) {

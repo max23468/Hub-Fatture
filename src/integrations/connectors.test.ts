@@ -11,10 +11,14 @@ import {
   ebayFulfillmentHeaders,
   ebayListingMarketplaceId,
   ebayNextUrl,
+  ebayTradingModificationWindows,
+  ebayTradingOrderIsImportable,
   ebayTradingOrderIsActive,
+  ebayTradingPendingLineId,
   ebayTradingHeaders,
   mapEbayOrder,
   mapEbayTradingOrder,
+  mergeEbayOrderObservations,
   parseEbayTradingResponse,
   parseEbaySyncContinuation,
 } from "./ebay.server.ts";
@@ -111,6 +115,26 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
   assert.equal(
     orderReviewRequired(businessMapped, true, decimalToCents(businessMapped.total)),
     false,
+  );
+  assert.equal(ebayTradingOrderIsImportable({ OrderStatus: "Cancelled" }), true);
+  assert.equal(ebayTradingOrderIsImportable({ OrderStatus: "Completed" }), false);
+});
+
+test("eBay Trading non ignora una transazione pendente priva di identità stabile", () => {
+  const pendingStatus = {
+    Status: {
+      CheckoutStatus: "CheckoutIncomplete",
+      CompleteStatus: "Incomplete",
+      eBayPaymentStatus: "PaymentInProcess",
+    },
+  };
+  assert.equal(
+    ebayTradingPendingLineId({ ...pendingStatus, OrderLineItemID: "item-1-transaction-1" }),
+    "item-1-transaction-1",
+  );
+  assert.throws(
+    () => ebayTradingPendingLineId(pendingStatus),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
   );
 });
 
@@ -646,12 +670,61 @@ test("eBay Trading importa l’acquisto attivo con identità di riga stabile", (
     }),
     false,
   );
+  const cancelledOrder = structuredClone(
+    (response.OrderArray as { Order: Record<string, unknown> }).Order,
+  );
+  cancelledOrder.OrderStatus = "Cancelled";
+  const cancelledMapped = mapEbayTradingOrder(cancelledOrder, "botCF");
+  assert.equal(cancelledMapped.cancelledAt, cancelledMapped.updatedAt);
+  assert.equal(cancelledMapped.sourceReviewRequired, false);
   assert.throws(
     () =>
       parseEbayTradingResponse(
         "GetOrders",
         '<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><GetOrdersResponse><Ack>Success</Ack></GetOrdersResponse>',
       ),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+});
+
+test("eBay Trading suddivide le riletture modificate nel limite di trenta giorni", () => {
+  assert.deepEqual(
+    ebayTradingModificationWindows("2026-06-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z"),
+    [
+      { start: "2026-06-01T00:00:00.000Z", end: "2026-07-01T00:00:00.000Z" },
+      { start: "2026-07-01T00:00:00.000Z", end: "2026-07-31T00:00:00.000Z" },
+      { start: "2026-07-31T00:00:00.000Z", end: "2026-08-01T00:00:00.000Z" },
+    ],
+  );
+  assert.throws(
+    () => ebayTradingModificationWindows("2026-08-02T00:00:00.000Z", "2026-08-01T00:00:00.000Z"),
+    (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
+  );
+});
+
+test("eBay sopprime l’osservazione Trading usando l’identità stabile completa", async () => {
+  const response = parseEbayTradingResponse("GetOrders", tradingActiveOrderXml);
+  const provisional = mapEbayTradingOrder(
+    (response.OrderArray as { Order: unknown }).Order,
+    "botCF",
+  );
+  const [payload] = await fixture("ebay-orders.json");
+  const canonical = mapEbayOrder(payload, "botCF");
+  canonical.sourceIdentityIds = [...provisional.sourceIdentityIds];
+  canonical.lines = provisional.lines.map((_, index) => ({
+    ...canonical.lines[0]!,
+    externalLineId: `fulfillment-line-${index + 1}`,
+  }));
+
+  assert.deepEqual(mergeEbayOrderObservations([provisional], [canonical]), {
+    orders: [canonical],
+    provisionalOrders: [],
+  });
+
+  const partial = structuredClone(canonical);
+  partial.sourceIdentityIds[1] = "item-unrelated-transaction-unrelated";
+  assert.throws(
+    () => mergeEbayOrderObservations([provisional], [partial]),
     (error) => error instanceof AppError && error.code === "PROVIDER_RESPONSE_INVALID",
   );
 });

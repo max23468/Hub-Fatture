@@ -86,6 +86,47 @@ export async function run(context: OrdersTestContext) {
     "1",
   );
 
+  const cancellable = structuredClone(provisional);
+  cancellable.externalOrderId = "ebay-active-then-cancelled";
+  cancellable.displayNumber = cancellable.externalOrderId;
+  cancellable.lines[0].externalLineId = "ebay-cancelled-stable-line";
+  cancellable.sourceIdentityIds = [cancellable.lines[0].externalLineId];
+  await orders.importOrders([cancellable], {
+    id: 1,
+    requestId: "test-ebay-cancellable-provisional",
+  });
+  const pendingBeforeCancellation = Number((await orders.dashboardSummary()).pending_payments);
+  const cancelled = structuredClone(cancellable);
+  cancelled.updatedAt = "2026-09-03T10:00:00Z";
+  cancelled.cancelledAt = cancelled.updatedAt;
+  cancelled.sourceReviewRequired = false;
+  cancelled.sourceSnapshot = {
+    sourceApi: "EBAY_TRADING",
+    call: "GetOrders",
+    payload: { OrderID: cancelled.externalOrderId, OrderStatus: "Cancelled" },
+  };
+  assert.deepEqual(
+    await orders.importOrders([cancelled], {
+      id: 1,
+      requestId: "test-ebay-provisional-cancelled",
+    }),
+    { imported: 0, updated: 1, ignored: 0 },
+  );
+  const cancelledRow = await database.getPool().query<{
+    cancelled_at: string | null;
+    trigger_status: string;
+  }>(
+    `SELECT cancelled_at::text, trigger_status
+     FROM orders WHERE external_order_id = $1`,
+    [cancelled.externalOrderId],
+  );
+  assert.ok(cancelledRow.rows[0]!.cancelled_at);
+  assert.equal(cancelledRow.rows[0]!.trigger_status, "CANCELLED_NO_DOCUMENT");
+  assert.equal(
+    Number((await orders.dashboardSummary()).pending_payments),
+    pendingBeforeCancellation - 1,
+  );
+
   const collisionA = structuredClone(provisional);
   collisionA.externalOrderId = "ebay-collision-a";
   collisionA.updatedAt = "2026-09-03T09:00:00Z";
