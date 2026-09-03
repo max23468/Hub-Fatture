@@ -23,6 +23,10 @@ export const errorCatalog = {
     "Questa preparazione non è più modificabile nello stato in cui si trova.",
   DOCUMENT_APPROVAL_FORBIDDEN: "Solo il titolare può approvare e numerare un documento.",
   DOCUMENT_FISCAL_PROFILE_MISSING: "Configura e approva il profilo fiscale prima di proseguire.",
+  FISCAL_PROFILE_CONFIRMATION_REQUIRED:
+    "Conferma che gli XML provengono da documenti accettati dallo SdI.",
+  FISCAL_PROFILE_SOURCE_INVALID:
+    "Gli XML non rispettano il contratto previsto per il profilo fiscale.",
   DOCUMENT_INVALID: "La bozza fiscale contiene dati incompleti o non validi.",
   DOCUMENT_NOT_APPROVABLE: "La preparazione non è pronta per l’approvazione.",
   DOCUMENT_PROJECTION_STALE: "La proiezione fiscale è cambiata. Rileggila prima di approvare.",
@@ -76,6 +80,7 @@ export const errorCatalog = {
   ARUBA_PREFLIGHT_REQUIRED:
     "È richiesto un controllo Aruba aggiornato. Completa la verifica API e riprova entro cinque minuti.",
   INVALID_CONTENT_TYPE: "Formato della richiesta non supportato.",
+  METHOD_NOT_ALLOWED: "Metodo non supportato.",
   REQUEST_BODY_TOO_LARGE: "La richiesta supera il limite consentito.",
   REQUEST_ORIGIN_INVALID: "Origine della richiesta non valida.",
   REQUEST_TIMEOUT: "La richiesta ha impiegato troppo tempo.",

@@ -1,5 +1,5 @@
 import { getConfig } from "./config.server.ts";
-import { AppError } from "./errors.ts";
+import { AppError, type ErrorCode } from "./errors.ts";
 
 export const FORM_BODY_LIMIT = 16 * 1024;
 export const FORM_BODY_TIMEOUT_MS = 5_000;
@@ -131,7 +131,11 @@ export function readArubaInventoryJson(request: Request): Promise<unknown> {
 
 export async function readMultipartForm(
   request: Request,
-  { maxBytes, timeoutMs = FORM_BODY_TIMEOUT_MS }: { maxBytes: number; timeoutMs?: number },
+  {
+    maxBytes,
+    timeoutMs = FORM_BODY_TIMEOUT_MS,
+    invalidCode = "ARUBA_IMPORT_INVALID",
+  }: { maxBytes: number; timeoutMs?: number; invalidCode?: ErrorCode },
 ): Promise<FormData> {
   const config = getConfig();
   const origin = request.headers.get("origin");
@@ -148,6 +152,6 @@ export async function readMultipartForm(
       headers: { "Content-Type": contentType },
     }).formData();
   } catch {
-    throw new AppError("ARUBA_IMPORT_INVALID", 422);
+    throw new AppError(invalidCode, 422);
   }
 }

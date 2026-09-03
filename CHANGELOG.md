@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0
+
+- Il profilo fiscale applicativo può essere letto e aggiornato tramite un’API interna autenticata usando XML FatturaPA provenienti da documenti SdI accettati, con conferma esplicita, validazione offline, limiti e audit critico atomico.
+- L’attivazione è condivisa con la CLI, impedisce regressioni della numerazione e scritture concorrenti obsolete e rende idempotente il retry dello stesso contenuto senza creare versioni o audit duplicati.
+
 ## 1.1.0
 
 - Dashboard, Ordini, dettaglio preparazione e Controlli condividono una proiezione operativa canonica con pool mutuamente esclusivi e cause osservabili; l’approvazione continua a rileggere i gate fiscali sotto lock.

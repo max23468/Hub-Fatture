@@ -503,6 +503,8 @@ HF:
 
 - importa e normalizza i dati;
 - applica un unico profilo fiscale preconfigurato;
+- attiva nuove versioni del profilo soltanto da XML SdI accettati, tramite il servizio condiviso da
+  CLI e API interna autenticata;
 - prepara le righe semplificate;
 - genera l'XML completo;
 - esegue controlli interni e validazione XSD locale;
@@ -1421,7 +1423,8 @@ Espone soltanto il registro attività ricercabile e non modificabile. Non contie
 - Trigger globale bozza: pagamento/evasione completa.
 - Modalità invio copia: automatica/manuale.
 - Fuso orario: Europe/Rome, non modificabile nella 1.x salvo reale necessità.
-- Profilo fiscale: sola lettura dopo audit, con versione.
+- Profilo fiscale: sola lettura nell’interfaccia dopo audit, con versione; l’aggiornamento tecnico è
+  disponibile soltanto tramite CLI o API interna autenticata, da XML SdI accettati e con audit.
 - Numerazione/sezionale: protetta e configurata dopo audit.
 - Connessione Aruba: identità verificata, stato iniziale `In pausa`, attivazione della sincronizzazione, rotazione/revoca credenziale e due arresti indipendenti.
 - Modalità Aruba globale e rigida: `Crea solo il documento` come default, `Chiedi conferma prima dell’invio` o `Invio automatico dopo approvazione`.
