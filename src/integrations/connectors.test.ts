@@ -638,7 +638,9 @@ test("il contratto eBay conserva il tipo dichiarato e blocca l'importo netto del
 });
 
 test("eBay Trading importa l’acquisto attivo con identità di riga stabile", () => {
-  assert.ok(!EBAY_SCOPE.split(" ").includes("https://api.ebay.com/oauth/api_scope"));
+  for (const scope of EBAY_SCOPE.split(" ")) {
+    assert.notEqual(new URL(scope).pathname, "/oauth/api_scope");
+  }
   assert.equal(EBAY_TRADING_API_COMPATIBILITY_LEVEL, "1475");
   assert.deepEqual(ebayTradingHeaders("GetOrders", "token-test"), {
     "Content-Type": "text/xml; charset=utf-8",
