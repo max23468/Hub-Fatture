@@ -21,6 +21,8 @@ interface DocumentListRow {
   id: string;
   billing_case_id: string;
   public_number: string;
+  source_billing_case_id: string | null;
+  source_public_number: string | null;
   kind: "INVOICE" | "CREDIT_NOTE";
   origin: "HUB" | "ARUBA_HISTORY";
   status: "DRAFT" | "APPROVED";
@@ -38,6 +40,8 @@ interface DocumentListRow {
 
 const documentRowsSql = `
   SELECT documents.id, documents.billing_case_id, billing_cases.public_number,
+         documents.source_billing_case_id,
+         source_billing_cases.public_number AS source_public_number,
          documents.kind, documents.origin, documents.status,
          documents.series, documents.fiscal_year, documents.fiscal_number,
          documents.document_date::text, documents.total_amount, documents.xml_sha256,
@@ -52,6 +56,8 @@ const documentRowsSql = `
           WHERE document_orders.document_id = documents.id LIMIT 1) AS historical_order_id
   FROM documents
   JOIN billing_cases ON billing_cases.id = documents.billing_case_id
+  LEFT JOIN billing_cases AS source_billing_cases
+    ON source_billing_cases.id = documents.source_billing_case_id
   LEFT JOIN LATERAL (
     SELECT aruba_batches.id, aruba_batches.status
     FROM aruba_batch_documents
@@ -90,6 +96,7 @@ export async function listDocuments(filters: DocumentListFilters = {}) {
      SELECT * FROM document_rows
      WHERE ($1::text IS NULL OR customer_name ILIKE $1 ESCAPE '\\'
               OR public_number ILIKE $1 ESCAPE '\\'
+              OR source_public_number ILIKE $1 ESCAPE '\\'
               OR fiscal_number::text ILIKE $1 ESCAPE '\\'
               OR concat_ws(' ', series, lpad(fiscal_number::text, 4, '0'),
                    right(fiscal_year::text, 2)) ILIKE $1 ESCAPE '\\'

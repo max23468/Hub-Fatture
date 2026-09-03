@@ -116,6 +116,22 @@ test(
             [caseRow.id],
           )
       ).rows[0]!.id;
+      const sourcePreparation = await database.getPool().query<{
+        id: string;
+        public_number: string;
+      }>(
+        `INSERT INTO billing_cases
+          (customer_id, local_order_date, currency, status, customer_snapshot_json)
+         VALUES ($1, CURRENT_DATE, 'EUR', 'CLOSED', $2)
+         RETURNING id, public_number`,
+        [caseRow.customer_id, caseRow.customer_snapshot_json],
+      );
+      await database
+        .getPool()
+        .query("UPDATE documents SET source_billing_case_id = $2 WHERE id = $1", [
+          invoiceId,
+          sourcePreparation.rows[0]!.id,
+        ]);
       const orderId = (
         await database
           .getPool()
@@ -141,6 +157,22 @@ test(
       assert.equal(byPreparation.invoices.length, 1);
       assert.deepEqual(byPreparation.documents, byPreparation.invoices);
       assert.equal(byPreparation.invoices[0]!.caseNumber, caseRow.public_number);
+      const bySourcePreparation = await search.searchGlobal(
+        sourcePreparation.rows[0]!.public_number,
+      );
+      assert.equal(bySourcePreparation.invoices.length, 1);
+      assert.equal(bySourcePreparation.invoices[0]!.id, invoiceId);
+      assert.equal(
+        bySourcePreparation.invoices[0]!.sourceCaseNumber,
+        sourcePreparation.rows[0]!.public_number,
+      );
+
+      const sourcePreparations = await import("./invoice-source-preparations.server.ts");
+      const reconciledDocuments = await sourcePreparations.listReconciledDocumentsForSourceCase(
+        sourcePreparation.rows[0]!.id,
+      );
+      assert.equal(reconciledDocuments.length, 1);
+      assert.equal(reconciledDocuments[0]?.id, invoiceId);
 
       const storage = await database.getPool().query<{ id: string }>(
         `INSERT INTO storage_objects

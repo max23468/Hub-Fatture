@@ -22,6 +22,7 @@ import { arubaInventoryBlocksAllApprovals } from "../../src/aruba-inventory.ts";
 import { AppError } from "../../src/errors.ts";
 import { readArubaInventoryForm } from "../../src/http.server.ts";
 import { invoiceLinesFromForm } from "../invoice-lines.ts";
+import { listReconciledDocumentsForSourceCase } from "../../src/db/invoice-source-preparations.server.ts";
 
 interface Actor {
   id: number;
@@ -152,10 +153,11 @@ async function invoiceProjection(caseId: string) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const [user, billingCase, projection] = await Promise.all([
+  const [user, billingCase, projection, reconciledDocuments] = await Promise.all([
     requireSessionUser(request),
     getBillingCase(params.caseId),
     invoiceProjection(params.caseId),
+    listReconciledDocumentsForSourceCase(params.caseId),
   ]);
   if (!billingCase) throw new Response("Preparazione non trovata", { status: 404 });
   const arubaInventory =
@@ -173,7 +175,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
-    billingCase,
+    billingCase: { ...billingCase, reconciledDocuments },
     operationalPool: operationalProjection?.operationalPool ?? null,
     operationalReasonCodes: operationalProjection?.reasonCodes ?? [],
     projection,

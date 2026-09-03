@@ -116,7 +116,11 @@ export function GlobalSearchResults({
           title: item.fiscalLabel
             ? copy.search.invoice(item.fiscalLabel)
             : copy.search.invoicePreparation(item.caseNumber),
-          detail: `${item.customerName} · ${date(item.documentDate)}`,
+          detail: `${item.customerName} · ${date(item.documentDate)}${
+            item.sourceCaseNumber
+              ? ` · ${copy.documents.sourcePreparation(item.sourceCaseNumber)}`
+              : ""
+          }`,
           badge: item.status === "APPROVED" ? copy.search.issued : copy.search.draft,
         }))}
         onNavigate={onNavigate}

@@ -22,6 +22,7 @@ import {
   ARUBA_IDENTITY_EVIDENCE_REPLAY,
   ARUBA_HISTORICAL_API_RECOVERY,
   OPERATIONAL_WORKFLOW_1_1,
+  INVOICE_SOURCE_PREPARATIONS,
   removeMigrationsFrom,
 } from "./support.ts";
 
@@ -112,6 +113,7 @@ test("l'upgrade chiude le preparazioni ricreate sopra fatture approvate", async 
       ARUBA_IDENTITY_EVIDENCE_REPLAY,
       ARUBA_HISTORICAL_API_RECOVERY,
       OPERATIONAL_WORKFLOW_1_1,
+      INVOICE_SOURCE_PREPARATIONS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

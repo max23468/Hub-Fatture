@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1
+
+- Le fatture Aruba riconciliate conservano la preparazione originaria: archivio Documenti, ricerca globale e dettaglio della preparazione chiusa permettono di risalire in entrambe le direzioni fra ordine, documento fiscale e preparazioni.
+- Il recupero storico collega esclusivamente i quattro abbinamenti confermati `000055`/`FPR 1627`, `000081`/`FPR 1667`, `000093`/`FPR 1685` e `000333`/`FPR 1740`, solo se il candidato resta univoco; casi diversi o ambigui restano invariati e ogni collegamento applicato lascia un evento di audit critico.
+
 ## 1.2.0
 
 - Il profilo fiscale applicativo può essere letto e aggiornato tramite un’API interna autenticata usando XML FatturaPA provenienti da documenti SdI accettati, con conferma esplicita, validazione offline, limiti e audit critico atomico.

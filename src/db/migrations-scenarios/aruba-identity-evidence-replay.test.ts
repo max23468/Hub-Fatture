@@ -2,6 +2,7 @@ import {
   ARUBA_IDENTITY_EVIDENCE_REPLAY,
   ARUBA_HISTORICAL_API_RECOVERY,
   OPERATIONAL_WORKFLOW_1_1,
+  INVOICE_SOURCE_PREPARATIONS,
   assert,
   cp,
   mkdtemp,
@@ -91,6 +92,7 @@ test("l'upgrade blocca i casi con identità Aruba plausibile e file ufficiale as
       ARUBA_IDENTITY_EVIDENCE_REPLAY,
       ARUBA_HISTORICAL_API_RECOVERY,
       OPERATIONAL_WORKFLOW_1_1,
+      INVOICE_SOURCE_PREPARATIONS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
