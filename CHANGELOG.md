@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.3
+
+- Dashboard, Ordini e dettaglio preparazione mostrano come pagamenti in attesa tutti gli ordini ancora fatturabili con saldo aperto, indipendentemente dal canale e dalla presenza di una preparazione; rimborsi parziali eBay già incassati restano correttamente pagati.
+- La sincronizzazione eBay integra le letture Trading `GetOrders` e `GetSellerTransactions` con le due letture Fulfillment, importa gli acquisti ancora prima del checkout e li riconcilia sull’identità stabile `OrderLineItemID` quando eBay assegna l’ordine definitivo.
+- Gli acquisti eBay annullati vengono rimossi dai pagamenti in attesa, i cursori Trading lunghi sono suddivisi nel limite di 30 giorni e sovrapposizioni parziali o payload privi dell’identità stabile falliscono chiusi.
+
 ## 1.2.2
 
 - I destinatari eBay che includono un riferimento `c/o` conservano nel nome soltanto l’intestatario e spostano il riferimento nella seconda riga dell’indirizzo, senza sovrascrivere un valore già presente; il replay riallinea automaticamente le preparazioni non corrette manualmente.

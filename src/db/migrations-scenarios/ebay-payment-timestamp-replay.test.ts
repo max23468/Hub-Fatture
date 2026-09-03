@@ -2,6 +2,7 @@ import {
   assert,
   cp,
   EBAY_PAYMENT_TIMESTAMP_REPLAY,
+  migrationsFrom,
   mkdtemp,
   os,
   path,
@@ -62,9 +63,10 @@ test("l'upgrade rilegge i conflitti eBay candidati allo slittamento del pagament
       `);
     });
 
-    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
-      EBAY_PAYMENT_TIMESTAMP_REPLAY,
-    ]);
+    assert.deepEqual(
+      await runMigrations({ connectionString: database.connectionString }),
+      migrationsFrom(EBAY_PAYMENT_TIMESTAMP_REPLAY),
+    );
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(
         (
