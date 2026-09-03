@@ -113,8 +113,8 @@ const remoteDocumentsSql = `
          coalesce((
            SELECT jsonb_agg(jsonb_build_object(
              'id', orders.id::text,
-             'label', CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify ' ELSE 'eBay ' END
-               || orders.display_number,
+             'label', orders.display_number || ' ' ||
+               CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END,
              'guided', ${arubaActionableCandidateSql("candidate", "remote")}
                AND NOT coalesce((candidate ->> 'compatible')::boolean, false),
              'amountMismatch', ${arubaAmountMismatchCandidateSql("candidate", "remote")},

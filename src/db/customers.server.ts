@@ -60,12 +60,23 @@ export async function listActionableCustomerReviews() {
     target_type: "PREPARATION" | "ORDER";
     target_id: string;
     customer_snapshot: Record<string, unknown>;
+    order_references: string[];
   }>(
     `SELECT customers.id::text, customers.display_name, customers.updated_at::text,
             CASE WHEN target.billing_case_id IS NULL THEN 'ORDER' ELSE 'PREPARATION' END
               AS target_type,
             coalesce(target.billing_case_id, target.order_id) AS target_id,
-            target.customer_snapshot
+            target.customer_snapshot,
+            coalesce((
+              SELECT jsonb_agg(
+                source_orders.display_number || ' ' ||
+                  CASE source_orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END
+                ORDER BY source_orders.local_order_date, source_orders.id
+              )
+              FROM orders AS source_orders
+              WHERE source_orders.id::text = target.order_id
+                 OR source_orders.billing_case_id::text = target.billing_case_id
+            ), '[]'::jsonb) AS order_references
      FROM customers
      JOIN LATERAL (
        SELECT review_orders.id::text AS order_id, review_cases.id::text AS billing_case_id,

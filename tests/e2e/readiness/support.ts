@@ -42,6 +42,21 @@ export async function expectViewportFits(page: Page) {
   ).toBe(true);
 }
 
+export async function expectPreparationOrderReference(page: Page) {
+  const reference = page
+    .locator(".orders-table--preparations tbody tr")
+    .first()
+    .locator("td")
+    .first()
+    .locator("small");
+  await expect(reference).toBeVisible();
+  const values = (await reference.innerText()).split(" · ");
+  expect(values.length).toBeGreaterThan(0);
+  for (const value of values) {
+    expect(value.endsWith(" Shopify") || value.endsWith(" eBay")).toBe(true);
+  }
+}
+
 export async function expectDesktopContentOutsideSidebar(page: Page) {
   const shell = await page.evaluate(() => {
     const sidebar = document.querySelector<HTMLElement>(".sidebar")!.getBoundingClientRect();

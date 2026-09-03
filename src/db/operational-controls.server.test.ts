@@ -71,6 +71,7 @@ test(
       );
       assert.equal(first.rows[0]!.primary_action, "Correggi destinatario");
       assert.match(first.rows[0]!.detail, /Tipo cliente/);
+      assert.deepEqual(first.rows[0]!.metadata_json.orderReferences, ["#CONTROL Shopify"]);
       assert.deepEqual(first.rows[0]!.metadata_json.facts, [
         { label: "Cliente", value: "Cliente da verificare" },
         { label: "Da completare", value: "Tipo cliente, Via, CAP, Città, Paese" },
@@ -134,6 +135,9 @@ test(
         preparationCauses.rows.map(({ kind }) => kind),
         ["SOURCE_CONFLICT"],
       );
+      assert.deepEqual(preparationCauses.rows[0]!.metadata_json.orderReferences, [
+        "#CONTROL Shopify",
+      ]);
       assert.equal(
         preparationCauses.rows.some(({ kind }) => kind === "BILLING_CASE_REVIEW"),
         false,

@@ -14,6 +14,7 @@ import {
   expectApprovalLabelsReadable,
   expectDesktopContentOutsideSidebar,
   expectPlainLanguage,
+  expectPreparationOrderReference,
   expectViewportFits,
   expectVisibleFieldsetTitlesInside,
   refreshOperationalControlsProjection,
@@ -1134,11 +1135,25 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
      FROM orders WHERE billing_case_id = $2 ORDER BY id LIMIT 1`,
     [manualChoiceRemoteId, sourceReviewCaseId],
   );
+  const orderReference = (
+    await privacyClient.query<{ reference: string }>(
+      `SELECT orders.display_number || ' ' ||
+                CASE orders.provider WHEN 'SHOPIFY' THEN 'Shopify' ELSE 'eBay' END AS reference
+       FROM orders
+       WHERE orders.billing_case_id = $1
+       ORDER BY orders.id
+       LIMIT 1`,
+      [sourceReviewCaseId],
+    )
+  ).rows[0]!.reference;
   await privacyClient.end();
   await refreshOperationalControlsProjection();
   await page.getByRole("link", { name: "Controlli" }).click();
   await expect(page.getByRole("heading", { name: "Controlli", exact: true })).toBeVisible();
   await expect(page.locator(".controls-queue")).toContainText("Richiesta dati cliente");
+  await expect(
+    page.locator(`.control-row[data-control-id="ARUBA_REMOTE:${manualChoiceRemoteId}"]`),
+  ).toContainText(orderReference);
   const controlsOverviewLayout = await page.locator(".controls-overview").evaluate((overview) => {
     const navigation = overview.querySelector<HTMLElement>(".view-nav")!;
     const summary = overview.querySelector<HTMLElement>(".controls-severity-summary")!;
@@ -1432,6 +1447,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await preparationLayoutClient.end();
   await page.getByRole("link", { name: "Ordini", exact: true }).click();
   await page.getByRole("link", { name: "Da fatturare" }).click();
+  await expectPreparationOrderReference(page);
   await page
     .getByRole("link", { name: `Apri ${archivedPreparation}` })
     .first()
