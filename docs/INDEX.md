@@ -3,7 +3,7 @@
 | Documento                                                                             | Scopo                                                     | Stato       | Fonte canonica |
 | ------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----------- | -------------- |
 | [Hub Fatture Master Plan](Hub_Fatture_MASTER_PLAN.md)                                 | Prodotto, UX, architettura, test, distribuzione e roadmap | Consolidato | Sì             |
-| [Versioning](contracts/versioning.md)                                                 | Convenzione delle versioni fino alla 1.0                  | Approvata   | Sì             |
+| [Versioning](contracts/versioning.md)                                                 | SemVer, selezione release e candidati concorrenti         | Approvata   | Sì             |
 | [Readiness toolchain](evidence/toolchain-readiness.md)                                | Fonti, controlli e limiti della toolchain                 | Corrente    | No             |
 | [Fondazioni locali](evidence/local-foundations.md)                                    | Capacità e gate ripetibili delle fondazioni applicative   | Corrente    | No             |
 | [Brand Foundation](brand/brand-foundation.md)                                         | Identità visiva e tono UI minimi                          | Approvata   | Sì             |
@@ -29,6 +29,7 @@
 | [ADR base applicativa Debian 13](adr/0005-base-applicativa-debian-13-trixie-slim.md)  | Base container, aggiornamenti e rollback applicativo      | Approvato   | Sì             |
 | [ADR primo invio ordinario](adr/0006-primo-invio-aruba-ordinario.md)                  | Primo effetto fiscale reale nel normale flusso operativo  | Approvato   | Sì             |
 | [Piano integrazione API Aruba](plans/aruba-api-integration.md)                        | Architettura API, flussi, gate e milestone                | Approvato   | Sì             |
+| [Piano invio e monitoraggio Aruba](plans/aruba-outbound-monitoring.md)                | Refresh, ricerca, invio TD01 e monitoraggio SdI           | Approvato   | Sì             |
 | [Procedura manuale Aruba](runbooks/aruba-manual.md)                                   | Export, upload manuale, readback e import                 | Corrente    | Sì             |
 | [Integrazione Aruba locale](evidence/aruba-helper.md)                                 | Evidenza storica del percorso browser ritirato            | Storico     | No             |
 | [Note di credito ed e-mail](contracts/credit-notes-email.md)                          | Contratto TD04, trigger e trasporto cliente               | Approvato   | Sì             |

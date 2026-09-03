@@ -2457,6 +2457,8 @@ Un branch `develop` si aggiunge soltanto se compare un ambiente remoto intermedi
 
 ### 18.4 Versionamento e changelog
 
+- [Il contratto di versioning](contracts/versioning.md) è la fonte canonica per classificazione
+  `PATCH`/`MINOR`/`MAJOR`, momento di selezione e gestione dei candidati concorrenti.
 - `package.json#version` è la fonte canonica della versione applicativa e coincide con il lockfile.
 - Durante lo sviluppo locale non serve un bump per ogni PR.
 - Quando una modifica runtime viene destinata a una release Production, bump SemVer e voce in `CHANGELOG.md` fanno parte della stessa PR dell'implementazione e precedono il merge. Non aprire una seconda PR di sola versione, changelog o release: se i metadati di release non sono pronti, la PR runtime non è pronta al merge. Una deroga richiede una richiesta esplicita del titolare riferita al caso specifico.
