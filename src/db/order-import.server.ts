@@ -58,10 +58,7 @@ import { prepareCustomerInput } from "./order-customer-input.server.ts";
 import { reconcileEbayCustomerAlignment } from "./order-ebay-customer-alignment.server.ts";
 import { reconcileProviderOrderAlignment } from "./order-provider-alignment.server.ts";
 import { canonicalOrderTimestamp } from "./order-timestamp.ts";
-import {
-  persistEbayIdentities,
-  reconcileEbayIdentity,
-} from "./order-source-identity.server.ts";
+import { persistEbayIdentities, reconcileEbayIdentity } from "./order-source-identity.server.ts";
 
 function customerSnapshot(input: CustomerContext, identity: ReturnType<typeof customerIdentity>) {
   const canonicalProfile = canonicalCustomerProfile(input);
