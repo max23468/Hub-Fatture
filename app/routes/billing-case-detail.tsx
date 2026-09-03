@@ -8,9 +8,10 @@ import { ComparisonTable } from "../components/comparison-table";
 import { CustomerEditor } from "../components/customer-editor";
 import { CustomerEmailApprovalFields } from "../components/customer-email-approval";
 import { DetailSectionHeader } from "../components/detail-section-header";
+import { PreparationAnomalies } from "../components/preparation-anomalies";
+import { ReconciledDocuments } from "../components/reconciled-documents";
 import { SortableHeader, useSortableRows } from "../components/sortable-table";
 import {
-  anomalyLabels,
   auditActionLabel,
   billingCaseStatusLabels,
   copy,
@@ -889,33 +890,6 @@ function PreparationNotices({
   );
 }
 
-function PreparationAnomalies({ codes }: { codes: string[] }) {
-  if (!codes.length) return null;
-  return (
-    <section className="card section-gap" aria-labelledby="anomalie">
-      <h2 id="anomalie">{copy.preparation.checksTitle}</h2>
-      <ul className="plain-list">
-        {codes.map((code) => (
-          <li className="preparation-check" key={code}>
-            <span className="preparation-check__copy">
-              <strong>{anomalyLabels[code]?.title ?? "Verifica richiesta"}</strong>
-              <span>{anomalyLabels[code]?.action ?? copy.preparation.checkFallback}</span>
-            </span>
-            {code === "ARUBA_POTENTIAL_MATCH" ? (
-              <Link
-                className="button button--secondary preparation-check__action"
-                to="/controlli?origine=DOCUMENTS"
-              >
-                {copy.preparation.openArubaCandidates}
-              </Link>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 function PreparationOrders({
   billingCase,
   csrfToken,
@@ -925,6 +899,7 @@ function PreparationOrders({
   csrfToken: string;
   editable: boolean;
 }) {
+  if (!billingCase.orders.length) return null;
   return (
     <div className="preparation-overview__orders">
       <h3>{copy.preparation.includedOrders}</h3>
@@ -1148,7 +1123,12 @@ export default function BillingCaseDetail() {
   } = useLoaderData<typeof loader>();
   const error = useActionData<typeof action>();
   const [customerDirty, setCustomerDirty] = useState(false);
-  const total = billingCase.orders.reduce((sum, order) => sum + order.billable_amount, 0);
+  const total = billingCase.orders.length
+    ? billingCase.orders.reduce((sum, order) => sum + order.billable_amount, 0)
+    : billingCase.reconciledDocuments.reduce(
+        (sum, document) => sum + document.source_total_amount,
+        0,
+      );
   const editable = ["DRAFT", "READY", "NEEDS_REVIEW"].includes(billingCase.status);
   const displayedAnomalies = operationalReasonCodes.length
     ? operationalReasonCodes
@@ -1169,6 +1149,7 @@ export default function BillingCaseDetail() {
         storagePending={storagePending}
       />
       <PreparationAnomalies codes={displayedAnomalies} />
+      <ReconciledDocuments documents={billingCase.reconciledDocuments} />
 
       <PreparationOverview
         billingCase={billingCase}

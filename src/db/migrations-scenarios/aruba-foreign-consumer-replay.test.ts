@@ -16,6 +16,7 @@ import {
   ARUBA_IDENTITY_EVIDENCE_REPLAY,
   ARUBA_HISTORICAL_API_RECOVERY,
   OPERATIONAL_WORKFLOW_1_1,
+  INVOICE_SOURCE_PREPARATIONS,
 } from "./support.ts";
 
 test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
@@ -44,6 +45,7 @@ test("l'upgrade ritenta i conflitti Aruba dei privati esteri", async () => {
       ARUBA_IDENTITY_EVIDENCE_REPLAY,
       ARUBA_HISTORICAL_API_RECOVERY,
       OPERATIONAL_WORKFLOW_1_1,
+      INVOICE_SOURCE_PREPARATIONS,
     ]);
     await withClient(database.connectionString, async (client) => {
       assert.deepEqual(

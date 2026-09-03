@@ -30,6 +30,7 @@ export interface GlobalSearchResults {
     id: string;
     fiscalLabel: string | null;
     caseNumber: string;
+    sourceCaseNumber: string | null;
     customerName: string;
     documentDate: string;
     status: string;
@@ -163,6 +164,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
       fiscal_year: number | null;
       fiscal_number: number | null;
       case_number: string;
+      source_case_number: string | null;
       customer_name: string;
       document_date: string;
       status: string;
@@ -172,6 +174,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
       `WITH matching_documents AS (
          SELECT documents.id::text, documents.kind, documents.series, documents.fiscal_year,
                 documents.fiscal_number, billing_cases.public_number AS case_number,
+                source_billing_cases.public_number AS source_case_number,
                 coalesce(documents.recipient_snapshot_json ->> 'displayName',
                          billing_cases.customer_snapshot_json ->> 'displayName',
                          customers.display_name) AS customer_name,
@@ -184,8 +187,11 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
                 ) AS result_rank
          FROM documents
          JOIN billing_cases ON billing_cases.id = documents.billing_case_id
+         LEFT JOIN billing_cases AS source_billing_cases
+           ON source_billing_cases.id = documents.source_billing_case_id
          JOIN customers ON customers.id = billing_cases.customer_id
          WHERE billing_cases.public_number ILIKE $1 ESCAPE '\\'
+            OR source_billing_cases.public_number ILIKE $1 ESCAPE '\\'
             OR concat(documents.series, ' ', lpad(documents.fiscal_number::text, 4, '0'),
                       '/', right(documents.fiscal_year::text, 2)) ILIKE $1 ESCAPE '\\'
             OR documents.fiscal_number::text ILIKE $1 ESCAPE '\\'
@@ -230,7 +236,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
                   OR order_tax_identifiers.raw_value ILIKE $1 ESCAPE '\\')
             )
        )
-       SELECT id, kind, series, fiscal_year, fiscal_number, case_number, customer_name,
+       SELECT id, kind, series, fiscal_year, fiscal_number, case_number, source_case_number, customer_name,
               document_date, status, billing_case_id, total_count
        FROM matching_documents
        WHERE result_rank <= ${SEARCH_RESULT_LIMIT}
@@ -330,6 +336,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
         ? fiscalNumberLabel(row.series, row.fiscal_year, row.fiscal_number)
         : null,
     caseNumber: row.case_number,
+    sourceCaseNumber: row.source_case_number,
     customerName: row.customer_name,
     documentDate: row.document_date,
     status: row.status,

@@ -26,36 +26,19 @@ import {
   acceptedFiscalDocumentEvidenceFromXml,
   acceptedInvoiceFromXml,
   fiscalProfileSchema,
-  type FiscalProfile,
 } from "../documents.ts";
 import { AppError } from "../errors.ts";
 import { refreshInvoiceDraftProjection } from "./invoice-draft-projection.server.ts";
+import { linkDocumentToSourcePreparation } from "./invoice-source-preparations.server.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
 import { arubaOrderCandidates } from "./aruba-reconciliation.server.ts";
 import { reconcileRemoteDocument } from "./aruba-reconciliation.server.ts";
+import { acceptedProfileMatches } from "./aruba-profile-match.server.ts";
 import {
   lockedRemoteMatch,
   markRemoteProfileConflict,
   type LockedRemoteMatch,
 } from "./aruba-remote-match.server.ts";
-
-function acceptedProfileMatches(
-  profile: FiscalProfile,
-  identity: ReturnType<typeof acceptedDocumentFiscalIdentity>,
-) {
-  return (
-    profile.series === "FPR" &&
-    profile.transmitter.countryCode === identity.transmitter.countryCode &&
-    profile.transmitter.taxCode === identity.transmitter.taxCode &&
-    profile.seller.vatCountryCode === identity.seller.vatCountryCode &&
-    profile.seller.vatCode === identity.seller.vatCode &&
-    (profile.seller.taxCode ?? null) === (identity.seller.taxCode ?? null) &&
-    profile.seller.taxRegime === identity.seller.taxRegime &&
-    profile.taxNature === identity.taxNature &&
-    profile.legalReference === identity.legalReference &&
-    profile.payment.condition === identity.payment.condition
-  );
-}
 
 function remoteFiscalIdentityMatches(
   remote: {
@@ -348,6 +331,7 @@ async function materializeExternalInvoice(
   ) {
     throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   }
+  const previousCaseId = currentOrder.billing_case_id;
   const digest = createHash("sha256").update(xml).digest("hex");
   const existing = await client.query<{
     id: string;
@@ -421,16 +405,17 @@ async function materializeExternalInvoice(
     };
     const document = await client.query<{ id: string }>(
       `INSERT INTO documents
-        (billing_case_id, kind, status, document_type, series, fiscal_year, fiscal_number,
+        (billing_case_id, source_billing_case_id, kind, status, document_type, series, fiscal_year, fiscal_number,
          document_date, fiscal_profile_version, currency, total_amount, source_total_amount,
          difference_amount, difference_reason, projection_sha256, approved_at, xml_sha256,
          immutable_snapshot_json, fiscal_profile_snapshot_json, storage_object_id,
          payment_status, payment_method, recipient_snapshot_json, origin)
-       VALUES ($1, 'INVOICE', 'APPROVED', 'TD01', $2, $3, $4, $5, $6, 'EUR',
-         $7, $8, $9, $10, $11, now(), $11, $12, $13, $14, 'PAID', $15, $16, 'ARUBA_HISTORY')
+       VALUES ($1, $2, 'INVOICE', 'APPROVED', 'TD01', $3, $4, $5, $6, $7, 'EUR',
+         $8, $9, $10, $11, $12, now(), $12, $13, $14, $15, 'PAID', $16, $17, 'ARUBA_HISTORY')
        RETURNING id`,
       [
         historicalCase.rows[0]!.id,
+        previousCaseId,
         profile.profile.series,
         imported.year,
         imported.number,
@@ -501,7 +486,9 @@ async function materializeExternalInvoice(
     ],
   );
   await rematchPostIssueCreditNotes(client, matchedOrderIds);
-  const previousCaseId = currentOrder.billing_case_id;
+  if (previousCaseId) {
+    await linkDocumentToSourcePreparation(client, documentId, previousCaseId);
+  }
   await client.query(
     `UPDATE orders SET trigger_status = 'INVOICED', billing_case_id = NULL
      WHERE id = ANY($1::bigint[])`,

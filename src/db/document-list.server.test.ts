@@ -98,6 +98,36 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
        JOIN documents ON documents.billing_case_id = selected_order.billing_case_id
        WHERE documents.kind = 'INVOICE'`,
     );
+    const sourcePreparation = await database.getPool().query<{
+      document_id: string;
+      source_case_id: string;
+      source_number: string;
+    }>(
+      `WITH selected_document AS (
+         SELECT documents.id AS document_id, billing_cases.customer_id,
+                billing_cases.local_order_date, billing_cases.currency
+         FROM documents
+         JOIN billing_cases ON billing_cases.id = documents.billing_case_id
+         ORDER BY documents.id
+         LIMIT 1
+       ), source_case AS (
+         INSERT INTO billing_cases
+           (customer_id, local_order_date, currency, status, customer_snapshot_json)
+         SELECT customer_id, local_order_date, currency, 'CLOSED',
+                jsonb_build_object('displayName', 'Preparazione originaria sintetica')
+         FROM selected_document
+         RETURNING id, public_number
+       ), linked AS (
+         UPDATE documents
+         SET source_billing_case_id = source_case.id
+         FROM selected_document, source_case
+         WHERE documents.id = selected_document.document_id
+         RETURNING documents.id
+       )
+       SELECT linked.id AS document_id, source_case.id AS source_case_id,
+              source_case.public_number AS source_number
+       FROM linked, source_case`,
+    );
 
     const approved = await database.getPool().query<{
       id: string;
@@ -216,6 +246,19 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
     );
     assert.equal((await documents.listDocuments({ query: "RSSMRA80A01H501U" })).rows.length, 1);
     assert.equal((await documents.listDocuments({ query: "#ARCHIVIO-UNIVOCO" })).rows.length, 1);
+    const bySourcePreparation = await documents.listDocuments({
+      query: sourcePreparation.rows[0]!.source_number,
+    });
+    assert.equal(bySourcePreparation.rows.length, 1);
+    assert.equal(bySourcePreparation.rows[0]!.id, sourcePreparation.rows[0]!.document_id);
+    assert.equal(
+      bySourcePreparation.rows[0]!.source_billing_case_id,
+      sourcePreparation.rows[0]!.source_case_id,
+    );
+    assert.equal(
+      bySourcePreparation.rows[0]!.source_public_number,
+      sourcePreparation.rows[0]!.source_number,
+    );
     assert.equal(
       (await documents.listDocuments({ dateFrom: "2026-01-07", dateTo: "2026-01-07" })).rows.length,
       1,

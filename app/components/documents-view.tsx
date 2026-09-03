@@ -259,6 +259,11 @@ function DocumentRowGrid({
         <span>
           {document.kind === "CREDIT_NOTE" ? copy.documents.creditNote : copy.documents.invoice}
         </span>
+        {document.source_billing_case_id && document.source_public_number ? (
+          <Link to={`/ordini/preparazione/${document.source_billing_case_id}`}>
+            {copy.documents.sourcePreparation(document.source_public_number)}
+          </Link>
+        ) : null}
       </span>
       <span className="document-row__customer" title={document.customer_name}>
         <small>{copy.documents.customer}</small>

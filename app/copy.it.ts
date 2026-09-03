@@ -536,6 +536,10 @@ export const copy = {
     activity: "Registro attività",
     noActivity: "Nessuna attività registrata.",
     archivedOnly: "Questa preparazione resta consultabile in archivio e non può essere riattivata.",
+    invoicedTitle: "Fatture collegate",
+    invoicedHelp:
+      "Gli ordini indicati sono stati riconciliati con una fattura già emessa. La preparazione originaria resta consultabile e rimanda al documento archiviato.",
+    archivedPreparation: (number: string) => `Apri il documento nella preparazione ${number}`,
   },
   document: {
     profileMissing: "Il profilo fiscale approvato non è ancora configurato.",
@@ -711,7 +715,7 @@ export const copy = {
       `${count} ${count === 1 ? "documento in questa pagina" : "documenti in questa pagina"}`,
     filterLabel: "Filtra i documenti",
     search: "Cerca",
-    searchPlaceholder: "Numero o cliente",
+    searchPlaceholder: "Numero, preparazione o cliente",
     type: "Tipo",
     approvalStatus: "Stato documento",
     transmissionStatus: "Stato trasmissione",
@@ -735,6 +739,7 @@ export const copy = {
     draft: "Bozza",
     draftLabel: (number: string) => `Bozza ${number}`,
     invoice: "Fattura",
+    sourcePreparation: (number: string) => `Preparazione originaria ${number}`,
     creditNote: "Nota di credito",
     openDocument: "Apri documento",
     openDocumentLabel: (label: string) => `Apri ${label}`,

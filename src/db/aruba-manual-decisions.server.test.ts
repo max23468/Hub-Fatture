@@ -376,6 +376,7 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
         await getPool().query(
           `SELECT documents.total_amount, documents.source_total_amount,
                   documents.difference_amount, documents.difference_reason,
+                  documents.source_billing_case_id::text,
                   document_orders.amount, orders.trigger_status,
                   refunds.applied_before_issue,
                   EXISTS (SELECT 1 FROM jobs WHERE jobs.type = 'process_refund'
@@ -395,6 +396,7 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
         source_total_amount: 12000,
         difference_amount: 345,
         difference_reason: "Differenza verificata sul documento ufficiale",
+        source_billing_case_id: billingCase.id,
         amount: 12000,
         trigger_status: "INVOICED",
         applied_before_issue: false,
