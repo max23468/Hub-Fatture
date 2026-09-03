@@ -3,7 +3,7 @@ import type pg from "pg";
 import { AppError } from "../errors.ts";
 import type { OrderInput } from "../orders.ts";
 
-export async function reconcileEbayOrderIdentity(client: pg.PoolClient, input: OrderInput) {
+export async function reconcileEbayIdentity(client: pg.PoolClient, input: OrderInput) {
   if (input.provider !== "EBAY") return;
   const lineIds = input.sourceIdentityIds;
   if (!lineIds.length) return;
@@ -46,7 +46,7 @@ export async function reconcileEbayOrderIdentity(client: pg.PoolClient, input: O
   if (renamed.rowCount !== 1) throw new AppError("CONFLICT_REVISION", 409);
 }
 
-export async function persistEbayOrderIdentities(
+export async function persistEbayIdentities(
   client: pg.PoolClient,
   input: OrderInput,
   orderId: string,
