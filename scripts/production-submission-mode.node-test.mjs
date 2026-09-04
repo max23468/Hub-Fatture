@@ -16,7 +16,7 @@ async function executable(file, content) {
   await chmod(file, 0o755);
 }
 
-async function fixture() {
+async function fixture({ blockingArubaBatches = 0 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hub-fatture-submission-test-"));
   const bin = path.join(root, "bin");
   const scripts = path.join(root, "scripts");
@@ -35,7 +35,7 @@ async function fixture() {
 printf '%s\\n' "$*" >>"$FAKE_DOCKER_LOG"
 case "$*" in
   *"exec -T app-web node build-server/operations/release-candidate-readiness.js"*)
-    printf '%s\\n' '{"unreconciledDryRunAttempts":0,"unreconciledHistory":0,"pendingHistoryImports":0,"openArubaBatches":0}' ;;
+    printf '%s\\n' '{"unreconciledDryRunAttempts":0,"unreconciledHistory":0,"pendingHistoryImports":0,"openArubaBatches":1,"blockingArubaBatches":${blockingArubaBatches}}' ;;
   *"exec -T postgres psql"*) printf '%s\\n' 0 ;;
 esac
 `,
@@ -112,6 +112,21 @@ test("ripristina false quando il readback dopo l'abilitazione fallisce", async (
       "ARUBA_SUBMISSION_ENABLED=false\n",
     );
     assert.match(result.stderr, /Configurazione precedente ripristinata/);
+  } finally {
+    await rm(state.root, { recursive: true, force: true });
+  }
+});
+
+test("blocca l'abilitazione quando esiste un batch outbound operativo", async () => {
+  const state = await fixture({ blockingArubaBatches: 1 });
+  try {
+    const result = run(state, "enable");
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Readiness operativa non compatibile/);
+    assert.equal(
+      await readFile(path.join(state.root, ".env"), "utf8"),
+      "ARUBA_SUBMISSION_ENABLED=false\n",
+    );
   } finally {
     await rm(state.root, { recursive: true, force: true });
   }

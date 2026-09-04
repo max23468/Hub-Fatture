@@ -1069,6 +1069,13 @@ La risposta sincrona `0000` dell’upload con `dryRun=false` significa soltanto 
 Aruba ha accettato la richiesta e restituito un filename, ma consegna, mancata consegna o scarto
 sono provati esclusivamente dal readback SdI successivo. I documenti non terminali vengono riletti
 ogni 15 minuti; `Aggiorna stato Aruba` accoda lo stesso percorso senza bypassare i limiti provider.
+Un documento nato in modalità `DOCUMENT_ONLY` che il provider ha invece acquisito resta isolato e
+monitorato, ma dopo un readback autorevole non blocca l'invio di documenti distinti. Continua a
+bloccarlo finché lo stato remoto è incerto o richiede riconciliazione; un batch nato in una modalità
+trasmissibile resta sempre bloccante fino all'esito terminale.
+Due documenti Aruba con la stessa identità fiscale restano separati tramite l'identificativo del
+provider e conservano ciascuno il proprio file ufficiale. La collisione blocca ogni collegamento o
+materializzazione automatica dei documenti coinvolti, non il commit atomico del resto dell'inventario.
 
 Il dry-run Production richiede autorizzazione della milestone e non equivale a un invio SdI. Nel
 contratto Aruba corrente la qualifica dell'upload senza invio coincide con la stessa chiamata

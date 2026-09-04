@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -460,6 +461,16 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         },
       ],
     };
+    const acceptedInvoiceXml = await readFile(
+      "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
+    );
+    const immutableConflictXml = Buffer.from(
+      acceptedInvoiceXml
+        .toString("utf8")
+        .replaceAll("2026-08-10", "2019-01-02")
+        .replaceAll("FPR 0001/26", "FPR 99/19")
+        .replaceAll("123.45", "124.00"),
+    );
     const immutableConflictPage = {
       ...stagedPage,
       documents: [
@@ -467,7 +478,7 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
           ...stagedPage.documents[0]!,
           remoteId: "atomic-immutable-conflict",
           totalAmount: 12_400,
-          xmlSha256: "8".repeat(64),
+          xmlSha256: createHash("sha256").update(immutableConflictXml).digest("hex"),
         },
       ],
     };
@@ -482,7 +493,6 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         );
         assert.equal(staged.resolvedDocuments?.length, 1);
         assert.equal(staged.resolvedDocuments?.[0]?.remoteId, "atomic-immutable-conflict");
-        assert.equal(staged.resolvedDocuments?.[0]?.officialFilesBlocked, true);
         assert.notEqual(
           staged.resolvedDocuments?.[0]?.remoteDocumentId,
           stagedApiDocument.rows[0]!.id,
@@ -586,7 +596,6 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     assert.equal(stagedResult.resolvedDocuments?.length, 1);
     const stagedRemoteDocumentId = stagedResult.resolvedDocuments![0]!.remoteDocumentId;
     assert.equal(stagedResult.resolvedDocuments?.[0]?.remoteId, "atomic-stage-synthetic");
-    assert.equal(stagedResult.resolvedDocuments?.[0]?.officialFilesBlocked, true);
     assert.notEqual(stagedRemoteDocumentId, stagedApiDocument.rows[0]!.id);
     assert.deepEqual(
       (
@@ -702,16 +711,12 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       }),
       (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_INVALID",
     );
-    const acceptedInvoiceXml = await readFile(
-      "tests/fixtures/fatturapa/accepted-invoice.anonymized.xml",
-    );
     const conflictedStage = await apiStage.stageApiPage(
       stagedRunId,
       immutableConflictPage,
       new Map([["atomic-immutable-conflict", "atomic-conflict-group"]]),
       1,
     );
-    assert.equal(conflictedStage.resolvedDocuments?.[0]?.officialFilesBlocked, true);
     const immutableConflictRemoteDocumentId =
       conflictedStage.resolvedDocuments![0]!.remoteDocumentId;
     assert.notEqual(immutableConflictRemoteDocumentId, stagedRemoteDocumentId);
@@ -722,13 +727,30 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       filename: "atomic-stage.xml.p7m",
       bytes: signedXml(acceptedInvoiceXml),
     });
-    await groupFile.importArubaApiGroupFile({
-      runId: stagedRunId,
-      providerGroupId: "atomic-conflict-group",
-      kind: "ARUBA_P7M",
-      filename: "atomic-stage.xml.p7m",
-      bytes: signedXml(acceptedInvoiceXml),
-    });
+    await inbound.importArubaRemoteOfficialFileFromApi(
+      immutableConflictRemoteDocumentId,
+      "ARUBA_P7M",
+      signedXml(immutableConflictXml),
+      {
+        type: "API",
+        runId: stagedRunId,
+        providerGroupId: "atomic-conflict-group",
+        providerFilename: "atomic-conflict.xml.p7m",
+        expectedDocumentFilename: "atomic-conflict.xml.p7m",
+        expectedInvoiceNumber: "99",
+        requiresInvoiceNumber: false,
+      },
+    );
+    assert.equal(
+      (
+        await getPool().query(
+          `SELECT count(*)::integer AS count FROM aruba_files
+           WHERE remote_document_id = $1 AND kind = 'ARUBA_P7M'`,
+          [immutableConflictRemoteDocumentId],
+        )
+      ).rows[0].count,
+      1,
+    );
     const pageWithImmutableConflict = {
       ...stagedPage,
       documents: [...stagedPage.documents, ...immutableConflictPage.documents],
@@ -841,6 +863,17 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       stagedRunId,
     ]);
     await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [stagedRunId]);
+    await getPool().query(
+      `WITH removed AS (
+         DELETE FROM aruba_files
+         WHERE remote_document_id IN (
+           SELECT id FROM aruba_remote_documents
+           WHERE remote_id IN ('api-atomic-stage', 'atomic-stage-synthetic',
+             'atomic-immutable-conflict')
+         ) RETURNING storage_object_id
+       )
+       DELETE FROM storage_objects WHERE id IN (SELECT storage_object_id FROM removed)`,
+    );
     await getPool().query(
       `DELETE FROM aruba_remote_documents
        WHERE remote_id IN ('api-atomic-stage', 'atomic-stage-synthetic',

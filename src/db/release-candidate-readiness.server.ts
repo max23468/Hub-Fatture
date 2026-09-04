@@ -7,6 +7,7 @@ export interface ReleaseCandidateReadinessState {
   unreconciledHistory: number;
   pendingHistoryImports: number;
   openArubaBatches: number;
+  blockingArubaBatches: number;
 }
 
 export async function releaseCandidateReadinessState(
@@ -17,6 +18,7 @@ export async function releaseCandidateReadinessState(
     unreconciled_history: string;
     pending_history_imports: string;
     open_aruba_batches: string;
+    blocking_aruba_batches: string;
   }>(
     `SELECT
        (SELECT count(*) FROM aruba_submission_attempts AS attempts
@@ -56,7 +58,12 @@ export async function releaseCandidateReadinessState(
          AS pending_history_imports,
        (SELECT count(*) FROM aruba_batches
         WHERE aruba_batches.status NOT IN ('RECONCILED', 'CANCELLED', 'DOCUMENT_ONLY'))::text
-         AS open_aruba_batches`,
+         AS open_aruba_batches,
+       (SELECT count(*) FROM aruba_batches
+        WHERE aruba_batches.status NOT IN ('RECONCILED', 'CANCELLED', 'DOCUMENT_ONLY')
+          AND (aruba_batches.mode <> 'DOCUMENT_ONLY'
+            OR aruba_batches.requires_reconciliation
+            OR aruba_batches.status = 'UNKNOWN_REMOTE_STATE'))::text AS blocking_aruba_batches`,
   );
   const row = result.rows[0]!;
   return {
@@ -64,5 +71,6 @@ export async function releaseCandidateReadinessState(
     unreconciledHistory: Number(row.unreconciled_history),
     pendingHistoryImports: Number(row.pending_history_imports),
     openArubaBatches: Number(row.open_aruba_batches),
+    blockingArubaBatches: Number(row.blocking_aruba_batches),
   };
 }

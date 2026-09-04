@@ -444,10 +444,6 @@ async function persistCanonicalPageContents(
   const remoteDocumentIds = new Map(
     staged.resolvedDocuments?.map((document) => [document.remoteId, document.remoteDocumentId]),
   );
-  const officialFilesBlocked = new Set<string>();
-  for (const document of staged.resolvedDocuments ?? []) {
-    if (document.officialFilesBlocked) officialFilesBlocked.add(document.remoteId);
-  }
   if (remoteDocumentIds.size !== documents.length) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
@@ -482,7 +478,6 @@ async function persistCanonicalPageContents(
         new Date(document.remoteLastUpdate),
       ],
     );
-    if (officialFilesBlocked.has(remoteId)) continue;
     const expectedInvoiceNumber = document.remote.providerInvoiceNumber;
     if (!remoteDocumentId || !expectedInvoiceNumber) {
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);

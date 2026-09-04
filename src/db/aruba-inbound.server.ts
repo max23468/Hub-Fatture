@@ -143,7 +143,6 @@ export async function ingestParsedArubaPage(
   const resolvedDocuments: Array<{
     remoteId: string;
     remoteDocumentId: string;
-    officialFilesBlocked?: true;
   }> = [];
   const touchedRemoteDocumentIds: string[] = [];
   const apiSource = session.sourceKind === "API";
@@ -402,7 +401,6 @@ export async function ingestParsedArubaPage(
       resolvedDocuments.push({
         remoteId: remote.remoteId,
         remoteDocumentId: storedId!,
-        ...(conflicted ? { officialFilesBlocked: true as const } : {}),
       });
     }
     touchedRemoteDocumentIds.push(storedId!);

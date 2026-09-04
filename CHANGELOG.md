@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.9
+
+- La riattivazione degli invii distingue i batch realmente bloccanti dai documenti `DOCUMENT_ONLY` già acquisiti e identificati da Aruba: questi ultimi restano isolati e monitorati senza impedire nuove fatture, mentre stati incerti, riconciliazioni pendenti, batch trasmissibili e job outbound continuano a bloccare la procedura.
+- Le fatture Aruba con la stessa identità fiscale restano record distinti per identificativo provider e conservano ciascuna il proprio file ufficiale: la collisione continua a richiedere verifica manuale senza interrompere le sincronizzazioni successive.
+
 ## 1.3.8
 
 - La validazione preliminare delle fatture Aruba avviene soltanto in locale: Production non chiama più il dry-run remoto, mentre approvazione e invio richiedono conferme distinte e l’inventario Aruba recente.

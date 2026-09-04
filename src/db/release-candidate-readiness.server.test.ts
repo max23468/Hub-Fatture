@@ -39,6 +39,7 @@ test("la readiness blocca ogni dry-run Production con effetto remoto non riconci
       unreconciledHistory: 0,
       pendingHistoryImports: 0,
       openArubaBatches: 0,
+      blockingArubaBatches: 0,
     });
 
     const customer = await pool.query<{ id: string }>(
@@ -100,13 +101,14 @@ test("la readiness blocca ogni dry-run Production con effetto remoto non riconci
       unreconciledHistory: 0,
       pendingHistoryImports: 0,
       openArubaBatches: 1,
+      blockingArubaBatches: 1,
     });
 
-    await pool.query("UPDATE aruba_submissions SET status = 'RECONCILED' WHERE id = $1", [
+    await pool.query("UPDATE aruba_submissions SET status = 'SUBMITTED' WHERE id = $1", [
       submission.rows[0]!.id,
     ]);
     await pool.query(
-      `UPDATE aruba_batches SET status = 'RECONCILED', requires_reconciliation = false
+      `UPDATE aruba_batches SET status = 'ARUBA_ACCEPTED', requires_reconciliation = false
        WHERE id = $1`,
       [batchId],
     );
@@ -114,7 +116,19 @@ test("la readiness blocca ogni dry-run Production con effetto remoto non riconci
       unreconciledDryRunAttempts: 0,
       unreconciledHistory: 0,
       pendingHistoryImports: 0,
-      openArubaBatches: 0,
+      openArubaBatches: 1,
+      blockingArubaBatches: 0,
+    });
+
+    await pool.query("UPDATE aruba_batches SET mode = 'CONTEXTUAL_CONFIRMATION' WHERE id = $1", [
+      batchId,
+    ]);
+    assert.deepEqual(await readiness.releaseCandidateReadinessState(pool), {
+      unreconciledDryRunAttempts: 0,
+      unreconciledHistory: 0,
+      pendingHistoryImports: 0,
+      openArubaBatches: 1,
+      blockingArubaBatches: 1,
     });
   } finally {
     await db.closePool();
