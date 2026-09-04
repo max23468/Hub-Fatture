@@ -64,6 +64,13 @@ jobs:
         env:
           CANDIDATE: ${{ inputs.commit }}
         run: "$RUNNER_TEMP/hub-fatture-production-tooling/production-workflow.sh candidate"
+      - name: Verifica versione prima del deploy
+        if: ${{ inputs.publish_release && !inputs.backup_only }}
+        env:
+          CANDIDATE: ${{ steps.candidate.outputs.commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: "$RUNNER_TEMP/hub-fatture-production-tooling/production-workflow.sh release-preflight"
       - name: Trova l'ultimo commit distribuito con successo
         id: impact
         env:

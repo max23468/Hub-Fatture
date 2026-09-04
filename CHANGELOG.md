@@ -1,11 +1,15 @@
 # Changelog
 
+## 1.3.4
+
+- L'upgrade rilegge automaticamente la finestra degli ordini eBay provvisori ancora attivi, così la riconciliazione strutturale consolida anche i record creati prima della correzione.
+- Production verifica che versione e tag siano liberi o già associati allo stesso candidato prima del deploy, impedendo disallineamenti quando una pubblicazione concorrente conclude per prima.
+
 ## 1.3.3
 
 - Il runtime Aruba elimina un wrapper senza comportamento, codice morto e facciate interne non consumate, mantenendo invariati riconciliazione, invio e monitoraggio SdI.
 - Il campo Scadenza dei Controlli resta contenuto nel pannello anche sui viewport mobile più stretti.
 - L’audit dipendenze ritenta soltanto gli errori transitori del registry entro un limite esplicito e continua a fallire subito quando rileva vulnerabilità.
-- L'upgrade rilegge automaticamente la finestra degli ordini eBay provvisori ancora attivi, così la riconciliazione strutturale consolida anche i record creati prima della correzione.
 
 ## 1.3.2
 
