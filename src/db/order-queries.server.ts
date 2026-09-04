@@ -14,6 +14,7 @@ import { actionableConnectorFailures } from "./connector-jobs.server.ts";
 import { openBillingCasePoolSql } from "./billing-case-operational-projection.server.ts";
 import {
   billingCasePendingPaymentSql,
+  effectiveApprovedInvoiceSql,
   openBillingCaseSql,
   pendingPaymentSql,
   standardInvoiceApprovalCandidateSql,
@@ -570,7 +571,7 @@ export async function listOpenActivities(
        WHERE document_orders.order_id = activities.invoice_order_id
          AND document_orders.document_kind = 'INVOICE'
          AND documents.kind = 'INVOICE'
-         AND documents.status = 'APPROVED'
+         AND ${effectiveApprovedInvoiceSql("documents")}
        ORDER BY documents.approved_at DESC NULLS LAST, documents.id DESC
        LIMIT 1
      ) AS invoice_customer ON true

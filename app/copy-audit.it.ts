@@ -60,6 +60,7 @@ export const auditActionLabels = {
   DOCUMENT_NUMBERED: "Numero fiscale assegnato",
   DOCUMENT_PENDING_PAYMENT_CONFIRMED: "Pagamento pendente confermato",
   FISCAL_PROFILE_ACTIVATED: "Profilo fiscale approvato",
+  INVOICE_REJECTED_REQUEUED: "Ordine ripristinato dopo lo scarto della fattura",
   LOGIN_FAILED: "Accesso rifiutato",
   LOGIN_RATE_LIMITED: "Accessi temporaneamente bloccati",
   LOGIN_SUCCEEDED: "Accesso riuscito",

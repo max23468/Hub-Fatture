@@ -705,6 +705,10 @@ function ApprovalForm({
         <CustomerEmailApprovalFields choiceName="emailChoice" email={projection.customerEmail} />
       </fieldset>
       <ApprovalConfirmations projection={projection} publicNumber={publicNumber} />
+      <label className="checkbox-row">
+        <input name="confirmApproval" required type="checkbox" value="yes" />
+        {copy.document.confirmApproval}
+      </label>
       <button className="button preparation-approval__submit" type="submit">
         {copy.document.approve}
       </button>

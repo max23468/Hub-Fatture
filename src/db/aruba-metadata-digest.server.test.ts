@@ -181,3 +181,102 @@ test("un vecchio digest che differisce solo per il timestamp Aruba si riallinea"
     await fixture.drop();
   }
 });
+
+test("una collisione emersa aggiornando un’identità remota resta separata e bloccata", async () => {
+  const fixture = await temporaryDatabase("aruba_late_identity_collision");
+  process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
+  process.env.APP_BASE_URL = "http://localhost:8080";
+  process.env.APP_ENV = "test";
+  process.env.DATABASE_URL = fixture.connectionString;
+  process.env.ARUBA_ACCOUNT_REFERENCE = "synthetic-account";
+  const pool = new pg.Pool({ connectionString: fixture.connectionString });
+  let client: pg.PoolClient | undefined;
+  try {
+    await runMigrations({ connectionString: fixture.connectionString });
+    client = await pool.connect();
+    const existing = await client.query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+         (environment, account_reference, remote_id, document_type, fiscal_year, series,
+          fiscal_number, document_date, total_amount, remote_status,
+          remote_status_observed_at, metadata_digest)
+       VALUES ('MOCK', 'synthetic-account', 'already-canonical', 'TD01', 2026, 'FPR',
+               '1713', '2026-08-30', 9810, 'NOT_DELIVERED', now(), repeat('a', 64))
+       RETURNING id::text`,
+    );
+    const incomplete = await client.query<{ id: string }>(
+      `INSERT INTO aruba_remote_documents
+         (environment, account_reference, remote_id, document_type, fiscal_year, series,
+          fiscal_number, document_date, total_amount, remote_status,
+          remote_status_observed_at, metadata_digest)
+       VALUES ('MOCK', 'synthetic-account', 'late-identity', 'TD01', 2026, NULL,
+               NULL, '2026-08-30', 15850, 'UNKNOWN', now(), repeat('b', 64))
+       RETURNING id::text`,
+    );
+    const sessionId = "10000000-0000-4000-8000-000000000104";
+    await openManualSession(client, sessionId);
+    const remote: RemoteInventoryDocument = {
+      remoteId: "late-identity",
+      documentType: "TD01",
+      fiscalYear: 2026,
+      series: "FPR",
+      fiscalNumber: "1713",
+      documentDate: "2026-08-30",
+      recipientName: "Cliente sintetico",
+      recipientTaxId: null,
+      recipientTaxIdentifiers: [],
+      recipientCountryCode: "IT",
+      recipientAddress: null,
+      totalAmount: 15_850,
+      currency: "EUR",
+      status: "SUBMITTED",
+      providerStatusLabel: "Inviata",
+      providerInvoiceNumber: "1713",
+      providerObservedAt: "2026-08-30T10:00:00.000Z",
+      xmlSha256: null,
+      orderReferences: [],
+    };
+    await ingestParsedArubaPage(
+      client,
+      {
+        id: sessionId,
+        environment: "MOCK",
+        account_reference: "synthetic-account",
+        sourceKind: "MANUAL",
+      },
+      {
+        stream: "invoices:2026",
+        scanOrdinal: 1,
+        pageOrdinal: 1,
+        cursor: null,
+        terminal: true,
+        fullScan: false,
+        documents: [remote],
+      },
+      false,
+    );
+    assert.deepEqual(
+      (
+        await client.query(
+          `SELECT
+             (SELECT count(*)::integer FROM aruba_remote_documents
+              WHERE remote_id IN ('already-canonical', 'late-identity')) AS documents,
+             (SELECT count(*)::integer FROM aruba_deduplication_conflicts
+              WHERE sync_session_id = $1) AS conflicts,
+             (SELECT array_agg(status ORDER BY remote_document_id)
+              FROM aruba_document_matches
+              WHERE remote_document_id = ANY($2::bigint[])) AS statuses`,
+          [sessionId, [existing.rows[0]!.id, incomplete.rows[0]!.id]],
+        )
+      ).rows[0],
+      {
+        documents: 2,
+        conflicts: 1,
+        statuses: ["UNKNOWN_REMOTE_STATE", "UNKNOWN_REMOTE_STATE"],
+      },
+    );
+  } finally {
+    client?.release();
+    await pool.end();
+    await fixture.drop();
+  }
+});

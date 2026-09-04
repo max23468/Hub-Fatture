@@ -10,16 +10,15 @@ state=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env ex
 
 printf '%s' "$state" | jq -e '
   [
-    .unsafeApprovedDocuments,
-    .completedDryRunQualifications,
+    .unreconciledDryRunAttempts,
     .unreconciledHistory,
     .pendingHistoryImports,
     .openArubaBatches
   ] | all(type == "number" and . >= 0 and floor == .)' >/dev/null \
   || { echo "Stato readiness non valido" >&2; exit 1; }
 
-[ "$(printf '%s' "$state" | jq -r .unsafeApprovedDocuments)" = "0" ] \
-  || { echo "Documenti approvati non qualificati presenti" >&2; exit 1; }
+[ "$(printf '%s' "$state" | jq -r .unreconciledDryRunAttempts)" = "0" ] \
+  || { echo "Dry-run Production non riconciliati presenti" >&2; exit 1; }
 [ "$(printf '%s' "$state" | jq -r .unreconciledHistory)" = "0" ] \
   || { echo "Ordini storici non riconciliati presenti" >&2; exit 1; }
 [ "$(printf '%s' "$state" | jq -r .pendingHistoryImports)" = "0" ] \

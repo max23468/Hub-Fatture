@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -99,7 +99,6 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
     );
 
     let sendCalls = 0;
-    const dryRunAttempts = new Map<string, number>();
     const sendAttempts = new Map<string, number>();
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(String(input));
@@ -111,21 +110,11 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
       assert.deepEqual(Object.keys(body).sort(), ["dataFile", "dryRun", "skipExtraSchema"]);
       assert.equal(body.skipExtraSchema, false);
       const xml = Buffer.from(String(body.dataFile), "base64").toString("utf8");
-      const marker = /scenario="([A-Z]+)"/.exec(xml)?.[1];
+      const marker = /<Numero>FPR ([A-Z]+)<\/Numero>/.exec(xml)?.[1];
       assert.ok(marker);
       await pool.query(
         "UPDATE aruba_api_traffic_limits SET next_allowed_at = now() WHERE scope = 'SEND'",
       );
-      if (body.dryRun === true) {
-        const attempt = (dryRunAttempts.get(marker) ?? 0) + 1;
-        dryRunAttempts.set(marker, attempt);
-        if (marker === "RIPROVA" && attempt === 1) return new Response(null, { status: 401 });
-        return Response.json({
-          errorCode: "0000",
-          errorDescription: "Validazione sintetica completata",
-          uploadFileName: `DRY-${marker}.xml`,
-        });
-      }
       assert.equal(body.dryRun, false);
       sendCalls += 1;
       const attempt = (sendAttempts.get(marker) ?? 0) + 1;
@@ -158,7 +147,15 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
 
     async function createApprovedDocument(marker: string, fiscalNumber: number) {
       const relativePath = `aruba-send/${marker.toLowerCase()}.xml`;
-      const xml = Buffer.from(`<FatturaElettronica scenario="${marker}" />`);
+      const validFixture = await readFile(
+        new URL("../../tests/fixtures/fatturapa/accepted-invoice.anonymized.xml", import.meta.url),
+        "utf8",
+      );
+      const xml = Buffer.from(
+        marker === "INVALIDO"
+          ? "<FatturaElettronica />"
+          : validFixture.replace("<Numero>FPR 0001/26</Numero>", `<Numero>FPR ${marker}</Numero>`),
+      );
       const sha256 = createHash("sha256").update(xml).digest("hex");
       await mkdir(join(storageRoot, "aruba-send"), { recursive: true });
       await writeFile(join(storageRoot, relativePath), xml);
@@ -223,7 +220,7 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
       return { batchId, documents };
     }
 
-    async function runNext(expectedType: "aruba_dry_run_submission" | "aruba_send_submission") {
+    async function runNext(expectedType: "aruba_send_submission") {
       await pool.query(
         `UPDATE jobs SET run_at = CASE WHEN type = $1 THEN now()
            ELSE now() + interval '1 day' END
@@ -237,17 +234,13 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
       return { job, result };
     }
 
-    async function completeNext(
-      expectedType: "aruba_dry_run_submission" | "aruba_send_submission",
-    ) {
+    async function completeNext(expectedType: "aruba_send_submission") {
       const executed = await runNext(expectedType);
       assert.equal(await completeJob(executed.job, executed.result), true);
       return executed.result;
     }
 
     const massBatch = await createBatch(["ACCETTATO", "RIFIUTO"], 1001);
-    await completeNext("aruba_dry_run_submission");
-    await completeNext("aruba_dry_run_submission");
     assert.equal((await completeNext("aruba_send_submission")).accepted, true);
     assert.equal((await completeNext("aruba_send_submission")).accepted, false);
     const massStatuses = await pool.query<{
@@ -269,45 +262,33 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
         requestId: "test-duplicate-local-submission",
       }),
     );
-    await completeNext("aruba_dry_run_submission");
     const callsBeforeLocalDuplicate = sendCalls;
     const localDuplicate = await completeNext("aruba_send_submission");
     assert.equal(localDuplicate.errorCode, "ARUBA_SEND_NOT_AUTHORIZED");
     assert.equal(sendCalls, callsBeforeLocalDuplicate);
 
     await createBatch(["DUPLICATO"], 1003);
-    await completeNext("aruba_dry_run_submission");
     const duplicate = await completeNext("aruba_send_submission");
     assert.equal(duplicate.unknownRemoteState, true);
 
     await createBatch(["AMBIGUO"], 1004);
-    await completeNext("aruba_dry_run_submission");
     const ambiguous = await completeNext("aruba_send_submission");
     assert.equal(ambiguous.unknownRemoteState, true);
 
     await createBatch(["RIPROVA"], 1005);
-    await completeNext("aruba_dry_run_submission");
-    assert.equal(dryRunAttempts.get("RIPROVA"), 2);
     const firstRetry = await runNext("aruba_send_submission");
     assert.equal(firstRetry.result.continuationPending, true);
     assert.equal(await yieldJob(firstRetry.job, firstRetry.result, 0), true);
     assert.equal((await completeNext("aruba_send_submission")).accepted, true);
     assert.equal(sendAttempts.get("RIPROVA"), 2);
 
-    await createBatch(["SENZAPROVA"], 1006);
-    await completeNext("aruba_dry_run_submission");
-    await pool.query(
-      `UPDATE aruba_submission_attempts SET response_metadata_json = '{"errorCode":"0096"}'
-       WHERE submission_id = (SELECT id FROM aruba_submissions
-         WHERE source_filename = 'FPR_1006_26.xml') AND operation = 'DRY_RUN'`,
-    );
-    const callsBeforeInvalidProof = sendCalls;
-    const invalidProof = await completeNext("aruba_send_submission");
-    assert.equal(invalidProof.errorCode, "ARUBA_SEND_NOT_AUTHORIZED");
-    assert.equal(sendCalls, callsBeforeInvalidProof);
+    await createBatch(["INVALIDO"], 1006);
+    const callsBeforeInvalidXml = sendCalls;
+    const invalidXml = await completeNext("aruba_send_submission");
+    assert.equal(invalidXml.errorCode, "UNKNOWN");
+    assert.equal(sendCalls, callsBeforeInvalidXml);
 
     await createBatch(["INVENTARIO"], 1007);
-    await completeNext("aruba_dry_run_submission");
     await pool.query(
       `UPDATE aruba_sync_runs SET completed_at = now() - interval '5 hours',
          full_scan_completed_at = now() - interval '5 hours'
@@ -323,7 +304,6 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
     );
 
     await createBatch(["BLOCCATO"], 1008);
-    await completeNext("aruba_dry_run_submission");
     getConfig().ARUBA_SUBMISSION_ENABLED = false;
     const callsBeforeBlocked = sendCalls;
     const blocked = await completeNext("aruba_send_submission");
@@ -332,7 +312,6 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
     getConfig().ARUBA_SUBMISSION_ENABLED = true;
 
     await createBatch(["LEASEPERSA"], 1009);
-    await completeNext("aruba_dry_run_submission");
     const callsBeforeLostLease = sendCalls;
     await assert.rejects(
       () => runNext("aruba_send_submission"),
@@ -343,7 +322,6 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
     assert.equal(sendAttempts.get("LEASEPERSA"), 1);
 
     await createBatch(["RECOVERY"], 1010);
-    await completeNext("aruba_dry_run_submission");
     const recoveryJob = await claimJob("worker-recovery");
     assert.ok(recoveryJob);
     assert.equal(recoveryJob.type, "aruba_send_submission");
@@ -362,6 +340,21 @@ test("l’invio outbound resta fail-closed e riconcilia ogni esito senza rete re
     assert.equal(recovered.unknownRemoteState, true);
     assert.equal(sendCalls, callsBeforeRecovery);
     assert.equal(await completeJob(recoveryJob, recovered), true);
+
+    await createBatch(["NUMERODOPPIO"], 1011);
+    await pool.query(
+      `INSERT INTO aruba_remote_documents
+         (environment, account_reference, remote_id, document_type, fiscal_year, series,
+          fiscal_number, document_date, total_amount, remote_status,
+          remote_status_observed_at, metadata_digest, automatic_source, provider_group_id)
+       VALUES ('MOCK', 'synthetic-aruba-account', 'existing-fiscal-number', 'TD01', 2026,
+         'FPR', '1011', '2026-09-03', 10000, 'DELIVERED', now(), repeat('e', 64),
+         'API', 'existing-fiscal-number')`,
+    );
+    const callsBeforeDuplicateNumber = sendCalls;
+    const duplicateNumber = await completeNext("aruba_send_submission");
+    assert.equal(duplicateNumber.errorCode, "ARUBA_SEND_NOT_AUTHORIZED");
+    assert.equal(sendCalls, callsBeforeDuplicateNumber);
 
     const uncertain = await pool.query<{ count: number }>(
       `SELECT count(*)::integer AS count FROM aruba_submissions

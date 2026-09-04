@@ -1,5 +1,11 @@
 # Dossier tecnico outbound API Aruba senza invio
 
+> **Evidenza superata dall’incidente:** una chiamata Production registrata localmente come dry-run
+> ha creato un documento remoto con lo stesso hash. Questo dossier non dimostra quindi l’assenza di
+> effetti remoti. Il comportamento corretto vieta `dryRun=true` in Production, conserva il caso come
+> stato remoto incerto e richiede riconciliazione. Nessun dato provider viene corretto dal deploy
+> tecnico.
+
 ## Perimetro provato
 
 La fase corrente prepara e qualifica il canale outbound senza effettuare invii reali. L’implementazione locale

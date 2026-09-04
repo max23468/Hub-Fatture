@@ -129,6 +129,7 @@ export async function approveInvoices(
             caseRevision: candidate.caseRevision,
             draftVersion: candidate.draftVersion,
             projectionSha256: candidate.projectionSha256,
+            confirmApproval: true,
             confirmPending: false,
             confirmDifference: false,
             arubaMode: arubaMode.data,

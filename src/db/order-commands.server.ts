@@ -96,13 +96,7 @@ export async function setShopifyPaymentFeeMode(
            WHEN $1 = 'DEDUCT' THEN shopify_payments_fee_amount ELSE 0
          END
          AND historical_reconciliation_outcome IS NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM document_orders
-           JOIN documents ON documents.id = document_orders.document_id
-           WHERE document_orders.order_id = orders.id
-             AND document_orders.document_kind = 'INVOICE'
-             AND documents.status = 'APPROVED'
-         )
+         AND NOT ${approvedInvoiceOrderLinkSql("orders")}
        RETURNING billing_case_id::text`,
       [mode.data],
     );

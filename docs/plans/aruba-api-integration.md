@@ -5,6 +5,11 @@
 **Fonte canonica:** Master Plan, ADR Aruba e glossario
 **Documentazione provider:** [API Aruba v2](https://fatturazioneelettronica.aruba.it/apidoc/v2/docs.html) e [manuale account Premium](https://guide.pec.it/fatturazione-elettronica/manuale-account-premium.pdf)
 
+> **Correzione operativa prevalente:** l’osservazione reale ha dimostrato che `dryRun=true` può
+> produrre un documento remoto. Il percorso Production non lo usa più: valida l’XML localmente e
+> riserva l’endpoint di upload al solo invio reale esplicitamente autorizzato. Le sezioni storiche
+> sulla qualifica dry-run non descrivono più il comportamento corrente.
+
 Questo piano ha sostituito integralmente il precedente percorso browser-centrico. Descrive la
 destinazione API, i gate e la sequenza di delivery. Non autorizza deploy, modifiche nel pannello
 Aruba, callback, upload, dry-run Production o invii fiscali reali.

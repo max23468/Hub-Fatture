@@ -28,6 +28,7 @@ import {
 } from "./aruba-api-connection.server.ts";
 import { reconcileArubaApiOutboundReadback } from "./aruba-api-inbound.server.ts";
 import { scheduleArubaEmissionEffects } from "./aruba-emission-effects.server.ts";
+import { requeueAuthoritativelyRejectedInvoice } from "./rejected-invoice-requeue.server.ts";
 import {
   refreshArubaApiBatchStatus,
   type ArubaOutboundActor,
@@ -298,6 +299,11 @@ async function runSubmissionReadback(job: ClaimedJob, submissionId: string) {
       }
       if (transition === "ADVANCE" && ["DELIVERED", "NOT_DELIVERED"].includes(committedStatus)) {
         await scheduleArubaEmissionEffects(client, context.document_id);
+      }
+      if (transition === "ADVANCE" && committedStatus === "REJECTED") {
+        await requeueAuthoritativelyRejectedInvoice(client, submissionId, {
+          requestId: `aruba-readback:${job.id}`,
+        });
       }
       return { status: committedStatus, terminal, transition };
     });

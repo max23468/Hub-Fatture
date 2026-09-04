@@ -25,10 +25,7 @@ import {
   retryCustomerEmail,
 } from "../../src/db/email.server.ts";
 import { publicError } from "../../src/errors.ts";
-import {
-  authorizeArubaApiDryRunQualification,
-  confirmArubaApiBatch,
-} from "../../src/db/aruba-api-outbound.server.ts";
+import { confirmArubaApiBatch } from "../../src/db/aruba-api-outbound.server.ts";
 import {
   requestArubaSubmissionReadback,
   requestArubaTargetedLookup,
@@ -160,7 +157,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     view,
     remoteDocuments,
     batchCreated: url.searchParams.get("batch") === "creato",
-    dryRunAuthorized: url.searchParams.get("batch") === "dry-run-autorizzato",
     fileImported: url.searchParams.get("file") === "importato",
     arubaLookupRequested: url.searchParams.get("aruba") === "ricerca-richiesta",
     arubaRefreshRequested: url.searchParams.get("aruba") === "aggiornamento-richiesto",
@@ -203,14 +199,6 @@ export async function action({ request }: Route.ActionArgs) {
     if (form.get("intent") === "confirm-aruba-api-batch") {
       await confirmArubaApiBatch(form.get("batchId") ?? "", actor);
       return redirect("/documenti?batch=confermato");
-    }
-    if (form.get("intent") === "authorize-aruba-dry-run") {
-      await authorizeArubaApiDryRunQualification(
-        form.get("batchId") ?? "",
-        actor,
-        form.get("confirmDryRunQualification") === "yes",
-      );
-      return redirect("/documenti?batch=dry-run-autorizzato");
     }
     if (form.get("intent") === "retry-customer-email") {
       await retryCustomerEmail(
@@ -268,14 +256,12 @@ function DocumentNotices({
   arubaLookupRequested,
   arubaRefreshRequested,
   batchCreated,
-  dryRunAuthorized,
   error,
   fileImported,
 }: {
   arubaLookupRequested: boolean;
   arubaRefreshRequested: boolean;
   batchCreated: boolean;
-  dryRunAuthorized: boolean;
   error: string | null;
   fileImported: boolean;
 }) {
@@ -284,11 +270,6 @@ function DocumentNotices({
       {batchCreated ? (
         <p className="notice" role="status">
           {copy.documents.batchCreated}
-        </p>
-      ) : null}
-      {dryRunAuthorized ? (
-        <p className="notice notice--success" role="status">
-          {copy.documents.dryRunQualificationAuthorized}
         </p>
       ) : null}
       {fileImported ? (
@@ -331,7 +312,6 @@ export default function Documents() {
     sort,
     view,
     batchCreated,
-    dryRunAuthorized,
     fileImported,
     remoteDocuments,
     arubaLookupRequested,
@@ -379,7 +359,6 @@ export default function Documents() {
         arubaLookupRequested={arubaLookupRequested}
         arubaRefreshRequested={arubaRefreshRequested}
         batchCreated={batchCreated}
-        dryRunAuthorized={dryRunAuthorized}
         error={error}
         fileImported={fileImported}
       />

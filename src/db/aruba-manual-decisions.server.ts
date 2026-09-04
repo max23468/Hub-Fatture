@@ -10,6 +10,7 @@ import {
 } from "../aruba-inbound.ts";
 import { AppError } from "../errors.ts";
 import { writeAudit } from "./audit.server.ts";
+import { effectiveApprovedInvoiceSql } from "./billing-case-sql.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 import { withTransaction } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
@@ -192,16 +193,18 @@ export async function resolveArubaDocumentMatch(
     ) {
       throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
     }
-    const invoice =
-      current.document_type === "TD04"
-        ? await client.query<{ document_id: string }>(
-            `SELECT document_orders.document_id
-             FROM document_orders JOIN documents ON documents.id = document_orders.document_id
-             WHERE document_orders.order_id = $1 AND document_orders.document_kind = 'INVOICE'
-               AND documents.status = 'APPROVED' ORDER BY documents.id DESC LIMIT 1`,
-            [orderId],
-          )
-        : null;
+    let invoice: pg.QueryResult<{ document_id: string }> | null = null;
+    if (current.document_type === "TD04") {
+      // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna senza input esterno.
+      invoice = await client.query<{ document_id: string }>(
+        `SELECT document_orders.document_id
+         FROM document_orders JOIN documents ON documents.id = document_orders.document_id
+         WHERE document_orders.order_id = $1 AND document_orders.document_kind = 'INVOICE'
+           AND ${effectiveApprovedInvoiceSql("documents")}
+         ORDER BY documents.id DESC LIMIT 1`,
+        [orderId],
+      );
+    }
     const cases = await affectedCases(client, candidateOrderIds(current.candidates_json));
     await client.query(
       `UPDATE aruba_document_matches SET status = 'MATCHED', method = 'MANUAL',

@@ -12,18 +12,12 @@ import {
 } from "../aruba-inbound.ts";
 import { AppError } from "../errors.ts";
 import {
-  consolidateArubaRemoteCollision,
-  findArubaRemoteCollision,
-  resolveRejectedAttemptIdentityConflicts,
-} from "./aruba-rejected-attempt.server.ts";
-import {
   arubaCursorStream as cursorStream,
   arubaPayloadDigest as payloadDigest,
 } from "./aruba-inventory-context.server.ts";
 import { reconcileRemoteDocument } from "./aruba-reconciliation.server.ts";
 import { storedMetadataIsCanonicallyEquivalent } from "./aruba-metadata-equivalence.server.ts";
 import {
-  latestObservedRemote,
   loadLatestOfficialXml,
   materializeLatestOfficialXml,
   officialEvidence,
@@ -64,32 +58,76 @@ export type ArubaPageIngestContext = {
   groupCount?: number;
 };
 
-async function restoreResolvedRejectedAttempts(
+async function recordArubaIdentityCollisions(
   client: pg.PoolClient,
   session: ArubaPageIngestContext,
-  incomingRemoteId: string,
+  remoteDocumentId: string,
+  remote: z.infer<typeof inventoryPageSchema>["documents"][number],
+  metadataDigest: string,
 ) {
-  const remoteDocumentIds = await resolveRejectedAttemptIdentityConflicts(
-    client,
-    {
-      environment: session.environment,
-      accountReference: session.account_reference,
-    },
-    incomingRemoteId,
-  );
-  for (const remoteDocumentId of remoteDocumentIds) {
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Osserva la rimozione corrente.
-    const remote = await latestObservedRemote(client, remoteDocumentId);
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Usa il file del tentativo ripristinato.
-    const official = await loadLatestOfficialXml(client, remoteDocumentId);
-    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- Riconcilia in ordine.
-    await reconcileRemoteDocument(
-      client,
+  const collisions = await client.query<{
+    id: string;
+    collision_key: "FISCAL_IDENTITY" | "XML_SHA256";
+  }>(
+    `SELECT id,
+       CASE WHEN $7::text IS NOT NULL AND xml_sha256 = $7
+         THEN 'XML_SHA256' ELSE 'FISCAL_IDENTITY' END AS collision_key
+     FROM aruba_remote_documents
+     WHERE environment = $1 AND account_reference = $2 AND id <> $8
+       AND ((remote_status <> 'REJECTED' AND $9::text <> 'REJECTED'
+             AND $3::text IS NOT NULL AND $5::text IS NOT NULL
+             AND fiscal_year = $4 AND upper(series) = upper($3)
+             AND upper(fiscal_number) = upper($5) AND document_type = $6)
+         OR ($7::text IS NOT NULL AND xml_sha256 = $7))
+     FOR UPDATE`,
+    [
+      session.environment,
+      session.account_reference,
+      remote.series,
+      remote.fiscalYear,
+      remote.fiscalNumber,
+      remote.documentType,
+      remote.xmlSha256,
       remoteDocumentId,
-      official ? officialEvidence(remote, official.xml) : remote,
-      Boolean(official),
+      remote.status,
+    ],
+  );
+  for (const collision of collisions.rows) {
+    await client.query(
+      session.sourceKind === "API"
+        ? `INSERT INTO aruba_deduplication_conflicts
+             (environment, account_reference, existing_remote_document_id,
+              incoming_remote_id, collision_key, incoming_payload_digest, sync_run_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT DO NOTHING`
+        : `INSERT INTO aruba_deduplication_conflicts
+             (environment, account_reference, existing_remote_document_id,
+              incoming_remote_id, collision_key, incoming_payload_digest, sync_session_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT DO NOTHING`,
+      [
+        session.environment,
+        session.account_reference,
+        collision.id,
+        remote.remoteId,
+        collision.collision_key,
+        metadataDigest,
+        session.id,
+      ],
+    );
+    await client.query(
+      `INSERT INTO aruba_document_matches
+         (remote_document_id, status, method, matcher_version, signals_json, candidates_json)
+       SELECT remote_id, 'UNKNOWN_REMOTE_STATE', 'NONE', $2,
+              jsonb_build_object('providerIdentityCollision', true, 'collisionKey', $3::text), '[]'
+       FROM unnest($1::bigint[]) AS remote_id
+       ON CONFLICT (remote_document_id) DO UPDATE SET
+         status = 'UNKNOWN_REMOTE_STATE', method = 'NONE', matcher_version = $2,
+         signals_json = EXCLUDED.signals_json, candidates_json = '[]', updated_at = now()`,
+      [[collision.id, remoteDocumentId], ARUBA_MATCHER_VERSION, collision.collision_key],
     );
   }
+  return (collisions.rowCount ?? 0) > 0;
 }
 
 export async function ingestParsedArubaPage(
@@ -271,89 +309,6 @@ export async function ingestParsedArubaPage(
       }
     }
     let storedId = current?.id;
-    if (!current) {
-      const collided = await findArubaRemoteCollision(client, {
-        environment: session.environment,
-        accountReference: session.account_reference,
-        series: remote.series,
-        fiscalYear: remote.fiscalYear,
-        fiscalNumber: remote.fiscalNumber,
-        documentType: remote.documentType,
-        xmlSha256: remote.xmlSha256,
-        remoteStatus: remote.status,
-      });
-      if (
-        collided &&
-        (apiSource || collided.api || collided.remote_id.startsWith("historical-document-"))
-      ) {
-        const consolidation = await consolidateArubaRemoteCollision(
-          client,
-          collided,
-          remote,
-          page.fullScan,
-          metadataDigest,
-        );
-        storedId = consolidation.id;
-        conflicted = consolidation.conflicted;
-        if (consolidation.immutableConflict) {
-          await client.query(
-            apiSource
-              ? `INSERT INTO aruba_deduplication_conflicts
-                   (environment, account_reference, existing_remote_document_id,
-                    incoming_remote_id, collision_key, incoming_payload_digest, sync_run_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-                 ON CONFLICT DO NOTHING`
-              : `INSERT INTO aruba_deduplication_conflicts
-                   (environment, account_reference, existing_remote_document_id,
-                    incoming_remote_id, collision_key, incoming_payload_digest, sync_session_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-                 ON CONFLICT DO NOTHING`,
-            [
-              session.environment,
-              session.account_reference,
-              collided.id,
-              remote.remoteId,
-              consolidation.collisionKey,
-              metadataDigest,
-              session.id,
-            ],
-          );
-        }
-      } else if (collided) {
-        conflicted = true;
-        storedId = collided.id;
-        await client.query(
-          apiSource
-            ? `INSERT INTO aruba_deduplication_conflicts
-                 (environment, account_reference, existing_remote_document_id, incoming_remote_id,
-                  collision_key, incoming_payload_digest, sync_run_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               ON CONFLICT DO NOTHING`
-            : `INSERT INTO aruba_deduplication_conflicts
-                 (environment, account_reference, existing_remote_document_id, incoming_remote_id,
-                  collision_key, incoming_payload_digest, sync_session_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               ON CONFLICT DO NOTHING`,
-          [
-            session.environment,
-            session.account_reference,
-            collided.id,
-            remote.remoteId,
-            remote.xmlSha256 ? "XML_SHA256" : "FISCAL_IDENTITY",
-            metadataDigest,
-            session.id,
-          ],
-        );
-        await client.query(
-          `INSERT INTO aruba_document_matches
-             (remote_document_id, status, method, matcher_version, signals_json, candidates_json)
-           VALUES ($1, 'ERROR', 'NONE', $2, '{"deduplicationCollision":true}', '[]')
-           ON CONFLICT (remote_document_id) DO UPDATE SET
-             status = 'ERROR', method = 'NONE', updated_at = now()`,
-          [collided.id, ARUBA_MATCHER_VERSION],
-        );
-      }
-    }
     if (!storedId) {
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO aruba_remote_documents
@@ -389,6 +344,13 @@ export async function ingestParsedArubaPage(
         ],
       );
       storedId = inserted.rows[0]!.id;
+      conflicted = await recordArubaIdentityCollisions(
+        client,
+        session,
+        storedId,
+        remote,
+        metadataDigest,
+      );
     } else if (current && transition === "APPLY" && !conflicted) {
       await client.query(
         `UPDATE aruba_remote_documents SET
@@ -421,6 +383,15 @@ export async function ingestParsedArubaPage(
           metadataDigest,
         ],
       );
+      if (metadataChanged) {
+        conflicted = await recordArubaIdentityCollisions(
+          client,
+          session,
+          current.id,
+          remote,
+          metadataDigest,
+        );
+      }
     }
     if (apiSource) {
       await client.query(
@@ -435,9 +406,6 @@ export async function ingestParsedArubaPage(
       });
     }
     touchedRemoteDocumentIds.push(storedId!);
-    if (!conflicted) {
-      await restoreResolvedRejectedAttempts(client, session, remote.remoteId);
-    }
     await client.query(
       apiSource
         ? `INSERT INTO aruba_remote_observations

@@ -353,6 +353,9 @@ export async function dryRunArubaApiInvoice(
   session: ArubaApiSession,
   xml: Buffer,
 ): Promise<ArubaApiUploadResult> {
+  if (session.environment === "PRODUCTION") {
+    throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
+  }
   return uploadArubaApiInvoice(session, xml, true);
 }
 

@@ -71,20 +71,12 @@ modalità configurata richiederebbe trasmissione, il server richiede una conferm
 downgrade. Il secondo arresto indipendente è `connections.api_paused`; entrambi vengono riletti
 prima di creare o confermare il batch e nuovamente dal worker prima della rete.
 
-Una qualifica Production monouso resta confinata a un batch `DOCUMENT_ONLY` di un documento, lega
-account e manifest, scade dopo quindici minuti e autorizza al massimo una richiesta con
-`dryRun=true`. Il worker la consuma atomicamente prima della rete. Non abilita `dryRun=false` e non
-modifica l’interruttore globale.
+`dryRun=true` è vietato in Production: non costituisce una simulazione affidabile e può produrre un
+documento remoto. Eventuali tentativi storici senza un successivo `SEND` vengono classificati
+`UNKNOWN_REMOTE_STATE`, richiedono readback e bloccano la readiness fino alla riconciliazione.
 
-`DRY_RUN_VALIDATED` costituisce una prova terminale di qualifica, e non un invio da riconciliare,
-soltanto se l’intera catena resta integra: documento approvato, batch Production `DOCUMENT_ONLY` via
-API con un solo documento e primo tentativo, submission e manifest allineati, qualifica monouso e
-tentativo `DRY_RUN` entrambi `SUCCEEDED`, hash XML coincidenti, job concluso, `submitted_at` e
-identificativo remoto assenti, nessun file Aruba e nessuna notifica SdI. La mancanza di un solo
-vincolo riapre sia il documento sia il batch.
-
-Ogni batch lega ambiente, account, modalità, tentativo e documenti allo SHA-256 del manifest. I
-dry-run non incrementano il contatore mensile delle trasmissioni accettate.
+Ogni batch lega ambiente, account, modalità, tentativo e documenti allo SHA-256 del manifest. Un
+batch `DOCUMENT_ONLY` non crea job outbound e non effettua chiamate provider.
 
 ## Trasmissione Production ordinaria
 
@@ -92,9 +84,14 @@ Il runtime supporta `dryRun=false`, ma la sua disponibilità tecnica non costitu
 operativa. L’abilitazione di `ARUBA_SUBMISSION_ENABLED=true` è separata da commit, pubblicazione,
 deploy e release; anche il primo documento dovuto richiede l’approvazione prevista dal flusso.
 
-Prima di ogni invio il worker rilegge atomicamente configurazione, pausa API, modalità, account,
-approvazione, manifest, revisione, hash XML, dry-run riuscito sul medesimo hash e inventario
-anti-duplicato. Il payload contiene esclusivamente l’XML TD01 non firmato, massimo 5 MB,
+Prima dell’approvazione e nuovamente prima di ogni invio, l’inventario canonico deve essere completo,
+senza sincronizzazioni attive e aggiornato da non più di cinque minuti. La numerazione usa il
+massimo locale e remoto; il worker blocca inoltre l’invio se trova già la stessa combinazione di
+tipo documento, serie, anno e numero in qualunque stato remoto.
+
+Prima di ogni invio il worker valida localmente l’XML FatturaPA e rilegge atomicamente
+configurazione, pausa API, modalità, account, approvazione, manifest, revisione e hash XML. Il
+payload contiene esclusivamente l’XML TD01 non firmato, massimo 5 MB,
 `skipExtraSchema=false`, nessuna credenziale di firma e `dryRun=false`.
 
 Il tentativo `SEND` viene consolidato come `RUNNING` prima della rete. La risposta sincrona `0000`
@@ -168,6 +165,11 @@ azzera la soglia di 24 ore. Il worker reclama prima stato remoto incerto, invii 
 non terminali; seguono lookup puntuali, incrementale, ricerche esplorative e scansione completa.
 Solo una transizione canonica produce un’attività. `DELIVERED` e `NOT_DELIVERED` abilitano la copia
 cliente; `REJECTED`, regressioni e stati incerti non la abilitano.
+
+Solo la transizione autorevole a `REJECTED` rende nuovamente preparabili gli ordini della fattura.
+Il readback crea una nuova preparazione non approvata, conserva immutabili fattura e numero scartati
+e non riapre nulla per `SUBMITTED`, `UNKNOWN`, `DELIVERED` o `NOT_DELIVERED`. L’eventuale nuova
+fattura richiede l’approvazione esplicita ordinaria e riceve il successivo numero libero.
 
 ## Paginazione, limiti e checkpoint
 

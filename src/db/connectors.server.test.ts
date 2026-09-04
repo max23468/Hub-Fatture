@@ -587,7 +587,7 @@ test("connessioni cifrate, webhook duplicati e lease dei job restano idempotenti
     );
     const outbound = await getPool().query<{ id: string }>(
       `INSERT INTO jobs (type, payload_json, run_at, max_attempts)
-       VALUES ('aruba_dry_run_submission', '{"submissionId":"42"}', now(), 1)
+       VALUES ('aruba_send_submission', '{"submissionId":"42"}', now(), 1)
        RETURNING id`,
     );
     const prioritizedOutbound = await connectors.claimJob("worker-aruba-outbound");

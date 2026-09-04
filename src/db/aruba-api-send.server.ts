@@ -3,8 +3,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { ARUBA_UPLOAD_MAX_BYTES, effectiveArubaMode, type ArubaMode } from "../aruba.ts";
+import { arubaInventoryBlocksAllApprovals } from "../aruba-inventory.ts";
 import { getConfig } from "../config.server.ts";
 import { AppError } from "../errors.ts";
+import { validateFatturaXml } from "../fatturapa.server.ts";
 import {
   arubaApiAccountInfoSchema,
   sendUnsignedArubaApiInvoice,
@@ -201,6 +203,10 @@ async function prepareSend(job: ClaimedJob): Promise<SendContext> {
 async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) {
   await withTransaction(async (client) => {
     await renewLockedJobLease(client, job);
+    const inventory = await getLockedArubaInventoryHealth(client);
+    if (arubaInventoryBlocksAllApprovals(inventory)) {
+      throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+    }
     const current = await client.query<
       LockedSend & {
         connection_status: string;
@@ -208,9 +214,9 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
         account_info_json: unknown;
         account_info_checked_at: Date | null;
         current_attempt: boolean;
-        dry_run_verified: boolean;
         duplicate_submission: boolean;
         duplicate_remote_document: boolean;
+        duplicate_fiscal_identity: boolean;
         duplicate_job: boolean;
       }
     >(
@@ -227,12 +233,6 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
                 WHERE active_attempt.id = $2 AND active_attempt.submission_id = submissions.id
                   AND active_attempt.operation = 'SEND' AND active_attempt.status = 'RUNNING'
                   AND active_attempt.xml_sha256 = submissions.xml_sha256) AS current_attempt,
-              EXISTS (SELECT 1 FROM aruba_submission_attempts AS dry_run
-                WHERE dry_run.submission_id = submissions.id AND dry_run.operation = 'DRY_RUN'
-                  AND dry_run.status = 'SUCCEEDED'
-                  AND dry_run.xml_sha256 = submissions.xml_sha256
-                  AND dry_run.error_code IS NULL
-                  AND dry_run.response_metadata_json ->> 'errorCode' = '0000') AS dry_run_verified,
               EXISTS (SELECT 1 FROM aruba_submissions AS prior
                 WHERE prior.document_id = submissions.document_id AND prior.id <> submissions.id
                   AND prior.transport = 'API'
@@ -244,6 +244,15 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
                 WHERE matches.document_id = submissions.document_id
                   AND matches.status = 'MATCHED' AND remote.remote_status <> 'REJECTED')
                 AS duplicate_remote_document,
+              EXISTS (SELECT 1 FROM aruba_remote_documents AS remote
+                WHERE remote.environment = batches.environment
+                  AND remote.account_reference = batches.account_reference
+                  AND remote.document_type = documents.document_type
+                  AND remote.fiscal_year = documents.fiscal_year
+                  AND upper(remote.series) = upper(documents.series)
+                  AND btrim(remote.fiscal_number) ~ '^[0-9]+$'
+                  AND (btrim(remote.fiscal_number))::integer = documents.fiscal_number)
+                AS duplicate_fiscal_identity,
               EXISTS (SELECT 1 FROM jobs AS duplicate_job
                 WHERE duplicate_job.type = 'aruba_send_submission'
                   AND duplicate_job.payload_json ->> 'submissionId' = submissions.id::text
@@ -293,9 +302,9 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
       row.size_bytes !== context.sizeBytes ||
       row.size_bytes > ARUBA_UPLOAD_MAX_BYTES ||
       !row.current_attempt ||
-      !row.dry_run_verified ||
       row.duplicate_submission ||
       row.duplicate_remote_document ||
+      row.duplicate_fiscal_identity ||
       row.duplicate_job ||
       !account.success ||
       !accountFresh ||
@@ -305,8 +314,6 @@ async function assertSendStillAuthorized(context: SendContext, job: ClaimedJob) 
       throw new AppError("ARUBA_SEND_NOT_AUTHORIZED", 409);
     }
     await assertArubaBatchManifestCurrent(client, context.batchId);
-    const inventory = await getLockedArubaInventoryHealth(client);
-    if (inventory.blocking) throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
   });
 }
 
@@ -460,14 +467,13 @@ export async function runArubaApiSendJob(job: ClaimedJob) {
 
   let mutationMayHaveEffect = false;
   try {
-    const [xml, authenticated] = await Promise.all([
-      readVerifiedStorageObject({
-        relativePath: context.relativePath,
-        sha256: context.xmlSha256,
-        sizeBytes: context.sizeBytes,
-      }),
-      authenticateConfiguredArubaApiForOutbound(),
-    ]);
+    const xml = await readVerifiedStorageObject({
+      relativePath: context.relativePath,
+      sha256: context.xmlSha256,
+      sizeBytes: context.sizeBytes,
+    });
+    await validateFatturaXml(xml.toString("utf8"));
+    const authenticated = await authenticateConfiguredArubaApiForOutbound();
     if (authenticated.accountReference !== context.accountReference) {
       throw new AppError("ARUBA_ACCOUNT_MISMATCH", 409);
     }

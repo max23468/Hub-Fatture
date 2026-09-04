@@ -5,6 +5,7 @@ import "./migrations-scenarios/invoice-source-preparations.test.ts";
 import "./migrations-scenarios/control-replays.test.ts";
 import "./migrations-scenarios/shopify-bank-transfer-rounding.test.ts";
 import "./migrations-scenarios/source-conflict-marker-backfill.test.ts";
+import "./migrations-scenarios/aruba-dry-run-containment.test.ts";
 import "./migrations-scenarios/ebay-shipping-refund-replay.test.ts";
 import "./migrations-scenarios/shopify-identity-fulfillment-replay.test.ts";
 import "./migrations-scenarios/approved-invoice-memberships.test.ts";

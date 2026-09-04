@@ -480,13 +480,13 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
           new Map([["atomic-immutable-conflict", "atomic-conflict-group"]]),
           1,
         );
-        assert.deepEqual(staged.resolvedDocuments, [
-          {
-            remoteId: "atomic-immutable-conflict",
-            remoteDocumentId: stagedApiDocument.rows[0]!.id,
-            officialFilesBlocked: true,
-          },
-        ]);
+        assert.equal(staged.resolvedDocuments?.length, 1);
+        assert.equal(staged.resolvedDocuments?.[0]?.remoteId, "atomic-immutable-conflict");
+        assert.equal(staged.resolvedDocuments?.[0]?.officialFilesBlocked, true);
+        assert.notEqual(
+          staged.resolvedDocuments?.[0]?.remoteDocumentId,
+          stagedApiDocument.rows[0]!.id,
+        );
         assert.deepEqual(
           (
             await client.query(
@@ -496,19 +496,29 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
                       (SELECT signals_json FROM aruba_document_matches
                        WHERE remote_document_id = aruba_remote_documents.id) AS signals,
                       (SELECT count(*)::integer FROM aruba_deduplication_conflicts
-                       WHERE sync_run_id = $2) AS conflicts
-               FROM aruba_remote_documents WHERE id = $1`,
-              [stagedApiDocument.rows[0]!.id, stagedRunId],
+                       WHERE sync_run_id = $1) AS conflicts
+               FROM aruba_remote_documents
+               WHERE remote_id = 'atomic-immutable-conflict'`,
+              [stagedRunId],
             )
           ).rows[0],
           {
-            remote_id: "api-atomic-stage",
-            total_amount: 12_300,
+            remote_id: "atomic-immutable-conflict",
+            total_amount: 12_400,
             provider_group_id: "atomic-conflict-group",
             match_status: "UNKNOWN_REMOTE_STATE",
-            signals: { deduplicationCollision: true, immutableFiscalConflict: true },
+            signals: { providerIdentityCollision: true, collisionKey: "FISCAL_IDENTITY" },
             conflicts: 1,
           },
+        );
+        assert.equal(
+          (
+            await client.query(
+              `SELECT status FROM aruba_document_matches WHERE remote_document_id = $1`,
+              [stagedApiDocument.rows[0]!.id],
+            )
+          ).rows[0]?.status,
+          "UNKNOWN_REMOTE_STATE",
         );
         throw diagnosticRollback;
       }),
@@ -573,12 +583,11 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       new Map([["atomic-stage-synthetic", "atomic-stage-group"]]),
       1,
     );
-    assert.deepEqual(stagedResult.resolvedDocuments, [
-      {
-        remoteId: "atomic-stage-synthetic",
-        remoteDocumentId: stagedApiDocument.rows[0]!.id,
-      },
-    ]);
+    assert.equal(stagedResult.resolvedDocuments?.length, 1);
+    const stagedRemoteDocumentId = stagedResult.resolvedDocuments![0]!.remoteDocumentId;
+    assert.equal(stagedResult.resolvedDocuments?.[0]?.remoteId, "atomic-stage-synthetic");
+    assert.equal(stagedResult.resolvedDocuments?.[0]?.officialFilesBlocked, true);
+    assert.notEqual(stagedRemoteDocumentId, stagedApiDocument.rows[0]!.id);
     assert.deepEqual(
       (
         await getPool().query(
@@ -588,9 +597,9 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         )
       ).rows[0],
       {
-        remote_id: "atomic-stage-synthetic",
+        remote_id: "api-atomic-stage",
         remote_status: "DELIVERED",
-        automatic_source: "API",
+        automatic_source: "BROWSER",
       },
     );
     assert.equal(
@@ -601,7 +610,7 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
           [stagedRunId],
         )
       ).rows[0].count,
-      0,
+      1,
     );
     assert.equal(
       (
@@ -670,7 +679,7 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     );
     await assert.rejects(
       canonicalPage.commitArubaApiInventoryPage(stagedRunId, stagedPage, 1, [
-        stagedApiDocument.rows[0]!.id,
+        stagedRemoteDocumentId,
       ]),
       (error) => error instanceof AppError && error.code === "ARUBA_INVENTORY_BLOCKED",
     );
@@ -703,6 +712,16 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       1,
     );
     assert.equal(conflictedStage.resolvedDocuments?.[0]?.officialFilesBlocked, true);
+    const immutableConflictRemoteDocumentId =
+      conflictedStage.resolvedDocuments![0]!.remoteDocumentId;
+    assert.notEqual(immutableConflictRemoteDocumentId, stagedRemoteDocumentId);
+    await groupFile.importArubaApiGroupFile({
+      runId: stagedRunId,
+      providerGroupId: "atomic-stage-group",
+      kind: "ARUBA_P7M",
+      filename: "atomic-stage.xml.p7m",
+      bytes: signedXml(acceptedInvoiceXml),
+    });
     await groupFile.importArubaApiGroupFile({
       runId: stagedRunId,
       providerGroupId: "atomic-conflict-group",
@@ -716,8 +735,8 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     };
     assert.deepEqual(
       await canonicalPage.commitArubaApiInventoryPage(stagedRunId, pageWithImmutableConflict, 2, [
-        stagedApiDocument.rows[0]!.id,
-        stagedApiDocument.rows[0]!.id,
+        stagedRemoteDocumentId,
+        immutableConflictRemoteDocumentId,
       ]),
       { repeated: false },
     );
@@ -757,8 +776,15 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     );
     assert.deepEqual(
       repeatedStage.resolvedDocuments?.map((document) => document.remoteDocumentId),
-      [stagedApiDocument.rows[0]!.id, stagedApiDocument.rows[0]!.id],
+      [stagedRemoteDocumentId, immutableConflictRemoteDocumentId],
     );
+    await groupFile.importArubaApiGroupFile({
+      runId: repeatedConflictRunId,
+      providerGroupId: "atomic-stage-group",
+      kind: "ARUBA_P7M",
+      filename: "atomic-stage.xml.p7m",
+      bytes: signedXml(acceptedInvoiceXml),
+    });
     await groupFile.importArubaApiGroupFile({
       runId: repeatedConflictRunId,
       providerGroupId: "atomic-conflict-group",
@@ -771,7 +797,7 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         repeatedConflictRunId,
         pageWithImmutableConflict,
         2,
-        [stagedApiDocument.rows[0]!.id, stagedApiDocument.rows[0]!.id],
+        [stagedRemoteDocumentId, immutableConflictRemoteDocumentId],
       ),
       { repeated: false },
     );
@@ -815,9 +841,11 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       stagedRunId,
     ]);
     await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [stagedRunId]);
-    await getPool().query("DELETE FROM aruba_remote_documents WHERE id = $1", [
-      stagedApiDocument.rows[0]!.id,
-    ]);
+    await getPool().query(
+      `DELETE FROM aruba_remote_documents
+       WHERE remote_id IN ('api-atomic-stage', 'atomic-stage-synthetic',
+         'atomic-immutable-conflict')`,
+    );
     const canonicalRequest = await api.requestArubaApiSync(owner);
     assert.equal(canonicalRequest.queued, true);
     await getPool().query("UPDATE jobs SET run_at = now() WHERE id = $1", [canonicalRequest.jobId]);
@@ -911,9 +939,10 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
          fiscal_number, document_date, recipient_name_normalized,
          recipient_tax_id_normalized, total_amount, remote_status, remote_status_observed_at,
          metadata_digest, automatic_source)
-       VALUES ('MOCK', 'synthetic-aruba-account', 'legacy-historical-document', 'TD01', 2026,
+       VALUES ('MOCK', 'synthetic-aruba-account',
+         'historical-recovery-group:7cc29109eaf03460d215', 'TD01', 2026,
          'FPR', '99', '2026-06-23', 'DESTINATARIO SINTETICO', '11111111111',
-         10000, 'NOT_DELIVERED', '2026-06-23T03:00:00Z', repeat('c', 64), 'BROWSER')
+         10000, 'UNKNOWN', '2026-06-23T03:00:00Z', repeat('c', 64), 'BROWSER')
        RETURNING id`,
     );
     await getPool().query(

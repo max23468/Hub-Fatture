@@ -199,6 +199,8 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.equal(
       inventoryPolicy.arubaInventoryBlocksAllApprovals({
         blockingReason: "CONFLICT",
+        ageMinutes: 0,
+        activeSession: false,
         uncertainRemoteStates: scopedConflictHealth.uncertainRemoteStates,
       }),
       false,
@@ -206,7 +208,18 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.equal(
       inventoryPolicy.arubaInventoryBlocksAllApprovals({
         blockingReason: "CONFLICT",
+        ageMinutes: 0,
+        activeSession: false,
         uncertainRemoteStates: 1,
+      }),
+      true,
+    );
+    assert.equal(
+      inventoryPolicy.arubaInventoryBlocksAllApprovals({
+        blockingReason: null,
+        ageMinutes: 0,
+        activeSession: true,
+        uncertainRemoteStates: 0,
       }),
       true,
     );

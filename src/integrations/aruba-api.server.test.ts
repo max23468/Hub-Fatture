@@ -61,6 +61,24 @@ test("il dry-run invia lo stesso XML con i controlli extraschema e senza trasmet
   }
 });
 
+test("il dry-run Production è bloccato prima di qualsiasi chiamata provider", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  try {
+    globalThis.fetch = async () => {
+      calls += 1;
+      throw new Error("chiamata inattesa");
+    };
+    await assert.rejects(
+      dryRunArubaApiInvoice(apiSession("PRODUCTION"), Buffer.from("<xml />")),
+      (error) => error instanceof AppError && error.code === "ARUBA_SEND_NOT_AUTHORIZED",
+    );
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("il dry-run restituisce un rifiuto sincrono senza trasformarlo in successo", async () => {
   const originalFetch = globalThis.fetch;
   try {
@@ -71,7 +89,7 @@ test("il dry-run restituisce un rifiuto sincrono senza trasformarlo in successo"
         uploadFileName: null,
       });
     const result = await dryRunArubaApiInvoice(
-      { ...apiSession(), accessToken: "token" },
+      { ...apiSession("DEMO"), accessToken: "token" },
       Buffer.from("<xml />"),
     );
     assert.equal(result.accepted, false);
@@ -92,7 +110,7 @@ test("il dry-run non interpreta un codice vuoto come accettazione dell’XML non
         uploadFileName: "IT00000000000_ambiguo.xml.p7m",
       });
     const result = await dryRunArubaApiInvoice(
-      { ...apiSession(), accessToken: "token" },
+      { ...apiSession("DEMO"), accessToken: "token" },
       Buffer.from("<xml />"),
     );
     assert.equal(result.accepted, false);
