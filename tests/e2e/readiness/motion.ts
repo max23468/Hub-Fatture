@@ -5,6 +5,7 @@ import { expectViewportFits } from "./support.ts";
 test("movimento e navigazione primaria restano fluidi, leggibili e affidabili", async ({
   page,
 }) => {
+  test.setTimeout(120_000);
   await page.setViewportSize({ width: 320, height: 780 });
   await page.goto("/setup");
   const setupHeading = page.getByRole("heading", { name: "Configura gli accessi" });

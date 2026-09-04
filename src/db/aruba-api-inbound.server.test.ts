@@ -741,15 +741,24 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         requiresInvoiceNumber: false,
       },
     );
-    assert.equal(
+    assert.deepEqual(
       (
         await getPool().query(
-          `SELECT count(*)::integer AS count FROM aruba_files
+          `SELECT count(*)::integer AS count,
+             (SELECT status FROM aruba_document_matches
+              WHERE remote_document_id = $1) AS match_status,
+             (SELECT signals_json FROM aruba_document_matches
+              WHERE remote_document_id = $1) AS signals
+           FROM aruba_files
            WHERE remote_document_id = $1 AND kind = 'ARUBA_P7M'`,
           [immutableConflictRemoteDocumentId],
         )
-      ).rows[0].count,
-      1,
+      ).rows[0],
+      {
+        count: 1,
+        match_status: "UNKNOWN_REMOTE_STATE",
+        signals: { providerIdentityCollision: true, collisionKey: "FISCAL_IDENTITY" },
+      },
     );
     const pageWithImmutableConflict = {
       ...stagedPage,
