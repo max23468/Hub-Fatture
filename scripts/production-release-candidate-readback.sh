@@ -13,7 +13,8 @@ printf '%s' "$state" | jq -e '
     .unreconciledDryRunAttempts,
     .unreconciledHistory,
     .pendingHistoryImports,
-    .openArubaBatches
+    .openArubaBatches,
+    .blockingArubaBatches
   ] | all(type == "number" and . >= 0 and floor == .)' >/dev/null \
   || { echo "Stato readiness non valido" >&2; exit 1; }
 
@@ -23,8 +24,8 @@ printf '%s' "$state" | jq -e '
   || { echo "Ordini storici non riconciliati presenti" >&2; exit 1; }
 [ "$(printf '%s' "$state" | jq -r .pendingHistoryImports)" = "0" ] \
   || { echo "Import iniziali non completati" >&2; exit 1; }
-[ "$(printf '%s' "$state" | jq -r .openArubaBatches)" = "0" ] \
-  || { echo "Batch Aruba aperti presenti" >&2; exit 1; }
+[ "$(printf '%s' "$state" | jq -r .blockingArubaBatches)" = "0" ] \
+  || { echo "Batch Aruba outbound bloccanti presenti" >&2; exit 1; }
 
 jq -n \
   --argjson deploy "$receipt" \

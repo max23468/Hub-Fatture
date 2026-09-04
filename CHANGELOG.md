@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.11
+
+- La ricevuta di readiness Production applica lo stesso criterio dell’attivazione Aruba: i batch `DOCUMENT_ONLY` riconciliati restano visibili come aperti ma non bloccano gli invii, mentre qualsiasi batch realmente trasmissibile o ancora incerto continua a impedire l’abilitazione.
+
 ## 1.3.10
 
 - I file ufficiali di documenti Aruba coinvolti in una collisione fiscale irrisolta vengono conservati sul rispettivo identificativo provider senza avviare riconciliazione o materializzazione automatica: la sincronizzazione prosegue, mentre entrambi i documenti restano separati e in stato remoto incerto fino alla verifica manuale.

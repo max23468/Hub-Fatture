@@ -881,6 +881,8 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(candidateReadback, /node build-server\/operations\/release-candidate-readiness\.js/);
   assert.match(candidateReadback, /\.unreconciledDryRunAttempts/);
   assert.match(candidateReadback, /\.openArubaBatches/);
+  assert.match(candidateReadback, /\.blockingArubaBatches/);
+  assert.match(candidateReadback, /jq -r \.blockingArubaBatches/);
   assert.doesNotMatch(candidateReadback, /SELECT count/);
   assert.match(readinessOperation, /READINESS_STATE_UNAVAILABLE/);
   assert.match(readinessQuery, /attempts\.operation = 'DRY_RUN'/);
