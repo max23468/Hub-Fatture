@@ -6,8 +6,9 @@ import type pg from "pg";
 
 import {
   documentInputSchema,
-  fatturaPaAddress,
   fatturaPaText,
+  fatturaPaUpperAddress,
+  fatturaPaUpperText,
   fiscalProfileSchema,
   foreignCustomerFallbackTaxCode,
   generateFatturaXml,
@@ -16,6 +17,7 @@ import {
   type DocumentInput,
   type FiscalProfile,
 } from "../documents.ts";
+import { splitPostalAddress } from "../postal-address.ts";
 import { AppError } from "../errors.ts";
 import { isForeignCustomerKind } from "../orders.ts";
 import { inferredInvoicePaymentMethod } from "../order-payment-reconciliation.ts";
@@ -301,18 +303,27 @@ function recipientIdentity(value: DocumentInput["recipient"]): string {
 }
 
 function projectedRecipientIdentity(value: DocumentInput["recipient"]): string {
-  if (value.businessName || value.displayName) {
-    return fatturaPaText(value.businessName ?? value.displayName!, 80);
+  if (value.businessName) {
+    return fatturaPaUpperText(value.businessName, 80);
+  }
+  if (!value.firstName || !value.lastName) {
+    return fatturaPaUpperText(value.displayName!, 80);
   }
   return joined([
-    value.firstName ? fatturaPaText(value.firstName, 60) : undefined,
-    value.lastName ? fatturaPaText(value.lastName, 60) : undefined,
-  ]);
+    value.firstName ? fatturaPaUpperText(value.firstName, 60) : undefined,
+    value.lastName ? fatturaPaUpperText(value.lastName, 60) : undefined,
+  ]).replaceAll(" · ", " ");
 }
 
 function recipientAddress(value: DocumentInput["recipient"], projected = false): string {
-  const street = projected
-    ? fatturaPaAddress(value.address.line1, value.address.line2)
+  const projectedAddress = projected ? splitPostalAddress(value.address) : undefined;
+  const street = projectedAddress
+    ? joined([
+        fatturaPaUpperAddress(projectedAddress.line1, projectedAddress.line2),
+        projectedAddress.streetNumber
+          ? fatturaPaUpperText(projectedAddress.streetNumber, 8)
+          : undefined,
+      ])
     : joined([value.address.line1, value.address.line2]);
   return joined([
     street,
@@ -1059,7 +1070,7 @@ export async function approveInvoice(
       );
       const approvedAt = new Date().toISOString();
       const snapshot = {
-        generatorVersion: 2,
+        generatorVersion: 3,
         kind: input.kind,
         documentDate: input.documentDate,
         recipient: input.recipient,

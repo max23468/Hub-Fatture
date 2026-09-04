@@ -69,6 +69,13 @@ test("un destinatario privato non eredita una ragione sociale dal campo Shopify"
 
   assert.equal(recipient.businessName, undefined);
   assert.equal(documentInputSchema.safeParse({ ...invoice, recipient }).success, true);
+  const xml = generateFatturaXml(
+    syntheticFiscalProfile,
+    { ...invoice, recipient },
+    { year: 2026, number: 1 },
+  );
+  assert.match(xml, /<Nome>MARIO<\/Nome>\s*<Cognome>ROSSI<\/Cognome>/);
+  assert.doesNotMatch(xml, /<Denominazione>MARIO ROSSI<\/Denominazione>/);
 });
 
 test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
@@ -269,7 +276,7 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
   assert.equal(profileFromLatestDocument.numbering.lastObservedNumber, 2);
   assert.equal(
     profileFromLatestDocument.numbering.sourceXmlSha256,
-    "ddbd3c679143ccf3c4cd9d1998ead9d38142bea6771b55ff99b78c938e7114d2",
+    "3aba706b016d75a2d06c6340e45243e06c5cba805de990db90460b7bb81db1d4",
   );
   assert.throws(
     () =>
@@ -304,8 +311,8 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
       totalAmount: 2345,
     },
   ).recipient;
-  assert.equal(acceptedCreditRecipient.businessName, "Cliente Esempio Srl");
-  assert.equal(acceptedCreditRecipient.address.line1, "Via Cliente 2");
+  assert.equal(acceptedCreditRecipient.businessName, "CLIENTE ESEMPIO SRL");
+  assert.equal(acceptedCreditRecipient.address.line1, "VIA CLIENTE 2");
   assert.deepEqual(acceptedCreditRecipient.taxIdentifiers, [
     { type: "PARTITA_IVA", value: "10987654321", countryCode: "IT" },
     { type: "CODICE_FISCALE", value: "10987654321" },
@@ -353,8 +360,8 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
     number: 3,
   });
   await validateFatturaXml(personalBusinessXml);
-  assert.match(personalBusinessXml, /<Nome>Mario<\/Nome>/);
-  assert.match(personalBusinessXml, /<Cognome>Rossi<\/Cognome>/);
+  assert.match(personalBusinessXml, /<Nome>MARIO<\/Nome>/);
+  assert.match(personalBusinessXml, /<Cognome>ROSSI<\/Cognome>/);
   assert.match(personalBusinessXml, /<Provincia>RM<\/Provincia>/);
 
   const foreign = documentInputSchema.parse({
@@ -380,8 +387,8 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
   });
   await validateFatturaXml(foreignXml);
   assert.match(foreignXml, /<Denominazione>\?+ A A/);
-  assert.match(foreignXml, /<Indirizzo>\?+ 1 lungo lungo/);
-  assert.match(foreignXml, /, Interno 2<\/Indirizzo>/);
+  assert.match(foreignXml, /<Indirizzo>\?+ 1 LUNGO LUNGO/);
+  assert.match(foreignXml, /, INTERNO 2<\/Indirizzo>/);
   assert.match(foreignXml, /<Comune>\?+<\/Comune>/);
   assert.match(foreignXml, /<Descrizione>\?+<\/Descrizione>/);
   assert.match(foreignXml, /<IdPaese>NL<\/IdPaese>\s*<IdCodice>99999999999<\/IdCodice>/);
@@ -434,6 +441,48 @@ test("la proiezione serializza nomi ammessi e qualifica il CAP estero", async ()
   assert.match(swissXml, /<IdPaese>CH<\/IdPaese>\s*<IdCodice>99999999999<\/IdCodice>/);
   assert.match(swissXml, /<CAP>00000<\/CAP>/);
   assert.doesNotMatch(swissXml, /<CAP>6900<\/CAP>/);
+});
+
+test("l’anagrafica destinatario segue il formato maiuscolo Aruba", async () => {
+  const xml = generateFatturaXml(
+    syntheticFiscalProfile,
+    {
+      ...invoice,
+      recipient: {
+        ...invoice.recipient,
+        firstName: "José",
+        lastName: "D'Angelo",
+        address: {
+          ...invoice.recipient.address,
+          line1: "Via dell'Unità 2",
+          line2: "Scala ß",
+          city: "Città",
+        },
+      },
+    },
+    { year: 2026, number: 7 },
+  );
+
+  await validateFatturaXml(xml);
+  assert.match(xml, /<Nome>JOSÉ<\/Nome>/);
+  assert.match(xml, /<Cognome>D'ANGELO<\/Cognome>/);
+  assert.match(xml, /<Indirizzo>VIA DELL'UNITÀ, SCALA SS<\/Indirizzo>/);
+  assert.match(xml, /<NumeroCivico>2<\/NumeroCivico>/);
+  assert.match(xml, /<Comune>Città<\/Comune>/);
+  assert.match(xml, /<Descrizione>Vendita beni usati - Ordine Shopify #1001<\/Descrizione>/);
+  assert.match(
+    xml,
+    /<RiferimentoNormativo>Regime del margine Art\. 36 41\/95<\/RiferimentoNormativo>/,
+  );
+
+  const previousGeneratorXml = generateFatturaXml(
+    syntheticFiscalProfile,
+    invoice,
+    { year: 2026, number: 7 },
+    { uppercaseRecipient: false },
+  );
+  assert.match(previousGeneratorXml, /<Nome>Mario<\/Nome>/);
+  assert.match(previousGeneratorXml, /<Indirizzo>Via Cliente 2<\/Indirizzo>/);
 });
 
 test("la bozza controlla gli identificativi e proietta pagamento, causale e note", async () => {

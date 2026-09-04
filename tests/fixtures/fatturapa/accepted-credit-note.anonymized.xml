@@ -43,11 +43,12 @@
         </IdFiscaleIVA>
         <CodiceFiscale>10987654321</CodiceFiscale>
         <Anagrafica>
-          <Denominazione>Cliente Esempio Srl</Denominazione>
+          <Denominazione>CLIENTE ESEMPIO SRL</Denominazione>
         </Anagrafica>
       </DatiAnagrafici>
       <Sede>
-        <Indirizzo>Via Cliente 2</Indirizzo>
+        <Indirizzo>VIA CLIENTE</Indirizzo>
+        <NumeroCivico>2</NumeroCivico>
         <CAP>00100</CAP>
         <Comune>Roma</Comune>
         <Provincia>RM</Provincia>

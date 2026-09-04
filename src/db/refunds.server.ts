@@ -598,7 +598,7 @@ export async function approveCreditNote(
       [relativePath, sha256, Buffer.byteLength(xml)],
     );
     const snapshot = {
-      generatorVersion: 2,
+      generatorVersion: 3,
       ...input,
       sourceTotal: row.total_amount,
       total: row.total_amount,

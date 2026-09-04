@@ -12,6 +12,7 @@ import {
   POSTGRES_INTEGER_MAX,
   postgresDateSchema,
 } from "./orders.ts";
+import { splitPostalAddress } from "./postal-address.ts";
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const country = z.string().trim().toUpperCase().length(2);
@@ -703,9 +704,17 @@ export function fatturaPaText(value: string, max: number): string {
   return value.replace(/[^\u0020-\u007e\u00a0-\u00ff]/gu, "?").slice(0, max);
 }
 
+export function fatturaPaUpperText(value: string, max: number): string {
+  return fatturaPaText(value.toLocaleUpperCase("it-IT"), max);
+}
+
 export function fatturaPaAddress(line1: string, line2?: string): string {
   const suffix = line2 ? `, ${fatturaPaText(line2, 57)}` : "";
   return `${fatturaPaText(line1, 60 - suffix.length)}${suffix}`;
+}
+
+export function fatturaPaUpperAddress(line1: string, line2?: string): string {
+  return fatturaPaAddress(line1.toLocaleUpperCase("it-IT"), line2?.toLocaleUpperCase("it-IT"));
 }
 
 function amount(cents: number): string {
@@ -731,7 +740,7 @@ export function generateFatturaXml(
   rawProfile: FiscalProfile,
   rawInput: DocumentInput,
   numbering: { year: number; number: number },
-  options: { legacyEuFirstTaxIdentifier?: boolean } = {},
+  options: { legacyEuFirstTaxIdentifier?: boolean; uppercaseRecipient?: boolean } = {},
 ): string {
   const profile = fiscalProfileSchema.parse(rawProfile);
   const input = documentInputSchema.parse(rawInput);
@@ -743,6 +752,8 @@ export function generateFatturaXml(
   const code = recipientCode(input.recipient);
   const documentType = input.kind === "INVOICE" ? "TD01" : "TD04";
   const paymentMethod = input.paymentMethod;
+  const uppercaseRecipient = options.uppercaseRecipient ?? true;
+  const recipientText = uppercaseRecipient ? fatturaPaUpperText : fatturaPaText;
   const root = create({ version: "1.0", encoding: "UTF-8" }).ele("FatturaElettronica", {
     xmlns: "http://ivaservizi.agenziaentrate.gov.it/docs/xsd/fatture/v1.2",
     versione: "FPR12",
@@ -801,17 +812,15 @@ export function generateFatturaXml(
   const fiscalCode = taxId(input.recipient, "CODICE_FISCALE");
   if (fiscalCode) add(customerData, "CodiceFiscale", fiscalCode.value);
   const customerName = customerData.ele("Anagrafica");
-  if (input.recipient.businessName || input.recipient.displayName)
-    add(
-      customerName,
-      "Denominazione",
-      fatturaPaText(input.recipient.businessName ?? input.recipient.displayName!, 80),
-    );
-  else {
-    add(customerName, "Nome", fatturaPaText(input.recipient.firstName!, 60));
-    add(customerName, "Cognome", fatturaPaText(input.recipient.lastName!, 60));
+  if (input.recipient.businessName)
+    add(customerName, "Denominazione", recipientText(input.recipient.businessName, 80));
+  else if (input.recipient.firstName && input.recipient.lastName) {
+    add(customerName, "Nome", recipientText(input.recipient.firstName!, 60));
+    add(customerName, "Cognome", recipientText(input.recipient.lastName!, 60));
+  } else {
+    add(customerName, "Denominazione", recipientText(input.recipient.displayName!, 80));
   }
-  addAddress(customer.ele("Sede"), input.recipient.address);
+  addAddress(customer.ele("Sede"), input.recipient.address, uppercaseRecipient);
 
   const body = root.ele("FatturaElettronicaBody", { xmlns: "" });
   const general = body.ele("DatiGenerali");
@@ -863,9 +872,25 @@ export function generateFatturaXml(
 function addAddress(
   parent: XmlNode,
   value: z.infer<typeof fiscalAddress> | z.infer<typeof recipientAddress>,
+  uppercase = false,
 ): void {
-  const line2 = "line2" in value ? value.line2 : undefined;
-  add(parent, "Indirizzo", fatturaPaAddress(value.line1, line2));
+  const rawAddress = {
+    line1: value.line1,
+    line2: "line2" in value ? value.line2 : undefined,
+    streetNumber: "streetNumber" in value ? value.streetNumber : undefined,
+    postalCode: value.postalCode,
+  };
+  const address = uppercase ? splitPostalAddress(rawAddress) : rawAddress;
+  add(
+    parent,
+    "Indirizzo",
+    uppercase
+      ? fatturaPaUpperAddress(address.line1, address.line2)
+      : fatturaPaAddress(address.line1, address.line2),
+  );
+  if (uppercase && address.streetNumber) {
+    add(parent, "NumeroCivico", fatturaPaUpperText(address.streetNumber, 8));
+  }
   add(parent, "CAP", value.countryCode === "IT" ? value.postalCode : "00000");
   add(parent, "Comune", fatturaPaText(value.city, 60));
   if (value.countryCode === "IT" && value.province)
