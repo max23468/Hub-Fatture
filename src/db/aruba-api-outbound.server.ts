@@ -7,7 +7,6 @@ import {
   ARUBA_UPLOAD_MAX_BATCH_BYTES,
   arubaManifestDocumentSchema,
   arubaMonthlyTransmissionUsage,
-  arubaModeSchema,
   effectiveArubaMode,
   manifestSha256,
   type ArubaManifestDocument,
@@ -15,19 +14,31 @@ import {
 } from "../aruba.ts";
 import { getConfig } from "../config.server.ts";
 import { AppError } from "../errors.ts";
-import { dryRunArubaApiInvoice } from "../integrations/aruba-api.server.ts";
+import {
+  arubaApiAccountInfoSchema,
+  dryRunArubaApiInvoice,
+} from "../integrations/aruba-api.server.ts";
 import { writeAudit } from "./audit.server.ts";
-import { authenticateConfiguredArubaApiForOutbound } from "./aruba-api-connection.server.ts";
+import {
+  authenticateConfiguredArubaApiForOutbound,
+  refreshConfiguredArubaApiAfterUnauthorized,
+} from "./aruba-api-connection.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
-import { assertJobLease } from "./connector-jobs.server.ts";
+import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob } from "./connector-types.server.ts";
+import {
+  arubaApiManifestPayload,
+  arubaOutboundConnectionReady,
+  assertArubaBatchManifestCurrent,
+  currentArubaMode,
+  refreshArubaApiBatchStatus,
+  type ArubaOutboundActor,
+} from "./aruba-api-outbound-shared.server.ts";
+import { runArubaApiSendJob } from "./aruba-api-send.server.ts";
+import { recordArubaApiRateLimited, waitForArubaApiSendSlot } from "./aruba-api-traffic.server.ts";
 import { readVerifiedStorageObject } from "./storage-object.server.ts";
 
-export interface ArubaOutboundActor {
-  id: number;
-  canApprove: boolean;
-  requestId: string;
-}
+export type { ArubaOutboundActor } from "./aruba-api-outbound-shared.server.ts";
 
 type BatchStatus = "DOCUMENT_ONLY" | "AWAITING_CONFIRMATION" | "DRY_RUN_PENDING";
 
@@ -39,47 +50,6 @@ function batchStatus(mode: ArubaMode): BatchStatus {
 
 function submissionStatus(mode: ArubaMode) {
   return mode === "AUTOMATIC_AFTER_APPROVAL" ? "DRY_RUN_PENDING" : "PENDING";
-}
-
-async function currentMode(client: pg.PoolClient): Promise<ArubaMode> {
-  const result = await client.query<{ value_json: unknown }>(
-    "SELECT value_json FROM settings WHERE key = 'aruba_mode' FOR UPDATE",
-  );
-  return arubaModeSchema.parse(result.rows[0]?.value_json ?? "DOCUMENT_ONLY");
-}
-
-async function outboundConnectionReady(
-  client: pg.PoolClient,
-  environment: "MOCK" | "PRODUCTION",
-  accountReference: string,
-) {
-  const result = await client.query(
-    `SELECT 1 FROM connections
-     WHERE provider = 'ARUBA'
-       AND environment = CASE WHEN $1 = 'PRODUCTION' THEN 'PRODUCTION' ELSE 'DEVELOPMENT' END
-       AND account_reference = $2 AND status = 'CONNECTED'
-       AND encrypted_credentials IS NOT NULL AND credentials_verified_at IS NOT NULL
-       AND NOT api_paused`,
-    [environment, accountReference],
-  );
-  return Boolean(result.rows[0]);
-}
-
-function manifestPayload(
-  batchId: string,
-  environment: "MOCK" | "PRODUCTION",
-  mode: ArubaMode,
-  accountReference: string,
-  documents: ArubaManifestDocument[],
-) {
-  return {
-    batchId,
-    environment,
-    mode,
-    accountReference,
-    attemptNumber: 1,
-    documents,
-  };
 }
 
 export async function createArubaApiBatch(
@@ -101,7 +71,7 @@ export async function createArubaApiBatch(
   }
   const config = getConfig();
   const environment = config.APP_ENV === "production" ? "PRODUCTION" : "MOCK";
-  const configuredMode = await currentMode(client);
+  const configuredMode = await currentArubaMode(client);
   const mode = effectiveArubaMode(configuredMode, config.ARUBA_SUBMISSION_ENABLED);
   if (expectedMode !== undefined && expectedMode !== mode) {
     throw new AppError("DOCUMENT_PROJECTION_STALE", 409);
@@ -111,12 +81,12 @@ export async function createArubaApiBatch(
   }
   if (
     mode !== "DOCUMENT_ONLY" &&
-    !(await outboundConnectionReady(client, environment, config.ARUBA_ACCOUNT_REFERENCE))
+    !(await arubaOutboundConnectionReady(client, environment, config.ARUBA_ACCOUNT_REFERENCE))
   ) {
     throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
   }
   const batchId = randomUUID();
-  const payload = manifestPayload(
+  const payload = arubaApiManifestPayload(
     batchId,
     environment,
     mode,
@@ -150,10 +120,19 @@ export async function createArubaApiBatch(
     const inserted = await client.query<{ id: string }>(
       `INSERT INTO aruba_submissions
         (batch_id, document_id, attempt_number, environment, mode, transport,
-         manifest_sha256, xml_sha256, status)
-       VALUES ($1, $2, 1, $3, $4, 'API', $5, $6, $7)
+         manifest_sha256, xml_sha256, source_filename, status)
+       VALUES ($1, $2, 1, $3, $4, 'API', $5, $6, $7, $8)
        RETURNING id`,
-      [batchId, document.id, environment, mode, digest, document.sha256, submissionStatus(mode)],
+      [
+        batchId,
+        document.id,
+        environment,
+        mode,
+        digest,
+        document.sha256,
+        document.filename,
+        submissionStatus(mode),
+      ],
     );
     if (mode === "AUTOMATIC_AFTER_APPROVAL") {
       await enqueueDryRun(client, inserted.rows[0]!.id);
@@ -181,6 +160,15 @@ async function enqueueDryRun(client: pg.PoolClient, submissionId: string) {
   await client.query(
     `INSERT INTO jobs (type, payload_json, max_attempts)
      VALUES ('aruba_dry_run_submission', jsonb_build_object('submissionId', $1::text), 1)
+     ON CONFLICT DO NOTHING`,
+    [submissionId],
+  );
+}
+
+async function enqueueSend(client: pg.PoolClient, submissionId: string) {
+  await client.query(
+    `INSERT INTO jobs (type, payload_json, max_attempts)
+     VALUES ('aruba_send_submission', jsonb_build_object('submissionId', $1::text), 1)
      ON CONFLICT DO NOTHING`,
     [submissionId],
   );
@@ -228,11 +216,11 @@ export async function authorizeArubaApiDryRunQualification(
       current.status !== "DOCUMENT_ONLY" ||
       current.account_reference !== config.ARUBA_ACCOUNT_REFERENCE ||
       current.document_count !== 1 ||
-      !(await outboundConnectionReady(client, "PRODUCTION", config.ARUBA_ACCOUNT_REFERENCE))
+      !(await arubaOutboundConnectionReady(client, "PRODUCTION", config.ARUBA_ACCOUNT_REFERENCE))
     ) {
       throw new AppError("ARUBA_BATCH_INVALID", 409);
     }
-    await assertBatchManifestCurrent(client, batchId);
+    await assertArubaBatchManifestCurrent(client, batchId);
     const qualificationId = randomUUID();
     await client.query(
       `INSERT INTO aruba_dry_run_qualifications
@@ -303,16 +291,16 @@ export async function confirmArubaApiBatch(batchId: string, actor: ArubaOutbound
     }
     const config = getConfig();
     const environment = config.APP_ENV === "production" ? "PRODUCTION" : "MOCK";
-    const configuredMode = await currentMode(client);
+    const configuredMode = await currentArubaMode(client);
     if (
       current.environment !== environment ||
       current.account_reference !== config.ARUBA_ACCOUNT_REFERENCE ||
       effectiveArubaMode(configuredMode, config.ARUBA_SUBMISSION_ENABLED) !== current.mode ||
-      !(await outboundConnectionReady(client, environment, config.ARUBA_ACCOUNT_REFERENCE))
+      !(await arubaOutboundConnectionReady(client, environment, config.ARUBA_ACCOUNT_REFERENCE))
     ) {
       throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
     }
-    await assertBatchManifestCurrent(client, batchId);
+    await assertArubaBatchManifestCurrent(client, batchId);
     const submissions = await client.query<{ id: string }>(
       `UPDATE aruba_submissions SET status = 'DRY_RUN_PENDING'
        WHERE batch_id = $1 AND transport = 'API' AND status = 'PENDING'
@@ -348,101 +336,6 @@ interface DryRunContext {
   relativePath: string;
   sizeBytes: number;
   qualificationId: string | null;
-}
-
-interface BatchInvariant {
-  id: string;
-  environment: "MOCK" | "PRODUCTION";
-  mode: ArubaMode;
-  account_reference: string;
-  manifest_sha256: string;
-  document_count: number;
-  attempt_number: number;
-}
-
-async function assertBatchManifestCurrent(client: pg.PoolClient, batchId: string) {
-  const batch = await client.query<BatchInvariant & { created_by_can_approve: boolean }>(
-    `SELECT batches.id, batches.environment, batches.mode, batches.account_reference,
-            batches.manifest_sha256, batches.document_count, batches.attempt_number,
-            users.can_approve AS created_by_can_approve
-     FROM aruba_batches AS batches
-     JOIN users ON users.id = batches.created_by
-     WHERE batches.id = $1`,
-    [batchId],
-  );
-  const current = batch.rows[0];
-  if (!current || !current.created_by_can_approve || current.attempt_number !== 1) {
-    throw new AppError("ARUBA_BATCH_INVALID", 409);
-  }
-  const rows = await client.query<{
-    id: string;
-    revision: number;
-    sha256: string;
-    filename: string;
-    size_bytes: number;
-    fiscal_number: string;
-    document_date: string;
-    total_amount: number;
-    status: string;
-    submission_environment: string;
-    submission_mode: string;
-    submission_manifest_sha256: string;
-    submission_xml_sha256: string;
-  }>(
-    `SELECT documents.id, batch_documents.document_revision AS revision,
-            batch_documents.xml_sha256 AS sha256, batch_documents.filename,
-            storage.size_bytes,
-            documents.series || ' ' || lpad(documents.fiscal_number::text, 4, '0') || '/' ||
-              right(documents.fiscal_year::text, 2) AS fiscal_number,
-            documents.document_date::text, documents.total_amount, documents.status,
-            submissions.environment AS submission_environment,
-            submissions.mode AS submission_mode,
-            submissions.manifest_sha256 AS submission_manifest_sha256,
-            submissions.xml_sha256 AS submission_xml_sha256
-     FROM aruba_batch_documents AS batch_documents
-     JOIN documents ON documents.id = batch_documents.document_id
-     JOIN storage_objects AS storage ON storage.id = documents.storage_object_id
-     JOIN aruba_submissions AS submissions
-       ON submissions.batch_id = batch_documents.batch_id
-      AND submissions.document_id = batch_documents.document_id
-      AND submissions.attempt_number = $2
-     WHERE batch_documents.batch_id = $1
-     ORDER BY batch_documents.position`,
-    [batchId, current.attempt_number],
-  );
-  if (
-    rows.rows.length !== current.document_count ||
-    rows.rows.some(
-      (row) =>
-        row.status !== "APPROVED" ||
-        row.submission_environment !== current.environment ||
-        row.submission_mode !== current.mode ||
-        row.submission_manifest_sha256 !== current.manifest_sha256 ||
-        row.submission_xml_sha256 !== row.sha256,
-    )
-  ) {
-    throw new AppError("ARUBA_BATCH_INVALID", 409);
-  }
-  const documents: ArubaManifestDocument[] = rows.rows.map((row) => ({
-    id: row.id,
-    revision: row.revision,
-    sha256: row.sha256,
-    filename: row.filename,
-    sizeBytes: row.size_bytes,
-    fiscalNumber: row.fiscal_number,
-    documentDate: row.document_date,
-    totalAmount: row.total_amount,
-  }));
-  const digest = manifestSha256(
-    manifestPayload(
-      current.id,
-      current.environment,
-      current.mode,
-      current.account_reference,
-      documents,
-    ),
-  );
-  if (digest !== current.manifest_sha256) throw new AppError("ARUBA_BATCH_INVALID", 409);
 }
 
 async function prepareDryRun(job: ClaimedJob): Promise<DryRunContext> {
@@ -502,7 +395,7 @@ async function prepareDryRun(job: ClaimedJob): Promise<DryRunContext> {
     const current = result.rows[0];
     const config = getConfig();
     const environment = config.APP_ENV === "production" ? "PRODUCTION" : "MOCK";
-    const configuredMode = await currentMode(client);
+    const configuredMode = await currentArubaMode(client);
     const qualification = current
       ? await client.query<{ id: string }>(
           `SELECT id FROM aruba_dry_run_qualifications
@@ -545,7 +438,7 @@ async function prepareDryRun(job: ClaimedJob): Promise<DryRunContext> {
     ) {
       throw new AppError("ARUBA_BATCH_INVALID", 409);
     }
-    await assertBatchManifestCurrent(client, current.batch_id);
+    await assertArubaBatchManifestCurrent(client, current.batch_id);
     if (qualificationId) {
       const consumed = await client.query(
         `UPDATE aruba_dry_run_qualifications
@@ -592,6 +485,106 @@ async function prepareDryRun(job: ClaimedJob): Promise<DryRunContext> {
   });
 }
 
+async function assertDryRunStillAuthorized(
+  context: DryRunContext,
+  job: ClaimedJob,
+  authenticated: Awaited<ReturnType<typeof authenticateConfiguredArubaApiForOutbound>>,
+) {
+  const account = arubaApiAccountInfoSchema.safeParse(authenticated.account);
+  if (
+    authenticated.accountReference !== context.accountReference ||
+    !account.success ||
+    authenticated.accountCheckedAt <= Date.now() - 5 * 60_000 ||
+    account.data.accountStatus.expired ||
+    account.data.usageStatus.usedSpaceKB >= account.data.usageStatus.maxSpaceKB
+  ) {
+    throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
+  }
+  await withTransaction(async (client) => {
+    await renewLockedJobLease(client, job);
+    const result = await client.query<{
+      environment: "MOCK" | "PRODUCTION";
+      mode: ArubaMode;
+      account_reference: string;
+      manifest_sha256: string;
+      xml_sha256: string;
+      relative_path: string;
+      size_bytes: number;
+      document_revision: number;
+      current_revision: number;
+      current_sha256: string;
+      document_status: string;
+      connection_status: string;
+      api_paused: boolean;
+      current_attempt: boolean;
+      qualification_current: boolean;
+    }>(
+      `SELECT batches.environment, batches.mode, batches.account_reference,
+              batches.manifest_sha256, submissions.xml_sha256, storage.relative_path,
+              storage.size_bytes, batch_documents.document_revision,
+              documents.draft_version AS current_revision,
+              documents.xml_sha256 AS current_sha256, documents.status AS document_status,
+              connections.status AS connection_status, connections.api_paused,
+              EXISTS (SELECT 1 FROM aruba_submission_attempts AS attempts
+                WHERE attempts.id = $2 AND attempts.submission_id = submissions.id
+                  AND attempts.operation = 'DRY_RUN' AND attempts.status = 'RUNNING'
+                  AND attempts.xml_sha256 = submissions.xml_sha256) AS current_attempt,
+              ($3::uuid IS NULL OR EXISTS (
+                SELECT 1 FROM aruba_dry_run_qualifications AS qualifications
+                WHERE qualifications.id = $3 AND qualifications.batch_id = batches.id
+                  AND qualifications.status = 'CONSUMED')) AS qualification_current
+       FROM aruba_submissions AS submissions
+       JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
+       JOIN aruba_batch_documents AS batch_documents
+         ON batch_documents.batch_id = batches.id
+        AND batch_documents.document_id = submissions.document_id
+       JOIN documents ON documents.id = submissions.document_id
+       JOIN storage_objects AS storage ON storage.id = documents.storage_object_id
+       JOIN connections ON connections.provider = 'ARUBA'
+        AND connections.environment = CASE WHEN batches.environment = 'PRODUCTION'
+          THEN 'PRODUCTION' ELSE 'DEVELOPMENT' END
+        AND connections.account_reference = batches.account_reference
+       WHERE submissions.id = $1 AND submissions.status = 'DRY_RUN_PENDING'
+         AND batches.status = 'DRY_RUN_PENDING' AND submissions.transport = 'API'
+       FOR UPDATE OF submissions, batches, documents, connections`,
+      [context.submissionId, context.attemptId, context.qualificationId],
+    );
+    const current = result.rows[0];
+    const config = getConfig();
+    const environment = config.APP_ENV === "production" ? "PRODUCTION" : "MOCK";
+    const configuredMode = await currentArubaMode(client);
+    const ordinaryAuthorization =
+      config.ARUBA_SUBMISSION_ENABLED &&
+      current?.mode !== "DOCUMENT_ONLY" &&
+      effectiveArubaMode(configuredMode, true) === current?.mode;
+    const qualificationAuthorization =
+      !config.ARUBA_SUBMISSION_ENABLED &&
+      environment === "PRODUCTION" &&
+      current?.mode === "DOCUMENT_ONLY" &&
+      context.qualificationId !== null;
+    if (
+      !current ||
+      current.environment !== environment ||
+      current.account_reference !== context.accountReference ||
+      current.account_reference !== config.ARUBA_ACCOUNT_REFERENCE ||
+      current.xml_sha256 !== context.xmlSha256 ||
+      current.relative_path !== context.relativePath ||
+      current.size_bytes !== context.sizeBytes ||
+      current.current_revision !== current.document_revision ||
+      current.current_sha256 !== context.xmlSha256 ||
+      current.document_status !== "APPROVED" ||
+      current.connection_status !== "CONNECTED" ||
+      current.api_paused ||
+      !current.current_attempt ||
+      !current.qualification_current ||
+      (!ordinaryAuthorization && !qualificationAuthorization)
+    ) {
+      throw new AppError("ARUBA_SUBMISSION_PAUSED", 409);
+    }
+    await assertArubaBatchManifestCurrent(client, context.batchId);
+  });
+}
+
 async function finishDryRun(
   context: DryRunContext,
   result: Awaited<ReturnType<typeof dryRunArubaApiInvoice>>,
@@ -603,30 +596,33 @@ async function finishDryRun(
        SET status = $2, provider_reference = $3,
            response_metadata_json = jsonb_build_object('errorCode', $4::text),
            error_code = CASE WHEN $2 = 'FAILED' THEN $4 ELSE NULL END,
-           error_message_sanitized = CASE WHEN $2 = 'FAILED' THEN $5 ELSE NULL END,
+           error_message_sanitized = CASE WHEN $2 = 'FAILED'
+             THEN 'Validazione Aruba rifiutata' ELSE NULL END,
            completed_at = now()
        WHERE id = $1 AND status = 'RUNNING'`,
-      [context.attemptId, status, result.uploadFileName, result.errorCode, result.errorDescription],
+      [context.attemptId, status, result.uploadFileName, result.errorCode],
     );
+    const nextSubmissionStatus =
+      result.accepted && !context.qualificationId
+        ? "SEND_PENDING"
+        : result.accepted
+          ? "DRY_RUN_VALIDATED"
+          : "DRY_RUN_FAILED";
     const submission = await client.query(
       `UPDATE aruba_submissions
        SET status = $2, validation_metadata_json = jsonb_build_object(
          'errorCode', $3::text, 'uploadFileName', $4::text),
          error_code = CASE WHEN $2 = 'DRY_RUN_FAILED' THEN $3 ELSE NULL END,
-         error_message_sanitized = CASE WHEN $2 = 'DRY_RUN_FAILED' THEN $5 ELSE NULL END,
+         error_message_sanitized = CASE WHEN $2 = 'DRY_RUN_FAILED'
+           THEN 'Validazione Aruba rifiutata' ELSE NULL END,
          last_checked_at = now()
        WHERE id = $1 AND status = 'DRY_RUN_PENDING'`,
-      [
-        context.submissionId,
-        result.accepted ? "DRY_RUN_VALIDATED" : "DRY_RUN_FAILED",
-        result.errorCode,
-        result.uploadFileName,
-        result.errorDescription,
-      ],
+      [context.submissionId, nextSubmissionStatus, result.errorCode, result.uploadFileName],
     );
     if (attempt.rowCount !== 1 || submission.rowCount !== 1) {
       throw new AppError("ARUBA_BATCH_INVALID", 409);
     }
+    if (nextSubmissionStatus === "SEND_PENDING") await enqueueSend(client, context.submissionId);
     if (context.qualificationId) {
       const qualification = await client.query(
         `UPDATE aruba_dry_run_qualifications
@@ -636,7 +632,7 @@ async function finishDryRun(
       );
       if (qualification.rowCount !== 1) throw new AppError("ARUBA_BATCH_INVALID", 409);
     }
-    await refreshBatchDryRunStatus(client, context.batchId);
+    await refreshArubaApiBatchStatus(client, context.batchId);
     await writeAudit(client, {
       actorType: "SYSTEM",
       action: result.accepted ? "ARUBA_API_DRY_RUN_COMPLETED" : "ARUBA_API_DRY_RUN_FAILED",
@@ -677,7 +673,7 @@ async function markDryRunUnknown(context: DryRunContext) {
       );
       if (qualification.rowCount !== 1) throw new AppError("ARUBA_BATCH_INVALID", 409);
     }
-    await refreshBatchDryRunStatus(client, context.batchId);
+    await refreshArubaApiBatchStatus(client, context.batchId);
     await writeAudit(client, {
       actorType: "SYSTEM",
       action: "ARUBA_API_DRY_RUN_UNKNOWN",
@@ -688,31 +684,6 @@ async function markDryRunUnknown(context: DryRunContext) {
       requestId: `aruba-dry-run:${context.attemptId}`,
     });
   });
-}
-
-async function refreshBatchDryRunStatus(client: pg.PoolClient, batchId: string) {
-  const summary = await client.query<{ pending: string; failed: string; unknown: string }>(
-    `SELECT count(*) FILTER (WHERE status = 'DRY_RUN_PENDING')::text AS pending,
-            count(*) FILTER (WHERE status = 'DRY_RUN_FAILED')::text AS failed,
-            count(*) FILTER (WHERE status = 'UNKNOWN_REMOTE_STATE')::text AS unknown
-     FROM aruba_submissions WHERE batch_id = $1`,
-    [batchId],
-  );
-  const counts = summary.rows[0]!;
-  if (Number(counts.unknown) > 0) {
-    await client.query(
-      `UPDATE aruba_batches SET status = 'UNKNOWN_REMOTE_STATE',
-         requires_reconciliation = true, updated_at = now() WHERE id = $1`,
-      [batchId],
-    );
-    return;
-  }
-  if (Number(counts.pending) > 0) return;
-  await client.query(
-    `UPDATE aruba_batches SET status = $2, requires_reconciliation = false, updated_at = now()
-     WHERE id = $1`,
-    [batchId, Number(counts.failed) > 0 ? "DRY_RUN_FAILED" : "DRY_RUN_VALIDATED"],
-  );
 }
 
 async function recoverInterruptedDryRun(job: ClaimedJob) {
@@ -767,7 +738,7 @@ async function recoverInterruptedDryRun(job: ClaimedJob) {
       );
       if (qualification.rowCount !== 1) throw new AppError("ARUBA_BATCH_INVALID", 409);
     }
-    await refreshBatchDryRunStatus(client, current.batch_id);
+    await refreshArubaApiBatchStatus(client, current.batch_id);
     await writeAudit(client, {
       actorType: "SYSTEM",
       action: "ARUBA_API_DRY_RUN_UNKNOWN",
@@ -803,7 +774,7 @@ async function failQueuedDryRun(job: ClaimedJob, errorCode: string) {
        WHERE batch_id = $1 AND status = 'AUTHORIZED'`,
       [batchId],
     );
-    await refreshBatchDryRunStatus(client, batchId);
+    await refreshArubaApiBatchStatus(client, batchId);
     await writeAudit(client, {
       actorType: "SYSTEM",
       action: "ARUBA_API_DRY_RUN_FAILED",
@@ -818,7 +789,10 @@ async function failQueuedDryRun(job: ClaimedJob, errorCode: string) {
   });
 }
 
-export async function runArubaApiOutboundJob(job: ClaimedJob) {
+export async function runArubaApiOutboundJob(
+  job: ClaimedJob,
+): Promise<Record<string, unknown> & { accepted?: boolean }> {
+  if (job.type === "aruba_send_submission") return runArubaApiSendJob(job);
   if (job.type !== "aruba_dry_run_submission") {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
   }
@@ -859,10 +833,44 @@ export async function runArubaApiOutboundJob(job: ClaimedJob) {
     return { accepted: false, submissionId: context.submissionId, errorCode };
   }
   try {
-    const result = await dryRunArubaApiInvoice(authenticated.session, xml);
+    await assertDryRunStillAuthorized(context, job, authenticated);
+    await waitForArubaApiSendSlot(authenticated.session.environment);
+    await assertDryRunStillAuthorized(context, job, authenticated);
+    let result;
+    try {
+      result = await dryRunArubaApiInvoice(authenticated.session, xml);
+    } catch (error) {
+      if (!(error instanceof AppError) || error.code !== "AUTH_PROVIDER_EXPIRED") throw error;
+      authenticated = await refreshConfiguredArubaApiAfterUnauthorized();
+      await assertDryRunStillAuthorized(context, job, authenticated);
+      await waitForArubaApiSendSlot(authenticated.session.environment);
+      await assertDryRunStillAuthorized(context, job, authenticated);
+      result = await dryRunArubaApiInvoice(authenticated.session, xml);
+    }
     await finishDryRun(context, result);
     return { accepted: result.accepted, submissionId: context.submissionId };
   } catch (error) {
+    if (error instanceof AppError && error.code === "CONFLICT_REVISION") throw error;
+    if (
+      error instanceof AppError &&
+      [
+        "PROVIDER_RATE_LIMITED",
+        "ARUBA_API_COOLDOWN_ACTIVE",
+        "AUTH_PROVIDER_EXPIRED",
+        "AUTH_PROVIDER_REFRESH_INVALID",
+      ].includes(error.code)
+    ) {
+      if (error.code === "PROVIDER_RATE_LIMITED") {
+        await recordArubaApiRateLimited(authenticated.session.environment, "SEND");
+      }
+      await finishDryRun(context, {
+        accepted: false,
+        errorCode: error.code,
+        errorDescription: "Richiesta Aruba rifiutata prima della validazione",
+        uploadFileName: null,
+      });
+      return { accepted: false, submissionId: context.submissionId, errorCode: error.code };
+    }
     await markDryRunUnknown(context);
     return {
       accepted: false,
@@ -877,9 +885,9 @@ export async function getArubaMonthlyTransmissionUsage() {
   const result = await getPool().query<{ accepted: number }>(
     `SELECT count(*)::integer AS accepted
      FROM aruba_submissions
-     WHERE submitted_at >= date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')
+     WHERE accepted_at >= date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')
              AT TIME ZONE 'Europe/Rome'
-       AND submitted_at < (date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')
+       AND accepted_at < (date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Rome')
              + interval '1 month') AT TIME ZONE 'Europe/Rome'`,
   );
   return arubaMonthlyTransmissionUsage(result.rows[0]?.accepted ?? 0);

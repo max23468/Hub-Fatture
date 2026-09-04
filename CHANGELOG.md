@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- La connessione Aruba rinnova la sessione con il refresh token e mostra nelle Impostazioni identità, scadenza e spazio dell’account verificato, senza conservare token o reinviare credenziali durante il rinnovo.
+- Documenti aggiunge ricerca locale avanzata, verifica remota entro le finestre Aruba e lookup puntuale per filename o ID SdI, mantenendo riconciliazione e conflitti fail-closed.
+- Le fatture TD01 approvate possono essere trasmesse come XML non firmati tramite il worker; lease, preflight atomico, dry-run sullo stesso hash, rate limit e recovery impediscono retry ciechi o duplicazioni.
+- Il polling canonico segue ogni trasmissione fino all’esito SdI, aggiorna attività e controlli operativi e avvia gli effetti fiscali soltanto da stati terminali autorevoli, senza callback.
+- La sezione Aruba delle Impostazioni usa un layout compatto e coerente su desktop, tablet e mobile, con azioni allineate e dettagli secondari mostrati solo quando utili.
+
 ## 1.2.4
 
 - Le preparazioni mostrano direttamente il numero nativo dell’ordine e il canale di vendita nelle tabelle Ordini e Controlli, distinguendo Shopify ed eBay anche quando una preparazione raggruppa più ordini.

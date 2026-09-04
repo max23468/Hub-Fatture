@@ -1,83 +1,15 @@
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { escapeLike, PAGE_SIZE, pageOffset, paginate } from "../orders.ts";
 import { getPool } from "./client.server.ts";
+import { documentRowsSql } from "./document-archive-rows.server.ts";
 import { documentArchiveSearchSql } from "./document-archive-search.server.ts";
+import {
+  documentListSortSql,
+  type DocumentListFilters,
+  type DocumentListRow,
+} from "./document-archive-types.server.ts";
 
-export interface DocumentListFilters {
-  query?: string;
-  kind?: "INVOICE" | "CREDIT_NOTE";
-  status?: "DRAFT" | "APPROVED";
-  arubaStatus?: string;
-  transmission?: "TO_SEND" | "RECONCILIATION_REQUIRED";
-  dateFrom?: string;
-  dateTo?: string;
-  page?: number;
-  sort?: { key: DocumentListSortKey; direction: "asc" | "desc" };
-}
-
-export type DocumentListSortKey = "documento" | "cliente" | "data" | "totale" | "stato" | "email";
-
-interface DocumentListRow {
-  id: string;
-  billing_case_id: string;
-  public_number: string;
-  source_billing_case_id: string | null;
-  source_public_number: string | null;
-  kind: "INVOICE" | "CREDIT_NOTE";
-  origin: "HUB" | "ARUBA_HISTORY";
-  status: "DRAFT" | "APPROVED";
-  series: string;
-  fiscal_year: number | null;
-  fiscal_number: number | null;
-  document_date: string;
-  total_amount: number;
-  customer_name: string;
-  xml_sha256: string | null;
-  aruba_batch_id: string | null;
-  aruba_status: string | null;
-  historical_order_id: string | null;
-}
-
-const documentRowsSql = `
-  SELECT documents.id, documents.billing_case_id, billing_cases.public_number,
-         documents.source_billing_case_id,
-         source_billing_cases.public_number AS source_public_number,
-         documents.kind, documents.origin, documents.status,
-         documents.series, documents.fiscal_year, documents.fiscal_number,
-         documents.document_date::text, documents.total_amount, documents.xml_sha256,
-         billing_cases.customer_snapshot_json ->> 'displayName' AS customer_name,
-         aruba_current.id AS aruba_batch_id, aruba_current.status AS aruba_status,
-         (SELECT email_deliveries.status
-          FROM email_deliveries
-          WHERE email_deliveries.document_id = documents.id
-          ORDER BY email_deliveries.created_at DESC, email_deliveries.id DESC
-          LIMIT 1) AS email_status,
-         (SELECT document_orders.order_id::text FROM document_orders
-          WHERE document_orders.document_id = documents.id LIMIT 1) AS historical_order_id
-  FROM documents
-  JOIN billing_cases ON billing_cases.id = documents.billing_case_id
-  LEFT JOIN billing_cases AS source_billing_cases
-    ON source_billing_cases.id = documents.source_billing_case_id
-  LEFT JOIN LATERAL (
-    SELECT aruba_batches.id, aruba_batches.status
-    FROM aruba_batch_documents
-    JOIN aruba_batches ON aruba_batches.id = aruba_batch_documents.batch_id
-    WHERE aruba_batch_documents.document_id = documents.id
-    ORDER BY aruba_batches.created_at DESC LIMIT 1
-  ) AS aruba_current ON true`;
-
-const documentListSortSql: Record<DocumentListSortKey, string> = {
-  documento: `CASE
-       WHEN fiscal_number IS NOT NULL AND fiscal_year IS NOT NULL
-         THEN concat_ws(' ', series, lpad(fiscal_number::text, 10, '0'), fiscal_year::text)
-       ELSE lpad(public_number, 10, '0')
-     END`,
-  cliente: "customer_name",
-  data: "document_date",
-  totale: "total_amount",
-  stato: "concat_ws(' ', status, aruba_status)",
-  email: "email_status",
-};
+export type { DocumentListFilters, DocumentListSortKey } from "./document-archive-types.server.ts";
 
 export async function listDocuments(filters: DocumentListFilters = {}) {
   const query = filters.query?.trim();
@@ -85,7 +17,7 @@ export async function listDocuments(filters: DocumentListFilters = {}) {
   const orderBy = documentListSortSql[sort.key];
   const direction = sort.direction === "asc" ? "ASC" : "DESC";
   // Colonna e direzione provengono esclusivamente dalle allowlist di modulo;
-  // i valori della richiesta restano nei parametri $1-$8.
+  // i valori della richiesta restano nei parametri $1-$16.
   // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk
   const result = await getPool().query<
     {
@@ -100,7 +32,9 @@ export async function listDocuments(filters: DocumentListFilters = {}) {
               OR fiscal_number::text ILIKE $1 ESCAPE '\\'
               OR concat_ws(' ', series, lpad(fiscal_number::text, 4, '0'),
                    right(fiscal_year::text, 2)) ILIKE $1 ESCAPE '\\'
-              ${documentArchiveSearchSql})
+              ${documentArchiveSearchSql}
+              OR provider_filename ILIKE $1 ESCAPE '\\'
+              OR provider_sdi_id ILIKE $1 ESCAPE '\\')
        AND ($2::text IS NULL OR kind = $2)
        AND ($3::text IS NULL OR status = $3)
        AND ($4::text IS NULL OR aruba_status = $4
@@ -114,8 +48,16 @@ export async function listDocuments(filters: DocumentListFilters = {}) {
                 AND aruba_status = 'RECONCILIATION_REQUIRED'))
        AND ($6::date IS NULL OR document_date::date >= $6)
        AND ($7::date IS NULL OR document_date::date <= $7)
+       AND ($8::date IS NULL OR remote_updated_at::timestamptz >= $8::date)
+       AND ($9::date IS NULL OR remote_updated_at::timestamptz < $9::date + interval '1 day')
+       AND ($10::text IS NULL OR recipient_country = $10)
+       AND ($11::text IS NULL OR recipient_tax_identity LIKE '%' || $11 || '%')
+       AND ($12::text IS NULL OR origin = $12)
+       AND ($13::text IS NULL OR fiscal_number::text = $13)
+       AND ($14::text IS NULL OR provider_filename ILIKE $14 ESCAPE '\\')
+       AND ($15::text IS NULL OR provider_sdi_id ILIKE $15 ESCAPE '\\')
      ORDER BY ${orderBy} ${direction} NULLS LAST, document_date DESC, id DESC
-     LIMIT ${PAGE_SIZE + 1} OFFSET $8`,
+     LIMIT ${PAGE_SIZE + 1} OFFSET $16`,
     [
       query ? `%${escapeLike(query)}%` : null,
       filters.kind ?? null,
@@ -124,6 +66,14 @@ export async function listDocuments(filters: DocumentListFilters = {}) {
       filters.transmission ?? null,
       filters.dateFrom ?? null,
       filters.dateTo ?? null,
+      filters.remoteUpdatedFrom ?? null,
+      filters.remoteUpdatedTo ?? null,
+      filters.recipientCountry?.toUpperCase() ?? null,
+      filters.recipientTaxId?.replace(/[^A-Za-z0-9]/g, "").toUpperCase() ?? null,
+      filters.origin ?? null,
+      filters.fiscalNumber ?? null,
+      filters.providerFilename ? `%${escapeLike(filters.providerFilename)}%` : null,
+      filters.sdiId ? `%${escapeLike(filters.sdiId)}%` : null,
       pageOffset(filters.page),
     ],
   );

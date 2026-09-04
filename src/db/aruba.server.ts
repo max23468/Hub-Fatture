@@ -20,6 +20,7 @@ import { AppError } from "../errors.ts";
 import { POSTGRES_INTEGER_MAX } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
 import { customerEmailTriggerStatus, scheduleCustomerEmail } from "./email.server.ts";
+import { scheduleArubaEmissionEffects } from "./aruba-emission-effects.server.ts";
 import { getPool, registerJoinedTransactionFile, withTransaction } from "./client.server.ts";
 import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
 import { isDatabaseId } from "./database-id.ts";
@@ -239,26 +240,13 @@ async function monotonicSubmission(
   await client.query(
     `UPDATE aruba_submissions SET status = $2::text, remote_id = coalesce($3, remote_id),
        submitted_at = CASE WHEN $2::text = 'SUBMITTED' THEN coalesce(submitted_at, now()) ELSE submitted_at END,
-       last_checked_at = now(), readback_metadata_json = jsonb_build_object('status', $2::text)
+       last_checked_at = now(), remote_status_changed_at = now(),
+       readback_metadata_json = jsonb_build_object('status', $2::text)
      WHERE id = $1`,
     [row.id, next, remoteId ?? null],
   );
   if (customerEmailTriggerStatus(next)) {
-    await client.query(
-      `INSERT INTO jobs (type, payload_json)
-       SELECT 'process_refund', jsonb_build_object('refundId', refunds.id::text)
-       FROM refunds
-       JOIN document_orders
-         ON document_orders.order_id = refunds.order_id
-        AND document_orders.document_kind = 'INVOICE'
-       WHERE document_orders.document_id = $1
-         AND refunds.status IN ('COMPLETED', 'AMBIGUOUS')
-         AND NOT refunds.applied_before_issue
-         AND refunds.credit_document_id IS NULL
-       ON CONFLICT DO NOTHING`,
-      [documentId],
-    );
-    await scheduleCustomerEmail(client, documentId);
+    await scheduleArubaEmissionEffects(client, documentId);
   }
   return row.id;
 }

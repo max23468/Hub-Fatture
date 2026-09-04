@@ -177,8 +177,8 @@ export function hasAnomalousUnknownArubaStatuses(
 }
 
 const progressing = new Map<ArubaRemoteStatus, number>([
-  ["SUBMITTED", 1],
-  ["SDI_PROCESSING", 2],
+  ["SDI_PROCESSING", 1],
+  ["SUBMITTED", 2],
 ]);
 const terminal = new Set<ArubaRemoteStatus>(["DELIVERED", "NOT_DELIVERED", "REJECTED"]);
 
@@ -188,8 +188,10 @@ export function remoteStatusTransition(
 ): "APPLY" | "IGNORE_STALE" | "CONFLICT" {
   if (!current || current === observed) return "APPLY";
   if (current === "UNKNOWN") return "APPLY";
-  if (observed === "UNKNOWN") return "CONFLICT";
-  if (terminal.has(current)) return terminal.has(observed) ? "CONFLICT" : "IGNORE_STALE";
+  if (terminal.has(current)) {
+    return terminal.has(observed) || observed === "UNKNOWN" ? "CONFLICT" : "IGNORE_STALE";
+  }
+  if (observed === "UNKNOWN") return "APPLY";
   if (terminal.has(observed)) return "APPLY";
   return (progressing.get(observed) ?? 0) >= (progressing.get(current) ?? 0)
     ? "APPLY"

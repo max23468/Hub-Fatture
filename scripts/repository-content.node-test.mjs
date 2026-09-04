@@ -537,6 +537,7 @@ test("i contesti required restano stabili mentre i gate costosi sono proporziona
   assert.doesNotMatch(ci, /Helper Aruba|aruba-helper-platform/);
   assert.match(codeql, /outputs\.standard/);
   assert.match(dependencies, /outputs\.dependencies/);
+  assert.match(foundation, /timeout-minutes: 15/);
   assert.match(foundation, /outputs\.image/);
   assert.match(react, /outputs\.react/);
 });

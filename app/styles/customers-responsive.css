@@ -1388,6 +1388,11 @@
     grid-template-columns: 1fr;
   }
 
+  .document-filters__advanced > div {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+
   .document-panel-header > strong {
     grid-column: 1 / -1;
     max-width: 100%;
@@ -1479,6 +1484,10 @@
 
   .settings-section__header {
     gap: var(--space-3);
+    margin-right: calc(var(--space-4) * -1);
+    margin-left: calc(var(--space-4) * -1);
+    padding-right: var(--space-4);
+    padding-left: var(--space-4);
   }
 
   .system-group .facts div {

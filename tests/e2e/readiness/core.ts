@@ -6,6 +6,7 @@ import pg from "pg";
 import { SESSION_TTL_SECONDS } from "../../../src/config.server.ts";
 import { latestMigrationFileName } from "../../../src/migration-files.ts";
 import { verifyHistoricalAndCreditNoteFlow } from "./historical-credit-note-flow.ts";
+import { verifyUnconfiguredArubaApiUi } from "./aruba-settings-layout.ts";
 import { verifyConfiguredArubaApiUi } from "./configured-aruba-api-ui.ts";
 import { verifyFiscalProfileApi } from "./fiscal-profile-api.ts";
 import { expectPreparedPendingOrder, expectUnpreparedPendingOrder } from "./pending-payments.ts";
@@ -1593,97 +1594,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   });
 
   await page.getByRole("link", { name: "Impostazioni" }).click();
-  const arubaApiSettings = page.locator("#aruba-api");
-  await expect(arubaApiSettings.locator(".aruba-api-facts > div")).toHaveCount(5);
-  await expect(arubaApiSettings.getByLabel("Nome utente del pannello Aruba")).toBeVisible();
-  await expect(arubaApiSettings.getByLabel("Password del pannello Aruba")).toBeVisible();
-  await expect(arubaApiSettings).toContainText("Non servono credenziali API separate");
-  await expect(
-    arubaApiSettings.getByRole("button", {
-      name: "Verifica e collega Aruba",
-    }),
-  ).toBeVisible();
-  const credentialForm = arubaApiSettings.locator(".aruba-api-credentials-form");
-  const credentialSpacing = await credentialForm.evaluate((form) => {
-    const fields = form.querySelectorAll<HTMLInputElement>("input:not([type='hidden'])");
-    const fieldGroups = form.querySelectorAll<HTMLElement>(".field-with-help");
-    const actions = form.querySelector<HTMLElement>(".aruba-api-credentials-form__actions");
-    const fieldBoxes = Array.from(fields, (field) => field.getBoundingClientRect());
-    const lowestFieldEdge = Math.max(...fieldBoxes.map(({ bottom }) => bottom));
-    const firstTwoGroups = Array.from(fieldGroups).slice(0, 2);
-    return {
-      actionsGap: actions ? actions.getBoundingClientRect().top - lowestFieldEdge : 0,
-      columnGap: fieldBoxes[1]!.left - fieldBoxes[0]!.right,
-      inputTopDelta: Math.abs(fieldBoxes[0]!.top - fieldBoxes[1]!.top),
-      labelTopDelta: Math.abs(
-        firstTwoGroups[0]!.querySelector("label")!.getBoundingClientRect().top -
-          firstTwoGroups[1]!.querySelector("label")!.getBoundingClientRect().top,
-      ),
-    };
-  });
-  expect(credentialSpacing.actionsGap).toBeGreaterThanOrEqual(24);
-  expect(credentialSpacing.columnGap).toBeGreaterThanOrEqual(24);
-  expect(credentialSpacing.inputTopDelta).toBeLessThanOrEqual(1);
-  expect(credentialSpacing.labelTopDelta).toBeLessThanOrEqual(1);
-  const arubaStackSpacing = await page.locator(".aruba-settings-stack").evaluate((stack) => {
-    const panels = Array.from(stack.children).filter((element) =>
-      element.matches(
-        ".aruba-api-card, .aruba-sync-card, .aruba-inventory-card, .aruba-monthly-usage-card, .settings-disclosure, .settings-transmission-section",
-      ),
-    );
-    const boxes = panels.map((panel) => panel.getBoundingClientRect());
-    return {
-      computedGap: Number.parseFloat(getComputedStyle(stack).rowGap),
-      panelGaps: boxes.slice(1).map((box, index) => box.top - boxes[index]!.bottom),
-    };
-  });
-  expect(arubaStackSpacing.computedGap).toBe(24);
-  expect(arubaStackSpacing.panelGaps.length).toBeGreaterThanOrEqual(3);
-  for (const gap of arubaStackSpacing.panelGaps) {
-    expect(gap).toBeGreaterThanOrEqual(23);
-    expect(gap).toBeLessThanOrEqual(25);
-  }
+  const arubaSettings = page.locator("#aruba");
+  const credentialForm = await verifyUnconfiguredArubaApiUi(page, arubaSettings);
 
-  const arubaModeSelect = page.getByLabel("Modalità Aruba");
-  await expect(arubaModeSelect.locator("option")).toHaveText([
-    "Crea solo il documento",
-    "Chiedi conferma prima dell’invio",
-    "Invio automatico dopo approvazione",
-  ]);
-  await page.setViewportSize({ width: 320, height: 780 });
-  await arubaModeSelect.selectOption("AUTOMATIC_AFTER_APPROVAL");
-  const mobileTransmissionLayout = await page
-    .locator(".settings-transmission-section .settings-choice-card__field")
-    .evaluate((field) => {
-      const select = field.querySelector("select");
-      if (!(select instanceof HTMLSelectElement)) return null;
-      const fieldBox = field.getBoundingClientRect();
-      const selectBox = select.getBoundingClientRect();
-      const style = getComputedStyle(select);
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d");
-      if (!context) return null;
-      context.font = style.font;
-      const selectedLabel = select.selectedOptions[0]?.textContent?.trim() ?? "";
-      const horizontalPadding =
-        Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
-      return {
-        columns: getComputedStyle(field).gridTemplateColumns.split(" ").filter(Boolean).length,
-        textFits:
-          context.measureText(selectedLabel).width + horizontalPadding <= select.clientWidth,
-        widthDelta: Math.abs(fieldBox.width - selectBox.width),
-      };
-    });
-  expect(mobileTransmissionLayout).toEqual({
-    columns: 1,
-    textFits: true,
-    widthDelta: 0,
-  });
-  await expectViewportFits(page);
-  await arubaModeSelect.selectOption("DOCUMENT_ONLY");
-  await page.setViewportSize({ width: 1280, height: 720 });
-
-  await verifyConfiguredArubaApiUi(page, arubaApiSettings, credentialForm);
+  await verifyConfiguredArubaApiUi(page, arubaSettings, credentialForm);
 
   await verifyHistoricalAndCreditNoteFlow(page);
 });

@@ -24,16 +24,31 @@ const endpoints: Record<ArubaApiEnvironment, { auth: string; services: string }>
 
 const tokenSchema = z.object({
   access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  token_type: z.literal("bearer"),
   expires_in: z.coerce.number().int().positive(),
+  ".issued": z.string().min(1),
+  ".expires": z.string().min(1),
 });
 
-const userInfoSchema = z.object({
+export const arubaApiAccountInfoSchema = z.object({
   username: z.string().min(1),
-  vatCode: z.string().nullish(),
-  fiscalCode: z.string().nullish(),
+  pec: z.email(),
+  userDescription: z.string().trim().min(1).max(300),
+  countryCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/),
+  vatCode: z.string().trim().min(1).max(64),
+  fiscalCode: z.string().trim().min(1).max(64),
   accountStatus: z.object({
     expired: z.boolean(),
-    expirationDate: z.string().nullish(),
+    expirationDate: z.iso.date(),
+  }),
+  usageStatus: z.object({
+    usedSpaceKB: z.number().int().nonnegative(),
+    maxSpaceKB: z.number().int().positive(),
   }),
 });
 
@@ -187,7 +202,7 @@ export const arubaApiNotificationListSchema = z
   });
 
 const invoiceSearchSchema = z.object({
-  content: z.array(invoiceGroupSchema).max(PROBE_PAGE_SIZE),
+  content: z.array(invoiceGroupSchema).max(ARUBA_API_V2_CONTRACT.maximumPageSize),
   first: z.boolean(),
   last: z.boolean(),
   number: z.number().int().nonnegative(),
@@ -216,6 +231,7 @@ function isEmptySearchSentinel(
 export type ArubaApiInvoiceGroup = z.infer<typeof invoiceGroupSchema>;
 export type ArubaApiInvoiceDetail = z.infer<typeof arubaApiInvoiceDetailSchema>;
 export type ArubaApiNotificationList = z.infer<typeof arubaApiNotificationListSchema>;
+export type ArubaApiAccountInfo = z.infer<typeof arubaApiAccountInfoSchema>;
 
 export interface ArubaApiCredentials {
   username: string;
@@ -227,6 +243,8 @@ export interface ArubaApiSession {
   environment: ArubaApiEnvironment;
   accessToken: string;
   expiresAt: number;
+  refreshToken: string;
+  refreshExpiresAt: number;
 }
 
 export interface ArubaApiInvoicePage {
@@ -244,6 +262,8 @@ export interface ArubaApiDryRunResult {
   errorDescription: string;
   uploadFileName: string | null;
 }
+
+export type ArubaApiUploadResult = ArubaApiDryRunResult;
 
 function parsed<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
@@ -263,10 +283,46 @@ function bearer(token: string): HeadersInit {
   return { Accept: "application/json", Authorization: `Bearer ${token}` };
 }
 
-export async function dryRunArubaApiInvoice(
+async function requestToken(
+  environment: ArubaApiEnvironment,
+  body: URLSearchParams,
+  refresh: boolean,
+) {
+  let response: Response;
+  try {
+    response = await fetch(`${endpoints[environment].auth}/auth/signin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body,
+      redirect: "error",
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch {
+    throw new AppError("PROVIDER_UNAVAILABLE", 503);
+  }
+  if (response.status === 400) {
+    const error = z
+      .object({ error: z.string(), error_description: z.string().optional() })
+      .safeParse(await response.json().catch(() => null));
+    if (error.success && error.data.error === "invalid_grant") {
+      throw new AppError(
+        refresh ? "AUTH_PROVIDER_REFRESH_INVALID" : "AUTH_INVALID_CREDENTIALS",
+        401,
+      );
+    }
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  if (response.status === 429) throw new AppError("PROVIDER_RATE_LIMITED", 429);
+  if (response.status >= 500) throw new AppError("PROVIDER_UNAVAILABLE", 503);
+  if (!response.ok) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
+  return parsed(tokenSchema, await response.json().catch(() => null));
+}
+
+async function uploadArubaApiInvoice(
   session: ArubaApiSession,
   xml: Buffer,
-): Promise<ArubaApiDryRunResult> {
+  dryRun: boolean,
+): Promise<ArubaApiUploadResult> {
   if (!xml.byteLength || xml.byteLength > ARUBA_UPLOAD_MAX_BYTES) {
     throw new AppError("ARUBA_BATCH_INVALID", 422);
   }
@@ -281,15 +337,12 @@ export async function dryRunArubaApiInvoice(
       },
       body: JSON.stringify({
         dataFile: xml.toString("base64"),
-        credential: "",
-        domain: "",
-        senderPIVA: "",
         skipExtraSchema: false,
-        dryRun: true,
+        dryRun,
       }),
     }),
   );
-  const accepted = ["", "0000"].includes(result.errorCode) && Boolean(result.uploadFileName);
+  const accepted = result.errorCode === "0000" && Boolean(result.uploadFileName);
   return {
     accepted,
     errorCode: result.errorCode,
@@ -298,12 +351,65 @@ export async function dryRunArubaApiInvoice(
   };
 }
 
-export async function authenticateArubaApi(input: {
+export async function dryRunArubaApiInvoice(
+  session: ArubaApiSession,
+  xml: Buffer,
+): Promise<ArubaApiDryRunResult> {
+  return uploadArubaApiInvoice(session, xml, true);
+}
+
+export async function sendUnsignedArubaApiInvoice(
+  session: ArubaApiSession,
+  xml: Buffer,
+): Promise<ArubaApiUploadResult> {
+  return uploadArubaApiInvoice(session, xml, false);
+}
+
+function sessionFromToken(environment: ArubaApiEnvironment, value: z.infer<typeof tokenSchema>) {
+  const issuedAt = Date.parse(value[".issued"]);
+  const expiresAt = Date.parse(value[".expires"]);
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || expiresAt <= issuedAt) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
+  return {
+    environment,
+    accessToken: value.access_token,
+    expiresAt,
+    refreshToken: value.refresh_token,
+    refreshExpiresAt: issuedAt + 60 * 60 * 1_000,
+  } satisfies ArubaApiSession;
+}
+
+export async function readArubaApiAccountInfo(
+  session: ArubaApiSession,
+): Promise<ArubaApiAccountInfo> {
+  return parsed(
+    arubaApiAccountInfoSchema,
+    await providerJson(`${endpoints[session.environment].auth}/auth/userInfo`, {
+      headers: bearer(session.accessToken),
+    }),
+  );
+}
+
+export async function refreshArubaApiSession(input: {
+  session: ArubaApiSession;
+}): Promise<ArubaApiSession> {
+  const token = await requestToken(
+    input.session.environment,
+    new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: input.session.refreshToken,
+    }),
+    true,
+  );
+  return sessionFromToken(input.session.environment, token);
+}
+
+export async function authenticateArubaApiWithAccount(input: {
   environment: ArubaApiEnvironment;
   credentials: ArubaApiCredentials;
   now?: number;
-}): Promise<ArubaApiSession> {
-  const target = endpoints[input.environment];
+}): Promise<{ session: ArubaApiSession; account: ArubaApiAccountInfo }> {
   const credentials = z
     .object({
       username: z.string().trim().min(1).max(200),
@@ -312,33 +418,42 @@ export async function authenticateArubaApi(input: {
     })
     .safeParse(input.credentials);
   if (!credentials.success) throw new AppError("AUTH_INVALID_CREDENTIALS", 422);
-  const token = parsed(
-    tokenSchema,
-    await providerJson(`${target.auth}/auth/signin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      body: new URLSearchParams({
-        grant_type: "password",
-        username: credentials.data.username,
-        password: credentials.data.password,
-      }),
+  const token = await requestToken(
+    input.environment,
+    new URLSearchParams({
+      grant_type: "password",
+      username: credentials.data.username,
+      password: credentials.data.password,
     }),
+    false,
   );
-  const userInfo = parsed(
-    userInfoSchema,
-    await providerJson(`${target.auth}/auth/userInfo`, { headers: bearer(token.access_token) }),
-  );
+  const session = sessionFromToken(input.environment, token);
+  const userInfo = await readArubaApiAccountInfo(session);
   const expectedTaxId = taxIdentity(credentials.data.expectedTaxId);
   const observedTaxIds = new Set([taxIdentity(userInfo.vatCode), taxIdentity(userInfo.fiscalCode)]);
   if (!expectedTaxId || !observedTaxIds.has(expectedTaxId)) {
     throw new AppError("AUTH_PROVIDER_ACCOUNT_MISMATCH", 409);
   }
   if (userInfo.accountStatus.expired) throw new AppError("AUTH_PROVIDER_EXPIRED", 401);
-  return {
-    environment: input.environment,
-    accessToken: token.access_token,
-    expiresAt: (input.now ?? Date.now()) + token.expires_in * 1_000,
-  };
+  return { session, account: userInfo };
+}
+
+export async function authenticateArubaApi(input: {
+  environment: ArubaApiEnvironment;
+  credentials: ArubaApiCredentials;
+  now?: number;
+}): Promise<ArubaApiSession> {
+  return (await authenticateArubaApiWithAccount(input)).session;
+}
+
+export interface ArubaApiInvoiceSearchFilters {
+  receiverCountry?: string;
+  receiverVatCode?: string;
+  receiverFiscalCode?: string;
+  status?: (typeof ARUBA_API_V2_CONTRACT.documentedInvoiceStatuses)[number];
+  documentType?: "TD01" | "TD04";
+  modifiedStart?: Date;
+  modifiedEnd?: Date;
 }
 
 export async function readArubaApiInvoicePage(input: {
@@ -346,41 +461,76 @@ export async function readArubaApiInvoicePage(input: {
   page: number;
   windowStart: Date;
   windowEnd: Date;
+  size?: number;
+  filters?: ArubaApiInvoiceSearchFilters;
   documentType?: "TD01" | "TD04";
 }): Promise<ArubaApiInvoicePage> {
   const page = z.number().int().positive().safeParse(input.page);
+  const size = z
+    .number()
+    .int()
+    .min(1)
+    .max(ARUBA_API_V2_CONTRACT.maximumPageSize)
+    .safeParse(input.size ?? PROBE_PAGE_SIZE);
   const windowHours = (input.windowEnd.getTime() - input.windowStart.getTime()) / 3_600_000;
-  if (!page.success || windowHours <= 0 || windowHours > 48) {
+  const modifiedHours =
+    input.filters?.modifiedStart && input.filters.modifiedEnd
+      ? (input.filters.modifiedEnd.getTime() - input.filters.modifiedStart.getTime()) / 3_600_000
+      : null;
+  if (
+    !page.success ||
+    !size.success ||
+    windowHours <= 0 ||
+    windowHours > 48 ||
+    (modifiedHours !== null && modifiedHours <= 0) ||
+    Boolean(input.filters?.modifiedStart) !== Boolean(input.filters?.modifiedEnd)
+  ) {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
   }
   const target = endpoints[input.session.environment];
   const url = new URL("/api/v2/invoices-out", target.services);
   url.search = new URLSearchParams({
     page: String(page.data),
-    size: String(PROBE_PAGE_SIZE),
+    size: String(size.data),
     creationStartDate: input.windowStart.toISOString(),
     creationEndDate: input.windowEnd.toISOString(),
-    ...(input.documentType ? { documentType: input.documentType } : {}),
+    ...(input.filters?.receiverCountry
+      ? { receiverCountry: input.filters.receiverCountry.toUpperCase() }
+      : {}),
+    ...(input.filters?.receiverVatCode ? { receiverVatcode: input.filters.receiverVatCode } : {}),
+    ...(input.filters?.receiverFiscalCode
+      ? { receiverFiscalcode: input.filters.receiverFiscalCode }
+      : {}),
+    ...(input.filters?.status ? { status: input.filters.status } : {}),
+    ...((input.filters?.documentType ?? input.documentType)
+      ? { documentType: (input.filters?.documentType ?? input.documentType)! }
+      : {}),
+    ...(input.filters?.modifiedStart
+      ? { modifiedStartDate: input.filters.modifiedStart.toISOString() }
+      : {}),
+    ...(input.filters?.modifiedEnd
+      ? { modifiedEndDate: input.filters.modifiedEnd.toISOString() }
+      : {}),
   }).toString();
   const result = parsed(
     invoiceSearchSchema,
     await providerJson(url.toString(), { headers: bearer(input.session.accessToken) }),
   );
   const expectedElements = Math.min(
-    PROBE_PAGE_SIZE,
-    Math.max(0, result.totalElements - (page.data - 1) * PROBE_PAGE_SIZE),
+    size.data,
+    Math.max(0, result.totalElements - (page.data - 1) * size.data),
   );
   const groupIds = result.content.map((group) => group.id);
   const emptySearchSentinel = isEmptySearchSentinel(result, page.data);
   if (
-    result.size !== PROBE_PAGE_SIZE ||
+    result.size !== size.data ||
     (!emptySearchSentinel &&
       (result.number !== page.data ||
         result.first !== (page.data === 1) ||
         result.last !== (result.totalPages === 0 || page.data === result.totalPages) ||
         result.numberOfElements !== result.content.length ||
         result.numberOfElements !== expectedElements ||
-        result.totalPages !== Math.ceil(result.totalElements / PROBE_PAGE_SIZE) ||
+        result.totalPages !== Math.ceil(result.totalElements / size.data) ||
         new Set(groupIds).size !== groupIds.length))
   ) {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
@@ -397,13 +547,27 @@ export async function readArubaApiInvoicePage(input: {
 
 export async function readArubaApiInvoiceDetail(
   session: ArubaApiSession,
-  groupId: string,
+  lookup: string | { id?: string; filename?: string; idSdi?: string },
 ): Promise<ArubaApiInvoiceDetail> {
-  const id = z.string().trim().min(1).max(200).safeParse(groupId);
-  if (!id.success) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
+  const candidates = typeof lookup === "string" ? { id: lookup } : lookup;
+  const entries = Object.entries(candidates).filter((entry): entry is [string, string] =>
+    Boolean(entry[1]),
+  );
+  if (entries.length !== 1) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
+  const [key, rawValue] = entries[0]!;
+  if (!(["id", "filename", "idSdi"] as const).includes(key as "id")) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
+  }
+  const value = z
+    .string()
+    .trim()
+    .min(1)
+    .max(key === "idSdi" ? 200 : 255)
+    .safeParse(rawValue);
+  if (!value.success) throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
   const url = new URL("/api/v2/invoices-out/detail", endpoints[session.environment].services);
   url.search = new URLSearchParams({
-    id: id.data,
+    [key]: value.data,
     includePdf: "true",
     includeFile: "true",
   }).toString();
@@ -415,7 +579,13 @@ export async function readArubaApiInvoiceDetail(
       { maxBytes: 32 * 1024 * 1024, timeoutMs: 20_000 },
     ),
   );
-  if (detail.id !== id.data) throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  if (
+    (key === "id" && detail.id !== value.data) ||
+    (key === "filename" && detail.filename !== value.data) ||
+    (key === "idSdi" && detail.idSdi !== value.data)
+  ) {
+    throw new AppError("PROVIDER_RESPONSE_INVALID", 502);
+  }
   return detail;
 }
 

@@ -27,6 +27,7 @@ import {
   runArubaApiInboundJob,
 } from "./db/aruba-api-inbound.server.ts";
 import { runArubaApiOutboundJob } from "./db/aruba-api-outbound.server.ts";
+import { runArubaApiReadbackJob } from "./db/aruba-api-readback.server.ts";
 import { refreshOperationalControls } from "./db/operational-controls.server.ts";
 import { applyRetentionPolicy } from "./db/retention.server.ts";
 
@@ -104,7 +105,9 @@ async function runJob() {
       }
     }
     if (job.type === "send_customer_email") await sendCustomerEmail(job);
-    if (job.type === "aruba_dry_run_submission") {
+    if (job.type === "aruba_readback_submission") {
+      result = await runArubaApiReadbackJob(job);
+    } else if (job.type === "aruba_dry_run_submission" || job.type === "aruba_send_submission") {
       result = await runArubaApiOutboundJob(job);
     } else if (job.type.startsWith("aruba_")) {
       result = await runArubaApiInboundJob(job);
@@ -128,7 +131,9 @@ async function runJob() {
     }
     await assertLease();
     if (result.continuationPending === true) {
-      if (!(await yieldJob(job, result))) throw new AppError("CONFLICT_REVISION", 409);
+      const delayMs =
+        typeof result.continuationDelayMs === "number" ? result.continuationDelayMs : 1_000;
+      if (!(await yieldJob(job, result, delayMs))) throw new AppError("CONFLICT_REVISION", 409);
       return true;
     }
     if (!(await completeJob(job, result))) throw new AppError("CONFLICT_REVISION", 409);

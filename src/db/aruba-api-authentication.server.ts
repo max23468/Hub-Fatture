@@ -5,10 +5,10 @@ import { assertArubaApiCooldownInactive } from "./aruba-api-traffic.server.ts";
 import { withTransaction } from "./client.server.ts";
 
 export async function reserveArubaApiAuthentication(environment: ArubaApiEnvironment) {
-  await assertArubaApiCooldownInactive(environment);
+  await assertArubaApiCooldownInactive(environment, undefined, "AUTH");
   await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba-api-authentication'))");
-    await assertArubaApiCooldownInactive(environment, client);
+    await assertArubaApiCooldownInactive(environment, client, "AUTH");
     const latest = await client.query<{ attempted_at: Date }>(
       "SELECT attempted_at FROM aruba_api_auth_attempts ORDER BY attempted_at DESC LIMIT 1",
     );

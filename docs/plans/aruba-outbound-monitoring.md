@@ -1,6 +1,6 @@
 # Piano esecutivo — invio reale e monitoraggio Aruba
 
-- **Stato:** piano approvato; implementazione non iniziata
+- **Stato:** completato localmente; Fasi A-G completate
 - **Ambito:** autenticazione, account, ricerca ciclo attivo, invio reale TD01 e monitoraggio SdI
 - **Esclusione esplicita:** callback Aruba
 - **Baseline:** [Piano integrazione API Aruba](aruba-api-integration.md) e
@@ -127,7 +127,7 @@ Il parser `userInfo` acquisisce:
 - Paese;
 - Partita IVA;
 - Codice Fiscale;
-- stato scaduto o sospeso;
+- stato di scadenza;
 - data di scadenza;
 - spazio usato e spazio massimo in KB.
 
@@ -143,11 +143,11 @@ duplicata dei dati anagrafici. Log, errori e audit usano identificatori redatti 
 
 Prima di dry-run e invio il worker richiede uno snapshot `userInfo` non più vecchio di cinque
 minuti. La rilettura è single-flight e condivisa dal batch: non viene eseguita una chiamata per ogni
-documento. Il preflight blocca fail-closed se identità o ambiente divergono, l’account è
-scaduto/sospeso, i campi obbligatori non sono validi, lo spazio massimo non è positivo oppure lo
+documento. Il preflight blocca fail-closed se identità o ambiente divergono, l’account è scaduto, i
+campi obbligatori non sono validi, lo spazio massimo non è positivo oppure lo
 spazio usato è maggiore o uguale al massimo. La UI segnala l’avvicinamento alla scadenza e l’uso
 dello spazio all’80% e al 95%. La scadenza produce un avviso a 30 giorni e un avviso urgente a 7
-giorni, ma blocca l’invio soltanto quando l’account risulta scaduto o sospeso. Queste soglie sono
+giorni, ma blocca l’invio soltanto quando l’account risulta scaduto. Queste soglie sono
 avvisi, non una stima arbitraria del contratto commerciale. L’errore Aruba `0097` arresta il
 tentativo senza retry automatico.
 
@@ -527,10 +527,10 @@ il connettore fiscale già previsto senza cambiare la proposta principale, sosti
 essenziali o introdurre un nuovo perimetro di prodotto. La release che la rende disponibile usa
 quindi la prossima `MINOR` libera della serie 1.x, non una `PATCH` e non `2.0.0`.
 
-Il numero non viene fissato nel piano. Dopo la pubblicazione di `codex/fiscal-profile-api` e
-`codex/preparation-traceability`, il candidato rilegge `origin/main`, `package.json` e i tag remoti:
-se la versione stabile risultante fosse `1.2.x`, questa tranche userebbe `1.3.0`; se fosse `1.3.x`,
-userebbe `1.4.0`. Lo stesso calcolo si ripete se un altro runtime viene pubblicato prima della PR.
+Il numero non viene prenotato nel piano. La baseline riletta all’avvio dell’implementazione è
+`1.2.1`, quindi la versione attesa della tranche è `1.3.0`. Prima della PR e di nuovo prima del
+merge, il candidato rilegge `origin/main`, `package.json` e i tag remoti: se un’altra `MINOR` venisse
+pubblicata per prima, usa la successiva libera senza creare bump artificiali.
 
 L'obiettivo è una singola release coerente. Se motivi operativi autorizzati imponessero più release
 Production, la prima che espone la tranche prende la nuova `MINOR`; completamenti e correzioni
@@ -546,6 +546,8 @@ bastano da soli.
 
 ### Fase A — contratto e dominio
 
+**Stato:** completata.
+
 - aggiornare contratto Aruba, ADR polling, glossario e modello di dominio;
 - rimuovere dai documenti ogni apertura ai callback;
 - definire DTO, errori, stati, soglie e invarianti;
@@ -555,24 +557,48 @@ bastano da soli.
 
 ### Fase B — autenticazione e account
 
+**Stato:** completata.
+
 - implementare token completi, refresh single-flight, lease di signin fra processi e recupero
   controllato;
 - estendere `userInfo`, ultimo snapshot persistito, freschezza massima di cinque minuti e preflight
   condiviso dal batch;
+- fare in modo che `account_info_checked_at` rappresenti l’ultima chiamata `userInfo` realmente
+  completata e non l’ultimo riuso della cache di sessione;
 - aggiungere metriche sanificate e test di concorrenza.
 
 **Gate:** nessun secondo signin durante una sessione sana; nessun segreto in log, DB o job.
 
 ### Fase C — ricerca e readback
 
+**Stato:** completata.
+
 - generalizzare il client di ricerca;
 - aggiungere dettaglio per filename e ID SdI;
 - riusare l’ingest canonico per ricerca esplicita e aggiornamento puntuale;
-- introdurre job e scheduler di readback mirato.
+- introdurre job e scheduler di readback mirato;
+- validare i payload tramite un’unica unione discriminata e mantenere la ricerca avanzata
+  riprendibile con checkpoint di pagina e gruppo;
+- impedire che un readback puntuale riusi o completi un run canonico già in corso e aggiornare la
+  sessione condivisa dopo l’unico replay autorizzato su `401`.
 
 **Gate:** stessa osservazione remota produce lo stesso record canonico da ogni punto di ingresso.
 
+L’audit di refactor sulle Fasi A-C ha confermato che la Fase A resta correttamente confinata alle
+fonti canoniche. Nella Fase B il client condiviso copre account e operazioni outbound, mentre il
+gestore inbound resta deliberatamente legato al singolo run perché ne contabilizza il budget; la
+duplicazione della trasformazione dettaglio/notifiche è stata invece estratta in un mapper comune.
+La Fase C esegue al massimo un gruppo remoto per quantum del job, conserva il checkpoint nel payload
+e converge sempre attraverso lo stesso ingest canonico usato dall’inbound.
+
+L’integrazione finale assume, come concordato, che il worktree concorrente sui pagamenti eBay venga
+pubblicato per primo. Le sue due migrazioni previste seguono le 066-067 già presenti su `main`;
+questa iniziativa riserva quindi la 070 e richiede comunque un ultimo controllo di merge e catalogo
+migrazioni sul `main` effettivo prima della pubblicazione.
+
 ### Fase D — invio reale
+
+**Stato:** completata.
 
 - migrare stati e vincoli;
 - implementare il preflight atomico e il job `dryRun=false`;
@@ -583,7 +609,22 @@ bastano da soli.
 **Gate:** nessun percorso può chiamare `dryRun=false` senza tutte le precondizioni e l’interruttore
 esplicito; nessuna suite esegue un invio reale.
 
+Il refactor della Fase D ha separato il motore di invio dal coordinatore di batch e dry-run e ha
+reso condivisi manifest, accodamento readback e proiezione dello stato batch. Il preflight viene
+ripetuto prima e dopo il traffic guard, immediatamente prima della chiamata: oltre a modalità,
+switch, connessione, account, documento e manifest, prova il dry-run `0000` sul medesimo hash,
+l’inventario anti-duplicato e l’assenza di invii, match o job concorrenti. Il recovery di un tentativo
+`RUNNING` interrotto ora commette `UNKNOWN_REMOTE_STATE`, relativo audit e readback prima di
+terminare il job; non perde più la riconciliazione per rollback della transazione. I test DB coprono
+batch singolo e massivo, rifiuto deterministico, duplicato `0034`, unico retry `0095`, trasporto
+ambiguo, kill switch, prova dry-run invalida, inventario scaduto e recovery, sostituendo sempre la
+rete con risposte sintetiche. Il worker rinnova inoltre la lease prima della rete, non persiste la
+descrizione testuale del provider e riconosce come accettazione dell’upload non firmato soltanto
+`0000` con filename.
+
 ### Fase E — monitoraggio e controlli
+
+**Stato:** completata.
 
 - integrare priorità, soglie e cooldown nel worker esistente;
 - acquisire dettaglio e notifiche fino allo stato terminale;
@@ -592,7 +633,22 @@ esplicito; nessuna suite esegue un invio reale.
 
 **Gate:** ogni invio è terminale, in lavorazione visibile o bloccato da un controllo azionabile.
 
+Il refactor della Fase E ha reso persistenti sia la priorità dei job sia l’istante dell’ultima
+transizione remota, così polling e riavvii non azzerano le soglie. Il readback applica una sola
+macchina a stati monotona e usa lo stato consolidato dall’ingest di dettaglio e notifiche: una
+ricevuta SdI può quindi confermare l’emissione anche prima dell’aggiornamento dell’etichetta nel
+dettaglio Aruba. Solo le transizioni effettive entrano in `Attività`; `DELIVERED` e
+`NOT_DELIVERED` attivano lo stesso coordinatore condiviso per rimborsi ed e-mail, mentre scarti e
+stati incerti restano esclusi. `Controlli` distingue le cause per documento, account e bucket di
+rate limit, chiude automaticamente quelle superate ed evita il doppione aggregato del batch API.
+I cooldown sono condivisi anche per l’autenticazione e rimandano il lavoro fino alla finestra
+persistita con jitter prudenziale. Ricerca puntuale e avanzata conservano job e checkpoint anche su
+`429`, come il readback della singola submission; dettaglio e notifiche usano slot sequenziali e non
+creano raffiche concorrenti.
+
 ### Fase F — frontend
+
+**Stato:** completata.
 
 - rifattorizzare Impostazioni Aruba nei blocchi definiti;
 - aggiungere ricerca avanzata e lookup puntuale a Documenti;
@@ -604,6 +660,8 @@ verifica; le azioni critiche restano immediatamente comprensibili.
 
 ### Fase G — verifica e consegna
 
+**Stato:** completata.
+
 - eseguire format, lint, typecheck, test standard e `npm run test:db` tramite il runner previsto;
 - eseguire build, E2E e controlli di sicurezza applicabili;
 - ispezionare il diff cumulativo e rileggere le fonti canoniche;
@@ -612,6 +670,11 @@ verifica; le azioni critiche restano immediatamente comprensibili.
 
 **Gate:** piano completato localmente su branch isolato. Push, PR, deploy, release, abilitazione
 Production e primo invio restano non eseguiti finché non vengono richiesti esplicitamente.
+
+L’audit finale ha corretto l’isolamento dello storage nel processo Playwright: server e helper E2E
+usano ora la stessa radice sintetica prima che la configurazione venga inizializzata. Questo evita
+collisioni con XML residui del runtime locale senza indebolire i controlli di percorso, dimensione o
+SHA-256.
 
 ## 19. Criteri di accettazione
 

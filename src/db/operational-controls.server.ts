@@ -12,6 +12,9 @@ import { listOpenActivities } from "./order-queries.server.ts";
 import { actionableConnectorFailures } from "./connector-jobs.server.ts";
 import { pendingShopifyDataRequests } from "./connector-webhooks.server.ts";
 import { listRemoteDocuments } from "./aruba-inventory-queries.server.ts";
+import { listArubaAccountControlCandidates } from "./aruba-account-controls.server.ts";
+import { listArubaApiCooldownControlCandidates } from "./aruba-api-cooldown-controls.server.ts";
+import { listArubaSubmissionControlCandidates } from "./aruba-submission-controls.server.ts";
 import { getPool, withTransaction } from "./client.server.ts";
 import { listActionableCustomerReviews } from "./customers.server.ts";
 
@@ -330,7 +333,16 @@ async function allOpenActivities() {
 
 async function databaseCandidates(): Promise<ControlCandidate[]> {
   const pool = getPool();
-  const [customers, billingCases, batches, submissions, emails, retention] = await Promise.all([
+  const [
+    customers,
+    billingCases,
+    batches,
+    submissions,
+    emails,
+    retention,
+    arubaAccount,
+    arubaCooldowns,
+  ] = await Promise.all([
     listActionableCustomerReviews(),
     listOperationalBillingCaseAnomalies(),
     pool.query<{
@@ -341,32 +353,16 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
     }>(
       `SELECT id::text, status, document_count, updated_at::text
        FROM aruba_batches
-       WHERE status IN ('DRY_RUN_FAILED', 'VALIDATION_FAILED', 'UNKNOWN_REMOTE_STATE',
+       WHERE status IN ('DRY_RUN_FAILED', 'SEND_FAILED', 'VALIDATION_FAILED', 'UNKNOWN_REMOTE_STATE',
                         'RECONCILIATION_REQUIRED')
+         AND NOT EXISTS (
+           SELECT 1 FROM aruba_submissions
+           WHERE aruba_submissions.batch_id = aruba_batches.id
+             AND aruba_submissions.transport = 'API'
+         )
        ORDER BY updated_at, id`,
     ),
-    pool.query<{
-      id: string;
-      status: string;
-      error_code: string | null;
-      document_id: string;
-      billing_case_id: string;
-      case_number: string;
-      observed_at: string;
-    }>(
-      `SELECT submissions.id::text, submissions.status, submissions.error_code,
-              submissions.document_id::text, documents.billing_case_id::text,
-              billing_cases.public_number AS case_number,
-              coalesce(submissions.last_checked_at, submissions.submitted_at,
-                       batches.updated_at)::text AS observed_at
-       FROM aruba_submissions AS submissions
-       JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
-       JOIN documents ON documents.id = submissions.document_id
-       JOIN billing_cases ON billing_cases.id = documents.billing_case_id
-       WHERE submissions.status IN ('VALIDATION_FAILED', 'REJECTED', 'UNKNOWN',
-                                    'UNKNOWN_REMOTE_STATE')
-       ORDER BY observed_at, submissions.id`,
-    ),
+    listArubaSubmissionControlCandidates(),
     pool.query<{
       id: string;
       document_id: string;
@@ -403,6 +399,8 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
        ORDER BY coalesce(failed.locked_at, failed.run_at, failed.created_at) DESC, failed.id DESC
        LIMIT 1`,
     ),
+    listArubaAccountControlCandidates(),
+    listArubaApiCooldownControlCandidates(),
   ]);
   return [
     ...customers.map((row): ControlCandidate => ({
@@ -464,36 +462,9 @@ async function databaseCandidates(): Promise<ControlCandidate[]> {
       },
       detectedAt: row.updated_at,
     })),
-    ...submissions.rows.map((row): ControlCandidate => ({
-      id: `ARUBA_SUBMISSION:${row.id}`,
-      kind: "ARUBA_SUBMISSION_ATTENTION",
-      category: "DECISION",
-      severity:
-        row.status === "REJECTED" || row.status.startsWith("UNKNOWN") ? "BLOCKING" : "IMPORTANT",
-      sourceType: "ARUBA_SUBMISSION",
-      sourceId: row.id,
-      origin: "DOCUMENTS",
-      title:
-        row.status === "REJECTED"
-          ? "Documento scartato da SdI"
-          : "Esito del documento da verificare",
-      detail: `Preparazione ${row.case_number}`,
-      consequence:
-        "Il documento richiede un readback o una correzione prima di un nuovo tentativo.",
-      href: `/ordini/preparazione/${row.billing_case_id}`,
-      primaryAction: "Apri preparazione",
-      metadata: {
-        area: "DOCUMENT_GENERATION",
-        facts: [
-          { label: "Preparazione", value: row.case_number },
-          { label: "Stato", value: row.status, tone: "warning" },
-          ...(row.error_code
-            ? [{ label: "Errore", value: errorCodeLabel(row.error_code), tone: "warning" as const }]
-            : []),
-        ],
-      },
-      detectedAt: row.observed_at,
-    })),
+    ...submissions,
+    ...arubaAccount,
+    ...arubaCooldowns,
     ...emails.rows.map((row): ControlCandidate => ({
       id: `CUSTOMER_EMAIL:${row.document_id}`,
       kind: "CUSTOMER_EMAIL_FAILED",

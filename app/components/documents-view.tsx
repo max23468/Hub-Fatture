@@ -13,7 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
-import { Form, Link } from "react-router";
+import { Form, Link, useNavigation } from "react-router";
 
 import type {
   listArubaBatches,
@@ -49,6 +49,14 @@ export interface DocumentFiltersValue {
   arubaStatus: string;
   dateFrom: string;
   dateTo: string;
+  remoteUpdatedFrom: string;
+  remoteUpdatedTo: string;
+  recipientCountry: string;
+  recipientTaxId: string;
+  origin: string;
+  fiscalNumber: string;
+  providerFilename: string;
+  sdiId: string;
 }
 
 function DocumentOverview({ summary }: { summary: DocumentSummary }) {
@@ -105,6 +113,14 @@ function DocumentFilters({
     hasImplicitTransmission ? "" : filters.arubaStatus,
     filters.dateFrom,
     filters.dateTo,
+    filters.remoteUpdatedFrom,
+    filters.remoteUpdatedTo,
+    filters.recipientCountry,
+    filters.recipientTaxId,
+    filters.origin,
+    filters.fiscalNumber,
+    filters.providerFilename,
+    filters.sdiId,
   ].filter(Boolean).length;
   const resetTo = view === "tutti" ? "/documenti" : `/documenti?vista=${view}`;
 
@@ -166,14 +182,72 @@ function DocumentFilters({
           {copy.documents.dateTo}
           <input autoComplete="off" defaultValue={filters.dateTo} name="al" type="date" />
         </label>
-        <button className="button button--secondary" type="submit">
-          {copy.documents.filter}
-        </button>
+        <details className="document-filters__advanced">
+          <summary>{copy.documents.advancedFilters}</summary>
+          <div>
+            <label>
+              {copy.documents.remoteUpdatedFrom}
+              <input
+                autoComplete="off"
+                defaultValue={filters.remoteUpdatedFrom}
+                name="aggiornatoDal"
+                type="date"
+              />
+            </label>
+            <label>
+              {copy.documents.remoteUpdatedTo}
+              <input
+                autoComplete="off"
+                defaultValue={filters.remoteUpdatedTo}
+                name="aggiornatoAl"
+                type="date"
+              />
+            </label>
+            <label>
+              {copy.documents.recipientCountry}
+              <input
+                defaultValue={filters.recipientCountry}
+                maxLength={2}
+                name="paese"
+                placeholder="IT"
+              />
+            </label>
+            <label>
+              {copy.documents.recipientTaxId}
+              <input defaultValue={filters.recipientTaxId} name="identificativo" />
+            </label>
+            <label>
+              {copy.documents.origin}
+              <select defaultValue={filters.origin} name="origine">
+                <option value="">{copy.documents.allOrigins}</option>
+                <option value="HUB">{copy.documents.originLocal}</option>
+                <option value="ARUBA_HISTORY">{copy.documents.originAruba}</option>
+              </select>
+            </label>
+            <label>
+              {copy.documents.fiscalNumber}
+              <input defaultValue={filters.fiscalNumber} inputMode="numeric" name="numeroFiscale" />
+            </label>
+            <label>
+              {copy.documents.providerFilename}
+              <input defaultValue={filters.providerFilename} name="filename" />
+            </label>
+            <label>
+              {copy.documents.sdiId}
+              <input defaultValue={filters.sdiId} name="idSdi" />
+            </label>
+          </div>
+        </details>
+        <div className="document-filters__actions">
+          <button className="button button--secondary" type="submit">
+            {copy.documents.filter}
+          </button>
+          {activeFilters ? <Link to={resetTo}>{copy.documents.resetFilters}</Link> : null}
+        </div>
       </Form>
       <div aria-live="polite" className="filter-summary">
         <span>{copy.documents.resultsOnPage(count)}</span>
         {activeFilters ? <span>{copy.documents.activeFilters(activeFilters)}</span> : null}
-        {activeFilters ? <Link to={resetTo}>{copy.documents.resetFilters}</Link> : null}
       </div>
     </div>
   );
@@ -398,50 +472,173 @@ function DocumentEmailActions({
 }
 
 function DocumentTools({
-  canImportFile,
-  canPrepareRedactedEmail,
-  canRetryEmail,
+  capabilities,
   csrfToken,
   document,
   email,
-  emailRedacted,
   fileCount,
   officialFiles,
 }: {
-  canImportFile: boolean;
-  canPrepareRedactedEmail: boolean;
-  canRetryEmail: boolean;
+  capabilities: {
+    canImportFile: boolean;
+    canPrepareRedactedEmail: boolean;
+    canRetryEmail: boolean;
+    canRefreshAruba: boolean;
+    emailRedacted: boolean;
+  };
   csrfToken: string;
   document: DocumentRowData;
   email?: EmailDelivery;
-  emailRedacted: boolean;
   fileCount: number;
   officialFiles: OfficialFile[];
 }) {
+  const { canImportFile, canPrepareRedactedEmail, canRetryEmail, canRefreshAruba, emailRedacted } =
+    capabilities;
+  const navigation = useNavigation();
+  const refreshPending =
+    navigation.formData?.get("intent") === "refresh-aruba-status" &&
+    navigation.formData.get("documentId") === document.id;
+  const hasArubaStatus = Boolean(document.aruba_batch_id && document.aruba_status);
   return (
     <details className="document-row__tools">
       <summary>
         <span>
           <Download aria-hidden="true" size={17} strokeWidth={1.8} />
-          {copy.documents.filesAndActions}
+          {hasArubaStatus ? copy.documents.arubaDetail : copy.documents.filesAndActions}
         </span>
-        <small>{copy.documents.availableFiles(fileCount)}</small>
+        <small>
+          {hasArubaStatus
+            ? (copy.documents.arubaDocumentStatus[document.aruba_status!] ?? document.aruba_status)
+            : copy.documents.availableFiles(fileCount)}
+        </small>
       </summary>
       <div className="document-row__tools-content">
-        <DocumentFiles document={document} fileCount={fileCount} officialFiles={officialFiles} />
-        <div className="document-tool-actions">
-          {canImportFile ? <ImportForm csrfToken={csrfToken} documentId={document.id} /> : null}
-          <DocumentEmailActions
-            canPrepareRedactedEmail={canPrepareRedactedEmail}
-            canRetryEmail={canRetryEmail}
-            csrfToken={csrfToken}
-            documentId={document.id}
-            email={email}
-            emailRedacted={emailRedacted}
-          />
+        {hasArubaStatus ? <DocumentArubaStatus document={document} /> : null}
+        <div className="document-resource-grid">
+          <section aria-labelledby={`document-files-${document.id}`}>
+            <h3 id={`document-files-${document.id}`}>{copy.documents.availableFiles(fileCount)}</h3>
+            <DocumentFiles
+              document={document}
+              fileCount={fileCount}
+              officialFiles={officialFiles}
+            />
+          </section>
+          <section aria-labelledby={`document-actions-${document.id}`}>
+            <h3 id={`document-actions-${document.id}`}>{copy.documents.arubaActions}</h3>
+            <div className="document-tool-actions">
+              {canRefreshAruba ? (
+                <Form method="post">
+                  <input name="csrf" type="hidden" value={csrfToken} />
+                  <input name="intent" type="hidden" value="refresh-aruba-status" />
+                  <input name="documentId" type="hidden" value={document.id} />
+                  <button
+                    className="button button--secondary"
+                    disabled={refreshPending}
+                    type="submit"
+                  >
+                    <RefreshCw aria-hidden="true" size={17} strokeWidth={1.8} />
+                    {refreshPending
+                      ? copy.documents.refreshingArubaStatus
+                      : copy.documents.refreshArubaStatus}
+                  </button>
+                </Form>
+              ) : null}
+              {canImportFile ? <ImportForm csrfToken={csrfToken} documentId={document.id} /> : null}
+              <DocumentEmailActions
+                canPrepareRedactedEmail={canPrepareRedactedEmail}
+                canRetryEmail={canRetryEmail}
+                csrfToken={csrfToken}
+                documentId={document.id}
+                email={email}
+                emailRedacted={emailRedacted}
+              />
+            </div>
+          </section>
         </div>
       </div>
     </details>
+  );
+}
+
+function DocumentArubaStatus({ document }: { document: DocumentRowData }) {
+  const status = document.aruba_status
+    ? (copy.documents.arubaDocumentStatus[document.aruba_status] ?? document.aruba_status)
+    : copy.common.unavailable;
+  const hasIdentifiers = Boolean(document.provider_filename || document.provider_sdi_id);
+  return (
+    <section className="document-aruba-status" aria-labelledby={`aruba-status-${document.id}`}>
+      <header>
+        <div>
+          <p>{copy.documents.currentArubaStatus}</p>
+          <h3 id={`aruba-status-${document.id}`}>{status}</h3>
+        </div>
+        <dl>
+          <div>
+            <dt>{copy.documents.arubaLastStatusChange}</dt>
+            <dd>
+              {document.remote_status_changed_at
+                ? dateTime(document.remote_status_changed_at)
+                : copy.common.unavailable}
+            </dd>
+          </div>
+          <div>
+            <dt>{copy.documents.arubaLastCheck}</dt>
+            <dd>
+              {document.remote_updated_at
+                ? dateTime(document.remote_updated_at)
+                : copy.common.unavailable}
+            </dd>
+          </div>
+        </dl>
+      </header>
+      <div className="document-aruba-status__body">
+        <section aria-labelledby={`aruba-identifiers-${document.id}`}>
+          <h4 id={`aruba-identifiers-${document.id}`}>{copy.documents.arubaIdentifiers}</h4>
+          {hasIdentifiers ? (
+            <dl className="document-aruba-identifiers">
+              {document.provider_filename ? (
+                <div>
+                  <dt>{copy.documents.providerFilename}</dt>
+                  <dd>{document.provider_filename}</dd>
+                </div>
+              ) : null}
+              {document.provider_sdi_id ? (
+                <div>
+                  <dt>{copy.documents.sdiId}</dt>
+                  <dd>{document.provider_sdi_id}</dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : (
+            <p>{copy.documents.arubaNoIdentifiers}</p>
+          )}
+        </section>
+        <section aria-labelledby={`aruba-timeline-${document.id}`}>
+          <h4 id={`aruba-timeline-${document.id}`}>{copy.documents.arubaTimeline}</h4>
+          {document.aruba_timeline.length ? (
+            <ol className="document-aruba-timeline">
+              {document.aruba_timeline.map((event) => (
+                <li key={event.event_key}>
+                  <span aria-hidden="true" />
+                  <div>
+                    <strong>
+                      {copy.documents.arubaDocumentStatus[event.status] ?? event.status}
+                    </strong>
+                    <small>
+                      {dateTime(event.observed_at)} ·{" "}
+                      {copy.documents.arubaSourceLabels[event.source]}
+                    </small>
+                    {event.detail && event.detail !== event.status ? <p>{event.detail}</p> : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>{copy.documents.arubaTimelineEmpty}</p>
+          )}
+        </section>
+      </div>
+    </section>
   );
 }
 
@@ -464,11 +661,20 @@ function documentRowState({
     emailEnabled && email && email.status !== "PENDING" && !emailRedacted && canApprove,
   );
   const canImportFile = Boolean(canApprove && document.aruba_batch_id && document.xml_sha256);
+  const canRefreshAruba = Boolean(
+    canApprove &&
+    document.aruba_batch_id &&
+    document.aruba_status &&
+    ["ARUBA_ACCEPTED", "SDI_PROCESSING", "SUBMITTED", "UNKNOWN", "UNKNOWN_REMOTE_STATE"].includes(
+      document.aruba_status,
+    ),
+  );
   const fileCount = Number(Boolean(document.xml_sha256)) + officialFiles.length;
   return {
     canImportFile,
     canPrepareRedactedEmail,
     canRetryEmail,
+    canRefreshAruba,
     emailLabel: email
       ? (copy.documents.emailStatus[email.status] ?? copy.common.unavailable)
       : copy.documents.emailNotPrepared,
@@ -479,6 +685,7 @@ function documentRowState({
       officialFiles.length ||
       canRetryEmail ||
       canImportFile ||
+      canRefreshAruba ||
       emailRedacted,
     ),
     label: document.fiscal_label ?? copy.documents.draftLabel(document.public_number),
@@ -513,13 +720,10 @@ function DocumentRow({
       />
       {state.hasTools ? (
         <DocumentTools
-          canImportFile={state.canImportFile}
-          canPrepareRedactedEmail={state.canPrepareRedactedEmail}
-          canRetryEmail={state.canRetryEmail}
+          capabilities={state}
           csrfToken={csrfToken}
           document={document}
           email={email}
-          emailRedacted={state.emailRedacted}
           fileCount={state.fileCount}
           officialFiles={officialFiles}
         />

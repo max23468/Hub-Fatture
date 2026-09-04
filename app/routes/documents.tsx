@@ -1,11 +1,11 @@
-import { data, Link, redirect, useActionData, useLoaderData } from "react-router";
+import { data, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/documents";
 
 import { AppShell } from "../components/app-shell";
+import { ArubaInventoryPanel } from "../components/aruba-inventory-panel";
 import { DocumentsView } from "../components/documents-view";
 import { ViewNavigation } from "../components/view-navigation";
 import { copy } from "../copy.it";
-import { date, dateTime, euros } from "../format";
 import { privateRouteMeta } from "../metadata";
 import { ARUBA_IMPORT_MAX_BYTES } from "../../src/aruba.ts";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
@@ -32,10 +32,14 @@ import {
   authorizeArubaApiDryRunQualification,
   confirmArubaApiBatch,
 } from "../../src/db/aruba-api-outbound.server.ts";
+import {
+  requestArubaSubmissionReadback,
+  requestArubaTargetedLookup,
+  requestArubaAdvancedSearch,
+} from "../../src/db/aruba-api-readback.server.ts";
 import { listRemoteDocumentsPage } from "../../src/db/aruba-inventory-queries.server.ts";
 import { readForm, readMultipartForm } from "../../src/http.server.ts";
 import { pageNumber, postgresDateSchema } from "../../src/orders.ts";
-import { Pager } from "../components/pager";
 import { parseSort } from "../table-sort";
 
 const documentSortKeys = ["documento", "cliente", "data", "totale", "stato", "email"] as const;
@@ -81,6 +85,22 @@ export async function loader({ request }: Route.LoaderArgs) {
         : "",
     dateFrom: parsedDateFrom.success ? parsedDateFrom.data : "",
     dateTo: parsedDateTo.success ? parsedDateTo.data : "",
+    remoteUpdatedFrom: postgresDateSchema.safeParse(url.searchParams.get("aggiornatoDal") ?? "")
+      .success
+      ? url.searchParams.get("aggiornatoDal")!
+      : "",
+    remoteUpdatedTo: postgresDateSchema.safeParse(url.searchParams.get("aggiornatoAl") ?? "")
+      .success
+      ? url.searchParams.get("aggiornatoAl")!
+      : "",
+    recipientCountry: (url.searchParams.get("paese") ?? "").trim().toUpperCase().slice(0, 2),
+    recipientTaxId: (url.searchParams.get("identificativo") ?? "").trim().slice(0, 64),
+    origin: ["HUB", "ARUBA_HISTORY"].includes(url.searchParams.get("origine") ?? "")
+      ? url.searchParams.get("origine")!
+      : "",
+    fiscalNumber: (url.searchParams.get("numeroFiscale") ?? "").trim().slice(0, 20),
+    providerFilename: (url.searchParams.get("filename") ?? "").trim().slice(0, 255),
+    sdiId: (url.searchParams.get("idSdi") ?? "").trim().slice(0, 200),
   };
   const page = pageNumber(url.searchParams.get("pagina") ?? 1);
   const sort = parseSort(
@@ -99,6 +119,14 @@ export async function loader({ request }: Route.LoaderArgs) {
         transmission,
         dateFrom: filters.dateFrom || undefined,
         dateTo: filters.dateTo || undefined,
+        remoteUpdatedFrom: filters.remoteUpdatedFrom || undefined,
+        remoteUpdatedTo: filters.remoteUpdatedTo || undefined,
+        recipientCountry: filters.recipientCountry || undefined,
+        recipientTaxId: filters.recipientTaxId || undefined,
+        origin: filters.origin ? (filters.origin as "HUB" | "ARUBA_HISTORY") : undefined,
+        fiscalNumber: filters.fiscalNumber || undefined,
+        providerFilename: filters.providerFilename || undefined,
+        sdiId: filters.sdiId || undefined,
         page,
         sort,
       }),
@@ -137,6 +165,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     batchCreated: url.searchParams.get("batch") === "creato",
     dryRunAuthorized: url.searchParams.get("batch") === "dry-run-autorizzato",
     fileImported: url.searchParams.get("file") === "importato",
+    arubaLookupRequested: url.searchParams.get("aruba") === "ricerca-richiesta",
+    arubaRefreshRequested: url.searchParams.get("aruba") === "aggiornamento-richiesto",
   };
 }
 
@@ -194,12 +224,95 @@ export async function action({ request }: Route.ActionArgs) {
       );
       return redirect("/documenti?email=preparata");
     }
+    if (form.get("intent") === "refresh-aruba-status") {
+      await requestArubaSubmissionReadback(form.get("documentId") ?? "", actor);
+      return redirect("/documenti?aruba=aggiornamento-richiesto");
+    }
+    if (form.get("intent") === "lookup-aruba-document") {
+      await requestArubaTargetedLookup(
+        {
+          filename:
+            form.get("lookupType") === "filename"
+              ? (form.get("lookupValue") ?? undefined)
+              : undefined,
+          idSdi:
+            form.get("lookupType") === "idSdi" ? (form.get("lookupValue") ?? undefined) : undefined,
+        },
+        actor,
+      );
+      return redirect("/documenti?vista=inventario-aruba&aruba=ricerca-richiesta");
+    }
+    if (form.get("intent") === "search-aruba-documents") {
+      await requestArubaAdvancedSearch(
+        {
+          creationStart: form.get("creationStart") ?? undefined,
+          creationEnd: form.get("creationEnd") ?? undefined,
+          modifiedStart: form.get("modifiedStart") ?? undefined,
+          modifiedEnd: form.get("modifiedEnd") ?? undefined,
+          receiverCountry: form.get("receiverCountry") ?? undefined,
+          receiverVatCode: form.get("receiverVatCode") ?? undefined,
+          receiverFiscalCode: form.get("receiverFiscalCode") ?? undefined,
+          documentType: form.get("remoteDocumentType") ?? undefined,
+          status: form.get("remoteStatus") ?? undefined,
+        },
+        actor,
+      );
+      return redirect("/documenti?vista=inventario-aruba&aruba=ricerca-richiesta");
+    }
     throw new Response("Azione non riconosciuta", { status: 400 });
   } catch (error) {
     if (error instanceof Response) throw error;
     const result = publicError(error);
     return data(result, { status: result.status });
   }
+}
+
+function DocumentNotices({
+  arubaLookupRequested,
+  arubaRefreshRequested,
+  batchCreated,
+  dryRunAuthorized,
+  error,
+  fileImported,
+}: {
+  arubaLookupRequested: boolean;
+  arubaRefreshRequested: boolean;
+  batchCreated: boolean;
+  dryRunAuthorized: boolean;
+  error: string | null;
+  fileImported: boolean;
+}) {
+  return (
+    <>
+      {batchCreated ? (
+        <p className="notice" role="status">
+          {copy.documents.batchCreated}
+        </p>
+      ) : null}
+      {dryRunAuthorized ? (
+        <p className="notice notice--success" role="status">
+          {copy.documents.dryRunQualificationAuthorized}
+        </p>
+      ) : null}
+      {fileImported ? (
+        <p className="notice" role="status">
+          {copy.documents.fileImported}
+        </p>
+      ) : null}
+      {arubaLookupRequested || arubaRefreshRequested ? (
+        <p className="notice notice--success" role="status">
+          {arubaLookupRequested
+            ? copy.documents.arubaLookupRequested
+            : copy.documents.arubaRefreshRequested}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 export default function Documents() {
@@ -224,6 +337,8 @@ export default function Documents() {
     dryRunAuthorized,
     fileImported,
     remoteDocuments,
+    arubaLookupRequested,
+    arubaRefreshRequested,
   } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const error = actionData && "message" in actionData ? actionData.message : null;
@@ -263,96 +378,22 @@ export default function Documents() {
         label={copy.documents.viewsLabel}
         mobileLayout="grid"
       />
-      {batchCreated ? (
-        <p className="notice" role="status">
-          {copy.documents.batchCreated}
-        </p>
-      ) : null}
-      {dryRunAuthorized ? (
-        <p className="notice notice--success" role="status">
-          {copy.documents.dryRunQualificationAuthorized}
-        </p>
-      ) : null}
-      {fileImported ? (
-        <p className="notice" role="status">
-          {copy.documents.fileImported}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      ) : null}
+      <DocumentNotices
+        arubaLookupRequested={arubaLookupRequested}
+        arubaRefreshRequested={arubaRefreshRequested}
+        batchCreated={batchCreated}
+        dryRunAuthorized={dryRunAuthorized}
+        error={error}
+        fileImported={fileImported}
+      />
       {view === "inventario-aruba" ? (
-        <section
-          className="dashboard-panel remote-documents-panel section-gap"
-          aria-labelledby="remote-documents-title"
-        >
-          <h2 id="remote-documents-title">{copy.documents.remoteDocumentsTitle}</h2>
-          <p>{copy.documents.remoteDocumentsHelp}</p>
-          <p aria-live="polite" className="filter-summary">
-            <span>{copy.documents.remoteResults(remoteDocuments.total)}</span>
-          </p>
-          {remoteDocuments.rows.length ? (
-            <div className="table-wrap remote-documents-table-wrap">
-              <table className="data-table remote-documents-table">
-                <thead>
-                  <tr>
-                    <th>{copy.documents.document}</th>
-                    <th>{copy.documents.date}</th>
-                    <th>{copy.documents.total}</th>
-                    <th>{copy.documents.arubaStatus}</th>
-                    <th>{copy.documents.matchStatus}</th>
-                    <th>{copy.documents.remoteLastReadback}</th>
-                    <th>{copy.documents.control}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {remoteDocuments.rows.map((remote) => (
-                    <tr id={`documento-aruba-${remote.id}`} key={remote.id}>
-                      <td data-label={copy.documents.document}>
-                        {remote.document_type} {remote.series ?? ""}{" "}
-                        {remote.fiscal_number ?? remote.remote_id}
-                      </td>
-                      <td data-label={copy.documents.date}>{date(remote.document_date)}</td>
-                      <td data-label={copy.documents.total}>{euros(remote.total_amount)}</td>
-                      <td data-label={copy.documents.arubaStatus}>
-                        {copy.documents.remoteStatusLabels[remote.remote_status] ??
-                          remote.remote_status}
-                      </td>
-                      <td data-label={copy.documents.matchStatus}>
-                        {copy.documents.matchStatusLabels[remote.match_status] ??
-                          remote.match_status}
-                      </td>
-                      <td data-label={copy.documents.remoteLastReadback}>
-                        {dateTime(remote.last_observed_at)}
-                      </td>
-                      <td data-label={copy.documents.control}>
-                        {remote.requires_control ? (
-                          <Link
-                            className="dashboard-row-link"
-                            to={`/controlli?id=${encodeURIComponent(`ARUBA_REMOTE:${remote.id}`)}`}
-                          >
-                            {copy.documents.openControl}
-                          </Link>
-                        ) : (
-                          <span>{copy.documents.inventoryOnly}</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p>
-              {filters.query
-                ? copy.documents.noRemoteSearchResults(filters.query)
-                : copy.documents.noRemoteDocuments}
-            </p>
-          )}
-          <Pager basePath="/documenti" hasNext={remoteDocuments.hasNext} page={page} />
-        </section>
+        <ArubaInventoryPanel
+          canApprove={canApprove}
+          csrfToken={csrfToken}
+          page={page}
+          query={filters.query}
+          remoteDocuments={remoteDocuments}
+        />
       ) : (
         <DocumentsView
           arubaConfiguredMode={arubaConfiguredMode}

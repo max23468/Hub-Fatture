@@ -1,0 +1,164 @@
+.document-resource-grid,
+.document-aruba-status__body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+}
+
+.document-resource-grid > section,
+.document-aruba-status__body > section {
+  min-width: 0;
+}
+
+.document-resource-grid h3,
+.document-aruba-status h3,
+.document-aruba-status h4,
+.document-aruba-status p {
+  margin: 0;
+}
+
+.document-resource-grid h3,
+.document-aruba-status h4 {
+  margin-bottom: var(--space-3);
+  font-size: 0.9375rem;
+}
+
+.document-aruba-status {
+  display: grid;
+  gap: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  padding: var(--space-6);
+}
+
+.document-aruba-status > header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
+}
+
+.document-aruba-status > header > div {
+  min-width: 0;
+}
+
+.document-aruba-status > header p,
+.document-aruba-status__body p,
+.document-aruba-timeline small {
+  color: var(--color-text-muted);
+}
+
+.document-aruba-status > header h3 {
+  margin-top: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.document-aruba-status > header dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(9rem, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.document-aruba-status dt,
+.document-aruba-identifiers dt {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.document-aruba-status dd,
+.document-aruba-identifiers dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+
+.document-aruba-identifiers {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.document-aruba-timeline {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.document-aruba-timeline li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+}
+
+.document-aruba-timeline li:not(:last-child)::before {
+  position: absolute;
+  z-index: 0;
+  top: 0.625rem;
+  bottom: -0.625rem;
+  left: 0.375rem;
+  width: 1px;
+  background: var(--color-border-strong);
+  content: "";
+}
+
+.document-aruba-timeline li:last-child {
+  padding-bottom: 0;
+}
+
+.document-aruba-timeline li > span {
+  position: relative;
+  z-index: 1;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid var(--color-primary);
+  border-radius: 50%;
+  margin-top: 0.25rem;
+  background: var(--color-surface);
+}
+
+.document-aruba-timeline li > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.document-aruba-timeline strong,
+.document-aruba-timeline small,
+.document-aruba-timeline p {
+  overflow-wrap: anywhere;
+}
+
+.document-tool-actions form,
+.document-tool-actions .button {
+  max-width: 100%;
+}
+
+@media (max-width: 48rem) {
+  .document-resource-grid,
+  .document-aruba-status__body,
+  .document-aruba-status > header,
+  .document-aruba-status > header dl {
+    grid-template-columns: 1fr;
+  }
+
+  .document-aruba-status > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .document-tool-actions .button {
+    width: 100%;
+  }
+
+  .document-aruba-status {
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+}

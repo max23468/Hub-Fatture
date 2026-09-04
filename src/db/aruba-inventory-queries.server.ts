@@ -24,6 +24,8 @@ export interface RemoteDocumentFilters {
 export interface RemoteDocument {
   id: string;
   remote_id: string;
+  provider_filename: string | null;
+  provider_sdi_id: string | null;
   document_type: "TD01" | "TD04";
   fiscal_number: string | null;
   series: string | null;
@@ -71,7 +73,8 @@ function remoteDocumentParameters(options: RemoteDocumentFilters) {
 }
 
 const remoteDocumentsSql = `
-  SELECT remote.id, remote.remote_id, remote.document_type, remote.fiscal_number,
+  SELECT remote.id, remote.remote_id, remote.provider_filename, remote.provider_sdi_id,
+         remote.document_type, remote.fiscal_number,
          remote.series, remote.document_date::text, remote.total_amount,
          remote.remote_status, remote.last_observed_at,
          coalesce(matches.status, 'UNMATCHED') AS match_status,
@@ -198,6 +201,8 @@ const remoteDocumentsSql = `
     ))
     AND ($6::text IS NULL
       OR remote.remote_id ILIKE $6 ESCAPE '\\'
+      OR remote.provider_filename ILIKE $6 ESCAPE '\\'
+      OR remote.provider_sdi_id ILIKE $6 ESCAPE '\\'
       OR remote.document_type ILIKE $6 ESCAPE '\\'
       OR remote.fiscal_number ILIKE $6 ESCAPE '\\'
       OR remote.series ILIKE $6 ESCAPE '\\'

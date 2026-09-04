@@ -88,5 +88,6 @@ Arrestarsi senza tentare endpoint alternativi quando:
 - la delega risulta diversa da quella osservata nel pannello.
 
 Un probe riuscito con `completeWindowRead: true` qualifica autenticazione, lettura del ciclo attivo
-e paginazione della sola finestra osservata. Non prova ancora callback, download massivi, invio,
-idempotenza, semantica gruppi-documenti o riconciliazione completa.
+e paginazione della sola finestra osservata. Non prova download massivi, invio, idempotenza,
+semantica gruppi-documenti o riconciliazione completa. I callback sono esclusi dal prodotto e non
+fanno parte della qualifica.

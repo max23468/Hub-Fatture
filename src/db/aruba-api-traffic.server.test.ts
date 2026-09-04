@@ -36,13 +36,13 @@ test("un 429 Aruba coordina il cooldown e impedisce retry ravvicinati", async ()
       reservations.rows.map((row) => ({
         scope: row.scope,
         reservedRequestCount: Number(row.reserved_request_count),
-        usesAcceleratedInterval:
-          row.next_allowed_at.getTime() >= reservationStartedAt + 5_190 &&
-          row.next_allowed_at.getTime() <= reservationCompletedAt + 5_210,
+        usesCanonicalInterval:
+          row.next_allowed_at.getTime() >= reservationStartedAt + 6_090 &&
+          row.next_allowed_at.getTime() <= reservationCompletedAt + 6_110,
       })),
       [
-        { scope: "INVOICE_READ", reservedRequestCount: 1, usesAcceleratedInterval: true },
-        { scope: "NOTIFICATION_READ", reservedRequestCount: 1, usesAcceleratedInterval: true },
+        { scope: "INVOICE_READ", reservedRequestCount: 1, usesCanonicalInterval: true },
+        { scope: "NOTIFICATION_READ", reservedRequestCount: 1, usesCanonicalInterval: true },
       ],
     );
     await traffic.recordArubaApiRateLimited("DEMO");

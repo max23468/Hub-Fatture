@@ -62,6 +62,8 @@ export const errorCatalog = {
   ARUBA_READ_SESSION_INVALID: "La sessione di sola lettura Aruba non è valida o è scaduta.",
   ARUBA_READ_SESSION_FORBIDDEN: "Solo il titolare può revocare le sessioni Aruba.",
   ARUBA_ACCOUNT_MISMATCH: "L’account Aruba aperto non coincide con quello già collegato.",
+  ARUBA_STORAGE_EXHAUSTED:
+    "Lo spazio dell’account Aruba è esaurito: libera spazio prima di trasmettere.",
   ARUBA_REMOTE_STATUS_UNRECOGNIZED:
     "Aruba mostra troppi stati non riconosciuti; la sincronizzazione è stata fermata.",
   ARUBA_INVENTORY_INVALID: "L’inventario Aruba contiene dati non validi.",
@@ -86,6 +88,8 @@ export const errorCatalog = {
   REQUEST_TIMEOUT: "La richiesta ha impiegato troppo tempo.",
   AUTH_PROVIDER_EXPIRED: "Il collegamento al canale di vendita deve essere rinnovato.",
   AUTH_PROVIDER_ACCOUNT_MISMATCH: "È stato autorizzato un account diverso da quello configurato.",
+  AUTH_PROVIDER_REFRESH_INVALID:
+    "La sessione Aruba non può essere rinnovata e richiede un nuovo accesso controllato.",
   PROVIDER_RATE_LIMITED: "Il canale di vendita ha chiesto di rallentare la sincronizzazione.",
   PROVIDER_UNAVAILABLE: "Il canale di vendita non è raggiungibile in questo momento.",
   PROVIDER_RESPONSE_TOO_LARGE: "La risposta del canale di vendita supera il limite previsto.",

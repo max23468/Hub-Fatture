@@ -72,13 +72,13 @@ osservato soltanto gruppi singoli.
 ## Confini della prova
 
 La prova qualifica autenticazione e lettura delle fatture inviate mediante delega. Non dimostra
-ancora disponibilità reale dei file, callback, download, invio, idempotenza o riconciliazione
+ancora disponibilità reale dei file, download, invio, idempotenza o riconciliazione
 completa. Tier e contatori del Premium delegato sono responsabilità contrattuali del provider e non
 costituiscono requisiti o gate di Hub Fatture. Il client deve soltanto rispettare i limiti documentati
 degli endpoint e gestire `429` o blocchi provider in modo fail-closed. Il forfait comprensivo dell’uso
 API è una decisione consolidata. Il canale operativo Production non cambia: backfill, file reali e
-autorità inbound appartengono alla successiva sincronizzazione; callback e capacità mutative
-appartengono alle fasi successive.
+autorità inbound appartengono alla successiva sincronizzazione; le capacità mutative appartengono
+alle fasi successive, mentre i callback sono esclusi dal prodotto.
 
 ## Confronto iniziale con il fallback
 

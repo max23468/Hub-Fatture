@@ -1,6 +1,7 @@
 import { errorCodeLabel } from "../src/error-label.ts";
 import { arubaSettingsCopy } from "./copy-aruba.it.ts";
 import { controlsCopy } from "./copy-controls.it.ts";
+import { arubaTransmissionStatusCopy, documentArubaSearchCopy } from "./copy-documents-aruba.it.ts";
 import { searchCopy } from "./copy-search.it.ts";
 
 export { auditActionLabel, auditActionLabels } from "./copy-audit.it.ts";
@@ -651,6 +652,7 @@ export const copy = {
     openDashboard: "Controlla dalla Dashboard",
   },
   documents: {
+    ...documentArubaSearchCopy,
     eyebrow: "Archivio fiscale",
     title: "Documenti",
     intro:
@@ -669,10 +671,6 @@ export const copy = {
     remoteDocumentsTitle: "Documenti rilevati in Aruba",
     remoteDocumentsHelp:
       "Inventario neutro di fatture e note di credito rilevate in Aruba. Se serve una decisione, apri il controllo collegato.",
-    remoteResults: (count: number) =>
-      `${count} ${count === 1 ? "documento Aruba trovato" : "documenti Aruba trovati"}`,
-    noRemoteSearchResults: (query: string) =>
-      `Nessun documento dell’inventario Aruba corrisponde a “${query}”.`,
     compatibleOrder: "Ordine candidato",
     guidedCandidate:
       "Verifica manuale richiesta: l’XML è presente, ma l’identità non basta per un collegamento automatico.",
@@ -828,6 +826,7 @@ export const copy = {
       "Confermo una sola chiamata Aruba con dryRun=true per questo documento e questo manifest. Nessun invio SdI è autorizzato.",
     retryBatch: "Prepara nuovo tentativo",
     arubaBatchStatus: {
+      ...arubaTransmissionStatusCopy,
       PREPARED: "Preparato",
       DOCUMENT_ONLY: "Solo documento; nessuna trasmissione pianificata",
       AWAITING_CONFIRMATION: "In attesa della conferma di trasmissione",
@@ -845,6 +844,7 @@ export const copy = {
       CANCELLED: "Annullato",
     } as Record<string, string>,
     arubaDocumentStatus: {
+      ...arubaTransmissionStatusCopy,
       PENDING: "In attesa",
       DRY_RUN_PENDING: "Verifica Aruba pianificata",
       DRY_RUN_VALIDATED: "Verifica Aruba superata",
@@ -1108,8 +1108,8 @@ export const copy = {
     } as Record<string, string>,
     arubaMode: "Modalità Aruba",
     arubaDocumentOnly: "Crea solo il documento",
-    arubaContextualConfirmation: "Chiedi conferma prima dell’invio",
-    arubaAutomaticAfterApproval: "Invio automatico dopo approvazione",
+    arubaContextualConfirmation: "Chiedi prima di inviare",
+    arubaAutomaticAfterApproval: "Invio automatico",
     arubaSaved: "Impostazioni Aruba aggiornate.",
     arubaSave: "Salva integrazione Aruba",
     arubaOwnerOnly: "Solo il titolare può cambiare la modalità Aruba.",

@@ -6,9 +6,12 @@ import { credentialsEncryptionKey, databaseUrl } from "./support.ts";
 
 export async function verifyConfiguredArubaApiUi(
   page: Page,
-  arubaApiSettings: Locator,
+  arubaSettings: Locator,
   credentialForm: Locator,
 ) {
+  const connection = arubaSettings.locator("#aruba-api");
+  const account = arubaSettings.locator("#aruba-account");
+  const synchronization = arubaSettings.locator("#aruba-synchronization");
   const arubaApiUiClient = new pg.Client({ connectionString: databaseUrl });
   await arubaApiUiClient.connect();
   const encryptedArubaCredentials = encryptCredential(
@@ -50,36 +53,41 @@ export async function verifyConfiguredArubaApiUi(
        now() - interval '1 hour')`,
   );
   await page.reload();
+  const synchronizationDetails = synchronization.locator(".aruba-connection-details");
+  await synchronizationDetails.locator(":scope > summary").click();
   await expect(
-    arubaApiSettings.getByRole("progressbar", {
+    synchronization.getByRole("progressbar", {
       name: "Avanzamento del backfill Aruba",
     }),
   ).toHaveAttribute("value", "40");
-  await expect(arubaApiSettings).toContainText("Backfill in corso · 40%");
-  await expect(arubaApiSettings).toContainText("finestre da 48 ore rimanenti");
+  await expect(synchronization).toContainText("Backfill in corso · 40%");
+  await expect(synchronization).toContainText("finestre da 48 ore rimanenti");
   await expect(credentialForm).toHaveCount(0);
-  const editCredentials = arubaApiSettings.getByRole("button", {
+  const connectionManagement = connection.locator(".aruba-connection-management");
+  await connectionManagement.locator(":scope > summary").click();
+  const editCredentials = connection.getByRole("button", {
     name: "Aggiorna credenziali",
   });
   await expect(editCredentials).toBeVisible();
-  await expect(arubaApiSettings).toContainText(
+  await expect(connection).toContainText(
     "Apri il modulo soltanto se devi cambiare i dati di accesso",
   );
   await editCredentials.click();
   await expect(credentialForm).toBeVisible();
-  await expect(arubaApiSettings.getByLabel("Nome utente del pannello Aruba")).toHaveValue(
+  await expect(connection.getByLabel("Nome utente del pannello Aruba")).toHaveValue(
     "utente-pannello-sintetico",
   );
-  await expect(arubaApiSettings.getByLabel("P.IVA o codice fiscale dell’attività")).toHaveValue(
+  await expect(connection.getByLabel("P.IVA o codice fiscale dell’attività")).toHaveValue(
     "00000000000",
   );
-  await expect(arubaApiSettings.getByLabel("Password del pannello Aruba")).toHaveValue("");
-  await expect(arubaApiSettings.getByLabel("Nome utente del pannello Aruba")).toBeFocused();
-  const configuredControls = arubaApiSettings.locator(".aruba-api-controls");
-  const revokeControls = arubaApiSettings.locator(".aruba-api-revoke");
+  await expect(connection.getByLabel("Password del pannello Aruba")).toHaveValue("");
+  await expect(connection.getByLabel("Nome utente del pannello Aruba")).toBeFocused();
+  const configuredControls = synchronization.locator(".aruba-api-controls");
+  const revokeControls = connection.locator(".aruba-api-revoke");
   await expect(configuredControls).toBeVisible();
   await expect(revokeControls).toBeVisible();
-  const configuredControlLayout = await arubaApiSettings.evaluate((section) => {
+  const configuredControlLayout = await arubaSettings.evaluate((section) => {
+    const revoke = section.querySelector<HTMLElement>(".aruba-api-revoke");
     const checkboxes = Array.from(
       section.querySelectorAll<HTMLInputElement>("input[type='checkbox']"),
       (checkbox) => checkbox.getBoundingClientRect(),
@@ -99,9 +107,7 @@ export async function verifyConfiguredArubaApiUi(
       controlsHeight:
         section.querySelector<HTMLElement>(".aruba-api-controls")?.getBoundingClientRect().height ??
         0,
-      revokeHeight:
-        section.querySelector<HTMLElement>(".aruba-api-revoke")?.getBoundingClientRect().height ??
-        0,
+      revokeFits: Boolean(revoke && revoke.scrollWidth <= revoke.clientWidth + 1),
     };
   });
   expect(configuredControlLayout.checkboxSizes).toHaveLength(3);
@@ -114,7 +120,7 @@ export async function verifyConfiguredArubaApiUi(
     expect(button.height).toBeLessThanOrEqual(46);
   }
   expect(configuredControlLayout.controlsHeight).toBeLessThan(112);
-  expect(configuredControlLayout.revokeHeight).toBeLessThan(96);
+  expect(configuredControlLayout.revokeFits).toBe(true);
   await page.getByLabel("Modalità Aruba").selectOption("AUTOMATIC_AFTER_APPROVAL");
   const settingsResponse = page.waitForResponse(
     (response) =>
@@ -125,8 +131,8 @@ export async function verifyConfiguredArubaApiUi(
   await expect(page).toHaveURL(/aruba=salvata/);
   await expect(page.getByRole("status")).toContainText("Impostazioni Aruba aggiornate");
   await expect(page.getByLabel("Modalità Aruba")).toHaveValue("AUTOMATIC_AFTER_APPROVAL");
-  await expect(page.getByRole("region", { name: "Trasmissioni Aruba del mese" })).toContainText(
-    "0 documenti accettati",
+  await expect(account).toContainText(
+    "I dati dell’account saranno mostrati dopo la prima verifica completata",
   );
   await expect(page.getByText(/le approvazioni creano soltanto il documento/)).toBeVisible();
   await page.getByRole("link", { name: "Dashboard", exact: true }).click();
