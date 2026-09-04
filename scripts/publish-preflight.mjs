@@ -8,10 +8,10 @@ const command = (script) => ["npm", "run", script];
 
 export function preflightPlan(impact) {
   const core = [command("check:docs")];
+  if (impact.securityData) core.push(command("audit"));
   if (impact.standard) core.push(command("check:standard"));
 
   const parallel = [];
-  if (impact.securityData) parallel.push(command("audit"));
   if (impact.database) parallel.push(command("test:db"));
   if (impact.provider) parallel.push(command("test:provider"));
 
