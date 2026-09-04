@@ -66,7 +66,7 @@ if [ "$target" = true ]; then
     .unreconciledDryRunAttempts == 0 and
     .unreconciledHistory == 0 and
     .pendingHistoryImports == 0 and
-    .openArubaBatches == 0
+    .blockingArubaBatches == 0
   ' >/dev/null || { echo "Readiness operativa non compatibile con l'abilitazione" >&2; exit 1; }
   active_outbound_jobs=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
     psql -U hub_fatture -d hub_fatture -Atc \
@@ -109,13 +109,13 @@ fi
 needs_rollback=true
 
 if [ "$target" = true ]; then
-  open_batches=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
+  blocking_batches=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
     psql -U hub_fatture -d hub_fatture -Atc \
-    "SELECT count(*) FROM aruba_batches WHERE status NOT IN ('RECONCILED', 'CANCELLED', 'DOCUMENT_ONLY')")
+    "SELECT count(*) FROM aruba_batches WHERE status NOT IN ('RECONCILED', 'CANCELLED', 'DOCUMENT_ONLY') AND (mode <> 'DOCUMENT_ONLY' OR requires_reconciliation OR status = 'UNKNOWN_REMOTE_STATE')")
   active_outbound_jobs=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
     psql -U hub_fatture -d hub_fatture -Atc \
     "SELECT count(*) FROM jobs WHERE type = 'aruba_send_submission' AND status IN ('PENDING', 'RUNNING')")
-  if [ "$open_batches" != "0" ] || [ "$active_outbound_jobs" != "0" ]; then
+  if [ "$blocking_batches" != "0" ] || [ "$active_outbound_jobs" != "0" ]; then
     echo "Stato outbound cambiato durante l'arresto controllato" >&2
     exit 1
   fi

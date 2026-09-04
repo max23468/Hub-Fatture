@@ -101,6 +101,11 @@ La corsia non crea, seleziona, approva o trasmette documenti. Il primo invio nas
 flusso applicativo su un documento già dovuto e approvato dal titolare. In caso di arresto o
 incidente, la stessa corsia resta utilizzabile senza dipendere dalla release:
 
+Un batch `DOCUMENT_ONLY` acquisito accidentalmente dal provider può restare non terminale durante
+il monitoraggio senza impedire la riattivazione, ma soltanto dopo che il readback autorevole ha
+rimosso ogni stato incerto e requisito di riconciliazione. La corsia continua a bloccare batch
+trasmissibili non terminali, dry-run incerti e job outbound attivi.
+
 ```sh
 scripts/dispatch-production-submission.sh <sha-live> disable
 ```

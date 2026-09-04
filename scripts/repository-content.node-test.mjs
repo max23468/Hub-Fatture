@@ -1010,7 +1010,7 @@ test("l'abilitazione Aruba Production è una corsia separata, exact-commit e rev
   assert.match(compose, /ARUBA_SUBMISSION_ENABLED: \$\{ARUBA_SUBMISSION_ENABLED:-false\}/);
   assert.match(script, /live_commit.*expected_commit/);
   assert.match(script, /live_version.*release stabile/s);
-  assert.match(script, /\.openArubaBatches == 0/);
+  assert.match(script, /\.blockingArubaBatches == 0/);
   assert.match(script, /aruba_send_submission/);
   assert.match(script, /cp "\$previous" \.env/);
   assert.match(script, /production-readback\.sh "\$target"/);
