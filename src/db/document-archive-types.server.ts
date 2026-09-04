@@ -20,7 +20,7 @@ export interface DocumentListFilters {
 
 export type DocumentListSortKey = "documento" | "cliente" | "data" | "totale" | "stato" | "email";
 
-export interface ArubaDocumentTimelineEvent {
+interface ArubaDocumentTimelineEvent {
   event_key: string;
   status: string;
   detail: string | null;

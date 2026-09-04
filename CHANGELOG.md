@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.3
+
+- Il runtime Aruba elimina un wrapper senza comportamento, codice morto e facciate interne non consumate, mantenendo invariati riconciliazione, invio e monitoraggio SdI.
+- Il campo Scadenza dei Controlli resta contenuto nel pannello anche sui viewport mobile più stretti.
+
 ## 1.3.2
 
 - La sincronizzazione eBay consolida in modo atomico gli ordini provvisori quando il successivo ordine definitivo riunisce le stesse identità di riga, conservando audit e blocchi fiscali nei casi ambigui.

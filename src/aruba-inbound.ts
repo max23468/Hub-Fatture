@@ -14,7 +14,7 @@ export const arubaRemoteStatusSchema = z.enum([
   "UNKNOWN",
 ]);
 
-export const fiscalIdentitySchema = z.object({
+const fiscalIdentitySchema = z.object({
   type: z.enum(["CODICE_FISCALE", "PARTITA_IVA", "ALTRO"]),
   countryCode: z
     .string()
@@ -129,11 +129,6 @@ export function normalizeArubaRemoteStatusLabel(value: unknown): ArubaRemoteStat
   }
   if (label.includes("INVIAT") || label.includes("TRASMESS")) return "SUBMITTED";
   return "UNKNOWN";
-}
-
-export function isKnownUncertainArubaStatusLabel(value: unknown): boolean {
-  const label = normalizedMatchText(String(value ?? "")) ?? "";
-  return label === "EMESSA" || label === "EMESSAEDINVIATA" || label === "ANNULLATA";
 }
 
 const progressing = new Map<ArubaRemoteStatus, number>([
@@ -520,7 +515,7 @@ function sameRecipientName(
   return differences.length === 1 && differsByOneRepeatedVowel(...differences[0]!);
 }
 
-export function evaluateOrderCandidate(
+function evaluateOrderCandidate(
   remote: RemoteInventoryDocument,
   candidate: ArubaOrderCandidate,
 ): CandidateEvaluation {

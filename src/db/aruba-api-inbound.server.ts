@@ -365,7 +365,7 @@ export async function reconcileArubaApiOutboundReadback(
   if (!run) return null;
   const documents = mapArubaApiReadbackGroup(detail, notifications);
   try {
-    await persistApiPage(run, documents, 1, 1, true);
+    await persistCanonicalPage(run, documents, 1, 1, true);
     await completeRun(run.id);
     return { runId: run.id, documents: documents.length };
   } catch (error) {
@@ -545,17 +545,6 @@ async function persistCanonicalPage(
   });
 }
 
-async function persistApiPage(
-  run: ArubaSyncRunRow,
-  documents: ArubaApiInboundDocument[],
-  groupCount: number,
-  page: number,
-  terminal: boolean,
-  afterPersist?: () => Promise<void>,
-) {
-  await persistCanonicalPage(run, documents, groupCount, page, terminal, afterPersist);
-}
-
 async function advanceWindow(runId: string) {
   return withTransaction(async (client) => {
     const result = await client.query<ArubaSyncRunRow>(
@@ -713,7 +702,7 @@ export async function runArubaApiInboundJob(
           ? historical.documents
           : await readTargetedGroup(run, manager, waitForRead, target.provider_group_id!);
         const terminal = target.target_ordinal === target.target_count;
-        await persistApiPage(
+        await persistCanonicalPage(
           run,
           documents,
           historical ? historical.searchedGroups : 1,
@@ -769,7 +758,13 @@ export async function runArubaApiInboundJob(
         if (!group.invoices.length) continue;
         documents.push(...(await readGroup(run.id, manager, waitForRead, group)));
       }
-      await persistApiPage(checkpoint, documents, page.groups.length, page.page, page.terminal);
+      await persistCanonicalPage(
+        checkpoint,
+        documents,
+        page.groups.length,
+        page.page,
+        page.terminal,
+      );
       processedPages += 1;
       if (!(await runMayContinue(run))) {
         return { runId: run.id, kind, mode: run.authority_mode, stopped: true };

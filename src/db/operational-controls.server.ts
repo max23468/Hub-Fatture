@@ -19,7 +19,7 @@ import { getPool, withTransaction } from "./client.server.ts";
 import { listActionableCustomerReviews } from "./customers.server.ts";
 
 export type OperationalControlSeverity = "BLOCKING" | "IMPORTANT" | "ORDINARY";
-export type OperationalControlState = "OPEN" | "WAITING" | "RESOLVED";
+type OperationalControlState = "OPEN" | "WAITING" | "RESOLVED";
 export type OperationalControlOrigin =
   | "ORDERS"
   | "DOCUMENTS"
@@ -104,7 +104,7 @@ const severityRank: Record<OperationalControlSeverity, number> = {
 
 const CONTROLS_PAGE_SIZE = 50;
 const waitingReasons = ["PROVIDER", "CUSTOMER", "ACCOUNTING", "TECHNICAL", "FOLLOW_UP"] as const;
-export type OperationalControlWaitingReason = (typeof waitingReasons)[number];
+type OperationalControlWaitingReason = (typeof waitingReasons)[number];
 
 interface OperationalControlCursor {
   direction: "next" | "previous";

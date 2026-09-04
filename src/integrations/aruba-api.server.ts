@@ -228,7 +228,7 @@ function isEmptySearchSentinel(
   );
 }
 
-export type ArubaApiInvoiceGroup = z.infer<typeof invoiceGroupSchema>;
+type ArubaApiInvoiceGroup = z.infer<typeof invoiceGroupSchema>;
 export type ArubaApiInvoiceDetail = z.infer<typeof arubaApiInvoiceDetailSchema>;
 export type ArubaApiNotificationList = z.infer<typeof arubaApiNotificationListSchema>;
 export type ArubaApiAccountInfo = z.infer<typeof arubaApiAccountInfoSchema>;
@@ -256,14 +256,12 @@ export interface ArubaApiInvoicePage {
   terminal: boolean;
 }
 
-export interface ArubaApiDryRunResult {
+interface ArubaApiUploadResult {
   accepted: boolean;
   errorCode: string;
   errorDescription: string;
   uploadFileName: string | null;
 }
-
-export type ArubaApiUploadResult = ArubaApiDryRunResult;
 
 function parsed<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
@@ -354,7 +352,7 @@ async function uploadArubaApiInvoice(
 export async function dryRunArubaApiInvoice(
   session: ArubaApiSession,
   xml: Buffer,
-): Promise<ArubaApiDryRunResult> {
+): Promise<ArubaApiUploadResult> {
   return uploadArubaApiInvoice(session, xml, true);
 }
 
@@ -446,7 +444,7 @@ export async function authenticateArubaApi(input: {
   return (await authenticateArubaApiWithAccount(input)).session;
 }
 
-export interface ArubaApiInvoiceSearchFilters {
+interface ArubaApiInvoiceSearchFilters {
   receiverCountry?: string;
   receiverVatCode?: string;
   receiverFiscalCode?: string;
@@ -614,7 +612,7 @@ export async function readArubaApiNotifications(
   return notifications;
 }
 
-export interface ArubaApiReadProbeInput {
+interface ArubaApiReadProbeInput {
   environment: ArubaApiEnvironment;
   username: string;
   password: string;
