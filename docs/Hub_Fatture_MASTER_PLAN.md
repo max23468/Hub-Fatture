@@ -881,7 +881,7 @@ Non fissare i nomi dei topic senza verifica sulla versione API corrente.
 - La Fulfillment API resta la sorgente canonica dopo il completamento del checkout, ma non espone tutti gli acquisti con pagamento anticipato ancora pendente.
 - Ogni sincronizzazione ordinaria interroga anche la Trading API `GetOrders` con `OrderStatus=Active` e importa questi acquisti come osservazioni provvisorie `PENDING`, `UNFULFILLED` e da non fatturare.
 - La Trading API `GetSellerTransactions`, limitata alla stessa finestra incrementale con sovrapposizione e suddivisa in intervalli non superiori ai 30 giorni ammessi dal provider, riconcilia le righe modificate: se segnala una riga con checkout incompleto assente dall'inventario `Active`, una rilettura `GetOrders` mirata tramite `OrderLineItemID` deve recuperare l'ordine; in caso contrario la sincronizzazione fallisce chiusa. Se la rilettura restituisce `Cancelled`, la stessa osservazione provvisoria viene aggiornata come annullata e scompare dai pagamenti in attesa.
-- `OrderLineItemID` è l'identità stabile tra la fase Trading e la fase Fulfillment e viene usata anche per eliminare dal batch un'osservazione Trading già coperta dalla risposta canonica. Il passaggio all'ID ordine definitivo aggiorna la stessa entità soltanto se tutte le righe puntano a un unico ordine provvisorio non fatturato; corrispondenze parziali, collisioni, unioni ambigue o identità già usate da ordini diversi bloccano l'import.
+- `OrderLineItemID` è l'identità stabile tra la fase Trading e la fase Fulfillment e viene usata anche per eliminare dal batch un'osservazione Trading già coperta dalla risposta canonica. Il passaggio all'ID ordine definitivo riunisce atomicamente uno o più ordini provvisori soltanto quando tutte le loro righe appartengono alla risposta canonica e nessuno è già fatturabile, rimborsato, revisionato o collegato a documenti e riconciliazioni. Corrispondenze parziali o identità legate a ordini non provvisori restano fail-closed.
 - Le API Trading vengono chiamate con lo stesso token utente già limitato agli scope REST in sola lettura: il probe Production ha verificato `GetOrders` senza ampliare i consensi. Se eBay cambiasse questo contratto, la sincronizzazione deve fallire chiusa e richiedere una nuova connessione esplicita, mai aggiungere permessi silenziosamente.
 
 ### 9.2 Dati da importare
@@ -2540,7 +2540,7 @@ Riferimenti da riverificare allo scaffold: [note di release generate automaticam
 
 ### 18.5 CI e gate per tipo di modifica
 
-GitHub Actions è l'unico sistema CI/CD. `npm run publish:preflight` riusa il classificatore deterministico della CI sul diff locale rispetto a `origin/main`, esegue prima i gate condivisi, poi audit, DB e provider indipendenti in parallelo e infine i soli browser applicabili.
+GitHub Actions è l'unico sistema CI/CD. `npm run publish:preflight` riusa il classificatore deterministico della CI sul diff locale rispetto a `origin/main`, esegue prima il gate documentale e l'audit di rete, poi gli altri gate condivisi, DB e provider indipendenti in parallelo e infine i soli browser applicabili.
 
 | Corsia | Quando | Gate minimo |
 |---|---|---|

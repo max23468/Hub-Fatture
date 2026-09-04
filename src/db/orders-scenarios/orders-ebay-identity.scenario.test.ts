@@ -141,23 +141,64 @@ export async function run(context: OrdersTestContext) {
     id: 1,
     requestId: "test-ebay-collision-seed",
   });
-  const ambiguousCanonical = structuredClone(canonical);
-  ambiguousCanonical.externalOrderId = "ebay-collision-final";
-  ambiguousCanonical.updatedAt = "2026-09-03T09:05:00Z";
-  ambiguousCanonical.lines = [
+  const combinedCanonical = structuredClone(canonical);
+  combinedCanonical.externalOrderId = "ebay-collision-final";
+  combinedCanonical.updatedAt = "2026-09-03T09:05:00Z";
+  combinedCanonical.lines = [
     { ...collisionA.lines[0], externalLineId: "ebay-collision-rest-a" },
     { ...collisionB.lines[0], externalLineId: "ebay-collision-rest-b" },
   ];
-  ambiguousCanonical.sourceIdentityIds = [
+  combinedCanonical.sourceIdentityIds = [
     collisionA.sourceIdentityIds[0],
     collisionB.sourceIdentityIds[0],
   ];
-  ambiguousCanonical.total = "150.00";
-  ambiguousCanonical.payments[0].amount = "150.00";
-  await assert.rejects(
-    orders.importOrders([ambiguousCanonical], {
+  combinedCanonical.total = "150.00";
+  combinedCanonical.payments[0].amount = "150.00";
+  assert.deepEqual(
+    await orders.importOrders([combinedCanonical], {
       id: 1,
-      requestId: "test-ebay-collision-fail-closed",
+      requestId: "test-ebay-collision-consolidation",
+    }),
+    { imported: 0, updated: 1, ignored: 0 },
+  );
+  const consolidated = await database.getPool().query<{
+    id: string;
+    external_order_id: string;
+    identity_count: string;
+  }>(
+    `SELECT orders.id, orders.external_order_id, count(identities.external_id)::text AS identity_count
+     FROM orders
+     JOIN order_source_identities AS identities ON identities.order_id = orders.id
+     WHERE orders.external_order_id IN ('ebay-collision-a', 'ebay-collision-b', 'ebay-collision-final')
+     GROUP BY orders.id, orders.external_order_id`,
+  );
+  assert.deepEqual(consolidated.rows, [
+    {
+      id: consolidated.rows[0]!.id,
+      external_order_id: combinedCanonical.externalOrderId,
+      identity_count: "2",
+    },
+  ]);
+
+  const unsafeProvisional = structuredClone(provisional);
+  unsafeProvisional.externalOrderId = "ebay-partial-overlap";
+  unsafeProvisional.lines = [
+    { ...unsafeProvisional.lines[0], externalLineId: "ebay-overlap-a" },
+    { ...unsafeProvisional.lines[0], externalLineId: "ebay-overlap-b" },
+  ];
+  unsafeProvisional.sourceIdentityIds = ["ebay-overlap-a", "ebay-overlap-b"];
+  unsafeProvisional.total = "100.00";
+  await orders.importOrders([unsafeProvisional], {
+    id: 1,
+    requestId: "test-ebay-partial-overlap-seed",
+  });
+  const incompleteCanonical = structuredClone(canonical);
+  incompleteCanonical.externalOrderId = "ebay-partial-overlap-final";
+  incompleteCanonical.sourceIdentityIds = ["ebay-overlap-a"];
+  await assert.rejects(
+    orders.importOrders([incompleteCanonical], {
+      id: 1,
+      requestId: "test-ebay-partial-overlap-fail-closed",
     }),
     (error: unknown) => error instanceof AppError && error.code === "CONFLICT_REVISION",
   );

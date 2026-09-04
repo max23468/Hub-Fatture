@@ -2,6 +2,7 @@ import type pg from "pg";
 
 import { recipientFromCustomerSnapshot } from "../documents.ts";
 import { writeAudit } from "./audit.server.ts";
+import { deleteOrphanedCustomers } from "./customer-cleanup.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 import { openBillingCaseSql } from "./billing-case-sql.server.ts";
 import type { Provider } from "./connector-types.server.ts";
@@ -76,14 +77,7 @@ export async function reconcileMapperCustomerCorrection(
       `Rilettura dello stesso payload con il mapper ${input.provider === "SHOPIFY" ? "Shopify" : "eBay"} corretto`,
     requestId: input.requestId,
   });
-  await client.query(
-    `DELETE FROM customers
-     WHERE id = $1
-       AND NOT EXISTS (SELECT 1 FROM orders WHERE customer_id = customers.id)
-       AND NOT EXISTS (SELECT 1 FROM billing_cases WHERE customer_id = customers.id)
-       AND NOT EXISTS (SELECT 1 FROM customer_source_records WHERE customer_id = customers.id)`,
-    [input.oldCustomerId],
-  );
+  await deleteOrphanedCustomers(client, [input.oldCustomerId]);
   await recomputeBillingCaseStatus(client, input.caseId);
   await refreshInvoiceDraftProjection(client, input.caseId);
   return true;

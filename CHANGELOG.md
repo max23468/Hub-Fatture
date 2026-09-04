@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.2
+
+- La sincronizzazione eBay consolida in modo atomico gli ordini provvisori quando il successivo ordine definitivo riunisce le stesse identità di riga, conservando audit e blocchi fiscali nei casi ambigui.
+- Il preflight completa l'audit dipendenze prima dei gate locali più pesanti, evitando che la richiesta al registry scada sotto carico senza ridurre le verifiche applicabili.
+
 ## 1.3.1
 
 - Il workflow Production sposta la logica operativa in uno script verificabile, mantenendo invariati i gate exact-SHA, il riuso dell’artefatto attestato, il backup, il deploy e il readback.

@@ -11,6 +11,7 @@ import {
   pendingPaymentSql,
 } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
+import { deleteOrphanedCustomers } from "./customer-cleanup.server.ts";
 import {
   completeHistoryImportInTransaction,
   lockHistoryImportConnection,
@@ -417,7 +418,9 @@ async function importOne(
   shopifyPaymentFeeMode: ShopifyPaymentFeeMode,
   actor: Actor,
 ) {
-  await reconcileEbayIdentity(client, sourceInput);
+  const ebayIdentity = await reconcileEbayIdentity(client, sourceInput);
+  // Il recupero fiscale deve ignorare gli ordini provvisori appena assorbiti
+  // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
   const { input, exception, taxRecovery } = await prepareCustomerInput(client, sourceInput);
   const {
     grossAmount,
@@ -910,21 +913,10 @@ async function importOne(
   ) {
     await recomputeBillingCaseStatus(client, effectiveBillingCaseId);
   }
-  if (oldOrder && oldOrder.customer_id !== order.rows[0]!.customer_id) {
-    await client.query(
-      `DELETE FROM customers
-       WHERE id = $1
-         AND NOT EXISTS (SELECT 1 FROM orders WHERE orders.customer_id = customers.id)
-         AND NOT EXISTS (
-           SELECT 1 FROM billing_cases WHERE billing_cases.customer_id = customers.id
-         )
-         AND NOT EXISTS (
-           SELECT 1 FROM customer_source_records
-           WHERE customer_source_records.customer_id = customers.id
-         )`,
-      [oldOrder.customer_id],
-    );
-  }
+  await deleteOrphanedCustomers(client, [
+    ...ebayIdentity.discardedCustomerIds,
+    oldOrder?.customer_id !== order.rows[0]!.customer_id ? oldOrder?.customer_id : undefined,
+  ]);
   await writeAudit(client, {
     ...auditOrderActor(actor),
     action: previous.rows[0] ? "ORDER_SOURCE_UPDATED" : "ORDER_IMPORTED",
@@ -933,6 +925,9 @@ async function importOne(
     entityId: orderId,
     metadata: {
       provider: input.provider,
+      ...(ebayIdentity.absorbedOrderCount
+        ? { absorbedSourceOrders: ebayIdentity.absorbedOrderCount }
+        : {}),
       ...(emailOnlyAlignmentApplied
         ? {
             automaticAlignment: existingEmailAndMapperConflict

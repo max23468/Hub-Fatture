@@ -28,9 +28,14 @@ test("la UI aggiunge WebKit al preflight locale", () => {
   assert.deepEqual(scripts(ui.browser), ["npm run test:e2e:chromium", "npm run test:e2e:webkit"]);
 });
 
-test("migrazioni attivano audit e database senza serializzarli", () => {
+test("migrazioni completano l'audit prima del database", () => {
   const plan = preflightPlan(classifyFiles(["migrations/999_example.sql"]));
-  assert.deepEqual(scripts(plan.parallel), ["npm run audit", "npm run test:db"]);
+  assert.deepEqual(scripts(plan.core), [
+    "npm run check:docs",
+    "npm run audit",
+    "npm run check:standard",
+  ]);
+  assert.deepEqual(scripts(plan.parallel), ["npm run test:db"]);
 });
 
 test("una modifica all'autorità del classificatore forza il preflight completo", () => {
