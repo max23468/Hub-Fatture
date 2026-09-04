@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.5
+
+- La sincronizzazione Shopify considera equivalenti i default identitari assenti e vuoti, evitando falsi conflitti durante gli aggiornamenti di evasione senza indebolire il blocco sulle differenze effettive.
+- L'upgrade rilegge soltanto gli ordini Shopify già bloccati da un conflitto sorgente, così i casi deterministici vengono riallineati mentre quelli ambigui restano da verificare.
+
 ## 1.3.4
 
 - L'upgrade rilegge automaticamente la finestra degli ordini eBay provvisori ancora attivi, così la riconciliazione strutturale consolida anche i record creati prima della correzione.
