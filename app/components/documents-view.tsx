@@ -30,7 +30,7 @@ import { date, dateTime, euros } from "../format";
 import { Pager } from "./pager";
 import { SortControlLink } from "./sortable-table";
 import type { SortState } from "../table-sort";
-import type { DocumentListSortKey } from "../../src/db/document-archive.server.ts";
+import type { DocumentListSortKey } from "../../src/db/document-archive-types.server.ts";
 
 type DocumentPage = Awaited<ReturnType<typeof listDocuments>>;
 type DocumentRowData = DocumentPage["rows"][number];
@@ -42,7 +42,7 @@ type EmailDelivery = Awaited<ReturnType<typeof listEmailDeliveries>>[number];
 
 const subscribeToHydration = () => () => {};
 
-export interface DocumentFiltersValue {
+interface DocumentFiltersValue {
   query: string;
   kind: string;
   status: string;

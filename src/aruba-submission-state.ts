@@ -1,18 +1,15 @@
 import { remoteStatusTransition, type ArubaRemoteStatus } from "./aruba-inbound.ts";
 
-export const monitoredArubaSubmissionStatuses = [
-  "ARUBA_ACCEPTED",
-  "SDI_PROCESSING",
-  "SUBMITTED",
-  "UNKNOWN",
-  "UNKNOWN_REMOTE_STATE",
-] as const;
-
-export type MonitoredArubaSubmissionStatus = (typeof monitoredArubaSubmissionStatuses)[number];
+export type MonitoredArubaSubmissionStatus =
+  | "ARUBA_ACCEPTED"
+  | "SDI_PROCESSING"
+  | "SUBMITTED"
+  | "UNKNOWN"
+  | "UNKNOWN_REMOTE_STATE";
 
 export type ArubaReadbackStatus = ArubaRemoteStatus;
 
-export type ArubaSubmissionTransition = "SAME" | "ADVANCE" | "STALE" | "CONFLICT";
+type ArubaSubmissionTransition = "SAME" | "ADVANCE" | "STALE" | "CONFLICT";
 
 const terminalStatuses = new Set<ArubaReadbackStatus>(["DELIVERED", "NOT_DELIVERED", "REJECTED"]);
 

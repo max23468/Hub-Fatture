@@ -38,8 +38,6 @@ import { runArubaApiSendJob } from "./aruba-api-send.server.ts";
 import { recordArubaApiRateLimited, waitForArubaApiSendSlot } from "./aruba-api-traffic.server.ts";
 import { readVerifiedStorageObject } from "./storage-object.server.ts";
 
-export type { ArubaOutboundActor } from "./aruba-api-outbound-shared.server.ts";
-
 type BatchStatus = "DOCUMENT_ONLY" | "AWAITING_CONFIRMATION" | "DRY_RUN_PENDING";
 
 function batchStatus(mode: ArubaMode): BatchStatus {

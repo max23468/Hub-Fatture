@@ -97,7 +97,7 @@ export function requireOwner(actor: ArubaApiActor) {
   if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
 }
 
-export type ArubaInboundJobType = Extract<
+type ArubaInboundJobType = Extract<
   JobType,
   | "aruba_backfill_inventory"
   | "aruba_sync_inventory"

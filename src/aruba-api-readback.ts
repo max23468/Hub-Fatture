@@ -79,7 +79,7 @@ export const arubaReadbackJobPayloadSchema = z.discriminatedUnion("readbackKind"
 ]);
 
 export type ArubaReadbackJobPayload = z.infer<typeof arubaReadbackJobPayloadSchema>;
-export type ArubaTargetedLookup = Pick<
+type ArubaTargetedLookup = Pick<
   z.infer<typeof targetedPayloadSchema>,
   "lookupType" | "lookupValue"
 >;

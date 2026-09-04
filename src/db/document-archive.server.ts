@@ -9,8 +9,6 @@ import {
   type DocumentListRow,
 } from "./document-archive-types.server.ts";
 
-export type { DocumentListFilters, DocumentListSortKey } from "./document-archive-types.server.ts";
-
 export async function listDocuments(filters: DocumentListFilters = {}) {
   const query = filters.query?.trim();
   const sort = filters.sort ?? { key: "data", direction: "desc" };

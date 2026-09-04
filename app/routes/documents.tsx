@@ -17,11 +17,8 @@ import {
   listUnbatchedApprovedDocuments,
   getArubaSettings,
 } from "../../src/db/aruba.server.ts";
-import {
-  documentArchiveSummary,
-  listDocuments,
-  type DocumentListSortKey,
-} from "../../src/db/document-archive.server.ts";
+import { documentArchiveSummary, listDocuments } from "../../src/db/document-archive.server.ts";
+import type { DocumentListSortKey } from "../../src/db/document-archive-types.server.ts";
 import {
   getCustomerEmailSettings,
   listEmailDeliveries,

@@ -12,7 +12,7 @@ const base64Schema = z
   .min(1)
   .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/);
 
-export interface ArubaApiInboundGroup {
+interface ArubaApiInboundGroup {
   id: string;
   filename: string;
   invoices: Array<{
@@ -23,7 +23,7 @@ export interface ArubaApiInboundGroup {
   }>;
 }
 
-export interface ArubaApiInboundDetail {
+interface ArubaApiInboundDetail {
   id: string;
   filename: string;
   file: string;
@@ -45,7 +45,7 @@ export interface ArubaApiInboundDetail {
   }>;
 }
 
-export interface ArubaApiInboundNotification {
+interface ArubaApiInboundNotification {
   filename: string;
   invoiceId: string;
   docType: string;
