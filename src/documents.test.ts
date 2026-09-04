@@ -9,8 +9,7 @@ import {
   acceptedDocumentFiscalIdentity,
   documentInputSchema,
   acceptedInvoiceFromXml,
-  acceptedRecipientFromXml,
-  fiscalDocumentEnvelopeFromXml,
+  acceptedFiscalDocumentEvidenceFromXml,
   fiscalDocumentEnvelopesFromXml,
   generateFatturaXml,
   projectFatturaXml,
@@ -125,14 +124,24 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
       .replace(/\s*<RiferimentoNormativo>[^<]+<\/RiferimentoNormativo>/, "")}`,
   );
   await validateFatturaXml(mixedTaxSummary);
-  assert.deepEqual(fiscalDocumentEnvelopeFromXml(mixedTaxSummary), {
-    type: "TD01",
-    year: 2026,
-    number: 1,
-    documentNumber: "FPR 0001/26",
-    documentDate: "2026-08-10",
-    totalAmount: 12345,
-  });
+  assert.deepEqual(
+    acceptedFiscalDocumentEvidenceFromXml(mixedTaxSummary, {
+      type: "TD01",
+      year: 2026,
+      series: "FPR",
+      fiscalNumber: "1",
+      documentDate: "2026-08-10",
+      totalAmount: 12345,
+    }).identity,
+    {
+      type: "TD01",
+      year: 2026,
+      number: 1,
+      documentNumber: "FPR 0001/26",
+      documentDate: "2026-08-10",
+      totalAmount: 12345,
+    },
+  );
   assert.throws(() => acceptedDocumentFiscalIdentity(mixedTaxSummary), /Campo XML obbligatorio/);
   const zeroValueTaxSummary = invoiceXml.replace(
     summaryBlock,
@@ -284,7 +293,17 @@ test("TD01 e TD04 restano conformi al profilo Aruba anonimizzato", async () => {
     "",
   );
   assert.equal(acceptedCreditNoteFromXml(creditWithoutTotalOrPayment).totalAmount, 2345);
-  const acceptedCreditRecipient = acceptedRecipientFromXml(creditWithoutTotalOrPayment);
+  const acceptedCreditRecipient = acceptedFiscalDocumentEvidenceFromXml(
+    creditWithoutTotalOrPayment,
+    {
+      type: "TD04",
+      year: 2026,
+      series: "FPR",
+      fiscalNumber: "2",
+      documentDate: "2026-08-11",
+      totalAmount: 2345,
+    },
+  ).recipient;
   assert.equal(acceptedCreditRecipient.businessName, "Cliente Esempio Srl");
   assert.equal(acceptedCreditRecipient.address.line1, "Via Cliente 2");
   assert.deepEqual(acceptedCreditRecipient.taxIdentifiers, [

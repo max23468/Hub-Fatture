@@ -23,29 +23,3 @@ export function signedXml(xml: Buffer) {
   );
   return der(0x30, Buffer.concat([signedDataOid, der(0xa0, signedData)]));
 }
-
-export async function assertMaterializedP7mEvidence(database: pg.Pool, remoteId: string) {
-  const result = await database.query(
-    `SELECT array_agg(files.kind ORDER BY files.kind) AS kinds,
-            bool_and(files.document_id IS NOT NULL) AS linked,
-            min(documents_storage.kind) AS document_storage_kind
-     FROM aruba_files files
-     LEFT JOIN documents ON documents.id = files.document_id
-     LEFT JOIN storage_objects documents_storage
-       ON documents_storage.id = documents.storage_object_id
-     WHERE files.remote_document_id = (
-       SELECT id FROM aruba_remote_documents WHERE remote_id = $1
-     )`,
-    [remoteId],
-  );
-  assert.deepEqual(result.rows, [
-    {
-      kinds: ["ARUBA_P7M", "ARUBA_XML"],
-      linked: true,
-      document_storage_kind: "ARUBA_XML",
-    },
-  ]);
-}
-import assert from "node:assert/strict";
-
-import type pg from "pg";

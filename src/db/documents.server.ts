@@ -23,6 +23,7 @@ import { validateFatturaXml } from "../fatturapa.server.ts";
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { getConfig } from "../config.server.ts";
 import { isDatabaseId } from "./database-id.ts";
+import { parseDatabaseRevision } from "./database-revision.ts";
 import { writeAudit } from "./audit.server.ts";
 import { arubaInventoryBlocksAllApprovals } from "../aruba-inventory.ts";
 import {
@@ -702,8 +703,8 @@ export async function saveInvoiceDraft(
   actor: FiscalActor,
 ) {
   if (!isDatabaseId(caseId)) return null;
-  const caseRevision = integer(raw.caseRevision);
-  const draftVersion = integer(raw.draftVersion);
+  const caseRevision = parseDatabaseRevision(raw.caseRevision);
+  const draftVersion = parseDatabaseRevision(raw.draftVersion);
   const differenceReason = stringValue(raw.differenceReason);
   const causale = stringValue(raw.causale);
   const notes = stringValue(raw.notes);
@@ -847,14 +848,6 @@ function sameOrders(lines: DocumentInput["lines"], orders: CaseOrder[]): boolean
   );
 }
 
-function integer(value: unknown): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 2_147_483_647) {
-    throw new AppError("CONFLICT_REVISION", 409);
-  }
-  return parsed;
-}
-
 async function materializeDefaultInvoiceDraft(
   client: pg.PoolClient,
   caseRow: CaseRow,
@@ -959,8 +952,8 @@ export async function approveInvoice(
 ) {
   if (!actor.canApprove) throw new AppError("DOCUMENT_APPROVAL_FORBIDDEN", 403);
   if (!isDatabaseId(caseId)) return null;
-  const caseRevision = integer(raw.caseRevision);
-  const draftVersion = integer(raw.draftVersion);
+  const caseRevision = parseDatabaseRevision(raw.caseRevision);
+  const draftVersion = parseDatabaseRevision(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
   let committed: {
     id: string;

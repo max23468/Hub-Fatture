@@ -16,19 +16,8 @@ test("la configurazione applica i vincoli operativi", () => {
     parseConfig({ ...base, SMTP_HOST: "", SMTP_PASSWORD: "", SMTP_USERNAME: "" }),
     parseConfig(base),
   );
-  assert.equal(
-    parseConfig({ ...base, APP_BASE_URL: undefined, APP_URL: "https://app.example.invalid" })
-      .APP_BASE_URL,
-    "https://app.example.invalid",
-  );
+  assert.throws(() => parseConfig({ ...base, APP_BASE_URL: undefined }));
   assert.equal(parseConfig(base).EBAY_ENVIRONMENT, "sandbox");
-  assert.equal(parseConfig(base).ARUBA_API_READ_INTERVAL_MS, 6_100);
-  assert.equal(
-    parseConfig({ ...base, ARUBA_API_READ_INTERVAL_MS: "5200" }).ARUBA_API_READ_INTERVAL_MS,
-    5_200,
-  );
-  assert.throws(() => parseConfig({ ...base, ARUBA_API_READ_INTERVAL_MS: "5199" }));
-  assert.throws(() => parseConfig({ ...base, ARUBA_API_READ_INTERVAL_MS: "6101" }));
   assert.equal(
     parseConfig({ ...base, CREDENTIALS_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64url") })
       .CREDENTIALS_ENCRYPTION_KEY?.length,

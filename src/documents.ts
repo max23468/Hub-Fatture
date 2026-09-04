@@ -374,24 +374,6 @@ function acceptedRecipient(source: ReturnType<typeof acceptedFiscalDocument>) {
   };
 }
 
-/** Destinatario autorevole condiviso da fatture e note di credito accettate. */
-export function acceptedRecipientFromXml(xml: string) {
-  return acceptedRecipient(acceptedFiscalDocument(xml));
-}
-
-/** Identità strutturale di un FPR12 valido, indipendente dal profilo fiscale applicato. */
-export function fiscalDocumentEnvelopeFromXml(xml: string) {
-  const source = acceptedFiscalDocument(xml);
-  return {
-    type: source.type as "TD01" | "TD04",
-    year: source.year,
-    number: source.number,
-    documentNumber: source.documentNumber,
-    documentDate: source.documentDate,
-    totalAmount: source.totalAmount ?? acceptedLineTotal(source.body),
-  };
-}
-
 function fiscalDocumentReferences(source: ReturnType<typeof acceptedFiscalDocument>) {
   const generalBlock = xmlRecord(source.body.DatiGenerali);
   const general = xmlRecord(generalBlock.DatiGeneraliDocumento);

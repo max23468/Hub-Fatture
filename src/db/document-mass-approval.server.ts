@@ -2,6 +2,7 @@ import { arubaModeSchema } from "../aruba.ts";
 import { AppError } from "../errors.ts";
 import { getPool } from "./client.server.ts";
 import { isDatabaseId } from "./database-id.ts";
+import { parseDatabaseRevision } from "./database-revision.ts";
 import { standardInvoiceApprovalCandidateSql } from "./billing-case-sql.server.ts";
 import {
   customerEmailChoiceSchema,
@@ -14,14 +15,6 @@ interface FiscalActor {
   id: number;
   canApprove: boolean;
   requestId: string;
-}
-
-function integer(value: unknown): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 2_147_483_647) {
-    throw new AppError("CONFLICT_REVISION", 409);
-  }
-  return parsed;
 }
 
 async function mapWithConcurrency<T, Result>(
@@ -93,8 +86,8 @@ function approvalCandidate(value: string) {
   if (!match || !isDatabaseId(match[1]!)) throw new AppError("DOCUMENT_INVALID", 422);
   return {
     caseId: match[1]!,
-    caseRevision: integer(match[2]),
-    draftVersion: integer(match[3]),
+    caseRevision: parseDatabaseRevision(match[2]),
+    draftVersion: parseDatabaseRevision(match[3]),
     projectionSha256: match[4]!,
   };
 }

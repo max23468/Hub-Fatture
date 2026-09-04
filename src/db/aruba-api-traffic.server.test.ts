@@ -10,7 +10,6 @@ test("un 429 Aruba coordina il cooldown e impedisce retry ravvicinati", async ()
   process.env.ADMIN_BOOTSTRAP_TOKEN = "synthetic-bootstrap-token-for-tests";
   process.env.APP_BASE_URL = "http://localhost:8080";
   process.env.APP_ENV = "test";
-  process.env.ARUBA_API_READ_INTERVAL_MS = "5200";
   process.env.CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 31).toString("base64url");
   const { closePool, getPool } = await import("./client.server.ts");
   const { runMigrations } = await import("./migrations.server.ts");
@@ -36,13 +35,13 @@ test("un 429 Aruba coordina il cooldown e impedisce retry ravvicinati", async ()
       reservations.rows.map((row) => ({
         scope: row.scope,
         reservedRequestCount: Number(row.reserved_request_count),
-        usesCanonicalInterval:
+        usesPolicyInterval:
           row.next_allowed_at.getTime() >= reservationStartedAt + 6_090 &&
           row.next_allowed_at.getTime() <= reservationCompletedAt + 6_110,
       })),
       [
-        { scope: "INVOICE_READ", reservedRequestCount: 1, usesCanonicalInterval: true },
-        { scope: "NOTIFICATION_READ", reservedRequestCount: 1, usesCanonicalInterval: true },
+        { scope: "INVOICE_READ", reservedRequestCount: 1, usesPolicyInterval: true },
+        { scope: "NOTIFICATION_READ", reservedRequestCount: 1, usesPolicyInterval: true },
       ],
     );
     await traffic.recordArubaApiRateLimited("DEMO");

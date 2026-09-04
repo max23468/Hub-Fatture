@@ -30,6 +30,7 @@ import {
 } from "../orders.ts";
 import { providerJson, providerText } from "./provider-http.server.ts";
 import { providerOrder } from "./provider-order.ts";
+import { record, records, text } from "./provider-values.ts";
 
 export const EBAY_FULFILLMENT_API_VERSION = "v1";
 export const EBAY_TRADING_API_COMPATIBILITY_LEVEL = "1475";
@@ -69,25 +70,6 @@ let publicKeyRequestsInFlight = 0;
 const publicKeyRequestBudget = { count: 0, resetAt: 0 };
 
 const moneySchema = z.looseObject({ value: z.string(), currency: z.string() });
-const recordSchema = z.record(z.string(), z.unknown());
-
-function record(value: unknown): Record<string, unknown> {
-  return recordSchema.safeParse(value).data ?? {};
-}
-
-function records(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? value.flatMap((item) => {
-        const parsed = record(item);
-        return Object.keys(parsed).length ? [parsed] : [];
-      })
-    : [];
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
 function money(value: unknown): { value: string; currency: string } | null {
   return moneySchema.safeParse(value).data ?? null;
 }
@@ -482,7 +464,7 @@ async function verifyAccountDeletionSignature(body: Buffer, signatureHeader: str
     throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
   let header: Record<string, unknown>;
   try {
-    header = recordSchema.parse(JSON.parse(Buffer.from(signatureHeader, "base64").toString()));
+    header = record(JSON.parse(Buffer.from(signatureHeader, "base64").toString()));
   } catch {
     throw new AppError("WEBHOOK_SIGNATURE_INVALID", 401);
   }
@@ -1208,7 +1190,7 @@ export async function processEbayAccountDeletion(body: Buffer, signatureHeader: 
   await verifyAccountDeletionSignature(body, signatureHeader);
   let payload: Record<string, unknown>;
   try {
-    payload = recordSchema.parse(JSON.parse(body.toString("utf8")));
+    payload = record(JSON.parse(body.toString("utf8")));
   } catch {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
   }

@@ -10,10 +10,10 @@ import {
   PAGE_SIZE,
   pageOffset,
   paginate,
-  POSTGRES_INTEGER_MAX,
   type CustomerContext,
 } from "../orders.ts";
 import { AppError } from "../errors.ts";
+import { parseDatabaseRevision } from "./database-revision.ts";
 import { rematchCachedArubaDocumentsForBillingCase } from "./aruba-billing-case-rematch.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import {
@@ -188,14 +188,6 @@ async function lockBillingCase(client: pg.PoolClient, id: string, expectedRevisi
   return current;
 }
 
-function assertRevision(value: unknown) {
-  const revision = Number(value);
-  if (!Number.isInteger(revision) || revision < 0 || revision > POSTGRES_INTEGER_MAX) {
-    throw new AppError("CONFLICT_REVISION", 409);
-  }
-  return revision;
-}
-
 const editableStatuses: readonly string[] = OPEN_BILLING_CASE_STATUSES;
 
 export async function updateBillingCaseTransmission(
@@ -205,7 +197,7 @@ export async function updateBillingCaseTransmission(
   actor: Actor,
 ) {
   if (!isDatabaseId(id)) return null;
-  const revision = assertRevision(expectedRevision);
+  const revision = parseDatabaseRevision(expectedRevision);
   const normalizedReason = reason?.trim() || null;
   if (
     reason !== null &&
@@ -279,7 +271,7 @@ export async function reviewBillingCaseSourceChanges(
 ) {
   if (!isDatabaseId(id)) return null;
   if (!confirmed) throw new AppError("ORDER_INVALID_INPUT", 422);
-  const revision = assertRevision(expectedRevision);
+  const revision = parseDatabaseRevision(expectedRevision);
   const status = await withTransaction(async (client) => {
     await serializeOrderMutations(client);
     const current = await lockBillingCase(client, id, revision);
@@ -395,7 +387,7 @@ export async function correctBillingCaseCustomer(
   actor: Actor,
 ) {
   if (!isDatabaseId(id)) return null;
-  const revision = assertRevision(expectedRevision);
+  const revision = parseDatabaseRevision(expectedRevision);
   const parsed = customerSchema.safeParse(input);
   const normalizedReason = reason?.trim() || null;
   if (
@@ -476,7 +468,7 @@ export async function separateOrderFromBillingCase(
   actor: Actor,
 ) {
   if (!isDatabaseId(caseId) || !isDatabaseId(orderId)) return null;
-  const revision = assertRevision(expectedRevision);
+  const revision = parseDatabaseRevision(expectedRevision);
   return withTransaction(async (client) => {
     await serializeOrderMutations(client);
     const current = await lockBillingCase(client, caseId, revision);
@@ -520,7 +512,7 @@ export async function addOrderToBillingCase(
   actor: Actor,
 ) {
   if (!isDatabaseId(caseId) || !isDatabaseId(orderId)) return null;
-  const revision = assertRevision(expectedRevision);
+  const revision = parseDatabaseRevision(expectedRevision);
   return withTransaction(async (client) => {
     await serializeOrderMutations(client);
     const current = await lockBillingCase(client, caseId, revision);

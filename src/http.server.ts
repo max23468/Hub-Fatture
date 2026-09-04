@@ -100,30 +100,8 @@ export async function readRawBody(
   return Buffer.concat(chunks, size);
 }
 
-export async function readJson(
-  request: Request,
-  { maxBytes = FORM_BODY_LIMIT, timeoutMs = FORM_BODY_TIMEOUT_MS } = {},
-): Promise<unknown> {
-  if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") {
-    throw new AppError("INVALID_CONTENT_TYPE", 415);
-  }
-  const body = await readRawBody(request, { maxBytes, timeoutMs });
-  try {
-    return JSON.parse(body.toString("utf8"));
-  } catch {
-    throw new AppError("ARUBA_BATCH_INVALID", 422);
-  }
-}
-
 export function readArubaInventoryForm(request: Request): Promise<URLSearchParams> {
   return readForm(request, {
-    maxBytes: ARUBA_INVENTORY_BODY_LIMIT,
-    timeoutMs: ARUBA_INVENTORY_BODY_TIMEOUT_MS,
-  });
-}
-
-export function readArubaInventoryJson(request: Request): Promise<unknown> {
-  return readJson(request, {
     maxBytes: ARUBA_INVENTORY_BODY_LIMIT,
     timeoutMs: ARUBA_INVENTORY_BODY_TIMEOUT_MS,
   });

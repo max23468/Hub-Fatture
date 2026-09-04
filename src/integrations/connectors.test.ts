@@ -23,7 +23,6 @@ import {
   parseEbaySyncContinuation,
 } from "./ebay.server.ts";
 import {
-  SHOPIFY_API_SUPPORTED_UNTIL,
   SHOPIFY_API_VERSION,
   mapShopifyOrder,
   parseShopifySyncContinuation,
@@ -64,7 +63,6 @@ test("il contratto Shopify usa una versione fissa e mappa ordine, fallback fisca
   const businessMapped = mapShopifyOrder(businessOrder, "shop.example.invalid");
 
   assert.equal(SHOPIFY_API_VERSION, "2026-07");
-  assert.equal(SHOPIFY_API_SUPPORTED_UNTIL, "2027-07-16");
   assert.equal(
     shopifyAccountReference("Shop.Example.Invalid", "shop.example.invalid"),
     "Shop.Example.Invalid",

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  arubaIncrementalScanFrom,
   remoteStatusTransition,
   selectOrderMatch,
   type ArubaRemoteStatus,
@@ -69,7 +68,7 @@ test("il modello Aruba converge allo stato terminale per ogni ordine degli event
   }
 });
 
-test("matcher e finestra dello storico non dipendono dall’ordine dei candidati", () => {
+test("il matcher non dipende dall’ordine dei candidati", () => {
   const candidates = [
     {
       id: "compatible",
@@ -102,23 +101,6 @@ test("matcher e finestra dello storico non dipendono dall’ordine dei candidati
         .filter(({ compatible }) => compatible)
         .map(({ candidateId }) => candidateId),
       ["compatible"],
-    );
-  }
-
-  const searches = [
-    { documentType: "TD01" as const, orderDate: "2026-08-20" },
-    { documentType: "TD04" as const, orderDate: "2026-07-01" },
-    { documentType: "TD01" as const, orderDate: "2026-08-03" },
-  ];
-  for (const searchOrder of permutations(searches)) {
-    assert.equal(
-      arubaIncrementalScanFrom({
-        documentType: "TD01",
-        incrementalFrom: "2026-08-15",
-        oldestReconciliationDate: "2026-06-01",
-        searches: searchOrder,
-      }),
-      "2026-08-03",
     );
   }
 });

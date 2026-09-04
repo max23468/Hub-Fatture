@@ -4,9 +4,7 @@ import test from "node:test";
 import { AppError } from "./errors.ts";
 import {
   allowedOrigins,
-  ARUBA_INVENTORY_BODY_LIMIT,
   readArubaInventoryForm,
-  readArubaInventoryJson,
   readForm,
   securePrivateHeaders,
 } from "./http.server.ts";
@@ -98,31 +96,12 @@ test("il limite vale anche senza Content-Length dichiarato", async () => {
   });
 });
 
-test("le superfici inventario Aruba accettano payload completi oltre il limite ordinario", async () => {
+test("l’inventario Aruba accetta form completi oltre il limite ordinario", async () => {
   const value = "x".repeat(32 * 1024);
-  const json = new Request("https://example.invalid", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ value }),
-  });
-  assert.equal(
-    ((await readArubaInventoryJson(json)) as { value: string }).value.length,
-    value.length,
-  );
-
   const form = new Request("https://example.invalid", {
     method: "POST",
     headers: { ...contentType, origin: "https://example.invalid" },
     body: new URLSearchParams({ pagesJson: value }),
   });
   assert.equal((await readArubaInventoryForm(form)).get("pagesJson")?.length, value.length);
-
-  const oversized = new Request("https://example.invalid", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ value: "x".repeat(ARUBA_INVENTORY_BODY_LIMIT) }),
-  });
-  await assert.rejects(readArubaInventoryJson(oversized), (error: unknown) =>
-    Boolean(error instanceof AppError && error.code === "REQUEST_BODY_TOO_LARGE"),
-  );
 });
