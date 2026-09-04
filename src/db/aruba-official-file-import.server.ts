@@ -46,6 +46,28 @@ import {
   reconcileAutomaticAmbiguousInvoices,
 } from "./aruba-document-materialization.server.ts";
 
+async function hasUnresolvedArubaIdentityCollision(
+  client: Parameters<typeof latestObservedRemote>[0],
+  remoteDocumentId: string,
+) {
+  const result = await client.query(
+    `SELECT 1
+     FROM aruba_remote_documents remote
+     WHERE remote.id = $1
+       AND EXISTS (
+         SELECT 1 FROM aruba_deduplication_conflicts conflicts
+         WHERE conflicts.environment = remote.environment
+           AND conflicts.account_reference = remote.account_reference
+           AND conflicts.resolved_at IS NULL
+           AND (conflicts.existing_remote_document_id = remote.id
+             OR conflicts.incoming_remote_id = remote.remote_id)
+       )
+     LIMIT 1`,
+    [remoteDocumentId],
+  );
+  return Boolean(result.rows[0]);
+}
+
 async function importArubaRemoteOfficialFileAuthorized(
   authorization: ArubaReadActor | ArubaApiFileAuthorization,
   remoteReference: string,
@@ -153,6 +175,7 @@ async function importArubaRemoteOfficialFileAuthorized(
       const xml = validateUntrustedXml(bytes);
       documentId = await withTransaction(async (client) => {
         await lockArubaInventory(client, session.environment, session.account_reference);
+        if (await hasUnresolvedArubaIdentityCollision(client, remoteDocumentId)) return null;
         const evidence = officialEvidence(
           await latestObservedRemote(client, remoteDocumentId),
           xml,
@@ -239,7 +262,8 @@ async function importArubaRemoteOfficialFileAuthorized(
             : null,
       });
       let documentId: string | null = concurrentDuplicate?.document_id ?? null;
-      if (fiscalXml) {
+      const identityCollision = await hasUnresolvedArubaIdentityCollision(client, remoteDocumentId);
+      if (fiscalXml && !identityCollision) {
         const evidence = officialEvidence(
           await latestObservedRemote(client, remoteDocumentId),
           fiscalXml.xml,

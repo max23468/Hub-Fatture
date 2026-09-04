@@ -29,7 +29,7 @@ export async function verifyUnconfiguredArubaApiUi(page: Page, arubaSettings: Lo
   expect(credentialSpacing.actionsGap).toBeGreaterThanOrEqual(24);
   expect(credentialSpacing.columns).toBe(1);
   expect(credentialSpacing.fieldWidthDeltas.every((delta) => delta <= 1)).toBe(true);
-  expect(credentialSpacing.groupGaps.every((gap) => gap >= 24)).toBe(true);
+  for (const gap of credentialSpacing.groupGaps) expect(gap).toBeCloseTo(24, 0);
 
   const stackLayout = await arubaSettings.locator(".aruba-settings-stack").evaluate((stack) => {
     const panels = Array.from(stack.children).filter((element) =>

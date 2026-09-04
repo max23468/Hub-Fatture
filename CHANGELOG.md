@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.10
+
+- I file ufficiali di documenti Aruba coinvolti in una collisione fiscale irrisolta vengono conservati sul rispettivo identificativo provider senza avviare riconciliazione o materializzazione automatica: la sincronizzazione prosegue, mentre entrambi i documenti restano separati e in stato remoto incerto fino alla verifica manuale.
+
 ## 1.3.9
 
 - La riattivazione degli invii distingue i batch realmente bloccanti dai documenti `DOCUMENT_ONLY` già acquisiti e identificati da Aruba: questi ultimi restano isolati e monitorati senza impedire nuove fatture, mentre stati incerti, riconciliazioni pendenti, batch trasmissibili e job outbound continuano a bloccare la procedura.
