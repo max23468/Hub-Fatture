@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.7
+
+- Le nuove fatture e note di credito uniformano al formato Aruba i dati del destinatario: anagrafica e indirizzo in maiuscolo, nome e cognome separati per i privati e numero civico nel campo dedicato quando è identificabile senza ambiguità.
+- Generazione e riconciliazione storica condividono la stessa classificazione degli indirizzi, evitando che vie numerate, civici esteri o complementi vengano interpretati in modo diverso.
+
 ## 1.3.6
 
 - La ricerca globale usa un’anteprima leggera dell’inventario Aruba, mantenendo gli stessi criteri e conteggi senza calcolare candidati, differenze e controlli non mostrati nei risultati.

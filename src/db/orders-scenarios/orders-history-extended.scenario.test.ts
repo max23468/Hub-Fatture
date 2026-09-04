@@ -142,7 +142,7 @@ export async function runExtendedHistoricalScenario(
             .replace("FPR 0020/26", "FPR 0031/26")
             .replaceAll("75.00", "84.00")
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via Alessandro Camera Sud</Indirizzo><NumeroCivico>10</NumeroCivico>",
             ),
         ),
@@ -552,7 +552,7 @@ export async function runExtendedHistoricalScenario(
       .replace("Vendita beni usati - Ordine Shopify #1001", "Vendita beni usati")
       .replace("<Data>2026-08-10</Data>", "<Data>2026-08-19</Data>")
       .replace(
-        "<Indirizzo>Via Cliente 2</Indirizzo>",
+        "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
         "<Indirizzo>Via della Scala</Indirizzo><NumeroCivico>2</NumeroCivico>",
       )
       .replaceAll("123.45", "122.00"),
@@ -564,7 +564,7 @@ export async function runExtendedHistoricalScenario(
         outcome: "ALREADY_INVOICED",
         reference: "Documento Aruba con destinatario diverso",
         invoiceXml: Buffer.from(
-          historicalWithoutTaxIdXml.toString().replace("<Nome>Mario</Nome>", "<Nome>Luigi</Nome>"),
+          historicalWithoutTaxIdXml.toString().replace("<Nome>MARIO</Nome>", "<Nome>Luigi</Nome>"),
         ),
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-wrong-recipient-without-tax-id" },
@@ -1542,8 +1542,8 @@ export async function runExtendedHistoricalScenario(
           .toString()
           .replace("FPR 0013/26", "FPR 0034/26")
           .replaceAll("122.00", "191.71")
-          .replace("<Nome>Mario</Nome>", "<Nome>VALENTIN</Nome>")
-          .replace("<Cognome>Rossi</Cognome>", "<Cognome>RADEV</Cognome>")
+          .replace("<Nome>MARIO</Nome>", "<Nome>VALENTIN</Nome>")
+          .replace("<Cognome>ROSSI</Cognome>", "<Cognome>RADEV</Cognome>")
           .replace(
             "<CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>\n        <Anagrafica>\n          <Nome>VALENTIN</Nome>",
             "<IdFiscaleIVA>\n          <IdPaese>BG</IdPaese>\n          <IdCodice>99999999999</IdCodice>\n        </IdFiscaleIVA>\n        <Anagrafica>\n          <Nome>VALENTIN</Nome>",

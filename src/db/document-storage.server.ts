@@ -71,7 +71,11 @@ function regenerateStoredXml(row: StoredDocumentRow): string {
     profile,
     input,
     { year: row.fiscal_year, number: row.fiscal_number },
-    { legacyEuFirstTaxIdentifier: snapshot.generatorVersion !== 2 },
+    {
+      legacyEuFirstTaxIdentifier:
+        snapshot.generatorVersion !== 2 && snapshot.generatorVersion !== 3,
+      uppercaseRecipient: snapshot.generatorVersion === 3,
+    },
   );
   if (
     Buffer.byteLength(xml) !== row.size_bytes ||

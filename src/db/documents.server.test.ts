@@ -255,6 +255,9 @@ test(
         const projection = await documents.getInvoiceProjection(caseId);
         assert.ok(projection && !projection.profileMissing && "lines" in projection);
         assert.equal(projection.comparison.recipient[0]!.source, "Mario Rossi");
+        assert.equal(projection.comparison.recipient[0]!.projected, "MARIO ROSSI");
+        const projectedStreet = projection.comparison.recipient[2]!.projected.split(" · ")[0]!;
+        assert.equal(projectedStreet, projectedStreet.toLocaleUpperCase("it-IT"));
         assert.match(projection.comparison.lines[0]!.projected, /N5/);
         assert.match(projection.comparison.payment[0]!.projected, /TP02 · MP08/);
         await documents.saveInvoiceDraft(

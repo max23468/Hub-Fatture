@@ -38,12 +38,13 @@
       <DatiAnagrafici>
         <CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>
         <Anagrafica>
-          <Nome>Mario</Nome>
-          <Cognome>Rossi</Cognome>
+          <Nome>MARIO</Nome>
+          <Cognome>ROSSI</Cognome>
         </Anagrafica>
       </DatiAnagrafici>
       <Sede>
-        <Indirizzo>Via Cliente 2</Indirizzo>
+        <Indirizzo>VIA CLIENTE</Indirizzo>
+        <NumeroCivico>2</NumeroCivico>
         <CAP>00100</CAP>
         <Comune>Roma</Comune>
         <Provincia>RM</Provincia>

@@ -382,7 +382,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           ebayInvoiceWithoutReference
             .toString()
-            .replace("<Nome>Mario</Nome>", "<Nome>Luigi</Nome>"),
+            .replace("<Nome>MARIO</Nome>", "<Nome>Luigi</Nome>"),
         ),
       },
       { id: 1, canApprove: true, requestId: "test-reconcile-ebay-history-wrong-recipient" },
@@ -474,7 +474,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           reorderedNameInvoice
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via Giuseppe Distante 12 50100</Indirizzo>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -495,7 +495,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           reorderedNameInvoice
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Strada Provinciale 12 Campo Distante 101</Indirizzo>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -516,7 +516,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           reorderedNameInvoice
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/A</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -537,7 +537,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           reorderedNameInvoice
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via Completamente Diversa</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>59100</CAP>")
@@ -557,7 +557,7 @@ export async function runHistoricalMatchingScenario(
         reference: "Documento Aruba con stessa via e civico ma località differente",
         invoiceXml: Buffer.from(
           reorderedNameInvoice.replace(
-            "<Indirizzo>Via Cliente 2</Indirizzo>",
+            "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
             "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
           ),
         ),
@@ -575,7 +575,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           reorderedNameInvoice
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -596,7 +596,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           reorderedNameInvoice
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Largo Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -617,7 +617,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           reorderedNameInvoice
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Strada Provinciale 12 Campo Differente</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -638,7 +638,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           reorderedNameInvoice
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Strada Provinciale 34 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -658,9 +658,9 @@ export async function runHistoricalMatchingScenario(
         reference: "Documento Aruba con identità contenuta ma non uguale",
         invoiceXml: Buffer.from(
           reorderedNameInvoice
-            .replace("<Nome>Mario</Nome>", "<Nome>Mario Bianchi</Nome>")
+            .replace("<Nome>MARIO</Nome>", "<Nome>Mario Bianchi</Nome>")
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -681,7 +681,7 @@ export async function runHistoricalMatchingScenario(
         invoiceXml: Buffer.from(
           reorderedNameInvoice
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Strada Campo Provinciale 12 Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -701,7 +701,7 @@ export async function runHistoricalMatchingScenario(
       invoiceXml: Buffer.from(
         reorderedNameInvoice
           .replace(
-            "<Indirizzo>Via Cliente 2</Indirizzo>",
+            "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
             "<Indirizzo>Strada Provinciale 12 Campo Distante</Indirizzo><NumeroCivico>99/B</NumeroCivico>",
           )
           .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -756,9 +756,9 @@ export async function runHistoricalMatchingScenario(
       .toString()
       .replace("FPR 0020/26", "FPR 0032/26")
       .replaceAll("75.00", "86.00")
-      .replace("<Nome>Mario</Nome>", "<Nome>Mario Carlo</Nome>")
+      .replace("<Nome>MARIO</Nome>", "<Nome>Mario Carlo</Nome>")
       .replace(
-        "<Indirizzo>Via Cliente 2</Indirizzo>",
+        "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
         "<Indirizzo>Via Cliente</Indirizzo><NumeroCivico>2</NumeroCivico>",
       ),
   );
@@ -864,10 +864,10 @@ export async function runHistoricalMatchingScenario(
         '<CessionarioCommittente xmlns="">\n      <DatiAnagrafici>\n        <CodiceFiscale>RSSMRA80A01H501U</CodiceFiscale>',
         '<CessionarioCommittente xmlns="">\n      <DatiAnagrafici>',
       )
-      .replace("<Nome>Mario</Nome>", "<Nome>MIHAIL</Nome>")
-      .replace("<Cognome>Rossi</Cognome>", "<Cognome>RAZVAN</Cognome>")
+      .replace("<Nome>MARIO</Nome>", "<Nome>MIHAIL</Nome>")
+      .replace("<Cognome>ROSSI</Cognome>", "<Cognome>RAZVAN</Cognome>")
       .replace(
-        "<Indirizzo>Via Cliente 2</Indirizzo>",
+        "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
         "<Indirizzo>021383 BVD FERDNAND I 60</Indirizzo><NumeroCivico>60</NumeroCivico>",
       )
       .replace("<CAP>00100</CAP>", "<CAP>00000</CAP>")
@@ -926,7 +926,7 @@ export async function runHistoricalMatchingScenario(
             .replace("FPR 0020/26", "FPR 0024/26")
             .replaceAll("75.00", "78.00")
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via d'Armi</Indirizzo><NumeroCivico>10</NumeroCivico>",
             ),
         ),
@@ -972,7 +972,7 @@ export async function runHistoricalMatchingScenario(
             .replace("FPR 0020/26", "FPR 0023/26")
             .replaceAll("75.00", "77.00")
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
             ),
         ),
@@ -993,11 +993,11 @@ export async function runHistoricalMatchingScenario(
             .replace("FPR 0020/26", "FPR 0023/26")
             .replaceAll("75.00", "77.00")
             .replace(
-              "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
+              "<Nome>MARIO</Nome>\n          <Cognome>ROSSI</Cognome>",
               "<Denominazione>Beta Alfa Srl</Denominazione>",
             )
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
             ),
         ),
@@ -1017,10 +1017,10 @@ export async function runHistoricalMatchingScenario(
             .toString()
             .replace("FPR 0020/26", "FPR 0023/26")
             .replaceAll("75.00", "77.00")
-            .replace("<Nome>Mario</Nome>", "<Nome>Beta</Nome>")
-            .replace("<Cognome>Rossi</Cognome>", "<Cognome>Alfa Srl</Cognome>")
+            .replace("<Nome>MARIO</Nome>", "<Nome>Beta</Nome>")
+            .replace("<Cognome>ROSSI</Cognome>", "<Cognome>Alfa Srl</Cognome>")
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
             ),
         ),
@@ -1041,11 +1041,11 @@ export async function runHistoricalMatchingScenario(
             .replace("FPR 0020/26", "FPR 0023/26")
             .replaceAll("75.00", "77.00")
             .replace(
-              "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
+              "<Nome>MARIO</Nome>\n          <Cognome>ROSSI</Cognome>",
               "<Denominazione>Alfa Beta Srl</Denominazione>",
             )
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via Papa Pio V</Indirizzo><NumeroCivico>10</NumeroCivico>",
             ),
         ),
@@ -1065,11 +1065,11 @@ export async function runHistoricalMatchingScenario(
           .replace("FPR 0020/26", "FPR 0023/26")
           .replaceAll("75.00", "77.00")
           .replace(
-            "<Nome>Mario</Nome>\n          <Cognome>Rossi</Cognome>",
+            "<Nome>MARIO</Nome>\n          <Cognome>ROSSI</Cognome>",
             "<Denominazione>Alfa Beta Srl</Denominazione>",
           )
           .replace(
-            "<Indirizzo>Via Cliente 2</Indirizzo>",
+            "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
             "<Indirizzo>Via Papa Pio X</Indirizzo><NumeroCivico>10</NumeroCivico>",
           ),
       ),
@@ -1110,7 +1110,7 @@ export async function runHistoricalMatchingScenario(
       .replace("FPR 0020/26", "FPR 0025/26")
       .replaceAll("75.00", "79.00")
       .replace(
-        "<Indirizzo>Via Cliente 2</Indirizzo>",
+        "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
         "<Indirizzo>Via Santo Luca</Indirizzo><NumeroCivico>10</NumeroCivico>",
       )
       .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -1195,7 +1195,7 @@ export async function runHistoricalMatchingScenario(
             .replace("FPR 0020/26", "FPR 0028/26")
             .replaceAll("75.00", "82.00")
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via 11 Settembre 10</Indirizzo><NumeroCivico>11</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -1219,7 +1219,7 @@ export async function runHistoricalMatchingScenario(
             .replace("FPR 0020/26", "FPR 0028/26")
             .replaceAll("75.00", "82.00")
             .replace(
-              "<Indirizzo>Via Cliente 2</Indirizzo>",
+              "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
               "<Indirizzo>Via 12 Settembre</Indirizzo><NumeroCivico>10</NumeroCivico>",
             )
             .replace("<CAP>00100</CAP>", "<CAP>50100</CAP>")
@@ -1292,10 +1292,10 @@ export async function runHistoricalMatchingScenario(
       .toString()
       .replace("FPR 0020/26", "FPR 0026/26")
       .replaceAll("75.00", "80.00")
-      .replace("<Nome>Mario</Nome>", "<Nome>Claire Marie</Nome>")
-      .replace("<Cognome>Rossi</Cognome>", "<Cognome>Dupont</Cognome>")
+      .replace("<Nome>MARIO</Nome>", "<Nome>Claire Marie</Nome>")
+      .replace("<Cognome>ROSSI</Cognome>", "<Cognome>Dupont</Cognome>")
       .replace(
-        "<Indirizzo>Via Cliente 2</Indirizzo>",
+        "<Indirizzo>VIA CLIENTE</Indirizzo>\n        <NumeroCivico>2</NumeroCivico>",
         "<Indirizzo>Avenue Martin des Fleurs du Lac</Indirizzo><NumeroCivico>12</NumeroCivico>",
       )
       .replace("<CAP>00100</CAP>", "<CAP>00000</CAP>")
