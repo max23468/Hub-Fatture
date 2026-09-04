@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.8
+
+- La validazione preliminare delle fatture Aruba avviene soltanto in locale: Production non chiama più il dry-run remoto, mentre approvazione e invio richiedono conferme distinte e l’inventario Aruba recente.
+- La numerazione considera anche i documenti remoti e viene ricontrollata prima della rete; ID Aruba distinti con lo stesso numero o hash restano separati e aprono un conflitto invece di essere fusi.
+- Uno scarto SdI autorevole conserva documento e numero originari e riporta in una nuova preparazione soltanto gli ordini ancora fatturabili, senza approvare o trasmettere automaticamente la riemissione.
+
 ## 1.3.7
 
 - Le nuove fatture e note di credito uniformano al formato Aruba i dati del destinatario: anagrafica e indirizzo in maiuscolo, nome e cognome separati per i privati e numero civico nel campo dedicato quando è identificabile senza ambiguità.

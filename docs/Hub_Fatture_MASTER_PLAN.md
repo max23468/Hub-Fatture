@@ -47,6 +47,19 @@ Non esiste una gerarchia unica fra intenzione, implementazione e stato live:
 
 Una prova live non modifica da sola il perimetro; rivela invece una divergenza da correggere o una decisione da riaprire. Allo stesso modo, una spunta nel piano non sostituisce il comportamento osservato del codice o del provider.
 
+Per il canale outbound Aruba vale una correzione di sicurezza prevalente: `dryRun=true` non è una
+simulazione affidabile in Production e non deve mai essere chiamato. La conformità FatturaPA viene
+verificata localmente; l’unica chiamata outbound ammessa è `dryRun=false`, dopo conferma esplicita
+dell’invio, kill switch attivo e rilettura di tutti i prerequisiti. I riferimenti successivi al
+dry-run Production descrivono esclusivamente la qualificazione storica e non sono un contratto
+operativo corrente.
+
+L’approvazione resta bloccata durante una sincronizzazione Aruba attiva o con inventario più vecchio
+di cinque minuti. La numerazione usa il massimo tra documenti locali e inventario remoto canonico;
+prima della rete, un secondo controllo blocca qualunque numero fiscale già presente in remoto.
+L’identità di un documento remoto è il suo ID provider: numero fiscale o hash coincidenti non
+autorizzano mai la fusione di due ID remoti distinti e aprono invece un conflitto da riconciliare.
+
 `AGENTS.md` governa il modo di lavorare, non modifica da solo il perimetro o le decisioni fiscali. README, indici e runbook devono rimandare alla fonte canonica senza duplicare intere sezioni. Se l'implementazione cambia un comportamento previsto, la stessa modifica aggiorna test e documentazione pertinente.
 
 ### 0.3 Evidenze e stato di avanzamento
@@ -107,7 +120,7 @@ I log grezzi restano fuori dal repository quando contengono identificativi, conf
 
 ## 1. Sintesi esecutiva
 
-Hub Fatture 1.x è un'applicazione web privata e single-tenant per l'attività del titolare. Importa ordini da un solo negozio Shopify e da un solo account venditore eBay, genera bozze di fatture elettroniche semplificate nel regime del margine e richiede sempre un'approvazione esplicita. Le API Aruba v2 documentate sono l’unico canale automatico del ciclo attivo per inventario, file, stati, dry-run, upload e invio. Il worker opera con credenziale cifrata, manifest immutabili, due arresti indipendenti e readback fail-closed; i componenti browser sono ritirati e il fallback manuale resta permanente.
+Hub Fatture 1.x è un'applicazione web privata e single-tenant per l'attività del titolare. Importa ordini da un solo negozio Shopify e da un solo account venditore eBay, genera bozze di fatture elettroniche semplificate nel regime del margine e richiede sempre un'approvazione esplicita. Le API Aruba v2 documentate sono l’unico canale automatico del ciclo attivo per inventario, file, stati e invio; la validazione preliminare dell’XML è locale. Il worker opera con credenziale cifrata, manifest immutabili, due arresti indipendenti e readback fail-closed; i componenti browser sono ritirati e il fallback manuale resta permanente.
 
 L'app non è un gestionale fiscale completo e non deve sostituire la contabilità Aruba. Il suo compito è automatizzare la raccolta degli ordini, applicare un profilo fiscale preconfigurato e verificato, preparare il documento, consentire correzioni controllate, raccogliere l'approvazione e orchestrare la trasmissione.
 
@@ -754,13 +767,16 @@ La bozza:
 Se Aruba o SdI scartano:
 
 - non creare automaticamente una nuova fattura;
+- soltanto dopo un `REJECTED` API autorevole, riportare gli ordini ancora fatturabili in una nuova
+  preparazione senza approvarla né trasmetterla; la fattura scartata, il numero e i collegamenti
+  originari restano immutabili nello storico;
 - non generare una nota di credito per il documento scartato;
 - bloccare modifiche al file inviato ma permettere una nuova revisione/riedizione secondo la procedura verificata;
 - conservare ogni tentativo;
 - assicurare che il retry tecnico dello stesso XML non generi duplicati;
 - distinguere errore di rete, rifiuto Aruba, scarto SdI e stato incerto.
 
-Se l'esito dell'upload o dell'invio è incerto, non ritentare automaticamente. HF esegue prima il readback API per numero, data, destinatario, totale e file ufficiale; se il canale non è disponibile, il titolare completa lo stesso controllo dal pannello e importa l’evidenza ufficiale. Soltanto un esito certo può consentire un nuovo tentativo esplicitamente autorizzato.
+Se l'esito dell'upload o dell'invio è incerto, non ritentare automaticamente. Hub Fatture esegue prima il readback API per numero, data, destinatario, totale e file ufficiale; se il canale non è disponibile, il titolare completa lo stesso controllo dal pannello e importa l’evidenza ufficiale. Soltanto un esito certo può consentire un nuovo tentativo esplicitamente autorizzato.
 
 ### 7.10 Rimborsi prima dell'emissione
 
@@ -1403,9 +1419,9 @@ Azioni:
 - approva la fattura, assegnando automaticamente il numero e generando l'XML definitivo;
 - non trasmettere.
 
-Il pulsante `Approva fattura` è la conferma esplicita dell'azione descritta nel riepilogo finale: non aggiungere una checkbox generica che ripeta lo stesso consenso. Restano obbligatorie e distinte le sole conferme eccezionali, per pagamento pendente o differenza d'importo motivata.
+Il pulsante `Approva fattura` completa l’azione soltanto insieme a una conferma fiscale dedicata e non preselezionata, che nomina destinatario, totale e assegnazione irreversibile del numero. Il server richiede e audita questa prova separata anche se la richiesta proviene da automazione o approvazione in blocco. Restano obbligatorie e distinte le conferme eccezionali per pagamento pendente o differenza d’importo motivata.
 
-Il server blocca approvazione e numerazione se l'inventario Aruba non è mai stato completato, ha più di quattro ore o presenta un conflitto o stato incerto rilevante; dopo 30 minuti mostra un avviso. La preparazione TD01 non offre override o sincronizzazioni specifiche: la decisione operativa avviene in `Controlli`, la configurazione e la sincronizzazione in `Impostazioni`, poi si torna alla pagina aggiornata. Se la modalità globale richiede trasmissione ma gli invii non sono disponibili, il downgrade a sola creazione richiede una conferma esplicita.
+Il server blocca approvazione e numerazione se una sincronizzazione Aruba è attiva, se l’inventario non è mai stato completato, ha più di cinque minuti o presenta un conflitto o stato incerto rilevante. La preparazione TD01 non offre override o sincronizzazioni specifiche: la decisione operativa avviene in `Controlli`, la configurazione e la sincronizzazione in `Impostazioni`, poi si torna alla pagina aggiornata. Se la modalità globale richiede trasmissione ma gli invii non sono disponibili, il downgrade a sola creazione richiede una conferma esplicita.
 
 ### 13.7 Documenti
 
@@ -2232,7 +2248,6 @@ Gli eventi `CRITICAL` — approvazione, numerazione, override importi, `Non tras
 - `aruba_sync_inventory`
 - `aruba_refresh_nonterminal`
 - `prepare_aruba_batch`
-- `aruba_dry_run_submission`
 - `aruba_upload_submission`
 - `aruba_send_submission`
 - `aruba_readback_submission`

@@ -35,7 +35,7 @@ async function fixture() {
 printf '%s\\n' "$*" >>"$FAKE_DOCKER_LOG"
 case "$*" in
   *"exec -T app-web node build-server/operations/release-candidate-readiness.js"*)
-    printf '%s\\n' '{"unsafeApprovedDocuments":0,"unreconciledHistory":0,"pendingHistoryImports":0,"openArubaBatches":0}' ;;
+    printf '%s\\n' '{"unreconciledDryRunAttempts":0,"unreconciledHistory":0,"pendingHistoryImports":0,"openArubaBatches":0}' ;;
   *"exec -T postgres psql"*) printf '%s\\n' 0 ;;
 esac
 `,

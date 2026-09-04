@@ -952,6 +952,7 @@ export async function approveInvoice(
     caseRevision: unknown;
     draftVersion: unknown;
     projectionSha256: unknown;
+    confirmApproval: boolean;
     confirmPending: boolean;
     confirmDifference: boolean;
     arubaMode?: unknown;
@@ -962,6 +963,7 @@ export async function approveInvoice(
   actor: FiscalActor,
 ) {
   if (!actor.canApprove) throw new AppError("DOCUMENT_APPROVAL_FORBIDDEN", 403);
+  if (!raw.confirmApproval) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
   if (!isDatabaseId(caseId)) return null;
   const caseRevision = parseDatabaseRevision(raw.caseRevision);
   const draftVersion = parseDatabaseRevision(raw.draftVersion);
@@ -1038,12 +1040,23 @@ export async function approveInvoice(
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
         `fiscal-number:${series}:${year}`,
       ]);
+      const config = getConfig();
       const sequence = await client.query<{ next: number }>(
-        `SELECT greatest(coalesce(max(fiscal_number), 0), $3::integer) + 1 AS next
-         FROM documents WHERE status = 'APPROVED' AND series = $1 AND fiscal_year = $2`,
+        `SELECT greatest(
+           coalesce((SELECT max(fiscal_number) FROM documents
+             WHERE status = 'APPROVED' AND series = $1 AND fiscal_year = $2), 0),
+           coalesce((SELECT max((btrim(fiscal_number))::integer)
+             FROM aruba_remote_documents
+             WHERE environment = $3 AND account_reference = $4
+               AND fiscal_year = $2 AND upper(series) = upper($1)
+               AND document_type = 'TD01' AND btrim(fiscal_number) ~ '^[0-9]+$'), 0),
+           $5::integer
+         ) + 1 AS next`,
         [
           series,
           year,
+          config.APP_ENV === "production" ? "PRODUCTION" : "MOCK",
+          config.ARUBA_ACCOUNT_REFERENCE,
           profile.profile_json.numbering.lastObservedYear === year
             ? profile.profile_json.numbering.lastObservedNumber
             : 0,
@@ -1194,6 +1207,7 @@ export async function approveInvoice(
           documentKind: "INVOICE",
           fiscalNumber: label,
           fiscalProfileVersion: profile.version,
+          approvalConfirmation: "EXPLICIT_FORM_V1",
         },
         requestId: actor.requestId,
       });

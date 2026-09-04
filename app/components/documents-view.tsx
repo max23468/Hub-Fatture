@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  Check,
   CircleAlert,
   Download,
   FileCheck2,
@@ -12,7 +11,6 @@ import {
   RefreshCw,
   Upload,
 } from "lucide-react";
-import { useState, useSyncExternalStore } from "react";
 import { Form, Link, useNavigation } from "react-router";
 
 import type {
@@ -39,8 +37,6 @@ type ArubaBatch = Awaited<ReturnType<typeof listArubaBatches>>[number];
 type UnbatchedDocument = Awaited<ReturnType<typeof listUnbatchedApprovedDocuments>>[number];
 type OfficialFile = Awaited<ReturnType<typeof listOfficialArubaFiles>>[number];
 type EmailDelivery = Awaited<ReturnType<typeof listEmailDeliveries>>[number];
-
-const subscribeToHydration = () => () => {};
 
 interface DocumentFiltersValue {
   query: string;
@@ -785,45 +781,6 @@ function ManualBatchPanel({
   );
 }
 
-function DryRunQualificationForm({ batchId, csrfToken }: { batchId: string; csrfToken: string }) {
-  const hydrated = useSyncExternalStore(
-    subscribeToHydration,
-    () => true,
-    () => false,
-  );
-  const [confirmed, setConfirmed] = useState(false);
-
-  return (
-    <Form method="post">
-      <input name="csrf" type="hidden" value={csrfToken} />
-      <input name="intent" type="hidden" value="authorize-aruba-dry-run" />
-      <input name="batchId" type="hidden" value={batchId} />
-      {confirmed ? <input name="confirmDryRunQualification" type="hidden" value="yes" /> : null}
-      <button
-        aria-checked={confirmed}
-        className="checkbox-row dry-run-consent"
-        disabled={!hydrated}
-        onKeyDown={(event) => {
-          if (event.key !== " " && event.key !== "Enter") return;
-          event.preventDefault();
-          setConfirmed(true);
-        }}
-        onPointerUp={() => setConfirmed(true)}
-        role="checkbox"
-        type="button"
-      >
-        <span aria-hidden="true" className="dry-run-consent__control">
-          {confirmed ? <Check size={14} strokeWidth={3} /> : null}
-        </span>
-        <span>{copy.documents.confirmDryRunQualification}</span>
-      </button>
-      <button className="button button--secondary" disabled={!hydrated || !confirmed} type="submit">
-        {copy.documents.authorizeDryRunQualification}
-      </button>
-    </Form>
-  );
-}
-
 function BatchPanel({
   batches,
   canApprove,
@@ -894,9 +851,6 @@ function BatchPanel({
                     {copy.documents.confirmApiTransmission}
                   </button>
                 </Form>
-              ) : null}
-              {canApprove && batch.can_authorize_dry_run ? (
-                <DryRunQualificationForm batchId={batch.id} csrfToken={csrfToken} />
               ) : null}
             </div>
           </li>

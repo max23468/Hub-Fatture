@@ -16,6 +16,10 @@ export const openBillingCaseSql = (alias = "billing_cases") =>
 export const orderBillableSql = (alias = "orders") =>
   `${alias}.cancelled_at IS NULL AND ${alias}.payment_status <> 'REFUNDED' AND ${alias}.trigger_status NOT IN ('INVOICED', 'LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') AND NOT ${approvedInvoiceOrderLinkSql(alias)} AND (NOT coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) OR ${alias}.historical_reconciliation_outcome = 'NOT_INVOICED')`;
 
+/** Un ordine resta riemettibile dopo uno scarto solo se è ancora fiscalmente fatturabile. */
+export const orderReissuableAfterRejectedInvoiceSql = (alias = "orders") =>
+  `${alias}.cancelled_at IS NULL AND ${alias}.payment_status <> 'REFUNDED' AND (NOT coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) OR ${alias}.historical_reconciliation_outcome = 'NOT_INVOICED')`;
+
 export const orderNotBillableSql = (alias = "orders") =>
   `(${alias}.cancelled_at IS NOT NULL OR ${alias}.payment_status = 'REFUNDED' OR ${alias}.trigger_status IN ('INVOICED', 'LEGACY_BILLING_REVIEW', 'REFUNDED_BEFORE_ISSUE') OR ${approvedInvoiceOrderLinkSql(alias)} OR (coalesce((${alias}.normalized_snapshot_json ->> 'historical')::boolean, false) AND ${alias}.historical_reconciliation_outcome IS DISTINCT FROM 'NOT_INVOICED'))`;
 
@@ -43,7 +47,25 @@ export const billingCasePendingPaymentSql = (alias = "billing_cases") => `EXISTS
     AND ${pendingPaymentSql("pending_case_order")}
 )`;
 
-/** Un documento approvato collegato rende l'ordine definitivamente già fatturato. */
+/**
+ * Una fattura approvata è efficace finché non è provato che ogni sua trasmissione
+ * Aruba sia stata scartata. L'assenza di submission copre i documenti storici/manuali,
+ * che restano emessi; gli stati incerti continuano invece a bloccare fail-closed.
+ */
+export const effectiveApprovedInvoiceSql = (documentAlias = "documents") =>
+  `${documentAlias}.status = 'APPROVED' AND (
+    NOT EXISTS (
+      SELECT 1 FROM aruba_submissions AS invoice_submission
+      WHERE invoice_submission.document_id = ${documentAlias}.id
+    )
+    OR EXISTS (
+      SELECT 1 FROM aruba_submissions AS invoice_submission
+      WHERE invoice_submission.document_id = ${documentAlias}.id
+        AND invoice_submission.status <> 'REJECTED'
+    )
+  )`;
+
+/** Un documento approvato efficace collegato rende l'ordine già fatturato. */
 export const approvedInvoiceOrderLinkSql = (orderAlias = "orders") => `EXISTS (
   SELECT 1
   FROM document_orders AS issued_document_orders
@@ -51,7 +73,7 @@ export const approvedInvoiceOrderLinkSql = (orderAlias = "orders") => `EXISTS (
     ON issued_documents.id = issued_document_orders.document_id
   WHERE issued_document_orders.order_id = ${orderAlias}.id
     AND issued_document_orders.document_kind = 'INVOICE'
-    AND issued_documents.status = 'APPROVED'
+    AND ${effectiveApprovedInvoiceSql("issued_documents")}
 )`;
 
 /** Una preparazione con almeno un ordine già fatturato resta fail-closed per intero. */

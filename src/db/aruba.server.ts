@@ -255,8 +255,6 @@ export async function listArubaBatches() {
     last_readback_at: string | null;
     manifest_sha256: string;
     can_retry: boolean;
-    qualification_status: string | null;
-    can_authorize_dry_run: boolean;
     documents: Array<{
       id: string;
       fiscal_label: string;
@@ -273,14 +271,6 @@ export async function listArubaBatches() {
               WHERE aruba_submissions.batch_id = batches.id
                 AND aruba_submissions.status <> 'REMOVED'
             ) AS can_retry,
-            (SELECT qualifications.status FROM aruba_dry_run_qualifications AS qualifications
-             WHERE qualifications.batch_id = batches.id) AS qualification_status,
-            batches.environment = 'PRODUCTION' AND batches.transport = 'API'
-              AND batches.mode = 'DOCUMENT_ONLY' AND batches.status = 'DOCUMENT_ONLY'
-              AND batches.document_count = 1 AND NOT EXISTS (
-                SELECT 1 FROM aruba_dry_run_qualifications AS qualifications
-                WHERE qualifications.batch_id = batches.id
-              ) AS can_authorize_dry_run,
             coalesce(jsonb_agg(jsonb_build_object(
               'id', documents.id,
               'fiscal_label', documents.series || ' ' ||

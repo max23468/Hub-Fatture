@@ -28,6 +28,7 @@ import {
   fiscalProfileSchema,
 } from "../documents.ts";
 import { AppError } from "../errors.ts";
+import { effectiveApprovedInvoiceSql } from "./billing-case-sql.server.ts";
 import { refreshInvoiceDraftProjection } from "./invoice-draft-projection.server.ts";
 import { linkDocumentToSourcePreparation } from "./invoice-source-preparations.server.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
@@ -346,12 +347,14 @@ async function materializeExternalInvoice(
   if (existing.rows[0] && existing.rows[0].xml_sha256 !== digest) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna senza input esterno.
   const priorInvoiceLinks = await client.query<{ document_id: string }>(
     `SELECT document_orders.document_id
      FROM document_orders
      JOIN documents ON documents.id = document_orders.document_id
      WHERE document_orders.order_id = ANY($1::bigint[])
-       AND document_orders.document_kind = 'INVOICE' AND documents.status = 'APPROVED'
+       AND document_orders.document_kind = 'INVOICE'
+       AND ${effectiveApprovedInvoiceSql("documents")}
      FOR UPDATE OF document_orders`,
     [matchedOrderIds],
   );
@@ -554,6 +557,7 @@ async function materializeExternalCreditNote(
     throw new AppError("ARUBA_PROFILE_CONFLICT", 409);
   }
   await serializeOrderMutations(client);
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna senza input esterno.
   const invoice = await client.query<{
     id: string;
     billing_case_id: string;
@@ -565,7 +569,8 @@ async function materializeExternalCreditNote(
   }>(
     `SELECT id, billing_case_id, series, fiscal_year, fiscal_number,
             document_date::text, recipient_snapshot_json
-     FROM documents WHERE id = $1 AND kind = 'INVOICE' AND status = 'APPROVED' FOR UPDATE`,
+     FROM documents WHERE id = $1 AND kind = 'INVOICE'
+       AND ${effectiveApprovedInvoiceSql("documents")} FOR UPDATE`,
     [remote.related_invoice_document_id],
   );
   const sourceInvoice = invoice.rows[0];

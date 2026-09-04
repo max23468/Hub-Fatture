@@ -17,6 +17,7 @@ import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { creditableRemainder } from "../refunds.ts";
 import { validateFatturaXml } from "../fatturapa.server.ts";
 import { writeAudit } from "./audit.server.ts";
+import { effectiveApprovedInvoiceSql } from "./billing-case-sql.server.ts";
 import { consumeArubaPreflight, ensureArubaPreflight } from "./aruba-preflight.server.ts";
 import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
 import { getArubaSettings } from "./aruba.server.ts";
@@ -308,6 +309,7 @@ export async function processRefund(refundId: string, job?: ClaimedJob) {
   if (!isDatabaseId(refundId)) throw new AppError("REFUND_NEEDS_REVIEW", 422);
   return withTransaction(async (client) => {
     if (job) await assertJobLease(client, job);
+    // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna senza input esterno.
     const refund = await client.query<{
       id: string;
       status: string;
@@ -332,18 +334,28 @@ export async function processRefund(refundId: string, job?: ClaimedJob) {
               refunds.credit_document_id, refunds.applied_before_issue,
               orders.historical_reconciliation_outcome,
               orders.deducted_shopify_payments_fee_amount,
-              orders.display_number, invoice.id AS invoice_id,
+              orders.display_number, invoice.document_id AS invoice_id,
               invoice.billing_case_id, invoice.total_amount AS invoice_total,
-              invoice_order_issued_amount(invoice.id, refunds.order_id) AS invoice_order_amount,
-              invoice_order.amount AS invoice_order_source_amount,
+              invoice_order_issued_amount(invoice.document_id, refunds.order_id)
+                AS invoice_order_amount,
+              invoice.source_amount AS invoice_order_source_amount,
               invoice.recipient_snapshot_json AS recipient,
               invoice.fiscal_profile_version AS profile_version, invoice.series
        FROM refunds
        JOIN orders ON orders.id = refunds.order_id
-       LEFT JOIN document_orders AS invoice_order
-         ON invoice_order.order_id = refunds.order_id AND invoice_order.document_kind = 'INVOICE'
-       LEFT JOIN documents AS invoice
-         ON invoice.id = invoice_order.document_id AND invoice.status = 'APPROVED'
+       LEFT JOIN LATERAL (
+         SELECT documents.id AS document_id, documents.billing_case_id,
+                documents.total_amount, document_orders.amount AS source_amount,
+                documents.recipient_snapshot_json, documents.fiscal_profile_version,
+                documents.series
+         FROM document_orders
+         JOIN documents ON documents.id = document_orders.document_id
+         WHERE document_orders.order_id = refunds.order_id
+           AND document_orders.document_kind = 'INVOICE'
+           AND ${effectiveApprovedInvoiceSql("documents")}
+         ORDER BY documents.approved_at DESC, documents.id DESC
+         LIMIT 1
+       ) AS invoice ON true
        WHERE refunds.id = $1 FOR UPDATE OF refunds`,
       [refundId],
     );

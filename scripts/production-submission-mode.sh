@@ -63,14 +63,14 @@ if [ "$target" = true ]; then
   readiness=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T app-web \
     node build-server/operations/release-candidate-readiness.js)
   printf '%s' "$readiness" | jq -e '
-    .unsafeApprovedDocuments == 0 and
+    .unreconciledDryRunAttempts == 0 and
     .unreconciledHistory == 0 and
     .pendingHistoryImports == 0 and
     .openArubaBatches == 0
   ' >/dev/null || { echo "Readiness operativa non compatibile con l'abilitazione" >&2; exit 1; }
   active_outbound_jobs=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
     psql -U hub_fatture -d hub_fatture -Atc \
-    "SELECT count(*) FROM jobs WHERE type = 'aruba_dry_run_submission' AND status IN ('PENDING', 'RUNNING')")
+    "SELECT count(*) FROM jobs WHERE type = 'aruba_send_submission' AND status IN ('PENDING', 'RUNNING')")
   [ "$active_outbound_jobs" = "0" ] \
     || { echo "Job outbound Aruba attivi presenti" >&2; exit 1; }
 fi
@@ -111,10 +111,10 @@ needs_rollback=true
 if [ "$target" = true ]; then
   open_batches=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
     psql -U hub_fatture -d hub_fatture -Atc \
-    "SELECT count(*) FROM aruba_batches WHERE status NOT IN ('RECONCILED', 'CANCELLED', 'DRY_RUN_VALIDATED')")
+    "SELECT count(*) FROM aruba_batches WHERE status NOT IN ('RECONCILED', 'CANCELLED', 'DOCUMENT_ONLY')")
   active_outbound_jobs=$(docker compose -f compose.yaml --env-file .env --env-file .deploy.env exec -T postgres \
     psql -U hub_fatture -d hub_fatture -Atc \
-    "SELECT count(*) FROM jobs WHERE type = 'aruba_dry_run_submission' AND status IN ('PENDING', 'RUNNING')")
+    "SELECT count(*) FROM jobs WHERE type = 'aruba_send_submission' AND status IN ('PENDING', 'RUNNING')")
   if [ "$open_batches" != "0" ] || [ "$active_outbound_jobs" != "0" ]; then
     echo "Stato outbound cambiato durante l'arresto controllato" >&2
     exit 1

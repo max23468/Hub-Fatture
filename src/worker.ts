@@ -107,7 +107,7 @@ async function runJob() {
     if (job.type === "send_customer_email") await sendCustomerEmail(job);
     if (job.type === "aruba_readback_submission") {
       result = await runArubaApiReadbackJob(job);
-    } else if (job.type === "aruba_dry_run_submission" || job.type === "aruba_send_submission") {
+    } else if (job.type === "aruba_send_submission") {
       result = await runArubaApiOutboundJob(job);
     } else if (job.type.startsWith("aruba_")) {
       result = await runArubaApiInboundJob(job);

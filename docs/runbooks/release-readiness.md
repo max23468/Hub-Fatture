@@ -1,5 +1,9 @@
 # Readiness della release
 
+> Il gate corrente non accetta più qualifiche dry-run Production. Richiede
+> `unreconciledDryRunAttempts=0`; i dati storici sotto descrivono il go-live precedente e non
+> prevalgono sul controllo corrente.
+
 Questo è il record del candidato Production osservato. Un gate è chiuso soltanto quando la colonna **Riferimento** collega una prova osservata sul commit e digest esatti. Le capacità già implementate ma non esercitate nell’ambiente richiesto restano aperte.
 
 ## Stato del record
@@ -27,8 +31,9 @@ eliminata; nessun documento è stato creato, approvato, selezionato o inviato du
 | Uso ordinario        | [attivazione 33615525558](https://github.com/max23468/Hub-Fatture/actions/runs/33615525558) riuscita; `ARUBA_SUBMISSION_ENABLED=true` e modalità `CONTEXTUAL_CONFIRMATION` riletti in Production                                                                              |
 
 Il readback protetto finale collega commit, digest, versione e schema esatti. Dopo l’attivazione
-restituisce `unsafeApprovedDocuments=0`, `unreconciledHistory=0`, `pendingHistoryImports=0`,
-`openArubaBatches=0` e `completedDryRunQualifications=1`. Non risultano finding P0/P1 o stati remoti
+restituiva `unsafeApprovedDocuments=0`, `unreconciledHistory=0`, `pendingHistoryImports=0`,
+`openArubaBatches=0` e `completedDryRunQualifications=1`. Questi campi conservano il valore storico
+del record e sono stati sostituiti dal gate `unreconciledDryRunAttempts=0`. Non risultavano finding P0/P1 o stati remoti
 incerti aperti. La modalità con conferma non rende automatica l’approvazione e richiede un’azione
 separata del titolare per ogni invio.
 

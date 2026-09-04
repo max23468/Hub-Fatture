@@ -66,6 +66,7 @@ function runIntent(
         caseRevision: revision,
         draftVersion: form.get("draftVersion"),
         projectionSha256: form.get("projectionSha256"),
+        confirmApproval: form.get("confirmApproval") === "yes",
         confirmPending: form.get("confirmPending") === "yes",
         confirmDifference: form.get("confirmDifference") === "yes",
         arubaMode: form.get("arubaMode"),

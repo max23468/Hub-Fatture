@@ -6,6 +6,11 @@
 - **Baseline:** [Piano integrazione API Aruba](aruba-api-integration.md) e
   [Contratto API Aruba](../contracts/aruba-api.md)
 
+> **Correzione operativa prevalente:** `dryRun=true` è vietato in Production perché ha mostrato un
+> effetto remoto reale. Il preflight è ora una validazione FatturaPA locale; il provider viene
+> chiamato soltanto per l’invio `dryRun=false` dopo conferma esplicita. Ogni descrizione storica del
+> dry-run in questo piano resta evidenza del disegno precedente, non una procedura eseguibile.
+
 Questo documento pianifica l’estensione del canale Aruba già presente in Hub Fatture. Non sostituisce
 la baseline inbound, il modello di approvazione fiscale o il fallback manuale: definisce il lavoro
 necessario per completare il client API, trasmettere XML TD01 non firmati, osservare l’esito SdI e
@@ -290,6 +295,11 @@ parziali e non può autorizzare un retry collettivo.
 `DELIVERED` e `NOT_DELIVERED` continuano ad abilitare il flusso e-mail già approvato. La mancata
 consegna resta fiscalmente distinta dallo scarto: il documento esiste, ma Hub Fatture apre un
 controllo affinché il destinatario venga gestito consapevolmente.
+
+Una transizione API autorevole a `REJECTED` conserva immutabili documento, numero e tentativi e
+riporta gli ordini ancora fatturabili in una nuova preparazione. Non approva, non numera e non
+trasmette la sostituzione: questi passaggi richiedono il normale consenso esplicito. Qualunque stato
+incerto o non scartato mantiene invece il blocco fail-closed.
 
 ## 9. Monitoraggio dopo l’invio
 

@@ -1445,6 +1445,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await page.getByLabel("Nome utente", { exact: true }).fill("MASSIMO");
   await page.getByLabel("Password").fill("password-massimo");
   await page.getByRole("button", { name: "Accedi" }).click();
+  await page.getByRole("link", { name: "Ordini", exact: true }).click();
+  await page.getByRole("link", { name: "Da fatturare" }).click();
+  await expectPreparationOrderReference(page);
+  const archivedPreparationHref = await page
+    .getByRole("link", { name: `Apri ${archivedPreparation}` })
+    .first()
+    .getAttribute("href");
+  expect(archivedPreparationHref).not.toBeNull();
   const preparationLayoutClient = new pg.Client({
     connectionString: databaseUrl,
   });
@@ -1458,13 +1466,14 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
        AND completed_at IS NOT NULL`,
   );
   await preparationLayoutClient.end();
-  await page.getByRole("link", { name: "Ordini", exact: true }).click();
-  await page.getByRole("link", { name: "Da fatturare" }).click();
-  await expectPreparationOrderReference(page);
-  await page
-    .getByRole("link", { name: `Apri ${archivedPreparation}` })
-    .first()
-    .click();
+  await page.reload();
+  await expect(
+    page.getByText(
+      "Nessuna preparazione è approvabile finché il controllo globale dell’inventario Aruba non viene risolto.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Niente da fatturare" })).toBeVisible();
+  await page.goto(archivedPreparationHref!);
   await expect(page.getByRole("heading", { name: "Controllo fattura" })).toBeVisible();
   await expect(page.getByText("Nessun problema rilevato")).toBeVisible();
   await expect(page.getByText("RF14 · N5 · FPR · versione 1").first()).toBeVisible();
@@ -1520,6 +1529,13 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await compactLayoutClient.query(`UPDATE billing_cases SET status = 'READY' WHERE id = $1`, [
     preparationId,
   ]);
+  await compactLayoutClient.query(
+    `UPDATE aruba_sync_runs
+     SET completed_at = now(), full_scan_completed_at = now()
+     WHERE environment = 'MOCK'
+       AND account_reference = 'synthetic-aruba-account'
+       AND status = 'COMPLETED'`,
+  );
   await compactLayoutClient.end();
   await page.reload();
   const expandedWorkflowColumns = await workflowGrid.evaluate((element) =>
@@ -1527,12 +1543,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   );
   expect(expandedWorkflowColumns).toHaveLength(1);
   const expandedWorkflowBox = await workflowGrid.boundingBox();
-  const expandedInventoryBox = await page.locator(".preparation-inventory").boundingBox();
+  await expect(page.locator(".preparation-inventory")).toHaveCount(0);
   const expandedApprovalBox = await page.locator(".preparation-approval").boundingBox();
   expect(expandedWorkflowBox).not.toBeNull();
-  expect(expandedInventoryBox).not.toBeNull();
   expect(expandedApprovalBox).not.toBeNull();
-  expect(Math.abs(expandedInventoryBox!.width - expandedWorkflowBox!.width)).toBeLessThanOrEqual(2);
   expect(Math.abs(expandedApprovalBox!.width - expandedWorkflowBox!.width)).toBeLessThanOrEqual(2);
   for (const width of [1280, 900, 320]) {
     await page.setViewportSize({ width, height: width === 320 ? 780 : 800 });
@@ -1549,7 +1563,10 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("group", { name: "Conferma finale" })).toContainText(
     "prossimo numero fiscale disponibile",
   );
-  await expect(page.locator('input[name="confirmApproval"]')).toHaveCount(0);
+  const approvalConfirmation = page.locator('input[name="confirmApproval"]');
+  await expect(approvalConfirmation).toBeVisible();
+  await expect(approvalConfirmation).not.toBeChecked();
+  await approvalConfirmation.check();
   const approvalResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "POST" && response.url().includes("/ordini/preparazione/"),

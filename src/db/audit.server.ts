@@ -19,6 +19,7 @@ export const auditActions = [
   "DOCUMENT_DRAFT_SAVED",
   "DOCUMENT_NUMBERED",
   "DOCUMENT_PENDING_PAYMENT_CONFIRMED",
+  "INVOICE_REJECTED_REQUEUED",
   "FISCAL_PROFILE_ACTIVATED",
   "REFUND_APPLIED_BEFORE_ISSUE",
   "REFUND_REVERSED_BEFORE_ISSUE",
@@ -131,6 +132,7 @@ export async function writeAudit(
       documentKind: "INVOICE" | "CREDIT_NOTE";
       fiscalNumber: string;
       fiscalProfileVersion: number;
+      approvalConfirmation: "EXPLICIT_FORM_V1";
       lastObservedYear: number;
       lastObservedNumber: number;
       batchId: string;

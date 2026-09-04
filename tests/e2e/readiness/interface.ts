@@ -4,65 +4,18 @@ import pg from "pg";
 
 import { databaseUrl } from "./support.ts";
 
-test("la qualifica Production richiede un consenso esplicito prima del dry run", async ({
-  page,
-}) => {
-  const database = await import("../../../src/db/client.server.ts");
-  const batch = (
-    await database.getPool().query<{
-      environment: string;
-      id: string;
-      status: string;
-    }>(
-      `SELECT id, environment, status
-       FROM aruba_batches
-       WHERE mode = 'DOCUMENT_ONLY' AND transport = 'API' AND document_count = 1
-       ORDER BY created_at DESC LIMIT 1`,
-    )
-  ).rows[0]!;
+test("la modalità solo documento non espone chiamate di verifica Aruba", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel("Nome utente").fill("Massimo");
+  await page.getByLabel("Password").fill("password-massimo");
+  await page.getByRole("button", { name: "Accedi" }).click();
+  await page.waitForURL("/");
+  await page.goto("/documenti");
 
-  await database
-    .getPool()
-    .query(
-      "UPDATE aruba_batches SET environment = 'PRODUCTION', status = 'DOCUMENT_ONLY' WHERE id = $1",
-      [batch.id],
-    );
-
-  try {
-    await page.goto("/login");
-    await page.getByLabel("Nome utente").fill("Massimo");
-    await page.getByLabel("Password").fill("password-massimo");
-    await page.getByRole("button", { name: "Accedi" }).click();
-    await page.waitForURL("/");
-    await page.waitForLoadState("networkidle");
-    await page.goto("/documenti");
-
-    const dryRunConfirmation = page.getByRole("checkbox", {
-      name: /Confermo una sola chiamata Aruba con dryRun=true/,
-    });
-    const dryRunAuthorization = page.getByRole("button", {
-      name: "Autorizza una verifica Production",
-    });
-    await expect(dryRunConfirmation).toBeVisible();
-    await expect(dryRunConfirmation).toBeEnabled();
-    await expect(dryRunConfirmation).toHaveAttribute("aria-checked", "false");
-    await expect(dryRunAuthorization).toBeVisible();
-    await expect(dryRunAuthorization).toBeDisabled();
-
-    await dryRunConfirmation.press("Space");
-
-    await expect(dryRunConfirmation).toHaveAttribute("aria-checked", "true");
-    await expect(dryRunAuthorization).toBeEnabled();
-    await expect(page.locator('input[name="confirmDryRunQualification"]')).toHaveValue("yes");
-  } finally {
-    await database
-      .getPool()
-      .query("UPDATE aruba_batches SET environment = $2, status = $3 WHERE id = $1", [
-        batch.id,
-        batch.environment,
-        batch.status,
-      ]);
-  }
+  await expect(page.getByText(/dryRun=true/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Autorizza una verifica Production" })).toHaveCount(
+    0,
+  );
 });
 
 test("titoli e metadati identificano le pagine senza renderle indicizzabili", async ({ page }) => {

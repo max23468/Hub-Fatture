@@ -18,6 +18,7 @@ import {
   arubaAccountReference as accountReference,
   arubaRuntimeEnvironment as environment,
 } from "./aruba-inventory-context.server.ts";
+import { effectiveApprovedInvoiceSql } from "./billing-case-sql.server.ts";
 import { recomputeBillingCaseStatus } from "./billing-case-status.server.ts";
 
 interface InboundOrderCandidateRow extends ArubaOrderCandidateSource {
@@ -57,6 +58,7 @@ export async function arubaOrderCandidates(client: pg.PoolClient, remote: Remote
   const normalizedOrderReferences = remote.orderReferences
     .map(normalizedMatchText)
     .filter((reference): reference is string => Boolean(reference));
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna senza input esterno.
   const result = await client.query<InboundOrderCandidateRow>(
     `SELECT orders.id, orders.provider, orders.display_number, orders.local_order_date::text,
             orders.billing_case_id, invoice.document_id::text AS invoice_document_id,
@@ -114,7 +116,7 @@ export async function arubaOrderCandidates(client: pg.PoolClient, remote: Remote
        SELECT document_orders.document_id
        FROM document_orders JOIN documents ON documents.id = document_orders.document_id
        WHERE document_orders.order_id = orders.id AND document_orders.document_kind = 'INVOICE'
-         AND documents.status = 'APPROVED'
+         AND ${effectiveApprovedInvoiceSql("documents")}
        ORDER BY documents.id DESC LIMIT 1
      ) AS invoice ON true
      WHERE (
@@ -130,6 +132,7 @@ export async function arubaOrderCandidates(client: pg.PoolClient, remote: Remote
 }
 
 async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInventoryDocument) {
+  // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna senza input esterno.
   const result = await client.query<InboundOrderCandidateRow>(
     `SELECT orders.id, orders.provider, orders.display_number,
             coalesce(refundable.refund_date, invoice.document_date)::text AS local_order_date,
@@ -160,7 +163,7 @@ async function creditNoteCandidates(client: pg.PoolClient, remote: RemoteInvento
        SELECT document_orders.document_id, documents.document_date
        FROM document_orders JOIN documents ON documents.id = document_orders.document_id
        WHERE document_orders.order_id = orders.id AND document_orders.document_kind = 'INVOICE'
-         AND documents.status = 'APPROVED'
+         AND ${effectiveApprovedInvoiceSql("documents")}
        ORDER BY documents.id DESC LIMIT 1
      ) AS invoice ON true
      JOIN LATERAL (
@@ -463,6 +466,7 @@ export async function reconcileRemoteDocument(
   if (selected) {
     documentId = submitted?.id ?? null;
     if (remote.documentType === "TD01" && selected.invoice_document_id) {
+      // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna senza input esterno.
       const linked = await client.query<{
         id: string;
         series: string;
@@ -472,7 +476,8 @@ export async function reconcileRemoteDocument(
         total_amount: number;
       }>(
         `SELECT id, series, fiscal_year, fiscal_number, document_date::text, total_amount
-         FROM documents WHERE id = $1 AND kind = 'INVOICE' AND status = 'APPROVED'`,
+         FROM documents WHERE id = $1 AND kind = 'INVOICE'
+           AND ${effectiveApprovedInvoiceSql("documents")}`,
         [selected.invoice_document_id],
       );
       const existingInvoice = linked.rows[0];

@@ -639,6 +639,8 @@ export const copy = {
       `La modalità ${configuredMode === "AUTOMATIC_AFTER_APPROVAL" ? "automatica" : "con conferma"} non è disponibile: confermo di creare soltanto il documento, senza trasmissione Aruba.`,
     irreversibleNumbering:
       "Con l’approvazione viene assegnato automaticamente il prossimo numero fiscale disponibile. Il numero sarà definitivo e non potrà essere riutilizzato per un altro documento.",
+    confirmApproval:
+      "Confermo esplicitamente questo destinatario, questo totale e l’assegnazione irreversibile del numero fiscale.",
     approve: "Approva fattura",
     arubaInventoryTitle: "Stato inventario Aruba",
     arubaInventoryUpdated: (updatedAt: string) => `ultima sincronizzazione ${updatedAt}`,
@@ -766,8 +768,6 @@ export const copy = {
       `${count} ${count === 1 ? "file disponibile" : "file disponibili"}`,
     noOfficialFiles: "Nessun file ufficiale importato.",
     batchCreated: "Batch Aruba creato con manifest immutabile.",
-    dryRunQualificationAuthorized:
-      "Una sola verifica API Production è stata autorizzata per questo manifest.",
     fileImported: "File ufficiale importato e verificato.",
     importOfficial: "Importa file ufficiale",
     fileType: "Tipo di file",
@@ -820,10 +820,7 @@ export const copy = {
       return `${count} ${count === 1 ? "documento" : "documenti"} · ${label}`;
     },
     lastReadback: (value: string) => `ultimo readback ${value}`,
-    confirmApiTransmission: "Avvia verifica e trasmissione API",
-    authorizeDryRunQualification: "Autorizza una verifica Production",
-    confirmDryRunQualification:
-      "Confermo una sola chiamata Aruba con dryRun=true per questo documento e questo manifest. Nessun invio SdI è autorizzato.",
+    confirmApiTransmission: "Conferma e invia ad Aruba",
     retryBatch: "Prepara nuovo tentativo",
     arubaBatchStatus: {
       ...arubaTransmissionStatusCopy,
