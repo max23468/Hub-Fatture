@@ -55,6 +55,16 @@ interface RemoteDocumentQueryRow extends RemoteDocument {
   total_count: number;
 }
 
+interface RemoteDocumentSearchResult {
+  id: string;
+  remote_id: string;
+  document_type: "TD01" | "TD04";
+  fiscal_number: string | null;
+  series: string | null;
+  document_date: string;
+  match_status: string;
+}
+
 function remoteDocumentParameters(options: RemoteDocumentFilters) {
   const billingCaseId = options.billingCaseId
     ? isDatabaseId(options.billingCaseId)
@@ -65,12 +75,40 @@ function remoteDocumentParameters(options: RemoteDocumentFilters) {
   return [
     environment(),
     accountReference(),
+    options.query?.trim() ? `%${escapeLike(options.query.trim())}%` : null,
     Boolean(options.attentionOnly || options.blockingOnly),
     Boolean(options.blockingOnly),
     billingCaseId,
-    options.query?.trim() ? `%${escapeLike(options.query.trim())}%` : null,
   ];
 }
+
+const remoteDocumentSearchSql = `($3::text IS NULL
+      OR remote.remote_id ILIKE $3 ESCAPE '\\'
+      OR remote.provider_filename ILIKE $3 ESCAPE '\\'
+      OR remote.provider_sdi_id ILIKE $3 ESCAPE '\\'
+      OR remote.document_type ILIKE $3 ESCAPE '\\'
+      OR remote.fiscal_number ILIKE $3 ESCAPE '\\'
+      OR remote.series ILIKE $3 ESCAPE '\\'
+      OR concat_ws(' ', remote.document_type, remote.series, remote.fiscal_number)
+        ILIKE $3 ESCAPE '\\'
+      OR remote.remote_status::text ILIKE $3 ESCAPE '\\'
+      OR coalesce(matches.status, 'UNMATCHED') ILIKE $3 ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS search_candidate
+        JOIN orders AS search_order ON search_order.id::text = search_candidate ->> 'candidateId'
+        WHERE search_order.display_number ILIKE $3 ESCAPE '\\'
+           OR search_order.external_order_id ILIKE $3 ESCAPE '\\'
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM aruba_remote_observations AS search_observation
+        WHERE search_observation.remote_document_id = remote.id
+          AND (coalesce(search_observation.payload_json ->> 'recipientName', '')
+                 ILIKE $3 ESCAPE '\\'
+            OR coalesce(search_observation.payload_json ->> 'recipientTaxId', '')
+                 ILIKE $3 ESCAPE '\\')
+      ))`;
 
 const remoteDocumentsSql = `
   SELECT remote.id, remote.remote_id, remote.provider_filename, remote.provider_sdi_id,
@@ -159,14 +197,14 @@ const remoteDocumentsSql = `
   FROM aruba_remote_documents AS remote
   LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
   WHERE remote.environment = $1 AND remote.account_reference = $2
-    AND (NOT $3::boolean OR ($4::boolean AND (
+    AND (NOT $4::boolean OR ($5::boolean AND (
         ${arubaBlockingMatchPredicate}
         OR (matches.status = 'MATCHED'
           AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED')
           AND NOT EXISTS (SELECT 1 FROM aruba_files
             WHERE aruba_files.remote_document_id = remote.id
               AND aruba_files.kind = 'ARUBA_XML'))
-      )) OR (NOT $4::boolean AND (
+      )) OR (NOT $5::boolean AND (
         ${arubaBlockingMatchPredicate}
         OR (matches.method <> 'MANUAL'
           AND matches.status IN ('UNMATCHED', 'AMBIGUOUS', 'PROFILE_CONFLICT')
@@ -190,42 +228,43 @@ const remoteDocumentsSql = `
             WHERE aruba_files.remote_document_id = remote.id
               AND aruba_files.kind = 'ARUBA_XML'))
       )))
-    AND ($5::bigint IS NULL OR EXISTS (
+    AND ($6::bigint IS NULL OR EXISTS (
       SELECT 1
       FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS focused_candidate
       JOIN orders AS focused_order
         ON focused_order.id::text = focused_candidate ->> 'candidateId'
-      WHERE focused_order.billing_case_id = $5
+      WHERE focused_order.billing_case_id = $6
         AND (${arubaCaseCandidateSql("focused_candidate", "remote")}
           OR ${arubaExternalEvidenceCandidateSql("focused_candidate", "remote")})
     ))
-    AND ($6::text IS NULL
-      OR remote.remote_id ILIKE $6 ESCAPE '\\'
-      OR remote.provider_filename ILIKE $6 ESCAPE '\\'
-      OR remote.provider_sdi_id ILIKE $6 ESCAPE '\\'
-      OR remote.document_type ILIKE $6 ESCAPE '\\'
-      OR remote.fiscal_number ILIKE $6 ESCAPE '\\'
-      OR remote.series ILIKE $6 ESCAPE '\\'
-      OR concat_ws(' ', remote.document_type, remote.series, remote.fiscal_number)
-        ILIKE $6 ESCAPE '\\'
-      OR remote.remote_status::text ILIKE $6 ESCAPE '\\'
-      OR coalesce(matches.status, 'UNMATCHED') ILIKE $6 ESCAPE '\\'
-      OR EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(coalesce(matches.candidates_json, '[]')) AS search_candidate
-        JOIN orders AS search_order ON search_order.id::text = search_candidate ->> 'candidateId'
-        WHERE search_order.display_number ILIKE $6 ESCAPE '\\'
-           OR search_order.external_order_id ILIKE $6 ESCAPE '\\'
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM aruba_remote_observations AS search_observation
-        WHERE search_observation.remote_document_id = remote.id
-          AND (coalesce(search_observation.payload_json ->> 'recipientName', '')
-                 ILIKE $6 ESCAPE '\\'
-            OR coalesce(search_observation.payload_json ->> 'recipientTaxId', '')
-                 ILIKE $6 ESCAPE '\\')
-      ))`;
+    AND ${remoteDocumentSearchSql}`;
+
+export async function searchRemoteDocuments(query: string, limit: number) {
+  const normalizedQuery = query.trim();
+  if (!normalizedQuery || containsNullByte(normalizedQuery)) {
+    return { rows: [] as RemoteDocumentSearchResult[], total: 0 };
+  }
+  const result = await getPool().query<RemoteDocumentSearchResult & { total_count: number }>(
+    `SELECT remote.id, remote.remote_id, remote.document_type, remote.fiscal_number,
+            remote.series, remote.document_date::text,
+            coalesce(matches.status, 'UNMATCHED') AS match_status,
+            count(*) OVER()::int AS total_count
+     FROM aruba_remote_documents AS remote
+     LEFT JOIN aruba_document_matches AS matches ON matches.remote_document_id = remote.id
+     WHERE remote.environment = $1 AND remote.account_reference = $2
+       AND ${remoteDocumentSearchSql}
+     ORDER BY remote.last_observed_at DESC, remote.id DESC
+     LIMIT $4`,
+    [environment(), accountReference(), `%${escapeLike(normalizedQuery)}%`, limit],
+  );
+  return {
+    rows: result.rows.map(({ total_count, ...row }) => {
+      void total_count;
+      return row;
+    }),
+    total: result.rows[0]?.total_count ?? 0,
+  };
+}
 
 export async function listRemoteDocuments(options: RemoteDocumentFilters = {}) {
   if (containsNullByte(options)) return [];

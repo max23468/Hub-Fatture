@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.6
+
+- La ricerca globale usa un’anteprima leggera dell’inventario Aruba, mantenendo gli stessi criteri e conteggi senza calcolare candidati, differenze e controlli non mostrati nei risultati.
+
 ## 1.3.5
 
 - La sincronizzazione Shopify considera equivalenti i default identitari assenti e vuoti, evitando falsi conflitti durante gli aggiornamenti di evasione senza indebolire il blocco sulle differenze effettive.

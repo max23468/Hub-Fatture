@@ -321,6 +321,20 @@ test(
       assert.match(byRemoteDocument.remoteDocuments[0]!.href, /vista=inventario-aruba/);
 
       await database.getPool().query(
+        `INSERT INTO aruba_remote_documents
+          (environment, account_reference, remote_id, document_type, fiscal_year, series,
+           fiscal_number, document_date, total_amount, remote_status,
+           remote_status_observed_at, origin, metadata_digest)
+         SELECT 'MOCK', 'synthetic-aruba-account', 'ricerca-remota-batch-' || series,
+                'TD01', 2026, 'RMT', series::text, CURRENT_DATE, 1000, 'DELIVERED', now(),
+                'ARUBA_EXTERNAL', md5(series::text) || md5(series::text)
+         FROM generate_series(1, 7) AS series`,
+      );
+      const boundedRemoteDocuments = await search.searchGlobal("ricerca-remota-batch");
+      assert.equal(boundedRemoteDocuments.remoteDocuments.length, 5);
+      assert.equal(boundedRemoteDocuments.totals.remoteDocuments, 7);
+
+      await database.getPool().query(
         `INSERT INTO customers
           (kind, match_key, display_name, billing_address_json, source_confidence, review_required)
          SELECT 'PRIVATE_IT', 'ricerca-batch-' || series, 'Batch globale ' || series,
