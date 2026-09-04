@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "audit": "npm audit --audit-level=high",
+    "audit": "node scripts/npm-audit.mjs",
     "benchmark:performance": "node scripts/with-test-database.mjs node scripts/performance-benchmark.ts",
     "aruba:api:probe": "node scripts/aruba-api-read-probe.ts",
     "aruba:api:probe:interactive": "sh scripts/aruba-api-read-probe.sh",
