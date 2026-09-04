@@ -1,6 +1,6 @@
 import { fiscalNumberLabel } from "../fiscal-number.ts";
 import { escapeLike } from "../orders.ts";
-import { listRemoteDocumentsPage } from "./aruba-inventory-queries.server.ts";
+import { searchRemoteDocuments } from "./aruba-inventory-queries.server.ts";
 import { getPool } from "./client.server.ts";
 import { listAuditHistory } from "./order-queries.server.ts";
 
@@ -314,7 +314,7 @@ export async function searchGlobal(value: unknown): Promise<GlobalSearchResults>
       [pattern],
     ),
     listAuditHistory({ query }),
-    listRemoteDocumentsPage({ query }),
+    searchRemoteDocuments(query, SEARCH_RESULT_LIMIT),
   ]);
 
   const invoices = documents.rows.filter((row) => row.kind === "INVOICE");
