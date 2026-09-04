@@ -25,6 +25,40 @@ candidate() {
   echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
 }
 
+release_preflight() {
+  tag="v$VERSION"
+  releases=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --slurp)
+  matches=$(printf '%s' "$releases" | jq -c --arg tag "$tag" \
+    '[.[][] | select(.tag_name == $tag)]')
+  match_count=$(printf '%s' "$matches" | jq -r length)
+  [ "$match_count" -le 1 ] || {
+    echo "La versione $VERSION ha più release remote" >&2
+    exit 1
+  }
+
+  refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag")
+  ref_count=$(printf '%s' "$refs" | jq -r --arg expected "refs/tags/$tag" \
+    '[.[] | select(.ref == $expected)] | length')
+  [ "$ref_count" -le 1 ] || {
+    echo "Il tag remoto $tag non è univoco" >&2
+    exit 1
+  }
+
+  if [ "$match_count" -eq 0 ] && [ "$ref_count" -eq 0 ]; then
+    return
+  fi
+  printf '%s' "$matches" | jq -e --arg commit "$CANDIDATE" '
+    length == 1 and
+    .[0].target_commitish == $commit and
+    .[0].draft == false and
+    .[0].prerelease == false and
+    .[0].immutable == true
+  ' >/dev/null && [ "$ref_count" -eq 1 ] || {
+    echo "La versione $VERSION o il relativo tag appartengono a un candidato diverso" >&2
+    exit 1
+  }
+}
+
 impact() {
   base=$(find_successful_base "repos/$GITHUB_REPOSITORY/deployments?environment=Production&task=hub-fatture-production&per_page=100")
   if [ -z "$base" ]; then
@@ -294,6 +328,7 @@ publish_release() {
 
 case ${1:-} in
   candidate) candidate ;;
+  release-preflight) release_preflight ;;
   impact) impact ;;
   summary) summary ;;
   reuse-artifact) reuse_artifact ;;

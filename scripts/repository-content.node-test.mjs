@@ -55,6 +55,8 @@ case "$*" in
   *"statuses?per_page=100"*) printf '%s\\n' "\${MOCK_DEPLOYMENT_SUCCESS:-true}" ;;
   *"deployments?environment=Production&task=hub-fatture-production"*)
     [ -z "\${MOCK_BASE:-}" ] || printf '1\\t%s\\n' "$MOCK_BASE" ;;
+  *"releases?per_page=100"*) printf '%s\\n' "\${MOCK_RELEASES:-[[]]}" ;;
+  *"git/matching-refs/tags/"*) printf '%s\\n' "\${MOCK_TAG_REFS:-[]}" ;;
   *"deployments"*"--input - --jq .id"*) printf '42\\n' ;;
   *"deployments/"*"/statuses"*) exit 0 ;;
   *) exit 91 ;;
@@ -374,6 +376,7 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
 
   for (const command of [
     "candidate",
+    "release-preflight",
     "impact",
     "reuse-artifact",
     "baseline",
@@ -389,7 +392,8 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   }
   assert.equal(workflow.match(/environment:\n\s+name: Production/g)?.length, 1);
   assert.ok(
-    workflow.indexOf("rollback-preflight") < workflow.indexOf("create-deployment") &&
+    workflow.indexOf("release-preflight") < workflow.indexOf("create-deployment") &&
+      workflow.indexOf("rollback-preflight") < workflow.indexOf("create-deployment") &&
       workflow.indexOf("create-deployment") < workflow.indexOf("install-candidate"),
   );
   assert.match(workflow, /needs\.checks\.result == 'success'/);
@@ -469,6 +473,65 @@ test("la logica Production applica i gate exact-SHA fuori dallo YAML", async () 
       SSH_USER: "user",
     });
     assert.notEqual(result.status, 0);
+
+    result = runProduction("release-preflight", fakePath, {
+      ...common,
+      CANDIDATE: head,
+      VERSION: "1.3.4",
+    });
+    assert.equal(result.status, 0, result.stderr);
+
+    result = runProduction("release-preflight", fakePath, {
+      ...common,
+      CANDIDATE: head,
+      MOCK_TAG_REFS: JSON.stringify([
+        { object: { sha: parent, type: "commit" }, ref: "refs/tags/v1.3.4" },
+      ]),
+      VERSION: "1.3.4",
+    });
+    assert.notEqual(result.status, 0);
+
+    result = runProduction("release-preflight", fakePath, {
+      ...common,
+      CANDIDATE: head,
+      MOCK_RELEASES: JSON.stringify([
+        [
+          {
+            draft: false,
+            immutable: true,
+            prerelease: false,
+            tag_name: "v1.3.4",
+            target_commitish: parent,
+          },
+        ],
+      ]),
+      MOCK_TAG_REFS: JSON.stringify([
+        { object: { sha: parent, type: "commit" }, ref: "refs/tags/v1.3.4" },
+      ]),
+      VERSION: "1.3.4",
+    });
+    assert.notEqual(result.status, 0);
+
+    result = runProduction("release-preflight", fakePath, {
+      ...common,
+      CANDIDATE: head,
+      MOCK_RELEASES: JSON.stringify([
+        [
+          {
+            draft: false,
+            immutable: true,
+            prerelease: false,
+            tag_name: "v1.3.4",
+            target_commitish: head,
+          },
+        ],
+      ]),
+      MOCK_TAG_REFS: JSON.stringify([
+        { object: { sha: head, type: "commit" }, ref: "refs/tags/v1.3.4" },
+      ]),
+      VERSION: "1.3.4",
+    });
+    assert.equal(result.status, 0, result.stderr);
 
     await writeFile(output, "");
     result = runProduction("reuse-artifact", fakePath, {
