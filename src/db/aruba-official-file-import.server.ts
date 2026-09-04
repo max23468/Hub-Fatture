@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import type pg from "pg";
 import { z } from "zod";
 
 import {
@@ -47,7 +48,7 @@ import {
 } from "./aruba-document-materialization.server.ts";
 
 async function hasUnresolvedArubaIdentityCollision(
-  client: Parameters<typeof latestObservedRemote>[0],
+  client: pg.Pool | pg.PoolClient,
   remoteDocumentId: string,
 ) {
   const result = await client.query(
@@ -119,6 +120,26 @@ async function importArubaRemoteOfficialFileAuthorized(
     ) {
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
+  }
+  const duplicate = await findArubaStoredEvidenceForAccount(database, {
+    remoteDocumentId,
+    environment: session.environment,
+    accountReference: session.account_reference,
+    kind: kind.data,
+    sha256: digest,
+  });
+  if (
+    apiAuthorization &&
+    duplicate &&
+    (await hasUnresolvedArubaIdentityCollision(database, remoteDocumentId))
+  ) {
+    return {
+      id: duplicate.id,
+      repeated: true,
+      documentId: duplicate.document_id,
+    };
+  }
+  if (apiAuthorization) {
     if (
       kind.data === "SDI_NOTIFICATION" &&
       (!apiAuthorization.expectedDocumentFilename ||
@@ -162,13 +183,6 @@ async function importArubaRemoteOfficialFileAuthorized(
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
     }
   }
-  const duplicate = await findArubaStoredEvidenceForAccount(database, {
-    remoteDocumentId,
-    environment: session.environment,
-    accountReference: session.account_reference,
-    kind: kind.data,
-    sha256: digest,
-  });
   if (duplicate && (kind.data !== "ARUBA_P7M" || duplicate.document_id)) {
     let documentId = duplicate.document_id;
     if (kind.data === "ARUBA_XML" && !documentId) {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.12
+
+- Il refresh Aruba riconosce come idempotente un file ufficiale già acquisito per un documento coinvolto in una collisione fiscale, anche quando il provider varia metadati accessori della notifica: la sincronizzazione prosegue senza riconciliare né materializzare automaticamente i documenti ambigui.
+- I PDF ufficiali già archiviati non vengono scaricati nuovamente a ogni variazione di stato remoto, evitando copie ridondanti generate dal provider senza rinunciare all’acquisizione iniziale.
+
 ## 1.3.11
 
 - La ricevuta di readiness Production applica lo stesso criterio dell’attivazione Aruba: i batch `DOCUMENT_ONLY` riconciliati restano visibili come aperti ma non bloccano gli invii, mentre qualsiasi batch realmente trasmissibile o ancora incerto continua a impedire l’abilitazione.
