@@ -1226,8 +1226,20 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
       name: "Confermo di avere confrontato il documento Aruba con tutti i candidati proposti",
     }),
   ).toBeVisible();
-  await page.setViewportSize({ width: 320, height: 780 });
-  await expectViewportFits(page);
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 780 });
+    await expectViewportFits(page);
+    const dueDateContainment = await page.getByLabel("Scadenza").evaluate((input) => {
+      const inputBox = input.getBoundingClientRect();
+      const fieldBox = input.closest("label")!.getBoundingClientRect();
+      const formBox = input.closest("form")!.getBoundingClientRect();
+      return {
+        insideField: inputBox.left >= fieldBox.left && inputBox.right <= fieldBox.right,
+        insideForm: inputBox.left >= formBox.left && inputBox.right <= formBox.right,
+      };
+    });
+    expect(dueDateContainment).toEqual({ insideField: true, insideForm: true });
+  }
   await expect(page.getByRole("button", { name: "Collega come fattura già emessa" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Nessun candidato è corretto" })).toBeVisible();
   const manualChoiceCleanup = new pg.Client({ connectionString: databaseUrl });

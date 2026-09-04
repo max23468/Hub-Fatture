@@ -478,6 +478,15 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.control-wait-form label,
+.control-wait-form input[type="date"] {
+  min-width: 0;
+}
+
+.control-wait-form input[type="date"] {
+  max-width: 100%;
+}
+
 .control-wait-form h3,
 .control-wait-form .control-note,
 .control-wait-form .button {
