@@ -94,31 +94,6 @@ export const inventoryPageSchema = z
 export type ArubaRemoteStatus = z.infer<typeof arubaRemoteStatusSchema>;
 export type RemoteInventoryDocument = z.infer<typeof remoteInventoryDocumentSchema>;
 
-export const ARUBA_UNKNOWN_STATUS_PAGE_MIN_DOCUMENTS = 10;
-export const ARUBA_UNKNOWN_STATUS_PAGE_MAX_RATIO = 0.5;
-
-export function arubaIncrementalScanFrom(input: {
-  documentType: "TD01" | "TD04";
-  incrementalFrom: string;
-  oldestReconciliationDate: string;
-  searches: Array<{ documentType?: unknown; orderDate?: unknown }>;
-}): string {
-  const relevant = input.searches.filter((search) => search.documentType === input.documentType);
-  if (!relevant.length) return input.incrementalFrom;
-  const dates = relevant.map((search) =>
-    typeof search.orderDate === "string"
-      ? search.orderDate.slice(0, 10)
-      : input.oldestReconciliationDate.slice(0, 10),
-  );
-  if (
-    !/^\d{4}-\d{2}-\d{2}$/.test(input.incrementalFrom) ||
-    dates.some((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date))
-  ) {
-    throw new Error("READ_SYNC_FAILED");
-  }
-  return [input.incrementalFrom, ...dates].sort()[0]!;
-}
-
 export function normalizeArubaRemoteStatusLabel(value: unknown): ArubaRemoteStatus {
   const label = normalizedMatchText(String(value ?? "")) ?? "";
   if (label.includes("ERROREELABORAZIONE")) return "UNKNOWN";
@@ -159,21 +134,6 @@ export function normalizeArubaRemoteStatusLabel(value: unknown): ArubaRemoteStat
 export function isKnownUncertainArubaStatusLabel(value: unknown): boolean {
   const label = normalizedMatchText(String(value ?? "")) ?? "";
   return label === "EMESSA" || label === "EMESSAEDINVIATA" || label === "ANNULLATA";
-}
-
-export function hasAnomalousUnknownArubaStatuses(
-  documents: Array<
-    Pick<RemoteInventoryDocument, "status"> &
-      Partial<Pick<RemoteInventoryDocument, "providerStatusLabel">>
-  >,
-): boolean {
-  if (documents.length < ARUBA_UNKNOWN_STATUS_PAGE_MIN_DOCUMENTS) return false;
-  const unknown = documents.filter(
-    (document) =>
-      document.status === "UNKNOWN" &&
-      !isKnownUncertainArubaStatusLabel(document.providerStatusLabel),
-  ).length;
-  return unknown / documents.length >= ARUBA_UNKNOWN_STATUS_PAGE_MAX_RATIO;
 }
 
 const progressing = new Map<ArubaRemoteStatus, number>([
@@ -714,25 +674,6 @@ export function groupOrderCandidates<
       bankTransferPaidOnDocumentDate: items.some((item) => item.bankTransferPaidOnDocumentDate),
     };
   });
-}
-
-export function remoteMatchesPreflightSearches(
-  remote: RemoteInventoryDocument,
-  searches: Array<{ documentType: "TD01" | "TD04"; amount: number; displayNumber: string }>,
-): boolean {
-  if (
-    remote.status === "REJECTED" ||
-    !searches.length ||
-    searches.some((search) => search.documentType !== remote.documentType)
-  ) {
-    return false;
-  }
-  const references = new Set(remote.orderReferences.map(normalizedMatchText));
-  const hasReference = searches.some((search) => {
-    const normalized = normalizedMatchText(search.displayNumber);
-    return Boolean(normalized && references.has(normalized));
-  });
-  return hasReference;
 }
 
 export function selectOrderMatch(

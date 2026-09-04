@@ -17,26 +17,18 @@ import {
 } from "../aruba.ts";
 import { getConfig } from "../config.server.ts";
 import { AppError } from "../errors.ts";
-import { POSTGRES_INTEGER_MAX } from "../orders.ts";
 import { writeAudit } from "./audit.server.ts";
 import { customerEmailTriggerStatus, scheduleCustomerEmail } from "./email.server.ts";
 import { scheduleArubaEmissionEffects } from "./aruba-emission-effects.server.ts";
 import { getPool, registerJoinedTransactionFile, withTransaction } from "./client.server.ts";
 import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
 import { isDatabaseId } from "./database-id.ts";
+import { parseDatabaseRevision } from "./database-revision.ts";
 
 export interface ArubaActor {
   id: number;
   canApprove: boolean;
   requestId: string;
-}
-
-function integer(value: unknown): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > POSTGRES_INTEGER_MAX) {
-    throw new AppError("CONFLICT_REVISION", 409);
-  }
-  return parsed;
 }
 
 export async function getArubaSettings() {
@@ -62,7 +54,7 @@ export async function setArubaSettings(
 ) {
   if (!actor.canApprove) throw new AppError("ARUBA_OPERATION_FORBIDDEN", 403);
   const mode = arubaModeSchema.safeParse(raw.mode);
-  const modeVersion = integer(raw.modeVersion);
+  const modeVersion = parseDatabaseRevision(raw.modeVersion);
   if (!mode.success) throw new AppError("ARUBA_BATCH_INVALID", 422);
   return withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('settings:aruba'))");

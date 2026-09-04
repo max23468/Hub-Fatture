@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1
+
+- Il workflow Production sposta la logica operativa in uno script verificabile, mantenendo invariati i gate exact-SHA, il riuso dell’artefatto attestato, il backup, il deploy e il readback.
+- Il runtime elimina helper e configurazioni inutilizzati, condivide il parsing delle revisioni DB e dei valori provider e misura i confini architetturali sulla raggiungibilità effettiva dei moduli.
+
 ## 1.3.0
 
 - La connessione Aruba rinnova la sessione con il refresh token e mostra nelle Impostazioni identità, scadenza e spazio dell’account verificato, senza conservare token o reinviare credenziali durante il rinnovo.

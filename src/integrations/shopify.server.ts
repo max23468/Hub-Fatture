@@ -35,30 +35,15 @@ import {
 } from "../orders.ts";
 import { providerJson } from "./provider-http.server.ts";
 import { providerOrder } from "./provider-order.ts";
+import { record, records, text } from "./provider-values.ts";
 
 export const SHOPIFY_API_VERSION = "2026-07";
-export const SHOPIFY_API_SUPPORTED_UNTIL = "2027-07-16";
 export const SHOPIFY_SCOPES = ["read_orders", "read_customers", "read_fulfillments"] as const;
 const OVERLAP_MS = 5 * 60 * 1000;
 
 interface ShopifyCredentials {
   accessToken: string;
   scope: string;
-}
-
-const recordSchema = z.record(z.string(), z.unknown());
-
-function record(value: unknown): Record<string, unknown> {
-  return recordSchema.safeParse(value).data ?? {};
-}
-
-function records(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value)
-    ? value.flatMap((item) => {
-        const parsed = record(item);
-        return Object.keys(parsed).length ? [parsed] : [];
-      })
-    : [];
 }
 
 function nodes(value: unknown): Record<string, unknown>[] {
@@ -70,10 +55,6 @@ export function shopifyGraphqlError(errors: unknown): AppError | null {
   if (codes.includes("THROTTLED")) return new AppError("PROVIDER_RATE_LIMITED", 429);
   if (codes.includes("ACCESS_DENIED")) return new AppError("AUTH_PROVIDER_EXPIRED", 401);
   return null;
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function shopifyCompanyName(value: unknown): string | undefined {
@@ -986,7 +967,7 @@ export async function processShopifyWebhook(request: Request, rawBody: Buffer) {
   const payloadHash = createHash("sha256").update(rawBody).digest("hex");
   let payload: Record<string, unknown>;
   try {
-    payload = recordSchema.parse(JSON.parse(rawBody.toString("utf8")));
+    payload = record(JSON.parse(rawBody.toString("utf8")));
   } catch {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 400);
   }

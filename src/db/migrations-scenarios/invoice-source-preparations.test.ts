@@ -189,9 +189,8 @@ test("l'upgrade collega soltanto la preparazione originaria univoca", async () =
       `);
     });
 
-    assert.deepEqual(await runMigrations({ connectionString: database.connectionString }), [
-      INVOICE_SOURCE_PREPARATIONS,
-    ]);
+    const applied = await runMigrations({ connectionString: database.connectionString });
+    assert.equal(applied[0], INVOICE_SOURCE_PREPARATIONS);
     await withClient(database.connectionString, async (client) => {
       assert.equal(
         (

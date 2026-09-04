@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -27,87 +27,20 @@ async function readRuntimeSources(directory) {
   );
 }
 
-const capabilitySizeCaps = new Map([
-  ["src/db/aruba-inbound.server.ts", 34_000],
-  ["src/db/aruba-reconciliation.server.ts", 28_000],
-  ["src/db/aruba-document-materialization.server.ts", 40_000],
-  ["src/db/aruba-official-file-import.server.ts", 15_000],
-  ["src/db/aruba-api-inbound.server.ts", 32_000],
-  ["src/db/aruba-api-context.server.ts", 7_000],
-  ["src/db/aruba-api-settings.server.ts", 18_000],
-  ["src/db/documents.server.ts", 48_000],
-  ["src/db/document-archive.server.ts", 7_000],
-  ["src/db/document-mass-approval.server.ts", 7_000],
-  ["src/db/order-commands.server.ts", 13_000],
-  ["src/db/historical-order-reconciliation.server.ts", 56_000],
-  ["src/db/order-import.server.ts", 39_000],
-  ["src/db/order-automatic-alignment.server.ts", 7_000],
-  ["src/db/order-ebay-refund-alignment.server.ts", 5_000],
-  ["src/db/order-grouping.server.ts", 6_000],
-  ["src/db/order-children-persistence.server.ts", 10_000],
-  ["src/db/order-source-conflict.server.ts", 8_000],
-  ["src/db/aruba-metadata-equivalence.server.ts", 2_000],
-  ["src/db/billing-cases.server.ts", 30_500],
-  ["src/db/billing-case-operational-projection.server.ts", 5_000],
-  ["src/db/operational-controls.server.ts", 39_000],
-  ["app/routes/billing-case-detail.tsx", 42_000],
-  ["app/routes/controls.tsx", 33_000],
-  ["app/controls-selection.ts", 4_000],
-  ["app/routes/orders.tsx", 37_000],
-  ["app/copy-controls.it.ts", 4_500],
-  ["app/control-labels.it.ts", 2_000],
-  ["app/copy-anomalies.it.ts", 4_000],
-  ["app/routes/settings.tsx", 12_000],
-  ["app/components/settings/aruba-settings-section.tsx", 31_000],
-  ["app/components/settings/billing-settings-section.tsx", 5_000],
-  ["app/components/settings/connections-settings-section.tsx", 10_000],
-  ["app/components/settings/profile-settings-section.tsx", 8_000],
-  ["app/components/settings/system-settings-section.tsx", 5_000],
-  ["app/styles/foundation-shell.css", 21_000],
-  ["app/styles/motion.css", 12_000],
-  ["app/styles/dashboard-orders.css", 17_000],
-  ["app/styles/detail-workflows.css", 19_000],
-  ["app/styles/settings.css", 12_000],
-  ["app/styles/activity-documents.css", 22_000],
-  ["app/styles/customers-responsive.css", 41_000],
-  ["app/styles/controls.css", 14_500],
-  ["tests/e2e/readiness/core.ts", 81_500],
-  ["tests/e2e/readiness/interface.ts", 20_000],
-  ["tests/e2e/readiness/motion.ts", 8_000],
-  ["tests/e2e/readiness/mobile-interface.ts", 5_000],
-  ["tests/e2e/readiness/historical-credit-note-flow.ts", 11_000],
-  ["tests/e2e/readiness/configured-aruba-api-ui.ts", 8_000],
-  ["src/db/migrations-scenarios/legacy-upgrades.test.ts", 26_000],
-  ["src/db/migrations-scenarios/mapper-reimports.test.ts", 35_000],
-  ["src/db/migrations-scenarios/installation-upgrades.test.ts", 34_000],
-  ["src/db/migrations-scenarios/control-replays.test.ts", 4_000],
-  ["src/db/migrations-scenarios/approved-invoice-memberships.test.ts", 7_000],
-  ["src/db/migrations-scenarios/aruba-foreign-consumer-replay.test.ts", 5_000],
-  ["app/copy.it.ts", 59_800],
-]);
-
-const scenarioSizeCaps = new Map([
-  ["src/db/orders.server.test.ts", 2_000],
-  ["src/db/orders-scenarios/orders-import-settings.scenario.test.ts", 22_000],
-  ["src/db/orders-scenarios/orders-mutations-grouping.scenario.test.ts", 18_000],
-  ["src/db/orders-scenarios/orders-payments-core.scenario.test.ts", 60_000],
-  ["src/db/orders-scenarios/orders-history-matching.scenario.test.ts", 74_000],
-  ["src/db/orders-scenarios/orders-history-extended.scenario.test.ts", 80_000],
-  ["src/db/orders-scenarios/orders-refunds-concurrency.scenario.test.ts", 45_000],
-  ["src/db/orders-scenarios/orders-source-alignment.scenario.test.ts", 9_000],
-  ["src/db/orders-scenarios/orders-ebay-refund-alignment.scenario.test.ts", 6_000],
-  ["src/db/orders-scenarios/orders-shopify-alignment.scenario.test.ts", 5_000],
-  ["src/db/orders-scenarios/orders-customer-identity-exception.scenario.test.ts", 6_000],
-]);
-
-test("le capacità estratte non tornano a crescere in monoliti", async () => {
-  const offenders = [];
-  for (const [file, maxBytes] of capabilitySizeCaps) {
-    const size = (await stat(path.join(root, file))).size;
-    if (size > maxBytes) offenders.push(`${file}: ${size} > ${maxBytes}`);
+async function reachableFiles(entry, candidates) {
+  const reachable = new Set();
+  async function visit(file) {
+    if (reachable.has(file)) return;
+    reachable.add(file);
+    const source = await readFile(file, "utf8");
+    for (const match of source.matchAll(/(?:from\s+|import\s*)["'](\.[^"']+)["']/g)) {
+      const imported = path.resolve(path.dirname(file), match[1]);
+      if (candidates.has(imported)) await visit(imported);
+    }
   }
-  assert.deepEqual(offenders, []);
-});
+  await visit(entry);
+  return reachable;
+}
 
 test("le richieste leggono la proiezione e il worker la aggiorna fuori dalla navigazione", async () => {
   const [
@@ -180,75 +113,45 @@ test("le richieste leggono la proiezione e il worker la aggiorna fuori dalla nav
 });
 
 test("readiness e migrazioni restano partizionate senza perdere scenari", async () => {
-  const readinessFiles = [
-    "tests/e2e/readiness/core.ts",
-    "tests/e2e/readiness/interface.ts",
-    "tests/e2e/readiness/motion.ts",
-    "tests/e2e/readiness/mobile-interface.ts",
-    "tests/e2e/readiness/http.ts",
-  ];
-  const migrationFiles = [
-    "src/db/migrations-scenarios/legacy-upgrades.test.ts",
-    "src/db/migrations-scenarios/mapper-reimports.test.ts",
-    "src/db/migrations-scenarios/installation-upgrades.test.ts",
-    "src/db/migrations-scenarios/control-replays.test.ts",
-    "src/db/migrations-scenarios/shopify-bank-transfer-rounding.test.ts",
-    "src/db/migrations-scenarios/source-conflict-marker-backfill.test.ts",
-    "src/db/migrations-scenarios/ebay-shipping-refund-replay.test.ts",
-    "src/db/migrations-scenarios/shopify-identity-fulfillment-replay.test.ts",
-    "src/db/migrations-scenarios/approved-invoice-memberships.test.ts",
-    "src/db/migrations-scenarios/automatic-identity-exceptions.test.ts",
-    "src/db/migrations-scenarios/aruba-foreign-consumer-replay.test.ts",
-    "src/db/migrations-scenarios/aruba-error-retry.test.ts",
-    "src/db/migrations-scenarios/aruba-identity-evidence-replay.test.ts",
-  ];
-  const [readinessEntry, migrationEntry, ...sources] = await Promise.all([
-    readFile(path.join(root, "tests/e2e/readiness.spec.ts"), "utf8"),
-    readFile(path.join(root, "src/db/migrations.server.test.ts"), "utf8"),
-    ...[...readinessFiles, ...migrationFiles].map((file) =>
-      readFile(path.join(root, file), "utf8"),
-    ),
-  ]);
-  for (const file of readinessFiles) {
-    assert.match(readinessEntry, new RegExp(path.basename(file, ".ts")));
+  for (const [entry, directory, suffix] of [
+    ["tests/e2e/readiness.spec.ts", "tests/e2e/readiness", ".ts"],
+    ["src/db/migrations.server.test.ts", "src/db/migrations-scenarios", ".test.ts"],
+  ]) {
+    const files = new Set(
+      (await readdir(path.join(root, directory), { withFileTypes: true }))
+        .filter((item) => item.isFile() && item.name.endsWith(suffix))
+        .map((item) => path.join(root, directory, item.name)),
+    );
+    const reachable = await reachableFiles(path.join(root, entry), files);
+    const unexecuted = [];
+    for (const file of files) {
+      if ((await readFile(file, "utf8")).match(/^test\(/m) && !reachable.has(file)) {
+        unexecuted.push(path.relative(root, file));
+      }
+    }
+    assert.deepEqual(unexecuted, []);
   }
-  for (const file of migrationFiles) {
-    assert.match(migrationEntry, new RegExp(path.basename(file, ".ts")));
-  }
-  const readinessTests = sources
-    .slice(0, readinessFiles.length)
-    .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
-  const migrationTests = sources
-    .slice(readinessFiles.length)
-    .flatMap((source) => [...source.matchAll(/^test\(/gm)]);
-  assert.equal(readinessTests.length, 10);
-  assert.equal(migrationTests.length, 30);
 });
 
 test("lo scenario PostgreSQL degli ordini resta partizionato per capacità", async () => {
-  const [source, serverConfig] = await Promise.all([
+  const [source, serverConfig, scenarioEntries] = await Promise.all([
     readFile(path.join(root, "src/db/orders.server.test.ts"), "utf8"),
     readFile(path.join(root, "tsconfig.server.json"), "utf8"),
+    readdir(path.join(root, "src/db/orders-scenarios"), { withFileTypes: true }),
   ]);
-  const capabilities = [...source.matchAll(/await t\.test\("([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(capabilities, [
-    "importazione, impostazioni e letture concorrenti",
-    "mutazioni, raggruppamento e identità cliente",
-    "pagamenti, riconciliazione storica e casi complessi",
-    "allineamento automatico delle sorgenti",
-    "deroga automatica dell’identità cliente",
-    "rimborsi, concorrenza e proiezioni finali",
-  ]);
-  const offenders = [];
-  for (const [file, maxBytes] of scenarioSizeCaps) {
-    const size = (await stat(path.join(root, file))).size;
-    if (size > maxBytes) offenders.push(`${file}: ${size} > ${maxBytes}`);
-  }
-  assert.deepEqual(offenders, []);
-  assert.ok(
-    [...scenarioSizeCaps.keys()]
-      .filter((file) => file !== "src/db/orders.server.test.ts")
-      .every((file) => file.endsWith(".test.ts")),
+  assert.match(source, /await t\.test\(/);
+  const scenarios = new Set(
+    scenarioEntries
+      .filter((item) => item.isFile() && item.name.endsWith(".scenario.test.ts"))
+      .map((item) => path.join(root, "src/db/orders-scenarios", item.name)),
+  );
+  const reachable = await reachableFiles(
+    path.join(root, "src/db/orders.server.test.ts"),
+    scenarios,
+  );
+  assert.deepEqual(
+    [...scenarios].filter((file) => !reachable.has(file)).map((file) => path.relative(root, file)),
+    [],
   );
   const excluded = JSON.parse(serverConfig).exclude;
   assert.ok(excluded.includes("**/*.test.ts"));

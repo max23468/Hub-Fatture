@@ -1,6 +1,7 @@
 import "./migrations-scenarios/legacy-upgrades.test.ts";
 import "./migrations-scenarios/mapper-reimports.test.ts";
 import "./migrations-scenarios/installation-upgrades.test.ts";
+import "./migrations-scenarios/invoice-source-preparations.test.ts";
 import "./migrations-scenarios/control-replays.test.ts";
 import "./migrations-scenarios/shopify-bank-transfer-rounding.test.ts";
 import "./migrations-scenarios/source-conflict-marker-backfill.test.ts";

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readdir, readFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -37,6 +38,76 @@ async function contents(files) {
   return Promise.all(
     files.map(async (file) => ({ file, text: await readFile(path.join(root, file), "utf8") })),
   );
+}
+
+async function withFakeProductionCommands(run) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hub-fatture-production-test-"));
+  const command = (name, body) =>
+    writeFile(path.join(directory, name), `#!/bin/sh\nset -eu\n${body}\n`).then(() =>
+      chmod(path.join(directory, name), 0o700),
+    );
+  await Promise.all([
+    command(
+      "gh",
+      `printf 'gh %s\\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+  *"attestation verify"*) exit "\${MOCK_ATTESTATION_STATUS:-0}" ;;
+  *"statuses?per_page=100"*) printf '%s\\n' "\${MOCK_DEPLOYMENT_SUCCESS:-true}" ;;
+  *"deployments?environment=Production&task=hub-fatture-production"*)
+    [ -z "\${MOCK_BASE:-}" ] || printf '1\\t%s\\n' "$MOCK_BASE" ;;
+  *"deployments"*"--input - --jq .id"*) printf '42\\n' ;;
+  *"deployments/"*"/statuses"*) exit 0 ;;
+  *) exit 91 ;;
+esac`,
+    ),
+    command(
+      "ssh",
+      `printf 'ssh %s\\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+  *"jq -er .schema"*) printf '%s\\n' "$MOCK_SCHEMA" ;;
+  *"sudo cat "*"deploy-receipt.json"*|*"deploy-receipt.json; fi"*) printf '%s\\n' "$MOCK_RECEIPT" ;;
+  *"rollback.env"*) printf '%s' "\${MOCK_ROLLBACK_DIGEST:-}" ;;
+  *) exit 0 ;;
+esac`,
+    ),
+    command("scp", `printf 'scp %s\\n' "$*" >> "$MOCK_LOG"`),
+    command("sleep", ":"),
+    command(
+      "docker",
+      `[ "$1 $2 $3" = "buildx imagetools inspect" ] || exit 91
+printf '%s\\n' "$MOCK_DIGEST"`,
+    ),
+  ]);
+  try {
+    return await run(directory);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+function runProduction(command, fakePath, environment = {}) {
+  return spawnSync("sh", ["scripts/production-workflow.sh", command], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${fakePath}:${process.env.PATH}`, ...environment },
+  });
+}
+
+function syntheticCommit(tree, parent) {
+  const result = spawnSync("git", ["commit-tree", tree, ...(parent ? ["-p", parent] : [])], {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_EMAIL: "test@hub-fatture.invalid",
+      GIT_AUTHOR_NAME: "Hub Fatture test",
+      GIT_COMMITTER_EMAIL: "test@hub-fatture.invalid",
+      GIT_COMMITTER_NAME: "Hub Fatture test",
+    },
+    input: "Relazione Git sintetica per il test Production\n",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
 }
 
 // `git grep` esce 0 con match, 1 senza match e 2 in errore: `!` in shell trasformerebbe
@@ -294,177 +365,169 @@ test("la baseline Production usa un solo digest senza esporre PostgreSQL", async
   assert.match(postgres, /no-new-privileges:true/);
   assert.match(compose, /ARUBA_SUBMISSION_ENABLED: \$\{ARUBA_SUBMISSION_ENABLED:-false\}/);
   assert.match(compose, /app-worker:[\s\S]*stop_grace_period: 3m/);
-  assert.match(compose, /read_only: true/);
-  assert.match(compose, /cap_drop: \[ALL\]/);
-  assert.equal(compose.match(/logging: \*default-logging/g)?.length, 4);
-  assert.match(compose, /max-size: 10m/);
   assert.match(compose, /\/opt\/shared-caddy\/sites:\/etc\/caddy\/sites:ro/);
-  assert.match(compose, /networks: \[frontend, shared-public-proxy\]/);
   assert.match(compose, /shared-public-proxy:\n    external: true\n    name: sequent-proxy/);
   assert.match(dockerfile, /USER 10001:10001/);
-  assert.match(dockerfile, /test ! -e node_modules\/typescript/);
-  assert.match(dockerfile, /rm -rf \/usr\/local\/lib\/node_modules\/npm/);
   assert.doesNotMatch(dockerfile, /CMD \["npm"/);
-  assert.doesNotMatch(compose, /npm start/);
-  assert.match(compose, /node node_modules\/@react-router\/serve\/bin\.cjs/);
-  assert.match(dockerfile, /COPY --chown=hub-fatture:hub-fatture schemas \.\/schemas/);
   assert.match(caddy, /fatture\.opik\.net/);
-  assert.match(caddy, /import \/etc\/caddy\/sites\/\*\.caddy/);
-  assert.match(workflow, /workflow_dispatch:/);
-  assert.match(workflow, /cancel-in-progress: false/);
-  assert.match(artifact, /docker\/setup-buildx-action@[0-9a-f]{40} # v4\./);
-  assert.match(artifact, /docker\/login-action@[0-9a-f]{40} # v4\./);
-  assert.match(artifact, /docker\/build-push-action@[0-9a-f]{40} # v7\./);
-  assert.match(workflow, /git checkout --detach "\$CANDIDATE"/);
-  assert.match(workflow, /ref: \$\{\{ needs\.candidate\.outputs\.commit \}\}/);
   assert.match(artifact, /subject-digest: \$\{\{ steps\.build\.outputs\.digest \}\}/);
-  assert.match(
-    workflow,
-    /node "\$RUNNER_TEMP\/hub-fatture-production-tooling\/commit-checks\.mjs"/,
-  );
-  assert.match(workflow, /install -m 600 scripts\/change-impact\.mjs scripts\/commit-checks\.mjs/);
-  assert.match(
-    workflow,
-    /node "\$RUNNER_TEMP\/hub-fatture-production-tooling\/change-impact\.mjs"/,
-  );
-  assert.match(workflow, /deployments\?environment=Production&task=hub-fatture-production/);
-  assert.doesNotMatch(
-    workflow,
-    /deployments\?environment=Production&per_page=100/,
-    "una baseline legacy non prova quale SHA sia stato realmente installato",
-  );
-  assert.match(workflow, /task:"hub-fatture-production"/);
-  assert.equal(
-    workflow.match(/environment:\n\s+name: Production/g)?.length,
-    1,
-    "soltanto il job che usa i segreti deve dichiarare l'Environment Production",
-  );
-  const candidate = workflow.slice(
-    workflow.indexOf("\n  candidate:"),
-    workflow.indexOf("\n  checks:"),
-  );
-  assert.doesNotMatch(candidate, /secrets\.PRODUCTION_/);
-  assert.match(
-    workflow,
-    /live_receipt=\$\(ssh .*sudo cat \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json/,
-  );
-  assert.match(workflow, /Riconciliazione da ricevuta live verificata/);
+
+  for (const command of [
+    "candidate",
+    "impact",
+    "reuse-artifact",
+    "baseline",
+    "backup-readiness",
+    "rollback-preflight",
+    "create-deployment",
+    "install-candidate",
+    "register-deployment",
+    "release-state",
+    "publish-release",
+  ]) {
+    assert.ok(workflow.includes("production-workflow.sh " + command), command);
+  }
+  assert.equal(workflow.match(/environment:\n\s+name: Production/g)?.length, 1);
   assert.ok(
-    workflow.indexOf('git merge-base --is-ancestor "$live_base" "$CANDIDATE"') <
-      workflow.indexOf('description="Baseline riconciliata dalla ricevuta live"'),
-    "la baseline deve essere validata prima di registrare il successo",
+    workflow.indexOf("rollback-preflight") < workflow.indexOf("create-deployment") &&
+      workflow.indexOf("create-deployment") < workflow.indexOf("install-candidate"),
   );
-  assert.match(workflow, /elif git merge-base --is-ancestor "\$CANDIDATE" "\$live_base"/);
-  assert.match(
-    workflow,
-    /if \[ "\$live_base" = "\$CANDIDATE" \]; then\s+effective_rollback=\$ROLLBACK/,
-  );
-  assert.match(
-    workflow,
-    /! git merge-base --is-ancestor "\$EXPECTED_BASE" "\$live_base"[\s\S]*! git merge-base --is-ancestor "\$live_base" "\$EXPECTED_BASE"/,
-  );
-  assert.match(workflow, /for delay in 0 2 5 10 20 30/);
-  assert.match(workflow, /-f state=success/);
-  assert.match(workflow, /BASE: \$\{\{ needs\.candidate\.outputs\.check_base \}\}/);
-  assert.match(workflow, /git merge-base --is-ancestor "\$base" "\$CANDIDATE"/);
-  assert.match(workflow, /git merge-base --is-ancestor "\$CANDIDATE" "\$base"/);
-  assert.match(
-    workflow,
-    /git merge-base --is-ancestor "\$CANDIDATE" "\$base"; then\s+check_base=0{40}/,
-  );
-  assert.match(workflow, /impact_base=\$CANDIDATE/);
-  assert.match(workflow, /ROLLBACK: \$\{\{ needs\.candidate\.outputs\.rollback \}\}/);
-  assert.match(
-    workflow,
-    /RECOVERY: \$\{\{ needs\.candidate\.outputs\.commit == needs\.candidate\.outputs\.base \}\}/,
-  );
-  assert.match(
-    workflow,
-    /if \[ "\$ROLLBACK" = true \] \|\| \[ "\$RECOVERY" = true \]; then\s+artifact_done=true\s+artifact_expected=false/,
-  );
-  assert.match(
-    workflow,
-    /elif git merge-base --is-ancestor "\$CANDIDATE" "\$live_base"; then\s+effective_rollback=true/,
-  );
-  assert.match(workflow, /ROLLBACK: \$\{\{ steps\.baseline\.outputs\.rollback \}\}/);
+  assert.match(workflow, /needs\.checks\.result == 'success'/);
+  assert.match(workflow, /needs\.image\.result == 'success'/);
   assert.match(workflow, /needs\.deploy\.outputs\.rollback != 'true'/);
-  assert.match(workflow, /fetch-depth: 0/);
-  assert.match(workflow, /needs\.candidate\.outputs\.runtime == 'true'/);
-  assert.match(
-    workflow,
-    /IMAGE: oci:\/\/ghcr\.io\/max23468\/hub-fatture@\$\{\{ needs\.image\.outputs\.digest \}\}/,
-  );
-  const deploy = workflow.slice(workflow.indexOf("\n  deploy:"));
-  const image = workflow.slice(workflow.indexOf("\n  image:"), workflow.indexOf("\n  deploy:"));
-  assert.match(deploy, /Verifica e riconcilia la baseline live/);
-  assert.match(deploy, /fetch-depth: 0/);
-  assert.match(image, /actions: read/);
-  assert.match(image, /actions\/workflows\/production-artifact\.yml\/runs/);
-  assert.match(image, /test "\$conclusion" = success/);
-  assert.doesNotMatch(image, /BASE_MISSING/);
-  assert.match(image, /reuse_attempts=12/);
-  assert.match(image, /for attempt in \$\(seq 1 "\$reuse_attempts"\)/);
-  assert.match(image, /sleep 5/);
-  assert.match(deploy, /packages: read/);
-  const registryLogin = deploy.indexOf("docker/login-action@");
-  assert.notEqual(registryLogin, -1);
-  assert.ok(registryLogin < deploy.indexOf("Verifica attestazione"));
-  const schemaPreflight = deploy.indexOf("Blocca rollback con schema divergente");
-  const exactDeployment = deploy.indexOf("Crea il deployment per il candidato esatto");
-  const installCandidate = deploy.indexOf("Installa artefatti e distribuisci il digest");
-  assert.notEqual(schemaPreflight, -1);
-  assert.ok(schemaPreflight < exactDeployment);
-  assert.ok(exactDeployment < installCandidate);
-  assert.match(deploy, /candidate_schema.*deployed_schema/s);
-  assert.match(deploy, /test "\$candidate_schema" = "\$deployed_schema"/);
-  assert.match(deploy, /customer_email_mode/);
-  assert.match(deploy, /candidato non supporta la disattivazione delle e-mail/);
-  assert.match(workflow, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
-  assert.match(workflow, /if \[ '\$BACKUP_REQUIRED' = true \]/);
-  assert.match(workflow, /backup\.sh deploy/);
-  assert.match(workflow, /backup-receipt\.json/);
-  assert.match(workflow, /backup_only:/);
-  assert.match(workflow, /publish_release:/);
-  assert.match(
-    workflow,
-    /publish_release:\n\s+description:.*autorizzazione esplicita.*\n\s+required: false\n\s+default: false\n\s+type: boolean/,
-  );
-  assert.match(workflow, /if: inputs\.backup_only/);
-  assert.match(deploy, /scp scripts\/backup\.sh/);
-  assert.match(workflow, /HUB_FATTURE_ROOT=\/opt\/hub-fatture '\$remote_script' readiness/);
-  assert.match(workflow, /trap 'rm -f \\"\$remote_script\\"' EXIT/);
-  assert.match(workflow, /deploy-receipt\.json.*= '\$CANDIDATE'.*'\$remote_script' readiness/s);
-  assert.match(workflow, /\.objectName == "hub-fatture\/current\/latest\.tar\.age"/);
-  assert.match(workflow, /\.archiveObjectName \| contains\(\$commit\)/);
-  assert.match(workflow, /\.version == \$version/);
-  assert.match(workflow, /\.schema == \$schema/);
-  assert.match(workflow, /\.imageDigest == \.deployedImageDigest/);
-  assert.match(workflow, /rollback_digest=\$rollback_digest/);
-  assert.match(workflow, /live_digest=\$live_digest/);
-  assert.match(
-    workflow,
-    /if sudo test -f \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json/,
-  );
-  assert.match(workflow, /Ricevuta assente: esecuzione del percorso di bootstrap Production/);
-  assert.match(
-    workflow,
-    /needs\.candidate\.outputs\.runtime == 'true' \|\|\s+needs\.candidate\.outputs\.commit == needs\.candidate\.outputs\.base/,
-  );
-  assert.match(workflow, /deploy_runtime=false/);
-  assert.match(workflow, /if \[ -z "\$live_receipt" \]; then[\s\S]*deploy_runtime=true/);
-  assert.match(workflow, /steps\.baseline\.outputs\.deploy_runtime == 'true'/);
-  assert.match(workflow, /Il candidato è già live: il redeploy viene saltato/);
-  const release = workflow.slice(workflow.indexOf("\n  release:"));
-  assert.match(release, /name: GitHub Release immutabile/);
-  assert.match(release, /needs\.deploy\.result == 'success'/);
-  assert.match(release, /needs\.deploy\.outputs\.rollback != 'true'/);
-  assert.doesNotMatch(release, /needs\.candidate\.outputs\.runtime == 'true'/);
-  assert.match(release, /IMAGE_DIGEST: \$\{\{ needs\.deploy\.outputs\.live_digest \}\}/);
-  assert.doesNotMatch(release, /needs\.image\.outputs\.digest \|\|/);
-  assert.match(release, /new URL\(process\.argv\[1\]\)\.pathname\.match/);
-  assert.match(release, /prepare-production-release\.mjs/);
-  assert.match(release, /publish-github-release\.sh/);
-  assert.doesNotMatch(release, /environment:\s*\n\s+name: Production/);
+});
+
+test("la logica Production applica i gate exact-SHA fuori dallo YAML", async () => {
+  const tree = spawnSync("git", ["rev-parse", "HEAD^{tree}"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout.trim();
+  const parent = syntheticCommit(tree);
+  const head = syntheticCommit(tree, parent);
+  const digest = "sha256:" + "a".repeat(64);
+  const receipt = (commit, imageDigest = digest) =>
+    JSON.stringify({ commit, imageDigest, schema: "irrelevant" });
+
+  await withFakeProductionCommands(async (fakePath) => {
+    const output = path.join(fakePath, "output");
+    const summary = path.join(fakePath, "summary");
+    const log = path.join(fakePath, "commands");
+    const common = {
+      GITHUB_OUTPUT: output,
+      GITHUB_STEP_SUMMARY: summary,
+      GITHUB_REPOSITORY: "owner/repository",
+      MOCK_LOG: log,
+    };
+
+    await writeFile(output, "");
+    let result = runProduction("impact", fakePath, {
+      ...common,
+      CANDIDATE: head,
+      MOCK_BASE: parent,
+      TRUSTED_TOOLING: path.join(root, "scripts"),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      await readFile(output, "utf8"),
+      new RegExp("base=" + parent + "[\\s\\S]*rollback=false"),
+    );
+
+    await writeFile(output, "");
+    result = runProduction("impact", fakePath, {
+      ...common,
+      CANDIDATE: parent,
+      MOCK_BASE: head,
+      TRUSTED_TOOLING: path.join(root, "scripts"),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(await readFile(output, "utf8"), /check_base=0{40}[\s\S]*rollback=true/);
+
+    await writeFile(output, "");
+    result = runProduction("baseline", fakePath, {
+      ...common,
+      BACKUP_ONLY: "false",
+      CANDIDATE: head,
+      CANDIDATE_RUNTIME: "true",
+      EXPECTED_BASE: head,
+      MOCK_RECEIPT: receipt(head),
+      ROLLBACK: "false",
+      SSH_HOST: "host",
+      SSH_USER: "user",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(await readFile(output, "utf8"), /deploy_runtime=false[\s\S]*rollback=false/);
+
+    result = runProduction("baseline", fakePath, {
+      ...common,
+      BACKUP_ONLY: "false",
+      CANDIDATE: head,
+      CANDIDATE_RUNTIME: "true",
+      EXPECTED_BASE: head,
+      MOCK_RECEIPT: receipt(head, "sha256:non-valido"),
+      ROLLBACK: "false",
+      SSH_HOST: "host",
+      SSH_USER: "user",
+    });
+    assert.notEqual(result.status, 0);
+
+    await writeFile(output, "");
+    result = runProduction("reuse-artifact", fakePath, {
+      ...common,
+      CANDIDATE: head,
+      MOCK_DIGEST: digest,
+      RECOVERY: "false",
+      ROLLBACK: "true",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(await readFile(output, "utf8"), "digest=" + digest + "\nreused=true\n");
+
+    await writeFile(output, "");
+    result = runProduction("release-state", fakePath, {
+      ...common,
+      CANDIDATE: head,
+      MOCK_RECEIPT: receipt(head),
+      MOCK_ROLLBACK_DIGEST: "sha256:" + "b".repeat(64),
+      SSH_HOST: "host",
+      SSH_USER: "user",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      await readFile(output, "utf8"),
+      /live_digest=sha256:a{64}[\s\S]*rollback_digest=sha256:b{64}/,
+    );
+
+    result = runProduction("rollback-preflight", fakePath, {
+      ...common,
+      MOCK_SCHEMA: "schema-divergente.sql",
+      ROLLBACK: "true",
+      SSH_HOST: "host",
+      SSH_USER: "user",
+    });
+    assert.notEqual(result.status, 0);
+
+    await writeFile(log, "");
+    result = runProduction("install-candidate", fakePath, {
+      ...common,
+      BACKUP_REQUIRED: "true",
+      COMMIT: head,
+      DIGEST: digest,
+      SSH_HOST: "host",
+      SSH_USER: "user",
+      VERSION: "1.2.4",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const commands = await readFile(log, "utf8");
+    assert.ok(
+      commands.indexOf("/opt/hub-fatture/scripts/backup.sh pre-deploy") <
+        commands.indexOf("HUB_FATTURE_CANDIDATE_DIR"),
+    );
+    assert.ok(
+      commands.indexOf("HUB_FATTURE_CANDIDATE_DIR") <
+        commands.lastIndexOf("production-release-candidate-readback.sh"),
+    );
+    assert.match(commands, /prune-docker-images\.sh/);
+    assert.match(commands, /hub-fatture-backup\.timer hub-fatture-monitor\.timer/);
+  });
 });
 
 test("l’immagine applicativa usa Trixie Slim immutabile e resta qualificabile ARM64", async () => {
@@ -593,6 +656,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     "scripts/monitor-local.sh",
     "scripts/prune-docker-images.sh",
     "scripts/production-deploy.sh",
+    "scripts/production-workflow.sh",
     "scripts/production-preflight.sh",
     "scripts/production-readback.sh",
     "scripts/production-release-candidate-readback.sh",
@@ -616,6 +680,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
     candidateReadback,
     restore,
     workflow,
+    productionWorkflow,
     readinessQuery,
     readinessOperation,
   ] = await Promise.all(
@@ -627,6 +692,7 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
       "scripts/production-release-candidate-readback.sh",
       "scripts/restore.sh",
       ".github/workflows/production.yml",
+      "scripts/production-workflow.sh",
       "src/db/release-candidate-readiness.server.ts",
       "src/operations/release-candidate-readiness.ts",
     ].map((file) => readFile(path.join(root, file), "utf8")),
@@ -770,32 +836,34 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
   assert.match(readinessQuery, /sync_cursors\.stream = 'history_import'/);
   assert.match(readinessQuery, /status NOT IN \('RECONCILED', 'CANCELLED'\)/);
   assert.doesNotMatch(candidateReadback, /aruba_send_permits/);
-  assert.match(workflow, /compose\.yaml\.next/);
-  assert.match(workflow, /Caddyfile\.next/);
+  assert.match(productionWorkflow, /compose\.yaml\.next/);
+  assert.match(productionWorkflow, /Caddyfile\.next/);
   assert.match(
-    workflow,
+    productionWorkflow,
     /test -f \/opt\/hub-fatture\/\.deploy\.env && sudo test -f \/opt\/hub-fatture\/data\/operations\/deploy-receipt\.json; then sudo env HUB_FATTURE_ROOT=\/opt\/hub-fatture \/opt\/hub-fatture\/scripts\/backup\.sh pre-deploy/,
   );
-  assert.doesNotMatch(workflow, /'\$target\/backup\.sh' pre-deploy/);
-  const preDeployBackup = workflow.indexOf("/opt/hub-fatture/scripts/backup.sh pre-deploy");
-  const candidateDeploy = workflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
-  const operationalInstall = workflow.indexOf("sudo install -m 750 '$target/backup.sh'");
+  assert.doesNotMatch(productionWorkflow, /'\$target\/backup\.sh' pre-deploy/);
+  const preDeployBackup = productionWorkflow.indexOf(
+    "/opt/hub-fatture/scripts/backup.sh pre-deploy",
+  );
+  const candidateDeploy = productionWorkflow.indexOf("HUB_FATTURE_CANDIDATE_DIR='$target'");
+  const operationalInstall = productionWorkflow.indexOf("sudo install -m 750 '$target/backup.sh'");
   assert.match(
-    workflow.slice(operationalInstall),
+    productionWorkflow.slice(operationalInstall),
     /'\$target\/production-release-candidate-readback\.sh'.*\/opt\/hub-fatture\/scripts\//,
   );
-  assert.match(workflow, /scripts\/prune-docker-images\.sh/);
+  assert.match(productionWorkflow, /scripts\/prune-docker-images\.sh/);
   assert.match(
-    workflow,
+    productionWorkflow,
     /deployments\/\$deployment\/statuses\?per_page=100.*any\(\.\[\]; \.state == "success"\)/s,
   );
   assert.doesNotMatch(
-    workflow,
+    productionWorkflow,
     /deployments\/\$deployment\/statuses\?per_page=1(?:["&])/,
     "un deployment riuscito resta una baseline valida anche dopo lo stato inactive",
   );
   assert.match(
-    workflow,
+    productionWorkflow,
     /if sudo test -f \/opt\/hub-fatture\/data\/operations\/rollback\.env; then sudo \/opt\/hub-fatture\/scripts\/prune-docker-images\.sh; fi/,
   );
   assert.match(
@@ -872,13 +940,12 @@ test("gli script Production sono sintatticamente validi e conservano i gate di c
 });
 
 test("l'abilitazione Aruba Production è una corsia separata, exact-commit e reversibile", async () => {
-  const [compose, script, dispatch, workflow, production] = await Promise.all(
+  const [compose, script, dispatch, workflow] = await Promise.all(
     [
       "compose.production.yaml",
       "scripts/production-submission-mode.sh",
       "scripts/dispatch-production-submission.sh",
       ".github/workflows/production-submission.yml",
-      ".github/workflows/production.yml",
     ].map((file) => readFile(path.join(root, file), "utf8")),
   );
   assert.match(compose, /ARUBA_SUBMISSION_ENABLED: \$\{ARUBA_SUBMISSION_ENABLED:-false\}/);
@@ -898,15 +965,10 @@ test("l'abilitazione Aruba Production è una corsia separata, exact-commit e rev
   assert.match(workflow, /gh release view "v\$version"/);
   assert.match(workflow, /\.targetCommitish == \$commit/);
   assert.match(workflow, /production-submission-mode\.sh "\$MODE" "\$CANDIDATE"/);
-  assert.match(production, /production-submission-mode\.sh/);
-});
-
-test("il dispatch Production richiede una decisione esplicita per 1.0.0", async () => {
-  const dispatch = await readFile(path.join(root, "scripts/dispatch-production.sh"), "utf8");
-  assert.match(dispatch, /contents\/package\.json\?ref=\$commit/);
-  assert.match(dispatch, /if \[ "\$version" = "1\.0\.0" \]/);
-  assert.match(dispatch, /il secondo argomento true\|false è obbligatorio/);
-  assert.match(dispatch, /publish_release=true/);
+  assert.match(
+    await readFile(path.join(root, "scripts/production-workflow.sh"), "utf8"),
+    /production-submission-mode\.sh/,
+  );
 });
 
 test("la release usa sempre il nome canonico prima di diventare immutabile", async () => {

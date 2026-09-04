@@ -2,48 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  arubaIncrementalScanFrom,
   canManuallyLinkCandidate,
   groupOrderCandidates,
-  hasAnomalousUnknownArubaStatuses,
   isArubaAmountMismatchCandidate,
   isArubaExternalEvidenceCandidate,
   inventoryPageSchema,
   normalizeArubaRemoteStatusLabel,
   remoteMetadataDigest,
-  remoteMatchesPreflightSearches,
   remoteStatusTransition,
   selectAutomaticAmbiguousInvoiceMatches,
   selectOrderMatch,
   type AmbiguousInvoiceCandidate,
   type RemoteInventoryDocument,
 } from "./aruba-inbound.ts";
-
-test("la finestra incrementale si estende alla ricerca preflight più vecchia", () => {
-  const base = {
-    documentType: "TD01" as const,
-    incrementalFrom: "2026-08-18",
-    oldestReconciliationDate: "2025-01-01",
-  };
-  assert.equal(arubaIncrementalScanFrom({ ...base, searches: [] }), "2026-08-18");
-  assert.equal(
-    arubaIncrementalScanFrom({
-      ...base,
-      searches: [
-        { documentType: "TD04", orderDate: "2024-01-01" },
-        { documentType: "TD01", orderDate: "2026-07-03" },
-      ],
-    }),
-    "2026-07-03",
-  );
-  assert.equal(
-    arubaIncrementalScanFrom({
-      ...base,
-      searches: [{ documentType: "TD01" }],
-    }),
-    "2025-01-01",
-  );
-});
 
 test("normalizza tutte le diciture elettroniche osservate nel pannello Aruba", () => {
   assert.deepEqual(
@@ -77,40 +48,6 @@ test("normalizza tutte le diciture elettroniche osservate nel pannello Aruba", (
   assert.equal(normalizeArubaRemoteStatusLabel("Emessa"), "UNKNOWN");
   assert.equal(normalizeArubaRemoteStatusLabel("Emessa ed inviata"), "UNKNOWN");
   assert.equal(normalizeArubaRemoteStatusLabel("Annullata"), "UNKNOWN");
-});
-
-test("ferma una pagina con una quota anomala di stati Aruba sconosciuti", () => {
-  assert.equal(
-    hasAnomalousUnknownArubaStatuses(
-      Array.from({ length: 10 }, (_, index) => ({
-        status: index < 5 ? ("UNKNOWN" as const) : ("DELIVERED" as const),
-      })),
-    ),
-    true,
-  );
-  assert.equal(
-    hasAnomalousUnknownArubaStatuses(
-      Array.from({ length: 10 }, (_, index) => ({
-        status: index < 4 ? ("UNKNOWN" as const) : ("DELIVERED" as const),
-      })),
-    ),
-    false,
-  );
-  assert.equal(
-    hasAnomalousUnknownArubaStatuses(
-      Array.from({ length: 9 }, () => ({ status: "UNKNOWN" as const })),
-    ),
-    false,
-  );
-  assert.equal(
-    hasAnomalousUnknownArubaStatuses(
-      Array.from({ length: 10 }, () => ({
-        status: "UNKNOWN" as const,
-        providerStatusLabel: "Emessa",
-      })),
-    ),
-    false,
-  );
 });
 
 const remote: RemoteInventoryDocument = {
@@ -976,38 +913,7 @@ test("una preparazione multi-ordine usa insieme riferimenti e totale del gruppo"
       recipientAddress: "Via Roma 1 Milano",
     },
   ]);
-  const groupedRemote = { ...remote, orderReferences: ["1002"] };
-  const match = selectOrderMatch(groupedRemote, grouped);
+  const match = selectOrderMatch({ ...remote, orderReferences: ["1002"] }, grouped);
   assert.equal(match.status, "MATCHED");
   assert.deepEqual(match.evaluations[0]!.orderIds, ["1", "2"]);
-  assert.equal(
-    remoteMatchesPreflightSearches(groupedRemote, [
-      { documentType: "TD01", amount: 8_000, displayNumber: "1001" },
-      { documentType: "TD01", amount: 4_300, displayNumber: "1002" },
-    ]),
-    true,
-  );
-});
-
-test("un documento che riferisce un sottoinsieme della preparazione blocca il preflight", () => {
-  assert.equal(
-    remoteMatchesPreflightSearches(
-      { ...remote, totalAmount: 8_000, orderReferences: ["1001", "1002"] },
-      [
-        { documentType: "TD01", amount: 5_000, displayNumber: "1001" },
-        { documentType: "TD01", amount: 3_000, displayNumber: "1002" },
-        { documentType: "TD01", amount: 4_300, displayNumber: "1003" },
-      ],
-    ),
-    true,
-  );
-});
-
-test("un documento scartato non blocca il preflight di una nuova revisione", () => {
-  assert.equal(
-    remoteMatchesPreflightSearches({ ...remote, status: "REJECTED", orderReferences: ["1001"] }, [
-      { documentType: "TD01", amount: 12_300, displayNumber: "1001" },
-    ]),
-    false,
-  );
 });
