@@ -4,6 +4,7 @@
 
 - Il runtime Aruba elimina un wrapper senza comportamento, codice morto e facciate interne non consumate, mantenendo invariati riconciliazione, invio e monitoraggio SdI.
 - Il campo Scadenza dei Controlli resta contenuto nel pannello anche sui viewport mobile più stretti.
+- L’audit dipendenze ritenta soltanto gli errori transitori del registry entro un limite esplicito e continua a fallire subito quando rileva vulnerabilità.
 
 ## 1.3.2
 
