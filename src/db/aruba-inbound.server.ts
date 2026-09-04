@@ -456,7 +456,7 @@ export async function ingestParsedArubaPage(
     if (changed || !knownKinds.has("ARUBA_P7M")) {
       requestedFiles.push({ remoteId: remote.remoteId, kind: "ARUBA_P7M" });
     }
-    if (changed || !knownKinds.has("ARUBA_PDF")) {
+    if (!knownKinds.has("ARUBA_PDF")) {
       requestedFiles.push({ remoteId: remote.remoteId, kind: "ARUBA_PDF" });
     }
     if (!isEmissionConfirmed(remote.status) || changed) {

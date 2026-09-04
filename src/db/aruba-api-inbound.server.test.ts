@@ -760,6 +760,44 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
         signals: { providerIdentityCollision: true, collisionKey: "FISCAL_IDENTITY" },
       },
     );
+    const collisionNotification = Buffer.from(
+      "<RicevutaConsegna><NomeFile>atomic-conflict.xml</NomeFile></RicevutaConsegna>",
+    );
+    const firstCollisionNotification = await inbound.importArubaRemoteOfficialFileFromApi(
+      immutableConflictRemoteDocumentId,
+      "SDI_NOTIFICATION",
+      collisionNotification,
+      {
+        type: "API",
+        runId: stagedRunId,
+        providerGroupId: "atomic-conflict-group",
+        providerFilename: "notifica-collisione.xml",
+        expectedDocumentFilename: "atomic-conflict.xml.p7m",
+        expectedInvoiceNumber: "99",
+        requiresInvoiceNumber: true,
+        notificationInvoiceNumber: "99",
+        notificationId: "notifica-collisione",
+      },
+    );
+    assert.deepEqual(
+      await inbound.importArubaRemoteOfficialFileFromApi(
+        immutableConflictRemoteDocumentId,
+        "SDI_NOTIFICATION",
+        collisionNotification,
+        {
+          type: "API",
+          runId: stagedRunId,
+          providerGroupId: "atomic-conflict-group",
+          providerFilename: "notifica-collisione.xml",
+          expectedDocumentFilename: "atomic-conflict.xml.p7m",
+          expectedInvoiceNumber: "99",
+          requiresInvoiceNumber: true,
+          notificationInvoiceNumber: "100",
+          notificationId: "notifica-collisione",
+        },
+      ),
+      { id: firstCollisionNotification.id, repeated: true, documentId: null },
+    );
     const pageWithImmutableConflict = {
       ...stagedPage,
       documents: [...stagedPage.documents, ...immutableConflictPage.documents],
@@ -872,6 +910,14 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
       stagedRunId,
     ]);
     await getPool().query("DELETE FROM aruba_sync_runs WHERE id = $1", [stagedRunId]);
+    await getPool().query(
+      `DELETE FROM sdi_notifications
+       WHERE remote_document_id IN (
+         SELECT id FROM aruba_remote_documents
+         WHERE remote_id IN ('api-atomic-stage', 'atomic-stage-synthetic',
+           'atomic-immutable-conflict')
+       )`,
+    );
     await getPool().query(
       `WITH removed AS (
          DELETE FROM aruba_files

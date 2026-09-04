@@ -83,6 +83,17 @@ test("un vecchio digest che differisce solo per il timestamp Aruba si riallinea"
     );
     const documentId = document.rows[0]!.id;
     await client.query(
+      `WITH stored AS (
+         INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+         VALUES ('ARUBA_PDF', 'synthetic/timestamp-only.pdf', repeat('c', 64), 32,
+           'application/pdf')
+         RETURNING id
+       )
+       INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+       SELECT $1, stored.id, 'ARUBA_PDF' FROM stored`,
+      [documentId],
+    );
+    await client.query(
       "UPDATE aruba_remote_documents SET metadata_digest = repeat('a', 64) WHERE id = $1",
       [documentId],
     );
@@ -108,7 +119,7 @@ test("un vecchio digest che differisce solo per il timestamp Aruba si riallinea"
       ...remote,
       providerObservedAt: "2026-08-31T10:05:00.000Z",
     };
-    await ingestParsedArubaPage(
+    const refreshed = await ingestParsedArubaPage(
       client,
       {
         id: secondSession,
@@ -125,6 +136,10 @@ test("un vecchio digest che differisce solo per il timestamp Aruba si riallinea"
         fullScan: false,
         documents: [observedAgain],
       },
+      false,
+    );
+    assert.equal(
+      refreshed.requestedFiles.some((file) => file.kind === "ARUBA_PDF"),
       false,
     );
 
