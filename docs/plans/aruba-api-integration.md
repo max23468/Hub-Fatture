@@ -86,7 +86,7 @@ stato e file ufficiali; Hub Fatture conserva una proiezione locale datata e una 
 | Canale finale            | API Aruba v2 primaria; pannello/helper soltanto transitori                                             |
 | Dipendenza commerciale   | Accordo forfettario approvato per circa 500 fatture per mese solare, comprensivo dell’uso API previsto |
 | Ambiente DEMO            | Non viene richiesto all’agenzia; si usano fixture e qualifiche Production limitate                     |
-| Callback                 | Rinviato; nessun codice prima di una garanzia scritta di isolamento della sola utenza Base             |
+| Callback                 | Escluso; polling e readback mirato coprono integralmente il monitoraggio                               |
 | Modalità predefinita     | `Crea solo il documento`                                                                               |
 | Modalità di trasmissione | Globali e rigide; nessun override per batch o documento                                                |
 | Freshness                | avviso dopo 30 minuti; blocco dopo 4 ore; conflitto o incertezza bloccano subito                       |
@@ -346,19 +346,12 @@ conservativi, backoff con jitter e priorità agli stati non terminali. Tier e co
 delegato restano fuori dal prodotto. Un cambiamento contrattuale riapre il gate economico prima di
 abilitare nuovi invii, ma non cancella automaticamente un documento già autorizzato.
 
-## 12. Callback
+## 12. Monitoraggio senza callback
 
-Il polling è completo e autorevole. La callback non è un gate della roadmap e non vengono creati
-endpoint, tabelle o segreti preparatori.
-
-Una tranche futura richiede una conferma scritta che l’endpoint configurato dall’account Premium:
-
-- riceva soltanto eventi della specifica utenza Base e del solo ciclo attivo;
-- possa essere configurato, ruotato e revocato senza coinvolgere altri deleganti;
-- abbia un’autenticazione e una procedura di test compatibili con il confine single-tenant;
-- non esponga dati di altri clienti dell’agenzia.
-
-Anche se introdotta, la callback accelera soltanto la rilettura API e non diventa fonte autorevole.
+Il polling e il readback mirato sono completi e autorevoli. I callback sono esclusi dal prodotto e
+non vengono creati endpoint, tabelle, code, segreti o feature flag preparatori. Dopo una
+trasmissione accettata da Aruba, lo stato viene riletto subito e poi ogni 15 minuti usando lo stesso
+ingest canonico dell’inventario; l’azione manuale accoda il medesimo percorso.
 
 ## 13. Fallback manuale
 
@@ -412,8 +405,8 @@ invio. Il consenso vale per la fase e decade se il perimetro cambia.
 - Qualifica tecnica Production: gate exact-SHA senza upload o invii reali.
 - Go-live: abilitazione ordinaria e primo invio di un documento già dovuto e approvato.
 
-Deploy, modifica dei permessi/delega nel pannello, callback, abilitazione ordinaria e ogni altro invio
-reale richiedono autorizzazioni distinte.
+Deploy, modifica dei permessi/delega nel pannello, abilitazione ordinaria e ogni altro invio reale
+richiedono autorizzazioni distinte. I callback sono esclusi dal prodotto.
 
 ## 16. Primo invio ordinario e TD04
 
@@ -549,7 +542,8 @@ pronto, esclusa la prova reale.
 - Il forfait mensile elimina una decisione economica aperta; Tier e contatori del Premium delegato
   restano fuori dal prodotto.
 - La transizione conserva reversibilità senza trasformare gli helper in legacy permanente.
-- Callback e TD04 automatico restano capacità esplicitamente rinviate, non scaffolding incompleto.
+- I callback restano esclusi; il TD04 automatico resta una capacità rinviata, non scaffolding
+  incompleto.
 
 ## 20. Questioni provider da qualificare, non decisioni di prodotto
 
@@ -558,7 +552,7 @@ pronto, esclusa la prova reale.
 - comportamento tecnico al superamento dei limiti degli endpoint;
 - chiavi o garanzie d’idempotenza per dry-run, upload e invio;
 - capacità di distinguere con certezza upload, invio e accettazione dopo un timeout;
-- eventuale isolamento per delegante della callback Premium.
+- stabilità degli identificativi filename e ID SdI usati dal readback puntuale.
 
 Una risposta diversa dalle ipotesi non viene adattata silenziosamente: aggiorna contratto, test,
 evidenza e, se cambia il rischio o lo scope, torna a Massimo.

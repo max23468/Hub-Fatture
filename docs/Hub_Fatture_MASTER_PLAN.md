@@ -271,7 +271,7 @@ e quando un rimborso di prova produce correttamente:
 - API Aruba non documentate o endpoint interni ricavati dal pannello web.
 - Automazione del pannello Aruba headless o non presidiata sulla VPS.
 - Automazione di login, password, OTP 2FA o CAPTCHA.
-- Callback Aruba prima della garanzia scritta di isolamento single-tenant della sola utenza Base.
+- Callback Aruba di qualsiasi tipo: polling e readback API coprono il monitoraggio ordinario.
 - Alta disponibilità, cluster, microservizi, Redis e Kubernetes.
 - Retrocompatibilità o implementazioni legacy non necessarie.
 
@@ -311,7 +311,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Lint e formato | Oxlint e Oxfmt con pin esatto; niente ESLint/Prettier iniziali | Riusa una toolchain veloce già adottata in CF Ready senza duplicare strumenti equivalenti |
 | Test browser dell'app | Chromium su ogni superficie runtime; WebKit per UI, E2E e modifiche fail-closed | Mantiene una seconda implementazione browser dove rileva regressioni reali senza duplicare indiscriminatamente la matrice |
 | Integrazione Aruba | Account Base con delega Web Service e API Aruba v2 documentate come unica autorità automatica; fallback manuale permanente | Elimina la dipendenza dal DOM mantenendo una via di recovery presidiata |
-| Sincronizzazione Aruba | Polling ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile; callback rinviato | Offre aggiornamento automatico senza dipendere da garanzie di isolamento callback non ancora disponibili |
+| Sincronizzazione Aruba | Polling ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile; nessun callback | Offre un solo percorso autorevole, verificabile e sufficiente per il monitoraggio post-invio |
 | Inventario Aruba | Cache provider-first dal 1° luglio 2026, indipendente dai batch HF, con osservazioni append-only | Rileva documenti creati fuori da HF, impedisce doppie emissioni nel periodo operativo e rende verificabile la freschezza |
 | Modalità Aruba | `Crea solo il documento`, `Chiedi conferma prima dell’invio` e `Invio automatico dopo approvazione`, globali e rigide | Separa approvazione, creazione e trasmissione senza consenso implicito |
 | Comparatore fiscale | Diff strutturato server-side fra sorgente, bozza e proiezione XML | Rende visibili trasformazioni, correzioni e arrotondamenti senza affidarsi a un fragile confronto testuale dell'XML |
@@ -961,9 +961,11 @@ delegato abilita il Web Service. La denominazione `Supervisore/commercialista` m
 non è prova sufficiente dell’accesso API: la prima lettura autenticata deve qualificare il
 collegamento.
 
-L'API diventa il canale primario soltanto dopo che una prova fail-closed ha verificato
+L'API è il canale automatico primario dopo che le qualifiche fail-closed hanno verificato
 autenticazione, identità fiscale, ricerca delle fatture inviate, paginazione, limiti, stati e
-download ufficiali, senza eseguire upload o invii reali. L'accordo forfettario per circa 500 fatture
+download ufficiali senza eseguire invii reali. Il runtime supporta inoltre refresh token, account
+completo, ricerca avanzata, lookup puntuale, trasmissione TD01 non firmata e readback post-invio;
+la disponibilità tecnica della trasmissione non la autorizza. L'accordo forfettario per circa 500 fatture
 per mese solare comprende l'uso API pianificato; la qualifica tecnica registra soltanto i limiti
 degli endpoint e la risposta `429`. Tier e contatori del Premium delegato restano fuori dal prodotto.
 Le API sono l’autorità automatica corrente. Il pannello resta un’interfaccia umana esterna e
@@ -979,8 +981,13 @@ Conservare due ambienti applicativi e target provider espliciti:
 - `manuale`, esportando gli XML da HF e importando in seguito file ed esiti scaricati da Aruba.
 
 Nel probe le credenziali API sono iniettate soltanto nel processo locale e non vengono stampate
-o persistite. L'integrazione applicativa le conserva cifrate con la chiave dei connettori, senza
-token nei log o nel frontend, e verifica l'identità prima del salvataggio. Cookie, session storage,
+o persistite. L'integrazione applicativa le conserva cifrate con la chiave dei connettori; access
+token e refresh token restano soltanto in memoria e non entrano in database, job, log, audit o
+frontend. La sessione si rinnova con il refresh token senza reinviare username e password; un
+accesso completo è ammesso soltanto al primo uso del processo o dopo un rifiuto certo del refresh.
+Ogni richiesta concorrente condivide lo stesso rinnovo. `userInfo` verifica identità, scadenza e
+spazio disponibile e alimenta uno snapshot sanificato con freschezza massima di cinque minuti.
+Cookie, session storage,
 codici OTP e seed TOTP non entrano mai in Hub Fatture, nel repository, nei prompt o nei log.
 
 ### 10.1.1 Ipotesi operative da verificare
@@ -1042,6 +1049,11 @@ La scelta è globale e rigida per approvazioni singole e massive. La UI mostra l
 6. Il readback API verifica accettazione, identificativi, stato e file ufficiali.
 7. Gli aggiornamenti successivi riconciliano stati e notifiche senza regressioni.
 
+La risposta sincrona `0000` dell’upload con `dryRun=false` significa soltanto `ARUBA_ACCEPTED`:
+Aruba ha accettato la richiesta e restituito un filename, ma consegna, mancata consegna o scarto
+sono provati esclusivamente dal readback SdI successivo. I documenti non terminali vengono riletti
+ogni 15 minuti; `Aggiorna stato Aruba` accoda lo stesso percorso senza bypassare i limiti provider.
+
 Il dry-run Production richiede autorizzazione della milestone e non equivale a un invio SdI. Nel
 contratto Aruba corrente la qualifica dell'upload senza invio coincide con la stessa chiamata
 `POST /services/invoice/upload` fissata a `dryRun=true`: un unico permesso monouso può autorizzare
@@ -1073,7 +1085,9 @@ Conservare localmente:
 - identificativi remoti visibili;
 - timestamp dell'ultima riconciliazione e ultimo stato.
 
-La riconciliazione ordinaria è un processo del worker. HF mostra l'età dell'ultimo inventario completo, i giri in corso, i checkpoint e qualunque errore o conflitto.
+La riconciliazione ordinaria è un processo del worker. HF mostra l'età dell'ultimo inventario
+completo, i giri in corso, i checkpoint e qualunque errore o conflitto. Il polling e il readback
+mirato sono l’unico monitoraggio Aruba: non esistono receiver o percorsi callback.
 
 ### 10.7 PDF
 
@@ -1179,7 +1193,8 @@ La qualifica registra:
 Una qualifica non autorizza quella successiva. Nel contratto Aruba corrente dry-run Production e
 qualifica dell'upload senza invio sono la medesima azione provider perché il flag `dryRun=true`
 appartiene all'endpoint di upload. Questa singola azione resta distinta da `dryRun=false`, modifica
-del pannello, callback e invio reale, che richiedono autorizzazioni proprie.
+del pannello e invio reale, che richiedono autorizzazioni proprie. I callback non fanno parte del
+prodotto.
 
 ### 11.5 Materiali e output delle milestone
 
@@ -1398,6 +1413,13 @@ La sezione riunisce fatture, note di credito e documenti nei diversi stati di tr
 
 La vista interna `Inventario Aruba` mostra in modo neutro i documenti osservati, con origine, stato remoto, ultimo aggiornamento e stato del collegamento, senza creare ordini locali. Un documento senza riferimenti ordine espliciti né match Shopify/eBay compatibili resta visibile per l’anti-duplicazione ma non è una verifica bloccante. Riferimenti incompatibili, match potenziali, ambiguità, conflitti, file ufficiali mancanti ed errori generano un solo controllo e la riga dell'inventario rimanda a quello.
 
+La ricerca locale dei documenti filtra tipo, stato, origine, cliente e intervallo date senza chiamare
+Aruba. Una verifica remota esplicita offre i filtri ufficiali entro finestre di 48 ore e un lookup
+puntuale per filename o ID SdI. I risultati remoti attraversano l’ingest canonico e non diventano
+collegamenti automatici per sola somiglianza. Un documento trasmesso mostra stato Aruba/SdI,
+filename, ID SdI quando disponibile, ultimo aggiornamento e l’azione `Aggiorna stato Aruba` finché
+l’esito non è terminale.
+
 Per le note di credito mostrare:
 
 - Fattura originaria.
@@ -1432,6 +1454,8 @@ Espone soltanto il registro attività ricercabile e non modificabile. Non contie
   disponibile soltanto tramite CLI o API interna autenticata, da XML SdI accettati e con audit.
 - Numerazione/sezionale: protetta e configurata dopo audit.
 - Connessione Aruba: identità verificata, stato iniziale `In pausa`, attivazione della sincronizzazione, rotazione/revoca credenziale e due arresti indipendenti.
+- Account Aruba: username, PEC, descrizione, Paese, P. IVA, codice fiscale, scadenza e spazio
+  utilizzato/massimo dall’ultimo `userInfo` validato, con età della verifica e senza token o segreti.
 - Modalità Aruba globale e rigida: `Crea solo il documento` come default, `Chiedi conferma prima dell’invio` o `Invio automatico dopo approvazione`.
 - Stato della sincronizzazione Aruba, backfill, ultimo inventario completo, checkpoint, limiti provider osservati e azione read-only **Sincronizza ora**.
 - Readback manuale completo owner-only come recovery permanente quando le API non possono fornire inventario o file ufficiali sufficienti.
@@ -1452,7 +1476,14 @@ Per Shopify ed eBay `Collegato` descrive la credenziale utilizzabile, non l'esit
 Un ordine anomalo o un errore di parsing resta un errore di sincronizzazione con accesso diretto ad
 `Attività`; soltanto credenziale assente, revocata o da rinnovare cambia lo stato del collegamento.
 
-Per Aruba `verifica credenziali` esegue autenticazione e controllo dell'identità fiscale senza mostrare il segreto. La vista ordinaria distingue connessione, sincronizzazione e trasmissioni; mostra ultimo giro, copertura del backfill, conteggi `documenti`, `senza ordine Shopify/eBay` e `da verificare`, oltre agli avvisi non bloccanti a 400 e 475 trasmissioni nel mese solare. Entrambi gli account amministrativi possono gestire credenziale, modalità, arresti, salute, errori, limiti tecnici osservati, contatore locale delle trasmissioni e `Sincronizza ora`. Tier e contatori del Premium delegato non vengono letti né mostrati.
+Per Aruba `verifica credenziali` esegue autenticazione, controllo dell'identità fiscale e refresh di
+`userInfo` senza mostrare il segreto. La vista ordinaria distingue connessione, account,
+sincronizzazione e trasmissioni; mostra ultimo giro, copertura del backfill, conteggi `documenti`,
+`senza ordine Shopify/eBay` e `da verificare`, oltre agli avvisi non bloccanti a 400 e 475
+trasmissioni nel mese solare. Account scaduto o spazio esaurito bloccano l’outbound; le soglie
+prossime al limite sono avvisi. Entrambi gli account amministrativi possono gestire credenziale,
+modalità, arresti, salute, errori, limiti tecnici osservati, contatore locale delle trasmissioni e
+`Sincronizza ora`. Tier e contatori del Premium delegato non vengono letti né mostrati.
 
 Il readback manuale completo non compare nella vista ordinaria: resta raggiungibile dal recupero avanzato soltanto quando esiste un errore bloccante e solo per il titolare.
 
@@ -1645,7 +1676,9 @@ Lock e vincoli proteggono lo stato letto, non soltanto la scrittura finale: conf
 | Release | tag/commit Git e digest immagine | `/version` e ricevuta di deploy confermano lo stato live |
 | Backup | archivio OCI cifrato, copia cifrata sul Mac, manifest e checksum | il DB conserva solo l'ultimo esito operativo |
 
-Un webhook segnala che qualcosa può essere cambiato: non sostituisce la rilettura dello stato corrente quando il provider offre un readback. Nella roadmap corrente Aruba usa polling API; un eventuale callback futuro accelera soltanto una rilettura. Eventi fuori ordine non devono far regredire uno stato autorevole.
+Per Aruba ogni cambiamento di stato viene acquisito tramite polling o readback API. Non esiste un
+canale callback alternativo o preparatorio. Osservazioni ripetute o fuori ordine non devono far
+regredire uno stato autorevole.
 
 La presenza in Aruba è indipendente dal percorso di invio locale: `aruba_submissions` resta autorevole sui tentativi partiti da HF, mentre l'inventario remoto rappresenta anche documenti creati direttamente nel pannello. La freschezza operativa deriva dall'ultima scansione API completata.
 
@@ -1717,13 +1750,19 @@ Una sola versione attiva. Il profilo mock non può essere usato in produzione. O
 - `environment`
 - `account_reference`
 - `encrypted_credentials`
+- `account_info_json` opzionale, solo Aruba
+- `account_info_checked_at` opzionale, solo Aruba
 - `status`
 - `last_checked_at`
 - `last_synced_at`
 - `last_error_code`
 - `last_error_message_sanitized`
 
-Per la riga Aruba `encrypted_credentials` contiene un envelope cifrato autenticato. Il plaintext non è rileggibile dalla UI; identità attesa, ultimo test, rotazione e revoca sono campi o eventi separati. Cookie e sessione browser del fallback non vengono mai acquisiti.
+Per la riga Aruba `encrypted_credentials` contiene un envelope cifrato autenticato. Il plaintext non
+è rileggibile dalla UI; identità attesa, ultimo test, rotazione e revoca sono campi o eventi
+separati. `account_info_json` conserva esclusivamente lo snapshot `userInfo` sanificato e validato,
+mai token o credenziali; il relativo timestamp ne governa la freschezza. Cookie e sessione browser
+del fallback non vengono mai acquisiti.
 
 #### `sync_cursors`
 
@@ -1738,6 +1777,9 @@ Per Aruba usare stream distinti per anno fiscale e tipo inventario, con cursore 
 #### `aruba_remote_documents`
 
 Inventario canonico dei documenti osservati tramite API o fallback manuale, indipendente dall'origine locale. Conserva account/ambiente, ID remoto, tipo, numero/serie/anno, data, destinatario e identificativi normalizzati necessari al matching, totale, stato remoto corrente, hash XML ufficiale, riferimenti ai file e date di prima/ultima osservazione. Ogni chiave di deduplicazione — ID remoto, identità fiscale del documento e hash XML — è confinata per account e ambiente; collisioni incompatibili diventano conflitti, non fusioni automatiche.
+
+Filename provider, ID SdI e timestamp dell’ultimo aggiornamento remoto sono chiavi di ricerca
+indicizzate ma non sostituiscono l’ID remoto né i controlli di coerenza del documento.
 
 #### `aruba_remote_observations`
 
@@ -1997,16 +2039,26 @@ Per nota di credito -> fattura originaria.
 - `manifest_sha256`
 - `xml_sha256`
 - `remote_id`
+- `source_filename`
+- `provider_filename`
+- `provider_sdi_id`
 - `status`
 - `transport` (`API`, `HELPER`, `MANUAL`)
 - `validation_metadata_json`
 - `readback_metadata_json`
+- `accepted_at`
 - `submitted_at`
 - `last_checked_at`
+- `next_readback_at`
 - `error_code`
 - `error_message_sanitized`
 
 Questa tabella registra esclusivamente tentativi di upload/invio originati da HF. I documenti nati fuori da HF vivono nell'inventario remoto e vengono collegati a `documents` senza creare submission artificiali.
+
+`accepted_at` registra la risposta Aruba `0000` e non costituisce prova di ricezione o consegna SdI.
+`next_readback_at` resta valorizzato soltanto per gli stati da rileggere. Gli stati outbound aggiunti
+sono `SEND_PENDING`, `SEND_FAILED` e `ARUBA_ACCEPTED`; gli esiti successivi convergono nella stessa
+macchina a stati canonica dell’inventario.
 
 #### `aruba_submission_attempts`
 
@@ -2206,6 +2258,8 @@ Valori di routine da calibrare:
 - Shopify recovery sync: ogni 10-15 minuti.
 - eBay sync: ogni 10-15 minuti.
 - Aruba inventory: inventario dal 1° luglio 2026, incrementale ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile sullo stesso orizzonte; nuovo stream, cursore assente o incongruenza forzano una nuova scansione completa.
+- Aruba post-invio: primo readback subito dopo `ARUBA_ACCEPTED`, poi ogni 15 minuti fino allo stato
+  terminale o a un controllo operativo; il comando manuale usa la medesima coda.
 - Pulizia sessioni: giornaliera.
 
 Rispettare rate limit reali e usare cursori/sovrapposizione per Shopify, eBay e inventario Aruba. Il worker Aruba applica budget conservativi, priorità ai documenti non terminali, backoff con jitter e un solo giro canonico per account e ambiente. Mostrare età dell'ultimo inventario completo, copertura del backfill, checkpoint e azione `Sincronizza ora`.
@@ -3885,7 +3939,7 @@ resta Nodemailer.
 | HF-O08 | Chiusa | Retention fiscale e tecnica definitiva | — | politica approvata dal titolare e dal commercialista |
 | HF-O09 | Chiusa | Direzione visiva della Brand Foundation | — | fondazione, SVG e asset approvati |
 | HF-O10 | Chiusa | Semantica completa API Aruba | — | contratto tipizzato, fixture sanificate, limiti e codici errore senza divergenze inspiegate |
-| HF-O11 | Rinviata, non bloccante | Isolamento callback per la sola utenza Base | nessuna milestone corrente | eventuale tranche futura dopo garanzia scritta Aruba/agenzia; fino ad allora nessun receiver o scaffolding |
+| HF-O11 | Chiusa | Callback Aruba esclusi; polling e readback sono il monitoraggio completo | — | decisione del titolare; nessun receiver, segreto, tabella o scaffolding preparatorio |
 | HF-O12 | Chiusa | Destino di preferito/bridge e helper Playwright | — | ritiro completo verificato; audit e provenienza storica preservati |
 | HF-O13 | Rinviata, non bloccante | Canary API TD04 | solo automazione TD04 | eventuale rimborso reale legittimo e autorizzazione specifica; fino ad allora TD04 manuale |
 
@@ -3901,7 +3955,7 @@ sono chiusi con prove osservate e collegate dal record corrente
 ciò che nessuna singola milestone può dichiarare da sola.
 
 1. tutti i requisiti `HF-F01`-`HF-F40` ancora attivi sono implementati o esplicitamente riclassificati dal titolare;
-2. le decisioni bloccanti di `HF-O01`-`HF-O13` sono chiuse con la fonte e la condizione previste in §30; HF-O11 e HF-O13 restano rinvii non bloccanti finché callback e TD04 automatico restano fuori dall'uso ordinario;
+2. le decisioni bloccanti di `HF-O01`-`HF-O13` sono chiuse con la fonte e la condizione previste in §30; HF-O11 esclude i callback e HF-O13 mantiene rinviato il solo TD04 automatico;
 3. la catena completa - import, raggruppamento, modifiche, comparatore, approvazione, API Aruba TD01 con le tre modalità, fallback manuale, stati SdI, e-mail e note di credito manuali - è stata osservata end-to-end, non provata a pezzi;
 4. profilo fiscale, numerazione, XML fattura e TD04 derivano da fonti approvate e da golden test che falliscono se il profilo cambia involontariamente;
 5. nessun dato reale e nessun segreto plaintext compare in repository, cronologia, CI, log, fixture o documentazione; l'unico blob sensibile ammesso è la key VPS cifrata;

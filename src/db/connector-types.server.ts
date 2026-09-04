@@ -13,6 +13,8 @@ export type JobType =
   | "aruba_refresh_nonterminal"
   | "aruba_full_inventory"
   | "aruba_dry_run_submission"
+  | "aruba_send_submission"
+  | "aruba_readback_submission"
   | "maintenance_retention";
 
 export interface ConnectorActor {

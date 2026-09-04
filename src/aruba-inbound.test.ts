@@ -194,7 +194,9 @@ test("le pagine inventario rispettano tipo e anno dichiarati dallo stream", () =
 });
 
 test("gli stati remoti non regrediscono e i terminali incompatibili aprono conflitto", () => {
-  assert.equal(remoteStatusTransition("SDI_PROCESSING", "SUBMITTED"), "IGNORE_STALE");
+  assert.equal(remoteStatusTransition("SDI_PROCESSING", "SUBMITTED"), "APPLY");
+  assert.equal(remoteStatusTransition("SUBMITTED", "SDI_PROCESSING"), "IGNORE_STALE");
+  assert.equal(remoteStatusTransition("SDI_PROCESSING", "UNKNOWN"), "APPLY");
   assert.equal(remoteStatusTransition("SDI_PROCESSING", "DELIVERED"), "APPLY");
   assert.equal(remoteStatusTransition("DELIVERED", "SDI_PROCESSING"), "IGNORE_STALE");
   assert.equal(remoteStatusTransition("DELIVERED", "REJECTED"), "CONFLICT");

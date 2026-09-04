@@ -78,6 +78,7 @@ const INVOICE_SOURCE_PREPARATIONS = "065_invoice_source_preparations.sql";
 const EBAY_CARE_OF_ADDRESS_REPLAY = "066_ebay_care_of_address_replay.sql";
 const EBAY_PAYMENT_TIMESTAMP_REPLAY = "067_ebay_payment_timestamp_replay.sql";
 const EBAY_PARTIAL_REFUND_PAYMENT_STATUS = "068_ebay_partial_refund_payment_status.sql";
+const ARUBA_OUTBOUND_MONITORING = "070_aruba_outbound_monitoring.sql";
 const CURRENT_MIGRATIONS = sortedMigrationFileNames(readdirSync("migrations"));
 const outboundIndex = CURRENT_MIGRATIONS.indexOf(ARUBA_API_OUTBOUND);
 assert.notEqual(outboundIndex, -1, `${ARUBA_API_OUTBOUND} assente dal catalogo migrazioni`);
@@ -191,6 +192,7 @@ export {
   EBAY_CARE_OF_ADDRESS_REPLAY,
   EBAY_PAYMENT_TIMESTAMP_REPLAY,
   EBAY_PARTIAL_REFUND_PAYMENT_STATUS,
+  ARUBA_OUTBOUND_MONITORING,
   CURRENT_MIGRATIONS,
   outboundIndex,
   MIGRATIONS_AFTER_ARUBA_API_OUTBOUND,

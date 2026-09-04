@@ -50,6 +50,13 @@ export const auditActions = [
   "ARUBA_API_DRY_RUN_COMPLETED",
   "ARUBA_API_DRY_RUN_FAILED",
   "ARUBA_API_DRY_RUN_UNKNOWN",
+  "ARUBA_API_SEND_STARTED",
+  "ARUBA_API_SEND_ACCEPTED",
+  "ARUBA_API_SEND_FAILED",
+  "ARUBA_API_SEND_UNKNOWN",
+  "ARUBA_API_READBACK_COMPLETED",
+  "ARUBA_API_READBACK_CONFLICT",
+  "ARUBA_API_READBACK_REQUESTED",
   "ARUBA_SETTINGS_CHANGED",
   "ARUBA_READ_SESSION_ISSUED",
   "ARUBA_INVENTORY_COMPLETED",
@@ -144,6 +151,15 @@ export async function writeAudit(
       endpoint: "/services/invoice/upload";
       requestLimit: 1;
       recoveredAfterRestart: boolean;
+      attemptNumber: number;
+      resultClass: "ACCEPTED" | "REJECTED" | "UNKNOWN";
+      remoteStatus:
+        | "SDI_PROCESSING"
+        | "SUBMITTED"
+        | "DELIVERED"
+        | "NOT_DELIVERED"
+        | "REJECTED"
+        | "UNKNOWN";
     }>;
     /** Solo campi anagrafici allowlisted o riferimenti a snapshot: mai token o payload integrali. */
     before?: Record<string, unknown> | null;

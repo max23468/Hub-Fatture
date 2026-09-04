@@ -55,14 +55,25 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     globalThis.fetch = async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/auth/signin") {
-        return response({ access_token: "token-sintetico", expires_in: 1800 });
+        return response({
+          access_token: "token-sintetico",
+          token_type: "bearer",
+          expires_in: 1800,
+          refresh_token: "refresh-sintetico",
+          ".issued": "Tue, 01 Jul 2031 01:00:00 GMT",
+          ".expires": "Tue, 01 Jul 2031 01:30:00 GMT",
+        });
       }
       if (url.pathname === "/auth/userInfo") {
         return response({
           username: "utente-sintetico",
+          pec: "utente-sintetico@example.invalid",
+          userDescription: "Utente sintetico",
+          countryCode: "IT",
           vatCode: "00000000000",
-          fiscalCode: null,
-          accountStatus: { expired: false, expirationDate: null },
+          fiscalCode: "00000000000",
+          accountStatus: { expired: false, expirationDate: "2027-07-01" },
+          usageStatus: { usedSpaceKB: 1024, maxSpaceKB: 10240 },
         });
       }
       if (url.pathname === "/api/v2/invoices-out/detail") {
@@ -287,6 +298,7 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
     );
     assert.equal((await api.getArubaApiConnectionStatus()).configured, true);
     assert.deepEqual(await api.getArubaApiCredentialIdentity(owner), {
+      apiEnvironment: "DEMO",
       username: "utente-sintetico",
       expectedTaxId: "00000000000",
     });
@@ -331,10 +343,7 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
            FROM aruba_api_traffic_limits ORDER BY scope`,
         )
       ).rows,
-      [
-        { scope: "INVOICE_READ", cooling_down: true, rate_limited_count: 1 },
-        { scope: "NOTIFICATION_READ", cooling_down: true, rate_limited_count: 1 },
-      ],
+      [{ scope: "INVOICE_READ", cooling_down: true, rate_limited_count: 1 }],
     );
     assert.deepEqual(
       (
@@ -392,6 +401,12 @@ test("l’inbound API cifra la credenziale e completa un backfill canonico ripre
          'RUNNING', '2019-01-01', '2019-01-03', '2019-01-01', '2019-01-03',
          now() + interval '3 minutes')`,
       [stagedRunId],
+    );
+    assert.equal(await api.reconcileArubaApiOutboundReadback({} as never, {} as never), null);
+    assert.equal(
+      (await getPool().query("SELECT status FROM aruba_sync_runs WHERE id = $1", [stagedRunId]))
+        .rows[0].status,
+      "RUNNING",
     );
     const stagedApiDocument = await getPool().query<{ id: string }>(
       `INSERT INTO aruba_remote_documents

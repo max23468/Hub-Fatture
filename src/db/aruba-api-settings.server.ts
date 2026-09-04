@@ -1,10 +1,16 @@
 import type pg from "pg";
 import { z } from "zod";
+import { ARUBA_API_POLICY } from "../aruba-api-policy.ts";
 import { calculateArubaBackfillProgress } from "../aruba-backfill-progress.ts";
 import { getConfig } from "../config.server.ts";
 import { encryptCredential } from "../crypto.server.ts";
 import { AppError } from "../errors.ts";
-import { ARUBA_API_V2_CONTRACT, authenticateArubaApi } from "../integrations/aruba-api.server.ts";
+import {
+  ARUBA_API_V2_CONTRACT,
+  arubaApiAccountInfoSchema,
+  authenticateArubaApiWithAccount,
+} from "../integrations/aruba-api.server.ts";
+import { invalidateConfiguredArubaApiSession } from "./aruba-api-connection.server.ts";
 import { writeAudit } from "./audit.server.ts";
 import { reserveArubaApiAuthentication } from "./aruba-api-authentication.server.ts";
 import { getArubaApiTrafficStatus } from "./aruba-api-traffic.server.ts";
@@ -38,8 +44,10 @@ export async function getArubaApiConnectionStatus() {
       lastFullSyncAt: null,
       lastErrorCode: null,
       limits: {
-        inventoryRequestsPerMinute: Math.floor(60_000 / getConfig().ARUBA_API_READ_INTERVAL_MS),
-        notificationRequestsPerMinute: Math.floor(60_000 / getConfig().ARUBA_API_READ_INTERVAL_MS),
+        inventoryRequestsPerMinute: Math.floor(60_000 / ARUBA_API_POLICY.invoiceReadIntervalMs),
+        notificationRequestsPerMinute: Math.floor(
+          60_000 / ARUBA_API_POLICY.notificationReadIntervalMs,
+        ),
         providerInventoryRequestsPerMinute:
           ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
         providerNotificationRequestsPerMinute:
@@ -48,6 +56,7 @@ export async function getArubaApiConnectionStatus() {
         lastRateLimitedAt: null,
       },
       latestRun: null,
+      account: null,
     };
   }
   const [latestRun, traffic] = await Promise.all([
@@ -70,6 +79,7 @@ export async function getArubaApiConnectionStatus() {
     getArubaApiTrafficStatus(storedApiEnvironment(current)),
   ]);
   const run = latestRun.rows[0];
+  const account = arubaApiAccountInfoSchema.safeParse(current.account_info_json);
   return {
     configured: current.encrypted_credentials !== null,
     status: current.status,
@@ -81,9 +91,25 @@ export async function getArubaApiConnectionStatus() {
     lastSyncedAt: current.last_synced_at?.toISOString() ?? null,
     lastFullSyncAt: current.last_full_sync_at?.toISOString() ?? null,
     lastErrorCode: current.last_error_code,
+    account: account.success
+      ? {
+          ...account.data,
+          checkedAt: current.account_info_checked_at?.toISOString() ?? null,
+          usagePercent: Math.round(
+            (account.data.usageStatus.usedSpaceKB / account.data.usageStatus.maxSpaceKB) * 100,
+          ),
+          expirationDays: Math.ceil(
+            (new Date(`${account.data.accountStatus.expirationDate}T23:59:59.999Z`).getTime() -
+              Date.now()) /
+              86_400_000,
+          ),
+        }
+      : null,
     limits: {
-      inventoryRequestsPerMinute: Math.floor(60_000 / getConfig().ARUBA_API_READ_INTERVAL_MS),
-      notificationRequestsPerMinute: Math.floor(60_000 / getConfig().ARUBA_API_READ_INTERVAL_MS),
+      inventoryRequestsPerMinute: Math.floor(60_000 / ARUBA_API_POLICY.invoiceReadIntervalMs),
+      notificationRequestsPerMinute: Math.floor(
+        60_000 / ARUBA_API_POLICY.notificationReadIntervalMs,
+      ),
       providerInventoryRequestsPerMinute:
         ARUBA_API_V2_CONTRACT.sentInvoiceSearchRequestsPerMinutePerIp,
       providerNotificationRequestsPerMinute:
@@ -195,6 +221,7 @@ export async function getArubaApiCredentialIdentity(actor: ArubaApiActor) {
   try {
     const credentials = parseStoredCredentials(current.encrypted_credentials);
     return {
+      apiEnvironment: credentials.apiEnvironment,
       username: credentials.username,
       expectedTaxId: credentials.expectedTaxId,
     };
@@ -217,21 +244,23 @@ export async function saveArubaApiCredentials(
   const parsed = storedCredentialsSchema.safeParse(input);
   if (!parsed.success) throw new AppError("AUTH_INVALID_CREDENTIALS", 422);
   await reserveArubaApiAuthentication(parsed.data.apiEnvironment);
-  await arubaProviderCall(parsed.data.apiEnvironment, () =>
-    authenticateArubaApi({
+  const authenticated = await arubaProviderCall(parsed.data.apiEnvironment, "AUTH", () =>
+    authenticateArubaApiWithAccount({
       environment: parsed.data.apiEnvironment,
       credentials: parsed.data,
     }),
   );
-  return withTransaction(async (client) => {
+  const saved = await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:ARUBA'))");
     const existing = await connection(client, true);
     const saved = await client.query<{ id: string }>(
       `INSERT INTO connections
         (provider, environment, account_reference, encrypted_credentials, status,
          api_paused, inbound_enabled, automatic_authority, last_checked_at,
-         credentials_verified_at, credentials_rotated_at, credentials_revoked_at)
-       VALUES ('ARUBA', $1, $2, $3, 'PAUSED', true, false, 'API', now(), now(), now(), NULL)
+         credentials_verified_at, credentials_rotated_at, credentials_revoked_at,
+         account_info_json, account_info_checked_at)
+       VALUES ('ARUBA', $1, $2, $3, 'PAUSED', true, false, 'API', now(), now(), now(), NULL,
+         $4::jsonb, now())
        ON CONFLICT (provider, environment) DO UPDATE SET
          account_reference = EXCLUDED.account_reference,
          encrypted_credentials = EXCLUDED.encrypted_credentials,
@@ -239,12 +268,15 @@ export async function saveArubaApiCredentials(
          automatic_authority = 'API',
          last_checked_at = now(), credentials_verified_at = now(),
          credentials_rotated_at = now(), credentials_revoked_at = NULL,
+         account_info_json = EXCLUDED.account_info_json,
+         account_info_checked_at = EXCLUDED.account_info_checked_at,
          last_error_code = NULL, last_error_message_sanitized = NULL, updated_at = now()
        RETURNING id`,
       [
         connectionEnvironment(),
         getConfig().ARUBA_ACCOUNT_REFERENCE,
         encryptCredential(parsed.data, credentialsKey()),
+        JSON.stringify(authenticated.account),
       ],
     );
     if (existing && existing.account_reference !== getConfig().ARUBA_ACCOUNT_REFERENCE) {
@@ -271,11 +303,13 @@ export async function saveArubaApiCredentials(
     });
     return { saved: true, initiallyPaused: true };
   });
+  invalidateConfiguredArubaApiSession();
+  return saved;
 }
 
 export async function revokeArubaApiCredentials(actor: ArubaApiActor) {
   requireOwner(actor);
-  return withTransaction(async (client) => {
+  const revoked = await withTransaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:ARUBA'))");
     const current = await connection(client, true);
     if (!current) throw new AppError("PROVIDER_NOT_CONFIGURED", 404);
@@ -312,6 +346,8 @@ export async function revokeArubaApiCredentials(actor: ArubaApiActor) {
     });
     return { revoked: true };
   });
+  invalidateConfiguredArubaApiSession();
+  return revoked;
 }
 
 export async function setArubaApiControls(

@@ -22,6 +22,7 @@ import { getSessionUser } from "../src/db/auth.server.ts";
 import { readOperationalControlSummary } from "../src/db/operational-controls.server.ts";
 import "./styles.css";
 import "./styles/aruba-settings.css";
+import "./styles/aruba-document-status.css";
 import "./styles/documents.css";
 import "./styles/mobile-navigation.css";
 import "./styles/preparation.css";

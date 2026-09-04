@@ -27,6 +27,7 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `REQUEST_TIMEOUT`                      | NETWORK transitorio   | no per mutazioni | ripetere soltanto dopo readback       |
 | `AUTH_PROVIDER_EXPIRED`                | AUTH permanente       | no               | ricollegare il canale                 |
 | `AUTH_PROVIDER_ACCOUNT_MISMATCH`       | AUTH permanente       | no               | autorizzare l'account configurato     |
+| `AUTH_PROVIDER_REFRESH_INVALID`        | AUTH permanente       | no               | eseguire un nuovo accesso controllato |
 | `PROVIDER_RATE_LIMITED`                | PROVIDER transitorio  | sì, con backoff  | attendere o usare il retry manuale    |
 | `PROVIDER_UNAVAILABLE`                 | PROVIDER transitorio  | sì, con backoff  | verificare il canale e riprovare      |
 | `PROVIDER_RESPONSE_TOO_LARGE`          | PROVIDER permanente   | no               | verificare query e contratto          |
@@ -45,8 +46,20 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `ARUBA_VALIDATION_FAILED`              | VALIDATION permanente | no               | rimuovere gli upload e correggere     |
 | `ARUBA_OPERATION_FORBIDDEN`            | AUTH permanente       | no               | usare l’account titolare              |
 | `ARUBA_SEND_NOT_AUTHORIZED`            | CONFLICT permanente   | no               | verificare kill switch e manifest     |
+| `ARUBA_SUBMISSION_PAUSED`              | CONFLICT temporaneo   | no               | riattivare la connessione se corretto |
+| `ARUBA_SUBMISSION_UNKNOWN`             | UNKNOWN               | no               | completare il readback                |
 | `ARUBA_RECONCILIATION_REQUIRED`        | UNKNOWN               | no               | completare il readback                |
 | `ARUBA_IMPORT_INVALID`                 | VALIDATION permanente | no               | scegliere il file ufficiale corretto  |
+| `ARUBA_ACCOUNT_MISMATCH`               | AUTH permanente       | no               | collegare l’account fiscale corretto  |
+| `ARUBA_STORAGE_EXHAUSTED`              | CONFLICT permanente   | no               | liberare spazio su Aruba              |
+| `ARUBA_REMOTE_STATUS_UNRECOGNIZED`     | PROVIDER permanente   | no               | qualificare il nuovo stato provider   |
+| `ARUBA_INVENTORY_INVALID`              | VALIDATION permanente | no               | verificare i dati restituiti          |
+| `ARUBA_INVENTORY_INCOMPLETE`           | DATA permanente       | no               | completare tutti gli stream           |
+| `ARUBA_INVENTORY_CONFLICT`             | DATA permanente       | no               | risolvere il conflitto remoto         |
+| `ARUBA_PROFILE_CONFLICT`               | DATA permanente       | no               | verificare profilo e documento        |
+| `ARUBA_INVENTORY_BLOCKED`              | CONFLICT temporaneo   | no               | aggiornare o riconciliare inventario  |
 | `ARUBA_API_BUDGET_EXHAUSTED`           | PROVIDER permanente   | no               | autorizzare un nuovo manifesto        |
+| `ARUBA_API_COOLDOWN_ACTIVE`            | PROVIDER temporaneo   | sì               | attendere il cooldown                 |
 | `ARUBA_API_AUTH_INTERVAL_ACTIVE`       | PROVIDER temporaneo   | sì               | attendere il retry automatico breve   |
+| `ARUBA_PREFLIGHT_REQUIRED`             | CONFLICT temporaneo   | no               | aggiornare account e preflight        |
 | `UNKNOWN`                              | UNKNOWN               | no               | diagnosticare con request ID          |

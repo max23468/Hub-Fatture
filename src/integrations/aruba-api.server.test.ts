@@ -8,11 +8,24 @@ import {
   arubaApiInvoiceDetailSchema,
   arubaApiNotificationListSchema,
   dryRunArubaApiInvoice,
+  refreshArubaApiSession,
   readArubaApiInvoiceDetail,
   readArubaApiInvoicePage,
   readArubaApiNotifications,
   runArubaApiReadProbe,
+  sendUnsignedArubaApiInvoice,
+  type ArubaApiSession,
 } from "./aruba-api.server.ts";
+
+function apiSession(environment: ArubaApiSession["environment"] = "PRODUCTION") {
+  return {
+    environment,
+    accessToken: "token-sintetico",
+    expiresAt: Date.now() + 30 * 60_000,
+    refreshToken: "refresh-sintetico",
+    refreshExpiresAt: Date.now() + 60 * 60_000,
+  } satisfies ArubaApiSession;
+}
 
 test("il dry-run invia lo stesso XML con i controlli extraschema e senza trasmettere a SdI", async () => {
   const originalFetch = globalThis.fetch;
@@ -27,9 +40,6 @@ test("il dry-run invia lo stesso XML con i controlli extraschema e senza trasmet
       assert.equal(new Headers(init.headers).get("authorization"), "Bearer token-sintetico");
       assert.deepEqual(JSON.parse(String(init.body)), {
         dataFile: xml.toString("base64"),
-        credential: "",
-        domain: "",
-        senderPIVA: "",
         skipExtraSchema: false,
         dryRun: true,
       });
@@ -40,18 +50,12 @@ test("il dry-run invia lo stesso XML con i controlli extraschema e senza trasmet
       });
     };
 
-    assert.deepEqual(
-      await dryRunArubaApiInvoice(
-        { environment: "DEMO", accessToken: "token-sintetico", expiresAt: Date.now() + 60_000 },
-        xml,
-      ),
-      {
-        accepted: true,
-        errorCode: "0000",
-        errorDescription: "Operazione effettuata - richiesta-sintetica",
-        uploadFileName: "IT00000000000_test.xml.p7m",
-      },
-    );
+    assert.deepEqual(await dryRunArubaApiInvoice(apiSession("DEMO"), xml), {
+      accepted: true,
+      errorCode: "0000",
+      errorDescription: "Operazione effettuata - richiesta-sintetica",
+      uploadFileName: "IT00000000000_test.xml.p7m",
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -67,12 +71,73 @@ test("il dry-run restituisce un rifiuto sincrono senza trasformarlo in successo"
         uploadFileName: null,
       });
     const result = await dryRunArubaApiInvoice(
-      { environment: "PRODUCTION", accessToken: "token", expiresAt: Date.now() + 60_000 },
+      { ...apiSession(), accessToken: "token" },
       Buffer.from("<xml />"),
     );
     assert.equal(result.accepted, false);
     assert.equal(result.errorCode, "0096");
     assert.equal(result.uploadFileName, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("il dry-run non interpreta un codice vuoto come accettazione dell’XML non firmato", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      response({
+        errorCode: "",
+        errorDescription: "Risposta sintetica senza codice",
+        uploadFileName: "IT00000000000_ambiguo.xml.p7m",
+      });
+    const result = await dryRunArubaApiInvoice(
+      { ...apiSession(), accessToken: "token" },
+      Buffer.from("<xml />"),
+    );
+    assert.equal(result.accepted, false);
+    assert.equal(result.errorCode, "");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("l’invio reale usa l’XML non firmato senza campi di firma", async () => {
+  const originalFetch = globalThis.fetch;
+  const xml = Buffer.from("<FatturaElettronica />");
+  try {
+    globalThis.fetch = async (_input, init = {}) => {
+      assert.deepEqual(JSON.parse(String(init.body)), {
+        dataFile: xml.toString("base64"),
+        skipExtraSchema: false,
+        dryRun: false,
+      });
+      return response({
+        errorCode: "0000",
+        errorDescription: "Operazione effettuata",
+        uploadFileName: "IT00000000000_invio.xml.p7m",
+      });
+    };
+    assert.equal((await sendUnsignedArubaApiInvoice(apiSession(), xml)).accepted, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("il rinnovo usa soltanto il refresh token e sostituisce entrambi i token", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (_input, init = {}) => {
+      assert.equal(String(init.body), "grant_type=refresh_token&refresh_token=refresh-sintetico");
+      return response({
+        access_token: "token-rinnovato",
+        refresh_token: "refresh-rinnovato",
+        expires_in: 1800,
+      });
+    };
+    const refreshed = await refreshArubaApiSession({ session: apiSession() });
+    assert.equal(refreshed.accessToken, "token-rinnovato");
+    assert.equal(refreshed.refreshToken, "refresh-rinnovato");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -87,6 +152,33 @@ const SYNTHETIC_INVOICE_PAGE = JSON.parse(
 ) as Record<string, unknown>;
 
 function response(value: unknown): Response {
+  if (value && typeof value === "object" && "access_token" in value) {
+    value = {
+      token_type: "bearer",
+      refresh_token: "refresh-sintetico",
+      ".issued": "Wed, 26 Aug 2026 12:00:00 GMT",
+      ".expires": "Wed, 26 Aug 2026 12:30:00 GMT",
+      ...value,
+    };
+  }
+  if (value && typeof value === "object" && "accountStatus" in value) {
+    const account = value as {
+      fiscalCode?: string | null;
+      accountStatus: { expired: boolean; expirationDate?: string | null };
+    };
+    value = {
+      pec: "utente-sintetico@pec.example",
+      userDescription: "Impresa sintetica",
+      countryCode: "IT",
+      usageStatus: { usedSpaceKB: 256, maxSpaceKB: 1_024 },
+      ...value,
+      fiscalCode: account.fiscalCode ?? "00000000000",
+      accountStatus: {
+        ...account.accountStatus,
+        expirationDate: account.accountStatus.expirationDate ?? "2027-08-26",
+      },
+    };
+  }
   return Response.json(value);
 }
 
@@ -137,6 +229,128 @@ function emptyProductionInvoicePage(): Record<string, unknown> {
     number: 0,
   };
 }
+
+function invoiceDetail(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    channelGroup: 1,
+    shopName: null,
+    invoices: [
+      {
+        invoiceDate: "2026-08-26T12:00:00.000Z",
+        number: "FPR 0001/26",
+        documentType: "TD01",
+        status: "Inviata",
+        statusDescription: "",
+        totalDocument: "100.00",
+        totalVat: "22.00",
+        netPayable: "100.00",
+      },
+    ],
+    sdiErrors: [],
+    id: "gruppo-1",
+    sender: {
+      description: "Cedente sintetico",
+      countryCode: "IT",
+      vatCode: "00000000000",
+      fiscalCode: null,
+    },
+    receiver: {
+      description: "Destinatario sintetico",
+      countryCode: "IT",
+      vatCode: "11111111111",
+      fiscalCode: null,
+    },
+    invoiceType: "FPR12",
+    docType: "out",
+    file: "PHhtbC8+",
+    filename: "IT00000000000_gruppo-1.xml",
+    username: "utente-sintetico",
+    creationDate: "2026-08-26T12:00:00.000Z",
+    lastUpdate: "2026-08-26T12:01:00.000Z",
+    idSdi: "SDI-1",
+    pdfFile: null,
+    pddAvailable: false,
+    ...overrides,
+  };
+}
+
+test("la ricerca avanzata serializza tutti i filtri ufficiali entro 48 ore", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      assert.deepEqual(Object.fromEntries(url.searchParams), {
+        page: "1",
+        size: "100",
+        creationStartDate: "2026-08-25T12:00:00.000Z",
+        creationEndDate: "2026-08-26T12:00:00.000Z",
+        receiverCountry: "CH",
+        receiverVatcode: "CHE123456789",
+        receiverFiscalcode: "RSSMRA80A01H501U",
+        status: "Consegnata",
+        documentType: "TD01",
+        modifiedStartDate: "2026-08-25T13:00:00.000Z",
+        modifiedEndDate: "2026-08-26T11:00:00.000Z",
+      });
+      return response({ ...invoicePage({ page: 1, totalElements: 0 }), size: 100 });
+    };
+    await readArubaApiInvoicePage({
+      session: apiSession(),
+      page: 1,
+      size: 100,
+      windowStart: new Date("2026-08-25T12:00:00.000Z"),
+      windowEnd: NOW,
+      filters: {
+        receiverCountry: "ch",
+        receiverVatCode: "CHE123456789",
+        receiverFiscalCode: "RSSMRA80A01H501U",
+        status: "Consegnata",
+        documentType: "TD01",
+        modifiedStart: new Date("2026-08-25T13:00:00.000Z"),
+        modifiedEnd: new Date("2026-08-26T11:00:00.000Z"),
+      },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("il dettaglio accetta un solo identificatore e verifica filename o ID SdI", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    await assert.rejects(
+      readArubaApiInvoiceDetail(apiSession(), {}),
+      (error) => error instanceof AppError && error.status === 422,
+    );
+    await assert.rejects(
+      readArubaApiInvoiceDetail(apiSession(), { filename: "fattura.xml", idSdi: "SDI-1" }),
+      (error) => error instanceof AppError && error.status === 422,
+    );
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.searchParams.has("filename")) {
+        assert.equal(url.searchParams.get("filename"), "IT00000000000_gruppo-1.xml");
+        return response(invoiceDetail());
+      }
+      assert.equal(url.searchParams.get("idSdi"), "SDI-1");
+      return response(invoiceDetail());
+    };
+    assert.equal(
+      (
+        await readArubaApiInvoiceDetail(apiSession(), {
+          filename: "IT00000000000_gruppo-1.xml",
+        })
+      ).id,
+      "gruppo-1",
+    );
+    assert.equal(
+      (await readArubaApiInvoiceDetail(apiSession(), { idSdi: "SDI-1" })).idSdi,
+      "SDI-1",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("il probe Production autentica l'utenza Base e usa soltanto letture API", async () => {
   const originalFetch = globalThis.fetch;
@@ -763,11 +977,7 @@ test("l’adapter inbound usa gli endpoint ufficiali per pagina, dettaglio e not
       }
       return response(invoicePage({ page: 1, totalElements: 1, groups: [group as never] }));
     };
-    const session = {
-      environment: "PRODUCTION" as const,
-      accessToken: "token-sintetico",
-      expiresAt: Date.now() + 1_800_000,
-    };
+    const session = apiSession();
     assert.equal(
       (
         await readArubaApiInvoicePage({
@@ -796,11 +1006,7 @@ test("l’adapter normalizza soltanto la sentinella Production di una finestra v
   try {
     globalThis.fetch = async () => response(emptyProductionInvoicePage());
     const page = await readArubaApiInvoicePage({
-      session: {
-        environment: "PRODUCTION",
-        accessToken: "token-sintetico",
-        expiresAt: Date.now() + 1_800_000,
-      },
+      session: apiSession(),
       page: 1,
       windowStart: new Date("2019-01-01T00:00:00.000Z"),
       windowEnd: new Date("2019-01-03T00:00:00.000Z"),
@@ -829,11 +1035,7 @@ test("l’adapter normalizza soltanto la sentinella Production di una finestra v
       });
     await assert.rejects(
       readArubaApiInvoicePage({
-        session: {
-          environment: "PRODUCTION",
-          accessToken: "token-sintetico",
-          expiresAt: Date.now() + 1_800_000,
-        },
+        session: apiSession(),
         page: 1,
         windowStart: new Date("2019-01-01T00:00:00.000Z"),
         windowEnd: new Date("2019-01-03T00:00:00.000Z"),
@@ -858,7 +1060,7 @@ test("il probe si arresta prima della lettura se l'identità Aruba non coincide"
       return response({
         username: "utente-sintetico",
         vatCode: "11111111111",
-        fiscalCode: null,
+        fiscalCode: "11111111111",
         accountStatus: { expired: false, expirationDate: null },
       });
     };

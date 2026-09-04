@@ -119,6 +119,39 @@ export async function scheduleDueSyncs() {
        ON CONFLICT DO NOTHING`,
       [getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT"],
     );
+    await client.query(
+      `UPDATE jobs SET priority = CASE
+         WHEN type = 'aruba_refresh_nonterminal' THEN 30
+         WHEN type = 'aruba_sync_inventory' THEN 50
+         ELSE 60
+       END
+       WHERE type IN ('aruba_backfill_inventory', 'aruba_sync_inventory',
+         'aruba_refresh_nonterminal', 'aruba_full_inventory')
+         AND status = 'PENDING'`,
+    );
+    await client.query(
+      `INSERT INTO jobs (type, payload_json, max_attempts, priority)
+       SELECT 'aruba_readback_submission', jsonb_build_object(
+         'readbackKind', 'submission', 'submissionId', submissions.id::text), 1,
+         CASE submissions.status
+           WHEN 'UNKNOWN_REMOTE_STATE' THEN 10
+           WHEN 'ARUBA_ACCEPTED' THEN 20
+           ELSE 30
+         END
+       FROM aruba_submissions AS submissions
+       JOIN aruba_batches AS batches ON batches.id = submissions.batch_id
+       JOIN connections ON connections.provider = 'ARUBA'
+         AND connections.environment = CASE WHEN batches.environment = 'PRODUCTION'
+           THEN 'PRODUCTION' ELSE 'DEVELOPMENT' END
+         AND connections.account_reference = batches.account_reference
+       WHERE submissions.transport = 'API'
+         AND submissions.status IN ('ARUBA_ACCEPTED', 'SDI_PROCESSING', 'SUBMITTED',
+           'UNKNOWN', 'UNKNOWN_REMOTE_STATE')
+         AND submissions.next_readback_at <= now()
+         AND connections.status = 'CONNECTED' AND NOT connections.api_paused
+         AND connections.encrypted_credentials IS NOT NULL
+       ON CONFLICT DO NOTHING`,
+    );
   });
 }
 
@@ -158,7 +191,7 @@ export async function claimJob(workerId: string = randomUUID()): Promise<Claimed
          SELECT id FROM jobs
          WHERE run_at <= now()
            AND (status = 'PENDING' OR (status = 'RUNNING' AND lease_expires_at <= now()))
-         ORDER BY run_at, id
+         ORDER BY priority, run_at, id
          FOR UPDATE SKIP LOCKED
          LIMIT 1
        )
@@ -229,7 +262,7 @@ export async function yieldJob(
   result: Record<string, unknown> = {},
   delayMs = 1_000,
 ) {
-  if (!Number.isSafeInteger(delayMs) || delayMs < 0 || delayMs > 60_000) {
+  if (!Number.isSafeInteger(delayMs) || delayMs < 0 || delayMs > 24 * 60 * 60_000) {
     throw new AppError("PROVIDER_RESPONSE_INVALID", 422);
   }
   const yielded = await getPool().query(

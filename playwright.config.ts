@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import path from "node:path";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
@@ -6,6 +7,11 @@ const databaseUrl =
 const appBaseUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:4173";
 const appPort = Number(new URL(appBaseUrl).port);
 const credentialsEncryptionKey = Buffer.alloc(32, 9).toString("base64url");
+const documentStorageRoot = path.resolve("storage/e2e-documents");
+
+// Anche gli helper eseguiti nel processo Playwright devono usare lo stesso storage isolato
+// del server, prima che un test possa inizializzare la configurazione applicativa in cache.
+process.env.DOCUMENT_STORAGE_ROOT = documentStorageRoot;
 
 if (!Number.isInteger(appPort) || appPort < 1 || appPort > 65_535) {
   throw new Error("PLAYWRIGHT_BASE_URL deve includere una porta valida");
@@ -39,7 +45,7 @@ export default defineConfig({
       APP_ENV: "test",
       DATABASE_URL: databaseUrl,
       CREDENTIALS_ENCRYPTION_KEY: credentialsEncryptionKey,
-      DOCUMENT_STORAGE_ROOT: "storage/e2e-documents",
+      DOCUMENT_STORAGE_ROOT: documentStorageRoot,
       PORT: String(appPort),
     },
     port: appPort,

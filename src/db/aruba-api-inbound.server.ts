@@ -1,20 +1,24 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  hasRequiredArubaApiFiles,
-  mapArubaApiInboundGroup,
-  type ArubaApiInboundDocument,
-} from "../aruba-api-inbound.ts";
+import type pg from "pg";
+
+import { hasRequiredArubaApiFiles, type ArubaApiInboundDocument } from "../aruba-api-inbound.ts";
 import { ARUBA_API_POLICY, type ArubaApiReadScope } from "../aruba-api-policy.ts";
+import {
+  arubaApiGroupFromDetail,
+  mapArubaApiReadbackGroup,
+} from "../aruba-api-readback-mapping.ts";
 import { AppError, type ErrorCode } from "../errors.ts";
 import {
   authenticateArubaApi,
+  refreshArubaApiSession,
   readArubaApiInvoiceDetail,
   readArubaApiInvoicePage,
   readArubaApiNotifications,
   type ArubaApiCredentials,
   type ArubaApiEnvironment,
   type ArubaApiInvoiceDetail,
+  type ArubaApiNotificationList,
   type ArubaApiSession,
 } from "../integrations/aruba-api.server.ts";
 import { reserveArubaApiAuthentication } from "./aruba-api-authentication.server.ts";
@@ -279,17 +283,38 @@ class ArubaSessionManager {
     this.runId = runId;
     this.reserveAuthentication = reserveAuthentication;
     this.authenticationGate = new RateGate(
-      Math.max(rateDelayMs, ARUBA_API_POLICY.authenticationIntervalMs),
+      reserveAuthentication
+        ? Math.max(rateDelayMs, ARUBA_API_POLICY.authenticationIntervalMs)
+        : rateDelayMs,
     );
   }
 
   async current() {
     this.session ??= ArubaSessionManager.sessions.get(this.cacheKey) ?? null;
-    if (!this.session || this.session.expiresAt <= Date.now() + 60_000) {
+    if (this.session?.expiresAt && this.session.expiresAt <= Date.now() + 5 * 60_000) {
+      if (this.session.refreshExpiresAt > Date.now() + 5 * 60_000) {
+        await reserveArubaApiRequests(this.runId);
+        try {
+          this.session = await arubaProviderCall(this.environment, "AUTH", () =>
+            refreshArubaApiSession({ session: this.session! }),
+          );
+          ArubaSessionManager.sessions.set(this.cacheKey, this.session);
+        } catch (error) {
+          if (error instanceof AppError && error.code === "AUTH_PROVIDER_REFRESH_INVALID") {
+            this.session = null;
+          } else {
+            throw error;
+          }
+        }
+      } else {
+        this.session = null;
+      }
+    }
+    if (!this.session) {
       await this.authenticationGate.wait();
       if (this.reserveAuthentication) await reserveArubaApiAuthentication(this.environment);
       await reserveArubaApiRequests(this.runId, 2);
-      this.session = await arubaProviderCall(this.environment, () =>
+      this.session = await arubaProviderCall(this.environment, "AUTH", () =>
         authenticateArubaApi({
           environment: this.environment,
           credentials: this.credentials,
@@ -305,24 +330,11 @@ class ArubaSessionManager {
   }
 }
 
-function apiGroupFromDetail(detail: ArubaApiInvoiceDetail) {
-  return {
-    id: detail.id,
-    filename: detail.filename,
-    invoices: detail.invoices.map((invoice) => ({
-      invoiceDate: invoice.invoiceDate,
-      number: invoice.number,
-      documentType: invoice.documentType,
-      status: invoice.status,
-    })),
-  };
-}
-
 async function readGroup(
   runId: string,
   manager: ArubaSessionManager,
   waitForRead: (scope: ArubaApiReadScope) => Promise<void>,
-  group: ReturnType<typeof apiGroupFromDetail>,
+  group: ReturnType<typeof arubaApiGroupFromDetail>,
   knownDetail?: ArubaApiInvoiceDetail,
 ) {
   if (!knownDetail) {
@@ -331,30 +343,82 @@ async function readGroup(
   }
   const detail =
     knownDetail ??
-    (await arubaProviderCall(manager.environmentName(), async () =>
+    (await arubaProviderCall(manager.environmentName(), "INVOICE_READ", async () =>
       readArubaApiInvoiceDetail(await manager.current(), group.id),
     ));
   await waitForRead("NOTIFICATION_READ");
   await reserveArubaApiRequests(runId);
-  const notifications = await arubaProviderCall(manager.environmentName(), async () =>
-    readArubaApiNotifications(await manager.current(), group.id),
+  const notifications = await arubaProviderCall(
+    manager.environmentName(),
+    "NOTIFICATION_READ",
+    async () => readArubaApiNotifications(await manager.current(), group.id),
   );
-  return mapArubaApiInboundGroup({
-    group,
-    detail,
-    notifications: notifications.notifications.map((notification) => ({
-      filename: notification.filename,
-      invoiceId: notification.invoiceId,
-      docType: notification.docType,
-      notificationDate: notification.notificationDate,
-      number: notification.number,
-      result: notification.result,
-      file: notification.file,
-    })),
+  return mapArubaApiReadbackGroup(detail, notifications, group);
+}
+
+export async function reconcileArubaApiOutboundReadback(
+  detail: ArubaApiInvoiceDetail,
+  notifications: ArubaApiNotificationList,
+) {
+  const { current, credentials } = await runnableConnection();
+  const run = await openStandaloneReadbackRun(current, credentials, new Date());
+  if (!run) return null;
+  const documents = mapArubaApiReadbackGroup(detail, notifications);
+  try {
+    await persistApiPage(run, documents, 1, 1, true);
+    await completeRun(run.id);
+    return { runId: run.id, documents: documents.length };
+  } catch (error) {
+    await getPool().query(
+      `UPDATE aruba_sync_runs SET status = 'FAILED', completed_at = now(),
+         lease_expires_at = now(), last_error_code = $2,
+         last_error_message_sanitized = 'Readback puntuale Aruba non riuscito'
+       WHERE id = $1 AND status = 'RUNNING'`,
+      [run.id, error instanceof AppError ? error.code : "PROVIDER_UNAVAILABLE"],
+    );
+    throw error;
+  }
+}
+
+async function openStandaloneReadbackRun(
+  current: ArubaApiConnectionRow,
+  credentials: StoredCredentials,
+  now: Date,
+) {
+  return withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('aruba-api-run'))");
+    const active = await client.query(
+      `SELECT 1 FROM aruba_sync_runs
+       WHERE environment = $1 AND account_reference = $2 AND status = 'RUNNING'
+       LIMIT 1 FOR UPDATE`,
+      [inventoryEnvironment(), current.account_reference],
+    );
+    if (active.rows[0]) return null;
+    const windowStart = new Date(now.getTime() - 60_000);
+    const inserted = await client.query<ArubaSyncRunRow>(
+      `INSERT INTO aruba_sync_runs
+        (id, environment, api_environment, account_reference, kind, authority_mode,
+         window_start, window_end, checkpoint_start, checkpoint_end, checkpoint_page,
+         request_limit, lease_expires_at)
+       VALUES ($1, $2, $3, $4, 'TARGETED', 'CANONICAL', $5, $6, $5, $6, 1,
+         $7, now() + interval '3 minutes')
+       RETURNING *`,
+      [
+        randomUUID(),
+        inventoryEnvironment(),
+        credentials.apiEnvironment,
+        current.account_reference,
+        windowStart,
+        now,
+        REQUEST_LIMIT,
+      ],
+    );
+    return inserted.rows[0]!;
   });
 }
 
 async function persistCanonicalPageContents(
+  client: pg.PoolClient,
   run: ArubaSyncRunRow,
   documents: ArubaApiInboundDocument[],
   groupCount: number,
@@ -405,8 +469,20 @@ async function persistCanonicalPageContents(
     });
   }
   for (const document of documents) {
-    if (officialFilesBlocked.has(document.remote.remoteId)) continue;
-    const remoteDocumentId = remoteDocumentIds.get(document.remote.remoteId);
+    const remoteId = document.remote.remoteId;
+    const remoteDocumentId = remoteDocumentIds.get(remoteId);
+    await client.query(
+      `UPDATE aruba_remote_documents SET provider_filename = $2,
+         provider_sdi_id = $3, remote_last_update = $4
+       WHERE id = $1`,
+      [
+        remoteDocumentId,
+        document.providerFilename,
+        document.providerSdiId,
+        new Date(document.remoteLastUpdate),
+      ],
+    );
+    if (officialFilesBlocked.has(remoteId)) continue;
     const expectedInvoiceNumber = document.remote.providerInvoiceNumber;
     if (!remoteDocumentId || !expectedInvoiceNumber) {
       throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
@@ -463,8 +539,8 @@ async function persistCanonicalPage(
   terminal: boolean,
   afterPersist?: () => Promise<void>,
 ) {
-  return withJoinedTransaction(async () => {
-    await persistCanonicalPageContents(run, documents, groupCount, page, terminal);
+  return withJoinedTransaction(async (client) => {
+    await persistCanonicalPageContents(client, run, documents, groupCount, page, terminal);
     await afterPersist?.();
   });
 }
@@ -544,10 +620,10 @@ async function readTargetedGroup(
 ) {
   await waitForRead("INVOICE_READ");
   await reserveArubaApiRequests(run.id);
-  const detail = await arubaProviderCall(manager.environmentName(), async () =>
+  const detail = await arubaProviderCall(manager.environmentName(), "INVOICE_READ", async () =>
     readArubaApiInvoiceDetail(await manager.current(), providerGroupId),
   );
-  return readGroup(run.id, manager, waitForRead, apiGroupFromDetail(detail), detail);
+  return readGroup(run.id, manager, waitForRead, arubaApiGroupFromDetail(detail), detail);
 }
 
 async function readHistoricalTarget(
@@ -561,7 +637,7 @@ async function readHistoricalTarget(
     async (page, windowStart, windowEnd) => {
       await waitForRead("INVOICE_READ");
       await reserveArubaApiRequests(run.id);
-      return arubaProviderCall(manager.environmentName(), async () =>
+      return arubaProviderCall(manager.environmentName(), "INVOICE_READ", async () =>
         readArubaApiInvoicePage({
           session: await manager.current(),
           page,
@@ -680,7 +756,7 @@ export async function runArubaApiInboundJob(
       if (!checkpoint) throw new AppError("CONFLICT_REVISION", 409);
       await waitForRead("INVOICE_READ");
       await reserveArubaApiRequests(run.id);
-      const page = await arubaProviderCall(credentials.apiEnvironment, async () =>
+      const page = await arubaProviderCall(credentials.apiEnvironment, "INVOICE_READ", async () =>
         readArubaApiInvoicePage({
           session: await manager.current(),
           page: checkpoint.checkpoint_page,

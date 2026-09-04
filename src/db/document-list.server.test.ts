@@ -203,6 +203,82 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
           'FPR_1002_26.xml')`,
       [toReconcile.id],
     );
+    await database.getPool().query(
+      `INSERT INTO connections
+         (provider, environment, account_reference, encrypted_credentials, status,
+          credentials_verified_at, inbound_enabled, api_paused)
+       VALUES ('ARUBA', 'DEVELOPMENT', 'synthetic', 'encrypted', 'CONNECTED',
+         now() - interval '2 minutes', true, false)`,
+    );
+    await database.getPool().query(
+      `INSERT INTO aruba_submissions
+         (batch_id, document_id, attempt_number, environment, mode, manifest_sha256,
+          xml_sha256, status, transport, source_filename, next_readback_at)
+       VALUES ('00000000-0000-4000-8000-000000000001', $1, 1, 'MOCK',
+         'DOCUMENT_ONLY', repeat('f', 64), repeat('e', 64), 'SUBMITTED', 'API',
+         'FPR_1002_26.xml', now() - interval '1 minute')`,
+      [toReconcile.id],
+    );
+    await database.getPool().query(
+      `UPDATE aruba_submissions SET provider_filename = 'IT00000000000_ARCHIVE.xml',
+         provider_sdi_id = 'SDI-ARCHIVE-1002', last_checked_at = now()
+       WHERE document_id = $1`,
+      [toReconcile.id],
+    );
+    await database.getPool().query(
+      `UPDATE billing_cases SET customer_snapshot_json = customer_snapshot_json ||
+         jsonb_build_object('countryCode', 'IT', 'vatNumber', '12345678901')
+       FROM documents WHERE documents.billing_case_id = billing_cases.id
+         AND documents.id = $1`,
+      [toReconcile.id],
+    );
+    const { scheduleDueSyncs } = await import("./connector-jobs.server.ts");
+    await scheduleDueSyncs();
+    const scheduledReadback = await database.getPool().query<{
+      readback_kind: string;
+      submission_id: string;
+    }>(
+      `SELECT payload_json ->> 'readbackKind' AS readback_kind,
+              payload_json ->> 'submissionId' AS submission_id
+       FROM jobs WHERE type = 'aruba_readback_submission'`,
+    );
+    assert.deepEqual(scheduledReadback.rows, [{ readback_kind: "submission", submission_id: "1" }]);
+    await scheduleDueSyncs();
+    assert.equal(
+      (
+        await database
+          .getPool()
+          .query("SELECT count(*)::int AS total FROM jobs WHERE type = 'aruba_readback_submission'")
+      ).rows[0].total,
+      1,
+    );
+    await database.getPool().query(
+      `UPDATE aruba_submissions SET status = 'DELIVERED',
+         accepted_at = now() - interval '4 minutes',
+         submitted_at = now() - interval '3 minutes',
+         remote_status_changed_at = now() - interval '1 minute'
+       WHERE document_id = $1`,
+      [toReconcile.id],
+    );
+    await database.getPool().query(
+      `UPDATE aruba_batches
+       SET status = 'RECONCILED', requires_reconciliation = false
+       WHERE id = '00000000-0000-4000-8000-000000000001'`,
+    );
+    const notificationStorage = await database.getPool().query<{ id: string }>(
+      `INSERT INTO storage_objects
+         (kind, relative_path, sha256, size_bytes, content_type)
+       VALUES ('SDI_NOTIFICATION', 'archive/delivered.xml', repeat('9', 64), 100, 'application/xml')
+       RETURNING id`,
+    );
+    await database.getPool().query(
+      `INSERT INTO sdi_notifications
+         (submission_id, remote_notification_id, type, status, received_at, storage_object_id)
+       SELECT id, 'SDI-ARCHIVE-NOTIFICATION', 'DELIVERED', 'DELIVERED',
+              now() - interval '1 minute', $2
+       FROM aruba_submissions WHERE document_id = $1`,
+      [toReconcile.id, notificationStorage.rows[0]!.id],
+    );
 
     const firstPage = await documents.listDocuments();
     const secondPage = await documents.listDocuments({ page: 2 });
@@ -271,18 +347,59 @@ test("l’archivio documenti filtra, riepiloga e pagina un dataset denso", async
       (await documents.listDocuments({ transmission: "RECONCILIATION_REQUIRED" })).rows.map(
         (row) => row.id,
       ),
-      [toReconcile.id],
+      [],
     );
     assert.deepEqual(
       (await documents.listDocuments({ arubaStatus: "NOT_PREPARED" })).rows.map((row) => row.id),
       [toSend.id],
+    );
+    assert.deepEqual(
+      (await documents.listDocuments({ providerFilename: "ARCHIVE.xml" })).rows.map(
+        (row) => row.id,
+      ),
+      [toReconcile.id],
+    );
+    const monitoredDocument = (await documents.listDocuments({ providerFilename: "ARCHIVE.xml" }))
+      .rows[0]!;
+    assert.equal(monitoredDocument.aruba_status, "DELIVERED");
+    assert.equal(monitoredDocument.provider_sdi_id, "SDI-ARCHIVE-1002");
+    assert.ok(monitoredDocument.remote_status_changed_at);
+    assert.deepEqual(
+      monitoredDocument.aruba_timeline.map(({ status, source }) => ({ status, source })),
+      [
+        { status: "ARUBA_ACCEPTED", source: "ARUBA" },
+        { status: "SUBMITTED", source: "ARUBA" },
+        { status: "DELIVERED", source: "SDI" },
+      ],
+    );
+    assert.deepEqual(
+      (await documents.listDocuments({ sdiId: "SDI-ARCHIVE-1002" })).rows.map((row) => row.id),
+      [toReconcile.id],
+    );
+    assert.deepEqual(
+      (await documents.listDocuments({ remoteUpdatedFrom: "2026-01-01" })).rows.map(
+        (row) => row.id,
+      ),
+      [toReconcile.id],
+    );
+    assert.deepEqual(
+      (await documents.listDocuments({ origin: "HUB", fiscalNumber: "1002" })).rows.map(
+        (row) => row.id,
+      ),
+      [toReconcile.id],
+    );
+    assert.deepEqual(
+      (
+        await documents.listDocuments({ recipientCountry: "it", recipientTaxId: "123 45678901" })
+      ).rows.map((row) => row.id),
+      [toReconcile.id],
     );
     assert.deepEqual(await documents.documentArchiveSummary(), {
       total: 58,
       invoices: 58,
       credit_notes: 0,
       to_send: 1,
-      reconciliation_required: 1,
+      reconciliation_required: 0,
     });
 
     const officialStorage = await database.getPool().query<{ id: string }>(

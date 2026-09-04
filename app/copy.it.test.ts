@@ -32,8 +32,8 @@ test("le Impostazioni distinguono il collegamento dal fallimento della sincroniz
 
 test("le modalità Aruba distinguono l’approvazione dall’invio", () => {
   assert.equal(copy.settings.arubaDocumentOnly, "Crea solo il documento");
-  assert.equal(copy.settings.arubaContextualConfirmation, "Chiedi conferma prima dell’invio");
-  assert.equal(copy.settings.arubaAutomaticAfterApproval, "Invio automatico dopo approvazione");
+  assert.equal(copy.settings.arubaContextualConfirmation, "Chiedi prima di inviare");
+  assert.equal(copy.settings.arubaAutomaticAfterApproval, "Invio automatico");
 });
 
 test("la connessione Aruba distingue le credenziali del pannello da credenziali API dedicate", () => {

@@ -29,6 +29,7 @@ export interface ArubaApiInboundDetail {
   file: string;
   pdfFile?: string | null;
   lastUpdate: string;
+  idSdi?: string | null;
   receiver: {
     description: string;
     countryCode: string | null;
@@ -67,6 +68,9 @@ export interface ArubaApiInboundFile {
 
 export interface ArubaApiInboundDocument {
   providerGroupId: string;
+  providerFilename: string;
+  providerSdiId: string | null;
+  remoteLastUpdate: string;
   remoteKey: string;
   remote: RemoteInventoryDocument;
   files: ArubaApiInboundFile[];
@@ -260,6 +264,9 @@ export function mapArubaApiInboundGroup(input: {
     return [
       {
         providerGroupId: input.group.id,
+        providerFilename: input.detail.filename,
+        providerSdiId: input.detail.idSdi ?? null,
+        remoteLastUpdate: input.detail.lastUpdate,
         remoteKey: key,
         remote: {
           remoteId: key,

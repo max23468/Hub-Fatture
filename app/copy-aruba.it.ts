@@ -4,7 +4,6 @@ export const arubaSettingsCopy = {
     "Mantiene aggiornati documenti e stati tramite le API Aruba. Questa funzione non invia documenti.",
   arubaInventoryTitle: "Inventario",
   arubaExternalDocuments: "Senza ordine Shopify/eBay",
-  arubaSyncTitle: "Sincronizzazione Aruba",
   arubaConnectionActive: "Sincronizzazione in corso",
   arubaConnectionActiveHelp: "La lettura API prosegue automaticamente in background.",
   arubaConnectionReady: "Pronto per l’aggiornamento",
@@ -17,8 +16,23 @@ export const arubaSettingsCopy = {
     "L’inventario è aggiornato. Alcuni documenti devono essere verificati prima delle operazioni fiscali.",
   arubaLastUpdate: (value: string) => `Ultimo aggiornamento: ${value}`,
   arubaSyncOwnerOnly: "Solo il titolare può richiedere una sincronizzazione immediata.",
-  arubaApiTitle: "Lettura automatica da Aruba",
-  arubaApiStatus: "Stato",
+  arubaConnectionBlockTitle: "Connessione",
+  arubaAccountBlockTitle: "Account",
+  arubaAccountDetails: "Dati account e servizio",
+  arubaServiceBlockTitle: "Servizio",
+  arubaServiceBlockHelp:
+    "Scadenza, spazio di conservazione e utilizzo delle trasmissioni del mese.",
+  arubaSyncBlockTitle: "Sincronizzazione",
+  arubaManageConnection: "Gestisci collegamento",
+  arubaAccountUnavailableHelp:
+    "I dati dell’account saranno mostrati dopo la prima verifica completata.",
+  arubaApiEnvironment: "Ambiente Aruba",
+  arubaApiEnvironmentDemo: "Demo",
+  arubaApiEnvironmentProduction: "Produzione",
+  arubaServiceExpiration: "Scadenza del servizio",
+  arubaServiceSpaceUsed: "Spazio utilizzato",
+  arubaServiceSpaceValue: (used: number, maximum: number) =>
+    `${used.toLocaleString("it-IT")} KB su ${maximum.toLocaleString("it-IT")} KB`,
   arubaApiHelp:
     "Legge inventario, file e stati. Non carica, non prepara e non invia documenti ad Aruba.",
   arubaApiConfigured: "Credenziale verificata",
@@ -27,8 +41,6 @@ export const arubaSettingsCopy = {
   arubaApiRunning: "Connessa",
   arubaApiAttention: "Attenzione",
   arubaApiBlocked: "Bloccata",
-  arubaApiIdentityVerified: "Identità verificata",
-  arubaApiIdentityNotVerified: "Identità non ancora verificata",
   arubaApiCredentialsTitle: "Credenziali di Fatturazione Elettronica",
   arubaApiCredentialsHelp:
     "Usa le stesse credenziali con cui accedi al pannello Aruba Fatturazione Elettronica. Non servono credenziali API separate.",
@@ -51,8 +63,6 @@ export const arubaSettingsCopy = {
   arubaApiInboundControl: "Abilita la sincronizzazione in entrata",
   arubaApiSaveControls: "Salva controlli API",
   arubaApiSyncNow: "Sincronizza ora",
-  arubaApiAuthority: "Fonte dei dati in entrata",
-  arubaApiAuthorityApi: "API Aruba",
   arubaApiLatestRun: "Ultima lettura API",
   arubaApiBackfill: "Copertura dello storico",
   arubaApiBackfillComplete: "Backfill completo",
@@ -99,8 +109,7 @@ export const arubaSettingsCopy = {
   arubaApiSavedNotice: "Impostazioni API Aruba aggiornate.",
   arubaApiCodexHelp:
     "Puoi consultare lo stato e richiedere una sincronizzazione; credenziale, arresti e autorità sono riservati al titolare.",
-  arubaConnectionDetails: "Dettagli sincronizzazione",
-  arubaLastReadback: "Ultima sincronizzazione",
+  arubaConnectionDetails: "Dettagli e controlli",
   arubaSession: "Lettura in corso",
   arubaSessionActive: "Sì",
   arubaSessionInactive: "No",
@@ -110,9 +119,21 @@ export const arubaSettingsCopy = {
   arubaAmbiguousMatches: "Abbinamenti ambigui",
   arubaBlockingConflicts: "Conflitti bloccanti",
   arubaActionableFailures: "Errori operativi attuali",
-  arubaHistoricalFailures: "Errori già superati",
-  arubaApiSafetyPause: "Pausa di sicurezza API",
-  arubaApiSafetyPauseInactive: "Non attiva",
+  arubaAccountActive: "Operativo",
+  arubaAccountUnavailable: "Scaduto o sospeso",
+  arubaAccountUsername: "Username",
+  arubaAccountPec: "PEC",
+  arubaAccountCountry: "Paese",
+  arubaAccountVat: "Partita IVA",
+  arubaAccountFiscalCode: "Codice fiscale",
+  arubaAccountExpiration: "Scadenza",
+  arubaAccountStorage: "Spazio di conservazione",
+  arubaAccountStorageValue: (percent: number) => `${percent}% utilizzato`,
+  arubaAccountCheckedAt: (value: string) => `Verificato ${value}`,
+  arubaAccountExpirationWarning: (days: number) =>
+    days === 0
+      ? "L’account Aruba scade oggi."
+      : `L’account Aruba scade tra ${days} ${days === 1 ? "giorno" : "giorni"}.`,
   arubaApiSafetyPauseUntil: (value: string) => `Attiva fino al ${value}`,
   arubaDiagnosticValue: (code: string) =>
     code === "ARUBA_ACCOUNT_MISMATCH"
@@ -128,5 +149,5 @@ export const arubaSettingsCopy = {
   arubaOpenManualRecovery: "Avvia recupero manuale",
   arubaTransmissionTitle: "Trasmissione dei documenti",
   arubaTransmissionHelp:
-    "Questa impostazione riguarda il caricamento e l’ultimo passaggio in Aruba, non la sincronizzazione dell’inventario.",
+    "Questa impostazione riguarda il caricamento e l’ultimo passaggio in Aruba, non la sincronizzazione dell’inventario. L’invio automatico parte solo dopo l’approvazione.",
 } as const;

@@ -229,14 +229,16 @@ function sameInstant(left: unknown, right: unknown) {
   return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime === rightTime;
 }
 
+const romeCalendarDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Rome",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 function romeCalendarDate(value: unknown) {
   if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) return null;
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Rome",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(value));
+  return romeCalendarDateFormatter.format(new Date(value));
 }
 
 function bankTransferMethod(value: unknown) {

@@ -18,7 +18,7 @@ jobs:
   verify:
     name: Foundation
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       # Nessuno step esegue Node: i controlli sulla toolchain vivono in `npm run check`,
       # qui restano soltanto guardie di shell sul contenuto della repository.

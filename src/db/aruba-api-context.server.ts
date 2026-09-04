@@ -1,7 +1,7 @@
 import type pg from "pg";
 import { z } from "zod";
 
-import { ARUBA_API_POLICY } from "../aruba-api-policy.ts";
+import { ARUBA_API_POLICY, type ArubaApiTrafficScope } from "../aruba-api-policy.ts";
 import { getConfig } from "../config.server.ts";
 import { decryptCredential } from "../crypto.server.ts";
 import { AppError } from "../errors.ts";
@@ -45,6 +45,8 @@ export interface ArubaApiConnectionRow {
   last_synced_at: Date | null;
   last_full_sync_at: Date | null;
   last_error_code: string | null;
+  account_info_json: unknown;
+  account_info_checked_at: Date | null;
 }
 
 export interface ArubaSyncRunRow {
@@ -145,13 +147,14 @@ export function storedApiEnvironment(current: ArubaApiConnectionRow): ArubaApiEn
 
 export async function arubaProviderCall<T>(
   environment: ArubaApiEnvironment,
+  scope: ArubaApiTrafficScope,
   call: () => Promise<T>,
 ) {
   try {
     return await call();
   } catch (error) {
     if (error instanceof AppError && error.code === "PROVIDER_RATE_LIMITED") {
-      await recordArubaApiRateLimited(environment);
+      await recordArubaApiRateLimited(environment, scope);
     }
     throw error;
   }
@@ -164,6 +167,7 @@ export async function connection(client: pg.Pool | pg.PoolClient, lock = false) 
                 api_paused, inbound_enabled, automatic_authority, credentials_verified_at,
                 credentials_rotated_at, credentials_revoked_at, last_synced_at,
                 last_full_sync_at, last_error_code
+                , account_info_json, account_info_checked_at
          FROM connections
          WHERE provider = 'ARUBA' AND environment = $1
          FOR UPDATE`,
@@ -174,6 +178,7 @@ export async function connection(client: pg.Pool | pg.PoolClient, lock = false) 
                 api_paused, inbound_enabled, automatic_authority, credentials_verified_at,
                 credentials_rotated_at, credentials_revoked_at, last_synced_at,
                 last_full_sync_at, last_error_code
+                , account_info_json, account_info_checked_at
          FROM connections
          WHERE provider = 'ARUBA' AND environment = $1`,
         [connectionEnvironment()],
