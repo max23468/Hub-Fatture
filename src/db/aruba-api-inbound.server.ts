@@ -447,11 +447,18 @@ async function persistCanonicalPageContents(
   if (remoteDocumentIds.size !== documents.length) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
+  const requestedFiles = new Set(
+    staged.requestedFiles.map((file) => `${file.remoteId}:${file.kind}`),
+  );
+  const wasRequested = (remoteId: string, kind: ArubaApiInboundDocument["files"][number]["kind"]) =>
+    requestedFiles.has(`${remoteId}:${kind}`) ||
+    ((kind === "ARUBA_XML" || kind === "ARUBA_P7M") &&
+      (requestedFiles.has(`${remoteId}:ARUBA_XML`) || requestedFiles.has(`${remoteId}:ARUBA_P7M`)));
   const groupFiles = new Map(
     documents.flatMap((document) =>
-      document.groupFiles.map(
-        (file) => [`${document.providerGroupId}:${file.kind}:${file.sha256}`, file] as const,
-      ),
+      document.groupFiles
+        .filter((file) => wasRequested(document.remote.remoteId, file.kind))
+        .map((file) => [`${document.providerGroupId}:${file.kind}:${file.sha256}`, file] as const),
     ),
   );
   for (const file of groupFiles.values()) {
@@ -486,6 +493,7 @@ async function persistCanonicalPageContents(
       (file) => file.kind === "ARUBA_XML" || file.kind === "ARUBA_P7M",
     )?.filename;
     for (const file of document.files) {
+      if (!wasRequested(remoteId, file.kind)) continue;
       // react-doctor-disable-next-line react-doctor/async-await-in-loop -- I file appartengono alla pagina canonica appena acquisita e vanno validati e persistiti in ordine prima del checkpoint successivo.
       await importArubaRemoteOfficialFileFromApi(remoteDocumentId, file.kind, file.bytes, {
         type: "API",
