@@ -94,9 +94,17 @@ test("riconosce come sicura soltanto una variazione dell'e-mail eBay", () => {
   assert.equal(
     isEbayEmailOnlyChange(snapshot("prima@example.invalid"), {
       ...snapshot("dopo@example.invalid"),
+      sourceIdentityIds: [],
       optionalProviderField: undefined,
     }),
     true,
+  );
+  assert.equal(
+    isEbayEmailOnlyChange(snapshot("prima@example.invalid"), {
+      ...snapshot("dopo@example.invalid"),
+      sourceIdentityIds: ["identità-effettiva"],
+    }),
+    false,
   );
   assert.equal(
     isEbayEmailOnlyChange(
@@ -220,12 +228,20 @@ test("l'avanzamento dell'evasione Shopify non è un conflitto fiscale", () => {
   const current = {
     ...previous,
     fulfillmentStatus: "FULFILLED",
+    sourceIdentityIds: [],
     updatedAt: "2026-09-01T13:28:25Z",
     customerSnapshot: { displayName: "Mario Rossi" },
     sourceSnapshot: { displayFulfillmentStatus: "FULFILLED", transactions: [{ enriched: true }] },
     reviewFingerprint: "dopo",
   };
   assert.equal(isShopifyFulfillmentOnlyChange(previous, current), true);
+  assert.equal(
+    isShopifyFulfillmentOnlyChange(previous, {
+      ...current,
+      sourceIdentityIds: ["identità-effettiva"],
+    }),
+    false,
+  );
   assert.equal(isShopifyFulfillmentOnlyChange(previous, { ...current, totalAmount: 10_01 }), false);
   assert.equal(isShopifyFulfillmentOnlyChange(current, previous), false);
   assert.equal(

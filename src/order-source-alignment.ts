@@ -121,6 +121,15 @@ function customerEmail(snapshot: Record<string, unknown> | null): unknown {
   return canonicalProfile?.email ?? snapshot?.email;
 }
 
+/**
+ * I default stabili dell'input valgono anche per gli snapshot persistiti prima che il campo
+ * esistesse. La normalizzazione è condivisa dagli allineamenti automatici: il valore di default
+ * non apre un conflitto, mentre qualunque valore effettivo continua a essere confrontato.
+ */
+function snapshotWithStableDefaults(snapshot: Record<string, unknown>) {
+  return { sourceIdentityIds: [], ...snapshot };
+}
+
 function canonicalProfileWithoutEmail(snapshot: Record<string, unknown>): unknown {
   const customerSnapshot = record(snapshot.customerSnapshot);
   return withoutEmailEvidence(record(customerSnapshot?.canonicalProfile));
@@ -150,7 +159,10 @@ export function isEbayEmailOnlyChange(
 ): boolean {
   if (previous.provider !== "EBAY" || current.provider !== "EBAY") return false;
   if (isDeepStrictEqual(canonicalEmail(previous), canonicalEmail(current))) return false;
-  return isDeepStrictEqual(withoutEmailEvidence(previous), withoutEmailEvidence(current));
+  return isDeepStrictEqual(
+    withoutEmailEvidence(snapshotWithStableDefaults(previous)),
+    withoutEmailEvidence(snapshotWithStableDefaults(current)),
+  );
 }
 
 function withoutProviderAndMapperEvidence(snapshot: Record<string, unknown>): unknown {
@@ -163,7 +175,9 @@ function withoutProviderAndMapperEvidence(snapshot: Record<string, unknown>): un
     "sourceSnapshot",
   ]);
   return withoutEmailEvidence(
-    Object.fromEntries(Object.entries(snapshot).filter(([key]) => !ignored.has(key))),
+    Object.fromEntries(
+      Object.entries(snapshotWithStableDefaults(snapshot)).filter(([key]) => !ignored.has(key)),
+    ),
   );
 }
 
@@ -249,7 +263,7 @@ function withoutPaymentTimestamps(snapshot: Record<string, unknown>) {
   const payments = Array.isArray(snapshot.payments) ? snapshot.payments : [];
   return normalizeJsonValue({
     ...Object.fromEntries(
-      Object.entries(snapshot).filter(
+      Object.entries(snapshotWithStableDefaults(snapshot)).filter(
         ([key]) =>
           ![
             "payments",
@@ -366,7 +380,9 @@ export function isEbayPaymentTimestampOnlyChange(
 function withoutEbayRefundMapperEvidence(snapshot: Record<string, unknown>): unknown {
   const ignored = new Set(["orderReviewRequired", "reviewFingerprint", "sourceConflictRequired"]);
   return normalizeJsonValue(
-    Object.fromEntries(Object.entries(snapshot).filter(([key]) => !ignored.has(key))),
+    Object.fromEntries(
+      Object.entries(snapshotWithStableDefaults(snapshot)).filter(([key]) => !ignored.has(key)),
+    ),
   );
 }
 
@@ -426,7 +442,9 @@ function withoutShopifyFulfillmentEvidence(snapshot: Record<string, unknown>): u
     "updatedAt",
   ]);
   return normalizeJsonValue(
-    Object.fromEntries(Object.entries(snapshot).filter(([key]) => !ignored.has(key))),
+    Object.fromEntries(
+      Object.entries(snapshotWithStableDefaults(snapshot)).filter(([key]) => !ignored.has(key)),
+    ),
   );
 }
 

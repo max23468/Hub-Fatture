@@ -13,6 +13,12 @@ export async function run(context: OrdersTestContext) {
   fulfillment.fulfillmentStatus = "UNFULFILLED";
   fulfillment.sourceSnapshot = { displayFulfillmentStatus: "UNFULFILLED" };
   await orders.importOrders([fulfillment], { id: 1, requestId: "shopify-fulfillment-before" });
+  await database.getPool().query(
+    `UPDATE orders
+     SET normalized_snapshot_json = normalized_snapshot_json - 'sourceIdentityIds'
+     WHERE external_order_id = $1`,
+    [fulfillment.externalOrderId],
+  );
   const fulfilled = structuredClone(fulfillment);
   fulfilled.updatedAt = "2026-09-01T13:28:25Z";
   fulfilled.fulfillmentStatus = "FULFILLED";
