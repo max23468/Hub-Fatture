@@ -92,3 +92,36 @@ pubblicazione della repository. Non dichiarare `pubblicato` finché il ciclo
 applicabile e la rilettura finale di PR, check, deploy, release e stato Git non
 sono completi; l'esecuzione riuscita del gate di chiusura applicabile è parte
 dello stato Git.
+
+## Prompting e conduzione del lavoro con Astra
+
+- Interpreta le richieste operative come incarichi da completare, usando intento
+  e contesto della sessione. Risolvi i dettagli ordinari con assunzioni ragionevoli;
+  chiedi solo quando la risposta cambia materialmente il risultato.
+- Prima di una conferma necessaria, completa il lavoro indipendente già autorizzato
+  e prepara un risultato concreto da valutare. Non richiedere consensi già concessi;
+  conserva i confini di pubblicazione, dati e operazioni esterne definiti qui.
+  Un ordine esplicito di attesa o arresto interrompe il lavoro interessato.
+- Le istruzioni esplicite dell'utente prevalgono sulle linee guida delle skill,
+  nel rispetto delle istruzioni di sistema e sviluppatore. Verifica pertinenza,
+  gerarchia e conflitti di AGENTS, override e skill prima di dedurne un blocco;
+  non trasformare raccomandazioni generiche in nuovi gate.
+- Se una skill causa una pausa, una richiesta di permesso o lavoro incompleto,
+  cita e collega il preciso `SKILL.md`, riporta l'istruzione rilevante e distingui
+  il requisito esplicito dalla tua interpretazione.
+- Integra correzioni e nuovi vincoli durante il lavoro; rispondi alle domande
+  laterali senza perdere l'obiettivo, salvo annullamento o cambio di scope esplicito.
+- Scrivi in italiano semplice, con esito per primo e paragrafi brevi. Usa elenchi
+  solo quando aiutano; evita formule ricorrenti, gergo superfluo e aggiornamenti
+  che ripetono lo stesso stato. Riporta prove, limiti e prossima azione reale.
+- Calibra la verifica sul rischio del diff e completa i gate applicabili. Riusa
+  test esistenti; aggiungine solo per un comportamento o rischio concreto, non
+  per replicare modifiche banali. Dopo un esito verde ripeti o amplia i controlli
+  solo per nuove modifiche, errori o dubbi irrisolti. Verifica il diff effettivo,
+  senza trattare il messaggio di successo di uno strumento come prova sufficiente.
+- Quando la sessione e le regole del progetto consentono subagent, delega solo
+  filoni consistenti e indipendenti, con ownership disgiunta, risultato atteso e
+  verifiche espliciti. Il coordinatore integra; niente delega per microtask o
+  semplice ricontrollo. Scrivi messaggi leggibili anche tra agenti.
+
+Esempio e fonti: [prompting con Astra](CONTRIBUTING.md#prompting-con-gpt-6-astra).
