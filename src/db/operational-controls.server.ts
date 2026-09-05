@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type pg from "pg";
 
 import { errorCodeLabel } from "../error-label.ts";
 import { AppError } from "../errors.ts";
@@ -11,7 +12,7 @@ import {
 import { listOpenActivities } from "./order-queries.server.ts";
 import { actionableConnectorFailures } from "./connector-jobs.server.ts";
 import { pendingShopifyDataRequests } from "./connector-webhooks.server.ts";
-import { listRemoteDocuments } from "./aruba-inventory-queries.server.ts";
+import { listRemoteDocuments, type RemoteDocument } from "./aruba-inventory-queries.server.ts";
 import { listArubaAccountControlCandidates } from "./aruba-account-controls.server.ts";
 import { listArubaApiCooldownControlCandidates } from "./aruba-api-cooldown-controls.server.ts";
 import { listArubaSubmissionControlCandidates } from "./aruba-submission-controls.server.ts";
@@ -101,6 +102,63 @@ const severityRank: Record<OperationalControlSeverity, number> = {
   IMPORTANT: 1,
   ORDINARY: 2,
 };
+
+const arubaErroneousControl = {
+  kind: "ARUBA_ERRONEOUS_DOCUMENT",
+  severity: "IMPORTANT" as const,
+  title: "Documento Aruba indicato come errato",
+  consequence:
+    "Escluso dai collegamenti agli ordini per decisione del titolare. Il documento resta su Aruba: verifica il suo esito e la gestione fiscale necessaria.",
+  primaryAction: "Verifica documento Aruba",
+};
+
+type ArubaControlRemote = Pick<
+  RemoteDocument,
+  | "id"
+  | "remote_id"
+  | "document_type"
+  | "series"
+  | "fiscal_number"
+  | "document_date"
+  | "total_amount"
+  | "remote_status"
+  | "last_observed_at"
+>;
+
+function erroneousArubaControl(remote: ArubaControlRemote): ControlCandidate {
+  const label =
+    `${remote.document_type} ${remote.series ?? ""} ${remote.fiscal_number ?? remote.remote_id}`
+      .replaceAll(/\s+/g, " ")
+      .trim();
+  return {
+    ...arubaErroneousControl,
+    id: `ARUBA_REMOTE:${remote.id}`,
+    category: "DECISION",
+    sourceType: "ARUBA_REMOTE_DOCUMENT",
+    sourceId: remote.id,
+    origin: "DOCUMENTS",
+    detail: label,
+    href: `/documenti?vista=inventario-aruba#documento-aruba-${remote.id}`,
+    detectedAt: remote.last_observed_at,
+    metadata: {
+      remoteDocumentId: remote.id,
+      remoteStatus: remote.remote_status,
+      matchStatus: "UNMATCHED",
+      hasXml: true,
+      candidates: [],
+      orderReferences: [],
+      facts: [
+        { label: "Documento Aruba", value: label },
+        { label: "Data", value: remote.document_date },
+        {
+          label: "Totale",
+          value: `${(Number(remote.total_amount) / 100).toFixed(2).replace(".", ",")} €`,
+        },
+        { label: "Stato collegamento", value: "Escluso dai collegamenti", tone: "warning" },
+      ],
+    },
+  };
+}
 
 const CONTROLS_PAGE_SIZE = 50;
 const waitingReasons = ["PROVIDER", "CUSTOMER", "ACCOUNTING", "TECHNICAL", "FOLLOW_UP"] as const;
@@ -587,7 +645,9 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
       },
       detectedAt: privacy.receivedAt,
     })),
-    ...remoteDocuments.map((remote) => {
+    ...remoteDocuments.flatMap<ControlCandidate>((remote) => {
+      if (remote.id !== remote.control_remote_id) return [];
+      if (remote.identity_excluded) return erroneousArubaControl(remote);
       const label =
         `${remote.document_type} ${remote.series ?? ""} ${remote.fiscal_number ?? remote.remote_id}`
           .replaceAll(/\s+/g, " ")
@@ -657,7 +717,13 @@ async function collectCandidates(): Promise<ControlCandidate[]> {
               value: `${(Number(remote.total_amount) / 100).toFixed(2).replace(".", ",")} €`,
             },
             ...amountMismatchFacts,
-            { label: "Stato collegamento", value: remote.match_status, tone: "warning" as const },
+            {
+              label: "Stato collegamento",
+              value: remote.identity_collision
+                ? "Conflitto fra documenti Aruba"
+                : remote.match_status,
+              tone: "warning" as const,
+            },
           ],
         },
         detectedAt: remote.last_observed_at,
@@ -990,5 +1056,55 @@ export async function resolveOperationalControl(id: string, code: string, note?:
          resolution_code = $2, resolution_note = nullif(btrim($3), ''), updated_at = now()
      WHERE id = $1 AND state IN ('OPEN', 'WAITING')`,
     [id, code, note ?? null],
+  );
+}
+
+// Aggiornamento mirato dopo una decisione: la ricostruzione globale resta al worker.
+export async function resolveArubaIdentityControls(
+  client: pg.PoolClient,
+  selectedId: string,
+  excludedId: string,
+  rejected: boolean,
+  reason: string,
+) {
+  await client.query(
+    `UPDATE operational_controls SET
+       state = 'RESOLVED', resolved_at = now(), resolution_code = 'ARUBA_IDENTITY_RESOLVED',
+       resolution_note = $3, waiting_at = NULL, waiting_reason = NULL, due_at = NULL, updated_at = now()
+     WHERE kind = 'ARUBA_IDENTITY_CONFLICT' AND source_type = 'ARUBA_REMOTE_DOCUMENT'
+       AND source_id = ANY($1::text[]) AND (source_id = $2 OR $4::boolean)`,
+    [[selectedId, excludedId], selectedId, reason, rejected],
+  );
+  if (rejected) return;
+  const remote = await client.query<ArubaControlRemote>(
+    `SELECT id::text, remote_id, document_type, series, fiscal_number, document_date::text,
+       total_amount, remote_status, last_observed_at::text FROM aruba_remote_documents WHERE id = $1`,
+    [excludedId],
+  );
+  const candidate = erroneousArubaControl(remote.rows[0]!);
+  await client.query(
+    `INSERT INTO operational_controls
+       (id, kind, category, severity, state, source_type, source_id, origin, title, detail,
+        consequence, href, primary_action, fingerprint, metadata_json, opened_at, updated_at)
+     VALUES ($1, $2, 'DECISION', 'IMPORTANT', 'OPEN', 'ARUBA_REMOTE_DOCUMENT', $3, 'DOCUMENTS',
+       $4, $5, $6, $7, $8, $9, $10, now(), now())
+     ON CONFLICT (id) DO UPDATE SET kind = EXCLUDED.kind, severity = EXCLUDED.severity,
+       title = EXCLUDED.title, detail = EXCLUDED.detail, consequence = EXCLUDED.consequence,
+       href = EXCLUDED.href, primary_action = EXCLUDED.primary_action, fingerprint = EXCLUDED.fingerprint,
+       metadata_json = EXCLUDED.metadata_json, state = 'OPEN', opened_at = now(), updated_at = now(),
+       resolved_at = NULL, waiting_at = NULL, waiting_reason = NULL, due_at = NULL,
+       resolution_code = NULL, resolution_note = NULL`,
+    [
+      candidate.id,
+      candidate.kind,
+      candidate.sourceId,
+      candidate.title,
+      candidate.detail,
+      candidate.consequence,
+      candidate.href,
+      candidate.primaryAction,
+      fingerprint(candidate),
+      candidate.metadata,
+    ],
   );
 }

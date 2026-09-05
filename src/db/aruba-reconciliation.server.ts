@@ -1,3 +1,4 @@
+import { refreshArubaIdentityResolutions } from "./aruba-inventory-context.server.ts";
 import type pg from "pg";
 
 import {
@@ -296,6 +297,7 @@ export async function reconcileRemoteDocument(
   remote: RemoteInventoryDocument,
   official = false,
 ) {
+  await refreshArubaIdentityResolutions(client, remoteId);
   const previous = await client.query<{
     method: string;
     signals_json: Record<string, unknown>;
@@ -326,6 +328,12 @@ export async function reconcileRemoteDocument(
     [remoteId],
   );
   const identityCollision = Boolean(collision.rows[0]);
+  const excluded = await client.query(
+    `SELECT 1 FROM aruba_deduplication_conflicts
+     WHERE resolved_at IS NOT NULL AND resolution_json ->> 'excludedId' = $1 LIMIT 1`,
+    [remoteId],
+  );
+  if (!identityCollision && excluded.rowCount && remote.status !== "UNKNOWN") return;
   const submitted = await submittedDocumentForRemote(client, remote);
   const submittedMatches = Boolean(submitted && submittedDocumentMatchesRemote(submitted, remote));
   const candidates =

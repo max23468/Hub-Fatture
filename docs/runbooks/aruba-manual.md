@@ -36,3 +36,21 @@ Una TD04 storica recuperata dall’API conserva il metodo di pagamento dichiarat
 Se un documento terminale con XML ufficiale presenta un conflitto di profilo o un riferimento ordine esplicito incompatibile, ma nessun candidato locale compatibile né collegamento preesistente, il solo titolare può confermarlo come fattura fuori perimetro con una motivazione di almeno venti caratteri. La decisione è critica e auditata, classifica l’origine come esterna a Hub Fatture, resta stabile alle scansioni successive e rimuove quel documento dai blocchi dell’inventario senza creare clienti, ordini, preparazioni, documenti o movimenti locali. Questa classificazione comprende ordini e fatture che non passano da eBay o Shopify e che non fanno parte dello scope di Hub Fatture. Non usare l’azione quando esiste anche un solo candidato compatibile, manca l’XML ufficiale oppure il documento appartiene al perimetro dei due canali gestiti.
 
 Se una fattura esterna copre un solo ordine di una preparazione multipla, verificare che l’ordine coperto risulti fatturato e che la bozza residua contenga ancora tutti e soli gli altri ordini con importi e revisione rigenerati. Per una TD04 verificare che tutti e soli i rimborsi coperti siano collegati alla stessa nota di credito. Qualunque esito parziale o incoerente richiede di lasciare il caso in verifica: non correggere direttamente XML, documenti approvati o collegamenti DB.
+
+## Risoluzione di un’identità fiscale duplicata
+
+La stessa collisione compare una sola volta in **Controlli**, anche quando coinvolge più ID Aruba.
+Da **Controlli → Identità fiscale duplicata su Aruba**, confrontare ID provider, numero,
+data, importo, file ed esiti dei due documenti. Se entrambi hanno XML ufficiale e stato noto,
+il titolare può scegliere la fattura corretta con emissione confermata, inserire una motivazione
+di almeno venti caratteri e confermare che l’altra è stata emessa per errore. Un documento già
+collegato a una fattura locale non può essere escluso. Controparte mancante, più di due documenti,
+stati incerti o evidenze incoerenti impediscono la decisione.
+
+Il server rilegge le evidenze sotto lock e rifiuta un modulo obsoleto. La fattura scelta torna
+alla riconciliazione ordinaria, conservando i controlli di profilo e compatibilità; il documento
+errato resta separato e non viene collegato agli ordini. Il controllo **Documento Aruba indicato
+come errato** conserva la necessità di verificarne la gestione fiscale esterna finché non risulta
+scartato. Nessun annullamento, upload, invio o modifica Aruba deriva da questa decisione locale.
+Una nuova osservazione che cambia le evidenze o un ulteriore documento duplicato richiede una
+nuova verifica. L’audit conserva autore, motivazione, identificativi ed evidenze della scelta.

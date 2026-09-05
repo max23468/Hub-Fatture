@@ -12,6 +12,7 @@ import {
 } from "../aruba-inbound.ts";
 import { AppError } from "../errors.ts";
 import {
+  refreshArubaIdentityResolutions,
   arubaCursorStream as cursorStream,
   arubaPayloadDigest as payloadDigest,
 } from "./aruba-inventory-context.server.ts";
@@ -84,6 +85,7 @@ async function recordArubaIdentityCollisions(
   remote: z.infer<typeof inventoryPageSchema>["documents"][number],
   metadataDigest: string,
 ) {
+  await refreshArubaIdentityResolutions(client, remoteDocumentId);
   const collisions = await client.query<{
     id: string;
     collision_key: "FISCAL_IDENTITY" | "XML_SHA256";
@@ -93,6 +95,11 @@ async function recordArubaIdentityCollisions(
          THEN 'XML_SHA256' ELSE 'FISCAL_IDENTITY' END AS collision_key
      FROM aruba_remote_documents
      WHERE environment = $1 AND account_reference = $2 AND id <> $8
+       AND NOT EXISTS (SELECT 1 FROM aruba_deduplication_conflicts resolved
+         WHERE resolved.environment = $1 AND resolved.account_reference = $2
+           AND resolved.resolved_at IS NOT NULL
+           AND resolved.resolution_json -> 'evidence' ? aruba_remote_documents.id::text
+           AND resolved.resolution_json -> 'evidence' ? $8::text)
        AND ((remote_status <> 'REJECTED' AND $9::text <> 'REJECTED'
              AND $3::text IS NOT NULL AND $5::text IS NOT NULL
              AND fiscal_year = $4 AND upper(series) = upper($3)
@@ -112,6 +119,7 @@ async function recordArubaIdentityCollisions(
     ],
   );
   for (const collision of collisions.rows) {
+    await refreshArubaIdentityResolutions(client, collision.id, true);
     await client.query(
       session.sourceKind === "API"
         ? `INSERT INTO aruba_deduplication_conflicts
@@ -427,6 +435,7 @@ export async function ingestParsedArubaPage(
         remoteDocumentId: storedId!,
       });
     }
+    await refreshArubaIdentityResolutions(client, storedId!);
     if (!conflicted) {
       conflicted = await hasUnresolvedIdentityCollision(client, storedId!);
     }

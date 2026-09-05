@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.17
+
+- Le collisioni fra documenti Aruba producono un solo controllo con tutti i documenti coinvolti. Dal dettaglio si può confermare la fattura corretta, con motivazione e audit, lasciando il documento errato separato e sotto controllo fino alla verifica dell’esito SdI.
+- Le sincronizzazioni successive rispettano la decisione senza ricollegare automaticamente il documento escluso; nuove evidenze o un ulteriore duplicato richiedono una nuova verifica.
+
 ## 1.3.16
 
 - Le collisioni fra due documenti Aruba con identità e stato noti, dopo il confronto con gli ordini, bloccano soltanto le preparazioni coinvolte. Le fatture estranee restano approvabili; il numero duplicato, gli stati realmente incerti e le verifiche incomplete restano bloccati anche prima dell’invio.

@@ -1,4 +1,8 @@
 import {
+  readArubaIdentityConflict,
+  resolveArubaIdentityConflict,
+} from "../../src/db/aruba-identity-resolution.server.ts";
+import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
@@ -74,7 +78,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     search,
     cursor: cursor || undefined,
   });
+  const selected = result.selected;
+  const identityConflict =
+    selected?.kind === "ARUBA_IDENTITY_CONFLICT" && selected.metadata_json.remoteDocumentId
+      ? await readArubaIdentityConflict(selected.metadata_json.remoteDocumentId)
+      : null;
   return {
+    identityConflict,
     username: user.username,
     canApprove: user.canApprove,
     csrfToken: user.csrfToken,
@@ -179,6 +189,17 @@ export async function action({ request }: Route.ActionArgs) {
         actor,
       );
       await resolveOperationalControl(controlId, "PRIVACY_COMPLETED", note);
+      return actionRedirect({ outcome: "completato" });
+    }
+    if (intent === "resolve-aruba-identity") {
+      await resolveArubaIdentityConflict(
+        form.get("remoteDocumentId") ?? "",
+        form.get("selectedRemoteId") ?? "",
+        form.get("fingerprint") ?? "",
+        form.get("reason"),
+        form.get("confirmation"),
+        actor,
+      );
       return actionRedirect({ outcome: "completato" });
     }
     if (intent === "resolve-aruba-match") {
@@ -416,6 +437,82 @@ function ArubaRemoteMatchActions({
   );
 }
 
+function ArubaIdentityResolutionForm({
+  control,
+  csrfToken,
+}: {
+  control: OperationalControl;
+  csrfToken: string;
+}) {
+  const { identityConflict } = useLoaderData<typeof loader>();
+  if (!identityConflict) return null;
+  const canResolve =
+    identityConflict.members.length === 2 &&
+    identityConflict.members.some(
+      (member) =>
+        ["DELIVERED", "NOT_DELIVERED"].includes(member.remote_status) &&
+        identityConflict.members.every((other) => other.id === member.id || !other.document_id),
+    ) &&
+    identityConflict.members.every(
+      (member) =>
+        member.id &&
+        member.has_xml &&
+        !member.observation_conflict &&
+        member.remote_status !== "UNKNOWN",
+    );
+  return (
+    <Form className="control-action-form" method="post">
+      <input type="hidden" name="csrf" value={csrfToken} />
+      <input type="hidden" name="intent" value="resolve-aruba-identity" />
+      <input type="hidden" name="remoteDocumentId" value={control.metadata_json.remoteDocumentId} />
+      <input type="hidden" name="fingerprint" value={identityConflict.fingerprint} />
+      <p>
+        Confronta i due documenti e scegli la fattura corretta. L’altro resterà separato, con un
+        controllo dedicato al suo esito Aruba.
+      </p>
+      {identityConflict.members.map((member) => (
+        <label className="control-action-form__confirmation" key={member.id ?? "missing"}>
+          <input
+            type="radio"
+            name="selectedRemoteId"
+            value={member.id ?? ""}
+            required
+            disabled={!canResolve || !["DELIVERED", "NOT_DELIVERED"].includes(member.remote_status)}
+          />
+          <span>
+            {member.series} {member.fiscal_number} · {member.document_date} ·{" "}
+            {(Number(member.total_amount) / 100).toFixed(2).replace(".", ",")} €
+            <br />
+            {copy.documents.remoteStatusLabels[member.remote_status] ?? "Stato incerto"} · ID Aruba:{" "}
+            {member.remote_id ?? "Controparte mancante"}
+            <br />
+            {member.filename ?? ""} {member.sdi_id ? `· SdI: ${member.sdi_id}` : ""}
+          </span>
+        </label>
+      ))}
+      {!canResolve ? (
+        <p>
+          Occorrono due documenti identificati, XML ufficiali e stati remoti verificati. Aggiorna
+          l’inventario o acquisisci i file mancanti. La fattura scelta deve avere emissione
+          confermata e l’altra non deve essere già collegata.
+        </p>
+      ) : null}
+      <label className="control-note">
+        Motivazione e prove verificate
+        <textarea name="reason" minLength={20} maxLength={500} required />
+      </label>
+      <label className="control-action-form__confirmation">
+        <input type="checkbox" name="confirmation" value="confirmed" required />
+        Confermo la fattura scelta e indico l’altra come emessa per errore. Questa decisione non
+        annulla documenti su Aruba.
+      </label>
+      <button className="button" type="submit" disabled={!canResolve}>
+        Conferma fattura corretta
+      </button>
+    </Form>
+  );
+}
+
 function ControlActions({
   control,
   canApprove,
@@ -426,6 +523,9 @@ function ControlActions({
   csrfToken: string;
 }) {
   const metadata = control.metadata_json;
+  if (control.kind === "ARUBA_IDENTITY_CONFLICT" && canApprove && control.state === "OPEN") {
+    return <ArubaIdentityResolutionForm control={control} csrfToken={csrfToken} />;
+  }
   if (control.state === "WAITING") {
     return (
       <div className="control-action-form">

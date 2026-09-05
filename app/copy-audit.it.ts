@@ -26,6 +26,7 @@ export const auditActionLabels = {
   ARUBA_FILE_IMPORTED: "File Aruba importato",
   ARUBA_READ_SESSION_ISSUED: "Sessione Aruba di sola lettura creata",
   ARUBA_INVENTORY_COMPLETED: "Inventario Aruba completato",
+  ARUBA_IDENTITY_CONFLICT_RESOLVED: "Conflitto fra documenti Aruba risolto",
   ARUBA_DOCUMENT_MATCH_RESOLVED: "Documento Aruba collegato manualmente",
   ARUBA_DOCUMENT_CONFIRMED_OUT_OF_SCOPE: "Documento Aruba confermato fuori perimetro",
   ARUBA_PREFLIGHT_OVERRIDDEN: "Controllo Aruba sostituito dopo verifica manuale",
