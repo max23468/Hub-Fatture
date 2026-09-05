@@ -34,7 +34,7 @@ export async function listOperationalBillingCaseAnomalies() {
             ), '[]'::jsonb) AS order_references,
             billing_cases.updated_at::text
      FROM billing_cases
-     CROSS JOIN LATERAL unnest(${openBillingCaseReasonCodesSql("false")}) AS anomalies(anomaly)
+     CROSS JOIN LATERAL unnest(${openBillingCaseReasonCodesSql()}) AS anomalies(anomaly)
      WHERE ${openBillingCaseSql("billing_cases")}
        AND anomalies.anomaly = ANY($1::text[])
      ORDER BY billing_cases.updated_at, billing_cases.id, anomalies.anomaly`,

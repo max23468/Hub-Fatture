@@ -49,7 +49,7 @@ export async function scheduleDueSyncs() {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('connector:ARUBA'))");
     await client.query(
       `INSERT INTO jobs (type, run_at)
-       SELECT CASE
+       SELECT type, run_at FROM (SELECT CASE
          WHEN NOT EXISTS (
            SELECT 1 FROM aruba_sync_runs
            WHERE environment = CASE WHEN connections.environment = 'PRODUCTION'
@@ -102,9 +102,12 @@ export async function scheduleDueSyncs() {
            SELECT max(coalesce(completed_at, run_at))
            FROM jobs WHERE type = 'aruba_sync_inventory'
          ), '-infinity'::timestamptz) THEN 'aruba_refresh_nonterminal'
-         ELSE 'aruba_sync_inventory'
-       END,
-       greatest(now(), connections.credentials_verified_at + interval '61 seconds')
+         WHEN NOT EXISTS (
+           SELECT 1 FROM jobs WHERE type IN ('aruba_backfill_inventory', 'aruba_sync_inventory', 'aruba_full_inventory')
+             AND coalesce(completed_at, run_at) > now() - make_interval(secs => $2)
+         ) THEN 'aruba_sync_inventory'
+       END AS type,
+       greatest(now(), connections.credentials_verified_at + interval '61 seconds') AS run_at
        FROM connections
        WHERE provider = 'ARUBA' AND environment = $1
          AND status = 'CONNECTED' AND encrypted_credentials IS NOT NULL
@@ -114,8 +117,9 @@ export async function scheduleDueSyncs() {
            SELECT 1 FROM jobs
            WHERE type IN ('aruba_backfill_inventory', 'aruba_sync_inventory',
              'aruba_refresh_nonterminal', 'aruba_full_inventory')
-             AND coalesce(completed_at, run_at) > now() - make_interval(secs => $2)
+             AND coalesce(completed_at, run_at) > now() - interval '2 minutes'
          )
+       ) due WHERE type IS NOT NULL
        ON CONFLICT DO NOTHING`,
       [
         getConfig().APP_ENV === "production" ? "PRODUCTION" : "DEVELOPMENT",

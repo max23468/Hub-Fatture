@@ -27,10 +27,14 @@ import { getConfig } from "../config.server.ts";
 import { isDatabaseId } from "./database-id.ts";
 import { parseDatabaseRevision } from "./database-revision.ts";
 import { writeAudit } from "./audit.server.ts";
-import { arubaInventoryBlocksAllApprovals } from "../aruba-inventory.ts";
+import {
+  arubaInventoryApprovalState,
+  arubaInventoryBlocksAllApprovals,
+} from "../aruba-inventory.ts";
 import {
   getArubaInventoryHealth,
   getLockedArubaInventoryHealth,
+  ensureFreshArubaInventory,
 } from "./aruba-inventory-health.server.ts";
 import { createArubaApiBatch } from "./aruba-api-outbound.server.ts";
 import { getArubaSettings } from "./aruba.server.ts";
@@ -968,6 +972,7 @@ export async function approveInvoice(
   const caseRevision = parseDatabaseRevision(raw.caseRevision);
   const draftVersion = parseDatabaseRevision(raw.draftVersion);
   const expectedProjection = String(raw.projectionSha256 ?? "");
+  await ensureFreshArubaInventory(actor);
   let committed: {
     id: string;
     fiscalNumber: string;
@@ -982,7 +987,12 @@ export async function approveInvoice(
       );
       const inventory = await getLockedArubaInventoryHealth(client);
       if (arubaInventoryBlocksAllApprovals(inventory)) {
-        throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+        throw new AppError(
+          arubaInventoryApprovalState(inventory) === "BLOCKED"
+            ? "ARUBA_INVENTORY_BLOCKED"
+            : "ARUBA_INVENTORY_REFRESHING",
+          409,
+        );
       }
       await serializeOrderMutations(client);
       await client.query("SELECT pg_advisory_xact_lock(hashtext('fiscal-profile'))");

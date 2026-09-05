@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { readdir, rm } from "node:fs/promises";
 import pg from "pg";
 
@@ -30,7 +32,7 @@ test.afterAll(async () => {
   await rm(storageRoot, { recursive: true, force: true });
 });
 
-test("configura i due account e accede con entrambi", async ({ page }) => {
+test("configura i due account e accede con entrambi", async ({ page, browserName }) => {
   test.setTimeout(240_000);
   // Ogni retry seriale ricrea fixture e database dal test, non da beforeAll.
   await resetReadinessState();
@@ -91,7 +93,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   ).toBeLessThanOrEqual(1);
   expect(new Set(dashboardActionBoxes.map(({ height }) => height)).size).toBe(1);
   const dashboardDestinations = [
-    ["Preparazioni approvabili", "/ordini?vista=fatturare", "Ordini"],
+    ["Preparazioni pronte", "/ordini?vista=fatturare", "Ordini"],
     ["Controlli da risolvere", "/controlli", "Controlli"],
     ["Pagamenti in attesa", "/ordini?vista=attesa", "Ordini"],
   ] as const;
@@ -681,11 +683,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
 
   await page.getByRole("link", { name: "Da fatturare" }).click();
   await expect(
-    page.getByText(
-      "Nessuna preparazione è approvabile finché il controllo globale dell’inventario Aruba non viene risolto.",
-    ),
+    page.getByText("Aruba verrà aggiornato alla conferma, prima di approvare."),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Niente da fatturare" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Preparazioni pronte" })).toBeVisible();
 
   const preparationClient = new pg.Client({ connectionString: databaseUrl });
   await preparationClient.connect();
@@ -982,7 +982,7 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Cose da controllare" })).toBeVisible();
   await expect(page.getByText("Pagamento non ancora acquisito")).toBeVisible();
   await expect(page.getByRole("status")).toContainText(
-    "passerà automaticamente fra le approvabili o nei controlli quando il pagamento sarà acquisito",
+    "passerà automaticamente fra le pronte o nei controlli quando il pagamento sarà acquisito",
   );
   await expect(page.getByRole("button", { name: "Approva fattura" })).toHaveCount(0);
 
@@ -1457,6 +1457,9 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
     connectionString: databaseUrl,
   });
   await preparationLayoutClient.connect();
+  const preparedCountBeforeRefresh = await page
+    .locator(".orders-table--preparations tbody tr")
+    .count();
   await preparationLayoutClient.query(
     `UPDATE aruba_sync_runs
      SET completed_at = now() - interval '2 hours',
@@ -1468,11 +1471,13 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await preparationLayoutClient.end();
   await page.reload();
   await expect(
-    page.getByText(
-      "Nessuna preparazione è approvabile finché il controllo globale dell’inventario Aruba non viene risolto.",
-    ),
+    page.getByText("Aruba verrà aggiornato alla conferma, prima di approvare."),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Niente da fatturare" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Preparazioni pronte" })).toBeVisible();
+  await expectPreparationOrderReference(page);
+  await expect(page.locator(".orders-table--preparations tbody tr")).toHaveCount(
+    preparedCountBeforeRefresh,
+  );
   await page.goto(archivedPreparationHref!);
   await expect(page.getByRole("heading", { name: "Controllo fattura" })).toBeVisible();
   await expect(page.getByText("Nessun problema rilevato")).toBeVisible();
@@ -1563,18 +1568,92 @@ test("configura i due account e accede con entrambi", async ({ page }) => {
   await expect(page.getByRole("group", { name: "Conferma finale" })).toContainText(
     "prossimo numero fiscale disponibile",
   );
-  const approvalConfirmation = page.locator('input[name="confirmApproval"]');
-  await expect(approvalConfirmation).toBeVisible();
-  await expect(approvalConfirmation).not.toBeChecked();
-  await approvalConfirmation.check();
-  const approvalResponse = page.waitForResponse(
-    (response) =>
-      response.request().method() === "POST" && response.url().includes("/ordini/preparazione/"),
-  );
-  await page.getByRole("button", { name: "Approva fattura" }).click();
-  if ((await approvalResponse).status() >= 400) {
-    await page.getByRole("alert").waitFor();
-    throw new Error((await page.getByRole("alert").textContent()) ?? "Approvazione non riuscita");
+  const approvalClient = new pg.Client({ connectionString: databaseUrl });
+  await approvalClient.connect();
+  try {
+    const running = await approvalClient.query<{ id: string }>(`INSERT INTO aruba_sync_runs
+      (id, environment, api_environment, account_reference, kind, authority_mode, status,
+       window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at)
+      VALUES (gen_random_uuid(), 'MOCK', 'DEMO', 'synthetic-aruba-account', 'INCREMENTAL',
+        'CANONICAL', 'RUNNING', now() - interval '1 day', now(), now() - interval '1 day',
+        now(), now() + interval '5 minutes') RETURNING id`);
+    const runId = running.rows[0]!.id;
+    await page.reload();
+    await expect(
+      page.getByText("Verifica Aruba in corso. Puoi continuare a preparare le fatture.").first(),
+    ).toBeVisible();
+    const approvalConfirmation = page.locator('input[name="confirmApproval"]');
+    await expect(approvalConfirmation).toHaveCount(0);
+    await page.getByRole("button", { name: "Approva fattura" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Verifica Aruba prima dell’approvazione" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Approva fattura" })).toBeDisabled();
+    expect(
+      (
+        await approvalClient.query(
+          `SELECT count(*)::integer AS count FROM documents
+      WHERE billing_case_id = $1 AND fiscal_number IS NOT NULL`,
+          [preparationId],
+        )
+      ).rows[0].count,
+    ).toBe(0);
+    await page.locator(".preparation-approval").scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: join(tmpdir(), `hub-fatture-approval-wait-desktop-${browserName}.png`),
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectViewportFits(page);
+    await page.locator(".preparation-approval__submit").scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: join(tmpdir(), `hub-fatture-approval-wait-mobile-${browserName}.png`),
+    });
+    await approvalClient.query(`UPDATE billing_cases SET revision = revision + 1 WHERE id = $1`, [
+      preparationId,
+    ]);
+    await approvalClient.query(
+      `UPDATE aruba_sync_runs SET status = 'COMPLETED', completed_at = now() WHERE id = $1`,
+      [runId],
+    );
+    await expect(page.getByRole("alert")).toContainText("I dati sono cambiati");
+    expect(
+      (
+        await approvalClient.query(
+          `SELECT count(*)::integer AS count FROM documents
+      WHERE billing_case_id = $1 AND fiscal_number IS NOT NULL`,
+          [preparationId],
+        )
+      ).rows[0].count,
+    ).toBe(0);
+
+    await approvalClient.query(
+      `UPDATE aruba_sync_runs SET status = 'RUNNING', lease_expires_at = now() + interval '5 minutes'
+      WHERE id = $1`,
+      [runId],
+    );
+    await page.reload();
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(approvalConfirmation).toHaveCount(0);
+    await page.getByRole("button", { name: "Approva fattura" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Verifica Aruba prima dell’approvazione" }),
+    ).toBeVisible();
+    await approvalClient.query(
+      `UPDATE aruba_sync_runs SET status = 'COMPLETED', completed_at = now() WHERE id = $1`,
+      [runId],
+    );
+    await expect(page.getByRole("button", { name: "Approva fattura" })).toHaveCount(0);
+    expect(
+      (
+        await approvalClient.query(
+          `SELECT count(*)::integer AS count FROM documents
+      WHERE billing_case_id = $1 AND fiscal_number IS NOT NULL`,
+          [preparationId],
+        )
+      ).rows[0].count,
+    ).toBe(1);
+  } finally {
+    await approvalClient.end();
   }
   await expect(page.getByRole("button", { name: "Approva fattura" })).toHaveCount(0);
   await page.getByRole("link", { name: "Documenti", exact: true }).click();

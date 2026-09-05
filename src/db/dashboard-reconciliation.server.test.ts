@@ -100,7 +100,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.equal(initialSummary.ready_cases, "1");
     assert.equal(initialSummary.review_cases, "2");
     assert.equal(initialSummary.pending_payments, "2");
-    assert.equal(await orders.getOpenBillingCaseProjection(cases.rows[4]!.id, false), null);
+    assert.equal(await orders.getOpenBillingCaseProjection(cases.rows[4]!.id), null);
     assert.deepEqual(
       (
         await orders.listBillingCases({
@@ -241,19 +241,40 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     ]);
     assert.equal((await orders.dashboardSummary()).review_cases, "2");
     assert.equal(
-      (await orders.getOpenBillingCaseProjection(cases.rows[0]!.id, false))?.operationalPool,
+      (await orders.getOpenBillingCaseProjection(cases.rows[0]!.id))?.operationalPool,
       "APPROVABLE",
     );
-    assert.deepEqual(await orders.getOpenBillingCaseProjection(cases.rows[2]!.id, false), {
+    assert.deepEqual(await orders.getOpenBillingCaseProjection(cases.rows[2]!.id), {
       operationalPool: "REQUIRES_ACTION",
       reasonCodes: ["ARUBA_POTENTIAL_MATCH"],
     });
-    assert.deepEqual(await orders.getOpenBillingCaseProjection(cases.rows[0]!.id, true), {
-      operationalPool: "REQUIRES_ACTION",
-      reasonCodes: ["ARUBA_INVENTORY_BLOCKED"],
+    const readyBeforeRefresh = (await orders.dashboardSummary()).ready_cases;
+    await client.getPool().query(`INSERT INTO aruba_sync_runs
+      (id, environment, api_environment, account_reference, kind, authority_mode, status,
+       window_start, window_end, checkpoint_start, checkpoint_end, lease_expires_at)
+      VALUES (gen_random_uuid(), 'MOCK', 'DEMO', 'synthetic-aruba-account', 'FULL',
+        'CANONICAL', 'RUNNING', now() - interval '1 day', now(), now() - interval '1 day',
+        now(), now() + interval '5 minutes')`);
+    assert.equal((await inventory.getArubaInventoryHealth()).activeSession, true);
+    assert.deepEqual(await orders.getOpenBillingCaseProjection(cases.rows[0]!.id), {
+      operationalPool: "APPROVABLE",
+      reasonCodes: [],
     });
+    assert.equal((await orders.dashboardSummary()).ready_cases, readyBeforeRefresh);
+    await client
+      .getPool()
+      .query(
+        `UPDATE aruba_sync_runs SET status = 'COMPLETED', completed_at = now() - interval '9 minutes', full_scan_completed_at = now() - interval '9 minutes'`,
+      );
+    assert.equal((await orders.dashboardSummary()).ready_cases, readyBeforeRefresh);
+    assert.ok((await inventory.getArubaInventoryHealth()).ageMinutes! > 5);
     assert.equal(
-      (await orders.getOpenBillingCaseProjection(cases.rows[3]!.id, true))?.operationalPool,
+      (await orders.listBillingCases({ operationalPool: "APPROVABLE" })).rows.length,
+      Number(readyBeforeRefresh),
+    );
+    await client.getPool().query(`UPDATE aruba_sync_runs SET completed_at = now()`);
+    assert.equal(
+      (await orders.getOpenBillingCaseProjection(cases.rows[3]!.id))?.operationalPool,
       "PENDING_PAYMENT",
     );
 
@@ -413,11 +434,11 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
     assert.equal((await orders.getBillingCase(cases.rows[2]!.id))!.status, "NEEDS_REVIEW");
     assert.equal((await inventory.getArubaInventoryHealth()).potentialMatches, 0);
     assert.equal(
-      (await orders.getOpenBillingCaseProjection(cases.rows[0]!.id, false))?.operationalPool,
+      (await orders.getOpenBillingCaseProjection(cases.rows[0]!.id))?.operationalPool,
       "APPROVABLE",
     );
     assert.equal(
-      (await orders.getOpenBillingCaseProjection(cases.rows[2]!.id, false))?.operationalPool,
+      (await orders.getOpenBillingCaseProjection(cases.rows[2]!.id))?.operationalPool,
       "REQUIRES_ACTION",
     );
     const mismatchRemote = (
@@ -481,7 +502,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       alreadyIssued.release();
     }
     assert.equal(
-      (await orders.getOpenBillingCaseProjection(cases.rows[2]!.id, false))?.operationalPool,
+      (await orders.getOpenBillingCaseProjection(cases.rows[2]!.id))?.operationalPool,
       "APPROVABLE",
     );
     await operationalControls.refreshOperationalControls();
@@ -507,7 +528,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       restoredMismatch.release();
     }
     assert.equal(
-      (await orders.getOpenBillingCaseProjection(cases.rows[2]!.id, false))?.operationalPool,
+      (await orders.getOpenBillingCaseProjection(cases.rows[2]!.id))?.operationalPool,
       "REQUIRES_ACTION",
     );
 
@@ -565,7 +586,7 @@ test("i contatori e la riconciliazione Dashboard usano gli stessi gate operativi
       },
     ]);
     assert.equal(
-      (await orders.getOpenBillingCaseProjection(cases.rows[2]!.id, false))?.operationalPool,
+      (await orders.getOpenBillingCaseProjection(cases.rows[2]!.id))?.operationalPool,
       "APPROVABLE",
     );
     await operationalControls.refreshOperationalControls();

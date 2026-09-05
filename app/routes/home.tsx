@@ -11,7 +11,7 @@ import { copy } from "../copy.it";
 import { privateRouteMeta } from "../metadata";
 import { requireSessionUser } from "../../src/db/auth.server.ts";
 import { getArubaApiConnectionStatus } from "../../src/db/aruba-api-settings.server.ts";
-import { arubaInventoryBlocksAllApprovals } from "../../src/aruba-inventory.ts";
+import { arubaInventoryApprovalState } from "../../src/aruba-inventory.ts";
 import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import { getArubaMonthlyTransmissionUsage } from "../../src/db/aruba-api-outbound.server.ts";
 import { dashboardSummary } from "../../src/db/order-queries.server.ts";
@@ -70,9 +70,9 @@ export default function Home() {
   } = useLoaderData<typeof loader>();
   const workItems = [
     {
-      value: arubaInventoryBlocksAllApprovals(arubaInventory) ? 0 : Number(summary.ready_cases),
+      value: Number(summary.ready_cases),
       label: copy.dashboard.readyPreparations,
-      detail: copy.dashboard.readyDetail,
+      detail: copy.document.inventoryApprovalStates[arubaInventoryApprovalState(arubaInventory)],
       to: "/ordini?vista=fatturare",
       action: copy.dashboard.openPreparations,
       icon: ClipboardCheck,

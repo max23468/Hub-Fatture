@@ -7,7 +7,7 @@ export const ARUBA_API_POLICY = Object.freeze({
   providerCooldownMs: 65 * 60_000,
   requestLimitPerRun: 10_000,
   backfillWindowMs: 48 * 60 * 60_000,
-  inventoryRefreshIntervalMs: 2 * 60_000,
+  inventoryRefreshIntervalMs: 10 * 60_000,
 });
 
 export type ArubaApiReadScope = "INVOICE_READ" | "NOTIFICATION_READ";

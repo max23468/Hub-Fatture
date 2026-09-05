@@ -5,6 +5,7 @@ import type { Route } from "./+types/orders";
 
 import fixture from "../../tests/fixtures/orders/normalized.mock.json" with { type: "json" };
 import { actionResult } from "../action";
+import { InventoryApprovalForm } from "../components/inventory-approval-form";
 import { AppShell } from "../components/app-shell";
 import { CustomerEmailApprovalFields } from "../components/customer-email-approval";
 import { Pager } from "../components/pager";
@@ -21,7 +22,7 @@ import { compactDate, compactDateTime, euros } from "../format";
 import { privateRouteMeta } from "../metadata";
 import { assertCsrf, requestId, requireSessionUser } from "../../src/db/auth.server.ts";
 import { getConfig } from "../../src/config.server.ts";
-import { arubaInventoryBlocksAllApprovals } from "../../src/aruba-inventory.ts";
+import { arubaInventoryApprovalState } from "../../src/aruba-inventory.ts";
 import { getArubaInventoryHealth } from "../../src/db/aruba-inventory-health.server.ts";
 import {
   listBillingCases,
@@ -110,15 +111,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   const arubaInventoryPromise =
     view === "fatturare" ? getArubaInventoryHealth() : Promise.resolve(null);
   const arubaInventory = await arubaInventoryPromise;
-  const approvalsGloballyBlocked = Boolean(
-    arubaInventory && arubaInventoryBlocksAllApprovals(arubaInventory),
-  );
+  const inventoryApprovalState = arubaInventory
+    ? arubaInventoryApprovalState(arubaInventory)
+    : null;
   const [orders, cases] = await Promise.all([
     ordersPromise,
     preparationPoolByView[view]
       ? listBillingCases({
           operationalPool: preparationPoolByView[view],
-          approvalsGloballyBlocked,
           page,
           sort: preparationSort,
         })
@@ -141,7 +141,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     filters,
     orderSort,
     preparationSort,
-    approvalsGloballyBlocked,
+    inventoryApprovalState,
     approved: url.searchParams.get("approvati"),
     approvalErrors: url.searchParams.get("errori"),
     storagePending: url.searchParams.get("archiviazione"),
@@ -330,7 +330,7 @@ function MassApprovalPanel({
           approvalCandidates.reduce((sum, item) => sum + item.total_amount, 0),
         )}
       </p>
-      <Form method="post">
+      <InventoryApprovalForm>
         <input type="hidden" name="csrf" value={csrfToken} />
         <input type="hidden" name="intent" value="approve-documents" />
         <input type="hidden" name="arubaMode" value={arubaMode} />
@@ -386,7 +386,7 @@ function MassApprovalPanel({
         <button className="button" type="submit">
           {copy.orders.massApprovalAction}
         </button>
-      </Form>
+      </InventoryApprovalForm>
     </section>
   );
 }
@@ -827,7 +827,7 @@ function OrdersNotices({ data }: { data: OrdersPageData }) {
     approvalErrors,
     storagePending,
     view,
-    approvalsGloballyBlocked,
+    inventoryApprovalState,
   } = data;
   return (
     <>
@@ -846,9 +846,9 @@ function OrdersNotices({ data }: { data: OrdersPageData }) {
           {copy.orders.massApprovalResult(approved, approvalErrors ?? "0", storagePending ?? "0")}
         </p>
       ) : null}
-      {view === "fatturare" && approvalsGloballyBlocked ? (
-        <p className="warning" role="status">
-          {copy.orders.approvalsGloballyBlocked}
+      {view === "fatturare" && inventoryApprovalState ? (
+        <p className={inventoryApprovalState === "BLOCKED" ? "warning" : "notice"} role="status">
+          {copy.document.inventoryApprovalStates[inventoryApprovalState]}
         </p>
       ) : null}
     </>
@@ -857,7 +857,6 @@ function OrdersNotices({ data }: { data: OrdersPageData }) {
 
 function OrdersResults({ data }: { data: OrdersPageData }) {
   const {
-    approvalsGloballyBlocked,
     canApprove,
     cases,
     csrfToken,
@@ -883,9 +882,7 @@ function OrdersResults({ data }: { data: OrdersPageData }) {
         />
       ) : null}
 
-      {view === "fatturare" && canApprove && !approvalsGloballyBlocked ? (
-        <MassApprovalSection csrfToken={csrfToken} />
-      ) : null}
+      {view === "fatturare" && canApprove ? <MassApprovalSection csrfToken={csrfToken} /> : null}
 
       {!showsPreparationArchive || (view === "attesa" && orders.rows.length) ? (
         <OrderList

@@ -57,6 +57,7 @@ La fonte eseguibile è `src/errors.ts`. Ogni azione passa da `app/action.ts`, ch
 | `ARUBA_INVENTORY_INCOMPLETE`           | DATA permanente       | no               | completare tutti gli stream           |
 | `ARUBA_INVENTORY_CONFLICT`             | DATA permanente       | no               | risolvere il conflitto remoto         |
 | `ARUBA_PROFILE_CONFLICT`               | DATA permanente       | no               | verificare profilo e documento        |
+| `ARUBA_INVENTORY_REFRESHING`           | CONFLICT temporaneo   | sì, entro 2 min  | attendere e rileggere tutti i gate    |
 | `ARUBA_INVENTORY_BLOCKED`              | CONFLICT temporaneo   | no               | aggiornare o riconciliare inventario  |
 | `ARUBA_API_BUDGET_EXHAUSTED`           | PROVIDER permanente   | no               | autorizzare un nuovo manifesto        |
 | `ARUBA_API_COOLDOWN_ACTIVE`            | PROVIDER temporaneo   | sì               | attendere il cooldown                 |

@@ -3,6 +3,8 @@ import { useState, type ReactNode } from "react";
 import { Form, Link, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/billing-case-detail";
 
+import { arubaInventoryApprovalState } from "../../src/aruba-inventory.ts";
+import { InventoryApprovalForm } from "../components/inventory-approval-form";
 import { AppShell } from "../components/app-shell";
 import { ComparisonTable } from "../components/comparison-table";
 import { CustomerEditor } from "../components/customer-editor";
@@ -578,12 +580,18 @@ function InvoiceComparisonCard({ projection }: { projection: InvoiceProjection }
 function ArubaInventoryCard({ projection }: { projection: InvoiceProjection }) {
   return (
     <section
-      className={`card preparation-inventory preparation-inventory--${projection.arubaApprovalBlocked ? "blocking" : "warning"}`}
+      className={`card preparation-inventory preparation-inventory--${arubaInventoryApprovalState(projection.arubaInventory) === "BLOCKED" ? "blocking" : "warning"}`}
       aria-labelledby="inventario-aruba"
     >
       <h2 id="inventario-aruba">{copy.document.arubaInventoryTitle}</h2>
       <p>
-        <strong>{copy.settings.arubaInventoryLabels[projection.arubaInventory.status]}</strong>
+        <strong>
+          {
+            copy.document.inventoryApprovalStates[
+              arubaInventoryApprovalState(projection.arubaInventory)
+            ]
+          }
+        </strong>
         {" · "}
         {projection.arubaInventory.lastCompletedAt
           ? copy.document.arubaInventoryUpdated(dateTime(projection.arubaInventory.lastCompletedAt))
@@ -617,8 +625,16 @@ function ApprovalStatusNotice({
   if (projection.requiresResave)
     return <p className="notice">{copy.document.resaveAfterDateChange}</p>;
   if (!canApprove) return <p className="notice">{copy.document.ownerOnly}</p>;
-  if (projection.arubaApprovalBlocked) {
-    return <p className="warning">{copy.document.arubaInventoryApprovalBlocked}</p>;
+  if (arubaInventoryApprovalState(projection.arubaInventory) === "BLOCKED") {
+    return (
+      <p className="warning">
+        {
+          copy.document.inventoryApprovalStates[
+            arubaInventoryApprovalState(projection.arubaInventory)
+          ]
+        }
+      </p>
+    );
   }
   return null;
 }
@@ -692,7 +708,7 @@ function ApprovalForm({
   publicNumber: string;
 }) {
   return (
-    <Form method="post" className="preparation-approval__form">
+    <InventoryApprovalForm className="preparation-approval__form">
       <input type="hidden" name="csrf" value={csrfToken} />
       <input type="hidden" name="intent" value="approve-document" />
       <input type="hidden" name="revision" value={projection.caseRevision} />
@@ -705,14 +721,15 @@ function ApprovalForm({
         <CustomerEmailApprovalFields choiceName="emailChoice" email={projection.customerEmail} />
       </fieldset>
       <ApprovalConfirmations projection={projection} publicNumber={publicNumber} />
-      <label className="checkbox-row">
-        <input name="confirmApproval" required type="checkbox" value="yes" />
-        {copy.document.confirmApproval}
-      </label>
-      <button className="button preparation-approval__submit" type="submit">
+      <button
+        className="button preparation-approval__submit"
+        name="confirmApproval"
+        value="yes"
+        type="submit"
+      >
         {copy.document.approve}
       </button>
-    </Form>
+    </InventoryApprovalForm>
   );
 }
 
@@ -774,7 +791,8 @@ function InvoiceDocument({
   projection: InvoiceProjection;
 }) {
   const [draftDirty, setDraftDirty] = useState(false);
-  const inventoryNeedsAttention = projection.arubaInventory.status !== "HEALTHY";
+  const inventoryNeedsAttention =
+    projection.arubaApprovalBlocked || projection.arubaInventory.status !== "HEALTHY";
   const hasUnsavedChanges = draftDirty || customerDirty;
   const canShowApproval =
     !projection.approved &&
@@ -782,7 +800,7 @@ function InvoiceDocument({
     caseReady &&
     !hasUnsavedChanges &&
     !projection.requiresResave &&
-    !projection.arubaApprovalBlocked;
+    arubaInventoryApprovalState(projection.arubaInventory) !== "BLOCKED";
   const showInventory = !projection.approved && inventoryNeedsAttention;
   const showApproval = !projection.approved;
   const workflowLayout = projection.approved

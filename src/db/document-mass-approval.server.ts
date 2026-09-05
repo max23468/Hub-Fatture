@@ -1,3 +1,4 @@
+import { ensureFreshArubaInventory } from "./aruba-inventory-health.server.ts";
 import { arubaModeSchema } from "../aruba.ts";
 import { AppError } from "../errors.ts";
 import { getPool } from "./client.server.ts";
@@ -120,6 +121,7 @@ export async function approveInvoices(
     if (!emailChoice.success) throw new AppError("DOCUMENT_NOT_APPROVABLE", 409);
     return { ...candidate, emailChoice: emailChoice.data };
   });
+  await ensureFreshArubaInventory(actor);
   const outcomes = await Promise.all(
     candidates.map(async (candidate) => {
       try {
@@ -140,15 +142,24 @@ export async function approveInvoices(
           actor,
         );
         return {
-          approved: true,
+          approved: result !== null,
           storagePending: result?.storagePending ?? false,
         };
       } catch (error) {
         if (!(error instanceof AppError)) throw error;
-        return { approved: false, storagePending: false };
+        return {
+          approved: false,
+          storagePending: false,
+          refreshing: error.code === "ARUBA_INVENTORY_REFRESHING",
+        };
       }
     }),
   );
+  // Nessuna numerazione è avvenuta: la stessa conferma può attendere ancora.
+  // Un esito parziale o un altro errore richiede invece una nuova decisione sulle residue.
+  if (outcomes.every((outcome) => "refreshing" in outcome && outcome.refreshing)) {
+    throw new AppError("ARUBA_INVENTORY_REFRESHING", 409);
+  }
   const approved = outcomes.filter((outcome) => outcome.approved).length;
   return {
     approved,

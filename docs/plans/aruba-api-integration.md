@@ -192,7 +192,7 @@ Finché il backfill non è completo:
 
 ### 6.3 Regime ordinario
 
-- dopo due minuti dal giro precedente: finestre incrementali con sovrapposizione di sicurezza, entro il limite di freschezza richiesto per approvare;
+- dopo dieci minuti dal giro precedente: finestre incrementali con sovrapposizione di sicurezza; la conferma dell’approvazione e l’invio richiedono una verifica su richiesta quando l’inventario supera i cinque minuti, riusando il giro in corso;
 - ogni 15 minuti, alternata all’inventario: rilettura mirata dei documenti non terminali e delle notifiche correlate;
 - una volta al mese: scansione completa di controllo;
 - su richiesta: `Sincronizza ora`, senza avviare un secondo giro concorrente;

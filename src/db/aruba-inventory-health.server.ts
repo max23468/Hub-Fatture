@@ -1,5 +1,8 @@
 import type pg from "pg";
 
+import { AppError } from "../errors.ts";
+import { arubaInventoryApprovalState } from "../aruba-inventory.ts";
+import { requestArubaApiSync } from "./aruba-api-settings.server.ts";
 import { ARUBA_API_POLICY } from "../aruba-api-policy.ts";
 import { getConfig } from "../config.server.ts";
 import { arubaActionableCandidateSql } from "./billing-case-sql.server.ts";
@@ -205,10 +208,10 @@ export async function getArubaInventoryHealth(
     : null;
   const ageMinutes = completed ? Math.max(0, (Date.now() - completed.getTime()) / 60_000) : null;
   const unresolved = Number(row.potential_matches) + Number(row.ambiguous) + Number(row.conflicts);
-  const blockingReason = !completed
-    ? "NEVER"
-    : row.unresolved_failure
-      ? "FAILURE"
+  const blockingReason = row.unresolved_failure
+    ? "FAILURE"
+    : !completed
+      ? "NEVER"
       : unresolved > 0
         ? "CONFLICT"
         : (ageMinutes ?? Infinity) > 4 * 60
@@ -246,4 +249,21 @@ export async function getLockedArubaInventoryHealth(client: pg.PoolClient) {
     `aruba-read:${environment()}:${accountReference()}`,
   ]);
   return getArubaInventoryHealth(client);
+}
+
+/** Richiede solo letture. La numerazione rilegge comunque il gate sotto lock. */
+export async function ensureFreshArubaInventory(actor?: {
+  id: number;
+  canApprove: boolean;
+  requestId: string;
+}) {
+  const health = await getArubaInventoryHealth();
+  const state = arubaInventoryApprovalState(health);
+  if (state === "READY") return;
+  if (state === "CHECKING") throw new AppError("ARUBA_INVENTORY_REFRESHING", 409);
+  if (state === "BLOCKED") {
+    throw new AppError("ARUBA_INVENTORY_BLOCKED", 409);
+  }
+  await requestArubaApiSync(actor);
+  throw new AppError("ARUBA_INVENTORY_REFRESHING", 409);
 }

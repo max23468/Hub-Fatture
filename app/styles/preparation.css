@@ -520,3 +520,7 @@
     width: 100%;
   }
 }
+
+fieldset.inventory-approval-fields {
+  display: contents;
+}

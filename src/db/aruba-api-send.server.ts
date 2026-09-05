@@ -20,7 +20,10 @@ import { arubaPotentialMatchSql } from "./billing-case-sql.server.ts";
 import { withTransaction } from "./client.server.ts";
 import { assertJobLease, renewLockedJobLease } from "./connector-jobs.server.ts";
 import type { ClaimedJob } from "./connector-types.server.ts";
-import { getLockedArubaInventoryHealth } from "./aruba-inventory-health.server.ts";
+import {
+  ensureFreshArubaInventory,
+  getLockedArubaInventoryHealth,
+} from "./aruba-inventory-health.server.ts";
 import {
   assertArubaBatchManifestCurrent,
   currentArubaMode,
@@ -462,8 +465,12 @@ export async function runArubaApiSendJob(job: ClaimedJob) {
 
   let context: SendContext;
   try {
+    await ensureFreshArubaInventory();
     context = await prepareSend(job);
   } catch (error) {
+    if (error instanceof AppError && error.code === "ARUBA_INVENTORY_REFRESHING") {
+      return { continuationPending: true, continuationDelayMs: 5_000 };
+    }
     if (error instanceof AppError && error.code !== "CONFLICT_REVISION") {
       const failed = await failQueuedSend(job, error.code);
       if (failed) return { accepted: false, errorCode: error.code, ...failed };
