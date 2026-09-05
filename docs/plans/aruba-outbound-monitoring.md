@@ -305,6 +305,12 @@ incerto o non scartato mantiene invece il blocco fail-closed.
 
 ### 9.1 Readback mirato
 
+Se un giro canonico dell’inventario è attivo sullo stesso account e ambiente, i job di
+monitoraggio, ricerca puntuale e ricerca avanzata restano in coda senza chiamare Aruba.
+Se il giro inizia durante una lettura, il readback viene riprogrammato; l’eventuale tentativo di
+monitoraggio viene chiuso come annullato, senza errore della connessione né modifica dello stato
+fiscale. La ripresa rilegge il provider e usa la normale riconciliazione canonica.
+
 Dopo `ARUBA_ACCEPTED` il worker accoda un readback per filename. Se il dettaglio è disponibile,
 acquisisce ID remoto, ID SdI, stato, descrizione, file e notifiche applicabili. Se non è ancora
 visibile, il documento entra nella coda prioritaria dei non terminali senza essere reinviato.

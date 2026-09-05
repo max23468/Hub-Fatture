@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.15
+
+- Il monitoraggio delle fatture e le ricerche Aruba attendono il completamento dell’inventario sullo stesso account. Se la sincronizzazione inizia durante una lettura, il controllo riprende dalla coda senza segnalare un guasto della connessione né modificare lo stato fiscale.
+
 ## 1.3.14
 
 - Una collisione fiscale Aruba irrisolta resta quarantinata anche nei refresh successivi: il documento non rientra nella riconciliazione automatica e, quando possiede già XML o P7M ufficiale, non richiede nuovamente file, PDF o notifiche fino alla decisione manuale.
