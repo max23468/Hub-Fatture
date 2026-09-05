@@ -68,7 +68,7 @@ nel dettaglio; i collegamenti dall’inventario convergono sullo stesso controll
 Il titolare può risolvere localmente una collisione fra due documenti con XML ufficiali e stati
 noti, scegliendo quello con emissione confermata e motivando l’esclusione dell’altro dai
 collegamenti. La decisione è atomica, auditata e vincolata alle evidenze rilette dal server;
-non fonde ID, non annulla documenti e non sostituisce la gestione fiscale su Aruba. Il documento
+non fonde ID, non annulla documenti e non sostituisce la gestione fiscale su Aruba. Se il numero è già occupato da un documento locale con l’XML ufficiale escluso, viene archiviato separatamente il documento scelto: la deroga di archivio è vincolata alla decisione e ai due hash anche nel database. Il precedente documento e i suoi collegamenti rimangono immutabili; il suo ordine non viene riaperto senza uno scarto autorevole. Il documento
 indicato come errato resta in un controllo dedicato finché non risulta scartato. Nuove evidenze
 remote riaprono la verifica; un terzo documento non eredita mai la decisione sulla coppia.
 
@@ -218,7 +218,7 @@ e quando un rimborso di prova produce correttamente:
 | HF-F28 | Mostrare un comparatore fiscale strutturato fra snapshot sorgente, bozza corrente e proiezione XML prima di ogni approvazione | Confermato |
 | HF-F29 | Definire una Brand Foundation leggera e versionata per nome, icona, favicon, palette minima, tipografia di sistema e tono UI | Confermato |
 | HF-F30 | Valutare OCI Email Delivery in Development e selezionare un solo trasporto SMTP canonico prima dell'uso Production | Confermato come PoC; adozione OCI condizionata |
-| HF-F31 | Eseguire la sincronizzazione del ciclo attivo tramite API Aruba v2 con credenziale cifrata, polling ogni 15 minuti e comando read-only `Sincronizza ora` | Confermato |
+| HF-F31 | Eseguire la sincronizzazione del ciclo attivo tramite API Aruba v2 con credenziale cifrata, polling coordinato con la freschezza richiesta per approvare e comando read-only `Sincronizza ora` | Confermato |
 | HF-F32 | Offrire in Impostazioni le modalità globali e rigide `Crea solo il documento`, `Chiedi conferma prima dell’invio` e `Invio automatico dopo approvazione`, con `Crea solo il documento` come default | Confermato |
 | HF-F33 | Inventariare dall'account Aruba fatture e TD04 anche quando non sono stati generati da HF, con inventario iniziale dal 1° luglio 2026, incrementali con sovrapposizione e scansione completa mensile sullo stesso orizzonte | Confermato |
 | HF-F34 | Collegare automaticamente un documento Aruba a ordini e documenti locali soltanto con corrispondenza univoca e XML ufficiale coerente; lasciare ambiguità, conflitti e documenti privi di ordine nelle code di verifica | Confermato |
@@ -260,7 +260,7 @@ e quando un rimborso di prova produce correttamente:
 - Sincronizzazione di notifiche ed esiti.
 - Inventario in sola lettura di fatture e TD04 presenti in Aruba, inclusi i documenti nati fuori da HF, con riconciliazione continuativa; l'inventario resta in `Documenti`, mentre ogni decisione necessaria confluisce nella coda canonica `Controlli`.
 - I documenti nati fuori da Shopify ed eBay restano soltanto nell’inventario Aruba per prevenire doppie emissioni: se non presentano né un riferimento ordine esplicito né un match locale compatibile non diventano ordini, fatture da gestire o verifiche bloccanti.
-- Sincronizzazione API automatica ogni 15 minuti, inventario iniziale dal 1° luglio 2026 e
+- Sincronizzazione API automatica con intervallo inferiore alla freschezza richiesta per approvare, inventario iniziale dal 1° luglio 2026 e
   comando read-only `Sincronizza ora`.
 - Modalità Aruba globali e rigide `Crea solo il documento`, `Chiedi conferma prima dell’invio` e
   `Invio automatico dopo approvazione`, con `Crea solo il documento` come default.
@@ -336,7 +336,7 @@ Non creare astrazioni speculative per queste evoluzioni. Il codice deve essere m
 | Lint e formato | Oxlint e Oxfmt con pin esatto; niente ESLint/Prettier iniziali | Riusa una toolchain veloce già adottata in CF Ready senza duplicare strumenti equivalenti |
 | Test browser dell'app | Chromium su ogni superficie runtime; WebKit per UI, E2E e modifiche fail-closed | Mantiene una seconda implementazione browser dove rileva regressioni reali senza duplicare indiscriminatamente la matrice |
 | Integrazione Aruba | Account Base con delega Web Service e API Aruba v2 documentate come unica autorità automatica; fallback manuale permanente | Elimina la dipendenza dal DOM mantenendo una via di recovery presidiata |
-| Sincronizzazione Aruba | Polling ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile; nessun callback | Offre un solo percorso autorevole, verificabile e sufficiente per il monitoraggio post-invio |
+| Sincronizzazione Aruba | Polling coordinato con la freschezza di approvazione, rilettura mirata dei non terminali e scansione completa mensile; nessun callback | Offre un solo percorso autorevole, verificabile e sufficiente per il monitoraggio post-invio |
 | Inventario Aruba | Cache provider-first dal 1° luglio 2026, indipendente dai batch HF, con osservazioni append-only | Rileva documenti creati fuori da HF, impedisce doppie emissioni nel periodo operativo e rende verificabile la freschezza |
 | Modalità Aruba | `Crea solo il documento`, `Chiedi conferma prima dell’invio` e `Invio automatico dopo approvazione`, globali e rigide | Separa approvazione, creazione e trasmissione senza consenso implicito |
 | Comparatore fiscale | Diff strutturato server-side fra sorgente, bozza e proiezione XML | Rende visibili trasformazioni, correzioni e arrotondamenti senza affidarsi a un fragile confronto testuale dell'XML |
@@ -1047,7 +1047,7 @@ browser.
 
 I paragrafi seguenti documentano esclusivamente il percorso qualificato in M5 e poi ritirato in
 M11. Non sono istruzioni operative né descrivono codice eseguibile presente nel repository. Il
-ciclo corrente usa inventario API dal 1° luglio 2026, polling ogni 15 minuti, rilettura mirata dei
+ciclo corrente usa inventario API dal 1° luglio 2026, polling coordinato con la freschezza di approvazione, rilettura mirata dei
 non terminali e scansione completa periodica sullo stesso orizzonte.
 
 Il percorso M5 usava un preferito presidiato, un ponte autenticato e sessioni temporanee di
@@ -1058,6 +1058,8 @@ qualifica reale e motivi del ritiro sono archiviati in
 [docs/evidence/aruba-helper.md](evidence/aruba-helper.md); non costituiscono contratto runtime.
 
 Per le fatture TD01 la sincronizzazione dell'inventario è indipendente dalla preparazione. Dashboard e Impostazioni mostrano freschezza, avanzamento ed eventuale azione correttiva; la preparazione consuma lo stesso stato globale senza avviare scansioni o readback specifici. Una lettura completata da non più di 30 minuti non aggiunge rumore; fra 30 minuti e quattro ore compare un avviso non bloccante. Inventario mai letto, lettura oltre quattro ore, fallimento non risolto, match ambiguo, conflitto o stato remoto incerto bloccano server-side approvazione e numerazione. La correzione avviene sempre da Dashboard o Impostazioni e poi si torna alla preparazione aggiornata. Il preflight API on-demand delle TD04 resta separato e monouso.
+
+Il polling ordinario viene ripianificato dopo due minuti dal completamento, anche quando il giro precedente era mirato: non crea una finestra ordinaria di obsolescenza rispetto al limite di cinque minuti. Le letture rispettano i limiti provider e rimane un solo giro attivo. Nei giri incrementali, i gruppi singoli definitivi con riepilogo invariato, file ufficiale integro e notifica acquisita riusano le evidenze archiviate. Documenti nuovi, stati diversi, evidenze incomplete o in conflitto, gruppi multipli e scansioni complete mantengono la rilettura di dettaglio e notifiche. Il riuso non cambia il timestamp remoto originario e non attenua i gate di approvazione. La rilettura mirata di singoli documenti non rinnova la freschezza dell’intero inventario né cancella un errore della scansione generale.
 
 ### 10.3 Modalità selezionabili in Impostazioni
 
@@ -2291,7 +2293,7 @@ Valori di routine da calibrare:
 
 - Shopify recovery sync: ogni 10-15 minuti.
 - eBay sync: ogni 10-15 minuti.
-- Aruba inventory: inventario dal 1° luglio 2026, incrementale ogni 15 minuti, rilettura mirata dei non terminali e scansione completa mensile sullo stesso orizzonte; nuovo stream, cursore assente o incongruenza forzano una nuova scansione completa.
+- Aruba inventory: inventario dal 1° luglio 2026, incrementale pianificato prima della scadenza della freschezza di approvazione, rilettura mirata dei non terminali e scansione completa mensile sullo stesso orizzonte; nuovo stream, cursore assente o incongruenza forzano una nuova scansione completa.
 - Aruba post-invio: primo readback subito dopo `ARUBA_ACCEPTED`, poi ogni 15 minuti fino allo stato
   terminale o a un controllo operativo; il comando manuale usa la medesima coda.
 - Pulizia sessioni: giornaliera.

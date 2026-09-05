@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import type pg from "pg";
 
-import { hasRequiredArubaApiFiles, type ArubaApiInboundDocument } from "../aruba-api-inbound.ts";
+import {
+  arubaApiParityFileHash,
+  hasRequiredArubaApiFiles,
+  type ArubaApiInboundDocument,
+} from "../aruba-api-inbound.ts";
+import { remoteInventoryDocumentSchema, remoteMetadataDigest } from "../aruba-inbound.ts";
 import { ARUBA_API_POLICY, type ArubaApiReadScope } from "../aruba-api-policy.ts";
 import {
   arubaApiGroupFromDetail,
@@ -18,6 +23,7 @@ import {
   type ArubaApiCredentials,
   type ArubaApiEnvironment,
   type ArubaApiInvoiceDetail,
+  type ArubaApiInvoicePage,
   type ArubaApiNotificationList,
   type ArubaApiSession,
 } from "../integrations/aruba-api.server.ts";
@@ -35,6 +41,7 @@ import { importArubaApiGroupFile } from "./aruba-api-group-file.server.ts";
 import { importArubaRemoteOfficialFileFromApi } from "./aruba-official-file-import.server.ts";
 import { upgradeCachedArubaMatcher } from "./aruba-matcher-upgrade.server.ts";
 import { stageApiPage } from "./aruba-api-stage.server.ts";
+import { readVerifiedStorageObject, type StoredObjectEvidence } from "./storage-object.server.ts";
 import { getPool, withJoinedTransaction, withTransaction } from "./client.server.ts";
 import type { ClaimedJob } from "./connector-types.server.ts";
 import {
@@ -328,6 +335,83 @@ class ArubaSessionManager {
   environmentName() {
     return this.environment;
   }
+}
+
+async function cachedTerminalGroup(
+  run: ArubaSyncRunRow,
+  group: ArubaApiInvoicePage["groups"][number],
+): Promise<ArubaApiInboundDocument[] | null> {
+  // ponytail: solo gruppi singoli; quelli multipli conservano la rilettura completa.
+  if (run.kind !== "INCREMENTAL" || group.invoices.length !== 1) return null;
+  const invoice = group.invoices[0]!;
+  const kind = group.filename.toLowerCase().endsWith(".p7m") ? "ARUBA_P7M" : "ARUBA_XML";
+  const stored = await getPool().query<{
+    remote_id: string;
+    remote_status: string;
+    metadata_digest: string;
+    payload: unknown;
+    official: StoredObjectEvidence | null;
+    complete: boolean;
+  }>(
+    `SELECT remote.remote_id, remote.remote_status, remote.metadata_digest,
+       (SELECT payload_json FROM aruba_remote_observations
+        WHERE remote_document_id = remote.id
+        ORDER BY observed_at DESC, id DESC LIMIT 1) AS payload,
+       (SELECT jsonb_build_object('relativePath', storage.relative_path,
+          'sha256', storage.sha256, 'sizeBytes', storage.size_bytes)
+        FROM aruba_files files JOIN storage_objects storage ON storage.id = files.storage_object_id
+        WHERE files.remote_document_id = remote.id AND files.kind = $6
+        ORDER BY files.id DESC LIMIT 1) AS official,
+       (remote.provider_filename = $4 AND remote.provider_sdi_id IS NOT DISTINCT FROM $5
+        AND remote.remote_status IN ('DELIVERED', 'NOT_DELIVERED', 'REJECTED')
+        AND matches.status NOT IN ('ERROR', 'UNKNOWN_REMOTE_STATE')
+        AND NOT coalesce((matches.signals_json ->> 'providerIdentityCollision')::boolean, false)
+        AND NOT coalesce((matches.signals_json ->> 'identityCollisionExcluded')::boolean, false)
+        AND NOT coalesce((matches.signals_json ->> 'remoteObservationConflict')::boolean, false)
+        AND EXISTS (SELECT 1 FROM aruba_files files
+          WHERE files.remote_document_id = remote.id AND files.kind = 'SDI_NOTIFICATION')) AS complete
+     FROM aruba_remote_documents remote
+     LEFT JOIN aruba_document_matches matches ON matches.remote_document_id = remote.id
+     WHERE remote.environment = $1 AND remote.account_reference = $2
+       AND remote.provider_group_id = $3 AND remote.automatic_source = 'API'`,
+    [run.environment, run.account_reference, group.id, group.filename, group.idSdi ?? null, kind],
+  );
+  const row = stored.rows[0];
+  const parsed = remoteInventoryDocumentSchema.safeParse(row?.payload);
+  if (stored.rows.length !== 1 || !row?.complete || !row.official || !parsed.success) return null;
+  const remote = parsed.data;
+  if (
+    !remote.providerObservedAt ||
+    remote.remoteId !== row.remote_id ||
+    remote.status !== row.remote_status ||
+    remote.providerStatusLabel !== invoice.status ||
+    remote.providerInvoiceNumber !== invoice.number ||
+    remote.documentType !== invoice.documentType ||
+    remote.documentDate !== invoice.invoiceDate.slice(0, 10) ||
+    remoteMetadataDigest(remote) !== row.metadata_digest
+  )
+    return null;
+  const bytes = await readVerifiedStorageObject(row.official);
+  const file: ArubaApiInboundDocument["files"][number] = {
+    kind,
+    filename: group.filename,
+    providerGroupId: group.id,
+    bytes,
+    sha256: row.official.sha256,
+  };
+  if (arubaApiParityFileHash(file) !== remote.xmlSha256) return null;
+  return [
+    {
+      providerGroupId: group.id,
+      providerFilename: group.filename,
+      providerSdiId: group.idSdi ?? null,
+      remoteLastUpdate: remote.providerObservedAt!,
+      remoteKey: remote.remoteId,
+      remote,
+      files: [file],
+      groupFiles: [],
+    },
+  ];
 }
 
 async function readGroup(
@@ -761,7 +845,8 @@ export async function runArubaApiInboundJob(
       const documents: ArubaApiInboundDocument[] = [];
       for (const group of page.groups) {
         if (!group.invoices.length) continue;
-        documents.push(...(await readGroup(run.id, manager, waitForRead, group)));
+        const cached = await cachedTerminalGroup(run, group);
+        documents.push(...(cached ?? (await readGroup(run.id, manager, waitForRead, group))));
       }
       await persistCanonicalPage(
         checkpoint,

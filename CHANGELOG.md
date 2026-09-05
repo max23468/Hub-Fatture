@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.18
+
+- La risoluzione di una collisione Aruba archivia la fattura ufficiale scelta anche quando il numero è occupato dal tentativo locale escluso. La deroga richiede una decisione verificata e i due XML; conserva documento, ordini e monitoraggio precedenti senza autorizzare riemissioni.
+
+- L’inventario Aruba viene ripianificato dopo due minuti dal giro precedente, in coerenza con la freschezza richiesta per approvare. Una rilettura mirata non rinvia più l’inventario di quindici minuti e non rinnova la freschezza dell’intera scansione.
+- I giri incrementali riusano le evidenze dei gruppi singoli definitivi e invariati, evitando nuove letture di dettaglio e notifiche. Documenti nuovi, cambi di stato, file mancanti, evidenze incerte, gruppi multipli e scansioni complete mantengono la verifica completa; i gate di approvazione restano attivi.
+
 ## 1.3.17
 
 - Le collisioni fra documenti Aruba producono un solo controllo con tutti i documenti coinvolti. Dal dettaglio si può confermare la fattura corretta, con motivazione e audit, lasciando il documento errato separato e sotto controllo fino alla verifica dell’esito SdI.

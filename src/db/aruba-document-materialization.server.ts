@@ -29,6 +29,10 @@ import {
 } from "../documents.ts";
 import { AppError } from "../errors.ts";
 import { effectiveApprovedInvoiceSql } from "./billing-case-sql.server.ts";
+import {
+  arubaAccountReference,
+  arubaRuntimeEnvironment,
+} from "./aruba-inventory-context.server.ts";
 import { refreshInvoiceDraftProjection } from "./invoice-draft-projection.server.ts";
 import { linkDocumentToSourcePreparation } from "./invoice-source-preparations.server.ts";
 import { serializeOrderMutations } from "./order-mutation-lock.server.ts";
@@ -343,9 +347,28 @@ async function materializeExternalInvoice(
      WHERE series = $1 AND fiscal_year = $2 AND fiscal_number = $3 FOR UPDATE`,
     [profile.profile.series, imported.year, imported.number],
   );
-  let documentId = existing.rows[0]?.id ?? null;
-  if (existing.rows[0] && existing.rows[0].xml_sha256 !== digest) {
-    throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+  const existingDocument = existing.rows.find((row) => row.xml_sha256 === digest);
+  let documentId = existingDocument?.id ?? null;
+  let identityResolutionRemoteId: string | null = null;
+  if (existing.rows.length && !existingDocument) {
+    const resolution = await client.query(
+      `SELECT 1 FROM aruba_deduplication_conflicts
+       WHERE environment = $1 AND account_reference = $2 AND resolved_at IS NOT NULL
+         AND resolution_json ->> 'selectedId' = $3
+         AND resolution_json -> 'xmlHashes' ->> $3 = $4
+         AND resolution_json -> 'xmlHashes' ->> (resolution_json ->> 'excludedId') = $5`,
+      [
+        arubaRuntimeEnvironment(),
+        arubaAccountReference(),
+        remote.id,
+        digest,
+        existing.rows[0]!.xml_sha256,
+      ],
+    );
+    if (existing.rows.length !== 1 || !resolution.rowCount) {
+      throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
+    }
+    identityResolutionRemoteId = remote.id;
   }
   // react-doctor-disable-next-line react-doctor/raw-sql-injection-risk -- Il predicato interpolato è una costante SQL interna senza input esterno.
   const priorInvoiceLinks = await client.query<{ document_id: string }>(
@@ -361,7 +384,7 @@ async function materializeExternalInvoice(
   if (priorInvoiceLinks.rows.some((link) => !documentId || link.document_id !== documentId)) {
     throw new AppError("ARUBA_INVENTORY_CONFLICT", 409);
   }
-  if (documentId && existing.rows[0]?.origin === "HUB") {
+  if (documentId && existingDocument?.origin === "HUB") {
     const localLink = await client.query<{ order_id: string }>(
       `SELECT order_id FROM document_orders
        WHERE document_id = $1 AND document_kind = 'INVOICE' FOR UPDATE`,
@@ -412,9 +435,10 @@ async function materializeExternalInvoice(
          document_date, fiscal_profile_version, currency, total_amount, source_total_amount,
          difference_amount, difference_reason, projection_sha256, approved_at, xml_sha256,
          immutable_snapshot_json, fiscal_profile_snapshot_json, storage_object_id,
-         payment_status, payment_method, recipient_snapshot_json, origin)
+         payment_status, payment_method, recipient_snapshot_json, origin,
+         identity_resolution_remote_document_id)
        VALUES ($1, $2, 'INVOICE', 'APPROVED', 'TD01', $3, $4, $5, $6, $7, 'EUR',
-         $8, $9, $10, $11, $12, now(), $12, $13, $14, $15, 'PAID', $16, $17, 'ARUBA_HISTORY')
+         $8, $9, $10, $11, $12, now(), $12, $13, $14, $15, 'PAID', $16, $17, 'ARUBA_HISTORY', $18)
        RETURNING id`,
       [
         historicalCase.rows[0]!.id,
@@ -434,6 +458,7 @@ async function materializeExternalInvoice(
         storageObjectId,
         imported.input.paymentMethod,
         JSON.stringify(imported.input.recipient),
+        identityResolutionRemoteId,
       ],
     );
     documentId = document.rows[0]!.id;

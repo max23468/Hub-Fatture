@@ -1038,6 +1038,236 @@ test("le eccezioni manuali richiedono conferma e restano registrate", async () =
         owner,
       ),
     );
+    // La fattura scelta può avere lo stesso numero di un tentativo locale immutabile.
+    const chosenXml = xml
+      .replace("FPR 0001/26", "FPR 0991/26")
+      .replaceAll("2026-08-10", "2026-08-12");
+    const wrongXml = chosenXml.replaceAll("MARIO", "LUIGI");
+    const chosenHash = createHash("sha256").update(chosenXml).digest("hex");
+    const wrongHash = createHash("sha256").update(wrongXml).digest("hex");
+    assert.notEqual(chosenHash, wrongHash);
+    const newCase = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases (customer_id, local_order_date, currency, status, customer_snapshot_json, fiscal_profile_version)
+       VALUES ($1, '2026-08-12', 'EUR', 'READY', $2, 1) RETURNING id::text`,
+        [customer.id, JSON.stringify(customerSnapshot)],
+      )
+    ).rows[0]!;
+    const chosenOrder = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO orders
+        (provider, external_account_id, external_order_id, display_number, created_at_source, updated_at_source,
+         local_order_date, currency, gross_amount, payment_status, fulfillment_status, trigger_status,
+         customer_id, billing_case_id, raw_snapshot_json, normalized_snapshot_json)
+       VALUES ('SHOPIFY', 'manual-link', 'resolved-archive', '#991', now(), now(), '2026-08-12',
+         'EUR', 12345, 'PAID', 'FULFILLED', 'GROUPED', $1, $2, '{}', $3) RETURNING id::text`,
+        [
+          customer.id,
+          newCase.id,
+          JSON.stringify({
+            orderReviewRequired: false,
+            deferredReviewRequired: false,
+            customerSnapshot,
+          }),
+        ],
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO order_tax_identifiers
+      (order_id, type, raw_value, normalized_value, source_field, country_code)
+      VALUES ($1, 'CODICE_FISCALE', 'RSSMRA80A01H501U', 'RSSMRA80A01H501U', 'synthetic', 'IT')`,
+      [chosenOrder.id],
+    );
+    const pair = [];
+    for (const [suffix, content, hash, status] of [
+      ["chosen", chosenXml, chosenHash, "NOT_DELIVERED"],
+      ["wrong", wrongXml, wrongHash, "SUBMITTED"],
+    ] as const) {
+      const remoteObservation = {
+        ...observation,
+        remoteId: `archive-${suffix}`,
+        fiscalNumber: "991",
+        documentDate: "2026-08-12",
+        status,
+        xmlSha256: hash,
+      };
+      const member = (
+        await getPool().query<{ id: string }>(
+          `INSERT INTO aruba_remote_documents
+          (environment, account_reference, remote_id, document_type, fiscal_year, series, fiscal_number,
+           document_date, total_amount, remote_status, remote_status_observed_at, metadata_digest, xml_sha256)
+         VALUES ('MOCK', 'synthetic-aruba-account', $1, 'TD01', 2026, 'FPR', '991', '2026-08-12',
+           12345, $2, now(), $3, $4) RETURNING id::text`,
+          [remoteObservation.remoteId, status, remoteMetadataDigest(remoteObservation), hash],
+        )
+      ).rows[0]!;
+      const filePath = `aruba/manual/archive-${suffix}.xml`;
+      await writeFile(path.join(sharedStorageRoot, filePath), content);
+      const file = (
+        await getPool().query<{ id: string }>(
+          `INSERT INTO storage_objects (kind, relative_path, sha256, size_bytes, content_type)
+         VALUES ('ARUBA_XML', $1, $2, $3, 'application/xml') RETURNING id::text`,
+          [filePath, hash, Buffer.byteLength(content)],
+        )
+      ).rows[0]!;
+      await getPool().query(
+        `INSERT INTO aruba_files (remote_document_id, storage_object_id, kind)
+        VALUES ($1, $2, 'ARUBA_XML')`,
+        [member.id, file.id],
+      );
+      await getPool().query(
+        `INSERT INTO aruba_remote_observations
+        (remote_document_id, sync_session_id, remote_status, stream, scan_ordinal, page_ordinal, payload_digest, payload_json)
+        VALUES ($1, '00000000-0000-4000-8000-000000000222', $2, 'invoices:2026', 1, 99, $3, $4)`,
+        [member.id, status, hash, JSON.stringify(remoteObservation)],
+      );
+      await getPool().query(
+        `INSERT INTO aruba_document_matches
+        (remote_document_id, status, method, matcher_version, signals_json)
+        VALUES ($1, 'UNKNOWN_REMOTE_STATE', 'NONE', $2, '{"providerIdentityCollision":true}')`,
+        [member.id, ARUBA_MATCHER_VERSION],
+      );
+      pair.push({ id: member.id, storageId: file.id });
+    }
+    const [chosen, wrong] = pair;
+    assert.ok(chosen && wrong);
+    const wrongCase = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO billing_cases (customer_id, local_order_date, currency, status, customer_snapshot_json, fiscal_profile_version)
+       VALUES ($1, '2026-08-12', 'EUR', 'CLOSED', $2, 1) RETURNING id::text`,
+        [externalCustomer.id, JSON.stringify(externalSnapshot)],
+      )
+    ).rows[0]!;
+    const wrongOrder = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO orders
+        (provider, external_account_id, external_order_id, display_number, created_at_source, updated_at_source,
+         local_order_date, currency, gross_amount, payment_status, fulfillment_status, trigger_status,
+         customer_id, billing_case_id, raw_snapshot_json, normalized_snapshot_json)
+       VALUES ('SHOPIFY', 'manual-link', 'wrong-archive', '#992', now(), now(), '2026-08-12',
+         'EUR', 12345, 'PAID', 'FULFILLED', 'INVOICED', $1, $2, '{}', $3) RETURNING id::text`,
+        [
+          externalCustomer.id,
+          wrongCase.id,
+          JSON.stringify({
+            orderReviewRequired: false,
+            deferredReviewRequired: false,
+            customerSnapshot: externalSnapshot,
+          }),
+        ],
+      )
+    ).rows[0]!;
+    const wrongDocument = (
+      await getPool().query<{ id: string }>(
+        `INSERT INTO documents
+        (billing_case_id, kind, status, document_type, series, fiscal_year, fiscal_number, document_date,
+         fiscal_profile_version, currency, total_amount, source_total_amount, difference_amount,
+         projection_sha256, approved_at, xml_sha256, immutable_snapshot_json, fiscal_profile_snapshot_json,
+         storage_object_id, origin)
+       VALUES ($1, 'INVOICE', 'DRAFT', 'TD01', 'FPR', NULL, NULL, '2026-08-12', 1, 'EUR',
+         12345, 12345, 0, $2, NULL, NULL, NULL, NULL, NULL, 'HUB') RETURNING id::text`,
+        [wrongCase.id, wrongHash],
+      )
+    ).rows[0]!;
+    await getPool().query(
+      `INSERT INTO document_orders (document_id, document_kind, order_id, amount)
+      VALUES ($1, 'INVOICE', $2, 12345)`,
+      [wrongDocument.id, wrongOrder.id],
+    );
+    await getPool().query(
+      `UPDATE documents SET status = 'APPROVED', fiscal_year = 2026,
+      fiscal_number = 991, approved_at = now(), xml_sha256 = $2, immutable_snapshot_json = '{}',
+      fiscal_profile_snapshot_json = $3, storage_object_id = $4 WHERE id = $1`,
+      [wrongDocument.id, wrongHash, JSON.stringify(profile), wrong.storageId],
+    );
+    const beforeWrong = (
+      await getPool().query(`SELECT to_jsonb(documents) AS document FROM documents WHERE id = $1`, [
+        wrongDocument.id,
+      ])
+    ).rows[0];
+    await getPool().query(
+      `INSERT INTO aruba_deduplication_conflicts
+      (environment, account_reference, existing_remote_document_id, incoming_remote_id, collision_key, incoming_payload_digest, sync_session_id)
+      VALUES ('MOCK', 'synthetic-aruba-account', $1, 'archive-wrong', 'FISCAL_IDENTITY', $2, '00000000-0000-4000-8000-000000000222')`,
+      [chosen.id, wrongHash],
+    );
+    const attemptArchive = (resolutionId: string | null, hash = chosenHash) =>
+      getPool().query(
+        `INSERT INTO documents
+        (billing_case_id, kind, status, document_type, series, fiscal_year, fiscal_number, document_date,
+         fiscal_profile_version, currency, total_amount, source_total_amount, difference_amount,
+         projection_sha256, approved_at, xml_sha256, immutable_snapshot_json, fiscal_profile_snapshot_json,
+         storage_object_id, origin, identity_resolution_remote_document_id)
+       SELECT $1, kind, status, document_type, series, fiscal_year, fiscal_number, document_date,
+         fiscal_profile_version, currency, total_amount, source_total_amount, difference_amount,
+         $2, approved_at, $2, immutable_snapshot_json, fiscal_profile_snapshot_json,
+         storage_object_id, 'ARUBA_HISTORY', $3 FROM documents WHERE id = $4`,
+        [newCase.id, hash, resolutionId, wrongDocument.id],
+      );
+    await assert.rejects(attemptArchive(null), { constraint: "documents_fiscal_number_idx" });
+    await assert.rejects(attemptArchive(chosen.id), /decisione verificata/);
+    const archiveDecision = await readArubaIdentityConflict(chosen.id);
+    await resolveArubaIdentityConflict(
+      chosen.id,
+      chosen.id,
+      archiveDecision.fingerprint,
+      why,
+      "confirmed",
+      owner,
+    );
+    const archivedPair = (
+      await getPool().query(`SELECT id::text, xml_sha256, origin,
+      identity_resolution_remote_document_id::text AS resolution FROM documents WHERE fiscal_number = 991 ORDER BY id`)
+    ).rows;
+    assert.equal(archivedPair.length, 2);
+    assert.deepEqual(archivedPair[1], {
+      id: archivedPair[1].id,
+      xml_sha256: chosenHash,
+      origin: "ARUBA_HISTORY",
+      resolution: chosen.id,
+    });
+    assert.deepEqual(
+      (
+        await getPool().query(
+          `SELECT to_jsonb(documents) AS document FROM documents WHERE id = $1`,
+          [wrongDocument.id],
+        )
+      ).rows[0],
+      beforeWrong,
+    );
+    assert.equal(
+      (
+        await getPool().query(`SELECT document_id::text FROM document_orders WHERE order_id = $1`, [
+          wrongOrder.id,
+        ])
+      ).rows[0].document_id,
+      wrongDocument.id,
+    );
+    assert.equal(
+      (
+        await getPool().query(`SELECT document_id::text FROM document_orders WHERE order_id = $1`, [
+          chosenOrder.id,
+        ])
+      ).rows[0].document_id,
+      archivedPair[1].id,
+    );
+    const { materializeLatestOfficialXml } =
+      await import("./aruba-document-materialization.server.ts");
+    await withTransaction(async (client) => {
+      assert.equal(await materializeLatestOfficialXml(client, chosen.id), archivedPair[1].id);
+    });
+    assert.equal((await readArubaIdentityConflict(chosen.id)).members.length, 0);
+    await assert.rejects(attemptArchive(chosen.id, wrongHash), /decisione verificata/);
+    await assert.rejects(attemptArchive(null), { constraint: "documents_fiscal_number_idx" });
+    await assert.rejects(
+      getPool().query("UPDATE documents SET total_amount = 0 WHERE id = $1", [wrongDocument.id]),
+      /immutabile/,
+    );
+    assert.equal(
+      (await getPool().query("SELECT trigger_status FROM orders WHERE id = $1", [wrongOrder.id]))
+        .rows[0].trigger_status,
+      "INVOICED",
+    );
   } finally {
     await closePool();
     await rm(sharedStorageRoot, { recursive: true, force: true });
