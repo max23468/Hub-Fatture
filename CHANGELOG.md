@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.19
+
+- Dashboard e Ordini mostrano un conteggio stabile delle preparazioni pronte durante la sincronizzazione Aruba, con lo stato della verifica separato.
+- L’inventario periodico viene aggiornato ogni dieci minuti. Alla conferma dell’approvazione e prima dell’invio viene richiesta una verifica aggiornata, riusando quella già in corso senza anticipare la numerazione.
+- L’approvazione attende nella pagina aperta per al massimo due minuti, mantenendo revisione e dati della conferma originale; eventuali variazioni richiedono una nuova conferma. Il pulsante «Approva fattura» completa la conferma senza una checkbox generica aggiuntiva.
+
 ## 1.3.18
 
 - La risoluzione di una collisione Aruba archivia la fattura ufficiale scelta anche quando il numero è occupato dal tentativo locale escluso. La deroga richiede una decisione verificata e i due XML; conserva documento, ordini e monitoraggio precedenti senza autorizzare riemissioni.
